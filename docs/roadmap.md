@@ -42,7 +42,7 @@ At the end of each round:
 | 1 | Basic computation and backtest loop | Done | `docs/experiments/round-1-report.md` |
 | 2 | Daily data synchronization | Done | `docs/experiments/round-2-report.md` |
 | 3 | Git automation and scheduled runs | Done | `docs/experiments/round-3-report.md` |
-| 4 | AI Agent experiment system | Planned | This roadmap |
+| 4 | AI Agent experiment system | Done | `docs/experiments/round-4-report.md` |
 | 5 | Dashboard and API | Planned | This roadmap |
 
 ## Round 1: Basic Computation And Backtest Loop
@@ -136,6 +136,8 @@ Non-goals:
 
 - Unverified claims of predictive ability.
 - Autonomous production strategy changes without review.
+
+Current state: completed as an acceptance round. See `docs/experiments/round-4-report.md`.
 
 ## Round 5: Dashboard And API
 

@@ -1,9 +1,19 @@
 from __future__ import annotations
 
+import json
 from datetime import date
 
 
-def render_experiment_report(experiment_key: str, strategy_key: str, metrics: dict) -> str:
+def render_experiment_report(
+    experiment_key: str,
+    strategy_key: str,
+    metrics: dict,
+    config_snapshot: dict | None = None,
+) -> str:
+    missed_issues = metrics.get("missed_issues", [])
+    missed_block = "\n".join(f"- `{issue}`" for issue in missed_issues) if missed_issues else "- None"
+    config = config_snapshot or {"strategy_key": strategy_key}
+    config_block = "\n".join(f"- {key}: {json.dumps(value, ensure_ascii=False)}" for key, value in config.items())
     return f"""# DEHPS Experiment Report
 
 - Experiment: `{experiment_key}`
@@ -19,6 +29,14 @@ def render_experiment_report(experiment_key: str, strategy_key: str, metrics: di
 - covered_draws: {metrics["covered_draws"]}
 - coverage_rate: {metrics["coverage_rate"]}
 - lift: {metrics["lift"]}
+
+## Missed Issues
+
+{missed_block}
+
+## Config Snapshot
+
+{config_block}
 
 ## Risk Note
 
@@ -68,4 +86,3 @@ These metrics do not represent predictive ability and are not betting advice. Th
 
 Inspect misses and decide whether the baseline is too strict, too broad, or overfit to simple structural preferences.
 """
-
