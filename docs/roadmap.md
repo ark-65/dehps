@@ -43,7 +43,7 @@ At the end of each round:
 | 2 | Daily data synchronization | Done | `docs/experiments/round-2-report.md` |
 | 3 | Git automation and scheduled runs | Done | `docs/experiments/round-3-report.md` |
 | 4 | AI Agent experiment system | Done | `docs/experiments/round-4-report.md` |
-| 5 | Dashboard and API | Planned | This roadmap |
+| 5 | Dashboard and API | Done | `docs/experiments/round-5-report.md` |
 
 ## Round 1: Basic Computation And Backtest Loop
 
@@ -152,6 +152,8 @@ Acceptance checklist:
 - Combination distribution views.
 - Daily sync records.
 - Produce a round report and commit.
+
+Current state: completed as an acceptance round. See `docs/experiments/round-5-report.md`.
 
 Non-goals:
 

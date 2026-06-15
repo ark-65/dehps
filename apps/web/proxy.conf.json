@@ -1,0 +1,18 @@
+{
+  "/dashboard": {
+    "target": "http://localhost:3000",
+    "secure": false
+  },
+  "/experiments": {
+    "target": "http://localhost:3000",
+    "secure": false
+  },
+  "/pipeline-runs": {
+    "target": "http://localhost:3000",
+    "secure": false
+  },
+  "/sync-runs": {
+    "target": "http://localhost:3000",
+    "secure": false
+  }
+}

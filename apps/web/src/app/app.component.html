@@ -1,0 +1,157 @@
+@if (state$ | async; as state) {
+<main class="shell">
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">DEHPS research operations</p>
+      <h1>Experiment Dashboard</h1>
+    </div>
+    <button class="refresh" type="button" (click)="refresh()" title="Reload dashboard data">
+      Refresh
+    </button>
+  </header>
+
+  <section class="status-band" [ngClass]="state.status">
+    @if (state.status === 'loading') {
+      <span>Loading dashboard data...</span>
+    } @else if (state.status === 'error') {
+      <span>{{ state.message }}</span>
+    } @else {
+      <span>{{ state.latestStatus }}</span>
+      <strong>{{ state.payload.experiments.length }}</strong>
+      <span>experiments</span>
+      <strong>{{ state.payload.pipelineRuns.length }}</strong>
+      <span>pipeline runs</span>
+      <strong>{{ state.payload.syncRuns.length }}</strong>
+      <span>sync runs</span>
+    }
+  </section>
+
+  @if (state.status === 'ready') {
+    <section class="grid experiments">
+      <div class="section-heading">
+        <h2>Experiments</h2>
+        <span>Latest retained-space and historical coverage metrics</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Experiment</th>
+              <th>Strategy</th>
+              <th>Keep</th>
+              <th>Coverage</th>
+              <th>Lift</th>
+              <th>History</th>
+              <th>Config</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (experiment of state.payload.experiments; track experiment.experimentKey) {
+              <tr>
+                <td>
+                  <strong>{{ experiment.experimentKey }}</strong>
+                  <small>{{ experiment.createdAt | date: 'yyyy-MM-dd HH:mm' }}</small>
+                </td>
+                <td>{{ experiment.strategyKey }}</td>
+                <td>{{ percent(experiment.keepRate) }}</td>
+                <td>{{ percent(experiment.coverageRate) }}</td>
+                <td>{{ experiment.lift | number: '1.4-4' }}</td>
+                <td>{{ experiment.coveredDraws }} / {{ experiment.historyDraws }}</td>
+                <td><code>{{ experiment.config | json }}</code></td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="7">No experiment records yet.</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    @if (state.payload.experiments[0]; as latestExperiment) {
+      @let distribution = combinationDistribution(latestExperiment);
+      <section class="distribution">
+        <div class="section-heading">
+          <h2>Combination Distribution</h2>
+          <span>{{ latestExperiment.strategyKey }} retained vs rejected space</span>
+        </div>
+        <div class="distribution-body">
+          <div class="metric-block">
+            <span>Total space</span>
+            <strong>{{ latestExperiment.totalCombinations }}</strong>
+          </div>
+          <div class="bar-stack" aria-label="Retained and rejected combination distribution">
+            <div class="bar-row">
+              <span>Retained</span>
+              <div class="bar-track">
+                <div class="bar-fill retained" [style.width.%]="distribution.retainedRate * 100"></div>
+              </div>
+              <strong>{{ distribution.retainedCount }}</strong>
+              <small>{{ percent(distribution.retainedRate) }}</small>
+            </div>
+            <div class="bar-row">
+              <span>Rejected</span>
+              <div class="bar-track">
+                <div class="bar-fill rejected" [style.width.%]="distribution.rejectedRate * 100"></div>
+              </div>
+              <strong>{{ distribution.rejectedCount }}</strong>
+              <small>{{ percent(distribution.rejectedRate) }}</small>
+            </div>
+          </div>
+        </div>
+      </section>
+    }
+
+    <section class="split">
+      <div class="panel">
+        <div class="section-heading">
+          <h2>Pipeline Runs</h2>
+          <span>Daily orchestration status</span>
+        </div>
+        <ul class="run-list">
+          @for (run of state.payload.pipelineRuns; track run.runKey) {
+            <li>
+              <span class="badge" [ngClass]="run.status">{{ run.status }}</span>
+              <strong>{{ run.runKey }}</strong>
+              <small>{{ run.startedAt | date: 'yyyy-MM-dd HH:mm' }}</small>
+              <span>{{ run.experimentKey || 'No experiment' }}</span>
+              @if (run.errorMessage) {
+                <em>{{ run.errorMessage }}</em>
+              }
+            </li>
+          } @empty {
+            <li>No pipeline runs yet.</li>
+          }
+        </ul>
+      </div>
+
+      <div class="panel">
+        <div class="section-heading">
+          <h2>Sync Runs</h2>
+          <span>Source fetch and conflict counts</span>
+        </div>
+        <ul class="run-list">
+          @for (run of state.payload.syncRuns; track run.runKey) {
+            <li>
+              <span class="badge" [ngClass]="run.status">{{ run.status }}</span>
+              <strong>{{ run.runKey }}</strong>
+              <small>{{ run.source }} / {{ run.startedAt | date: 'yyyy-MM-dd HH:mm' }}</small>
+              <span>
+                fetched {{ run.fetchedCount }},
+                inserted {{ run.insertedCount }},
+                conflicts {{ run.conflictCount }}
+              </span>
+              @if (run.errorMessage) {
+                <em>{{ run.errorMessage }}</em>
+              }
+            </li>
+          } @empty {
+            <li>No sync runs yet.</li>
+          }
+        </ul>
+      </div>
+    </section>
+  }
+</main>
+}
