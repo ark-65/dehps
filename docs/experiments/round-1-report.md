@@ -7,7 +7,7 @@
 - Verified PostgreSQL schema creation from `infra/postgres/init/001_init.sql`.
 - Verified Python worker editable install with the existing `.venv`.
 - Generated 10,000双色球 red-ball combinations for the minimal smoke run.
-- Imported 5 sample history rows from `data/raw/ssq_history_sample.csv`.
+- Imported 5 temporary sample history rows during Round 1 verification. The bundled sample CSV was retired in Round 2 because the database now contains real historical data.
 - Ran `baseline_v1` backtest and generated Markdown experiment reports.
 - Attempted and completed full red-ball combination generation: 1,107,568 rows.
 
@@ -24,7 +24,7 @@ docker compose up -d
 /home/ark/workspace/dehps/apps/worker-python/.venv/bin/python -m pip install -e /home/ark/workspace/dehps/apps/worker-python
 /home/ark/workspace/dehps/apps/worker-python/.venv/bin/python -m pytest
 DB_NAME=dehps_round1_verify python scripts/generate_ssq_red_combinations.py --limit 10000
-DB_NAME=dehps_round1_verify python scripts/import_history_csv.py --file ../../data/raw/ssq_history_sample.csv
+DB_NAME=dehps_round1_verify python scripts/import_history_csv.py --file <temporary-history-fixture.csv>
 DB_NAME=dehps_round1_verify python scripts/run_backtest.py --strategy-key baseline_v1
 DB_NAME=dehps_round1_verify python scripts/generate_ssq_red_combinations.py
 DB_NAME=dehps_round1_verify python scripts/run_backtest.py --strategy-key baseline_v1
@@ -66,7 +66,7 @@ data/output/experiments/baseline_v1-20260615-161817.md
 ## Problems
 
 - The project had already advanced beyond pure Round 1 before this formal acceptance pass, including real historical sync support. Round 1 was therefore closed as an acceptance/verification round rather than a fresh implementation round.
-- The sample CSV issue IDs overlap real 2026 issue IDs in the main database. To avoid conflicts and preserve the checked main database, Round 1 sample import was run against `dehps_round1_verify`.
+- The temporary sample issue IDs overlap real 2026 issue IDs in the main database. To avoid conflicts and preserve the checked main database, Round 1 sample import was run against `dehps_round1_verify`.
 - Full combination generation completed successfully but took 38.4 seconds, which is acceptable for a bootstrap job and worth tracking if it grows more complex.
 
 ## Next Round

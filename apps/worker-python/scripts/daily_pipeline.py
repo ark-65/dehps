@@ -33,6 +33,7 @@ def run_pipeline(
     strategy_key: str,
     source: str,
     *,
+    csv_file: str | None = None,
     auto_git: bool = False,
     force: bool = False,
 ) -> dict:
@@ -45,7 +46,7 @@ def run_pipeline(
         create_pipeline_run(conn, run_key)
 
     try:
-        sync_summary = sync_ssq(source, history=(source == "csv"), run_key=f"{run_key}-sync")
+        sync_summary = sync_ssq(source, history=(source == "csv"), csv_file=csv_file, run_key=f"{run_key}-sync")
         is_new_data = sync_summary.get("inserted_count", 0) > 0
         summary["sync_run_key"] = sync_summary["run_key"]
         summary["sync"] = sync_summary
@@ -111,12 +112,14 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--strategy-key", default="baseline_v1")
     parser.add_argument("--source", default="zhcw", choices=["zhcw", "csv"])
+    parser.add_argument("--csv-file", help="Explicit CSV path when --source csv is used")
     parser.add_argument("--auto-git", action="store_true")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args()
-    print(run_pipeline(args.strategy_key, args.source, auto_git=args.auto_git, force=args.force))
+    if args.source == "csv" and not args.csv_file and not get_settings().ssq_csv_path:
+        parser.error("--source csv requires --csv-file or SSQ_CSV_PATH")
+    print(run_pipeline(args.strategy_key, args.source, csv_file=args.csv_file, auto_git=args.auto_git, force=args.force))
 
 
 if __name__ == "__main__":
     main()
-

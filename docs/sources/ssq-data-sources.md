@@ -3,7 +3,7 @@
 ## Current Sources
 
 - `zhcw`: public China Welfare Lottery / 中彩网 style pages or open JSON endpoints, accessed once per manual run or scheduled daily run.
-- `csv`: local CSV fallback for initializing or testing history data.
+- `csv`: explicit local CSV import path for controlled backfills or tests. No sample CSV is bundled.
 
 ## Fields
 
@@ -21,18 +21,30 @@ Public pages can change HTML structure or API response shape. The crawler logs r
 
 The crawler uses a clear User-Agent, timeout, and at most two retries by default. It does not bypass login, crack interfaces, run concurrent scraping, or make high-frequency requests.
 
-## CSV Fallback
+## Historical Sync
+
+Use the real source for normal operation:
+
+```bash
+cd apps/worker-python
+python scripts/sync_latest_ssq.py --source zhcw --history --dry-run
+python scripts/sync_latest_ssq.py --source zhcw --history
+```
+
+Without issue bounds, `zhcw --history` fetches the current system date minus 10 years through the current system date.
+
+## Explicit CSV Import
 
 Use:
 
 ```bash
 cd apps/worker-python
-python scripts/sync_latest_ssq.py --source csv --history
+python scripts/import_history_csv.py --file /absolute/path/to/history.csv
+python scripts/sync_latest_ssq.py --source csv --history --csv-file /absolute/path/to/history.csv
 ```
 
-The CSV source reads `data/raw/ssq_history_sample.csv` by default and can be extended to a full historical CSV.
+CSV is intentionally explicit so repository checkouts do not carry stale sample issue data.
 
 ## Conflict Policy
 
 The same issue with the same numbers is treated as idempotent. The same issue with different red or blue numbers is written to `ssq_data_conflicts` and the existing canonical row is not overwritten.
-

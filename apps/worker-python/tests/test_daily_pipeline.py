@@ -23,6 +23,6 @@ def test_daily_pipeline_no_new_data_finishes(monkeypatch, tmp_path):
         "scripts.daily_pipeline.finish_pipeline_run",
         lambda conn, run_key, status, summary: finished.update({"status": status, "summary": summary}),
     )
-    result = run_pipeline("baseline_v1", "csv")
+    result = run_pipeline("baseline_v1", "zhcw")
     assert result["sync"]["inserted_count"] == 0
     assert finished["status"] == "success"

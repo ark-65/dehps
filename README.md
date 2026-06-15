@@ -21,16 +21,20 @@ source .venv/bin/activate
 pip install -e .
 pytest
 python scripts/generate_ssq_red_combinations.py --limit 10000
-python scripts/import_history_csv.py --file ../../data/raw/ssq_history_sample.csv
-python scripts/sync_latest_ssq.py --source csv --dry-run
-python scripts/daily_pipeline.py --strategy-key baseline_v1 --source csv --force
+python scripts/sync_latest_ssq.py --source zhcw --history --dry-run
+python scripts/sync_latest_ssq.py --source zhcw --history
+python scripts/daily_pipeline.py --strategy-key baseline_v1 --source zhcw --force
 ```
 
-Adminer: http://localhost:18080
+PostgreSQL:
 
-- System: PostgreSQL
-- Server: postgres
+- Host: localhost
+- Port: 54329
 - Username: dehps
 - Password: dehps_password
 - Database: dehps
 
+Redis:
+
+- Host: localhost
+- Port: 63799

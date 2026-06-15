@@ -1,4 +1,5 @@
 from dehps.crawler.ssq_parser import validate_ssq_draw
+from dehps.crawler.ssq_sync import sync_ssq
 from dehps.storage.postgres_store import upsert_ssq_draw
 
 
@@ -47,3 +48,18 @@ def test_zhcw_replaces_csv_sample_conflict():
     conn = FakeConn(existing=([1, 2, 3, 4, 5, 6], 8, "csv"))
     assert upsert_ssq_draw(conn, draw, "zhcw") == "updated"
     assert len(conn.conflicts) == 0
+
+
+def test_history_dry_run_reports_latest_issue(monkeypatch):
+    class FakeSource:
+        def fetch_history(self, start_issue=None, end_issue=None):
+            return [
+                {"issue": "2026002", "red_numbers": [1, 2, 3, 4, 5, 6], "blue_number": 8},
+                {"issue": "2026001", "red_numbers": [2, 3, 4, 5, 6, 7], "blue_number": 9},
+            ]
+
+    monkeypatch.setattr("dehps.crawler.ssq_sync.get_data_source", lambda *a, **k: FakeSource())
+
+    summary = sync_ssq("fake", history=True, dry_run=True)
+
+    assert summary["latest_draw"]["issue"] == "2026002"
