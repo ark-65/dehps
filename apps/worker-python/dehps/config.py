@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     db_user: str = Field("dehps", alias="DB_USER")
     db_password: str = Field("dehps_password", alias="DB_PASSWORD")
     ssq_sync_source: str = Field("zhcw", alias="SSQ_SYNC_SOURCE")
+    ssq_csv_path: str | None = Field(None, alias="SSQ_CSV_PATH")
     ssq_crawler_user_agent: str = Field("ArkDEHPS/0.1", alias="SSQ_CRAWLER_USER_AGENT")
     ssq_crawler_timeout_seconds: int = Field(15, alias="SSQ_CRAWLER_TIMEOUT_SECONDS")
     ssq_crawler_max_retries: int = Field(2, alias="SSQ_CRAWLER_MAX_RETRIES")

@@ -177,7 +177,13 @@ class CsvSsqDataSource(SsqDataSource):
     name = "csv"
 
     def __init__(self, path: Path | None = None) -> None:
-        self.path = path or ROOT_DIR / "data/raw/ssq_history_sample.csv"
+        configured_path = get_settings().ssq_csv_path
+        if path is not None:
+            self.path = path
+        elif configured_path:
+            self.path = Path(configured_path)
+        else:
+            raise ValueError("CSV source requires --csv-file or SSQ_CSV_PATH; no bundled sample CSV is provided")
 
     def fetch_latest(self) -> dict[str, Any] | None:
         rows = self.fetch_history()
@@ -204,11 +210,11 @@ class CsvSsqDataSource(SsqDataSource):
         return rows
 
 
-def get_data_source(source: str) -> SsqDataSource:
+def get_data_source(source: str, *, csv_file: str | Path | None = None) -> SsqDataSource:
     if source == "zhcw":
         return ZhcwSsqDataSource()
     if source == "csv":
-        return CsvSsqDataSource()
+        return CsvSsqDataSource(Path(csv_file) if csv_file else None)
     raise ValueError(f"unsupported source: {source}")
 
 

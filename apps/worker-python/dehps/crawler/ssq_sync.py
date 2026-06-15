@@ -15,11 +15,12 @@ def sync_ssq(
     history: bool = False,
     from_issue: str | None = None,
     to_issue: str | None = None,
+    csv_file: str | None = None,
     dry_run: bool = False,
     run_key: str | None = None,
 ) -> dict[str, Any]:
     run_key = run_key or f"sync-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-    data_source = get_data_source(source)
+    data_source = get_data_source(source, csv_file=csv_file)
     raw_draws = data_source.fetch_history(from_issue, to_issue) if history else [data_source.fetch_latest()]
     raw_draws = [draw for draw in raw_draws if draw]
     validated = [validate_ssq_draw(draw) for draw in raw_draws]
@@ -33,7 +34,7 @@ def sync_ssq(
         "skipped_count": 0,
         "conflict_count": 0,
         "dry_run": dry_run,
-        "latest_draw": validated[-1].model_dump(mode="json") if validated else None,
+        "latest_draw": max(validated, key=lambda draw: draw.issue).model_dump(mode="json") if validated else None,
     }
     if dry_run:
         summary["status"] = "dry_run"
@@ -53,4 +54,3 @@ def sync_ssq(
             finish_sync_run(conn, run_key, "failed", summary)
             raise
     return summary
-

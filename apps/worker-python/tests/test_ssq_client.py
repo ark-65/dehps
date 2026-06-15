@@ -1,7 +1,9 @@
 from datetime import date
 
+import pytest
+
 from dehps.crawler import ssq_client
-from dehps.crawler.ssq_client import ZhcwSsqDataSource, _normalize_remote_record, _subtract_years
+from dehps.crawler.ssq_client import CsvSsqDataSource, ZhcwSsqDataSource, _normalize_remote_record, _subtract_years
 
 
 def test_normalize_zhcw_record():
@@ -62,3 +64,34 @@ def test_zhcw_history_defaults_to_last_ten_years_until_system_date(monkeypatch):
     assert captured_params[0]["type"] == 2
     assert captured_params[0]["startDate"] == "2016-06-15"
     assert captured_params[0]["endDate"] == "2026-06-15"
+
+
+def test_csv_source_requires_explicit_path(monkeypatch):
+    monkeypatch.delenv("SSQ_CSV_PATH", raising=False)
+
+    with pytest.raises(ValueError, match="CSV source requires"):
+        CsvSsqDataSource()
+
+
+def test_csv_source_reads_explicit_file(tmp_path):
+    csv_path = tmp_path / "history.csv"
+    csv_path.write_text(
+        "\n".join(
+            [
+                "issue,draw_date,r1,r2,r3,r4,r5,r6,blue_number,source",
+                "2026001,2026-01-04,1,6,10,17,22,30,8,test",
+            ]
+        )
+    )
+
+    rows = CsvSsqDataSource(csv_path).fetch_history()
+
+    assert rows == [
+        {
+            "issue": "2026001",
+            "draw_date": "2026-01-04",
+            "red_numbers": ["1", "6", "10", "17", "22", "30"],
+            "blue_number": "8",
+            "source": "test",
+        }
+    ]
