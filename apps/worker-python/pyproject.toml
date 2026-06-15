@@ -1,0 +1,24 @@
+[project]
+name = "ark-dehps-worker"
+version = "0.1.0"
+description = "Python worker for DEHPS combination scoring and backtesting"
+requires-python = ">=3.11"
+dependencies = [
+  "psycopg[binary]>=3.2",
+  "pydantic>=2.7",
+  "pydantic-settings>=2.3",
+  "python-dotenv>=1.0",
+  "pandas>=2.2",
+  "typer>=0.12",
+  "rich>=13.7",
+  "requests>=2.32",
+  "beautifulsoup4>=4.12",
+  "pytest>=8.2",
+]
+
+[project.scripts]
+dehps = "dehps.cli:app"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

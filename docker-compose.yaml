@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: ark-dehps-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: dehps
+      POSTGRES_USER: dehps
+      POSTGRES_PASSWORD: dehps_password
+      TZ: Asia/Shanghai
+    ports:
+      - "54329:5432"
+    volumes:
+      - ./runtime/postgres:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dehps -d dehps"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    container_name: ark-dehps-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "63799:6379"
+    volumes:
+      - ./runtime/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+networks:
+  default:
+    name: ark-dehps-net

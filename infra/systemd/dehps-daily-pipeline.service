@@ -1,0 +1,8 @@
+[Unit]
+Description=DEHPS daily SSQ pipeline
+
+[Service]
+Type=oneshot
+WorkingDirectory=/path/to/ark-dehps/apps/worker-python
+ExecStart=/path/to/ark-dehps/apps/worker-python/.venv/bin/python scripts/daily_pipeline.py --strategy-key baseline_v1 --auto-git
+
