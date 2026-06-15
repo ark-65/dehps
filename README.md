@@ -11,6 +11,10 @@ This project is not a lottery prediction system. It studies large discrete combi
 - Python worker for combination generation, feature calculation, scoring, crawling, syncing, backtesting, and reports.
 - NestJS API and web app directories are placeholders for later stages.
 
+## Project Plan
+
+Long-term work is tracked in `docs/roadmap.md`. Development should move by staged rounds, with each round ending in tests, a human-readable report, and a rollback-friendly commit.
+
 ## Quick Start
 
 ```bash

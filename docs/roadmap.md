@@ -1,0 +1,166 @@
+# DEHPS Long-Term Roadmap
+
+DEHPS long-term development must advance by staged, reviewable rounds. Do not implement crawlers, agents, frontend, AI workflows, and schedulers in one broad pass.
+
+Parent task: DEHPS long-term research and development.
+
+Core positioning:
+
+- DEHPS = Discrete Event Human Plausibility Score.
+- Chinese name: 离散事件人类合理性评分.
+- This is not a lottery prediction system and does not provide betting advice.
+- It is an AI-assisted platform for scoring, filtering, backtesting, and reporting over large discrete combination spaces.
+- The first demo domain is 双色球 red-ball combinations only.
+
+Core principle:
+
+```text
+AI proposes hypotheses. Code verifies them. Historical data judges them.
+```
+
+## Working Rules
+
+Each round must complete exactly one verifiable loop.
+
+Before starting a round:
+
+- Confirm the round goal and non-goals.
+- Keep production data separate from verification data unless explicitly promoting results.
+- Prefer small, reversible changes over broad refactors.
+
+At the end of each round:
+
+- Run the relevant test suite.
+- Produce or update a human-readable report under `docs/experiments/`.
+- Record commands, results, known problems, and next-round recommendations.
+- Make a rollback-friendly git commit for the round's accepted changes.
+
+## Round Status
+
+| Round | Theme | Status | Evidence |
+| --- | --- | --- | --- |
+| 1 | Basic computation and backtest loop | Done | `docs/experiments/round-1-report.md` |
+| 2 | Daily data synchronization | Done | `docs/experiments/round-2-report.md` |
+| 3 | Git automation and scheduled runs | Planned | This roadmap |
+| 4 | AI Agent experiment system | Planned | This roadmap |
+| 5 | Dashboard and API | Planned | This roadmap |
+
+## Round 1: Basic Computation And Backtest Loop
+
+Goal: complete a stable minimum loop.
+
+Acceptance checklist:
+
+- PostgreSQL tables initialize successfully.
+- Python worker installs with `pip install -e .`.
+- 双色球 red-ball combinations can be generated.
+- Red-ball structural features can be calculated.
+- Sample or verification history can be imported without polluting production data.
+- `baseline_v1` strategy can filter combinations.
+- Backtest metrics can be calculated.
+- Markdown experiment report can be written.
+- `pytest` passes.
+- A round report and commit are produced.
+
+Non-goals:
+
+- Real crawler.
+- Git auto-push.
+- Frontend dashboard.
+- Complex AI Agent calls.
+- Model training.
+- Betting advice.
+
+Current state: completed as an acceptance round. See `docs/experiments/round-1-report.md`.
+
+## Round 2: Daily Data Synchronization
+
+Goal: formalize daily data sync as a verifiable loop.
+
+Acceptance checklist:
+
+- Implement `sync_latest_ssq.py`.
+- Implement source abstraction.
+- Validate draw data.
+- Record conflicts.
+- Implement `daily_pipeline.py`.
+- Write daily reports.
+- Support `--dry-run`.
+- Support explicit CSV fallback.
+
+Current state: completed as an acceptance round. See `docs/experiments/round-2-report.md`.
+
+## Round 3: Git Automation And Scheduled Runs
+
+Goal: make the daily pipeline operational and auditable without mixing verification and production outputs.
+
+Acceptance checklist:
+
+- Verify `git_commit_and_push.py` behavior and allowed paths.
+- Confirm crontab documentation.
+- Confirm systemd timer documentation.
+- Verify `pipeline_runs` records success and failure states.
+- Confirm log directory behavior.
+- Define and test a failure recovery path.
+- Run `daily_pipeline.py --source zhcw --force` on a verification database.
+- Confirm `pipeline_runs`, `ssq_sync_runs`, generated daily report, and generated experiment report are coherent.
+- Add failure-path tests for sync and pipeline status recording.
+- Produce `docs/experiments/round-3-report.md`.
+- Commit the accepted round changes.
+
+Non-goals:
+
+- Frontend dashboard.
+- AI strategy generation.
+- Auto-promotion of generated reports to production.
+- Trading, betting, or predictive claims.
+
+## Round 4: AI Agent Experiment System
+
+Goal: let agents propose and criticize strategy hypotheses while keeping code and historical data as the verification layer.
+
+Acceptance checklist:
+
+- Strategy Agent prompt.
+- Critic Agent prompt.
+- Backtest Agent prompt.
+- Experiment report reader.
+- Next-round strategy suggestion format.
+- Strategy version management.
+- Clear separation between AI suggestions and verified metrics.
+- Produce a round report and commit.
+
+Non-goals:
+
+- Unverified claims of predictive ability.
+- Autonomous production strategy changes without review.
+
+## Round 5: Dashboard And API
+
+Goal: expose experiment history and operational status through a small product surface.
+
+Acceptance checklist:
+
+- NestJS API.
+- Angular dashboard.
+- Experiment list.
+- Strategy comparison.
+- Combination distribution views.
+- Daily sync records.
+- Produce a round report and commit.
+
+Non-goals:
+
+- Marketing landing page.
+- Betting workflow.
+- User-facing recommendation language that implies prediction.
+
+## Update Policy
+
+This file is the durable plan. At the end of each accepted round:
+
+- Mark the round status.
+- Link the new round report.
+- Move unfinished acceptance items into the next round only when still relevant.
+- Add new rounds only when they represent a distinct verifiable loop.
+- Keep the roadmap short enough to guide work rather than replace experiment reports.
