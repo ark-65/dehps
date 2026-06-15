@@ -1,9 +1,10 @@
 from scripts.daily_pipeline import run_pipeline
 
 
-def test_daily_pipeline_no_new_data_finishes(monkeypatch):
+def test_daily_pipeline_no_new_data_finishes(monkeypatch, tmp_path):
     finished = {}
 
+    monkeypatch.setattr("scripts.daily_pipeline.ROOT_DIR", tmp_path)
     monkeypatch.setattr("scripts.daily_pipeline.sync_ssq", lambda *a, **k: {"run_key": "sync", "inserted_count": 0})
 
     class FakeConn:
@@ -25,4 +26,3 @@ def test_daily_pipeline_no_new_data_finishes(monkeypatch):
     result = run_pipeline("baseline_v1", "csv")
     assert result["sync"]["inserted_count"] == 0
     assert finished["status"] == "success"
-
