@@ -26,3 +26,40 @@ def test_daily_pipeline_no_new_data_finishes(monkeypatch, tmp_path):
     result = run_pipeline("baseline_v1", "zhcw")
     assert result["sync"]["inserted_count"] == 0
     assert finished["status"] == "success"
+
+
+def test_daily_pipeline_records_failed_status(monkeypatch, tmp_path):
+    finished = {}
+
+    monkeypatch.setattr("scripts.daily_pipeline.ROOT_DIR", tmp_path)
+
+    def fail_sync(*args, **kwargs):
+        raise RuntimeError("sync unavailable")
+
+    class FakeConn:
+        pass
+
+    class FakeContext:
+        def __enter__(self):
+            return FakeConn()
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr("scripts.daily_pipeline.sync_ssq", fail_sync)
+    monkeypatch.setattr("scripts.daily_pipeline.get_connection", lambda: FakeContext())
+    monkeypatch.setattr("scripts.daily_pipeline.create_pipeline_run", lambda conn, run_key: None)
+    monkeypatch.setattr(
+        "scripts.daily_pipeline.finish_pipeline_run",
+        lambda conn, run_key, status, summary: finished.update({"status": status, "summary": summary}),
+    )
+
+    try:
+        run_pipeline("baseline_v1", "zhcw")
+    except RuntimeError as exc:
+        assert str(exc) == "sync unavailable"
+    else:
+        raise AssertionError("pipeline failure was not raised")
+
+    assert finished["status"] == "failed"
+    assert finished["summary"]["error_message"] == "sync unavailable"

@@ -63,3 +63,41 @@ def test_history_dry_run_reports_latest_issue(monkeypatch):
     summary = sync_ssq("fake", history=True, dry_run=True)
 
     assert summary["latest_draw"]["issue"] == "2026002"
+
+
+def test_sync_records_failed_status(monkeypatch):
+    finished = {}
+
+    class FakeSource:
+        def fetch_latest(self):
+            return {"issue": "2026001", "red_numbers": [1, 2, 3, 4, 5, 6], "blue_number": 8}
+
+    class FakeContext:
+        def __enter__(self):
+            return FakeConn()
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def fail_upsert(conn, draw, source):
+        raise RuntimeError("write failed")
+
+    monkeypatch.setattr("dehps.crawler.ssq_sync.get_data_source", lambda *a, **k: FakeSource())
+    monkeypatch.setattr("dehps.crawler.ssq_sync.get_connection", lambda: FakeContext())
+    monkeypatch.setattr("dehps.crawler.ssq_sync.create_sync_run", lambda conn, run_key, source: None)
+    monkeypatch.setattr("dehps.crawler.ssq_sync.upsert_ssq_draw", fail_upsert)
+    monkeypatch.setattr(
+        "dehps.crawler.ssq_sync.finish_sync_run",
+        lambda conn, run_key, status, summary: finished.update({"status": status, "summary": summary}),
+    )
+
+    try:
+        sync_ssq("fake", run_key="sync-test")
+    except RuntimeError as exc:
+        assert str(exc) == "write failed"
+    else:
+        raise AssertionError("sync failure was not raised")
+
+    assert finished["status"] == "failed"
+    assert finished["summary"]["status"] == "failed"
+    assert finished["summary"]["error_message"] == "write failed"

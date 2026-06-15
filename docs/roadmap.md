@@ -41,7 +41,7 @@ At the end of each round:
 | --- | --- | --- | --- |
 | 1 | Basic computation and backtest loop | Done | `docs/experiments/round-1-report.md` |
 | 2 | Daily data synchronization | Done | `docs/experiments/round-2-report.md` |
-| 3 | Git automation and scheduled runs | Planned | This roadmap |
+| 3 | Git automation and scheduled runs | Done | `docs/experiments/round-3-report.md` |
 | 4 | AI Agent experiment system | Planned | This roadmap |
 | 5 | Dashboard and API | Planned | This roadmap |
 
@@ -114,6 +114,8 @@ Non-goals:
 - AI strategy generation.
 - Auto-promotion of generated reports to production.
 - Trading, betting, or predictive claims.
+
+Current state: completed as an acceptance round. See `docs/experiments/round-3-report.md`.
 
 ## Round 4: AI Agent Experiment System
 

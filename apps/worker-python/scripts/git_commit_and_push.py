@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import argparse
 import subprocess
+from pathlib import Path
 
 
 ALLOWED_PATHS = ["data/raw", "data/processed", "data/output", "docs/experiments"]
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
-def run(cmd: list[str], cwd: str = "../..") -> subprocess.CompletedProcess:
+def run(cmd: list[str], cwd: Path | str = REPO_ROOT) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, check=False)
 
 
@@ -52,4 +54,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
