@@ -10,6 +10,7 @@ from multiprocessing.pool import Pool
 from typing import Callable, Iterable, Literal
 
 from dehps.domain.combination import iter_ssq_red_combinations
+from dehps.features.qian_kun import qian_kun_pattern, qian_kun_similarity
 from dehps.features.red_ball_features import calculate_red_ball_features
 from dehps.models.frequency_ranker import (
     FrequencyRankerConfig,
@@ -22,7 +23,7 @@ from dehps.scoring.strategy import score_numbers
 
 _WORKER_UNIVERSE: list["RankedUniverseEntry"] = []
 DEFAULT_WORKERS = 16
-ScoreComponents = tuple[float, float, float, float, float, float, float, float, float, float, float]
+ScoreComponents = tuple[float, float, float, float, float, float, float, float, float, float, float, float]
 
 
 @dataclass(frozen=True)
@@ -35,6 +36,7 @@ class RankedUniverseEntry:
     gaps: tuple[int, int, int, int, int]
     sum_value: int
     span_value: int
+    qian_kun_pattern: str
 
 
 @dataclass(frozen=True)
@@ -214,6 +216,7 @@ def build_ranked_universe(universe: Iterable[tuple[int, ...]] | None = None) -> 
                 gaps=(numbers[1] - numbers[0], numbers[2] - numbers[1], numbers[3] - numbers[2], numbers[4] - numbers[3], numbers[5] - numbers[4]),
                 sum_value=int(features["sum_value"]),
                 span_value=int(features["span_value"]),
+                qian_kun_pattern=qian_kun_pattern(numbers),
             )
         )
     return entries
@@ -278,6 +281,7 @@ def score_components_for_entry(entry: RankedUniverseEntry, stats: FrequencyStats
         max(0.0, 1 - abs(entry.sum_value - stats.recent_average_sum) / 162)
         + max(0.0, 1 - abs(entry.span_value - stats.recent_average_span) / 32)
     ) / 2
+    qian_kun_pattern_score = _qian_kun_pattern_score(entry.qian_kun_pattern, stats)
     return (
         entry.structural_score,
         frequency_score,
@@ -290,6 +294,7 @@ def score_components_for_entry(entry: RankedUniverseEntry, stats: FrequencyStats
         lagged_consecutive_score,
         recent_gap_shape_score,
         recent_sum_span_score,
+        qian_kun_pattern_score,
     )
 
 
@@ -320,6 +325,7 @@ def score_components_for_numbers(numbers: tuple[int, ...], stats: FrequencyStats
         max(0.0, 1 - abs(sum(numbers) - stats.recent_average_sum) / 162)
         + max(0.0, 1 - abs((numbers[-1] - numbers[0]) - stats.recent_average_span) / 32)
     ) / 2
+    qian_kun_pattern_score = _qian_kun_pattern_score(qian_kun_pattern(numbers), stats)
     return (
         structural_score,
         sum(stats.frequency_rate[number] for number in numbers),
@@ -332,6 +338,7 @@ def score_components_for_numbers(numbers: tuple[int, ...], stats: FrequencyStats
         lagged_consecutive_score,
         recent_gap_shape_score,
         recent_sum_span_score,
+        qian_kun_pattern_score,
     )
 
 
@@ -348,6 +355,7 @@ def score_from_components(components: ScoreComponents, config: FrequencyRankerCo
         lagged_consecutive_score,
         recent_gap_shape_score,
         recent_sum_span_score,
+        qian_kun_pattern_score,
     ) = components
     return round(
         config.structural_weight * structural_score
@@ -360,9 +368,18 @@ def score_from_components(components: ScoreComponents, config: FrequencyRankerCo
         + config.recent_neighbor_weight * recent_neighbor_score
         + config.lagged_consecutive_weight * lagged_consecutive_score
         + config.recent_gap_shape_weight * recent_gap_shape_score
-        + config.recent_sum_span_weight * recent_sum_span_score,
+        + config.recent_sum_span_weight * recent_sum_span_score
+        + config.qian_kun_pattern_weight * qian_kun_pattern_score,
         8,
     )
+
+
+def _qian_kun_pattern_score(pattern: str, stats: FrequencyStats) -> float:
+    history_score = stats.qian_kun_pattern_rate.get(pattern, 0.0)
+    if not stats.recent_qian_kun_patterns:
+        return history_score
+    recent_score = max(qian_kun_similarity(pattern, recent_pattern) for recent_pattern in stats.recent_qian_kun_patterns)
+    return (history_score + recent_score) / 2
 
 
 def score_ranked_entry(

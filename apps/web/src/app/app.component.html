@@ -102,6 +102,16 @@
           <small>Top10万 {{ training.best ? training.best.rank_quality.top_100000_hits + '/' + training.best.evaluated_draws : '无' }}</small>
         </article>
         <article class="metric-card">
+          <span>最新卦象</span>
+          <strong>{{ training.qianKun.latest_label || '无' }}</strong>
+          <small>{{ qianKunLinesText(training) }}</small>
+        </article>
+        <article class="metric-card">
+          <span>乾坤计数</span>
+          <strong>{{ training.qianKun.qian_count }}/{{ training.qianKun.kun_count }}</strong>
+          <small>全窗口 {{ training.qianKun.total_draws }} 期</small>
+        </article>
+        <article class="metric-card">
           <span>最佳排名</span>
           <strong>{{ training.best ? (training.best.best_rank | number: '1.0-0') : '无' }}</strong>
           <small>最差排名 {{ training.best ? (training.best.worst_rank | number: '1.0-0') : '无' }}</small>
@@ -137,6 +147,9 @@
         </article>
         <article class="chart-panel">
           <app-echart [option]="redFiveDifferenceOption(training.best)" height="320px"></app-echart>
+        </article>
+        <article class="chart-panel wide-chart">
+          <app-echart [option]="qianKunDistributionOption(training)" height="340px"></app-echart>
         </article>
         <article class="chart-panel">
           <app-echart [option]="rankTrendOption(training)" height="320px"></app-echart>

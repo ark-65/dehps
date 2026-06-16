@@ -107,6 +107,7 @@ export class ResearchService {
       workers: this.numberValue(rawStatus?.workers),
       memoryBudgetGb: this.numberValue(rawStatus?.memory_budget_gb),
       universeSize,
+      qianKun: this.qianKunValue(rawStatus?.qian_kun),
       completedRounds: rounds.length,
       rounds,
       latestRound: rounds.at(-1) ?? null,
@@ -368,6 +369,73 @@ export class ResearchService {
     };
   }
 
+  private qianKunValue(value: unknown) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return {
+        total_draws: 0,
+        recent_window: 0,
+        latest_issue: '',
+        latest_numbers: [],
+        latest_pattern: '',
+        latest_label: '',
+        latest_lines: [],
+        qian_count: 0,
+        kun_count: 0,
+        patterns: [],
+      };
+    }
+    const row = value as Record<string, unknown>;
+    return {
+      total_draws: this.numberValue(row.total_draws) ?? 0,
+      recent_window: this.numberValue(row.recent_window) ?? 0,
+      latest_issue: this.stringValue(row.latest_issue) ?? '',
+      latest_numbers: this.numberArrayValue(row.latest_numbers),
+      latest_pattern: this.stringValue(row.latest_pattern) ?? '',
+      latest_label: this.stringValue(row.latest_label) ?? '',
+      latest_lines: this.stringArrayValue(row.latest_lines),
+      qian_count: this.numberValue(row.qian_count) ?? 0,
+      kun_count: this.numberValue(row.kun_count) ?? 0,
+      patterns: this.qianKunPatternsValue(row.patterns),
+    };
+  }
+
+  private qianKunPatternsValue(value: unknown) {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value
+      .map((item) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+          return null;
+        }
+        const row = item as Record<string, unknown>;
+        const pattern = this.stringValue(row.pattern);
+        if (!pattern) {
+          return null;
+        }
+        return {
+          pattern,
+          label: this.stringValue(row.label) ?? pattern,
+          lines: this.stringArrayValue(row.lines),
+          count: this.numberValue(row.count) ?? 0,
+          rate: this.numberValue(row.rate) ?? 0,
+          recent_count: this.numberValue(row.recent_count) ?? 0,
+          recent_rate: this.numberValue(row.recent_rate) ?? 0,
+        };
+      })
+      .filter(
+        (item): item is {
+          pattern: string;
+          label: string;
+          lines: string[];
+          count: number;
+          rate: number;
+          recent_count: number;
+          recent_rate: number;
+        } => item !== null,
+      );
+  }
+
   private emptyRedFive() {
     return {
       top_100_hits: 0,
@@ -545,6 +613,13 @@ export class ResearchService {
     return value
       .map((item) => this.numberValue(item))
       .filter((item): item is number => item !== null);
+  }
+
+  private stringArrayValue(value: unknown): string[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value.filter((item): item is string => typeof item === 'string');
   }
 
   private isProcessAlive(pid: number): boolean {

@@ -13,6 +13,7 @@ from statistics import median
 
 from dehps.config import ROOT_DIR
 from dehps.db import get_connection
+from dehps.features.qian_kun import qian_kun_distribution
 from dehps.models.frequency_ranker import FrequencyRankerConfig
 from dehps.optimization.regime import HistoryScope, select_history
 from dehps.optimization.walk_forward import (
@@ -38,6 +39,7 @@ CONTEXT_FIELDS = (
     "lagged_consecutive_weight",
     "recent_gap_shape_weight",
     "recent_sum_span_weight",
+    "qian_kun_pattern_weight",
 )
 ALL_FIELDS = PRIMARY_FIELDS + CONTEXT_FIELDS
 DEFAULT_UNIVERSE_SIZE = 1_107_568
@@ -173,6 +175,7 @@ def generate_configs(
                 lagged_consecutive_weight=0.04,
                 recent_gap_shape_weight=0.04,
                 recent_sum_span_weight=0.04,
+                qian_kun_pattern_weight=0.04,
             ),
         )
         for config in large_candidates:
@@ -610,6 +613,7 @@ def write_report(report_path: Path, status: dict) -> None:
 - Workers: {status["workers"]}
 - Memory budget GB: {status["memory_budget_gb"]}
 - Universe size: {status["universe_size"]}
+- Latest qian-kun pattern: {status["qian_kun"]["latest_issue"]} {status["qian_kun"]["latest_label"]} `{status["qian_kun"]["latest_pattern"]}`
 
 ## Current Best
 
@@ -707,6 +711,7 @@ def run_supervisor(
         "workers": worker_count,
         "memory_budget_gb": memory_budget_gb,
         "universe_size": len(ranked_universe),
+        "qian_kun": qian_kun_distribution(selection.history),
         "rounds": rounds,
         "best": best_summary,
         "status_path": str(status_path),

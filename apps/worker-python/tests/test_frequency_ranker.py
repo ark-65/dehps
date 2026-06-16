@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dehps.features.qian_kun import qian_kun_distribution, qian_kun_lines_from_pattern, qian_kun_pattern
 from dehps.models.frequency_ranker import FrequencyRankerConfig, score_frequency_candidate, train_frequency_stats
 from dehps.optimization.walk_forward import (
     build_ranked_universe,
@@ -56,6 +57,42 @@ def test_score_frequency_candidate_is_configurable():
 
     assert 0 <= structural_only["score"] <= 1
     assert omission_only["score"] == 1
+
+
+def test_qian_kun_pattern_maps_odd_to_yang_and_even_to_yin():
+    pattern = qian_kun_pattern((1, 2, 3, 4, 5, 6))
+    distribution = qian_kun_distribution(
+        [
+            ("001", (1, 2, 3, 4, 5, 6)),
+            ("002", (1, 3, 5, 7, 9, 11)),
+        ],
+    )
+
+    assert pattern == "101010"
+    assert qian_kun_lines_from_pattern(pattern) == ["—", "- -", "—", "- -", "—", "- -"]
+    assert distribution["latest_label"] == "乾卦"
+    assert distribution["qian_count"] == 1
+
+
+def test_qian_kun_pattern_weight_can_score_matching_pattern():
+    history = [
+        ("001", (1, 3, 5, 7, 9, 11)),
+        ("002", (1, 3, 5, 13, 15, 17)),
+        ("003", (2, 4, 6, 8, 10, 12)),
+    ]
+    config = FrequencyRankerConfig(
+        structural_weight=0,
+        frequency_weight=0,
+        omission_weight=0,
+        previous_consecutive_weight=0,
+        qian_kun_pattern_weight=1,
+    )
+
+    matching = score_frequency_candidate((1, 5, 9, 13, 17, 21), train_frequency_stats(history), config)
+    non_matching = score_frequency_candidate((1, 2, 3, 4, 5, 6), train_frequency_stats(history), config)
+
+    assert matching["qian_kun_pattern_score"] > non_matching["qian_kun_pattern_score"]
+    assert matching["score"] > non_matching["score"]
 
 
 def test_temporal_features_track_neighbor_and_lagged_consecutive_chain():

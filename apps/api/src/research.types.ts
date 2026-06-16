@@ -160,6 +160,7 @@ export type TrainingStatusPayload = {
   workers: number | null;
   memoryBudgetGb: number | null;
   universeSize: number | null;
+  qianKun: TrainingQianKunSummary;
   completedRounds: number;
   rounds: TrainingRoundSummary[];
   latestRound: TrainingRoundSummary | null;
@@ -176,6 +177,29 @@ export type TrainingStatusPayload = {
     cron: string;
     description: string;
   };
+};
+
+export type TrainingQianKunSummary = {
+  total_draws: number;
+  recent_window: number;
+  latest_issue: string;
+  latest_numbers: number[];
+  latest_pattern: string;
+  latest_label: string;
+  latest_lines: string[];
+  qian_count: number;
+  kun_count: number;
+  patterns: TrainingQianKunPattern[];
+};
+
+export type TrainingQianKunPattern = {
+  pattern: string;
+  label: string;
+  lines: string[];
+  count: number;
+  rate: number;
+  recent_count: number;
+  recent_rate: number;
 };
 
 export type DashboardPayload = {

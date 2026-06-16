@@ -224,6 +224,10 @@ export class AppComponent {
       .join('，');
   }
 
+  qianKunLinesText(status: TrainingStatusPayload): string {
+    return status.qianKun.latest_lines.length ? status.qianKun.latest_lines.join(' ') : '无';
+  }
+
   hitTrendOption(status: TrainingStatusPayload): ChartOption {
     const rounds = this.chartRounds(status);
     const xAxis = rounds.map((round) => `R${round.round}`);
@@ -362,6 +366,46 @@ export class AppComponent {
     };
   }
 
+  qianKunDistributionOption(status: TrainingStatusPayload): ChartOption {
+    const patterns = status.qianKun.patterns.slice(0, 16);
+    return {
+      title: { text: '乾坤卦象分布', left: 12, top: 8, textStyle: { fontSize: 14, fontWeight: 700 } },
+      color: ['#327857', '#987a24'],
+      tooltip: {
+        trigger: 'axis',
+        formatter: (params: unknown) => {
+          const values = Array.isArray(params) ? params : [];
+          const first = values[0] as { dataIndex?: number } | undefined;
+          const pattern = patterns[first?.dataIndex ?? 0];
+          if (!pattern) {
+            return '暂无卦象分布';
+          }
+          return `${pattern.label}<br/>爻象 ${pattern.lines.join(' ')}<br/>全窗口 ${pattern.count}<br/>近${status.qianKun.recent_window}期 ${pattern.recent_count}`;
+        },
+      },
+      legend: { top: 8, right: 12 },
+      grid: { left: 48, right: 24, top: 58, bottom: 64 },
+      xAxis: {
+        type: 'category',
+        data: patterns.map((pattern) => pattern.label),
+        axisLabel: { rotate: 30 },
+      },
+      yAxis: { type: 'value', name: '次数' },
+      series: [
+        {
+          name: '全窗口',
+          type: 'bar',
+          data: patterns.map((pattern) => pattern.count),
+        },
+        {
+          name: `近${status.qianKun.recent_window}期`,
+          type: 'bar',
+          data: patterns.map((pattern) => pattern.recent_count),
+        },
+      ],
+    };
+  }
+
   weightTrendOption(status: TrainingStatusPayload): ChartOption {
     const rounds = this.chartRounds(status);
     const xAxis = rounds.map((round) => `R${round.round}`);
@@ -376,6 +420,7 @@ export class AppComponent {
       ['lagged_consecutive_weight', '隔期连号链'],
       ['recent_gap_shape_weight', '跳号间距'],
       ['recent_sum_span_weight', '和值跨度'],
+      ['qian_kun_pattern_weight', '乾坤卦象'],
     ] as const;
     return this.baseLineOption({
       title: '权重演化',
@@ -444,6 +489,7 @@ export class AppComponent {
       lagged_consecutive_weight: '隔期连号链',
       recent_gap_shape_weight: '跳号间距',
       recent_sum_span_weight: '和值跨度',
+      qian_kun_pattern_weight: '乾坤卦象',
     };
     return labels[key] ?? key;
   }

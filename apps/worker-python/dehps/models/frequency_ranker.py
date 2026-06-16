@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from dehps.features.red_ball_features import calculate_red_ball_features
+from dehps.features.qian_kun import qian_kun_pattern, qian_kun_similarity
 from dehps.scoring.strategy import score_numbers
 
 
@@ -19,6 +20,7 @@ class FrequencyRankerConfig:
     lagged_consecutive_weight: float = 0.00
     recent_gap_shape_weight: float = 0.00
     recent_sum_span_weight: float = 0.00
+    qian_kun_pattern_weight: float = 0.00
 
 
 @dataclass(frozen=True)
@@ -36,6 +38,8 @@ class FrequencyStats:
     recent_average_gaps: tuple[float, float, float, float, float]
     recent_average_sum: float
     recent_average_span: float
+    qian_kun_pattern_rate: dict[str, float]
+    recent_qian_kun_patterns: tuple[str, ...]
 
 
 def train_frequency_stats(history: list[tuple[str, tuple[int, ...]]]) -> FrequencyStats:
@@ -56,6 +60,7 @@ def train_frequency_stats(history: list[tuple[str, tuple[int, ...]]]) -> Frequen
     previous_features = calculate_red_ball_features(previous_numbers)
     recent_numbers = [numbers for _, numbers in history[-3:]]
     shape_numbers = [numbers for _, numbers in history[-20:]]
+    qian_kun_patterns = [qian_kun_pattern(numbers) for _, numbers in history]
     return FrequencyStats(
         train_draws=train_draws,
         frequency_rate={number: counts[number] / denominator for number in range(1, 34)},
@@ -79,6 +84,8 @@ def train_frequency_stats(history: list[tuple[str, tuple[int, ...]]]) -> Frequen
         recent_average_gaps=_recent_average_gaps(shape_numbers),
         recent_average_sum=sum(sum(numbers) for numbers in shape_numbers) / len(shape_numbers),
         recent_average_span=sum(numbers[-1] - numbers[0] for numbers in shape_numbers) / len(shape_numbers),
+        qian_kun_pattern_rate=_qian_kun_pattern_rate(qian_kun_patterns),
+        recent_qian_kun_patterns=tuple(qian_kun_patterns[-6:]),
     )
 
 
@@ -107,6 +114,7 @@ def score_frequency_candidate(
     lagged_consecutive_score = _lagged_consecutive_score(numbers, stats)
     recent_gap_shape_score = _recent_gap_shape_score(numbers, stats)
     recent_sum_span_score = _recent_sum_span_score(numbers, stats)
+    qian_kun_pattern_score = _qian_kun_pattern_score(numbers, stats)
     score = (
         cfg.structural_weight * structural_score
         + cfg.frequency_weight * frequency_score
@@ -119,6 +127,7 @@ def score_frequency_candidate(
         + cfg.lagged_consecutive_weight * lagged_consecutive_score
         + cfg.recent_gap_shape_weight * recent_gap_shape_score
         + cfg.recent_sum_span_weight * recent_sum_span_score
+        + cfg.qian_kun_pattern_weight * qian_kun_pattern_score
     )
     return {
         "score": round(score, 8),
@@ -133,6 +142,7 @@ def score_frequency_candidate(
         "lagged_consecutive_score": round(lagged_consecutive_score, 8),
         "recent_gap_shape_score": round(recent_gap_shape_score, 8),
         "recent_sum_span_score": round(recent_sum_span_score, 8),
+        "qian_kun_pattern_score": round(qian_kun_pattern_score, 8),
         "sum_value": float(features["sum_value"]),
         "span_value": float(features["span_value"]),
         "odd_count": float(features["odd_count"]),
@@ -201,3 +211,20 @@ def _recent_sum_span_score(numbers: tuple[int, ...], stats: FrequencyStats) -> f
     sum_score = max(0.0, 1 - abs(sum(numbers) - stats.recent_average_sum) / 162)
     span_score = max(0.0, 1 - abs((numbers[-1] - numbers[0]) - stats.recent_average_span) / 32)
     return (sum_score + span_score) / 2
+
+
+def _qian_kun_pattern_rate(patterns: list[str]) -> dict[str, float]:
+    if not patterns:
+        return {}
+    counts = {pattern: patterns.count(pattern) for pattern in set(patterns)}
+    max_count = max(counts.values()) or 1
+    return {pattern: count / max_count for pattern, count in counts.items()}
+
+
+def _qian_kun_pattern_score(numbers: tuple[int, ...], stats: FrequencyStats) -> float:
+    pattern = qian_kun_pattern(numbers)
+    history_score = stats.qian_kun_pattern_rate.get(pattern, 0.0)
+    if not stats.recent_qian_kun_patterns:
+        return history_score
+    recent_score = max(qian_kun_similarity(pattern, recent_pattern) for recent_pattern in stats.recent_qian_kun_patterns)
+    return (history_score + recent_score) / 2
