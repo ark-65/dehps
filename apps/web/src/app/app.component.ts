@@ -48,6 +48,8 @@ type DetailState =
   | { status: 'ready'; detail: ExperimentDetail | null; reportStatus: string }
   | { status: 'error'; experimentKey: string; message: string };
 
+type DashboardTab = 'training' | 'experiments';
+
 @Component({
   selector: 'app-root',
   standalone: true,
@@ -60,6 +62,7 @@ export class AppComponent {
   private readonly detailRequests = new BehaviorSubject<string | null>(null);
   selectedExperimentKey: string | null = null;
   selectedComparisonKey: string | null = null;
+  activeTab: DashboardTab = 'training';
 
   readonly compareExperiments = compareExperiments;
   readonly combinationDistribution = combinationDistribution;
@@ -122,6 +125,13 @@ export class AppComponent {
   refresh(): void {
     this.refreshRequests.next();
     if (this.selectedExperimentKey) {
+      this.detailRequests.next(this.selectedExperimentKey);
+    }
+  }
+
+  selectTab(tab: DashboardTab): void {
+    this.activeTab = tab;
+    if (tab === 'experiments' && this.selectedExperimentKey) {
       this.detailRequests.next(this.selectedExperimentKey);
     }
   }

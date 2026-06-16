@@ -18,7 +18,7 @@
     } @else {
       <span>{{ state.latestStatus }}</span>
       <strong>{{ state.payload.experiments.length }}</strong>
-      <span>个实验</span>
+      <span>个可用实验</span>
       <strong>{{ state.payload.pipelineRuns.length }}</strong>
       <span>条流水线</span>
       <strong>{{ state.payload.syncRuns.length }}</strong>
@@ -31,6 +31,24 @@
   @if (state.status === 'ready') {
     @let liveTraining = liveTrainingStatus$ | async;
     @let training = liveTraining || state.payload.trainingStatus;
+    <nav class="tabs" aria-label="仪表盘视图">
+      <button
+        type="button"
+        [class.active]="activeTab === 'training'"
+        (click)="selectTab('training')"
+      >
+        训练监控
+      </button>
+      <button
+        type="button"
+        [class.active]="activeTab === 'experiments'"
+        (click)="selectTab('experiments')"
+      >
+        并行实验
+      </button>
+    </nav>
+
+    @if (activeTab === 'training') {
     <section class="training-monitor">
       <div class="section-heading">
         <h2>训练监控</h2>
@@ -198,11 +216,13 @@
         </article>
       </div>
     </section>
+    }
 
+    @if (activeTab === 'experiments') {
     <section class="grid experiments">
       <div class="section-heading">
-        <h2>实验列表</h2>
-        <span>最新保留空间与历史覆盖指标</span>
+        <h2>并行实验</h2>
+        <span>仅展示历史样本数不少于 100 期的实验</span>
       </div>
       <div class="table-wrap">
         <table>
@@ -244,7 +264,7 @@
               </tr>
             } @empty {
               <tr>
-                <td colspan="8">暂无实验记录。</td>
+                <td colspan="8">暂无可对比实验；早期 5 期烟测记录已隐藏。</td>
               </tr>
             }
           </tbody>
@@ -329,7 +349,7 @@
     @let primaryExperiment = findExperiment(state.payload, selectedExperimentKey);
     @let comparisonExperiment = findExperiment(state.payload, selectedComparisonKey);
     @let comparison = compareExperiments(primaryExperiment, comparisonExperiment);
-    @if (comparison) {
+    @if (comparison && state.payload.experiments.length > 1) {
       <section class="comparison-workbench">
         <div class="section-heading">
           <h2>实验对比</h2>
@@ -499,6 +519,7 @@
         </ul>
       </div>
     </section>
+    }
   }
 </main>
 }

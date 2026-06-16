@@ -74,6 +74,34 @@ h2 {
   font-size: 1.15rem;
 }
 
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 18px;
+  border-bottom: 1px solid #d9dee3;
+}
+
+.tabs button {
+  min-height: 42px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: #5b6875;
+  padding: 0 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tabs button:hover,
+.tabs button:focus-visible {
+  color: #17202d;
+}
+
+.tabs button.active {
+  border-bottom-color: #327857;
+  color: #17202d;
+}
+
 .grid,
 .distribution,
 .detail-workbench,

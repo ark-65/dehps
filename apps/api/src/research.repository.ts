@@ -30,6 +30,7 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
              hypothesis, keep_rate, history_draws, covered_draws, coverage_rate,
              lift, config, summary, created_at
       FROM dehps_experiments
+      WHERE history_draws >= 100
       ORDER BY created_at DESC
       LIMIT $1
       `,
@@ -68,6 +69,7 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
         LIMIT 1
       ) r ON true
       WHERE e.experiment_key = $1
+        AND e.history_draws >= 100
       LIMIT 1
       `,
       [experimentKey],
