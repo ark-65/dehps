@@ -29,7 +29,8 @@
   </section>
 
   @if (state.status === 'ready') {
-    @let training = state.payload.trainingStatus;
+    @let liveTraining = liveTrainingStatus$ | async;
+    @let training = liveTraining || state.payload.trainingStatus;
     <section class="training-monitor">
       <div class="section-heading">
         <h2>训练监控</h2>
@@ -41,6 +42,11 @@
           <span>运行状态</span>
           <strong>{{ trainingStatusText(training) }}</strong>
           <small>{{ processText(training) }} / PID {{ training.pid || '无' }}</small>
+        </article>
+        <article class="metric-card stream-card">
+          <span>实时通道</span>
+          <strong>{{ liveTraining ? 'WebSocket 已连接' : 'HTTP 兜底' }}</strong>
+          <small>{{ liveTraining ? '训练变化会实时推送' : '等待实时连接，页面仍会定时刷新' }}</small>
         </article>
         <article class="metric-card">
           <span>已完成轮次</span>

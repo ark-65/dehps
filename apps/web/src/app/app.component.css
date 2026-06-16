@@ -239,7 +239,7 @@ select {
 
 .training-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
   padding: 16px;
 }
@@ -257,6 +257,10 @@ select {
 
 .metric-card.status-card {
   border-left: 4px solid #327857;
+}
+
+.metric-card.stream-card {
+  border-left: 4px solid #4472a5;
 }
 
 .metric-card span,

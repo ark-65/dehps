@@ -1,6 +1,19 @@
 import { AsyncPipe, DatePipe, DecimalPipe, JsonPipe, NgClass } from '@angular/common';
 import { Component } from '@angular/core';
-import { BehaviorSubject, Subject, catchError, map, merge, of, startWith, switchMap, tap, timer } from 'rxjs';
+import {
+  BehaviorSubject,
+  Subject,
+  catchError,
+  map,
+  merge,
+  of,
+  retry,
+  shareReplay,
+  startWith,
+  switchMap,
+  tap,
+  timer,
+} from 'rxjs';
 import {
   DashboardPayload,
   ExperimentDetail,
@@ -56,6 +69,12 @@ export class AppComponent {
   readonly signedPercent = signedPercent;
   readonly trainModeText = trainModeText;
   readonly trainingStatusText = trainingStatusText;
+  readonly liveTrainingStatus$ = this.dashboardService.watchTrainingStatus().pipe(
+    retry({ delay: () => timer(2000) }),
+    startWith(null),
+    catchError(() => of(null)),
+    shareReplay({ bufferSize: 1, refCount: true }),
+  );
   readonly state$ = merge(timer(0, 30000).pipe(map(() => undefined)), this.refreshRequests).pipe(
     switchMap(() =>
       this.dashboardService.load().pipe(
