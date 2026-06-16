@@ -19,6 +19,7 @@ import {
   ExperimentDetail,
   ExperimentSummary,
   TrainingResult,
+  TrainingRoundSummary,
   TrainingStatusPayload,
   compareExperiments,
   combinationDistribution,
@@ -34,6 +35,7 @@ import {
   trainingStatusText,
 } from './dashboard.model';
 import { DashboardService } from './dashboard.service';
+import { ChartOption, EchartComponent } from './echart.component';
 
 type DashboardState =
   | { status: 'loading' }
@@ -49,7 +51,7 @@ type DetailState =
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [AsyncPipe, DatePipe, DecimalPipe, JsonPipe, NgClass],
+  imports: [AsyncPipe, DatePipe, DecimalPipe, EchartComponent, JsonPipe, NgClass],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css',
 })
@@ -198,6 +200,134 @@ export class AppComponent {
     return `Top10000 ${result.top_10000_hits}/${result.evaluated_draws}，Top1000 ${result.top_1000_hits}/${result.evaluated_draws}，最佳排名 ${result.best_rank}`;
   }
 
+  hitTrendOption(status: TrainingStatusPayload): ChartOption {
+    const rounds = this.chartRounds(status);
+    const xAxis = rounds.map((round) => `R${round.round}`);
+    return this.baseLineOption({
+      title: '命中趋势',
+      xAxis,
+      yName: '命中期数',
+      series: [
+        this.lineSeries('Top10000', rounds.map((round) => round.best?.top_10000_hits ?? 0), '#327857'),
+        this.lineSeries('Top1000', rounds.map((round) => round.best?.top_1000_hits ?? 0), '#4472a5'),
+        this.lineSeries('Top100', rounds.map((round) => round.best?.top_100_hits ?? 0), '#a85c38'),
+      ],
+      markLineValue: 4,
+      markLineName: '下一目标 4/100',
+    });
+  }
+
+  rankTrendOption(status: TrainingStatusPayload): ChartOption {
+    const rounds = this.chartRounds(status);
+    const xAxis = rounds.map((round) => `R${round.round}`);
+    return this.baseLineOption({
+      title: '排名分布',
+      xAxis,
+      yName: '排名',
+      inverse: true,
+      series: [
+        this.lineSeries('最佳排名', rounds.map((round) => round.best?.best_rank ?? null), '#327857'),
+        this.lineSeries('中位排名', rounds.map((round) => round.best?.median_rank ?? null), '#4472a5'),
+        this.lineSeries('最差排名', rounds.map((round) => round.best?.worst_rank ?? null), '#8c5a2b'),
+      ],
+    });
+  }
+
+  rewardTrendOption(status: TrainingStatusPayload): ChartOption {
+    const rounds = this.chartRounds(status);
+    const xAxis = rounds.map((round) => `R${round.round}`);
+    return {
+      title: { text: '奖惩机制', left: 12, top: 8, textStyle: { fontSize: 14, fontWeight: 700 } },
+      color: ['#327857', '#b5413f', '#4472a5'],
+      tooltip: { trigger: 'axis' },
+      legend: { top: 8, right: 12 },
+      grid: { left: 48, right: 24, top: 58, bottom: 42 },
+      xAxis: { type: 'category', data: xAxis },
+      yAxis: { type: 'value', name: '分数' },
+      series: [
+        {
+          name: '命中奖励',
+          type: 'bar',
+          stack: 'reward',
+          data: rounds.map((round) => round.best?.reward.hitReward ?? 0),
+        },
+        {
+          name: '排名惩罚',
+          type: 'bar',
+          stack: 'reward',
+          data: rounds.map((round) => -(round.best?.reward.rankPenalty ?? 0)),
+        },
+        {
+          name: '综合分',
+          type: 'line',
+          smooth: true,
+          symbolSize: 7,
+          data: rounds.map((round) => round.best?.reward.objectiveScore ?? 0),
+        },
+      ],
+    };
+  }
+
+  weightTrendOption(status: TrainingStatusPayload): ChartOption {
+    const rounds = this.chartRounds(status);
+    const xAxis = rounds.map((round) => `R${round.round}`);
+    const fields = [
+      ['structural_weight', '结构'],
+      ['frequency_weight', '频率'],
+      ['omission_weight', '遗漏'],
+      ['previous_consecutive_weight', '上期连号'],
+      ['previous_overlap_weight', '上期重叠'],
+      ['previous_zone_shape_weight', '分区形态'],
+    ] as const;
+    return this.baseLineOption({
+      title: '权重演化',
+      xAxis,
+      yName: '权重',
+      series: fields.map(([field, label]) =>
+        this.lineSeries(
+          label,
+          rounds.map((round) => round.best?.config[field] ?? null),
+        ),
+      ),
+    });
+  }
+
+  candidateScatterOption(status: TrainingStatusPayload): ChartOption {
+    const rounds = this.chartRounds(status);
+    const points = rounds.flatMap((round) =>
+      round.topResults.map((result, index) => [
+        round.round,
+        result.median_rank,
+        result.top_10000_hits,
+        result.top_1000_hits,
+        index + 1,
+        result.reward.objectiveScore,
+      ]),
+    );
+    return {
+      title: { text: '候选分布', left: 12, top: 8, textStyle: { fontSize: 14, fontWeight: 700 } },
+      color: ['#4472a5'],
+      tooltip: {
+        trigger: 'item',
+        formatter: (params: unknown) => {
+          const value = (params as { value?: unknown[] }).value ?? [];
+          return `轮次 R${value[0]}<br/>候选 #${value[4]}<br/>中位排名 ${value[1]}<br/>Top10000 ${value[2]} / Top1000 ${value[3]}<br/>综合分 ${value[5]}`;
+        },
+      },
+      grid: { left: 62, right: 24, top: 58, bottom: 42 },
+      xAxis: { type: 'value', name: '轮次', minInterval: 1 },
+      yAxis: { type: 'value', name: '中位排名', inverse: true },
+      series: [
+        {
+          name: '候选',
+          type: 'scatter',
+          symbolSize: (value: unknown) => 8 + Number((value as unknown[])[2] ?? 0) * 4,
+          data: points,
+        },
+      ],
+    };
+  }
+
   private configLabel(key: string): string {
     const labels: Record<string, string> = {
       structural_weight: '结构',
@@ -209,6 +339,65 @@ export class AppComponent {
       previous_zone_shape_weight: '分区形态',
     };
     return labels[key] ?? key;
+  }
+
+  private chartRounds(status: TrainingStatusPayload): TrainingRoundSummary[] {
+    return status.rounds.length ? status.rounds : [...status.recentRounds].reverse();
+  }
+
+  private baseLineOption({
+    title,
+    xAxis,
+    yName,
+    series,
+    inverse = false,
+    markLineValue,
+    markLineName,
+  }: {
+    title: string;
+    xAxis: string[];
+    yName: string;
+    series: Record<string, unknown>[];
+    inverse?: boolean;
+    markLineValue?: number;
+    markLineName?: string;
+  }): ChartOption {
+    const nextSeries = markLineValue === undefined
+      ? series
+      : series.map((item, index) =>
+          index === 0
+            ? {
+                ...item,
+                markLine: {
+                  silent: true,
+                  symbol: 'none',
+                  lineStyle: { color: '#a85c38', type: 'dashed' },
+                  data: [{ yAxis: markLineValue, name: markLineName }],
+                },
+              }
+            : item,
+        );
+    return {
+      title: { text: title, left: 12, top: 8, textStyle: { fontSize: 14, fontWeight: 700 } },
+      tooltip: { trigger: 'axis' },
+      legend: { top: 8, right: 12 },
+      grid: { left: 62, right: 24, top: 58, bottom: 42 },
+      xAxis: { type: 'category', data: xAxis },
+      yAxis: { type: 'value', name: yName, inverse },
+      series: nextSeries,
+    };
+  }
+
+  private lineSeries(name: string, data: Array<number | null>, color?: string): Record<string, unknown> {
+    return {
+      name,
+      type: 'line',
+      smooth: true,
+      symbolSize: 7,
+      connectNulls: true,
+      color,
+      data,
+    };
   }
 
   private ensureSelection(payload: DashboardPayload): void {

@@ -34,6 +34,8 @@ CONTEXT_FIELDS = (
     "previous_parity_shape_weight",
     "previous_zone_shape_weight",
 )
+ALL_FIELDS = PRIMARY_FIELDS + CONTEXT_FIELDS
+DEFAULT_UNIVERSE_SIZE = 1_107_568
 PHASES = (
     ("micro", 0.01),
     ("small", 0.03),
@@ -67,12 +69,32 @@ def add_unique(configs: list[FrequencyRankerConfig], seen: set[str], config: Fre
         configs.append(normalized)
 
 
-def generate_configs(base: FrequencyRankerConfig, *, phase: str, step: float, max_configs: int) -> list[FrequencyRankerConfig]:
+def generate_configs(
+    base: FrequencyRankerConfig,
+    *,
+    phase: str,
+    step: float,
+    max_configs: int,
+    elite_configs: tuple[FrequencyRankerConfig, ...] = (),
+) -> list[FrequencyRankerConfig]:
     configs: list[FrequencyRankerConfig] = []
     seen: set[str] = set()
     add_unique(configs, seen, base)
 
-    for field in PRIMARY_FIELDS + CONTEXT_FIELDS:
+    fine_step = max(0.005, step / 2)
+    for elite in elite_configs[:4]:
+        add_unique(configs, seen, elite)
+        for field in ALL_FIELDS:
+            add_unique(configs, seen, replace(elite, **{field: getattr(elite, field) + fine_step}))
+            add_unique(configs, seen, replace(elite, **{field: getattr(elite, field) - fine_step}))
+
+    if elite_configs:
+        best = elite_configs[0]
+        for other in elite_configs[1:4]:
+            add_unique(configs, seen, blend_configs(best, other, 0.50))
+            add_unique(configs, seen, extrapolate_config(best, other, 0.50))
+
+    for field in ALL_FIELDS:
         add_unique(configs, seen, replace(base, **{field: getattr(base, field) + step}))
         add_unique(configs, seen, replace(base, **{field: getattr(base, field) - step}))
 
@@ -129,6 +151,41 @@ def generate_configs(base: FrequencyRankerConfig, *, phase: str, step: float, ma
     return configs[:max_configs]
 
 
+def blend_configs(left: FrequencyRankerConfig, right: FrequencyRankerConfig, alpha: float) -> FrequencyRankerConfig:
+    return clamp_config(
+        FrequencyRankerConfig(
+            **{
+                field: getattr(left, field) * alpha + getattr(right, field) * (1 - alpha)
+                for field in ALL_FIELDS
+            }
+        )
+    )
+
+
+def extrapolate_config(best: FrequencyRankerConfig, other: FrequencyRankerConfig, scale: float) -> FrequencyRankerConfig:
+    return clamp_config(
+        FrequencyRankerConfig(
+            **{
+                field: getattr(best, field) + (getattr(best, field) - getattr(other, field)) * scale
+                for field in ALL_FIELDS
+            }
+        )
+    )
+
+
+def reward_summary(summary: dict, *, universe_size: int = DEFAULT_UNIVERSE_SIZE) -> dict[str, float]:
+    safe_universe = max(1, universe_size)
+    hit_reward = summary["top_100_hits"] * 100 + summary["top_1000_hits"] * 20 + summary["top_10000_hits"] * 5
+    median_rank = summary.get("median_rank") or safe_universe
+    worst_rank = summary.get("worst_rank") or safe_universe
+    rank_penalty = median_rank / safe_universe + worst_rank / safe_universe / 4
+    return {
+        "hitReward": round(hit_reward, 6),
+        "rankPenalty": round(rank_penalty, 6),
+        "objectiveScore": round(hit_reward - rank_penalty, 6),
+    }
+
+
 def summarize_target_ranks(
     *,
     target_ranks: list[TargetRank],
@@ -138,6 +195,7 @@ def summarize_target_ranks(
     train_window: int,
     train_mode: str,
     top_n: int,
+    universe_size: int,
 ) -> dict:
     ranks = [target.rank for target in target_ranks]
     summary = {
@@ -153,6 +211,7 @@ def summarize_target_ranks(
         "best_rank": min(ranks) if ranks else None,
         "worst_rank": max(ranks) if ranks else None,
     }
+    summary["reward"] = reward_summary(summary, universe_size=universe_size)
     summary["run_key"] = deterministic_run_key(
         strategy_key="frequency_v1",
         as_of_issue=as_of_issue,
@@ -167,13 +226,24 @@ def summarize_target_ranks(
 
 
 def sort_key(summary: dict) -> tuple:
+    reward = summary.get("reward") or reward_summary(summary)
     return (
         summary["top_100_hits"],
         summary["top_1000_hits"],
         summary["top_10000_hits"],
+        reward["objectiveScore"],
         -(summary["median_rank"] or 0),
         -(summary["best_rank"] or 0),
     )
+
+
+def merge_leaderboard(existing: list[dict], candidates: list[dict], *, limit: int = 12) -> list[dict]:
+    by_hash: dict[str, dict] = {item["config_hash"]: item for item in existing}
+    for candidate in candidates:
+        current = by_hash.get(candidate["config_hash"])
+        if current is None or sort_key(candidate) > sort_key(current):
+            by_hash[candidate["config_hash"]] = candidate
+    return sorted(by_hash.values(), key=sort_key, reverse=True)[:limit]
 
 
 def evaluate_configs(
@@ -237,6 +307,7 @@ def evaluate_configs(
             train_window=train_window,
             train_mode=train_mode,
             top_n=top_n,
+            universe_size=len(ranked_universe),
         )
         for config, target_ranks in zip(configs, target_rank_lists, strict=True)
     ]
@@ -330,6 +401,7 @@ def run_supervisor(
 
     base_config = FrequencyRankerConfig()
     best_summary: dict | None = None
+    leaderboard: list[dict] = []
     rounds: list[dict] = []
     status = {
         "run_id": run_id,
@@ -358,7 +430,16 @@ def run_supervisor(
         round_index = 0
         while round_index == 0 or datetime.now() < deadline:
             phase, step = PHASES[round_index % len(PHASES)]
-            configs = tuple(generate_configs(base_config, phase=phase, step=step, max_configs=max_configs_per_round))
+            elite_configs = tuple(FrequencyRankerConfig(**summary["config"]) for summary in leaderboard[:4])
+            configs = tuple(
+                generate_configs(
+                    base_config,
+                    phase=phase,
+                    step=step,
+                    max_configs=max_configs_per_round,
+                    elite_configs=elite_configs,
+                )
+            )
             log(f"round={round_index + 1} phase={phase} step={step} configs={len(configs)} base={config_dict(base_config)}")
             summaries = evaluate_configs(
                 history=selection.history,
@@ -374,6 +455,7 @@ def run_supervisor(
                 round_index=round_index + 1,
             )
             round_best = summaries[0]
+            leaderboard = merge_leaderboard(leaderboard, summaries[: min(8, len(summaries))])
             improved = best_summary is None or sort_key(round_best) > sort_key(best_summary)
             if improved:
                 best_summary = round_best

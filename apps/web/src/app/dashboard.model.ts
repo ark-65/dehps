@@ -70,6 +70,13 @@ export type TrainingResult = {
   best_rank: number;
   worst_rank: number;
   run_key: string;
+  reward: TrainingRewardSummary;
+};
+
+export type TrainingRewardSummary = {
+  hitReward: number;
+  rankPenalty: number;
+  objectiveScore: number;
 };
 
 export type TrainingRoundSummary = {
@@ -79,6 +86,7 @@ export type TrainingRoundSummary = {
   config_count: number;
   improved: boolean;
   best: TrainingResult | null;
+  topResults: TrainingResult[];
 };
 
 export type TrainingProgress = {
@@ -111,6 +119,7 @@ export type TrainingStatusPayload = {
   memoryBudgetGb: number | null;
   universeSize: number | null;
   completedRounds: number;
+  rounds: TrainingRoundSummary[];
   latestRound: TrainingRoundSummary | null;
   recentRounds: TrainingRoundSummary[];
   best: TrainingResult | null;

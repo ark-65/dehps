@@ -68,8 +68,9 @@ export class ResearchService {
     const logTail = logFile ? await this.readTailLines(logFile, normalizedTailLines) : [];
     const latestProgress = this.parseLatestProgress(logTail);
     const serviceUnit = await this.readOptionalText(path.join(logDir, 'training-supervisor.unit'));
-    const rounds = this.roundsValue(rawStatus?.rounds);
-    const best = this.resultValue(rawStatus?.best);
+    const universeSize = this.numberValue(rawStatus?.universe_size);
+    const rounds = this.roundsValue(rawStatus?.rounds, universeSize);
+    const best = this.resultValue(rawStatus?.best, universeSize);
     const pid = this.numberValue(rawStatus?.pid);
     const processAlive = pid === null ? null : this.isProcessAlive(pid);
     const status = this.stringValue(rawStatus?.status) ?? 'not_started';
@@ -93,8 +94,9 @@ export class ResearchService {
       topN: this.numberValue(rawStatus?.top_n),
       workers: this.numberValue(rawStatus?.workers),
       memoryBudgetGb: this.numberValue(rawStatus?.memory_budget_gb),
-      universeSize: this.numberValue(rawStatus?.universe_size),
+      universeSize,
       completedRounds: rounds.length,
+      rounds,
       latestRound: rounds.at(-1) ?? null,
       recentRounds: rounds.slice(-10).reverse(),
       best,
@@ -239,16 +241,16 @@ export class ResearchService {
     return null;
   }
 
-  private roundsValue(value: unknown): TrainingRoundSummary[] {
+  private roundsValue(value: unknown, universeSize: number | null): TrainingRoundSummary[] {
     if (!Array.isArray(value)) {
       return [];
     }
     return value
-      .map((item) => this.roundValue(item))
+      .map((item) => this.roundValue(item, universeSize))
       .filter((item): item is TrainingRoundSummary => item !== null);
   }
 
-  private roundValue(value: unknown): TrainingRoundSummary | null {
+  private roundValue(value: unknown, universeSize: number | null): TrainingRoundSummary | null {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       return null;
     }
@@ -265,11 +267,21 @@ export class ResearchService {
       step,
       config_count: configCount,
       improved: Boolean(row.improved),
-      best: this.resultValue(row.best),
+      best: this.resultValue(row.best, universeSize),
+      topResults: this.resultsValue(row.top_results, universeSize),
     };
   }
 
-  private resultValue(value: unknown): TrainingResult | null {
+  private resultsValue(value: unknown, universeSize: number | null): TrainingResult[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value
+      .map((item) => this.resultValue(item, universeSize))
+      .filter((item): item is TrainingResult => item !== null);
+  }
+
+  private resultValue(value: unknown, universeSize: number | null): TrainingResult | null {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       return null;
     }
@@ -305,6 +317,39 @@ export class ResearchService {
       best_rank: bestRank,
       worst_rank: worstRank,
       run_key: this.stringValue(row.run_key) ?? '',
+      reward: this.rewardSummary({
+        top100Hits,
+        top1000Hits,
+        top10000Hits,
+        medianRank,
+        worstRank,
+        universeSize,
+      }),
+    };
+  }
+
+  private rewardSummary({
+    top100Hits,
+    top1000Hits,
+    top10000Hits,
+    medianRank,
+    worstRank,
+    universeSize,
+  }: {
+    top100Hits: number;
+    top1000Hits: number;
+    top10000Hits: number;
+    medianRank: number;
+    worstRank: number;
+    universeSize: number | null;
+  }) {
+    const safeUniverse = universeSize && universeSize > 0 ? universeSize : 1_107_568;
+    const hitReward = top100Hits * 100 + top1000Hits * 20 + top10000Hits * 5;
+    const rankPenalty = medianRank / safeUniverse + worstRank / safeUniverse / 4;
+    return {
+      hitReward: Number(hitReward.toFixed(6)),
+      rankPenalty: Number(rankPenalty.toFixed(6)),
+      objectiveScore: Number((hitReward - rankPenalty).toFixed(6)),
     };
   }
 

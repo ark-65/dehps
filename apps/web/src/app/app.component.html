@@ -92,6 +92,24 @@
         </div>
       </div>
 
+      <div class="chart-grid">
+        <article class="chart-panel wide-chart">
+          <app-echart [option]="hitTrendOption(training)" height="320px"></app-echart>
+        </article>
+        <article class="chart-panel wide-chart">
+          <app-echart [option]="rewardTrendOption(training)" height="320px"></app-echart>
+        </article>
+        <article class="chart-panel">
+          <app-echart [option]="rankTrendOption(training)" height="320px"></app-echart>
+        </article>
+        <article class="chart-panel">
+          <app-echart [option]="weightTrendOption(training)" height="320px"></app-echart>
+        </article>
+        <article class="chart-panel wide-chart">
+          <app-echart [option]="candidateScatterOption(training)" height="340px"></app-echart>
+        </article>
+      </div>
+
       <div class="training-detail-grid">
         <article class="training-panel">
           <h3>当前最佳权重</h3>
