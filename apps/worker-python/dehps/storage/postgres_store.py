@@ -161,6 +161,16 @@ def load_history(conn: Connection) -> list[tuple[str, tuple[int, ...]]]:
     return [(row[0], tuple(row[1])) for row in rows]
 
 
+def load_history_until(conn: Connection, as_of_issue: str | None) -> list[tuple[str, tuple[int, ...]]]:
+    if not as_of_issue:
+        return load_history(conn)
+    rows = conn.execute(
+        "SELECT issue, red_numbers FROM ssq_history WHERE issue <= %s ORDER BY issue",
+        (as_of_issue,),
+    ).fetchall()
+    return [(row[0], tuple(row[1])) for row in rows]
+
+
 def latest_draw(conn: Connection) -> dict[str, Any] | None:
     with conn.cursor(row_factory=dict_row) as cur:
         row = cur.execute(

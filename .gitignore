@@ -14,3 +14,7 @@ runtime/postgres/
 runtime/redis/
 runtime/logs/
 *.log
+
+# Local optimization analysis artifacts
+data/output/optimization/*.json
+data/output/optimization/*.md

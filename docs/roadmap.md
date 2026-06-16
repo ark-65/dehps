@@ -47,6 +47,7 @@ At the end of each round:
 | 6 | Experiment detail and report viewer | Done | `docs/experiments/round-6-report.md` |
 | 7 | Comparison and distribution review | Done | `docs/experiments/round-7-report.md` |
 | 8 | Candidate generation audit foundation | Done | `docs/experiments/round-8-report.md` |
+| 9 | Walk-forward algorithm ranking skeleton | Done | `docs/experiments/round-9-report.md` |
 
 ## Round 1: Basic Computation And Backtest Loop
 
@@ -233,6 +234,30 @@ Non-goals:
 - Post-draw retuning.
 - Blue-ball prediction.
 - New model training.
+
+## Round 9: Walk-Forward Algorithm Ranking Skeleton
+
+Goal: start deep algorithm optimization by ranking every legal red-ball combination under a no-leakage walk-forward protocol.
+
+Acceptance checklist:
+
+- Add a transparent trainable ranker.
+- Add exact target rank calculation.
+- Track Top 100, Top 1000, and Top 10000 hit counts.
+- Generate Markdown and JSON optimization artifacts.
+- Make full-combination rankings reproducible with `as_of_issue`, `history_fingerprint`, and `config_hash`.
+- Document the algorithm optimization plan.
+- Keep failure results visible instead of tuning around them.
+- Commit the accepted round changes.
+
+Current state: completed as an acceptance round. See `docs/experiments/round-9-report.md`.
+
+Non-goals:
+
+- Promoting `frequency_v1` as a successful model.
+- ECharts dashboard visualization.
+- Large grid search over hundreds of configs.
+- Claiming future predictive ability.
 
 ## Update Policy
 
