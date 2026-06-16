@@ -40,3 +40,9 @@ For long grid searches, progress is printed to stderr. The grid-search runner bu
 ```bash
 python scripts/run_weight_grid_search.py --train-mode expanding --train-window 900 --eval-window 100 --top-n 10000 --as-of-issue 2026067 --workers 16 --progress-interval 10
 ```
+
+Run the adaptive training supervisor:
+
+```bash
+python scripts/run_training_supervisor.py --duration-hours 24 --train-mode expanding --train-window 900 --eval-window 100 --top-n 10000 --as-of-issue 2026067 --workers 16 --progress-interval 10 --max-configs-per-round 20 --memory-budget-gb 20
+```

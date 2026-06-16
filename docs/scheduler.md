@@ -1,11 +1,12 @@
 # Scheduler
 
-双色球通常每周二、四、日开奖。为了避免页面延迟，建议晚上 22:30 或更晚执行。
+双色球通常每周二、四、日开奖。为了避免页面延迟，项目固定在北京时间 23:59 执行同步。
 
 ## Crontab
 
 ```cron
-30 22 * * 2,4,0 cd /path/to/ark-dehps/apps/worker-python && /path/to/ark-dehps/apps/worker-python/.venv/bin/python scripts/daily_pipeline.py --strategy-key baseline_v1 --auto-git >> /path/to/ark-dehps/runtime/logs/daily_pipeline.log 2>&1
+CRON_TZ=Asia/Shanghai
+59 23 * * 2,4,0 cd /path/to/ark-dehps/apps/worker-python && /usr/bin/flock -n /path/to/ark-dehps/runtime/logs/ssq_draw_sync.lock /path/to/ark-dehps/apps/worker-python/.venv/bin/python scripts/daily_pipeline.py --strategy-key baseline_v1 --source zhcw --force >> /path/to/ark-dehps/runtime/logs/ssq_draw_sync.log 2>&1
 ```
 
 ## systemd
@@ -23,7 +24,7 @@ systemctl list-timers dehps-daily-pipeline.timer
 Crontab should append stdout and stderr to:
 
 ```text
-runtime/logs/daily_pipeline.log
+runtime/logs/ssq_draw_sync.log
 ```
 
 For systemd installs, inspect the timer and service with:
