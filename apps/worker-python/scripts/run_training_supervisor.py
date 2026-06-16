@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from collections import Counter
 from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -22,7 +23,7 @@ from dehps.optimization.walk_forward import (
     deterministic_run_key,
     fingerprint_history,
     normalize_worker_count,
-    rank_target_grid,
+    rank_target_grid_with_red5,
 )
 from dehps.storage.postgres_store import load_red_combination_universe
 
@@ -39,6 +40,9 @@ DEFAULT_UNIVERSE_SIZE = 1_107_568
 TOP_100_REWARD = 1000
 TOP_1000_REWARD = 100
 TOP_10000_REWARD = 10
+RED5_TOP_100_REWARD = 5
+RED5_TOP_1000_REWARD = 1
+RED5_TOP_10000_REWARD = 0.2
 PHASES = (
     ("micro", 0.01),
     ("small", 0.03),
@@ -183,13 +187,84 @@ def reward_summary(summary: dict, *, universe_size: int = DEFAULT_UNIVERSE_SIZE)
         + summary["top_1000_hits"] * TOP_1000_REWARD
         + summary["top_10000_hits"] * TOP_10000_REWARD
     )
+    red5 = summary.get("red5") if isinstance(summary.get("red5"), dict) else {}
+    red5_reward = (
+        float(red5.get("top_100_hits") or 0) * RED5_TOP_100_REWARD
+        + float(red5.get("top_1000_hits") or 0) * RED5_TOP_1000_REWARD
+        + float(red5.get("top_10000_hits") or 0) * RED5_TOP_10000_REWARD
+    )
     median_rank = summary.get("median_rank") or safe_universe
     worst_rank = summary.get("worst_rank") or safe_universe
     rank_penalty = median_rank / safe_universe + worst_rank / safe_universe / 4
     return {
         "hitReward": round(hit_reward, 6),
+        "red5Reward": round(red5_reward, 6),
         "rankPenalty": round(rank_penalty, 6),
-        "objectiveScore": round(hit_reward - rank_penalty, 6),
+        "objectiveScore": round(hit_reward + red5_reward - rank_penalty, 6),
+    }
+
+
+def empty_red5_summary() -> dict:
+    return {
+        "top_100_hits": 0,
+        "top_1000_hits": 0,
+        "top_10000_hits": 0,
+        "median_rank": None,
+        "best_rank": None,
+        "missing_counts": {},
+        "extra_counts": {},
+        "pairs": [],
+        "examples": [],
+    }
+
+
+def summarize_red5(target_ranks: list[TargetRank]) -> dict:
+    red5_ranks = [target.red5_rank for target in target_ranks if target.red5_rank is not None]
+    if not red5_ranks:
+        return empty_red5_summary()
+
+    missing_counts: Counter[int] = Counter()
+    extra_counts: Counter[int] = Counter()
+    pair_counts: Counter[tuple[int, int]] = Counter()
+    examples = []
+    for target in target_ranks:
+        if (
+            target.red5_rank is None
+            or target.red5_numbers is None
+            or target.red5_missing_number is None
+            or target.red5_extra_number is None
+        ):
+            continue
+        missing_counts[target.red5_missing_number] += 1
+        extra_counts[target.red5_extra_number] += 1
+        pair_counts[(target.red5_missing_number, target.red5_extra_number)] += 1
+        if target.red5_rank <= 10000:
+            examples.append(
+                {
+                    "issue": target.issue,
+                    "rank": target.red5_rank,
+                    "score": target.red5_score,
+                    "numbers": list(target.red5_numbers),
+                    "missing_number": target.red5_missing_number,
+                    "extra_number": target.red5_extra_number,
+                }
+            )
+
+    examples.sort(key=lambda item: (item["rank"], item["issue"]))
+    pairs = [
+        {"missing_number": missing, "extra_number": extra, "count": count}
+        for (missing, extra), count in pair_counts.most_common(12)
+    ]
+    return {
+        "top_100_hits": sum(target.hit_red5_top_100 for target in target_ranks),
+        "top_1000_hits": sum(target.hit_red5_top_1000 for target in target_ranks),
+        "top_10000_hits": sum(target.hit_red5_top_10000 for target in target_ranks),
+        "median_rank": median(red5_ranks),
+        "best_rank": min(red5_ranks),
+        "missing_counts": {f"{number:02d}": count for number, count in sorted(missing_counts.items())},
+        "extra_counts": {f"{number:02d}": count for number, count in sorted(extra_counts.items())},
+        "pairs": pairs,
+        "examples": examples[:12],
     }
 
 
@@ -217,6 +292,7 @@ def summarize_target_ranks(
         "median_rank": median(ranks) if ranks else None,
         "best_rank": min(ranks) if ranks else None,
         "worst_rank": max(ranks) if ranks else None,
+        "red5": summarize_red5(target_ranks),
     }
     summary["reward"] = reward_summary(summary, universe_size=universe_size)
     summary["run_key"] = deterministic_run_key(
@@ -234,10 +310,14 @@ def summarize_target_ranks(
 
 def sort_key(summary: dict) -> tuple:
     reward = summary.get("reward") or reward_summary(summary)
+    red5 = summary.get("red5") if isinstance(summary.get("red5"), dict) else {}
     return (
         summary["top_100_hits"],
         summary["top_1000_hits"],
         summary["top_10000_hits"],
+        int(red5.get("top_100_hits") or 0),
+        int(red5.get("top_1000_hits") or 0),
+        int(red5.get("top_10000_hits") or 0),
         reward["objectiveScore"],
         -(summary["median_rank"] or 0),
         -(summary["best_rank"] or 0),
@@ -251,6 +331,26 @@ def merge_leaderboard(existing: list[dict], candidates: list[dict], *, limit: in
         if current is None or sort_key(candidate) > sort_key(current):
             by_hash[candidate["config_hash"]] = candidate
     return sorted(by_hash.values(), key=sort_key, reverse=True)[:limit]
+
+
+def normalize_red5_summary(raw_red5: object) -> dict:
+    red5 = empty_red5_summary()
+    if not isinstance(raw_red5, dict):
+        return red5
+    for field in ("top_100_hits", "top_1000_hits", "top_10000_hits"):
+        red5[field] = int(raw_red5.get(field) or 0)
+    for field in ("median_rank", "best_rank"):
+        value = raw_red5.get(field)
+        red5[field] = float(value) if isinstance(value, int | float) else None
+    if isinstance(raw_red5.get("missing_counts"), dict):
+        red5["missing_counts"] = {str(key): int(value) for key, value in raw_red5["missing_counts"].items()}
+    if isinstance(raw_red5.get("extra_counts"), dict):
+        red5["extra_counts"] = {str(key): int(value) for key, value in raw_red5["extra_counts"].items()}
+    if isinstance(raw_red5.get("pairs"), list):
+        red5["pairs"] = [item for item in raw_red5["pairs"] if isinstance(item, dict)]
+    if isinstance(raw_red5.get("examples"), list):
+        red5["examples"] = [item for item in raw_red5["examples"] if isinstance(item, dict)]
+    return red5
 
 
 def normalize_summary(raw_summary: object, *, universe_size: int) -> dict | None:
@@ -273,6 +373,7 @@ def normalize_summary(raw_summary: object, *, universe_size: int) -> dict | None
     summary = dict(raw_summary)
     summary["config"] = {field: float(value) for field, value in raw_summary["config"].items()}
     summary["config_hash"] = summary.get("config_hash") or config_hash(FrequencyRankerConfig(**summary["config"]))
+    summary["red5"] = normalize_red5_summary(summary.get("red5"))
     summary["reward"] = reward_summary(summary, universe_size=universe_size)
     return summary
 
@@ -344,7 +445,7 @@ def evaluate_configs(
         train_start = 0 if train_mode == "expanding" else max(0, target_index - train_window)
         train_history = history[train_start:target_index]
         issue, numbers = history[target_index]
-        ranked_targets = rank_target_grid(
+        ranked_targets = rank_target_grid_with_red5(
             target_numbers=numbers,
             train_history=train_history,
             configs=configs,
@@ -352,7 +453,7 @@ def evaluate_configs(
             workers=workers,
             pool=pool,
         )
-        for config_index, (rank, score) in enumerate(ranked_targets):
+        for config_index, (rank, score, red5_match) in enumerate(ranked_targets):
             target_rank_lists[config_index].append(
                 TargetRank(
                     issue=issue,
@@ -361,6 +462,14 @@ def evaluate_configs(
                     hit_top_100=rank <= 100,
                     hit_top_1000=rank <= 1000,
                     hit_top_10000=rank <= 10000,
+                    red5_rank=red5_match.rank if red5_match else None,
+                    red5_score=red5_match.score if red5_match else None,
+                    red5_numbers=red5_match.numbers if red5_match else None,
+                    red5_missing_number=red5_match.missing_number if red5_match else None,
+                    red5_extra_number=red5_match.extra_number if red5_match else None,
+                    hit_red5_top_100=red5_match is not None and red5_match.rank <= 100,
+                    hit_red5_top_1000=red5_match is not None and red5_match.rank <= 1000,
+                    hit_red5_top_10000=red5_match is not None and red5_match.rank <= 10000,
                 )
             )
         if progress_interval > 0 and (
@@ -399,6 +508,7 @@ def write_report(report_path: Path, status: dict) -> None:
         (
             f"| {round_info['round']} | {round_info['phase']} | {round_info['best']['top_10000_hits']} | "
             f"{round_info['best']['top_1000_hits']} | {round_info['best']['top_100_hits']} | "
+            f"{round_info['best']['red5']['top_100_hits']} | {round_info['best']['red5']['top_10000_hits']} | "
             f"{round_info['best']['median_rank']} | `{json.dumps(round_info['best']['config'], sort_keys=True)}` |"
         )
         for round_info in status["rounds"]
@@ -428,8 +538,8 @@ def write_report(report_path: Path, status: dict) -> None:
 
 ## Rounds
 
-| Round | Phase | Top10000 | Top1000 | Top100 | Median rank | Config |
-| --- | --- | --- | --- | --- | --- | --- |
+| Round | Phase | Top10000 | Top1000 | Top100 | Red5 Top100 | Red5 Top10000 | Median rank | Config |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
 {rounds}
 
 ## Guardrail

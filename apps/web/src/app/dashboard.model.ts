@@ -69,12 +69,41 @@ export type TrainingResult = {
   median_rank: number;
   best_rank: number;
   worst_rank: number;
+  red5: TrainingRedFiveSummary;
   run_key: string;
   reward: TrainingRewardSummary;
 };
 
+export type TrainingRedFiveSummary = {
+  top_100_hits: number;
+  top_1000_hits: number;
+  top_10000_hits: number;
+  median_rank: number | null;
+  best_rank: number | null;
+  missing_counts: Record<string, number>;
+  extra_counts: Record<string, number>;
+  pairs: TrainingRedFivePair[];
+  examples: TrainingRedFiveExample[];
+};
+
+export type TrainingRedFivePair = {
+  missing_number: number;
+  extra_number: number;
+  count: number;
+};
+
+export type TrainingRedFiveExample = {
+  issue: string;
+  rank: number;
+  score: number | null;
+  numbers: number[];
+  missing_number: number;
+  extra_number: number;
+};
+
 export type TrainingRewardSummary = {
   hitReward: number;
+  red5Reward: number;
   rankPenalty: number;
   objectiveScore: number;
 };

@@ -207,7 +207,21 @@ export class AppComponent {
     if (!result) {
       return '暂无结果';
     }
-    return `Top10000 ${result.top_10000_hits}/${result.evaluated_draws}，Top1000 ${result.top_1000_hits}/${result.evaluated_draws}，最佳排名 ${result.best_rank}`;
+    return `Top10000 ${result.top_10000_hits}/${result.evaluated_draws}，Top1000 ${result.top_1000_hits}/${result.evaluated_draws}，红5Top100 ${result.red5.top_100_hits}/${result.evaluated_draws}，最佳排名 ${result.best_rank}`;
+  }
+
+  redFivePairText(result: TrainingResult | null): string {
+    const pairs = result?.red5.pairs ?? [];
+    if (!pairs.length) {
+      return '暂无红5差异样本';
+    }
+    return pairs
+      .slice(0, 4)
+      .map(
+        (pair) =>
+          `真实缺 ${this.ballText(pair.missing_number)} / 候选多 ${this.ballText(pair.extra_number)}：${pair.count} 次`,
+      )
+      .join('，');
   }
 
   hitTrendOption(status: TrainingStatusPayload): ChartOption {
@@ -248,7 +262,7 @@ export class AppComponent {
     const xAxis = rounds.map((round) => `R${round.round}`);
     return {
       title: { text: '奖惩机制', left: 12, top: 8, textStyle: { fontSize: 14, fontWeight: 700 } },
-      color: ['#327857', '#b5413f', '#4472a5'],
+      color: ['#327857', '#987a24', '#b5413f', '#4472a5'],
       tooltip: { trigger: 'axis' },
       legend: { top: 8, right: 12 },
       grid: { left: 48, right: 24, top: 58, bottom: 42 },
@@ -262,6 +276,12 @@ export class AppComponent {
           data: rounds.map((round) => round.best?.reward.hitReward ?? 0),
         },
         {
+          name: '红5近似奖励',
+          type: 'bar',
+          stack: 'reward',
+          data: rounds.map((round) => round.best?.reward.red5Reward ?? 0),
+        },
+        {
           name: '排名惩罚',
           type: 'bar',
           stack: 'reward',
@@ -273,6 +293,48 @@ export class AppComponent {
           smooth: true,
           symbolSize: 7,
           data: rounds.map((round) => round.best?.reward.objectiveScore ?? 0),
+        },
+      ],
+    };
+  }
+
+  redFiveTrendOption(status: TrainingStatusPayload): ChartOption {
+    const rounds = this.chartRounds(status);
+    const xAxis = rounds.map((round) => `R${round.round}`);
+    return this.baseLineOption({
+      title: '红5近似命中',
+      xAxis,
+      yName: '命中期数',
+      series: [
+        this.lineSeries('红5 Top100', rounds.map((round) => round.best?.red5.top_100_hits ?? 0), '#987a24'),
+        this.lineSeries('红5 Top1000', rounds.map((round) => round.best?.red5.top_1000_hits ?? 0), '#4472a5'),
+        this.lineSeries('红5 Top10000', rounds.map((round) => round.best?.red5.top_10000_hits ?? 0), '#327857'),
+      ],
+    });
+  }
+
+  redFiveDifferenceOption(result: TrainingResult | null): ChartOption {
+    const numbers = Array.from({ length: 33 }, (_, index) => this.ballText(index + 1));
+    const missingCounts = result?.red5.missing_counts ?? {};
+    const extraCounts = result?.red5.extra_counts ?? {};
+    return {
+      title: { text: '红5差异号分布', left: 12, top: 8, textStyle: { fontSize: 14, fontWeight: 700 } },
+      color: ['#b5413f', '#4472a5'],
+      tooltip: { trigger: 'axis' },
+      legend: { top: 8, right: 12 },
+      grid: { left: 48, right: 24, top: 58, bottom: 42 },
+      xAxis: { type: 'category', data: numbers },
+      yAxis: { type: 'value', name: '次数' },
+      series: [
+        {
+          name: '真实缺失号',
+          type: 'bar',
+          data: numbers.map((number) => missingCounts[number] ?? 0),
+        },
+        {
+          name: '候选多选号',
+          type: 'bar',
+          data: numbers.map((number) => extraCounts[number] ?? 0),
         },
       ],
     };
@@ -310,6 +372,7 @@ export class AppComponent {
         result.median_rank,
         result.top_10000_hits,
         result.top_1000_hits,
+        result.red5.top_100_hits,
         index + 1,
         result.reward.objectiveScore,
       ]),
@@ -321,7 +384,7 @@ export class AppComponent {
         trigger: 'item',
         formatter: (params: unknown) => {
           const value = (params as { value?: unknown[] }).value ?? [];
-          return `轮次 R${value[0]}<br/>候选 #${value[4]}<br/>中位排名 ${value[1]}<br/>Top10000 ${value[2]} / Top1000 ${value[3]}<br/>综合分 ${value[5]}`;
+          return `轮次 R${value[0]}<br/>候选 #${value[5]}<br/>中位排名 ${value[1]}<br/>Top10000 ${value[2]} / Top1000 ${value[3]}<br/>红5Top100 ${value[4]}<br/>综合分 ${value[6]}`;
         },
       },
       grid: { left: 62, right: 24, top: 58, bottom: 42 },
@@ -336,6 +399,10 @@ export class AppComponent {
         },
       ],
     };
+  }
+
+  private ballText(number: number): string {
+    return number.toString().padStart(2, '0');
   }
 
   private configLabel(key: string): string {

@@ -9,6 +9,7 @@ from dehps.optimization.walk_forward import (
     random_uniform_baseline,
     rank_target,
     rank_target_grid,
+    rank_target_grid_with_red5,
     run_walk_forward,
 )
 
@@ -188,6 +189,38 @@ def test_rank_target_grid_matches_individual_rank_target():
     ]
 
     assert grid == individual
+
+
+def test_rank_target_grid_with_red5_reports_nearest_difference_number():
+    target = (1, 2, 3, 4, 5, 8)
+    near_match = (1, 2, 3, 4, 5, 6)
+    universe = [
+        target,
+        near_match,
+        (7, 8, 9, 10, 11, 12),
+        (13, 14, 15, 16, 17, 18),
+    ]
+    train_history = [
+        ("001", (7, 8, 9, 10, 11, 12)),
+        ("002", (13, 14, 15, 16, 17, 18)),
+    ]
+    configs = (FrequencyRankerConfig(),)
+
+    grid = rank_target_grid_with_red5(
+        target_numbers=target,
+        train_history=train_history,
+        configs=configs,
+        ranked_universe=build_ranked_universe(universe),
+    )
+
+    rank, score, red5 = grid[0]
+    assert isinstance(rank, int)
+    assert isinstance(score, float)
+    assert red5 is not None
+    assert red5.numbers == near_match
+    assert red5.missing_number == 8
+    assert red5.extra_number == 6
+    assert 1 <= red5.rank <= len(universe)
 
 
 def test_random_uniform_baseline_is_analytical_only():

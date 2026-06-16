@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 
 from dehps.models.frequency_ranker import FrequencyRankerConfig
+from dehps.optimization.walk_forward import TargetRank
 from scripts.run_training_supervisor import (
     config_hash,
     generate_configs,
     load_prior_supervisor_candidates,
     reward_summary,
     sort_key,
+    summarize_target_ranks,
 )
 
 
@@ -99,6 +101,71 @@ def test_reward_summary_penalizes_worse_rank_inside_same_hit_counts():
 
     assert reward_summary(better_rank)["objectiveScore"] > reward_summary(worse_rank)["objectiveScore"]
     assert sort_key(better_rank) > sort_key(worse_rank)
+
+
+def test_red5_reward_is_low_weight_and_cannot_override_exact_top1000():
+    red5_top100_heavy = {
+        "top_100_hits": 0,
+        "top_1000_hits": 0,
+        "top_10000_hits": 3,
+        "median_rank": 400000,
+        "best_rank": 3000,
+        "worst_rank": 900000,
+        "red5": {"top_100_hits": 20, "top_1000_hits": 35, "top_10000_hits": 80},
+    }
+    exact_top1000 = {
+        "top_100_hits": 0,
+        "top_1000_hits": 1,
+        "top_10000_hits": 3,
+        "median_rank": 650000,
+        "best_rank": 864,
+        "worst_rank": 1_096_000,
+        "red5": {"top_100_hits": 0, "top_1000_hits": 0, "top_10000_hits": 0},
+    }
+
+    assert reward_summary(red5_top100_heavy)["red5Reward"] > 0
+    assert reward_summary(red5_top100_heavy)["hitReward"] == 30
+    assert sort_key(exact_top1000) > sort_key(red5_top100_heavy)
+
+
+def test_summarize_target_ranks_counts_red5_difference_numbers():
+    config = FrequencyRankerConfig()
+    target_ranks = [
+        TargetRank(
+            issue="2026001",
+            rank=12000,
+            score=0.5,
+            hit_top_100=False,
+            hit_top_1000=False,
+            hit_top_10000=False,
+            red5_rank=88,
+            red5_score=0.6,
+            red5_numbers=(1, 2, 3, 4, 5, 7),
+            red5_missing_number=6,
+            red5_extra_number=7,
+            hit_red5_top_100=True,
+            hit_red5_top_1000=True,
+            hit_red5_top_10000=True,
+        )
+    ]
+
+    summary = summarize_target_ranks(
+        target_ranks=target_ranks,
+        config=config,
+        as_of_issue="2026001",
+        history_fingerprint_value="history-1",
+        train_window=900,
+        train_mode="expanding",
+        top_n=10000,
+        universe_size=1_107_568,
+    )
+
+    assert summary["red5"]["top_100_hits"] == 1
+    assert summary["red5"]["missing_counts"] == {"06": 1}
+    assert summary["red5"]["extra_counts"] == {"07": 1}
+    assert summary["red5"]["pairs"] == [{"missing_number": 6, "extra_number": 7, "count": 1}]
+    assert summary["red5"]["examples"][0]["issue"] == "2026001"
+    assert summary["reward"]["red5Reward"] > 0
 
 
 def test_load_prior_supervisor_candidates_keeps_same_protocol_global_best(tmp_path):

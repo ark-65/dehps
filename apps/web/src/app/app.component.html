@@ -87,6 +87,16 @@
           <small>{{ training.best ? hitRate(training.best.top_100_hits, training.best.evaluated_draws) : '0.00%' }}</small>
         </article>
         <article class="metric-card">
+          <span>红5 Top100</span>
+          <strong>{{ training.best ? training.best.red5.top_100_hits + '/' + training.best.evaluated_draws : '无' }}</strong>
+          <small>{{ training.best ? hitRate(training.best.red5.top_100_hits, training.best.evaluated_draws) : '0.00%' }}</small>
+        </article>
+        <article class="metric-card">
+          <span>红5 Top10000</span>
+          <strong>{{ training.best ? training.best.red5.top_10000_hits + '/' + training.best.evaluated_draws : '无' }}</strong>
+          <small>{{ training.best ? hitRate(training.best.red5.top_10000_hits, training.best.evaluated_draws) : '0.00%' }}</small>
+        </article>
+        <article class="metric-card">
           <span>最佳排名</span>
           <strong>{{ training.best ? (training.best.best_rank | number: '1.0-0') : '无' }}</strong>
           <small>中位排名 {{ training.best ? (training.best.median_rank | number: '1.0-0') : '无' }}</small>
@@ -118,6 +128,12 @@
           <app-echart [option]="rewardTrendOption(training)" height="320px"></app-echart>
         </article>
         <article class="chart-panel">
+          <app-echart [option]="redFiveTrendOption(training)" height="320px"></app-echart>
+        </article>
+        <article class="chart-panel">
+          <app-echart [option]="redFiveDifferenceOption(training.best)" height="320px"></app-echart>
+        </article>
+        <article class="chart-panel">
           <app-echart [option]="rankTrendOption(training)" height="320px"></app-echart>
         </article>
         <article class="chart-panel">
@@ -144,6 +160,10 @@
             <div>
               <dt>配置哈希</dt>
               <dd>{{ training.best?.config_hash || '无' }}</dd>
+            </div>
+            <div>
+              <dt>红5差异号</dt>
+              <dd>{{ redFivePairText(training.best) }}</dd>
             </div>
           </dl>
         </article>

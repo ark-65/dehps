@@ -42,6 +42,23 @@ class TargetRank:
     hit_top_100: bool
     hit_top_1000: bool
     hit_top_10000: bool
+    red5_rank: int | None = None
+    red5_score: float | None = None
+    red5_numbers: tuple[int, ...] | None = None
+    red5_missing_number: int | None = None
+    red5_extra_number: int | None = None
+    hit_red5_top_100: bool = False
+    hit_red5_top_1000: bool = False
+    hit_red5_top_10000: bool = False
+
+
+@dataclass(frozen=True)
+class RedFiveMatch:
+    rank: int
+    score: float
+    numbers: tuple[int, ...]
+    missing_number: int
+    extra_number: int
 
 
 @dataclass(frozen=True)
@@ -98,6 +115,14 @@ class WalkForwardResult:
                     "hit_top_100": rank.hit_top_100,
                     "hit_top_1000": rank.hit_top_1000,
                     "hit_top_10000": rank.hit_top_10000,
+                    "red5_rank": rank.red5_rank,
+                    "red5_score": rank.red5_score,
+                    "red5_numbers": rank.red5_numbers,
+                    "red5_missing_number": rank.red5_missing_number,
+                    "red5_extra_number": rank.red5_extra_number,
+                    "hit_red5_top_100": rank.hit_red5_top_100,
+                    "hit_red5_top_1000": rank.hit_red5_top_1000,
+                    "hit_red5_top_10000": rank.hit_red5_top_10000,
                 }
                 for rank in self.target_ranks
             ],
@@ -331,6 +356,73 @@ def _rank_grid_chunk(
     return better, equal_before
 
 
+def _candidate_sort_key(score: float, numbers: tuple[int, ...]) -> tuple[float, tuple[int, ...]]:
+    return score, tuple(-number for number in numbers)
+
+
+def _is_better_candidate(
+    candidate: tuple[float, tuple[int, ...]] | None,
+    current: tuple[float, tuple[int, ...]] | None,
+) -> bool:
+    if candidate is None:
+        return False
+    if current is None:
+        return True
+    return _candidate_sort_key(candidate[0], candidate[1]) > _candidate_sort_key(current[0], current[1])
+
+
+def _rank_grid_red5_chunk(
+    args: tuple[int, int, tuple[int, ...], tuple[float, ...], FrequencyStats, tuple[FrequencyRankerConfig, ...]],
+) -> tuple[list[int], list[int], list[tuple[float, tuple[int, ...]] | None]]:
+    start, end, target_numbers, target_scores, stats, configs = args
+    target_set = set(target_numbers)
+    better = [0 for _ in configs]
+    equal_before = [0 for _ in configs]
+    best_red5: list[tuple[float, tuple[int, ...]] | None] = [None for _ in configs]
+    for entry in _WORKER_UNIVERSE[start:end]:
+        components = score_components_for_entry(entry, stats)
+        red_overlap = sum(1 for number in entry.numbers if number in target_set)
+        for index, config in enumerate(configs):
+            score = score_from_components(components, config)
+            if score > target_scores[index]:
+                better[index] += 1
+            elif score == target_scores[index] and entry.numbers < target_numbers:
+                equal_before[index] += 1
+            if red_overlap == 5:
+                candidate = (score, entry.numbers)
+                if _is_better_candidate(candidate, best_red5[index]):
+                    best_red5[index] = candidate
+    return better, equal_before, best_red5
+
+
+def _rank_specific_grid_chunk(
+    args: tuple[
+        int,
+        int,
+        tuple[tuple[int, ...] | None, ...],
+        tuple[float | None, ...],
+        FrequencyStats,
+        tuple[FrequencyRankerConfig, ...],
+    ],
+) -> tuple[list[int], list[int]]:
+    start, end, candidate_numbers, candidate_scores, stats, configs = args
+    better = [0 for _ in configs]
+    equal_before = [0 for _ in configs]
+    for entry in _WORKER_UNIVERSE[start:end]:
+        components = score_components_for_entry(entry, stats)
+        for index, config in enumerate(configs):
+            numbers = candidate_numbers[index]
+            score_threshold = candidate_scores[index]
+            if numbers is None or score_threshold is None:
+                continue
+            score = score_from_components(components, config)
+            if score > score_threshold:
+                better[index] += 1
+            elif score == score_threshold and entry.numbers < numbers:
+                equal_before[index] += 1
+    return better, equal_before
+
+
 def _top_chunk(args: tuple[int, int, int, FrequencyStats, FrequencyRankerConfig]) -> list[tuple[float, tuple[int, ...]]]:
     start, end, top_n, stats, config = args
     ranked = nlargest(
@@ -418,6 +510,103 @@ def rank_target_grid(
             elif score == target_scores[index] and entry.numbers < target_numbers:
                 equal_before[index] += 1
     return [(better[index] + equal_before[index] + 1, target_scores[index]) for index in range(len(configs))]
+
+
+def rank_target_grid_with_red5(
+    *,
+    target_numbers: tuple[int, ...],
+    train_history: list[tuple[str, tuple[int, ...]]],
+    configs: tuple[FrequencyRankerConfig, ...],
+    ranked_universe: list[RankedUniverseEntry],
+    workers: int = 1,
+    pool: Pool | None = None,
+) -> list[tuple[int, float, RedFiveMatch | None]]:
+    stats = train_frequency_stats(train_history)
+    target_components = score_components_for_numbers(target_numbers, stats)
+    target_scores = tuple(score_from_components(target_components, config) for config in configs)
+    worker_count = normalize_worker_count(workers)
+
+    better = [0 for _ in configs]
+    equal_before = [0 for _ in configs]
+    best_red5: list[tuple[float, tuple[int, ...]] | None] = [None for _ in configs]
+
+    if worker_count > 1 and pool is not None:
+        ranges = chunk_ranges(len(ranked_universe), worker_count)
+        partials = pool.map(
+            _rank_grid_red5_chunk,
+            [(start, end, target_numbers, target_scores, stats, configs) for start, end in ranges],
+        )
+        for partial_better, partial_equal_before, partial_red5 in partials:
+            for index in range(len(configs)):
+                better[index] += partial_better[index]
+                equal_before[index] += partial_equal_before[index]
+                if _is_better_candidate(partial_red5[index], best_red5[index]):
+                    best_red5[index] = partial_red5[index]
+    else:
+        target_set = set(target_numbers)
+        for entry in ranked_universe:
+            components = score_components_for_entry(entry, stats)
+            red_overlap = sum(1 for number in entry.numbers if number in target_set)
+            for index, config in enumerate(configs):
+                score = score_from_components(components, config)
+                if score > target_scores[index]:
+                    better[index] += 1
+                elif score == target_scores[index] and entry.numbers < target_numbers:
+                    equal_before[index] += 1
+                if red_overlap == 5:
+                    candidate = (score, entry.numbers)
+                    if _is_better_candidate(candidate, best_red5[index]):
+                        best_red5[index] = candidate
+
+    red5_numbers = tuple(candidate[1] if candidate else None for candidate in best_red5)
+    red5_scores = tuple(candidate[0] if candidate else None for candidate in best_red5)
+    red5_better = [0 for _ in configs]
+    red5_equal_before = [0 for _ in configs]
+    if any(candidate is not None for candidate in best_red5):
+        if worker_count > 1 and pool is not None:
+            ranges = chunk_ranges(len(ranked_universe), worker_count)
+            partials = pool.map(
+                _rank_specific_grid_chunk,
+                [(start, end, red5_numbers, red5_scores, stats, configs) for start, end in ranges],
+            )
+            for partial_better, partial_equal_before in partials:
+                for index in range(len(configs)):
+                    red5_better[index] += partial_better[index]
+                    red5_equal_before[index] += partial_equal_before[index]
+        else:
+            for entry in ranked_universe:
+                components = score_components_for_entry(entry, stats)
+                for index, config in enumerate(configs):
+                    numbers = red5_numbers[index]
+                    score_threshold = red5_scores[index]
+                    if numbers is None or score_threshold is None:
+                        continue
+                    score = score_from_components(components, config)
+                    if score > score_threshold:
+                        red5_better[index] += 1
+                    elif score == score_threshold and entry.numbers < numbers:
+                        red5_equal_before[index] += 1
+
+    target_set = set(target_numbers)
+    results: list[tuple[int, float, RedFiveMatch | None]] = []
+    for index, target_score in enumerate(target_scores):
+        match = None
+        candidate_numbers = red5_numbers[index]
+        candidate_score = red5_scores[index]
+        if candidate_numbers is not None and candidate_score is not None:
+            candidate_set = set(candidate_numbers)
+            missing = sorted(target_set - candidate_set)
+            extra = sorted(candidate_set - target_set)
+            if len(missing) == 1 and len(extra) == 1:
+                match = RedFiveMatch(
+                    rank=red5_better[index] + red5_equal_before[index] + 1,
+                    score=candidate_score,
+                    numbers=candidate_numbers,
+                    missing_number=missing[0],
+                    extra_number=extra[0],
+                )
+        results.append((better[index] + equal_before[index] + 1, target_score, match))
+    return results
 
 
 def rank_target_structural(

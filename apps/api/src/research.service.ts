@@ -23,6 +23,9 @@ const RUNTIME_LOG_DIR = 'runtime/logs';
 const TOP_100_REWARD = 1000;
 const TOP_1000_REWARD = 100;
 const TOP_10000_REWARD = 10;
+const RED5_TOP_100_REWARD = 5;
+const RED5_TOP_1000_REWARD = 1;
+const RED5_TOP_10000_REWARD = 0.2;
 
 @Injectable()
 export class ResearchService {
@@ -296,6 +299,7 @@ export class ResearchService {
     const medianRank = this.numberValue(row.median_rank);
     const bestRank = this.numberValue(row.best_rank);
     const worstRank = this.numberValue(row.worst_rank);
+    const red5 = this.redFiveValue(row.red5);
     if (
       evaluatedDraws === null ||
       top100Hits === null ||
@@ -319,11 +323,13 @@ export class ResearchService {
       median_rank: medianRank,
       best_rank: bestRank,
       worst_rank: worstRank,
+      red5,
       run_key: this.stringValue(row.run_key) ?? '',
       reward: this.rewardSummary({
         top100Hits,
         top1000Hits,
         top10000Hits,
+        red5,
         medianRank,
         worstRank,
         universeSize,
@@ -331,10 +337,95 @@ export class ResearchService {
     };
   }
 
+  private redFiveValue(value: unknown) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return this.emptyRedFive();
+    }
+    const row = value as Record<string, unknown>;
+    return {
+      top_100_hits: this.numberValue(row.top_100_hits) ?? 0,
+      top_1000_hits: this.numberValue(row.top_1000_hits) ?? 0,
+      top_10000_hits: this.numberValue(row.top_10000_hits) ?? 0,
+      median_rank: this.numberValue(row.median_rank),
+      best_rank: this.numberValue(row.best_rank),
+      missing_counts: this.numericRecordValue(row.missing_counts),
+      extra_counts: this.numericRecordValue(row.extra_counts),
+      pairs: this.redFivePairsValue(row.pairs),
+      examples: this.redFiveExamplesValue(row.examples),
+    };
+  }
+
+  private emptyRedFive() {
+    return {
+      top_100_hits: 0,
+      top_1000_hits: 0,
+      top_10000_hits: 0,
+      median_rank: null,
+      best_rank: null,
+      missing_counts: {},
+      extra_counts: {},
+      pairs: [],
+      examples: [],
+    };
+  }
+
+  private redFivePairsValue(value: unknown) {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value
+      .map((item) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+          return null;
+        }
+        const row = item as Record<string, unknown>;
+        const missingNumber = this.numberValue(row.missing_number);
+        const extraNumber = this.numberValue(row.extra_number);
+        const count = this.numberValue(row.count);
+        return missingNumber === null || extraNumber === null || count === null
+          ? null
+          : { missing_number: missingNumber, extra_number: extraNumber, count };
+      })
+      .filter((item): item is { missing_number: number; extra_number: number; count: number } => item !== null);
+  }
+
+  private redFiveExamplesValue(value: unknown) {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value
+      .map((item) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+          return null;
+        }
+        const row = item as Record<string, unknown>;
+        const issue = this.stringValue(row.issue);
+        const rank = this.numberValue(row.rank);
+        const score = this.numberValue(row.score);
+        const missingNumber = this.numberValue(row.missing_number);
+        const extraNumber = this.numberValue(row.extra_number);
+        const numbers = this.numberArrayValue(row.numbers);
+        return issue === null || rank === null || missingNumber === null || extraNumber === null
+          ? null
+          : { issue, rank, score, numbers, missing_number: missingNumber, extra_number: extraNumber };
+      })
+      .filter(
+        (item): item is {
+          issue: string;
+          rank: number;
+          score: number | null;
+          numbers: number[];
+          missing_number: number;
+          extra_number: number;
+        } => item !== null,
+      );
+  }
+
   private rewardSummary({
     top100Hits,
     top1000Hits,
     top10000Hits,
+    red5,
     medianRank,
     worstRank,
     universeSize,
@@ -342,17 +433,27 @@ export class ResearchService {
     top100Hits: number;
     top1000Hits: number;
     top10000Hits: number;
+    red5: {
+      top_100_hits: number;
+      top_1000_hits: number;
+      top_10000_hits: number;
+    };
     medianRank: number;
     worstRank: number;
     universeSize: number | null;
   }) {
     const safeUniverse = universeSize && universeSize > 0 ? universeSize : 1_107_568;
     const hitReward = top100Hits * TOP_100_REWARD + top1000Hits * TOP_1000_REWARD + top10000Hits * TOP_10000_REWARD;
+    const red5Reward =
+      red5.top_100_hits * RED5_TOP_100_REWARD +
+      red5.top_1000_hits * RED5_TOP_1000_REWARD +
+      red5.top_10000_hits * RED5_TOP_10000_REWARD;
     const rankPenalty = medianRank / safeUniverse + worstRank / safeUniverse / 4;
     return {
       hitReward: Number(hitReward.toFixed(6)),
+      red5Reward: Number(red5Reward.toFixed(6)),
       rankPenalty: Number(rankPenalty.toFixed(6)),
-      objectiveScore: Number((hitReward - rankPenalty).toFixed(6)),
+      objectiveScore: Number((hitReward + red5Reward - rankPenalty).toFixed(6)),
     };
   }
 
@@ -373,6 +474,15 @@ export class ResearchService {
 
   private numberValue(value: unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  }
+
+  private numberArrayValue(value: unknown): number[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value
+      .map((item) => this.numberValue(item))
+      .filter((item): item is number => item !== null);
   }
 
   private isProcessAlive(pid: number): boolean {
