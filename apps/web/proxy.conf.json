@@ -18,5 +18,9 @@
   "/feature-distributions": {
     "target": "http://localhost:3000",
     "secure": false
+  },
+  "/training-status": {
+    "target": "http://localhost:3000",
+    "secure": false
   }
 }

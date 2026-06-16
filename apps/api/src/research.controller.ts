@@ -39,4 +39,9 @@ export class ResearchController {
   featureDistributions() {
     return this.researchService.listFeatureDistributions();
   }
+
+  @Get('training-status')
+  trainingStatus(@Query('lines') lines?: string) {
+    return this.researchService.trainingStatus(Number(lines));
+  }
 }

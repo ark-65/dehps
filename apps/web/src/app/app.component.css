@@ -79,6 +79,7 @@ h2 {
 .detail-workbench,
 .comparison-workbench,
 .feature-distributions,
+.training-monitor,
 .panel {
   background: #ffffff;
   border: 1px solid #d9dee3;
@@ -86,6 +87,10 @@ h2 {
 }
 
 .experiments {
+  margin-bottom: 18px;
+}
+
+.training-monitor {
   margin-bottom: 18px;
 }
 
@@ -230,6 +235,150 @@ select {
   height: 100%;
   min-width: 2px;
   background: #4472a5;
+}
+
+.training-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px;
+}
+
+.metric-card {
+  display: grid;
+  align-content: center;
+  min-width: 0;
+  min-height: 110px;
+  padding: 12px;
+  border: 1px solid #e3e7eb;
+  border-radius: 6px;
+  background: #fbfcfd;
+}
+
+.metric-card.status-card {
+  border-left: 4px solid #327857;
+}
+
+.metric-card span,
+.training-panel dt,
+.progress-copy span {
+  color: #64717d;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.metric-card strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 1.45rem;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.metric-card small {
+  display: block;
+  margin-top: 8px;
+  color: #64717d;
+  overflow-wrap: anywhere;
+}
+
+.training-progress {
+  display: grid;
+  gap: 10px;
+  padding: 0 16px 16px;
+}
+
+.progress-copy {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.progress-copy strong,
+.progress-copy span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.wide-bar-track {
+  height: 18px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e9edf1;
+}
+
+.wide-bar-fill {
+  height: 100%;
+  min-width: 2px;
+  background: #327857;
+}
+
+.training-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 0 16px 16px;
+}
+
+.training-panel {
+  min-width: 0;
+  border: 1px solid #e3e7eb;
+  border-radius: 6px;
+  background: #fbfcfd;
+}
+
+.training-panel h3 {
+  margin: 0;
+  padding: 12px;
+  border-bottom: 1px solid #edf0f2;
+  font-size: 0.95rem;
+  letter-spacing: 0;
+}
+
+.training-panel p {
+  margin: 0;
+  padding: 12px;
+  color: #364556;
+  line-height: 1.5;
+}
+
+.training-panel dl {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+.training-panel dl div {
+  min-width: 0;
+  padding: 10px 12px;
+  border-top: 1px solid #edf0f2;
+}
+
+.training-panel dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.compact-table {
+  max-height: 340px;
+  border-top: 1px solid #edf0f2;
+}
+
+.compact-table table {
+  min-width: 760px;
+}
+
+.log-panel pre {
+  max-height: 340px;
+  margin: 0;
+  overflow: auto;
+  padding: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #17334d;
+  line-height: 1.45;
 }
 
 .detail-grid {
@@ -529,8 +678,15 @@ em {
 
   .comparison-controls,
   .comparison-grid,
+  .training-detail-grid,
+  .training-grid,
   .feature-grid {
     grid-template-columns: 1fr;
+  }
+
+  .progress-copy {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .detail-grid {

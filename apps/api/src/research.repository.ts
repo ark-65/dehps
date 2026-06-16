@@ -149,7 +149,7 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
     const definitions = [
       {
         featureKey: 'sum_value',
-        label: 'Sum Value',
+        label: '和值',
         expression: `
           CASE
             WHEN sum_value < 70 THEN '<70'
@@ -171,7 +171,7 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
       },
       {
         featureKey: 'span_value',
-        label: 'Span Value',
+        label: '跨度',
         expression: `
           CASE
             WHEN span_value < 12 THEN '<12'
@@ -193,13 +193,13 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
       },
       {
         featureKey: 'odd_count',
-        label: 'Odd Count',
+        label: '奇数个数',
         expression: 'odd_count::text',
         orderExpression: 'odd_count',
       },
       {
         featureKey: 'consecutive_pair_count',
-        label: 'Consecutive Pairs',
+        label: '连号对数',
         expression: 'consecutive_pair_count::text',
         orderExpression: 'consecutive_pair_count',
       },

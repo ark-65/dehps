@@ -2,48 +2,196 @@
 <main class="shell">
   <header class="topbar">
     <div>
-      <p class="eyebrow">DEHPS research operations</p>
-      <h1>Experiment Dashboard</h1>
+      <p class="eyebrow">DEHPS 研究作业台</p>
+      <h1>双色球红球训练监控</h1>
     </div>
-    <button class="refresh" type="button" (click)="refresh()" title="Reload dashboard data">
-      Refresh
+    <button class="refresh" type="button" (click)="refresh()" title="重新加载仪表盘数据">
+      刷新
     </button>
   </header>
 
   <section class="status-band" [ngClass]="state.status">
     @if (state.status === 'loading') {
-      <span>Loading dashboard data...</span>
+      <span>正在加载仪表盘数据...</span>
     } @else if (state.status === 'error') {
       <span>{{ state.message }}</span>
     } @else {
       <span>{{ state.latestStatus }}</span>
       <strong>{{ state.payload.experiments.length }}</strong>
-      <span>experiments</span>
+      <span>个实验</span>
       <strong>{{ state.payload.pipelineRuns.length }}</strong>
-      <span>pipeline runs</span>
+      <span>条流水线</span>
       <strong>{{ state.payload.syncRuns.length }}</strong>
-      <span>sync runs</span>
+      <span>条同步记录</span>
+      <strong>{{ state.payload.trainingStatus.completedRounds }}</strong>
+      <span>轮训练</span>
     }
   </section>
 
   @if (state.status === 'ready') {
+    @let training = state.payload.trainingStatus;
+    <section class="training-monitor">
+      <div class="section-heading">
+        <h2>训练监控</h2>
+        <span>{{ training.updatedAt ? (training.updatedAt | date: 'yyyy-MM-dd HH:mm:ss') : '暂无状态更新时间' }}</span>
+      </div>
+
+      <div class="training-grid">
+        <article class="metric-card status-card">
+          <span>运行状态</span>
+          <strong>{{ trainingStatusText(training) }}</strong>
+          <small>{{ processText(training) }} / PID {{ training.pid || '无' }}</small>
+        </article>
+        <article class="metric-card">
+          <span>已完成轮次</span>
+          <strong>{{ training.completedRounds }}</strong>
+          <small>{{ training.latestRound ? phaseText(training.latestRound.phase) : '暂无轮次' }}</small>
+        </article>
+        <article class="metric-card">
+          <span>Top10000 命中</span>
+          <strong>{{ training.best ? training.best.top_10000_hits + '/' + training.best.evaluated_draws : '无' }}</strong>
+          <small>{{ training.best ? hitRate(training.best.top_10000_hits, training.best.evaluated_draws) : '0.00%' }}</small>
+        </article>
+        <article class="metric-card">
+          <span>Top1000 命中</span>
+          <strong>{{ training.best ? training.best.top_1000_hits + '/' + training.best.evaluated_draws : '无' }}</strong>
+          <small>{{ training.best ? hitRate(training.best.top_1000_hits, training.best.evaluated_draws) : '0.00%' }}</small>
+        </article>
+        <article class="metric-card">
+          <span>Top100 命中</span>
+          <strong>{{ training.best ? training.best.top_100_hits + '/' + training.best.evaluated_draws : '无' }}</strong>
+          <small>{{ training.best ? hitRate(training.best.top_100_hits, training.best.evaluated_draws) : '0.00%' }}</small>
+        </article>
+        <article class="metric-card">
+          <span>最佳排名</span>
+          <strong>{{ training.best ? (training.best.best_rank | number: '1.0-0') : '无' }}</strong>
+          <small>中位排名 {{ training.best ? (training.best.median_rank | number: '1.0-0') : '无' }}</small>
+        </article>
+      </div>
+
+      <div class="training-progress">
+        <div class="progress-copy">
+          <strong>{{ progressText(training) }}</strong>
+          <span>
+            {{ trainModeText(training.trainMode) }} /
+            训练窗口 {{ training.trainWindow || '无' }} /
+            回归期数 {{ training.evalWindow || '无' }} /
+            TopN {{ training.topN || '无' }} /
+            {{ training.workers || '无' }} 核 /
+            内存 {{ training.memoryBudgetGb || '无' }}G
+          </span>
+        </div>
+        <div class="wide-bar-track" aria-label="当前轮 target 进度">
+          <div class="wide-bar-fill" [style.width.%]="progressRate(training.latestProgress) * 100"></div>
+        </div>
+      </div>
+
+      <div class="training-detail-grid">
+        <article class="training-panel">
+          <h3>当前最佳权重</h3>
+          <p>{{ configSummary(training.best) }}</p>
+          <dl>
+            <div>
+              <dt>目标期号</dt>
+              <dd>{{ training.best?.as_of_issue || '无' }}</dd>
+            </div>
+            <div>
+              <dt>运行键</dt>
+              <dd>{{ training.best?.run_key || '无' }}</dd>
+            </div>
+            <div>
+              <dt>配置哈希</dt>
+              <dd>{{ training.best?.config_hash || '无' }}</dd>
+            </div>
+          </dl>
+        </article>
+
+        <article class="training-panel">
+          <h3>本机任务</h3>
+          <dl>
+            <div>
+              <dt>服务单元</dt>
+              <dd>{{ training.serviceUnit || '无' }}</dd>
+            </div>
+            <div>
+              <dt>状态文件</dt>
+              <dd>{{ compactPath(training.statusFile) }}</dd>
+            </div>
+            <div>
+              <dt>报告文件</dt>
+              <dd>{{ compactPath(training.reportFile) }}</dd>
+            </div>
+            <div>
+              <dt>日志文件</dt>
+              <dd>{{ compactPath(training.logFile) }}</dd>
+            </div>
+            <div>
+              <dt>开奖同步</dt>
+              <dd>{{ training.syncSchedule.description }}</dd>
+            </div>
+          </dl>
+        </article>
+      </div>
+
+      <div class="training-detail-grid">
+        <article class="training-panel">
+          <h3>最近训练轮次</h3>
+          @if (training.recentRounds.length) {
+            <div class="table-wrap compact-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>轮次</th>
+                    <th>阶段</th>
+                    <th>步长</th>
+                    <th>配置数</th>
+                    <th>是否提升</th>
+                    <th>本轮最佳</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (round of training.recentRounds; track round.round) {
+                    <tr>
+                      <td>{{ round.round }}</td>
+                      <td>{{ phaseText(round.phase) }}</td>
+                      <td>{{ round.step | number: '1.2-3' }}</td>
+                      <td>{{ round.config_count }}</td>
+                      <td>{{ round.improved ? '是' : '否' }}</td>
+                      <td>{{ roundBestLabel(round.best) }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else {
+            <p>暂无训练轮次。</p>
+          }
+        </article>
+
+        <article class="training-panel log-panel">
+          <h3>训练日志尾部</h3>
+          <pre>{{ logText(training) }}</pre>
+        </article>
+      </div>
+    </section>
+
     <section class="grid experiments">
       <div class="section-heading">
-        <h2>Experiments</h2>
-        <span>Latest retained-space and historical coverage metrics</span>
+        <h2>实验列表</h2>
+        <span>最新保留空间与历史覆盖指标</span>
       </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Experiment</th>
-              <th>Strategy</th>
-              <th>Keep</th>
-              <th>Coverage</th>
-              <th>Lift</th>
-              <th>History</th>
-              <th>Config</th>
-              <th>Detail</th>
+              <th>实验</th>
+              <th>策略</th>
+              <th>保留率</th>
+              <th>覆盖率</th>
+              <th>提升倍数</th>
+              <th>历史覆盖</th>
+              <th>配置</th>
+              <th>详情</th>
             </tr>
           </thead>
           <tbody>
@@ -64,15 +212,15 @@
                     class="row-action"
                     type="button"
                     (click)="selectExperiment(experiment.experimentKey)"
-                    [title]="'Open ' + experiment.experimentKey"
+                    [title]="'打开 ' + experiment.experimentKey"
                   >
-                    Open
+                    打开
                   </button>
                 </td>
               </tr>
             } @empty {
               <tr>
-                <td colspan="8">No experiment records yet.</td>
+                <td colspan="8">暂无实验记录。</td>
               </tr>
             }
           </tbody>
@@ -83,15 +231,15 @@
     @if (detailState$ | async; as detailState) {
       <section class="detail-workbench">
         <div class="section-heading">
-          <h2>Experiment Detail</h2>
+          <h2>实验详情</h2>
           @if (detailState.status === 'ready') {
             <span>{{ detailState.reportStatus }}</span>
           } @else if (detailState.status === 'loading') {
-            <span>Loading {{ detailState.experimentKey }}</span>
+            <span>正在加载 {{ detailState.experimentKey }}</span>
           } @else if (detailState.status === 'error') {
             <span>{{ detailState.message }}</span>
           } @else {
-            <span>Select an experiment</span>
+            <span>请选择实验</span>
           }
         </div>
 
@@ -100,56 +248,56 @@
             <div class="detail-summary">
               <dl>
                 <div>
-                  <dt>Experiment</dt>
+                  <dt>实验</dt>
                   <dd>{{ detail.experimentKey }}</dd>
                 </div>
                 <div>
-                  <dt>Strategy</dt>
+                  <dt>策略</dt>
                   <dd>{{ detail.strategyKey }}</dd>
                 </div>
                 <div>
-                  <dt>Keep rate</dt>
+                  <dt>保留率</dt>
                   <dd>{{ percent(detail.keepRate) }}</dd>
                 </div>
                 <div>
-                  <dt>Coverage</dt>
+                  <dt>覆盖率</dt>
                   <dd>{{ percent(detail.coverageRate) }}</dd>
                 </div>
                 <div>
-                  <dt>Lift</dt>
+                  <dt>提升倍数</dt>
                   <dd>{{ detail.lift | number: '1.4-4' }}</dd>
                 </div>
                 <div>
-                  <dt>Report time</dt>
-                  <dd>{{ detail.reportCreatedAt ? (detail.reportCreatedAt | date: 'yyyy-MM-dd HH:mm') : 'None' }}</dd>
+                  <dt>报告时间</dt>
+                  <dd>{{ detail.reportCreatedAt ? (detail.reportCreatedAt | date: 'yyyy-MM-dd HH:mm') : '无' }}</dd>
                 </div>
               </dl>
               <div class="hypothesis-block">
-                <h3>Hypothesis</h3>
-                <p>{{ detail.hypothesis || 'No hypothesis text recorded.' }}</p>
+                <h3>假设</h3>
+                <p>{{ detail.hypothesis || '未记录假设文本。' }}</p>
               </div>
               <div class="hypothesis-block">
-                <h3>Config Snapshot</h3>
+                <h3>配置快照</h3>
                 <pre>{{ detail.config | json }}</pre>
               </div>
             </div>
             <article class="report-viewer">
               <header>
-                <h3>Markdown Report</h3>
+                <h3>Markdown 报告</h3>
               </header>
               @if (detail.reportMarkdown) {
                 <pre>{{ detail.reportMarkdown }}</pre>
               } @else {
-                <p>No Markdown report has been stored for this experiment.</p>
+                <p>该实验尚未保存 Markdown 报告。</p>
               }
             </article>
           </div>
         } @else if (detailState.status === 'loading') {
-          <div class="detail-placeholder">Loading experiment evidence...</div>
+          <div class="detail-placeholder">正在加载实验依据...</div>
         } @else if (detailState.status === 'error') {
           <div class="detail-placeholder error-text">{{ detailState.message }}</div>
         } @else {
-          <div class="detail-placeholder">Select an experiment to inspect its report.</div>
+          <div class="detail-placeholder">选择一个实验查看报告。</div>
         }
       </section>
     }
@@ -160,18 +308,18 @@
     @if (comparison) {
       <section class="comparison-workbench">
         <div class="section-heading">
-          <h2>Experiment Comparison</h2>
-          <span>{{ comparison.comparison ? 'Side-by-side metrics' : 'Waiting for another experiment' }}</span>
+          <h2>实验对比</h2>
+          <span>{{ comparison.comparison ? '并列指标对比' : '等待选择另一个实验' }}</span>
         </div>
         <div class="comparison-controls">
           <div>
-            <span>Primary</span>
+            <span>主实验</span>
             <strong>{{ comparison.primary.experimentKey }}</strong>
           </div>
           <label>
-            <span>Compare With</span>
+            <span>对比实验</span>
             <select (change)="selectComparison($any($event.target).value)">
-              <option value="">No comparison</option>
+              <option value="">不对比</option>
               @for (experiment of state.payload.experiments; track experiment.experimentKey) {
                 @if (experiment.experimentKey !== comparison.primary.experimentKey) {
                   <option
@@ -187,27 +335,27 @@
         </div>
         <div class="comparison-grid">
           <div class="compare-card">
-            <span>Keep Rate Delta</span>
+            <span>保留率差值</span>
             <strong>{{ signedPercent(comparison.keepRateDelta) }}</strong>
-            <small>{{ percent(comparison.primary.keepRate) }} primary</small>
+            <small>主实验 {{ percent(comparison.primary.keepRate) }}</small>
           </div>
           <div class="compare-card">
-            <span>Coverage Delta</span>
+            <span>覆盖率差值</span>
             <strong>{{ signedPercent(comparison.coverageRateDelta) }}</strong>
-            <small>{{ percent(comparison.primary.coverageRate) }} primary</small>
+            <small>主实验 {{ percent(comparison.primary.coverageRate) }}</small>
           </div>
           <div class="compare-card">
-            <span>Lift Delta</span>
+            <span>提升倍数差值</span>
             <strong>{{ signedNumber(comparison.liftDelta) }}</strong>
-            <small>{{ comparison.primary.lift | number: '1.4-4' }} primary</small>
+            <small>主实验 {{ comparison.primary.lift | number: '1.4-4' }}</small>
           </div>
           <div class="compare-card">
-            <span>History Coverage</span>
+            <span>历史覆盖</span>
             <strong>{{ comparison.primary.coveredDraws }} / {{ comparison.primary.historyDraws }}</strong>
             @if (comparison.comparison) {
-              <small>{{ comparison.comparison.coveredDraws }} / {{ comparison.comparison.historyDraws }} comparison</small>
+              <small>对比实验 {{ comparison.comparison.coveredDraws }} / {{ comparison.comparison.historyDraws }}</small>
             } @else {
-              <small>No comparison selected</small>
+              <small>未选择对比实验</small>
             }
           </div>
         </div>
@@ -218,17 +366,17 @@
       @let distribution = combinationDistribution(latestExperiment);
       <section class="distribution">
         <div class="section-heading">
-          <h2>Combination Distribution</h2>
-          <span>{{ latestExperiment.strategyKey }} retained vs rejected space</span>
+          <h2>组合空间分布</h2>
+          <span>{{ latestExperiment.strategyKey }} 保留与剔除空间</span>
         </div>
         <div class="distribution-body">
           <div class="metric-block">
-            <span>Total space</span>
+            <span>总组合空间</span>
             <strong>{{ latestExperiment.totalCombinations }}</strong>
           </div>
-          <div class="bar-stack" aria-label="Retained and rejected combination distribution">
+          <div class="bar-stack" aria-label="保留与剔除组合分布">
             <div class="bar-row">
-              <span>Retained</span>
+              <span>保留</span>
               <div class="bar-track">
                 <div class="bar-fill retained" [style.width.%]="distribution.retainedRate * 100"></div>
               </div>
@@ -236,7 +384,7 @@
               <small>{{ percent(distribution.retainedRate) }}</small>
             </div>
             <div class="bar-row">
-              <span>Rejected</span>
+              <span>剔除</span>
               <div class="bar-track">
                 <div class="bar-fill rejected" [style.width.%]="distribution.rejectedRate * 100"></div>
               </div>
@@ -251,15 +399,15 @@
     @if (state.payload.featureDistributions.length) {
       <section class="feature-distributions">
         <div class="section-heading">
-          <h2>Feature Distributions</h2>
-          <span>Current generated combination table</span>
+          <h2>特征分布</h2>
+          <span>当前红球全组合常量表</span>
         </div>
         <div class="feature-grid">
           @for (distribution of state.payload.featureDistributions; track distribution.featureKey) {
             <article class="feature-card">
               <header>
                 <h3>{{ distribution.label }}</h3>
-                <span>{{ distribution.totalCount }} rows</span>
+                <span>{{ distribution.totalCount }} 行</span>
               </header>
               <div class="mini-bars">
                 @for (bin of distribution.bins; track bin.label) {
@@ -281,48 +429,48 @@
     <section class="split">
       <div class="panel">
         <div class="section-heading">
-          <h2>Pipeline Runs</h2>
-          <span>Daily orchestration status</span>
+          <h2>流水线运行</h2>
+          <span>日常编排状态</span>
         </div>
         <ul class="run-list">
           @for (run of state.payload.pipelineRuns; track run.runKey) {
             <li>
-              <span class="badge" [ngClass]="run.status">{{ run.status }}</span>
+              <span class="badge" [ngClass]="run.status">{{ runStatusText(run.status) }}</span>
               <strong>{{ run.runKey }}</strong>
               <small>{{ run.startedAt | date: 'yyyy-MM-dd HH:mm' }}</small>
-              <span>{{ run.experimentKey || 'No experiment' }}</span>
+              <span>{{ run.experimentKey || '无实验' }}</span>
               @if (run.errorMessage) {
                 <em>{{ run.errorMessage }}</em>
               }
             </li>
           } @empty {
-            <li>No pipeline runs yet.</li>
+            <li>暂无流水线记录。</li>
           }
         </ul>
       </div>
 
       <div class="panel">
         <div class="section-heading">
-          <h2>Sync Runs</h2>
-          <span>Source fetch and conflict counts</span>
+          <h2>开奖同步</h2>
+          <span>数据源抓取与冲突计数</span>
         </div>
         <ul class="run-list">
           @for (run of state.payload.syncRuns; track run.runKey) {
             <li>
-              <span class="badge" [ngClass]="run.status">{{ run.status }}</span>
+              <span class="badge" [ngClass]="run.status">{{ runStatusText(run.status) }}</span>
               <strong>{{ run.runKey }}</strong>
               <small>{{ run.source }} / {{ run.startedAt | date: 'yyyy-MM-dd HH:mm' }}</small>
               <span>
-                fetched {{ run.fetchedCount }},
-                inserted {{ run.insertedCount }},
-                conflicts {{ run.conflictCount }}
+                抓取 {{ run.fetchedCount }}，
+                插入 {{ run.insertedCount }}，
+                冲突 {{ run.conflictCount }}
               </span>
               @if (run.errorMessage) {
                 <em>{{ run.errorMessage }}</em>
               }
             </li>
           } @empty {
-            <li>No sync runs yet.</li>
+            <li>暂无同步记录。</li>
           }
         </ul>
       </div>

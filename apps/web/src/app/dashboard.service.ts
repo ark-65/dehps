@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
-import { DashboardPayload, ExperimentDetail, FeatureDistribution } from './dashboard.model';
+import { DashboardPayload, ExperimentDetail, FeatureDistribution, TrainingStatusPayload } from './dashboard.model';
 
 @Injectable({ providedIn: 'root' })
 export class DashboardService {
@@ -17,5 +17,9 @@ export class DashboardService {
 
   loadFeatureDistributions(): Observable<FeatureDistribution[]> {
     return this.http.get<FeatureDistribution[]>('/feature-distributions');
+  }
+
+  loadTrainingStatus(): Observable<TrainingStatusPayload> {
+    return this.http.get<TrainingStatusPayload>('/training-status');
   }
 }
