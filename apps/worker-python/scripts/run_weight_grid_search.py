@@ -3,22 +3,58 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
+import time
 from statistics import median
 
 from dehps.config import ROOT_DIR
 from dehps.db import get_connection
 from dehps.models.frequency_ranker import FrequencyRankerConfig
 from dehps.optimization.regime import HistoryScope, select_history
-from dehps.optimization.walk_forward import deterministic_run_key, run_walk_forward
+from dehps.optimization.walk_forward import (
+    TargetRank,
+    build_ranked_universe,
+    config_hash,
+    create_worker_pool,
+    deterministic_run_key,
+    fingerprint_history,
+    normalize_worker_count,
+    rank_target_grid,
+)
 from dehps.storage.postgres_store import load_red_combination_universe
 
 
 DEFAULT_GRID = [
-    FrequencyRankerConfig(structural_weight=0.55, frequency_weight=0.30, omission_weight=0.15),
-    FrequencyRankerConfig(structural_weight=0.40, frequency_weight=0.45, omission_weight=0.15),
-    FrequencyRankerConfig(structural_weight=0.40, frequency_weight=0.30, omission_weight=0.30),
-    FrequencyRankerConfig(structural_weight=0.25, frequency_weight=0.50, omission_weight=0.25),
-    FrequencyRankerConfig(structural_weight=0.25, frequency_weight=0.25, omission_weight=0.50),
+    FrequencyRankerConfig(
+        structural_weight=0.55,
+        frequency_weight=0.30,
+        omission_weight=0.15,
+        previous_consecutive_weight=0.00,
+    ),
+    FrequencyRankerConfig(
+        structural_weight=0.40,
+        frequency_weight=0.45,
+        omission_weight=0.15,
+        previous_consecutive_weight=0.00,
+    ),
+    FrequencyRankerConfig(
+        structural_weight=0.40,
+        frequency_weight=0.30,
+        omission_weight=0.30,
+        previous_consecutive_weight=0.00,
+    ),
+    FrequencyRankerConfig(
+        structural_weight=0.25,
+        frequency_weight=0.50,
+        omission_weight=0.25,
+        previous_consecutive_weight=0.00,
+    ),
+    FrequencyRankerConfig(
+        structural_weight=0.25,
+        frequency_weight=0.25,
+        omission_weight=0.50,
+        previous_consecutive_weight=0.00,
+    ),
     FrequencyRankerConfig(
         structural_weight=0.40,
         frequency_weight=0.30,
@@ -29,6 +65,7 @@ DEFAULT_GRID = [
         structural_weight=0.40,
         frequency_weight=0.30,
         omission_weight=0.25,
+        previous_consecutive_weight=0.00,
         previous_overlap_weight=-0.05,
         previous_parity_shape_weight=0.05,
         previous_zone_shape_weight=0.05,
@@ -45,17 +82,23 @@ DEFAULT_GRID = [
 ]
 
 
-def summarize_result(result, config: FrequencyRankerConfig) -> dict:
-    ranks = [target.rank for target in result.target_ranks]
+def summarize_target_ranks(
+    *,
+    target_ranks: list[TargetRank],
+    config: FrequencyRankerConfig,
+    as_of_issue: str,
+    history_fingerprint_value: str,
+) -> dict:
+    ranks = [target.rank for target in target_ranks]
     return {
         "config": config.__dict__,
-        "as_of_issue": result.as_of_issue,
-        "history_fingerprint": result.history_fingerprint,
-        "config_hash": result.config_hash,
-        "evaluated_draws": result.evaluated_draws,
-        "top_100_hits": result.top_100_hits,
-        "top_1000_hits": result.top_1000_hits,
-        "top_10000_hits": result.top_10000_hits,
+        "as_of_issue": as_of_issue,
+        "history_fingerprint": history_fingerprint_value,
+        "config_hash": config_hash(config),
+        "evaluated_draws": len(target_ranks),
+        "top_100_hits": sum(target.hit_top_100 for target in target_ranks),
+        "top_1000_hits": sum(target.hit_top_1000 for target in target_ranks),
+        "top_10000_hits": sum(target.hit_top_10000 for target in target_ranks),
         "median_rank": median(ranks) if ranks else None,
         "best_rank": min(ranks) if ranks else None,
         "worst_rank": max(ranks) if ranks else None,
@@ -93,6 +136,8 @@ def render_grid_report(payload: dict) -> str:
 - Top-N cutoff: {payload["top_n"]}
 - Workers: {payload["workers"]}
 - Universe size: {payload["universe_size"]}
+- Static feature matrix rows: {payload["feature_matrix_cache"]["static_rows"]}
+- Cached dynamic components: {payload["feature_matrix_cache"]["dynamic_components"]}
 
 ## Results
 
@@ -120,7 +165,13 @@ def run_grid_search(
     history_scope: HistoryScope,
     regime_years: int,
     output_dir: Path,
+    progress_interval: int = 1,
 ) -> dict:
+    started = time.time()
+
+    def progress(message: str) -> None:
+        print(f"[grid] {message}", file=sys.stderr, flush=True)
+
     with get_connection() as conn:
         selection = select_history(
             conn,
@@ -130,28 +181,78 @@ def run_grid_search(
         )
         universe = load_red_combination_universe(conn)
 
+    configs = tuple(DEFAULT_GRID)
+    worker_count = normalize_worker_count(workers)
+    history = selection.history
+    if len(history) <= train_window:
+        raise ValueError("history must be longer than train_window")
+    if train_mode not in ("expanding", "rolling"):
+        raise ValueError("train_mode must be 'expanding' or 'rolling'")
+
+    progress(f"building static feature matrix rows={len(universe)} configs={len(configs)} workers={worker_count}")
+    ranked_universe = build_ranked_universe(universe)
+    progress(f"static feature matrix ready elapsed={time.time() - started:.1f}s")
+
+    start_index = max(train_window, len(history) - eval_window)
+    total_targets = len(history) - start_index
+    target_rank_lists: list[list[TargetRank]] = [[] for _ in configs]
+    pool = create_worker_pool(worker_count, ranked_universe)
+    try:
+        for progress_index, target_index in enumerate(range(start_index, len(history)), start=1):
+            train_start = 0 if train_mode == "expanding" else max(0, target_index - train_window)
+            train_history = history[train_start:target_index]
+            issue, numbers = history[target_index]
+            ranked_targets = rank_target_grid(
+                target_numbers=numbers,
+                train_history=train_history,
+                configs=configs,
+                ranked_universe=ranked_universe,
+                workers=worker_count,
+                pool=pool,
+            )
+            for config_index, (rank, score) in enumerate(ranked_targets):
+                target_rank_lists[config_index].append(
+                    TargetRank(
+                        issue=issue,
+                        rank=rank,
+                        score=score,
+                        hit_top_100=rank <= 100,
+                        hit_top_1000=rank <= 1000,
+                        hit_top_10000=rank <= 10000,
+                    )
+                )
+            if progress_interval > 0 and (
+                progress_index == 1 or progress_index == total_targets or progress_index % progress_interval == 0
+            ):
+                progress(
+                    "target "
+                    f"{progress_index}/{total_targets} issue={issue} train_draws={len(train_history)} "
+                    f"elapsed={time.time() - started:.1f}s"
+                )
+    finally:
+        if pool is not None:
+            pool.close()
+            pool.join()
+
+    as_of_issue_value = history[-1][0]
+    history_fingerprint_value = fingerprint_history(history)
     summaries = []
-    for config in DEFAULT_GRID:
-        result = run_walk_forward(
-            history=selection.history,
-            train_window=train_window,
-            eval_window=eval_window,
-            top_n=top_n,
-            train_mode=train_mode,
+    for config, target_ranks in zip(configs, target_rank_lists, strict=True):
+        summary = summarize_target_ranks(
+            target_ranks=target_ranks,
             config=config,
-            universe=universe,
-            workers=workers,
+            as_of_issue=as_of_issue_value,
+            history_fingerprint_value=history_fingerprint_value,
         )
-        summary = summarize_result(result, config)
         summary["run_key"] = deterministic_run_key(
-            strategy_key=result.strategy_key,
-            as_of_issue=result.as_of_issue,
-            train_window=result.train_window,
-            train_mode=result.train_mode,
-            eval_window=result.eval_window,
-            top_n=result.top_n,
-            history_fingerprint_value=result.history_fingerprint,
-            config_hash_value=result.config_hash,
+            strategy_key="frequency_v1",
+            as_of_issue=summary["as_of_issue"],
+            train_window=train_window,
+            train_mode=train_mode,
+            eval_window=len(target_ranks),
+            top_n=top_n,
+            history_fingerprint_value=summary["history_fingerprint"],
+            config_hash_value=summary["config_hash"],
         )
         summaries.append(summary)
 
@@ -161,13 +262,18 @@ def run_grid_search(
         "regime_years": selection.regime_years,
         "regime_start_date": selection.start_date.isoformat() if selection.start_date else "",
         "regime_evidence_note": selection.evidence_note,
-        "as_of_issue": summaries[0]["as_of_issue"] if summaries else "",
+        "as_of_issue": as_of_issue_value,
         "train_window": train_window,
         "train_mode": train_mode,
-        "eval_window": eval_window,
+        "eval_window": total_targets,
         "top_n": top_n,
-        "workers": workers,
+        "workers": worker_count,
         "universe_size": len(universe),
+        "feature_matrix_cache": {
+            "static_rows": len(ranked_universe),
+            "config_count": len(configs),
+            "dynamic_components": "computed once per target and shared across all configs",
+        },
         "results": summaries,
     }
     key = f"weight-grid-asof-{payload['as_of_issue']}-{train_mode}-tw{train_window}-ew{eval_window}-top{top_n}"
@@ -192,6 +298,7 @@ def main() -> None:
     parser.add_argument("--history-scope", choices=["full_history_audit", "current_regime_default"], default="current_regime_default")
     parser.add_argument("--regime-years", type=int, default=10)
     parser.add_argument("--output-dir", type=Path, default=ROOT_DIR / "data/output/optimization")
+    parser.add_argument("--progress-interval", type=int, default=1)
     args = parser.parse_args()
     print(
         json.dumps(
@@ -205,6 +312,7 @@ def main() -> None:
                 history_scope=args.history_scope,
                 regime_years=args.regime_years,
                 output_dir=args.output_dir,
+                progress_interval=args.progress_interval,
             ),
             ensure_ascii=False,
             indent=2,

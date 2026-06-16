@@ -7,7 +7,7 @@ import json
 import multiprocessing as mp
 import os
 from multiprocessing.pool import Pool
-from typing import Iterable, Literal
+from typing import Callable, Iterable, Literal
 
 from dehps.domain.combination import iter_ssq_red_combinations
 from dehps.features.red_ball_features import calculate_red_ball_features
@@ -22,6 +22,7 @@ from dehps.scoring.strategy import score_numbers
 
 _WORKER_UNIVERSE: list["RankedUniverseEntry"] = []
 DEFAULT_WORKERS = 16
+ScoreComponents = tuple[float, float, float, float, float, float, float]
 
 
 @dataclass(frozen=True)
@@ -212,11 +213,16 @@ def _init_worker_universe(entries: list[RankedUniverseEntry]) -> None:
     _WORKER_UNIVERSE = entries
 
 
-def score_ranked_entry(
-    entry: RankedUniverseEntry,
-    stats: FrequencyStats,
-    config: FrequencyRankerConfig,
-) -> float:
+def create_worker_pool(worker_count: int, ranked_universe: list[RankedUniverseEntry]) -> Pool | None:
+    global _WORKER_UNIVERSE
+    _WORKER_UNIVERSE = ranked_universe
+    if worker_count <= 1:
+        return None
+    context = mp.get_context("fork") if "fork" in mp.get_all_start_methods() else mp.get_context()
+    return context.Pool(processes=worker_count, initializer=_init_worker_universe, initargs=(ranked_universe,))
+
+
+def score_components_for_entry(entry: RankedUniverseEntry, stats: FrequencyStats) -> ScoreComponents:
     frequency_score = sum(stats.frequency_rate[number] for number in entry.numbers)
     omission_score = sum(stats.omission_rate[number] for number in entry.numbers) / 6
     previous_consecutive_score = _previous_consecutive_score(
@@ -229,8 +235,54 @@ def score_ranked_entry(
         abs(candidate_count - previous_count)
         for candidate_count, previous_count in zip(entry.zone_counts, stats.previous_zone_counts, strict=True)
     ) / 12
+    return (
+        entry.structural_score,
+        frequency_score,
+        omission_score,
+        previous_consecutive_score,
+        previous_overlap_score,
+        previous_parity_shape_score,
+        previous_zone_shape_score,
+    )
+
+
+def score_components_for_numbers(numbers: tuple[int, ...], stats: FrequencyStats) -> ScoreComponents:
+    structural_score = score_numbers(numbers)["score"]
+    features = calculate_red_ball_features(numbers)
+    previous_consecutive_score = _previous_consecutive_score(
+        candidate_pair_count=features["consecutive_pair_count"],
+        previous_pair_count=stats.previous_consecutive_pair_count,
+    )
+    previous_overlap_score = len(set(numbers) & stats.previous_number_set) / 6
+    previous_parity_shape_score = 1 - abs(features["odd_count"] - stats.previous_odd_count) / 6
+    zone_counts = (features["zone_1_count"], features["zone_2_count"], features["zone_3_count"])
+    previous_zone_shape_score = 1 - sum(
+        abs(candidate_count - previous_count)
+        for candidate_count, previous_count in zip(zone_counts, stats.previous_zone_counts, strict=True)
+    ) / 12
+    return (
+        structural_score,
+        sum(stats.frequency_rate[number] for number in numbers),
+        sum(stats.omission_rate[number] for number in numbers) / 6,
+        previous_consecutive_score,
+        previous_overlap_score,
+        previous_parity_shape_score,
+        previous_zone_shape_score,
+    )
+
+
+def score_from_components(components: ScoreComponents, config: FrequencyRankerConfig) -> float:
+    (
+        structural_score,
+        frequency_score,
+        omission_score,
+        previous_consecutive_score,
+        previous_overlap_score,
+        previous_parity_shape_score,
+        previous_zone_shape_score,
+    ) = components
     return round(
-        config.structural_weight * entry.structural_score
+        config.structural_weight * structural_score
         + config.frequency_weight * frequency_score
         + config.omission_weight * omission_score
         + config.previous_consecutive_weight * previous_consecutive_score
@@ -239,6 +291,14 @@ def score_ranked_entry(
         + config.previous_zone_shape_weight * previous_zone_shape_score,
         8,
     )
+
+
+def score_ranked_entry(
+    entry: RankedUniverseEntry,
+    stats: FrequencyStats,
+    config: FrequencyRankerConfig,
+) -> float:
+    return score_from_components(score_components_for_entry(entry, stats), config)
 
 
 def _rank_chunk(args: tuple[int, int, tuple[int, ...], float, FrequencyStats, FrequencyRankerConfig]) -> tuple[int, int]:
@@ -251,6 +311,23 @@ def _rank_chunk(args: tuple[int, int, tuple[int, ...], float, FrequencyStats, Fr
             better += 1
         elif score == target_score and entry.numbers < target_numbers:
             equal_before += 1
+    return better, equal_before
+
+
+def _rank_grid_chunk(
+    args: tuple[int, int, tuple[int, ...], tuple[float, ...], FrequencyStats, tuple[FrequencyRankerConfig, ...]],
+) -> tuple[list[int], list[int]]:
+    start, end, target_numbers, target_scores, stats, configs = args
+    better = [0 for _ in configs]
+    equal_before = [0 for _ in configs]
+    for entry in _WORKER_UNIVERSE[start:end]:
+        components = score_components_for_entry(entry, stats)
+        for index, config in enumerate(configs):
+            score = score_from_components(components, config)
+            if score > target_scores[index]:
+                better[index] += 1
+            elif score == target_scores[index] and entry.numbers < target_numbers:
+                equal_before[index] += 1
     return better, equal_before
 
 
@@ -300,6 +377,47 @@ def rank_target(
         elif score == target_score and entry.numbers < target_numbers:
             equal_before += 1
     return better + equal_before + 1, target_score
+
+
+def rank_target_grid(
+    *,
+    target_numbers: tuple[int, ...],
+    train_history: list[tuple[str, tuple[int, ...]]],
+    configs: tuple[FrequencyRankerConfig, ...],
+    ranked_universe: list[RankedUniverseEntry],
+    workers: int = 1,
+    pool: Pool | None = None,
+) -> list[tuple[int, float]]:
+    stats = train_frequency_stats(train_history)
+    target_components = score_components_for_numbers(target_numbers, stats)
+    target_scores = tuple(score_from_components(target_components, config) for config in configs)
+    worker_count = normalize_worker_count(workers)
+
+    if worker_count > 1 and pool is not None:
+        ranges = chunk_ranges(len(ranked_universe), worker_count)
+        partials = pool.map(
+            _rank_grid_chunk,
+            [(start, end, target_numbers, target_scores, stats, configs) for start, end in ranges],
+        )
+        better = [0 for _ in configs]
+        equal_before = [0 for _ in configs]
+        for partial_better, partial_equal_before in partials:
+            for index in range(len(configs)):
+                better[index] += partial_better[index]
+                equal_before[index] += partial_equal_before[index]
+        return [(better[index] + equal_before[index] + 1, target_scores[index]) for index in range(len(configs))]
+
+    better = [0 for _ in configs]
+    equal_before = [0 for _ in configs]
+    for entry in ranked_universe:
+        components = score_components_for_entry(entry, stats)
+        for index, config in enumerate(configs):
+            score = score_from_components(components, config)
+            if score > target_scores[index]:
+                better[index] += 1
+            elif score == target_scores[index] and entry.numbers < target_numbers:
+                equal_before[index] += 1
+    return [(better[index] + equal_before[index] + 1, target_scores[index]) for index in range(len(configs))]
 
 
 def rank_target_structural(
@@ -365,6 +483,7 @@ def run_walk_forward(
     config: FrequencyRankerConfig | None = None,
     universe: Iterable[tuple[int, ...]] | None = None,
     workers: int | None = None,
+    progress_callback: Callable[[int, int, str, int], None] | None = None,
 ) -> WalkForwardResult:
     if train_window < 1:
         raise ValueError("train_window must be at least 1")
@@ -384,16 +503,11 @@ def run_walk_forward(
     target_ranks: list[TargetRank] = []
     zero_model_target_ranks: list[TargetRank] = []
     ranked_universe = build_ranked_universe(universe)
-    global _WORKER_UNIVERSE
-    _WORKER_UNIVERSE = ranked_universe
-
-    pool: Pool | None = None
-    if worker_count > 1:
-        context = mp.get_context("fork") if "fork" in mp.get_all_start_methods() else mp.get_context()
-        pool = context.Pool(processes=worker_count, initializer=_init_worker_universe, initargs=(ranked_universe,))
+    pool = create_worker_pool(worker_count, ranked_universe)
 
     try:
-        for target_index in range(start, len(history)):
+        total_targets = len(history) - start
+        for progress_index, target_index in enumerate(range(start, len(history)), start=1):
             train_start = 0 if train_mode == "expanding" else max(0, target_index - train_window)
             train_history = history[train_start:target_index]
             issue, numbers = history[target_index]
@@ -429,6 +543,8 @@ def run_walk_forward(
                     hit_top_10000=zero_rank <= 10000,
                 ),
             )
+            if progress_callback:
+                progress_callback(progress_index, total_targets, issue, len(train_history))
 
         top_candidates = top_candidates_for_next(
             history=history if train_mode == "expanding" else history[-train_window:],

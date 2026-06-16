@@ -34,3 +34,9 @@ For reproducibility, pass `--as-of-issue` before the next draw is known. The sam
 The default optimization protocol is expanding walk-forward: for the last 100 target issues, each target trains on every prior draw available after the minimum `--train-window` is met.
 
 The optimization script scans the complete `C(33,6)` red-ball universe from `ssq_red_combinations` and sorts by frozen score rules. Randomness is only used as an analytical baseline in reports; it is not used to generate top candidates.
+
+For long grid searches, progress is printed to stderr. The grid-search runner builds the static feature matrix once, then shares each target issue's dynamic feature components across all configs:
+
+```bash
+python scripts/run_weight_grid_search.py --train-mode expanding --train-window 900 --eval-window 100 --top-n 10000 --as-of-issue 2026067 --workers 16 --progress-interval 10
+```

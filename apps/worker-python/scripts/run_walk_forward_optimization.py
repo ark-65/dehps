@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
+import time
 
 from dehps.config import ROOT_DIR
 from dehps.db import get_connection
@@ -135,6 +137,7 @@ def run_optimization(
     history_scope: HistoryScope = "current_regime_default",
     regime_years: int = 10,
     output_dir: Path | None = None,
+    progress_interval: int = 1,
 ) -> dict[str, str | int]:
     config = FrequencyRankerConfig()
     with get_connection() as conn:
@@ -146,6 +149,19 @@ def run_optimization(
         )
         universe = load_red_combination_universe(conn)
 
+    started = time.time()
+
+    def progress(index: int, total: int, issue: str, train_draws: int) -> None:
+        if progress_interval < 1:
+            return
+        if index == 1 or index == total or index % progress_interval == 0:
+            elapsed = time.time() - started
+            print(
+                f"[walk-forward] target {index}/{total} issue={issue} train_draws={train_draws} elapsed={elapsed:.1f}s",
+                file=sys.stderr,
+                flush=True,
+            )
+
     result = run_walk_forward(
         history=selection.history,
         train_window=train_window,
@@ -155,6 +171,7 @@ def run_optimization(
         config=config,
         universe=universe,
         workers=workers,
+        progress_callback=progress,
     )
     key = deterministic_run_key(
         strategy_key=result.strategy_key,
@@ -212,6 +229,7 @@ def main() -> None:
     parser.add_argument("--history-scope", choices=["full_history_audit", "current_regime_default"], default="current_regime_default")
     parser.add_argument("--regime-years", type=int, default=10)
     parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--progress-interval", type=int, default=1)
     args = parser.parse_args()
     print(
         run_optimization(
@@ -224,6 +242,7 @@ def main() -> None:
             history_scope=args.history_scope,
             regime_years=args.regime_years,
             output_dir=args.output_dir,
+            progress_interval=args.progress_interval,
         ),
     )
 

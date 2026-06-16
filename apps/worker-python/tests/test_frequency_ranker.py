@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from dehps.models.frequency_ranker import FrequencyRankerConfig, score_frequency_candidate, train_frequency_stats
 from dehps.optimization.walk_forward import (
+    build_ranked_universe,
     deterministic_run_key,
     fingerprint_history,
     normalize_worker_count,
     random_uniform_baseline,
     rank_target,
+    rank_target_grid,
     run_walk_forward,
 )
 
@@ -150,6 +152,42 @@ def test_rank_target_uses_only_supplied_train_history():
 
     assert rank == 2
     assert score == 0
+
+
+def test_rank_target_grid_matches_individual_rank_target():
+    universe = [
+        (1, 2, 3, 4, 5, 6),
+        (1, 7, 8, 9, 10, 11),
+        (2, 7, 12, 17, 22, 27),
+        (3, 8, 13, 18, 23, 28),
+    ]
+    train_history = [
+        ("001", universe[0]),
+        ("002", universe[1]),
+    ]
+    configs = (
+        FrequencyRankerConfig(),
+        FrequencyRankerConfig(structural_weight=0, frequency_weight=0, omission_weight=1, previous_consecutive_weight=0),
+    )
+    ranked_universe = build_ranked_universe(universe)
+
+    grid = rank_target_grid(
+        target_numbers=universe[2],
+        train_history=train_history,
+        configs=configs,
+        ranked_universe=ranked_universe,
+    )
+    individual = [
+        rank_target(
+            target_numbers=universe[2],
+            train_history=train_history,
+            config=config,
+            universe=universe,
+        )
+        for config in configs
+    ]
+
+    assert grid == individual
 
 
 def test_random_uniform_baseline_is_analytical_only():

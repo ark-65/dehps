@@ -48,6 +48,7 @@ Full-combination rankings must be deterministic:
 - No current timestamp, local timezone, random seed, machine path, or process order may affect ranking.
 - Worker count may change runtime, but it must not change the run key, Top-N combinations, or ordering.
 - Default optimization runs use 16 workers on this workstation, leaving spare CPU for other tasks.
+- Feature-matrix caches may be used only as deterministic accelerators; cached and uncached rank calculations must match.
 
 If two machines have the same history snapshot and config before the next draw is published, the generated Top-N combinations and ordering must match.
 
@@ -95,6 +96,7 @@ Candidate later features:
 
 - Maintain `ssq_red_combinations` as the full constant sample-space table.
 - Cache or load the full combination feature matrix from that table.
+- Share per-target dynamic feature components across configs during grid search.
 - Use at least 16 workers for full-universe ranking and weight sweeps on this workstation, while keeping manual override available.
 - Run weight grid search over rolling windows.
 - Report top-performing configs without using future target labels in each fold.
