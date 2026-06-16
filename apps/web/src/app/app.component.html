@@ -97,9 +97,14 @@
           <small>{{ training.best ? hitRate(training.best.red5.top_10000_hits, training.best.evaluated_draws) : '0.00%' }}</small>
         </article>
         <article class="metric-card">
+          <span>Top5万覆盖</span>
+          <strong>{{ training.best ? training.best.rank_quality.top_50000_hits + '/' + training.best.evaluated_draws : '无' }}</strong>
+          <small>Top10万 {{ training.best ? training.best.rank_quality.top_100000_hits + '/' + training.best.evaluated_draws : '无' }}</small>
+        </article>
+        <article class="metric-card">
           <span>最佳排名</span>
           <strong>{{ training.best ? (training.best.best_rank | number: '1.0-0') : '无' }}</strong>
-          <small>中位排名 {{ training.best ? (training.best.median_rank | number: '1.0-0') : '无' }}</small>
+          <small>最差排名 {{ training.best ? (training.best.worst_rank | number: '1.0-0') : '无' }}</small>
         </article>
       </div>
 
@@ -135,6 +140,9 @@
         </article>
         <article class="chart-panel">
           <app-echart [option]="rankTrendOption(training)" height="320px"></app-echart>
+        </article>
+        <article class="chart-panel">
+          <app-echart [option]="rankBandOption(training)" height="320px"></app-echart>
         </article>
         <article class="chart-panel">
           <app-echart [option]="weightTrendOption(training)" height="320px"></app-echart>

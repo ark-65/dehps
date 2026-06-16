@@ -22,7 +22,7 @@ from dehps.scoring.strategy import score_numbers
 
 _WORKER_UNIVERSE: list["RankedUniverseEntry"] = []
 DEFAULT_WORKERS = 16
-ScoreComponents = tuple[float, float, float, float, float, float, float]
+ScoreComponents = tuple[float, float, float, float, float, float, float, float, float, float, float]
 
 
 @dataclass(frozen=True)
@@ -32,6 +32,9 @@ class RankedUniverseEntry:
     consecutive_pair_count: int
     odd_count: int
     zone_counts: tuple[int, int, int]
+    gaps: tuple[int, int, int, int, int]
+    sum_value: int
+    span_value: int
 
 
 @dataclass(frozen=True)
@@ -208,6 +211,9 @@ def build_ranked_universe(universe: Iterable[tuple[int, ...]] | None = None) -> 
                     features["zone_2_count"],
                     features["zone_3_count"],
                 ),
+                gaps=(numbers[1] - numbers[0], numbers[2] - numbers[1], numbers[3] - numbers[2], numbers[4] - numbers[3], numbers[5] - numbers[4]),
+                sum_value=int(features["sum_value"]),
+                span_value=int(features["span_value"]),
             )
         )
     return entries
@@ -260,6 +266,18 @@ def score_components_for_entry(entry: RankedUniverseEntry, stats: FrequencyStats
         abs(candidate_count - previous_count)
         for candidate_count, previous_count in zip(entry.zone_counts, stats.previous_zone_counts, strict=True)
     ) / 12
+    recent_neighbor_score = sum(stats.recent_neighbor_rate[number] for number in entry.numbers) / 6
+    lagged_consecutive_score = len(set(entry.numbers) & stats.lagged_consecutive_number_set) / 6
+    recent_gap_shape_score = max(
+        0.0,
+        1
+        - sum(abs(gap - average) for gap, average in zip(entry.gaps, stats.recent_average_gaps, strict=True))
+        / (5 * 32),
+    )
+    recent_sum_span_score = (
+        max(0.0, 1 - abs(entry.sum_value - stats.recent_average_sum) / 162)
+        + max(0.0, 1 - abs(entry.span_value - stats.recent_average_span) / 32)
+    ) / 2
     return (
         entry.structural_score,
         frequency_score,
@@ -268,6 +286,10 @@ def score_components_for_entry(entry: RankedUniverseEntry, stats: FrequencyStats
         previous_overlap_score,
         previous_parity_shape_score,
         previous_zone_shape_score,
+        recent_neighbor_score,
+        lagged_consecutive_score,
+        recent_gap_shape_score,
+        recent_sum_span_score,
     )
 
 
@@ -285,6 +307,19 @@ def score_components_for_numbers(numbers: tuple[int, ...], stats: FrequencyStats
         abs(candidate_count - previous_count)
         for candidate_count, previous_count in zip(zone_counts, stats.previous_zone_counts, strict=True)
     ) / 12
+    gaps = tuple(right - left for left, right in zip(numbers, numbers[1:]))
+    recent_neighbor_score = sum(stats.recent_neighbor_rate[number] for number in numbers) / 6
+    lagged_consecutive_score = len(set(numbers) & stats.lagged_consecutive_number_set) / 6
+    recent_gap_shape_score = max(
+        0.0,
+        1
+        - sum(abs(gap - average) for gap, average in zip(gaps, stats.recent_average_gaps, strict=True))
+        / (5 * 32),
+    )
+    recent_sum_span_score = (
+        max(0.0, 1 - abs(sum(numbers) - stats.recent_average_sum) / 162)
+        + max(0.0, 1 - abs((numbers[-1] - numbers[0]) - stats.recent_average_span) / 32)
+    ) / 2
     return (
         structural_score,
         sum(stats.frequency_rate[number] for number in numbers),
@@ -293,6 +328,10 @@ def score_components_for_numbers(numbers: tuple[int, ...], stats: FrequencyStats
         previous_overlap_score,
         previous_parity_shape_score,
         previous_zone_shape_score,
+        recent_neighbor_score,
+        lagged_consecutive_score,
+        recent_gap_shape_score,
+        recent_sum_span_score,
     )
 
 
@@ -305,6 +344,10 @@ def score_from_components(components: ScoreComponents, config: FrequencyRankerCo
         previous_overlap_score,
         previous_parity_shape_score,
         previous_zone_shape_score,
+        recent_neighbor_score,
+        lagged_consecutive_score,
+        recent_gap_shape_score,
+        recent_sum_span_score,
     ) = components
     return round(
         config.structural_weight * structural_score
@@ -313,7 +356,11 @@ def score_from_components(components: ScoreComponents, config: FrequencyRankerCo
         + config.previous_consecutive_weight * previous_consecutive_score
         + config.previous_overlap_weight * previous_overlap_score
         + config.previous_parity_shape_weight * previous_parity_shape_score
-        + config.previous_zone_shape_weight * previous_zone_shape_score,
+        + config.previous_zone_shape_weight * previous_zone_shape_score
+        + config.recent_neighbor_weight * recent_neighbor_score
+        + config.lagged_consecutive_weight * lagged_consecutive_score
+        + config.recent_gap_shape_weight * recent_gap_shape_score
+        + config.recent_sum_span_weight * recent_sum_span_score,
         8,
     )
 

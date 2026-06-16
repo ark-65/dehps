@@ -207,7 +207,7 @@ export class AppComponent {
     if (!result) {
       return '暂无结果';
     }
-    return `Top10000 ${result.top_10000_hits}/${result.evaluated_draws}，Top1000 ${result.top_1000_hits}/${result.evaluated_draws}，红5Top100 ${result.red5.top_100_hits}/${result.evaluated_draws}，最佳排名 ${result.best_rank}`;
+    return `Top10000 ${result.top_10000_hits}/${result.evaluated_draws}，Top1000 ${result.top_1000_hits}/${result.evaluated_draws}，红5Top100 ${result.red5.top_100_hits}/${result.evaluated_draws}，Top5万 ${result.rank_quality.top_50000_hits}/${result.evaluated_draws}，最差排名 ${result.worst_rank}`;
   }
 
   redFivePairText(result: TrainingResult | null): string {
@@ -262,7 +262,7 @@ export class AppComponent {
     const xAxis = rounds.map((round) => `R${round.round}`);
     return {
       title: { text: '奖惩机制', left: 12, top: 8, textStyle: { fontSize: 14, fontWeight: 700 } },
-      color: ['#327857', '#987a24', '#b5413f', '#4472a5'],
+      color: ['#327857', '#987a24', '#4d7c9f', '#b5413f', '#4472a5'],
       tooltip: { trigger: 'axis' },
       legend: { top: 8, right: 12 },
       grid: { left: 48, right: 24, top: 58, bottom: 42 },
@@ -282,6 +282,12 @@ export class AppComponent {
           data: rounds.map((round) => round.best?.reward.red5Reward ?? 0),
         },
         {
+          name: '排名质量奖励',
+          type: 'bar',
+          stack: 'reward',
+          data: rounds.map((round) => round.best?.reward.rankQualityReward ?? 0),
+        },
+        {
           name: '排名惩罚',
           type: 'bar',
           stack: 'reward',
@@ -296,6 +302,22 @@ export class AppComponent {
         },
       ],
     };
+  }
+
+  rankBandOption(status: TrainingStatusPayload): ChartOption {
+    const rounds = this.chartRounds(status);
+    const xAxis = rounds.map((round) => `R${round.round}`);
+    return this.baseLineOption({
+      title: '整体排名前移',
+      xAxis,
+      yName: '覆盖期数',
+      series: [
+        this.lineSeries('Top5万', rounds.map((round) => round.best?.rank_quality.top_50000_hits ?? 0), '#327857'),
+        this.lineSeries('Top10万', rounds.map((round) => round.best?.rank_quality.top_100000_hits ?? 0), '#4472a5'),
+        this.lineSeries('Top25万', rounds.map((round) => round.best?.rank_quality.top_250000_hits ?? 0), '#987a24'),
+        this.lineSeries('Top50万', rounds.map((round) => round.best?.rank_quality.top_500000_hits ?? 0), '#8c5a2b'),
+      ],
+    });
   }
 
   redFiveTrendOption(status: TrainingStatusPayload): ChartOption {
@@ -350,6 +372,10 @@ export class AppComponent {
       ['previous_consecutive_weight', '上期连号'],
       ['previous_overlap_weight', '上期重叠'],
       ['previous_zone_shape_weight', '分区形态'],
+      ['recent_neighbor_weight', '近期开奖邻号'],
+      ['lagged_consecutive_weight', '隔期连号链'],
+      ['recent_gap_shape_weight', '跳号间距'],
+      ['recent_sum_span_weight', '和值跨度'],
     ] as const;
     return this.baseLineOption({
       title: '权重演化',
@@ -414,6 +440,10 @@ export class AppComponent {
       previous_overlap_weight: '上期重叠',
       previous_parity_shape_weight: '奇偶形态',
       previous_zone_shape_weight: '分区形态',
+      recent_neighbor_weight: '近期开奖邻号',
+      lagged_consecutive_weight: '隔期连号链',
+      recent_gap_shape_weight: '跳号间距',
+      recent_sum_span_weight: '和值跨度',
     };
     return labels[key] ?? key;
   }

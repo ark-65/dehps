@@ -103,6 +103,40 @@ def test_reward_summary_penalizes_worse_rank_inside_same_hit_counts():
     assert sort_key(better_rank) > sort_key(worse_rank)
 
 
+def test_rank_quality_reward_keeps_tail_improvements_visible():
+    better_tail = {
+        "top_100_hits": 0,
+        "top_1000_hits": 0,
+        "top_10000_hits": 3,
+        "median_rank": 400000,
+        "best_rank": 3000,
+        "worst_rank": 700000,
+        "rank_quality": {
+            "top_50000_hits": 8,
+            "top_100000_hits": 12,
+            "top_250000_hits": 30,
+            "top_500000_hits": 60,
+            "reward": 4.0,
+        },
+    }
+    worse_tail = {
+        **better_tail,
+        "median_rank": 600000,
+        "worst_rank": 1_050_000,
+        "rank_quality": {
+            "top_50000_hits": 4,
+            "top_100000_hits": 8,
+            "top_250000_hits": 20,
+            "top_500000_hits": 45,
+            "reward": 1.0,
+        },
+    }
+
+    assert reward_summary(better_tail)["rankQualityReward"] > reward_summary(worse_tail)["rankQualityReward"]
+    assert reward_summary(better_tail)["objectiveScore"] > reward_summary(worse_tail)["objectiveScore"]
+    assert sort_key(better_tail) > sort_key(worse_tail)
+
+
 def test_red5_reward_is_low_weight_and_cannot_override_exact_top1000():
     red5_top100_heavy = {
         "top_100_hits": 0,
@@ -166,6 +200,8 @@ def test_summarize_target_ranks_counts_red5_difference_numbers():
     assert summary["red5"]["pairs"] == [{"missing_number": 6, "extra_number": 7, "count": 1}]
     assert summary["red5"]["examples"][0]["issue"] == "2026001"
     assert summary["reward"]["red5Reward"] > 0
+    assert summary["rank_quality"]["top_50000_hits"] == 1
+    assert summary["reward"]["rankQualityReward"] > 0
 
 
 def test_load_prior_supervisor_candidates_keeps_same_protocol_global_best(tmp_path):

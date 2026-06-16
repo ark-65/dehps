@@ -26,6 +26,12 @@ const TOP_10000_REWARD = 10;
 const RED5_TOP_100_REWARD = 5;
 const RED5_TOP_1000_REWARD = 1;
 const RED5_TOP_10000_REWARD = 0.2;
+const RANK_TOP_50000_REWARD = 0.04;
+const RANK_TOP_100000_REWARD = 0.02;
+const RANK_TOP_250000_REWARD = 0.01;
+const RANK_TOP_500000_REWARD = 0.005;
+const WORST_RANK_REWARD = 3;
+const MEDIAN_RANK_REWARD = 2;
 
 @Injectable()
 export class ResearchService {
@@ -300,6 +306,11 @@ export class ResearchService {
     const bestRank = this.numberValue(row.best_rank);
     const worstRank = this.numberValue(row.worst_rank);
     const red5 = this.redFiveValue(row.red5);
+    const rankQuality = this.rankQualityValue(row.rank_quality, {
+      medianRank,
+      worstRank,
+      universeSize,
+    });
     if (
       evaluatedDraws === null ||
       top100Hits === null ||
@@ -324,12 +335,14 @@ export class ResearchService {
       best_rank: bestRank,
       worst_rank: worstRank,
       red5,
+      rank_quality: rankQuality,
       run_key: this.stringValue(row.run_key) ?? '',
       reward: this.rewardSummary({
         top100Hits,
         top1000Hits,
         top10000Hits,
         red5,
+        rankQuality,
         medianRank,
         worstRank,
         universeSize,
@@ -421,11 +434,46 @@ export class ResearchService {
       );
   }
 
+  private rankQualityValue(
+    value: unknown,
+    fallback: { medianRank: number | null; worstRank: number | null; universeSize: number | null },
+  ) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const row = value as Record<string, unknown>;
+      return {
+        top_50000_hits: this.numberValue(row.top_50000_hits) ?? 0,
+        top_100000_hits: this.numberValue(row.top_100000_hits) ?? 0,
+        top_250000_hits: this.numberValue(row.top_250000_hits) ?? 0,
+        top_500000_hits: this.numberValue(row.top_500000_hits) ?? 0,
+        worst_rank_reward: this.numberValue(row.worst_rank_reward) ?? 0,
+        median_rank_reward: this.numberValue(row.median_rank_reward) ?? 0,
+        band_reward: this.numberValue(row.band_reward) ?? 0,
+        reward: this.numberValue(row.reward) ?? 0,
+      };
+    }
+    const safeUniverse = fallback.universeSize && fallback.universeSize > 0 ? fallback.universeSize : 1_107_568;
+    const worstRankReward =
+      fallback.worstRank === null ? 0 : Math.max(0, 1 - fallback.worstRank / safeUniverse) * WORST_RANK_REWARD;
+    const medianRankReward =
+      fallback.medianRank === null ? 0 : Math.max(0, 1 - fallback.medianRank / safeUniverse) * MEDIAN_RANK_REWARD;
+    return {
+      top_50000_hits: 0,
+      top_100000_hits: 0,
+      top_250000_hits: 0,
+      top_500000_hits: 0,
+      worst_rank_reward: Number(worstRankReward.toFixed(6)),
+      median_rank_reward: Number(medianRankReward.toFixed(6)),
+      band_reward: 0,
+      reward: Number((worstRankReward + medianRankReward).toFixed(6)),
+    };
+  }
+
   private rewardSummary({
     top100Hits,
     top1000Hits,
     top10000Hits,
     red5,
+    rankQuality,
     medianRank,
     worstRank,
     universeSize,
@@ -438,6 +486,13 @@ export class ResearchService {
       top_1000_hits: number;
       top_10000_hits: number;
     };
+    rankQuality: {
+      top_50000_hits: number;
+      top_100000_hits: number;
+      top_250000_hits: number;
+      top_500000_hits: number;
+      reward: number;
+    };
     medianRank: number;
     worstRank: number;
     universeSize: number | null;
@@ -448,12 +503,19 @@ export class ResearchService {
       red5.top_100_hits * RED5_TOP_100_REWARD +
       red5.top_1000_hits * RED5_TOP_1000_REWARD +
       red5.top_10000_hits * RED5_TOP_10000_REWARD;
+    const rankQualityReward =
+      rankQuality.reward ||
+      rankQuality.top_50000_hits * RANK_TOP_50000_REWARD +
+        rankQuality.top_100000_hits * RANK_TOP_100000_REWARD +
+        rankQuality.top_250000_hits * RANK_TOP_250000_REWARD +
+        rankQuality.top_500000_hits * RANK_TOP_500000_REWARD;
     const rankPenalty = medianRank / safeUniverse + worstRank / safeUniverse / 4;
     return {
       hitReward: Number(hitReward.toFixed(6)),
       red5Reward: Number(red5Reward.toFixed(6)),
+      rankQualityReward: Number(rankQualityReward.toFixed(6)),
       rankPenalty: Number(rankPenalty.toFixed(6)),
-      objectiveScore: Number((hitReward + red5Reward - rankPenalty).toFixed(6)),
+      objectiveScore: Number((hitReward + red5Reward + rankQualityReward - rankPenalty).toFixed(6)),
     };
   }
 

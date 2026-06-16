@@ -58,6 +58,43 @@ def test_score_frequency_candidate_is_configurable():
     assert omission_only["score"] == 1
 
 
+def test_temporal_features_track_neighbor_and_lagged_consecutive_chain():
+    history = [
+        ("001", (1, 11, 20, 23, 26, 33)),
+        ("002", (4, 8, 12, 23, 29, 30)),
+    ]
+    stats = train_frequency_stats(history)
+
+    lagged_candidate = score_frequency_candidate(
+        (2, 5, 9, 13, 24, 31),
+        stats,
+        FrequencyRankerConfig(
+            structural_weight=0,
+            frequency_weight=0,
+            omission_weight=0,
+            previous_consecutive_weight=0,
+            recent_neighbor_weight=1,
+            lagged_consecutive_weight=1,
+        ),
+    )
+    unrelated_candidate = score_frequency_candidate(
+        (3, 6, 15, 18, 22, 32),
+        stats,
+        FrequencyRankerConfig(
+            structural_weight=0,
+            frequency_weight=0,
+            omission_weight=0,
+            previous_consecutive_weight=0,
+            recent_neighbor_weight=1,
+            lagged_consecutive_weight=1,
+        ),
+    )
+
+    assert 13 in stats.lagged_consecutive_number_set
+    assert lagged_candidate["lagged_consecutive_score"] > unrelated_candidate["lagged_consecutive_score"]
+    assert lagged_candidate["recent_neighbor_score"] > 0
+
+
 def test_walk_forward_reports_target_ranks_on_small_universe():
     universe = [
         (1, 2, 3, 4, 5, 6),

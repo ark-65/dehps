@@ -34,6 +34,10 @@ CONTEXT_FIELDS = (
     "previous_overlap_weight",
     "previous_parity_shape_weight",
     "previous_zone_shape_weight",
+    "recent_neighbor_weight",
+    "lagged_consecutive_weight",
+    "recent_gap_shape_weight",
+    "recent_sum_span_weight",
 )
 ALL_FIELDS = PRIMARY_FIELDS + CONTEXT_FIELDS
 DEFAULT_UNIVERSE_SIZE = 1_107_568
@@ -43,6 +47,12 @@ TOP_10000_REWARD = 10
 RED5_TOP_100_REWARD = 5
 RED5_TOP_1000_REWARD = 1
 RED5_TOP_10000_REWARD = 0.2
+RANK_TOP_50000_REWARD = 0.04
+RANK_TOP_100000_REWARD = 0.02
+RANK_TOP_250000_REWARD = 0.01
+RANK_TOP_500000_REWARD = 0.005
+WORST_RANK_REWARD = 3.0
+MEDIAN_RANK_REWARD = 2.0
 PHASES = (
     ("micro", 0.01),
     ("small", 0.03),
@@ -151,6 +161,19 @@ def generate_configs(
                 previous_parity_shape_weight=0.03,
                 previous_zone_shape_weight=0.08,
             ),
+            FrequencyRankerConfig(
+                structural_weight=0.35,
+                frequency_weight=0.55,
+                omission_weight=0.05,
+                previous_consecutive_weight=0.10,
+                previous_overlap_weight=-0.05,
+                previous_parity_shape_weight=-0.02,
+                previous_zone_shape_weight=0.12,
+                recent_neighbor_weight=0.06,
+                lagged_consecutive_weight=0.04,
+                recent_gap_shape_weight=0.04,
+                recent_sum_span_weight=0.04,
+            ),
         )
         for config in large_candidates:
             add_unique(configs, seen, config)
@@ -193,14 +216,56 @@ def reward_summary(summary: dict, *, universe_size: int = DEFAULT_UNIVERSE_SIZE)
         + float(red5.get("top_1000_hits") or 0) * RED5_TOP_1000_REWARD
         + float(red5.get("top_10000_hits") or 0) * RED5_TOP_10000_REWARD
     )
+    rank_quality = summary.get("rank_quality") if isinstance(summary.get("rank_quality"), dict) else {}
+    rank_quality_reward = float(rank_quality.get("reward") or 0)
     median_rank = summary.get("median_rank") or safe_universe
     worst_rank = summary.get("worst_rank") or safe_universe
     rank_penalty = median_rank / safe_universe + worst_rank / safe_universe / 4
     return {
         "hitReward": round(hit_reward, 6),
         "red5Reward": round(red5_reward, 6),
+        "rankQualityReward": round(rank_quality_reward, 6),
         "rankPenalty": round(rank_penalty, 6),
-        "objectiveScore": round(hit_reward + red5_reward - rank_penalty, 6),
+        "objectiveScore": round(hit_reward + red5_reward + rank_quality_reward - rank_penalty, 6),
+    }
+
+
+def empty_rank_quality_summary() -> dict:
+    return {
+        "top_50000_hits": 0,
+        "top_100000_hits": 0,
+        "top_250000_hits": 0,
+        "top_500000_hits": 0,
+        "worst_rank_reward": 0.0,
+        "median_rank_reward": 0.0,
+        "band_reward": 0.0,
+        "reward": 0.0,
+    }
+
+
+def summarize_rank_quality(ranks: list[int], *, universe_size: int) -> dict:
+    if not ranks:
+        return empty_rank_quality_summary()
+    safe_universe = max(1, universe_size)
+    worst_rank = max(ranks)
+    median_rank = median(ranks)
+    band_reward = (
+        sum(rank <= 50_000 for rank in ranks) * RANK_TOP_50000_REWARD
+        + sum(rank <= 100_000 for rank in ranks) * RANK_TOP_100000_REWARD
+        + sum(rank <= 250_000 for rank in ranks) * RANK_TOP_250000_REWARD
+        + sum(rank <= 500_000 for rank in ranks) * RANK_TOP_500000_REWARD
+    )
+    worst_rank_reward = max(0.0, 1 - worst_rank / safe_universe) * WORST_RANK_REWARD
+    median_rank_reward = max(0.0, 1 - median_rank / safe_universe) * MEDIAN_RANK_REWARD
+    return {
+        "top_50000_hits": sum(rank <= 50_000 for rank in ranks),
+        "top_100000_hits": sum(rank <= 100_000 for rank in ranks),
+        "top_250000_hits": sum(rank <= 250_000 for rank in ranks),
+        "top_500000_hits": sum(rank <= 500_000 for rank in ranks),
+        "worst_rank_reward": round(worst_rank_reward, 6),
+        "median_rank_reward": round(median_rank_reward, 6),
+        "band_reward": round(band_reward, 6),
+        "reward": round(worst_rank_reward + median_rank_reward + band_reward, 6),
     }
 
 
@@ -293,6 +358,7 @@ def summarize_target_ranks(
         "best_rank": min(ranks) if ranks else None,
         "worst_rank": max(ranks) if ranks else None,
         "red5": summarize_red5(target_ranks),
+        "rank_quality": summarize_rank_quality(ranks, universe_size=universe_size),
     }
     summary["reward"] = reward_summary(summary, universe_size=universe_size)
     summary["run_key"] = deterministic_run_key(
@@ -319,8 +385,9 @@ def sort_key(summary: dict) -> tuple:
         int(red5.get("top_1000_hits") or 0),
         int(red5.get("top_10000_hits") or 0),
         reward["objectiveScore"],
-        -(summary["median_rank"] or 0),
-        -(summary["best_rank"] or 0),
+        -(summary.get("worst_rank") or 0),
+        -(summary.get("median_rank") or 0),
+        -(summary.get("best_rank") or 0),
     )
 
 
@@ -353,6 +420,18 @@ def normalize_red5_summary(raw_red5: object) -> dict:
     return red5
 
 
+def normalize_rank_quality_summary(raw_rank_quality: object) -> dict:
+    rank_quality = empty_rank_quality_summary()
+    if not isinstance(raw_rank_quality, dict):
+        return rank_quality
+    for field in ("top_50000_hits", "top_100000_hits", "top_250000_hits", "top_500000_hits"):
+        rank_quality[field] = int(raw_rank_quality.get(field) or 0)
+    for field in ("worst_rank_reward", "median_rank_reward", "band_reward", "reward"):
+        value = raw_rank_quality.get(field)
+        rank_quality[field] = float(value) if isinstance(value, int | float) else 0.0
+    return rank_quality
+
+
 def normalize_summary(raw_summary: object, *, universe_size: int) -> dict | None:
     if not isinstance(raw_summary, dict) or not isinstance(raw_summary.get("config"), dict):
         return None
@@ -374,6 +453,7 @@ def normalize_summary(raw_summary: object, *, universe_size: int) -> dict | None
     summary["config"] = {field: float(value) for field, value in raw_summary["config"].items()}
     summary["config_hash"] = summary.get("config_hash") or config_hash(FrequencyRankerConfig(**summary["config"]))
     summary["red5"] = normalize_red5_summary(summary.get("red5"))
+    summary["rank_quality"] = normalize_rank_quality_summary(summary.get("rank_quality"))
     summary["reward"] = reward_summary(summary, universe_size=universe_size)
     return summary
 
@@ -509,6 +589,7 @@ def write_report(report_path: Path, status: dict) -> None:
             f"| {round_info['round']} | {round_info['phase']} | {round_info['best']['top_10000_hits']} | "
             f"{round_info['best']['top_1000_hits']} | {round_info['best']['top_100_hits']} | "
             f"{round_info['best']['red5']['top_100_hits']} | {round_info['best']['red5']['top_10000_hits']} | "
+            f"{round_info['best']['rank_quality']['top_50000_hits']} | {round_info['best']['worst_rank']} | "
             f"{round_info['best']['median_rank']} | `{json.dumps(round_info['best']['config'], sort_keys=True)}` |"
         )
         for round_info in status["rounds"]
@@ -538,8 +619,8 @@ def write_report(report_path: Path, status: dict) -> None:
 
 ## Rounds
 
-| Round | Phase | Top10000 | Top1000 | Top100 | Red5 Top100 | Red5 Top10000 | Median rank | Config |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Round | Phase | Top10000 | Top1000 | Top100 | Red5 Top100 | Red5 Top10000 | Top50000 | Worst rank | Median rank | Config |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 {rounds}
 
 ## Guardrail
@@ -722,7 +803,7 @@ def main() -> None:
     parser.add_argument("--regime-years", type=int, default=10)
     parser.add_argument("--output-dir", type=Path, default=ROOT_DIR / "data/output/optimization")
     parser.add_argument("--progress-interval", type=int, default=10)
-    parser.add_argument("--max-configs-per-round", type=int, default=20)
+    parser.add_argument("--max-configs-per-round", type=int, default=28)
     parser.add_argument("--memory-budget-gb", type=int, default=20)
     args = parser.parse_args()
     print(

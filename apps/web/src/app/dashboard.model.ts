@@ -70,8 +70,20 @@ export type TrainingResult = {
   best_rank: number;
   worst_rank: number;
   red5: TrainingRedFiveSummary;
+  rank_quality: TrainingRankQualitySummary;
   run_key: string;
   reward: TrainingRewardSummary;
+};
+
+export type TrainingRankQualitySummary = {
+  top_50000_hits: number;
+  top_100000_hits: number;
+  top_250000_hits: number;
+  top_500000_hits: number;
+  worst_rank_reward: number;
+  median_rank_reward: number;
+  band_reward: number;
+  reward: number;
 };
 
 export type TrainingRedFiveSummary = {
@@ -104,6 +116,7 @@ export type TrainingRedFiveExample = {
 export type TrainingRewardSummary = {
   hitReward: number;
   red5Reward: number;
+  rankQualityReward: number;
   rankPenalty: number;
   objectiveScore: number;
 };
