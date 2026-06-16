@@ -9,3 +9,8 @@ pip install -e .
 pytest
 ```
 
+Generate audited next-issue red-ball candidates:
+
+```bash
+python scripts/generate_next_candidates.py --limit 5 --random-sets 200
+```

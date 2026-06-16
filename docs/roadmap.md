@@ -46,6 +46,7 @@ At the end of each round:
 | 5 | Dashboard and API | Done | `docs/experiments/round-5-report.md` |
 | 6 | Experiment detail and report viewer | Done | `docs/experiments/round-6-report.md` |
 | 7 | Comparison and distribution review | Done | `docs/experiments/round-7-report.md` |
+| 8 | Candidate generation audit foundation | Done | `docs/experiments/round-8-report.md` |
 
 ## Round 1: Basic Computation And Backtest Loop
 
@@ -208,6 +209,30 @@ Non-goals:
 - New scoring formulas.
 - Prediction or betting language.
 - Treating current generated-combination sample charts as full-space statistics.
+
+## Round 8: Candidate Generation Audit Foundation
+
+Goal: produce next-issue red-ball candidates as a frozen, auditable experiment.
+
+Acceptance checklist:
+
+- Add deterministic candidate generation for legal 双色球 red-ball combinations.
+- Add a random null-model baseline with the same candidate count.
+- Add leakage checks before publishing a candidate artifact.
+- Write CSV and Markdown candidate artifacts.
+- Keep language explicit that candidates are hypotheses, not guaranteed predictions.
+- Produce `docs/experiments/round-8-report.md`.
+- Commit the accepted round changes.
+
+Current state: completed as an acceptance round. See `docs/experiments/round-8-report.md`.
+
+Non-goals:
+
+- Guaranteed hit prediction.
+- Betting advice.
+- Post-draw retuning.
+- Blue-ball prediction.
+- New model training.
 
 ## Update Policy
 
