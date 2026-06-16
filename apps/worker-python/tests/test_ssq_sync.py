@@ -65,6 +65,41 @@ def test_history_dry_run_reports_latest_issue(monkeypatch):
     assert summary["latest_draw"]["issue"] == "2026002"
 
 
+def test_history_sync_writes_draws_in_issue_order(monkeypatch):
+    written_issues = []
+
+    class FakeSource:
+        def fetch_history(self, start_issue=None, end_issue=None):
+            return [
+                {"issue": "2026003", "red_numbers": [1, 2, 3, 4, 5, 6], "blue_number": 8},
+                {"issue": "2026001", "red_numbers": [2, 3, 4, 5, 6, 7], "blue_number": 9},
+                {"issue": "2026002", "red_numbers": [3, 4, 5, 6, 7, 8], "blue_number": 10},
+            ]
+
+    class FakeContext:
+        def __enter__(self):
+            return FakeConn()
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def record_upsert(conn, draw, source):
+        written_issues.append(draw.issue)
+        return "inserted"
+
+    monkeypatch.setattr("dehps.crawler.ssq_sync.get_data_source", lambda *a, **k: FakeSource())
+    monkeypatch.setattr("dehps.crawler.ssq_sync.get_connection", lambda: FakeContext())
+    monkeypatch.setattr("dehps.crawler.ssq_sync.create_sync_run", lambda conn, run_key, source: None)
+    monkeypatch.setattr("dehps.crawler.ssq_sync.upsert_ssq_draw", record_upsert)
+    monkeypatch.setattr("dehps.crawler.ssq_sync.finish_sync_run", lambda conn, run_key, status, summary: None)
+
+    summary = sync_ssq("fake", history=True, run_key="sync-order-test")
+
+    assert written_issues == ["2026001", "2026002", "2026003"]
+    assert summary["inserted_count"] == 3
+    assert summary["latest_draw"]["issue"] == "2026003"
+
+
 def test_sync_records_failed_status(monkeypatch):
     finished = {}
 

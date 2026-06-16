@@ -24,9 +24,10 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e .
 pytest
-python scripts/generate_ssq_red_combinations.py --limit 10000
+python scripts/generate_ssq_red_combinations.py --reset
 python scripts/sync_latest_ssq.py --source zhcw --history --dry-run
 python scripts/sync_latest_ssq.py --source zhcw --history
+python scripts/audit_ssq_database.py
 python scripts/daily_pipeline.py --strategy-key baseline_v1 --source zhcw --force
 ```
 

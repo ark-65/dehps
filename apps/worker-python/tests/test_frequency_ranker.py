@@ -5,6 +5,7 @@ from dehps.optimization.walk_forward import (
     deterministic_run_key,
     fingerprint_history,
     normalize_worker_count,
+    random_uniform_baseline,
     rank_target,
     run_walk_forward,
 )
@@ -71,6 +72,8 @@ def test_walk_forward_reports_target_ranks_on_small_universe():
     assert result.as_of_issue == "004"
     assert result.history_fingerprint == fingerprint_history(history)
     assert len(result.target_ranks) == 2
+    assert len(result.zero_model_target_ranks) == 2
+    assert result.universe_size == len(universe)
     assert all(1 <= rank.rank <= len(universe) for rank in result.target_ranks)
     assert len(result.top_candidates) == 3
 
@@ -131,6 +134,13 @@ def test_rank_target_uses_only_supplied_train_history():
 
     assert rank == 2
     assert score == 0
+
+
+def test_random_uniform_baseline_is_analytical_only():
+    baseline = random_uniform_baseline(evaluated_draws=100, universe_size=1107568)
+
+    assert baseline["top_100"]["expected_hits"] == 100 * 100 / 1107568
+    assert baseline["top_10000"]["hit_rate"] == 10000 / 1107568
 
 
 def test_deterministic_run_key_is_stable_for_same_protocol():

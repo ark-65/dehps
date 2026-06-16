@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import json
+from datetime import date
+from math import comb
 from typing import Any
 
 from psycopg import Connection
 from psycopg.rows import dict_row
 
 from dehps.crawler.ssq_parser import ValidatedSsqDraw
+
+
+TOTAL_SSQ_RED_COMBINATIONS = comb(33, 6)
 
 
 def init_schema(conn: Connection, sql_path) -> None:
@@ -171,6 +176,46 @@ def load_history_until(conn: Connection, as_of_issue: str | None) -> list[tuple[
     return [(row[0], tuple(row[1])) for row in rows]
 
 
+def load_history_since_date(
+    conn: Connection,
+    *,
+    start_date: date,
+    as_of_issue: str | None = None,
+) -> list[tuple[str, tuple[int, ...]]]:
+    if as_of_issue:
+        rows = conn.execute(
+            """
+            SELECT issue, red_numbers
+            FROM ssq_history
+            WHERE draw_date >= %s AND issue <= %s
+            ORDER BY issue
+            """,
+            (start_date, as_of_issue),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT issue, red_numbers
+            FROM ssq_history
+            WHERE draw_date >= %s
+            ORDER BY issue
+            """,
+            (start_date,),
+        ).fetchall()
+    return [(row[0], tuple(row[1])) for row in rows]
+
+
+def latest_draw_date_until(conn: Connection, as_of_issue: str | None = None) -> date | None:
+    if as_of_issue:
+        row = conn.execute(
+            "SELECT max(draw_date) FROM ssq_history WHERE issue <= %s",
+            (as_of_issue,),
+        ).fetchone()
+    else:
+        row = conn.execute("SELECT max(draw_date) FROM ssq_history").fetchone()
+    return row[0] if row and row[0] else None
+
+
 def latest_draw(conn: Connection) -> dict[str, Any] | None:
     with conn.cursor(row_factory=dict_row) as cur:
         row = cur.execute(
@@ -182,6 +227,120 @@ def latest_draw(conn: Connection) -> dict[str, Any] | None:
     if row["draw_date"]:
         row["draw_date"] = row["draw_date"].isoformat()
     return dict(row)
+
+
+def audit_ssq_history(conn: Connection) -> dict[str, Any]:
+    summary = conn.execute(
+        """
+        SELECT
+          count(*) AS total_draws,
+          min(issue) AS min_issue,
+          max(issue) AS max_issue,
+          min(draw_date) AS min_draw_date,
+          max(draw_date) AS max_draw_date
+        FROM ssq_history
+        """,
+    ).fetchone()
+    duplicate_rows = conn.execute(
+        """
+        SELECT issue, count(*) AS row_count
+        FROM ssq_history
+        GROUP BY issue
+        HAVING count(*) > 1
+        ORDER BY issue
+        """,
+    ).fetchall()
+    monotonic_rows = conn.execute(
+        """
+        WITH ordered AS (
+          SELECT
+            id,
+            issue,
+            lag(issue) OVER (ORDER BY id) AS previous_issue
+          FROM ssq_history
+        )
+        SELECT id, issue, previous_issue
+        FROM ordered
+        WHERE previous_issue IS NOT NULL AND issue < previous_issue
+        ORDER BY id
+        LIMIT 20
+        """,
+    ).fetchall()
+    id_asc = conn.execute(
+        """
+        SELECT id, issue, draw_date
+        FROM ssq_history
+        ORDER BY id ASC
+        LIMIT 10
+        """,
+    ).fetchall()
+    issue_asc = conn.execute(
+        """
+        SELECT id, issue, draw_date
+        FROM ssq_history
+        ORDER BY issue ASC
+        LIMIT 10
+        """,
+    ).fetchall()
+    issue_desc = conn.execute(
+        """
+        SELECT id, issue, draw_date
+        FROM ssq_history
+        ORDER BY issue DESC
+        LIMIT 10
+        """,
+    ).fetchall()
+    issue_years = conn.execute(
+        """
+        SELECT left(issue, 4) AS issue_year, count(*) AS draw_count
+        FROM ssq_history
+        GROUP BY left(issue, 4)
+        ORDER BY issue_year
+        """,
+    ).fetchall()
+
+    return {
+        "total_draws": summary[0],
+        "min_issue": summary[1],
+        "max_issue": summary[2],
+        "min_draw_date": summary[3].isoformat() if summary[3] else None,
+        "max_draw_date": summary[4].isoformat() if summary[4] else None,
+        "duplicate_issues": [{"issue": row[0], "row_count": row[1]} for row in duplicate_rows],
+        "id_issue_monotonic": len(monotonic_rows) == 0,
+        "id_issue_monotonic_violations": [
+            {"id": row[0], "issue": row[1], "previous_issue": row[2]} for row in monotonic_rows
+        ],
+        "first_10_by_id": [_audit_row(row) for row in id_asc],
+        "first_10_by_issue": [_audit_row(row) for row in issue_asc],
+        "latest_10_by_issue": [_audit_row(row) for row in issue_desc],
+        "draws_by_issue_year": [{"issue_year": row[0], "draw_count": row[1]} for row in issue_years],
+    }
+
+
+def _audit_row(row) -> dict[str, Any]:
+    return {"id": row[0], "issue": row[1], "draw_date": row[2].isoformat() if row[2] else None}
+
+
+def count_red_combination_universe(conn: Connection) -> int:
+    row = conn.execute("SELECT count(*) FROM ssq_red_combinations").fetchone()
+    return int(row[0])
+
+
+def load_red_combination_universe(conn: Connection) -> list[tuple[int, ...]]:
+    rows = conn.execute(
+        """
+        SELECT numbers
+        FROM ssq_red_combinations
+        ORDER BY n1, n2, n3, n4, n5, n6
+        """,
+    ).fetchall()
+    combinations = [tuple(row[0]) for row in rows]
+    if len(combinations) != TOTAL_SSQ_RED_COMBINATIONS:
+        raise ValueError(
+            "ssq_red_combinations must contain the full C(33,6) universe "
+            f"({TOTAL_SSQ_RED_COMBINATIONS} rows); found {len(combinations)}"
+        )
+    return combinations
 
 
 def previous_experiment_metrics(conn: Connection, strategy_key: str) -> dict[str, Any] | None:

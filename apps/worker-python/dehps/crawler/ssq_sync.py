@@ -23,7 +23,7 @@ def sync_ssq(
     data_source = get_data_source(source, csv_file=csv_file)
     raw_draws = data_source.fetch_history(from_issue, to_issue) if history else [data_source.fetch_latest()]
     raw_draws = [draw for draw in raw_draws if draw]
-    validated = [validate_ssq_draw(draw) for draw in raw_draws]
+    validated = sorted((validate_ssq_draw(draw) for draw in raw_draws), key=lambda draw: draw.issue)
 
     summary: dict[str, Any] = {
         "run_key": run_key,

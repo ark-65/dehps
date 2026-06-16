@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from math import comb
 import time
 
 from dehps.db import get_connection
@@ -42,7 +43,18 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=5000)
+    parser.add_argument("--reset", action="store_true")
     args = parser.parse_args()
+    total_universe = comb(33, 6)
+    if args.limit:
+        print(
+            {
+                "warning": (
+                    "--limit creates an incomplete red-ball universe. "
+                    f"Use the default full run for production ({total_universe} rows)."
+                )
+            }
+        )
 
     started = time.time()
     inserted = 0
@@ -58,6 +70,8 @@ def main() -> None:
     ON CONFLICT (numbers) DO NOTHING
     """
     with get_connection() as conn:
+        if args.reset:
+            conn.execute("TRUNCATE ssq_red_combinations RESTART IDENTITY")
         batch = []
         for idx, numbers in enumerate(iter_ssq_red_combinations(), start=1):
             batch.append(build_row(numbers))
@@ -76,7 +90,17 @@ def main() -> None:
                 rowcount = cur.rowcount if cur.rowcount > 0 else 0
             inserted += rowcount
             skipped += len(batch) - rowcount
-    print({"inserted": inserted, "skipped": skipped, "elapsed_seconds": round(time.time() - started, 2)})
+        total_rows = conn.execute("SELECT count(*) FROM ssq_red_combinations").fetchone()[0]
+    print(
+        {
+            "inserted": inserted,
+            "skipped": skipped,
+            "total_rows": total_rows,
+            "expected_total_rows": total_universe,
+            "complete_universe": total_rows == total_universe,
+            "elapsed_seconds": round(time.time() - started, 2),
+        }
+    )
 
 
 if __name__ == "__main__":

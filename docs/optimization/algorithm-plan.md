@@ -29,7 +29,7 @@ For every target issue:
 
 1. Use only draws before the target issue.
 2. Train on a fixed rolling window, for example 100, 300, or 1000 prior draws.
-3. Rank the same legal red-ball universe.
+3. Rank the same complete legal red-ball universe from `ssq_red_combinations`.
 4. Record the true target red set rank.
 5. Count hits in Top 100, Top 1000, and Top 10000.
 6. Keep the model config frozen during evaluation.
@@ -39,6 +39,7 @@ For every target issue:
 Full-combination rankings must be deterministic:
 
 - The input history must be frozen by `as_of_issue`.
+- The red-ball universe must be the complete constant `C(33,6)` table with 1,107,568 rows.
 - The history snapshot is identified by `history_fingerprint`.
 - The model config is identified by `config_hash`.
 - The run key is derived from strategy, `as_of_issue`, train window, eval window, `top_n`, `history_fingerprint`, and `config_hash`.
@@ -52,7 +53,7 @@ If two machines have the same history snapshot and config before the next draw i
 
 - `baseline_v1`: structural plausibility filter.
 - `frequency_v1`: structural score + recent frequency + omission score.
-- Random same-size candidate sets.
+- Analytical random uniform expectation with the same Top-N cutoff; this baseline is not used for candidate generation.
 
 ## Feature Families
 
@@ -88,7 +89,8 @@ Candidate later features:
 
 ### Round 10: Fast Matrix And Grid Search
 
-- Cache full combination feature matrix.
+- Maintain `ssq_red_combinations` as the full constant sample-space table.
+- Cache or load the full combination feature matrix from that table.
 - Use at least 16 workers for full-universe ranking and weight sweeps on this workstation, while keeping manual override available.
 - Run weight grid search over rolling windows.
 - Report top-performing configs without using future target labels in each fold.

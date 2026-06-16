@@ -8,9 +8,9 @@ from dehps.scoring.strategy import score_numbers
 
 @dataclass(frozen=True)
 class FrequencyRankerConfig:
-    structural_weight: float = 0.55
+    structural_weight: float = 0.40
     frequency_weight: float = 0.30
-    omission_weight: float = 0.15
+    omission_weight: float = 0.30
 
 
 @dataclass(frozen=True)

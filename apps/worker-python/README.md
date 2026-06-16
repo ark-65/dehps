@@ -9,6 +9,12 @@ pip install -e .
 pytest
 ```
 
+Build the constant red-ball universe:
+
+```bash
+python scripts/generate_ssq_red_combinations.py --reset
+```
+
 Generate audited next-issue red-ball candidates:
 
 ```bash
@@ -23,4 +29,6 @@ python scripts/run_walk_forward_optimization.py --train-window 100 --eval-window
 
 The default worker count is 16, leaving spare CPU for the system on this workstation. Pass `--workers` to override it.
 
-For reproducibility, pass `--as-of-issue` before the next draw is known. The same history snapshot, config, train window, eval window, and `top-n` produce the same run key and ranking output. `--workers` changes runtime only, not ranking identity.
+For reproducibility, pass `--as-of-issue` before the next draw is known. The same complete `ssq_red_combinations` universe, history snapshot, config, train window, eval window, and `top-n` produce the same run key and ranking output. `--workers` changes runtime only, not ranking identity.
+
+The optimization script scans the complete `C(33,6)` red-ball universe from `ssq_red_combinations` and sorts by frozen score rules. Randomness is only used as an analytical baseline in reports; it is not used to generate top candidates.

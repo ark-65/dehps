@@ -47,7 +47,12 @@ class WalkForwardResult:
     top_100_hits: int
     top_1000_hits: int
     top_10000_hits: int
+    zero_model_top_100_hits: int
+    zero_model_top_1000_hits: int
+    zero_model_top_10000_hits: int
+    universe_size: int
     target_ranks: list[TargetRank]
+    zero_model_target_ranks: list[TargetRank]
     top_candidates: list[tuple[int, tuple[int, ...], float]]
 
     def as_dict(self, candidate_preview_limit: int = 100) -> dict:
@@ -64,6 +69,14 @@ class WalkForwardResult:
             "top_100_hits": self.top_100_hits,
             "top_1000_hits": self.top_1000_hits,
             "top_10000_hits": self.top_10000_hits,
+            "zero_model_top_100_hits": self.zero_model_top_100_hits,
+            "zero_model_top_1000_hits": self.zero_model_top_1000_hits,
+            "zero_model_top_10000_hits": self.zero_model_top_10000_hits,
+            "universe_size": self.universe_size,
+            "random_uniform_baseline": random_uniform_baseline(
+                evaluated_draws=self.evaluated_draws,
+                universe_size=self.universe_size,
+            ),
             "target_ranks": [
                 {
                     "issue": rank.issue,
@@ -75,11 +88,33 @@ class WalkForwardResult:
                 }
                 for rank in self.target_ranks
             ],
+            "zero_model_target_ranks": [
+                {
+                    "issue": rank.issue,
+                    "rank": rank.rank,
+                    "score": rank.score,
+                    "hit_top_100": rank.hit_top_100,
+                    "hit_top_1000": rank.hit_top_1000,
+                    "hit_top_10000": rank.hit_top_10000,
+                }
+                for rank in self.zero_model_target_ranks
+            ],
             "top_candidates_preview": [
                 {"rank": rank, "numbers": numbers, "score": score}
                 for rank, numbers, score in self.top_candidates[:candidate_preview_limit]
             ],
         }
+
+
+def random_uniform_baseline(*, evaluated_draws: int, universe_size: int) -> dict[str, dict[str, float]]:
+    cutoffs = {"top_100": 100, "top_1000": 1000, "top_10000": 10000}
+    return {
+        name: {
+            "hit_rate": min(cutoff, universe_size) / universe_size if universe_size else 0,
+            "expected_hits": evaluated_draws * min(cutoff, universe_size) / universe_size if universe_size else 0,
+        }
+        for name, cutoff in cutoffs.items()
+    }
 
 
 def fingerprint_history(history: list[tuple[str, tuple[int, ...]]]) -> str:
@@ -225,6 +260,23 @@ def rank_target(
     return better + equal_before + 1, target_score
 
 
+def rank_target_structural(
+    *,
+    target_numbers: tuple[int, ...],
+    ranked_universe: list[RankedUniverseEntry],
+) -> tuple[int, float]:
+    target_score = round(score_numbers(target_numbers)["score"], 8)
+    better = 0
+    equal_before = 0
+    for entry in ranked_universe:
+        score = round(entry.structural_score, 8)
+        if score > target_score:
+            better += 1
+        elif score == target_score and entry.numbers < target_numbers:
+            equal_before += 1
+    return better + equal_before + 1, target_score
+
+
 def top_candidates_for_next(
     *,
     history: list[tuple[str, tuple[int, ...]]],
@@ -285,6 +337,7 @@ def run_walk_forward(
     worker_count = normalize_worker_count(workers)
     start = max(train_window, len(history) - eval_window)
     target_ranks: list[TargetRank] = []
+    zero_model_target_ranks: list[TargetRank] = []
     ranked_universe = build_ranked_universe(universe)
     global _WORKER_UNIVERSE
     _WORKER_UNIVERSE = ranked_universe
@@ -317,6 +370,20 @@ def run_walk_forward(
                     hit_top_10000=rank <= 10000,
                 ),
             )
+            zero_rank, zero_score = rank_target_structural(
+                target_numbers=numbers,
+                ranked_universe=ranked_universe,
+            )
+            zero_model_target_ranks.append(
+                TargetRank(
+                    issue=issue,
+                    rank=zero_rank,
+                    score=zero_score,
+                    hit_top_100=zero_rank <= 100,
+                    hit_top_1000=zero_rank <= 1000,
+                    hit_top_10000=zero_rank <= 10000,
+                ),
+            )
 
         top_candidates = top_candidates_for_next(
             history=history[-train_window:],
@@ -344,6 +411,11 @@ def run_walk_forward(
         top_100_hits=sum(rank.hit_top_100 for rank in target_ranks),
         top_1000_hits=sum(rank.hit_top_1000 for rank in target_ranks),
         top_10000_hits=sum(rank.hit_top_10000 for rank in target_ranks),
+        zero_model_top_100_hits=sum(rank.hit_top_100 for rank in zero_model_target_ranks),
+        zero_model_top_1000_hits=sum(rank.hit_top_1000 for rank in zero_model_target_ranks),
+        zero_model_top_10000_hits=sum(rank.hit_top_10000 for rank in zero_model_target_ranks),
+        universe_size=len(ranked_universe),
         target_ranks=target_ranks,
+        zero_model_target_ranks=zero_model_target_ranks,
         top_candidates=top_candidates,
     )
