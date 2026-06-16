@@ -20,6 +20,9 @@ const DEFAULT_LIMIT = 20;
 const DEFAULT_LOG_TAIL_LINES = 80;
 const OPTIMIZATION_OUTPUT_DIR = 'data/output/optimization';
 const RUNTIME_LOG_DIR = 'runtime/logs';
+const TOP_100_REWARD = 1000;
+const TOP_1000_REWARD = 100;
+const TOP_10000_REWARD = 10;
 
 @Injectable()
 export class ResearchService {
@@ -344,7 +347,7 @@ export class ResearchService {
     universeSize: number | null;
   }) {
     const safeUniverse = universeSize && universeSize > 0 ? universeSize : 1_107_568;
-    const hitReward = top100Hits * 100 + top1000Hits * 20 + top10000Hits * 5;
+    const hitReward = top100Hits * TOP_100_REWARD + top1000Hits * TOP_1000_REWARD + top10000Hits * TOP_10000_REWARD;
     const rankPenalty = medianRank / safeUniverse + worstRank / safeUniverse / 4;
     return {
       hitReward: Number(hitReward.toFixed(6)),

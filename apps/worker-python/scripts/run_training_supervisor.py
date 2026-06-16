@@ -36,6 +36,9 @@ CONTEXT_FIELDS = (
 )
 ALL_FIELDS = PRIMARY_FIELDS + CONTEXT_FIELDS
 DEFAULT_UNIVERSE_SIZE = 1_107_568
+TOP_100_REWARD = 1000
+TOP_1000_REWARD = 100
+TOP_10000_REWARD = 10
 PHASES = (
     ("micro", 0.01),
     ("small", 0.03),
@@ -175,7 +178,11 @@ def extrapolate_config(best: FrequencyRankerConfig, other: FrequencyRankerConfig
 
 def reward_summary(summary: dict, *, universe_size: int = DEFAULT_UNIVERSE_SIZE) -> dict[str, float]:
     safe_universe = max(1, universe_size)
-    hit_reward = summary["top_100_hits"] * 100 + summary["top_1000_hits"] * 20 + summary["top_10000_hits"] * 5
+    hit_reward = (
+        summary["top_100_hits"] * TOP_100_REWARD
+        + summary["top_1000_hits"] * TOP_1000_REWARD
+        + summary["top_10000_hits"] * TOP_10000_REWARD
+    )
     median_rank = summary.get("median_rank") or safe_universe
     worst_rank = summary.get("worst_rank") or safe_universe
     rank_penalty = median_rank / safe_universe + worst_rank / safe_universe / 4
@@ -244,6 +251,74 @@ def merge_leaderboard(existing: list[dict], candidates: list[dict], *, limit: in
         if current is None or sort_key(candidate) > sort_key(current):
             by_hash[candidate["config_hash"]] = candidate
     return sorted(by_hash.values(), key=sort_key, reverse=True)[:limit]
+
+
+def normalize_summary(raw_summary: object, *, universe_size: int) -> dict | None:
+    if not isinstance(raw_summary, dict) or not isinstance(raw_summary.get("config"), dict):
+        return None
+    required_fields = (
+        "as_of_issue",
+        "history_fingerprint",
+        "evaluated_draws",
+        "top_100_hits",
+        "top_1000_hits",
+        "top_10000_hits",
+        "median_rank",
+        "best_rank",
+        "worst_rank",
+        "run_key",
+    )
+    if any(field not in raw_summary or raw_summary[field] is None for field in required_fields):
+        return None
+    summary = dict(raw_summary)
+    summary["config"] = {field: float(value) for field, value in raw_summary["config"].items()}
+    summary["config_hash"] = summary.get("config_hash") or config_hash(FrequencyRankerConfig(**summary["config"]))
+    summary["reward"] = reward_summary(summary, universe_size=universe_size)
+    return summary
+
+
+def load_prior_supervisor_candidates(
+    *,
+    output_dir: Path,
+    current_status_path: Path,
+    as_of_issue: str,
+    history_fingerprint_value: str,
+    train_window: int,
+    train_mode: str,
+    eval_window: int,
+    top_n: int,
+    universe_size: int,
+    limit: int = 12,
+) -> list[dict]:
+    candidates: list[dict] = []
+    for status_path in sorted(output_dir.glob("training-supervisor-*.json")):
+        if status_path == current_status_path:
+            continue
+        try:
+            status = json.loads(status_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if (
+            status.get("train_window") != train_window
+            or status.get("train_mode") != train_mode
+            or status.get("eval_window") != eval_window
+            or status.get("top_n") != top_n
+        ):
+            continue
+        raw_candidates = [status.get("best")]
+        for round_info in status.get("rounds") or []:
+            if isinstance(round_info, dict):
+                raw_candidates.append(round_info.get("best"))
+                raw_candidates.extend(round_info.get("top_results") or [])
+        for raw_candidate in raw_candidates:
+            candidate = normalize_summary(raw_candidate, universe_size=universe_size)
+            if (
+                candidate
+                and candidate["as_of_issue"] == as_of_issue
+                and candidate["history_fingerprint"] == history_fingerprint_value
+            ):
+                candidates = merge_leaderboard(candidates, [candidate], limit=limit)
+    return candidates
 
 
 def evaluate_configs(
@@ -392,16 +467,37 @@ def run_supervisor(
         universe = load_red_combination_universe(conn)
 
     worker_count = normalize_worker_count(workers)
+    as_of_issue_value = selection.history[-1][0]
+    history_fingerprint_value = fingerprint_history(selection.history)
+    prior_leaderboard = load_prior_supervisor_candidates(
+        output_dir=output_dir,
+        current_status_path=status_path,
+        as_of_issue=as_of_issue_value,
+        history_fingerprint_value=history_fingerprint_value,
+        train_window=train_window,
+        train_mode=train_mode,
+        eval_window=eval_window,
+        top_n=top_n,
+        universe_size=len(universe),
+    )
     log(
         f"run_id={run_id} building static universe rows={len(universe)} workers={worker_count} "
         f"memory_budget_gb={memory_budget_gb}"
     )
+    if prior_leaderboard:
+        log(
+            "seeded_prior_best="
+            f"top100={prior_leaderboard[0]['top_100_hits']} "
+            f"top1000={prior_leaderboard[0]['top_1000_hits']} "
+            f"top10000={prior_leaderboard[0]['top_10000_hits']} "
+            f"run_key={prior_leaderboard[0]['run_key']}"
+        )
     ranked_universe = build_ranked_universe(universe)
     pool = create_worker_pool(worker_count, ranked_universe)
 
-    base_config = FrequencyRankerConfig()
-    best_summary: dict | None = None
-    leaderboard: list[dict] = []
+    best_summary: dict | None = prior_leaderboard[0] if prior_leaderboard else None
+    base_config = FrequencyRankerConfig(**best_summary["config"]) if best_summary else FrequencyRankerConfig()
+    leaderboard: list[dict] = prior_leaderboard
     rounds: list[dict] = []
     status = {
         "run_id": run_id,
@@ -421,10 +517,11 @@ def run_supervisor(
         "memory_budget_gb": memory_budget_gb,
         "universe_size": len(ranked_universe),
         "rounds": rounds,
-        "best": None,
+        "best": best_summary,
         "status_path": str(status_path),
         "report_path": str(report_path),
     }
+    write_status(status_path, status)
 
     try:
         round_index = 0

@@ -1,7 +1,15 @@
 from __future__ import annotations
 
+import json
+
 from dehps.models.frequency_ranker import FrequencyRankerConfig
-from scripts.run_training_supervisor import generate_configs, reward_summary, sort_key
+from scripts.run_training_supervisor import (
+    config_hash,
+    generate_configs,
+    load_prior_supervisor_candidates,
+    reward_summary,
+    sort_key,
+)
 
 
 def test_generate_configs_keeps_base_and_clamps_weight_range():
@@ -52,6 +60,28 @@ def test_training_sort_key_prefers_higher_coverage_then_lower_rank():
     assert sort_key(tie_better_rank) > sort_key(weaker)
 
 
+def test_training_sort_key_prefers_top1000_over_extra_top10000_hit():
+    top1000_hit = {
+        "top_100_hits": 0,
+        "top_1000_hits": 1,
+        "top_10000_hits": 3,
+        "median_rank": 650000,
+        "best_rank": 864,
+        "worst_rank": 1_096_000,
+    }
+    extra_top10000_hit = {
+        "top_100_hits": 0,
+        "top_1000_hits": 0,
+        "top_10000_hits": 4,
+        "median_rank": 590000,
+        "best_rank": 3238,
+        "worst_rank": 1_090_000,
+    }
+
+    assert reward_summary(top1000_hit)["hitReward"] > reward_summary(extra_top10000_hit)["hitReward"]
+    assert sort_key(top1000_hit) > sort_key(extra_top10000_hit)
+
+
 def test_reward_summary_penalizes_worse_rank_inside_same_hit_counts():
     better_rank = {
         "top_100_hits": 0,
@@ -69,3 +99,52 @@ def test_reward_summary_penalizes_worse_rank_inside_same_hit_counts():
 
     assert reward_summary(better_rank)["objectiveScore"] > reward_summary(worse_rank)["objectiveScore"]
     assert sort_key(better_rank) > sort_key(worse_rank)
+
+
+def test_load_prior_supervisor_candidates_keeps_same_protocol_global_best(tmp_path):
+    config = FrequencyRankerConfig(frequency_weight=0.765, omission_weight=0)
+    summary = {
+        "config": config.__dict__,
+        "as_of_issue": "2026067",
+        "history_fingerprint": "history-1",
+        "config_hash": config_hash(config),
+        "evaluated_draws": 100,
+        "top_100_hits": 0,
+        "top_1000_hits": 1,
+        "top_10000_hits": 3,
+        "median_rank": 585483.5,
+        "best_rank": 864,
+        "worst_rank": 1_096_000,
+        "run_key": "prior-best",
+    }
+    current = tmp_path / "training-supervisor-current.json"
+    prior = tmp_path / "training-supervisor-prior.json"
+    current.write_text("{}")
+    prior.write_text(
+        json.dumps(
+            {
+                "train_window": 900,
+                "train_mode": "expanding",
+                "eval_window": 100,
+                "top_n": 10000,
+                "best": summary,
+                "rounds": [{"best": summary, "top_results": [summary]}],
+            }
+        )
+    )
+
+    candidates = load_prior_supervisor_candidates(
+        output_dir=tmp_path,
+        current_status_path=current,
+        as_of_issue="2026067",
+        history_fingerprint_value="history-1",
+        train_window=900,
+        train_mode="expanding",
+        eval_window=100,
+        top_n=10000,
+        universe_size=1_107_568,
+    )
+
+    assert candidates[0]["run_key"] == "prior-best"
+    assert candidates[0]["top_1000_hits"] == 1
+    assert candidates[0]["reward"]["hitReward"] == 130
