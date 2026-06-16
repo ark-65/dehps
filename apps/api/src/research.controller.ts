@@ -34,4 +34,9 @@ export class ResearchController {
   syncRuns(@Query('limit') limit?: string) {
     return this.researchService.listSyncRuns(Number(limit));
   }
+
+  @Get('feature-distributions')
+  featureDistributions() {
+    return this.researchService.listFeatureDistributions();
+  }
 }

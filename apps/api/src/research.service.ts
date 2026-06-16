@@ -3,6 +3,7 @@ import {
   DashboardPayload,
   ExperimentDetail,
   ExperimentSummary,
+  FeatureDistribution,
   PipelineRunSummary,
   ResearchRepository,
   SyncRunSummary,
@@ -38,14 +39,19 @@ export class ResearchService {
     return this.repository.listSyncRuns(this.normalizeLimit(limit));
   }
 
+  listFeatureDistributions(): Promise<FeatureDistribution[]> {
+    return this.repository.listFeatureDistributions();
+  }
+
   async dashboard(limit = DEFAULT_LIMIT): Promise<DashboardPayload> {
     const normalizedLimit = this.normalizeLimit(limit);
-    const [experiments, pipelineRuns, syncRuns] = await Promise.all([
+    const [experiments, pipelineRuns, syncRuns, featureDistributions] = await Promise.all([
       this.repository.listExperiments(normalizedLimit),
       this.repository.listPipelineRuns(normalizedLimit),
       this.repository.listSyncRuns(normalizedLimit),
+      this.repository.listFeatureDistributions(),
     ]);
-    return { experiments, pipelineRuns, syncRuns };
+    return { experiments, pipelineRuns, syncRuns, featureDistributions };
   }
 
   private normalizeLimit(limit: number): number {

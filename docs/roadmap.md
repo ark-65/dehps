@@ -45,6 +45,7 @@ At the end of each round:
 | 4 | AI Agent experiment system | Done | `docs/experiments/round-4-report.md` |
 | 5 | Dashboard and API | Done | `docs/experiments/round-5-report.md` |
 | 6 | Experiment detail and report viewer | Done | `docs/experiments/round-6-report.md` |
+| 7 | Comparison and distribution review | Done | `docs/experiments/round-7-report.md` |
 
 ## Round 1: Basic Computation And Backtest Loop
 
@@ -183,6 +184,30 @@ Non-goals:
 - Editable experiment records.
 - Client-side deep links.
 - Prediction or betting language.
+
+## Round 7: Comparison And Distribution Review
+
+Goal: complete the current research-review surface before deep optimization starts.
+
+Acceptance checklist:
+
+- Add read-only structural feature distribution data to the API.
+- Show feature distribution charts in the dashboard.
+- Add a side-by-side experiment comparison panel.
+- Preserve selected experiment state in a shareable URL hash.
+- Keep the round read-only and avoid algorithm changes.
+- Produce `docs/experiments/round-7-report.md`.
+- Commit the accepted round changes.
+
+Current state: completed as an acceptance round. See `docs/experiments/round-7-report.md`.
+
+Non-goals:
+
+- Strategy tuning.
+- Model training.
+- New scoring formulas.
+- Prediction or betting language.
+- Treating current generated-combination sample charts as full-space statistics.
 
 ## Update Policy
 

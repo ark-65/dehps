@@ -44,10 +44,24 @@ export type SyncRunSummary = {
   errorMessage: string | null;
 };
 
+export type FeatureDistributionBin = {
+  label: string;
+  count: number;
+  rate: number;
+};
+
+export type FeatureDistribution = {
+  featureKey: string;
+  label: string;
+  totalCount: number;
+  bins: FeatureDistributionBin[];
+};
+
 export type DashboardPayload = {
   experiments: ExperimentSummary[];
   pipelineRuns: PipelineRunSummary[];
   syncRuns: SyncRunSummary[];
+  featureDistributions: FeatureDistribution[];
 };
 
 export interface ResearchRepository {
@@ -55,4 +69,5 @@ export interface ResearchRepository {
   getExperimentDetail(experimentKey: string): Promise<ExperimentDetail | null>;
   listPipelineRuns(limit: number): Promise<PipelineRunSummary[]>;
   listSyncRuns(limit: number): Promise<SyncRunSummary[]>;
+  listFeatureDistributions(): Promise<FeatureDistribution[]>;
 }

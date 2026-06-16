@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import {
   ExperimentDetail,
   ExperimentSummary,
+  FeatureDistribution,
   PipelineRunSummary,
   ResearchRepository,
   SyncRunSummary,
@@ -142,5 +143,106 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
       conflictCount: Number(row.conflict_count),
       errorMessage: row.error_message,
     }));
+  }
+
+  async listFeatureDistributions(): Promise<FeatureDistribution[]> {
+    const definitions = [
+      {
+        featureKey: 'sum_value',
+        label: 'Sum Value',
+        expression: `
+          CASE
+            WHEN sum_value < 70 THEN '<70'
+            WHEN sum_value < 90 THEN '70-89'
+            WHEN sum_value < 110 THEN '90-109'
+            WHEN sum_value < 130 THEN '110-129'
+            ELSE '130+'
+          END
+        `,
+        orderExpression: `
+          CASE
+            WHEN sum_value < 70 THEN 1
+            WHEN sum_value < 90 THEN 2
+            WHEN sum_value < 110 THEN 3
+            WHEN sum_value < 130 THEN 4
+            ELSE 5
+          END
+        `,
+      },
+      {
+        featureKey: 'span_value',
+        label: 'Span Value',
+        expression: `
+          CASE
+            WHEN span_value < 12 THEN '<12'
+            WHEN span_value < 18 THEN '12-17'
+            WHEN span_value < 24 THEN '18-23'
+            WHEN span_value < 30 THEN '24-29'
+            ELSE '30+'
+          END
+        `,
+        orderExpression: `
+          CASE
+            WHEN span_value < 12 THEN 1
+            WHEN span_value < 18 THEN 2
+            WHEN span_value < 24 THEN 3
+            WHEN span_value < 30 THEN 4
+            ELSE 5
+          END
+        `,
+      },
+      {
+        featureKey: 'odd_count',
+        label: 'Odd Count',
+        expression: 'odd_count::text',
+        orderExpression: 'odd_count',
+      },
+      {
+        featureKey: 'consecutive_pair_count',
+        label: 'Consecutive Pairs',
+        expression: 'consecutive_pair_count::text',
+        orderExpression: 'consecutive_pair_count',
+      },
+    ];
+
+    return Promise.all(
+      definitions.map(async (definition) => {
+        const { rows } = await this.pool.query(
+          `
+          WITH buckets AS (
+            SELECT ${definition.expression} AS label,
+                   ${definition.orderExpression} AS bucket_order,
+                   count(*)::int AS count
+            FROM ssq_red_combinations
+            GROUP BY label, bucket_order
+          ),
+          totals AS (
+            SELECT COALESCE(sum(count), 0)::int AS total_count FROM buckets
+          )
+          SELECT buckets.label,
+                 buckets.count,
+                 totals.total_count,
+                 CASE
+                   WHEN totals.total_count = 0 THEN 0
+                   ELSE buckets.count::float / totals.total_count
+                 END AS rate
+          FROM buckets
+          CROSS JOIN totals
+          ORDER BY buckets.bucket_order
+          `,
+        );
+        const totalCount = rows[0] ? Number(rows[0].total_count) : 0;
+        return {
+          featureKey: definition.featureKey,
+          label: definition.label,
+          totalCount,
+          bins: rows.map((row) => ({
+            label: row.label,
+            count: Number(row.count),
+            rate: Number(row.rate),
+          })),
+        };
+      }),
+    );
   }
 }

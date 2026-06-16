@@ -44,10 +44,24 @@ export type SyncRunSummary = {
   errorMessage: string | null;
 };
 
+export type FeatureDistributionBin = {
+  label: string;
+  count: number;
+  rate: number;
+};
+
+export type FeatureDistribution = {
+  featureKey: string;
+  label: string;
+  totalCount: number;
+  bins: FeatureDistributionBin[];
+};
+
 export type DashboardPayload = {
   experiments: ExperimentSummary[];
   pipelineRuns: PipelineRunSummary[];
   syncRuns: SyncRunSummary[];
+  featureDistributions: FeatureDistribution[];
 };
 
 export type CombinationDistribution = {
@@ -91,4 +105,53 @@ export function reportStatus(detail: ExperimentDetail | null): string {
     return 'Select an experiment';
   }
   return detail.reportMarkdown ? 'Report available' : 'No report attached';
+}
+
+export type ExperimentComparison = {
+  primary: ExperimentSummary;
+  comparison: ExperimentSummary | null;
+  keepRateDelta: number | null;
+  coverageRateDelta: number | null;
+  liftDelta: number | null;
+};
+
+export function compareExperiments(
+  primary: ExperimentSummary | null,
+  comparison: ExperimentSummary | null,
+): ExperimentComparison | null {
+  if (!primary) {
+    return null;
+  }
+  if (!comparison) {
+    return {
+      primary,
+      comparison: null,
+      keepRateDelta: null,
+      coverageRateDelta: null,
+      liftDelta: null,
+    };
+  }
+  return {
+    primary,
+    comparison,
+    keepRateDelta: primary.keepRate - comparison.keepRate,
+    coverageRateDelta: primary.coverageRate - comparison.coverageRate,
+    liftDelta: primary.lift - comparison.lift,
+  };
+}
+
+export function signedPercent(value: number | null): string {
+  if (value === null) {
+    return 'N/A';
+  }
+  const sign = value > 0 ? '+' : '';
+  return `${sign}${percent(value)}`;
+}
+
+export function signedNumber(value: number | null): string {
+  if (value === null) {
+    return 'N/A';
+  }
+  const sign = value > 0 ? '+' : '';
+  return `${sign}${value.toFixed(4)}`;
 }

@@ -77,6 +77,8 @@ h2 {
 .grid,
 .distribution,
 .detail-workbench,
+.comparison-workbench,
+.feature-distributions,
 .panel {
   background: #ffffff;
   border: 1px solid #d9dee3;
@@ -93,6 +95,141 @@ h2 {
 
 .detail-workbench {
   margin-bottom: 18px;
+}
+
+.comparison-workbench,
+.feature-distributions {
+  margin-bottom: 18px;
+}
+
+.comparison-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 360px);
+  gap: 14px;
+  padding: 16px;
+  border-bottom: 1px solid #e6e9ed;
+}
+
+.comparison-controls div,
+.comparison-controls label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.comparison-controls span,
+.compare-card span,
+.feature-card header span {
+  color: #64717d;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.comparison-controls strong {
+  overflow-wrap: anywhere;
+}
+
+select {
+  min-height: 38px;
+  min-width: 0;
+  border: 1px solid #b7c2c7;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #17202d;
+  padding: 0 10px;
+}
+
+.comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px;
+}
+
+.compare-card {
+  min-width: 0;
+  min-height: 112px;
+  padding: 12px;
+  border: 1px solid #e3e7eb;
+  border-radius: 6px;
+}
+
+.compare-card strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 1.45rem;
+}
+
+.compare-card small {
+  display: block;
+  margin-top: 8px;
+  color: #64717d;
+  overflow-wrap: anywhere;
+}
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 16px;
+}
+
+.feature-card {
+  min-width: 0;
+  border: 1px solid #e3e7eb;
+  border-radius: 6px;
+}
+
+.feature-card header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid #edf0f2;
+}
+
+.feature-card h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  letter-spacing: 0;
+}
+
+.mini-bars {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.mini-bar-row {
+  display: grid;
+  grid-template-columns: 64px minmax(80px, 1fr) 64px;
+  gap: 10px;
+  align-items: center;
+}
+
+.mini-bar-row span,
+.mini-bar-row strong {
+  overflow-wrap: anywhere;
+}
+
+.mini-bar-row strong {
+  font-size: 0.88rem;
+  text-align: right;
+}
+
+.mini-bar-track {
+  height: 12px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e9edf1;
+}
+
+.mini-bar-fill {
+  height: 100%;
+  min-width: 2px;
+  background: #4472a5;
 }
 
 .detail-grid {
@@ -387,6 +524,12 @@ em {
   }
 
   .distribution-body {
+    grid-template-columns: 1fr;
+  }
+
+  .comparison-controls,
+  .comparison-grid,
+  .feature-grid {
     grid-template-columns: 1fr;
   }
 

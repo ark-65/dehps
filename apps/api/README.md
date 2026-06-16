@@ -15,6 +15,7 @@ Endpoints:
 - `GET /dashboard`
 - `GET /experiments`
 - `GET /experiments/:experimentKey`
+- `GET /feature-distributions`
 - `GET /pipeline-runs`
 - `GET /sync-runs`
 

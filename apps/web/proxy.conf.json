@@ -14,5 +14,9 @@
   "/sync-runs": {
     "target": "http://localhost:3000",
     "secure": false
+  },
+  "/feature-distributions": {
+    "target": "http://localhost:3000",
+    "secure": false
   }
 }

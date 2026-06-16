@@ -3,11 +3,14 @@ import { test } from 'node:test';
 import {
   DashboardPayload,
   ExperimentDetail,
+  compareExperiments,
   combinationDistribution,
   ExperimentSummary,
   latestStatus,
   percent,
   reportStatus,
+  signedNumber,
+  signedPercent,
 } from '../src/app/dashboard.model';
 
 test('percent formats ratios as dashboard percentages', () => {
@@ -30,13 +33,14 @@ test('latestStatus summarizes pipeline state', () => {
       },
     ],
     syncRuns: [],
+    featureDistributions: [],
   };
 
   assert.equal(latestStatus(payload), 'Pipeline healthy');
 });
 
 test('latestStatus handles an empty pipeline list', () => {
-  assert.equal(latestStatus({ experiments: [], pipelineRuns: [], syncRuns: [] }), 'No pipeline runs');
+  assert.equal(latestStatus({ experiments: [], pipelineRuns: [], syncRuns: [], featureDistributions: [] }), 'No pipeline runs');
 });
 
 test('combinationDistribution splits retained and rejected space', () => {
@@ -85,4 +89,38 @@ test('reportStatus summarizes experiment report availability', () => {
   assert.equal(reportStatus(null), 'Select an experiment');
   assert.equal(reportStatus(detail), 'Report available');
   assert.equal(reportStatus({ ...detail, reportMarkdown: null }), 'No report attached');
+});
+
+test('compareExperiments reports signed metric deltas', () => {
+  const primary: ExperimentSummary = {
+    experimentKey: 'primary',
+    strategyKey: 'baseline_v2',
+    hypothesis: null,
+    totalCombinations: 100,
+    keptCombinations: 70,
+    keepRate: 0.7,
+    historyDraws: 10,
+    coveredDraws: 9,
+    coverageRate: 0.9,
+    lift: 1.2857,
+    config: {},
+    summary: null,
+    createdAt: '2026-06-16T00:00:00.000Z',
+  };
+  const comparison: ExperimentSummary = {
+    ...primary,
+    experimentKey: 'comparison',
+    keptCombinations: 80,
+    keepRate: 0.8,
+    coveredDraws: 8,
+    coverageRate: 0.8,
+    lift: 1,
+  };
+
+  const result = compareExperiments(primary, comparison);
+
+  assert.equal(signedPercent(result?.keepRateDelta ?? null), '-10.00%');
+  assert.equal(signedPercent(result?.coverageRateDelta ?? null), '+10.00%');
+  assert.equal(signedNumber(result?.liftDelta ?? null), '+0.2857');
+  assert.equal(signedNumber(null), 'N/A');
 });

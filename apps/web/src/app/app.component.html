@@ -154,6 +154,66 @@
       </section>
     }
 
+    @let primaryExperiment = findExperiment(state.payload, selectedExperimentKey);
+    @let comparisonExperiment = findExperiment(state.payload, selectedComparisonKey);
+    @let comparison = compareExperiments(primaryExperiment, comparisonExperiment);
+    @if (comparison) {
+      <section class="comparison-workbench">
+        <div class="section-heading">
+          <h2>Experiment Comparison</h2>
+          <span>{{ comparison.comparison ? 'Side-by-side metrics' : 'Waiting for another experiment' }}</span>
+        </div>
+        <div class="comparison-controls">
+          <div>
+            <span>Primary</span>
+            <strong>{{ comparison.primary.experimentKey }}</strong>
+          </div>
+          <label>
+            <span>Compare With</span>
+            <select (change)="selectComparison($any($event.target).value)">
+              <option value="">No comparison</option>
+              @for (experiment of state.payload.experiments; track experiment.experimentKey) {
+                @if (experiment.experimentKey !== comparison.primary.experimentKey) {
+                  <option
+                    [value]="experiment.experimentKey"
+                    [selected]="experiment.experimentKey === selectedComparisonKey"
+                  >
+                    {{ experiment.experimentKey }}
+                  </option>
+                }
+              }
+            </select>
+          </label>
+        </div>
+        <div class="comparison-grid">
+          <div class="compare-card">
+            <span>Keep Rate Delta</span>
+            <strong>{{ signedPercent(comparison.keepRateDelta) }}</strong>
+            <small>{{ percent(comparison.primary.keepRate) }} primary</small>
+          </div>
+          <div class="compare-card">
+            <span>Coverage Delta</span>
+            <strong>{{ signedPercent(comparison.coverageRateDelta) }}</strong>
+            <small>{{ percent(comparison.primary.coverageRate) }} primary</small>
+          </div>
+          <div class="compare-card">
+            <span>Lift Delta</span>
+            <strong>{{ signedNumber(comparison.liftDelta) }}</strong>
+            <small>{{ comparison.primary.lift | number: '1.4-4' }} primary</small>
+          </div>
+          <div class="compare-card">
+            <span>History Coverage</span>
+            <strong>{{ comparison.primary.coveredDraws }} / {{ comparison.primary.historyDraws }}</strong>
+            @if (comparison.comparison) {
+              <small>{{ comparison.comparison.coveredDraws }} / {{ comparison.comparison.historyDraws }} comparison</small>
+            } @else {
+              <small>No comparison selected</small>
+            }
+          </div>
+        </div>
+      </section>
+    }
+
     @if (state.payload.experiments[0]; as latestExperiment) {
       @let distribution = combinationDistribution(latestExperiment);
       <section class="distribution">
@@ -184,6 +244,36 @@
               <small>{{ percent(distribution.rejectedRate) }}</small>
             </div>
           </div>
+        </div>
+      </section>
+    }
+
+    @if (state.payload.featureDistributions.length) {
+      <section class="feature-distributions">
+        <div class="section-heading">
+          <h2>Feature Distributions</h2>
+          <span>Current generated combination table</span>
+        </div>
+        <div class="feature-grid">
+          @for (distribution of state.payload.featureDistributions; track distribution.featureKey) {
+            <article class="feature-card">
+              <header>
+                <h3>{{ distribution.label }}</h3>
+                <span>{{ distribution.totalCount }} rows</span>
+              </header>
+              <div class="mini-bars">
+                @for (bin of distribution.bins; track bin.label) {
+                  <div class="mini-bar-row">
+                    <span>{{ bin.label }}</span>
+                    <div class="mini-bar-track">
+                      <div class="mini-bar-fill" [style.width.%]="bin.rate * 100"></div>
+                    </div>
+                    <strong>{{ percent(bin.rate) }}</strong>
+                  </div>
+                }
+              </div>
+            </article>
+          }
         </div>
       </section>
     }

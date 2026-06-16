@@ -76,6 +76,19 @@ const repository: ResearchRepository = {
       },
     ];
   },
+  async listFeatureDistributions() {
+    return [
+      {
+        featureKey: 'sum_value',
+        label: 'Sum Value',
+        totalCount: 100,
+        bins: [
+          { label: '<70', count: 20, rate: 0.2 },
+          { label: '70-89', count: 80, rate: 0.8 },
+        ],
+      },
+    ];
+  },
 };
 
 test('dashboard returns experiments, pipeline runs, and sync runs', async () => {
@@ -86,6 +99,7 @@ test('dashboard returns experiments, pipeline runs, and sync runs', async () => 
   assert.equal(dashboard.experiments[0].experimentKey, 'experiment-100');
   assert.equal(dashboard.pipelineRuns[0].runKey, 'pipeline-100');
   assert.equal(dashboard.syncRuns[0].runKey, 'sync-100');
+  assert.equal(dashboard.featureDistributions[0].featureKey, 'sum_value');
 });
 
 test('health reports read-only API mode', () => {
@@ -105,4 +119,13 @@ test('experiment detail trims keys and includes report markdown', async () => {
 
   assert.equal(detail?.experimentKey, 'experiment-1');
   assert.equal(detail?.reportMarkdown, '# Experiment Report\n\nEvidence.');
+});
+
+test('feature distributions return structural sample bins', async () => {
+  const service = new ResearchService(repository);
+
+  const distributions = await service.listFeatureDistributions();
+
+  assert.equal(distributions[0].totalCount, 100);
+  assert.equal(distributions[0].bins[1].rate, 0.8);
 });

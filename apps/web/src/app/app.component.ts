@@ -4,10 +4,14 @@ import { BehaviorSubject, catchError, map, of, startWith, switchMap, tap } from 
 import {
   DashboardPayload,
   ExperimentDetail,
+  ExperimentSummary,
+  compareExperiments,
   combinationDistribution,
   latestStatus,
   percent,
   reportStatus,
+  signedNumber,
+  signedPercent,
 } from './dashboard.model';
 import { DashboardService } from './dashboard.service';
 
@@ -33,9 +37,13 @@ export class AppComponent {
   private readonly refreshRequests = new BehaviorSubject<void>(undefined);
   private readonly detailRequests = new BehaviorSubject<string | null>(null);
   selectedExperimentKey: string | null = null;
+  selectedComparisonKey: string | null = null;
 
+  readonly compareExperiments = compareExperiments;
   readonly combinationDistribution = combinationDistribution;
   readonly percent = percent;
+  readonly signedNumber = signedNumber;
+  readonly signedPercent = signedPercent;
   readonly state$ = this.refreshRequests.pipe(
     switchMap(() =>
       this.dashboardService.load().pipe(
@@ -87,16 +95,74 @@ export class AppComponent {
 
   selectExperiment(experimentKey: string): void {
     this.selectedExperimentKey = experimentKey;
+    if (this.selectedComparisonKey === experimentKey) {
+      this.selectedComparisonKey = null;
+    }
     this.detailRequests.next(experimentKey);
+    this.writeHash();
+  }
+
+  selectComparison(experimentKey: string): void {
+    this.selectedComparisonKey = experimentKey || null;
+    this.writeHash();
+  }
+
+  findExperiment(payload: DashboardPayload, experimentKey: string | null): ExperimentSummary | null {
+    if (!experimentKey) {
+      return null;
+    }
+    return payload.experiments.find((experiment) => experiment.experimentKey === experimentKey) ?? null;
   }
 
   private ensureSelection(payload: DashboardPayload): void {
+    this.readHashOnce();
     const selectedExists = payload.experiments.some(
       (experiment) => experiment.experimentKey === this.selectedExperimentKey,
+    );
+    const comparisonExists = payload.experiments.some(
+      (experiment) => experiment.experimentKey === this.selectedComparisonKey,
     );
     const nextKey = selectedExists ? this.selectedExperimentKey : payload.experiments[0]?.experimentKey;
     if (nextKey && nextKey !== this.selectedExperimentKey) {
       this.selectExperiment(nextKey);
+    } else if (nextKey) {
+      this.detailRequests.next(nextKey);
+      this.writeHash();
+    }
+    if (!comparisonExists) {
+      this.selectedComparisonKey =
+        payload.experiments.find((experiment) => experiment.experimentKey !== this.selectedExperimentKey)
+          ?.experimentKey ?? null;
+      this.writeHash();
+    }
+  }
+
+  private hashRead = false;
+
+  private readHashOnce(): void {
+    if (this.hashRead || typeof window === 'undefined') {
+      return;
+    }
+    this.hashRead = true;
+    const params = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    this.selectedExperimentKey = params.get('experiment');
+    this.selectedComparisonKey = params.get('compare');
+  }
+
+  private writeHash(): void {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const params = new URLSearchParams();
+    if (this.selectedExperimentKey) {
+      params.set('experiment', this.selectedExperimentKey);
+    }
+    if (this.selectedComparisonKey) {
+      params.set('compare', this.selectedComparisonKey);
+    }
+    const nextHash = params.toString();
+    if (window.location.hash.replace(/^#/, '') !== nextHash) {
+      window.history.replaceState(null, '', nextHash ? `#${nextHash}` : window.location.pathname);
     }
   }
 }
