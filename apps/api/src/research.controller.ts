@@ -1,4 +1,4 @@
-import { Controller, Get, Inject, Query } from '@nestjs/common';
+import { Controller, Get, Inject, Param, Query } from '@nestjs/common';
 import { ResearchService } from './research.service';
 
 @Controller()
@@ -18,6 +18,11 @@ export class ResearchController {
   @Get('experiments')
   experiments(@Query('limit') limit?: string) {
     return this.researchService.listExperiments(Number(limit));
+  }
+
+  @Get('experiments/:experimentKey')
+  experimentDetail(@Param('experimentKey') experimentKey: string) {
+    return this.researchService.getExperimentDetail(experimentKey);
   }
 
   @Get('pipeline-runs')

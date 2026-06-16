@@ -9,6 +9,7 @@ const repository: ResearchRepository = {
       {
         experimentKey: `experiment-${limit}`,
         strategyKey: 'baseline_v1',
+        hypothesis: 'Baseline smoke hypothesis',
         totalCombinations: 1107568,
         keptCombinations: 1073093,
         keepRate: 0.96887324,
@@ -21,6 +22,28 @@ const repository: ResearchRepository = {
         createdAt: '2026-06-15T00:00:00.000Z',
       },
     ];
+  },
+  async getExperimentDetail(experimentKey) {
+    if (experimentKey !== 'experiment-1') {
+      return null;
+    }
+    return {
+      experimentKey,
+      strategyKey: 'baseline_v1',
+      hypothesis: 'Baseline smoke hypothesis',
+      totalCombinations: 1107568,
+      keptCombinations: 1073093,
+      keepRate: 0.96887324,
+      historyDraws: 1497,
+      coveredDraws: 1450,
+      coverageRate: 0.96860387,
+      lift: 0.9997219,
+      config: { min_score: 0.45 },
+      summary: null,
+      createdAt: '2026-06-15T00:00:00.000Z',
+      reportMarkdown: '# Experiment Report\n\nEvidence.',
+      reportCreatedAt: '2026-06-15T00:01:00.000Z',
+    };
   },
   async listPipelineRuns(limit) {
     return [
@@ -73,4 +96,13 @@ test('health reports read-only API mode', () => {
     service: 'dehps-api',
     mode: 'read-only',
   });
+});
+
+test('experiment detail trims keys and includes report markdown', async () => {
+  const service = new ResearchService(repository);
+
+  const detail = await service.getExperimentDetail(' experiment-1 ');
+
+  assert.equal(detail?.experimentKey, 'experiment-1');
+  assert.equal(detail?.reportMarkdown, '# Experiment Report\n\nEvidence.');
 });

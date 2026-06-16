@@ -1,6 +1,7 @@
 export type ExperimentSummary = {
   experimentKey: string;
   strategyKey: string;
+  hypothesis: string | null;
   totalCombinations: number;
   keptCombinations: number;
   keepRate: number;
@@ -11,6 +12,11 @@ export type ExperimentSummary = {
   config: Record<string, unknown>;
   summary: string | null;
   createdAt: string;
+};
+
+export type ExperimentDetail = ExperimentSummary & {
+  reportMarkdown: string | null;
+  reportCreatedAt: string | null;
 };
 
 export type PipelineRunSummary = {
@@ -46,6 +52,7 @@ export type DashboardPayload = {
 
 export interface ResearchRepository {
   listExperiments(limit: number): Promise<ExperimentSummary[]>;
+  getExperimentDetail(experimentKey: string): Promise<ExperimentDetail | null>;
   listPipelineRuns(limit: number): Promise<PipelineRunSummary[]>;
   listSyncRuns(limit: number): Promise<SyncRunSummary[]>;
 }

@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   DashboardPayload,
+  ExperimentDetail,
   combinationDistribution,
   ExperimentSummary,
   latestStatus,
   percent,
+  reportStatus,
 } from '../src/app/dashboard.model';
 
 test('percent formats ratios as dashboard percentages', () => {
@@ -59,4 +61,28 @@ test('combinationDistribution splits retained and rejected space', () => {
     retainedRate: 0.75,
     rejectedRate: 0.25,
   });
+});
+
+test('reportStatus summarizes experiment report availability', () => {
+  const detail: ExperimentDetail = {
+    experimentKey: 'baseline',
+    strategyKey: 'baseline_v1',
+    hypothesis: 'Check a structural filter.',
+    totalCombinations: 100,
+    keptCombinations: 75,
+    keepRate: 0.75,
+    historyDraws: 10,
+    coveredDraws: 8,
+    coverageRate: 0.8,
+    lift: 1.0667,
+    config: {},
+    summary: null,
+    createdAt: '2026-06-15T00:00:00.000Z',
+    reportMarkdown: '# Report',
+    reportCreatedAt: '2026-06-15T00:01:00.000Z',
+  };
+
+  assert.equal(reportStatus(null), 'Select an experiment');
+  assert.equal(reportStatus(detail), 'Report available');
+  assert.equal(reportStatus({ ...detail, reportMarkdown: null }), 'No report attached');
 });

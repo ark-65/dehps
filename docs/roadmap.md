@@ -44,6 +44,7 @@ At the end of each round:
 | 3 | Git automation and scheduled runs | Done | `docs/experiments/round-3-report.md` |
 | 4 | AI Agent experiment system | Done | `docs/experiments/round-4-report.md` |
 | 5 | Dashboard and API | Done | `docs/experiments/round-5-report.md` |
+| 6 | Experiment detail and report viewer | Done | `docs/experiments/round-6-report.md` |
 
 ## Round 1: Basic Computation And Backtest Loop
 
@@ -160,6 +161,28 @@ Non-goals:
 - Marketing landing page.
 - Betting workflow.
 - User-facing recommendation language that implies prediction.
+
+## Round 6: Experiment Detail And Report Viewer
+
+Goal: make the dashboard useful for evidence review, not only operational summary.
+
+Acceptance checklist:
+
+- Add a read-only API endpoint for a single experiment detail.
+- Include stored Markdown experiment report content.
+- Show hypothesis, config snapshot, metrics, report timestamp, and report body in the dashboard.
+- Keep the dashboard read-only.
+- Produce `docs/experiments/round-6-report.md`.
+- Commit the accepted round changes.
+
+Current state: completed as an acceptance round. See `docs/experiments/round-6-report.md`.
+
+Non-goals:
+
+- Full Markdown-to-HTML rendering.
+- Editable experiment records.
+- Client-side deep links.
+- Prediction or betting language.
 
 ## Update Policy
 

@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
   DashboardPayload,
+  ExperimentDetail,
   ExperimentSummary,
   PipelineRunSummary,
   ResearchRepository,
@@ -23,6 +24,10 @@ export class ResearchService {
 
   listExperiments(limit = DEFAULT_LIMIT): Promise<ExperimentSummary[]> {
     return this.repository.listExperiments(this.normalizeLimit(limit));
+  }
+
+  getExperimentDetail(experimentKey: string): Promise<ExperimentDetail | null> {
+    return this.repository.getExperimentDetail(experimentKey.trim());
   }
 
   listPipelineRuns(limit = DEFAULT_LIMIT): Promise<PipelineRunSummary[]> {

@@ -14,6 +14,7 @@ Endpoints:
 - `GET /health`
 - `GET /dashboard`
 - `GET /experiments`
+- `GET /experiments/:experimentKey`
 - `GET /pipeline-runs`
 - `GET /sync-runs`
 

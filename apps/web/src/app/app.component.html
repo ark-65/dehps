@@ -43,11 +43,12 @@
               <th>Lift</th>
               <th>History</th>
               <th>Config</th>
+              <th>Detail</th>
             </tr>
           </thead>
           <tbody>
             @for (experiment of state.payload.experiments; track experiment.experimentKey) {
-              <tr>
+              <tr [class.selected]="experiment.experimentKey === selectedExperimentKey">
                 <td>
                   <strong>{{ experiment.experimentKey }}</strong>
                   <small>{{ experiment.createdAt | date: 'yyyy-MM-dd HH:mm' }}</small>
@@ -58,16 +59,100 @@
                 <td>{{ experiment.lift | number: '1.4-4' }}</td>
                 <td>{{ experiment.coveredDraws }} / {{ experiment.historyDraws }}</td>
                 <td><code>{{ experiment.config | json }}</code></td>
+                <td>
+                  <button
+                    class="row-action"
+                    type="button"
+                    (click)="selectExperiment(experiment.experimentKey)"
+                    [title]="'Open ' + experiment.experimentKey"
+                  >
+                    Open
+                  </button>
+                </td>
               </tr>
             } @empty {
               <tr>
-                <td colspan="7">No experiment records yet.</td>
+                <td colspan="8">No experiment records yet.</td>
               </tr>
             }
           </tbody>
         </table>
       </div>
     </section>
+
+    @if (detailState$ | async; as detailState) {
+      <section class="detail-workbench">
+        <div class="section-heading">
+          <h2>Experiment Detail</h2>
+          @if (detailState.status === 'ready') {
+            <span>{{ detailState.reportStatus }}</span>
+          } @else if (detailState.status === 'loading') {
+            <span>Loading {{ detailState.experimentKey }}</span>
+          } @else if (detailState.status === 'error') {
+            <span>{{ detailState.message }}</span>
+          } @else {
+            <span>Select an experiment</span>
+          }
+        </div>
+
+        @if (detailState.status === 'ready' && detailState.detail; as detail) {
+          <div class="detail-grid">
+            <div class="detail-summary">
+              <dl>
+                <div>
+                  <dt>Experiment</dt>
+                  <dd>{{ detail.experimentKey }}</dd>
+                </div>
+                <div>
+                  <dt>Strategy</dt>
+                  <dd>{{ detail.strategyKey }}</dd>
+                </div>
+                <div>
+                  <dt>Keep rate</dt>
+                  <dd>{{ percent(detail.keepRate) }}</dd>
+                </div>
+                <div>
+                  <dt>Coverage</dt>
+                  <dd>{{ percent(detail.coverageRate) }}</dd>
+                </div>
+                <div>
+                  <dt>Lift</dt>
+                  <dd>{{ detail.lift | number: '1.4-4' }}</dd>
+                </div>
+                <div>
+                  <dt>Report time</dt>
+                  <dd>{{ detail.reportCreatedAt ? (detail.reportCreatedAt | date: 'yyyy-MM-dd HH:mm') : 'None' }}</dd>
+                </div>
+              </dl>
+              <div class="hypothesis-block">
+                <h3>Hypothesis</h3>
+                <p>{{ detail.hypothesis || 'No hypothesis text recorded.' }}</p>
+              </div>
+              <div class="hypothesis-block">
+                <h3>Config Snapshot</h3>
+                <pre>{{ detail.config | json }}</pre>
+              </div>
+            </div>
+            <article class="report-viewer">
+              <header>
+                <h3>Markdown Report</h3>
+              </header>
+              @if (detail.reportMarkdown) {
+                <pre>{{ detail.reportMarkdown }}</pre>
+              } @else {
+                <p>No Markdown report has been stored for this experiment.</p>
+              }
+            </article>
+          </div>
+        } @else if (detailState.status === 'loading') {
+          <div class="detail-placeholder">Loading experiment evidence...</div>
+        } @else if (detailState.status === 'error') {
+          <div class="detail-placeholder error-text">{{ detailState.message }}</div>
+        } @else {
+          <div class="detail-placeholder">Select an experiment to inspect its report.</div>
+        }
+      </section>
+    }
 
     @if (state.payload.experiments[0]; as latestExperiment) {
       @let distribution = combinationDistribution(latestExperiment);

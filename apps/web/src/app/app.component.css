@@ -76,6 +76,7 @@ h2 {
 
 .grid,
 .distribution,
+.detail-workbench,
 .panel {
   background: #ffffff;
   border: 1px solid #d9dee3;
@@ -88,6 +89,104 @@ h2 {
 
 .distribution {
   margin-bottom: 18px;
+}
+
+.detail-workbench {
+  margin-bottom: 18px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
+  gap: 18px;
+  padding: 16px;
+}
+
+.detail-summary {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.detail-summary dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.detail-summary dl div,
+.hypothesis-block {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #e3e7eb;
+  border-radius: 6px;
+}
+
+dt {
+  color: #64717d;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.hypothesis-block h3,
+.report-viewer h3 {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+  letter-spacing: 0;
+}
+
+.hypothesis-block p {
+  margin: 0;
+  color: #364556;
+  line-height: 1.5;
+}
+
+.hypothesis-block pre,
+.report-viewer pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
+.hypothesis-block pre {
+  color: #174a77;
+}
+
+.report-viewer {
+  min-width: 0;
+  border: 1px solid #d8e0e7;
+  border-radius: 6px;
+  background: #fbfcfd;
+}
+
+.report-viewer header {
+  padding: 12px 14px;
+  border-bottom: 1px solid #e6e9ed;
+}
+
+.report-viewer pre,
+.report-viewer p {
+  max-height: 560px;
+  margin: 0;
+  overflow: auto;
+  padding: 14px;
+}
+
+.detail-placeholder {
+  padding: 18px 16px;
+  color: #64717d;
+}
+
+.error-text {
+  color: #a33331;
 }
 
 .distribution-body {
@@ -197,6 +296,25 @@ code {
   color: #174a77;
 }
 
+tr.selected {
+  background: #f0f6f4;
+}
+
+.row-action {
+  min-height: 32px;
+  border: 1px solid #b7c2c7;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #17202d;
+  padding: 0 10px;
+  cursor: pointer;
+}
+
+.row-action:hover,
+.row-action:focus-visible {
+  border-color: #327857;
+}
+
 .split {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -269,6 +387,14 @@ em {
   }
 
   .distribution-body {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-summary dl {
     grid-template-columns: 1fr;
   }
 

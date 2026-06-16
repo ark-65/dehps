@@ -1,6 +1,7 @@
 export type ExperimentSummary = {
   experimentKey: string;
   strategyKey: string;
+  hypothesis: string | null;
   totalCombinations: number;
   keptCombinations: number;
   keepRate: number;
@@ -11,6 +12,11 @@ export type ExperimentSummary = {
   config: Record<string, unknown>;
   summary: string | null;
   createdAt: string;
+};
+
+export type ExperimentDetail = ExperimentSummary & {
+  reportMarkdown: string | null;
+  reportCreatedAt: string | null;
 };
 
 export type PipelineRunSummary = {
@@ -78,4 +84,11 @@ export function latestStatus(payload: DashboardPayload): string {
     return 'Pipeline failed';
   }
   return `Pipeline ${latestPipeline.status}`;
+}
+
+export function reportStatus(detail: ExperimentDetail | null): string {
+  if (!detail) {
+    return 'Select an experiment';
+  }
+  return detail.reportMarkdown ? 'Report available' : 'No report attached';
 }
