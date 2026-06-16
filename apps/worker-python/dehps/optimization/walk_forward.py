@@ -7,10 +7,17 @@ import json
 import multiprocessing as mp
 import os
 from multiprocessing.pool import Pool
-from typing import Iterable
+from typing import Iterable, Literal
 
 from dehps.domain.combination import iter_ssq_red_combinations
-from dehps.models.frequency_ranker import FrequencyRankerConfig, FrequencyStats, score_frequency_candidate, train_frequency_stats
+from dehps.features.red_ball_features import calculate_red_ball_features
+from dehps.models.frequency_ranker import (
+    FrequencyRankerConfig,
+    FrequencyStats,
+    _previous_consecutive_score,
+    score_frequency_candidate,
+    train_frequency_stats,
+)
 from dehps.scoring.strategy import score_numbers
 
 _WORKER_UNIVERSE: list["RankedUniverseEntry"] = []
@@ -21,6 +28,9 @@ DEFAULT_WORKERS = 16
 class RankedUniverseEntry:
     numbers: tuple[int, ...]
     structural_score: float
+    consecutive_pair_count: int
+    odd_count: int
+    zone_counts: tuple[int, int, int]
 
 
 @dataclass(frozen=True)
@@ -40,6 +50,7 @@ class WalkForwardResult:
     history_fingerprint: str
     config_hash: str
     train_window: int
+    train_mode: str
     eval_window: int
     top_n: int
     workers: int
@@ -62,6 +73,7 @@ class WalkForwardResult:
             "history_fingerprint": self.history_fingerprint,
             "config_hash": self.config_hash,
             "train_window": self.train_window,
+            "train_mode": self.train_mode,
             "eval_window": self.eval_window,
             "top_n": self.top_n,
             "workers": self.workers,
@@ -132,6 +144,7 @@ def deterministic_run_key(
     strategy_key: str,
     as_of_issue: str,
     train_window: int,
+    train_mode: str = "expanding",
     eval_window: int,
     top_n: int,
     history_fingerprint_value: str,
@@ -142,6 +155,7 @@ def deterministic_run_key(
             strategy_key,
             as_of_issue,
             str(train_window),
+            train_mode,
             str(eval_window),
             str(top_n),
             history_fingerprint_value,
@@ -153,10 +167,24 @@ def deterministic_run_key(
 
 
 def build_ranked_universe(universe: Iterable[tuple[int, ...]] | None = None) -> list[RankedUniverseEntry]:
-    return [
-        RankedUniverseEntry(numbers=numbers, structural_score=score_numbers(numbers)["score"])
-        for numbers in (universe or iter_ssq_red_combinations())
-    ]
+    entries: list[RankedUniverseEntry] = []
+    for numbers in universe or iter_ssq_red_combinations():
+        scored = score_numbers(numbers)
+        features = calculate_red_ball_features(numbers)
+        entries.append(
+            RankedUniverseEntry(
+                numbers=numbers,
+                structural_score=scored["score"],
+                consecutive_pair_count=features["consecutive_pair_count"],
+                odd_count=features["odd_count"],
+                zone_counts=(
+                    features["zone_1_count"],
+                    features["zone_2_count"],
+                    features["zone_3_count"],
+                ),
+            )
+        )
+    return entries
 
 
 def normalize_worker_count(workers: int | None) -> int:
@@ -191,10 +219,24 @@ def score_ranked_entry(
 ) -> float:
     frequency_score = sum(stats.frequency_rate[number] for number in entry.numbers)
     omission_score = sum(stats.omission_rate[number] for number in entry.numbers) / 6
+    previous_consecutive_score = _previous_consecutive_score(
+        candidate_pair_count=entry.consecutive_pair_count,
+        previous_pair_count=stats.previous_consecutive_pair_count,
+    )
+    previous_overlap_score = sum(1 for number in entry.numbers if number in stats.previous_number_set) / 6
+    previous_parity_shape_score = 1 - abs(entry.odd_count - stats.previous_odd_count) / 6
+    previous_zone_shape_score = 1 - sum(
+        abs(candidate_count - previous_count)
+        for candidate_count, previous_count in zip(entry.zone_counts, stats.previous_zone_counts, strict=True)
+    ) / 12
     return round(
         config.structural_weight * entry.structural_score
         + config.frequency_weight * frequency_score
-        + config.omission_weight * omission_score,
+        + config.omission_weight * omission_score
+        + config.previous_consecutive_weight * previous_consecutive_score
+        + config.previous_overlap_weight * previous_overlap_score
+        + config.previous_parity_shape_weight * previous_parity_shape_score
+        + config.previous_zone_shape_weight * previous_zone_shape_score,
         8,
     )
 
@@ -319,6 +361,7 @@ def run_walk_forward(
     train_window: int,
     eval_window: int,
     top_n: int = 10000,
+    train_mode: Literal["expanding", "rolling"] = "expanding",
     config: FrequencyRankerConfig | None = None,
     universe: Iterable[tuple[int, ...]] | None = None,
     workers: int | None = None,
@@ -327,6 +370,8 @@ def run_walk_forward(
         raise ValueError("train_window must be at least 1")
     if eval_window < 1:
         raise ValueError("eval_window must be at least 1")
+    if train_mode not in ("expanding", "rolling"):
+        raise ValueError("train_mode must be 'expanding' or 'rolling'")
     if len(history) <= train_window:
         raise ValueError("history must be longer than train_window")
 
@@ -349,7 +394,7 @@ def run_walk_forward(
 
     try:
         for target_index in range(start, len(history)):
-            train_start = max(0, target_index - train_window)
+            train_start = 0 if train_mode == "expanding" else max(0, target_index - train_window)
             train_history = history[train_start:target_index]
             issue, numbers = history[target_index]
             rank, score = rank_target(
@@ -386,7 +431,7 @@ def run_walk_forward(
             )
 
         top_candidates = top_candidates_for_next(
-            history=history[-train_window:],
+            history=history if train_mode == "expanding" else history[-train_window:],
             top_n=min(top_n, len(ranked_universe)),
             config=cfg,
             ranked_universe=ranked_universe,
@@ -404,6 +449,7 @@ def run_walk_forward(
         history_fingerprint=history_fingerprint_value,
         config_hash=config_hash_value,
         train_window=train_window,
+        train_mode=train_mode,
         eval_window=len(target_ranks),
         top_n=top_n,
         workers=worker_count,

@@ -54,6 +54,7 @@ def render_walk_forward_report(
 - History fingerprint: `{result.history_fingerprint}`
 - Config hash: `{result.config_hash}`
 - Train window: {result.train_window}
+- Train mode: {result.train_mode}
 - Eval window: {result.eval_window}
 - Candidate cutoff: top {result.top_n}
 - Workers: {result.workers}
@@ -110,6 +111,8 @@ Random uniform baseline is analytical only. It is not used to generate candidate
 ## Protocol
 
 - For each target issue, train only on draws before that issue.
+- In `expanding` mode, each target trains on all prior draws once the minimum train window is met.
+- In `rolling` mode, each target trains on the latest fixed train window.
 - Rank the same legal red-ball sample space for every target.
 - Generate candidates by scanning the full deterministic C(33,6) red-ball universe and sorting by frozen score rules.
 - Report exact target rank instead of only pass/fail.
@@ -128,6 +131,7 @@ def run_optimization(
     top_n: int,
     as_of_issue: str | None = None,
     workers: int | None = None,
+    train_mode: str = "expanding",
     history_scope: HistoryScope = "current_regime_default",
     regime_years: int = 10,
     output_dir: Path | None = None,
@@ -147,6 +151,7 @@ def run_optimization(
         train_window=train_window,
         eval_window=eval_window,
         top_n=top_n,
+        train_mode=train_mode,
         config=config,
         universe=universe,
         workers=workers,
@@ -155,6 +160,7 @@ def run_optimization(
         strategy_key=result.strategy_key,
         as_of_issue=result.as_of_issue,
         train_window=result.train_window,
+        train_mode=result.train_mode,
         eval_window=result.eval_window,
         top_n=result.top_n,
         history_fingerprint_value=result.history_fingerprint,
@@ -198,6 +204,7 @@ def run_optimization(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--train-window", type=int, default=100)
+    parser.add_argument("--train-mode", choices=["expanding", "rolling"], default="expanding")
     parser.add_argument("--eval-window", type=int, default=20)
     parser.add_argument("--top-n", type=int, default=10000)
     parser.add_argument("--as-of-issue")
@@ -213,6 +220,7 @@ def main() -> None:
             top_n=args.top_n,
             as_of_issue=args.as_of_issue,
             workers=args.workers,
+            train_mode=args.train_mode,
             history_scope=args.history_scope,
             regime_years=args.regime_years,
             output_dir=args.output_dir,

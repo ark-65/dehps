@@ -28,11 +28,12 @@ Every legal six-red combination has the same mathematical probability before a d
 For every target issue:
 
 1. Use only draws before the target issue.
-2. Train on a fixed rolling window, for example 100, 300, or 1000 prior draws.
-3. Rank the same complete legal red-ball universe from `ssq_red_combinations`.
-4. Record the true target red set rank.
-5. Count hits in Top 100, Top 1000, and Top 10000.
-6. Keep the model config frozen during evaluation.
+2. Default to expanding walk-forward training: if there are 1000 draws and 100 targets, train `1-900 -> 901`, then `1-901 -> 902`, through `1-999 -> 1000`.
+3. Use rolling windows only as a secondary stress test.
+4. Rank the same complete legal red-ball universe from `ssq_red_combinations`.
+5. Record the true target red set rank.
+6. Count hits in Top 100, Top 1000, and Top 10000.
+7. Keep the model config frozen during evaluation.
 
 ## Reproducibility Rule
 
@@ -40,9 +41,10 @@ Full-combination rankings must be deterministic:
 
 - The input history must be frozen by `as_of_issue`.
 - The red-ball universe must be the complete constant `C(33,6)` table with 1,107,568 rows.
+- The train mode must be recorded as `expanding` or `rolling`.
 - The history snapshot is identified by `history_fingerprint`.
 - The model config is identified by `config_hash`.
-- The run key is derived from strategy, `as_of_issue`, train window, eval window, `top_n`, `history_fingerprint`, and `config_hash`.
+- The run key is derived from strategy, `as_of_issue`, train mode, train window, eval window, `top_n`, `history_fingerprint`, and `config_hash`.
 - No current timestamp, local timezone, random seed, machine path, or process order may affect ranking.
 - Worker count may change runtime, but it must not change the run key, Top-N combinations, or ordering.
 - Default optimization runs use 16 workers on this workstation, leaving spare CPU for other tasks.
@@ -69,6 +71,8 @@ Initial transparent features:
 - consecutive pairs
 - recent red-number frequency
 - red-number omission
+- previous-draw consecutive-shape signal
+- previous-draw overlap, parity-shape, and zone-shape signals
 
 Candidate later features:
 

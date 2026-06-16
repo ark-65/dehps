@@ -19,6 +19,29 @@ DEFAULT_GRID = [
     FrequencyRankerConfig(structural_weight=0.40, frequency_weight=0.30, omission_weight=0.30),
     FrequencyRankerConfig(structural_weight=0.25, frequency_weight=0.50, omission_weight=0.25),
     FrequencyRankerConfig(structural_weight=0.25, frequency_weight=0.25, omission_weight=0.50),
+    FrequencyRankerConfig(
+        structural_weight=0.40,
+        frequency_weight=0.30,
+        omission_weight=0.25,
+        previous_consecutive_weight=0.05,
+    ),
+    FrequencyRankerConfig(
+        structural_weight=0.40,
+        frequency_weight=0.30,
+        omission_weight=0.25,
+        previous_overlap_weight=-0.05,
+        previous_parity_shape_weight=0.05,
+        previous_zone_shape_weight=0.05,
+    ),
+    FrequencyRankerConfig(
+        structural_weight=0.35,
+        frequency_weight=0.30,
+        omission_weight=0.25,
+        previous_consecutive_weight=0.03,
+        previous_overlap_weight=-0.04,
+        previous_parity_shape_weight=0.03,
+        previous_zone_shape_weight=0.08,
+    ),
 ]
 
 
@@ -65,6 +88,7 @@ def render_grid_report(payload: dict) -> str:
 - Regime start date: {payload["regime_start_date"]}
 - As-of issue: `{payload["as_of_issue"]}`
 - Train window: {payload["train_window"]}
+- Train mode: {payload["train_mode"]}
 - Eval window: {payload["eval_window"]}
 - Top-N cutoff: {payload["top_n"]}
 - Workers: {payload["workers"]}
@@ -92,6 +116,7 @@ def run_grid_search(
     top_n: int,
     as_of_issue: str | None,
     workers: int | None,
+    train_mode: str,
     history_scope: HistoryScope,
     regime_years: int,
     output_dir: Path,
@@ -112,6 +137,7 @@ def run_grid_search(
             train_window=train_window,
             eval_window=eval_window,
             top_n=top_n,
+            train_mode=train_mode,
             config=config,
             universe=universe,
             workers=workers,
@@ -121,6 +147,7 @@ def run_grid_search(
             strategy_key=result.strategy_key,
             as_of_issue=result.as_of_issue,
             train_window=result.train_window,
+            train_mode=result.train_mode,
             eval_window=result.eval_window,
             top_n=result.top_n,
             history_fingerprint_value=result.history_fingerprint,
@@ -136,13 +163,14 @@ def run_grid_search(
         "regime_evidence_note": selection.evidence_note,
         "as_of_issue": summaries[0]["as_of_issue"] if summaries else "",
         "train_window": train_window,
+        "train_mode": train_mode,
         "eval_window": eval_window,
         "top_n": top_n,
         "workers": workers,
         "universe_size": len(universe),
         "results": summaries,
     }
-    key = f"weight-grid-asof-{payload['as_of_issue']}-tw{train_window}-ew{eval_window}-top{top_n}"
+    key = f"weight-grid-asof-{payload['as_of_issue']}-{train_mode}-tw{train_window}-ew{eval_window}-top{top_n}"
     output_dir.mkdir(parents=True, exist_ok=True)
     json_path = output_dir / f"{key}.json"
     report_path = output_dir / f"{key}.md"
@@ -156,6 +184,7 @@ def run_grid_search(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--train-window", type=int, default=1000)
+    parser.add_argument("--train-mode", choices=["expanding", "rolling"], default="expanding")
     parser.add_argument("--eval-window", type=int, default=100)
     parser.add_argument("--top-n", type=int, default=10000)
     parser.add_argument("--as-of-issue")
@@ -172,6 +201,7 @@ def main() -> None:
                 top_n=args.top_n,
                 as_of_issue=args.as_of_issue,
                 workers=args.workers,
+                train_mode=args.train_mode,
                 history_scope=args.history_scope,
                 regime_years=args.regime_years,
                 output_dir=args.output_dir,

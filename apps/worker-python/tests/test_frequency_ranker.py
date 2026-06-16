@@ -33,12 +33,22 @@ def test_score_frequency_candidate_is_configurable():
     structural_only = score_frequency_candidate(
         (1, 8, 13, 18, 23, 31),
         stats,
-        FrequencyRankerConfig(structural_weight=1, frequency_weight=0, omission_weight=0),
+        FrequencyRankerConfig(
+            structural_weight=1,
+            frequency_weight=0,
+            omission_weight=0,
+            previous_consecutive_weight=0,
+        ),
     )
     omission_only = score_frequency_candidate(
         (7, 8, 9, 10, 11, 12),
         stats,
-        FrequencyRankerConfig(structural_weight=0, frequency_weight=0, omission_weight=1),
+        FrequencyRankerConfig(
+            structural_weight=0,
+            frequency_weight=0,
+            omission_weight=1,
+            previous_consecutive_weight=0,
+        ),
     )
 
     assert 0 <= structural_only["score"] <= 1
@@ -70,6 +80,7 @@ def test_walk_forward_reports_target_ranks_on_small_universe():
 
     assert result.evaluated_draws == 2
     assert result.as_of_issue == "004"
+    assert result.train_mode == "expanding"
     assert result.history_fingerprint == fingerprint_history(history)
     assert len(result.target_ranks) == 2
     assert len(result.zero_model_target_ranks) == 2
@@ -123,7 +134,12 @@ def test_rank_target_uses_only_supplied_train_history():
         (1, 2, 3, 4, 5, 6),
         (7, 8, 9, 10, 11, 12),
     ]
-    config = FrequencyRankerConfig(structural_weight=0, frequency_weight=1, omission_weight=0)
+    config = FrequencyRankerConfig(
+        structural_weight=0,
+        frequency_weight=1,
+        omission_weight=0,
+        previous_consecutive_weight=0,
+    )
 
     rank, score = rank_target(
         target_numbers=(1, 2, 3, 4, 5, 6),
@@ -148,6 +164,7 @@ def test_deterministic_run_key_is_stable_for_same_protocol():
         "strategy_key": "frequency_v1",
         "as_of_issue": "2026067",
         "train_window": 100,
+        "train_mode": "expanding",
         "eval_window": 5,
         "top_n": 10000,
         "history_fingerprint_value": "abc",
@@ -156,6 +173,7 @@ def test_deterministic_run_key_is_stable_for_same_protocol():
 
     assert deterministic_run_key(**kwargs) == deterministic_run_key(**kwargs)
     assert "2026067" in deterministic_run_key(**kwargs)
+    assert deterministic_run_key(**kwargs) != deterministic_run_key(**{**kwargs, "train_mode": "rolling"})
 
 
 def test_default_worker_count_leaves_spare_cpu_on_large_machine():

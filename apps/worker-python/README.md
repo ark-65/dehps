@@ -24,11 +24,13 @@ python scripts/generate_next_candidates.py --limit 5 --random-sets 200
 Run a walk-forward ranking optimization smoke test:
 
 ```bash
-python scripts/run_walk_forward_optimization.py --train-window 100 --eval-window 5 --top-n 10000 --as-of-issue 2026067 --workers 22
+python scripts/run_walk_forward_optimization.py --train-mode expanding --train-window 900 --eval-window 100 --top-n 10000 --as-of-issue 2026067 --workers 16
 ```
 
 The default worker count is 16, leaving spare CPU for the system on this workstation. Pass `--workers` to override it.
 
-For reproducibility, pass `--as-of-issue` before the next draw is known. The same complete `ssq_red_combinations` universe, history snapshot, config, train window, eval window, and `top-n` produce the same run key and ranking output. `--workers` changes runtime only, not ranking identity.
+For reproducibility, pass `--as-of-issue` before the next draw is known. The same complete `ssq_red_combinations` universe, history snapshot, config, train mode, train window, eval window, and `top-n` produce the same run key and ranking output. `--workers` changes runtime only, not ranking identity.
+
+The default optimization protocol is expanding walk-forward: for the last 100 target issues, each target trains on every prior draw available after the minimum `--train-window` is met.
 
 The optimization script scans the complete `C(33,6)` red-ball universe from `ssq_red_combinations` and sorts by frozen score rules. Randomness is only used as an analytical baseline in reports; it is not used to generate top candidates.
