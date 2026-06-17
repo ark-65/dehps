@@ -128,10 +128,14 @@ test('compareExperiments reports signed metric deltas', () => {
 
 test('training view does not use periodic dashboard polling', () => {
   const component = readFileSync(new URL('../src/app/app.component.ts', import.meta.url), 'utf8');
+  const template = readFileSync(new URL('../src/app/app.component.html', import.meta.url), 'utf8');
   const service = readFileSync(new URL('../src/app/dashboard.service.ts', import.meta.url), 'utf8');
 
   assert.equal(component.includes('timer(0, 30000)'), false);
   assert.equal(component.includes('dashboardService.load().pipe'), false);
   assert.equal(service.includes("window.location.port === '4200' ? '3000'"), false);
   assert.equal(service.includes('/training-status/ws'), true);
+  assert.equal(component.includes('liveProgressOption'), true);
+  assert.equal(template.includes('@if (hasRoundCharts(training))'), true);
+  assert.equal(template.includes('等待第 1 轮回归结果'), true);
 });

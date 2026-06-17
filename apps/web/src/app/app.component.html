@@ -139,11 +139,10 @@
       </div>
 
       <div class="chart-grid">
-        @if (chartPlaceholderText(training); as placeholder) {
-        <article class="chart-placeholder wide-chart">
-          {{ placeholder }}
+        <article class="chart-panel wide-chart">
+          <app-echart [option]="liveProgressOption(training)" height="260px"></app-echart>
         </article>
-        }
+        @if (hasRoundCharts(training)) {
         <article class="chart-panel wide-chart">
           <app-echart [option]="hitTrendOption(training)" height="320px"></app-echart>
         </article>
@@ -174,6 +173,16 @@
         <article class="chart-panel wide-chart">
           <app-echart [option]="candidateScatterOption(training)" height="340px"></app-echart>
         </article>
+        } @else {
+        <article class="chart-empty-state wide-chart">
+          <strong>等待第 1 轮回归结果</strong>
+          <span>{{ firstRoundEmptyText(training) }}</span>
+          <small>命中趋势、奖惩机制、红5差异、排名分布和权重演化会在本轮 100 个目标期评估完成后自动出现。</small>
+        </article>
+        <article class="chart-panel wide-chart">
+          <app-echart [option]="qianKunDistributionOption(training)" height="340px"></app-echart>
+        </article>
+        }
       </div>
 
       <div class="training-detail-grid">

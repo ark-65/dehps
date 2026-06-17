@@ -400,6 +400,30 @@ select {
   overflow-wrap: anywhere;
 }
 
+.chart-empty-state {
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 180px;
+  padding: 18px 20px;
+  border: 1px solid #d8e1e9;
+  border-radius: 6px;
+  background: #f7fafc;
+  color: #516070;
+  overflow-wrap: anywhere;
+}
+
+.chart-empty-state strong {
+  color: #17202d;
+  font-size: 1.05rem;
+}
+
+.chart-empty-state small {
+  color: #64717d;
+  line-height: 1.5;
+}
+
 .wide-chart {
   grid-column: 1 / -1;
 }

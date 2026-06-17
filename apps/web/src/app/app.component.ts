@@ -253,11 +253,19 @@ export class AppComponent {
     return `${pushedText} / 当前设置每 10 个目标期推送一帧`;
   }
 
-  chartPlaceholderText(status: TrainingStatusPayload): string | null {
+  hasRoundCharts(status: TrainingStatusPayload): boolean {
     if (status.rounds.length || status.recentRounds.length) {
-      return null;
+      return true;
     }
-    return '当前 run 第一轮尚未完成，趋势图会在第 1 轮完成后出现；上方进度条仍通过 WebSocket 实时更新。';
+    return false;
+  }
+
+  firstRoundEmptyText(status: TrainingStatusPayload): string {
+    const progress = status.latestProgress;
+    if (!progress) {
+      return '当前 run 已启动，正在等待第一条 WebSocket 进度事件。';
+    }
+    return `当前第 ${progress.round} 轮已评估 ${progress.targetIndex}/${progress.targetTotal} 个目标期，最新目标期 ${progress.issue}。`;
   }
 
   configSummary(result: TrainingResult | null): string {
@@ -307,6 +315,63 @@ export class AppComponent {
     }
     const lines = status.qianKun.latest_lines.length ? status.qianKun.latest_lines.join(' ') : '无爻象';
     return `${status.qianKun.latest_pattern} / ${lines}`;
+  }
+
+  liveProgressOption(status: TrainingStatusPayload): ChartOption {
+    const progress = status.latestProgress;
+    const completed = progress?.targetIndex ?? 0;
+    const total = progress?.targetTotal ?? status.evalWindow ?? 0;
+    const remaining = Math.max(0, total - completed);
+    const rate = total ? completed / total : 0;
+    const elapsed = progress?.elapsedSeconds ?? 0;
+    return {
+      title: {
+        text: '实时回归进度',
+        left: 12,
+        top: 8,
+        textStyle: { fontSize: 14, fontWeight: 700 },
+        subtext: progress
+          ? `第 ${progress.round} 轮 / 目标期 ${progress.issue} / 训练样本 ${progress.trainDraws} 期 / 已耗时 ${elapsed.toFixed(1)} 秒`
+          : '等待训练进度事件',
+        subtextStyle: { color: '#64717d', fontSize: 12 },
+      },
+      color: ['#327857', '#d9dee3'],
+      tooltip: {
+        trigger: 'axis',
+        formatter: () =>
+          progress
+            ? `当前轮 ${completed}/${total}<br/>完成率 ${(rate * 100).toFixed(2)}%<br/>目标期 ${progress.issue}<br/>训练样本 ${progress.trainDraws} 期`
+            : '暂无进度',
+      },
+      legend: { top: 8, right: 12 },
+      grid: { left: 62, right: 24, top: 78, bottom: 42 },
+      xAxis: { type: 'value', max: Math.max(total, 1), name: '目标期数' },
+      yAxis: { type: 'category', data: ['当前轮'] },
+      series: [
+        {
+          name: '已评估',
+          type: 'bar',
+          stack: 'progress',
+          data: [completed],
+          label: {
+            show: true,
+            position: 'insideRight',
+            formatter: `${completed}/${total}`,
+          },
+        },
+        {
+          name: '未评估',
+          type: 'bar',
+          stack: 'progress',
+          data: [remaining],
+          label: {
+            show: remaining > 0,
+            position: 'insideRight',
+            formatter: `剩余 ${remaining}`,
+          },
+        },
+      ],
+    };
   }
 
   hitTrendOption(status: TrainingStatusPayload): ChartOption {
