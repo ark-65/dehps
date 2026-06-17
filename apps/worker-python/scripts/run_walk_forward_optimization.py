@@ -163,7 +163,7 @@ def run_optimization(
             )
 
     result = run_walk_forward(
-        history=selection.history,
+        history=selection.dated_history,
         train_window=train_window,
         eval_window=eval_window,
         top_n=top_n,

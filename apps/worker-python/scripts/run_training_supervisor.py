@@ -19,6 +19,7 @@ from dehps.config import ROOT_DIR
 from dehps.db import get_connection
 from dehps.features.qian_kun import qian_kun_distribution
 from dehps.models.frequency_ranker import FrequencyRankerConfig
+from dehps.models.frequency_ranker import history_draw_date, history_issue, history_numbers
 from dehps.optimization.regime import HistoryScope, select_history
 from dehps.optimization.walk_forward import (
     TargetRank,
@@ -61,6 +62,7 @@ CONTEXT_FIELDS = (
     "consecutive_trend_weight",
     "repeat_trend_weight",
     "stable_range_weight",
+    "weekday_trend_weight",
 )
 ALL_FIELDS = PRIMARY_FIELDS + CONTEXT_FIELDS
 DEFAULT_UNIVERSE_SIZE = 1_107_568
@@ -277,6 +279,19 @@ def generate_configs(
                 sum_span_omission_weight=-0.04,
                 consecutive_trend_weight=0.05,
                 repeat_trend_weight=0.04,
+            ),
+            FrequencyRankerConfig(
+                structural_weight=0.28,
+                frequency_weight=0.22,
+                omission_weight=0.18,
+                weekday_trend_weight=0.10,
+                zone_ratio_weight=0.04,
+                parity_ratio_weight=0.04,
+                big_small_ratio_weight=0.04,
+                mod012_weight=0.04,
+                tail_distribution_weight=0.04,
+                consecutive_trend_weight=0.03,
+                repeat_trend_weight=0.03,
             ),
         )
         for config in large_candidates:
@@ -716,7 +731,7 @@ def load_prior_supervisor_candidates(
 
 def evaluate_configs(
     *,
-    history: list[tuple[str, tuple[int, ...]]],
+    history: list,
     ranked_universe,
     configs: tuple[FrequencyRankerConfig, ...],
     train_window: int,
@@ -737,12 +752,15 @@ def evaluate_configs(
     for progress_index, target_index in enumerate(range(start_index, len(history)), start=1):
         train_start = 0 if train_mode == "expanding" else max(0, target_index - train_window)
         train_history = history[train_start:target_index]
-        issue, numbers = history[target_index]
+        target_draw = history[target_index]
+        issue = history_issue(target_draw)
+        numbers = history_numbers(target_draw)
         ranked_targets = rank_target_grid_with_red5(
             target_numbers=numbers,
             train_history=train_history,
             configs=configs,
             ranked_universe=ranked_universe,
+            target_draw_date=history_draw_date(target_draw),
             workers=workers,
             pool=pool,
         )
@@ -784,7 +802,7 @@ def evaluate_configs(
             if progress_callback is not None:
                 progress_callback(progress)
 
-    as_of_issue = history[-1][0]
+    as_of_issue = history_issue(history[-1])
     history_fingerprint_value = fingerprint_history(history)
     summaries = [
         summarize_target_ranks(
@@ -888,8 +906,9 @@ def run_supervisor(
         universe = load_red_combination_universe(conn)
 
     worker_count = normalize_worker_count(workers)
-    as_of_issue_value = selection.history[-1][0]
-    history_fingerprint_value = fingerprint_history(selection.history)
+    training_history = selection.dated_history
+    as_of_issue_value = history_issue(training_history[-1])
+    history_fingerprint_value = fingerprint_history(training_history)
     prior_leaderboard = load_prior_supervisor_candidates(
         output_dir=output_dir,
         current_status_path=status_path,
@@ -968,7 +987,7 @@ def run_supervisor(
             )
             log(f"round={round_index + 1} phase={phase} step={step} configs={len(configs)} base={config_dict(base_config)}")
             summaries = evaluate_configs(
-                history=selection.history,
+                history=training_history,
                 ranked_universe=ranked_universe,
                 configs=configs,
                 train_window=train_window,

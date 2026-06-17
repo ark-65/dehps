@@ -544,6 +544,7 @@ export class AppComponent {
       ['consecutive_trend_weight', '连号走势'],
       ['repeat_trend_weight', '重号走势'],
       ['stable_range_weight', '稳定区间'],
+      ['weekday_trend_weight', '开奖日走势'],
     ] as const;
     return this.baseLineOption({
       title: '权重演化',
@@ -630,6 +631,7 @@ export class AppComponent {
       consecutive_trend_weight: '连号走势',
       repeat_trend_weight: '重号走势',
       stable_range_weight: '稳定区间',
+      weekday_trend_weight: '开奖日走势',
     };
     return labels[key] ?? key;
   }

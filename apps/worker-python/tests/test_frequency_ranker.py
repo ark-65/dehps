@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 from dehps.features.qian_kun import (
     qian_kun_distribution,
     qian_kun_icon,
@@ -215,6 +217,30 @@ def test_shape_trend_weights_score_red_ball_profiles():
     assert scored["repeat_trend_score"] > 0
     assert scored["stable_range_score"] > 0
     assert scored["score"] > 0
+
+
+def test_weekday_trend_weight_uses_only_prior_same_draw_weekday():
+    history = [
+        ("001", date(2026, 1, 6), (1, 2, 8, 14, 20, 26)),
+        ("002", date(2026, 1, 8), (3, 5, 9, 15, 21, 27)),
+        ("003", date(2026, 1, 13), (1, 2, 8, 14, 20, 26)),
+        ("004", date(2026, 1, 15), (4, 6, 10, 16, 22, 28)),
+    ]
+    config = FrequencyRankerConfig(
+        structural_weight=0,
+        frequency_weight=0,
+        omission_weight=0,
+        previous_consecutive_weight=0,
+        weekday_trend_weight=1,
+    )
+
+    stats = train_frequency_stats(history, target_draw_date=date(2026, 1, 20))
+    matching_tuesday = score_frequency_candidate((1, 2, 8, 14, 20, 26), stats, config)
+    non_matching_tuesday = score_frequency_candidate((4, 6, 10, 16, 22, 28), stats, config)
+
+    assert stats.target_weekday == 1
+    assert matching_tuesday["weekday_trend_score"] > non_matching_tuesday["weekday_trend_score"]
+    assert matching_tuesday["score"] > non_matching_tuesday["score"]
 
 
 def test_walk_forward_reports_target_ranks_on_small_universe():

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, timedelta
 from statistics import quantiles
 
 from dehps.features.red_ball_features import calculate_red_ball_features
@@ -8,6 +9,15 @@ from dehps.features.qian_kun import qian_kun_pattern, qian_kun_similarity
 from dehps.scoring.strategy import score_numbers
 
 PRIME_NUMBERS = frozenset({2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31})
+SSQ_DRAW_WEEKDAYS = frozenset({1, 3, 6})
+HistoryDraw = tuple[str, tuple[int, ...]] | tuple[str, date | None, tuple[int, ...]]
+
+
+@dataclass(frozen=True)
+class NormalizedHistoryDraw:
+    issue: str
+    draw_date: date | None
+    numbers: tuple[int, ...]
 
 
 @dataclass(frozen=True)
@@ -41,6 +51,7 @@ class FrequencyRankerConfig:
     consecutive_trend_weight: float = 0.00
     repeat_trend_weight: float = 0.00
     stable_range_weight: float = 0.00
+    weekday_trend_weight: float = 0.00
 
 
 @dataclass(frozen=True)
@@ -66,30 +77,80 @@ class FrequencyStats:
     span_bucket_omission_rate: dict[int, float]
     recent_average_omission: float
     stable_ranges: dict[str, tuple[float, float]]
+    target_weekday: int | None
+    weekday_profile_rates: dict[str, dict[object, float]]
 
 
-def train_frequency_stats(history: list[tuple[str, tuple[int, ...]]]) -> FrequencyStats:
+def history_issue(draw: HistoryDraw) -> str:
+    return draw[0]
+
+
+def history_draw_date(draw: HistoryDraw) -> date | None:
+    return draw[1] if len(draw) == 3 else None
+
+
+def history_numbers(draw: HistoryDraw) -> tuple[int, ...]:
+    return tuple(draw[2] if len(draw) == 3 else draw[1])
+
+
+def normalize_history_draw(draw: HistoryDraw) -> NormalizedHistoryDraw:
+    return NormalizedHistoryDraw(
+        issue=history_issue(draw),
+        draw_date=history_draw_date(draw),
+        numbers=history_numbers(draw),
+    )
+
+
+def next_ssq_draw_date(after_date: date) -> date:
+    for offset in range(1, 8):
+        candidate = after_date + timedelta(days=offset)
+        if candidate.weekday() in SSQ_DRAW_WEEKDAYS:
+            return candidate
+    raise RuntimeError("failed to resolve next SSQ draw date")
+
+
+def infer_next_ssq_draw_date(history: list[HistoryDraw]) -> date | None:
+    for draw in reversed(history):
+        draw_date = history_draw_date(draw)
+        if draw_date is not None:
+            return next_ssq_draw_date(draw_date)
+    return None
+
+
+def train_frequency_stats(history: list[HistoryDraw], *, target_draw_date: date | None = None) -> FrequencyStats:
     if not history:
         raise ValueError("history must contain at least one draw")
 
+    records = [normalize_history_draw(draw) for draw in history]
     counts = {number: 0 for number in range(1, 34)}
     last_seen_index = {number: -1 for number in range(1, 34)}
-    for index, (_, numbers) in enumerate(history):
+    for index, record in enumerate(records):
+        numbers = record.numbers
         for number in numbers:
             counts[number] += 1
             last_seen_index[number] = index
 
-    train_draws = len(history)
+    train_draws = len(records)
     denominator = train_draws * 6
     max_omission = max(1, train_draws)
-    previous_numbers = history[-1][1]
+    previous_numbers = records[-1].numbers
     previous_features = calculate_red_ball_features(previous_numbers)
-    parity_transition_score_by_even_count = _parity_transition_score_by_even_count(history)
-    recent_numbers = [numbers for _, numbers in history[-3:]]
-    shape_numbers = [numbers for _, numbers in history[-20:]]
-    qian_kun_patterns = [qian_kun_pattern(numbers) for _, numbers in history]
-    shape_profiles = [_shape_profile(numbers, previous_numbers=history[index - 1][1] if index > 0 else None) for index, (_, numbers) in enumerate(history)]
+    parity_transition_score_by_even_count = _parity_transition_score_by_even_count(records)
+    recent_numbers = [record.numbers for record in records[-3:]]
+    shape_numbers = [record.numbers for record in records[-20:]]
+    qian_kun_patterns = [qian_kun_pattern(record.numbers) for record in records]
+    shape_profiles = [
+        _shape_profile(record.numbers, previous_numbers=records[index - 1].numbers if index > 0 else None)
+        for index, record in enumerate(records)
+    ]
     recent_shape_profiles = shape_profiles[-20:]
+    target_weekday = target_draw_date.weekday() if target_draw_date else None
+    weekday_profiles = [
+        profile
+        for profile, record in zip(shape_profiles, records, strict=True)
+        if target_weekday is not None and record.draw_date is not None and record.draw_date.weekday() == target_weekday
+    ]
+    recent_weekday_profiles = weekday_profiles[-20:]
     return FrequencyStats(
         train_draws=train_draws,
         frequency_rate={number: counts[number] / denominator for number in range(1, 34)},
@@ -110,7 +171,7 @@ def train_frequency_stats(history: list[tuple[str, tuple[int, ...]]]) -> Frequen
             previous_features["zone_3_count"],
         ),
         recent_neighbor_rate=_recent_neighbor_rate(recent_numbers),
-        lagged_consecutive_number_set=frozenset(_lagged_consecutive_numbers(history)),
+        lagged_consecutive_number_set=frozenset(_lagged_consecutive_numbers(records)),
         recent_average_gaps=_recent_average_gaps(shape_numbers),
         recent_average_sum=sum(sum(numbers) for numbers in shape_numbers) / len(shape_numbers),
         recent_average_span=sum(numbers[-1] - numbers[0] for numbers in shape_numbers) / len(shape_numbers),
@@ -126,6 +187,8 @@ def train_frequency_stats(history: list[tuple[str, tuple[int, ...]]]) -> Frequen
             for number in range(1, 34)
         }),
         stable_ranges=_stable_ranges(recent_shape_profiles),
+        target_weekday=target_weekday,
+        weekday_profile_rates=_shape_profile_rates(weekday_profiles, recent_weekday_profiles) if weekday_profiles else {},
     )
 
 
@@ -173,6 +236,7 @@ def score_frequency_candidate(
     consecutive_trend_score = _profile_score("consecutive_pair_count", shape_profile, stats)
     repeat_trend_score = _profile_score("repeat_count", shape_profile, stats)
     stable_range_score = _stable_range_score(shape_profile, stats)
+    weekday_trend_score = _weekday_trend_score(shape_profile, stats)
     score = (
         cfg.structural_weight * structural_score
         + cfg.frequency_weight * frequency_score
@@ -203,6 +267,7 @@ def score_frequency_candidate(
         + cfg.consecutive_trend_weight * consecutive_trend_score
         + cfg.repeat_trend_weight * repeat_trend_score
         + cfg.stable_range_weight * stable_range_score
+        + cfg.weekday_trend_weight * weekday_trend_score
     )
     return {
         "score": round(score, 8),
@@ -235,6 +300,7 @@ def score_frequency_candidate(
         "consecutive_trend_score": round(consecutive_trend_score, 8),
         "repeat_trend_score": round(repeat_trend_score, 8),
         "stable_range_score": round(stable_range_score, 8),
+        "weekday_trend_score": round(weekday_trend_score, 8),
         "sum_value": float(features["sum_value"]),
         "span_value": float(features["span_value"]),
         "odd_count": float(features["odd_count"]),
@@ -260,11 +326,11 @@ def _recent_neighbor_rate(recent_numbers: list[tuple[int, ...]]) -> dict[int, fl
     return {number: min(value / max_weight, 1.0) for number, value in rates.items()}
 
 
-def _lagged_consecutive_numbers(history: list[tuple[str, tuple[int, ...]]]) -> set[int]:
+def _lagged_consecutive_numbers(history: list[NormalizedHistoryDraw]) -> set[int]:
     if len(history) < 2:
         return set()
-    previous = set(history[-1][1])
-    before_previous = set(history[-2][1])
+    previous = set(history[-1].numbers)
+    before_previous = set(history[-2].numbers)
     candidates: set[int] = set()
     for number in range(1, 34):
         increasing = number - 1 in previous and number - 2 in before_previous
@@ -279,9 +345,9 @@ def _even_count(numbers: tuple[int, ...]) -> int:
 
 
 def _parity_transition_score_by_even_count(
-    history: list[tuple[str, tuple[int, ...]]],
+    history: list[NormalizedHistoryDraw],
 ) -> tuple[float, float, float, float, float, float, float]:
-    even_counts = [_even_count(numbers) for _, numbers in history]
+    even_counts = [_even_count(draw.numbers) for draw in history]
     scores = [0.5 for _ in range(7)]
     if not even_counts:
         return (1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0)
@@ -491,4 +557,26 @@ def _stable_range_score(profile: dict[str, object], stats: FrequencyStats) -> fl
         else:
             distance = lower - value if value < lower else value - upper
             scores.append(max(0.0, 1 - distance / width))
+    return sum(scores) / len(scores)
+
+
+def _weekday_trend_score(profile: dict[str, object], stats: FrequencyStats) -> float:
+    if stats.target_weekday is None or not stats.weekday_profile_rates:
+        return 0.0
+    keys = (
+        "first_last_sum",
+        "span_bucket",
+        "sum_bucket",
+        "ac_value",
+        "zone_signature",
+        "big_count",
+        "even_count",
+        "prime_count",
+        "mod012_signature",
+        "tail_unique_count",
+        "sum_tail",
+        "consecutive_pair_count",
+        "repeat_count",
+    )
+    scores = [stats.weekday_profile_rates.get(key, {}).get(profile[key], 0.0) for key in keys]
     return sum(scores) / len(scores)

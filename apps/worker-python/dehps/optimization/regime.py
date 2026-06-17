@@ -6,7 +6,11 @@ from typing import Literal
 
 from psycopg import Connection
 
-from dehps.storage.postgres_store import latest_draw_date_until, load_history_since_date, load_history_until
+from dehps.storage.postgres_store import (
+    latest_draw_date_until,
+    load_history_since_date_with_dates,
+    load_history_until_with_dates,
+)
 
 
 HistoryScope = Literal["full_history_audit", "current_regime_default"]
@@ -20,6 +24,7 @@ class HistorySelection:
     start_date: date | None
     evidence_note: str
     history: list[tuple[str, tuple[int, ...]]]
+    dated_history: list[tuple[str, date | None, tuple[int, ...]]]
 
 
 CURRENT_REGIME_EVIDENCE_NOTE = (
@@ -47,13 +52,15 @@ def select_history(
         raise ValueError("regime_years must be at least 1")
 
     if scope == "full_history_audit":
+        dated_history = load_history_until_with_dates(conn, as_of_issue)
         return HistorySelection(
             scope=scope,
             as_of_issue=as_of_issue,
             regime_years=regime_years,
             start_date=None,
             evidence_note="Full history is used for audit only; it is not the default model-training regime.",
-            history=load_history_until(conn, as_of_issue),
+            history=[(issue, numbers) for issue, _, numbers in dated_history],
+            dated_history=dated_history,
         )
 
     if scope == "current_regime_default":
@@ -66,15 +73,18 @@ def select_history(
                 start_date=None,
                 evidence_note=CURRENT_REGIME_EVIDENCE_NOTE,
                 history=[],
+                dated_history=[],
             )
         start_date = subtract_years(latest_date, regime_years)
+        dated_history = load_history_since_date_with_dates(conn, start_date=start_date, as_of_issue=as_of_issue)
         return HistorySelection(
             scope=scope,
             as_of_issue=as_of_issue,
             regime_years=regime_years,
             start_date=start_date,
             evidence_note=CURRENT_REGIME_EVIDENCE_NOTE,
-            history=load_history_since_date(conn, start_date=start_date, as_of_issue=as_of_issue),
+            history=[(issue, numbers) for issue, _, numbers in dated_history],
+            dated_history=dated_history,
         )
 
     raise ValueError(f"unsupported history scope: {scope}")

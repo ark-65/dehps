@@ -10,6 +10,7 @@ from statistics import median
 from dehps.config import ROOT_DIR
 from dehps.db import get_connection
 from dehps.models.frequency_ranker import FrequencyRankerConfig
+from dehps.models.frequency_ranker import history_draw_date, history_issue, history_numbers
 from dehps.optimization.regime import HistoryScope, select_history
 from dehps.optimization.walk_forward import (
     TargetRank,
@@ -183,7 +184,7 @@ def run_grid_search(
 
     configs = tuple(DEFAULT_GRID)
     worker_count = normalize_worker_count(workers)
-    history = selection.history
+    history = selection.dated_history
     if len(history) <= train_window:
         raise ValueError("history must be longer than train_window")
     if train_mode not in ("expanding", "rolling"):
@@ -201,12 +202,15 @@ def run_grid_search(
         for progress_index, target_index in enumerate(range(start_index, len(history)), start=1):
             train_start = 0 if train_mode == "expanding" else max(0, target_index - train_window)
             train_history = history[train_start:target_index]
-            issue, numbers = history[target_index]
+            target_draw = history[target_index]
+            issue = history_issue(target_draw)
+            numbers = history_numbers(target_draw)
             ranked_targets = rank_target_grid(
                 target_numbers=numbers,
                 train_history=train_history,
                 configs=configs,
                 ranked_universe=ranked_universe,
+                target_draw_date=history_draw_date(target_draw),
                 workers=worker_count,
                 pool=pool,
             )

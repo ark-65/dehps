@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from hashlib import sha256
 from heapq import nlargest
 import json
@@ -16,6 +17,7 @@ from dehps.models.frequency_ranker import (
     PRIME_NUMBERS,
     FrequencyRankerConfig,
     FrequencyStats,
+    HistoryDraw,
     _profile_score,
     _previous_consecutive_score,
     _red_omission_shape_score,
@@ -24,6 +26,10 @@ from dehps.models.frequency_ranker import (
     _sum_span_omission_score,
     score_frequency_candidate,
     train_frequency_stats,
+    history_draw_date,
+    history_issue,
+    history_numbers,
+    infer_next_ssq_draw_date,
 )
 from dehps.scoring.strategy import score_numbers
 
@@ -178,8 +184,12 @@ def random_uniform_baseline(*, evaluated_draws: int, universe_size: int) -> dict
     }
 
 
-def fingerprint_history(history: list[tuple[str, tuple[int, ...]]]) -> str:
-    payload = "|".join(f"{issue}:{','.join(map(str, numbers))}" for issue, numbers in history)
+def fingerprint_history(history: list[HistoryDraw]) -> str:
+    payload = "|".join(
+        f"{history_issue(draw)}:{history_draw_date(draw).isoformat() if history_draw_date(draw) else ''}:"
+        f"{','.join(map(str, history_numbers(draw)))}"
+        for draw in history
+    )
     return sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -350,6 +360,7 @@ def score_components_for_entry(entry: RankedUniverseEntry, stats: FrequencyStats
         },
         stats,
     )
+    weekday_trend_score = _weekday_trend_score_for_entry(entry, stats, repeat_count)
     return (
         entry.structural_score,
         frequency_score,
@@ -380,6 +391,7 @@ def score_components_for_entry(entry: RankedUniverseEntry, stats: FrequencyStats
         consecutive_trend_score,
         repeat_trend_score,
         stable_range_score,
+        weekday_trend_score,
     )
 
 
@@ -413,6 +425,7 @@ def score_components_for_numbers(numbers: tuple[int, ...], stats: FrequencyStats
     ) / 2
     qian_kun_pattern_score = _qian_kun_pattern_score(qian_kun_pattern(numbers), stats)
     shape_profile = _shape_profile(numbers, previous_numbers=stats.previous_numbers)
+    weekday_trend_score = _profile_weekday_trend_score(shape_profile, stats)
     return (
         structural_score,
         sum(stats.frequency_rate[number] for number in numbers),
@@ -443,6 +456,7 @@ def score_components_for_numbers(numbers: tuple[int, ...], stats: FrequencyStats
         _profile_score("consecutive_pair_count", shape_profile, stats),
         _profile_score("repeat_count", shape_profile, stats),
         _stable_range_score(shape_profile, stats),
+        weekday_trend_score,
     )
 
 
@@ -477,6 +491,7 @@ def score_from_components(components: ScoreComponents, config: FrequencyRankerCo
         consecutive_trend_score,
         repeat_trend_score,
         stable_range_score,
+        weekday_trend_score,
     ) = components
     return round(
         config.structural_weight * structural_score
@@ -507,7 +522,8 @@ def score_from_components(components: ScoreComponents, config: FrequencyRankerCo
         + config.sum_span_omission_weight * sum_span_omission_score
         + config.consecutive_trend_weight * consecutive_trend_score
         + config.repeat_trend_weight * repeat_trend_score
-        + config.stable_range_weight * stable_range_score,
+        + config.stable_range_weight * stable_range_score
+        + config.weekday_trend_weight * weekday_trend_score,
         8,
     )
 
@@ -518,6 +534,46 @@ def _qian_kun_pattern_score(pattern: str, stats: FrequencyStats) -> float:
         return history_score
     recent_score = max(qian_kun_similarity(pattern, recent_pattern) for recent_pattern in stats.recent_qian_kun_patterns)
     return (history_score + recent_score) / 2
+
+
+def _profile_weekday_trend_score(profile: dict[str, object], stats: FrequencyStats) -> float:
+    if stats.target_weekday is None or not stats.weekday_profile_rates:
+        return 0.0
+    keys = (
+        "first_last_sum",
+        "span_bucket",
+        "sum_bucket",
+        "ac_value",
+        "zone_signature",
+        "big_count",
+        "even_count",
+        "prime_count",
+        "mod012_signature",
+        "tail_unique_count",
+        "sum_tail",
+        "consecutive_pair_count",
+        "repeat_count",
+    )
+    return sum(stats.weekday_profile_rates.get(key, {}).get(profile[key], 0.0) for key in keys) / len(keys)
+
+
+def _weekday_trend_score_for_entry(entry: RankedUniverseEntry, stats: FrequencyStats, repeat_count: int) -> float:
+    profile = {
+        "first_last_sum": entry.first_last_sum,
+        "span_bucket": entry.span_bucket,
+        "sum_bucket": entry.sum_bucket,
+        "ac_value": entry.ac_value,
+        "zone_signature": entry.zone_counts,
+        "big_count": entry.big_count,
+        "even_count": entry.even_count,
+        "prime_count": entry.prime_count,
+        "mod012_signature": entry.mod012_counts,
+        "tail_unique_count": entry.tail_unique_count,
+        "sum_tail": entry.sum_tail,
+        "consecutive_pair_count": entry.consecutive_pair_count,
+        "repeat_count": repeat_count,
+    }
+    return _profile_weekday_trend_score(profile, stats)
 
 
 def score_ranked_entry(
@@ -641,14 +697,15 @@ def _top_chunk(args: tuple[int, int, int, FrequencyStats, FrequencyRankerConfig]
 def rank_target(
     *,
     target_numbers: tuple[int, ...],
-    train_history: list[tuple[str, tuple[int, ...]]],
+    train_history: list[HistoryDraw],
     config: FrequencyRankerConfig,
+    target_draw_date: date | None = None,
     universe: Iterable[tuple[int, ...]] | None = None,
     ranked_universe: list[RankedUniverseEntry] | None = None,
     workers: int = 1,
     pool: Pool | None = None,
 ) -> tuple[int, float]:
-    stats = train_frequency_stats(train_history)
+    stats = train_frequency_stats(train_history, target_draw_date=target_draw_date)
     target_score = score_frequency_candidate(target_numbers, stats, config)["score"]
     better = 0
     equal_before = 0
@@ -676,13 +733,14 @@ def rank_target(
 def rank_target_grid(
     *,
     target_numbers: tuple[int, ...],
-    train_history: list[tuple[str, tuple[int, ...]]],
+    train_history: list[HistoryDraw],
     configs: tuple[FrequencyRankerConfig, ...],
     ranked_universe: list[RankedUniverseEntry],
+    target_draw_date: date | None = None,
     workers: int = 1,
     pool: Pool | None = None,
 ) -> list[tuple[int, float]]:
-    stats = train_frequency_stats(train_history)
+    stats = train_frequency_stats(train_history, target_draw_date=target_draw_date)
     target_components = score_components_for_numbers(target_numbers, stats)
     target_scores = tuple(score_from_components(target_components, config) for config in configs)
     worker_count = normalize_worker_count(workers)
@@ -717,13 +775,14 @@ def rank_target_grid(
 def rank_target_grid_with_red5(
     *,
     target_numbers: tuple[int, ...],
-    train_history: list[tuple[str, tuple[int, ...]]],
+    train_history: list[HistoryDraw],
     configs: tuple[FrequencyRankerConfig, ...],
     ranked_universe: list[RankedUniverseEntry],
+    target_draw_date: date | None = None,
     workers: int = 1,
     pool: Pool | None = None,
 ) -> list[tuple[int, float, RedFiveMatch | None]]:
-    stats = train_frequency_stats(train_history)
+    stats = train_frequency_stats(train_history, target_draw_date=target_draw_date)
     target_components = score_components_for_numbers(target_numbers, stats)
     target_scores = tuple(score_from_components(target_components, config) for config in configs)
     worker_count = normalize_worker_count(workers)
@@ -830,15 +889,17 @@ def rank_target_structural(
 
 def top_candidates_for_next(
     *,
-    history: list[tuple[str, tuple[int, ...]]],
+    history: list[HistoryDraw],
     top_n: int,
     config: FrequencyRankerConfig,
+    target_draw_date: date | None = None,
     universe: Iterable[tuple[int, ...]] | None = None,
     ranked_universe: list[RankedUniverseEntry] | None = None,
     workers: int = 1,
     pool: Pool | None = None,
 ) -> list[tuple[int, tuple[int, ...], float]]:
-    stats = train_frequency_stats(history)
+    resolved_target_draw_date = target_draw_date or infer_next_ssq_draw_date(history)
+    stats = train_frequency_stats(history, target_draw_date=resolved_target_draw_date)
     entries = ranked_universe or build_ranked_universe(universe)
     worker_count = normalize_worker_count(workers)
     if worker_count > 1 and pool is not None and entries is _WORKER_UNIVERSE:
@@ -866,7 +927,7 @@ def top_candidates_for_next(
 
 def run_walk_forward(
     *,
-    history: list[tuple[str, tuple[int, ...]]],
+    history: list[HistoryDraw],
     train_window: int,
     eval_window: int,
     top_n: int = 10000,
@@ -886,7 +947,7 @@ def run_walk_forward(
         raise ValueError("history must be longer than train_window")
 
     cfg = config or FrequencyRankerConfig()
-    as_of_issue = history[-1][0]
+    as_of_issue = history_issue(history[-1])
     history_fingerprint_value = fingerprint_history(history)
     config_hash_value = config_hash(cfg)
     worker_count = normalize_worker_count(workers)
@@ -901,11 +962,14 @@ def run_walk_forward(
         for progress_index, target_index in enumerate(range(start, len(history)), start=1):
             train_start = 0 if train_mode == "expanding" else max(0, target_index - train_window)
             train_history = history[train_start:target_index]
-            issue, numbers = history[target_index]
+            target_draw = history[target_index]
+            issue = history_issue(target_draw)
+            numbers = history_numbers(target_draw)
             rank, score = rank_target(
                 target_numbers=numbers,
                 train_history=train_history,
                 config=cfg,
+                target_draw_date=history_draw_date(target_draw),
                 ranked_universe=ranked_universe,
                 workers=worker_count,
                 pool=pool,
@@ -941,6 +1005,7 @@ def run_walk_forward(
             history=history if train_mode == "expanding" else history[-train_window:],
             top_n=min(top_n, len(ranked_universe)),
             config=cfg,
+            target_draw_date=infer_next_ssq_draw_date(history),
             ranked_universe=ranked_universe,
             workers=worker_count,
             pool=pool,

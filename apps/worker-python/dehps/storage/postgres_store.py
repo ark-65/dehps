@@ -166,6 +166,13 @@ def load_history(conn: Connection) -> list[tuple[str, tuple[int, ...]]]:
     return [(row[0], tuple(row[1])) for row in rows]
 
 
+def load_history_with_dates(conn: Connection) -> list[tuple[str, date | None, tuple[int, ...]]]:
+    rows = conn.execute(
+        "SELECT issue, draw_date, red_numbers FROM ssq_history ORDER BY issue",
+    ).fetchall()
+    return [(row[0], row[1], tuple(row[2])) for row in rows]
+
+
 def load_history_until(conn: Connection, as_of_issue: str | None) -> list[tuple[str, tuple[int, ...]]]:
     if not as_of_issue:
         return load_history(conn)
@@ -174,6 +181,19 @@ def load_history_until(conn: Connection, as_of_issue: str | None) -> list[tuple[
         (as_of_issue,),
     ).fetchall()
     return [(row[0], tuple(row[1])) for row in rows]
+
+
+def load_history_until_with_dates(
+    conn: Connection,
+    as_of_issue: str | None,
+) -> list[tuple[str, date | None, tuple[int, ...]]]:
+    if not as_of_issue:
+        return load_history_with_dates(conn)
+    rows = conn.execute(
+        "SELECT issue, draw_date, red_numbers FROM ssq_history WHERE issue <= %s ORDER BY issue",
+        (as_of_issue,),
+    ).fetchall()
+    return [(row[0], row[1], tuple(row[2])) for row in rows]
 
 
 def load_history_since_date(
@@ -203,6 +223,35 @@ def load_history_since_date(
             (start_date,),
         ).fetchall()
     return [(row[0], tuple(row[1])) for row in rows]
+
+
+def load_history_since_date_with_dates(
+    conn: Connection,
+    *,
+    start_date: date,
+    as_of_issue: str | None = None,
+) -> list[tuple[str, date | None, tuple[int, ...]]]:
+    if as_of_issue:
+        rows = conn.execute(
+            """
+            SELECT issue, draw_date, red_numbers
+            FROM ssq_history
+            WHERE draw_date >= %s AND issue <= %s
+            ORDER BY issue
+            """,
+            (start_date, as_of_issue),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT issue, draw_date, red_numbers
+            FROM ssq_history
+            WHERE draw_date >= %s
+            ORDER BY issue
+            """,
+            (start_date,),
+        ).fetchall()
+    return [(row[0], row[1], tuple(row[2])) for row in rows]
 
 
 def latest_draw_date_until(conn: Connection, as_of_issue: str | None = None) -> date | None:
