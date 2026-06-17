@@ -822,12 +822,14 @@ def evaluate_configs(
 
 
 def write_status(output_path: Path, status: dict, *, event_url: str | None = None) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(status, ensure_ascii=False, indent=2))
     if event_url is not None:
         post_training_event(status, event_url=event_url)
 
 
 def write_report(report_path: Path, status: dict) -> None:
+    report_path.parent.mkdir(parents=True, exist_ok=True)
     rounds = "\n".join(
         (
             f"| {round_info['round']} | {round_info['phase']} | {round_info['best']['top_10000_hits']} | "
