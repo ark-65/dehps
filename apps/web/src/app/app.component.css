@@ -424,6 +424,10 @@ select {
   line-height: 1.5;
 }
 
+.weight-chart-placeholder {
+  min-height: 320px;
+}
+
 .wide-chart {
   grid-column: 1 / -1;
 }

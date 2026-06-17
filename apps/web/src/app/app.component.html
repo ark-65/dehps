@@ -167,8 +167,10 @@
         <article class="chart-panel">
           <app-echart [option]="tailRiskOption(training)" height="320px"></app-echart>
         </article>
-        <article class="chart-panel">
-          <app-echart [option]="weightTrendOption(training)" height="320px"></app-echart>
+        <article class="chart-empty-state weight-chart-placeholder wide-chart">
+          <strong>权重演化图待拆分</strong>
+          <span>当前权重维度过多，单图图例会遮挡内容。</span>
+          <small>后续改成按“基础 / 形态 / 走势 / 遗漏 / 奖惩”分组的权重视图；当前最佳权重先看下方“当前最佳权重”。</small>
         </article>
         <article class="chart-panel wide-chart">
           <app-echart [option]="candidateScatterOption(training)" height="340px"></app-echart>
