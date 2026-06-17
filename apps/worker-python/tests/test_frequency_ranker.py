@@ -173,6 +173,50 @@ def test_dynamic_parity_transition_scores_conditioned_even_count():
     assert four_even["score"] > three_even["score"]
 
 
+def test_shape_trend_weights_score_red_ball_profiles():
+    history = [
+        ("001", (1, 2, 8, 14, 20, 26)),
+        ("002", (2, 3, 9, 15, 21, 27)),
+        ("003", (1, 4, 10, 16, 22, 28)),
+        ("004", (2, 5, 11, 17, 23, 29)),
+        ("005", (1, 6, 12, 18, 24, 30)),
+    ]
+    config = FrequencyRankerConfig(
+        structural_weight=0,
+        frequency_weight=0,
+        omission_weight=0,
+        previous_consecutive_weight=0,
+        first_last_sum_weight=1,
+        span_trend_weight=1,
+        sum_trend_weight=1,
+        ac_trend_weight=1,
+        zone_ratio_weight=1,
+        parity_ratio_weight=1,
+        mod012_weight=1,
+        tail_distribution_weight=1,
+        sum_tail_weight=1,
+        consecutive_trend_weight=1,
+        repeat_trend_weight=1,
+        stable_range_weight=1,
+    )
+
+    scored = score_frequency_candidate((2, 5, 11, 17, 23, 29), train_frequency_stats(history), config)
+
+    assert scored["first_last_sum_score"] > 0
+    assert scored["span_trend_score"] > 0
+    assert scored["sum_trend_score"] > 0
+    assert scored["ac_trend_score"] > 0
+    assert scored["zone_ratio_score"] > 0
+    assert scored["parity_ratio_score"] > 0
+    assert scored["mod012_score"] > 0
+    assert scored["tail_distribution_score"] > 0
+    assert scored["sum_tail_score"] > 0
+    assert scored["consecutive_trend_score"] > 0
+    assert scored["repeat_trend_score"] > 0
+    assert scored["stable_range_score"] > 0
+    assert scored["score"] > 0
+
+
 def test_walk_forward_reports_target_ranks_on_small_universe():
     universe = [
         (1, 2, 3, 4, 5, 6),

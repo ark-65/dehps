@@ -13,9 +13,15 @@ from dehps.domain.combination import iter_ssq_red_combinations
 from dehps.features.qian_kun import qian_kun_pattern, qian_kun_similarity
 from dehps.features.red_ball_features import calculate_red_ball_features
 from dehps.models.frequency_ranker import (
+    PRIME_NUMBERS,
     FrequencyRankerConfig,
     FrequencyStats,
+    _profile_score,
     _previous_consecutive_score,
+    _red_omission_shape_score,
+    _shape_profile,
+    _stable_range_score,
+    _sum_span_omission_score,
     score_frequency_candidate,
     train_frequency_stats,
 )
@@ -23,7 +29,7 @@ from dehps.scoring.strategy import score_numbers
 
 _WORKER_UNIVERSE: list["RankedUniverseEntry"] = []
 DEFAULT_WORKERS = 16
-ScoreComponents = tuple[float, float, float, float, float, float, float, float, float, float, float, float, float]
+ScoreComponents = tuple[float, ...]
 
 
 @dataclass(frozen=True)
@@ -37,6 +43,18 @@ class RankedUniverseEntry:
     sum_value: int
     span_value: int
     qian_kun_pattern: str
+    first_last_sum: int
+    sum_bucket: int
+    span_bucket: int
+    ac_value: int
+    big_count: int
+    even_count: int
+    prime_count: int
+    mod012_counts: tuple[int, int, int]
+    tail_unique_count: int
+    sum_tail: int
+    max_gap: int
+    min_gap: int
 
 
 @dataclass(frozen=True)
@@ -202,6 +220,8 @@ def build_ranked_universe(universe: Iterable[tuple[int, ...]] | None = None) -> 
     for numbers in universe or iter_ssq_red_combinations():
         scored = score_numbers(numbers)
         features = calculate_red_ball_features(numbers)
+        tails = [number % 10 for number in numbers]
+        pairwise_distances = {right - left for index, left in enumerate(numbers) for right in numbers[index + 1:]}
         entries.append(
             RankedUniverseEntry(
                 numbers=numbers,
@@ -217,6 +237,22 @@ def build_ranked_universe(universe: Iterable[tuple[int, ...]] | None = None) -> 
                 sum_value=int(features["sum_value"]),
                 span_value=int(features["span_value"]),
                 qian_kun_pattern=qian_kun_pattern(numbers),
+                first_last_sum=numbers[0] + numbers[-1],
+                sum_bucket=int(features["sum_value"]) // 10,
+                span_bucket=int(features["span_value"]) // 3,
+                ac_value=max(0, len(pairwise_distances) - 5),
+                big_count=int(features["big_count"]),
+                even_count=int(features["even_count"]),
+                prime_count=sum(1 for number in numbers if number in PRIME_NUMBERS),
+                mod012_counts=(
+                    sum(1 for number in numbers if number % 3 == 0),
+                    sum(1 for number in numbers if number % 3 == 1),
+                    sum(1 for number in numbers if number % 3 == 2),
+                ),
+                tail_unique_count=len(set(tails)),
+                sum_tail=int(features["sum_value"]) % 10,
+                max_gap=max(numbers[1] - numbers[0], numbers[2] - numbers[1], numbers[3] - numbers[2], numbers[4] - numbers[3], numbers[5] - numbers[4]),
+                min_gap=min(numbers[1] - numbers[0], numbers[2] - numbers[1], numbers[3] - numbers[2], numbers[4] - numbers[3], numbers[5] - numbers[4]),
             )
         )
     return entries
@@ -283,6 +319,37 @@ def score_components_for_entry(entry: RankedUniverseEntry, stats: FrequencyStats
         + max(0.0, 1 - abs(entry.span_value - stats.recent_average_span) / 32)
     ) / 2
     qian_kun_pattern_score = _qian_kun_pattern_score(entry.qian_kun_pattern, stats)
+    first_last_sum_score = stats.shape_profile_rates.get("first_last_sum", {}).get(entry.first_last_sum, 0.0)
+    span_trend_score = stats.shape_profile_rates.get("span_bucket", {}).get(entry.span_bucket, 0.0)
+    sum_trend_score = stats.shape_profile_rates.get("sum_bucket", {}).get(entry.sum_bucket, 0.0)
+    ac_trend_score = stats.shape_profile_rates.get("ac_value", {}).get(entry.ac_value, 0.0)
+    zone_ratio_score = stats.shape_profile_rates.get("zone_signature", {}).get(entry.zone_counts, 0.0)
+    big_small_ratio_score = stats.shape_profile_rates.get("big_count", {}).get(entry.big_count, 0.0)
+    parity_ratio_score = stats.shape_profile_rates.get("even_count", {}).get(entry.even_count, 0.0)
+    prime_composite_score = stats.shape_profile_rates.get("prime_count", {}).get(entry.prime_count, 0.0)
+    mod012_score = stats.shape_profile_rates.get("mod012_signature", {}).get(entry.mod012_counts, 0.0)
+    tail_distribution_score = stats.shape_profile_rates.get("tail_unique_count", {}).get(entry.tail_unique_count, 0.0)
+    sum_tail_score = stats.shape_profile_rates.get("sum_tail", {}).get(entry.sum_tail, 0.0)
+    candidate_omission_average = sum(stats.omission_rate[number] for number in entry.numbers) / 6
+    red_omission_shape_score = max(0.0, 1 - abs(candidate_omission_average - stats.recent_average_omission))
+    sum_span_omission_score = (
+        stats.sum_bucket_omission_rate.get(entry.sum_bucket, 1.0)
+        + stats.span_bucket_omission_rate.get(entry.span_bucket, 1.0)
+    ) / 2
+    consecutive_trend_score = stats.shape_profile_rates.get("consecutive_pair_count", {}).get(entry.consecutive_pair_count, 0.0)
+    repeat_count = int(previous_overlap_score * 6)
+    repeat_trend_score = stats.shape_profile_rates.get("repeat_count", {}).get(repeat_count, 0.0)
+    stable_range_score = _stable_range_score(
+        {
+            "sum_value": entry.sum_value,
+            "span_value": entry.span_value,
+            "ac_numeric": entry.ac_value,
+            "first_last_sum": entry.first_last_sum,
+            "max_gap": entry.max_gap,
+            "min_gap": entry.min_gap,
+        },
+        stats,
+    )
     return (
         entry.structural_score,
         frequency_score,
@@ -297,6 +364,22 @@ def score_components_for_entry(entry: RankedUniverseEntry, stats: FrequencyStats
         recent_gap_shape_score,
         recent_sum_span_score,
         qian_kun_pattern_score,
+        first_last_sum_score,
+        span_trend_score,
+        sum_trend_score,
+        ac_trend_score,
+        zone_ratio_score,
+        big_small_ratio_score,
+        parity_ratio_score,
+        prime_composite_score,
+        mod012_score,
+        tail_distribution_score,
+        sum_tail_score,
+        red_omission_shape_score,
+        sum_span_omission_score,
+        consecutive_trend_score,
+        repeat_trend_score,
+        stable_range_score,
     )
 
 
@@ -329,6 +412,7 @@ def score_components_for_numbers(numbers: tuple[int, ...], stats: FrequencyStats
         + max(0.0, 1 - abs((numbers[-1] - numbers[0]) - stats.recent_average_span) / 32)
     ) / 2
     qian_kun_pattern_score = _qian_kun_pattern_score(qian_kun_pattern(numbers), stats)
+    shape_profile = _shape_profile(numbers, previous_numbers=stats.previous_numbers)
     return (
         structural_score,
         sum(stats.frequency_rate[number] for number in numbers),
@@ -343,6 +427,22 @@ def score_components_for_numbers(numbers: tuple[int, ...], stats: FrequencyStats
         recent_gap_shape_score,
         recent_sum_span_score,
         qian_kun_pattern_score,
+        _profile_score("first_last_sum", shape_profile, stats),
+        _profile_score("span_bucket", shape_profile, stats),
+        _profile_score("sum_bucket", shape_profile, stats),
+        _profile_score("ac_value", shape_profile, stats),
+        _profile_score("zone_signature", shape_profile, stats),
+        _profile_score("big_count", shape_profile, stats),
+        _profile_score("even_count", shape_profile, stats),
+        _profile_score("prime_count", shape_profile, stats),
+        _profile_score("mod012_signature", shape_profile, stats),
+        _profile_score("tail_unique_count", shape_profile, stats),
+        _profile_score("sum_tail", shape_profile, stats),
+        _red_omission_shape_score(numbers, stats),
+        _sum_span_omission_score(shape_profile, stats),
+        _profile_score("consecutive_pair_count", shape_profile, stats),
+        _profile_score("repeat_count", shape_profile, stats),
+        _stable_range_score(shape_profile, stats),
     )
 
 
@@ -361,6 +461,22 @@ def score_from_components(components: ScoreComponents, config: FrequencyRankerCo
         recent_gap_shape_score,
         recent_sum_span_score,
         qian_kun_pattern_score,
+        first_last_sum_score,
+        span_trend_score,
+        sum_trend_score,
+        ac_trend_score,
+        zone_ratio_score,
+        big_small_ratio_score,
+        parity_ratio_score,
+        prime_composite_score,
+        mod012_score,
+        tail_distribution_score,
+        sum_tail_score,
+        red_omission_shape_score,
+        sum_span_omission_score,
+        consecutive_trend_score,
+        repeat_trend_score,
+        stable_range_score,
     ) = components
     return round(
         config.structural_weight * structural_score
@@ -375,7 +491,23 @@ def score_from_components(components: ScoreComponents, config: FrequencyRankerCo
         + config.lagged_consecutive_weight * lagged_consecutive_score
         + config.recent_gap_shape_weight * recent_gap_shape_score
         + config.recent_sum_span_weight * recent_sum_span_score
-        + config.qian_kun_pattern_weight * qian_kun_pattern_score,
+        + config.qian_kun_pattern_weight * qian_kun_pattern_score
+        + config.first_last_sum_weight * first_last_sum_score
+        + config.span_trend_weight * span_trend_score
+        + config.sum_trend_weight * sum_trend_score
+        + config.ac_trend_weight * ac_trend_score
+        + config.zone_ratio_weight * zone_ratio_score
+        + config.big_small_ratio_weight * big_small_ratio_score
+        + config.parity_ratio_weight * parity_ratio_score
+        + config.prime_composite_weight * prime_composite_score
+        + config.mod012_weight * mod012_score
+        + config.tail_distribution_weight * tail_distribution_score
+        + config.sum_tail_weight * sum_tail_score
+        + config.red_omission_shape_weight * red_omission_shape_score
+        + config.sum_span_omission_weight * sum_span_omission_score
+        + config.consecutive_trend_weight * consecutive_trend_score
+        + config.repeat_trend_weight * repeat_trend_score
+        + config.stable_range_weight * stable_range_score,
         8,
     )
 

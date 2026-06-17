@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from statistics import quantiles
 
 from dehps.features.red_ball_features import calculate_red_ball_features
 from dehps.features.qian_kun import qian_kun_pattern, qian_kun_similarity
 from dehps.scoring.strategy import score_numbers
+
+PRIME_NUMBERS = frozenset({2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31})
 
 
 @dataclass(frozen=True)
@@ -22,6 +25,22 @@ class FrequencyRankerConfig:
     recent_gap_shape_weight: float = 0.00
     recent_sum_span_weight: float = 0.00
     qian_kun_pattern_weight: float = 0.00
+    first_last_sum_weight: float = 0.00
+    span_trend_weight: float = 0.00
+    sum_trend_weight: float = 0.00
+    ac_trend_weight: float = 0.00
+    zone_ratio_weight: float = 0.00
+    big_small_ratio_weight: float = 0.00
+    parity_ratio_weight: float = 0.00
+    prime_composite_weight: float = 0.00
+    mod012_weight: float = 0.00
+    tail_distribution_weight: float = 0.00
+    sum_tail_weight: float = 0.00
+    red_omission_shape_weight: float = 0.00
+    sum_span_omission_weight: float = 0.00
+    consecutive_trend_weight: float = 0.00
+    repeat_trend_weight: float = 0.00
+    stable_range_weight: float = 0.00
 
 
 @dataclass(frozen=True)
@@ -42,6 +61,11 @@ class FrequencyStats:
     recent_average_span: float
     qian_kun_pattern_rate: dict[str, float]
     recent_qian_kun_patterns: tuple[str, ...]
+    shape_profile_rates: dict[str, dict[object, float]]
+    sum_bucket_omission_rate: dict[int, float]
+    span_bucket_omission_rate: dict[int, float]
+    recent_average_omission: float
+    stable_ranges: dict[str, tuple[float, float]]
 
 
 def train_frequency_stats(history: list[tuple[str, tuple[int, ...]]]) -> FrequencyStats:
@@ -64,6 +88,8 @@ def train_frequency_stats(history: list[tuple[str, tuple[int, ...]]]) -> Frequen
     recent_numbers = [numbers for _, numbers in history[-3:]]
     shape_numbers = [numbers for _, numbers in history[-20:]]
     qian_kun_patterns = [qian_kun_pattern(numbers) for _, numbers in history]
+    shape_profiles = [_shape_profile(numbers, previous_numbers=history[index - 1][1] if index > 0 else None) for index, (_, numbers) in enumerate(history)]
+    recent_shape_profiles = shape_profiles[-20:]
     return FrequencyStats(
         train_draws=train_draws,
         frequency_rate={number: counts[number] / denominator for number in range(1, 34)},
@@ -90,6 +116,16 @@ def train_frequency_stats(history: list[tuple[str, tuple[int, ...]]]) -> Frequen
         recent_average_span=sum(numbers[-1] - numbers[0] for numbers in shape_numbers) / len(shape_numbers),
         qian_kun_pattern_rate=_qian_kun_pattern_rate(qian_kun_patterns),
         recent_qian_kun_patterns=tuple(qian_kun_patterns[-6:]),
+        shape_profile_rates=_shape_profile_rates(shape_profiles, recent_shape_profiles),
+        sum_bucket_omission_rate=_feature_omission_rate([profile["sum_bucket"] for profile in shape_profiles]),
+        span_bucket_omission_rate=_feature_omission_rate([profile["span_bucket"] for profile in shape_profiles]),
+        recent_average_omission=_recent_average_omission(shape_numbers, {
+            number: (train_draws - 1 - last_seen_index[number]) / max_omission
+            if last_seen_index[number] >= 0
+            else 1.0
+            for number in range(1, 34)
+        }),
+        stable_ranges=_stable_ranges(recent_shape_profiles),
     )
 
 
@@ -120,6 +156,23 @@ def score_frequency_candidate(
     recent_gap_shape_score = _recent_gap_shape_score(numbers, stats)
     recent_sum_span_score = _recent_sum_span_score(numbers, stats)
     qian_kun_pattern_score = _qian_kun_pattern_score(numbers, stats)
+    shape_profile = _shape_profile(numbers, previous_numbers=stats.previous_numbers)
+    first_last_sum_score = _profile_score("first_last_sum", shape_profile, stats)
+    span_trend_score = _profile_score("span_bucket", shape_profile, stats)
+    sum_trend_score = _profile_score("sum_bucket", shape_profile, stats)
+    ac_trend_score = _profile_score("ac_value", shape_profile, stats)
+    zone_ratio_score = _profile_score("zone_signature", shape_profile, stats)
+    big_small_ratio_score = _profile_score("big_count", shape_profile, stats)
+    parity_ratio_score = _profile_score("even_count", shape_profile, stats)
+    prime_composite_score = _profile_score("prime_count", shape_profile, stats)
+    mod012_score = _profile_score("mod012_signature", shape_profile, stats)
+    tail_distribution_score = _profile_score("tail_unique_count", shape_profile, stats)
+    sum_tail_score = _profile_score("sum_tail", shape_profile, stats)
+    red_omission_shape_score = _red_omission_shape_score(numbers, stats)
+    sum_span_omission_score = _sum_span_omission_score(shape_profile, stats)
+    consecutive_trend_score = _profile_score("consecutive_pair_count", shape_profile, stats)
+    repeat_trend_score = _profile_score("repeat_count", shape_profile, stats)
+    stable_range_score = _stable_range_score(shape_profile, stats)
     score = (
         cfg.structural_weight * structural_score
         + cfg.frequency_weight * frequency_score
@@ -134,6 +187,22 @@ def score_frequency_candidate(
         + cfg.recent_gap_shape_weight * recent_gap_shape_score
         + cfg.recent_sum_span_weight * recent_sum_span_score
         + cfg.qian_kun_pattern_weight * qian_kun_pattern_score
+        + cfg.first_last_sum_weight * first_last_sum_score
+        + cfg.span_trend_weight * span_trend_score
+        + cfg.sum_trend_weight * sum_trend_score
+        + cfg.ac_trend_weight * ac_trend_score
+        + cfg.zone_ratio_weight * zone_ratio_score
+        + cfg.big_small_ratio_weight * big_small_ratio_score
+        + cfg.parity_ratio_weight * parity_ratio_score
+        + cfg.prime_composite_weight * prime_composite_score
+        + cfg.mod012_weight * mod012_score
+        + cfg.tail_distribution_weight * tail_distribution_score
+        + cfg.sum_tail_weight * sum_tail_score
+        + cfg.red_omission_shape_weight * red_omission_shape_score
+        + cfg.sum_span_omission_weight * sum_span_omission_score
+        + cfg.consecutive_trend_weight * consecutive_trend_score
+        + cfg.repeat_trend_weight * repeat_trend_score
+        + cfg.stable_range_weight * stable_range_score
     )
     return {
         "score": round(score, 8),
@@ -150,6 +219,22 @@ def score_frequency_candidate(
         "recent_gap_shape_score": round(recent_gap_shape_score, 8),
         "recent_sum_span_score": round(recent_sum_span_score, 8),
         "qian_kun_pattern_score": round(qian_kun_pattern_score, 8),
+        "first_last_sum_score": round(first_last_sum_score, 8),
+        "span_trend_score": round(span_trend_score, 8),
+        "sum_trend_score": round(sum_trend_score, 8),
+        "ac_trend_score": round(ac_trend_score, 8),
+        "zone_ratio_score": round(zone_ratio_score, 8),
+        "big_small_ratio_score": round(big_small_ratio_score, 8),
+        "parity_ratio_score": round(parity_ratio_score, 8),
+        "prime_composite_score": round(prime_composite_score, 8),
+        "mod012_score": round(mod012_score, 8),
+        "tail_distribution_score": round(tail_distribution_score, 8),
+        "sum_tail_score": round(sum_tail_score, 8),
+        "red_omission_shape_score": round(red_omission_shape_score, 8),
+        "sum_span_omission_score": round(sum_span_omission_score, 8),
+        "consecutive_trend_score": round(consecutive_trend_score, 8),
+        "repeat_trend_score": round(repeat_trend_score, 8),
+        "stable_range_score": round(stable_range_score, 8),
         "sum_value": float(features["sum_value"]),
         "span_value": float(features["span_value"]),
         "odd_count": float(features["odd_count"]),
@@ -270,3 +355,140 @@ def _qian_kun_pattern_score(numbers: tuple[int, ...], stats: FrequencyStats) -> 
         return history_score
     recent_score = max(qian_kun_similarity(pattern, recent_pattern) for recent_pattern in stats.recent_qian_kun_patterns)
     return (history_score + recent_score) / 2
+
+
+def _shape_profile(numbers: tuple[int, ...], *, previous_numbers: tuple[int, ...] | None = None) -> dict[str, object]:
+    features = calculate_red_ball_features(numbers)
+    tails = [number % 10 for number in numbers]
+    gaps = {right - left for left, right in zip(numbers, numbers[1:])}
+    pairwise_distances = {right - left for index, left in enumerate(numbers) for right in numbers[index + 1:]}
+    return {
+        "first_last_sum": numbers[0] + numbers[-1],
+        "span_bucket": int(features["span_value"]) // 3,
+        "sum_bucket": int(features["sum_value"]) // 10,
+        "ac_value": max(0, len(pairwise_distances) - 5),
+        "zone_signature": (
+            features["zone_1_count"],
+            features["zone_2_count"],
+            features["zone_3_count"],
+        ),
+        "big_count": features["big_count"],
+        "even_count": features["even_count"],
+        "prime_count": sum(1 for number in numbers if number in PRIME_NUMBERS),
+        "mod012_signature": (
+            sum(1 for number in numbers if number % 3 == 0),
+            sum(1 for number in numbers if number % 3 == 1),
+            sum(1 for number in numbers if number % 3 == 2),
+        ),
+        "tail_unique_count": len(set(tails)),
+        "sum_tail": int(features["sum_value"]) % 10,
+        "consecutive_pair_count": features["consecutive_pair_count"],
+        "repeat_count": len(set(numbers) & set(previous_numbers)) if previous_numbers else 0,
+        "sum_value": features["sum_value"],
+        "span_value": features["span_value"],
+        "ac_numeric": max(0, len(pairwise_distances) - 5),
+        "max_gap": max(gaps) if gaps else 0,
+        "min_gap": min(gaps) if gaps else 0,
+    }
+
+
+def _shape_profile_rates(
+    profiles: list[dict[str, object]],
+    recent_profiles: list[dict[str, object]],
+) -> dict[str, dict[object, float]]:
+    keys = (
+        "first_last_sum",
+        "span_bucket",
+        "sum_bucket",
+        "ac_value",
+        "zone_signature",
+        "big_count",
+        "even_count",
+        "prime_count",
+        "mod012_signature",
+        "tail_unique_count",
+        "sum_tail",
+        "consecutive_pair_count",
+        "repeat_count",
+    )
+    return {key: _normalized_rate(profiles, recent_profiles, key) for key in keys}
+
+
+def _normalized_rate(
+    profiles: list[dict[str, object]],
+    recent_profiles: list[dict[str, object]],
+    key: str,
+) -> dict[object, float]:
+    scores: dict[object, float] = {}
+    for profile in profiles:
+        value = profile[key]
+        scores[value] = scores.get(value, 0.0) + 1.0
+    for profile in recent_profiles:
+        value = profile[key]
+        scores[value] = scores.get(value, 0.0) + 0.75
+    max_score = max(scores.values(), default=1.0)
+    return {value: score / max_score for value, score in scores.items()}
+
+
+def _profile_score(key: str, profile: dict[str, object], stats: FrequencyStats) -> float:
+    return stats.shape_profile_rates.get(key, {}).get(profile[key], 0.0)
+
+
+def _feature_omission_rate(values: list[object]) -> dict[object, float]:
+    last_seen: dict[object, int] = {}
+    for index, value in enumerate(values):
+        last_seen[value] = index
+    total = max(1, len(values))
+    return {value: (total - 1 - index) / total for value, index in last_seen.items()}
+
+
+def _recent_average_omission(
+    recent_numbers: list[tuple[int, ...]],
+    omission_rate: dict[int, float],
+) -> float:
+    if not recent_numbers:
+        return 0.5
+    return sum(sum(omission_rate[number] for number in numbers) / 6 for numbers in recent_numbers) / len(recent_numbers)
+
+
+def _red_omission_shape_score(numbers: tuple[int, ...], stats: FrequencyStats) -> float:
+    candidate_average = sum(stats.omission_rate[number] for number in numbers) / 6
+    return max(0.0, 1 - abs(candidate_average - stats.recent_average_omission))
+
+
+def _sum_span_omission_score(profile: dict[str, object], stats: FrequencyStats) -> float:
+    sum_omission = stats.sum_bucket_omission_rate.get(profile["sum_bucket"], 1.0)
+    span_omission = stats.span_bucket_omission_rate.get(profile["span_bucket"], 1.0)
+    return (sum_omission + span_omission) / 2
+
+
+def _stable_ranges(profiles: list[dict[str, object]]) -> dict[str, tuple[float, float]]:
+    numeric_keys = ("sum_value", "span_value", "ac_numeric", "first_last_sum", "max_gap", "min_gap")
+    ranges: dict[str, tuple[float, float]] = {}
+    for key in numeric_keys:
+        values = sorted(float(profile[key]) for profile in profiles)
+        if not values:
+            ranges[key] = (0.0, 0.0)
+        elif len(values) < 4:
+            ranges[key] = (values[0], values[-1])
+        else:
+            quartiles = quantiles(values, n=4, method="inclusive")
+            q1, q3 = quartiles[0], quartiles[2]
+            iqr = max(q3 - q1, 1.0)
+            ranges[key] = (q1 - 1.5 * iqr, q3 + 1.5 * iqr)
+    return ranges
+
+
+def _stable_range_score(profile: dict[str, object], stats: FrequencyStats) -> float:
+    if not stats.stable_ranges:
+        return 1.0
+    scores = []
+    for key, (lower, upper) in stats.stable_ranges.items():
+        value = float(profile[key])
+        width = max(upper - lower, 1.0)
+        if lower <= value <= upper:
+            scores.append(1.0)
+        else:
+            distance = lower - value if value < lower else value - upper
+            scores.append(max(0.0, 1 - distance / width))
+    return sum(scores) / len(scores)
