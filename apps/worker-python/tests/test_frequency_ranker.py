@@ -14,6 +14,7 @@ from dehps.optimization.walk_forward import (
     build_ranked_universe,
     deterministic_run_key,
     fingerprint_history,
+    is_excluded_red_combination,
     normalize_worker_count,
     random_uniform_baseline,
     rank_target,
@@ -243,6 +244,24 @@ def test_weekday_trend_weight_uses_only_prior_same_draw_weekday():
     assert matching_tuesday["score"] > non_matching_tuesday["score"]
 
 
+def test_ranked_universe_excludes_fixed_low_plausibility_patterns():
+    universe = [
+        (1, 2, 3, 4, 5, 9),
+        (10, 11, 12, 13, 14, 30),
+        (1, 3, 5, 7, 9, 11),
+        (12, 14, 16, 18, 20, 22),
+        (23, 25, 27, 29, 31, 33),
+        (1, 8, 13, 18, 23, 31),
+    ]
+
+    ranked = build_ranked_universe(universe)
+
+    assert is_excluded_red_combination((1, 2, 3, 4, 5, 9)) is True
+    assert is_excluded_red_combination((1, 3, 5, 7, 9, 11)) is True
+    assert is_excluded_red_combination((1, 8, 13, 18, 23, 31)) is False
+    assert [entry.numbers for entry in ranked] == [(1, 8, 13, 18, 23, 31)]
+
+
 def test_walk_forward_reports_target_ranks_on_small_universe():
     universe = [
         (1, 2, 3, 4, 5, 6),
@@ -272,9 +291,9 @@ def test_walk_forward_reports_target_ranks_on_small_universe():
     assert result.history_fingerprint == fingerprint_history(history)
     assert len(result.target_ranks) == 2
     assert len(result.zero_model_target_ranks) == 2
-    assert result.universe_size == len(universe)
-    assert all(1 <= rank.rank <= len(universe) for rank in result.target_ranks)
-    assert len(result.top_candidates) == 3
+    assert result.universe_size == 2
+    assert all(1 <= rank.rank <= result.universe_size for rank in result.target_ranks)
+    assert len(result.top_candidates) == 2
 
 
 def test_walk_forward_parallel_matches_single_worker_on_small_universe():
@@ -319,8 +338,8 @@ def test_walk_forward_parallel_matches_single_worker_on_small_universe():
 
 def test_rank_target_uses_only_supplied_train_history():
     universe = [
-        (1, 2, 3, 4, 5, 6),
-        (7, 8, 9, 10, 11, 12),
+        (1, 8, 13, 18, 23, 31),
+        (2, 9, 14, 19, 24, 32),
     ]
     config = FrequencyRankerConfig(
         structural_weight=0,
@@ -330,8 +349,8 @@ def test_rank_target_uses_only_supplied_train_history():
     )
 
     rank, score = rank_target(
-        target_numbers=(1, 2, 3, 4, 5, 6),
-        train_history=[("001", (7, 8, 9, 10, 11, 12))],
+        target_numbers=(1, 8, 13, 18, 23, 31),
+        train_history=[("001", (2, 9, 14, 19, 24, 32))],
         config=config,
         universe=universe,
     )
@@ -377,17 +396,17 @@ def test_rank_target_grid_matches_individual_rank_target():
 
 
 def test_rank_target_grid_with_red5_reports_nearest_difference_number():
-    target = (1, 2, 3, 4, 5, 8)
-    near_match = (1, 2, 3, 4, 5, 6)
+    target = (1, 4, 9, 14, 22, 31)
+    near_match = (1, 4, 9, 14, 22, 32)
     universe = [
         target,
         near_match,
-        (7, 8, 9, 10, 11, 12),
-        (13, 14, 15, 16, 17, 18),
+        (2, 7, 12, 17, 24, 29),
+        (3, 8, 13, 18, 25, 30),
     ]
     train_history = [
-        ("001", (7, 8, 9, 10, 11, 12)),
-        ("002", (13, 14, 15, 16, 17, 18)),
+        ("001", (2, 7, 12, 17, 24, 29)),
+        ("002", (3, 8, 13, 18, 25, 30)),
     ]
     configs = (FrequencyRankerConfig(),)
 
@@ -403,9 +422,27 @@ def test_rank_target_grid_with_red5_reports_nearest_difference_number():
     assert isinstance(score, float)
     assert red5 is not None
     assert red5.numbers == near_match
-    assert red5.missing_number == 8
-    assert red5.extra_number == 6
+    assert red5.missing_number == 31
+    assert red5.extra_number == 32
     assert 1 <= red5.rank <= len(universe)
+
+
+def test_excluded_target_ranks_after_filtered_universe():
+    universe = [
+        (1, 2, 3, 4, 5, 9),
+        (1, 8, 13, 18, 23, 31),
+        (2, 9, 14, 19, 24, 32),
+    ]
+    config = FrequencyRankerConfig()
+
+    rank, _ = rank_target(
+        target_numbers=(1, 2, 3, 4, 5, 9),
+        train_history=[("001", (1, 8, 13, 18, 23, 31))],
+        config=config,
+        universe=universe,
+    )
+
+    assert rank == len(build_ranked_universe(universe)) + 1
 
 
 def test_random_uniform_baseline_is_analytical_only():

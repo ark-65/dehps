@@ -225,11 +225,26 @@ def deterministic_run_key(
     return f"walk-forward-{strategy_key}-asof-{as_of_issue}-{digest}"
 
 
+def is_excluded_red_combination(numbers: tuple[int, ...]) -> bool:
+    features = calculate_red_ball_features(numbers)
+    if int(features["max_consecutive_run"]) >= 5:
+        return True
+    return any(
+        int(features[key]) == 6
+        for key in ("zone_1_count", "zone_2_count", "zone_3_count")
+    )
+
+
 def build_ranked_universe(universe: Iterable[tuple[int, ...]] | None = None) -> list[RankedUniverseEntry]:
     entries: list[RankedUniverseEntry] = []
     for numbers in universe or iter_ssq_red_combinations():
         scored = score_numbers(numbers)
         features = calculate_red_ball_features(numbers)
+        if int(features["max_consecutive_run"]) >= 5 or any(
+            int(features[key]) == 6
+            for key in ("zone_1_count", "zone_2_count", "zone_3_count")
+        ):
+            continue
         tails = [number % 10 for number in numbers]
         pairwise_distances = {right - left for index, left in enumerate(numbers) for right in numbers[index + 1:]}
         entries.append(
@@ -710,6 +725,8 @@ def rank_target(
     better = 0
     equal_before = 0
     entries = ranked_universe or build_ranked_universe(universe)
+    if is_excluded_red_combination(target_numbers):
+        return len(entries) + 1, target_score
     worker_count = normalize_worker_count(workers)
     if worker_count > 1 and pool is not None and entries is _WORKER_UNIVERSE:
         ranges = chunk_ranges(len(entries), worker_count)
@@ -743,6 +760,9 @@ def rank_target_grid(
     stats = train_frequency_stats(train_history, target_draw_date=target_draw_date)
     target_components = score_components_for_numbers(target_numbers, stats)
     target_scores = tuple(score_from_components(target_components, config) for config in configs)
+    if is_excluded_red_combination(target_numbers):
+        excluded_rank = len(ranked_universe) + 1
+        return [(excluded_rank, target_scores[index]) for index in range(len(configs))]
     worker_count = normalize_worker_count(workers)
 
     if worker_count > 1 and pool is not None:
@@ -785,6 +805,7 @@ def rank_target_grid_with_red5(
     stats = train_frequency_stats(train_history, target_draw_date=target_draw_date)
     target_components = score_components_for_numbers(target_numbers, stats)
     target_scores = tuple(score_from_components(target_components, config) for config in configs)
+    target_excluded = is_excluded_red_combination(target_numbers)
     worker_count = normalize_worker_count(workers)
 
     better = [0 for _ in configs]
@@ -866,7 +887,8 @@ def rank_target_grid_with_red5(
                     missing_number=missing[0],
                     extra_number=extra[0],
                 )
-        results.append((better[index] + equal_before[index] + 1, target_score, match))
+        target_rank = len(ranked_universe) + 1 if target_excluded else better[index] + equal_before[index] + 1
+        results.append((target_rank, target_score, match))
     return results
 
 
@@ -876,6 +898,8 @@ def rank_target_structural(
     ranked_universe: list[RankedUniverseEntry],
 ) -> tuple[int, float]:
     target_score = round(score_numbers(target_numbers)["score"], 8)
+    if is_excluded_red_combination(target_numbers):
+        return len(ranked_universe) + 1, target_score
     better = 0
     equal_before = 0
     for entry in ranked_universe:
