@@ -65,6 +65,45 @@ CONTEXT_FIELDS = (
     "weekday_trend_weight",
 )
 ALL_FIELDS = PRIMARY_FIELDS + CONTEXT_FIELDS
+PHASE_SEARCH_FIELDS = {
+    "micro": (
+        "weekday_trend_weight",
+        "stable_range_weight",
+        "parity_ratio_weight",
+        "zone_ratio_weight",
+        "dynamic_parity_transition_weight",
+        "red_omission_shape_weight",
+        "sum_span_omission_weight",
+        "tail_distribution_weight",
+        "repeat_trend_weight",
+        "consecutive_trend_weight",
+    ),
+    "small": (
+        "tail_distribution_weight",
+        "sum_tail_weight",
+        "mod012_weight",
+        "prime_composite_weight",
+        "big_small_ratio_weight",
+        "first_last_sum_weight",
+        "span_trend_weight",
+        "sum_trend_weight",
+        "ac_trend_weight",
+        "weekday_trend_weight",
+    ),
+    "medium": (
+        "recent_neighbor_weight",
+        "lagged_consecutive_weight",
+        "recent_gap_shape_weight",
+        "recent_sum_span_weight",
+        "previous_overlap_weight",
+        "previous_consecutive_weight",
+        "previous_zone_shape_weight",
+        "qian_kun_pattern_weight",
+        "stable_range_weight",
+        "red_omission_shape_weight",
+    ),
+    "large": CONTEXT_FIELDS,
+}
 DEFAULT_UNIVERSE_SIZE = 1_107_568
 DEFAULT_TRAINING_EVENT_URL = "http://127.0.0.1:3000/training-events/status"
 TOP_100_REWARD = 1000
@@ -163,6 +202,148 @@ def add_unique(configs: list[FrequencyRankerConfig], seen: set[str], config: Fre
         configs.append(normalized)
 
 
+def search_fields_for_phase(phase: str) -> tuple[str, ...]:
+    phase_fields = PHASE_SEARCH_FIELDS.get(phase, CONTEXT_FIELDS)
+    phase_set = set(phase_fields)
+    return PRIMARY_FIELDS + phase_fields + tuple(field for field in CONTEXT_FIELDS if field not in phase_set)
+
+
+def themed_candidate_configs(base: FrequencyRankerConfig, *, phase: str, step: float) -> tuple[FrequencyRankerConfig, ...]:
+    bump = max(step, 0.04)
+    candidates = [
+        replace(
+            base,
+            first_last_sum_weight=base.first_last_sum_weight + bump,
+            span_trend_weight=base.span_trend_weight + bump,
+            sum_trend_weight=base.sum_trend_weight + bump,
+            ac_trend_weight=base.ac_trend_weight + bump / 2,
+            zone_ratio_weight=base.zone_ratio_weight + bump,
+            parity_ratio_weight=base.parity_ratio_weight + bump / 2,
+            stable_range_weight=base.stable_range_weight + bump,
+        ),
+        replace(
+            base,
+            big_small_ratio_weight=base.big_small_ratio_weight + bump / 2,
+            prime_composite_weight=base.prime_composite_weight + bump / 2,
+            mod012_weight=base.mod012_weight + bump,
+            tail_distribution_weight=base.tail_distribution_weight + bump,
+            sum_tail_weight=base.sum_tail_weight + bump / 2,
+            red_omission_shape_weight=base.red_omission_shape_weight + bump,
+            sum_span_omission_weight=base.sum_span_omission_weight - bump / 2,
+        ),
+        replace(
+            base,
+            previous_consecutive_weight=base.previous_consecutive_weight + bump,
+            previous_overlap_weight=base.previous_overlap_weight - bump,
+            recent_neighbor_weight=base.recent_neighbor_weight + bump / 2,
+            lagged_consecutive_weight=base.lagged_consecutive_weight + bump / 2,
+            recent_gap_shape_weight=base.recent_gap_shape_weight + bump / 2,
+            recent_sum_span_weight=base.recent_sum_span_weight + bump / 2,
+            consecutive_trend_weight=base.consecutive_trend_weight + bump,
+            repeat_trend_weight=base.repeat_trend_weight + bump / 2,
+        ),
+        replace(
+            base,
+            weekday_trend_weight=base.weekday_trend_weight + bump,
+            zone_ratio_weight=base.zone_ratio_weight + bump / 2,
+            parity_ratio_weight=base.parity_ratio_weight + bump / 2,
+            big_small_ratio_weight=base.big_small_ratio_weight + bump / 2,
+            mod012_weight=base.mod012_weight + bump / 2,
+            tail_distribution_weight=base.tail_distribution_weight + bump / 2,
+            consecutive_trend_weight=base.consecutive_trend_weight + bump / 2,
+            repeat_trend_weight=base.repeat_trend_weight + bump / 2,
+        ),
+    ]
+    if phase == "large":
+        candidates.extend(
+            [
+                FrequencyRankerConfig(
+                    structural_weight=0.55,
+                    frequency_weight=0.30,
+                    omission_weight=0.15,
+                    previous_consecutive_weight=0.00,
+                ),
+                FrequencyRankerConfig(
+                    structural_weight=0.25,
+                    frequency_weight=0.50,
+                    omission_weight=0.25,
+                    previous_consecutive_weight=0.00,
+                ),
+                FrequencyRankerConfig(
+                    structural_weight=0.25,
+                    frequency_weight=0.25,
+                    omission_weight=0.50,
+                    previous_consecutive_weight=0.00,
+                ),
+                FrequencyRankerConfig(
+                    structural_weight=0.35,
+                    frequency_weight=0.30,
+                    omission_weight=0.25,
+                    previous_consecutive_weight=0.03,
+                    previous_overlap_weight=-0.04,
+                    previous_parity_shape_weight=0.03,
+                    dynamic_parity_transition_weight=0.04,
+                    previous_zone_shape_weight=0.08,
+                ),
+                FrequencyRankerConfig(
+                    structural_weight=0.35,
+                    frequency_weight=0.55,
+                    omission_weight=0.05,
+                    previous_consecutive_weight=0.10,
+                    previous_overlap_weight=-0.05,
+                    previous_parity_shape_weight=-0.02,
+                    dynamic_parity_transition_weight=0.06,
+                    previous_zone_shape_weight=0.12,
+                    recent_neighbor_weight=0.06,
+                    lagged_consecutive_weight=0.04,
+                    recent_gap_shape_weight=0.04,
+                    recent_sum_span_weight=0.04,
+                    qian_kun_pattern_weight=0.04,
+                ),
+                FrequencyRankerConfig(
+                    structural_weight=0.30,
+                    frequency_weight=0.25,
+                    omission_weight=0.15,
+                    first_last_sum_weight=0.05,
+                    span_trend_weight=0.06,
+                    sum_trend_weight=0.06,
+                    ac_trend_weight=0.04,
+                    zone_ratio_weight=0.06,
+                    parity_ratio_weight=0.04,
+                    stable_range_weight=0.08,
+                ),
+                FrequencyRankerConfig(
+                    structural_weight=0.30,
+                    frequency_weight=0.20,
+                    omission_weight=0.20,
+                    big_small_ratio_weight=0.05,
+                    prime_composite_weight=0.04,
+                    mod012_weight=0.05,
+                    tail_distribution_weight=0.05,
+                    sum_tail_weight=0.04,
+                    red_omission_shape_weight=0.06,
+                    sum_span_omission_weight=-0.04,
+                    consecutive_trend_weight=0.05,
+                    repeat_trend_weight=0.04,
+                ),
+                FrequencyRankerConfig(
+                    structural_weight=0.28,
+                    frequency_weight=0.22,
+                    omission_weight=0.18,
+                    weekday_trend_weight=0.10,
+                    zone_ratio_weight=0.04,
+                    parity_ratio_weight=0.04,
+                    big_small_ratio_weight=0.04,
+                    mod012_weight=0.04,
+                    tail_distribution_weight=0.04,
+                    consecutive_trend_weight=0.03,
+                    repeat_trend_weight=0.03,
+                ),
+            ]
+        )
+    return tuple(candidates)
+
+
 def generate_configs(
     base: FrequencyRankerConfig,
     *,
@@ -174,11 +355,23 @@ def generate_configs(
     configs: list[FrequencyRankerConfig] = []
     seen: set[str] = set()
     add_unique(configs, seen, base)
+    search_fields = search_fields_for_phase(phase)
 
     fine_step = max(0.005, step / 2)
     for elite in elite_configs[:4]:
         add_unique(configs, seen, elite)
-        for field in ALL_FIELDS:
+    for elite in elite_configs[:2]:
+        for field in PRIMARY_FIELDS:
+            add_unique(configs, seen, replace(elite, **{field: getattr(elite, field) + fine_step}))
+            add_unique(configs, seen, replace(elite, **{field: getattr(elite, field) - fine_step}))
+
+    for config in themed_candidate_configs(base, phase=phase, step=step):
+        add_unique(configs, seen, config)
+
+    for elite in elite_configs[:4]:
+        for field in search_fields:
+            if field in PRIMARY_FIELDS:
+                continue
             add_unique(configs, seen, replace(elite, **{field: getattr(elite, field) + fine_step}))
             add_unique(configs, seen, replace(elite, **{field: getattr(elite, field) - fine_step}))
 
@@ -188,7 +381,7 @@ def generate_configs(
             add_unique(configs, seen, blend_configs(best, other, 0.50))
             add_unique(configs, seen, extrapolate_config(best, other, 0.50))
 
-    for field in ALL_FIELDS:
+    for field in search_fields:
         add_unique(configs, seen, replace(base, **{field: getattr(base, field) + step}))
         add_unique(configs, seen, replace(base, **{field: getattr(base, field) - step}))
 
@@ -223,79 +416,6 @@ def generate_configs(
                 omission_weight=base.omission_weight + step,
             ),
         )
-
-    if phase == "large":
-        large_candidates = (
-            FrequencyRankerConfig(structural_weight=0.55, frequency_weight=0.30, omission_weight=0.15, previous_consecutive_weight=0.00),
-            FrequencyRankerConfig(structural_weight=0.25, frequency_weight=0.50, omission_weight=0.25, previous_consecutive_weight=0.00),
-            FrequencyRankerConfig(structural_weight=0.25, frequency_weight=0.25, omission_weight=0.50, previous_consecutive_weight=0.00),
-            FrequencyRankerConfig(
-                structural_weight=0.35,
-                frequency_weight=0.30,
-                omission_weight=0.25,
-                previous_consecutive_weight=0.03,
-                previous_overlap_weight=-0.04,
-                previous_parity_shape_weight=0.03,
-                dynamic_parity_transition_weight=0.04,
-                previous_zone_shape_weight=0.08,
-            ),
-            FrequencyRankerConfig(
-                structural_weight=0.35,
-                frequency_weight=0.55,
-                omission_weight=0.05,
-                previous_consecutive_weight=0.10,
-                previous_overlap_weight=-0.05,
-                previous_parity_shape_weight=-0.02,
-                dynamic_parity_transition_weight=0.06,
-                previous_zone_shape_weight=0.12,
-                recent_neighbor_weight=0.06,
-                lagged_consecutive_weight=0.04,
-                recent_gap_shape_weight=0.04,
-                recent_sum_span_weight=0.04,
-                qian_kun_pattern_weight=0.04,
-            ),
-            FrequencyRankerConfig(
-                structural_weight=0.30,
-                frequency_weight=0.25,
-                omission_weight=0.15,
-                first_last_sum_weight=0.05,
-                span_trend_weight=0.06,
-                sum_trend_weight=0.06,
-                ac_trend_weight=0.04,
-                zone_ratio_weight=0.06,
-                parity_ratio_weight=0.04,
-                stable_range_weight=0.08,
-            ),
-            FrequencyRankerConfig(
-                structural_weight=0.30,
-                frequency_weight=0.20,
-                omission_weight=0.20,
-                big_small_ratio_weight=0.05,
-                prime_composite_weight=0.04,
-                mod012_weight=0.05,
-                tail_distribution_weight=0.05,
-                sum_tail_weight=0.04,
-                red_omission_shape_weight=0.06,
-                sum_span_omission_weight=-0.04,
-                consecutive_trend_weight=0.05,
-                repeat_trend_weight=0.04,
-            ),
-            FrequencyRankerConfig(
-                structural_weight=0.28,
-                frequency_weight=0.22,
-                omission_weight=0.18,
-                weekday_trend_weight=0.10,
-                zone_ratio_weight=0.04,
-                parity_ratio_weight=0.04,
-                big_small_ratio_weight=0.04,
-                mod012_weight=0.04,
-                tail_distribution_weight=0.04,
-                consecutive_trend_weight=0.03,
-                repeat_trend_weight=0.03,
-            ),
-        )
-        for config in large_candidates:
-            add_unique(configs, seen, config)
 
     return configs[:max_configs]
 

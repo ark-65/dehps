@@ -50,6 +50,22 @@ def test_generate_configs_reuses_elite_configs_for_local_search():
     assert any(config.frequency_weight < elite.frequency_weight for config in configs)
 
 
+def test_generate_configs_includes_late_shape_fields_under_round_limit():
+    configs = generate_configs(FrequencyRankerConfig(), phase="micro", step=0.01, max_configs=28)
+
+    assert any(config.weekday_trend_weight > 0 for config in configs)
+    assert any(config.stable_range_weight > 0 for config in configs)
+    assert any(config.tail_distribution_weight > 0 for config in configs)
+
+
+def test_generate_configs_large_phase_keeps_themed_seed_candidates():
+    configs = generate_configs(FrequencyRankerConfig(), phase="large", step=0.15, max_configs=28)
+
+    assert any(config.weekday_trend_weight >= 0.10 for config in configs)
+    assert any(config.mod012_weight > 0 and config.tail_distribution_weight > 0 for config in configs)
+    assert any(config.first_last_sum_weight > 0 and config.stable_range_weight > 0 for config in configs)
+
+
 def test_training_event_post_failure_is_non_fatal():
     sent = post_training_event({"run_id": "event-test"}, event_url="http://127.0.0.1:9/training-events/status", timeout=0.05)
 
