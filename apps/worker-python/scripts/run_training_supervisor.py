@@ -639,8 +639,10 @@ def normalize_summary(raw_summary: object, *, universe_size: int) -> dict | None
     if any(field not in raw_summary or raw_summary[field] is None for field in required_fields):
         return None
     summary = dict(raw_summary)
-    summary["config"] = {field: float(value) for field, value in raw_summary["config"].items()}
-    summary["config_hash"] = summary.get("config_hash") or config_hash(FrequencyRankerConfig(**summary["config"]))
+    normalized_config = config_dict(FrequencyRankerConfig())
+    normalized_config.update({field: float(value) for field, value in raw_summary["config"].items()})
+    summary["config"] = normalized_config
+    summary["config_hash"] = config_hash(FrequencyRankerConfig(**summary["config"]))
     summary["red5"] = normalize_red5_summary(summary.get("red5"))
     summary["rank_quality"] = normalize_rank_quality_summary(summary.get("rank_quality"))
     rank_quality = summary["rank_quality"]

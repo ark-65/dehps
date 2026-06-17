@@ -305,7 +305,7 @@ def test_summarize_target_ranks_counts_red5_difference_numbers():
 def test_load_prior_supervisor_candidates_keeps_same_protocol_global_best(tmp_path):
     config = FrequencyRankerConfig(frequency_weight=0.765, omission_weight=0)
     summary = {
-        "config": config.__dict__,
+        "config": {key: value for key, value in config.__dict__.items() if key != "stable_range_weight"},
         "as_of_issue": "2026067",
         "history_fingerprint": "history-1",
         "config_hash": config_hash(config),
@@ -349,3 +349,4 @@ def test_load_prior_supervisor_candidates_keeps_same_protocol_global_best(tmp_pa
     assert candidates[0]["run_key"] == "prior-best"
     assert candidates[0]["top_1000_hits"] == 1
     assert candidates[0]["reward"]["hitReward"] == 130
+    assert candidates[0]["config"]["stable_range_weight"] == 0
