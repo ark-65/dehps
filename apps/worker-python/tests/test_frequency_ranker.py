@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from dehps.features.qian_kun import qian_kun_distribution, qian_kun_lines_from_pattern, qian_kun_pattern
+from dehps.features.qian_kun import (
+    qian_kun_distribution,
+    qian_kun_icon,
+    qian_kun_label,
+    qian_kun_lines_from_pattern,
+    qian_kun_pattern,
+)
 from dehps.models.frequency_ranker import FrequencyRankerConfig, score_frequency_candidate, train_frequency_stats
 from dehps.optimization.walk_forward import (
     build_ranked_universe,
@@ -70,7 +76,10 @@ def test_qian_kun_pattern_maps_odd_to_yang_and_even_to_yin():
 
     assert pattern == "101010"
     assert qian_kun_lines_from_pattern(pattern) == ["—", "- -", "—", "- -", "—", "- -"]
+    assert qian_kun_icon(pattern) == "䷾"
+    assert qian_kun_label(pattern) == "既济卦"
     assert distribution["latest_label"] == "乾卦"
+    assert distribution["latest_icon"] == "䷀"
     assert distribution["qian_count"] == 1
 
 

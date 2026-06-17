@@ -1,7 +1,23 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs';
-import { DashboardPayload, ExperimentDetail, FeatureDistribution, TrainingStatusPayload } from './dashboard.model';
+import {
+  DashboardPayload,
+  ExperimentDetail,
+  ExperimentSummary,
+  FeatureDistribution,
+  PipelineRunSummary,
+  SyncRunSummary,
+  TrainingStatusPayload,
+} from './dashboard.model';
+
+export type TrainingConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
+
+export type TrainingStatusStreamState = {
+  connection: TrainingConnectionState;
+  payload: TrainingStatusPayload | null;
+  message: string | null;
+};
 
 type TrainingStatusSocketMessage =
   | {
@@ -27,6 +43,18 @@ export class DashboardService {
     return this.http.get<DashboardPayload>('/dashboard');
   }
 
+  loadExperiments(): Observable<ExperimentSummary[]> {
+    return this.http.get<ExperimentSummary[]>('/experiments');
+  }
+
+  loadPipelineRuns(): Observable<PipelineRunSummary[]> {
+    return this.http.get<PipelineRunSummary[]>('/pipeline-runs');
+  }
+
+  loadSyncRuns(): Observable<SyncRunSummary[]> {
+    return this.http.get<SyncRunSummary[]>('/sync-runs');
+  }
+
   loadExperimentDetail(experimentKey: string): Observable<ExperimentDetail | null> {
     return this.http.get<ExperimentDetail | null>(`/experiments/${encodeURIComponent(experimentKey)}`);
   }
@@ -39,39 +67,71 @@ export class DashboardService {
     return this.http.get<TrainingStatusPayload>('/training-status');
   }
 
-  watchTrainingStatus(): Observable<TrainingStatusPayload> {
+  watchTrainingStatus(): Observable<TrainingStatusStreamState> {
     return new Observable((subscriber) => {
       let closedBySubscriber = false;
-      const socket = new WebSocket(this.trainingStatusSocketUrl());
+      let socket: WebSocket | null = null;
+      let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+      let reconnectAttempt = 0;
+      let latestPayload: TrainingStatusPayload | null = null;
 
-      socket.onmessage = (event) => {
-        try {
-          const message = JSON.parse(String(event.data)) as TrainingStatusSocketMessage;
-          if (message.type === 'training_status') {
-            subscriber.next(message.payload);
-          } else if (message.type === 'error') {
-            subscriber.error(new Error(message.message));
+      const connect = () => {
+        subscriber.next({
+          connection: reconnectAttempt === 0 ? 'connecting' : 'reconnecting',
+          payload: latestPayload,
+          message: reconnectAttempt === 0 ? '正在连接训练实时通道' : '实时通道已断开，正在重连',
+        });
+        socket = new WebSocket(this.trainingStatusSocketUrl());
+
+        socket.onopen = () => {
+          subscriber.next({ connection: 'connected', payload: latestPayload, message: null });
+        };
+
+        socket.onmessage = (event) => {
+          try {
+            const message = JSON.parse(String(event.data)) as TrainingStatusSocketMessage;
+            if (message.type === 'training_status') {
+              latestPayload = message.payload;
+              subscriber.next({ connection: 'connected', payload: latestPayload, message: null });
+            } else if (message.type === 'heartbeat') {
+              subscriber.next({ connection: 'connected', payload: latestPayload, message: null });
+            } else if (message.type === 'error') {
+              subscriber.next({ connection: 'connected', payload: latestPayload, message: message.message });
+            }
+          } catch (error) {
+            subscriber.next({
+              connection: 'disconnected',
+              payload: latestPayload,
+              message: error instanceof Error ? error.message : '训练实时消息解析失败',
+            });
           }
-        } catch (error) {
-          subscriber.error(error instanceof Error ? error : new Error('训练实时消息解析失败'));
-        }
+        };
+
+        socket.onerror = () => {
+          if (socket && socket.readyState !== WebSocket.CLOSED && socket.readyState !== WebSocket.CLOSING) {
+            socket.close();
+          }
+        };
+
+        socket.onclose = () => {
+          if (closedBySubscriber) {
+            subscriber.complete();
+            return;
+          }
+          reconnectAttempt += 1;
+          subscriber.next({ connection: 'reconnecting', payload: latestPayload, message: '实时通道已断开，正在重连' });
+          reconnectTimer = setTimeout(connect, 2000);
+        };
       };
 
-      socket.onerror = () => {
-        subscriber.error(new Error('训练 WebSocket 连接失败'));
-      };
-
-      socket.onclose = () => {
-        if (closedBySubscriber) {
-          subscriber.complete();
-        } else {
-          subscriber.error(new Error('训练 WebSocket 已断开'));
-        }
-      };
+      connect();
 
       return () => {
         closedBySubscriber = true;
-        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+        }
+        if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
           socket.close();
         }
       };

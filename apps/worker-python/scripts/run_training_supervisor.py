@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import urllib.error
+import urllib.request
 from collections import Counter
 from dataclasses import replace
 from datetime import datetime, timedelta
@@ -11,6 +13,7 @@ from pathlib import Path
 import sys
 import time
 from statistics import median
+from typing import Callable
 
 from dehps.config import ROOT_DIR
 from dehps.db import get_connection
@@ -44,6 +47,7 @@ CONTEXT_FIELDS = (
 )
 ALL_FIELDS = PRIMARY_FIELDS + CONTEXT_FIELDS
 DEFAULT_UNIVERSE_SIZE = 1_107_568
+DEFAULT_TRAINING_EVENT_URL = "http://127.0.0.1:3000/training-events/status"
 TOP_100_REWARD = 1000
 TOP_1000_REWARD = 100
 TOP_10000_REWARD = 10
@@ -72,6 +76,51 @@ PHASES = (
 
 def log(message: str) -> None:
     print(f"[supervisor] {datetime.now().isoformat(timespec='seconds')} {message}", file=sys.stderr, flush=True)
+
+
+def training_event_url(value: str | None = None) -> str | None:
+    resolved = value if value is not None else os.getenv("DEHPS_TRAINING_EVENT_URL", DEFAULT_TRAINING_EVENT_URL)
+    return resolved.strip() if resolved and resolved.strip() else None
+
+
+def post_training_event(status: dict, *, event_url: str | None = None, timeout: float = 1.0) -> bool:
+    resolved_url = training_event_url(event_url)
+    if not resolved_url:
+        return False
+    try:
+        payload = json.dumps(status, ensure_ascii=False).encode("utf-8")
+        request = urllib.request.Request(
+            resolved_url,
+            data=payload,
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return 200 <= response.status < 300
+    except (OSError, TimeoutError, urllib.error.URLError) as exc:
+        log(f"training_event_warning url={resolved_url} error={exc}")
+        return False
+
+
+def training_progress_payload(
+    *,
+    round_index: int,
+    target_index: int,
+    target_total: int,
+    issue: str,
+    train_draws: int,
+    elapsed_seconds: float,
+    logged_at: str | None = None,
+) -> dict:
+    return {
+        "logged_at": logged_at or datetime.now().isoformat(timespec="seconds"),
+        "round": round_index,
+        "target_index": target_index,
+        "target_total": target_total,
+        "issue": issue,
+        "train_draws": train_draws,
+        "elapsed_seconds": round(elapsed_seconds, 1),
+    }
 
 
 def config_dict(config: FrequencyRankerConfig) -> dict[str, float]:
@@ -631,6 +680,7 @@ def evaluate_configs(
     pool,
     progress_interval: int,
     round_index: int,
+    progress_callback: Callable[[dict], None] | None = None,
 ) -> list[dict]:
     start_index = max(train_window, len(history) - eval_window)
     total_targets = len(history) - start_index
@@ -671,10 +721,21 @@ def evaluate_configs(
         if progress_interval > 0 and (
             progress_index == 1 or progress_index == total_targets or progress_index % progress_interval == 0
         ):
+            elapsed = time.time() - started
+            progress = training_progress_payload(
+                round_index=round_index,
+                target_index=progress_index,
+                target_total=total_targets,
+                issue=issue,
+                train_draws=len(train_history),
+                elapsed_seconds=elapsed,
+            )
             log(
                 f"round={round_index} target={progress_index}/{total_targets} "
-                f"issue={issue} train_draws={len(train_history)} elapsed={time.time() - started:.1f}s"
+                f"issue={issue} train_draws={len(train_history)} elapsed={elapsed:.1f}s"
             )
+            if progress_callback is not None:
+                progress_callback(progress)
 
     as_of_issue = history[-1][0]
     history_fingerprint_value = fingerprint_history(history)
@@ -695,8 +756,10 @@ def evaluate_configs(
     return summaries
 
 
-def write_status(output_path: Path, status: dict) -> None:
+def write_status(output_path: Path, status: dict, *, event_url: str | None = None) -> None:
     output_path.write_text(json.dumps(status, ensure_ascii=False, indent=2))
+    if event_url is not None:
+        post_training_event(status, event_url=event_url)
 
 
 def write_report(report_path: Path, status: dict) -> None:
@@ -763,10 +826,12 @@ def run_supervisor(
     progress_interval: int,
     max_configs_per_round: int,
     memory_budget_gb: int,
+    event_url: str | None = None,
 ) -> dict:
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
     started_at = datetime.now()
     deadline = started_at + timedelta(hours=duration_hours)
+    resolved_event_url = training_event_url(event_url)
     output_dir.mkdir(parents=True, exist_ok=True)
     status_path = output_dir / f"training-supervisor-{run_id}.json"
     report_path = output_dir / f"training-supervisor-{run_id}.md"
@@ -828,10 +893,17 @@ def run_supervisor(
         "qian_kun": qian_kun_distribution(selection.history),
         "rounds": rounds,
         "best": best_summary,
+        "latest_progress": None,
         "status_path": str(status_path),
         "report_path": str(report_path),
     }
-    write_status(status_path, status)
+
+    def publish_progress(progress: dict) -> None:
+        status["latest_progress"] = progress
+        status["updated_at"] = progress["logged_at"]
+        write_status(status_path, status, event_url=resolved_event_url)
+
+    write_status(status_path, status, event_url=resolved_event_url)
 
     try:
         round_index = 0
@@ -860,6 +932,7 @@ def run_supervisor(
                 pool=pool,
                 progress_interval=progress_interval,
                 round_index=round_index + 1,
+                progress_callback=publish_progress,
             )
             round_best = summaries[0]
             leaderboard = merge_leaderboard(leaderboard, summaries[: min(8, len(summaries))])
@@ -884,7 +957,7 @@ def run_supervisor(
             )
             status["updated_at"] = datetime.now().isoformat(timespec="seconds")
             status["best"] = best_summary
-            write_status(status_path, status)
+            write_status(status_path, status, event_url=resolved_event_url)
             write_report(report_path, status)
             round_index += 1
 
@@ -902,7 +975,7 @@ def run_supervisor(
             pool.join()
         status["updated_at"] = datetime.now().isoformat(timespec="seconds")
         status["best"] = best_summary
-        write_status(status_path, status)
+        write_status(status_path, status, event_url=resolved_event_url)
         write_report(report_path, status)
         log(f"finished status={status['status']} status_path={status_path} report_path={report_path}")
 
@@ -924,6 +997,7 @@ def main() -> None:
     parser.add_argument("--progress-interval", type=int, default=10)
     parser.add_argument("--max-configs-per-round", type=int, default=28)
     parser.add_argument("--memory-budget-gb", type=int, default=20)
+    parser.add_argument("--event-url", default=os.getenv("DEHPS_TRAINING_EVENT_URL", DEFAULT_TRAINING_EVENT_URL))
     args = parser.parse_args()
     print(
         json.dumps(
@@ -941,6 +1015,7 @@ def main() -> None:
                 progress_interval=args.progress_interval,
                 max_configs_per_round=args.max_configs_per_round,
                 memory_budget_gb=args.memory_budget_gb,
+                event_url=args.event_url,
             ),
             ensure_ascii=False,
             indent=2,

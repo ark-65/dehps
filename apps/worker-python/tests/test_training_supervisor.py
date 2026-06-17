@@ -9,9 +9,11 @@ from scripts.run_training_supervisor import (
     config_hash,
     generate_configs,
     load_prior_supervisor_candidates,
+    post_training_event,
     reward_summary,
     sort_key,
     summarize_target_ranks,
+    training_progress_payload,
 )
 
 
@@ -46,6 +48,34 @@ def test_generate_configs_reuses_elite_configs_for_local_search():
     assert elite in configs
     assert any(config.frequency_weight > elite.frequency_weight for config in configs)
     assert any(config.frequency_weight < elite.frequency_weight for config in configs)
+
+
+def test_training_event_post_failure_is_non_fatal():
+    sent = post_training_event({"run_id": "event-test"}, event_url="http://127.0.0.1:9/training-events/status", timeout=0.05)
+
+    assert sent is False
+
+
+def test_training_progress_payload_is_json_status_compatible():
+    payload = training_progress_payload(
+        round_index=2,
+        target_index=7,
+        target_total=100,
+        issue="2026068",
+        train_draws=1400,
+        elapsed_seconds=12.34,
+        logged_at="2026-06-17T12:00:00",
+    )
+
+    assert payload == {
+        "logged_at": "2026-06-17T12:00:00",
+        "round": 2,
+        "target_index": 7,
+        "target_total": 100,
+        "issue": "2026068",
+        "train_draws": 1400,
+        "elapsed_seconds": 12.3,
+    }
 
 
 def test_training_sort_key_prefers_higher_coverage_then_lower_rank():

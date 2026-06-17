@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import {
   DashboardPayload,
@@ -123,4 +124,11 @@ test('compareExperiments reports signed metric deltas', () => {
   assert.equal(signedPercent(result?.coverageRateDelta ?? null), '+10.00%');
   assert.equal(signedNumber(result?.liftDelta ?? null), '+0.2857');
   assert.equal(signedNumber(null), '无');
+});
+
+test('training view does not use periodic dashboard polling', () => {
+  const component = readFileSync(new URL('../src/app/app.component.ts', import.meta.url), 'utf8');
+
+  assert.equal(component.includes('timer(0, 30000)'), false);
+  assert.equal(component.includes('dashboardService.load().pipe'), false);
 });

@@ -1,9 +1,20 @@
-import { Controller, Get, Inject, Param, Query } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Inject, Param, Post, Query, Req } from '@nestjs/common';
 import { ResearchService } from './research.service';
+import { TrainingStatusHub } from './training-status.hub';
+
+type LocalRequest = {
+  ip?: string;
+  socket?: { remoteAddress?: string };
+  connection?: { remoteAddress?: string };
+};
 
 @Controller()
 export class ResearchController {
-  constructor(@Inject(ResearchService) private readonly researchService: ResearchService) {}
+  constructor(
+    @Inject(ResearchService) private readonly researchService: ResearchService,
+    @Inject(TrainingStatusHub)
+    private readonly trainingStatusHub: TrainingStatusHub,
+  ) {}
 
   @Get('health')
   health() {
@@ -43,5 +54,24 @@ export class ResearchController {
   @Get('training-status')
   trainingStatus(@Query('lines') lines?: string) {
     return this.researchService.trainingStatus(Number(lines));
+  }
+
+  @Post('training-events/status')
+  async trainingStatusEvent(@Req() request: LocalRequest, @Body() _body: unknown) {
+    if (!this.isLocalRequest(request)) {
+      throw new ForbiddenException('training events only accept local requests');
+    }
+    const payload = await this.researchService.trainingStatus();
+    this.trainingStatusHub.publishStatus(payload);
+    return {
+      status: 'accepted',
+      runId: payload.runId,
+      emittedAt: new Date().toISOString(),
+    };
+  }
+
+  private isLocalRequest(request: LocalRequest): boolean {
+    const address = request.ip ?? request.socket?.remoteAddress ?? request.connection?.remoteAddress ?? '';
+    return ['127.0.0.1', '::1', '::ffff:127.0.0.1', 'localhost'].includes(address);
   }
 }

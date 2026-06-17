@@ -193,6 +193,7 @@ export type TrainingQianKunSummary = {
   latest_numbers: number[];
   latest_pattern: string;
   latest_label: string;
+  latest_icon: string;
   latest_lines: string[];
   qian_count: number;
   kun_count: number;
@@ -202,6 +203,7 @@ export type TrainingQianKunSummary = {
 export type TrainingQianKunPattern = {
   pattern: string;
   label: string;
+  icon: string;
   lines: string[];
   count: number;
   rate: number;
@@ -239,7 +241,7 @@ export function combinationDistribution(experiment: ExperimentSummary): Combinat
   };
 }
 
-export function latestStatus(payload: DashboardPayload): string {
+export function latestStatus(payload: Pick<DashboardPayload, 'pipelineRuns'>): string {
   const latestPipeline = payload.pipelineRuns[0];
   if (!latestPipeline) {
     return '暂无流水线记录';

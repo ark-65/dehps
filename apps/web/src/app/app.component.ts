@@ -4,15 +4,15 @@ import {
   BehaviorSubject,
   Subject,
   catchError,
+  filter,
+  forkJoin,
   map,
-  merge,
+  mergeWith,
   of,
-  retry,
   shareReplay,
   startWith,
   switchMap,
   tap,
-  timer,
 } from 'rxjs';
 import {
   DashboardPayload,
@@ -35,11 +35,15 @@ import {
   trainingStatusText,
 } from './dashboard.model';
 import { DashboardService } from './dashboard.service';
+import { TrainingStatusStreamState } from './dashboard.service';
 import { ChartOption, EchartComponent } from './echart.component';
 
-type DashboardState =
+type ExperimentsPayload = Pick<DashboardPayload, 'experiments' | 'pipelineRuns' | 'syncRuns' | 'featureDistributions'>;
+
+type ExperimentsState =
+  | { status: 'idle' }
   | { status: 'loading' }
-  | { status: 'ready'; payload: DashboardPayload; latestStatus: string }
+  | { status: 'ready'; payload: ExperimentsPayload; latestStatus: string }
   | { status: 'error'; message: string };
 
 type DetailState =
@@ -58,7 +62,9 @@ type DashboardTab = 'training' | 'experiments';
   styleUrl: './app.component.css',
 })
 export class AppComponent {
-  private readonly refreshRequests = new Subject<void>();
+  private readonly trainingRefreshRequests = new Subject<void>();
+  private readonly experimentsRefreshRequests = new Subject<void>();
+  private readonly activeTabRequests = new BehaviorSubject<DashboardTab>('training');
   private readonly detailRequests = new BehaviorSubject<string | null>(null);
   selectedExperimentKey: string | null = null;
   selectedComparisonKey: string | null = null;
@@ -74,26 +80,56 @@ export class AppComponent {
   readonly signedPercent = signedPercent;
   readonly trainModeText = trainModeText;
   readonly trainingStatusText = trainingStatusText;
-  readonly liveTrainingStatus$ = this.dashboardService.watchTrainingStatus().pipe(
-    retry({ delay: () => timer(2000) }),
-    startWith(null),
-    catchError(() => of(null)),
+  readonly trainingStream$ = this.dashboardService.watchTrainingStatus().pipe(
+    mergeWith(
+      this.trainingRefreshRequests.pipe(
+        switchMap(() =>
+          this.dashboardService.loadTrainingStatus().pipe(
+            map(
+              (payload): TrainingStatusStreamState => ({
+                connection: 'connected',
+                payload,
+                message: '已手动刷新训练快照',
+              }),
+            ),
+            catchError((error: unknown) =>
+              of({
+                connection: 'disconnected' as const,
+                payload: null,
+                message: error instanceof Error ? error.message : '训练状态手动刷新失败',
+              }),
+            ),
+          ),
+        ),
+      ),
+    ),
     shareReplay({ bufferSize: 1, refCount: true }),
   );
-  readonly state$ = merge(timer(0, 30000).pipe(map(() => undefined)), this.refreshRequests).pipe(
+  readonly experimentsState$ = this.activeTabRequests.pipe(
+    filter((tab) => tab === 'experiments'),
+    map(() => undefined),
+  ).pipe(
+    mergeWith(this.experimentsRefreshRequests),
     switchMap(() =>
-      this.dashboardService.load().pipe(
+      forkJoin({
+        experiments: this.dashboardService.loadExperiments(),
+        pipelineRuns: this.dashboardService.loadPipelineRuns(),
+        syncRuns: this.dashboardService.loadSyncRuns(),
+        featureDistributions: this.dashboardService.loadFeatureDistributions(),
+      }).pipe(
         tap((payload) => this.ensureSelection(payload)),
-        map((payload): DashboardState => ({ status: 'ready', payload, latestStatus: latestStatus(payload) })),
+        map((payload): ExperimentsState => ({ status: 'ready', payload, latestStatus: latestStatus(payload) })),
         catchError((error: unknown) =>
           of({
             status: 'error' as const,
-            message: error instanceof Error ? error.message : '仪表盘数据加载失败',
+            message: error instanceof Error ? error.message : '实验数据加载失败',
           }),
         ),
         startWith({ status: 'loading' as const }),
       ),
     ),
+    startWith({ status: 'idle' as const }),
+    shareReplay({ bufferSize: 1, refCount: true }),
   );
   readonly detailState$ = this.detailRequests.pipe(
     switchMap((experimentKey) => {
@@ -123,7 +159,11 @@ export class AppComponent {
   constructor(private readonly dashboardService: DashboardService) {}
 
   refresh(): void {
-    this.refreshRequests.next();
+    if (this.activeTab === 'training') {
+      this.trainingRefreshRequests.next();
+      return;
+    }
+    this.experimentsRefreshRequests.next();
     if (this.selectedExperimentKey) {
       this.detailRequests.next(this.selectedExperimentKey);
     }
@@ -131,6 +171,7 @@ export class AppComponent {
 
   selectTab(tab: DashboardTab): void {
     this.activeTab = tab;
+    this.activeTabRequests.next(tab);
     if (tab === 'experiments' && this.selectedExperimentKey) {
       this.detailRequests.next(this.selectedExperimentKey);
     }
@@ -150,7 +191,7 @@ export class AppComponent {
     this.writeHash();
   }
 
-  findExperiment(payload: DashboardPayload, experimentKey: string | null): ExperimentSummary | null {
+  findExperiment(payload: ExperimentsPayload, experimentKey: string | null): ExperimentSummary | null {
     if (!experimentKey) {
       return null;
     }
@@ -166,6 +207,27 @@ export class AppComponent {
       skipped: '已跳过',
     };
     return labels[status] ?? status;
+  }
+
+  streamStatusText(stream: TrainingStatusStreamState | null): string {
+    const connection = stream?.connection ?? 'connecting';
+    const labels: Record<TrainingStatusStreamState['connection'], string> = {
+      connecting: '连接中',
+      connected: 'WebSocket 已连接',
+      reconnecting: '重连中',
+      disconnected: '已断开',
+    };
+    return labels[connection];
+  }
+
+  streamDetailText(stream: TrainingStatusStreamState | null): string {
+    if (stream?.message) {
+      return stream.message;
+    }
+    if (stream?.payload) {
+      return '训练变化会实时推送';
+    }
+    return '正在等待训练实时快照';
   }
 
   processText(status: TrainingStatusPayload): string {
@@ -225,7 +287,11 @@ export class AppComponent {
   }
 
   qianKunLinesText(status: TrainingStatusPayload): string {
-    return status.qianKun.latest_lines.length ? status.qianKun.latest_lines.join(' ') : '无';
+    if (!status.qianKun.latest_pattern) {
+      return '无';
+    }
+    const lines = status.qianKun.latest_lines.length ? status.qianKun.latest_lines.join(' ') : '无爻象';
+    return `${status.qianKun.latest_pattern} / ${lines}`;
   }
 
   hitTrendOption(status: TrainingStatusPayload): ChartOption {
@@ -403,14 +469,15 @@ export class AppComponent {
           if (!pattern) {
             return '暂无卦象分布';
           }
-          return `${pattern.label}<br/>爻象 ${pattern.lines.join(' ')}<br/>全窗口 ${pattern.count}<br/>近${status.qianKun.recent_window}期 ${pattern.recent_count}`;
+          const title = pattern.icon ? `${pattern.icon} ${pattern.label}` : pattern.label;
+          return `${title}<br/>pattern ${pattern.pattern}<br/>爻象 ${pattern.lines.join(' ')}<br/>全窗口 ${pattern.count}<br/>近${status.qianKun.recent_window}期 ${pattern.recent_count}`;
         },
       },
       legend: { top: 8, right: 12 },
       grid: { left: 48, right: 24, top: 58, bottom: 64 },
       xAxis: {
         type: 'category',
-        data: patterns.map((pattern) => pattern.label),
+        data: patterns.map((pattern) => (pattern.icon ? `${pattern.icon} ${pattern.label}` : pattern.label)),
         axisLabel: { rotate: 30 },
       },
       yAxis: { type: 'value', name: '次数' },
@@ -576,7 +643,7 @@ export class AppComponent {
     };
   }
 
-  private ensureSelection(payload: DashboardPayload): void {
+  private ensureSelection(payload: ExperimentsPayload): void {
     this.readHashOnce();
     const selectedExists = payload.experiments.some(
       (experiment) => experiment.experimentKey === this.selectedExperimentKey,

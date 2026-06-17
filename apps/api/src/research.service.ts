@@ -84,7 +84,7 @@ export class ResearchService {
       (runId ? await this.firstExistingPath(path.join(logDir, `training-supervisor-${runId}.log`)) : null) ??
       (await this.findLatestFile(logDir, 'training-supervisor-', '.log'));
     const logTail = logFile ? await this.readTailLines(logFile, normalizedTailLines) : [];
-    const latestProgress = this.parseLatestProgress(logTail);
+    const latestProgress = this.progressValue(rawStatus?.latest_progress) ?? this.parseLatestProgress(logTail);
     const serviceUnit = await this.readOptionalText(path.join(logDir, 'training-supervisor.unit'));
     const universeSize = this.numberValue(rawStatus?.universe_size);
     const rounds = this.roundsValue(rawStatus?.rounds, universeSize);
@@ -260,6 +260,40 @@ export class ResearchService {
     return null;
   }
 
+  private progressValue(value: unknown): TrainingProgress | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+    const row = value as Record<string, unknown>;
+    const loggedAt = this.stringValue(row.logged_at) ?? this.stringValue(row.loggedAt);
+    const round = this.numberValue(row.round);
+    const targetIndex = this.numberValue(row.target_index) ?? this.numberValue(row.targetIndex);
+    const targetTotal = this.numberValue(row.target_total) ?? this.numberValue(row.targetTotal);
+    const issue = this.stringValue(row.issue);
+    const trainDraws = this.numberValue(row.train_draws) ?? this.numberValue(row.trainDraws);
+    const elapsedSeconds = this.numberValue(row.elapsed_seconds) ?? this.numberValue(row.elapsedSeconds);
+    if (
+      loggedAt === null ||
+      round === null ||
+      targetIndex === null ||
+      targetTotal === null ||
+      issue === null ||
+      trainDraws === null ||
+      elapsedSeconds === null
+    ) {
+      return null;
+    }
+    return {
+      loggedAt,
+      round,
+      targetIndex,
+      targetTotal,
+      issue,
+      trainDraws,
+      elapsedSeconds,
+    };
+  }
+
   private roundsValue(value: unknown, universeSize: number | null): TrainingRoundSummary[] {
     if (!Array.isArray(value)) {
       return [];
@@ -384,6 +418,7 @@ export class ResearchService {
         latest_numbers: [],
         latest_pattern: '',
         latest_label: '',
+        latest_icon: '',
         latest_lines: [],
         qian_count: 0,
         kun_count: 0,
@@ -398,6 +433,7 @@ export class ResearchService {
       latest_numbers: this.numberArrayValue(row.latest_numbers),
       latest_pattern: this.stringValue(row.latest_pattern) ?? '',
       latest_label: this.stringValue(row.latest_label) ?? '',
+      latest_icon: this.stringValue(row.latest_icon) ?? '',
       latest_lines: this.stringArrayValue(row.latest_lines),
       qian_count: this.numberValue(row.qian_count) ?? 0,
       kun_count: this.numberValue(row.kun_count) ?? 0,
@@ -422,6 +458,7 @@ export class ResearchService {
         return {
           pattern,
           label: this.stringValue(row.label) ?? pattern,
+          icon: this.stringValue(row.icon) ?? '',
           lines: this.stringArrayValue(row.lines),
           count: this.numberValue(row.count) ?? 0,
           rate: this.numberValue(row.rate) ?? 0,
@@ -433,6 +470,7 @@ export class ResearchService {
         (item): item is {
           pattern: string;
           label: string;
+          icon: string;
           lines: string[];
           count: number;
           rate: number;

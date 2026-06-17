@@ -1,4 +1,4 @@
-@if (state$ | async; as state) {
+@let trainingStream = trainingStream$ | async;
 <main class="shell">
   <header class="topbar">
     <div>
@@ -10,27 +10,18 @@
     </button>
   </header>
 
-  <section class="status-band" [ngClass]="state.status">
-    @if (state.status === 'loading') {
-      <span>正在加载仪表盘数据...</span>
-    } @else if (state.status === 'error') {
-      <span>{{ state.message }}</span>
-    } @else {
-      <span>{{ state.latestStatus }}</span>
-      <strong>{{ state.payload.experiments.length }}</strong>
-      <span>个可用实验</span>
-      <strong>{{ state.payload.pipelineRuns.length }}</strong>
-      <span>条流水线</span>
-      <strong>{{ state.payload.syncRuns.length }}</strong>
-      <span>条同步记录</span>
-      <strong>{{ state.payload.trainingStatus.completedRounds }}</strong>
+  <section class="status-band" [ngClass]="trainingStream?.connection || 'connecting'">
+    <span>{{ streamStatusText(trainingStream) }}</span>
+    @if (trainingStream?.payload; as trainingSummary) {
+      <strong>{{ trainingSummary.completedRounds }}</strong>
       <span>轮训练</span>
+      <strong>{{ trainingSummary.latestProgress?.targetIndex || 0 }}/{{ trainingSummary.latestProgress?.targetTotal || trainingSummary.evalWindow || 0 }}</strong>
+      <span>当前轮进度</span>
+    } @else {
+      <span>{{ streamDetailText(trainingStream) }}</span>
     }
   </section>
 
-  @if (state.status === 'ready') {
-    @let liveTraining = liveTrainingStatus$ | async;
-    @let training = liveTraining || state.payload.trainingStatus;
     <nav class="tabs" aria-label="仪表盘视图">
       <button
         type="button"
@@ -49,6 +40,7 @@
     </nav>
 
     @if (activeTab === 'training') {
+    @if (trainingStream?.payload; as training) {
     <section class="training-monitor">
       <div class="section-heading">
         <h2>训练监控</h2>
@@ -63,8 +55,8 @@
         </article>
         <article class="metric-card stream-card">
           <span>实时通道</span>
-          <strong>{{ liveTraining ? 'WebSocket 已连接' : 'HTTP 兜底' }}</strong>
-          <small>{{ liveTraining ? '训练变化会实时推送' : '等待实时连接，页面仍会定时刷新' }}</small>
+          <strong>{{ streamStatusText(trainingStream) }}</strong>
+          <small>{{ streamDetailText(trainingStream) }}</small>
         </article>
         <article class="metric-card">
           <span>已完成轮次</span>
@@ -103,7 +95,12 @@
         </article>
         <article class="metric-card">
           <span>最新卦象</span>
-          <strong>{{ training.qianKun.latest_label || '无' }}</strong>
+          <strong class="hexagram-title">
+            @if (training.qianKun.latest_icon) {
+              <b>{{ training.qianKun.latest_icon }}</b>
+            }
+            {{ training.qianKun.latest_label || '无' }}
+          </strong>
           <small>{{ qianKunLinesText(training) }}</small>
         </article>
         <article class="metric-card">
@@ -265,9 +262,24 @@
         </article>
       </div>
     </section>
+    } @else {
+      <section class="training-monitor">
+        <div class="detail-placeholder">{{ streamDetailText(trainingStream) }}</div>
+      </section>
+    }
     }
 
     @if (activeTab === 'experiments') {
+    @if (experimentsState$ | async; as state) {
+    @if (state.status === 'loading' || state.status === 'idle') {
+      <section class="detail-workbench">
+        <div class="detail-placeholder">正在加载并行实验数据...</div>
+      </section>
+    } @else if (state.status === 'error') {
+      <section class="detail-workbench">
+        <div class="detail-placeholder error-text">{{ state.message }}</div>
+      </section>
+    } @else {
     <section class="grid experiments">
       <div class="section-heading">
         <h2>并行实验</h2>
@@ -569,6 +581,6 @@
       </div>
     </section>
     }
-  }
+    }
+    }
 </main>
-}
