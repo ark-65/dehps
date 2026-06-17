@@ -8,8 +8,13 @@ import json
 import multiprocessing as mp
 import os
 from multiprocessing.pool import Pool
+from pathlib import Path
+import time
 from typing import Callable, Iterable, Literal
 
+import numpy as np
+
+from dehps.config import ROOT_DIR
 from dehps.domain.combination import iter_ssq_red_combinations
 from dehps.features.qian_kun import qian_kun_pattern, qian_kun_similarity
 from dehps.features.red_ball_features import calculate_red_ball_features
@@ -33,9 +38,51 @@ from dehps.models.frequency_ranker import (
 )
 from dehps.scoring.strategy import score_numbers
 
-_WORKER_UNIVERSE: list["RankedUniverseEntry"] = []
+_WORKER_UNIVERSE: object | None = None
 DEFAULT_WORKERS = 16
 ScoreComponents = tuple[float, ...]
+FEATURE_SCHEMA_VERSION = "ranked-universe-matrix-v1"
+FILTER_RULE_VERSION = "fixed-max-run-5-single-zone-v1"
+DEFAULT_MATRIX_CACHE_DIR = ROOT_DIR / "data/output/cache"
+QIAN_KUN_SIMILARITY = np.array(
+    [
+        [1 - (left ^ right).bit_count() / 6 for right in range(64)]
+        for left in range(64)
+    ],
+    dtype=np.float64,
+)
+CONFIG_WEIGHT_FIELDS = (
+    "structural_weight",
+    "frequency_weight",
+    "omission_weight",
+    "previous_consecutive_weight",
+    "previous_overlap_weight",
+    "previous_parity_shape_weight",
+    "dynamic_parity_transition_weight",
+    "previous_zone_shape_weight",
+    "recent_neighbor_weight",
+    "lagged_consecutive_weight",
+    "recent_gap_shape_weight",
+    "recent_sum_span_weight",
+    "qian_kun_pattern_weight",
+    "first_last_sum_weight",
+    "span_trend_weight",
+    "sum_trend_weight",
+    "ac_trend_weight",
+    "zone_ratio_weight",
+    "big_small_ratio_weight",
+    "parity_ratio_weight",
+    "prime_composite_weight",
+    "mod012_weight",
+    "tail_distribution_weight",
+    "sum_tail_weight",
+    "red_omission_shape_weight",
+    "sum_span_omission_weight",
+    "consecutive_trend_weight",
+    "repeat_trend_weight",
+    "stable_range_weight",
+    "weekday_trend_weight",
+)
 
 
 @dataclass(frozen=True)
@@ -61,6 +108,66 @@ class RankedUniverseEntry:
     sum_tail: int
     max_gap: int
     min_gap: int
+
+
+@dataclass
+class RankedUniverseMatrix:
+    numbers: np.ndarray
+    structural_score: np.ndarray
+    consecutive_pair_count: np.ndarray
+    odd_count: np.ndarray
+    zone_counts: np.ndarray
+    gaps: np.ndarray
+    sum_value: np.ndarray
+    span_value: np.ndarray
+    qian_kun_code: np.ndarray
+    first_last_sum: np.ndarray
+    sum_bucket: np.ndarray
+    span_bucket: np.ndarray
+    ac_value: np.ndarray
+    big_count: np.ndarray
+    even_count: np.ndarray
+    prime_count: np.ndarray
+    mod012_counts: np.ndarray
+    tail_unique_count: np.ndarray
+    sum_tail: np.ndarray
+    max_gap: np.ndarray
+    min_gap: np.ndarray
+    number_presence: np.ndarray
+    cache_info: dict
+
+    def __len__(self) -> int:
+        return int(self.numbers.shape[0])
+
+    def __iter__(self):
+        for index in range(len(self)):
+            yield self.entry_at(index)
+
+    def entry_at(self, index: int) -> RankedUniverseEntry:
+        numbers = tuple(int(number) for number in self.numbers[index])
+        return RankedUniverseEntry(
+            numbers=numbers,
+            structural_score=float(self.structural_score[index]),
+            consecutive_pair_count=int(self.consecutive_pair_count[index]),
+            odd_count=int(self.odd_count[index]),
+            zone_counts=tuple(int(value) for value in self.zone_counts[index]),  # type: ignore[arg-type]
+            gaps=tuple(int(value) for value in self.gaps[index]),  # type: ignore[arg-type]
+            sum_value=int(self.sum_value[index]),
+            span_value=int(self.span_value[index]),
+            qian_kun_pattern=format(int(self.qian_kun_code[index]), "06b"),
+            first_last_sum=int(self.first_last_sum[index]),
+            sum_bucket=int(self.sum_bucket[index]),
+            span_bucket=int(self.span_bucket[index]),
+            ac_value=int(self.ac_value[index]),
+            big_count=int(self.big_count[index]),
+            even_count=int(self.even_count[index]),
+            prime_count=int(self.prime_count[index]),
+            mod012_counts=tuple(int(value) for value in self.mod012_counts[index]),  # type: ignore[arg-type]
+            tail_unique_count=int(self.tail_unique_count[index]),
+            sum_tail=int(self.sum_tail[index]),
+            max_gap=int(self.max_gap[index]),
+            min_gap=int(self.min_gap[index]),
+        )
 
 
 @dataclass(frozen=True)
@@ -947,6 +1054,670 @@ def top_candidates_for_next(
         ),
     )
     return [(rank, numbers, score) for rank, (score, _, numbers) in enumerate(ranked, start=1)]
+
+
+def _materialize_universe(universe: Iterable[tuple[int, ...]] | None) -> list[tuple[int, ...]]:
+    return [tuple(int(number) for number in numbers) for numbers in (universe or iter_ssq_red_combinations())]
+
+
+def _universe_fingerprint(combinations: list[tuple[int, ...]]) -> str:
+    digest = sha256()
+    for numbers in combinations:
+        digest.update(bytes(numbers))
+        digest.update(b"|")
+    digest.update(str(len(combinations)).encode("ascii"))
+    return digest.hexdigest()
+
+
+def _matrix_cache_key(combinations: list[tuple[int, ...]]) -> str:
+    payload = ":".join(
+        (
+            FEATURE_SCHEMA_VERSION,
+            FILTER_RULE_VERSION,
+            str(len(combinations)),
+            _universe_fingerprint(combinations),
+        )
+    )
+    return sha256(payload.encode("utf-8")).hexdigest()[:24]
+
+
+def _qian_kun_code(numbers: tuple[int, ...]) -> int:
+    code = 0
+    for index, number in enumerate(numbers):
+        code |= (number % 2) << (5 - index)
+    return code
+
+
+def _tuple_code(values: tuple[int, int, int]) -> int:
+    return values[0] * 49 + values[1] * 7 + values[2]
+
+
+def _dense_lookup(
+    rates: dict[object, float],
+    *,
+    size: int,
+    default: float = 0.0,
+    encoder: Callable[[object], int] | None = None,
+) -> np.ndarray:
+    lookup = np.full(size, default, dtype=np.float64)
+    for raw_key, value in rates.items():
+        key = encoder(raw_key) if encoder is not None else int(raw_key)  # type: ignore[arg-type]
+        if 0 <= key < size:
+            lookup[key] = float(value)
+    return lookup
+
+
+def _number_lookup(rates: dict[int, float]) -> np.ndarray:
+    lookup = np.zeros(34, dtype=np.float64)
+    for number, value in rates.items():
+        if 1 <= int(number) <= 33:
+            lookup[int(number)] = float(value)
+    return lookup
+
+
+def _qian_kun_lookup(stats: FrequencyStats) -> np.ndarray:
+    lookup = np.zeros(64, dtype=np.float64)
+    for pattern, value in stats.qian_kun_pattern_rate.items():
+        lookup[int(pattern, 2)] = float(value)
+    return lookup
+
+
+def _weekday_profile_lookup(stats: FrequencyStats, key: str, *, size: int, encoder: Callable[[object], int] | None = None) -> np.ndarray:
+    return _dense_lookup(stats.weekday_profile_rates.get(key, {}), size=size, encoder=encoder)
+
+
+def _load_matrix_cache(cache_path: Path, *, cache_key: str) -> RankedUniverseMatrix | None:
+    started = time.time()
+    try:
+        data = np.load(cache_path, allow_pickle=False)
+    except OSError:
+        return None
+    try:
+        metadata = json.loads(str(data["metadata_json"].item()))
+        if (
+            metadata.get("cache_key") != cache_key
+            or metadata.get("feature_schema_version") != FEATURE_SCHEMA_VERSION
+            or metadata.get("filter_rule_version") != FILTER_RULE_VERSION
+        ):
+            return None
+        metadata.update(
+            {
+                "cache_hit": True,
+                "cache_path": str(cache_path),
+                "build_seconds": round(time.time() - started, 3),
+                "backend": "numpy_matrix",
+            }
+        )
+        return RankedUniverseMatrix(
+            numbers=data["numbers"],
+            structural_score=data["structural_score"],
+            consecutive_pair_count=data["consecutive_pair_count"],
+            odd_count=data["odd_count"],
+            zone_counts=data["zone_counts"],
+            gaps=data["gaps"],
+            sum_value=data["sum_value"],
+            span_value=data["span_value"],
+            qian_kun_code=data["qian_kun_code"],
+            first_last_sum=data["first_last_sum"],
+            sum_bucket=data["sum_bucket"],
+            span_bucket=data["span_bucket"],
+            ac_value=data["ac_value"],
+            big_count=data["big_count"],
+            even_count=data["even_count"],
+            prime_count=data["prime_count"],
+            mod012_counts=data["mod012_counts"],
+            tail_unique_count=data["tail_unique_count"],
+            sum_tail=data["sum_tail"],
+            max_gap=data["max_gap"],
+            min_gap=data["min_gap"],
+            number_presence=data["number_presence"],
+            cache_info=metadata,
+        )
+    finally:
+        data.close()
+
+
+def _write_matrix_cache(cache_path: Path, matrix: RankedUniverseMatrix) -> None:
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata = dict(matrix.cache_info)
+    metadata["cache_hit"] = False
+    np.savez(
+        cache_path,
+        metadata_json=np.array(json.dumps(metadata, sort_keys=True)),
+        numbers=matrix.numbers,
+        structural_score=matrix.structural_score,
+        consecutive_pair_count=matrix.consecutive_pair_count,
+        odd_count=matrix.odd_count,
+        zone_counts=matrix.zone_counts,
+        gaps=matrix.gaps,
+        sum_value=matrix.sum_value,
+        span_value=matrix.span_value,
+        qian_kun_code=matrix.qian_kun_code,
+        first_last_sum=matrix.first_last_sum,
+        sum_bucket=matrix.sum_bucket,
+        span_bucket=matrix.span_bucket,
+        ac_value=matrix.ac_value,
+        big_count=matrix.big_count,
+        even_count=matrix.even_count,
+        prime_count=matrix.prime_count,
+        mod012_counts=matrix.mod012_counts,
+        tail_unique_count=matrix.tail_unique_count,
+        sum_tail=matrix.sum_tail,
+        max_gap=matrix.max_gap,
+        min_gap=matrix.min_gap,
+        number_presence=matrix.number_presence,
+    )
+
+
+def _matrix_from_combinations(
+    combinations: list[tuple[int, ...]],
+    *,
+    cache_key: str,
+    cache_path: Path | None,
+    started: float,
+) -> RankedUniverseMatrix:
+    rows: list[tuple[int, ...]] = []
+    structural_scores: list[float] = []
+    consecutive_pair_counts: list[int] = []
+    odd_counts: list[int] = []
+    zone_counts: list[tuple[int, int, int]] = []
+    gaps_list: list[tuple[int, int, int, int, int]] = []
+    sum_values: list[int] = []
+    span_values: list[int] = []
+    qian_kun_codes: list[int] = []
+    first_last_sums: list[int] = []
+    sum_buckets: list[int] = []
+    span_buckets: list[int] = []
+    ac_values: list[int] = []
+    big_counts: list[int] = []
+    even_counts: list[int] = []
+    prime_counts: list[int] = []
+    mod012_values: list[tuple[int, int, int]] = []
+    tail_unique_counts: list[int] = []
+    sum_tails: list[int] = []
+    max_gaps: list[int] = []
+    min_gaps: list[int] = []
+
+    for numbers in combinations:
+        features = calculate_red_ball_features(numbers)
+        if int(features["max_consecutive_run"]) >= 5 or any(
+            int(features[key]) == 6
+            for key in ("zone_1_count", "zone_2_count", "zone_3_count")
+        ):
+            continue
+        gaps = tuple(right - left for left, right in zip(numbers, numbers[1:]))
+        tails = [number % 10 for number in numbers]
+        pairwise_distances = {right - left for index, left in enumerate(numbers) for right in numbers[index + 1:]}
+        rows.append(numbers)
+        structural_scores.append(float(score_numbers(numbers)["score"]))
+        consecutive_pair_counts.append(int(features["consecutive_pair_count"]))
+        odd_counts.append(int(features["odd_count"]))
+        zone_counts.append((
+            int(features["zone_1_count"]),
+            int(features["zone_2_count"]),
+            int(features["zone_3_count"]),
+        ))
+        gaps_list.append(gaps)  # type: ignore[arg-type]
+        sum_value = int(features["sum_value"])
+        span_value = int(features["span_value"])
+        sum_values.append(sum_value)
+        span_values.append(span_value)
+        qian_kun_codes.append(_qian_kun_code(numbers))
+        first_last_sums.append(numbers[0] + numbers[-1])
+        sum_buckets.append(sum_value // 10)
+        span_buckets.append(span_value // 3)
+        ac_values.append(max(0, len(pairwise_distances) - 5))
+        big_counts.append(int(features["big_count"]))
+        even_counts.append(int(features["even_count"]))
+        prime_counts.append(sum(1 for number in numbers if number in PRIME_NUMBERS))
+        mod012_values.append((
+            sum(1 for number in numbers if number % 3 == 0),
+            sum(1 for number in numbers if number % 3 == 1),
+            sum(1 for number in numbers if number % 3 == 2),
+        ))
+        tail_unique_counts.append(len(set(tails)))
+        sum_tails.append(sum_value % 10)
+        max_gaps.append(max(gaps))
+        min_gaps.append(min(gaps))
+
+    numbers_array = np.array(rows, dtype=np.uint8).reshape((-1, 6))
+    number_presence = np.zeros((len(numbers_array), 34), dtype=bool)
+    if len(numbers_array):
+        number_presence[np.arange(len(numbers_array))[:, None], numbers_array] = True
+    cache_info = {
+        "backend": "numpy_matrix",
+        "cache_key": cache_key,
+        "cache_path": str(cache_path) if cache_path else "",
+        "cache_hit": False,
+        "feature_schema_version": FEATURE_SCHEMA_VERSION,
+        "filter_rule_version": FILTER_RULE_VERSION,
+        "source_count": len(combinations),
+        "filtered_count": len(numbers_array),
+        "excluded_count": len(combinations) - len(numbers_array),
+        "build_seconds": round(time.time() - started, 3),
+        "red5_rank_mode": "score_vector_reuse",
+    }
+    return RankedUniverseMatrix(
+        numbers=numbers_array,
+        structural_score=np.array(structural_scores, dtype=np.float64),
+        consecutive_pair_count=np.array(consecutive_pair_counts, dtype=np.uint8),
+        odd_count=np.array(odd_counts, dtype=np.uint8),
+        zone_counts=np.array(zone_counts, dtype=np.uint8).reshape((-1, 3)),
+        gaps=np.array(gaps_list, dtype=np.uint8).reshape((-1, 5)),
+        sum_value=np.array(sum_values, dtype=np.uint16),
+        span_value=np.array(span_values, dtype=np.uint8),
+        qian_kun_code=np.array(qian_kun_codes, dtype=np.uint8),
+        first_last_sum=np.array(first_last_sums, dtype=np.uint8),
+        sum_bucket=np.array(sum_buckets, dtype=np.uint8),
+        span_bucket=np.array(span_buckets, dtype=np.uint8),
+        ac_value=np.array(ac_values, dtype=np.uint8),
+        big_count=np.array(big_counts, dtype=np.uint8),
+        even_count=np.array(even_counts, dtype=np.uint8),
+        prime_count=np.array(prime_counts, dtype=np.uint8),
+        mod012_counts=np.array(mod012_values, dtype=np.uint8).reshape((-1, 3)),
+        tail_unique_count=np.array(tail_unique_counts, dtype=np.uint8),
+        sum_tail=np.array(sum_tails, dtype=np.uint8),
+        max_gap=np.array(max_gaps, dtype=np.uint8),
+        min_gap=np.array(min_gaps, dtype=np.uint8),
+        number_presence=number_presence,
+        cache_info=cache_info,
+    )
+
+
+def build_ranked_universe(
+    universe: Iterable[tuple[int, ...]] | None = None,
+    *,
+    cache_dir: Path | None = DEFAULT_MATRIX_CACHE_DIR,
+    use_cache: bool | None = None,
+) -> RankedUniverseMatrix:
+    started = time.time()
+    combinations = _materialize_universe(universe)
+    cache_enabled = (use_cache if use_cache is not None else len(combinations) >= 100_000) and cache_dir is not None
+    cache_key = _matrix_cache_key(combinations)
+    cache_path = (cache_dir / f"ranked-universe-{cache_key}.npz") if cache_enabled and cache_dir else None
+    if cache_path is not None:
+        cached = _load_matrix_cache(cache_path, cache_key=cache_key)
+        if cached is not None:
+            return cached
+    matrix = _matrix_from_combinations(combinations, cache_key=cache_key, cache_path=cache_path, started=started)
+    if cache_path is not None:
+        _write_matrix_cache(cache_path, matrix)
+    return matrix
+
+
+def create_worker_pool(worker_count: int, ranked_universe: RankedUniverseMatrix) -> Pool | None:
+    global _WORKER_UNIVERSE
+    _WORKER_UNIVERSE = ranked_universe
+    return None
+
+
+def _config_weight_matrix(configs: tuple[FrequencyRankerConfig, ...]) -> np.ndarray:
+    return np.array(
+        [[float(getattr(config, field)) for field in CONFIG_WEIGHT_FIELDS] for config in configs],
+        dtype=np.float64,
+    )
+
+
+def _lex_less_than(numbers: np.ndarray, target_numbers: tuple[int, ...]) -> np.ndarray:
+    target = np.array(target_numbers, dtype=np.uint8)
+    less = np.zeros(numbers.shape[0], dtype=bool)
+    equal_prefix = np.ones(numbers.shape[0], dtype=bool)
+    for column in range(6):
+        less |= equal_prefix & (numbers[:, column] < target[column])
+        equal_prefix &= numbers[:, column] == target[column]
+    return less
+
+
+def _components_for_matrix(
+    matrix: RankedUniverseMatrix,
+    stats: FrequencyStats,
+    *,
+    start: int = 0,
+    end: int | None = None,
+) -> np.ndarray:
+    stop = len(matrix) if end is None else end
+    numbers = matrix.numbers[start:stop]
+    presence = matrix.number_presence[start:stop]
+    frequency_lookup = _number_lookup(stats.frequency_rate)
+    omission_lookup = _number_lookup(stats.omission_rate)
+    neighbor_lookup = _number_lookup(stats.recent_neighbor_rate)
+
+    frequency_score = frequency_lookup[numbers].sum(axis=1)
+    omission_score = omission_lookup[numbers].mean(axis=1)
+    candidate_consecutive_score = np.minimum(matrix.consecutive_pair_count[start:stop], 5).astype(np.float64) / 5
+    if stats.previous_consecutive_pair_count > 0:
+        previous_consecutive_score = candidate_consecutive_score
+    else:
+        previous_consecutive_score = 1 - candidate_consecutive_score
+    repeat_count = presence[:, list(stats.previous_number_set)].sum(axis=1) if stats.previous_number_set else np.zeros(stop - start, dtype=np.uint8)
+    previous_overlap_score = repeat_count.astype(np.float64) / 6
+    previous_parity_shape_score = 1 - np.abs(matrix.odd_count[start:stop].astype(np.float64) - stats.previous_odd_count) / 6
+    parity_lookup = np.array(stats.parity_transition_score_by_even_count, dtype=np.float64)
+    dynamic_parity_transition_score = parity_lookup[matrix.even_count[start:stop]]
+    previous_zone_shape_score = 1 - np.abs(
+        matrix.zone_counts[start:stop].astype(np.float64) - np.array(stats.previous_zone_counts, dtype=np.float64),
+    ).sum(axis=1) / 12
+    recent_neighbor_score = neighbor_lookup[numbers].mean(axis=1)
+    if stats.lagged_consecutive_number_set:
+        lagged_consecutive_score = presence[:, list(stats.lagged_consecutive_number_set)].sum(axis=1) / 6
+    else:
+        lagged_consecutive_score = np.zeros(stop - start, dtype=np.float64)
+    recent_gap_shape_score = np.maximum(
+        0.0,
+        1 - np.abs(matrix.gaps[start:stop].astype(np.float64) - np.array(stats.recent_average_gaps, dtype=np.float64)).sum(axis=1) / (5 * 32),
+    )
+    recent_sum_span_score = (
+        np.maximum(0.0, 1 - np.abs(matrix.sum_value[start:stop].astype(np.float64) - stats.recent_average_sum) / 162)
+        + np.maximum(0.0, 1 - np.abs(matrix.span_value[start:stop].astype(np.float64) - stats.recent_average_span) / 32)
+    ) / 2
+
+    qian_history = _qian_kun_lookup(stats)
+    qian_codes = matrix.qian_kun_code[start:stop]
+    qian_kun_pattern_score = qian_history[qian_codes]
+    if stats.recent_qian_kun_patterns:
+        recent_codes = np.array([int(pattern, 2) for pattern in stats.recent_qian_kun_patterns], dtype=np.uint8)
+        qian_kun_pattern_score = (qian_kun_pattern_score + QIAN_KUN_SIMILARITY[qian_codes][:, recent_codes].max(axis=1)) / 2
+
+    first_last_sum_score = _dense_lookup(stats.shape_profile_rates.get("first_last_sum", {}), size=67)[matrix.first_last_sum[start:stop]]
+    span_trend_score = _dense_lookup(stats.shape_profile_rates.get("span_bucket", {}), size=12)[matrix.span_bucket[start:stop]]
+    sum_trend_score = _dense_lookup(stats.shape_profile_rates.get("sum_bucket", {}), size=20)[matrix.sum_bucket[start:stop]]
+    ac_trend_score = _dense_lookup(stats.shape_profile_rates.get("ac_value", {}), size=16)[matrix.ac_value[start:stop]]
+    zone_ratio_score = _dense_lookup(
+        stats.shape_profile_rates.get("zone_signature", {}),
+        size=343,
+        encoder=lambda key: _tuple_code(tuple(key)),  # type: ignore[arg-type]
+    )[(matrix.zone_counts[start:stop, 0] * 49 + matrix.zone_counts[start:stop, 1] * 7 + matrix.zone_counts[start:stop, 2]).astype(np.uint16)]
+    big_small_ratio_score = _dense_lookup(stats.shape_profile_rates.get("big_count", {}), size=7)[matrix.big_count[start:stop]]
+    parity_ratio_score = _dense_lookup(stats.shape_profile_rates.get("even_count", {}), size=7)[matrix.even_count[start:stop]]
+    prime_composite_score = _dense_lookup(stats.shape_profile_rates.get("prime_count", {}), size=7)[matrix.prime_count[start:stop]]
+    mod012_codes = (matrix.mod012_counts[start:stop, 0] * 49 + matrix.mod012_counts[start:stop, 1] * 7 + matrix.mod012_counts[start:stop, 2]).astype(np.uint16)
+    mod012_score = _dense_lookup(
+        stats.shape_profile_rates.get("mod012_signature", {}),
+        size=343,
+        encoder=lambda key: _tuple_code(tuple(key)),  # type: ignore[arg-type]
+    )[mod012_codes]
+    tail_distribution_score = _dense_lookup(stats.shape_profile_rates.get("tail_unique_count", {}), size=7)[matrix.tail_unique_count[start:stop]]
+    sum_tail_score = _dense_lookup(stats.shape_profile_rates.get("sum_tail", {}), size=10)[matrix.sum_tail[start:stop]]
+    red_omission_shape_score = np.maximum(0.0, 1 - np.abs(omission_score - stats.recent_average_omission))
+    sum_span_omission_score = (
+        _dense_lookup(stats.sum_bucket_omission_rate, size=20, default=1.0)[matrix.sum_bucket[start:stop]]
+        + _dense_lookup(stats.span_bucket_omission_rate, size=12, default=1.0)[matrix.span_bucket[start:stop]]
+    ) / 2
+    consecutive_trend_score = _dense_lookup(stats.shape_profile_rates.get("consecutive_pair_count", {}), size=6)[matrix.consecutive_pair_count[start:stop]]
+    repeat_trend_score = _dense_lookup(stats.shape_profile_rates.get("repeat_count", {}), size=7)[repeat_count]
+
+    stable_range_score = np.ones(stop - start, dtype=np.float64)
+    if stats.stable_ranges:
+        stable_total = np.zeros(stop - start, dtype=np.float64)
+        stable_count = 0
+        stable_sources = {
+            "sum_value": matrix.sum_value[start:stop].astype(np.float64),
+            "span_value": matrix.span_value[start:stop].astype(np.float64),
+            "ac_numeric": matrix.ac_value[start:stop].astype(np.float64),
+            "first_last_sum": matrix.first_last_sum[start:stop].astype(np.float64),
+            "max_gap": matrix.max_gap[start:stop].astype(np.float64),
+            "min_gap": matrix.min_gap[start:stop].astype(np.float64),
+        }
+        for key, values in stable_sources.items():
+            lower, upper = stats.stable_ranges.get(key, (0.0, 0.0))
+            width = max(upper - lower, 1.0)
+            distance = np.where(values < lower, lower - values, np.where(values > upper, values - upper, 0.0))
+            stable_total += np.where(distance == 0, 1.0, np.maximum(0.0, 1 - distance / width))
+            stable_count += 1
+        stable_range_score = stable_total / stable_count
+
+    if stats.target_weekday is None or not stats.weekday_profile_rates:
+        weekday_trend_score = np.zeros(stop - start, dtype=np.float64)
+    else:
+        weekday_trend_score = (
+            _weekday_profile_lookup(stats, "first_last_sum", size=67)[matrix.first_last_sum[start:stop]]
+            + _weekday_profile_lookup(stats, "span_bucket", size=12)[matrix.span_bucket[start:stop]]
+            + _weekday_profile_lookup(stats, "sum_bucket", size=20)[matrix.sum_bucket[start:stop]]
+            + _weekday_profile_lookup(stats, "ac_value", size=16)[matrix.ac_value[start:stop]]
+            + _weekday_profile_lookup(stats, "zone_signature", size=343, encoder=lambda key: _tuple_code(tuple(key)))[  # type: ignore[arg-type]
+                (matrix.zone_counts[start:stop, 0] * 49 + matrix.zone_counts[start:stop, 1] * 7 + matrix.zone_counts[start:stop, 2]).astype(np.uint16)
+            ]
+            + _weekday_profile_lookup(stats, "big_count", size=7)[matrix.big_count[start:stop]]
+            + _weekday_profile_lookup(stats, "even_count", size=7)[matrix.even_count[start:stop]]
+            + _weekday_profile_lookup(stats, "prime_count", size=7)[matrix.prime_count[start:stop]]
+            + _weekday_profile_lookup(stats, "mod012_signature", size=343, encoder=lambda key: _tuple_code(tuple(key)))[mod012_codes]  # type: ignore[arg-type]
+            + _weekday_profile_lookup(stats, "tail_unique_count", size=7)[matrix.tail_unique_count[start:stop]]
+            + _weekday_profile_lookup(stats, "sum_tail", size=10)[matrix.sum_tail[start:stop]]
+            + _weekday_profile_lookup(stats, "consecutive_pair_count", size=6)[matrix.consecutive_pair_count[start:stop]]
+            + _weekday_profile_lookup(stats, "repeat_count", size=7)[repeat_count]
+        ) / 13
+
+    return np.column_stack(
+        (
+            matrix.structural_score[start:stop],
+            frequency_score,
+            omission_score,
+            previous_consecutive_score,
+            previous_overlap_score,
+            previous_parity_shape_score,
+            dynamic_parity_transition_score,
+            previous_zone_shape_score,
+            recent_neighbor_score,
+            lagged_consecutive_score,
+            recent_gap_shape_score,
+            recent_sum_span_score,
+            qian_kun_pattern_score,
+            first_last_sum_score,
+            span_trend_score,
+            sum_trend_score,
+            ac_trend_score,
+            zone_ratio_score,
+            big_small_ratio_score,
+            parity_ratio_score,
+            prime_composite_score,
+            mod012_score,
+            tail_distribution_score,
+            sum_tail_score,
+            red_omission_shape_score,
+            sum_span_omission_score,
+            consecutive_trend_score,
+            repeat_trend_score,
+            stable_range_score,
+            weekday_trend_score,
+        )
+    )
+
+
+def _score_matrix(
+    matrix: RankedUniverseMatrix,
+    stats: FrequencyStats,
+    configs: tuple[FrequencyRankerConfig, ...],
+) -> np.ndarray:
+    components = _components_for_matrix(matrix, stats)
+    return np.round(components @ _config_weight_matrix(configs).T, 8)
+
+
+def _target_scores(target_numbers: tuple[int, ...], stats: FrequencyStats, configs: tuple[FrequencyRankerConfig, ...]) -> tuple[float, ...]:
+    components = score_components_for_numbers(target_numbers, stats)
+    return tuple(score_from_components(components, config) for config in configs)
+
+
+def _rank_targets_from_scores(
+    *,
+    matrix: RankedUniverseMatrix,
+    scores: np.ndarray,
+    target_numbers: tuple[int, ...],
+    target_scores: tuple[float, ...],
+    target_excluded: bool,
+) -> list[tuple[int, float]]:
+    if target_excluded:
+        return [(len(matrix) + 1, target_score) for target_score in target_scores]
+    lex_less = _lex_less_than(matrix.numbers, target_numbers)
+    target_array = np.array(target_scores, dtype=np.float64)
+    better = (scores > target_array).sum(axis=0)
+    equal_before = ((scores == target_array) & lex_less[:, None]).sum(axis=0)
+    return [(int(better[index] + equal_before[index] + 1), float(target_scores[index])) for index in range(len(target_scores))]
+
+
+def rank_target(
+    *,
+    target_numbers: tuple[int, ...],
+    train_history: list[HistoryDraw],
+    config: FrequencyRankerConfig,
+    target_draw_date: date | None = None,
+    universe: Iterable[tuple[int, ...]] | None = None,
+    ranked_universe: RankedUniverseMatrix | None = None,
+    workers: int = 1,
+    pool: Pool | None = None,
+) -> tuple[int, float]:
+    return rank_target_grid(
+        target_numbers=target_numbers,
+        train_history=train_history,
+        configs=(config,),
+        ranked_universe=ranked_universe or build_ranked_universe(universe),
+        target_draw_date=target_draw_date,
+        workers=workers,
+        pool=pool,
+    )[0]
+
+
+def rank_target_grid(
+    *,
+    target_numbers: tuple[int, ...],
+    train_history: list[HistoryDraw],
+    configs: tuple[FrequencyRankerConfig, ...],
+    ranked_universe: RankedUniverseMatrix,
+    target_draw_date: date | None = None,
+    workers: int = 1,
+    pool: Pool | None = None,
+) -> list[tuple[int, float]]:
+    stats = train_frequency_stats(train_history, target_draw_date=target_draw_date)
+    target_scores = _target_scores(target_numbers, stats, configs)
+    scores = _score_matrix(ranked_universe, stats, configs)
+    return _rank_targets_from_scores(
+        matrix=ranked_universe,
+        scores=scores,
+        target_numbers=target_numbers,
+        target_scores=target_scores,
+        target_excluded=is_excluded_red_combination(target_numbers),
+    )
+
+
+def rank_target_grid_with_red5(
+    *,
+    target_numbers: tuple[int, ...],
+    train_history: list[HistoryDraw],
+    configs: tuple[FrequencyRankerConfig, ...],
+    ranked_universe: RankedUniverseMatrix,
+    target_draw_date: date | None = None,
+    workers: int = 1,
+    pool: Pool | None = None,
+) -> list[tuple[int, float, RedFiveMatch | None]]:
+    stats = train_frequency_stats(train_history, target_draw_date=target_draw_date)
+    target_scores = _target_scores(target_numbers, stats, configs)
+    scores = _score_matrix(ranked_universe, stats, configs)
+    target_ranks = _rank_targets_from_scores(
+        matrix=ranked_universe,
+        scores=scores,
+        target_numbers=target_numbers,
+        target_scores=target_scores,
+        target_excluded=is_excluded_red_combination(target_numbers),
+    )
+
+    target_set = set(target_numbers)
+    red5_mask = ranked_universe.number_presence[:, list(target_numbers)].sum(axis=1) == 5
+    red5_indices = np.flatnonzero(red5_mask)
+    results: list[tuple[int, float, RedFiveMatch | None]] = []
+    for config_index, (target_rank, target_score) in enumerate(target_ranks):
+        match = None
+        if len(red5_indices):
+            candidate_scores = scores[red5_indices, config_index]
+            candidate_numbers = ranked_universe.numbers[red5_indices]
+            order = np.lexsort(
+                (
+                    candidate_numbers[:, 5],
+                    candidate_numbers[:, 4],
+                    candidate_numbers[:, 3],
+                    candidate_numbers[:, 2],
+                    candidate_numbers[:, 1],
+                    candidate_numbers[:, 0],
+                    -candidate_scores,
+                )
+            )
+            best_index = int(red5_indices[int(order[0])])
+            best_numbers = tuple(int(number) for number in ranked_universe.numbers[best_index])
+            best_score = float(scores[best_index, config_index])
+            candidate_set = set(best_numbers)
+            missing = sorted(target_set - candidate_set)
+            extra = sorted(candidate_set - target_set)
+            if len(missing) == 1 and len(extra) == 1:
+                red5_better = int((scores[:, config_index] > best_score).sum())
+                red5_equal_before = int(
+                    ((scores[:, config_index] == best_score) & _lex_less_than(ranked_universe.numbers, best_numbers)).sum()
+                )
+                match = RedFiveMatch(
+                    rank=red5_better + red5_equal_before + 1,
+                    score=best_score,
+                    numbers=best_numbers,
+                    missing_number=missing[0],
+                    extra_number=extra[0],
+                )
+        results.append((target_rank, target_score, match))
+    return results
+
+
+def rank_target_structural(
+    *,
+    target_numbers: tuple[int, ...],
+    ranked_universe: RankedUniverseMatrix,
+) -> tuple[int, float]:
+    target_score = round(score_numbers(target_numbers)["score"], 8)
+    if is_excluded_red_combination(target_numbers):
+        return len(ranked_universe) + 1, target_score
+    scores = np.round(ranked_universe.structural_score, 8)
+    better = int((scores > target_score).sum())
+    equal_before = int(((scores == target_score) & _lex_less_than(ranked_universe.numbers, target_numbers)).sum())
+    return better + equal_before + 1, target_score
+
+
+def _top_indices(scores: np.ndarray, matrix: RankedUniverseMatrix, top_n: int) -> np.ndarray:
+    limit = min(top_n, len(scores))
+    if limit <= 0:
+        return np.array([], dtype=np.int64)
+    if limit < len(scores):
+        candidate_indices = np.argpartition(scores, -limit)[-limit:]
+    else:
+        candidate_indices = np.arange(len(scores))
+    candidate_numbers = matrix.numbers[candidate_indices]
+    order = np.lexsort(
+        (
+            candidate_numbers[:, 5],
+            candidate_numbers[:, 4],
+            candidate_numbers[:, 3],
+            candidate_numbers[:, 2],
+            candidate_numbers[:, 1],
+            candidate_numbers[:, 0],
+            -scores[candidate_indices],
+        )
+    )
+    return candidate_indices[order]
+
+
+def top_candidates_for_next(
+    *,
+    history: list[HistoryDraw],
+    top_n: int,
+    config: FrequencyRankerConfig,
+    target_draw_date: date | None = None,
+    universe: Iterable[tuple[int, ...]] | None = None,
+    ranked_universe: RankedUniverseMatrix | None = None,
+    workers: int = 1,
+    pool: Pool | None = None,
+) -> list[tuple[int, tuple[int, ...], float]]:
+    resolved_target_draw_date = target_draw_date or infer_next_ssq_draw_date(history)
+    stats = train_frequency_stats(history, target_draw_date=resolved_target_draw_date)
+    matrix = ranked_universe or build_ranked_universe(universe)
+    scores = _score_matrix(matrix, stats, (config,))[:, 0]
+    indices = _top_indices(scores, matrix, top_n)
+    return [
+        (rank, tuple(int(number) for number in matrix.numbers[index]), float(scores[index]))
+        for rank, index in enumerate(indices, start=1)
+    ]
 
 
 def run_walk_forward(

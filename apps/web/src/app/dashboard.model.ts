@@ -132,7 +132,9 @@ export type TrainingRoundSummary = {
   round: number;
   phase: string;
   step: number;
+  generated_config_count: number | null;
   config_count: number;
+  prefilter: TrainingPrefilterRun | null;
   improved: boolean;
   best: TrainingResult | null;
   topResults: TrainingResult[];
@@ -167,6 +169,10 @@ export type TrainingStatusPayload = {
   workers: number | null;
   memoryBudgetGb: number | null;
   universeSize: number | null;
+  matrixBackend: string | null;
+  featureMatrixCache: TrainingMatrixCache | null;
+  red5RankMode: string | null;
+  prefilter: TrainingPrefilterStatus | null;
   qianKun: TrainingQianKunSummary;
   completedRounds: number;
   rounds: TrainingRoundSummary[];
@@ -184,6 +190,37 @@ export type TrainingStatusPayload = {
     cron: string;
     description: string;
   };
+};
+
+export type TrainingMatrixCache = {
+  backend: string | null;
+  cacheKey: string | null;
+  cachePath: string | null;
+  cacheHit: boolean | null;
+  buildSeconds: number | null;
+  sourceCount: number | null;
+  filteredCount: number | null;
+  excludedCount: number | null;
+  red5RankMode: string | null;
+};
+
+export type TrainingPrefilterRun = {
+  mode: string | null;
+  round: number | null;
+  targetStride: number | null;
+  targetCount: number | null;
+  generatedConfigCount: number | null;
+  keptConfigCount: number | null;
+  promoteLimit: number | null;
+  refinedConfigCount: number | null;
+  elapsedSeconds: number | null;
+  note: string | null;
+};
+
+export type TrainingPrefilterStatus = {
+  mode: string | null;
+  description: string | null;
+  latest: TrainingPrefilterRun | null;
 };
 
 export type TrainingQianKunSummary = {

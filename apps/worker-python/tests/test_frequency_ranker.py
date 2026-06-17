@@ -262,6 +262,23 @@ def test_ranked_universe_excludes_fixed_low_plausibility_patterns():
     assert [entry.numbers for entry in ranked] == [(1, 8, 13, 18, 23, 31)]
 
 
+def test_ranked_universe_matrix_cache_round_trips(tmp_path):
+    universe = [
+        (1, 8, 13, 18, 23, 31),
+        (2, 9, 14, 19, 24, 32),
+        (3, 10, 15, 20, 25, 33),
+    ]
+
+    first = build_ranked_universe(universe, cache_dir=tmp_path, use_cache=True)
+    second = build_ranked_universe(universe, cache_dir=tmp_path, use_cache=True)
+
+    assert first.cache_info["backend"] == "numpy_matrix"
+    assert first.cache_info["cache_hit"] is False
+    assert second.cache_info["cache_hit"] is True
+    assert second.cache_info["filtered_count"] == len(first)
+    assert [entry.numbers for entry in second] == [entry.numbers for entry in first]
+
+
 def test_walk_forward_reports_target_ranks_on_small_universe():
     universe = [
         (1, 2, 3, 4, 5, 6),

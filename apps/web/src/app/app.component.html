@@ -59,6 +59,16 @@
           <small>{{ streamDetailText(trainingStream) }}</small>
         </article>
         <article class="metric-card">
+          <span>矩阵后端</span>
+          <strong>{{ matrixCacheText(training) }}</strong>
+          <small>{{ matrixCacheDetailText(training) }}</small>
+        </article>
+        <article class="metric-card">
+          <span>配置预筛</span>
+          <strong>{{ prefilterText(training) }}</strong>
+          <small>{{ prefilterDetailText(training) }}</small>
+        </article>
+        <article class="metric-card">
           <span>已完成轮次</span>
           <strong>{{ training.completedRounds }}</strong>
           <small>{{ training.latestRound ? phaseText(training.latestRound.phase) : '暂无轮次' }}</small>
@@ -249,7 +259,8 @@
                     <th>轮次</th>
                     <th>阶段</th>
                     <th>步长</th>
-                    <th>配置数</th>
+                    <th>配置精排</th>
+                    <th>预筛期数</th>
                     <th>是否提升</th>
                     <th>本轮最佳</th>
                   </tr>
@@ -260,7 +271,8 @@
                       <td>{{ round.round }}</td>
                       <td>{{ phaseText(round.phase) }}</td>
                       <td>{{ round.step | number: '1.2-3' }}</td>
-                      <td>{{ round.config_count }}</td>
+                      <td>{{ round.generated_config_count || round.config_count }} -> {{ round.config_count }}</td>
+                      <td>{{ round.prefilter?.targetCount || 0 }}</td>
                       <td>{{ round.improved ? '是' : '否' }}</td>
                       <td>{{ roundBestLabel(round.best) }}</td>
                     </tr>

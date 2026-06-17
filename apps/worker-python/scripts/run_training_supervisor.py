@@ -29,6 +29,7 @@ from dehps.optimization.walk_forward import (
     deterministic_run_key,
     fingerprint_history,
     normalize_worker_count,
+    rank_target_grid,
     rank_target_grid_with_red5,
 )
 from dehps.storage.postgres_store import load_red_combination_universe
@@ -141,12 +142,23 @@ def training_event_url(value: str | None = None) -> str | None:
     return resolved.strip() if resolved and resolved.strip() else None
 
 
+def training_event_payload(status: dict) -> dict:
+    return {
+        "run_id": status.get("run_id"),
+        "status": status.get("status"),
+        "updated_at": status.get("updated_at"),
+        "latest_progress": status.get("latest_progress"),
+        "status_path": status.get("status_path"),
+        "report_path": status.get("report_path"),
+    }
+
+
 def post_training_event(status: dict, *, event_url: str | None = None, timeout: float = 1.0) -> bool:
     resolved_url = training_event_url(event_url)
     if not resolved_url:
         return False
     try:
-        payload = json.dumps(status, ensure_ascii=False).encode("utf-8")
+        payload = json.dumps(training_event_payload(status), ensure_ascii=False).encode("utf-8")
         request = urllib.request.Request(
             resolved_url,
             data=payload,
@@ -849,6 +861,117 @@ def load_prior_supervisor_candidates(
     return candidates
 
 
+def prefilter_configs(
+    *,
+    history: list,
+    ranked_universe,
+    configs: tuple[FrequencyRankerConfig, ...],
+    keep_configs: tuple[FrequencyRankerConfig, ...],
+    train_window: int,
+    train_mode: str,
+    eval_window: int,
+    top_n: int,
+    workers: int,
+    pool,
+    round_index: int,
+    stride: int = 4,
+    promote_limit: int = 8,
+) -> tuple[tuple[FrequencyRankerConfig, ...], dict]:
+    started = time.time()
+    start_index = max(train_window, len(history) - eval_window)
+    target_indices = list(range(start_index, len(history), max(1, stride)))
+    if not configs or not target_indices:
+        return configs, {
+            "mode": "light_prefilter",
+            "round": round_index,
+            "target_stride": stride,
+            "target_count": 0,
+            "generated_config_count": len(configs),
+            "refined_config_count": len(configs),
+            "elapsed_seconds": 0.0,
+            "note": "预筛跳过：没有配置或目标期",
+        }
+
+    target_rank_lists: list[list[TargetRank]] = [[] for _ in configs]
+    for target_index in target_indices:
+        train_start = 0 if train_mode == "expanding" else max(0, target_index - train_window)
+        train_history = history[train_start:target_index]
+        target_draw = history[target_index]
+        ranked_targets = rank_target_grid(
+            target_numbers=history_numbers(target_draw),
+            train_history=train_history,
+            configs=configs,
+            ranked_universe=ranked_universe,
+            target_draw_date=history_draw_date(target_draw),
+            workers=workers,
+            pool=pool,
+        )
+        issue = history_issue(target_draw)
+        for config_index, (rank, score) in enumerate(ranked_targets):
+            target_rank_lists[config_index].append(
+                TargetRank(
+                    issue=issue,
+                    rank=rank,
+                    score=score,
+                    hit_top_100=rank <= 100,
+                    hit_top_1000=rank <= 1000,
+                    hit_top_10000=rank <= 10000,
+                )
+            )
+
+    as_of_issue = history_issue(history[-1])
+    history_fingerprint_value = fingerprint_history(history)
+    summaries = [
+        summarize_target_ranks(
+            target_ranks=target_ranks,
+            config=config,
+            as_of_issue=as_of_issue,
+            history_fingerprint_value=history_fingerprint_value,
+            train_window=train_window,
+            train_mode=train_mode,
+            top_n=top_n,
+            universe_size=len(ranked_universe),
+        )
+        for config, target_ranks in zip(configs, target_rank_lists, strict=True)
+    ]
+    summaries.sort(key=sort_key, reverse=True)
+    config_by_hash = {config_hash(config): config for config in configs}
+    selected: list[FrequencyRankerConfig] = []
+    seen: set[str] = set()
+
+    def add_config(config: FrequencyRankerConfig) -> None:
+        key = config_hash(config)
+        resolved = config_by_hash.get(key, config)
+        if key not in seen:
+            selected.append(resolved)
+            seen.add(key)
+
+    for config in keep_configs:
+        add_config(config)
+    for summary in summaries[:promote_limit]:
+        promoted = config_by_hash.get(summary["config_hash"])
+        if promoted is not None:
+            add_config(promoted)
+
+    if not selected:
+        selected = list(configs)
+    metadata = {
+        "mode": "light_prefilter",
+        "round": round_index,
+        "target_stride": stride,
+        "target_count": len(target_indices),
+        "target_issues": [history_issue(history[index]) for index in target_indices],
+        "generated_config_count": len(configs),
+        "kept_config_count": len([config for config in keep_configs if config_hash(config) in config_by_hash]),
+        "promote_limit": promote_limit,
+        "refined_config_count": len(selected),
+        "elapsed_seconds": round(time.time() - started, 3),
+        "top_preview": summaries[: min(5, len(summaries))],
+        "note": "预筛仅用于选择进入完整精排的配置，正式指标来自完整 100 期精排",
+    }
+    return tuple(selected), metadata
+
+
 def evaluate_configs(
     *,
     history: list,
@@ -952,7 +1075,9 @@ def write_report(report_path: Path, status: dict) -> None:
     report_path.parent.mkdir(parents=True, exist_ok=True)
     rounds = "\n".join(
         (
-            f"| {round_info['round']} | {round_info['phase']} | {round_info['best']['top_10000_hits']} | "
+            f"| {round_info['round']} | {round_info['phase']} | "
+            f"{round_info.get('generated_config_count', round_info['config_count'])} | {round_info['config_count']} | "
+            f"{round_info.get('prefilter', {}).get('target_count', 0)} | {round_info['best']['top_10000_hits']} | "
             f"{round_info['best']['top_1000_hits']} | {round_info['best']['top_100_hits']} | "
             f"{round_info['best']['red5']['top_100_hits']} | {round_info['best']['red5']['top_10000_hits']} | "
             f"{round_info['best']['rank_quality']['top_50000_hits']} | {round_info['best']['worst_rank']} | "
@@ -977,6 +1102,9 @@ def write_report(report_path: Path, status: dict) -> None:
 - Workers: {status["workers"]}
 - Memory budget GB: {status["memory_budget_gb"]}
 - Universe size: {status["universe_size"]}
+- Matrix backend: {status.get("matrix_backend", "")}
+- Matrix cache: hit={status.get("feature_matrix_cache", {}).get("cache_hit")} build_seconds={status.get("feature_matrix_cache", {}).get("build_seconds")} path=`{status.get("feature_matrix_cache", {}).get("cache_path", "")}`
+- Red5 rank mode: {status.get("red5_rank_mode", "")}
 - Latest qian-kun pattern: {status["qian_kun"]["latest_issue"]} {status["qian_kun"]["latest_label"]} `{status["qian_kun"]["latest_pattern"]}`
 
 ## Current Best
@@ -987,8 +1115,8 @@ def write_report(report_path: Path, status: dict) -> None:
 
 ## Rounds
 
-| Round | Phase | Top10000 | Top1000 | Top100 | Red5 Top100 | Red5 Top10000 | Top50000 | Worst rank | >100万 | Median rank | Config |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Round | Phase | Generated | Refined | Prefilter targets | Top10000 | Top1000 | Top100 | Red5 Top100 | Red5 Top10000 | Top50000 | Worst rank | >100万 | Median rank | Config |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 {rounds}
 
 ## Guardrail
@@ -1031,6 +1159,19 @@ def run_supervisor(
     training_history = selection.dated_history
     as_of_issue_value = history_issue(training_history[-1])
     history_fingerprint_value = fingerprint_history(training_history)
+    log(
+        f"run_id={run_id} building static universe rows={len(universe)} workers={worker_count} "
+        f"memory_budget_gb={memory_budget_gb}"
+    )
+    ranked_universe = build_ranked_universe(universe)
+    matrix_cache_info = dict(getattr(ranked_universe, "cache_info", {}))
+    log(
+        "static_matrix_ready="
+        f"backend={matrix_cache_info.get('backend', 'unknown')} "
+        f"cache_hit={matrix_cache_info.get('cache_hit')} "
+        f"rows={len(ranked_universe)} "
+        f"elapsed={matrix_cache_info.get('build_seconds')}s"
+    )
     prior_leaderboard = load_prior_supervisor_candidates(
         output_dir=output_dir,
         current_status_path=status_path,
@@ -1040,11 +1181,7 @@ def run_supervisor(
         train_mode=train_mode,
         eval_window=eval_window,
         top_n=top_n,
-        universe_size=len(universe),
-    )
-    log(
-        f"run_id={run_id} building static universe rows={len(universe)} workers={worker_count} "
-        f"memory_budget_gb={memory_budget_gb}"
+        universe_size=len(ranked_universe),
     )
     if prior_leaderboard:
         log(
@@ -1054,7 +1191,6 @@ def run_supervisor(
             f"top10000={prior_leaderboard[0]['top_10000_hits']} "
             f"run_key={prior_leaderboard[0]['run_key']}"
         )
-    ranked_universe = build_ranked_universe(universe)
     pool = create_worker_pool(worker_count, ranked_universe)
 
     best_summary: dict | None = prior_leaderboard[0] if prior_leaderboard else None
@@ -1078,6 +1214,14 @@ def run_supervisor(
         "workers": worker_count,
         "memory_budget_gb": memory_budget_gb,
         "universe_size": len(ranked_universe),
+        "matrix_backend": "NumPy 特征矩阵",
+        "feature_matrix_cache": matrix_cache_info,
+        "red5_rank_mode": "红5候选使用完整分数向量精排，不重复计算特征矩阵",
+        "prefilter": {
+            "mode": "light_prefilter",
+            "description": "每轮先用最近100期每4期取1期做轻量预筛，正式指标仍来自完整精排",
+            "latest": None,
+        },
         "qian_kun": qian_kun_distribution(selection.history),
         "rounds": rounds,
         "best": best_summary,
@@ -1107,11 +1251,33 @@ def run_supervisor(
                     elite_configs=elite_configs,
                 )
             )
-            log(f"round={round_index + 1} phase={phase} step={step} configs={len(configs)} base={config_dict(base_config)}")
-            summaries = evaluate_configs(
+            generated_config_count = len(configs)
+            keep_configs = (base_config, *elite_configs[:4])
+            refined_configs, prefilter_info = prefilter_configs(
                 history=training_history,
                 ranked_universe=ranked_universe,
                 configs=configs,
+                keep_configs=keep_configs,
+                train_window=train_window,
+                train_mode=train_mode,
+                eval_window=eval_window,
+                top_n=top_n,
+                workers=worker_count,
+                pool=pool,
+                round_index=round_index + 1,
+            )
+            status["prefilter"]["latest"] = prefilter_info
+            log(
+                f"round={round_index + 1} phase={phase} step={step} "
+                f"configs={generated_config_count}->{len(refined_configs)} "
+                f"prefilter_targets={prefilter_info['target_count']} "
+                f"prefilter_elapsed={prefilter_info['elapsed_seconds']}s "
+                f"base={config_dict(base_config)}"
+            )
+            summaries = evaluate_configs(
+                history=training_history,
+                ranked_universe=ranked_universe,
+                configs=refined_configs,
                 train_window=train_window,
                 train_mode=train_mode,
                 eval_window=eval_window,
@@ -1137,7 +1303,9 @@ def run_supervisor(
                     "round": round_index + 1,
                     "phase": phase,
                     "step": step,
-                    "config_count": len(configs),
+                    "generated_config_count": generated_config_count,
+                    "config_count": len(refined_configs),
+                    "prefilter": prefilter_info,
                     "improved": improved,
                     "best": round_best,
                     "top_results": summaries[: min(5, len(summaries))],

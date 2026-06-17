@@ -253,6 +253,46 @@ export class AppComponent {
     return `${pushedText} / 当前设置每 10 个目标期推送一帧`;
   }
 
+  matrixCacheText(status: TrainingStatusPayload): string {
+    const cache = status.featureMatrixCache;
+    if (!cache) {
+      return '未启用';
+    }
+    const hitText = cache.cacheHit === true ? '缓存命中' : cache.cacheHit === false ? '缓存重建' : '缓存未知';
+    return `${status.matrixBackend || cache.backend || '矩阵'} / ${hitText}`;
+  }
+
+  matrixCacheDetailText(status: TrainingStatusPayload): string {
+    const cache = status.featureMatrixCache;
+    if (!cache) {
+      return '等待训练状态';
+    }
+    const rows = cache.filteredCount ?? status.universeSize ?? 0;
+    const excluded = cache.excludedCount ?? 0;
+    const seconds = cache.buildSeconds ?? 0;
+    return `矩阵 ${rows.toLocaleString('zh-CN')} 行 / 排除 ${excluded.toLocaleString('zh-CN')} 组 / ${seconds.toFixed(2)} 秒`;
+  }
+
+  prefilterText(status: TrainingStatusPayload): string {
+    const latest = status.prefilter?.latest;
+    if (!latest) {
+      return '等待预筛';
+    }
+    const generated = latest.generatedConfigCount ?? 0;
+    const refined = latest.refinedConfigCount ?? 0;
+    return `${generated} -> ${refined}`;
+  }
+
+  prefilterDetailText(status: TrainingStatusPayload): string {
+    const latest = status.prefilter?.latest;
+    if (!latest) {
+      return status.prefilter?.description || '每轮先轻量预筛，再完整精排';
+    }
+    const targets = latest.targetCount ?? 0;
+    const seconds = latest.elapsedSeconds ?? 0;
+    return `预筛 ${targets} 期 / ${seconds.toFixed(1)} 秒 / 正式指标来自精排`;
+  }
+
   hasRoundCharts(status: TrainingStatusPayload): boolean {
     if (status.rounds.length || status.recentRounds.length) {
       return true;

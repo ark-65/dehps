@@ -18,5 +18,6 @@ runtime/logs/
 # Local optimization analysis artifacts
 data/output/optimization/*.json
 data/output/optimization/*.md
+data/output/cache/
 data/output/audits/*.json
 data/output/audits/*.md

@@ -3,15 +3,17 @@ from __future__ import annotations
 import json
 
 from dehps.models.frequency_ranker import FrequencyRankerConfig
-from dehps.optimization.walk_forward import TargetRank
+from dehps.optimization.walk_forward import TargetRank, build_ranked_universe
 from scripts.run_training_supervisor import (
     calculate_tail_risk_penalty,
     config_hash,
     generate_configs,
     load_prior_supervisor_candidates,
     post_training_event,
+    prefilter_configs,
     reward_summary,
     sort_key,
+    training_event_payload,
     summarize_target_ranks,
     training_progress_payload,
 )
@@ -66,10 +68,84 @@ def test_generate_configs_large_phase_keeps_themed_seed_candidates():
     assert any(config.first_last_sum_weight > 0 and config.stable_range_weight > 0 for config in configs)
 
 
+def test_prefilter_configs_keeps_base_and_elite_before_full_refine():
+    universe = [
+        (1, 8, 13, 18, 23, 31),
+        (2, 9, 14, 19, 24, 32),
+        (3, 10, 15, 20, 25, 33),
+        (4, 11, 16, 21, 26, 30),
+        (5, 12, 17, 22, 27, 29),
+    ]
+    history = [
+        ("001", universe[0]),
+        ("002", universe[1]),
+        ("003", universe[2]),
+        ("004", universe[3]),
+        ("005", universe[4]),
+        ("006", universe[0]),
+        ("007", universe[1]),
+    ]
+    base = FrequencyRankerConfig()
+    elite = FrequencyRankerConfig(structural_weight=0.35, frequency_weight=0.40, omission_weight=0.20)
+    configs = (
+        base,
+        elite,
+        FrequencyRankerConfig(structural_weight=0.10, frequency_weight=0.80, omission_weight=0.05),
+        FrequencyRankerConfig(structural_weight=0.80, frequency_weight=0.10, omission_weight=0.05),
+    )
+
+    refined, metadata = prefilter_configs(
+        history=history,
+        ranked_universe=build_ranked_universe(universe),
+        configs=configs,
+        keep_configs=(base, elite),
+        train_window=2,
+        train_mode="expanding",
+        eval_window=4,
+        top_n=10000,
+        workers=1,
+        pool=None,
+        round_index=1,
+        stride=4,
+        promote_limit=1,
+    )
+
+    assert base in refined
+    assert elite in refined
+    assert len(refined) <= 3
+    assert metadata["generated_config_count"] == len(configs)
+    assert metadata["refined_config_count"] == len(refined)
+    assert metadata["target_count"] == 1
+
+
 def test_training_event_post_failure_is_non_fatal():
     sent = post_training_event({"run_id": "event-test"}, event_url="http://127.0.0.1:9/training-events/status", timeout=0.05)
 
     assert sent is False
+
+
+def test_training_event_payload_is_compact_signal_only():
+    payload = training_event_payload(
+        {
+            "run_id": "run-1",
+            "status": "running",
+            "updated_at": "2026-06-17T12:00:00",
+            "latest_progress": {"round": 1},
+            "status_path": "/tmp/status.json",
+            "report_path": "/tmp/status.md",
+            "rounds": [{"large": "payload"}],
+            "best": {"large": "payload"},
+        }
+    )
+
+    assert payload == {
+        "run_id": "run-1",
+        "status": "running",
+        "updated_at": "2026-06-17T12:00:00",
+        "latest_progress": {"round": 1},
+        "status_path": "/tmp/status.json",
+        "report_path": "/tmp/status.md",
+    }
 
 
 def test_training_progress_payload_is_json_status_compatible():

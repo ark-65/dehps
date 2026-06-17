@@ -10,6 +10,9 @@ import {
   PipelineRunSummary,
   ResearchRepository,
   SyncRunSummary,
+  TrainingMatrixCache,
+  TrainingPrefilterRun,
+  TrainingPrefilterStatus,
   TrainingProgress,
   TrainingResult,
   TrainingRoundSummary,
@@ -180,6 +183,10 @@ export class ResearchService {
       workers: this.numberValue(rawStatus?.workers),
       memoryBudgetGb: this.numberValue(rawStatus?.memory_budget_gb),
       universeSize,
+      matrixBackend: this.stringValue(rawStatus?.matrix_backend),
+      featureMatrixCache: this.matrixCacheValue(rawStatus?.feature_matrix_cache),
+      red5RankMode: this.stringValue(rawStatus?.red5_rank_mode),
+      prefilter: this.prefilterStatusValue(rawStatus?.prefilter),
       qianKun: this.qianKunValue(rawStatus?.qian_kun),
       completedRounds: rounds.length,
       rounds,
@@ -361,6 +368,55 @@ export class ResearchService {
     };
   }
 
+  private matrixCacheValue(value: unknown): TrainingMatrixCache | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+    const row = value as Record<string, unknown>;
+    return {
+      backend: this.stringValue(row.backend),
+      cacheKey: this.stringValue(row.cache_key) ?? this.stringValue(row.cacheKey),
+      cachePath: this.stringValue(row.cache_path) ?? this.stringValue(row.cachePath),
+      cacheHit: typeof row.cache_hit === 'boolean' ? row.cache_hit : typeof row.cacheHit === 'boolean' ? row.cacheHit : null,
+      buildSeconds: this.numberValue(row.build_seconds) ?? this.numberValue(row.buildSeconds),
+      sourceCount: this.numberValue(row.source_count) ?? this.numberValue(row.sourceCount),
+      filteredCount: this.numberValue(row.filtered_count) ?? this.numberValue(row.filteredCount),
+      excludedCount: this.numberValue(row.excluded_count) ?? this.numberValue(row.excludedCount),
+      red5RankMode: this.stringValue(row.red5_rank_mode) ?? this.stringValue(row.red5RankMode),
+    };
+  }
+
+  private prefilterStatusValue(value: unknown): TrainingPrefilterStatus | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+    const row = value as Record<string, unknown>;
+    return {
+      mode: this.stringValue(row.mode),
+      description: this.stringValue(row.description),
+      latest: this.prefilterRunValue(row.latest),
+    };
+  }
+
+  private prefilterRunValue(value: unknown): TrainingPrefilterRun | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+    const row = value as Record<string, unknown>;
+    return {
+      mode: this.stringValue(row.mode),
+      round: this.numberValue(row.round),
+      targetStride: this.numberValue(row.target_stride) ?? this.numberValue(row.targetStride),
+      targetCount: this.numberValue(row.target_count) ?? this.numberValue(row.targetCount),
+      generatedConfigCount: this.numberValue(row.generated_config_count) ?? this.numberValue(row.generatedConfigCount),
+      keptConfigCount: this.numberValue(row.kept_config_count) ?? this.numberValue(row.keptConfigCount),
+      promoteLimit: this.numberValue(row.promote_limit) ?? this.numberValue(row.promoteLimit),
+      refinedConfigCount: this.numberValue(row.refined_config_count) ?? this.numberValue(row.refinedConfigCount),
+      elapsedSeconds: this.numberValue(row.elapsed_seconds) ?? this.numberValue(row.elapsedSeconds),
+      note: this.stringValue(row.note),
+    };
+  }
+
   private roundsValue(value: unknown, universeSize: number | null): TrainingRoundSummary[] {
     if (!Array.isArray(value)) {
       return [];
@@ -385,7 +441,9 @@ export class ResearchService {
       round,
       phase: this.stringValue(row.phase) ?? 'unknown',
       step,
+      generated_config_count: this.numberValue(row.generated_config_count) ?? this.numberValue(row.generatedConfigCount),
       config_count: configCount,
+      prefilter: this.prefilterRunValue(row.prefilter),
       improved: Boolean(row.improved),
       best: this.resultValue(row.best, universeSize),
       topResults: this.resultsValue(row.top_results, universeSize),

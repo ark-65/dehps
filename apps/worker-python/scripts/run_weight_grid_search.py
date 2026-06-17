@@ -192,7 +192,12 @@ def run_grid_search(
 
     progress(f"building static feature matrix rows={len(universe)} configs={len(configs)} workers={worker_count}")
     ranked_universe = build_ranked_universe(universe)
-    progress(f"static feature matrix ready elapsed={time.time() - started:.1f}s")
+    matrix_cache_info = dict(getattr(ranked_universe, "cache_info", {}))
+    progress(
+        "static feature matrix ready "
+        f"cache_hit={matrix_cache_info.get('cache_hit')} "
+        f"rows={len(ranked_universe)} elapsed={time.time() - started:.1f}s"
+    )
 
     start_index = max(train_window, len(history) - eval_window)
     total_targets = len(history) - start_index
@@ -274,6 +279,7 @@ def run_grid_search(
         "workers": worker_count,
         "universe_size": len(universe),
         "feature_matrix_cache": {
+            **matrix_cache_info,
             "static_rows": len(ranked_universe),
             "config_count": len(configs),
             "dynamic_components": "computed once per target and shared across all configs",
