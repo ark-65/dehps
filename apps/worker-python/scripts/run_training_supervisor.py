@@ -6,6 +6,7 @@ import os
 from collections import Counter
 from dataclasses import replace
 from datetime import datetime, timedelta
+from math import ceil
 from pathlib import Path
 import sys
 import time
@@ -55,6 +56,12 @@ RANK_TOP_250000_REWARD = 0.01
 RANK_TOP_500000_REWARD = 0.005
 WORST_RANK_REWARD = 3.0
 MEDIAN_RANK_REWARD = 2.0
+TAIL_OVER_750000_PENALTY = 0.15
+TAIL_OVER_900000_PENALTY = 0.50
+TAIL_OVER_1000000_PENALTY = 1.25
+WORST_RANK_PENALTY_WEIGHT = 12.0
+P95_RANK_PENALTY_WEIGHT = 6.0
+MEDIAN_RANK_PENALTY_WEIGHT = 2.0
 PHASES = (
     ("micro", 0.01),
     ("small", 0.03),
@@ -224,12 +231,25 @@ def reward_summary(summary: dict, *, universe_size: int = DEFAULT_UNIVERSE_SIZE)
     median_rank = summary.get("median_rank") or safe_universe
     worst_rank = summary.get("worst_rank") or safe_universe
     rank_penalty = median_rank / safe_universe + worst_rank / safe_universe / 4
+    tail_risk_penalty = float(
+        rank_quality.get("tail_risk_penalty")
+        or calculate_tail_risk_penalty(
+            median_rank=median_rank,
+            worst_rank=worst_rank,
+            p95_rank=rank_quality.get("p95_rank"),
+            tail_over_750000_count=int(rank_quality.get("tail_over_750000_count") or 0),
+            tail_over_900000_count=int(rank_quality.get("tail_over_900000_count") or 0),
+            tail_over_1000000_count=int(rank_quality.get("tail_over_1000000_count") or 0),
+            universe_size=safe_universe,
+        )
+    )
     return {
         "hitReward": round(hit_reward, 6),
         "red5Reward": round(red5_reward, 6),
         "rankQualityReward": round(rank_quality_reward, 6),
         "rankPenalty": round(rank_penalty, 6),
-        "objectiveScore": round(hit_reward + red5_reward + rank_quality_reward - rank_penalty, 6),
+        "tailRiskPenalty": round(tail_risk_penalty, 6),
+        "objectiveScore": round(hit_reward + red5_reward + rank_quality_reward - rank_penalty - tail_risk_penalty, 6),
     }
 
 
@@ -239,11 +259,52 @@ def empty_rank_quality_summary() -> dict:
         "top_100000_hits": 0,
         "top_250000_hits": 0,
         "top_500000_hits": 0,
+        "p90_rank": None,
+        "p95_rank": None,
+        "tail_over_750000_count": 0,
+        "tail_over_900000_count": 0,
+        "tail_over_1000000_count": 0,
         "worst_rank_reward": 0.0,
         "median_rank_reward": 0.0,
         "band_reward": 0.0,
+        "tail_risk_penalty": 0.0,
         "reward": 0.0,
     }
+
+
+def percentile_rank(ranks: list[int], percentile: float) -> int | None:
+    if not ranks:
+        return None
+    ordered = sorted(ranks)
+    index = min(len(ordered) - 1, max(0, ceil(len(ordered) * percentile) - 1))
+    return ordered[index]
+
+
+def calculate_tail_risk_penalty(
+    *,
+    median_rank: int | float,
+    worst_rank: int | float,
+    p95_rank: int | float | None,
+    tail_over_750000_count: int,
+    tail_over_900000_count: int,
+    tail_over_1000000_count: int,
+    universe_size: int,
+) -> float:
+    safe_universe = max(1, universe_size)
+    normalized_median = min(1.0, max(0.0, float(median_rank) / safe_universe))
+    normalized_worst = min(1.0, max(0.0, float(worst_rank) / safe_universe))
+    normalized_p95 = min(1.0, max(0.0, float(p95_rank if p95_rank is not None else worst_rank) / safe_universe))
+    count_penalty = (
+        tail_over_750000_count * TAIL_OVER_750000_PENALTY
+        + tail_over_900000_count * TAIL_OVER_900000_PENALTY
+        + tail_over_1000000_count * TAIL_OVER_1000000_PENALTY
+    )
+    shape_penalty = (
+        normalized_worst**2 * WORST_RANK_PENALTY_WEIGHT
+        + normalized_p95**2 * P95_RANK_PENALTY_WEIGHT
+        + normalized_median**2 * MEDIAN_RANK_PENALTY_WEIGHT
+    )
+    return round(count_penalty + shape_penalty, 6)
 
 
 def summarize_rank_quality(ranks: list[int], *, universe_size: int) -> dict:
@@ -252,6 +313,11 @@ def summarize_rank_quality(ranks: list[int], *, universe_size: int) -> dict:
     safe_universe = max(1, universe_size)
     worst_rank = max(ranks)
     median_rank = median(ranks)
+    p90_rank = percentile_rank(ranks, 0.90)
+    p95_rank = percentile_rank(ranks, 0.95)
+    tail_over_750000_count = sum(rank > 750_000 for rank in ranks)
+    tail_over_900000_count = sum(rank > 900_000 for rank in ranks)
+    tail_over_1000000_count = sum(rank > 1_000_000 for rank in ranks)
     band_reward = (
         sum(rank <= 50_000 for rank in ranks) * RANK_TOP_50000_REWARD
         + sum(rank <= 100_000 for rank in ranks) * RANK_TOP_100000_REWARD
@@ -265,9 +331,23 @@ def summarize_rank_quality(ranks: list[int], *, universe_size: int) -> dict:
         "top_100000_hits": sum(rank <= 100_000 for rank in ranks),
         "top_250000_hits": sum(rank <= 250_000 for rank in ranks),
         "top_500000_hits": sum(rank <= 500_000 for rank in ranks),
+        "p90_rank": p90_rank,
+        "p95_rank": p95_rank,
+        "tail_over_750000_count": tail_over_750000_count,
+        "tail_over_900000_count": tail_over_900000_count,
+        "tail_over_1000000_count": tail_over_1000000_count,
         "worst_rank_reward": round(worst_rank_reward, 6),
         "median_rank_reward": round(median_rank_reward, 6),
         "band_reward": round(band_reward, 6),
+        "tail_risk_penalty": calculate_tail_risk_penalty(
+            median_rank=median_rank,
+            worst_rank=worst_rank,
+            p95_rank=p95_rank,
+            tail_over_750000_count=tail_over_750000_count,
+            tail_over_900000_count=tail_over_900000_count,
+            tail_over_1000000_count=tail_over_1000000_count,
+            universe_size=safe_universe,
+        ),
         "reward": round(worst_rank_reward + median_rank_reward + band_reward, 6),
     }
 
@@ -380,14 +460,18 @@ def summarize_target_ranks(
 def sort_key(summary: dict) -> tuple:
     reward = summary.get("reward") or reward_summary(summary)
     red5 = summary.get("red5") if isinstance(summary.get("red5"), dict) else {}
+    rank_quality = summary.get("rank_quality") if isinstance(summary.get("rank_quality"), dict) else {}
     return (
         summary["top_100_hits"],
         summary["top_1000_hits"],
         summary["top_10000_hits"],
+        -int(rank_quality.get("tail_over_1000000_count") or 0),
+        -int(rank_quality.get("tail_over_900000_count") or 0),
+        -int(rank_quality.get("tail_over_750000_count") or 0),
+        reward["objectiveScore"],
         int(red5.get("top_100_hits") or 0),
         int(red5.get("top_1000_hits") or 0),
         int(red5.get("top_10000_hits") or 0),
-        reward["objectiveScore"],
         -(summary.get("worst_rank") or 0),
         -(summary.get("median_rank") or 0),
         -(summary.get("best_rank") or 0),
@@ -427,9 +511,17 @@ def normalize_rank_quality_summary(raw_rank_quality: object) -> dict:
     rank_quality = empty_rank_quality_summary()
     if not isinstance(raw_rank_quality, dict):
         return rank_quality
-    for field in ("top_50000_hits", "top_100000_hits", "top_250000_hits", "top_500000_hits"):
+    for field in (
+        "top_50000_hits",
+        "top_100000_hits",
+        "top_250000_hits",
+        "top_500000_hits",
+        "tail_over_750000_count",
+        "tail_over_900000_count",
+        "tail_over_1000000_count",
+    ):
         rank_quality[field] = int(raw_rank_quality.get(field) or 0)
-    for field in ("worst_rank_reward", "median_rank_reward", "band_reward", "reward"):
+    for field in ("p90_rank", "p95_rank", "worst_rank_reward", "median_rank_reward", "band_reward", "tail_risk_penalty", "reward"):
         value = raw_rank_quality.get(field)
         rank_quality[field] = float(value) if isinstance(value, int | float) else 0.0
     return rank_quality
@@ -457,6 +549,27 @@ def normalize_summary(raw_summary: object, *, universe_size: int) -> dict | None
     summary["config_hash"] = summary.get("config_hash") or config_hash(FrequencyRankerConfig(**summary["config"]))
     summary["red5"] = normalize_red5_summary(summary.get("red5"))
     summary["rank_quality"] = normalize_rank_quality_summary(summary.get("rank_quality"))
+    rank_quality = summary["rank_quality"]
+    if not rank_quality.get("p90_rank"):
+        rank_quality["p90_rank"] = summary["median_rank"]
+    if not rank_quality.get("p95_rank"):
+        rank_quality["p95_rank"] = summary["worst_rank"]
+    if not rank_quality.get("tail_over_750000_count") and summary["worst_rank"] > 750_000:
+        rank_quality["tail_over_750000_count"] = 1
+    if not rank_quality.get("tail_over_900000_count") and summary["worst_rank"] > 900_000:
+        rank_quality["tail_over_900000_count"] = 1
+    if not rank_quality.get("tail_over_1000000_count") and summary["worst_rank"] > 1_000_000:
+        rank_quality["tail_over_1000000_count"] = 1
+    if not rank_quality.get("tail_risk_penalty"):
+        rank_quality["tail_risk_penalty"] = calculate_tail_risk_penalty(
+            median_rank=summary["median_rank"],
+            worst_rank=summary["worst_rank"],
+            p95_rank=rank_quality.get("p95_rank"),
+            tail_over_750000_count=int(rank_quality.get("tail_over_750000_count") or 0),
+            tail_over_900000_count=int(rank_quality.get("tail_over_900000_count") or 0),
+            tail_over_1000000_count=int(rank_quality.get("tail_over_1000000_count") or 0),
+            universe_size=universe_size,
+        )
     summary["reward"] = reward_summary(summary, universe_size=universe_size)
     return summary
 
@@ -593,6 +706,7 @@ def write_report(report_path: Path, status: dict) -> None:
             f"{round_info['best']['top_1000_hits']} | {round_info['best']['top_100_hits']} | "
             f"{round_info['best']['red5']['top_100_hits']} | {round_info['best']['red5']['top_10000_hits']} | "
             f"{round_info['best']['rank_quality']['top_50000_hits']} | {round_info['best']['worst_rank']} | "
+            f"{round_info['best']['rank_quality'].get('tail_over_1000000_count', 0)} | "
             f"{round_info['best']['median_rank']} | `{json.dumps(round_info['best']['config'], sort_keys=True)}` |"
         )
         for round_info in status["rounds"]
@@ -623,8 +737,8 @@ def write_report(report_path: Path, status: dict) -> None:
 
 ## Rounds
 
-| Round | Phase | Top10000 | Top1000 | Top100 | Red5 Top100 | Red5 Top10000 | Top50000 | Worst rank | Median rank | Config |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Round | Phase | Top10000 | Top1000 | Top100 | Red5 Top100 | Red5 Top10000 | Top50000 | Worst rank | >100万 | Median rank | Config |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 {rounds}
 
 ## Guardrail

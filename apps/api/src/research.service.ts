@@ -32,6 +32,12 @@ const RANK_TOP_250000_REWARD = 0.01;
 const RANK_TOP_500000_REWARD = 0.005;
 const WORST_RANK_REWARD = 3;
 const MEDIAN_RANK_REWARD = 2;
+const TAIL_OVER_750000_PENALTY = 0.15;
+const TAIL_OVER_900000_PENALTY = 0.5;
+const TAIL_OVER_1000000_PENALTY = 1.25;
+const WORST_RANK_PENALTY_WEIGHT = 12;
+const P95_RANK_PENALTY_WEIGHT = 6;
+const MEDIAN_RANK_PENALTY_WEIGHT = 2;
 
 @Injectable()
 export class ResearchService {
@@ -508,14 +514,41 @@ export class ResearchService {
   ) {
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       const row = value as Record<string, unknown>;
+      const p95Rank = this.numberValue(row.p95_rank) ?? fallback.worstRank;
+      const tailOver750000 =
+        this.numberValue(row.tail_over_750000_count) ??
+        (fallback.worstRank !== null && fallback.worstRank > 750_000 ? 1 : 0);
+      const tailOver900000 =
+        this.numberValue(row.tail_over_900000_count) ??
+        (fallback.worstRank !== null && fallback.worstRank > 900_000 ? 1 : 0);
+      const tailOver1000000 =
+        this.numberValue(row.tail_over_1000000_count) ??
+        (fallback.worstRank !== null && fallback.worstRank > 1_000_000 ? 1 : 0);
+      const parsedTailRiskPenalty = this.numberValue(row.tail_risk_penalty);
       return {
         top_50000_hits: this.numberValue(row.top_50000_hits) ?? 0,
         top_100000_hits: this.numberValue(row.top_100000_hits) ?? 0,
         top_250000_hits: this.numberValue(row.top_250000_hits) ?? 0,
         top_500000_hits: this.numberValue(row.top_500000_hits) ?? 0,
+        p90_rank: this.numberValue(row.p90_rank) ?? fallback.medianRank,
+        p95_rank: p95Rank,
+        tail_over_750000_count: tailOver750000,
+        tail_over_900000_count: tailOver900000,
+        tail_over_1000000_count: tailOver1000000,
         worst_rank_reward: this.numberValue(row.worst_rank_reward) ?? 0,
         median_rank_reward: this.numberValue(row.median_rank_reward) ?? 0,
         band_reward: this.numberValue(row.band_reward) ?? 0,
+        tail_risk_penalty: parsedTailRiskPenalty && parsedTailRiskPenalty > 0
+          ? parsedTailRiskPenalty
+          : this.tailRiskPenalty({
+            medianRank: fallback.medianRank,
+            worstRank: fallback.worstRank,
+            p95Rank,
+            tailOver750000,
+            tailOver900000,
+            tailOver1000000,
+            universeSize: fallback.universeSize,
+          }),
         reward: this.numberValue(row.reward) ?? 0,
       };
     }
@@ -529,11 +562,58 @@ export class ResearchService {
       top_100000_hits: 0,
       top_250000_hits: 0,
       top_500000_hits: 0,
+      p90_rank: fallback.medianRank,
+      p95_rank: fallback.worstRank,
+      tail_over_750000_count: fallback.worstRank !== null && fallback.worstRank > 750_000 ? 1 : 0,
+      tail_over_900000_count: fallback.worstRank !== null && fallback.worstRank > 900_000 ? 1 : 0,
+      tail_over_1000000_count: fallback.worstRank !== null && fallback.worstRank > 1_000_000 ? 1 : 0,
       worst_rank_reward: Number(worstRankReward.toFixed(6)),
       median_rank_reward: Number(medianRankReward.toFixed(6)),
       band_reward: 0,
+      tail_risk_penalty: this.tailRiskPenalty({
+        medianRank: fallback.medianRank,
+        worstRank: fallback.worstRank,
+        p95Rank: fallback.worstRank,
+        tailOver750000: fallback.worstRank !== null && fallback.worstRank > 750_000 ? 1 : 0,
+        tailOver900000: fallback.worstRank !== null && fallback.worstRank > 900_000 ? 1 : 0,
+        tailOver1000000: fallback.worstRank !== null && fallback.worstRank > 1_000_000 ? 1 : 0,
+        universeSize: fallback.universeSize,
+      }),
       reward: Number((worstRankReward + medianRankReward).toFixed(6)),
     };
+  }
+
+  private tailRiskPenalty({
+    medianRank,
+    worstRank,
+    p95Rank,
+    tailOver750000,
+    tailOver900000,
+    tailOver1000000,
+    universeSize,
+  }: {
+    medianRank: number | null;
+    worstRank: number | null;
+    p95Rank: number | null;
+    tailOver750000: number;
+    tailOver900000: number;
+    tailOver1000000: number;
+    universeSize: number | null;
+  }) {
+    const safeUniverse = universeSize && universeSize > 0 ? universeSize : 1_107_568;
+    const normalize = (value: number | null) => Math.min(1, Math.max(0, (value ?? safeUniverse) / safeUniverse));
+    const normalizedMedian = normalize(medianRank);
+    const normalizedWorst = normalize(worstRank);
+    const normalizedP95 = normalize(p95Rank ?? worstRank);
+    const countPenalty =
+      tailOver750000 * TAIL_OVER_750000_PENALTY +
+      tailOver900000 * TAIL_OVER_900000_PENALTY +
+      tailOver1000000 * TAIL_OVER_1000000_PENALTY;
+    const shapePenalty =
+      normalizedWorst ** 2 * WORST_RANK_PENALTY_WEIGHT +
+      normalizedP95 ** 2 * P95_RANK_PENALTY_WEIGHT +
+      normalizedMedian ** 2 * MEDIAN_RANK_PENALTY_WEIGHT;
+    return Number((countPenalty + shapePenalty).toFixed(6));
   }
 
   private rewardSummary({
@@ -559,6 +639,11 @@ export class ResearchService {
       top_100000_hits: number;
       top_250000_hits: number;
       top_500000_hits: number;
+      p95_rank: number | null;
+      tail_over_750000_count: number;
+      tail_over_900000_count: number;
+      tail_over_1000000_count: number;
+      tail_risk_penalty: number;
       reward: number;
     };
     medianRank: number;
@@ -578,12 +663,24 @@ export class ResearchService {
         rankQuality.top_250000_hits * RANK_TOP_250000_REWARD +
         rankQuality.top_500000_hits * RANK_TOP_500000_REWARD;
     const rankPenalty = medianRank / safeUniverse + worstRank / safeUniverse / 4;
+    const tailRiskPenalty =
+      rankQuality.tail_risk_penalty ||
+      this.tailRiskPenalty({
+        medianRank,
+        worstRank,
+        p95Rank: rankQuality.p95_rank,
+        tailOver750000: rankQuality.tail_over_750000_count,
+        tailOver900000: rankQuality.tail_over_900000_count,
+        tailOver1000000: rankQuality.tail_over_1000000_count,
+        universeSize,
+      });
     return {
       hitReward: Number(hitReward.toFixed(6)),
       red5Reward: Number(red5Reward.toFixed(6)),
       rankQualityReward: Number(rankQualityReward.toFixed(6)),
       rankPenalty: Number(rankPenalty.toFixed(6)),
-      objectiveScore: Number((hitReward + red5Reward + rankQualityReward - rankPenalty).toFixed(6)),
+      tailRiskPenalty: Number(tailRiskPenalty.toFixed(6)),
+      objectiveScore: Number((hitReward + red5Reward + rankQualityReward - rankPenalty - tailRiskPenalty).toFixed(6)),
     };
   }
 

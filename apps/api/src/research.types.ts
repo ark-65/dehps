@@ -80,9 +80,15 @@ export type TrainingRankQualitySummary = {
   top_100000_hits: number;
   top_250000_hits: number;
   top_500000_hits: number;
+  p90_rank: number | null;
+  p95_rank: number | null;
+  tail_over_750000_count: number;
+  tail_over_900000_count: number;
+  tail_over_1000000_count: number;
   worst_rank_reward: number;
   median_rank_reward: number;
   band_reward: number;
+  tail_risk_penalty: number;
   reward: number;
 };
 
@@ -118,6 +124,7 @@ export type TrainingRewardSummary = {
   red5Reward: number;
   rankQualityReward: number;
   rankPenalty: number;
+  tailRiskPenalty: number;
   objectiveScore: number;
 };
 

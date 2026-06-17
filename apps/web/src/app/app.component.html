@@ -116,6 +116,11 @@
           <strong>{{ training.best ? (training.best.best_rank | number: '1.0-0') : '无' }}</strong>
           <small>最差排名 {{ training.best ? (training.best.worst_rank | number: '1.0-0') : '无' }}</small>
         </article>
+        <article class="metric-card">
+          <span>尾部风险</span>
+          <strong>{{ training.best ? training.best.rank_quality.tail_over_1000000_count + '/' + training.best.evaluated_draws : '无' }}</strong>
+          <small>超过90万 {{ training.best ? training.best.rank_quality.tail_over_900000_count : '无' }} 期</small>
+        </article>
       </div>
 
       <div class="training-progress">
@@ -156,6 +161,9 @@
         </article>
         <article class="chart-panel">
           <app-echart [option]="rankBandOption(training)" height="320px"></app-echart>
+        </article>
+        <article class="chart-panel">
+          <app-echart [option]="tailRiskOption(training)" height="320px"></app-echart>
         </article>
         <article class="chart-panel">
           <app-echart [option]="weightTrendOption(training)" height="320px"></app-echart>

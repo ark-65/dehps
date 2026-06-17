@@ -266,7 +266,7 @@ export class AppComponent {
     const xAxis = rounds.map((round) => `R${round.round}`);
     return {
       title: { text: '奖惩机制', left: 12, top: 8, textStyle: { fontSize: 14, fontWeight: 700 } },
-      color: ['#327857', '#987a24', '#4d7c9f', '#b5413f', '#4472a5'],
+      color: ['#327857', '#987a24', '#4d7c9f', '#b5413f', '#8c5a2b', '#4472a5'],
       tooltip: { trigger: 'axis' },
       legend: { top: 8, right: 12 },
       grid: { left: 48, right: 24, top: 58, bottom: 42 },
@@ -298,6 +298,12 @@ export class AppComponent {
           data: rounds.map((round) => -(round.best?.reward.rankPenalty ?? 0)),
         },
         {
+          name: '尾部惩罚',
+          type: 'bar',
+          stack: 'reward',
+          data: rounds.map((round) => -(round.best?.reward.tailRiskPenalty ?? 0)),
+        },
+        {
           name: '综合分',
           type: 'line',
           smooth: true,
@@ -321,6 +327,23 @@ export class AppComponent {
         this.lineSeries('Top25万', rounds.map((round) => round.best?.rank_quality.top_250000_hits ?? 0), '#987a24'),
         this.lineSeries('Top50万', rounds.map((round) => round.best?.rank_quality.top_500000_hits ?? 0), '#8c5a2b'),
       ],
+    });
+  }
+
+  tailRiskOption(status: TrainingStatusPayload): ChartOption {
+    const rounds = this.chartRounds(status);
+    const xAxis = rounds.map((round) => `R${round.round}`);
+    return this.baseLineOption({
+      title: '尾部风险',
+      xAxis,
+      yName: '期数',
+      series: [
+        this.lineSeries('超过75万', rounds.map((round) => round.best?.rank_quality.tail_over_750000_count ?? 0), '#987a24'),
+        this.lineSeries('超过90万', rounds.map((round) => round.best?.rank_quality.tail_over_900000_count ?? 0), '#a85c38'),
+        this.lineSeries('超过100万', rounds.map((round) => round.best?.rank_quality.tail_over_1000000_count ?? 0), '#b5413f'),
+      ],
+      markLineValue: 0,
+      markLineName: '目标 0',
     });
   }
 

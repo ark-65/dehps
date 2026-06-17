@@ -5,6 +5,7 @@ import json
 from dehps.models.frequency_ranker import FrequencyRankerConfig
 from dehps.optimization.walk_forward import TargetRank
 from scripts.run_training_supervisor import (
+    calculate_tail_risk_penalty,
     config_hash,
     generate_configs,
     load_prior_supervisor_candidates,
@@ -137,6 +138,71 @@ def test_rank_quality_reward_keeps_tail_improvements_visible():
     assert sort_key(better_tail) > sort_key(worse_tail)
 
 
+def test_tail_risk_penalty_strongly_punishes_million_rank_outliers():
+    stable_tail = {
+        "top_100_hits": 0,
+        "top_1000_hits": 1,
+        "top_10000_hits": 3,
+        "median_rank": 520000,
+        "best_rank": 864,
+        "worst_rank": 820000,
+        "rank_quality": {
+            "top_50000_hits": 5,
+            "top_100000_hits": 8,
+            "top_250000_hits": 24,
+            "top_500000_hits": 41,
+            "p95_rank": 780000,
+            "tail_over_750000_count": 3,
+            "tail_over_900000_count": 0,
+            "tail_over_1000000_count": 0,
+            "reward": 1.7,
+        },
+    }
+    million_tail = {
+        **stable_tail,
+        "median_rank": 590000,
+        "worst_rank": 1_097_823,
+        "rank_quality": {
+            **stable_tail["rank_quality"],
+            "p95_rank": 1_030_000,
+            "tail_over_750000_count": 12,
+            "tail_over_900000_count": 7,
+            "tail_over_1000000_count": 3,
+        },
+    }
+
+    stable_reward = reward_summary(stable_tail)
+    million_reward = reward_summary(million_tail)
+
+    assert million_reward["tailRiskPenalty"] > stable_reward["tailRiskPenalty"] + 10
+    assert stable_reward["objectiveScore"] > million_reward["objectiveScore"]
+    assert sort_key(stable_tail) > sort_key(million_tail)
+
+
+def test_calculate_tail_risk_penalty_is_threshold_and_shape_sensitive():
+    low_tail = calculate_tail_risk_penalty(
+        median_rank=400000,
+        worst_rank=700000,
+        p95_rank=650000,
+        tail_over_750000_count=0,
+        tail_over_900000_count=0,
+        tail_over_1000000_count=0,
+        universe_size=1_107_568,
+    )
+    high_tail = calculate_tail_risk_penalty(
+        median_rank=600000,
+        worst_rank=1_080_000,
+        p95_rank=1_010_000,
+        tail_over_750000_count=15,
+        tail_over_900000_count=8,
+        tail_over_1000000_count=4,
+        universe_size=1_107_568,
+    )
+
+    assert high_tail > low_tail
+    assert high_tail - low_tail > 20
+
+
 def test_red5_reward_is_low_weight_and_cannot_override_exact_top1000():
     red5_top100_heavy = {
         "top_100_hits": 0,
@@ -201,6 +267,8 @@ def test_summarize_target_ranks_counts_red5_difference_numbers():
     assert summary["red5"]["examples"][0]["issue"] == "2026001"
     assert summary["reward"]["red5Reward"] > 0
     assert summary["rank_quality"]["top_50000_hits"] == 1
+    assert summary["rank_quality"]["tail_over_1000000_count"] == 0
+    assert summary["reward"]["tailRiskPenalty"] > 0
     assert summary["reward"]["rankQualityReward"] > 0
 
 

@@ -36,11 +36,11 @@ test('latestStatus summarizes pipeline state', () => {
     featureDistributions: [],
   };
 
-  assert.equal(latestStatus(payload), 'Pipeline healthy');
+  assert.equal(latestStatus(payload), '流水线正常');
 });
 
 test('latestStatus handles an empty pipeline list', () => {
-  assert.equal(latestStatus({ experiments: [], pipelineRuns: [], syncRuns: [], featureDistributions: [] }), 'No pipeline runs');
+  assert.equal(latestStatus({ experiments: [], pipelineRuns: [], syncRuns: [], featureDistributions: [] }), '暂无流水线记录');
 });
 
 test('combinationDistribution splits retained and rejected space', () => {
@@ -86,9 +86,9 @@ test('reportStatus summarizes experiment report availability', () => {
     reportCreatedAt: '2026-06-15T00:01:00.000Z',
   };
 
-  assert.equal(reportStatus(null), 'Select an experiment');
-  assert.equal(reportStatus(detail), 'Report available');
-  assert.equal(reportStatus({ ...detail, reportMarkdown: null }), 'No report attached');
+  assert.equal(reportStatus(null), '请选择实验');
+  assert.equal(reportStatus(detail), '报告已生成');
+  assert.equal(reportStatus({ ...detail, reportMarkdown: null }), '暂无报告');
 });
 
 test('compareExperiments reports signed metric deltas', () => {
@@ -122,5 +122,5 @@ test('compareExperiments reports signed metric deltas', () => {
   assert.equal(signedPercent(result?.keepRateDelta ?? null), '-10.00%');
   assert.equal(signedPercent(result?.coverageRateDelta ?? null), '+10.00%');
   assert.equal(signedNumber(result?.liftDelta ?? null), '+0.2857');
-  assert.equal(signedNumber(null), 'N/A');
+  assert.equal(signedNumber(null), '无');
 });
