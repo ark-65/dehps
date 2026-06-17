@@ -141,6 +141,38 @@ def test_temporal_features_track_neighbor_and_lagged_consecutive_chain():
     assert lagged_candidate["recent_neighbor_score"] > 0
 
 
+def test_dynamic_parity_transition_scores_conditioned_even_count():
+    e2 = (1, 2, 3, 4, 5, 7)
+    e3 = (1, 2, 3, 4, 5, 6)
+    e4 = (1, 2, 3, 4, 6, 8)
+    history = [
+        ("001", e3),
+        ("002", e3),
+        ("003", e4),
+        ("004", e3),
+        ("005", e3),
+        ("006", e4),
+        ("007", e2),
+        ("008", e3),
+        ("009", e3),
+    ]
+    config = FrequencyRankerConfig(
+        structural_weight=0,
+        frequency_weight=0,
+        omission_weight=0,
+        previous_consecutive_weight=0,
+        dynamic_parity_transition_weight=1,
+    )
+    stats = train_frequency_stats(history)
+
+    four_even = score_frequency_candidate(e4, stats, config)
+    three_even = score_frequency_candidate(e3, stats, config)
+
+    assert stats.parity_transition_score_by_even_count[4] > stats.parity_transition_score_by_even_count[3]
+    assert four_even["dynamic_parity_transition_score"] > three_even["dynamic_parity_transition_score"]
+    assert four_even["score"] > three_even["score"]
+
+
 def test_walk_forward_reports_target_ranks_on_small_universe():
     universe = [
         (1, 2, 3, 4, 5, 6),

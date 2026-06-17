@@ -15,6 +15,7 @@ class FrequencyRankerConfig:
     previous_consecutive_weight: float = 0.05
     previous_overlap_weight: float = 0.00
     previous_parity_shape_weight: float = 0.00
+    dynamic_parity_transition_weight: float = 0.00
     previous_zone_shape_weight: float = 0.00
     recent_neighbor_weight: float = 0.00
     lagged_consecutive_weight: float = 0.00
@@ -32,6 +33,7 @@ class FrequencyStats:
     previous_number_set: frozenset[int]
     previous_consecutive_pair_count: int
     previous_odd_count: int
+    parity_transition_score_by_even_count: tuple[float, float, float, float, float, float, float]
     previous_zone_counts: tuple[int, int, int]
     recent_neighbor_rate: dict[int, float]
     lagged_consecutive_number_set: frozenset[int]
@@ -58,6 +60,7 @@ def train_frequency_stats(history: list[tuple[str, tuple[int, ...]]]) -> Frequen
     max_omission = max(1, train_draws)
     previous_numbers = history[-1][1]
     previous_features = calculate_red_ball_features(previous_numbers)
+    parity_transition_score_by_even_count = _parity_transition_score_by_even_count(history)
     recent_numbers = [numbers for _, numbers in history[-3:]]
     shape_numbers = [numbers for _, numbers in history[-20:]]
     qian_kun_patterns = [qian_kun_pattern(numbers) for _, numbers in history]
@@ -74,6 +77,7 @@ def train_frequency_stats(history: list[tuple[str, tuple[int, ...]]]) -> Frequen
         previous_number_set=frozenset(previous_numbers),
         previous_consecutive_pair_count=previous_features["consecutive_pair_count"],
         previous_odd_count=previous_features["odd_count"],
+        parity_transition_score_by_even_count=parity_transition_score_by_even_count,
         previous_zone_counts=(
             previous_features["zone_1_count"],
             previous_features["zone_2_count"],
@@ -105,6 +109,7 @@ def score_frequency_candidate(
     )
     previous_overlap_score = len(set(numbers) & stats.previous_number_set) / 6
     previous_parity_shape_score = 1 - abs(features["odd_count"] - stats.previous_odd_count) / 6
+    dynamic_parity_transition_score = _dynamic_parity_transition_score(features["odd_count"], stats)
     candidate_zone_counts = (features["zone_1_count"], features["zone_2_count"], features["zone_3_count"])
     previous_zone_shape_score = 1 - sum(
         abs(candidate_count - previous_count)
@@ -122,6 +127,7 @@ def score_frequency_candidate(
         + cfg.previous_consecutive_weight * previous_consecutive_score
         + cfg.previous_overlap_weight * previous_overlap_score
         + cfg.previous_parity_shape_weight * previous_parity_shape_score
+        + cfg.dynamic_parity_transition_weight * dynamic_parity_transition_score
         + cfg.previous_zone_shape_weight * previous_zone_shape_score
         + cfg.recent_neighbor_weight * recent_neighbor_score
         + cfg.lagged_consecutive_weight * lagged_consecutive_score
@@ -137,6 +143,7 @@ def score_frequency_candidate(
         "previous_consecutive_score": round(previous_consecutive_score, 8),
         "previous_overlap_score": round(previous_overlap_score, 8),
         "previous_parity_shape_score": round(previous_parity_shape_score, 8),
+        "dynamic_parity_transition_score": round(dynamic_parity_transition_score, 8),
         "previous_zone_shape_score": round(previous_zone_shape_score, 8),
         "recent_neighbor_score": round(recent_neighbor_score, 8),
         "lagged_consecutive_score": round(lagged_consecutive_score, 8),
@@ -180,6 +187,41 @@ def _lagged_consecutive_numbers(history: list[tuple[str, tuple[int, ...]]]) -> s
         if increasing or decreasing:
             candidates.add(number)
     return candidates
+
+
+def _even_count(numbers: tuple[int, ...]) -> int:
+    return sum(1 for number in numbers if number % 2 == 0)
+
+
+def _parity_transition_score_by_even_count(
+    history: list[tuple[str, tuple[int, ...]]],
+) -> tuple[float, float, float, float, float, float, float]:
+    even_counts = [_even_count(numbers) for _, numbers in history]
+    scores = [0.5 for _ in range(7)]
+    if not even_counts:
+        return (1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0)
+
+    current_state = tuple(even_counts[-2:])
+    if len(current_state) == 2:
+        for index in range(2, len(even_counts)):
+            if (even_counts[index - 2], even_counts[index - 1]) == current_state:
+                scores[even_counts[index]] += 1.0
+
+    current_even_count = even_counts[-1]
+    for index in range(1, len(even_counts)):
+        if even_counts[index - 1] == current_even_count:
+            scores[even_counts[index]] += 0.35
+
+    for even_count in even_counts:
+        scores[even_count] += 0.10
+
+    max_score = max(scores) or 1.0
+    return tuple(round(score / max_score, 8) for score in scores)  # type: ignore[return-value]
+
+
+def _dynamic_parity_transition_score(odd_count: int, stats: FrequencyStats) -> float:
+    even_count = 6 - odd_count
+    return stats.parity_transition_score_by_even_count[even_count]
 
 
 def _recent_average_gaps(recent_numbers: list[tuple[int, ...]]) -> tuple[float, float, float, float, float]:

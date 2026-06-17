@@ -23,7 +23,7 @@ from dehps.scoring.strategy import score_numbers
 
 _WORKER_UNIVERSE: list["RankedUniverseEntry"] = []
 DEFAULT_WORKERS = 16
-ScoreComponents = tuple[float, float, float, float, float, float, float, float, float, float, float, float]
+ScoreComponents = tuple[float, float, float, float, float, float, float, float, float, float, float, float, float]
 
 
 @dataclass(frozen=True)
@@ -265,6 +265,7 @@ def score_components_for_entry(entry: RankedUniverseEntry, stats: FrequencyStats
     )
     previous_overlap_score = sum(1 for number in entry.numbers if number in stats.previous_number_set) / 6
     previous_parity_shape_score = 1 - abs(entry.odd_count - stats.previous_odd_count) / 6
+    dynamic_parity_transition_score = stats.parity_transition_score_by_even_count[6 - entry.odd_count]
     previous_zone_shape_score = 1 - sum(
         abs(candidate_count - previous_count)
         for candidate_count, previous_count in zip(entry.zone_counts, stats.previous_zone_counts, strict=True)
@@ -289,6 +290,7 @@ def score_components_for_entry(entry: RankedUniverseEntry, stats: FrequencyStats
         previous_consecutive_score,
         previous_overlap_score,
         previous_parity_shape_score,
+        dynamic_parity_transition_score,
         previous_zone_shape_score,
         recent_neighbor_score,
         lagged_consecutive_score,
@@ -307,6 +309,7 @@ def score_components_for_numbers(numbers: tuple[int, ...], stats: FrequencyStats
     )
     previous_overlap_score = len(set(numbers) & stats.previous_number_set) / 6
     previous_parity_shape_score = 1 - abs(features["odd_count"] - stats.previous_odd_count) / 6
+    dynamic_parity_transition_score = stats.parity_transition_score_by_even_count[6 - features["odd_count"]]
     zone_counts = (features["zone_1_count"], features["zone_2_count"], features["zone_3_count"])
     previous_zone_shape_score = 1 - sum(
         abs(candidate_count - previous_count)
@@ -333,6 +336,7 @@ def score_components_for_numbers(numbers: tuple[int, ...], stats: FrequencyStats
         previous_consecutive_score,
         previous_overlap_score,
         previous_parity_shape_score,
+        dynamic_parity_transition_score,
         previous_zone_shape_score,
         recent_neighbor_score,
         lagged_consecutive_score,
@@ -350,6 +354,7 @@ def score_from_components(components: ScoreComponents, config: FrequencyRankerCo
         previous_consecutive_score,
         previous_overlap_score,
         previous_parity_shape_score,
+        dynamic_parity_transition_score,
         previous_zone_shape_score,
         recent_neighbor_score,
         lagged_consecutive_score,
@@ -364,6 +369,7 @@ def score_from_components(components: ScoreComponents, config: FrequencyRankerCo
         + config.previous_consecutive_weight * previous_consecutive_score
         + config.previous_overlap_weight * previous_overlap_score
         + config.previous_parity_shape_weight * previous_parity_shape_score
+        + config.dynamic_parity_transition_weight * dynamic_parity_transition_score
         + config.previous_zone_shape_weight * previous_zone_shape_score
         + config.recent_neighbor_weight * recent_neighbor_score
         + config.lagged_consecutive_weight * lagged_consecutive_score

@@ -38,6 +38,7 @@ CONTEXT_FIELDS = (
     "previous_consecutive_weight",
     "previous_overlap_weight",
     "previous_parity_shape_weight",
+    "dynamic_parity_transition_weight",
     "previous_zone_shape_weight",
     "recent_neighbor_weight",
     "lagged_consecutive_weight",
@@ -217,6 +218,7 @@ def generate_configs(
                 previous_consecutive_weight=0.03,
                 previous_overlap_weight=-0.04,
                 previous_parity_shape_weight=0.03,
+                dynamic_parity_transition_weight=0.04,
                 previous_zone_shape_weight=0.08,
             ),
             FrequencyRankerConfig(
@@ -226,6 +228,7 @@ def generate_configs(
                 previous_consecutive_weight=0.10,
                 previous_overlap_weight=-0.05,
                 previous_parity_shape_weight=-0.02,
+                dynamic_parity_transition_weight=0.06,
                 previous_zone_shape_weight=0.12,
                 recent_neighbor_weight=0.06,
                 lagged_consecutive_weight=0.04,
