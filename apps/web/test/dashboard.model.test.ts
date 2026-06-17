@@ -138,6 +138,8 @@ test('training view does not use periodic dashboard polling', () => {
   assert.equal(component.includes('liveProgressOption'), true);
   assert.equal(template.includes('@if (hasRoundCharts(training))'), true);
   assert.equal(template.includes('等待第 1 轮回归结果'), true);
-  assert.equal(template.includes('weightTrendOption(training)'), false);
-  assert.equal(template.includes('权重演化图待拆分'), true);
+  assert.equal(template.includes('weightTrendGroups(training)'), true);
+  assert.equal(template.includes('权重演化图待拆分'), false);
+  assert.equal(component.includes("title: '权重演化 - 基础'"), true);
+  assert.equal(component.includes("title: '权重演化 - 奖惩'"), true);
 });

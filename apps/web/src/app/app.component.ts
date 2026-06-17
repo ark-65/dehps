@@ -53,6 +53,78 @@ type DetailState =
   | { status: 'error'; experimentKey: string; message: string };
 
 type DashboardTab = 'training' | 'experiments';
+type WeightTrendGroup = {
+  key: string;
+  title: string;
+  kind: 'weights' | 'reward';
+  fields?: readonly (readonly [string, string])[];
+};
+
+const WEIGHT_TREND_GROUPS: readonly WeightTrendGroup[] = [
+  {
+    key: 'base',
+    title: '权重演化 - 基础',
+    kind: 'weights',
+    fields: [
+      ['structural_weight', '结构'],
+      ['frequency_weight', '频率'],
+      ['omission_weight', '遗漏'],
+    ],
+  },
+  {
+    key: 'shape',
+    title: '权重演化 - 形态',
+    kind: 'weights',
+    fields: [
+      ['previous_consecutive_weight', '上期连号'],
+      ['previous_overlap_weight', '上期重叠'],
+      ['previous_parity_shape_weight', '奇偶形态'],
+      ['dynamic_parity_transition_weight', '动态奇偶转移'],
+      ['previous_zone_shape_weight', '分区形态'],
+      ['qian_kun_pattern_weight', '乾坤卦象'],
+      ['zone_ratio_weight', '区间比'],
+      ['big_small_ratio_weight', '大小比'],
+      ['parity_ratio_weight', '奇偶比'],
+      ['prime_composite_weight', '质合比'],
+      ['mod012_weight', '012路'],
+      ['tail_distribution_weight', '尾数分布'],
+    ],
+  },
+  {
+    key: 'trend',
+    title: '权重演化 - 走势',
+    kind: 'weights',
+    fields: [
+      ['recent_neighbor_weight', '近期开奖邻号'],
+      ['lagged_consecutive_weight', '隔期连号链'],
+      ['recent_gap_shape_weight', '跳号间距'],
+      ['recent_sum_span_weight', '和值跨度'],
+      ['first_last_sum_weight', '首尾合'],
+      ['span_trend_weight', '首尾差/跨度'],
+      ['sum_trend_weight', '和值走势'],
+      ['ac_trend_weight', 'AC值走势'],
+      ['sum_tail_weight', '和尾走势'],
+      ['consecutive_trend_weight', '连号走势'],
+      ['repeat_trend_weight', '重号走势'],
+      ['weekday_trend_weight', '开奖日走势'],
+    ],
+  },
+  {
+    key: 'omission',
+    title: '权重演化 - 遗漏',
+    kind: 'weights',
+    fields: [
+      ['red_omission_shape_weight', '红球遗漏形态'],
+      ['sum_span_omission_weight', '和值跨度遗漏'],
+      ['stable_range_weight', '稳定区间'],
+    ],
+  },
+  {
+    key: 'reward',
+    title: '权重演化 - 奖惩',
+    kind: 'reward',
+  },
+];
 
 @Component({
   selector: 'app-root',
@@ -448,15 +520,15 @@ export class AppComponent {
     });
   }
 
-  rewardTrendOption(status: TrainingStatusPayload): ChartOption {
+  rewardTrendOption(status: TrainingStatusPayload, title = '奖惩机制'): ChartOption {
     const rounds = this.chartRounds(status);
     const xAxis = rounds.map((round) => `R${round.round}`);
     return {
-      title: { text: '奖惩机制', left: 12, top: 8, textStyle: { fontSize: 14, fontWeight: 700 } },
+      title: { text: title, left: 12, top: 8, textStyle: { fontSize: 14, fontWeight: 700 } },
       color: ['#327857', '#987a24', '#4d7c9f', '#b5413f', '#8c5a2b', '#4472a5'],
       tooltip: { trigger: 'axis' },
-      legend: { top: 8, right: 12 },
-      grid: { left: 48, right: 24, top: 58, bottom: 42 },
+      legend: { type: 'scroll', top: 38, left: 12, right: 12 },
+      grid: { left: 48, right: 24, top: 92, bottom: 42 },
       xAxis: { type: 'category', data: xAxis },
       yAxis: { type: 'value', name: '分数' },
       series: [
@@ -617,43 +689,22 @@ export class AppComponent {
     };
   }
 
-  weightTrendOption(status: TrainingStatusPayload): ChartOption {
+  weightTrendGroups(status: TrainingStatusPayload): Array<{ key: string; option: ChartOption }> {
+    return WEIGHT_TREND_GROUPS.map((group) => ({
+      key: group.key,
+      option:
+        group.kind === 'reward'
+          ? this.rewardTrendOption(status, group.title)
+          : this.weightTrendOption(status, group),
+    }));
+  }
+
+  private weightTrendOption(status: TrainingStatusPayload, group: WeightTrendGroup): ChartOption {
     const rounds = this.chartRounds(status);
     const xAxis = rounds.map((round) => `R${round.round}`);
-    const fields = [
-      ['structural_weight', '结构'],
-      ['frequency_weight', '频率'],
-      ['omission_weight', '遗漏'],
-      ['previous_consecutive_weight', '上期连号'],
-      ['previous_overlap_weight', '上期重叠'],
-      ['previous_parity_shape_weight', '奇偶形态'],
-      ['dynamic_parity_transition_weight', '动态奇偶转移'],
-      ['previous_zone_shape_weight', '分区形态'],
-      ['recent_neighbor_weight', '近期开奖邻号'],
-      ['lagged_consecutive_weight', '隔期连号链'],
-      ['recent_gap_shape_weight', '跳号间距'],
-      ['recent_sum_span_weight', '和值跨度'],
-      ['qian_kun_pattern_weight', '乾坤卦象'],
-      ['first_last_sum_weight', '首尾合'],
-      ['span_trend_weight', '首尾差/跨度'],
-      ['sum_trend_weight', '和值走势'],
-      ['ac_trend_weight', 'AC值走势'],
-      ['zone_ratio_weight', '区间比'],
-      ['big_small_ratio_weight', '大小比'],
-      ['parity_ratio_weight', '奇偶比'],
-      ['prime_composite_weight', '质合比'],
-      ['mod012_weight', '012路'],
-      ['tail_distribution_weight', '尾数分布'],
-      ['sum_tail_weight', '和尾走势'],
-      ['red_omission_shape_weight', '红球遗漏形态'],
-      ['sum_span_omission_weight', '和值跨度遗漏'],
-      ['consecutive_trend_weight', '连号走势'],
-      ['repeat_trend_weight', '重号走势'],
-      ['stable_range_weight', '稳定区间'],
-      ['weekday_trend_weight', '开奖日走势'],
-    ] as const;
-    return this.baseLineOption({
-      title: '权重演化',
+    const fields = group.fields ?? [];
+    return this.groupedLineOption({
+      title: group.title,
       xAxis,
       yName: '权重',
       series: fields.map(([field, label]) =>
@@ -744,6 +795,28 @@ export class AppComponent {
 
   private chartRounds(status: TrainingStatusPayload): TrainingRoundSummary[] {
     return status.rounds.length ? status.rounds : [...status.recentRounds].reverse();
+  }
+
+  private groupedLineOption({
+    title,
+    xAxis,
+    yName,
+    series,
+  }: {
+    title: string;
+    xAxis: string[];
+    yName: string;
+    series: Record<string, unknown>[];
+  }): ChartOption {
+    return {
+      title: { text: title, left: 12, top: 8, textStyle: { fontSize: 14, fontWeight: 700 } },
+      tooltip: { trigger: 'axis' },
+      legend: { type: 'scroll', top: 38, left: 12, right: 12 },
+      grid: { left: 58, right: 24, top: 92, bottom: 42 },
+      xAxis: { type: 'category', data: xAxis },
+      yAxis: { type: 'value', name: yName },
+      series,
+    };
   }
 
   private baseLineOption({
