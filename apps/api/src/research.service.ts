@@ -38,6 +38,73 @@ const TAIL_OVER_1000000_PENALTY = 1.25;
 const WORST_RANK_PENALTY_WEIGHT = 12;
 const P95_RANK_PENALTY_WEIGHT = 6;
 const MEDIAN_RANK_PENALTY_WEIGHT = 2;
+const HEXAGRAMS_BY_PATTERN: Record<string, { number: number; label: string }> = {
+  '111111': { number: 1, label: '乾卦' },
+  '000000': { number: 2, label: '坤卦' },
+  '100010': { number: 3, label: '屯卦' },
+  '010001': { number: 4, label: '蒙卦' },
+  '111010': { number: 5, label: '需卦' },
+  '010111': { number: 6, label: '讼卦' },
+  '010000': { number: 7, label: '师卦' },
+  '000010': { number: 8, label: '比卦' },
+  '111011': { number: 9, label: '小畜卦' },
+  '110111': { number: 10, label: '履卦' },
+  '111000': { number: 11, label: '泰卦' },
+  '000111': { number: 12, label: '否卦' },
+  '101111': { number: 13, label: '同人卦' },
+  '111101': { number: 14, label: '大有卦' },
+  '001000': { number: 15, label: '谦卦' },
+  '000100': { number: 16, label: '豫卦' },
+  '100110': { number: 17, label: '随卦' },
+  '011001': { number: 18, label: '蛊卦' },
+  '110000': { number: 19, label: '临卦' },
+  '000011': { number: 20, label: '观卦' },
+  '100101': { number: 21, label: '噬嗑卦' },
+  '101001': { number: 22, label: '贲卦' },
+  '000001': { number: 23, label: '剥卦' },
+  '100000': { number: 24, label: '复卦' },
+  '100111': { number: 25, label: '无妄卦' },
+  '111001': { number: 26, label: '大畜卦' },
+  '100001': { number: 27, label: '颐卦' },
+  '011110': { number: 28, label: '大过卦' },
+  '010010': { number: 29, label: '坎卦' },
+  '101101': { number: 30, label: '离卦' },
+  '001110': { number: 31, label: '咸卦' },
+  '011100': { number: 32, label: '恒卦' },
+  '001111': { number: 33, label: '遁卦' },
+  '111100': { number: 34, label: '大壮卦' },
+  '000101': { number: 35, label: '晋卦' },
+  '101000': { number: 36, label: '明夷卦' },
+  '101011': { number: 37, label: '家人卦' },
+  '110101': { number: 38, label: '睽卦' },
+  '001010': { number: 39, label: '蹇卦' },
+  '010100': { number: 40, label: '解卦' },
+  '110001': { number: 41, label: '损卦' },
+  '100011': { number: 42, label: '益卦' },
+  '111110': { number: 43, label: '夬卦' },
+  '011111': { number: 44, label: '姤卦' },
+  '000110': { number: 45, label: '萃卦' },
+  '011000': { number: 46, label: '升卦' },
+  '010110': { number: 47, label: '困卦' },
+  '011010': { number: 48, label: '井卦' },
+  '101110': { number: 49, label: '革卦' },
+  '011101': { number: 50, label: '鼎卦' },
+  '100100': { number: 51, label: '震卦' },
+  '001001': { number: 52, label: '艮卦' },
+  '001011': { number: 53, label: '渐卦' },
+  '110100': { number: 54, label: '归妹卦' },
+  '101100': { number: 55, label: '丰卦' },
+  '001101': { number: 56, label: '旅卦' },
+  '011011': { number: 57, label: '巽卦' },
+  '110110': { number: 58, label: '兑卦' },
+  '010011': { number: 59, label: '涣卦' },
+  '110010': { number: 60, label: '节卦' },
+  '110011': { number: 61, label: '中孚卦' },
+  '001100': { number: 62, label: '小过卦' },
+  '101010': { number: 63, label: '既济卦' },
+  '010101': { number: 64, label: '未济卦' },
+};
+const HEXAGRAM_UNICODE_BASE = 0x4dbf;
 
 @Injectable()
 export class ResearchService {
@@ -426,14 +493,15 @@ export class ResearchService {
       };
     }
     const row = value as Record<string, unknown>;
+    const latestPattern = this.stringValue(row.latest_pattern) ?? '';
     return {
       total_draws: this.numberValue(row.total_draws) ?? 0,
       recent_window: this.numberValue(row.recent_window) ?? 0,
       latest_issue: this.stringValue(row.latest_issue) ?? '',
       latest_numbers: this.numberArrayValue(row.latest_numbers),
-      latest_pattern: this.stringValue(row.latest_pattern) ?? '',
-      latest_label: this.stringValue(row.latest_label) ?? '',
-      latest_icon: this.stringValue(row.latest_icon) ?? '',
+      latest_pattern: latestPattern,
+      latest_label: this.qianKunLabel(latestPattern) ?? this.stringValue(row.latest_label) ?? '',
+      latest_icon: this.stringValue(row.latest_icon) ?? this.qianKunIcon(latestPattern),
       latest_lines: this.stringArrayValue(row.latest_lines),
       qian_count: this.numberValue(row.qian_count) ?? 0,
       kun_count: this.numberValue(row.kun_count) ?? 0,
@@ -457,8 +525,8 @@ export class ResearchService {
         }
         return {
           pattern,
-          label: this.stringValue(row.label) ?? pattern,
-          icon: this.stringValue(row.icon) ?? '',
+          label: this.qianKunLabel(pattern) ?? this.stringValue(row.label) ?? pattern,
+          icon: this.stringValue(row.icon) ?? this.qianKunIcon(pattern),
           lines: this.stringArrayValue(row.lines),
           count: this.numberValue(row.count) ?? 0,
           rate: this.numberValue(row.rate) ?? 0,
@@ -478,6 +546,15 @@ export class ResearchService {
           recent_rate: number;
         } => item !== null,
       );
+  }
+
+  private qianKunLabel(pattern: string) {
+    return HEXAGRAMS_BY_PATTERN[pattern]?.label;
+  }
+
+  private qianKunIcon(pattern: string) {
+    const number = HEXAGRAMS_BY_PATTERN[pattern]?.number;
+    return number ? String.fromCodePoint(HEXAGRAM_UNICODE_BASE + number) : '';
   }
 
   private emptyRedFive() {
