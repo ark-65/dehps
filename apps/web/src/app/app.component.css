@@ -339,12 +339,19 @@ select {
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .progress-copy strong,
-.progress-copy span {
+.progress-copy span,
+.progress-copy small {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.progress-copy small {
+  flex-basis: 100%;
+  color: #64717d;
 }
 
 .wide-bar-track {
@@ -380,6 +387,17 @@ select {
   border: 1px solid #e3e7eb;
   border-radius: 6px;
   background: #fbfcfd;
+}
+
+.chart-placeholder {
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid #d8e1e9;
+  border-radius: 6px;
+  background: #f7fafc;
+  color: #516070;
+  font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .wide-chart {

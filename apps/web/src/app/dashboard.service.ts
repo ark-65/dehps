@@ -1,5 +1,5 @@
 import { HttpClient } from '@angular/common/http';
-import { Injectable } from '@angular/core';
+import { Injectable, NgZone } from '@angular/core';
 import { Observable } from 'rxjs';
 import {
   DashboardPayload,
@@ -37,7 +37,10 @@ type TrainingStatusSocketMessage =
 
 @Injectable({ providedIn: 'root' })
 export class DashboardService {
-  constructor(private readonly http: HttpClient) {}
+  constructor(
+    private readonly http: HttpClient,
+    private readonly zone: NgZone,
+  ) {}
 
   load(): Observable<DashboardPayload> {
     return this.http.get<DashboardPayload>('/dashboard');
@@ -72,19 +75,46 @@ export class DashboardService {
       let closedBySubscriber = false;
       let socket: WebSocket | null = null;
       let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+      let connectTimer: ReturnType<typeof setTimeout> | null = null;
       let reconnectAttempt = 0;
       let latestPayload: TrainingStatusPayload | null = null;
+      let activeUrlIndex = 0;
+      let opened = false;
+      let fallbackUrlIndex: number | null = null;
+      const socketUrls = this.trainingStatusSocketUrls();
 
-      const connect = () => {
-        subscriber.next({
+      const clearConnectTimer = () => {
+        if (connectTimer) {
+          clearTimeout(connectTimer);
+          connectTimer = null;
+        }
+      };
+
+      const emit = (state: TrainingStatusStreamState) => {
+        this.zone.run(() => subscriber.next(state));
+      };
+
+      const connect = (urlIndex = activeUrlIndex) => {
+        activeUrlIndex = urlIndex;
+        opened = false;
+        emit({
           connection: reconnectAttempt === 0 ? 'connecting' : 'reconnecting',
           payload: latestPayload,
           message: reconnectAttempt === 0 ? '正在连接训练实时通道' : '实时通道已断开，正在重连',
         });
-        socket = new WebSocket(this.trainingStatusSocketUrl());
+        socket = new WebSocket(socketUrls[activeUrlIndex]);
+        connectTimer = setTimeout(() => {
+          if (socket?.readyState === WebSocket.CONNECTING) {
+            fallbackUrlIndex = socketUrls[activeUrlIndex + 1] ? activeUrlIndex + 1 : null;
+            socket.close();
+          }
+        }, 5000);
 
         socket.onopen = () => {
-          subscriber.next({ connection: 'connected', payload: latestPayload, message: null });
+          opened = true;
+          clearConnectTimer();
+          reconnectAttempt = 0;
+          emit({ connection: 'connected', payload: latestPayload, message: null });
         };
 
         socket.onmessage = (event) => {
@@ -92,14 +122,14 @@ export class DashboardService {
             const message = JSON.parse(String(event.data)) as TrainingStatusSocketMessage;
             if (message.type === 'training_status') {
               latestPayload = message.payload;
-              subscriber.next({ connection: 'connected', payload: latestPayload, message: null });
+              emit({ connection: 'connected', payload: latestPayload, message: null });
             } else if (message.type === 'heartbeat') {
-              subscriber.next({ connection: 'connected', payload: latestPayload, message: null });
+              emit({ connection: 'connected', payload: latestPayload, message: null });
             } else if (message.type === 'error') {
-              subscriber.next({ connection: 'connected', payload: latestPayload, message: message.message });
+              emit({ connection: 'connected', payload: latestPayload, message: message.message });
             }
           } catch (error) {
-            subscriber.next({
+            emit({
               connection: 'disconnected',
               payload: latestPayload,
               message: error instanceof Error ? error.message : '训练实时消息解析失败',
@@ -114,13 +144,20 @@ export class DashboardService {
         };
 
         socket.onclose = () => {
+          clearConnectTimer();
           if (closedBySubscriber) {
-            subscriber.complete();
+            this.zone.run(() => subscriber.complete());
+            return;
+          }
+          if (!opened && fallbackUrlIndex !== null) {
+            const nextUrlIndex = fallbackUrlIndex;
+            fallbackUrlIndex = null;
+            connect(nextUrlIndex);
             return;
           }
           reconnectAttempt += 1;
-          subscriber.next({ connection: 'reconnecting', payload: latestPayload, message: '实时通道已断开，正在重连' });
-          reconnectTimer = setTimeout(connect, 2000);
+          emit({ connection: 'reconnecting', payload: latestPayload, message: '实时通道已断开，正在重连' });
+          reconnectTimer = setTimeout(() => connect(activeUrlIndex), 2000);
         };
       };
 
@@ -131,6 +168,7 @@ export class DashboardService {
         if (reconnectTimer) {
           clearTimeout(reconnectTimer);
         }
+        clearConnectTimer();
         if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
           socket.close();
         }
@@ -138,10 +176,13 @@ export class DashboardService {
     });
   }
 
-  private trainingStatusSocketUrl(): string {
+  private trainingStatusSocketUrls(): string[] {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const port = window.location.port === '4200' ? '3000' : window.location.port;
-    const host = port ? `${window.location.hostname}:${port}` : window.location.host;
-    return `${protocol}//${host}/training-status/ws`;
+    const sameOrigin = `${protocol}//${window.location.host}/training-status/ws`;
+    if (window.location.port !== '4200') {
+      return [sameOrigin];
+    }
+    const apiFallback = `${protocol}//${window.location.hostname}:3000/training-status/ws`;
+    return sameOrigin === apiFallback ? [sameOrigin] : [sameOrigin, apiFallback];
   }
 }

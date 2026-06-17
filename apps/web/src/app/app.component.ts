@@ -225,7 +225,8 @@ export class AppComponent {
       return stream.message;
     }
     if (stream?.payload) {
-      return '训练变化会实时推送';
+      const updatedAt = stream.payload.latestProgress?.loggedAt ?? stream.payload.updatedAt;
+      return updatedAt ? `最后推送 ${updatedAt}` : '训练变化会实时推送';
     }
     return '正在等待训练实时快照';
   }
@@ -243,6 +244,20 @@ export class AppComponent {
       return '暂无进行中的 target 进度';
     }
     return `第 ${progress.round} 轮：${progress.targetIndex}/${progress.targetTotal}，目标期 ${progress.issue}`;
+  }
+
+  progressDetailText(status: TrainingStatusPayload): string {
+    const progress = status.latestProgress;
+    const pushedAt = progress?.loggedAt ?? status.updatedAt;
+    const pushedText = pushedAt ? `最后推送 ${pushedAt}` : '等待首个进度事件';
+    return `${pushedText} / 当前设置每 10 个目标期推送一帧`;
+  }
+
+  chartPlaceholderText(status: TrainingStatusPayload): string | null {
+    if (status.rounds.length || status.recentRounds.length) {
+      return null;
+    }
+    return '当前 run 第一轮尚未完成，趋势图会在第 1 轮完成后出现；上方进度条仍通过 WebSocket 实时更新。';
   }
 
   configSummary(result: TrainingResult | null): string {

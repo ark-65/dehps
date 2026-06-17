@@ -131,6 +131,7 @@
             {{ training.workers || '无' }} 核 /
             内存 {{ training.memoryBudgetGb || '无' }}G
           </span>
+          <small>{{ progressDetailText(training) }}</small>
         </div>
         <div class="wide-bar-track" aria-label="当前轮 target 进度">
           <div class="wide-bar-fill" [style.width.%]="progressRate(training.latestProgress) * 100"></div>
@@ -138,6 +139,11 @@
       </div>
 
       <div class="chart-grid">
+        @if (chartPlaceholderText(training); as placeholder) {
+        <article class="chart-placeholder wide-chart">
+          {{ placeholder }}
+        </article>
+        }
         <article class="chart-panel wide-chart">
           <app-echart [option]="hitTrendOption(training)" height="320px"></app-echart>
         </article>

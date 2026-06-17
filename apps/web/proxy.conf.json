@@ -19,6 +19,11 @@
     "target": "http://localhost:3000",
     "secure": false
   },
+  "/training-status/ws": {
+    "target": "ws://localhost:3000",
+    "secure": false,
+    "ws": true
+  },
   "/training-status": {
     "target": "http://localhost:3000",
     "secure": false,
