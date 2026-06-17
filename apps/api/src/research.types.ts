@@ -209,6 +209,7 @@ export type TrainingPrefilterRun = {
   round: number | null;
   targetStride: number | null;
   targetCount: number | null;
+  targetWorkerCount: number | null;
   generatedConfigCount: number | null;
   keptConfigCount: number | null;
   promoteLimit: number | null;

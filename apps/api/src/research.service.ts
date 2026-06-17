@@ -408,6 +408,7 @@ export class ResearchService {
       round: this.numberValue(row.round),
       targetStride: this.numberValue(row.target_stride) ?? this.numberValue(row.targetStride),
       targetCount: this.numberValue(row.target_count) ?? this.numberValue(row.targetCount),
+      targetWorkerCount: this.numberValue(row.target_worker_count) ?? this.numberValue(row.targetWorkerCount),
       generatedConfigCount: this.numberValue(row.generated_config_count) ?? this.numberValue(row.generatedConfigCount),
       keptConfigCount: this.numberValue(row.kept_config_count) ?? this.numberValue(row.keptConfigCount),
       promoteLimit: this.numberValue(row.promote_limit) ?? this.numberValue(row.promoteLimit),

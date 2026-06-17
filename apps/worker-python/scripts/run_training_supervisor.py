@@ -9,6 +9,7 @@ from collections import Counter
 from dataclasses import replace
 from datetime import datetime, timedelta
 from math import ceil
+import multiprocessing as mp
 from pathlib import Path
 import sys
 import time
@@ -107,6 +108,7 @@ PHASE_SEARCH_FIELDS = {
 }
 DEFAULT_UNIVERSE_SIZE = 1_107_568
 DEFAULT_TRAINING_EVENT_URL = "http://127.0.0.1:3000/training-events/status"
+_TARGET_WORKER_UNIVERSE = None
 TOP_100_REWARD = 1000
 TOP_1000_REWARD = 100
 TOP_10000_REWARD = 10
@@ -131,6 +133,10 @@ PHASES = (
     ("medium", 0.07),
     ("large", 0.15),
 )
+
+
+def _target_pool_context():
+    return mp.get_context("fork") if "fork" in mp.get_all_start_methods() else mp.get_context()
 
 
 def log(message: str) -> None:
@@ -893,20 +899,24 @@ def prefilter_configs(
         }
 
     target_rank_lists: list[list[TargetRank]] = [[] for _ in configs]
-    for target_index in target_indices:
-        train_start = 0 if train_mode == "expanding" else max(0, target_index - train_window)
-        train_history = history[train_start:target_index]
-        target_draw = history[target_index]
-        ranked_targets = rank_target_grid(
-            target_numbers=history_numbers(target_draw),
-            train_history=train_history,
-            configs=configs,
-            ranked_universe=ranked_universe,
-            target_draw_date=history_draw_date(target_draw),
-            workers=workers,
-            pool=pool,
-        )
-        issue = history_issue(target_draw)
+    target_worker_count = max(1, min(workers, len(target_indices)))
+    tasks = [
+        (target_index, history, configs, train_window, train_mode, 1)
+        for target_index in target_indices
+    ]
+    if target_worker_count > 1:
+        context = _target_pool_context()
+        with context.Pool(
+            processes=target_worker_count,
+            initializer=_init_target_worker,
+            initargs=(ranked_universe,),
+        ) as target_pool:
+            target_results = list(target_pool.imap_unordered(_evaluate_prefilter_target_worker, tasks))
+    else:
+        _init_target_worker(ranked_universe)
+        target_results = list(map(_evaluate_prefilter_target_worker, tasks))
+
+    for _target_index, issue, ranked_targets in target_results:
         for config_index, (rank, score) in enumerate(ranked_targets):
             target_rank_lists[config_index].append(
                 TargetRank(
@@ -960,6 +970,7 @@ def prefilter_configs(
         "round": round_index,
         "target_stride": stride,
         "target_count": len(target_indices),
+        "target_worker_count": target_worker_count,
         "target_issues": [history_issue(history[index]) for index in target_indices],
         "generated_config_count": len(configs),
         "kept_config_count": len([config for config in keep_configs if config_hash(config) in config_by_hash]),
@@ -970,6 +981,66 @@ def prefilter_configs(
         "note": "预筛仅用于选择进入完整精排的配置，正式指标来自完整 100 期精排",
     }
     return tuple(selected), metadata
+
+
+def _init_target_worker(ranked_universe) -> None:
+    global _TARGET_WORKER_UNIVERSE
+    _TARGET_WORKER_UNIVERSE = ranked_universe
+
+
+def _evaluate_prefilter_target_worker(args: tuple) -> tuple[int, str, list[tuple[int, float]]]:
+    (
+        target_index,
+        history,
+        configs,
+        train_window,
+        train_mode,
+        workers,
+    ) = args
+    if _TARGET_WORKER_UNIVERSE is None:
+        raise RuntimeError("target worker universe is not initialized")
+    train_start = 0 if train_mode == "expanding" else max(0, target_index - train_window)
+    train_history = history[train_start:target_index]
+    target_draw = history[target_index]
+    issue = history_issue(target_draw)
+    ranked_targets = rank_target_grid(
+        target_numbers=history_numbers(target_draw),
+        train_history=train_history,
+        configs=configs,
+        ranked_universe=_TARGET_WORKER_UNIVERSE,
+        target_draw_date=history_draw_date(target_draw),
+        workers=workers,
+        pool=None,
+    )
+    return target_index, issue, ranked_targets
+
+
+def _evaluate_target_worker(args: tuple) -> tuple[int, str, int, list[tuple[int, float, object]]]:
+    (
+        progress_index,
+        target_index,
+        history,
+        configs,
+        train_window,
+        train_mode,
+        workers,
+    ) = args
+    if _TARGET_WORKER_UNIVERSE is None:
+        raise RuntimeError("target worker universe is not initialized")
+    train_start = 0 if train_mode == "expanding" else max(0, target_index - train_window)
+    train_history = history[train_start:target_index]
+    target_draw = history[target_index]
+    issue = history_issue(target_draw)
+    ranked_targets = rank_target_grid_with_red5(
+        target_numbers=history_numbers(target_draw),
+        train_history=train_history,
+        configs=configs,
+        ranked_universe=_TARGET_WORKER_UNIVERSE,
+        target_draw_date=history_draw_date(target_draw),
+        workers=workers,
+        pool=None,
+    )
+    return progress_index, issue, len(train_history), ranked_targets
 
 
 def evaluate_configs(
@@ -989,24 +1060,74 @@ def evaluate_configs(
 ) -> list[dict]:
     start_index = max(train_window, len(history) - eval_window)
     total_targets = len(history) - start_index
-    target_rank_lists: list[list[TargetRank]] = [[] for _ in configs]
+    target_results: list[tuple[int, str, int, list[tuple[int, float, object]]] | None] = [None for _ in range(total_targets)]
     started = time.time()
 
-    for progress_index, target_index in enumerate(range(start_index, len(history)), start=1):
-        train_start = 0 if train_mode == "expanding" else max(0, target_index - train_window)
-        train_history = history[train_start:target_index]
-        target_draw = history[target_index]
-        issue = history_issue(target_draw)
-        numbers = history_numbers(target_draw)
-        ranked_targets = rank_target_grid_with_red5(
-            target_numbers=numbers,
-            train_history=train_history,
-            configs=configs,
-            ranked_universe=ranked_universe,
-            target_draw_date=history_draw_date(target_draw),
-            workers=workers,
-            pool=pool,
-        )
+    tasks = [
+        (progress_index, target_index, history, configs, train_window, train_mode, 1)
+        for progress_index, target_index in enumerate(range(start_index, len(history)), start=1)
+    ]
+    target_worker_count = max(1, min(workers, total_targets))
+    if target_worker_count > 1:
+        context = _target_pool_context()
+        with context.Pool(
+            processes=target_worker_count,
+            initializer=_init_target_worker,
+            initargs=(ranked_universe,),
+        ) as target_pool:
+            iterator = target_pool.imap_unordered(_evaluate_target_worker, tasks)
+            for completed_count, result in enumerate(iterator, start=1):
+                progress_index, issue, train_draws, _ranked_targets = result
+                target_results[progress_index - 1] = result
+                if progress_interval > 0 and (
+                    completed_count == 1 or completed_count == total_targets or completed_count % progress_interval == 0
+                ):
+                    elapsed = time.time() - started
+                    progress = training_progress_payload(
+                        round_index=round_index,
+                        target_index=completed_count,
+                        target_total=total_targets,
+                        issue=issue,
+                        train_draws=train_draws,
+                        elapsed_seconds=elapsed,
+                    )
+                    log(
+                        f"round={round_index} target={completed_count}/{total_targets} "
+                        f"issue={issue} train_draws={train_draws} elapsed={elapsed:.1f}s "
+                        f"target_workers={target_worker_count}"
+                    )
+                    if progress_callback is not None:
+                        progress_callback(progress)
+    else:
+        _init_target_worker(ranked_universe)
+        for result in map(_evaluate_target_worker, tasks):
+            progress_index, issue, train_draws, _ranked_targets = result
+            target_results[progress_index - 1] = result
+            if progress_interval > 0 and (
+                progress_index == 1 or progress_index == total_targets or progress_index % progress_interval == 0
+            ):
+                elapsed = time.time() - started
+                progress = training_progress_payload(
+                    round_index=round_index,
+                    target_index=progress_index,
+                    target_total=total_targets,
+                    issue=issue,
+                    train_draws=train_draws,
+                    elapsed_seconds=elapsed,
+                )
+                log(
+                    f"round={round_index} target={progress_index}/{total_targets} "
+                    f"issue={issue} train_draws={train_draws} elapsed={elapsed:.1f}s "
+                    f"target_workers={target_worker_count}"
+                )
+                if progress_callback is not None:
+                    progress_callback(progress)
+
+    target_rank_lists: list[list[TargetRank]] = [[] for _ in configs]
+    for result in target_results:
+        if result is None:
+            continue
+        _progress_index, issue, _train_draws, ranked_targets = result
         for config_index, (rank, score, red5_match) in enumerate(ranked_targets):
             target_rank_lists[config_index].append(
                 TargetRank(
@@ -1026,24 +1147,19 @@ def evaluate_configs(
                     hit_red5_top_10000=red5_match is not None and red5_match.rank <= 10000,
                 )
             )
-        if progress_interval > 0 and (
-            progress_index == 1 or progress_index == total_targets or progress_index % progress_interval == 0
-        ):
-            elapsed = time.time() - started
-            progress = training_progress_payload(
-                round_index=round_index,
-                target_index=progress_index,
-                target_total=total_targets,
-                issue=issue,
-                train_draws=len(train_history),
-                elapsed_seconds=elapsed,
-            )
-            log(
-                f"round={round_index} target={progress_index}/{total_targets} "
-                f"issue={issue} train_draws={len(train_history)} elapsed={elapsed:.1f}s"
-            )
-            if progress_callback is not None:
-                progress_callback(progress)
+
+    if progress_interval > 0 and not target_results:
+        elapsed = time.time() - started
+        progress = training_progress_payload(
+            round_index=round_index,
+            target_index=0,
+            target_total=total_targets,
+            issue="",
+            train_draws=0,
+            elapsed_seconds=elapsed,
+        )
+        if progress_callback is not None:
+            progress_callback(progress)
 
     as_of_issue = history_issue(history[-1])
     history_fingerprint_value = fingerprint_history(history)
@@ -1271,6 +1387,7 @@ def run_supervisor(
                 f"round={round_index + 1} phase={phase} step={step} "
                 f"configs={generated_config_count}->{len(refined_configs)} "
                 f"prefilter_targets={prefilter_info['target_count']} "
+                f"prefilter_workers={prefilter_info.get('target_worker_count', 1)} "
                 f"prefilter_elapsed={prefilter_info['elapsed_seconds']}s "
                 f"base={config_dict(base_config)}"
             )

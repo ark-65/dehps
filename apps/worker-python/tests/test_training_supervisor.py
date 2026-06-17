@@ -7,6 +7,7 @@ from dehps.optimization.walk_forward import TargetRank, build_ranked_universe
 from scripts.run_training_supervisor import (
     calculate_tail_risk_penalty,
     config_hash,
+    evaluate_configs,
     generate_configs,
     load_prior_supervisor_candidates,
     post_training_event,
@@ -116,6 +117,124 @@ def test_prefilter_configs_keeps_base_and_elite_before_full_refine():
     assert metadata["generated_config_count"] == len(configs)
     assert metadata["refined_config_count"] == len(refined)
     assert metadata["target_count"] == 1
+
+
+def test_prefilter_configs_target_parallel_matches_single_worker():
+    universe = [
+        (1, 8, 13, 18, 23, 31),
+        (2, 9, 14, 19, 24, 32),
+        (3, 10, 15, 20, 25, 33),
+        (4, 11, 16, 21, 26, 30),
+        (5, 12, 17, 22, 27, 29),
+    ]
+    history = [
+        ("001", universe[0]),
+        ("002", universe[1]),
+        ("003", universe[2]),
+        ("004", universe[3]),
+        ("005", universe[4]),
+        ("006", universe[0]),
+        ("007", universe[1]),
+    ]
+    base = FrequencyRankerConfig()
+    elite = FrequencyRankerConfig(structural_weight=0.35, frequency_weight=0.40, omission_weight=0.20)
+    configs = (
+        base,
+        elite,
+        FrequencyRankerConfig(structural_weight=0.10, frequency_weight=0.80, omission_weight=0.05),
+        FrequencyRankerConfig(structural_weight=0.80, frequency_weight=0.10, omission_weight=0.05),
+    )
+    matrix = build_ranked_universe(universe)
+
+    serial, serial_metadata = prefilter_configs(
+        history=history,
+        ranked_universe=matrix,
+        configs=configs,
+        keep_configs=(base, elite),
+        train_window=2,
+        train_mode="expanding",
+        eval_window=5,
+        top_n=10000,
+        workers=1,
+        pool=None,
+        round_index=1,
+        stride=1,
+        promote_limit=2,
+    )
+    parallel, parallel_metadata = prefilter_configs(
+        history=history,
+        ranked_universe=matrix,
+        configs=configs,
+        keep_configs=(base, elite),
+        train_window=2,
+        train_mode="expanding",
+        eval_window=5,
+        top_n=10000,
+        workers=2,
+        pool=None,
+        round_index=1,
+        stride=1,
+        promote_limit=2,
+    )
+
+    assert [config_hash(config) for config in parallel] == [config_hash(config) for config in serial]
+    assert parallel_metadata["target_count"] == serial_metadata["target_count"] == 5
+    assert parallel_metadata["target_worker_count"] == 2
+    assert [item["config_hash"] for item in parallel_metadata["top_preview"]] == [
+        item["config_hash"] for item in serial_metadata["top_preview"]
+    ]
+
+
+def test_evaluate_configs_target_parallel_matches_single_worker():
+    universe = [
+        (1, 8, 13, 18, 23, 31),
+        (2, 9, 14, 19, 24, 32),
+        (3, 10, 15, 20, 25, 33),
+        (4, 11, 16, 21, 26, 30),
+        (5, 12, 17, 22, 27, 29),
+    ]
+    history = [
+        ("001", universe[0]),
+        ("002", universe[1]),
+        ("003", universe[2]),
+        ("004", universe[3]),
+        ("005", universe[4]),
+        ("006", universe[0]),
+    ]
+    configs = (
+        FrequencyRankerConfig(),
+        FrequencyRankerConfig(structural_weight=0.2, frequency_weight=0.6, omission_weight=0.1),
+    )
+    matrix = build_ranked_universe(universe)
+
+    single = evaluate_configs(
+        history=history,
+        ranked_universe=matrix,
+        configs=configs,
+        train_window=2,
+        train_mode="expanding",
+        eval_window=3,
+        top_n=10000,
+        workers=1,
+        pool=None,
+        progress_interval=0,
+        round_index=1,
+    )
+    parallel = evaluate_configs(
+        history=history,
+        ranked_universe=matrix,
+        configs=configs,
+        train_window=2,
+        train_mode="expanding",
+        eval_window=3,
+        top_n=10000,
+        workers=2,
+        pool=None,
+        progress_interval=0,
+        round_index=1,
+    )
+
+    assert parallel == single
 
 
 def test_training_event_post_failure_is_non_fatal():

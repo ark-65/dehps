@@ -289,8 +289,9 @@ export class AppComponent {
       return status.prefilter?.description || '每轮先轻量预筛，再完整精排';
     }
     const targets = latest.targetCount ?? 0;
+    const workers = latest.targetWorkerCount ?? status.workers ?? 0;
     const seconds = latest.elapsedSeconds ?? 0;
-    return `预筛 ${targets} 期 / ${seconds.toFixed(1)} 秒 / 正式指标来自精排`;
+    return `预筛 ${targets} 期 / ${workers} 核 / ${seconds.toFixed(1)} 秒 / 正式指标来自精排`;
   }
 
   hasRoundCharts(status: TrainingStatusPayload): boolean {
