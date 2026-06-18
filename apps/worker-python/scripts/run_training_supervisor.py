@@ -22,8 +22,19 @@ from dehps.db import get_connection
 from dehps.features.qian_kun import qian_kun_distribution
 from dehps.models.frequency_ranker import FrequencyRankerConfig
 from dehps.models.frequency_ranker import history_draw_date, history_issue, history_numbers
+from dehps.optimization.neural_kdj_advisor import (
+    NeuralKdjOffsetAdvice,
+    neural_kdj_advice_to_frequency_ranker_config_candidates,
+    numpy_neural_kdj_offset_v0,
+)
+from dehps.optimization.ridge_kdj_advisor import (
+    RidgeKdjOffsetAdvice,
+    numpy_ridge_kdj_offset_v0,
+    ridge_kdj_advice_to_frequency_ranker_config_candidates,
+)
 from dehps.optimization.regime import HistoryScope, select_history
 from dehps.optimization.weight_kdj import WeightKdjAdvice, weight_kdj_advice_from_signals
+from dehps.runtime.heavy_job import apply_cpu_thread_env_defaults, heavy_job_lock
 from dehps.optimization.walk_forward import (
     TargetRank,
     build_ranked_universe,
@@ -149,6 +160,18 @@ DEFAULT_WEIGHT_KDJ_MIN_OBJECTIVE_DELTA = 0.0
 DEFAULT_WEIGHT_KDJ_MIN_ABS_OFFSET = 0.005
 DEFAULT_WEIGHT_KDJ_SLOPE_WINDOW = 3
 DEFAULT_WEIGHT_KDJ_NEUTRAL_BAND = 5.0
+DEFAULT_RIDGE_KDJ_BUDGET_SHARE = 0.08
+DEFAULT_RIDGE_KDJ_STEP = 0.01
+DEFAULT_RIDGE_KDJ_ALPHA = 1.0
+DEFAULT_RIDGE_KDJ_MIN_CONFIDENCE = 0.0
+DEFAULT_RIDGE_KDJ_MIN_TRAIN_ROWS = 12
+DEFAULT_RIDGE_KDJ_MIN_VALIDATION_ROWS = 4
+DEFAULT_NEURAL_KDJ_BUDGET_SHARE = 0.05
+DEFAULT_NEURAL_KDJ_STEP = 0.01
+DEFAULT_NEURAL_KDJ_SEED = 17
+DEFAULT_NEURAL_KDJ_HIDDEN_UNITS = 8
+DEFAULT_NEURAL_KDJ_EPOCHS = 120
+DEFAULT_NEURAL_KDJ_MIN_CONFIDENCE = 0.0
 MAX_FROZEN_VALIDATION_WINDOW = 20
 
 
@@ -248,17 +271,41 @@ def add_unique_until(
         add_unique(configs, seen, config)
 
 
-def candidate_budget(max_configs: int, *, weight_kdj_budget_share: float = 0.0) -> dict[str, int]:
+def _reserved_candidate_count(max_configs: int, budget_share: float, *, available: int) -> int:
+    if max_configs <= 0 or available <= 0 or budget_share <= 0:
+        return 0
+    share = min(1.0, max(0.0, budget_share))
+    return min(available, max(1, int(ceil(max_configs * share))))
+
+
+def candidate_budget(
+    max_configs: int,
+    *,
+    weight_kdj_budget_share: float = 0.0,
+    ridge_kdj_budget_share: float = 0.0,
+    neural_kdj_budget_share: float = 0.0,
+) -> dict[str, int]:
     if max_configs <= 0:
         counts = {name: 0 for name in CANDIDATE_BUDGET_SHARES}
         if weight_kdj_budget_share > 0:
             counts["weight_kdj"] = 0
+        if ridge_kdj_budget_share > 0:
+            counts["ridge_kdj"] = 0
+        if neural_kdj_budget_share > 0:
+            counts["neural_kdj"] = 0
         return counts
-    weight_kdj_count = 0
-    if weight_kdj_budget_share > 0:
-        share = min(1.0, max(0.0, weight_kdj_budget_share))
-        weight_kdj_count = min(max_configs, max(1, int(ceil(max_configs * share))))
-    normal_budget = max_configs - weight_kdj_count
+    weight_kdj_count = _reserved_candidate_count(max_configs, weight_kdj_budget_share, available=max_configs)
+    ridge_kdj_count = _reserved_candidate_count(
+        max_configs,
+        ridge_kdj_budget_share,
+        available=max_configs - weight_kdj_count,
+    )
+    neural_kdj_count = _reserved_candidate_count(
+        max_configs,
+        neural_kdj_budget_share,
+        available=max_configs - weight_kdj_count - ridge_kdj_count,
+    )
+    normal_budget = max_configs - weight_kdj_count - ridge_kdj_count - neural_kdj_count
     names = tuple(CANDIDATE_BUDGET_SHARES)
     counts = {name: 0 for name in names}
     remaining = normal_budget
@@ -284,6 +331,10 @@ def candidate_budget(max_configs: int, *, weight_kdj_budget_share: float = 0.0) 
         remaining -= 1
     if weight_kdj_budget_share > 0:
         counts["weight_kdj"] = weight_kdj_count
+    if ridge_kdj_budget_share > 0:
+        counts["ridge_kdj"] = ridge_kdj_count
+    if neural_kdj_budget_share > 0:
+        counts["neural_kdj"] = neural_kdj_count
     return counts
 
 
@@ -562,6 +613,20 @@ def merge_reserved_candidate_configs(
     return tuple(configs[:max_configs])
 
 
+def bounded_unique_config_hashes(configs: tuple[FrequencyRankerConfig, ...], *, limit: int = 16) -> list[str]:
+    hashes: list[str] = []
+    seen: set[str] = set()
+    for config in configs:
+        key = config_hash(config)
+        if key in seen:
+            continue
+        seen.add(key)
+        hashes.append(key)
+        if len(hashes) >= limit:
+            break
+    return hashes
+
+
 def weight_kdj_advisor_metadata(
     signals: list[dict],
     configs: tuple[FrequencyRankerConfig, ...],
@@ -606,6 +671,146 @@ def weight_kdj_advisor_metadata(
         "candidate_count": len(configs),
         "advice": [item.as_dict() for item in advice],
         "mode": "advisor_only",
+    }
+
+
+def ridge_kdj_advisor_metadata(
+    signals: list[dict],
+    configs: tuple[FrequencyRankerConfig, ...],
+    *,
+    enabled: bool,
+    budget: int = 0,
+    params: dict | None = None,
+    thresholds: dict | None = None,
+    advice: tuple[RidgeKdjOffsetAdvice, ...] = (),
+) -> dict:
+    min_confidence = float((thresholds or {}).get("min_confidence", DEFAULT_RIDGE_KDJ_MIN_CONFIDENCE))
+    eligible_advice = sorted(
+        (
+            item
+            for item in advice
+            if item.weight_name in ALL_FIELDS and item.confidence >= min_confidence and abs(float(item.suggested_offset)) > 0
+        ),
+        key=lambda item: (item.confidence, abs(item.suggested_offset), item.weight_name),
+        reverse=True,
+    )
+    selected_advice = tuple(eligible_advice[: len(configs)])
+    selected_advice_keys = {
+        (item.weight_name, float(item.suggested_offset), float(item.confidence))
+        for item in selected_advice
+    }
+    latest_signal_issue = max((str(signal.get("issue") or "") for signal in signals), default="")
+    fields = sorted({str(signal.get("weight_name")) for signal in signals if signal.get("weight_name") in ALL_FIELDS})
+    signal_run_id = str(signals[-1].get("signal_run_id") or "") if signals else ""
+    return {
+        "mode": "advisor_only",
+        "enabled": enabled,
+        "budget": budget,
+        "params": params or {
+            "step": DEFAULT_RIDGE_KDJ_STEP,
+            "ridge_alpha": DEFAULT_RIDGE_KDJ_ALPHA,
+        },
+        "thresholds": thresholds or {
+            "min_confidence": DEFAULT_RIDGE_KDJ_MIN_CONFIDENCE,
+            "min_train_rows": DEFAULT_RIDGE_KDJ_MIN_TRAIN_ROWS,
+            "min_validation_rows": DEFAULT_RIDGE_KDJ_MIN_VALIDATION_ROWS,
+        },
+        "signal_run_id": signal_run_id,
+        "loaded_signals": len(signals),
+        "latest_signal_issue": latest_signal_issue,
+        "selected_count": len(selected_advice),
+        "rejected_count": max(0, len(advice) - len(selected_advice)),
+        "field_count": len(fields),
+        "fields": fields,
+        "selected_fields": [item.weight_name for item in selected_advice],
+        "advice": [
+            {
+                "weight_name": item.weight_name,
+                "confidence": item.confidence,
+                "validation_metric": item.validation_metric,
+                "baseline_metric": item.baseline_metric,
+                "suggested_offset": item.suggested_offset,
+                "train_rows": item.train_rows,
+                "source": item.source,
+                "decision": "selected"
+                if (item.weight_name, float(item.suggested_offset), float(item.confidence)) in selected_advice_keys
+                else "rejected",
+            }
+            for item in advice
+        ],
+        "candidate_count": len(configs),
+        "config_hashes": bounded_unique_config_hashes(configs),
+    }
+
+
+def neural_kdj_advisor_metadata(
+    signals: list[dict],
+    configs: tuple[FrequencyRankerConfig, ...],
+    *,
+    enabled: bool,
+    budget: int = 0,
+    params: dict | None = None,
+    thresholds: dict | None = None,
+    advice: tuple[NeuralKdjOffsetAdvice, ...] = (),
+) -> dict:
+    min_confidence = float((thresholds or {}).get("min_confidence", DEFAULT_NEURAL_KDJ_MIN_CONFIDENCE))
+    eligible_advice = sorted(
+        (
+            item
+            for item in advice
+            if item.weight_name in ALL_FIELDS and item.confidence >= min_confidence and abs(float(item.suggested_offset)) > 0
+        ),
+        key=lambda item: (item.confidence, abs(item.suggested_offset), item.weight_name),
+        reverse=True,
+    )
+    selected_advice = tuple(eligible_advice[: len(configs)])
+    selected_advice_keys = {
+        (item.weight_name, float(item.suggested_offset), float(item.confidence))
+        for item in selected_advice
+    }
+    latest_signal_issue = max((str(signal.get("issue") or "") for signal in signals), default="")
+    fields = sorted({str(signal.get("weight_name")) for signal in signals if signal.get("weight_name") in ALL_FIELDS})
+    signal_run_id = str(signals[-1].get("signal_run_id") or "") if signals else ""
+    return {
+        "mode": "advisor_only",
+        "enabled": enabled,
+        "budget": budget,
+        "params": params or {
+            "step": DEFAULT_NEURAL_KDJ_STEP,
+            "seed": DEFAULT_NEURAL_KDJ_SEED,
+            "hidden_units": DEFAULT_NEURAL_KDJ_HIDDEN_UNITS,
+            "epochs": DEFAULT_NEURAL_KDJ_EPOCHS,
+            "model": "numpy_mlp_kdj_offset_v0",
+        },
+        "thresholds": thresholds or {
+            "min_confidence": DEFAULT_NEURAL_KDJ_MIN_CONFIDENCE,
+        },
+        "signal_run_id": signal_run_id,
+        "loaded_signals": len(signals),
+        "latest_signal_issue": latest_signal_issue,
+        "selected_count": len(selected_advice),
+        "rejected_count": max(0, len(advice) - len(selected_advice)),
+        "field_count": len(fields),
+        "fields": fields,
+        "selected_fields": [item.weight_name for item in selected_advice],
+        "advice": [
+            {
+                "weight_name": item.weight_name,
+                "confidence": item.confidence,
+                "validation_metric": item.validation_metric,
+                "baseline_metric": item.baseline_metric,
+                "suggested_offset": item.suggested_offset,
+                "train_rows": item.train_rows,
+                "validation_rows": item.validation_rows,
+                "source": item.source,
+                "decision": "selected"
+                if (item.weight_name, float(item.suggested_offset), float(item.confidence)) in selected_advice_keys
+                else "rejected",
+            }
+            for item in advice
+        ],
+        "candidate_count": len(configs),
+        "config_hashes": bounded_unique_config_hashes(configs),
     }
 
 
@@ -1753,6 +1958,7 @@ def compact_status_payload(status: dict) -> dict:
         "red5_rank_mode": status.get("red5_rank_mode"),
         "prefilter": status.get("prefilter"),
         "weight_kdj_advisor": status.get("weight_kdj_advisor"),
+        "ridge_kdj_advisor": status.get("ridge_kdj_advisor"),
         "qian_kun": status.get("qian_kun"),
         "latest_progress": status.get("latest_progress"),
         "status_path": status.get("status_path"),
@@ -1847,6 +2053,8 @@ def run_supervisor(
     event_url: str | None = None,
     write_status_json: bool = False,
     enable_weight_kdj_advisor: bool = False,
+    enable_ridge_kdj_advisor: bool = False,
+    enable_neural_kdj_advisor: bool = False,
     weight_kdj_run_id: str | None = None,
     weight_kdj_limit: int = 1000,
     weight_kdj_budget_share: float = DEFAULT_WEIGHT_KDJ_BUDGET_SHARE,
@@ -1854,6 +2062,16 @@ def run_supervisor(
     weight_kdj_min_abs_offset: float = DEFAULT_WEIGHT_KDJ_MIN_ABS_OFFSET,
     weight_kdj_slope_window: int = DEFAULT_WEIGHT_KDJ_SLOPE_WINDOW,
     weight_kdj_neutral_band: float = DEFAULT_WEIGHT_KDJ_NEUTRAL_BAND,
+    ridge_kdj_budget_share: float = DEFAULT_RIDGE_KDJ_BUDGET_SHARE,
+    ridge_kdj_alpha: float = DEFAULT_RIDGE_KDJ_ALPHA,
+    ridge_kdj_min_confidence: float = DEFAULT_RIDGE_KDJ_MIN_CONFIDENCE,
+    ridge_kdj_min_train_rows: int = DEFAULT_RIDGE_KDJ_MIN_TRAIN_ROWS,
+    ridge_kdj_min_validation_rows: int = DEFAULT_RIDGE_KDJ_MIN_VALIDATION_ROWS,
+    neural_kdj_budget_share: float = DEFAULT_NEURAL_KDJ_BUDGET_SHARE,
+    neural_kdj_min_confidence: float = DEFAULT_NEURAL_KDJ_MIN_CONFIDENCE,
+    neural_kdj_seed: int = DEFAULT_NEURAL_KDJ_SEED,
+    neural_kdj_hidden_units: int = DEFAULT_NEURAL_KDJ_HIDDEN_UNITS,
+    neural_kdj_epochs: int = DEFAULT_NEURAL_KDJ_EPOCHS,
 ) -> dict:
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
     started_at = datetime.now()
@@ -1926,6 +2144,25 @@ def run_supervisor(
         "slope_window": weight_kdj_slope_window,
         "neutral_band": weight_kdj_neutral_band,
     }
+    ridge_kdj_params = {
+        "step": DEFAULT_RIDGE_KDJ_STEP,
+        "ridge_alpha": ridge_kdj_alpha,
+    }
+    ridge_kdj_thresholds = {
+        "min_confidence": ridge_kdj_min_confidence,
+        "min_train_rows": ridge_kdj_min_train_rows,
+        "min_validation_rows": ridge_kdj_min_validation_rows,
+    }
+    neural_kdj_params = {
+        "step": DEFAULT_NEURAL_KDJ_STEP,
+        "seed": neural_kdj_seed,
+        "hidden_units": neural_kdj_hidden_units,
+        "epochs": neural_kdj_epochs,
+        "model": "numpy_mlp_kdj_offset_v0",
+    }
+    neural_kdj_thresholds = {
+        "min_confidence": neural_kdj_min_confidence,
+    }
     status = {
         "run_id": run_id,
         "started_at": started_at.isoformat(timespec="seconds"),
@@ -1959,6 +2196,24 @@ def run_supervisor(
             "thresholds": weight_kdj_thresholds,
             "latest": None,
         },
+        "ridge_kdj_advisor": {
+            "enabled": enable_ridge_kdj_advisor,
+            "signal_run_id": weight_kdj_run_id,
+            "limit": weight_kdj_limit,
+            "budget_share": ridge_kdj_budget_share if enable_ridge_kdj_advisor else 0.0,
+            "params": ridge_kdj_params,
+            "thresholds": ridge_kdj_thresholds,
+            "latest": None,
+        },
+        "neural_kdj_advisor": {
+            "enabled": enable_neural_kdj_advisor,
+            "signal_run_id": weight_kdj_run_id,
+            "limit": weight_kdj_limit,
+            "budget_share": neural_kdj_budget_share if enable_neural_kdj_advisor else 0.0,
+            "params": neural_kdj_params,
+            "thresholds": neural_kdj_thresholds,
+            "latest": None,
+        },
         "qian_kun": qian_kun_distribution(selection.history),
         "rounds": rounds,
         "best": strip_target_results(best_summary) if best_summary else None,
@@ -1986,9 +2241,13 @@ def run_supervisor(
             budgets = candidate_budget(
                 max_configs_per_round,
                 weight_kdj_budget_share=weight_kdj_budget_share if enable_weight_kdj_advisor else 0.0,
+                ridge_kdj_budget_share=ridge_kdj_budget_share if enable_ridge_kdj_advisor else 0.0,
+                neural_kdj_budget_share=neural_kdj_budget_share if enable_neural_kdj_advisor else 0.0,
             )
             weight_kdj_budget = budgets.get("weight_kdj", 0)
-            normal_config_budget = max_configs_per_round - weight_kdj_budget
+            ridge_kdj_budget = budgets.get("ridge_kdj", 0)
+            neural_kdj_budget = budgets.get("neural_kdj", 0)
+            normal_config_budget = max_configs_per_round - weight_kdj_budget - ridge_kdj_budget - neural_kdj_budget
             configs = tuple(
                 generate_configs(
                     base_config,
@@ -2002,12 +2261,19 @@ def run_supervisor(
                     round_index=round_index + 1,
                 )
             )
+            kdj_signals: list[dict] = []
             weight_kdj_signals: list[dict] = []
             weight_kdj_configs: tuple[FrequencyRankerConfig, ...] = ()
             weight_kdj_advice: tuple[WeightKdjAdvice, ...] = ()
-            if enable_weight_kdj_advisor:
+            ridge_kdj_signals: list[dict] = []
+            ridge_kdj_configs: tuple[FrequencyRankerConfig, ...] = ()
+            ridge_kdj_advice: tuple[RidgeKdjOffsetAdvice, ...] = ()
+            neural_kdj_signals: list[dict] = []
+            neural_kdj_configs: tuple[FrequencyRankerConfig, ...] = ()
+            neural_kdj_advice: tuple[NeuralKdjOffsetAdvice, ...] = ()
+            if enable_weight_kdj_advisor or enable_ridge_kdj_advisor or enable_neural_kdj_advisor:
                 with get_connection() as conn:
-                    weight_kdj_signals = load_recent_training_weight_signals(
+                    kdj_signals = load_recent_training_weight_signals(
                         conn,
                         signal_run_id=weight_kdj_run_id,
                         as_of_issue=as_of_issue_value,
@@ -2016,6 +2282,8 @@ def run_supervisor(
                         top_n=top_n,
                         limit=weight_kdj_limit,
                     )
+            if enable_weight_kdj_advisor:
+                weight_kdj_signals = kdj_signals
                 weight_kdj_advice = weight_kdj_advice_from_signals(
                     weight_kdj_signals,
                     allowed_fields=ALL_FIELDS,
@@ -2033,11 +2301,56 @@ def run_supervisor(
                     slope_window=weight_kdj_slope_window,
                     neutral_band=weight_kdj_neutral_band,
                 )
+            if enable_ridge_kdj_advisor:
+                ridge_kdj_signals = kdj_signals
+                ridge_kdj_advice = numpy_ridge_kdj_offset_v0(
+                    ridge_kdj_signals,
+                    step=DEFAULT_RIDGE_KDJ_STEP,
+                    ridge_alpha=ridge_kdj_alpha,
+                    min_train_rows=ridge_kdj_min_train_rows,
+                    min_validation_rows=ridge_kdj_min_validation_rows,
+                )
+                ridge_kdj_configs = ridge_kdj_advice_to_frequency_ranker_config_candidates(
+                    base_config,
+                    ridge_kdj_advice,
+                    max_configs=ridge_kdj_budget,
+                    min_confidence=ridge_kdj_min_confidence,
+                )
+            if enable_neural_kdj_advisor:
+                neural_kdj_signals = kdj_signals
+                neural_kdj_advice = numpy_neural_kdj_offset_v0(
+                    neural_kdj_signals,
+                    step=DEFAULT_NEURAL_KDJ_STEP,
+                    seed=neural_kdj_seed,
+                    hidden_units=neural_kdj_hidden_units,
+                    epochs=neural_kdj_epochs,
+                )
+                neural_kdj_configs = neural_kdj_advice_to_frequency_ranker_config_candidates(
+                    base_config,
+                    neural_kdj_advice,
+                    max_configs=neural_kdj_budget,
+                    min_confidence=neural_kdj_min_confidence,
+                )
+            if enable_weight_kdj_advisor:
                 configs = merge_reserved_candidate_configs(
                     configs,
                     weight_kdj_configs,
-                    max_configs=max_configs_per_round,
+                    max_configs=max_configs_per_round - ridge_kdj_budget - neural_kdj_budget,
                     reserved_budget=weight_kdj_budget,
+                )
+            if enable_ridge_kdj_advisor:
+                configs = merge_reserved_candidate_configs(
+                    configs,
+                    ridge_kdj_configs,
+                    max_configs=max_configs_per_round - neural_kdj_budget,
+                    reserved_budget=ridge_kdj_budget,
+                )
+            if enable_neural_kdj_advisor:
+                configs = merge_reserved_candidate_configs(
+                    configs,
+                    neural_kdj_configs,
+                    max_configs=max_configs_per_round,
+                    reserved_budget=neural_kdj_budget,
                 )
             generated_config_count = len(configs)
             keep_configs = (base_config, *elite_configs[:4], *(config for _label, config in control_configs))
@@ -2065,8 +2378,30 @@ def run_supervisor(
                 thresholds=weight_kdj_thresholds,
                 advice=weight_kdj_advice,
             )
+            ridge_advisor_info = ridge_kdj_advisor_metadata(
+                ridge_kdj_signals,
+                ridge_kdj_configs,
+                enabled=enable_ridge_kdj_advisor,
+                budget=ridge_kdj_budget,
+                params=ridge_kdj_params,
+                thresholds=ridge_kdj_thresholds,
+                advice=ridge_kdj_advice,
+            )
+            neural_advisor_info = neural_kdj_advisor_metadata(
+                neural_kdj_signals,
+                neural_kdj_configs,
+                enabled=enable_neural_kdj_advisor,
+                budget=neural_kdj_budget,
+                params=neural_kdj_params,
+                thresholds=neural_kdj_thresholds,
+                advice=neural_kdj_advice,
+            )
             prefilter_info["weight_kdj_advisor"] = advisor_info
+            prefilter_info["ridge_kdj_advisor"] = ridge_advisor_info
+            prefilter_info["neural_kdj_advisor"] = neural_advisor_info
             status["weight_kdj_advisor"]["latest"] = advisor_info
+            status["ridge_kdj_advisor"]["latest"] = ridge_advisor_info
+            status["neural_kdj_advisor"]["latest"] = neural_advisor_info
             status["prefilter"]["latest"] = prefilter_info
             log(
                 f"round={round_index + 1} phase={phase} step={step} "
@@ -2171,6 +2506,8 @@ def main() -> None:
     parser.add_argument("--event-url", default=os.getenv("DEHPS_TRAINING_EVENT_URL", DEFAULT_TRAINING_EVENT_URL))
     parser.add_argument("--write-status-json", action="store_true", help="Write a compact legacy status JSON snapshot.")
     parser.add_argument("--enable-weight-kdj-advisor", action="store_true", help="Use stored weight KDJ signals as advisor-only candidate proposals.")
+    parser.add_argument("--enable-ridge-kdj-advisor", action="store_true", help="Use stored weight KDJ signals for advisor-only Ridge offset proposals.")
+    parser.add_argument("--enable-neural-kdj-advisor", action="store_true", help="Use stored weight KDJ signals for advisor-only NumPy MLP offset proposals.")
     parser.add_argument("--weight-kdj-run-id", help="Optional training_weight_signals signal_run_id to read.")
     parser.add_argument("--weight-kdj-limit", type=int, default=1000, help="Recent signal points per weight for advisor context.")
     parser.add_argument("--weight-kdj-budget-share", type=float, default=DEFAULT_WEIGHT_KDJ_BUDGET_SHARE, help="Candidate budget share reserved for KDJ advisor proposals when enabled.")
@@ -2178,38 +2515,72 @@ def main() -> None:
     parser.add_argument("--weight-kdj-min-abs-offset", type=float, default=DEFAULT_WEIGHT_KDJ_MIN_ABS_OFFSET)
     parser.add_argument("--weight-kdj-slope-window", type=int, default=DEFAULT_WEIGHT_KDJ_SLOPE_WINDOW)
     parser.add_argument("--weight-kdj-neutral-band", type=float, default=DEFAULT_WEIGHT_KDJ_NEUTRAL_BAND)
+    parser.add_argument("--ridge-kdj-budget-share", type=float, default=DEFAULT_RIDGE_KDJ_BUDGET_SHARE, help="Candidate budget share reserved for Ridge KDJ advisor proposals when enabled.")
+    parser.add_argument("--ridge-kdj-alpha", type=float, default=DEFAULT_RIDGE_KDJ_ALPHA)
+    parser.add_argument("--ridge-kdj-min-confidence", type=float, default=DEFAULT_RIDGE_KDJ_MIN_CONFIDENCE)
+    parser.add_argument("--ridge-kdj-min-train-rows", type=int, default=DEFAULT_RIDGE_KDJ_MIN_TRAIN_ROWS)
+    parser.add_argument("--ridge-kdj-min-validation-rows", type=int, default=DEFAULT_RIDGE_KDJ_MIN_VALIDATION_ROWS)
+    parser.add_argument("--neural-kdj-budget-share", type=float, default=DEFAULT_NEURAL_KDJ_BUDGET_SHARE, help="Candidate budget share reserved for Neural KDJ advisor proposals when enabled.")
+    parser.add_argument("--neural-kdj-min-confidence", type=float, default=DEFAULT_NEURAL_KDJ_MIN_CONFIDENCE)
+    parser.add_argument("--neural-kdj-seed", type=int, default=DEFAULT_NEURAL_KDJ_SEED)
+    parser.add_argument("--neural-kdj-hidden-units", type=int, default=DEFAULT_NEURAL_KDJ_HIDDEN_UNITS)
+    parser.add_argument("--neural-kdj-epochs", type=int, default=DEFAULT_NEURAL_KDJ_EPOCHS)
+    parser.add_argument("--heavy-job-lock-timeout-seconds", type=float, default=0.0)
+    parser.add_argument("--cpu-threads", type=int, default=1)
     args = parser.parse_args()
-    print(
-        json.dumps(
-            run_supervisor(
-                duration_hours=args.duration_hours,
-                train_window=args.train_window,
-                eval_window=args.eval_window,
-                top_n=args.top_n,
-                as_of_issue=args.as_of_issue,
-                workers=args.workers,
-                train_mode=args.train_mode,
-                history_scope=args.history_scope,
-                regime_years=args.regime_years,
-                output_dir=args.output_dir,
-                progress_interval=args.progress_interval,
-                max_configs_per_round=args.max_configs_per_round,
-                memory_budget_gb=args.memory_budget_gb,
-                event_url=args.event_url,
-                write_status_json=args.write_status_json,
-                enable_weight_kdj_advisor=args.enable_weight_kdj_advisor,
-                weight_kdj_run_id=args.weight_kdj_run_id,
-                weight_kdj_limit=args.weight_kdj_limit,
-                weight_kdj_budget_share=args.weight_kdj_budget_share,
-                weight_kdj_min_objective_delta=args.weight_kdj_min_objective_delta,
-                weight_kdj_min_abs_offset=args.weight_kdj_min_abs_offset,
-                weight_kdj_slope_window=args.weight_kdj_slope_window,
-                weight_kdj_neutral_band=args.weight_kdj_neutral_band,
-            ),
-            ensure_ascii=False,
-            indent=2,
+    apply_cpu_thread_env_defaults(args.cpu_threads)
+    with heavy_job_lock(
+        owner="training-supervisor",
+        timeout_seconds=args.heavy_job_lock_timeout_seconds,
+        context={
+            "duration_hours": args.duration_hours,
+            "train_window": args.train_window,
+            "eval_window": args.eval_window,
+            "top_n": args.top_n,
+            "enable_weight_kdj_advisor": args.enable_weight_kdj_advisor,
+            "enable_ridge_kdj_advisor": args.enable_ridge_kdj_advisor,
+            "enable_neural_kdj_advisor": args.enable_neural_kdj_advisor,
+        },
+    ) as lock:
+        result = run_supervisor(
+            duration_hours=args.duration_hours,
+            train_window=args.train_window,
+            eval_window=args.eval_window,
+            top_n=args.top_n,
+            as_of_issue=args.as_of_issue,
+            workers=args.workers,
+            train_mode=args.train_mode,
+            history_scope=args.history_scope,
+            regime_years=args.regime_years,
+            output_dir=args.output_dir,
+            progress_interval=args.progress_interval,
+            max_configs_per_round=args.max_configs_per_round,
+            memory_budget_gb=args.memory_budget_gb,
+            event_url=args.event_url,
+            write_status_json=args.write_status_json,
+            enable_weight_kdj_advisor=args.enable_weight_kdj_advisor,
+            enable_ridge_kdj_advisor=args.enable_ridge_kdj_advisor,
+            enable_neural_kdj_advisor=args.enable_neural_kdj_advisor,
+            weight_kdj_run_id=args.weight_kdj_run_id,
+            weight_kdj_limit=args.weight_kdj_limit,
+            weight_kdj_budget_share=args.weight_kdj_budget_share,
+            weight_kdj_min_objective_delta=args.weight_kdj_min_objective_delta,
+            weight_kdj_min_abs_offset=args.weight_kdj_min_abs_offset,
+            weight_kdj_slope_window=args.weight_kdj_slope_window,
+            weight_kdj_neutral_band=args.weight_kdj_neutral_band,
+            ridge_kdj_budget_share=args.ridge_kdj_budget_share,
+            ridge_kdj_alpha=args.ridge_kdj_alpha,
+            ridge_kdj_min_confidence=args.ridge_kdj_min_confidence,
+            ridge_kdj_min_train_rows=args.ridge_kdj_min_train_rows,
+            ridge_kdj_min_validation_rows=args.ridge_kdj_min_validation_rows,
+            neural_kdj_budget_share=args.neural_kdj_budget_share,
+            neural_kdj_min_confidence=args.neural_kdj_min_confidence,
+            neural_kdj_seed=args.neural_kdj_seed,
+            neural_kdj_hidden_units=args.neural_kdj_hidden_units,
+            neural_kdj_epochs=args.neural_kdj_epochs,
         )
-    )
+        lock.heartbeat(status="completed", context={"run_id": result.get("run_id"), "rounds": result.get("rounds")})
+    print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

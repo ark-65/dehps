@@ -11,6 +11,7 @@ from dehps.crawler.ssq_sync import sync_ssq
 from dehps.db import get_connection
 from dehps.models.frequency_ranker import FrequencyRankerConfig
 from dehps.optimization.weight_kdj import DEFAULT_KDJ_WINDOW
+from dehps.runtime.heavy_job import HeavyJobLock, apply_cpu_thread_env_defaults
 from dehps.storage.postgres_store import (
     create_pipeline_run,
     finish_pipeline_run,
@@ -40,21 +41,37 @@ def run_pipeline(
     auto_git: bool = False,
     force: bool = False,
     skip_weight_kdj_signals: bool = False,
+    heavy_job_lock_timeout_seconds: float = 0.0,
+    cpu_threads: int = 1,
 ) -> dict:
+    apply_cpu_thread_env_defaults(cpu_threads)
     settings = get_settings()
     run_key = f"daily-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     experiment_key = f"{strategy_key}-{run_key}"
     summary: dict = {"run_key": run_key, "source": source, "strategy_key": strategy_key}
+    heavy_lock: HeavyJobLock | None = None
 
     with get_connection() as conn:
         create_pipeline_run(conn, run_key)
 
     try:
+        heavy_lock = HeavyJobLock(
+            owner="daily-pipeline",
+            lock_path=ROOT_DIR / "runtime/logs/dehps-heavy-job.lock",
+            timeout_seconds=heavy_job_lock_timeout_seconds,
+            context={
+                "run_key": run_key,
+                "source": source,
+                "strategy_key": strategy_key,
+                "skip_weight_kdj_signals": skip_weight_kdj_signals,
+            },
+        ).acquire()
         sync_summary = sync_ssq(source, history=(source == "csv"), csv_file=csv_file, run_key=f"{run_key}-sync")
         is_new_data = sync_summary.get("inserted_count", 0) > 0
         has_synced_changes = is_new_data or sync_summary.get("updated_count", 0) > 0
         summary["sync_run_key"] = sync_summary["run_key"]
         summary["sync"] = sync_summary
+        heavy_lock.heartbeat(context={"sync_run_key": sync_summary["run_key"], "has_synced_changes": has_synced_changes})
 
         metrics = {
             "total_combinations": 1107568,
@@ -100,6 +117,7 @@ def run_pipeline(
                 base_config=FrequencyRankerConfig(),
                 dry_run=False,
             )
+            heavy_lock.heartbeat(context={"weight_kdj": summary["weight_kdj"]})
 
         daily_report = render_daily_report(run_key, source, latest, is_new_data, metrics, previous)
         daily_path = ROOT_DIR / "data/output/daily" / f"{date.today().isoformat()}-dehps-daily-report.md"
@@ -124,12 +142,18 @@ def run_pipeline(
 
         with get_connection() as conn:
             finish_pipeline_run(conn, run_key, "success", summary)
+        heavy_lock.heartbeat(status="completed", context={"daily_report_path": summary["daily_report_path"]})
         return summary
     except Exception as exc:
         summary["error_message"] = str(exc)
+        if heavy_lock is not None:
+            heavy_lock.heartbeat(status="failed", context={"error": str(exc)})
         with get_connection() as conn:
             finish_pipeline_run(conn, run_key, "failed", summary)
         raise
+    finally:
+        if heavy_lock is not None:
+            heavy_lock.release()
 
 
 def main() -> None:
@@ -140,6 +164,8 @@ def main() -> None:
     parser.add_argument("--auto-git", action="store_true")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--skip-weight-kdj-signals", action="store_true")
+    parser.add_argument("--heavy-job-lock-timeout-seconds", type=float, default=0.0)
+    parser.add_argument("--cpu-threads", type=int, default=1)
     args = parser.parse_args()
     if args.source == "csv" and not args.csv_file and not get_settings().ssq_csv_path:
         parser.error("--source csv requires --csv-file or SSQ_CSV_PATH")
@@ -151,6 +177,8 @@ def main() -> None:
             auto_git=args.auto_git,
             force=args.force,
             skip_weight_kdj_signals=args.skip_weight_kdj_signals,
+            heavy_job_lock_timeout_seconds=args.heavy_job_lock_timeout_seconds,
+            cpu_threads=args.cpu_threads,
         )
     )
 

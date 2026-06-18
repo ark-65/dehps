@@ -223,6 +223,39 @@ export type TrainingWeightSignalSeries = {
   points: TrainingWeightSignalPoint[];
 };
 
+export type TrainingAdvisorSource = 'weight_kdj_advisor' | 'ridge_kdj_advisor' | 'neural_kdj_advisor';
+
+export type TrainingAdvisorAdviceRow = {
+  weightName: string;
+  latestIssue: string | null;
+  suggestedOffset: number | null;
+  confidence: number | null;
+  validationMetric: number | null;
+  baselineMetric: number | null;
+  configHash: string | null;
+  decision: string | null;
+  reason: string | null;
+  source: string | null;
+};
+
+export type TrainingAdvisorSummary = {
+  source: TrainingAdvisorSource;
+  enabled: boolean;
+  status: string | null;
+  mode: string | null;
+  budget: number | null;
+  candidateCount: number | null;
+  selectedCount: number | null;
+  downweightedCount: number | null;
+  rejectedCount: number | null;
+  fieldCount: number | null;
+  fields: string[];
+  latestSignalIssue: string | null;
+  signalRunId: string | null;
+  advice: TrainingAdvisorAdviceRow[];
+  controlVerdict: Record<string, unknown> | string | null;
+};
+
 export type ServiceStatusLevel = 'ok' | 'warning' | 'failed' | 'unknown';
 
 export type ServiceStatusName = 'api' | 'web' | 'db' | 'sync' | 'kdj' | 'training';
@@ -247,6 +280,7 @@ export type HeavyTaskLimits = {
   defaultWorkers: number;
   recommendedInteractiveMax: number;
   activeTrainingWorkers: number | null;
+  heavyJobLock: Record<string, unknown> | null;
 };
 
 export type ServiceStatusPayload = {
@@ -289,6 +323,7 @@ export type TrainingStatusPayload = {
   featureMatrixCache: TrainingMatrixCache | null;
   red5RankMode: string | null;
   prefilter: TrainingPrefilterStatus | null;
+  advisorSummaries: TrainingAdvisorSummary[];
   qianKun: TrainingQianKunSummary;
   completedRounds: number;
   rounds: TrainingRoundSummary[];
@@ -434,6 +469,34 @@ export function serviceStatusSeverity(status: ServiceStatusLevel): number {
     ok: 0,
   };
   return severity[status];
+}
+
+export function advisorSourceLabel(source: TrainingAdvisorSource): string {
+  const labels: Record<TrainingAdvisorSource, string> = {
+    weight_kdj_advisor: 'KDJ Advisor',
+    ridge_kdj_advisor: 'Ridge KDJ Advisor',
+    neural_kdj_advisor: 'Neural KDJ Advisor',
+  };
+  return labels[source];
+}
+
+export function advisorVerdictText(verdict: TrainingAdvisorSummary['controlVerdict']): string {
+  if (!verdict) {
+    return '无控制结论';
+  }
+  if (typeof verdict === 'string') {
+    return verdict;
+  }
+  const passed = typeof verdict['passed'] === 'boolean' ? verdict['passed'] : null;
+  const status = typeof verdict['status'] === 'string' ? verdict['status'] : null;
+  const label = passed === null ? status : passed ? 'PASS' : 'FAIL';
+  const reason =
+    typeof verdict['language'] === 'string'
+      ? verdict['language']
+      : typeof verdict['reason'] === 'string'
+        ? verdict['reason']
+        : null;
+  return [label, reason].filter(Boolean).join(' / ') || JSON.stringify(verdict);
 }
 
 export function sortedServiceStatuses(payload: ServiceStatusPayload): ServiceStatusItem[] {

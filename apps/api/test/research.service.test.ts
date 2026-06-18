@@ -200,6 +200,62 @@ const repository: ResearchRepository = {
         candidate_budget: { exploitation: 26, exploration: 19, replay: 13, baseline: 6 },
         frozen_validation_window: 20,
         control_experiments: [{ label: 'structural_baseline', top_10000_hits: 1 }],
+        weight_kdj_advisor: {
+          enabled: true,
+          signal_run_id: 'weight-kdj-run-1',
+          latest_issue: '2026068',
+          budget: 3,
+          field_count: 2,
+          fields: ['frequency_weight', 'omission_weight'],
+          selected_count: 1,
+          downweighted_count: 1,
+          rejected_count: 1,
+          candidate_count: 2,
+          control_verdict: { passed: false, language: 'control baseline held' },
+          advice: [
+            {
+              weight_name: 'frequency_weight',
+              latest_issue: '2026068',
+              offset: 0.02,
+              applied_offset: 0.02,
+              decision: 'selected',
+              reason: 'positive_delta',
+            },
+          ],
+          mode: 'advisor_only',
+        },
+        ridge_kdj_advisor: {
+          enabled: true,
+          status: 'ready',
+          signal_run_id: 'ridge-kdj-run-1',
+          latest_issue: '2026068',
+          budget: 2,
+          fields: ['sum_tail_weight'],
+          selected_count: 1,
+          rejected_count: 0,
+          control_verdict: { passed: true, language: 'beats frozen controls' },
+          advice: [
+            {
+              weight_name: 'sum_tail_weight',
+              suggested_offset: -0.01,
+              confidence: 0.7,
+              validation_metric: 0.02,
+              baseline_metric: 0.03,
+              config_hash: 'ridge-hash-1',
+              source: 'ml_kdj_offset_advisor_v0',
+            },
+          ],
+          mode: 'advisor_only',
+        },
+        neural_kdj_advisor: {
+          enabled: false,
+          status: 'waiting',
+          latest_issue: '2026068',
+          budget: 0,
+          fields: [],
+          advice: [],
+          control_verdict: 'not evaluated',
+        },
         refined_config_count: 6,
         elapsed_seconds: 0.5,
         note: 'target prefilter before full 100-draw refine',
@@ -406,6 +462,21 @@ test('training status is derived from database rounds without status json', asyn
     assert.equal(status.prefilter?.latest?.lowCoverageFields[0], 'sum_tail_weight');
     assert.equal(status.prefilter?.latest?.frozenValidationWindow, 20);
     assert.equal(status.prefilter?.latest?.controlExperiments[0]?.label, 'structural_baseline');
+    const weightAdvisor = status.advisorSummaries.find((advisor) => advisor.source === 'weight_kdj_advisor');
+    const ridgeAdvisor = status.advisorSummaries.find((advisor) => advisor.source === 'ridge_kdj_advisor');
+    const neuralAdvisor = status.advisorSummaries.find((advisor) => advisor.source === 'neural_kdj_advisor');
+    assert.equal(weightAdvisor?.enabled, true);
+    assert.equal(weightAdvisor?.latestSignalIssue, '2026068');
+    assert.equal(weightAdvisor?.advice[0]?.weightName, 'frequency_weight');
+    assert.equal(weightAdvisor?.advice[0]?.suggestedOffset, 0.02);
+    assert.equal((weightAdvisor?.controlVerdict as Record<string, unknown>)?.['passed'], false);
+    assert.equal(ridgeAdvisor?.advice[0]?.weightName, 'sum_tail_weight');
+    assert.equal(ridgeAdvisor?.advice[0]?.confidence, 0.7);
+    assert.equal(ridgeAdvisor?.advice[0]?.validationMetric, 0.02);
+    assert.equal(ridgeAdvisor?.advice[0]?.baselineMetric, 0.03);
+    assert.equal(ridgeAdvisor?.advice[0]?.configHash, 'ridge-hash-1');
+    assert.equal(neuralAdvisor?.enabled, false);
+    assert.equal(neuralAdvisor?.controlVerdict, 'not evaluated');
     assert.equal(status.recentRounds[0].round, 2);
   } finally {
     if (previousRoot === undefined) {

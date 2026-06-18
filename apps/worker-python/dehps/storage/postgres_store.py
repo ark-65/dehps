@@ -284,18 +284,18 @@ def load_recent_training_weight_signals(
             WITH eligible_signals AS (
               SELECT *
               FROM training_weight_signals
-              WHERE (%s IS NULL OR issue <= %s)
-                AND (%s IS NULL OR train_mode = %s)
-                AND (%s IS NULL OR train_window = %s)
-                AND (%s IS NULL OR top_n = %s)
+              WHERE (%s::text IS NULL OR issue <= %s::text)
+                AND (%s::text IS NULL OR train_mode = %s::text)
+                AND (%s::integer IS NULL OR train_window = %s::integer)
+                AND (%s::integer IS NULL OR top_n = %s::integer)
             ),
             selected_run AS (
               SELECT COALESCE(
-                %s,
+                %s::text,
                 (
                   SELECT signal_run_id
                   FROM eligible_signals
-                  WHERE signal_run_id = %s
+                  WHERE signal_run_id = %s::text
                   LIMIT 1
                 ),
                 (
@@ -313,8 +313,8 @@ def load_recent_training_weight_signals(
               JOIN selected_run r ON r.signal_run_id = s.signal_run_id
               WHERE r.signal_run_id IS NOT NULL
             )
-            SELECT signal_run_id, issue, weight_name, train_mode, train_window, eval_window, top_n,
-                   close_value, k_value, d_value, j_value, recommended_offset, objective_delta,
+            SELECT signal_run_id, issue, draw_date, weight_name, train_mode, train_window, eval_window, top_n,
+                   base_value, close_value, rsv, k_value, d_value, j_value, recommended_offset, objective_delta,
                    best_objective_score, sample_count, source
             FROM ranked_points
             WHERE row_number <= %s

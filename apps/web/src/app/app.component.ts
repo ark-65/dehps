@@ -20,6 +20,8 @@ import {
   ExperimentSummary,
   ServiceStatusItem,
   ServiceStatusPayload,
+  TrainingAdvisorAdviceRow,
+  TrainingAdvisorSummary,
   TrainingResult,
   TrainingRoundDetail,
   TrainingRoundListItem,
@@ -27,6 +29,8 @@ import {
   TrainingStatusPayload,
   TrainingTargetResult,
   TrainingWeightSignalSeries,
+  advisorSourceLabel,
+  advisorVerdictText,
   compareExperiments,
   combinationDistribution,
   hitRate,
@@ -198,6 +202,8 @@ export class AppComponent {
   activeTab: DashboardTab = 'training';
 
   readonly compareExperiments = compareExperiments;
+  readonly advisorSourceLabel = advisorSourceLabel;
+  readonly advisorVerdictText = advisorVerdictText;
   readonly combinationDistribution = combinationDistribution;
   readonly hitRate = hitRate;
   readonly phaseText = phaseText;
@@ -598,6 +604,41 @@ export class AppComponent {
     const diversity = latest.diversityAddedCount ?? 0;
     const validation = latest.frozenValidationWindow ?? 0;
     return `预筛 ${targets} 期 / ${workers} 核 / ${seconds.toFixed(1)} 秒 / 停滞 ${stagnation} 轮 / 多样性 ${diversity} / 验证 ${validation}`;
+  }
+
+  advisorStatusText(summary: TrainingAdvisorSummary): string {
+    if (!summary.enabled) {
+      return '未启用';
+    }
+    return summary.status || summary.mode || 'ready';
+  }
+
+  advisorSummaries(status: TrainingStatusPayload): TrainingAdvisorSummary[] {
+    return status.advisorSummaries ?? [];
+  }
+
+  advisorCountsText(summary: TrainingAdvisorSummary): string {
+    const selected = summary.selectedCount ?? 0;
+    const rejected = summary.rejectedCount ?? 0;
+    const downweighted = summary.downweightedCount ?? 0;
+    return `selected ${selected} / rejected ${rejected} / downweighted ${downweighted}`;
+  }
+
+  advisorFieldsText(summary: TrainingAdvisorSummary): string {
+    if (!summary.fields.length) {
+      return '无字段';
+    }
+    const visible = summary.fields.slice(0, 8);
+    const suffix = summary.fields.length > visible.length ? ` +${summary.fields.length - visible.length}` : '';
+    return `${visible.join(', ')}${suffix}`;
+  }
+
+  advisorNumberText(value: number | null): string {
+    return value === null ? '无' : value.toFixed(6);
+  }
+
+  advisorTopAdviceRows(summary: TrainingAdvisorSummary): TrainingAdvisorAdviceRow[] {
+    return summary.advice.slice(0, 6);
   }
 
   hasRoundCharts(status: TrainingStatusPayload): boolean {

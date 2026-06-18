@@ -15,6 +15,9 @@ import {
   ServiceStatusPayload,
   ServiceStatusName,
   SyncRunSummary,
+  TrainingAdvisorAdviceRow,
+  TrainingAdvisorSource,
+  TrainingAdvisorSummary,
   TrainingMatrixCache,
   TrainingPrefilterRun,
   TrainingPrefilterStatus,
@@ -59,6 +62,11 @@ const TAIL_OVER_1000000_PENALTY = 1.25;
 const WORST_RANK_PENALTY_WEIGHT = 12;
 const P95_RANK_PENALTY_WEIGHT = 6;
 const MEDIAN_RANK_PENALTY_WEIGHT = 2;
+const ADVISOR_SOURCES: readonly TrainingAdvisorSource[] = [
+  'weight_kdj_advisor',
+  'ridge_kdj_advisor',
+  'neural_kdj_advisor',
+];
 const HEXAGRAMS_BY_PATTERN: Record<string, { number: number; label: string }> = {
   '111111': { number: 1, label: '乾卦' },
   '000000': { number: 2, label: '坤卦' },
@@ -231,6 +239,7 @@ export class ResearchService {
         ? latestProgress.round > completedRounds || latestProgress.targetIndex < latestProgress.targetTotal
         : false;
       const latestPrefilter = this.prefilterRunValue(latestDetail?.prefilter);
+      const advisorSummaries = this.advisorSummariesValue(null, latestDetail?.prefilter);
 
       return {
         status: active ? 'running' : 'completed',
@@ -255,6 +264,7 @@ export class ResearchService {
         featureMatrixCache: null,
         red5RankMode: null,
         prefilter: latestPrefilter ? { mode: latestPrefilter.mode, description: null, latest: latestPrefilter } : null,
+        advisorSummaries,
         qianKun: this.qianKunValue(null),
         completedRounds,
         rounds,
@@ -288,6 +298,8 @@ export class ResearchService {
     const processAlive = pid === null ? null : this.isProcessAlive(pid);
     const status = this.stringValue(rawStatus?.status) ?? 'not_started';
     const active = status === 'running' && processAlive !== false;
+    const prefilterStatus = this.prefilterStatusValue(rawStatus?.prefilter);
+    const advisorSummaries = this.advisorSummariesValue(rawStatus, this.prefilterLatestValue(rawStatus?.prefilter));
 
     return {
       status,
@@ -311,7 +323,8 @@ export class ResearchService {
       matrixBackend: this.stringValue(rawStatus?.matrix_backend),
       featureMatrixCache: this.matrixCacheValue(rawStatus?.feature_matrix_cache),
       red5RankMode: this.stringValue(rawStatus?.red5_rank_mode),
-      prefilter: this.prefilterStatusValue(rawStatus?.prefilter),
+      prefilter: prefilterStatus,
+      advisorSummaries,
       qianKun: this.qianKunValue(rawStatus?.qian_kun),
       completedRounds: rounds.length,
       rounds,
@@ -332,6 +345,7 @@ export class ResearchService {
     const generatedAt = new Date();
     const root = this.repoRoot();
     const logDir = path.join(root, RUNTIME_LOG_DIR);
+    const heavyJobLock = await this.heavyJobLockStatus(logDir);
     const [trainingStatus, historySummary, weightSignalSummary, pipelineRuns, syncRuns] = await Promise.all([
       this.trainingStatus(40).catch((error) => this.failedTrainingStatus(error)),
       this.repository.getSsqHistorySummary().catch((error) => ({ error })),
@@ -359,8 +373,52 @@ export class ResearchService {
         defaultWorkers: DEFAULT_HEAVY_TASK_WORKERS,
         recommendedInteractiveMax: Math.max(1, Math.min(DEFAULT_HEAVY_TASK_WORKERS, Math.floor(cpuCount / 2) || 1)),
         activeTrainingWorkers,
+        heavyJobLock,
       },
     };
+  }
+
+  private async heavyJobLockStatus(logDir: string): Promise<Record<string, unknown> | null> {
+    const lockPath = path.join(logDir, 'dehps-heavy-job.lock');
+    const metadataPath = `${lockPath}.json`;
+    try {
+      const payload = JSON.parse(await readFile(metadataPath, 'utf8')) as Record<string, unknown>;
+      const pid = this.numberValue(payload.pid);
+      const pidActive = pid === null ? null : this.isProcessAlive(pid);
+      const status = this.stringValue(payload.status);
+      const active = pidActive === true && !['released', 'finished', 'success', 'failed', 'error', 'cancelled'].includes(status ?? '');
+      return {
+        lockPath,
+        metadataPath,
+        owner: this.stringValue(payload.owner),
+        pid,
+        active,
+        pidActive,
+        status,
+        startedAt: this.stringValue(payload.started_at ?? payload.startedAt),
+        heartbeatAt: this.stringValue(payload.heartbeat_at ?? payload.heartbeatAt),
+        command: Array.isArray(payload.command) ? payload.command : null,
+        context: payload.context && typeof payload.context === 'object' && !Array.isArray(payload.context) ? payload.context : null,
+        reason: active ? 'pid_running' : pidActive === false ? 'pid_not_running' : 'metadata_present',
+      };
+    } catch (error) {
+      const code = typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : null;
+      if (code === 'ENOENT') {
+        return {
+          lockPath,
+          metadataPath,
+          active: false,
+          reason: 'metadata_missing',
+        };
+      }
+      return {
+        lockPath,
+        metadataPath,
+        active: false,
+        reason: 'metadata_unreadable',
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   async dashboard(limit = DEFAULT_LIMIT): Promise<DashboardPayload> {
@@ -644,6 +702,7 @@ export class ResearchService {
       featureMatrixCache: null,
       red5RankMode: null,
       prefilter: null,
+      advisorSummaries: [],
       qianKun: this.qianKunValue(null),
       completedRounds: 0,
       rounds: [],
@@ -919,6 +978,167 @@ export class ResearchService {
       description: this.stringValue(row.description),
       latest: this.prefilterRunValue(row.latest),
     };
+  }
+
+  private prefilterLatestValue(value: unknown): unknown {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+    return (value as Record<string, unknown>).latest ?? null;
+  }
+
+  private advisorSummariesValue(statusValue: unknown, prefilterLatestValue: unknown): TrainingAdvisorSummary[] {
+    const statusRow = this.objectValue(statusValue);
+    const prefilterLatest = this.objectValue(prefilterLatestValue);
+    return ADVISOR_SOURCES.map((source) => this.advisorSummaryValue(source, statusRow, prefilterLatest)).filter(
+      (summary): summary is TrainingAdvisorSummary => summary !== null,
+    );
+  }
+
+  private advisorSummaryValue(
+    source: TrainingAdvisorSource,
+    statusRow: Record<string, unknown> | null,
+    prefilterLatest: Record<string, unknown> | null,
+  ): TrainingAdvisorSummary | null {
+    const statusSource = this.objectValue(statusRow?.[source]);
+    const statusLatest = this.objectValue(statusSource?.latest);
+    const prefilterSource = this.objectValue(prefilterLatest?.[source]);
+    const row = this.mergeObjects(statusSource, statusLatest, prefilterSource);
+    if (!row) {
+      return null;
+    }
+
+    const advice = this.advisorAdviceRowsValue(
+      row.advice ?? row.top_advice ?? row.topAdvice ?? row.advice_rows ?? row.adviceRows ?? row.rows,
+    );
+    const fields = this.advisorFieldsValue(row, advice);
+    const enabled =
+      typeof row.enabled === 'boolean'
+        ? row.enabled
+        : advice.length > 0 || fields.length > 0 || Boolean(this.stringValue(row.latest_issue ?? row.latestIssue));
+    const status =
+      this.stringValue(row.status ?? row.state) ??
+      (enabled ? (advice.length || fields.length ? 'ready' : null) : 'disabled');
+    const selectedCount = this.numberValue(row.selected_count ?? row.selectedCount) ?? this.advisorDecisionCount(advice, 'selected');
+    const downweightedCount =
+      this.numberValue(row.downweighted_count ?? row.downweightedCount) ?? this.advisorDecisionCount(advice, 'downweighted');
+    const rejectedCount = this.numberValue(row.rejected_count ?? row.rejectedCount) ?? this.advisorDecisionCount(advice, 'rejected');
+
+    return {
+      source,
+      enabled,
+      status,
+      mode: this.stringValue(row.mode),
+      budget: this.numberValue(row.budget ?? row.candidate_budget ?? row.candidateBudget),
+      candidateCount: this.numberValue(row.candidate_count ?? row.candidateCount),
+      selectedCount,
+      downweightedCount,
+      rejectedCount,
+      fieldCount: this.numberValue(row.field_count ?? row.fieldCount) ?? (fields.length ? fields.length : null),
+      fields,
+      latestSignalIssue:
+        this.stringValue(row.latest_signal_issue ?? row.latestSignalIssue) ??
+        this.stringValue(row.latest_issue ?? row.latestIssue) ??
+        this.stringValue(row.issue),
+      signalRunId: this.stringValue(row.signal_run_id ?? row.signalRunId),
+      advice,
+      controlVerdict: this.advisorControlVerdictValue(row),
+    };
+  }
+
+  private advisorAdviceRowsValue(value: unknown): TrainingAdvisorAdviceRow[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value
+      .map((item) => this.advisorAdviceRowValue(item))
+      .filter((item): item is TrainingAdvisorAdviceRow => item !== null);
+  }
+
+  private advisorAdviceRowValue(value: unknown): TrainingAdvisorAdviceRow | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+    const row = value as Record<string, unknown>;
+    const weightName =
+      this.stringValue(row.weight_name ?? row.weightName) ??
+      this.stringValue(row.field_name ?? row.fieldName) ??
+      this.stringValue(row.field);
+    if (!weightName) {
+      return null;
+    }
+    const frozenValidation = this.objectValue(row.frozen_validation ?? row.frozenValidation);
+    const frozenReward = this.objectValue(frozenValidation?.reward);
+    return {
+      weightName,
+      latestIssue:
+        this.stringValue(row.latest_issue ?? row.latestIssue) ??
+        this.stringValue(row.signal_issue ?? row.signalIssue) ??
+        this.stringValue(row.issue),
+      suggestedOffset:
+        this.numberValue(row.suggested_offset ?? row.suggestedOffset) ??
+        this.numberValue(row.recommended_offset ?? row.recommendedOffset) ??
+        this.numberValue(row.offset) ??
+        this.numberValue(row.applied_offset ?? row.appliedOffset),
+      confidence: this.numberValue(row.confidence),
+      validationMetric:
+        this.numberValue(row.validation_metric ?? row.validationMetric) ??
+        this.numberValue(row.validation_score ?? row.validationScore) ??
+        this.numberValue(frozenReward?.objectiveScore),
+      baselineMetric:
+        this.numberValue(row.baseline_metric ?? row.baselineMetric) ??
+        this.numberValue(row.baseline_score ?? row.baselineScore),
+      configHash: this.stringValue(row.config_hash ?? row.configHash),
+      decision: this.stringValue(row.decision),
+      reason: this.stringValue(row.reason),
+      source: this.stringValue(row.source),
+    };
+  }
+
+  private advisorFieldsValue(row: Record<string, unknown>, advice: TrainingAdvisorAdviceRow[]): string[] {
+    const explicitFields = this.stringArrayValue(row.fields);
+    if (explicitFields.length) {
+      return this.uniqueStrings(explicitFields);
+    }
+    return this.uniqueStrings([
+      ...this.stringArrayValue(row.selected_fields ?? row.selectedFields),
+      ...this.stringArrayValue(row.downweighted_fields ?? row.downweightedFields),
+      ...this.stringArrayValue(row.rejected_fields ?? row.rejectedFields),
+      ...advice.map((item) => item.weightName),
+    ]);
+  }
+
+  private advisorDecisionCount(advice: TrainingAdvisorAdviceRow[], decision: string): number | null {
+    if (!advice.length) {
+      return null;
+    }
+    return advice.filter((item) => item.decision === decision).length;
+  }
+
+  private advisorControlVerdictValue(row: Record<string, unknown>): Record<string, unknown> | string | null {
+    const value =
+      row.control_verdict ??
+      row.controlVerdict ??
+      row.frozen_verdict ??
+      row.frozenVerdict ??
+      row.verdict ??
+      row.promotion_gate ??
+      row.promotionGate;
+    if (typeof value === 'string' && value.length > 0) {
+      return value;
+    }
+    return this.objectValue(value);
+  }
+
+  private mergeObjects(
+    ...values: Array<Record<string, unknown> | null | undefined>
+  ): Record<string, unknown> | null {
+    const objects = values.filter((value): value is Record<string, unknown> => Boolean(value));
+    return objects.length ? Object.assign({}, ...objects) : null;
+  }
+
+  private uniqueStrings(values: string[]): string[] {
+    return [...new Set(values.filter((value) => value.length > 0))];
   }
 
   private prefilterRunValue(value: unknown): TrainingPrefilterRun | null {

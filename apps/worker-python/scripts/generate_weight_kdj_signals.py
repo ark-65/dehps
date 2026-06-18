@@ -8,19 +8,37 @@ from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Literal
 
+import numpy as np
+
 WORKER_ROOT = Path(__file__).resolve().parents[1]
 if str(WORKER_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKER_ROOT))
 
 from dehps.db import get_connection
 from dehps.models.frequency_ranker import FrequencyRankerConfig, history_draw_date, history_issue, history_numbers
-from dehps.optimization.walk_forward import TargetRank, build_ranked_universe, fingerprint_history, rank_target_grid_with_red5
+from dehps.optimization.walk_forward import (
+    CONFIG_WEIGHT_FIELDS,
+    RedFiveMatch,
+    TargetRank,
+    _components_for_matrix,
+    _lex_less_than,
+    build_ranked_universe,
+    config_hash,
+    fingerprint_history,
+    is_excluded_red_combination,
+    rank_target_grid_with_red5,
+    score_components_for_numbers,
+    score_from_components,
+    train_frequency_stats,
+)
 from dehps.optimization.weight_kdj import (
     DEFAULT_KDJ_WINDOW,
+    WeightKdjSignal,
     WeightKdjState,
     WeightProbeResult,
     signal_from_probe_results,
 )
+from dehps.runtime.heavy_job import apply_cpu_thread_env_defaults, heavy_job_lock
 from dehps.storage.postgres_store import (
     CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID,
     ensure_training_weight_signals_schema,
@@ -243,6 +261,204 @@ def build_weight_signal(
     )
 
 
+def build_weight_signals_for_issue(
+    *,
+    signal_run_id: str,
+    target_draw,
+    train_history,
+    train_fingerprint: str,
+    ranked_universe,
+    weight_names: tuple[str, ...],
+    train_mode: TrainMode,
+    train_window: int,
+    top_n: int,
+    base_config: FrequencyRankerConfig,
+    primary_step: float,
+    context_step: float,
+    previous_bounds: dict[str, deque[tuple[float, float]]],
+    previous_states: dict[str, WeightKdjState | None],
+) -> list[tuple[str, WeightKdjSignal, WeightKdjState]]:
+    if not weight_names:
+        return []
+    issue = history_issue(target_draw)
+    draw_date = history_draw_date(target_draw)
+    red_numbers = history_numbers(target_draw)
+    configs_by_weight: dict[str, tuple[FrequencyRankerConfig, ...]] = {}
+    unique_configs: list[FrequencyRankerConfig] = []
+    seen_hashes: set[str] = set()
+    for weight_name in weight_names:
+        step = field_step(weight_name, primary_step=primary_step, context_step=context_step)
+        configs = probe_configs(base_config, weight_name=weight_name, step=step)
+        configs_by_weight[weight_name] = configs
+        for config in configs:
+            key = config_hash(config)
+            if key not in seen_hashes:
+                seen_hashes.add(key)
+                unique_configs.append(config)
+
+    ranked_by_hash = fast_rank_probe_configs_with_red5(
+        target_numbers=red_numbers,
+        train_history=train_history,
+        ranked_universe=ranked_universe,
+        base_config=base_config,
+        configs=tuple(unique_configs),
+        target_draw_date=draw_date,
+    )
+
+    signals: list[tuple[str, WeightKdjSignal, WeightKdjState]] = []
+    for weight_name, configs in configs_by_weight.items():
+        step = field_step(weight_name, primary_step=primary_step, context_step=context_step)
+        probe_results: list[WeightProbeResult] = []
+        for config in configs:
+            ranked_target = ranked_by_hash[config_hash(config)]
+            target_rank = target_rank_payload(
+                issue=issue,
+                draw_date=draw_date,
+                red_numbers=red_numbers,
+                ranked_target=ranked_target,
+            )
+            summary = summarize_target_ranks(
+                target_ranks=[target_rank],
+                config=config,
+                as_of_issue=issue,
+                history_fingerprint_value=train_fingerprint,
+                train_window=train_window,
+                train_mode=train_mode,
+                top_n=top_n,
+                universe_size=len(ranked_universe),
+            )
+            probe_results.append(
+                WeightProbeResult(
+                    weight_name=weight_name,
+                    weight_value=float(getattr(config, weight_name)),
+                    objective_score=float(summary["reward"]["objectiveScore"]),
+                    config_hash=str(summary["config_hash"]),
+                    rank=int(target_rank.rank),
+                )
+            )
+
+        signal, state = signal_from_probe_results(
+            signal_run_id=signal_run_id,
+            issue=issue,
+            draw_date=draw_date.isoformat() if draw_date else None,
+            weight_name=weight_name,
+            train_mode=train_mode,
+            train_window=train_window,
+            eval_window=1,
+            top_n=top_n,
+            history_fingerprint=train_fingerprint,
+            source="weight_response_probe_v0",
+            base_value=float(getattr(base_config, weight_name)),
+            step=step,
+            probe_results=probe_results,
+            rolling_issue_bounds=previous_bounds[weight_name],
+            previous_state=previous_states[weight_name],
+        )
+        signals.append((weight_name, signal, state))
+    return signals
+
+
+def fast_rank_probe_configs_with_red5(
+    *,
+    target_numbers: tuple[int, ...],
+    train_history: list,
+    ranked_universe,
+    base_config: FrequencyRankerConfig,
+    configs: tuple[FrequencyRankerConfig, ...],
+    target_draw_date,
+) -> dict[str, tuple[int, float, RedFiveMatch | None]]:
+    if not configs:
+        return {}
+    if not hasattr(ranked_universe, "numbers"):
+        ranked = rank_target_grid_with_red5(
+            target_numbers=target_numbers,
+            train_history=train_history,
+            configs=configs,
+            ranked_universe=ranked_universe,
+            target_draw_date=target_draw_date,
+        )
+        return {config_hash(config): result for config, result in zip(configs, ranked, strict=True)}
+
+    stats = train_frequency_stats(train_history, target_draw_date=target_draw_date)
+    components = _components_for_matrix(ranked_universe, stats)
+    base_weights = np.array([float(getattr(base_config, field)) for field in CONFIG_WEIGHT_FIELDS], dtype=np.float64)
+    base_linear = components @ base_weights
+    target_components = score_components_for_numbers(target_numbers, stats)
+    target_excluded = is_excluded_red_combination(target_numbers)
+    lex_less = _lex_less_than(ranked_universe.numbers, target_numbers)
+    target_set = set(target_numbers)
+    red5_indices = np.flatnonzero(ranked_universe.number_presence[:, list(target_numbers)].sum(axis=1) == 5)
+    field_index = {field: index for index, field in enumerate(CONFIG_WEIGHT_FIELDS)}
+
+    ranked: dict[str, tuple[int, float, RedFiveMatch | None]] = {}
+    for config in configs:
+        key = config_hash(config)
+        if key in ranked:
+            continue
+        changed_fields = [
+            field
+            for field in CONFIG_WEIGHT_FIELDS
+            if abs(float(getattr(config, field)) - float(getattr(base_config, field))) > 1e-12
+        ]
+        if len(changed_fields) == 1:
+            field = changed_fields[0]
+            delta = float(getattr(config, field)) - float(getattr(base_config, field))
+            scores = np.round(base_linear + delta * components[:, field_index[field]], 8)
+        elif not changed_fields:
+            scores = np.round(base_linear, 8)
+        else:
+            weights = np.array([float(getattr(config, field)) for field in CONFIG_WEIGHT_FIELDS], dtype=np.float64)
+            scores = np.round(components @ weights, 8)
+        target_score = score_from_components(target_components, config)
+        if target_excluded:
+            target_rank = len(ranked_universe) + 1
+        else:
+            target_rank = int((scores > target_score).sum() + ((scores == target_score) & lex_less).sum() + 1)
+        ranked[key] = (target_rank, float(target_score), best_red5_match_from_scores(ranked_universe, scores, red5_indices, target_set))
+    return ranked
+
+
+def best_red5_match_from_scores(
+    ranked_universe,
+    scores: np.ndarray,
+    red5_indices: np.ndarray,
+    target_set: set[int],
+) -> RedFiveMatch | None:
+    if not len(red5_indices):
+        return None
+    candidate_scores = scores[red5_indices]
+    candidate_numbers = ranked_universe.numbers[red5_indices]
+    order = np.lexsort(
+        (
+            candidate_numbers[:, 5],
+            candidate_numbers[:, 5],
+            candidate_numbers[:, 4],
+            candidate_numbers[:, 3],
+            candidate_numbers[:, 2],
+            candidate_numbers[:, 1],
+            candidate_numbers[:, 0],
+            -candidate_scores,
+        )
+    )
+    best_index = int(red5_indices[int(order[0])])
+    best_numbers = tuple(int(number) for number in ranked_universe.numbers[best_index])
+    best_score = float(scores[best_index])
+    candidate_set = set(best_numbers)
+    missing = sorted(target_set - candidate_set)
+    extra = sorted(candidate_set - target_set)
+    if len(missing) != 1 or len(extra) != 1:
+        return None
+    red5_better = int((scores > best_score).sum())
+    red5_equal_before = int(((scores == best_score) & _lex_less_than(ranked_universe.numbers, best_numbers)).sum())
+    return RedFiveMatch(
+        rank=red5_better + red5_equal_before + 1,
+        score=best_score,
+        numbers=best_numbers,
+        missing_number=missing[0],
+        extra_number=extra[0],
+    )
+
+
 def generate_signals(
     *,
     signal_run_id: str,
@@ -368,6 +584,7 @@ def generate_signals(
                 train_history = history[train_start:target_index]
                 train_fingerprint = fingerprint_history(train_history)
 
+                target_weights: list[str] = []
                 for weight_name in weights:
                     if mode == "incremental" and weight_name not in missing_by_issue.get(issue, set()):
                         existing = existing_by_pair.get((issue, weight_name))
@@ -382,23 +599,24 @@ def generate_signals(
                     if mode == "incremental" and previous_states[weight_name] is None:
                         skipped_without_seed += 1
                         continue
+                    target_weights.append(weight_name)
 
-                    signal, state = build_weight_signal(
-                        signal_run_id=signal_run_id,
-                        target_draw=target_draw,
-                        train_history=train_history,
-                        train_fingerprint=train_fingerprint,
-                        ranked_universe=ranked_universe,
-                        weight_name=weight_name,
-                        train_mode=train_mode,
-                        train_window=train_window,
-                        top_n=top_n,
-                        base_config=base_config,
-                        primary_step=primary_step,
-                        context_step=context_step,
-                        previous_bounds=previous_bounds[weight_name],
-                        previous_state=previous_states[weight_name],
-                    )
+                for weight_name, signal, state in build_weight_signals_for_issue(
+                    signal_run_id=signal_run_id,
+                    target_draw=target_draw,
+                    train_history=train_history,
+                    train_fingerprint=train_fingerprint,
+                    ranked_universe=ranked_universe,
+                    weight_names=tuple(target_weights),
+                    train_mode=train_mode,
+                    train_window=train_window,
+                    top_n=top_n,
+                    base_config=base_config,
+                    primary_step=primary_step,
+                    context_step=context_step,
+                    previous_bounds=previous_bounds,
+                    previous_states=previous_states,
+                ):
                     previous_states[weight_name] = state
                     previous_bounds[weight_name].append((signal.issue_low_value, signal.issue_high_value))
                     if not dry_run:
@@ -407,8 +625,9 @@ def generate_signals(
                     generated_issues.add(issue)
                     weight_counts[weight_name] += 1
 
-            if not dry_run:
-                conn.commit()
+                if not dry_run:
+                    conn.commit()
+
             print(
                 json.dumps(
                     {
@@ -459,25 +678,34 @@ def main() -> None:
     parser.add_argument("--chunk-size", type=int, default=25)
     parser.add_argument("--base-config-json", help="Optional JSON object with base FrequencyRankerConfig overrides.")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--heavy-job-lock-timeout-seconds", type=float, default=0.0)
+    parser.add_argument("--cpu-threads", type=int, default=1)
     args = parser.parse_args()
 
-    summary = generate_signals(
-        signal_run_id=args.signal_run_id,
-        mode=args.mode,
-        as_of_issue=args.as_of_issue,
-        issues=args.issues,
-        allow_partial=args.allow_partial,
-        train_mode=args.train_mode,
-        train_window=args.train_window,
-        top_n=args.top_n,
-        weights=parse_weights(args.weights),
-        primary_step=args.primary_step,
-        context_step=args.context_step,
-        kdj_window=args.kdj_window,
-        chunk_size=args.chunk_size,
-        base_config=load_base_config(args.base_config_json),
-        dry_run=args.dry_run,
-    )
+    apply_cpu_thread_env_defaults(args.cpu_threads)
+    with heavy_job_lock(
+        owner="weight-kdj-signals",
+        timeout_seconds=args.heavy_job_lock_timeout_seconds,
+        context={"signal_run_id": args.signal_run_id, "mode": args.mode, "issues": args.issues},
+    ) as lock:
+        summary = generate_signals(
+            signal_run_id=args.signal_run_id,
+            mode=args.mode,
+            as_of_issue=args.as_of_issue,
+            issues=args.issues,
+            allow_partial=args.allow_partial,
+            train_mode=args.train_mode,
+            train_window=args.train_window,
+            top_n=args.top_n,
+            weights=parse_weights(args.weights),
+            primary_step=args.primary_step,
+            context_step=args.context_step,
+            kdj_window=args.kdj_window,
+            chunk_size=args.chunk_size,
+            base_config=load_base_config(args.base_config_json),
+            dry_run=args.dry_run,
+        )
+        lock.heartbeat(status="completed", context={"signals": summary.get("signals"), "status": summary.get("status")})
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 

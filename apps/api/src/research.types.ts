@@ -223,6 +223,39 @@ export type TrainingWeightSignalSeries = {
   points: TrainingWeightSignalPoint[];
 };
 
+export type TrainingAdvisorSource = 'weight_kdj_advisor' | 'ridge_kdj_advisor' | 'neural_kdj_advisor';
+
+export type TrainingAdvisorAdviceRow = {
+  weightName: string;
+  latestIssue: string | null;
+  suggestedOffset: number | null;
+  confidence: number | null;
+  validationMetric: number | null;
+  baselineMetric: number | null;
+  configHash: string | null;
+  decision: string | null;
+  reason: string | null;
+  source: string | null;
+};
+
+export type TrainingAdvisorSummary = {
+  source: TrainingAdvisorSource;
+  enabled: boolean;
+  status: string | null;
+  mode: string | null;
+  budget: number | null;
+  candidateCount: number | null;
+  selectedCount: number | null;
+  downweightedCount: number | null;
+  rejectedCount: number | null;
+  fieldCount: number | null;
+  fields: string[];
+  latestSignalIssue: string | null;
+  signalRunId: string | null;
+  advice: TrainingAdvisorAdviceRow[];
+  controlVerdict: Record<string, unknown> | string | null;
+};
+
 export type ServiceStatusLevel = 'ok' | 'warning' | 'failed' | 'unknown';
 
 export type ServiceStatusName = 'api' | 'web' | 'db' | 'sync' | 'kdj' | 'training';
@@ -247,6 +280,7 @@ export type HeavyTaskLimits = {
   defaultWorkers: number;
   recommendedInteractiveMax: number;
   activeTrainingWorkers: number | null;
+  heavyJobLock: Record<string, unknown> | null;
 };
 
 export type ServiceStatusPayload = {
@@ -309,6 +343,7 @@ export type TrainingStatusPayload = {
   featureMatrixCache: TrainingMatrixCache | null;
   red5RankMode: string | null;
   prefilter: TrainingPrefilterStatus | null;
+  advisorSummaries: TrainingAdvisorSummary[];
   qianKun: TrainingQianKunSummary;
   completedRounds: number;
   rounds: TrainingRoundSummary[];

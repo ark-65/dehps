@@ -3,8 +3,13 @@ from __future__ import annotations
 import json
 
 from dehps.models.frequency_ranker import FrequencyRankerConfig
+from dehps.optimization.neural_kdj_advisor import NeuralKdjOffsetAdvice
+from dehps.optimization.neural_kdj_advisor import neural_kdj_advice_to_frequency_ranker_config_candidates
+from dehps.optimization.ridge_kdj_advisor import RidgeKdjOffsetAdvice
+from dehps.optimization.ridge_kdj_advisor import ridge_kdj_advice_to_frequency_ranker_config_candidates
 from dehps.optimization.walk_forward import TargetRank, build_ranked_universe
 from scripts.run_training_supervisor import (
+    bounded_unique_config_hashes,
     calculate_tail_risk_penalty,
     candidate_budget,
     attach_frozen_validation,
@@ -17,9 +22,11 @@ from scripts.run_training_supervisor import (
     low_coverage_fields_from_summaries,
     load_prior_supervisor_candidates,
     merge_reserved_candidate_configs,
+    neural_kdj_advisor_metadata,
     post_training_event,
     prefilter_configs,
     reward_summary,
+    ridge_kdj_advisor_metadata,
     sort_key,
     stagnation_round_count,
     training_event_payload,
@@ -62,6 +69,30 @@ def test_candidate_budget_reserves_explicit_weight_kdj_bucket():
     assert sum(value for name, value in budget.items() if name != "weight_kdj") == 17
 
 
+def test_candidate_budget_reserves_ridge_without_squeezing_weight_kdj():
+    budget = candidate_budget(20, weight_kdj_budget_share=0.15, ridge_kdj_budget_share=0.08)
+
+    assert budget["weight_kdj"] == 3
+    assert budget["ridge_kdj"] == 2
+    assert sum(value for name, value in budget.items() if name not in {"weight_kdj", "ridge_kdj"}) == 15
+    assert sum(budget.values()) == 20
+
+
+def test_candidate_budget_reserves_neural_without_squeezing_other_advisors():
+    budget = candidate_budget(
+        20,
+        weight_kdj_budget_share=0.15,
+        ridge_kdj_budget_share=0.08,
+        neural_kdj_budget_share=0.05,
+    )
+
+    assert budget["weight_kdj"] == 3
+    assert budget["ridge_kdj"] == 2
+    assert budget["neural_kdj"] == 1
+    assert sum(value for name, value in budget.items() if name not in {"weight_kdj", "ridge_kdj", "neural_kdj"}) == 14
+    assert sum(budget.values()) == 20
+
+
 def test_reserved_weight_kdj_candidates_survive_full_normal_round():
     normal = tuple(FrequencyRankerConfig(frequency_weight=round(0.01 * index, 4)) for index in range(20))
     kdj = (
@@ -75,6 +106,51 @@ def test_reserved_weight_kdj_candidates_survive_full_normal_round():
     assert len(merged) == 20
     assert all(config in merged for config in kdj)
     assert len([config for config in merged if config in normal]) == 17
+
+
+def test_reserved_ridge_candidates_do_not_trim_existing_kdj_bucket():
+    normal = tuple(FrequencyRankerConfig(frequency_weight=round(0.01 * index, 4)) for index in range(15))
+    kdj = (
+        FrequencyRankerConfig(frequency_weight=0.37),
+        FrequencyRankerConfig(sum_tail_weight=-0.03),
+        FrequencyRankerConfig(weekday_trend_weight=0.04),
+    )
+    ridge = (
+        FrequencyRankerConfig(frequency_weight=0.41),
+        FrequencyRankerConfig(sum_tail_weight=0.07),
+    )
+
+    with_kdj = merge_reserved_candidate_configs(normal, kdj, max_configs=18, reserved_budget=3)
+    merged = merge_reserved_candidate_configs(with_kdj, ridge, max_configs=20, reserved_budget=2)
+
+    assert len(merged) == 20
+    assert all(config in merged for config in kdj)
+    assert all(config in merged for config in ridge)
+    assert len([config for config in merged if config in normal]) == 15
+
+
+def test_reserved_neural_candidates_do_not_trim_existing_advisor_buckets():
+    normal = tuple(FrequencyRankerConfig(frequency_weight=round(0.01 * index, 4)) for index in range(14))
+    kdj = (
+        FrequencyRankerConfig(frequency_weight=0.37),
+        FrequencyRankerConfig(sum_tail_weight=-0.03),
+        FrequencyRankerConfig(weekday_trend_weight=0.04),
+    )
+    ridge = (
+        FrequencyRankerConfig(frequency_weight=0.41),
+        FrequencyRankerConfig(sum_tail_weight=0.07),
+    )
+    neural = (FrequencyRankerConfig(omission_weight=0.42),)
+
+    with_kdj = merge_reserved_candidate_configs(normal, kdj, max_configs=17, reserved_budget=3)
+    with_ridge = merge_reserved_candidate_configs(with_kdj, ridge, max_configs=19, reserved_budget=2)
+    merged = merge_reserved_candidate_configs(with_ridge, neural, max_configs=20, reserved_budget=1)
+
+    assert len(merged) == 20
+    assert all(config in merged for config in kdj)
+    assert all(config in merged for config in ridge)
+    assert all(config in merged for config in neural)
+    assert len([config for config in merged if config in normal]) == 14
 
 
 def test_generate_configs_reuses_elite_configs_for_local_search():
@@ -192,6 +268,165 @@ def test_weight_kdj_advisor_generates_bounded_candidate_offsets():
     assert any(round(config.sum_tail_weight, 6) == -0.02 for config in configs)
     assert metadata["mode"] == "advisor_only"
     assert metadata["candidate_count"] == len(configs)
+
+
+def test_ridge_kdj_advisor_metadata_records_counts_and_advice_details():
+    base = FrequencyRankerConfig(frequency_weight=0.30, sum_tail_weight=0.0)
+    signals = [
+        {
+            "signal_run_id": "weight-kdj-run-1",
+            "issue": "2026067",
+            "weight_name": "frequency_weight",
+        },
+        {
+            "signal_run_id": "weight-kdj-run-1",
+            "issue": "2026068",
+            "weight_name": "sum_tail_weight",
+        },
+    ]
+    advice = (
+        RidgeKdjOffsetAdvice(
+            weight_name="frequency_weight",
+            suggested_offset=0.03,
+            confidence=0.70,
+            train_rows=24,
+            validation_metric=0.01,
+            baseline_metric=0.03,
+        ),
+        RidgeKdjOffsetAdvice(
+            weight_name="sum_tail_weight",
+            suggested_offset=-0.02,
+            confidence=0.20,
+            train_rows=24,
+            validation_metric=0.025,
+            baseline_metric=0.03,
+        ),
+    )
+    thresholds = {"min_confidence": 0.50, "min_train_rows": 12, "min_validation_rows": 4}
+    params = {"step": 0.01, "ridge_alpha": 0.1}
+    configs = ridge_kdj_advice_to_frequency_ranker_config_candidates(
+        base,
+        advice,
+        max_configs=2,
+        min_confidence=thresholds["min_confidence"],
+    )
+
+    metadata = ridge_kdj_advisor_metadata(
+        signals,
+        configs,
+        enabled=True,
+        budget=2,
+        params=params,
+        thresholds=thresholds,
+        advice=advice,
+    )
+
+    assert metadata["mode"] == "advisor_only"
+    assert metadata["enabled"] is True
+    assert metadata["budget"] == 2
+    assert metadata["params"] == params
+    assert metadata["thresholds"] == thresholds
+    assert metadata["signal_run_id"] == "weight-kdj-run-1"
+    assert metadata["loaded_signals"] == 2
+    assert metadata["latest_signal_issue"] == "2026068"
+    assert metadata["selected_count"] == 1
+    assert metadata["rejected_count"] == 1
+    assert metadata["fields"] == ["frequency_weight", "sum_tail_weight"]
+    assert metadata["advice"][0]["confidence"] == 0.70
+    assert metadata["advice"][0]["validation_metric"] == 0.01
+    assert metadata["advice"][0]["baseline_metric"] == 0.03
+    assert metadata["advice"][0]["suggested_offset"] == 0.03
+    assert metadata["config_hashes"] == [config_hash(configs[0])]
+
+
+def test_neural_kdj_advisor_metadata_records_validation_and_candidate_hashes():
+    base = FrequencyRankerConfig(frequency_weight=0.30, omission_weight=0.20)
+    signals = [
+        {
+            "signal_run_id": "weight-kdj-run-1",
+            "issue": "2026067",
+            "weight_name": "frequency_weight",
+        },
+        {
+            "signal_run_id": "weight-kdj-run-1",
+            "issue": "2026068",
+            "weight_name": "omission_weight",
+        },
+    ]
+    advice = (
+        NeuralKdjOffsetAdvice(
+            weight_name="frequency_weight",
+            suggested_offset=0.02,
+            confidence=0.55,
+            train_rows=40,
+            validation_rows=10,
+            validation_metric=0.012,
+            baseline_metric=0.020,
+            feature_names=("j", "k_minus_d"),
+        ),
+        NeuralKdjOffsetAdvice(
+            weight_name="omission_weight",
+            suggested_offset=-0.01,
+            confidence=0.15,
+            train_rows=40,
+            validation_rows=10,
+            validation_metric=0.018,
+            baseline_metric=0.020,
+            feature_names=("j", "k_minus_d"),
+        ),
+    )
+    thresholds = {"min_confidence": 0.50}
+    params = {"step": 0.01, "seed": 17, "hidden_units": 8, "epochs": 120, "model": "numpy_mlp_kdj_offset_v0"}
+    configs = neural_kdj_advice_to_frequency_ranker_config_candidates(
+        base,
+        advice,
+        max_configs=1,
+        min_confidence=thresholds["min_confidence"],
+    )
+
+    metadata = neural_kdj_advisor_metadata(
+        signals,
+        configs,
+        enabled=True,
+        budget=1,
+        params=params,
+        thresholds=thresholds,
+        advice=advice,
+    )
+
+    assert metadata["mode"] == "advisor_only"
+    assert metadata["enabled"] is True
+    assert metadata["budget"] == 1
+    assert metadata["params"] == params
+    assert metadata["thresholds"] == thresholds
+    assert metadata["signal_run_id"] == "weight-kdj-run-1"
+    assert metadata["loaded_signals"] == 2
+    assert metadata["latest_signal_issue"] == "2026068"
+    assert metadata["selected_count"] == 1
+    assert metadata["rejected_count"] == 1
+    assert metadata["fields"] == ["frequency_weight", "omission_weight"]
+    assert metadata["advice"][0]["confidence"] == 0.55
+    assert metadata["advice"][0]["validation_metric"] == 0.012
+    assert metadata["advice"][0]["baseline_metric"] == 0.020
+    assert metadata["advice"][0]["suggested_offset"] == 0.02
+    assert metadata["advice"][0]["validation_rows"] == 10
+    assert metadata["config_hashes"] == [config_hash(configs[0])]
+
+
+def test_bounded_unique_config_hashes_uses_hashes_and_limit():
+    base = FrequencyRankerConfig()
+    configs = (
+        base,
+        base,
+        FrequencyRankerConfig(frequency_weight=0.40),
+        FrequencyRankerConfig(frequency_weight=0.40),
+        FrequencyRankerConfig(sum_tail_weight=0.04),
+    )
+
+    hashes = bounded_unique_config_hashes(configs, limit=2)
+
+    assert hashes == [config_hash(base), config_hash(FrequencyRankerConfig(frequency_weight=0.40))]
+    assert len(hashes) == len(set(hashes)) == 2
 
 
 def test_weight_kdj_advisor_metadata_records_threshold_counts_and_fields():

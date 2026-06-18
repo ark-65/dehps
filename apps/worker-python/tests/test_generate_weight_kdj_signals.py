@@ -144,8 +144,14 @@ def test_full_mode_allow_partial_generates_available_eligible_issue(monkeypatch)
     patch_common_generation(monkeypatch, conn, history)
     monkeypatch.setattr(
         kdj_script,
-        "build_weight_signal",
-        lambda **kwargs: fake_signal(kdj_script.history_issue(kwargs["target_draw"]), kwargs["weight_name"]),
+        "build_weight_signals_for_issue",
+        lambda **kwargs: [
+            (
+                weight_name,
+                *fake_signal(kdj_script.history_issue(kwargs["target_draw"]), weight_name),
+            )
+            for weight_name in kwargs["weight_names"]
+        ],
     )
 
     summary = generate_signals(
@@ -273,10 +279,13 @@ def test_incremental_generates_only_missing_issue_weight_rows_in_order(monkeypat
 
     def build_fake(**kwargs):
         issue = kdj_script.history_issue(kwargs["target_draw"])
-        generated.append((issue, kwargs["weight_name"]))
-        return fake_signal(issue, kwargs["weight_name"])
+        rows = []
+        for weight_name in kwargs["weight_names"]:
+            generated.append((issue, weight_name))
+            rows.append((weight_name, *fake_signal(issue, weight_name)))
+        return rows
 
-    monkeypatch.setattr(kdj_script, "build_weight_signal", build_fake)
+    monkeypatch.setattr(kdj_script, "build_weight_signals_for_issue", build_fake)
 
     summary = generate_signals(
         signal_run_id=CANONICAL_SIGNAL_RUN_ID,

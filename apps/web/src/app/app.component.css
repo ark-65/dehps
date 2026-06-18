@@ -107,6 +107,7 @@ h2 {
 .detail-workbench,
 .comparison-workbench,
 .feature-distributions,
+.advisor-panel,
 .service-status-panel,
 .training-monitor,
 .panel {
@@ -133,6 +134,7 @@ h2 {
 
 .comparison-workbench,
 .feature-distributions,
+.advisor-panel,
 .service-status-panel {
   margin-bottom: 18px;
 }
@@ -552,6 +554,82 @@ select {
   grid-column: 1 / -1;
 }
 
+.advisor-panel {
+  margin: 0 16px 16px;
+}
+
+.advisor-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  padding: 16px;
+}
+
+.advisor-source-panel {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #e3e7eb;
+  border-radius: 6px;
+  background: #fbfcfd;
+}
+
+.advisor-source-panel header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid #edf0f2;
+}
+
+.advisor-source-panel h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  letter-spacing: 0;
+}
+
+.advisor-source-panel small {
+  display: block;
+  margin-top: 4px;
+  color: #64717d;
+  overflow-wrap: anywhere;
+}
+
+.advisor-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+  border-bottom: 1px solid #edf0f2;
+}
+
+.advisor-meta div {
+  min-width: 0;
+  padding: 10px 12px;
+  border-top: 1px solid #edf0f2;
+}
+
+.advisor-meta div:first-child,
+.advisor-meta div:nth-child(2) {
+  border-top: 0;
+}
+
+.advisor-meta div:last-child {
+  grid-column: 1 / -1;
+}
+
+.advisor-table {
+  max-height: 300px;
+}
+
+.advisor-table table {
+  min-width: 780px;
+}
+
+.advisor-table td {
+  vertical-align: top;
+}
+
 .training-panel {
   min-width: 0;
   border: 1px solid #e3e7eb;
@@ -924,6 +1002,7 @@ em {
 
   .comparison-controls,
   .comparison-grid,
+  .advisor-grid,
   .chart-grid,
   .training-detail-grid,
   .training-grid,
@@ -943,6 +1022,19 @@ em {
 
   .detail-summary dl {
     grid-template-columns: 1fr;
+  }
+
+  .advisor-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .advisor-meta div,
+  .advisor-meta div:nth-child(2) {
+    border-top: 1px solid #edf0f2;
+  }
+
+  .advisor-meta div:first-child {
+    border-top: 0;
   }
 
   .bar-row {

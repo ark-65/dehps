@@ -5,6 +5,8 @@ import {
   DashboardPayload,
   ExperimentDetail,
   ServiceStatusPayload,
+  advisorSourceLabel,
+  advisorVerdictText,
   compareExperiments,
   combinationDistribution,
   ExperimentSummary,
@@ -57,6 +59,7 @@ test('service status labels and severity sorting keep failed states first', () =
       defaultWorkers: 16,
       recommendedInteractiveMax: 8,
       activeTrainingWorkers: 16,
+      heavyJobLock: { active: true, owner: 'training-supervisor' },
     },
     services: [
       {
@@ -111,6 +114,15 @@ test('service status labels and severity sorting keep failed states first', () =
     sortedServiceStatuses(payload).map((service) => service.name),
     ['sync', 'kdj', 'api'],
   );
+});
+
+test('advisor labels and verdict text keep explanation panel hooks stable', () => {
+  assert.equal(advisorSourceLabel('weight_kdj_advisor'), 'KDJ Advisor');
+  assert.equal(advisorSourceLabel('ridge_kdj_advisor'), 'Ridge KDJ Advisor');
+  assert.equal(advisorSourceLabel('neural_kdj_advisor'), 'Neural KDJ Advisor');
+  assert.equal(advisorVerdictText(null), '无控制结论');
+  assert.equal(advisorVerdictText({ passed: false, language: 'control baseline held' }), 'FAIL / control baseline held');
+  assert.equal(advisorVerdictText({ passed: true }), 'PASS');
 });
 
 test('combinationDistribution splits retained and rejected space', () => {
@@ -210,9 +222,17 @@ test('training view does not use periodic dashboard polling', () => {
   assert.equal(component.includes('liveProgressOption'), true);
   assert.equal(component.includes('trainingWeightSignalsState$'), true);
   assert.equal(component.includes('weightKdjGroups'), true);
+  assert.equal(component.includes('advisorSummaries(status: TrainingStatusPayload)'), true);
+  assert.equal(component.includes('advisorVerdictText'), true);
   assert.equal(component.includes("type DashboardTab = 'training' | 'training-rounds' | 'experiments' | 'service-status'"), true);
   assert.equal(component.includes('targetHitRows'), true);
   assert.equal(template.includes('@if (hasRoundCharts(training))'), true);
+  assert.equal(template.includes('Advisor 解释'), true);
+  assert.equal(template.includes('启动 Advisor'), false);
+  assert.equal(template.includes('停止 Advisor'), false);
+  assert.equal(template.includes('waiting for advisor data'), true);
+  assert.equal(template.includes('control verdict'), true);
+  assert.equal(template.includes('suggestedOffset'), true);
   assert.equal(template.includes('训练轮次'), true);
   assert.equal(template.includes('服务状态'), true);
   assert.equal(template.includes('命中期次'), true);

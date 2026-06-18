@@ -91,6 +91,11 @@
             <strong>{{ state.payload.heavyTaskLimits.activeTrainingWorkers ?? '未知' }}</strong>
             <small>activeTrainingWorkers</small>
           </article>
+          <article class="service-tile">
+            <span>重任务锁</span>
+            <strong>{{ state.payload.heavyTaskLimits.heavyJobLock?.['active'] ? '占用' : '空闲' }}</strong>
+            <small>{{ state.payload.heavyTaskLimits.heavyJobLock?.['owner'] || state.payload.heavyTaskLimits.heavyJobLock?.['reason'] || 'metadata_missing' }}</small>
+          </article>
         </div>
         <div class="table-wrap service-table">
           <table>
@@ -329,6 +334,88 @@
         </article>
         }
       </div>
+
+      <section class="advisor-panel">
+        <div class="section-heading">
+          <h2>Advisor 解释</h2>
+          <span>候选建议解释，不是预测</span>
+        </div>
+        @let advisors = advisorSummaries(training);
+        @if (advisors.length) {
+          <div class="advisor-grid">
+            @for (summary of advisors; track summary.source) {
+              <article class="advisor-source-panel">
+                <header>
+                  <div>
+                    <h3>{{ advisorSourceLabel(summary.source) }}</h3>
+                    <small>{{ summary.source }}</small>
+                  </div>
+                  <span class="status-pill">{{ advisorStatusText(summary) }}</span>
+                </header>
+                <dl class="advisor-meta">
+                  <div>
+                    <dt>budget</dt>
+                    <dd>{{ summary.budget ?? '无' }}</dd>
+                  </div>
+                  <div>
+                    <dt>counts</dt>
+                    <dd>{{ advisorCountsText(summary) }}</dd>
+                  </div>
+                  <div>
+                    <dt>fields</dt>
+                    <dd>{{ advisorFieldsText(summary) }}</dd>
+                  </div>
+                  <div>
+                    <dt>latest signal issue</dt>
+                    <dd>{{ summary.latestSignalIssue || '无' }}</dd>
+                  </div>
+                  <div>
+                    <dt>control verdict</dt>
+                    <dd>{{ advisorVerdictText(summary.controlVerdict) }}</dd>
+                  </div>
+                </dl>
+                <div class="table-wrap compact-table advisor-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>weightName</th>
+                        <th>suggestedOffset</th>
+                        <th>confidence</th>
+                        <th>validationMetric</th>
+                        <th>baselineMetric</th>
+                        <th>configHash</th>
+                        <th>verdict</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (row of advisorTopAdviceRows(summary); track row.weightName + ':' + ($index)) {
+                        <tr>
+                          <td>
+                            <strong>{{ row.weightName }}</strong>
+                            <small>{{ row.latestIssue || '无期号' }}</small>
+                          </td>
+                          <td>{{ advisorNumberText(row.suggestedOffset) }}</td>
+                          <td>{{ advisorNumberText(row.confidence) }}</td>
+                          <td>{{ advisorNumberText(row.validationMetric) }}</td>
+                          <td>{{ advisorNumberText(row.baselineMetric) }}</td>
+                          <td>{{ row.configHash || '无' }}</td>
+                          <td>{{ row.decision || row.reason || '无' }}</td>
+                        </tr>
+                      } @empty {
+                        <tr>
+                          <td colspan="7">暂无 advice rows。</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+            }
+          </div>
+        } @else {
+          <div class="detail-placeholder">waiting for advisor data</div>
+        }
+      </section>
 
       <div class="training-detail-grid">
         <article class="training-panel">
