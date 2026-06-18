@@ -250,6 +250,7 @@ test('service status tab loads lazily from the dedicated endpoint', () => {
   const component = readFileSync(new URL('../src/app/app.component.ts', import.meta.url), 'utf8');
   const template = readFileSync(new URL('../src/app/app.component.html', import.meta.url), 'utf8');
   const service = readFileSync(new URL('../src/app/dashboard.service.ts', import.meta.url), 'utf8');
+  const proxy = readFileSync(new URL('../proxy.conf.json', import.meta.url), 'utf8');
 
   assert.equal(service.includes('loadServiceStatus(): Observable<ServiceStatusPayload>'), true);
   assert.equal(service.includes("'/service-status'"), true);
@@ -259,6 +260,9 @@ test('service status tab loads lazily from the dedicated endpoint', () => {
   assert.equal(template.includes("activeTab === 'service-status'"), true);
   assert.equal(template.includes('serviceStatusState$ | async'), true);
   assert.equal(template.includes('activeTrainingWorkers'), true);
+  assert.equal(proxy.includes('"/service-status"'), true);
+  assert.equal(proxy.includes('"/training-rounds"'), true);
+  assert.equal(proxy.includes('"/training-weight-signals"'), true);
 });
 
 test('training round charts enable range zoom for long round sequences', () => {

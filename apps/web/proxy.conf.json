@@ -19,6 +19,18 @@
     "target": "http://localhost:3000",
     "secure": false
   },
+  "/service-status": {
+    "target": "http://localhost:3000",
+    "secure": false
+  },
+  "/training-rounds": {
+    "target": "http://localhost:3000",
+    "secure": false
+  },
+  "/training-weight-signals": {
+    "target": "http://localhost:3000",
+    "secure": false
+  },
   "/training-status/ws": {
     "target": "ws://localhost:3000",
     "secure": false,
