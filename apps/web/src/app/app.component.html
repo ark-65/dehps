@@ -32,6 +32,13 @@
       </button>
       <button
         type="button"
+        [class.active]="activeTab === 'training-rounds'"
+        (click)="selectTab('training-rounds')"
+      >
+        训练轮次
+      </button>
+      <button
+        type="button"
         [class.active]="activeTab === 'experiments'"
         (click)="selectTab('experiments')"
       >
@@ -292,6 +299,178 @@
       <section class="training-monitor">
         <div class="detail-placeholder">{{ streamDetailText(trainingStream) }}</div>
       </section>
+    }
+    }
+
+    @if (activeTab === 'training-rounds') {
+    @if (trainingRoundsState$ | async; as state) {
+    @if (state.status === 'loading' || state.status === 'idle') {
+      <section class="detail-workbench">
+        <div class="detail-placeholder">正在加载训练轮次...</div>
+      </section>
+    } @else if (state.status === 'error') {
+      <section class="detail-workbench">
+        <div class="detail-placeholder error-text">{{ state.message }}</div>
+      </section>
+    } @else {
+      <section class="grid experiments">
+        <div class="section-heading">
+          <h2>训练轮次</h2>
+          <span>按完成时间展示每轮训练归档</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>轮数</th>
+                <th>简介</th>
+                <th>完整命中</th>
+                <th>红5命中</th>
+                <th>排名区间</th>
+                <th>提升</th>
+                <th>详情</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (round of state.rounds; track trainingRoundKey(round)) {
+                <tr [class.selected]="trainingRoundKey(round) === selectedTrainingRoundKey">
+                  <td>
+                    <strong>R{{ round.roundIndex }}</strong>
+                    <small>{{ phaseText(round.phase) }} / {{ round.createdAt | date: 'yyyy-MM-dd HH:mm' }}</small>
+                  </td>
+                  <td>
+                    <strong>{{ round.runId }}</strong>
+                    <small>{{ trainingRoundSummary(round) }}</small>
+                  </td>
+                  <td>{{ trainingRoundHitSummary(round) }}</td>
+                  <td>{{ trainingRoundRed5Summary(round) }}</td>
+                  <td>
+                    最佳 {{ round.bestRank || '无' }} /
+                    中位 {{ round.medianRank || '无' }} /
+                    最差 {{ round.worstRank || '无' }}
+                  </td>
+                  <td>{{ round.improved ? '是' : '否' }}</td>
+                  <td>
+                    <button
+                      class="row-action"
+                      type="button"
+                      (click)="selectTrainingRound(round)"
+                      [title]="'打开 R' + round.roundIndex"
+                    >
+                      打开
+                    </button>
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="7">暂无训练轮次归档；下一轮 supervisor 完成后会自动写入。</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      @if (trainingRoundDetailState$ | async; as detailState) {
+      <section class="detail-workbench">
+        <div class="section-heading">
+          <h2>轮次详情</h2>
+          @if (detailState.status === 'ready' && detailState.detail; as detail) {
+            <span>R{{ detail.roundIndex }} / {{ trainingRoundHitSummary(detail) }} / {{ trainingRoundRed5Summary(detail) }}</span>
+          } @else if (detailState.status === 'loading') {
+            <span>正在加载 {{ detailState.key }}</span>
+          } @else if (detailState.status === 'error') {
+            <span>{{ detailState.message }}</span>
+          } @else {
+            <span>请选择训练轮次</span>
+          }
+        </div>
+
+        @if (detailState.status === 'ready' && detailState.detail; as detail) {
+          <div class="detail-grid training-round-detail">
+            <div class="detail-summary">
+              <dl>
+                <div>
+                  <dt>运行</dt>
+                  <dd>{{ detail.runId }}</dd>
+                </div>
+                <div>
+                  <dt>目标期</dt>
+                  <dd>{{ detail.asOfIssue }}</dd>
+                </div>
+                <div>
+                  <dt>协议</dt>
+                  <dd>{{ trainingRoundSummary(detail) }}</dd>
+                </div>
+                <div>
+                  <dt>综合分</dt>
+                  <dd>{{ detail.objectiveScore ?? '无' }}</dd>
+                </div>
+              </dl>
+              <div class="hypothesis-block">
+                <h3>最佳权重</h3>
+                <pre>{{ detail.bestConfig | json }}</pre>
+              </div>
+            </div>
+
+            <article class="report-viewer">
+              <header>
+                <h3>命中期次</h3>
+              </header>
+              <div class="table-wrap compact-table hit-detail-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>期号</th>
+                      <th>真实红球</th>
+                      <th>完整排名</th>
+                      <th>完整命中</th>
+                      <th>红5候选</th>
+                      <th>红5排名</th>
+                      <th>差异号</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (target of targetHitRows(detail); track target.issue) {
+                      <tr>
+                        <td>
+                          <strong>{{ target.issue }}</strong>
+                          <small>{{ target.drawDate || '无日期' }}</small>
+                        </td>
+                        <td>{{ numbersText(target.redNumbers) }}</td>
+                        <td>{{ target.rank }} / {{ target.score ?? '无' }}</td>
+                        <td>
+                          Top10000 {{ target.hitTop10000 ? '是' : '否' }} /
+                          Top1000 {{ target.hitTop1000 ? '是' : '否' }} /
+                          Top100 {{ target.hitTop100 ? '是' : '否' }}
+                        </td>
+                        <td>{{ numbersText(target.red5Numbers) }}</td>
+                        <td>{{ target.red5Rank || '无' }} / {{ target.red5Score ?? '无' }}</td>
+                        <td>
+                          缺 {{ target.red5MissingNumber || '无' }} /
+                          多 {{ target.red5ExtraNumber || '无' }}
+                        </td>
+                      </tr>
+                    } @empty {
+                      <tr>
+                        <td colspan="7">该轮暂无逐期明细。</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+        } @else if (detailState.status === 'loading') {
+          <div class="detail-placeholder">正在加载训练轮次依据...</div>
+        } @else if (detailState.status === 'error') {
+          <div class="detail-placeholder error-text">{{ detailState.message }}</div>
+        } @else {
+          <div class="detail-placeholder">选择一轮训练查看命中明细。</div>
+        }
+      </section>
+      }
+    }
     }
     }
 

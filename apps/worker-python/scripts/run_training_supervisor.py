@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import urllib.error
 import urllib.request
 from collections import Counter
@@ -33,7 +34,8 @@ from dehps.optimization.walk_forward import (
     rank_target_grid,
     rank_target_grid_with_red5,
 )
-from dehps.storage.postgres_store import load_red_combination_universe
+from dehps.storage.postgres_store import ensure_training_round_results_schema, load_red_combination_universe, upsert_training_round_result
+from dehps.storage.postgres_store import load_training_round_candidate_summaries
 
 
 PRIMARY_FIELDS = ("structural_weight", "frequency_weight", "omission_weight")
@@ -133,6 +135,14 @@ PHASES = (
     ("medium", 0.07),
     ("large", 0.15),
 )
+STAGNATION_THRESHOLD = 16
+CANDIDATE_BUDGET_SHARES = {
+    "exploitation": 0.40,
+    "exploration": 0.30,
+    "replay": 0.20,
+    "baseline": 0.10,
+}
+MAX_FROZEN_VALIDATION_WINDOW = 20
 
 
 def _target_pool_context():
@@ -218,6 +228,264 @@ def add_unique(configs: list[FrequencyRankerConfig], seen: set[str], config: Fre
     if key not in seen:
         seen.add(key)
         configs.append(normalized)
+
+
+def add_unique_until(
+    configs: list[FrequencyRankerConfig],
+    seen: set[str],
+    config: FrequencyRankerConfig,
+    *,
+    limit: int,
+) -> None:
+    if len(configs) < limit:
+        add_unique(configs, seen, config)
+
+
+def candidate_budget(max_configs: int) -> dict[str, int]:
+    if max_configs <= 0:
+        return {name: 0 for name in CANDIDATE_BUDGET_SHARES}
+    names = tuple(CANDIDATE_BUDGET_SHARES)
+    counts = {name: 0 for name in names}
+    remaining = max_configs
+    for name in names:
+        if remaining > 0:
+            counts[name] = 1
+            remaining -= 1
+    raw = {
+        name: max_configs * share - counts[name]
+        for name, share in CANDIDATE_BUDGET_SHARES.items()
+    }
+    for name in sorted(names, key=lambda item: raw[item], reverse=True):
+        if remaining <= 0:
+            break
+        add = max(0, int(raw[name]))
+        add = min(add, remaining)
+        counts[name] += add
+        remaining -= add
+    for name in sorted(names, key=lambda item: raw[item] - int(raw[item]), reverse=True):
+        if remaining <= 0:
+            break
+        counts[name] += 1
+        remaining -= 1
+    return counts
+
+
+def config_distance(left: FrequencyRankerConfig, right: FrequencyRankerConfig) -> float:
+    return sum(abs(float(getattr(left, field)) - float(getattr(right, field))) for field in ALL_FIELDS)
+
+
+def weighted_config_distance(config: FrequencyRankerConfig, configs: list[FrequencyRankerConfig]) -> float:
+    if not configs:
+        return float("inf")
+    return min(config_distance(config, other) for other in configs)
+
+
+def deterministic_seed(*parts: object) -> int:
+    payload = "|".join(str(part) for part in parts)
+    return sum((index + 1) * ord(char) for index, char in enumerate(payload)) % (2**32)
+
+
+def nonzero_weight_fields(config: FrequencyRankerConfig) -> tuple[str, ...]:
+    return tuple(field for field in ALL_FIELDS if abs(float(getattr(config, field))) > 1e-12)
+
+
+def low_coverage_fields_from_summaries(summaries: list[dict], *, limit: int = 12) -> tuple[str, ...]:
+    coverage: Counter[str] = Counter()
+    for summary in summaries:
+        config = summary.get("config") if isinstance(summary.get("config"), dict) else {}
+        for field in ALL_FIELDS:
+            if abs(float(config.get(field, 0) or 0)) > 1e-12:
+                coverage[field] += 1
+    return tuple(field for field, _count in sorted(coverage.items(), key=lambda item: (item[1], item[0])))[:limit] or CONTEXT_FIELDS[:limit]
+
+
+def baseline_candidate_configs() -> tuple[FrequencyRankerConfig, ...]:
+    return (
+        FrequencyRankerConfig(),
+        FrequencyRankerConfig(
+            structural_weight=0.55,
+            frequency_weight=0.30,
+            omission_weight=0.15,
+            previous_consecutive_weight=0.00,
+        ),
+        FrequencyRankerConfig(
+            structural_weight=0.00,
+            frequency_weight=0.00,
+            omission_weight=0.00,
+            previous_consecutive_weight=0.00,
+        ),
+        FrequencyRankerConfig(
+            structural_weight=0.25,
+            frequency_weight=0.50,
+            omission_weight=0.25,
+            previous_consecutive_weight=0.00,
+        ),
+    )
+
+
+def control_experiment_configs(base: FrequencyRankerConfig) -> tuple[tuple[str, FrequencyRankerConfig], ...]:
+    return (
+        ("current_best_frozen_baseline", base),
+        ("structural_baseline", FrequencyRankerConfig(structural_weight=1.0, frequency_weight=0.0, omission_weight=0.0, previous_consecutive_weight=0.0)),
+        ("frequency_baseline", FrequencyRankerConfig(structural_weight=0.0, frequency_weight=1.0, omission_weight=0.0, previous_consecutive_weight=0.0)),
+        ("omission_baseline", FrequencyRankerConfig(structural_weight=0.0, frequency_weight=0.0, omission_weight=1.0, previous_consecutive_weight=0.0)),
+        ("null_baseline", FrequencyRankerConfig(structural_weight=0.0, frequency_weight=0.0, omission_weight=0.0, previous_consecutive_weight=0.0)),
+    )
+
+
+def frozen_validation_window(eval_window: int) -> int:
+    if eval_window <= 1:
+        return max(0, eval_window)
+    return min(MAX_FROZEN_VALIDATION_WINDOW, max(1, eval_window // 5))
+
+
+def frozen_validation_summary(summary: dict, *, validation_window: int, universe_size: int) -> dict | None:
+    target_results = summary.get("target_results")
+    if validation_window <= 0 or not isinstance(target_results, list):
+        return None
+    targets = [target for target in target_results if isinstance(target, dict)]
+    if not targets:
+        return None
+    selected = targets[-min(validation_window, len(targets)):]
+    ranks = [int(target["rank"]) for target in selected if isinstance(target.get("rank"), int | float)]
+    if not ranks:
+        return None
+    red5_ranks = [int(target["red5_rank"]) for target in selected if isinstance(target.get("red5_rank"), int | float)]
+    validation = {
+        "window": len(selected),
+        "issues": [str(target.get("issue") or "") for target in selected],
+        "top_100_hits": sum(bool(target.get("hit_top_100")) for target in selected),
+        "top_1000_hits": sum(bool(target.get("hit_top_1000")) for target in selected),
+        "top_10000_hits": sum(bool(target.get("hit_top_10000")) for target in selected),
+        "median_rank": median(ranks),
+        "best_rank": min(ranks),
+        "worst_rank": max(ranks),
+        "red5": {
+            "top_100_hits": sum(bool(target.get("hit_red5_top_100")) for target in selected),
+            "top_1000_hits": sum(bool(target.get("hit_red5_top_1000")) for target in selected),
+            "top_10000_hits": sum(bool(target.get("hit_red5_top_10000")) for target in selected),
+            "median_rank": median(red5_ranks) if red5_ranks else None,
+            "best_rank": min(red5_ranks) if red5_ranks else None,
+        },
+        "rank_quality": summarize_rank_quality(ranks, universe_size=universe_size),
+    }
+    validation["reward"] = reward_summary(validation, universe_size=universe_size)
+    return validation
+
+
+def attach_frozen_validation(summaries: list[dict], *, validation_window: int, universe_size: int) -> None:
+    for summary in summaries:
+        validation = frozen_validation_summary(
+            summary,
+            validation_window=validation_window,
+            universe_size=universe_size,
+        )
+        if validation is not None:
+            summary["frozen_validation"] = validation
+
+
+def compact_control_summary(label: str, summary: dict) -> dict:
+    validation = summary.get("frozen_validation") if isinstance(summary.get("frozen_validation"), dict) else None
+    return {
+        "label": label,
+        "config_hash": summary.get("config_hash"),
+        "top_100_hits": summary.get("top_100_hits"),
+        "top_1000_hits": summary.get("top_1000_hits"),
+        "top_10000_hits": summary.get("top_10000_hits"),
+        "red5_top_100_hits": (summary.get("red5") or {}).get("top_100_hits") if isinstance(summary.get("red5"), dict) else None,
+        "red5_top_10000_hits": (summary.get("red5") or {}).get("top_10000_hits") if isinstance(summary.get("red5"), dict) else None,
+        "median_rank": summary.get("median_rank"),
+        "worst_rank": summary.get("worst_rank"),
+        "objective_score": (summary.get("reward") or {}).get("objectiveScore") if isinstance(summary.get("reward"), dict) else None,
+        "frozen_validation": validation,
+    }
+
+
+def control_experiment_summaries(
+    summaries: list[dict],
+    controls: tuple[tuple[str, FrequencyRankerConfig], ...],
+) -> list[dict]:
+    by_hash = {summary.get("config_hash"): summary for summary in summaries if isinstance(summary.get("config_hash"), str)}
+    rows: list[dict] = []
+    for label, config in controls:
+        summary = by_hash.get(config_hash(config))
+        if summary is not None:
+            rows.append(compact_control_summary(label, summary))
+    return rows
+
+
+def exploratory_candidate_configs(
+    base: FrequencyRankerConfig,
+    *,
+    phase: str,
+    step: float,
+    low_coverage_fields: tuple[str, ...],
+    stagnation_rounds: int,
+    seed: int,
+) -> tuple[FrequencyRankerConfig, ...]:
+    rng = random.Random(seed)
+    radius = min(0.30, step * (1.0 + min(stagnation_rounds, 48) / 16))
+    fields = low_coverage_fields or search_fields_for_phase(phase)
+    candidates: list[FrequencyRankerConfig] = []
+    for field in fields:
+        candidates.append(replace(base, **{field: getattr(base, field) + radius}))
+        candidates.append(replace(base, **{field: getattr(base, field) - radius}))
+    for _ in range(max(8, len(fields))):
+        values = config_dict(base)
+        for field in rng.sample(tuple(ALL_FIELDS), k=min(4, len(ALL_FIELDS))):
+            values[field] = float(values[field]) + rng.uniform(-radius, radius)
+        candidates.append(FrequencyRankerConfig(**values))
+    return tuple(candidates)
+
+
+def replay_candidate_configs(
+    base: FrequencyRankerConfig,
+    historical_configs: tuple[FrequencyRankerConfig, ...],
+    *,
+    seed: int,
+) -> tuple[FrequencyRankerConfig, ...]:
+    rng = random.Random(seed)
+    candidates: list[FrequencyRankerConfig] = []
+    for historical in historical_configs[:8]:
+        candidates.append(historical)
+        candidates.append(blend_configs(base, historical, 0.50))
+        candidates.append(extrapolate_config(historical, base, 0.35))
+    if len(historical_configs) >= 2:
+        for left, right in zip(historical_configs[::2], historical_configs[1::2], strict=False):
+            alpha = rng.uniform(0.35, 0.65)
+            candidates.append(blend_configs(left, right, alpha))
+    return tuple(candidates)
+
+
+def surrogate_candidate_configs(
+    base: FrequencyRankerConfig,
+    historical_summaries: list[dict],
+    *,
+    max_configs: int,
+    seed: int,
+) -> tuple[FrequencyRankerConfig, ...]:
+    usable = [
+        summary
+        for summary in historical_summaries
+        if isinstance(summary.get("config"), dict)
+        and isinstance((summary.get("reward") or {}).get("objectiveScore"), (int, float))
+    ]
+    if len(usable) < 6 or max_configs <= 0:
+        return ()
+    usable.sort(key=lambda item: float(item["reward"]["objectiveScore"]), reverse=True)
+    elite = usable[: max(2, len(usable) // 4)]
+    weak = usable[-max(2, len(usable) // 4):]
+    rng = random.Random(seed)
+    candidates: list[FrequencyRankerConfig] = []
+    for _ in range(max_configs):
+        values = config_dict(base)
+        for field in ALL_FIELDS:
+            elite_mean = sum(float(item["config"].get(field, 0) or 0) for item in elite) / len(elite)
+            weak_mean = sum(float(item["config"].get(field, 0) or 0) for item in weak) / len(weak)
+            direction = elite_mean - weak_mean
+            values[field] = elite_mean + direction * rng.uniform(0.15, 0.45) + rng.uniform(-0.015, 0.015)
+        candidates.append(FrequencyRankerConfig(**values))
+    return tuple(candidates)
 
 
 def search_fields_for_phase(phase: str) -> tuple[str, ...]:
@@ -369,42 +637,53 @@ def generate_configs(
     step: float,
     max_configs: int,
     elite_configs: tuple[FrequencyRankerConfig, ...] = (),
+    historical_summaries: list[dict] | None = None,
+    low_coverage_fields: tuple[str, ...] = (),
+    stagnation_rounds: int = 0,
+    round_index: int = 0,
 ) -> list[FrequencyRankerConfig]:
     configs: list[FrequencyRankerConfig] = []
     seen: set[str] = set()
     add_unique(configs, seen, base)
+    budgets = candidate_budget(max_configs)
     search_fields = search_fields_for_phase(phase)
-
+    historical_summaries = historical_summaries or []
+    historical_configs = tuple(
+        FrequencyRankerConfig(**{**config_dict(FrequencyRankerConfig()), **summary["config"]})
+        for summary in historical_summaries
+        if isinstance(summary.get("config"), dict)
+    )
     fine_step = max(0.005, step / 2)
+    exploitation_limit = budgets["exploitation"]
     for elite in elite_configs[:4]:
-        add_unique(configs, seen, elite)
+        add_unique_until(configs, seen, elite, limit=exploitation_limit)
     for elite in elite_configs[:2]:
         for field in PRIMARY_FIELDS:
-            add_unique(configs, seen, replace(elite, **{field: getattr(elite, field) + fine_step}))
-            add_unique(configs, seen, replace(elite, **{field: getattr(elite, field) - fine_step}))
+            add_unique_until(configs, seen, replace(elite, **{field: getattr(elite, field) + fine_step}), limit=exploitation_limit)
+            add_unique_until(configs, seen, replace(elite, **{field: getattr(elite, field) - fine_step}), limit=exploitation_limit)
 
     for config in themed_candidate_configs(base, phase=phase, step=step):
-        add_unique(configs, seen, config)
+        add_unique_until(configs, seen, config, limit=exploitation_limit)
 
     for elite in elite_configs[:4]:
         for field in search_fields:
             if field in PRIMARY_FIELDS:
                 continue
-            add_unique(configs, seen, replace(elite, **{field: getattr(elite, field) + fine_step}))
-            add_unique(configs, seen, replace(elite, **{field: getattr(elite, field) - fine_step}))
+            add_unique_until(configs, seen, replace(elite, **{field: getattr(elite, field) + fine_step}), limit=exploitation_limit)
+            add_unique_until(configs, seen, replace(elite, **{field: getattr(elite, field) - fine_step}), limit=exploitation_limit)
 
     if elite_configs:
         best = elite_configs[0]
         for other in elite_configs[1:4]:
-            add_unique(configs, seen, blend_configs(best, other, 0.50))
-            add_unique(configs, seen, extrapolate_config(best, other, 0.50))
+            add_unique_until(configs, seen, blend_configs(best, other, 0.50), limit=exploitation_limit)
+            add_unique_until(configs, seen, extrapolate_config(best, other, 0.50), limit=exploitation_limit)
 
     for field in search_fields:
-        add_unique(configs, seen, replace(base, **{field: getattr(base, field) + step}))
-        add_unique(configs, seen, replace(base, **{field: getattr(base, field) - step}))
+        add_unique_until(configs, seen, replace(base, **{field: getattr(base, field) + step}), limit=exploitation_limit)
+        add_unique_until(configs, seen, replace(base, **{field: getattr(base, field) - step}), limit=exploitation_limit)
 
     if phase in {"medium", "large"}:
-        add_unique(
+        add_unique_until(
             configs,
             seen,
             replace(
@@ -413,8 +692,9 @@ def generate_configs(
                 frequency_weight=base.frequency_weight - step / 2,
                 omission_weight=base.omission_weight - step / 2,
             ),
+            limit=exploitation_limit,
         )
-        add_unique(
+        add_unique_until(
             configs,
             seen,
             replace(
@@ -423,8 +703,9 @@ def generate_configs(
                 frequency_weight=base.frequency_weight + step,
                 omission_weight=base.omission_weight - step / 2,
             ),
+            limit=exploitation_limit,
         )
-        add_unique(
+        add_unique_until(
             configs,
             seen,
             replace(
@@ -433,7 +714,46 @@ def generate_configs(
                 frequency_weight=base.frequency_weight - step / 2,
                 omission_weight=base.omission_weight + step,
             ),
+            limit=exploitation_limit,
         )
+
+    exploration_limit = exploitation_limit + budgets["exploration"]
+    for config in exploratory_candidate_configs(
+        base,
+        phase=phase,
+        step=step,
+        low_coverage_fields=low_coverage_fields,
+        stagnation_rounds=stagnation_rounds,
+        seed=deterministic_seed("explore", phase, step, round_index, stagnation_rounds),
+    ):
+        add_unique_until(configs, seen, config, limit=exploration_limit)
+
+    replay_limit = exploration_limit + budgets["replay"]
+    for config in (
+        replay_candidate_configs(base, historical_configs, seed=deterministic_seed("replay", phase, round_index))
+        + surrogate_candidate_configs(
+            base,
+            historical_summaries,
+            max_configs=max(1, budgets["replay"] // 2),
+            seed=deterministic_seed("surrogate", phase, round_index),
+        )
+    ):
+        add_unique_until(configs, seen, config, limit=replay_limit)
+
+    baseline_limit = replay_limit + budgets["baseline"]
+    for config in baseline_candidate_configs():
+        add_unique_until(configs, seen, config, limit=baseline_limit)
+
+    if stagnation_rounds >= STAGNATION_THRESHOLD:
+        for config in exploratory_candidate_configs(
+            base,
+            phase="large",
+            step=max(step, 0.15),
+            low_coverage_fields=low_coverage_fields or CONTEXT_FIELDS,
+            stagnation_rounds=stagnation_rounds,
+            seed=deterministic_seed("stagnation", phase, round_index, stagnation_rounds),
+        ):
+            add_unique(configs, seen, config)
 
     return configs[:max_configs]
 
@@ -663,6 +983,27 @@ def summarize_red5(target_ranks: list[TargetRank]) -> dict:
     }
 
 
+def target_result_payload(target: TargetRank) -> dict:
+    return {
+        "issue": target.issue,
+        "draw_date": target.draw_date.isoformat() if target.draw_date else None,
+        "red_numbers": list(target.red_numbers or ()),
+        "rank": target.rank,
+        "score": target.score,
+        "hit_top_100": target.hit_top_100,
+        "hit_top_1000": target.hit_top_1000,
+        "hit_top_10000": target.hit_top_10000,
+        "red5_rank": target.red5_rank,
+        "red5_score": target.red5_score,
+        "red5_numbers": list(target.red5_numbers) if target.red5_numbers else [],
+        "red5_missing_number": target.red5_missing_number,
+        "red5_extra_number": target.red5_extra_number,
+        "hit_red5_top_100": target.hit_red5_top_100,
+        "hit_red5_top_1000": target.hit_red5_top_1000,
+        "hit_red5_top_10000": target.hit_red5_top_10000,
+    }
+
+
 def summarize_target_ranks(
     *,
     target_ranks: list[TargetRank],
@@ -689,6 +1030,7 @@ def summarize_target_ranks(
         "worst_rank": max(ranks) if ranks else None,
         "red5": summarize_red5(target_ranks),
         "rank_quality": summarize_rank_quality(ranks, universe_size=universe_size),
+        "target_results": [target_result_payload(target) for target in target_ranks],
     }
     summary["reward"] = reward_summary(summary, universe_size=universe_size)
     summary["run_key"] = deterministic_run_key(
@@ -867,6 +1209,62 @@ def load_prior_supervisor_candidates(
     return candidates
 
 
+def load_db_supervisor_candidates(
+    *,
+    as_of_issue: str,
+    history_fingerprint_value: str,
+    train_window: int,
+    train_mode: str,
+    eval_window: int,
+    top_n: int,
+    universe_size: int,
+    limit: int = 24,
+) -> list[dict]:
+    with get_connection() as conn:
+        ensure_training_round_results_schema(conn)
+        raw_candidates = load_training_round_candidate_summaries(
+            conn,
+            as_of_issue=as_of_issue,
+            history_fingerprint=history_fingerprint_value,
+            train_window=train_window,
+            train_mode=train_mode,
+            eval_window=eval_window,
+            top_n=top_n,
+            limit=limit,
+        )
+    candidates: list[dict] = []
+    for raw_candidate in raw_candidates:
+        candidate = normalize_summary(raw_candidate, universe_size=universe_size)
+        if candidate:
+            candidates = merge_leaderboard(candidates, [candidate], limit=limit)
+    return candidates
+
+
+def stagnation_round_count(rounds: list[dict]) -> int:
+    count = 0
+    for round_info in reversed(rounds):
+        if round_info.get("improved"):
+            break
+        count += 1
+    return count
+
+
+def strip_target_results(summary: dict) -> dict:
+    stripped = dict(summary)
+    stripped.pop("target_results", None)
+    return stripped
+
+
+def compact_round_info(round_info: dict) -> dict:
+    compact = dict(round_info)
+    compact["best"] = strip_target_results(compact["best"]) if isinstance(compact.get("best"), dict) else compact.get("best")
+    compact["top_results"] = [
+        strip_target_results(summary) if isinstance(summary, dict) else summary
+        for summary in compact.get("top_results", [])
+    ]
+    return compact
+
+
 def prefilter_configs(
     *,
     history: list,
@@ -882,6 +1280,7 @@ def prefilter_configs(
     round_index: int,
     stride: int = 4,
     promote_limit: int = 8,
+    diversity_quota: int = 2,
 ) -> tuple[tuple[FrequencyRankerConfig, ...], dict]:
     started = time.time()
     start_index = max(train_window, len(history) - eval_window)
@@ -892,7 +1291,12 @@ def prefilter_configs(
             "round": round_index,
             "target_stride": stride,
             "target_count": 0,
+            "target_worker_count": 0,
             "generated_config_count": len(configs),
+            "kept_config_count": len(keep_configs),
+            "promote_limit": promote_limit,
+            "diversity_quota": diversity_quota,
+            "diversity_added_count": 0,
             "refined_config_count": len(configs),
             "elapsed_seconds": 0.0,
             "note": "预筛跳过：没有配置或目标期",
@@ -963,6 +1367,16 @@ def prefilter_configs(
         if promoted is not None:
             add_config(promoted)
 
+    diversity_added = 0
+    if diversity_quota > 0:
+        diversity_pool = [config for config in configs if config_hash(config) not in seen]
+        diversity_pool.sort(key=lambda config: weighted_config_distance(config, selected), reverse=True)
+        for config in diversity_pool[:diversity_quota]:
+            before = len(selected)
+            add_config(config)
+            if len(selected) > before:
+                diversity_added += 1
+
     if not selected:
         selected = list(configs)
     metadata = {
@@ -975,6 +1389,8 @@ def prefilter_configs(
         "generated_config_count": len(configs),
         "kept_config_count": len([config for config in keep_configs if config_hash(config) in config_by_hash]),
         "promote_limit": promote_limit,
+        "diversity_quota": diversity_quota,
+        "diversity_added_count": diversity_added,
         "refined_config_count": len(selected),
         "elapsed_seconds": round(time.time() - started, 3),
         "top_preview": summaries[: min(5, len(summaries))],
@@ -1015,7 +1431,7 @@ def _evaluate_prefilter_target_worker(args: tuple) -> tuple[int, str, list[tuple
     return target_index, issue, ranked_targets
 
 
-def _evaluate_target_worker(args: tuple) -> tuple[int, str, int, list[tuple[int, float, object]]]:
+def _evaluate_target_worker(args: tuple) -> tuple[int, str, object, tuple[int, ...], int, list[tuple[int, float, object]]]:
     (
         progress_index,
         target_index,
@@ -1031,8 +1447,10 @@ def _evaluate_target_worker(args: tuple) -> tuple[int, str, int, list[tuple[int,
     train_history = history[train_start:target_index]
     target_draw = history[target_index]
     issue = history_issue(target_draw)
+    draw_date = history_draw_date(target_draw)
+    red_numbers = history_numbers(target_draw)
     ranked_targets = rank_target_grid_with_red5(
-        target_numbers=history_numbers(target_draw),
+        target_numbers=red_numbers,
         train_history=train_history,
         configs=configs,
         ranked_universe=_TARGET_WORKER_UNIVERSE,
@@ -1040,7 +1458,7 @@ def _evaluate_target_worker(args: tuple) -> tuple[int, str, int, list[tuple[int,
         workers=workers,
         pool=None,
     )
-    return progress_index, issue, len(train_history), ranked_targets
+    return progress_index, issue, draw_date, red_numbers, len(train_history), ranked_targets
 
 
 def evaluate_configs(
@@ -1060,7 +1478,9 @@ def evaluate_configs(
 ) -> list[dict]:
     start_index = max(train_window, len(history) - eval_window)
     total_targets = len(history) - start_index
-    target_results: list[tuple[int, str, int, list[tuple[int, float, object]]] | None] = [None for _ in range(total_targets)]
+    target_results: list[tuple[int, str, object, tuple[int, ...], int, list[tuple[int, float, object]]] | None] = [
+        None for _ in range(total_targets)
+    ]
     started = time.time()
 
     tasks = [
@@ -1077,7 +1497,7 @@ def evaluate_configs(
         ) as target_pool:
             iterator = target_pool.imap_unordered(_evaluate_target_worker, tasks)
             for completed_count, result in enumerate(iterator, start=1):
-                progress_index, issue, train_draws, _ranked_targets = result
+                progress_index, issue, _draw_date, _red_numbers, train_draws, _ranked_targets = result
                 target_results[progress_index - 1] = result
                 if progress_interval > 0 and (
                     completed_count == 1 or completed_count == total_targets or completed_count % progress_interval == 0
@@ -1101,7 +1521,7 @@ def evaluate_configs(
     else:
         _init_target_worker(ranked_universe)
         for result in map(_evaluate_target_worker, tasks):
-            progress_index, issue, train_draws, _ranked_targets = result
+            progress_index, issue, _draw_date, _red_numbers, train_draws, _ranked_targets = result
             target_results[progress_index - 1] = result
             if progress_interval > 0 and (
                 progress_index == 1 or progress_index == total_targets or progress_index % progress_interval == 0
@@ -1127,7 +1547,7 @@ def evaluate_configs(
     for result in target_results:
         if result is None:
             continue
-        _progress_index, issue, _train_draws, ranked_targets = result
+        _progress_index, issue, draw_date, red_numbers, _train_draws, ranked_targets = result
         for config_index, (rank, score, red5_match) in enumerate(ranked_targets):
             target_rank_lists[config_index].append(
                 TargetRank(
@@ -1137,6 +1557,8 @@ def evaluate_configs(
                     hit_top_100=rank <= 100,
                     hit_top_1000=rank <= 1000,
                     hit_top_10000=rank <= 10000,
+                    draw_date=draw_date,
+                    red_numbers=red_numbers,
                     red5_rank=red5_match.rank if red5_match else None,
                     red5_score=red5_match.score if red5_match else None,
                     red5_numbers=red5_match.numbers if red5_match else None,
@@ -1185,6 +1607,49 @@ def write_status(output_path: Path, status: dict, *, event_url: str | None = Non
     output_path.write_text(json.dumps(status, ensure_ascii=False, indent=2))
     if event_url is not None:
         post_training_event(status, event_url=event_url)
+
+
+def compact_status_payload(status: dict) -> dict:
+    return {
+        "run_id": status.get("run_id"),
+        "started_at": status.get("started_at"),
+        "updated_at": status.get("updated_at"),
+        "deadline": status.get("deadline"),
+        "status": status.get("status"),
+        "pid": status.get("pid"),
+        "history_scope": status.get("history_scope"),
+        "regime_years": status.get("regime_years"),
+        "regime_start_date": status.get("regime_start_date"),
+        "train_mode": status.get("train_mode"),
+        "train_window": status.get("train_window"),
+        "eval_window": status.get("eval_window"),
+        "top_n": status.get("top_n"),
+        "workers": status.get("workers"),
+        "memory_budget_gb": status.get("memory_budget_gb"),
+        "universe_size": status.get("universe_size"),
+        "matrix_backend": status.get("matrix_backend"),
+        "feature_matrix_cache": status.get("feature_matrix_cache"),
+        "red5_rank_mode": status.get("red5_rank_mode"),
+        "prefilter": status.get("prefilter"),
+        "qian_kun": status.get("qian_kun"),
+        "latest_progress": status.get("latest_progress"),
+        "status_path": status.get("status_path"),
+        "report_path": status.get("report_path"),
+    }
+
+
+def publish_status_snapshot(
+    status_path: Path,
+    status: dict,
+    *,
+    event_url: str | None,
+    write_json: bool,
+) -> None:
+    payload = compact_status_payload(status)
+    if write_json:
+        write_status(status_path, payload)
+    if event_url is not None:
+        post_training_event(payload, event_url=event_url)
 
 
 def write_report(report_path: Path, status: dict) -> None:
@@ -1258,6 +1723,7 @@ def run_supervisor(
     max_configs_per_round: int,
     memory_budget_gb: int,
     event_url: str | None = None,
+    write_status_json: bool = False,
 ) -> dict:
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
     started_at = datetime.now()
@@ -1268,6 +1734,7 @@ def run_supervisor(
     report_path = output_dir / f"training-supervisor-{run_id}.md"
 
     with get_connection() as conn:
+        ensure_training_round_results_schema(conn)
         selection = select_history(conn, scope=history_scope, as_of_issue=as_of_issue, regime_years=regime_years)
         universe = load_red_combination_universe(conn)
 
@@ -1288,9 +1755,7 @@ def run_supervisor(
         f"rows={len(ranked_universe)} "
         f"elapsed={matrix_cache_info.get('build_seconds')}s"
     )
-    prior_leaderboard = load_prior_supervisor_candidates(
-        output_dir=output_dir,
-        current_status_path=status_path,
+    prior_leaderboard = load_db_supervisor_candidates(
         as_of_issue=as_of_issue_value,
         history_fingerprint_value=history_fingerprint_value,
         train_window=train_window,
@@ -1299,6 +1764,18 @@ def run_supervisor(
         top_n=top_n,
         universe_size=len(ranked_universe),
     )
+    if not prior_leaderboard:
+        prior_leaderboard = load_prior_supervisor_candidates(
+            output_dir=output_dir,
+            current_status_path=status_path,
+            as_of_issue=as_of_issue_value,
+            history_fingerprint_value=history_fingerprint_value,
+            train_window=train_window,
+            train_mode=train_mode,
+            eval_window=eval_window,
+            top_n=top_n,
+            universe_size=len(ranked_universe),
+        )
     if prior_leaderboard:
         log(
             "seeded_prior_best="
@@ -1340,7 +1817,7 @@ def run_supervisor(
         },
         "qian_kun": qian_kun_distribution(selection.history),
         "rounds": rounds,
-        "best": best_summary,
+        "best": strip_target_results(best_summary) if best_summary else None,
         "latest_progress": None,
         "status_path": str(status_path),
         "report_path": str(report_path),
@@ -1349,15 +1826,19 @@ def run_supervisor(
     def publish_progress(progress: dict) -> None:
         status["latest_progress"] = progress
         status["updated_at"] = progress["logged_at"]
-        write_status(status_path, status, event_url=resolved_event_url)
+        publish_status_snapshot(status_path, status, event_url=resolved_event_url, write_json=write_status_json)
 
-    write_status(status_path, status, event_url=resolved_event_url)
+    publish_status_snapshot(status_path, status, event_url=resolved_event_url, write_json=write_status_json)
 
     try:
         round_index = 0
         while round_index == 0 or datetime.now() < deadline:
             phase, step = PHASES[round_index % len(PHASES)]
+            stagnation_rounds = stagnation_round_count(rounds)
+            historical_summaries = merge_leaderboard(leaderboard, prior_leaderboard, limit=32)
+            low_coverage_fields = low_coverage_fields_from_summaries(historical_summaries)
             elite_configs = tuple(FrequencyRankerConfig(**summary["config"]) for summary in leaderboard[:4])
+            control_configs = control_experiment_configs(base_config)
             configs = tuple(
                 generate_configs(
                     base_config,
@@ -1365,10 +1846,14 @@ def run_supervisor(
                     step=step,
                     max_configs=max_configs_per_round,
                     elite_configs=elite_configs,
+                    historical_summaries=historical_summaries,
+                    low_coverage_fields=low_coverage_fields,
+                    stagnation_rounds=stagnation_rounds,
+                    round_index=round_index + 1,
                 )
             )
             generated_config_count = len(configs)
-            keep_configs = (base_config, *elite_configs[:4])
+            keep_configs = (base_config, *elite_configs[:4], *(config for _label, config in control_configs))
             refined_configs, prefilter_info = prefilter_configs(
                 history=training_history,
                 ranked_universe=ranked_universe,
@@ -1381,11 +1866,16 @@ def run_supervisor(
                 workers=worker_count,
                 pool=pool,
                 round_index=round_index + 1,
+                diversity_quota=max(2, max_configs_per_round // 10),
             )
+            prefilter_info["stagnation_rounds"] = stagnation_rounds
+            prefilter_info["low_coverage_fields"] = list(low_coverage_fields)
+            prefilter_info["candidate_budget"] = candidate_budget(max_configs_per_round)
             status["prefilter"]["latest"] = prefilter_info
             log(
                 f"round={round_index + 1} phase={phase} step={step} "
                 f"configs={generated_config_count}->{len(refined_configs)} "
+                f"stagnation={stagnation_rounds} "
                 f"prefilter_targets={prefilter_info['target_count']} "
                 f"prefilter_workers={prefilter_info.get('target_worker_count', 1)} "
                 f"prefilter_elapsed={prefilter_info['elapsed_seconds']}s "
@@ -1405,7 +1895,16 @@ def run_supervisor(
                 round_index=round_index + 1,
                 progress_callback=publish_progress,
             )
+            validation_window = frozen_validation_window(eval_window)
+            attach_frozen_validation(
+                summaries,
+                validation_window=validation_window,
+                universe_size=len(ranked_universe),
+            )
             round_best = summaries[0]
+            control_summaries = control_experiment_summaries(summaries, control_configs)
+            prefilter_info["frozen_validation_window"] = validation_window
+            prefilter_info["control_experiments"] = control_summaries
             leaderboard = merge_leaderboard(leaderboard, summaries[: min(8, len(summaries))])
             improved = best_summary is None or sort_key(round_best) > sort_key(best_summary)
             if improved:
@@ -1415,22 +1914,25 @@ def run_supervisor(
             else:
                 log(f"round={round_index + 1} no_improvement best_top10000={best_summary['top_10000_hits'] if best_summary else 'n/a'}")
 
-            rounds.append(
-                {
-                    "round": round_index + 1,
-                    "phase": phase,
-                    "step": step,
-                    "generated_config_count": generated_config_count,
-                    "config_count": len(refined_configs),
-                    "prefilter": prefilter_info,
-                    "improved": improved,
-                    "best": round_best,
-                    "top_results": summaries[: min(5, len(summaries))],
-                }
-            )
+            round_record = {
+                "round": round_index + 1,
+                "phase": phase,
+                "step": step,
+                "generated_config_count": generated_config_count,
+                "config_count": len(refined_configs),
+                "prefilter": prefilter_info,
+                "improved": improved,
+                "best": round_best,
+                "top_results": summaries[: min(5, len(summaries))],
+                "control_experiments": control_summaries,
+            }
             status["updated_at"] = datetime.now().isoformat(timespec="seconds")
-            status["best"] = best_summary
-            write_status(status_path, status, event_url=resolved_event_url)
+            status["best"] = strip_target_results(best_summary) if best_summary else None
+            with get_connection() as conn:
+                ensure_training_round_results_schema(conn)
+                upsert_training_round_result(conn, run_id=run_id, round_info=round_record, status=status)
+            rounds.append(compact_round_info(round_record))
+            publish_status_snapshot(status_path, status, event_url=resolved_event_url, write_json=write_status_json)
             write_report(report_path, status)
             round_index += 1
 
@@ -1447,8 +1949,8 @@ def run_supervisor(
             pool.close()
             pool.join()
         status["updated_at"] = datetime.now().isoformat(timespec="seconds")
-        status["best"] = best_summary
-        write_status(status_path, status, event_url=resolved_event_url)
+        status["best"] = strip_target_results(best_summary) if best_summary else None
+        publish_status_snapshot(status_path, status, event_url=resolved_event_url, write_json=write_status_json)
         write_report(report_path, status)
         log(f"finished status={status['status']} status_path={status_path} report_path={report_path}")
 
@@ -1471,6 +1973,7 @@ def main() -> None:
     parser.add_argument("--max-configs-per-round", type=int, default=28)
     parser.add_argument("--memory-budget-gb", type=int, default=20)
     parser.add_argument("--event-url", default=os.getenv("DEHPS_TRAINING_EVENT_URL", DEFAULT_TRAINING_EVENT_URL))
+    parser.add_argument("--write-status-json", action="store_true", help="Write a compact legacy status JSON snapshot.")
     args = parser.parse_args()
     print(
         json.dumps(
@@ -1489,6 +1992,7 @@ def main() -> None:
                 max_configs_per_round=args.max_configs_per_round,
                 memory_budget_gb=args.memory_budget_gb,
                 event_url=args.event_url,
+                write_status_json=args.write_status_json,
             ),
             ensure_ascii=False,
             indent=2,

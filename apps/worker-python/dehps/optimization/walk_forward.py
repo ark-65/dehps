@@ -178,6 +178,8 @@ class TargetRank:
     hit_top_100: bool
     hit_top_1000: bool
     hit_top_10000: bool
+    draw_date: date | None = None
+    red_numbers: tuple[int, ...] | None = None
     red5_rank: int | None = None
     red5_score: float | None = None
     red5_numbers: tuple[int, ...] | None = None

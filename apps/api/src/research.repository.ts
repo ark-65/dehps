@@ -7,6 +7,8 @@ import {
   PipelineRunSummary,
   ResearchRepository,
   SyncRunSummary,
+  TrainingRoundDetail,
+  TrainingRoundListItem,
 } from './research.types';
 
 @Injectable()
@@ -246,5 +248,76 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
         };
       }),
     );
+  }
+
+  async listTrainingRounds(limit: number): Promise<TrainingRoundListItem[]> {
+    const { rows } = await this.pool.query(
+      `
+      SELECT run_id, round_index, phase, step, train_mode, train_window, eval_window, top_n,
+             as_of_issue, improved, top_100_hits, top_1000_hits, top_10000_hits,
+             red5_top_100_hits, red5_top_1000_hits, red5_top_10000_hits,
+             median_rank, best_rank, worst_rank, objective_score, created_at
+      FROM training_round_results
+      ORDER BY created_at DESC, round_index DESC
+      LIMIT $1
+      `,
+      [limit],
+    );
+    return rows.map((row) => this.trainingRoundListItem(row));
+  }
+
+  async getTrainingRoundDetail(runId: string, roundIndex: number): Promise<TrainingRoundDetail | null> {
+    const { rows } = await this.pool.query(
+      `
+      SELECT run_id, round_index, phase, step, train_mode, train_window, eval_window, top_n,
+             as_of_issue, history_fingerprint, improved, top_100_hits, top_1000_hits, top_10000_hits,
+             red5_top_100_hits, red5_top_1000_hits, red5_top_10000_hits,
+             median_rank, best_rank, worst_rank, objective_score, best_config, best_summary,
+             top_results, target_results, prefilter, created_at
+      FROM training_round_results
+      WHERE run_id = $1 AND round_index = $2
+      LIMIT 1
+      `,
+      [runId, roundIndex],
+    );
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+    return {
+      ...this.trainingRoundListItem(row),
+      historyFingerprint: row.history_fingerprint,
+      bestConfig: row.best_config ?? {},
+      bestSummary: row.best_summary ?? null,
+      topResults: Array.isArray(row.top_results) ? row.top_results : [],
+      targetResults: Array.isArray(row.target_results) ? row.target_results : [],
+      prefilter: row.prefilter ?? null,
+    };
+  }
+
+  private trainingRoundListItem(row: Record<string, any>): TrainingRoundListItem {
+    return {
+      runId: row.run_id,
+      roundIndex: Number(row.round_index),
+      phase: row.phase,
+      step: Number(row.step),
+      trainMode: row.train_mode,
+      trainWindow: Number(row.train_window),
+      evalWindow: Number(row.eval_window),
+      topN: Number(row.top_n),
+      asOfIssue: row.as_of_issue,
+      improved: Boolean(row.improved),
+      top100Hits: Number(row.top_100_hits),
+      top1000Hits: Number(row.top_1000_hits),
+      top10000Hits: Number(row.top_10000_hits),
+      red5Top100Hits: Number(row.red5_top_100_hits),
+      red5Top1000Hits: Number(row.red5_top_1000_hits),
+      red5Top10000Hits: Number(row.red5_top_10000_hits),
+      medianRank: row.median_rank === null ? null : Number(row.median_rank),
+      bestRank: row.best_rank === null ? null : Number(row.best_rank),
+      worstRank: row.worst_rank === null ? null : Number(row.worst_rank),
+      objectiveScore: row.objective_score === null ? null : Number(row.objective_score),
+      createdAt: row.created_at.toISOString(),
+    };
   }
 }

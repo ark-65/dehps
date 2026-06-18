@@ -19,8 +19,11 @@ import {
   ExperimentDetail,
   ExperimentSummary,
   TrainingResult,
+  TrainingRoundDetail,
+  TrainingRoundListItem,
   TrainingRoundSummary,
   TrainingStatusPayload,
+  TrainingTargetResult,
   compareExperiments,
   combinationDistribution,
   hitRate,
@@ -52,13 +55,41 @@ type DetailState =
   | { status: 'ready'; detail: ExperimentDetail | null; reportStatus: string }
   | { status: 'error'; experimentKey: string; message: string };
 
-type DashboardTab = 'training' | 'experiments';
+type TrainingRoundsState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'ready'; rounds: TrainingRoundListItem[] }
+  | { status: 'error'; message: string };
+
+type TrainingRoundDetailState =
+  | { status: 'idle' }
+  | { status: 'loading'; key: string }
+  | { status: 'ready'; detail: TrainingRoundDetail | null }
+  | { status: 'error'; key: string; message: string };
+
+type DashboardTab = 'training' | 'training-rounds' | 'experiments';
 type WeightTrendGroup = {
   key: string;
   title: string;
   kind: 'weights' | 'reward';
   fields?: readonly (readonly [string, string])[];
 };
+
+type ChartTooltipParam = {
+  data?: unknown;
+  dataIndex?: number;
+  marker?: string;
+  seriesName?: string;
+  value?: unknown;
+  axisValue?: unknown;
+  axisValueLabel?: string;
+};
+
+const ROUND_ZOOM_DEFAULT_WINDOW = 120;
+const ROUND_ZOOM_THRESHOLD = ROUND_ZOOM_DEFAULT_WINDOW;
+const ROUND_ZOOM_GRID_BOTTOM = 82;
+const ROUND_ZOOM_SLIDER_BOTTOM = 14;
+const ROUND_ZOOM_SLIDER_HEIGHT = 20;
 
 const WEIGHT_TREND_GROUPS: readonly WeightTrendGroup[] = [
   {
@@ -136,10 +167,13 @@ const WEIGHT_TREND_GROUPS: readonly WeightTrendGroup[] = [
 export class AppComponent {
   private readonly trainingRefreshRequests = new Subject<void>();
   private readonly experimentsRefreshRequests = new Subject<void>();
+  private readonly trainingRoundsRefreshRequests = new Subject<void>();
   private readonly activeTabRequests = new BehaviorSubject<DashboardTab>('training');
   private readonly detailRequests = new BehaviorSubject<string | null>(null);
+  private readonly trainingRoundDetailRequests = new BehaviorSubject<TrainingRoundListItem | null>(null);
   selectedExperimentKey: string | null = null;
   selectedComparisonKey: string | null = null;
+  selectedTrainingRoundKey: string | null = null;
   activeTab: DashboardTab = 'training';
 
   readonly compareExperiments = compareExperiments;
@@ -203,6 +237,46 @@ export class AppComponent {
     startWith({ status: 'idle' as const }),
     shareReplay({ bufferSize: 1, refCount: true }),
   );
+  readonly trainingRoundsState$ = this.activeTabRequests.pipe(
+    filter((tab) => tab === 'training-rounds'),
+    map(() => undefined),
+  ).pipe(
+    mergeWith(this.trainingRoundsRefreshRequests),
+    switchMap(() =>
+      this.dashboardService.loadTrainingRounds().pipe(
+        tap((rounds) => this.ensureTrainingRoundSelection(rounds)),
+        map((rounds): TrainingRoundsState => ({ status: 'ready', rounds })),
+        catchError((error: unknown) =>
+          of({
+            status: 'error' as const,
+            message: error instanceof Error ? error.message : '训练轮次加载失败',
+          }),
+        ),
+        startWith({ status: 'loading' as const }),
+      ),
+    ),
+    startWith({ status: 'idle' as const }),
+    shareReplay({ bufferSize: 1, refCount: true }),
+  );
+  readonly trainingRoundDetailState$ = this.trainingRoundDetailRequests.pipe(
+    switchMap((round) => {
+      if (!round) {
+        return of({ status: 'idle' as const });
+      }
+      const key = this.trainingRoundKey(round);
+      return this.dashboardService.loadTrainingRoundDetail(round.runId, round.roundIndex).pipe(
+        map((detail): TrainingRoundDetailState => ({ status: 'ready', detail })),
+        catchError((error: unknown) =>
+          of({
+            status: 'error' as const,
+            key,
+            message: error instanceof Error ? error.message : '训练轮次详情加载失败',
+          }),
+        ),
+        startWith({ status: 'loading' as const, key }),
+      );
+    }),
+  );
   readonly detailState$ = this.detailRequests.pipe(
     switchMap((experimentKey) => {
       if (!experimentKey) {
@@ -235,6 +309,10 @@ export class AppComponent {
       this.trainingRefreshRequests.next();
       return;
     }
+    if (this.activeTab === 'training-rounds') {
+      this.trainingRoundsRefreshRequests.next();
+      return;
+    }
     this.experimentsRefreshRequests.next();
     if (this.selectedExperimentKey) {
       this.detailRequests.next(this.selectedExperimentKey);
@@ -261,6 +339,36 @@ export class AppComponent {
   selectComparison(experimentKey: string): void {
     this.selectedComparisonKey = experimentKey || null;
     this.writeHash();
+  }
+
+  selectTrainingRound(round: TrainingRoundListItem): void {
+    this.selectedTrainingRoundKey = this.trainingRoundKey(round);
+    this.trainingRoundDetailRequests.next(round);
+  }
+
+  trainingRoundKey(round: TrainingRoundListItem): string {
+    return `${round.runId}:${round.roundIndex}`;
+  }
+
+  trainingRoundSummary(round: TrainingRoundListItem): string {
+    return `${trainModeText(round.trainMode)} / 窗口 ${round.trainWindow} / 回归 ${round.evalWindow} / TopN ${round.topN}`;
+  }
+
+  trainingRoundHitSummary(round: TrainingRoundListItem): string {
+    return `Top10000 ${round.top10000Hits}/${round.evalWindow}，Top1000 ${round.top1000Hits}/${round.evalWindow}，Top100 ${round.top100Hits}/${round.evalWindow}`;
+  }
+
+  trainingRoundRed5Summary(round: TrainingRoundListItem): string {
+    return `红5Top10000 ${round.red5Top10000Hits}/${round.evalWindow}，红5Top100 ${round.red5Top100Hits}/${round.evalWindow}`;
+  }
+
+  targetHitRows(detail: TrainingRoundDetail): TrainingTargetResult[] {
+    const hits = detail.targetResults.filter((target) => target.hitTop10000 || target.hitRed5Top10000);
+    return hits.length ? hits : detail.targetResults.slice(0, 20);
+  }
+
+  numbersText(numbers: number[]): string {
+    return numbers.length ? numbers.map((number) => this.ballText(number)).join(' ') : '无';
   }
 
   findExperiment(payload: ExperimentsPayload, experimentKey: string | null): ExperimentSummary | null {
@@ -363,7 +471,10 @@ export class AppComponent {
     const targets = latest.targetCount ?? 0;
     const workers = latest.targetWorkerCount ?? status.workers ?? 0;
     const seconds = latest.elapsedSeconds ?? 0;
-    return `预筛 ${targets} 期 / ${workers} 核 / ${seconds.toFixed(1)} 秒 / 正式指标来自精排`;
+    const stagnation = latest.stagnationRounds ?? 0;
+    const diversity = latest.diversityAddedCount ?? 0;
+    const validation = latest.frozenValidationWindow ?? 0;
+    return `预筛 ${targets} 期 / ${workers} 核 / ${seconds.toFixed(1)} 秒 / 停滞 ${stagnation} 轮 / 多样性 ${diversity} / 验证 ${validation}`;
   }
 
   hasRoundCharts(status: TrainingStatusPayload): boolean {
@@ -492,6 +603,7 @@ export class AppComponent {
     const xAxis = rounds.map((round) => `R${round.round}`);
     return this.baseLineOption({
       title: '命中趋势',
+      rounds,
       xAxis,
       yName: '命中期数',
       series: [
@@ -509,6 +621,7 @@ export class AppComponent {
     const xAxis = rounds.map((round) => `R${round.round}`);
     return this.baseLineOption({
       title: '排名分布',
+      rounds,
       xAxis,
       yName: '排名',
       inverse: true,
@@ -523,13 +636,14 @@ export class AppComponent {
   rewardTrendOption(status: TrainingStatusPayload, title = '奖惩机制'): ChartOption {
     const rounds = this.chartRounds(status);
     const xAxis = rounds.map((round) => `R${round.round}`);
+    const dataZoom = this.roundRangeDataZoom(rounds);
     return {
       title: { text: title, left: 12, top: 8, textStyle: { fontSize: 14, fontWeight: 700 } },
       color: ['#327857', '#987a24', '#4d7c9f', '#b5413f', '#8c5a2b', '#4472a5'],
-      tooltip: { trigger: 'axis' },
+      tooltip: this.roundAxisTooltip(rounds),
       legend: { type: 'scroll', top: 38, left: 12, right: 12 },
-      grid: { left: 48, right: 24, top: 92, bottom: 42 },
-      xAxis: { type: 'category', data: xAxis },
+      grid: this.roundRangeGrid({ left: 48, right: 24, top: 92, bottom: 42 }, rounds),
+      xAxis: this.roundCategoryXAxis(xAxis, rounds),
       yAxis: { type: 'value', name: '分数' },
       series: [
         {
@@ -570,6 +684,7 @@ export class AppComponent {
           data: rounds.map((round) => round.best?.reward.objectiveScore ?? 0),
         },
       ],
+      ...(dataZoom.length ? { dataZoom } : {}),
     };
   }
 
@@ -578,6 +693,7 @@ export class AppComponent {
     const xAxis = rounds.map((round) => `R${round.round}`);
     return this.baseLineOption({
       title: '整体排名前移',
+      rounds,
       xAxis,
       yName: '覆盖期数',
       series: [
@@ -594,6 +710,7 @@ export class AppComponent {
     const xAxis = rounds.map((round) => `R${round.round}`);
     return this.baseLineOption({
       title: '尾部风险',
+      rounds,
       xAxis,
       yName: '期数',
       series: [
@@ -611,6 +728,7 @@ export class AppComponent {
     const xAxis = rounds.map((round) => `R${round.round}`);
     return this.baseLineOption({
       title: '红5近似命中',
+      rounds,
       xAxis,
       yName: '命中期数',
       series: [
@@ -705,6 +823,7 @@ export class AppComponent {
     const fields = group.fields ?? [];
     return this.groupedLineOption({
       title: group.title,
+      rounds,
       xAxis,
       yName: '权重',
       series: fields.map(([field, label]) =>
@@ -727,8 +846,10 @@ export class AppComponent {
         result.red5.top_100_hits,
         index + 1,
         result.reward.objectiveScore,
+        round.best?.as_of_issue || result.as_of_issue,
       ]),
     );
+    const dataZoom = this.roundRangeDataZoom(rounds);
     return {
       title: { text: '候选分布', left: 12, top: 8, textStyle: { fontSize: 14, fontWeight: 700 } },
       color: ['#4472a5'],
@@ -736,11 +857,12 @@ export class AppComponent {
         trigger: 'item',
         formatter: (params: unknown) => {
           const value = (params as { value?: unknown[] }).value ?? [];
-          return `轮次 R${value[0]}<br/>候选 #${value[5]}<br/>中位排名 ${value[1]}<br/>Top10000 ${value[2]} / Top1000 ${value[3]}<br/>红5Top100 ${value[4]}<br/>综合分 ${value[6]}`;
+          const issue = value[7] ? `<br/>期号 ${value[7]}` : '';
+          return `轮次 R${value[0]}${issue}<br/>候选 #${value[5]}<br/>中位排名 ${value[1]}<br/>Top10000 ${value[2]} / Top1000 ${value[3]}<br/>红5Top100 ${value[4]}<br/>综合分 ${value[6]}`;
         },
       },
-      grid: { left: 62, right: 24, top: 58, bottom: 42 },
-      xAxis: { type: 'value', name: '轮次', minInterval: 1 },
+      grid: this.roundRangeGrid({ left: 62, right: 24, top: 58, bottom: 42 }, rounds),
+      xAxis: this.roundValueXAxis(rounds),
       yAxis: { type: 'value', name: '中位排名', inverse: true },
       series: [
         {
@@ -750,6 +872,7 @@ export class AppComponent {
           data: points,
         },
       ],
+      ...(dataZoom.length ? { dataZoom } : {}),
     };
   }
 
@@ -799,28 +922,33 @@ export class AppComponent {
 
   private groupedLineOption({
     title,
+    rounds,
     xAxis,
     yName,
     series,
   }: {
     title: string;
+    rounds: TrainingRoundSummary[];
     xAxis: string[];
     yName: string;
     series: Record<string, unknown>[];
   }): ChartOption {
+    const dataZoom = this.roundRangeDataZoom(rounds);
     return {
       title: { text: title, left: 12, top: 8, textStyle: { fontSize: 14, fontWeight: 700 } },
-      tooltip: { trigger: 'axis' },
+      tooltip: this.roundAxisTooltip(rounds),
       legend: { type: 'scroll', top: 38, left: 12, right: 12 },
-      grid: { left: 58, right: 24, top: 92, bottom: 42 },
-      xAxis: { type: 'category', data: xAxis },
+      grid: this.roundRangeGrid({ left: 58, right: 24, top: 92, bottom: 42 }, rounds),
+      xAxis: this.roundCategoryXAxis(xAxis, rounds),
       yAxis: { type: 'value', name: yName },
       series,
+      ...(dataZoom.length ? { dataZoom } : {}),
     };
   }
 
   private baseLineOption({
     title,
+    rounds,
     xAxis,
     yName,
     series,
@@ -829,6 +957,7 @@ export class AppComponent {
     markLineName,
   }: {
     title: string;
+    rounds: TrainingRoundSummary[];
     xAxis: string[];
     yName: string;
     series: Record<string, unknown>[];
@@ -851,15 +980,147 @@ export class AppComponent {
               }
             : item,
         );
+    const dataZoom = this.roundRangeDataZoom(rounds);
     return {
       title: { text: title, left: 12, top: 8, textStyle: { fontSize: 14, fontWeight: 700 } },
-      tooltip: { trigger: 'axis' },
+      tooltip: this.roundAxisTooltip(rounds),
       legend: { top: 8, right: 12 },
-      grid: { left: 62, right: 24, top: 58, bottom: 42 },
-      xAxis: { type: 'category', data: xAxis },
+      grid: this.roundRangeGrid({ left: 62, right: 24, top: 58, bottom: 42 }, rounds),
+      xAxis: this.roundCategoryXAxis(xAxis, rounds),
       yAxis: { type: 'value', name: yName, inverse },
       series: nextSeries,
+      ...(dataZoom.length ? { dataZoom } : {}),
     };
+  }
+
+  private roundRangeDataZoom(rounds: readonly TrainingRoundSummary[]): Record<string, unknown>[] {
+    if (!this.hasRoundRangeZoom(rounds)) {
+      return [];
+    }
+    const start = this.roundRangeZoomStart(rounds.length);
+    return [
+      {
+        type: 'inside',
+        xAxisIndex: 0,
+        start,
+        end: 100,
+        filterMode: 'filter',
+        zoomOnMouseWheel: true,
+        moveOnMouseMove: true,
+        moveOnMouseWheel: true,
+      },
+      {
+        type: 'slider',
+        xAxisIndex: 0,
+        start,
+        end: 100,
+        filterMode: 'filter',
+        bottom: ROUND_ZOOM_SLIDER_BOTTOM,
+        height: ROUND_ZOOM_SLIDER_HEIGHT,
+        brushSelect: false,
+        labelFormatter: (value: number | string) => this.roundZoomLabel(rounds, value),
+      },
+    ];
+  }
+
+  private hasRoundRangeZoom(rounds: readonly TrainingRoundSummary[]): boolean {
+    return rounds.length > ROUND_ZOOM_THRESHOLD;
+  }
+
+  private roundRangeZoomStart(roundCount: number): number {
+    return Math.max(0, ((roundCount - ROUND_ZOOM_DEFAULT_WINDOW) / roundCount) * 100);
+  }
+
+  private roundRangeGrid(grid: Record<string, number>, rounds: readonly TrainingRoundSummary[]): Record<string, number> {
+    if (!this.hasRoundRangeZoom(rounds)) {
+      return grid;
+    }
+    return { ...grid, bottom: ROUND_ZOOM_GRID_BOTTOM };
+  }
+
+  private roundCategoryXAxis(xAxis: string[], rounds: readonly TrainingRoundSummary[]): Record<string, unknown> {
+    return {
+      type: 'category',
+      data: xAxis,
+      axisLabel: this.roundAxisLabel(rounds),
+      axisTick: { alignWithLabel: true },
+    };
+  }
+
+  private roundValueXAxis(rounds: readonly TrainingRoundSummary[]): Record<string, unknown> {
+    const firstRound = rounds[0]?.round;
+    const lastRound = rounds.at(-1)?.round;
+    return {
+      type: 'value',
+      name: '轮次',
+      min: firstRound,
+      max: lastRound,
+      minInterval: 1,
+      axisLabel: {
+        hideOverlap: true,
+        formatter: (value: number) => `R${Math.round(value)}`,
+      },
+    };
+  }
+
+  private roundAxisLabel(rounds: readonly TrainingRoundSummary[]): Record<string, unknown> {
+    const label: Record<string, unknown> = { hideOverlap: true };
+    if (rounds.length > 40 && !this.hasRoundRangeZoom(rounds)) {
+      label['interval'] = 'auto';
+    }
+    return label;
+  }
+
+  private roundAxisTooltip(rounds: readonly TrainingRoundSummary[]): Record<string, unknown> {
+    return {
+      trigger: 'axis',
+      formatter: (params: unknown) => this.roundTooltipText(rounds, params),
+    };
+  }
+
+  private roundTooltipText(rounds: readonly TrainingRoundSummary[], params: unknown): string {
+    const values = (Array.isArray(params) ? params : [params]).filter(Boolean) as ChartTooltipParam[];
+    const first = values[0];
+    if (!first) {
+      return '暂无轮次数据';
+    }
+    const round = typeof first.dataIndex === 'number' ? rounds[first.dataIndex] : null;
+    const issueText = round?.best?.as_of_issue ? ` / 期号 ${round.best.as_of_issue}` : '';
+    const title = round ? `R${round.round}${issueText}` : String(first.axisValueLabel ?? first.axisValue ?? '轮次');
+    const lines = values.map((item) => {
+      const label = item.seriesName ?? '值';
+      const marker = item.marker ?? '';
+      return `${marker}${label}: ${this.tooltipValueText(item.value ?? item.data)}`;
+    });
+    return [title, ...lines].join('<br/>');
+  }
+
+  private tooltipValueText(value: unknown): string {
+    if (value === null || value === undefined) {
+      return '无';
+    }
+    if (Array.isArray(value)) {
+      return value.map((item) => this.tooltipValueText(item)).join(', ');
+    }
+    if (typeof value === 'number') {
+      return value.toLocaleString('zh-CN');
+    }
+    return String(value);
+  }
+
+  private roundZoomLabel(rounds: readonly TrainingRoundSummary[], value: number | string): string {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      const roundedValue = Math.round(value);
+      const valueRound = rounds.find((round) => round.round === roundedValue);
+      if (valueRound) {
+        return `R${valueRound.round}`;
+      }
+      const indexRound = rounds[roundedValue];
+      if (indexRound) {
+        return `R${indexRound.round}`;
+      }
+    }
+    return String(value);
   }
 
   private lineSeries(name: string, data: Array<number | null>, color?: string): Record<string, unknown> {
@@ -895,6 +1156,16 @@ export class AppComponent {
           ?.experimentKey ?? null;
       this.writeHash();
     }
+  }
+
+  private ensureTrainingRoundSelection(rounds: TrainingRoundListItem[]): void {
+    if (!rounds.length) {
+      this.selectedTrainingRoundKey = null;
+      this.trainingRoundDetailRequests.next(null);
+      return;
+    }
+    const selected = rounds.find((round) => this.trainingRoundKey(round) === this.selectedTrainingRoundKey) ?? rounds[0];
+    this.selectTrainingRound(selected);
   }
 
   private hashRead = false;

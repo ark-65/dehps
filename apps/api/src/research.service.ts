@@ -15,8 +15,11 @@ import {
   TrainingPrefilterStatus,
   TrainingProgress,
   TrainingResult,
+  TrainingRoundDetail,
+  TrainingRoundListItem,
   TrainingRoundSummary,
   TrainingStatusPayload,
+  TrainingTargetResult,
 } from './research.types';
 
 const DEFAULT_LIMIT = 20;
@@ -141,11 +144,109 @@ export class ResearchService {
     return this.repository.listFeatureDistributions();
   }
 
+  listTrainingRounds(limit = 50): Promise<TrainingRoundListItem[]> {
+    return this.repository.listTrainingRounds(this.normalizeLimit(limit));
+  }
+
+  async getTrainingRoundDetail(runId: string, roundIndex: number): Promise<TrainingRoundDetail | null> {
+    const normalizedRunId = runId.trim();
+    const normalizedRoundIndex = Number.isFinite(roundIndex) ? Math.trunc(roundIndex) : 0;
+    if (!normalizedRunId || normalizedRoundIndex < 1) {
+      return null;
+    }
+    const detail = await this.repository.getTrainingRoundDetail(normalizedRunId, normalizedRoundIndex);
+    if (!detail) {
+      return null;
+    }
+    const universeSize = 1107568;
+    return {
+      ...detail,
+      bestConfig: this.numericRecordValue(detail.bestConfig),
+      bestSummary: this.resultValue(detail.bestSummary, universeSize),
+      topResults: this.resultsValue(detail.topResults, universeSize),
+      targetResults: this.targetResultsValue(detail.targetResults),
+      prefilter: this.prefilterRunValue(detail.prefilter),
+    };
+  }
+
   async trainingStatus(tailLines = DEFAULT_LOG_TAIL_LINES): Promise<TrainingStatusPayload> {
     const root = this.repoRoot();
     const normalizedTailLines = this.normalizeTailLines(tailLines);
     const optimizationDir = path.join(root, OPTIMIZATION_OUTPUT_DIR);
     const logDir = path.join(root, RUNTIME_LOG_DIR);
+    const dbRounds = await this.repository.listTrainingRounds(100).catch(() => []);
+    if (dbRounds.length > 0) {
+      const runId = dbRounds[0].runId;
+      const runRounds = dbRounds
+        .filter((round) => round.runId === runId)
+        .sort((left, right) => left.roundIndex - right.roundIndex);
+      const latestRoundItem = runRounds.at(-1) ?? null;
+      const bestRoundItem = [...runRounds].reverse().find((round) => round.improved) ?? latestRoundItem;
+      const bestDetail = bestRoundItem
+        ? await this.repository.getTrainingRoundDetail(bestRoundItem.runId, bestRoundItem.roundIndex).catch(() => null)
+        : null;
+      const latestDetail = latestRoundItem
+        ? await this.repository.getTrainingRoundDetail(latestRoundItem.runId, latestRoundItem.roundIndex).catch(() => null)
+        : null;
+      const logFile =
+        (runId ? await this.firstExistingPath(path.join(logDir, `training-supervisor-${runId}.log`)) : null) ??
+        (await this.findLatestFile(logDir, 'training-supervisor-', '.log'));
+      const logTail = logFile ? await this.readTailLines(logFile, normalizedTailLines) : [];
+      const latestProgress = this.parseLatestProgress(logTail);
+      const serviceUnit = await this.readOptionalText(path.join(logDir, 'training-supervisor.unit'));
+      const latestRound = latestRoundItem ? this.roundSummaryFromListItem(latestRoundItem, latestDetail) : null;
+      const rounds = runRounds.map((round) =>
+        this.roundSummaryFromListItem(round, round.roundIndex === latestRoundItem?.roundIndex ? latestDetail : null),
+      );
+      const completedRounds = latestRoundItem?.roundIndex ?? 0;
+      const active = latestProgress
+        ? latestProgress.round > completedRounds || latestProgress.targetIndex < latestProgress.targetTotal
+        : false;
+      const latestPrefilter = this.prefilterRunValue(latestDetail?.prefilter);
+
+      return {
+        status: active ? 'running' : 'completed',
+        active,
+        processAlive: null,
+        runId,
+        startedAt: runRounds[0]?.createdAt ?? null,
+        updatedAt: latestRoundItem?.createdAt ?? null,
+        deadline: null,
+        pid: null,
+        historyScope: null,
+        regimeYears: null,
+        regimeStartDate: null,
+        trainMode: latestRoundItem?.trainMode ?? null,
+        trainWindow: latestRoundItem?.trainWindow ?? null,
+        evalWindow: latestRoundItem?.evalWindow ?? null,
+        topN: latestRoundItem?.topN ?? null,
+        workers: null,
+        memoryBudgetGb: null,
+        universeSize: 1107568,
+        matrixBackend: null,
+        featureMatrixCache: null,
+        red5RankMode: null,
+        prefilter: latestPrefilter ? { mode: latestPrefilter.mode, description: null, latest: latestPrefilter } : null,
+        qianKun: this.qianKunValue(null),
+        completedRounds,
+        rounds,
+        latestRound,
+        recentRounds: rounds.slice(-10).reverse(),
+        best: this.resultValue(bestDetail?.bestSummary, 1107568) ?? (bestRoundItem ? this.resultFromRoundListItem(bestRoundItem) : null),
+        latestProgress,
+        statusFile: null,
+        reportFile: null,
+        logFile,
+        serviceUnit,
+        logTail,
+        syncSchedule: {
+          timezone: 'Asia/Shanghai',
+          cron: '59 23 * * 2,4,0',
+          description: '每周二、周四、周日 23:59 自动同步当期开奖数据',
+        },
+      };
+    }
+
     const statusFile = await this.findLatestFile(optimizationDir, 'training-supervisor-', '.json');
     const rawStatus = statusFile ? await this.readJsonObject(statusFile) : null;
     const runId = this.stringValue(rawStatus?.run_id);
@@ -412,9 +513,78 @@ export class ResearchService {
       generatedConfigCount: this.numberValue(row.generated_config_count) ?? this.numberValue(row.generatedConfigCount),
       keptConfigCount: this.numberValue(row.kept_config_count) ?? this.numberValue(row.keptConfigCount),
       promoteLimit: this.numberValue(row.promote_limit) ?? this.numberValue(row.promoteLimit),
+      diversityQuota: this.numberValue(row.diversity_quota) ?? this.numberValue(row.diversityQuota),
+      diversityAddedCount: this.numberValue(row.diversity_added_count) ?? this.numberValue(row.diversityAddedCount),
+      stagnationRounds: this.numberValue(row.stagnation_rounds) ?? this.numberValue(row.stagnationRounds),
+      lowCoverageFields: this.stringArrayValue(row.low_coverage_fields ?? row.lowCoverageFields),
+      candidateBudget: this.numericRecordValue(row.candidate_budget ?? row.candidateBudget),
+      frozenValidationWindow: this.numberValue(row.frozen_validation_window) ?? this.numberValue(row.frozenValidationWindow),
+      controlExperiments: this.objectArrayValue(row.control_experiments ?? row.controlExperiments),
       refinedConfigCount: this.numberValue(row.refined_config_count) ?? this.numberValue(row.refinedConfigCount),
       elapsedSeconds: this.numberValue(row.elapsed_seconds) ?? this.numberValue(row.elapsedSeconds),
       note: this.stringValue(row.note),
+    };
+  }
+
+  private roundSummaryFromListItem(
+    round: TrainingRoundListItem,
+    detail: TrainingRoundDetail | null,
+  ): TrainingRoundSummary {
+    const detailBest = detail ? this.resultValue(detail.bestSummary, 1107568) : null;
+    return {
+      round: round.roundIndex,
+      phase: round.phase,
+      step: round.step,
+      generated_config_count: null,
+      config_count: 0,
+      prefilter: detail ? this.prefilterRunValue(detail.prefilter) : null,
+      improved: round.improved,
+      best: detailBest ?? this.resultFromRoundListItem(round),
+      topResults: detail ? this.resultsValue(detail.topResults, 1107568) : [],
+    };
+  }
+
+  private resultFromRoundListItem(round: TrainingRoundListItem): TrainingResult {
+    const medianRank = round.medianRank ?? 1107568;
+    const bestRank = round.bestRank ?? 1107568;
+    const worstRank = round.worstRank ?? 1107568;
+    const red5 = {
+      ...this.emptyRedFive(),
+      top_100_hits: round.red5Top100Hits,
+      top_1000_hits: round.red5Top1000Hits,
+      top_10000_hits: round.red5Top10000Hits,
+    };
+    const rankQuality = this.rankQualityValue(null, { medianRank, worstRank, universeSize: 1107568 });
+    const reward = this.rewardSummary({
+      top100Hits: round.top100Hits,
+      top1000Hits: round.top1000Hits,
+      top10000Hits: round.top10000Hits,
+      red5,
+      rankQuality,
+      medianRank,
+      worstRank,
+      universeSize: 1107568,
+    });
+    if (round.objectiveScore !== null) {
+      reward.objectiveScore = round.objectiveScore;
+    }
+    return {
+      config: {},
+      as_of_issue: round.asOfIssue,
+      history_fingerprint: '',
+      config_hash: '',
+      evaluated_draws: round.evalWindow,
+      top_100_hits: round.top100Hits,
+      top_1000_hits: round.top1000Hits,
+      top_10000_hits: round.top10000Hits,
+      median_rank: medianRank,
+      best_rank: bestRank,
+      worst_rank: worstRank,
+      red5,
+      rank_quality: rankQuality,
+      run_key: `${round.runId}:${round.roundIndex}`,
+      reward,
+      frozen_validation: null,
     };
   }
 
@@ -458,6 +628,45 @@ export class ResearchService {
     return value
       .map((item) => this.resultValue(item, universeSize))
       .filter((item): item is TrainingResult => item !== null);
+  }
+
+  private targetResultsValue(value: unknown): TrainingTargetResult[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value
+      .map((item) => this.targetResultValue(item))
+      .filter((item): item is TrainingTargetResult => item !== null);
+  }
+
+  private targetResultValue(value: unknown): TrainingTargetResult | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+    const row = value as Record<string, unknown>;
+    const issue = this.stringValue(row.issue);
+    const rank = this.numberValue(row.rank);
+    if (!issue || rank === null) {
+      return null;
+    }
+    return {
+      issue,
+      drawDate: this.stringValue(row.draw_date) ?? this.stringValue(row.drawDate),
+      redNumbers: this.numberArrayValue(row.red_numbers ?? row.redNumbers),
+      rank,
+      score: this.numberValue(row.score),
+      hitTop100: Boolean(row.hit_top_100 ?? row.hitTop100),
+      hitTop1000: Boolean(row.hit_top_1000 ?? row.hitTop1000),
+      hitTop10000: Boolean(row.hit_top_10000 ?? row.hitTop10000),
+      red5Rank: this.numberValue(row.red5_rank ?? row.red5Rank),
+      red5Score: this.numberValue(row.red5_score ?? row.red5Score),
+      red5Numbers: this.numberArrayValue(row.red5_numbers ?? row.red5Numbers),
+      red5MissingNumber: this.numberValue(row.red5_missing_number ?? row.red5MissingNumber),
+      red5ExtraNumber: this.numberValue(row.red5_extra_number ?? row.red5ExtraNumber),
+      hitRed5Top100: Boolean(row.hit_red5_top_100 ?? row.hitRed5Top100),
+      hitRed5Top1000: Boolean(row.hit_red5_top_1000 ?? row.hitRed5Top1000),
+      hitRed5Top10000: Boolean(row.hit_red5_top_10000 ?? row.hitRed5Top10000),
+    };
   }
 
   private resultValue(value: unknown, universeSize: number | null): TrainingResult | null {
@@ -514,6 +723,7 @@ export class ResearchService {
         worstRank,
         universeSize,
       }),
+      frozen_validation: this.objectValue(row.frozen_validation),
     };
   }
 
@@ -891,6 +1101,19 @@ export class ResearchService {
       return [];
     }
     return value.filter((item): item is string => typeof item === 'string');
+  }
+
+  private objectArrayValue(value: unknown): Record<string, unknown>[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value.filter(
+      (item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item),
+    );
+  }
+
+  private objectValue(value: unknown): Record<string, unknown> | null {
+    return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
   }
 
   private isProcessAlive(pid: number): boolean {

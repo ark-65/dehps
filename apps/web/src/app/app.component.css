@@ -480,6 +480,22 @@ select {
   min-width: 760px;
 }
 
+.training-round-detail {
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+}
+
+.hit-detail-table {
+  max-height: 520px;
+}
+
+.hit-detail-table table {
+  min-width: 920px;
+}
+
+.hit-detail-table td {
+  vertical-align: top;
+}
+
 .log-panel pre {
   max-height: 340px;
   margin: 0;

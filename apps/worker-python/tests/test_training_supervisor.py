@@ -6,14 +6,21 @@ from dehps.models.frequency_ranker import FrequencyRankerConfig
 from dehps.optimization.walk_forward import TargetRank, build_ranked_universe
 from scripts.run_training_supervisor import (
     calculate_tail_risk_penalty,
+    candidate_budget,
+    attach_frozen_validation,
     config_hash,
+    control_experiment_configs,
+    control_experiment_summaries,
     evaluate_configs,
+    frozen_validation_window,
     generate_configs,
+    low_coverage_fields_from_summaries,
     load_prior_supervisor_candidates,
     post_training_event,
     prefilter_configs,
     reward_summary,
     sort_key,
+    stagnation_round_count,
     training_event_payload,
     summarize_target_ranks,
     training_progress_payload,
@@ -34,6 +41,13 @@ def test_generate_configs_keeps_base_and_clamps_weight_range():
     assert len({tuple(config.__dict__.items()) for config in configs}) == len(configs)
     assert all(0 <= config.structural_weight <= 1.25 for config in configs)
     assert all(-0.30 <= config.previous_overlap_weight <= 0.30 for config in configs)
+
+
+def test_candidate_budget_uses_search_intelligence_mix():
+    budget = candidate_budget(20)
+
+    assert budget == {"exploitation": 8, "exploration": 6, "replay": 4, "baseline": 2}
+    assert sum(budget.values()) == 20
 
 
 def test_generate_configs_reuses_elite_configs_for_local_search():
@@ -67,6 +81,60 @@ def test_generate_configs_large_phase_keeps_themed_seed_candidates():
     assert any(config.weekday_trend_weight >= 0.10 for config in configs)
     assert any(config.mod012_weight > 0 and config.tail_distribution_weight > 0 for config in configs)
     assert any(config.first_last_sum_weight > 0 and config.stable_range_weight > 0 for config in configs)
+
+
+def test_generate_configs_uses_history_and_stagnation_exploration():
+    base = FrequencyRankerConfig()
+    historical = [
+        {
+            "config": {
+                **base.__dict__,
+                "frequency_weight": 0.55,
+                "tail_distribution_weight": 0.12,
+            },
+            "reward": {"objectiveScore": 120.0},
+        },
+        {
+            "config": {
+                **base.__dict__,
+                "frequency_weight": 0.20,
+                "tail_distribution_weight": -0.08,
+            },
+            "reward": {"objectiveScore": 20.0},
+        },
+        {
+            "config": {**base.__dict__, "weekday_trend_weight": 0.10},
+            "reward": {"objectiveScore": 80.0},
+        },
+        {
+            "config": {**base.__dict__, "previous_overlap_weight": -0.10},
+            "reward": {"objectiveScore": 40.0},
+        },
+        {
+            "config": {**base.__dict__, "mod012_weight": 0.08},
+            "reward": {"objectiveScore": 60.0},
+        },
+        {
+            "config": {**base.__dict__, "red_omission_shape_weight": 0.08},
+            "reward": {"objectiveScore": 70.0},
+        },
+    ]
+
+    configs = generate_configs(
+        base,
+        phase="medium",
+        step=0.07,
+        max_configs=24,
+        historical_summaries=historical,
+        low_coverage_fields=("sum_tail_weight", "stable_range_weight"),
+        stagnation_rounds=20,
+        round_index=33,
+    )
+
+    assert len(configs) == len({config_hash(config) for config in configs}) <= 24
+    assert any(abs(config.sum_tail_weight) >= 0.07 for config in configs)
+    assert any(config.frequency_weight > 0.50 for config in configs)
+    assert any(all(value == 0 for value in config.__dict__.values()) for config in configs)
 
 
 def test_prefilter_configs_keeps_base_and_elite_before_full_refine():
@@ -113,10 +181,134 @@ def test_prefilter_configs_keeps_base_and_elite_before_full_refine():
 
     assert base in refined
     assert elite in refined
-    assert len(refined) <= 3
+    assert len(refined) <= 4
     assert metadata["generated_config_count"] == len(configs)
     assert metadata["refined_config_count"] == len(refined)
     assert metadata["target_count"] == 1
+    assert metadata["diversity_added_count"] >= 0
+
+
+def test_prefilter_configs_keeps_diversity_quota():
+    universe = [
+        (1, 8, 13, 18, 23, 31),
+        (2, 9, 14, 19, 24, 32),
+        (3, 10, 15, 20, 25, 33),
+        (4, 11, 16, 21, 26, 30),
+        (5, 12, 17, 22, 27, 29),
+    ]
+    history = [
+        ("001", universe[0]),
+        ("002", universe[1]),
+        ("003", universe[2]),
+        ("004", universe[3]),
+        ("005", universe[4]),
+        ("006", universe[0]),
+        ("007", universe[1]),
+    ]
+    base = FrequencyRankerConfig()
+    far = FrequencyRankerConfig(structural_weight=1.25, frequency_weight=0.0, omission_weight=0.0)
+    configs = (
+        base,
+        FrequencyRankerConfig(structural_weight=0.41, frequency_weight=0.30, omission_weight=0.25),
+        FrequencyRankerConfig(structural_weight=0.42, frequency_weight=0.30, omission_weight=0.25),
+        far,
+    )
+
+    refined, metadata = prefilter_configs(
+        history=history,
+        ranked_universe=build_ranked_universe(universe),
+        configs=configs,
+        keep_configs=(base,),
+        train_window=2,
+        train_mode="expanding",
+        eval_window=4,
+        top_n=10000,
+        workers=1,
+        pool=None,
+        round_index=1,
+        stride=4,
+        promote_limit=1,
+        diversity_quota=1,
+    )
+
+    assert far in refined
+    assert metadata["diversity_added_count"] == 1
+
+
+def test_stagnation_and_low_coverage_fields_are_deterministic():
+    rounds = [{"improved": True}, {"improved": False}, {"improved": False}]
+    summaries = [
+        {"config": {"frequency_weight": 0.4, "tail_distribution_weight": 0.1}},
+        {"config": {"frequency_weight": 0.5}},
+    ]
+
+    assert stagnation_round_count(rounds) == 2
+    assert low_coverage_fields_from_summaries(summaries, limit=2) == ("tail_distribution_weight", "frequency_weight")
+
+
+def test_control_experiments_and_frozen_validation_are_recorded():
+    base = FrequencyRankerConfig()
+    controls = control_experiment_configs(base)
+    summary_by_hash = {}
+    for index, (_label, config) in enumerate(controls, start=1):
+        summary = {
+            "config": config.__dict__,
+            "as_of_issue": "2026067",
+            "history_fingerprint": "history-1",
+            "config_hash": config_hash(config),
+            "evaluated_draws": 3,
+            "top_100_hits": 0,
+            "top_1000_hits": 0,
+            "top_10000_hits": index,
+            "median_rank": 20000 + index,
+            "best_rank": 100 + index,
+            "worst_rank": 900000 - index,
+            "red5": {"top_100_hits": 0, "top_1000_hits": 1, "top_10000_hits": 2},
+            "rank_quality": {},
+            "target_results": [
+                {
+                    "issue": "2026001",
+                    "rank": 50000,
+                    "hit_top_100": False,
+                    "hit_top_1000": False,
+                    "hit_top_10000": False,
+                    "hit_red5_top_100": False,
+                    "hit_red5_top_1000": False,
+                    "hit_red5_top_10000": True,
+                },
+                {
+                    "issue": "2026002",
+                    "rank": 900,
+                    "hit_top_100": False,
+                    "hit_top_1000": True,
+                    "hit_top_10000": True,
+                    "red5_rank": 80,
+                    "hit_red5_top_100": True,
+                    "hit_red5_top_1000": True,
+                    "hit_red5_top_10000": True,
+                },
+            ],
+            "reward": {"objectiveScore": float(index)},
+        }
+        summary_by_hash[summary["config_hash"]] = summary
+
+    summaries = list(summary_by_hash.values())
+    attach_frozen_validation(summaries, validation_window=frozen_validation_window(10), universe_size=1107568)
+    rows = control_experiment_summaries(summaries, controls)
+
+    assert frozen_validation_window(100) == 20
+    assert {label for label, _config in controls} == {
+        "current_best_frozen_baseline",
+        "structural_baseline",
+        "frequency_baseline",
+        "omission_baseline",
+        "null_baseline",
+    }
+    assert all(config.previous_consecutive_weight == 0 for label, config in controls if label != "current_best_frozen_baseline")
+    assert len(rows) == len(controls)
+    assert rows[0]["frozen_validation"]["window"] == 2
+    assert rows[0]["frozen_validation"]["top_1000_hits"] == 1
+    assert rows[0]["frozen_validation"]["red5"]["top_100_hits"] == 1
 
 
 def test_prefilter_configs_target_parallel_matches_single_worker():
@@ -506,6 +698,26 @@ def test_summarize_target_ranks_counts_red5_difference_numbers():
     assert summary["red5"]["extra_counts"] == {"07": 1}
     assert summary["red5"]["pairs"] == [{"missing_number": 6, "extra_number": 7, "count": 1}]
     assert summary["red5"]["examples"][0]["issue"] == "2026001"
+    assert summary["target_results"] == [
+        {
+            "issue": "2026001",
+            "draw_date": None,
+            "red_numbers": [],
+            "rank": 12000,
+            "score": 0.5,
+            "hit_top_100": False,
+            "hit_top_1000": False,
+            "hit_top_10000": False,
+            "red5_rank": 88,
+            "red5_score": 0.6,
+            "red5_numbers": [1, 2, 3, 4, 5, 7],
+            "red5_missing_number": 6,
+            "red5_extra_number": 7,
+            "hit_red5_top_100": True,
+            "hit_red5_top_1000": True,
+            "hit_red5_top_10000": True,
+        }
+    ]
     assert summary["reward"]["red5Reward"] > 0
     assert summary["rank_quality"]["top_50000_hits"] == 1
     assert summary["rank_quality"]["tail_over_1000000_count"] == 0

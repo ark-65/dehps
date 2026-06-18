@@ -73,6 +73,7 @@ export type TrainingResult = {
   rank_quality: TrainingRankQualitySummary;
   run_key: string;
   reward: TrainingRewardSummary;
+  frozen_validation: Record<string, unknown> | null;
 };
 
 export type TrainingRankQualitySummary = {
@@ -138,6 +139,58 @@ export type TrainingRoundSummary = {
   improved: boolean;
   best: TrainingResult | null;
   topResults: TrainingResult[];
+};
+
+export type TrainingTargetResult = {
+  issue: string;
+  drawDate: string | null;
+  redNumbers: number[];
+  rank: number;
+  score: number | null;
+  hitTop100: boolean;
+  hitTop1000: boolean;
+  hitTop10000: boolean;
+  red5Rank: number | null;
+  red5Score: number | null;
+  red5Numbers: number[];
+  red5MissingNumber: number | null;
+  red5ExtraNumber: number | null;
+  hitRed5Top100: boolean;
+  hitRed5Top1000: boolean;
+  hitRed5Top10000: boolean;
+};
+
+export type TrainingRoundListItem = {
+  runId: string;
+  roundIndex: number;
+  phase: string;
+  step: number;
+  trainMode: string;
+  trainWindow: number;
+  evalWindow: number;
+  topN: number;
+  asOfIssue: string;
+  improved: boolean;
+  top100Hits: number;
+  top1000Hits: number;
+  top10000Hits: number;
+  red5Top100Hits: number;
+  red5Top1000Hits: number;
+  red5Top10000Hits: number;
+  medianRank: number | null;
+  bestRank: number | null;
+  worstRank: number | null;
+  objectiveScore: number | null;
+  createdAt: string;
+};
+
+export type TrainingRoundDetail = TrainingRoundListItem & {
+  historyFingerprint: string;
+  bestConfig: Record<string, number>;
+  bestSummary: TrainingResult | null;
+  topResults: TrainingResult[];
+  targetResults: TrainingTargetResult[];
+  prefilter: TrainingPrefilterRun | null;
 };
 
 export type TrainingProgress = {
@@ -213,6 +266,13 @@ export type TrainingPrefilterRun = {
   generatedConfigCount: number | null;
   keptConfigCount: number | null;
   promoteLimit: number | null;
+  diversityQuota: number | null;
+  diversityAddedCount: number | null;
+  stagnationRounds: number | null;
+  lowCoverageFields: string[];
+  candidateBudget: Record<string, number>;
+  frozenValidationWindow: number | null;
+  controlExperiments: Record<string, unknown>[];
   refinedConfigCount: number | null;
   elapsedSeconds: number | null;
   note: string | null;
@@ -263,4 +323,6 @@ export interface ResearchRepository {
   listPipelineRuns(limit: number): Promise<PipelineRunSummary[]>;
   listSyncRuns(limit: number): Promise<SyncRunSummary[]>;
   listFeatureDistributions(): Promise<FeatureDistribution[]>;
+  listTrainingRounds(limit: number): Promise<TrainingRoundListItem[]>;
+  getTrainingRoundDetail(runId: string, roundIndex: number): Promise<TrainingRoundDetail | null>;
 }

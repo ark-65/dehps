@@ -8,6 +8,8 @@ import {
   FeatureDistribution,
   PipelineRunSummary,
   SyncRunSummary,
+  TrainingRoundDetail,
+  TrainingRoundListItem,
   TrainingStatusPayload,
 } from './dashboard.model';
 
@@ -68,6 +70,16 @@ export class DashboardService {
 
   loadTrainingStatus(): Observable<TrainingStatusPayload> {
     return this.http.get<TrainingStatusPayload>('/training-status');
+  }
+
+  loadTrainingRounds(): Observable<TrainingRoundListItem[]> {
+    return this.http.get<TrainingRoundListItem[]>('/training-rounds?limit=50');
+  }
+
+  loadTrainingRoundDetail(runId: string, roundIndex: number): Observable<TrainingRoundDetail | null> {
+    return this.http.get<TrainingRoundDetail | null>(
+      `/training-rounds/${encodeURIComponent(runId)}/${encodeURIComponent(String(roundIndex))}`,
+    );
   }
 
   watchTrainingStatus(): Observable<TrainingStatusStreamState> {

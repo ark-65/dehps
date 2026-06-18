@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 from math import comb
 from typing import Any
 
@@ -14,8 +16,297 @@ from dehps.crawler.ssq_parser import ValidatedSsqDraw
 TOTAL_SSQ_RED_COMBINATIONS = comb(33, 6)
 
 
+@dataclass(frozen=True)
+class SsqDrawSite:
+    site_key: str
+    name: str
+    address: str
+    latitude: Decimal
+    longitude: Decimal
+    coordinate_system: str
+    accuracy_note: str
+    address_source_url: str
+    draw_location_source_url: str
+    effective_from_issue: str | None = None
+    effective_to_issue: str | None = None
+    is_active: bool = True
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "site_key": self.site_key,
+            "name": self.name,
+            "address": self.address,
+            "latitude": float(self.latitude),
+            "longitude": float(self.longitude),
+            "coordinate_system": self.coordinate_system,
+            "accuracy_note": self.accuracy_note,
+            "address_source_url": self.address_source_url,
+            "draw_location_source_url": self.draw_location_source_url,
+            "effective_from_issue": self.effective_from_issue,
+            "effective_to_issue": self.effective_to_issue,
+            "is_active": self.is_active,
+        }
+
+
+DEFAULT_SSQ_DRAW_SITE = SsqDrawSite(
+    site_key="cwl_beijing_n4ring_v0",
+    name="China Welfare Lottery Issuance Management Center",
+    address="Beijing, Chaoyang District, North 4th Ring East Road 73",
+    latitude=Decimal("39.990000"),
+    longitude=Decimal("116.430000"),
+    coordinate_system="WGS84",
+    accuracy_note=(
+        "Approximate site coordinate for external physics experiments; the address is sourced, "
+        "while coordinates are rounded and should not be treated as survey-grade."
+    ),
+    address_source_url="https://www.cwl.gov.cn/c/2020-02-01/463075.shtml",
+    draw_location_source_url="https://www.thepaper.cn/newsDetail_forward_11540335",
+)
+
+
 def init_schema(conn: Connection, sql_path) -> None:
     conn.execute(sql_path.read_text())
+
+
+def ensure_ssq_draw_site_schema(conn: Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ssq_draw_sites (
+          id BIGSERIAL PRIMARY KEY,
+          site_key TEXT NOT NULL UNIQUE,
+          name TEXT NOT NULL,
+          address TEXT NOT NULL,
+          latitude NUMERIC(9,6) NOT NULL,
+          longitude NUMERIC(9,6) NOT NULL,
+          coordinate_system TEXT NOT NULL DEFAULT 'WGS84',
+          accuracy_note TEXT,
+          address_source_url TEXT,
+          draw_location_source_url TEXT,
+          effective_from_issue TEXT,
+          effective_to_issue TEXT,
+          is_active BOOLEAN NOT NULL DEFAULT true,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """
+    )
+
+
+def ensure_training_round_results_schema(conn: Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS training_round_results (
+          id BIGSERIAL PRIMARY KEY,
+          run_id TEXT NOT NULL,
+          round_index INTEGER NOT NULL,
+          phase TEXT NOT NULL,
+          step NUMERIC(10,6) NOT NULL,
+          train_mode TEXT NOT NULL,
+          train_window INTEGER NOT NULL,
+          eval_window INTEGER NOT NULL,
+          top_n INTEGER NOT NULL,
+          as_of_issue TEXT NOT NULL,
+          history_fingerprint TEXT NOT NULL,
+          improved BOOLEAN NOT NULL DEFAULT false,
+          top_100_hits INTEGER NOT NULL DEFAULT 0,
+          top_1000_hits INTEGER NOT NULL DEFAULT 0,
+          top_10000_hits INTEGER NOT NULL DEFAULT 0,
+          red5_top_100_hits INTEGER NOT NULL DEFAULT 0,
+          red5_top_1000_hits INTEGER NOT NULL DEFAULT 0,
+          red5_top_10000_hits INTEGER NOT NULL DEFAULT 0,
+          median_rank NUMERIC(12,2),
+          best_rank INTEGER,
+          worst_rank INTEGER,
+          objective_score NUMERIC(14,6),
+          best_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+          best_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+          top_results JSONB NOT NULL DEFAULT '[]'::jsonb,
+          target_results JSONB NOT NULL DEFAULT '[]'::jsonb,
+          prefilter JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (run_id, round_index)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_training_round_results_created_at
+          ON training_round_results (created_at DESC, round_index DESC)
+        """
+    )
+
+
+def upsert_training_round_result(conn: Connection, *, run_id: str, round_info: dict[str, Any], status: dict[str, Any]) -> None:
+    best = round_info.get("best") if isinstance(round_info.get("best"), dict) else {}
+    red5 = best.get("red5") if isinstance(best.get("red5"), dict) else {}
+    reward = best.get("reward") if isinstance(best.get("reward"), dict) else {}
+    conn.execute(
+        """
+        INSERT INTO training_round_results (
+          run_id, round_index, phase, step, train_mode, train_window, eval_window, top_n,
+          as_of_issue, history_fingerprint, improved, top_100_hits, top_1000_hits, top_10000_hits,
+          red5_top_100_hits, red5_top_1000_hits, red5_top_10000_hits, median_rank, best_rank,
+          worst_rank, objective_score, best_config, best_summary, top_results, target_results, prefilter
+        )
+        VALUES (
+          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+          %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb
+        )
+        ON CONFLICT (run_id, round_index) DO UPDATE
+        SET phase = EXCLUDED.phase,
+            step = EXCLUDED.step,
+            train_mode = EXCLUDED.train_mode,
+            train_window = EXCLUDED.train_window,
+            eval_window = EXCLUDED.eval_window,
+            top_n = EXCLUDED.top_n,
+            as_of_issue = EXCLUDED.as_of_issue,
+            history_fingerprint = EXCLUDED.history_fingerprint,
+            improved = EXCLUDED.improved,
+            top_100_hits = EXCLUDED.top_100_hits,
+            top_1000_hits = EXCLUDED.top_1000_hits,
+            top_10000_hits = EXCLUDED.top_10000_hits,
+            red5_top_100_hits = EXCLUDED.red5_top_100_hits,
+            red5_top_1000_hits = EXCLUDED.red5_top_1000_hits,
+            red5_top_10000_hits = EXCLUDED.red5_top_10000_hits,
+            median_rank = EXCLUDED.median_rank,
+            best_rank = EXCLUDED.best_rank,
+            worst_rank = EXCLUDED.worst_rank,
+            objective_score = EXCLUDED.objective_score,
+            best_config = EXCLUDED.best_config,
+            best_summary = EXCLUDED.best_summary,
+            top_results = EXCLUDED.top_results,
+            target_results = EXCLUDED.target_results,
+            prefilter = EXCLUDED.prefilter,
+            updated_at = now()
+        """,
+        (
+            run_id,
+            int(round_info["round"]),
+            str(round_info["phase"]),
+            float(round_info["step"]),
+            str(status["train_mode"]),
+            int(status["train_window"]),
+            int(status["eval_window"]),
+            int(status["top_n"]),
+            str(best.get("as_of_issue") or status.get("as_of_issue") or ""),
+            str(best.get("history_fingerprint") or ""),
+            bool(round_info.get("improved")),
+            int(best.get("top_100_hits") or 0),
+            int(best.get("top_1000_hits") or 0),
+            int(best.get("top_10000_hits") or 0),
+            int(red5.get("top_100_hits") or 0),
+            int(red5.get("top_1000_hits") or 0),
+            int(red5.get("top_10000_hits") or 0),
+            best.get("median_rank"),
+            best.get("best_rank"),
+            best.get("worst_rank"),
+            reward.get("objectiveScore"),
+            json.dumps(best.get("config") or {}),
+            json.dumps(best),
+            json.dumps(round_info.get("top_results") or []),
+            json.dumps(best.get("target_results") or []),
+            json.dumps(round_info.get("prefilter") or {}),
+        ),
+    )
+
+
+def load_training_round_candidate_summaries(
+    conn: Connection,
+    *,
+    as_of_issue: str,
+    history_fingerprint: str,
+    train_window: int,
+    train_mode: str,
+    eval_window: int,
+    top_n: int,
+    limit: int = 80,
+) -> list[dict[str, Any]]:
+    with conn.cursor(row_factory=dict_row) as cur:
+        rows = cur.execute(
+            """
+            SELECT best_summary, top_results
+            FROM training_round_results
+            WHERE as_of_issue = %s
+              AND history_fingerprint = %s
+              AND train_window = %s
+              AND train_mode = %s
+              AND eval_window = %s
+              AND top_n = %s
+            ORDER BY objective_score DESC NULLS LAST, updated_at DESC
+            LIMIT %s
+            """,
+            (as_of_issue, history_fingerprint, train_window, train_mode, eval_window, top_n, limit),
+        ).fetchall()
+    candidates: list[dict[str, Any]] = []
+    for row in rows:
+        best_summary = row.get("best_summary")
+        if isinstance(best_summary, dict):
+            candidates.append(best_summary)
+        top_results = row.get("top_results")
+        if isinstance(top_results, list):
+            candidates.extend(item for item in top_results if isinstance(item, dict))
+    return candidates
+
+
+def upsert_ssq_draw_site(conn: Connection, site: SsqDrawSite = DEFAULT_SSQ_DRAW_SITE) -> None:
+    conn.execute(
+        """
+        INSERT INTO ssq_draw_sites (
+          site_key, name, address, latitude, longitude, coordinate_system, accuracy_note,
+          address_source_url, draw_location_source_url, effective_from_issue, effective_to_issue, is_active
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (site_key) DO UPDATE
+        SET name = EXCLUDED.name,
+            address = EXCLUDED.address,
+            latitude = EXCLUDED.latitude,
+            longitude = EXCLUDED.longitude,
+            coordinate_system = EXCLUDED.coordinate_system,
+            accuracy_note = EXCLUDED.accuracy_note,
+            address_source_url = EXCLUDED.address_source_url,
+            draw_location_source_url = EXCLUDED.draw_location_source_url,
+            effective_from_issue = EXCLUDED.effective_from_issue,
+            effective_to_issue = EXCLUDED.effective_to_issue,
+            is_active = EXCLUDED.is_active,
+            updated_at = now()
+        """,
+        (
+            site.site_key,
+            site.name,
+            site.address,
+            site.latitude,
+            site.longitude,
+            site.coordinate_system,
+            site.accuracy_note,
+            site.address_source_url,
+            site.draw_location_source_url,
+            site.effective_from_issue,
+            site.effective_to_issue,
+            site.is_active,
+        ),
+    )
+
+
+def load_active_ssq_draw_site(conn: Connection) -> dict[str, Any] | None:
+    with conn.cursor(row_factory=dict_row) as cur:
+        row = cur.execute(
+            """
+            SELECT
+              site_key, name, address, latitude, longitude, coordinate_system, accuracy_note,
+              address_source_url, draw_location_source_url, effective_from_issue, effective_to_issue, is_active
+            FROM ssq_draw_sites
+            WHERE is_active = true
+            ORDER BY site_key
+            LIMIT 1
+            """
+        ).fetchone()
+    if not row:
+        return None
+    site = dict(row)
+    site["latitude"] = float(site["latitude"])
+    site["longitude"] = float(site["longitude"])
+    return site
 
 
 def upsert_ssq_draw(conn: Connection, draw: ValidatedSsqDraw, source: str) -> str:

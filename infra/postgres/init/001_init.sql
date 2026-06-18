@@ -120,6 +120,60 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
   summary JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
+CREATE TABLE IF NOT EXISTS ssq_draw_sites (
+  id BIGSERIAL PRIMARY KEY,
+  site_key TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  address TEXT NOT NULL,
+  latitude NUMERIC(9,6) NOT NULL,
+  longitude NUMERIC(9,6) NOT NULL,
+  coordinate_system TEXT NOT NULL DEFAULT 'WGS84',
+  accuracy_note TEXT,
+  address_source_url TEXT,
+  draw_location_source_url TEXT,
+  effective_from_issue TEXT,
+  effective_to_issue TEXT,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS training_round_results (
+  id BIGSERIAL PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  round_index INTEGER NOT NULL,
+  phase TEXT NOT NULL,
+  step NUMERIC(10,6) NOT NULL,
+  train_mode TEXT NOT NULL,
+  train_window INTEGER NOT NULL,
+  eval_window INTEGER NOT NULL,
+  top_n INTEGER NOT NULL,
+  as_of_issue TEXT NOT NULL,
+  history_fingerprint TEXT NOT NULL,
+  improved BOOLEAN NOT NULL DEFAULT false,
+  top_100_hits INTEGER NOT NULL DEFAULT 0,
+  top_1000_hits INTEGER NOT NULL DEFAULT 0,
+  top_10000_hits INTEGER NOT NULL DEFAULT 0,
+  red5_top_100_hits INTEGER NOT NULL DEFAULT 0,
+  red5_top_1000_hits INTEGER NOT NULL DEFAULT 0,
+  red5_top_10000_hits INTEGER NOT NULL DEFAULT 0,
+  median_rank NUMERIC(12,2),
+  best_rank INTEGER,
+  worst_rank INTEGER,
+  objective_score NUMERIC(14,6),
+  best_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+  best_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+  top_results JSONB NOT NULL DEFAULT '[]'::jsonb,
+  target_results JSONB NOT NULL DEFAULT '[]'::jsonb,
+  prefilter JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (run_id, round_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_training_round_results_created_at
+  ON training_round_results (created_at DESC, round_index DESC);
+
 INSERT INTO dehps_strategies (strategy_key, name, description, config)
 VALUES (
   'baseline_v1',
@@ -129,3 +183,34 @@ VALUES (
 )
 ON CONFLICT (strategy_key) DO NOTHING;
 
+INSERT INTO ssq_draw_sites (
+  site_key, name, address, latitude, longitude, coordinate_system, accuracy_note,
+  address_source_url, draw_location_source_url, effective_from_issue, effective_to_issue, is_active
+)
+VALUES (
+  'cwl_beijing_n4ring_v0',
+  'China Welfare Lottery Issuance Management Center',
+  'Beijing, Chaoyang District, North 4th Ring East Road 73',
+  39.990000,
+  116.430000,
+  'WGS84',
+  'Approximate site coordinate for external physics experiments; the address is sourced, while coordinates are rounded and should not be treated as survey-grade.',
+  'https://www.cwl.gov.cn/c/2020-02-01/463075.shtml',
+  'https://www.thepaper.cn/newsDetail_forward_11540335',
+  NULL,
+  NULL,
+  true
+)
+ON CONFLICT (site_key) DO UPDATE
+SET name = EXCLUDED.name,
+    address = EXCLUDED.address,
+    latitude = EXCLUDED.latitude,
+    longitude = EXCLUDED.longitude,
+    coordinate_system = EXCLUDED.coordinate_system,
+    accuracy_note = EXCLUDED.accuracy_note,
+    address_source_url = EXCLUDED.address_source_url,
+    draw_location_source_url = EXCLUDED.draw_location_source_url,
+    effective_from_issue = EXCLUDED.effective_from_issue,
+    effective_to_issue = EXCLUDED.effective_to_issue,
+    is_active = EXCLUDED.is_active,
+    updated_at = now();

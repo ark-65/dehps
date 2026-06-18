@@ -14,3 +14,11 @@ This note records the current evidence used by DEHPS to choose a conservative tr
 - Use all available history for audit and distribution diagnostics.
 - Use `current_regime_default` as the default training scope: the most recent 10 years ending at `as_of_issue`.
 - If an authoritative issue-level equipment or material change table is found later, add a `custom_regime` boundary before changing training defaults.
+
+## Draw Site Constant
+
+- Default site key: `cwl_beijing_n4ring_v0`.
+- Public address source: China Welfare Lottery Issuance Management Center, Beijing, Chaoyang District, North 4th Ring East Road 73.
+- Approximate coordinate for external-physics experiments: WGS84 latitude `39.990000`, longitude `116.430000`.
+- The address is sourced; the coordinate is rounded and should not be treated as survey-grade.
+- Use this constant as a stable input for future moon/tide/weather proxy features. It should not enter the primary model leaderboard until an isolated external-feature experiment beats the frozen baseline and a shuffled-date null control.

@@ -135,11 +135,72 @@ test('training view does not use periodic dashboard polling', () => {
   assert.equal(component.includes('dashboardService.load().pipe'), false);
   assert.equal(service.includes("window.location.port === '4200' ? '3000'"), false);
   assert.equal(service.includes('/training-status/ws'), true);
+  assert.equal(service.includes('/training-rounds?limit=50'), true);
+  assert.equal(service.includes('/training-rounds/${encodeURIComponent(runId)}'), true);
   assert.equal(component.includes('liveProgressOption'), true);
+  assert.equal(component.includes("type DashboardTab = 'training' | 'training-rounds' | 'experiments'"), true);
+  assert.equal(component.includes('targetHitRows'), true);
   assert.equal(template.includes('@if (hasRoundCharts(training))'), true);
+  assert.equal(template.includes('训练轮次'), true);
+  assert.equal(template.includes('命中期次'), true);
+  assert.equal(template.includes('红5候选'), true);
   assert.equal(template.includes('等待第 1 轮回归结果'), true);
   assert.equal(template.includes('weightTrendGroups(training)'), true);
   assert.equal(template.includes('权重演化图待拆分'), false);
   assert.equal(component.includes("title: '权重演化 - 基础'"), true);
   assert.equal(component.includes("title: '权重演化 - 奖惩'"), true);
+});
+
+test('training round charts enable range zoom for long round sequences', () => {
+  const component = readFileSync(new URL('../src/app/app.component.ts', import.meta.url), 'utf8');
+
+  assert.equal(component.includes('const ROUND_ZOOM_DEFAULT_WINDOW = 120'), true);
+  assert.equal(component.includes('const ROUND_ZOOM_THRESHOLD = ROUND_ZOOM_DEFAULT_WINDOW'), true);
+  assert.equal(component.includes('rounds.length > ROUND_ZOOM_THRESHOLD'), true);
+  assert.equal(component.includes('((roundCount - ROUND_ZOOM_DEFAULT_WINDOW) / roundCount) * 100'), true);
+  assert.equal(component.includes("type: 'inside'"), true);
+  assert.equal(component.includes("type: 'slider'"), true);
+  assert.equal(component.includes('zoomOnMouseWheel: true'), true);
+  assert.equal(component.includes('moveOnMouseWheel: true'), true);
+  assert.equal(component.includes('roundCategoryXAxis(xAxis, rounds)'), true);
+  assert.equal(component.includes('roundValueXAxis(rounds)'), true);
+  assert.equal(component.includes('roundAxisTooltip(rounds)'), true);
+  assert.equal(component.includes('期号 ${round.best.as_of_issue}'), true);
+});
+
+test('weight trend charts reuse the shared round range zoom helper', () => {
+  const component = readFileSync(new URL('../src/app/app.component.ts', import.meta.url), 'utf8');
+  const weightTrend = component.slice(
+    component.indexOf('  private weightTrendOption'),
+    component.indexOf('  candidateScatterOption'),
+  );
+  const groupedLine = component.slice(
+    component.indexOf('  private groupedLineOption'),
+    component.indexOf('  private baseLineOption'),
+  );
+
+  assert.equal(weightTrend.includes('this.groupedLineOption'), true);
+  assert.equal(weightTrend.includes('rounds,'), true);
+  assert.equal(groupedLine.includes('const dataZoom = this.roundRangeDataZoom(rounds)'), true);
+  assert.equal(groupedLine.includes('...(dataZoom.length ? { dataZoom } : {})'), true);
+});
+
+test('non-round charts keep the lightweight no-zoom option shape', () => {
+  const component = readFileSync(new URL('../src/app/app.component.ts', import.meta.url), 'utf8');
+  const liveProgress = component.slice(
+    component.indexOf('  liveProgressOption'),
+    component.indexOf('  hitTrendOption'),
+  );
+  const redFiveDifference = component.slice(
+    component.indexOf('  redFiveDifferenceOption'),
+    component.indexOf('  qianKunDistributionOption'),
+  );
+  const qianKunDistribution = component.slice(
+    component.indexOf('  qianKunDistributionOption'),
+    component.indexOf('  weightTrendGroups'),
+  );
+
+  assert.equal(liveProgress.includes('dataZoom'), false);
+  assert.equal(redFiveDifference.includes('dataZoom'), false);
+  assert.equal(qianKunDistribution.includes('dataZoom'), false);
 });
