@@ -585,6 +585,22 @@ def _weighted_vector(vectors: list[np.ndarray]) -> np.ndarray:
     return np.average(np.vstack(vectors), axis=0, weights=weights)
 
 
+def _rank_improvement_weighted_vector(items: list[TargetWeightInversion]) -> np.ndarray:
+    if not items:
+        return np.zeros(len(CONFIG_WEIGHT_FIELDS), dtype=np.float64)
+    vectors = [_vector_from_delta_config(item.required_delta_config) for item in items]
+    weights = []
+    for item, vector in zip(items, vectors, strict=True):
+        adjusted_rank = item.adjusted_rank if item.adjusted_rank is not None else item.current_rank
+        improvement = max(0, item.current_rank - adjusted_rank)
+        improvement_rate = improvement / max(1, item.current_rank)
+        weights.append(improvement_rate / (float(np.linalg.norm(vector)) + 0.01))
+    weight_array = np.array(weights, dtype=np.float64)
+    if not np.any(weight_array > 0):
+        return _weighted_vector(vectors)
+    return np.average(np.vstack(vectors), axis=0, weights=weight_array)
+
+
 def _stable_field_mask(vectors: list[np.ndarray], *, min_consistency: float = 0.65) -> np.ndarray:
     if not vectors:
         return np.zeros(len(CONFIG_WEIGHT_FIELDS), dtype=bool)
@@ -614,6 +630,15 @@ def aggregate_target_inversions(
         for item in normalized
         if item.success and item.required_delta_config
     ]
+    partial_items = [
+        item
+        for item in normalized
+        if not item.success
+        and item.required_delta_config
+        and item.adjusted_rank is not None
+        and item.adjusted_rank < item.current_rank
+    ]
+    partial_vectors = [_vector_from_delta_config(item.required_delta_config) for item in partial_items]
     zero_vectors = [
         np.zeros(len(CONFIG_WEIGHT_FIELDS), dtype=np.float64)
         for item in normalized
@@ -630,12 +655,18 @@ def aggregate_target_inversions(
     stable_mask = _stable_field_mask(successful_vectors)
     stable_delta = weighted_delta.copy()
     stable_delta[~stable_mask] = 0.0
+    partial_weighted_delta = _rank_improvement_weighted_vector(partial_items)
+    partial_stable_mask = _stable_field_mask(partial_vectors, min_consistency=0.60)
+    partial_stable_delta = partial_weighted_delta.copy()
+    partial_stable_delta[~partial_stable_mask] = 0.0
     candidates = target_inversion_candidate_configs(
         base_config=base_config,
         median_delta=median_delta,
         trimmed_mean_delta=trimmed_mean_delta,
         weighted_delta=weighted_delta,
         stable_delta=stable_delta,
+        partial_weighted_delta=partial_weighted_delta,
+        partial_stable_delta=partial_stable_delta,
     )
     return {
         "mode": "target_weight_inversion_v0",
@@ -646,19 +677,26 @@ def aggregate_target_inversions(
         "success_count": sum(1 for item in normalized if item.success),
         "outlier_count": sum(1 for item in normalized if item.outlier_reason),
         "success_rate": round(sum(1 for item in normalized if item.success) / len(normalized), 6) if normalized else 0.0,
+        "partial_improvement_count": len(partial_items),
         "mean_delta": delta_dict(mean_delta),
         "median_delta": delta_dict(median_delta),
         "trimmed_mean_delta": delta_dict(trimmed_mean_delta),
         "weighted_delta": delta_dict(weighted_delta),
+        "partial_weighted_delta": delta_dict(partial_weighted_delta),
         "micro_delta": {
             "scale_25": delta_dict(micro_delta_25),
             "scale_50": delta_dict(micro_delta_50),
         },
         "stable_fields": [field for field, stable in zip(CONFIG_WEIGHT_FIELDS, stable_mask, strict=True) if bool(stable)],
         "stable_fields_delta": delta_dict(stable_delta),
+        "partial_stable_fields": [
+            field for field, stable in zip(CONFIG_WEIGHT_FIELDS, partial_stable_mask, strict=True) if bool(stable)
+        ],
+        "partial_stable_fields_delta": delta_dict(partial_stable_delta),
         "median_delta_norm": delta_norm(median_delta),
         "trimmed_mean_delta_norm": delta_norm(trimmed_mean_delta),
         "weighted_delta_norm": delta_norm(weighted_delta),
+        "partial_weighted_delta_norm": delta_norm(partial_weighted_delta),
         "candidate_count": len(candidates),
         "candidates": [candidate.as_dict() for candidate in candidates],
     }
@@ -679,12 +717,26 @@ def target_inversion_candidate_configs(
     trimmed_mean_delta: np.ndarray,
     weighted_delta: np.ndarray,
     stable_delta: np.ndarray,
+    partial_weighted_delta: np.ndarray | None = None,
+    partial_stable_delta: np.ndarray | None = None,
 ) -> tuple[TargetInversionCandidate, ...]:
     raw = (
         _candidate_from_delta(base_config, "current_plus_0_25_median_delta", median_delta, scale=0.25),
         _candidate_from_delta(base_config, "current_plus_0_50_trimmed_mean_delta", trimmed_mean_delta, scale=0.50),
         _candidate_from_delta(base_config, "current_plus_weighted_delta", weighted_delta, scale=1.0),
         _candidate_from_delta(base_config, "current_plus_only_stable_fields_delta", stable_delta, scale=1.0),
+        _candidate_from_delta(
+            base_config,
+            "current_plus_0_25_partial_weighted_delta",
+            partial_weighted_delta if partial_weighted_delta is not None else np.zeros(len(CONFIG_WEIGHT_FIELDS), dtype=np.float64),
+            scale=0.25,
+        ),
+        _candidate_from_delta(
+            base_config,
+            "current_plus_0_25_partial_stable_fields_delta",
+            partial_stable_delta if partial_stable_delta is not None else np.zeros(len(CONFIG_WEIGHT_FIELDS), dtype=np.float64),
+            scale=0.25,
+        ),
     )
     candidates: list[TargetInversionCandidate] = []
     seen: set[str] = set()

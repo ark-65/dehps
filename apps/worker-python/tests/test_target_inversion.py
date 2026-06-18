@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dehps.models.frequency_ranker import FrequencyRankerConfig
+from dehps.optimization.target_inversion import TargetWeightInversion
+from dehps.optimization.target_inversion import aggregate_target_inversions
 from dehps.optimization.target_inversion import invert_target_weight_delta
 
 
@@ -112,3 +114,51 @@ def test_target_inversion_requires_components_instead_of_fitting_history():
     assert result["success"] is False
     assert result["outlier_reason"] == "missing_target_components"
     assert result["delta_norm"] == 0.0
+
+
+def test_target_inversion_aggregate_uses_partial_improvements_as_micro_candidates():
+    base = FrequencyRankerConfig(frequency_weight=0.30, omission_weight=0.20)
+    inversions = [
+        TargetWeightInversion(
+            target_issue="2026067",
+            red_numbers=(1, 2, 3, 4, 5, 6),
+            current_rank=80_000,
+            hit_top10000=False,
+            score=0.1,
+            rank_margin=70_000,
+            base_config_hash="base",
+            required_delta_config={"frequency_weight": 0.04, "omission_weight": -0.02},
+            adjusted_config={"frequency_weight": 0.34, "omission_weight": 0.18},
+            adjusted_rank=24_000,
+            adjusted_hit_top10000=False,
+            delta_norm=0.0447,
+            changed_fields=("frequency_weight", "omission_weight"),
+            success=False,
+            outlier_reason="not_enough_shift",
+        ),
+        TargetWeightInversion(
+            target_issue="2026068",
+            red_numbers=(1, 2, 3, 4, 5, 7),
+            current_rank=120_000,
+            hit_top10000=False,
+            score=0.1,
+            rank_margin=110_000,
+            base_config_hash="base",
+            required_delta_config={"frequency_weight": 0.03, "omission_weight": -0.01},
+            adjusted_config={"frequency_weight": 0.33, "omission_weight": 0.19},
+            adjusted_rank=60_000,
+            adjusted_hit_top10000=False,
+            delta_norm=0.0316,
+            changed_fields=("frequency_weight", "omission_weight"),
+            success=False,
+            outlier_reason="not_enough_shift",
+        ),
+    ]
+
+    aggregate = aggregate_target_inversions(inversions, base_config=base)
+
+    assert aggregate["success_count"] == 0
+    assert aggregate["partial_improvement_count"] == 2
+    assert aggregate["partial_weighted_delta"]["frequency_weight"] > 0
+    assert aggregate["candidate_count"] >= 1
+    assert any(candidate["label"] == "current_plus_0_25_partial_weighted_delta" for candidate in aggregate["candidates"])

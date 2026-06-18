@@ -894,6 +894,7 @@ def target_weight_inversion_advisor_metadata(
         "hit_count": int(aggregate.get("hit_count") or 0),
         "miss_count": int(aggregate.get("miss_count") or 0),
         "outlier_count": int(aggregate.get("outlier_count") or 0),
+        "partial_improvement_count": int(aggregate.get("partial_improvement_count") or 0),
         "candidate_count": candidate_count,
         "field_count": len(fields),
         "fields": fields,
