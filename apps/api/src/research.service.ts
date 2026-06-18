@@ -14,6 +14,7 @@ import {
   ServiceStatusLevel,
   ServiceStatusPayload,
   ServiceStatusName,
+  SsqHistoryDraw,
   SyncRunSummary,
   TrainingAdvisorAdviceRow,
   TrainingAdvisorSource,
@@ -22,6 +23,7 @@ import {
   TrainingPrefilterRun,
   TrainingPrefilterStatus,
   TrainingProgress,
+  TrainingQianKunSummary,
   TrainingResult,
   TrainingRoundDetail,
   TrainingRoundListItem,
@@ -134,6 +136,11 @@ const HEXAGRAMS_BY_PATTERN: Record<string, { number: number; label: string }> = 
   '010101': { number: 64, label: '未济卦' },
 };
 const HEXAGRAM_UNICODE_BASE = 0x4dbf;
+const QIAN_PATTERN = '111111';
+const KUN_PATTERN = '000000';
+const QIAN_KUN_RECENT_WINDOW = 100;
+const YANG_LINE = '—';
+const YIN_LINE = '- -';
 
 @Injectable()
 export class ResearchService {
@@ -240,6 +247,7 @@ export class ResearchService {
         : false;
       const latestPrefilter = this.prefilterRunValue(latestDetail?.prefilter);
       const advisorSummaries = this.advisorSummariesValue(null, latestDetail?.prefilter);
+      const qianKun = await this.qianKunFromStatusOrHistory(null);
 
       return {
         status: active ? 'running' : 'completed',
@@ -265,7 +273,7 @@ export class ResearchService {
         red5RankMode: null,
         prefilter: latestPrefilter ? { mode: latestPrefilter.mode, description: null, latest: latestPrefilter } : null,
         advisorSummaries,
-        qianKun: this.qianKunValue(null),
+        qianKun,
         completedRounds,
         rounds,
         latestRound,
@@ -300,6 +308,7 @@ export class ResearchService {
     const active = status === 'running' && processAlive !== false;
     const prefilterStatus = this.prefilterStatusValue(rawStatus?.prefilter);
     const advisorSummaries = this.advisorSummariesValue(rawStatus, this.prefilterLatestValue(rawStatus?.prefilter));
+    const qianKun = await this.qianKunFromStatusOrHistory(rawStatus?.qian_kun);
 
     return {
       status,
@@ -325,7 +334,7 @@ export class ResearchService {
       red5RankMode: this.stringValue(rawStatus?.red5_rank_mode),
       prefilter: prefilterStatus,
       advisorSummaries,
-      qianKun: this.qianKunValue(rawStatus?.qian_kun),
+      qianKun,
       completedRounds: rounds.length,
       rounds,
       latestRound: rounds.at(-1) ?? null,
@@ -1387,7 +1396,101 @@ export class ResearchService {
     };
   }
 
-  private qianKunValue(value: unknown) {
+  private async qianKunFromStatusOrHistory(value: unknown): Promise<TrainingQianKunSummary> {
+    const fromStatus = this.qianKunValue(value);
+    if (fromStatus.total_draws > 0 || fromStatus.latest_pattern || fromStatus.latest_issue) {
+      return fromStatus;
+    }
+    return this.qianKunFromHistory().catch(() => fromStatus);
+  }
+
+  private async qianKunFromHistory(): Promise<TrainingQianKunSummary> {
+    const draws = await this.repository.listSsqHistoryDraws();
+    return this.qianKunFromHistoryDraws(draws);
+  }
+
+  private qianKunFromHistoryDraws(draws: SsqHistoryDraw[]): TrainingQianKunSummary {
+    const rows = draws
+      .map((draw) => {
+        const numbers = this.normalizeRedNumbers(draw.redNumbers);
+        return draw.issue && numbers.length === 6 ? { issue: draw.issue, numbers } : null;
+      })
+      .filter((row): row is { issue: string; numbers: number[] } => row !== null);
+    const counts = new Map<string, number>();
+    const recentCounts = new Map<string, number>();
+    for (const row of rows) {
+      const pattern = this.qianKunPattern(row.numbers);
+      counts.set(pattern, (counts.get(pattern) ?? 0) + 1);
+    }
+    const recentWindow = Math.min(QIAN_KUN_RECENT_WINDOW, rows.length);
+    for (const row of rows.slice(-recentWindow)) {
+      const pattern = this.qianKunPattern(row.numbers);
+      recentCounts.set(pattern, (recentCounts.get(pattern) ?? 0) + 1);
+    }
+
+    const totalDraws = rows.length;
+    const latest = rows.at(-1);
+    const latestPattern = latest ? this.qianKunPattern(latest.numbers) : '';
+    const patterns = [...new Set([...counts.keys(), ...recentCounts.keys(), QIAN_PATTERN, KUN_PATTERN])]
+      .map((pattern) => {
+        const count = counts.get(pattern) ?? 0;
+        const recentCount = recentCounts.get(pattern) ?? 0;
+        return {
+          pattern,
+          label: this.qianKunLabel(pattern) ?? pattern,
+          icon: this.qianKunIcon(pattern),
+          lines: this.qianKunLines(pattern),
+          count,
+          rate: totalDraws > 0 ? count / totalDraws : 0,
+          recent_count: recentCount,
+          recent_rate: recentWindow > 0 ? recentCount / recentWindow : 0,
+        };
+      })
+      .sort((left, right) => {
+        if (right.count !== left.count) {
+          return right.count - left.count;
+        }
+        if (right.recent_count !== left.recent_count) {
+          return right.recent_count - left.recent_count;
+        }
+        return right.pattern.localeCompare(left.pattern);
+      });
+
+    return {
+      total_draws: totalDraws,
+      recent_window: recentWindow,
+      latest_issue: latest?.issue ?? '',
+      latest_numbers: latest?.numbers ?? [],
+      latest_pattern: latestPattern,
+      latest_label: latestPattern ? this.qianKunLabel(latestPattern) ?? latestPattern : '',
+      latest_icon: latestPattern ? this.qianKunIcon(latestPattern) : '',
+      latest_lines: latestPattern ? this.qianKunLines(latestPattern) : [],
+      qian_count: counts.get(QIAN_PATTERN) ?? 0,
+      kun_count: counts.get(KUN_PATTERN) ?? 0,
+      patterns,
+    };
+  }
+
+  private normalizeRedNumbers(value: unknown): number[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    const numbers = value
+      .map((item) => this.numberValue(item))
+      .filter((item): item is number => item !== null && Number.isInteger(item) && item >= 1 && item <= 33)
+      .sort((left, right) => left - right);
+    return new Set(numbers).size === 6 ? numbers : [];
+  }
+
+  private qianKunPattern(numbers: number[]): string {
+    return numbers.map((number) => String(number % 2)).join('');
+  }
+
+  private qianKunLines(pattern: string): string[] {
+    return /^[01]{6}$/.test(pattern) ? [...pattern].map((bit) => (bit === '1' ? YANG_LINE : YIN_LINE)) : [];
+  }
+
+  private qianKunValue(value: unknown): TrainingQianKunSummary {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       return {
         total_draws: 0,
@@ -1405,6 +1508,7 @@ export class ResearchService {
     }
     const row = value as Record<string, unknown>;
     const latestPattern = this.stringValue(row.latest_pattern) ?? '';
+    const latestLines = this.stringArrayValue(row.latest_lines);
     return {
       total_draws: this.numberValue(row.total_draws) ?? 0,
       recent_window: this.numberValue(row.recent_window) ?? 0,
@@ -1413,7 +1517,7 @@ export class ResearchService {
       latest_pattern: latestPattern,
       latest_label: this.qianKunLabel(latestPattern) ?? this.stringValue(row.latest_label) ?? '',
       latest_icon: this.stringValue(row.latest_icon) ?? this.qianKunIcon(latestPattern),
-      latest_lines: this.stringArrayValue(row.latest_lines),
+      latest_lines: latestLines.length > 0 ? latestLines : this.qianKunLines(latestPattern),
       qian_count: this.numberValue(row.qian_count) ?? 0,
       kun_count: this.numberValue(row.kun_count) ?? 0,
       patterns: this.qianKunPatternsValue(row.patterns),

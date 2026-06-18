@@ -307,6 +307,13 @@ const repository: ResearchRepository = {
       latestCreatedAt: '2026-06-16T15:59:00.000Z',
     };
   },
+  async listSsqHistoryDraws() {
+    return [
+      { issue: '2026066', drawDate: '2026-06-12', redNumbers: [1, 3, 5, 7, 9, 11] },
+      { issue: '2026067', drawDate: '2026-06-14', redNumbers: [2, 4, 6, 8, 10, 12] },
+      { issue: '2026068', drawDate: '2026-06-16', redNumbers: [3, 5, 16, 18, 29, 32] },
+    ];
+  },
   async getTrainingWeightSignalSummary() {
     return {
       tablePresent: true,
@@ -418,6 +425,44 @@ test('postgres training weight signal mapping preserves date-only values', async
   }
 });
 
+test('postgres history draw mapping preserves sorted qian-kun inputs', async () => {
+  const repository = new PostgresResearchRepository();
+  const originalPool = (repository as any).pool;
+  (repository as any).pool = {
+    async query(sql: string) {
+      if (sql.includes("to_regclass('public.ssq_history')")) {
+        return { rows: [{ table_name: 'ssq_history' }] };
+      }
+      if (sql.includes('FROM ssq_history')) {
+        return {
+          rows: [
+            {
+              issue: '2026068',
+              draw_date: new Date(2026, 5, 16),
+              red_numbers: ['3', '5', '16', '18', '29', '32'],
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    },
+    async end() {
+      return undefined;
+    },
+  };
+
+  try {
+    const draws = await repository.listSsqHistoryDraws();
+
+    assert.equal(draws[0].issue, '2026068');
+    assert.equal(draws[0].drawDate, '2026-06-16');
+    assert.deepEqual(draws[0].redNumbers, [3, 5, 16, 18, 29, 32]);
+  } finally {
+    await repository.onModuleDestroy();
+    await originalPool.end();
+  }
+});
+
 test('postgres omitted training weight run id prefers canonical run before latest ad hoc', async () => {
   const repository = new PostgresResearchRepository();
   const originalPool = (repository as any).pool;
@@ -477,6 +522,13 @@ test('training status is derived from database rounds without status json', asyn
     assert.equal(ridgeAdvisor?.advice[0]?.configHash, 'ridge-hash-1');
     assert.equal(neuralAdvisor?.enabled, false);
     assert.equal(neuralAdvisor?.controlVerdict, 'not evaluated');
+    assert.equal(status.qianKun.latest_issue, '2026068');
+    assert.equal(status.qianKun.latest_pattern, '110010');
+    assert.equal(status.qianKun.latest_label, '节卦');
+    assert.equal(status.qianKun.total_draws, 3);
+    assert.equal(status.qianKun.recent_window, 3);
+    assert.equal(status.qianKun.qian_count, 1);
+    assert.equal(status.qianKun.kun_count, 1);
     assert.equal(status.recentRounds[0].round, 2);
   } finally {
     if (previousRoot === undefined) {

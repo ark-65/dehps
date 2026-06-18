@@ -300,6 +300,12 @@ export type SsqHistorySummary = {
   latestCreatedAt: string | null;
 };
 
+export type SsqHistoryDraw = {
+  issue: string;
+  drawDate: string | null;
+  redNumbers: number[];
+};
+
 export type TrainingWeightSignalSummary = {
   tablePresent: boolean;
   totalRows: number;
@@ -449,5 +455,6 @@ export interface ResearchRepository {
     limit: number,
   ): Promise<TrainingWeightSignalSeries[]>;
   getSsqHistorySummary(): Promise<SsqHistorySummary>;
+  listSsqHistoryDraws(): Promise<SsqHistoryDraw[]>;
   getTrainingWeightSignalSummary(): Promise<TrainingWeightSignalSummary>;
 }

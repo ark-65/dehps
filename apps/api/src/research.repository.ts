@@ -10,6 +10,7 @@ import {
   SyncRunSummary,
   TrainingRoundDetail,
   TrainingRoundListItem,
+  SsqHistoryDraw,
   TrainingWeightSignalSummary,
   TrainingWeightSignalPoint,
   TrainingWeightSignalSeries,
@@ -418,6 +419,26 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
       latestDrawDate: this.dateOnlyValue(row.latest_draw_date),
       latestCreatedAt: row.latest_created_at ? row.latest_created_at.toISOString() : null,
     };
+  }
+
+  async listSsqHistoryDraws(): Promise<SsqHistoryDraw[]> {
+    const tableCheck = await this.pool.query("SELECT to_regclass('public.ssq_history') AS table_name");
+    if (!tableCheck.rows[0]?.table_name) {
+      return [];
+    }
+
+    const { rows } = await this.pool.query(
+      `
+      SELECT issue, draw_date, red_numbers
+      FROM ssq_history
+      ORDER BY issue ASC
+      `,
+    );
+    return rows.map((row) => ({
+      issue: row.issue,
+      drawDate: this.dateOnlyValue(row.draw_date),
+      redNumbers: Array.isArray(row.red_numbers) ? row.red_numbers.map((value: unknown) => Number(value)) : [],
+    }));
   }
 
   async getTrainingWeightSignalSummary(): Promise<TrainingWeightSignalSummary> {
