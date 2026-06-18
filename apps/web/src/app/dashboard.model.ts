@@ -250,7 +250,11 @@ export type TrainingNextCandidatesPayload = {
   guardrail: string;
 };
 
-export type TrainingAdvisorSource = 'weight_kdj_advisor' | 'ridge_kdj_advisor' | 'neural_kdj_advisor';
+export type TrainingAdvisorSource =
+  | 'weight_kdj_advisor'
+  | 'ridge_kdj_advisor'
+  | 'neural_kdj_advisor'
+  | 'target_weight_inversion_advisor';
 
 export type TrainingAdvisorAdviceRow = {
   weightName: string;
@@ -503,6 +507,7 @@ export function advisorSourceLabel(source: TrainingAdvisorSource): string {
     weight_kdj_advisor: 'KDJ Advisor',
     ridge_kdj_advisor: 'Ridge KDJ Advisor',
     neural_kdj_advisor: 'Neural KDJ Advisor',
+    target_weight_inversion_advisor: 'Target Weight Inversion Advisor',
   };
   return labels[source];
 }

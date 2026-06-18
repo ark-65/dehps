@@ -174,6 +174,37 @@ CREATE TABLE IF NOT EXISTS training_round_results (
 CREATE INDEX IF NOT EXISTS idx_training_round_results_created_at
   ON training_round_results (created_at DESC, round_index DESC);
 
+CREATE TABLE IF NOT EXISTS training_target_weight_inversions (
+  id BIGSERIAL PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  round_index INTEGER NOT NULL,
+  target_issue TEXT NOT NULL,
+  red_numbers INTEGER[] NOT NULL,
+  current_rank INTEGER NOT NULL,
+  hit_top10000 BOOLEAN NOT NULL DEFAULT false,
+  score NUMERIC(14,8) NOT NULL,
+  rank_margin INTEGER NOT NULL,
+  base_config_hash TEXT NOT NULL,
+  required_delta_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+  adjusted_rank INTEGER,
+  adjusted_hit_top10000 BOOLEAN NOT NULL DEFAULT false,
+  delta_norm NUMERIC(14,8),
+  changed_fields JSONB NOT NULL DEFAULT '[]'::jsonb,
+  success BOOLEAN NOT NULL DEFAULT false,
+  outlier_reason TEXT,
+  aggregate JSONB NOT NULL DEFAULT '{}'::jsonb,
+  prefilter JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (run_id, round_index, target_issue, base_config_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_training_target_weight_inversions_issue
+  ON training_target_weight_inversions (target_issue, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_training_target_weight_inversions_success
+  ON training_target_weight_inversions (success, target_issue);
+
 CREATE TABLE IF NOT EXISTS training_weight_signals (
   id BIGSERIAL PRIMARY KEY,
   signal_run_id TEXT NOT NULL,

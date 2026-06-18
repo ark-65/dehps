@@ -8,6 +8,7 @@ from dehps.optimization.neural_kdj_advisor import neural_kdj_advice_to_frequency
 from dehps.optimization.ridge_kdj_advisor import RidgeKdjOffsetAdvice
 from dehps.optimization.ridge_kdj_advisor import ridge_kdj_advice_to_frequency_ranker_config_candidates
 from dehps.optimization.walk_forward import TargetRank, build_ranked_universe
+import scripts.run_training_supervisor as supervisor
 from scripts.run_training_supervisor import (
     bounded_unique_config_hashes,
     calculate_tail_risk_penalty,
@@ -31,6 +32,8 @@ from scripts.run_training_supervisor import (
     stagnation_round_count,
     training_event_payload,
     summarize_target_ranks,
+    target_weight_inversion_advisor,
+    target_weight_inversion_advisor_metadata,
     training_progress_payload,
     weight_kdj_advisor_candidate_configs,
     weight_kdj_advisor_metadata,
@@ -93,6 +96,34 @@ def test_candidate_budget_reserves_neural_without_squeezing_other_advisors():
     assert sum(budget.values()) == 20
 
 
+def test_candidate_budget_reserves_bounded_target_weight_inversion_bucket():
+    budget = candidate_budget(
+        20,
+        weight_kdj_budget_share=0.15,
+        ridge_kdj_budget_share=0.08,
+        neural_kdj_budget_share=0.05,
+        target_weight_inversion_budget_share=0.20,
+        target_weight_inversion_available=8,
+    )
+
+    assert budget["weight_kdj"] == 3
+    assert budget["ridge_kdj"] == 2
+    assert budget["neural_kdj"] == 1
+    assert budget["target_weight_inversion"] == 4
+    assert sum(budget.values()) == 20
+
+
+def test_candidate_budget_skips_target_weight_inversion_bucket_without_candidates():
+    budget = candidate_budget(
+        20,
+        target_weight_inversion_budget_share=0.20,
+        target_weight_inversion_available=0,
+    )
+
+    assert budget["target_weight_inversion"] == 0
+    assert sum(budget.values()) == 20
+
+
 def test_reserved_weight_kdj_candidates_survive_full_normal_round():
     normal = tuple(FrequencyRankerConfig(frequency_weight=round(0.01 * index, 4)) for index in range(20))
     kdj = (
@@ -151,6 +182,29 @@ def test_reserved_neural_candidates_do_not_trim_existing_advisor_buckets():
     assert all(config in merged for config in ridge)
     assert all(config in merged for config in neural)
     assert len([config for config in merged if config in normal]) == 14
+
+
+def test_reserved_target_weight_inversion_candidates_do_not_trim_existing_advisor_buckets():
+    normal = tuple(FrequencyRankerConfig(frequency_weight=round(0.01 * index, 4)) for index in range(10))
+    kdj = (
+        FrequencyRankerConfig(frequency_weight=0.37),
+        FrequencyRankerConfig(sum_tail_weight=-0.03),
+        FrequencyRankerConfig(weekday_trend_weight=0.04),
+    )
+    target_inversion = (
+        FrequencyRankerConfig(frequency_weight=0.45),
+        FrequencyRankerConfig(omission_weight=0.42),
+        FrequencyRankerConfig(sum_tail_weight=0.09),
+        FrequencyRankerConfig(stable_range_weight=0.05),
+    )
+
+    with_kdj = merge_reserved_candidate_configs(normal, kdj, max_configs=13, reserved_budget=3)
+    merged = merge_reserved_candidate_configs(with_kdj, target_inversion, max_configs=17, reserved_budget=4)
+
+    assert len(merged) == 17
+    assert all(config in merged for config in kdj)
+    assert all(config in merged for config in target_inversion)
+    assert len([config for config in merged if config in normal]) == 10
 
 
 def test_generate_configs_reuses_elite_configs_for_local_search():
@@ -411,6 +465,125 @@ def test_neural_kdj_advisor_metadata_records_validation_and_candidate_hashes():
     assert metadata["advice"][0]["suggested_offset"] == 0.02
     assert metadata["advice"][0]["validation_rows"] == 10
     assert metadata["config_hashes"] == [config_hash(configs[0])]
+
+
+def test_target_weight_inversion_metadata_records_sample_candidate_and_guardrails():
+    configs = (
+        FrequencyRankerConfig(frequency_weight=0.34),
+        FrequencyRankerConfig(sum_tail_weight=0.02),
+    )
+    aggregate = {
+        "sample_count": 5,
+        "success_count": 3,
+        "success_rate": 0.6,
+        "hit_count": 1,
+        "miss_count": 4,
+        "outlier_count": 2,
+        "latest_issue": "2026068",
+        "stable_fields": ["frequency_weight"],
+        "candidates": [
+            {
+                "label": "current_plus_weighted_delta",
+                "config": configs[0].__dict__,
+                "config_hash": config_hash(configs[0]),
+                "delta_config": {"frequency_weight": 0.04},
+            },
+            {
+                "label": "current_plus_only_stable_fields_delta",
+                "config": configs[1].__dict__,
+                "config_hash": config_hash(configs[1]),
+                "delta_config": {"sum_tail_weight": 0.02},
+            },
+        ],
+    }
+    controls = [{"label": "null_baseline"}, {"label": "current_best_frozen_baseline"}]
+
+    metadata = target_weight_inversion_advisor_metadata(
+        enabled=True,
+        budget=4,
+        aggregate=aggregate,
+        configs=configs,
+        control_experiments=controls,
+        frozen_validation_window_value=20,
+    )
+
+    assert metadata["mode"] == "target_weight_inversion_v0"
+    assert metadata["enabled"] is True
+    assert metadata["budget"] == 4
+    assert metadata["sample_count"] == 5
+    assert metadata["success_count"] == 3
+    assert metadata["latest_issue"] == "2026068"
+    assert metadata["candidate_count"] == 2
+    assert metadata["candidate_labels"] == ["current_plus_weighted_delta", "current_plus_only_stable_fields_delta"]
+    assert metadata["fields"] == ["frequency_weight", "sum_tail_weight"]
+    assert metadata["selected_count"] == 2
+    assert metadata["rejected_count"] == 0
+    assert metadata["advice"][0]["weight_name"] == "frequency_weight"
+    assert metadata["advice"][0]["suggested_offset"] == 0.04
+    assert metadata["advice"][0]["decision"] == "selected"
+    assert metadata["control_verdict"]["status"] == "queued_for_next_round"
+    assert metadata["control_experiment_count"] == 2
+    assert metadata["frozen_validation"] == {"window": 20, "control_count": 2}
+    assert metadata["advisory_only"] is True
+
+
+def test_target_weight_inversion_advisor_limits_candidates_for_next_round(monkeypatch):
+    captured = {}
+
+    def fake_invert_targets_for_summary(**kwargs):
+        captured["target_results"] = kwargs["target_results"]
+        captured["top_n"] = kwargs["top_n"]
+        return ["inversion-row"]
+
+    candidate_configs = tuple(FrequencyRankerConfig(frequency_weight=round(0.30 + index * 0.01, 4)) for index in range(5))
+
+    def fake_target_inversion_payload(*, inversions, base_config):
+        return (
+            [{"target_issue": "2026068", "success": True}],
+            {
+                "mode": "target_weight_inversion_v0",
+                "sample_count": 6,
+                "success_count": 5,
+                "success_rate": 0.833333,
+                "hit_count": 1,
+                "miss_count": 5,
+                "outlier_count": 0,
+                "candidates": [
+                    {"label": f"candidate-{index}", "config": config.__dict__}
+                    for index, config in enumerate(candidate_configs)
+                ],
+            },
+            candidate_configs,
+        )
+
+    monkeypatch.setattr(supervisor, "invert_targets_for_summary", fake_invert_targets_for_summary)
+    monkeypatch.setattr(supervisor, "target_inversion_payload", fake_target_inversion_payload)
+    best_summary = {
+        "config": FrequencyRankerConfig(frequency_weight=0.30).__dict__,
+        "target_results": [{"issue": "2026068", "red_numbers": [1, 2, 3, 4, 5, 6]}],
+    }
+
+    rows, aggregate, configs, metadata = target_weight_inversion_advisor(
+        history=[],
+        ranked_universe=[],
+        best_summary=best_summary,
+        train_window=100,
+        train_mode="expanding",
+        top_n=10_000,
+        max_candidates=8,
+        budget=4,
+        control_experiments=[{"label": "null_baseline"}],
+        frozen_validation_window_value=20,
+    )
+
+    assert captured == {"target_results": best_summary["target_results"], "top_n": 10_000}
+    assert rows == [{"target_issue": "2026068", "success": True}]
+    assert aggregate["sample_count"] == 6
+    assert len(configs) == 4
+    assert metadata["candidate_count"] == 4
+    assert metadata["candidate_labels"] == ["candidate-0", "candidate-1", "candidate-2", "candidate-3"]
+    assert metadata["control_experiment_count"] == 1
+    assert metadata["frozen_validation"]["window"] == 20
 
 
 def test_bounded_unique_config_hashes_uses_hashes_and_limit():

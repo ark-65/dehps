@@ -69,6 +69,7 @@ const ADVISOR_SOURCES: readonly TrainingAdvisorSource[] = [
   'weight_kdj_advisor',
   'ridge_kdj_advisor',
   'neural_kdj_advisor',
+  'target_weight_inversion_advisor',
 ];
 const HEXAGRAMS_BY_PATTERN: Record<string, { number: number; label: string }> = {
   '111111': { number: 1, label: '乾卦' },

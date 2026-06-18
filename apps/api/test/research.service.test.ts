@@ -256,6 +256,24 @@ const repository: ResearchRepository = {
           advice: [],
           control_verdict: 'not evaluated',
         },
+        target_weight_inversion_advisor: {
+          enabled: true,
+          status: 'ready',
+          latest_issue: '2026068',
+          fields: ['frequency_weight'],
+          selected_count: 1,
+          control_verdict: { passed: true, language: 'inversion held on target window' },
+          advice: [
+            {
+              weight_name: 'frequency_weight',
+              suggested_offset: -0.03,
+              confidence: 0.6,
+              decision: 'selected',
+              reason: 'target_weight_inversion',
+            },
+          ],
+          mode: 'advisor_only',
+        },
         refined_config_count: 6,
         elapsed_seconds: 0.5,
         note: 'target prefilter before full 100-draw refine',
@@ -698,6 +716,7 @@ test('training status is derived from database rounds without status json', asyn
     const weightAdvisor = status.advisorSummaries.find((advisor) => advisor.source === 'weight_kdj_advisor');
     const ridgeAdvisor = status.advisorSummaries.find((advisor) => advisor.source === 'ridge_kdj_advisor');
     const neuralAdvisor = status.advisorSummaries.find((advisor) => advisor.source === 'neural_kdj_advisor');
+    const inversionAdvisor = status.advisorSummaries.find((advisor) => advisor.source === 'target_weight_inversion_advisor');
     assert.equal(weightAdvisor?.enabled, true);
     assert.equal(weightAdvisor?.latestSignalIssue, '2026068');
     assert.equal(weightAdvisor?.advice[0]?.weightName, 'frequency_weight');
@@ -710,6 +729,10 @@ test('training status is derived from database rounds without status json', asyn
     assert.equal(ridgeAdvisor?.advice[0]?.configHash, 'ridge-hash-1');
     assert.equal(neuralAdvisor?.enabled, false);
     assert.equal(neuralAdvisor?.controlVerdict, 'not evaluated');
+    assert.equal(inversionAdvisor?.enabled, true);
+    assert.equal(inversionAdvisor?.advice[0]?.weightName, 'frequency_weight');
+    assert.equal(inversionAdvisor?.advice[0]?.suggestedOffset, -0.03);
+    assert.equal((inversionAdvisor?.controlVerdict as Record<string, unknown>)?.['passed'], true);
     assert.equal(status.qianKun.latest_issue, '2026068');
     assert.equal(status.qianKun.latest_pattern, '110010');
     assert.equal(status.qianKun.latest_label, '节卦');

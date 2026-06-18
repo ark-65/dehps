@@ -234,6 +234,155 @@ def ensure_training_next_candidates_current_schema(conn: Connection) -> None:
     )
 
 
+def ensure_training_target_weight_inversions_schema(conn: Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS training_target_weight_inversions (
+          id BIGSERIAL PRIMARY KEY,
+          run_id TEXT NOT NULL,
+          round_index INTEGER NOT NULL,
+          target_issue TEXT NOT NULL,
+          red_numbers INTEGER[] NOT NULL,
+          current_rank INTEGER NOT NULL,
+          hit_top10000 BOOLEAN NOT NULL DEFAULT false,
+          score NUMERIC(14,8) NOT NULL,
+          rank_margin INTEGER NOT NULL,
+          base_config_hash TEXT NOT NULL,
+          required_delta_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+          adjusted_rank INTEGER,
+          adjusted_hit_top10000 BOOLEAN NOT NULL DEFAULT false,
+          delta_norm NUMERIC(14,8),
+          changed_fields JSONB NOT NULL DEFAULT '[]'::jsonb,
+          success BOOLEAN NOT NULL DEFAULT false,
+          outlier_reason TEXT,
+          aggregate JSONB NOT NULL DEFAULT '{}'::jsonb,
+          prefilter JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (run_id, round_index, target_issue, base_config_hash)
+        )
+        """
+    )
+    conn.execute("ALTER TABLE training_target_weight_inversions ADD COLUMN IF NOT EXISTS run_id TEXT NOT NULL DEFAULT ''")
+    conn.execute("ALTER TABLE training_target_weight_inversions ADD COLUMN IF NOT EXISTS round_index INTEGER NOT NULL DEFAULT 0")
+    conn.execute("ALTER TABLE training_target_weight_inversions ADD COLUMN IF NOT EXISTS target_issue TEXT NOT NULL DEFAULT ''")
+    conn.execute("ALTER TABLE training_target_weight_inversions ADD COLUMN IF NOT EXISTS red_numbers INTEGER[] NOT NULL DEFAULT '{}'::integer[]")
+    conn.execute("ALTER TABLE training_target_weight_inversions ADD COLUMN IF NOT EXISTS current_rank INTEGER NOT NULL DEFAULT 0")
+    conn.execute("ALTER TABLE training_target_weight_inversions ADD COLUMN IF NOT EXISTS hit_top10000 BOOLEAN NOT NULL DEFAULT false")
+    conn.execute("ALTER TABLE training_target_weight_inversions ADD COLUMN IF NOT EXISTS score NUMERIC(14,8) NOT NULL DEFAULT 0")
+    conn.execute("ALTER TABLE training_target_weight_inversions ADD COLUMN IF NOT EXISTS rank_margin INTEGER NOT NULL DEFAULT 0")
+    conn.execute("ALTER TABLE training_target_weight_inversions ADD COLUMN IF NOT EXISTS base_config_hash TEXT NOT NULL DEFAULT ''")
+    conn.execute("ALTER TABLE training_target_weight_inversions ADD COLUMN IF NOT EXISTS required_delta_config JSONB NOT NULL DEFAULT '{}'::jsonb")
+    conn.execute("ALTER TABLE training_target_weight_inversions ADD COLUMN IF NOT EXISTS adjusted_rank INTEGER")
+    conn.execute("ALTER TABLE training_target_weight_inversions ADD COLUMN IF NOT EXISTS adjusted_hit_top10000 BOOLEAN NOT NULL DEFAULT false")
+    conn.execute("ALTER TABLE training_target_weight_inversions ADD COLUMN IF NOT EXISTS delta_norm NUMERIC(14,8)")
+    conn.execute("ALTER TABLE training_target_weight_inversions ADD COLUMN IF NOT EXISTS changed_fields JSONB NOT NULL DEFAULT '[]'::jsonb")
+    conn.execute("ALTER TABLE training_target_weight_inversions ADD COLUMN IF NOT EXISTS success BOOLEAN NOT NULL DEFAULT false")
+    conn.execute("ALTER TABLE training_target_weight_inversions ADD COLUMN IF NOT EXISTS outlier_reason TEXT")
+    conn.execute("ALTER TABLE training_target_weight_inversions ADD COLUMN IF NOT EXISTS aggregate JSONB NOT NULL DEFAULT '{}'::jsonb")
+    conn.execute("ALTER TABLE training_target_weight_inversions ADD COLUMN IF NOT EXISTS prefilter JSONB NOT NULL DEFAULT '{}'::jsonb")
+    conn.execute("ALTER TABLE training_target_weight_inversions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()")
+    conn.execute("ALTER TABLE training_target_weight_inversions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()")
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_training_target_weight_inversions_issue
+          ON training_target_weight_inversions (target_issue, created_at DESC)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_training_target_weight_inversions_success
+          ON training_target_weight_inversions (success, target_issue)
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_training_target_weight_inversions_round_key
+          ON training_target_weight_inversions (run_id, round_index, target_issue, base_config_hash)
+        """
+    )
+
+
+def upsert_training_target_weight_inversion(conn: Connection, inversion: dict[str, Any]) -> None:
+    conn.execute(
+        """
+        INSERT INTO training_target_weight_inversions (
+          run_id, round_index, target_issue, red_numbers, current_rank, hit_top10000, score, rank_margin, base_config_hash,
+          required_delta_config, adjusted_rank, adjusted_hit_top10000, delta_norm,
+          changed_fields, success, outlier_reason, aggregate, prefilter
+        )
+        VALUES (
+          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s::jsonb, %s, %s, %s::jsonb, %s::jsonb
+        )
+        ON CONFLICT (run_id, round_index, target_issue, base_config_hash) DO UPDATE
+        SET red_numbers = EXCLUDED.red_numbers,
+            current_rank = EXCLUDED.current_rank,
+            hit_top10000 = EXCLUDED.hit_top10000,
+            score = EXCLUDED.score,
+            rank_margin = EXCLUDED.rank_margin,
+            required_delta_config = EXCLUDED.required_delta_config,
+            adjusted_rank = EXCLUDED.adjusted_rank,
+            adjusted_hit_top10000 = EXCLUDED.adjusted_hit_top10000,
+            delta_norm = EXCLUDED.delta_norm,
+            changed_fields = EXCLUDED.changed_fields,
+            success = EXCLUDED.success,
+            outlier_reason = EXCLUDED.outlier_reason,
+            aggregate = EXCLUDED.aggregate,
+            prefilter = EXCLUDED.prefilter,
+            updated_at = now()
+        """,
+        (
+            inversion["run_id"],
+            int(inversion["round_index"]),
+            inversion["target_issue"],
+            list(inversion.get("red_numbers") or []),
+            int(inversion["current_rank"]),
+            bool(inversion.get("hit_top10000")),
+            float(inversion["score"]),
+            int(inversion["rank_margin"]),
+            inversion["base_config_hash"],
+            json.dumps(inversion.get("required_delta_config") or {}),
+            None if inversion.get("adjusted_rank") is None else int(inversion["adjusted_rank"]),
+            bool(inversion.get("adjusted_hit_top10000")),
+            None if inversion.get("delta_norm") is None else float(inversion["delta_norm"]),
+            json.dumps(inversion.get("changed_fields") or []),
+            bool(inversion.get("success")),
+            inversion.get("outlier_reason"),
+            json.dumps(inversion.get("aggregate") or {}),
+            json.dumps(inversion.get("prefilter") or {}),
+        ),
+    )
+
+
+def load_training_target_weight_inversion_context(
+    conn: Connection,
+    *,
+    run_id: str,
+    round_index: int,
+    target_issue: str,
+    base_config_hash: str,
+) -> dict[str, Any] | None:
+    with conn.cursor(row_factory=dict_row) as cur:
+        row = cur.execute(
+            """
+            SELECT aggregate, prefilter
+            FROM training_target_weight_inversions
+            WHERE run_id = %s
+              AND round_index = %s
+              AND target_issue = %s
+              AND base_config_hash = %s
+            LIMIT 1
+            """,
+            (run_id, round_index, target_issue, base_config_hash),
+        ).fetchone()
+    if not row:
+        return None
+    return {
+        "aggregate": row.get("aggregate") if isinstance(row.get("aggregate"), dict) else {},
+        "prefilter": row.get("prefilter") if isinstance(row.get("prefilter"), dict) else {},
+    }
+
+
 def upsert_training_weight_signal(conn: Connection, signal: dict[str, Any]) -> None:
     conn.execute(
         """

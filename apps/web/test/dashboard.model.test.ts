@@ -121,6 +121,7 @@ test('advisor labels and verdict text keep explanation panel hooks stable', () =
   assert.equal(advisorSourceLabel('weight_kdj_advisor'), 'KDJ Advisor');
   assert.equal(advisorSourceLabel('ridge_kdj_advisor'), 'Ridge KDJ Advisor');
   assert.equal(advisorSourceLabel('neural_kdj_advisor'), 'Neural KDJ Advisor');
+  assert.equal(advisorSourceLabel('target_weight_inversion_advisor'), 'Target Weight Inversion Advisor');
   assert.equal(advisorVerdictText(null), '无控制结论');
   assert.equal(advisorVerdictText({ passed: false, language: 'control baseline held' }), 'FAIL / control baseline held');
   assert.equal(advisorVerdictText({ passed: true }), 'PASS');

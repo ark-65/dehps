@@ -7,14 +7,17 @@ import pytest
 from dehps.storage.postgres_store import DEFAULT_SSQ_DRAW_SITE
 from dehps.storage.postgres_store import CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID
 from dehps.storage.postgres_store import ensure_training_next_candidates_current_schema
+from dehps.storage.postgres_store import ensure_training_target_weight_inversions_schema
 from dehps.storage.postgres_store import ensure_training_weight_signals_schema
 from dehps.storage.postgres_store import load_recent_training_weight_signals
+from dehps.storage.postgres_store import load_training_target_weight_inversion_context
 from dehps.storage.postgres_store import load_training_weight_signal_coverage
 from dehps.storage.postgres_store import load_training_weight_signal_tail
 from dehps.storage.postgres_store import load_training_round_candidate_summaries
 from dehps.storage.postgres_store import load_red_combination_universe
 from dehps.storage.postgres_store import prune_stale_training_weight_signals
 from dehps.storage.postgres_store import replace_training_next_candidates_current
+from dehps.storage.postgres_store import upsert_training_target_weight_inversion
 from dehps.storage.postgres_store import upsert_training_round_result
 from dehps.storage.postgres_store import upsert_training_weight_signal
 from dehps.storage.postgres_store import upsert_ssq_draw_site
@@ -165,6 +168,91 @@ def test_training_next_candidates_schema_uses_current_rank_index():
     assert "CREATE TABLE IF NOT EXISTS training_next_candidates_current" in schema_sql
     assert "snapshot_key TEXT NOT NULL" in schema_sql
     assert any("idx_training_next_candidates_current_rank" in sql for sql, _params in conn.executed)
+
+
+def test_training_target_weight_inversions_schema_uses_target_config_key():
+    conn = FakeConn([])
+
+    ensure_training_target_weight_inversions_schema(conn)
+
+    schema_sql = conn.executed[0][0]
+    assert "CREATE TABLE IF NOT EXISTS training_target_weight_inversions" in schema_sql
+    assert "run_id TEXT NOT NULL" in schema_sql
+    assert "round_index INTEGER NOT NULL" in schema_sql
+    assert "target_issue TEXT NOT NULL" in schema_sql
+    assert "red_numbers INTEGER[] NOT NULL" in schema_sql
+    assert "required_delta_config JSONB NOT NULL DEFAULT '{}'::jsonb" in schema_sql
+    assert "changed_fields JSONB NOT NULL DEFAULT '[]'::jsonb" in schema_sql
+    assert "aggregate JSONB NOT NULL DEFAULT '{}'::jsonb" in schema_sql
+    assert "prefilter JSONB NOT NULL DEFAULT '{}'::jsonb" in schema_sql
+    assert "UNIQUE (run_id, round_index, target_issue, base_config_hash)" in schema_sql
+    assert any("idx_training_target_weight_inversions_success" in sql for sql, _params in conn.executed)
+    assert any("idx_training_target_weight_inversions_round_key" in sql for sql, _params in conn.executed)
+
+
+def test_upsert_training_target_weight_inversion_is_idempotent_by_target_config():
+    conn = FakeConn([])
+
+    upsert_training_target_weight_inversion(
+        conn,
+        {
+            "run_id": "run-1",
+            "round_index": 7,
+            "target_issue": "2026068",
+            "red_numbers": [1, 2, 3, 4, 5, 6],
+            "current_rank": 12001,
+            "hit_top10000": False,
+            "score": 0.4321,
+            "rank_margin": 2001,
+            "base_config_hash": "base-config-1",
+            "required_delta_config": {"frequency_weight": 0.03},
+            "adjusted_rank": 8888,
+            "adjusted_hit_top10000": True,
+            "delta_norm": 0.03,
+            "changed_fields": ["frequency_weight"],
+            "success": True,
+            "outlier_reason": None,
+            "aggregate": {"target_count": 100, "success_count": 1},
+            "prefilter": {"candidate_count": 25},
+        },
+    )
+
+    sql, params = conn.executed[-1]
+    assert "ON CONFLICT (run_id, round_index, target_issue, base_config_hash) DO UPDATE" in sql
+    assert "aggregate = EXCLUDED.aggregate" in sql
+    assert "prefilter = EXCLUDED.prefilter" in sql
+    assert params[:9] == ("run-1", 7, "2026068", [1, 2, 3, 4, 5, 6], 12001, False, 0.4321, 2001, "base-config-1")
+    assert '"frequency_weight": 0.03' in params[9]
+    assert params[10:13] == (8888, True, 0.03)
+    assert '"frequency_weight"' in params[13]
+    assert params[14:16] == (True, None)
+    assert '"success_count": 1' in params[-2]
+    assert '"candidate_count": 25' in params[-1]
+
+
+def test_load_training_target_weight_inversion_context_reads_aggregate_prefilter_json():
+    conn = FakeCursorConn(
+        [
+            {
+                "aggregate": {"target_count": 100},
+                "prefilter": {"candidate_count": 25},
+            }
+        ]
+    )
+
+    context = load_training_target_weight_inversion_context(
+        conn,
+        run_id="run-1",
+        round_index=7,
+        target_issue="2026068",
+        base_config_hash="base-config-1",
+    )
+
+    sql, params = conn.executed[-1]
+    assert "SELECT aggregate, prefilter" in sql
+    assert "FROM training_target_weight_inversions" in sql
+    assert params == ("run-1", 7, "2026068", "base-config-1")
+    assert context == {"aggregate": {"target_count": 100}, "prefilter": {"candidate_count": 25}}
 
 
 def test_replace_training_next_candidates_current_deletes_previous_snapshot():

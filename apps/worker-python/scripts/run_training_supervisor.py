@@ -34,6 +34,7 @@ from dehps.optimization.ridge_kdj_advisor import (
     ridge_kdj_advice_to_frequency_ranker_config_candidates,
 )
 from dehps.optimization.regime import HistoryScope, select_history
+from dehps.optimization.target_inversion import invert_targets_for_summary, target_inversion_payload
 from dehps.optimization.weight_kdj import WeightKdjAdvice, weight_kdj_advice_from_signals
 from dehps.runtime.heavy_job import apply_cpu_thread_env_defaults, heavy_job_lock
 from dehps.optimization.walk_forward import (
@@ -47,7 +48,13 @@ from dehps.optimization.walk_forward import (
     rank_target_grid,
     rank_target_grid_with_red5,
 )
-from dehps.storage.postgres_store import ensure_training_round_results_schema, load_red_combination_universe, upsert_training_round_result
+from dehps.storage.postgres_store import (
+    ensure_training_round_results_schema,
+    ensure_training_target_weight_inversions_schema,
+    load_red_combination_universe,
+    upsert_training_round_result,
+    upsert_training_target_weight_inversion,
+)
 from dehps.storage.postgres_store import load_training_round_candidate_summaries
 from dehps.storage.postgres_store import load_recent_training_weight_signals
 
@@ -173,6 +180,9 @@ DEFAULT_NEURAL_KDJ_SEED = 17
 DEFAULT_NEURAL_KDJ_HIDDEN_UNITS = 8
 DEFAULT_NEURAL_KDJ_EPOCHS = 120
 DEFAULT_NEURAL_KDJ_MIN_CONFIDENCE = 0.0
+DEFAULT_TARGET_WEIGHT_INVERSION_BUDGET_SHARE = 0.20
+DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES = 4
+DEFAULT_TARGET_WEIGHT_INVERSION_MAX_TARGETS = 100
 MAX_FROZEN_VALIDATION_WINDOW = 20
 
 
@@ -285,6 +295,8 @@ def candidate_budget(
     weight_kdj_budget_share: float = 0.0,
     ridge_kdj_budget_share: float = 0.0,
     neural_kdj_budget_share: float = 0.0,
+    target_weight_inversion_budget_share: float = 0.0,
+    target_weight_inversion_available: int = 0,
 ) -> dict[str, int]:
     if max_configs <= 0:
         counts = {name: 0 for name in CANDIDATE_BUDGET_SHARES}
@@ -294,6 +306,8 @@ def candidate_budget(
             counts["ridge_kdj"] = 0
         if neural_kdj_budget_share > 0:
             counts["neural_kdj"] = 0
+        if target_weight_inversion_budget_share > 0:
+            counts["target_weight_inversion"] = 0
         return counts
     weight_kdj_count = _reserved_candidate_count(max_configs, weight_kdj_budget_share, available=max_configs)
     ridge_kdj_count = _reserved_candidate_count(
@@ -306,7 +320,16 @@ def candidate_budget(
         neural_kdj_budget_share,
         available=max_configs - weight_kdj_count - ridge_kdj_count,
     )
-    normal_budget = max_configs - weight_kdj_count - ridge_kdj_count - neural_kdj_count
+    target_weight_inversion_count = _reserved_candidate_count(
+        max_configs,
+        target_weight_inversion_budget_share,
+        available=min(
+            DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES,
+            max(0, target_weight_inversion_available),
+            max_configs - weight_kdj_count - ridge_kdj_count - neural_kdj_count,
+        ),
+    )
+    normal_budget = max_configs - weight_kdj_count - ridge_kdj_count - neural_kdj_count - target_weight_inversion_count
     names = tuple(CANDIDATE_BUDGET_SHARES)
     counts = {name: 0 for name in names}
     remaining = normal_budget
@@ -336,6 +359,8 @@ def candidate_budget(
         counts["ridge_kdj"] = ridge_kdj_count
     if neural_kdj_budget_share > 0:
         counts["neural_kdj"] = neural_kdj_count
+    if target_weight_inversion_budget_share > 0:
+        counts["target_weight_inversion"] = target_weight_inversion_count
     return counts
 
 
@@ -813,6 +838,143 @@ def neural_kdj_advisor_metadata(
         "candidate_count": len(configs),
         "config_hashes": bounded_unique_config_hashes(configs),
     }
+
+
+def target_weight_inversion_advisor_metadata(
+    *,
+    enabled: bool,
+    budget: int,
+    aggregate: dict | None = None,
+    configs: tuple[FrequencyRankerConfig, ...] = (),
+    control_experiments: list[dict] | None = None,
+    frozen_validation_window_value: int = 0,
+    max_targets: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_TARGETS,
+) -> dict:
+    aggregate = aggregate if isinstance(aggregate, dict) else {}
+    selected_hashes = set(bounded_unique_config_hashes(configs, limit=len(configs) or 1))
+    candidate_rows = [candidate for candidate in aggregate.get("candidates") or [] if isinstance(candidate, dict)]
+    advice = []
+    for candidate in candidate_rows:
+        label = str(candidate.get("label") or "")
+        candidate_hash = str(candidate.get("config_hash") or "")
+        delta_config = candidate.get("delta_config") if isinstance(candidate.get("delta_config"), dict) else {}
+        decision = "selected" if candidate_hash in selected_hashes else "rejected"
+        for field, offset in delta_config.items():
+            advice.append(
+                {
+                    "weight_name": str(field),
+                    "suggested_offset": float(offset or 0.0),
+                    "confidence": float(aggregate.get("success_rate") or 0.0),
+                    "validation_metric": float(aggregate.get("success_rate") or 0.0),
+                    "baseline_metric": float(aggregate.get("hit_count") or 0.0) / max(1, int(aggregate.get("sample_count") or 0)),
+                    "config_hash": candidate_hash,
+                    "decision": decision,
+                    "reason": label,
+                    "source": "target_weight_inversion_v0",
+                }
+            )
+    fields = sorted({str(item["weight_name"]) for item in advice} | {str(field) for field in aggregate.get("stable_fields") or []})
+    selected_count = sum(1 for item in advice if item["decision"] == "selected")
+    rejected_count = sum(1 for item in advice if item["decision"] == "rejected")
+    candidate_count = len(configs)
+    status = "ready" if enabled and candidate_count else ("waiting" if enabled else "disabled")
+    return {
+        "mode": "target_weight_inversion_v0",
+        "enabled": enabled,
+        "status": status,
+        "budget": budget,
+        "max_targets": max_targets,
+        "latest_issue": str(aggregate.get("latest_issue") or ""),
+        "sample_count": int(aggregate.get("sample_count") or 0),
+        "success_count": int(aggregate.get("success_count") or 0),
+        "success_rate": float(aggregate.get("success_rate") or 0.0),
+        "hit_count": int(aggregate.get("hit_count") or 0),
+        "miss_count": int(aggregate.get("miss_count") or 0),
+        "outlier_count": int(aggregate.get("outlier_count") or 0),
+        "candidate_count": candidate_count,
+        "field_count": len(fields),
+        "fields": fields,
+        "selected_count": selected_count,
+        "rejected_count": rejected_count,
+        "candidate_hashes": bounded_unique_config_hashes(configs),
+        "candidate_labels": [
+            str(candidate.get("label") or "")
+            for candidate in candidate_rows
+        ][: len(configs)],
+        "advice": advice,
+        "control_experiment_count": len(control_experiments or []),
+        "control_experiments": control_experiments or [],
+        "control_verdict": {
+            "passed": False,
+            "status": "queued_for_next_round",
+            "language": "candidate queued for the next full 100-draw regression and frozen validation",
+        },
+        "frozen_validation": {
+            "window": frozen_validation_window_value,
+            "control_count": len(control_experiments or []),
+        },
+        "advisory_only": True,
+    }
+
+
+def target_weight_inversion_advisor(
+    *,
+    history: list,
+    ranked_universe,
+    best_summary: dict | None,
+    train_window: int,
+    train_mode: str,
+    top_n: int,
+    max_candidates: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES,
+    max_targets: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_TARGETS,
+    budget: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES,
+    control_experiments: list[dict] | None = None,
+    frozen_validation_window_value: int = 0,
+) -> tuple[list[dict], dict, tuple[FrequencyRankerConfig, ...], dict]:
+    safe_max_targets = max(0, int(max_targets))
+    if not isinstance(best_summary, dict) or max_candidates <= 0 or budget <= 0 or safe_max_targets <= 0:
+        metadata = target_weight_inversion_advisor_metadata(
+            enabled=False,
+            budget=max(0, budget),
+            control_experiments=control_experiments,
+            frozen_validation_window_value=frozen_validation_window_value,
+            max_targets=safe_max_targets,
+        )
+        return [], {}, (), metadata
+    target_results = best_summary.get("target_results")
+    config_values = best_summary.get("config")
+    if not isinstance(target_results, list) or not isinstance(config_values, dict):
+        metadata = target_weight_inversion_advisor_metadata(
+            enabled=True,
+            budget=max(0, budget),
+            control_experiments=control_experiments,
+            frozen_validation_window_value=frozen_validation_window_value,
+            max_targets=safe_max_targets,
+        )
+        return [], {}, (), metadata
+    base_config = FrequencyRankerConfig(**{**config_dict(FrequencyRankerConfig()), **config_values})
+    inversions = invert_targets_for_summary(
+        history=history,
+        ranked_universe=ranked_universe,
+        base_config=base_config,
+        target_results=target_results,
+        train_window=train_window,
+        train_mode=train_mode,
+        top_n=top_n,
+        max_targets=safe_max_targets,
+    )
+    rows, aggregate, configs = target_inversion_payload(inversions=inversions, base_config=base_config)
+    limited_configs = tuple(configs[: min(max_candidates, budget, DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES)])
+    metadata = target_weight_inversion_advisor_metadata(
+        enabled=True,
+        budget=max(0, budget),
+        aggregate=aggregate,
+        configs=limited_configs,
+        control_experiments=control_experiments,
+        frozen_validation_window_value=frozen_validation_window_value,
+        max_targets=safe_max_targets,
+    )
+    return rows, aggregate, limited_configs, metadata
 
 
 def search_fields_for_phase(phase: str) -> tuple[str, ...]:
@@ -1960,6 +2122,8 @@ def compact_status_payload(status: dict) -> dict:
         "prefilter": status.get("prefilter"),
         "weight_kdj_advisor": status.get("weight_kdj_advisor"),
         "ridge_kdj_advisor": status.get("ridge_kdj_advisor"),
+        "neural_kdj_advisor": status.get("neural_kdj_advisor"),
+        "target_weight_inversion_advisor": status.get("target_weight_inversion_advisor"),
         "qian_kun": status.get("qian_kun"),
         "next_candidates": status.get("next_candidates"),
         "latest_progress": status.get("latest_progress"),
@@ -2057,6 +2221,7 @@ def run_supervisor(
     enable_weight_kdj_advisor: bool = False,
     enable_ridge_kdj_advisor: bool = False,
     enable_neural_kdj_advisor: bool = False,
+    enable_target_weight_inversion_advisor: bool = True,
     weight_kdj_run_id: str | None = None,
     weight_kdj_limit: int = 1000,
     weight_kdj_budget_share: float = DEFAULT_WEIGHT_KDJ_BUDGET_SHARE,
@@ -2074,6 +2239,9 @@ def run_supervisor(
     neural_kdj_seed: int = DEFAULT_NEURAL_KDJ_SEED,
     neural_kdj_hidden_units: int = DEFAULT_NEURAL_KDJ_HIDDEN_UNITS,
     neural_kdj_epochs: int = DEFAULT_NEURAL_KDJ_EPOCHS,
+    target_weight_inversion_budget_share: float = DEFAULT_TARGET_WEIGHT_INVERSION_BUDGET_SHARE,
+    target_weight_inversion_max_candidates: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES,
+    target_weight_inversion_max_targets: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_TARGETS,
 ) -> dict:
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
     started_at = datetime.now()
@@ -2140,6 +2308,8 @@ def run_supervisor(
     base_config = FrequencyRankerConfig(**best_summary["config"]) if best_summary else FrequencyRankerConfig()
     leaderboard: list[dict] = prior_leaderboard
     rounds: list[dict] = []
+    target_weight_inversion_configs: tuple[FrequencyRankerConfig, ...] = ()
+    target_weight_inversion_latest: dict | None = None
     weight_kdj_thresholds = {
         "min_objective_delta": weight_kdj_min_objective_delta,
         "min_abs_offset": weight_kdj_min_abs_offset,
@@ -2216,6 +2386,13 @@ def run_supervisor(
             "thresholds": neural_kdj_thresholds,
             "latest": None,
         },
+        "target_weight_inversion_advisor": {
+            "enabled": enable_target_weight_inversion_advisor,
+            "budget_share": target_weight_inversion_budget_share if enable_target_weight_inversion_advisor else 0.0,
+            "max_candidates": min(DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES, max(0, target_weight_inversion_max_candidates)),
+            "max_targets": max(0, target_weight_inversion_max_targets),
+            "latest": target_weight_inversion_latest,
+        },
         "qian_kun": qian_kun_distribution(selection.history),
         "next_candidates": None,
         "rounds": rounds,
@@ -2246,11 +2423,14 @@ def run_supervisor(
                 weight_kdj_budget_share=weight_kdj_budget_share if enable_weight_kdj_advisor else 0.0,
                 ridge_kdj_budget_share=ridge_kdj_budget_share if enable_ridge_kdj_advisor else 0.0,
                 neural_kdj_budget_share=neural_kdj_budget_share if enable_neural_kdj_advisor else 0.0,
+                target_weight_inversion_budget_share=target_weight_inversion_budget_share if enable_target_weight_inversion_advisor else 0.0,
+                target_weight_inversion_available=len(target_weight_inversion_configs),
             )
             weight_kdj_budget = budgets.get("weight_kdj", 0)
             ridge_kdj_budget = budgets.get("ridge_kdj", 0)
             neural_kdj_budget = budgets.get("neural_kdj", 0)
-            normal_config_budget = max_configs_per_round - weight_kdj_budget - ridge_kdj_budget - neural_kdj_budget
+            target_weight_inversion_budget = budgets.get("target_weight_inversion", 0)
+            normal_config_budget = max_configs_per_round - weight_kdj_budget - ridge_kdj_budget - neural_kdj_budget - target_weight_inversion_budget
             configs = tuple(
                 generate_configs(
                     base_config,
@@ -2338,22 +2518,29 @@ def run_supervisor(
                 configs = merge_reserved_candidate_configs(
                     configs,
                     weight_kdj_configs,
-                    max_configs=max_configs_per_round - ridge_kdj_budget - neural_kdj_budget,
+                    max_configs=max_configs_per_round - ridge_kdj_budget - neural_kdj_budget - target_weight_inversion_budget,
                     reserved_budget=weight_kdj_budget,
                 )
             if enable_ridge_kdj_advisor:
                 configs = merge_reserved_candidate_configs(
                     configs,
                     ridge_kdj_configs,
-                    max_configs=max_configs_per_round - neural_kdj_budget,
+                    max_configs=max_configs_per_round - neural_kdj_budget - target_weight_inversion_budget,
                     reserved_budget=ridge_kdj_budget,
                 )
             if enable_neural_kdj_advisor:
                 configs = merge_reserved_candidate_configs(
                     configs,
                     neural_kdj_configs,
-                    max_configs=max_configs_per_round,
+                    max_configs=max_configs_per_round - target_weight_inversion_budget,
                     reserved_budget=neural_kdj_budget,
+                )
+            if enable_target_weight_inversion_advisor:
+                configs = merge_reserved_candidate_configs(
+                    configs,
+                    target_weight_inversion_configs,
+                    max_configs=max_configs_per_round,
+                    reserved_budget=target_weight_inversion_budget,
                 )
             generated_config_count = len(configs)
             keep_configs = (base_config, *elite_configs[:4], *(config for _label, config in control_configs))
@@ -2402,9 +2589,16 @@ def run_supervisor(
             prefilter_info["weight_kdj_advisor"] = advisor_info
             prefilter_info["ridge_kdj_advisor"] = ridge_advisor_info
             prefilter_info["neural_kdj_advisor"] = neural_advisor_info
+            prefilter_info["target_weight_inversion_advisor"] = target_weight_inversion_latest or target_weight_inversion_advisor_metadata(
+                enabled=enable_target_weight_inversion_advisor,
+                budget=target_weight_inversion_budget,
+                configs=target_weight_inversion_configs[:target_weight_inversion_budget],
+                max_targets=target_weight_inversion_max_targets,
+            )
             status["weight_kdj_advisor"]["latest"] = advisor_info
             status["ridge_kdj_advisor"]["latest"] = ridge_advisor_info
             status["neural_kdj_advisor"]["latest"] = neural_advisor_info
+            status["target_weight_inversion_advisor"]["latest"] = prefilter_info["target_weight_inversion_advisor"]
             status["prefilter"]["latest"] = prefilter_info
             log(
                 f"round={round_index + 1} phase={phase} step={step} "
@@ -2439,6 +2633,31 @@ def run_supervisor(
             control_summaries = control_experiment_summaries(summaries, control_configs)
             prefilter_info["frozen_validation_window"] = validation_window
             prefilter_info["control_experiments"] = control_summaries
+            inversion_rows: list[dict] = []
+            inversion_aggregate: dict = {}
+            if enable_target_weight_inversion_advisor:
+                inversion_rows, inversion_aggregate, target_weight_inversion_configs, target_weight_inversion_latest = target_weight_inversion_advisor(
+                    history=training_history,
+                    ranked_universe=ranked_universe,
+                    best_summary=round_best,
+                    train_window=train_window,
+                    train_mode=train_mode,
+                    top_n=top_n,
+                    max_candidates=target_weight_inversion_max_candidates,
+                    max_targets=target_weight_inversion_max_targets,
+                    budget=min(DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES, max(0, target_weight_inversion_max_candidates)),
+                    control_experiments=control_summaries,
+                    frozen_validation_window_value=validation_window,
+                )
+            else:
+                target_weight_inversion_configs = ()
+                target_weight_inversion_latest = target_weight_inversion_advisor_metadata(
+                    enabled=False,
+                    budget=0,
+                    max_targets=target_weight_inversion_max_targets,
+                )
+            prefilter_info["target_weight_inversion_advisor"] = target_weight_inversion_latest
+            status["target_weight_inversion_advisor"]["latest"] = target_weight_inversion_latest
             leaderboard = merge_leaderboard(leaderboard, summaries[: min(8, len(summaries))])
             improved = best_summary is None or sort_key(round_best) > sort_key(best_summary)
             if improved:
@@ -2465,6 +2684,19 @@ def run_supervisor(
             with get_connection() as conn:
                 ensure_training_round_results_schema(conn)
                 upsert_training_round_result(conn, run_id=run_id, round_info=round_record, status=status)
+                if enable_target_weight_inversion_advisor and inversion_rows:
+                    ensure_training_target_weight_inversions_schema(conn)
+                    for inversion in inversion_rows:
+                        upsert_training_target_weight_inversion(
+                            conn,
+                            {
+                                **inversion,
+                                "run_id": run_id,
+                                "round_index": round_index + 1,
+                                "aggregate": inversion_aggregate,
+                                "prefilter": target_weight_inversion_latest or {},
+                            },
+                        )
                 if best_summary:
                     try:
                         status["next_candidates"] = refresh_training_next_candidates_current(
@@ -2522,6 +2754,7 @@ def main() -> None:
     parser.add_argument("--enable-weight-kdj-advisor", action="store_true", help="Use stored weight KDJ signals as advisor-only candidate proposals.")
     parser.add_argument("--enable-ridge-kdj-advisor", action="store_true", help="Use stored weight KDJ signals for advisor-only Ridge offset proposals.")
     parser.add_argument("--enable-neural-kdj-advisor", action="store_true", help="Use stored weight KDJ signals for advisor-only NumPy MLP offset proposals.")
+    parser.add_argument("--disable-target-weight-inversion-advisor", action="store_true", help="Disable target-results inversion proposals for the next round.")
     parser.add_argument("--weight-kdj-run-id", help="Optional training_weight_signals signal_run_id to read.")
     parser.add_argument("--weight-kdj-limit", type=int, default=1000, help="Recent signal points per weight for advisor context.")
     parser.add_argument("--weight-kdj-budget-share", type=float, default=DEFAULT_WEIGHT_KDJ_BUDGET_SHARE, help="Candidate budget share reserved for KDJ advisor proposals when enabled.")
@@ -2539,6 +2772,9 @@ def main() -> None:
     parser.add_argument("--neural-kdj-seed", type=int, default=DEFAULT_NEURAL_KDJ_SEED)
     parser.add_argument("--neural-kdj-hidden-units", type=int, default=DEFAULT_NEURAL_KDJ_HIDDEN_UNITS)
     parser.add_argument("--neural-kdj-epochs", type=int, default=DEFAULT_NEURAL_KDJ_EPOCHS)
+    parser.add_argument("--target-weight-inversion-budget-share", type=float, default=DEFAULT_TARGET_WEIGHT_INVERSION_BUDGET_SHARE)
+    parser.add_argument("--target-weight-inversion-max-candidates", type=int, default=DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES)
+    parser.add_argument("--target-weight-inversion-max-targets", type=int, default=DEFAULT_TARGET_WEIGHT_INVERSION_MAX_TARGETS)
     parser.add_argument("--heavy-job-lock-timeout-seconds", type=float, default=0.0)
     parser.add_argument("--cpu-threads", type=int, default=1)
     args = parser.parse_args()
@@ -2554,6 +2790,8 @@ def main() -> None:
             "enable_weight_kdj_advisor": args.enable_weight_kdj_advisor,
             "enable_ridge_kdj_advisor": args.enable_ridge_kdj_advisor,
             "enable_neural_kdj_advisor": args.enable_neural_kdj_advisor,
+            "enable_target_weight_inversion_advisor": not args.disable_target_weight_inversion_advisor,
+            "target_weight_inversion_max_targets": args.target_weight_inversion_max_targets,
         },
     ) as lock:
         result = run_supervisor(
@@ -2575,6 +2813,7 @@ def main() -> None:
             enable_weight_kdj_advisor=args.enable_weight_kdj_advisor,
             enable_ridge_kdj_advisor=args.enable_ridge_kdj_advisor,
             enable_neural_kdj_advisor=args.enable_neural_kdj_advisor,
+            enable_target_weight_inversion_advisor=not args.disable_target_weight_inversion_advisor,
             weight_kdj_run_id=args.weight_kdj_run_id,
             weight_kdj_limit=args.weight_kdj_limit,
             weight_kdj_budget_share=args.weight_kdj_budget_share,
@@ -2592,6 +2831,9 @@ def main() -> None:
             neural_kdj_seed=args.neural_kdj_seed,
             neural_kdj_hidden_units=args.neural_kdj_hidden_units,
             neural_kdj_epochs=args.neural_kdj_epochs,
+            target_weight_inversion_budget_share=args.target_weight_inversion_budget_share,
+            target_weight_inversion_max_candidates=args.target_weight_inversion_max_candidates,
+            target_weight_inversion_max_targets=args.target_weight_inversion_max_targets,
         )
         lock.heartbeat(status="completed", context={"run_id": result.get("run_id"), "rounds": result.get("rounds")})
     print(json.dumps(result, ensure_ascii=False, indent=2))

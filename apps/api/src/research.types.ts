@@ -223,7 +223,11 @@ export type TrainingWeightSignalSeries = {
   points: TrainingWeightSignalPoint[];
 };
 
-export type TrainingAdvisorSource = 'weight_kdj_advisor' | 'ridge_kdj_advisor' | 'neural_kdj_advisor';
+export type TrainingAdvisorSource =
+  | 'weight_kdj_advisor'
+  | 'ridge_kdj_advisor'
+  | 'neural_kdj_advisor'
+  | 'target_weight_inversion_advisor';
 
 export type TrainingAdvisorAdviceRow = {
   weightName: string;
