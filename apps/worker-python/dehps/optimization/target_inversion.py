@@ -733,9 +733,21 @@ def target_inversion_candidate_configs(
         ),
         _candidate_from_delta(
             base_config,
+            "current_plus_0_50_partial_weighted_delta",
+            partial_weighted_delta if partial_weighted_delta is not None else np.zeros(len(CONFIG_WEIGHT_FIELDS), dtype=np.float64),
+            scale=0.50,
+        ),
+        _candidate_from_delta(
+            base_config,
             "current_plus_0_25_partial_stable_fields_delta",
             partial_stable_delta if partial_stable_delta is not None else np.zeros(len(CONFIG_WEIGHT_FIELDS), dtype=np.float64),
             scale=0.25,
+        ),
+        _candidate_from_delta(
+            base_config,
+            "current_plus_0_50_partial_stable_fields_delta",
+            partial_stable_delta if partial_stable_delta is not None else np.zeros(len(CONFIG_WEIGHT_FIELDS), dtype=np.float64),
+            scale=0.50,
         ),
     )
     candidates: list[TargetInversionCandidate] = []

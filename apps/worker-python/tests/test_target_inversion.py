@@ -160,5 +160,7 @@ def test_target_inversion_aggregate_uses_partial_improvements_as_micro_candidate
     assert aggregate["success_count"] == 0
     assert aggregate["partial_improvement_count"] == 2
     assert aggregate["partial_weighted_delta"]["frequency_weight"] > 0
-    assert aggregate["candidate_count"] >= 1
-    assert any(candidate["label"] == "current_plus_0_25_partial_weighted_delta" for candidate in aggregate["candidates"])
+    labels = {candidate["label"] for candidate in aggregate["candidates"]}
+    assert aggregate["candidate_count"] >= 2
+    assert "current_plus_0_25_partial_weighted_delta" in labels
+    assert "current_plus_0_50_partial_weighted_delta" in labels
