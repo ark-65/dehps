@@ -14,7 +14,12 @@ from dehps.db import get_connection
 from dehps.runtime.heavy_job import describe_heavy_job_owner
 
 
-ADVISOR_KEYS = ("weight_kdj_advisor", "ridge_kdj_advisor", "neural_kdj_advisor")
+ADVISOR_KEYS = (
+    "weight_kdj_advisor",
+    "ridge_kdj_advisor",
+    "neural_kdj_advisor",
+    "target_weight_inversion_advisor",
+)
 DEFAULT_OUTPUT_DIR = ROOT_DIR / "data/output/optimization/training-watch"
 
 

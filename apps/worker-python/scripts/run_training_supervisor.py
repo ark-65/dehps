@@ -183,6 +183,7 @@ DEFAULT_NEURAL_KDJ_MIN_CONFIDENCE = 0.0
 DEFAULT_TARGET_WEIGHT_INVERSION_BUDGET_SHARE = 0.20
 DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES = 4
 DEFAULT_TARGET_WEIGHT_INVERSION_MAX_TARGETS = 100
+DEFAULT_TARGET_WEIGHT_INVERSION_MAX_DELTAS_PER_TARGET = 8
 MAX_FROZEN_VALIDATION_WINDOW = 20
 
 
@@ -849,6 +850,7 @@ def target_weight_inversion_advisor_metadata(
     control_experiments: list[dict] | None = None,
     frozen_validation_window_value: int = 0,
     max_targets: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_TARGETS,
+    max_deltas_per_target: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_DELTAS_PER_TARGET,
 ) -> dict:
     aggregate = aggregate if isinstance(aggregate, dict) else {}
     selected_hashes = set(bounded_unique_config_hashes(configs, limit=len(configs) or 1))
@@ -884,6 +886,7 @@ def target_weight_inversion_advisor_metadata(
         "status": status,
         "budget": budget,
         "max_targets": max_targets,
+        "max_deltas_per_target": max_deltas_per_target,
         "latest_issue": str(aggregate.get("latest_issue") or ""),
         "sample_count": int(aggregate.get("sample_count") or 0),
         "success_count": int(aggregate.get("success_count") or 0),
@@ -927,11 +930,13 @@ def target_weight_inversion_advisor(
     top_n: int,
     max_candidates: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES,
     max_targets: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_TARGETS,
+    max_deltas_per_target: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_DELTAS_PER_TARGET,
     budget: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES,
     control_experiments: list[dict] | None = None,
     frozen_validation_window_value: int = 0,
 ) -> tuple[list[dict], dict, tuple[FrequencyRankerConfig, ...], dict]:
     safe_max_targets = max(0, int(max_targets))
+    safe_max_deltas = max(1, int(max_deltas_per_target))
     if not isinstance(best_summary, dict) or max_candidates <= 0 or budget <= 0 or safe_max_targets <= 0:
         metadata = target_weight_inversion_advisor_metadata(
             enabled=False,
@@ -939,6 +944,7 @@ def target_weight_inversion_advisor(
             control_experiments=control_experiments,
             frozen_validation_window_value=frozen_validation_window_value,
             max_targets=safe_max_targets,
+            max_deltas_per_target=safe_max_deltas,
         )
         return [], {}, (), metadata
     target_results = best_summary.get("target_results")
@@ -950,6 +956,7 @@ def target_weight_inversion_advisor(
             control_experiments=control_experiments,
             frozen_validation_window_value=frozen_validation_window_value,
             max_targets=safe_max_targets,
+            max_deltas_per_target=safe_max_deltas,
         )
         return [], {}, (), metadata
     base_config = FrequencyRankerConfig(**{**config_dict(FrequencyRankerConfig()), **config_values})
@@ -962,6 +969,7 @@ def target_weight_inversion_advisor(
         train_mode=train_mode,
         top_n=top_n,
         max_targets=safe_max_targets,
+        max_delta_candidates=safe_max_deltas,
     )
     rows, aggregate, configs = target_inversion_payload(inversions=inversions, base_config=base_config)
     limited_configs = tuple(configs[: min(max_candidates, budget, DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES)])
@@ -973,6 +981,7 @@ def target_weight_inversion_advisor(
         control_experiments=control_experiments,
         frozen_validation_window_value=frozen_validation_window_value,
         max_targets=safe_max_targets,
+        max_deltas_per_target=safe_max_deltas,
     )
     return rows, aggregate, limited_configs, metadata
 
@@ -2242,6 +2251,7 @@ def run_supervisor(
     target_weight_inversion_budget_share: float = DEFAULT_TARGET_WEIGHT_INVERSION_BUDGET_SHARE,
     target_weight_inversion_max_candidates: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES,
     target_weight_inversion_max_targets: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_TARGETS,
+    target_weight_inversion_max_deltas_per_target: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_DELTAS_PER_TARGET,
 ) -> dict:
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
     started_at = datetime.now()
@@ -2391,6 +2401,7 @@ def run_supervisor(
             "budget_share": target_weight_inversion_budget_share if enable_target_weight_inversion_advisor else 0.0,
             "max_candidates": min(DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES, max(0, target_weight_inversion_max_candidates)),
             "max_targets": max(0, target_weight_inversion_max_targets),
+            "max_deltas_per_target": max(1, target_weight_inversion_max_deltas_per_target),
             "latest": target_weight_inversion_latest,
         },
         "qian_kun": qian_kun_distribution(selection.history),
@@ -2594,6 +2605,7 @@ def run_supervisor(
                 budget=target_weight_inversion_budget,
                 configs=target_weight_inversion_configs[:target_weight_inversion_budget],
                 max_targets=target_weight_inversion_max_targets,
+                max_deltas_per_target=target_weight_inversion_max_deltas_per_target,
             )
             status["weight_kdj_advisor"]["latest"] = advisor_info
             status["ridge_kdj_advisor"]["latest"] = ridge_advisor_info
@@ -2645,6 +2657,7 @@ def run_supervisor(
                     top_n=top_n,
                     max_candidates=target_weight_inversion_max_candidates,
                     max_targets=target_weight_inversion_max_targets,
+                    max_deltas_per_target=target_weight_inversion_max_deltas_per_target,
                     budget=min(DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES, max(0, target_weight_inversion_max_candidates)),
                     control_experiments=control_summaries,
                     frozen_validation_window_value=validation_window,
@@ -2655,6 +2668,7 @@ def run_supervisor(
                     enabled=False,
                     budget=0,
                     max_targets=target_weight_inversion_max_targets,
+                    max_deltas_per_target=target_weight_inversion_max_deltas_per_target,
                 )
             prefilter_info["target_weight_inversion_advisor"] = target_weight_inversion_latest
             status["target_weight_inversion_advisor"]["latest"] = target_weight_inversion_latest
@@ -2775,6 +2789,7 @@ def main() -> None:
     parser.add_argument("--target-weight-inversion-budget-share", type=float, default=DEFAULT_TARGET_WEIGHT_INVERSION_BUDGET_SHARE)
     parser.add_argument("--target-weight-inversion-max-candidates", type=int, default=DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES)
     parser.add_argument("--target-weight-inversion-max-targets", type=int, default=DEFAULT_TARGET_WEIGHT_INVERSION_MAX_TARGETS)
+    parser.add_argument("--target-weight-inversion-max-deltas-per-target", type=int, default=DEFAULT_TARGET_WEIGHT_INVERSION_MAX_DELTAS_PER_TARGET)
     parser.add_argument("--heavy-job-lock-timeout-seconds", type=float, default=0.0)
     parser.add_argument("--cpu-threads", type=int, default=1)
     args = parser.parse_args()
@@ -2792,6 +2807,7 @@ def main() -> None:
             "enable_neural_kdj_advisor": args.enable_neural_kdj_advisor,
             "enable_target_weight_inversion_advisor": not args.disable_target_weight_inversion_advisor,
             "target_weight_inversion_max_targets": args.target_weight_inversion_max_targets,
+            "target_weight_inversion_max_deltas_per_target": args.target_weight_inversion_max_deltas_per_target,
         },
     ) as lock:
         result = run_supervisor(
@@ -2834,6 +2850,7 @@ def main() -> None:
             target_weight_inversion_budget_share=args.target_weight_inversion_budget_share,
             target_weight_inversion_max_candidates=args.target_weight_inversion_max_candidates,
             target_weight_inversion_max_targets=args.target_weight_inversion_max_targets,
+            target_weight_inversion_max_deltas_per_target=args.target_weight_inversion_max_deltas_per_target,
         )
         lock.heartbeat(status="completed", context={"run_id": result.get("run_id"), "rounds": result.get("rounds")})
     print(json.dumps(result, ensure_ascii=False, indent=2))

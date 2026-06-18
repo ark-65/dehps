@@ -11,9 +11,6 @@ from dehps.optimization.walk_forward import (
     RankedUniverseMatrix,
     _components_for_matrix,
     _lex_less_than,
-    _rank_targets_from_scores,
-    _score_matrix,
-    _target_scores,
     config_hash,
     is_excluded_red_combination,
 )
@@ -383,6 +380,7 @@ def invert_target_weight(
     ranked_universe: RankedUniverseMatrix,
     target_draw_date=None,
     top_n: int = 10000,
+    max_delta_candidates: int = 8,
 ) -> TargetWeightInversion:
     base_hash = config_hash(base_config)
     if is_excluded_red_combination(red_numbers):
@@ -426,14 +424,14 @@ def invert_target_weight(
         )
 
     components = _components_for_matrix(ranked_universe, stats)
-    base_scores = _score_matrix(ranked_universe, stats, (base_config,))[:, 0]
-    current_rank, target_score = _rank_targets_from_scores(
+    base_scores = components @ config_vector(base_config)
+    current_rank = rank_for_scores(
+        scores=base_scores,
         matrix=ranked_universe,
-        scores=base_scores[:, None],
+        target_index=target_index,
         target_numbers=red_numbers,
-        target_scores=_target_scores(red_numbers, stats, (base_config,)),
-        target_excluded=False,
-    )[0]
+    )
+    target_score = float(base_scores[target_index])
     rank_margin = max(0, int(current_rank) - int(top_n))
     if current_rank <= top_n:
         return TargetWeightInversion(
@@ -455,16 +453,17 @@ def invert_target_weight(
         )
 
     best_result: TargetWeightInversion | None = None
-    for delta in _candidate_deltas(
+    candidate_deltas = _candidate_deltas(
         base_config=base_config,
         components=components,
         scores=base_scores,
         target_index=target_index,
         top_n=top_n,
-    ):
+    )[: max(1, int(max_delta_candidates))]
+    for delta in candidate_deltas:
         adjusted_config = apply_delta(base_config, delta)
         actual_delta = delta_between(base_config, adjusted_config)
-        adjusted_scores = _score_matrix(ranked_universe, stats, (adjusted_config,))[:, 0]
+        adjusted_scores = components @ config_vector(adjusted_config)
         adjusted_rank = rank_for_scores(
             scores=adjusted_scores,
             matrix=ranked_universe,
@@ -526,6 +525,7 @@ def invert_targets_for_summary(
     train_mode: str,
     top_n: int,
     max_targets: int | None = None,
+    max_delta_candidates: int = 8,
 ) -> list[TargetWeightInversion]:
     issue_to_index = {history_issue(draw): index for index, draw in enumerate(history)}
     rows: list[TargetWeightInversion] = []
@@ -546,6 +546,7 @@ def invert_targets_for_summary(
                 ranked_universe=ranked_universe,
                 target_draw_date=history_draw_date(history[target_index]),
                 top_n=top_n,
+                max_delta_candidates=max_delta_candidates,
             )
         )
     return rows
