@@ -223,8 +223,22 @@ export class ResearchService {
     const normalizedTailLines = this.normalizeTailLines(tailLines);
     const optimizationDir = path.join(root, OPTIMIZATION_OUTPUT_DIR);
     const logDir = path.join(root, RUNTIME_LOG_DIR);
+    const latestStatusFile = await this.findLatestFile(optimizationDir, 'training-supervisor-', '.json');
+    const latestRawStatus = latestStatusFile ? await this.readJsonObject(latestStatusFile) : null;
+    const latestStatusRunId = this.stringValue(latestRawStatus?.run_id);
+    const latestStatusText = this.stringValue(latestRawStatus?.status);
+    const latestStatusPid = this.numberValue(latestRawStatus?.pid);
+    const latestStatusProcessAlive = latestStatusPid === null ? null : this.isProcessAlive(latestStatusPid);
+    const latestLogFile = await this.findLatestFile(logDir, 'training-supervisor-', '.log');
     const dbRounds = await this.repository.listTrainingRounds(100).catch(() => []);
-    if (dbRounds.length > 0) {
+    const dbRunId = dbRounds[0]?.runId ?? null;
+    const latestStatusIsLiveDifferentRun =
+      dbRunId !== null &&
+      latestStatusRunId !== null &&
+      latestStatusRunId !== dbRunId &&
+      latestStatusText === 'running' &&
+      latestStatusProcessAlive !== false;
+    if (dbRounds.length > 0 && !latestStatusIsLiveDifferentRun) {
       const runId = dbRounds[0].runId;
       const runRounds = dbRounds
         .filter((round) => round.runId === runId)
@@ -237,17 +251,18 @@ export class ResearchService {
       const latestDetail = latestRoundItem
         ? await this.repository.getTrainingRoundDetail(latestRoundItem.runId, latestRoundItem.roundIndex).catch(() => null)
         : null;
-      const statusFile =
-        (runId ? await this.firstExistingPath(path.join(optimizationDir, `training-supervisor-${runId}.json`)) : null) ??
-        (await this.findLatestFile(optimizationDir, 'training-supervisor-', '.json'));
-      const rawStatus = statusFile ? await this.readJsonObject(statusFile) : null;
+      const runStatusFile = runId
+        ? await this.firstExistingPath(path.join(optimizationDir, `training-supervisor-${runId}.json`))
+        : null;
+      const statusFile = runStatusFile ?? (latestStatusRunId === runId ? latestStatusFile : null);
+      const rawStatus =
+        statusFile === latestStatusFile ? latestRawStatus : statusFile ? await this.readJsonObject(statusFile) : null;
       const rawStatusText = this.stringValue(rawStatus?.status);
       const rawProgress = this.progressValue(rawStatus?.latest_progress);
       const pid = this.numberValue(rawStatus?.pid);
       const processAlive = pid === null ? null : this.isProcessAlive(pid);
-      const logFile =
-        (runId ? await this.firstExistingPath(path.join(logDir, `training-supervisor-${runId}.log`)) : null) ??
-        (await this.findLatestFile(logDir, 'training-supervisor-', '.log'));
+      const runLogFile = runId ? await this.firstExistingPath(path.join(logDir, `training-supervisor-${runId}.log`)) : null;
+      const logFile = runLogFile ?? (latestStatusRunId === runId ? latestLogFile : null);
       const logTail = logFile ? await this.readTailLines(logFile, normalizedTailLines) : [];
       const latestProgress = rawProgress ?? this.parseLatestProgress(logTail);
       const serviceUnit = await this.readOptionalText(path.join(logDir, 'training-supervisor.unit'));
@@ -304,13 +319,13 @@ export class ResearchService {
       };
     }
 
-    const statusFile = await this.findLatestFile(optimizationDir, 'training-supervisor-', '.json');
-    const rawStatus = statusFile ? await this.readJsonObject(statusFile) : null;
+    const statusFile = latestStatusFile;
+    const rawStatus = latestRawStatus;
     const runId = this.stringValue(rawStatus?.run_id);
     const reportFile = this.stringValue(rawStatus?.report_path) ?? this.deriveReportPath(statusFile);
     const logFile =
       (runId ? await this.firstExistingPath(path.join(logDir, `training-supervisor-${runId}.log`)) : null) ??
-      (await this.findLatestFile(logDir, 'training-supervisor-', '.log'));
+      latestLogFile;
     const logTail = logFile ? await this.readTailLines(logFile, normalizedTailLines) : [];
     const latestProgress = this.progressValue(rawStatus?.latest_progress) ?? this.parseLatestProgress(logTail);
     const serviceUnit = await this.readOptionalText(path.join(logDir, 'training-supervisor.unit'));
@@ -511,7 +526,11 @@ export class ResearchService {
     const logStat = logFile ? await this.safeStat(logFile) : null;
     const logTail = logFile ? await this.readTailLines(logFile, 40) : [];
     const heartbeatAt = logStat ? new Date(logStat.mtimeMs).toISOString() : null;
-    const recentError = this.latestErrorLine(logTail);
+    const rawRecentError = this.latestErrorLine(logTail);
+    const recentError =
+      processAlive === true && rawRecentError && /ECONNREFUSED\s+127\.0\.0\.1:3000/i.test(rawRecentError)
+        ? null
+        : rawRecentError;
     const status = processAlive === false || recentError ? 'failed' : logFile ? 'ok' : 'warning';
     return this.serviceStatusItem({
       name: 'web',

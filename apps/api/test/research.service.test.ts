@@ -521,6 +521,61 @@ test('training status keeps db-backed run active between completed rounds', asyn
   }
 });
 
+test('training status prefers a live status json before the new run has db rounds', async () => {
+  const previousRoot = process.env.DEHPS_ROOT;
+  const root = mkdtempSync(path.join(os.tmpdir(), 'dehps-live-status-switch-test-'));
+  mkdirSync(path.join(root, 'data/output/optimization'), { recursive: true });
+  writeFileSync(
+    path.join(root, 'data/output/optimization/training-supervisor-run-101.json'),
+    JSON.stringify({
+      run_id: 'run-101',
+      status: 'running',
+      pid: process.pid,
+      updated_at: '2026-06-18T23:17:19',
+      workers: 10,
+      train_window: 900,
+      eval_window: 100,
+      top_n: 10000,
+      prefilter: {
+        latest: {
+          round: 1,
+          candidate_budget: { target_weight_inversion: 0, ridge_kdj: 3 },
+        },
+      },
+      latest_progress: {
+        logged_at: '2026-06-18T23:17:19',
+        round: 1,
+        target_index: 100,
+        target_total: 100,
+        issue: '2026068',
+        train_draws: 1497,
+        elapsed_seconds: 38.1,
+      },
+    }),
+  );
+  try {
+    process.env.DEHPS_ROOT = root;
+    const service = new ResearchService(repository);
+
+    const status = await service.trainingStatus();
+
+    assert.equal(status.runId, 'run-101');
+    assert.equal(status.status, 'running');
+    assert.equal(status.active, true);
+    assert.equal(status.processAlive, true);
+    assert.equal(status.completedRounds, 0);
+    assert.equal(status.latestProgress?.round, 1);
+    assert.equal(status.latestProgress?.targetIndex, 100);
+    assert.equal(status.prefilter?.latest?.candidateBudget?.ridge_kdj, 3);
+  } finally {
+    if (previousRoot === undefined) {
+      delete process.env.DEHPS_ROOT;
+    } else {
+      process.env.DEHPS_ROOT = previousRoot;
+    }
+  }
+});
+
 test('training status event payload preserves live progress over db snapshot', async () => {
   const service = new ResearchService(repository);
 
@@ -791,6 +846,38 @@ test('service status ignores recovered web build errors', async () => {
       "ERROR TS2339: Property 'status' does not exist",
       'Application bundle generation complete.',
       'Page reload sent to client(s).',
+    ].join('\n'),
+  );
+  try {
+    process.env.DEHPS_ROOT = root;
+    const service = new ResearchService(repository);
+
+    const status = await service.serviceStatus();
+    const web = status.services.find((item) => item.name === 'web');
+
+    assert.equal(web?.status, 'ok');
+    assert.equal(web?.recentError, null);
+  } finally {
+    if (previousRoot === undefined) {
+      delete process.env.DEHPS_ROOT;
+    } else {
+      process.env.DEHPS_ROOT = previousRoot;
+    }
+  }
+});
+
+test('service status ignores transient web proxy errors while web is alive', async () => {
+  const previousRoot = process.env.DEHPS_ROOT;
+  const root = mkdtempSync(path.join(os.tmpdir(), 'dehps-service-status-'));
+  mkdirSync(path.join(root, 'runtime/logs'), { recursive: true });
+  writeFileSync(path.join(root, 'runtime/logs/api-dashboard.log'), 'api ready\n');
+  writeFileSync(path.join(root, 'runtime/logs/web-dashboard.pid'), `${process.pid}\n`);
+  writeFileSync(
+    path.join(root, 'runtime/logs/web-dashboard.log'),
+    [
+      'Watch mode enabled. Watching for file changes.',
+      '11:20:25 PM [vite] ws proxy error:',
+      'Error: connect ECONNREFUSED 127.0.0.1:3000',
     ].join('\n'),
   );
   try {
