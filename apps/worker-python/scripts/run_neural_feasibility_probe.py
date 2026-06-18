@@ -32,10 +32,22 @@ class ProbeDataset:
     y_train: np.ndarray
     x_val: np.ndarray
     y_val: np.ndarray
+    feature_mean: np.ndarray
+    feature_std: np.ndarray
     positive_count: int
     negative_count: int
     feature_count: int
     sampled_rows: int
+
+
+@dataclass(frozen=True)
+class NumpyMlpModel:
+    feature_mean: np.ndarray
+    feature_std: np.ndarray
+    w1: np.ndarray
+    b1: np.ndarray
+    w2: np.ndarray
+    b2: np.ndarray
 
 
 def combination_keys(numbers: np.ndarray) -> np.ndarray:
@@ -73,11 +85,20 @@ def matrix_feature_frame(matrix: RankedUniverseMatrix) -> np.ndarray:
     return np.concatenate([dense, gaps, mod012, presence], axis=1).astype(np.float32, copy=False)
 
 
-def standardize_train_val(x_train: np.ndarray, x_val: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def standardization_stats(x_train: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     mean = x_train.mean(axis=0, keepdims=True)
     std = x_train.std(axis=0, keepdims=True)
     std = np.where(std < 1e-6, 1.0, std)
-    return (x_train - mean) / std, (x_val - mean) / std
+    return mean.astype(np.float32), std.astype(np.float32)
+
+
+def standardize_features(features: np.ndarray, mean: np.ndarray, std: np.ndarray) -> np.ndarray:
+    return ((features - mean) / std).astype(np.float32, copy=False)
+
+
+def standardize_train_val(x_train: np.ndarray, x_val: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    mean, std = standardization_stats(x_train)
+    return standardize_features(x_train, mean, std), standardize_features(x_val, mean, std)
 
 
 def dense_bytes(rows: int, columns: int, *, dtype_bytes: int = 4) -> int:
@@ -140,11 +161,13 @@ def build_probe_dataset(
     rng = np.random.default_rng(seed)
     max_negatives = max(1, min(max_sample_rows - len(positive_indices), len(positive_indices) * negative_ratio))
     positive_set = set(positive_indices)
+    negative_set: set[int] = set()
     negative_indices: list[int] = []
     while len(negative_indices) < max_negatives:
         batch = rng.integers(0, len(matrix), size=max(4096, max_negatives - len(negative_indices)))
         for index in batch.tolist():
-            if index not in positive_set:
+            if index not in positive_set and index not in negative_set:
+                negative_set.add(index)
                 negative_indices.append(index)
                 if len(negative_indices) >= max_negatives:
                     break
@@ -162,12 +185,16 @@ def build_probe_dataset(
 
     features = matrix_feature_frame(matrix)[selected_indices]
     split = max(1, min(features.shape[0] - 1, int(features.shape[0] * 0.8)))
-    x_train, x_val = standardize_train_val(features[:split], features[split:])
+    feature_mean, feature_std = standardization_stats(features[:split])
+    x_train = standardize_features(features[:split], feature_mean, feature_std)
+    x_val = standardize_features(features[split:], feature_mean, feature_std)
     return ProbeDataset(
         x_train=x_train,
         y_train=labels[:split],
         x_val=x_val,
         y_val=labels[split:],
+        feature_mean=feature_mean,
+        feature_std=feature_std,
         positive_count=len(positive_indices),
         negative_count=len(negative_indices),
         feature_count=features.shape[1],
@@ -175,7 +202,7 @@ def build_probe_dataset(
     )
 
 
-def train_numpy_mlp(
+def fit_numpy_mlp(
     dataset: ProbeDataset,
     *,
     hidden_units: int,
@@ -183,7 +210,7 @@ def train_numpy_mlp(
     batch_size: int,
     learning_rate: float,
     seed: int,
-) -> dict[str, Any]:
+) -> tuple[NumpyMlpModel, dict[str, Any]]:
     rng = np.random.default_rng(seed)
     input_dim = dataset.x_train.shape[1]
     w1 = rng.normal(0.0, 0.05, size=(input_dim, hidden_units)).astype(np.float32)
@@ -237,7 +264,15 @@ def train_numpy_mlp(
             }
         )
 
-    return {
+    model = NumpyMlpModel(
+        feature_mean=dataset.feature_mean,
+        feature_std=dataset.feature_std,
+        w1=w1,
+        b1=b1,
+        w2=w2,
+        b2=b2,
+    )
+    summary = {
         "backend": "numpy_cpu_mlp",
         "hidden_units": hidden_units,
         "epochs": epochs,
@@ -246,6 +281,70 @@ def train_numpy_mlp(
         "positive_weight": round(float(positive_weight), 6),
         "epoch_summaries": epoch_summaries,
         "rows_per_second_last_epoch": round(dataset.x_train.shape[0] / max(epoch_summaries[-1]["seconds"], 1e-9), 1),
+    }
+    return model, summary
+
+
+def train_numpy_mlp(
+    dataset: ProbeDataset,
+    *,
+    hidden_units: int,
+    epochs: int,
+    batch_size: int,
+    learning_rate: float,
+    seed: int,
+) -> dict[str, Any]:
+    _model, summary = fit_numpy_mlp(
+        dataset,
+        hidden_units=hidden_units,
+        epochs=epochs,
+        batch_size=batch_size,
+        learning_rate=learning_rate,
+        seed=seed,
+    )
+    return summary
+
+
+def score_numpy_mlp(model: NumpyMlpModel, features: np.ndarray, *, batch_size: int = 200_000) -> np.ndarray:
+    scores = np.empty(features.shape[0], dtype=np.float32)
+    for start in range(0, features.shape[0], batch_size):
+        end = min(features.shape[0], start + batch_size)
+        x = standardize_features(features[start:end], model.feature_mean, model.feature_std)
+        hidden = np.maximum(x @ model.w1 + model.b1, 0)
+        scores[start:end] = sigmoid(hidden @ model.w2 + model.b2).astype(np.float32)
+    return scores
+
+
+def score_full_universe(
+    matrix: RankedUniverseMatrix,
+    model: NumpyMlpModel,
+    *,
+    top_k: int,
+    batch_size: int = 200_000,
+) -> dict[str, Any]:
+    started = time.time()
+    scores = score_numpy_mlp(model, matrix_feature_frame(matrix), batch_size=batch_size)
+    safe_top_k = max(0, min(top_k, scores.shape[0]))
+    if safe_top_k:
+        top_indices = np.argpartition(scores, -safe_top_k)[-safe_top_k:]
+        top_indices = top_indices[np.argsort(scores[top_indices])[::-1]]
+    else:
+        top_indices = np.array([], dtype=np.int64)
+    return {
+        "scorer_key": "neural_cpu_mlp_v0",
+        "top_k": safe_top_k,
+        "score_seconds": round(time.time() - started, 3),
+        "score_min": round(float(scores.min()), 8),
+        "score_median": round(float(np.median(scores)), 8),
+        "score_max": round(float(scores.max()), 8),
+        "top_candidates": [
+            {
+                "rank": rank,
+                "numbers": [int(number) for number in matrix.numbers[index].tolist()],
+                "score": round(float(scores[index]), 8),
+            }
+            for rank, index in enumerate(top_indices.tolist(), start=1)
+        ],
     }
 
 
@@ -278,6 +377,25 @@ def render_report(payload: dict[str, Any]) -> str:
         f"| {row['epoch']} | {row['seconds']} | {row['train_loss']} | {row['val_auc']} |"
         for row in payload["training"]["epoch_summaries"]
     )
+    scoring = payload.get("scoring") if isinstance(payload.get("scoring"), dict) else None
+    candidates = "\n".join(
+        f"| {item['rank']} | {' '.join(f'{number:02d}' for number in item['numbers'])} | {item['score']} |"
+        for item in (scoring or {}).get("top_candidates", [])
+    )
+    scoring_section = ""
+    if scoring is not None:
+        scoring_section = f"""
+## Explicit Neural Scorer
+
+- Scorer key: `{scoring['scorer_key']}`
+- Top-K: {scoring['top_k']}
+- Score seconds: {scoring['score_seconds']}
+- Score min/median/max: {scoring['score_min']} / {scoring['score_median']} / {scoring['score_max']}
+
+| Rank | Numbers | Neural score |
+| ---: | --- | ---: |
+{candidates}
+"""
     return f"""# DEHPS Neural Feasibility Probe
 
 - Generated at: {payload["generated_at"]}
@@ -298,6 +416,8 @@ def render_report(payload: dict[str, Any]) -> str:
 | ---: | ---: | ---: | ---: |
 {epochs}
 
+{scoring_section}
+
 ## Interpretation
 
 This is a hardware and pipeline feasibility probe for a small CPU neural baseline. It does not claim predictive ability. A real experiment must freeze the feature set, split by time, and compare against same-budget structural/frequency/null baselines.
@@ -316,6 +436,7 @@ def run_probe(
     batch_size: int,
     learning_rate: float,
     seed: int,
+    score_top_k: int,
     output_dir: Path,
 ) -> dict[str, Any]:
     with get_connection() as conn:
@@ -336,7 +457,7 @@ def run_probe(
         negative_ratio=negative_ratio,
         seed=seed,
     )
-    training = train_numpy_mlp(
+    model, training = fit_numpy_mlp(
         dataset,
         hidden_units=hidden_units,
         epochs=epochs,
@@ -373,6 +494,13 @@ def run_probe(
         },
         "training": training,
     }
+    if score_top_k > 0:
+        payload["scoring"] = score_full_universe(
+            matrix,
+            model,
+            top_k=score_top_k,
+            batch_size=max(batch_size, 65_536),
+        )
     output_dir.mkdir(parents=True, exist_ok=True)
     key = datetime.now().strftime("%Y%m%d-%H%M%S")
     json_path = output_dir / f"neural-feasibility-{key}.json"
@@ -396,6 +524,7 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=4096)
     parser.add_argument("--learning-rate", type=float, default=0.03)
     parser.add_argument("--seed", type=int, default=20260618)
+    parser.add_argument("--score-top-k", type=int, default=0, help="Explicitly score the full universe and emit top-K neural candidates.")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     args = parser.parse_args()
     payload = run_probe(
@@ -409,6 +538,7 @@ def main() -> None:
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
         seed=args.seed,
+        score_top_k=args.score_top_k,
         output_dir=args.output_dir,
     )
     print(
@@ -419,6 +549,7 @@ def main() -> None:
                 "sampled_rows": payload["dataset"]["sampled_rows"],
                 "feature_count": payload["dataset"]["feature_count"],
                 "last_epoch_rows_per_second": payload["training"]["rows_per_second_last_epoch"],
+                "scoring": payload.get("scoring"),
             },
             ensure_ascii=False,
         )

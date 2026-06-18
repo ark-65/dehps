@@ -9,7 +9,9 @@ from scripts.run_neural_feasibility_probe import (
     build_probe_dataset,
     combination_keys,
     dense_bytes,
+    fit_numpy_mlp,
     gibibytes,
+    score_full_universe,
     train_numpy_mlp,
 )
 
@@ -110,6 +112,8 @@ def test_numpy_mlp_probe_runs_on_toy_data():
             y_train=y_train,
             x_val=x_val,
             y_val=y_val,
+            feature_mean=np.zeros((1, 5), dtype=np.float32),
+            feature_std=np.ones((1, 5), dtype=np.float32),
             positive_count=int(y_train.sum() + y_val.sum()),
             negative_count=int((1 - y_train).sum() + (1 - y_val).sum()),
             feature_count=5,
@@ -127,3 +131,40 @@ def test_numpy_mlp_probe_runs_on_toy_data():
     assert result["rows_per_second_last_epoch"] > 0
     assert dense_bytes(1024, 16) == 65536
     assert gibibytes(1024**3) == 1.0
+
+
+def test_full_universe_scoring_returns_ranked_candidates():
+    matrix = fake_matrix()
+    dataset = build_probe_dataset(
+        matrix=matrix,
+        history=[
+            ("001", (1, 2, 3, 4, 5, 6)),
+            ("002", (1, 3, 5, 7, 9, 11)),
+            ("003", (2, 4, 6, 8, 10, 12)),
+            ("004", (3, 8, 13, 18, 23, 28)),
+            ("005", (4, 9, 14, 19, 24, 29)),
+            ("006", (5, 10, 15, 20, 25, 30)),
+            ("007", (6, 11, 16, 21, 26, 31)),
+            ("008", (7, 12, 17, 22, 27, 32)),
+        ],
+        max_sample_rows=10,
+        negative_ratio=1,
+        seed=17,
+    )
+    model, summary = fit_numpy_mlp(
+        dataset,
+        hidden_units=4,
+        epochs=1,
+        batch_size=4,
+        learning_rate=0.01,
+        seed=19,
+    )
+
+    scored = score_full_universe(matrix, model, top_k=3, batch_size=4)
+
+    assert summary["backend"] == "numpy_cpu_mlp"
+    assert scored["scorer_key"] == "neural_cpu_mlp_v0"
+    assert scored["top_k"] == 3
+    assert len(scored["top_candidates"]) == 3
+    assert scored["top_candidates"][0]["rank"] == 1
+    assert scored["score_min"] <= scored["score_median"] <= scored["score_max"]
