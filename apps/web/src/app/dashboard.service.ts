@@ -151,7 +151,7 @@ export class DashboardService {
               latestPayload = message.payload;
               emit({ connection: 'connected', payload: latestPayload, message: null });
             } else if (message.type === 'heartbeat') {
-              emit({ connection: 'connected', payload: latestPayload, message: null });
+              return;
             } else if (message.type === 'error') {
               emit({ connection: 'connected', payload: latestPayload, message: message.message });
             }

@@ -23,6 +23,7 @@ import {
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import type { ECharts, EChartsCoreOption } from 'echarts/core';
+import { LegendSelectionState, legendSelectionFromEvent, mergeLegendSelection } from './echart-state';
 
 echarts.use([
   BarChart,
@@ -63,6 +64,7 @@ export class EchartComponent implements AfterViewInit, OnChanges, OnDestroy {
   private chart: ECharts | null = null;
   private readonly browser: boolean;
   private resizeObserver: ResizeObserver | null = null;
+  private legendSelection: LegendSelectionState = {};
 
   constructor(@Inject(PLATFORM_ID) platformId: object) {
     this.browser = isPlatformBrowser(platformId);
@@ -73,6 +75,12 @@ export class EchartComponent implements AfterViewInit, OnChanges, OnDestroy {
       return;
     }
     this.chart = echarts.init(this.host.nativeElement, undefined, { renderer: 'canvas' });
+    this.chart.on('legendselectchanged', (event: unknown) => {
+      const nextSelection = legendSelectionFromEvent(event);
+      if (Object.keys(nextSelection).length) {
+        this.legendSelection = nextSelection;
+      }
+    });
     this.resizeObserver = new ResizeObserver(() => this.chart?.resize());
     this.resizeObserver.observe(this.host.nativeElement);
     this.render();
@@ -93,7 +101,11 @@ export class EchartComponent implements AfterViewInit, OnChanges, OnDestroy {
     if (!this.chart || !this.option) {
       return;
     }
-    this.chart.setOption(this.option, true);
+    const option = mergeLegendSelection(this.option, this.legendSelection) ?? this.option;
+    this.chart.setOption(option, {
+      lazyUpdate: true,
+      notMerge: true,
+    });
   }
 }
 

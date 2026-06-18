@@ -19,6 +19,7 @@ import {
   signedPercent,
   sortedServiceStatuses,
 } from '../src/app/dashboard.model';
+import { legendSelectionFromEvent, mergeLegendSelection } from '../src/app/echart-state';
 
 test('percent formats ratios as dashboard percentages', () => {
   assert.equal(percent(0.96887324), '96.89%');
@@ -249,6 +250,32 @@ test('training view does not use periodic dashboard polling', () => {
   assert.equal(template.includes('权重演化图待拆分'), false);
   assert.equal(component.includes("title: '权重演化 - 基础'"), true);
   assert.equal(component.includes("title: '权重演化 - 奖惩'"), true);
+});
+
+test('echart legend selection survives option refreshes', () => {
+  const selection = legendSelectionFromEvent({
+    selected: {
+      Top10000: true,
+      Top1000: false,
+      ignored: 'nope',
+    },
+  });
+  const option = mergeLegendSelection(
+    {
+      legend: { top: 8, selected: { Top100: true } },
+      series: [{ name: 'Top10000', data: [1, 2, 3] }],
+    },
+    selection,
+  );
+
+  assert.deepEqual(option?.legend, {
+    top: 8,
+    selected: {
+      Top100: true,
+      Top10000: true,
+      Top1000: false,
+    },
+  });
 });
 
 test('service status tab loads lazily from the dedicated endpoint', () => {
