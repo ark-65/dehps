@@ -391,15 +391,9 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
   }
 
   private trainingWeightSignalPoint(row: Record<string, any>): TrainingWeightSignalPoint {
-    const drawDate =
-      row.draw_date instanceof Date
-        ? row.draw_date.toISOString().slice(0, 10)
-        : row.draw_date
-          ? String(row.draw_date).slice(0, 10)
-          : null;
     return {
       issue: row.issue,
-      drawDate,
+      drawDate: this.dateOnlyValue(row.draw_date),
       baseValue: Number(row.base_value),
       closeValue: Number(row.close_value),
       issueLowValue: Number(row.issue_low_value),
@@ -415,5 +409,15 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
       objectiveDelta: Number(row.objective_delta),
       sampleCount: Number(row.sample_count),
     };
+  }
+
+  private dateOnlyValue(value: unknown): string | null {
+    if (value instanceof Date) {
+      const year = value.getFullYear();
+      const month = String(value.getMonth() + 1).padStart(2, '0');
+      const day = String(value.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    return value ? String(value).slice(0, 10) : null;
   }
 }

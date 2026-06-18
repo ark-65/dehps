@@ -3,6 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { PostgresResearchRepository } from '../src/research.repository';
 import { ResearchService } from '../src/research.service';
 import { ResearchRepository } from '../src/research.types';
 
@@ -309,6 +310,34 @@ test('training weight signals normalize run id, weights, and limit', async () =>
   assert.equal(series[0].signalRunId, 'weight-kdj-run-1');
   assert.equal(series[0].weightName, 'frequency_weight');
   assert.equal(series[0].points[0].jValue, 69.444444);
+});
+
+test('postgres training weight signal mapping preserves date-only values', async () => {
+  const repository = new PostgresResearchRepository();
+  try {
+    const point = (repository as any).trainingWeightSignalPoint({
+      issue: '2026068',
+      draw_date: new Date(2026, 5, 16),
+      base_value: '0.300000',
+      close_value: '0.330000',
+      issue_low_value: '0.240000',
+      issue_high_value: '0.360000',
+      rolling_low_value: '0.240000',
+      rolling_high_value: '0.360000',
+      rsv: '75.000000',
+      k_value: '58.333333',
+      d_value: '52.777778',
+      j_value: '69.444444',
+      recommended_offset: '0.011667',
+      best_objective_score: '10.000000',
+      objective_delta: '2.000000',
+      sample_count: '5',
+    });
+
+    assert.equal(point.drawDate, '2026-06-16');
+  } finally {
+    await repository.onModuleDestroy();
+  }
 });
 
 test('training status is derived from database rounds without status json', async () => {
