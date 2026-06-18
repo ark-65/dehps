@@ -24,6 +24,8 @@ from scripts.run_training_supervisor import (
     training_event_payload,
     summarize_target_ranks,
     training_progress_payload,
+    weight_kdj_advisor_candidate_configs,
+    weight_kdj_advisor_metadata,
 )
 
 
@@ -135,6 +137,36 @@ def test_generate_configs_uses_history_and_stagnation_exploration():
     assert any(abs(config.sum_tail_weight) >= 0.07 for config in configs)
     assert any(config.frequency_weight > 0.50 for config in configs)
     assert any(all(value == 0 for value in config.__dict__.values()) for config in configs)
+
+
+def test_weight_kdj_advisor_generates_bounded_candidate_offsets():
+    base = FrequencyRankerConfig(frequency_weight=0.30, sum_tail_weight=0.0)
+    signals = [
+        {
+            "signal_run_id": "weight-kdj-run-1",
+            "issue": "2026067",
+            "weight_name": "frequency_weight",
+            "recommended_offset": 0.04,
+            "objective_delta": 2.0,
+            "j_value": 70.0,
+        },
+        {
+            "signal_run_id": "weight-kdj-run-1",
+            "issue": "2026068",
+            "weight_name": "sum_tail_weight",
+            "recommended_offset": -0.02,
+            "objective_delta": 1.0,
+            "j_value": 30.0,
+        },
+    ]
+
+    configs = weight_kdj_advisor_candidate_configs(base, signals, max_configs=4)
+    metadata = weight_kdj_advisor_metadata(signals, configs)
+
+    assert any(round(config.frequency_weight, 6) == 0.34 for config in configs)
+    assert any(round(config.sum_tail_weight, 6) == -0.02 for config in configs)
+    assert metadata["mode"] == "advisor_only"
+    assert metadata["candidate_count"] == len(configs)
 
 
 def test_prefilter_configs_keeps_base_and_elite_before_full_refine():

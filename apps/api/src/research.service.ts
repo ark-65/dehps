@@ -20,6 +20,7 @@ import {
   TrainingRoundSummary,
   TrainingStatusPayload,
   TrainingTargetResult,
+  TrainingWeightSignalSeries,
 } from './research.types';
 
 const DEFAULT_LIMIT = 20;
@@ -167,6 +168,19 @@ export class ResearchService {
       targetResults: this.targetResultsValue(detail.targetResults),
       prefilter: this.prefilterRunValue(detail.prefilter),
     };
+  }
+
+  listTrainingWeightSignals(
+    signalRunId: string | undefined,
+    weights: string | undefined,
+    limit = 1000,
+  ): Promise<TrainingWeightSignalSeries[]> {
+    const normalizedRunId = signalRunId?.trim() || null;
+    const normalizedWeights = (weights ?? '')
+      .split(',')
+      .map((weight) => weight.trim())
+      .filter((weight) => /^[a-z0-9_]+$/i.test(weight));
+    return this.repository.listTrainingWeightSignals(normalizedRunId, [...new Set(normalizedWeights)], this.normalizeSignalLimit(limit));
   }
 
   async trainingStatus(tailLines = DEFAULT_LOG_TAIL_LINES): Promise<TrainingStatusPayload> {
@@ -325,6 +339,13 @@ export class ResearchService {
       return DEFAULT_LIMIT;
     }
     return Math.min(Math.max(Math.trunc(limit), 1), 100);
+  }
+
+  private normalizeSignalLimit(limit: number): number {
+    if (!Number.isFinite(limit)) {
+      return 1000;
+    }
+    return Math.min(Math.max(Math.trunc(limit), 1), 1000);
   }
 
   private normalizeTailLines(lines: number): number {

@@ -193,6 +193,36 @@ export type TrainingRoundDetail = TrainingRoundListItem & {
   prefilter: TrainingPrefilterRun | null;
 };
 
+export type TrainingWeightSignalPoint = {
+  issue: string;
+  drawDate: string | null;
+  baseValue: number;
+  closeValue: number;
+  issueLowValue: number;
+  issueHighValue: number;
+  rollingLowValue: number;
+  rollingHighValue: number;
+  rsv: number;
+  kValue: number;
+  dValue: number;
+  jValue: number;
+  recommendedOffset: number;
+  bestObjectiveScore: number;
+  objectiveDelta: number;
+  sampleCount: number;
+};
+
+export type TrainingWeightSignalSeries = {
+  signalRunId: string;
+  weightName: string;
+  source: string;
+  trainMode: string;
+  trainWindow: number;
+  evalWindow: number;
+  topN: number;
+  points: TrainingWeightSignalPoint[];
+};
+
 export type TrainingProgress = {
   loggedAt: string;
   round: number;

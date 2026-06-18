@@ -206,6 +206,39 @@ const repository: ResearchRepository = {
       createdAt: '2026-06-18T00:00:00.000Z',
     };
   },
+  async listTrainingWeightSignals(signalRunId, weights, limit) {
+    return [
+      {
+        signalRunId: signalRunId ?? 'weight-kdj-run-1',
+        weightName: weights[0] ?? `frequency_weight_${limit}`,
+        source: 'weight_response_probe_v0',
+        trainMode: 'expanding',
+        trainWindow: 900,
+        evalWindow: 1,
+        topN: 10000,
+        points: [
+          {
+            issue: '2026068',
+            drawDate: '2026-06-16',
+            baseValue: 0.3,
+            closeValue: 0.33,
+            issueLowValue: 0.24,
+            issueHighValue: 0.36,
+            rollingLowValue: 0.24,
+            rollingHighValue: 0.36,
+            rsv: 75,
+            kValue: 58.333333,
+            dValue: 52.777778,
+            jValue: 69.444444,
+            recommendedOffset: 0.011667,
+            bestObjectiveScore: 10,
+            objectiveDelta: 2,
+            sampleCount: 5,
+          },
+        ],
+      },
+    ];
+  },
 };
 
 test('dashboard returns experiments, pipeline runs, and sync runs', async () => {
@@ -266,6 +299,16 @@ test('training round detail normalizes target hit rows', async () => {
   assert.equal(detail?.targetResults[0].redNumbers.join(','), '1,2,3,4,5,6');
   assert.equal(detail?.targetResults[0].red5MissingNumber, 6);
   assert.equal(await service.getTrainingRoundDetail('missing', 1), null);
+});
+
+test('training weight signals normalize run id, weights, and limit', async () => {
+  const service = new ResearchService(repository);
+
+  const series = await service.listTrainingWeightSignals(' weight-kdj-run-1 ', 'frequency_weight, bad value ', 5000);
+
+  assert.equal(series[0].signalRunId, 'weight-kdj-run-1');
+  assert.equal(series[0].weightName, 'frequency_weight');
+  assert.equal(series[0].points[0].jValue, 69.444444);
 });
 
 test('training status is derived from database rounds without status json', async () => {

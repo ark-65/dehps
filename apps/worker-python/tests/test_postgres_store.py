@@ -5,9 +5,11 @@ from decimal import Decimal
 import pytest
 
 from dehps.storage.postgres_store import DEFAULT_SSQ_DRAW_SITE
+from dehps.storage.postgres_store import ensure_training_weight_signals_schema
 from dehps.storage.postgres_store import load_training_round_candidate_summaries
 from dehps.storage.postgres_store import load_red_combination_universe
 from dehps.storage.postgres_store import upsert_training_round_result
+from dehps.storage.postgres_store import upsert_training_weight_signal
 from dehps.storage.postgres_store import upsert_ssq_draw_site
 
 
@@ -115,6 +117,59 @@ def test_upsert_training_round_result_uses_run_round_conflict_key():
     assert params[10] is True
     assert '"frequency_weight": 0.4' in params[-5]
     assert '"target_count": 25' in params[-1]
+
+
+def test_training_weight_signals_schema_uses_run_issue_weight_key():
+    conn = FakeConn([])
+
+    ensure_training_weight_signals_schema(conn)
+
+    schema_sql = conn.executed[0][0]
+    assert "CREATE TABLE IF NOT EXISTS training_weight_signals" in schema_sql
+    assert "UNIQUE (signal_run_id, issue, weight_name)" in schema_sql
+    assert any("idx_training_weight_signals_weight_issue" in sql for sql, _params in conn.executed)
+
+
+def test_upsert_training_weight_signal_is_idempotent_by_run_issue_weight():
+    conn = FakeConn([])
+
+    upsert_training_weight_signal(
+        conn,
+        {
+            "signal_run_id": "weight-kdj-run-1",
+            "issue": "2026068",
+            "draw_date": "2026-06-16",
+            "weight_name": "frequency_weight",
+            "train_mode": "expanding",
+            "train_window": 900,
+            "eval_window": 1,
+            "top_n": 10000,
+            "history_fingerprint": "history-1",
+            "source": "weight_response_probe_v0",
+            "base_value": 0.3,
+            "close_value": 0.33,
+            "issue_low_value": 0.24,
+            "issue_high_value": 0.36,
+            "rolling_low_value": 0.24,
+            "rolling_high_value": 0.36,
+            "rsv": 75,
+            "k_value": 58.333333,
+            "d_value": 52.777778,
+            "j_value": 69.444444,
+            "recommended_offset": 0.011667,
+            "best_objective_score": 10,
+            "objective_delta": 2,
+            "sample_count": 5,
+            "probe_results": [{"config_hash": "abc"}],
+            "advisor_metadata": {"mode": "kdj_response_interval"},
+        },
+    )
+
+    sql, params = conn.executed[-1]
+    assert "ON CONFLICT (signal_run_id, issue, weight_name) DO UPDATE" in sql
+    assert params[:4] == ("weight-kdj-run-1", "2026068", "2026-06-16", "frequency_weight")
+    assert '"config_hash": "abc"' in params[-2]
+    assert '"kdj_response_interval"' in params[-1]
 
 
 def test_load_training_round_candidate_summaries_returns_best_and_top_results():

@@ -66,6 +66,15 @@ export class ResearchController {
     return this.researchService.getTrainingRoundDetail(runId, Number(roundIndex));
   }
 
+  @Get('training-weight-signals')
+  trainingWeightSignals(
+    @Query('runId') runId?: string,
+    @Query('weights') weights?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.researchService.listTrainingWeightSignals(runId, weights, Number(limit));
+  }
+
   @Post('training-events/status')
   async trainingStatusEvent(@Req() request: LocalRequest, @Body() _body: unknown) {
     if (!this.isLocalRequest(request)) {

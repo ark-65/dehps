@@ -11,6 +11,7 @@ import {
   TrainingRoundDetail,
   TrainingRoundListItem,
   TrainingStatusPayload,
+  TrainingWeightSignalSeries,
 } from './dashboard.model';
 
 export type TrainingConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'disconnected';
@@ -80,6 +81,10 @@ export class DashboardService {
     return this.http.get<TrainingRoundDetail | null>(
       `/training-rounds/${encodeURIComponent(runId)}/${encodeURIComponent(String(roundIndex))}`,
     );
+  }
+
+  loadTrainingWeightSignals(): Observable<TrainingWeightSignalSeries[]> {
+    return this.http.get<TrainingWeightSignalSeries[]>('/training-weight-signals?limit=1000');
   }
 
   watchTrainingStatus(): Observable<TrainingStatusStreamState> {

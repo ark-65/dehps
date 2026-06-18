@@ -1,4 +1,5 @@
 @let trainingStream = trainingStream$ | async;
+@let kdjSignals = trainingWeightSignalsState$ | async;
 <main class="shell">
   <header class="topbar">
     <div>
@@ -184,6 +185,28 @@
         @for (group of weightTrendGroups(training); track group.key) {
         <article class="chart-panel wide-chart weight-chart-panel">
           <app-echart [option]="group.option" height="360px"></app-echart>
+        </article>
+        }
+        @if (kdjSignals?.status === 'ready' && kdjSignals.series.length) {
+        @for (group of weightKdjGroups(kdjSignals.series); track group.key) {
+        <article class="chart-panel wide-chart weight-chart-panel">
+          <app-echart [option]="group.option" height="360px"></app-echart>
+        </article>
+        }
+        } @else if (kdjSignals?.status === 'loading') {
+        <article class="chart-empty-state wide-chart">
+          <strong>权重KDJ加载中</strong>
+          <span>正在读取最近 1000 期权重信号</span>
+        </article>
+        } @else if (kdjSignals?.status === 'error') {
+        <article class="chart-empty-state wide-chart">
+          <strong>权重KDJ暂不可用</strong>
+          <span>{{ kdjSignals.message }}</span>
+        </article>
+        } @else {
+        <article class="chart-empty-state wide-chart">
+          <strong>等待权重KDJ回填</strong>
+          <span>生成 training_weight_signals 后会显示每期权重 K/D/J 曲线</span>
         </article>
         }
         <article class="chart-panel wide-chart">

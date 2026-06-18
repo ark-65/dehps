@@ -137,6 +137,169 @@ def ensure_training_round_results_schema(conn: Connection) -> None:
     )
 
 
+def ensure_training_weight_signals_schema(conn: Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS training_weight_signals (
+          id BIGSERIAL PRIMARY KEY,
+          signal_run_id TEXT NOT NULL,
+          issue TEXT NOT NULL,
+          draw_date DATE,
+          weight_name TEXT NOT NULL,
+          train_mode TEXT NOT NULL,
+          train_window INTEGER NOT NULL,
+          eval_window INTEGER NOT NULL,
+          top_n INTEGER NOT NULL,
+          history_fingerprint TEXT NOT NULL,
+          source TEXT NOT NULL,
+          base_value NUMERIC(12,6) NOT NULL,
+          close_value NUMERIC(12,6) NOT NULL,
+          issue_low_value NUMERIC(12,6) NOT NULL,
+          issue_high_value NUMERIC(12,6) NOT NULL,
+          rolling_low_value NUMERIC(12,6) NOT NULL,
+          rolling_high_value NUMERIC(12,6) NOT NULL,
+          rsv NUMERIC(12,6) NOT NULL,
+          k_value NUMERIC(12,6) NOT NULL,
+          d_value NUMERIC(12,6) NOT NULL,
+          j_value NUMERIC(12,6) NOT NULL,
+          recommended_offset NUMERIC(12,6) NOT NULL,
+          best_objective_score NUMERIC(14,6) NOT NULL,
+          objective_delta NUMERIC(14,6) NOT NULL,
+          sample_count INTEGER NOT NULL,
+          probe_results JSONB NOT NULL DEFAULT '[]'::jsonb,
+          advisor_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (signal_run_id, issue, weight_name)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_training_weight_signals_weight_issue
+          ON training_weight_signals (weight_name, issue)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_training_weight_signals_run_issue
+          ON training_weight_signals (signal_run_id, issue)
+        """
+    )
+
+
+def upsert_training_weight_signal(conn: Connection, signal: dict[str, Any]) -> None:
+    conn.execute(
+        """
+        INSERT INTO training_weight_signals (
+          signal_run_id, issue, draw_date, weight_name, train_mode, train_window, eval_window, top_n,
+          history_fingerprint, source, base_value, close_value, issue_low_value, issue_high_value,
+          rolling_low_value, rolling_high_value, rsv, k_value, d_value, j_value, recommended_offset,
+          best_objective_score, objective_delta, sample_count, probe_results, advisor_metadata
+        )
+        VALUES (
+          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+          %s::jsonb, %s::jsonb
+        )
+        ON CONFLICT (signal_run_id, issue, weight_name) DO UPDATE
+        SET draw_date = EXCLUDED.draw_date,
+            train_mode = EXCLUDED.train_mode,
+            train_window = EXCLUDED.train_window,
+            eval_window = EXCLUDED.eval_window,
+            top_n = EXCLUDED.top_n,
+            history_fingerprint = EXCLUDED.history_fingerprint,
+            source = EXCLUDED.source,
+            base_value = EXCLUDED.base_value,
+            close_value = EXCLUDED.close_value,
+            issue_low_value = EXCLUDED.issue_low_value,
+            issue_high_value = EXCLUDED.issue_high_value,
+            rolling_low_value = EXCLUDED.rolling_low_value,
+            rolling_high_value = EXCLUDED.rolling_high_value,
+            rsv = EXCLUDED.rsv,
+            k_value = EXCLUDED.k_value,
+            d_value = EXCLUDED.d_value,
+            j_value = EXCLUDED.j_value,
+            recommended_offset = EXCLUDED.recommended_offset,
+            best_objective_score = EXCLUDED.best_objective_score,
+            objective_delta = EXCLUDED.objective_delta,
+            sample_count = EXCLUDED.sample_count,
+            probe_results = EXCLUDED.probe_results,
+            advisor_metadata = EXCLUDED.advisor_metadata,
+            updated_at = now()
+        """,
+        (
+            signal["signal_run_id"],
+            signal["issue"],
+            signal.get("draw_date"),
+            signal["weight_name"],
+            signal["train_mode"],
+            int(signal["train_window"]),
+            int(signal["eval_window"]),
+            int(signal["top_n"]),
+            signal["history_fingerprint"],
+            signal["source"],
+            float(signal["base_value"]),
+            float(signal["close_value"]),
+            float(signal["issue_low_value"]),
+            float(signal["issue_high_value"]),
+            float(signal["rolling_low_value"]),
+            float(signal["rolling_high_value"]),
+            float(signal["rsv"]),
+            float(signal["k_value"]),
+            float(signal["d_value"]),
+            float(signal["j_value"]),
+            float(signal["recommended_offset"]),
+            float(signal["best_objective_score"]),
+            float(signal["objective_delta"]),
+            int(signal["sample_count"]),
+            json.dumps(signal.get("probe_results") or []),
+            json.dumps(signal.get("advisor_metadata") or {}),
+        ),
+    )
+
+
+def load_recent_training_weight_signals(
+    conn: Connection,
+    *,
+    signal_run_id: str | None = None,
+    limit: int = 1000,
+) -> list[dict[str, Any]]:
+    exists = conn.execute("SELECT to_regclass('public.training_weight_signals')").fetchone()
+    if not exists or not exists[0]:
+        return []
+    with conn.cursor(row_factory=dict_row) as cur:
+        rows = cur.execute(
+            """
+            WITH selected_run AS (
+              SELECT COALESCE(
+                %s,
+                (
+                  SELECT signal_run_id
+                  FROM training_weight_signals
+                  ORDER BY created_at DESC, issue DESC
+                  LIMIT 1
+                )
+              ) AS signal_run_id
+            ),
+            ranked_points AS (
+              SELECT s.*,
+                     row_number() OVER (PARTITION BY s.weight_name ORDER BY s.issue DESC) AS row_number
+              FROM training_weight_signals s
+              JOIN selected_run r ON r.signal_run_id = s.signal_run_id
+              WHERE r.signal_run_id IS NOT NULL
+            )
+            SELECT signal_run_id, issue, weight_name, train_mode, train_window, eval_window, top_n,
+                   close_value, k_value, d_value, j_value, recommended_offset, objective_delta,
+                   best_objective_score, sample_count, source
+            FROM ranked_points
+            WHERE row_number <= %s
+            ORDER BY weight_name ASC, issue ASC
+            """,
+            (signal_run_id, limit),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def upsert_training_round_result(conn: Connection, *, run_id: str, round_info: dict[str, Any], status: dict[str, Any]) -> None:
     best = round_info.get("best") if isinstance(round_info.get("best"), dict) else {}
     red5 = best.get("red5") if isinstance(best.get("red5"), dict) else {}

@@ -24,6 +24,7 @@ import {
   TrainingRoundSummary,
   TrainingStatusPayload,
   TrainingTargetResult,
+  TrainingWeightSignalSeries,
   compareExperiments,
   combinationDistribution,
   hitRate,
@@ -67,6 +68,12 @@ type TrainingRoundDetailState =
   | { status: 'ready'; detail: TrainingRoundDetail | null }
   | { status: 'error'; key: string; message: string };
 
+type TrainingWeightSignalsState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'ready'; series: TrainingWeightSignalSeries[] }
+  | { status: 'error'; message: string };
+
 type DashboardTab = 'training' | 'training-rounds' | 'experiments';
 type WeightTrendGroup = {
   key: string;
@@ -90,6 +97,8 @@ const ROUND_ZOOM_THRESHOLD = ROUND_ZOOM_DEFAULT_WINDOW;
 const ROUND_ZOOM_GRID_BOTTOM = 82;
 const ROUND_ZOOM_SLIDER_BOTTOM = 14;
 const ROUND_ZOOM_SLIDER_HEIGHT = 20;
+const SIGNAL_ZOOM_DEFAULT_WINDOW = 160;
+const SIGNAL_ZOOM_THRESHOLD = 120;
 
 const WEIGHT_TREND_GROUPS: readonly WeightTrendGroup[] = [
   {
@@ -166,6 +175,7 @@ const WEIGHT_TREND_GROUPS: readonly WeightTrendGroup[] = [
 })
 export class AppComponent {
   private readonly trainingRefreshRequests = new Subject<void>();
+  private readonly trainingWeightSignalsRefreshRequests = new Subject<void>();
   private readonly experimentsRefreshRequests = new Subject<void>();
   private readonly trainingRoundsRefreshRequests = new Subject<void>();
   private readonly activeTabRequests = new BehaviorSubject<DashboardTab>('training');
@@ -258,6 +268,26 @@ export class AppComponent {
     startWith({ status: 'idle' as const }),
     shareReplay({ bufferSize: 1, refCount: true }),
   );
+  readonly trainingWeightSignalsState$ = this.activeTabRequests.pipe(
+    filter((tab) => tab === 'training'),
+    map(() => undefined),
+  ).pipe(
+    mergeWith(this.trainingWeightSignalsRefreshRequests),
+    switchMap(() =>
+      this.dashboardService.loadTrainingWeightSignals().pipe(
+        map((series): TrainingWeightSignalsState => ({ status: 'ready', series })),
+        catchError((error: unknown) =>
+          of({
+            status: 'error' as const,
+            message: error instanceof Error ? error.message : '权重KDJ加载失败',
+          }),
+        ),
+        startWith({ status: 'loading' as const }),
+      ),
+    ),
+    startWith({ status: 'idle' as const }),
+    shareReplay({ bufferSize: 1, refCount: true }),
+  );
   readonly trainingRoundDetailState$ = this.trainingRoundDetailRequests.pipe(
     switchMap((round) => {
       if (!round) {
@@ -307,6 +337,7 @@ export class AppComponent {
   refresh(): void {
     if (this.activeTab === 'training') {
       this.trainingRefreshRequests.next();
+      this.trainingWeightSignalsRefreshRequests.next();
       return;
     }
     if (this.activeTab === 'training-rounds') {
@@ -817,6 +848,59 @@ export class AppComponent {
     }));
   }
 
+  weightKdjGroups(series: TrainingWeightSignalSeries[]): Array<{ key: string; option: ChartOption }> {
+    const byWeight = new Map(series.map((item) => [item.weightName, item]));
+    return WEIGHT_TREND_GROUPS.filter((group) => group.kind === 'weights').map((group) => ({
+      key: group.key,
+      option: this.weightKdjOption(byWeight, group),
+    }));
+  }
+
+  private weightKdjOption(seriesByWeight: Map<string, TrainingWeightSignalSeries>, group: WeightTrendGroup): ChartOption {
+    const fields = group.fields ?? [];
+    const selected = fields
+      .map(([field, label]) => ({ field, label, series: seriesByWeight.get(field) ?? null }))
+      .filter((item): item is { field: string; label: string; series: TrainingWeightSignalSeries } => Boolean(item.series));
+    const pointCount = Math.max(0, ...selected.map((item) => item.series.points.length));
+    const xAxis = selected[0]?.series.points.map((point) => point.issue) ?? [];
+    const chartSeries = selected.flatMap((item) => [
+      this.lineSeries(
+        `${item.label} K`,
+        item.series.points.map((point) => point.kValue),
+        '#4472a5',
+      ),
+      this.lineSeries(
+        `${item.label} D`,
+        item.series.points.map((point) => point.dValue),
+        '#327857',
+      ),
+      this.lineSeries(
+        `${item.label} J`,
+        item.series.points.map((point) => point.jValue),
+        '#a85c38',
+      ),
+    ]);
+    const dataZoom = this.signalRangeDataZoom(pointCount);
+    return {
+      title: { text: group.title.replace('权重演化', '权重KDJ'), left: 12, top: 8, textStyle: { fontSize: 14, fontWeight: 700 } },
+      tooltip: {
+        trigger: 'axis',
+        formatter: (params: unknown) => this.signalTooltipText(selected[0]?.series ?? null, params),
+      },
+      legend: { type: 'scroll', top: 38, left: 12, right: 12 },
+      grid: { left: 58, right: 24, top: 92, bottom: dataZoom.length ? 82 : 42 },
+      xAxis: {
+        type: 'category',
+        data: xAxis,
+        axisLabel: { hideOverlap: true },
+        axisTick: { alignWithLabel: true },
+      },
+      yAxis: { type: 'value', name: 'KDJ' },
+      series: chartSeries,
+      ...(dataZoom.length ? { dataZoom } : {}),
+    };
+  }
+
   private weightTrendOption(status: TrainingStatusPayload, group: WeightTrendGroup): ChartOption {
     const rounds = this.chartRounds(status);
     const xAxis = rounds.map((round) => `R${round.round}`);
@@ -1133,6 +1217,44 @@ export class AppComponent {
       color,
       data,
     };
+  }
+
+  private signalRangeDataZoom(pointCount: number): Record<string, unknown>[] {
+    if (pointCount <= SIGNAL_ZOOM_THRESHOLD) {
+      return [];
+    }
+    const start = Math.max(0, ((pointCount - SIGNAL_ZOOM_DEFAULT_WINDOW) / pointCount) * 100);
+    return [
+      {
+        type: 'inside',
+        start,
+        end: 100,
+        filterMode: 'filter',
+        zoomOnMouseWheel: true,
+        moveOnMouseWheel: true,
+      },
+      {
+        type: 'slider',
+        start,
+        end: 100,
+        filterMode: 'filter',
+        bottom: ROUND_ZOOM_SLIDER_BOTTOM,
+        height: ROUND_ZOOM_SLIDER_HEIGHT,
+        brushSelect: false,
+      },
+    ];
+  }
+
+  private signalTooltipText(series: TrainingWeightSignalSeries | null, params: unknown): string {
+    const values = (Array.isArray(params) ? params : [params]).filter(Boolean) as ChartTooltipParam[];
+    const first = values[0];
+    const point = series && typeof first?.dataIndex === 'number' ? series.points[first.dataIndex] : null;
+    const header = point ? `期号 ${point.issue}${point.drawDate ? ` / ${point.drawDate}` : ''}` : String(first?.axisValueLabel ?? first?.axisValue ?? '权重KDJ');
+    const rows = values
+      .map((item) => `${item.marker ?? ''}${item.seriesName}: ${typeof item.value === 'number' ? item.value.toFixed(3) : item.value}`)
+      .join('<br/>');
+    const offset = point ? `<br/>建议偏移 ${point.recommendedOffset.toFixed(4)} / 分数差 ${point.objectiveDelta.toFixed(3)}` : '';
+    return `${header}<br/>${rows}${offset}`;
   }
 
   private ensureSelection(payload: ExperimentsPayload): void {

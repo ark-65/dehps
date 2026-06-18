@@ -9,6 +9,8 @@ import {
   SyncRunSummary,
   TrainingRoundDetail,
   TrainingRoundListItem,
+  TrainingWeightSignalPoint,
+  TrainingWeightSignalSeries,
 } from './research.types';
 
 @Injectable()
@@ -295,6 +297,73 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
     };
   }
 
+  async listTrainingWeightSignals(
+    signalRunId: string | null,
+    weights: string[],
+    limit: number,
+  ): Promise<TrainingWeightSignalSeries[]> {
+    const tableCheck = await this.pool.query("SELECT to_regclass('public.training_weight_signals') AS table_name");
+    if (!tableCheck.rows[0]?.table_name) {
+      return [];
+    }
+
+    const weightFilter = weights.length ? weights : null;
+    const { rows } = await this.pool.query(
+      `
+      WITH selected_run AS (
+        SELECT COALESCE(
+          $1::text,
+          (
+            SELECT signal_run_id
+            FROM training_weight_signals
+            ORDER BY created_at DESC, issue DESC
+            LIMIT 1
+          )
+        ) AS signal_run_id
+      ),
+      ranked_points AS (
+        SELECT s.signal_run_id, s.issue, s.draw_date, s.weight_name, s.source,
+               s.train_mode, s.train_window, s.eval_window, s.top_n,
+               s.base_value, s.close_value, s.issue_low_value, s.issue_high_value,
+               s.rolling_low_value, s.rolling_high_value, s.rsv, s.k_value, s.d_value,
+               s.j_value, s.recommended_offset, s.best_objective_score, s.objective_delta,
+               s.sample_count,
+               row_number() OVER (PARTITION BY s.weight_name ORDER BY s.issue DESC) AS row_number
+        FROM training_weight_signals s
+        JOIN selected_run r ON r.signal_run_id = s.signal_run_id
+        WHERE r.signal_run_id IS NOT NULL
+          AND ($2::text[] IS NULL OR s.weight_name = ANY($2::text[]))
+      )
+      SELECT *
+      FROM ranked_points
+      WHERE row_number <= $3
+      ORDER BY weight_name ASC, issue ASC
+      `,
+      [signalRunId, weightFilter, limit],
+    );
+
+    const byWeight = new Map<string, TrainingWeightSignalSeries>();
+    for (const row of rows) {
+      const weightName = row.weight_name;
+      let series = byWeight.get(weightName);
+      if (!series) {
+        series = {
+          signalRunId: row.signal_run_id,
+          weightName,
+          source: row.source,
+          trainMode: row.train_mode,
+          trainWindow: Number(row.train_window),
+          evalWindow: Number(row.eval_window),
+          topN: Number(row.top_n),
+          points: [],
+        };
+      }
+      series.points.push(this.trainingWeightSignalPoint(row));
+      byWeight.set(weightName, series);
+    }
+    return [...byWeight.values()];
+  }
+
   private trainingRoundListItem(row: Record<string, any>): TrainingRoundListItem {
     return {
       runId: row.run_id,
@@ -318,6 +387,33 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
       worstRank: row.worst_rank === null ? null : Number(row.worst_rank),
       objectiveScore: row.objective_score === null ? null : Number(row.objective_score),
       createdAt: row.created_at.toISOString(),
+    };
+  }
+
+  private trainingWeightSignalPoint(row: Record<string, any>): TrainingWeightSignalPoint {
+    const drawDate =
+      row.draw_date instanceof Date
+        ? row.draw_date.toISOString().slice(0, 10)
+        : row.draw_date
+          ? String(row.draw_date).slice(0, 10)
+          : null;
+    return {
+      issue: row.issue,
+      drawDate,
+      baseValue: Number(row.base_value),
+      closeValue: Number(row.close_value),
+      issueLowValue: Number(row.issue_low_value),
+      issueHighValue: Number(row.issue_high_value),
+      rollingLowValue: Number(row.rolling_low_value),
+      rollingHighValue: Number(row.rolling_high_value),
+      rsv: Number(row.rsv),
+      kValue: Number(row.k_value),
+      dValue: Number(row.d_value),
+      jValue: Number(row.j_value),
+      recommendedOffset: Number(row.recommended_offset),
+      bestObjectiveScore: Number(row.best_objective_score),
+      objectiveDelta: Number(row.objective_delta),
+      sampleCount: Number(row.sample_count),
     };
   }
 }

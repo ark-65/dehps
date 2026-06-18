@@ -36,6 +36,7 @@ from dehps.optimization.walk_forward import (
 )
 from dehps.storage.postgres_store import ensure_training_round_results_schema, load_red_combination_universe, upsert_training_round_result
 from dehps.storage.postgres_store import load_training_round_candidate_summaries
+from dehps.storage.postgres_store import load_recent_training_weight_signals
 
 
 PRIMARY_FIELDS = ("structural_weight", "frequency_weight", "omission_weight")
@@ -486,6 +487,68 @@ def surrogate_candidate_configs(
             values[field] = elite_mean + direction * rng.uniform(0.15, 0.45) + rng.uniform(-0.015, 0.015)
         candidates.append(FrequencyRankerConfig(**values))
     return tuple(candidates)
+
+
+def weight_kdj_advisor_candidate_configs(
+    base: FrequencyRankerConfig,
+    signals: list[dict],
+    *,
+    max_configs: int,
+) -> tuple[FrequencyRankerConfig, ...]:
+    if max_configs <= 0 or not signals:
+        return ()
+    latest_by_field: dict[str, dict] = {}
+    for signal in signals:
+        field = str(signal.get("weight_name") or "")
+        if field not in ALL_FIELDS:
+            continue
+        current = latest_by_field.get(field)
+        if current is None or str(signal.get("issue") or "") >= str(current.get("issue") or ""):
+            latest_by_field[field] = signal
+
+    ranked = sorted(
+        latest_by_field.values(),
+        key=lambda signal: (
+            abs(float(signal.get("recommended_offset") or 0.0)),
+            float(signal.get("objective_delta") or 0.0),
+            abs(float(signal.get("j_value") or 50.0) - 50.0),
+        ),
+        reverse=True,
+    )
+    configs: list[FrequencyRankerConfig] = []
+    seen: set[str] = set()
+    add_unique(configs, seen, base)
+    for signal in ranked:
+        field = str(signal["weight_name"])
+        offset = float(signal.get("recommended_offset") or 0.0)
+        if offset == 0:
+            continue
+        add_unique_until(configs, seen, replace(base, **{field: getattr(base, field) + offset}), limit=max_configs)
+        if len(configs) >= max_configs:
+            return tuple(configs)
+    if len(ranked) >= 2:
+        values = config_dict(base)
+        for signal in ranked[: min(4, len(ranked))]:
+            field = str(signal["weight_name"])
+            values[field] = values[field] + float(signal.get("recommended_offset") or 0.0) / 2
+        add_unique_until(configs, seen, FrequencyRankerConfig(**values), limit=max_configs)
+    return tuple(configs[:max_configs])
+
+
+def weight_kdj_advisor_metadata(signals: list[dict], configs: tuple[FrequencyRankerConfig, ...]) -> dict:
+    signal_run_id = str(signals[-1].get("signal_run_id") or "") if signals else ""
+    latest_issue = max((str(signal.get("issue") or "") for signal in signals), default="")
+    fields = sorted({str(signal.get("weight_name")) for signal in signals if signal.get("weight_name") in ALL_FIELDS})
+    return {
+        "enabled": bool(signals),
+        "signal_run_id": signal_run_id,
+        "latest_issue": latest_issue,
+        "signal_count": len(signals),
+        "field_count": len(fields),
+        "fields": fields,
+        "candidate_count": len(configs),
+        "mode": "advisor_only",
+    }
 
 
 def search_fields_for_phase(phase: str) -> tuple[str, ...]:
@@ -1631,6 +1694,7 @@ def compact_status_payload(status: dict) -> dict:
         "feature_matrix_cache": status.get("feature_matrix_cache"),
         "red5_rank_mode": status.get("red5_rank_mode"),
         "prefilter": status.get("prefilter"),
+        "weight_kdj_advisor": status.get("weight_kdj_advisor"),
         "qian_kun": status.get("qian_kun"),
         "latest_progress": status.get("latest_progress"),
         "status_path": status.get("status_path"),
@@ -1724,6 +1788,9 @@ def run_supervisor(
     memory_budget_gb: int,
     event_url: str | None = None,
     write_status_json: bool = False,
+    enable_weight_kdj_advisor: bool = False,
+    weight_kdj_run_id: str | None = None,
+    weight_kdj_limit: int = 1000,
 ) -> dict:
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
     started_at = datetime.now()
@@ -1815,6 +1882,12 @@ def run_supervisor(
             "description": "每轮先用最近100期每4期取1期做轻量预筛，正式指标仍来自完整精排",
             "latest": None,
         },
+        "weight_kdj_advisor": {
+            "enabled": enable_weight_kdj_advisor,
+            "signal_run_id": weight_kdj_run_id,
+            "limit": weight_kdj_limit,
+            "latest": None,
+        },
         "qian_kun": qian_kun_distribution(selection.history),
         "rounds": rounds,
         "best": strip_target_results(best_summary) if best_summary else None,
@@ -1852,6 +1925,25 @@ def run_supervisor(
                     round_index=round_index + 1,
                 )
             )
+            weight_kdj_signals: list[dict] = []
+            weight_kdj_configs: tuple[FrequencyRankerConfig, ...] = ()
+            if enable_weight_kdj_advisor:
+                with get_connection() as conn:
+                    weight_kdj_signals = load_recent_training_weight_signals(
+                        conn,
+                        signal_run_id=weight_kdj_run_id,
+                        limit=weight_kdj_limit,
+                    )
+                weight_kdj_configs = weight_kdj_advisor_candidate_configs(
+                    base_config,
+                    weight_kdj_signals,
+                    max_configs=max(1, candidate_budget(max_configs_per_round)["replay"] // 2),
+                )
+                merged_configs: list[FrequencyRankerConfig] = []
+                seen_configs: set[str] = set()
+                for config in (*configs, *weight_kdj_configs):
+                    add_unique_until(merged_configs, seen_configs, config, limit=max_configs_per_round)
+                configs = tuple(merged_configs)
             generated_config_count = len(configs)
             keep_configs = (base_config, *elite_configs[:4], *(config for _label, config in control_configs))
             refined_configs, prefilter_info = prefilter_configs(
@@ -1871,6 +1963,9 @@ def run_supervisor(
             prefilter_info["stagnation_rounds"] = stagnation_rounds
             prefilter_info["low_coverage_fields"] = list(low_coverage_fields)
             prefilter_info["candidate_budget"] = candidate_budget(max_configs_per_round)
+            advisor_info = weight_kdj_advisor_metadata(weight_kdj_signals, weight_kdj_configs)
+            prefilter_info["weight_kdj_advisor"] = advisor_info
+            status["weight_kdj_advisor"]["latest"] = advisor_info
             status["prefilter"]["latest"] = prefilter_info
             log(
                 f"round={round_index + 1} phase={phase} step={step} "
@@ -1974,6 +2069,9 @@ def main() -> None:
     parser.add_argument("--memory-budget-gb", type=int, default=20)
     parser.add_argument("--event-url", default=os.getenv("DEHPS_TRAINING_EVENT_URL", DEFAULT_TRAINING_EVENT_URL))
     parser.add_argument("--write-status-json", action="store_true", help="Write a compact legacy status JSON snapshot.")
+    parser.add_argument("--enable-weight-kdj-advisor", action="store_true", help="Use stored weight KDJ signals as advisor-only candidate proposals.")
+    parser.add_argument("--weight-kdj-run-id", help="Optional training_weight_signals signal_run_id to read.")
+    parser.add_argument("--weight-kdj-limit", type=int, default=1000, help="Recent signal points per weight for advisor context.")
     args = parser.parse_args()
     print(
         json.dumps(
@@ -1993,6 +2091,9 @@ def main() -> None:
                 memory_budget_gb=args.memory_budget_gb,
                 event_url=args.event_url,
                 write_status_json=args.write_status_json,
+                enable_weight_kdj_advisor=args.enable_weight_kdj_advisor,
+                weight_kdj_run_id=args.weight_kdj_run_id,
+                weight_kdj_limit=args.weight_kdj_limit,
             ),
             ensure_ascii=False,
             indent=2,

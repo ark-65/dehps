@@ -174,6 +174,45 @@ CREATE TABLE IF NOT EXISTS training_round_results (
 CREATE INDEX IF NOT EXISTS idx_training_round_results_created_at
   ON training_round_results (created_at DESC, round_index DESC);
 
+CREATE TABLE IF NOT EXISTS training_weight_signals (
+  id BIGSERIAL PRIMARY KEY,
+  signal_run_id TEXT NOT NULL,
+  issue TEXT NOT NULL,
+  draw_date DATE,
+  weight_name TEXT NOT NULL,
+  train_mode TEXT NOT NULL,
+  train_window INTEGER NOT NULL,
+  eval_window INTEGER NOT NULL,
+  top_n INTEGER NOT NULL,
+  history_fingerprint TEXT NOT NULL,
+  source TEXT NOT NULL,
+  base_value NUMERIC(12,6) NOT NULL,
+  close_value NUMERIC(12,6) NOT NULL,
+  issue_low_value NUMERIC(12,6) NOT NULL,
+  issue_high_value NUMERIC(12,6) NOT NULL,
+  rolling_low_value NUMERIC(12,6) NOT NULL,
+  rolling_high_value NUMERIC(12,6) NOT NULL,
+  rsv NUMERIC(12,6) NOT NULL,
+  k_value NUMERIC(12,6) NOT NULL,
+  d_value NUMERIC(12,6) NOT NULL,
+  j_value NUMERIC(12,6) NOT NULL,
+  recommended_offset NUMERIC(12,6) NOT NULL,
+  best_objective_score NUMERIC(14,6) NOT NULL,
+  objective_delta NUMERIC(14,6) NOT NULL,
+  sample_count INTEGER NOT NULL,
+  probe_results JSONB NOT NULL DEFAULT '[]'::jsonb,
+  advisor_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (signal_run_id, issue, weight_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_training_weight_signals_weight_issue
+  ON training_weight_signals (weight_name, issue);
+
+CREATE INDEX IF NOT EXISTS idx_training_weight_signals_run_issue
+  ON training_weight_signals (signal_run_id, issue);
+
 INSERT INTO dehps_strategies (strategy_key, name, description, config)
 VALUES (
   'baseline_v1',

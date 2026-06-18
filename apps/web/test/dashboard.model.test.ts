@@ -136,8 +136,11 @@ test('training view does not use periodic dashboard polling', () => {
   assert.equal(service.includes("window.location.port === '4200' ? '3000'"), false);
   assert.equal(service.includes('/training-status/ws'), true);
   assert.equal(service.includes('/training-rounds?limit=50'), true);
+  assert.equal(service.includes('/training-weight-signals?limit=1000'), true);
   assert.equal(service.includes('/training-rounds/${encodeURIComponent(runId)}'), true);
   assert.equal(component.includes('liveProgressOption'), true);
+  assert.equal(component.includes('trainingWeightSignalsState$'), true);
+  assert.equal(component.includes('weightKdjGroups'), true);
   assert.equal(component.includes("type DashboardTab = 'training' | 'training-rounds' | 'experiments'"), true);
   assert.equal(component.includes('targetHitRows'), true);
   assert.equal(template.includes('@if (hasRoundCharts(training))'), true);
@@ -146,6 +149,8 @@ test('training view does not use periodic dashboard polling', () => {
   assert.equal(template.includes('红5候选'), true);
   assert.equal(template.includes('等待第 1 轮回归结果'), true);
   assert.equal(template.includes('weightTrendGroups(training)'), true);
+  assert.equal(template.includes('weightKdjGroups(kdjSignals.series)'), true);
+  assert.equal(template.includes('等待权重KDJ回填'), true);
   assert.equal(template.includes('权重演化图待拆分'), false);
   assert.equal(component.includes("title: '权重演化 - 基础'"), true);
   assert.equal(component.includes("title: '权重演化 - 奖惩'"), true);
@@ -183,6 +188,19 @@ test('weight trend charts reuse the shared round range zoom helper', () => {
   assert.equal(weightTrend.includes('rounds,'), true);
   assert.equal(groupedLine.includes('const dataZoom = this.roundRangeDataZoom(rounds)'), true);
   assert.equal(groupedLine.includes('...(dataZoom.length ? { dataZoom } : {})'), true);
+});
+
+test('weight kdj charts use issue-series zoom without round coupling', () => {
+  const component = readFileSync(new URL('../src/app/app.component.ts', import.meta.url), 'utf8');
+  const weightKdj = component.slice(
+    component.indexOf('  private weightKdjOption'),
+    component.indexOf('  private weightTrendOption'),
+  );
+
+  assert.equal(weightKdj.includes('KDJ'), true);
+  assert.equal(weightKdj.includes('signalRangeDataZoom(pointCount)'), true);
+  assert.equal(weightKdj.includes('signalTooltipText'), true);
+  assert.equal(weightKdj.includes('roundRangeDataZoom'), false);
 });
 
 test('non-round charts keep the lightweight no-zoom option shape', () => {
