@@ -30,11 +30,10 @@ fi
 
 cat <<'PROMPT' | "$CODEX_BIN" exec \
   --cd "$REPO_ROOT" \
-  --ask-for-approval never \
-  --sandbox danger-full-access \
+  --dangerously-bypass-approvals-and-sandbox \
   --output-last-message "$LAST_MESSAGE" \
   -
-你正在 /home/ark/workspace/dehps 做每小时一次的 DEHPS 自我迭代。
+你正在 /home/ark/workspace/dehps 做每 2 小时一次的 DEHPS 自我迭代。
 
 目标：每轮只完成一个小而可验证的改进，优先级如下：
 1. 修复当前测试失败、明显 bug、类型错误、启动错误。
