@@ -1,0 +1,11 @@
+[Unit]
+Description=Run DEHPS training progress watch every 2 hours
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=2h
+Persistent=true
+Unit=dehps-training-watch.service
+
+[Install]
+WantedBy=timers.target

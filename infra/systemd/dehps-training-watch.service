@@ -1,0 +1,11 @@
+[Unit]
+Description=DEHPS training progress watch
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ark/workspace/dehps
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=OMP_NUM_THREADS=1
+Environment=MKL_NUM_THREADS=1
+Environment=NUMEXPR_NUM_THREADS=1
+ExecStart=/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python /home/ark/workspace/dehps/apps/worker-python/scripts/watch_training_progress.py
