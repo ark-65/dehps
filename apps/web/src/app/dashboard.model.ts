@@ -223,6 +223,33 @@ export type TrainingWeightSignalSeries = {
   points: TrainingWeightSignalPoint[];
 };
 
+export type TrainingNextCandidate = {
+  rank: number;
+  redNumbers: number[];
+  score: number;
+};
+
+export type TrainingNextCandidatesPayload = {
+  status: 'ready' | 'empty';
+  snapshotKey: string | null;
+  runId: string | null;
+  sourceRoundIndex: number | null;
+  asOfIssue: string | null;
+  nextIssue: string | null;
+  nextDrawDate: string | null;
+  trainMode: string | null;
+  trainWindow: number | null;
+  evalWindow: number | null;
+  topN: number | null;
+  historyFingerprint: string | null;
+  configHash: string | null;
+  config: Record<string, number>;
+  generatedAt: string | null;
+  totalCount: number;
+  candidates: TrainingNextCandidate[];
+  guardrail: string;
+};
+
 export type TrainingAdvisorSource = 'weight_kdj_advisor' | 'ridge_kdj_advisor' | 'neural_kdj_advisor';
 
 export type TrainingAdvisorAdviceRow = {

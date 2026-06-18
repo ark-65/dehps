@@ -195,6 +195,45 @@ def ensure_training_weight_signals_schema(conn: Connection) -> None:
     )
 
 
+def ensure_training_next_candidates_current_schema(conn: Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS training_next_candidates_current (
+          id BIGSERIAL PRIMARY KEY,
+          snapshot_key TEXT NOT NULL,
+          run_id TEXT NOT NULL,
+          source_round_index INTEGER,
+          as_of_issue TEXT NOT NULL,
+          next_issue TEXT NOT NULL,
+          next_draw_date DATE,
+          train_mode TEXT NOT NULL,
+          train_window INTEGER NOT NULL,
+          eval_window INTEGER NOT NULL,
+          top_n INTEGER NOT NULL,
+          history_fingerprint TEXT NOT NULL,
+          config_hash TEXT NOT NULL,
+          config JSONB NOT NULL DEFAULT '{}'::jsonb,
+          rank INTEGER NOT NULL,
+          red_numbers SMALLINT[] NOT NULL,
+          score NUMERIC(14,8) NOT NULL,
+          generated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_training_next_candidates_current_rank
+          ON training_next_candidates_current (rank)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_training_next_candidates_current_generated
+          ON training_next_candidates_current (generated_at DESC)
+        """
+    )
+
+
 def upsert_training_weight_signal(conn: Connection, signal: dict[str, Any]) -> None:
     conn.execute(
         """
@@ -459,6 +498,55 @@ def prune_stale_training_weight_signals(
         (signal_run_id, list(keep_issues)),
     ).fetchone()
     return int(row[0]) if row else 0
+
+
+def replace_training_next_candidates_current(
+    conn: Connection,
+    *,
+    metadata: dict[str, Any],
+    candidates: list[tuple[int, tuple[int, ...], float]],
+) -> None:
+    ensure_training_next_candidates_current_schema(conn)
+    conn.execute("DELETE FROM training_next_candidates_current")
+    if not candidates:
+        return
+    params = [
+        (
+            metadata["snapshot_key"],
+            metadata["run_id"],
+            metadata.get("source_round_index"),
+            metadata["as_of_issue"],
+            metadata["next_issue"],
+            metadata.get("next_draw_date"),
+            metadata["train_mode"],
+            int(metadata["train_window"]),
+            int(metadata["eval_window"]),
+            int(metadata["top_n"]),
+            metadata["history_fingerprint"],
+            metadata["config_hash"],
+            json.dumps(metadata.get("config") or {}),
+            rank,
+            list(numbers),
+            score,
+            metadata["generated_at"],
+        )
+        for rank, numbers, score in candidates
+    ]
+    with conn.cursor() as cur:
+        cur.executemany(
+            """
+            INSERT INTO training_next_candidates_current (
+              snapshot_key, run_id, source_round_index, as_of_issue, next_issue, next_draw_date,
+              train_mode, train_window, eval_window, top_n, history_fingerprint, config_hash,
+              config, rank, red_numbers, score, generated_at
+            )
+            VALUES (
+              %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+              %s::jsonb, %s, %s, %s, %s
+            )
+            """,
+            params,
+        )
 
 
 def upsert_training_round_result(conn: Connection, *, run_id: str, round_info: dict[str, Any], status: dict[str, Any]) -> None:

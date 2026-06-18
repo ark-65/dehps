@@ -135,6 +135,7 @@ h2 {
 .comparison-workbench,
 .feature-distributions,
 .advisor-panel,
+.next-candidate-panel,
 .service-status-panel {
   margin-bottom: 18px;
 }
@@ -667,6 +668,42 @@ select {
 .training-panel dd {
   margin: 4px 0 0;
   overflow-wrap: anywhere;
+}
+
+.next-candidate-panel {
+  background: #ffffff;
+  border: 1px solid #d9dee3;
+  border-radius: 8px;
+  margin-bottom: 18px;
+}
+
+.next-candidate-panel .training-panel {
+  margin: 0 16px 16px;
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.chip-row span {
+  border: 1px solid #d4dce2;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #364556;
+  padding: 6px 10px;
+  font-size: 0.82rem;
+}
+
+.next-candidates-table {
+  max-height: 680px;
+  border-top: 1px solid #edf0f2;
+}
+
+.next-candidates-table table {
+  min-width: 640px;
 }
 
 .compact-table {

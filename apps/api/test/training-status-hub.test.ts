@@ -79,7 +79,7 @@ test('training status hub caches and broadcasts snapshots', () => {
 });
 
 test('training status event rejects non-local requests', async () => {
-  const controller = new ResearchController({ trainingStatus: async () => payload() } as ResearchService, new TrainingStatusHub());
+  const controller = new ResearchController({ trainingStatusFromEvent: async () => payload() } as ResearchService, new TrainingStatusHub());
 
   await assert.rejects(
     () => controller.trainingStatusEvent({ ip: '203.0.113.10' }, {}),
@@ -89,7 +89,7 @@ test('training status event rejects non-local requests', async () => {
 
 test('training status event accepts local request and publishes normalized status', async () => {
   const hub = new TrainingStatusHub();
-  const service = { trainingStatus: async () => payload('run-local') } as ResearchService;
+  const service = { trainingStatusFromEvent: async () => payload('run-local') } as ResearchService;
   const controller = new ResearchController(service, hub);
 
   const result = await controller.trainingStatusEvent({ ip: '127.0.0.1' }, {});

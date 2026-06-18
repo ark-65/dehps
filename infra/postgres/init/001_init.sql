@@ -216,6 +216,33 @@ CREATE INDEX IF NOT EXISTS idx_training_weight_signals_run_issue
 CREATE INDEX IF NOT EXISTS idx_training_weight_signals_run_weight_issue
   ON training_weight_signals (signal_run_id, weight_name, issue);
 
+CREATE TABLE IF NOT EXISTS training_next_candidates_current (
+  id BIGSERIAL PRIMARY KEY,
+  snapshot_key TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  source_round_index INTEGER,
+  as_of_issue TEXT NOT NULL,
+  next_issue TEXT NOT NULL,
+  next_draw_date DATE,
+  train_mode TEXT NOT NULL,
+  train_window INTEGER NOT NULL,
+  eval_window INTEGER NOT NULL,
+  top_n INTEGER NOT NULL,
+  history_fingerprint TEXT NOT NULL,
+  config_hash TEXT NOT NULL,
+  config JSONB NOT NULL DEFAULT '{}'::jsonb,
+  rank INTEGER NOT NULL,
+  red_numbers SMALLINT[] NOT NULL,
+  score NUMERIC(14,8) NOT NULL,
+  generated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_training_next_candidates_current_rank
+  ON training_next_candidates_current (rank);
+
+CREATE INDEX IF NOT EXISTS idx_training_next_candidates_current_generated
+  ON training_next_candidates_current (generated_at DESC);
+
 INSERT INTO dehps_strategies (strategy_key, name, description, config)
 VALUES (
   'baseline_v1',

@@ -40,6 +40,13 @@
       </button>
       <button
         type="button"
+        [class.active]="activeTab === 'next-candidates'"
+        (click)="selectTab('next-candidates')"
+      >
+        下一期候选
+      </button>
+      <button
+        type="button"
         [class.active]="activeTab === 'experiments'"
         (click)="selectTab('experiments')"
       >
@@ -153,6 +160,82 @@
             </tbody>
           </table>
         </div>
+      </section>
+    }
+    }
+    }
+
+    @if (activeTab === 'next-candidates') {
+    @if (trainingNextCandidatesState$ | async; as state) {
+    @if (state.status === 'loading' || state.status === 'idle') {
+      <section class="detail-workbench">
+        <div class="detail-placeholder">正在加载下一期候选快照...</div>
+      </section>
+    } @else if (state.status === 'error') {
+      <section class="detail-workbench">
+        <div class="detail-placeholder error-text">{{ state.message }}</div>
+      </section>
+    } @else {
+      <section class="next-candidate-panel">
+        <div class="section-heading">
+          <h2>下一期候选</h2>
+          <span>{{ nextCandidateSnapshotText(state.payload) }}</span>
+        </div>
+        @if (state.payload.status === 'empty') {
+          <div class="detail-placeholder">暂无 current 候选快照。训练完成一轮或手动运行候选生成后会显示 Top10000。</div>
+        } @else {
+          <div class="service-tile-grid">
+            @for (row of nextCandidateMetaRows(state.payload); track row.label) {
+              <article class="service-tile">
+                <span>{{ row.label }}</span>
+                <strong>{{ row.value }}</strong>
+              </article>
+            }
+          </div>
+          <section class="training-panel">
+            <h3>生成边界</h3>
+            <p>{{ state.payload.guardrail }}</p>
+            <dl>
+              <div>
+                <dt>配置哈希</dt>
+                <dd>{{ state.payload.configHash || '无' }}</dd>
+              </div>
+              <div>
+                <dt>历史指纹</dt>
+                <dd>{{ state.payload.historyFingerprint || '无' }}</dd>
+              </div>
+              <div>
+                <dt>窗口</dt>
+                <dd>{{ trainModeText(state.payload.trainMode) }} / 训练 {{ state.payload.trainWindow || '无' }} / 回归 {{ state.payload.evalWindow || '无' }}</dd>
+              </div>
+            </dl>
+            <div class="chip-row">
+              @for (row of nextCandidateConfigRows(state.payload); track row.key) {
+                <span>{{ configLabel(row.key) }} {{ row.value | number: '1.3-3' }}</span>
+              }
+            </div>
+          </section>
+          <div class="table-wrap next-candidates-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th>红球组合</th>
+                  <th>Score</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (candidate of state.payload.candidates; track candidate.rank) {
+                  <tr>
+                    <td>{{ candidate.rank }}</td>
+                    <td><strong>{{ numbersText(candidate.redNumbers) }}</strong></td>
+                    <td>{{ candidate.score | number: '1.8-8' }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
       </section>
     }
     }

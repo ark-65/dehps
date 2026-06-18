@@ -11,6 +11,7 @@ import {
   TrainingRoundDetail,
   TrainingRoundListItem,
   SsqHistoryDraw,
+  TrainingNextCandidatesPayload,
   TrainingWeightSignalSummary,
   TrainingWeightSignalPoint,
   TrainingWeightSignalSeries,
@@ -495,6 +496,76 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
     };
   }
 
+  async getTrainingNextCandidates(limit: number): Promise<TrainingNextCandidatesPayload> {
+    const empty = (): TrainingNextCandidatesPayload => ({
+      status: 'empty',
+      snapshotKey: null,
+      runId: null,
+      sourceRoundIndex: null,
+      asOfIssue: null,
+      nextIssue: null,
+      nextDrawDate: null,
+      trainMode: null,
+      trainWindow: null,
+      evalWindow: null,
+      topN: null,
+      historyFingerprint: null,
+      configHash: null,
+      config: {},
+      generatedAt: null,
+      totalCount: 0,
+      candidates: [],
+      guardrail: '历史响应面候选清单，不代表预测能力或概率优势。',
+    });
+    const tableCheck = await this.pool.query("SELECT to_regclass('public.training_next_candidates_current') AS table_name");
+    if (!tableCheck.rows[0]?.table_name) {
+      return empty();
+    }
+
+    const countResult = await this.pool.query('SELECT count(*)::int AS total_count FROM training_next_candidates_current');
+    const totalCount = Number(countResult.rows[0]?.total_count ?? 0);
+    if (totalCount === 0) {
+      return empty();
+    }
+
+    const { rows } = await this.pool.query(
+      `
+      SELECT snapshot_key, run_id, source_round_index, as_of_issue, next_issue, next_draw_date,
+             train_mode, train_window, eval_window, top_n, history_fingerprint, config_hash,
+             config, rank, red_numbers, score, generated_at
+      FROM training_next_candidates_current
+      ORDER BY rank ASC
+      LIMIT $1
+      `,
+      [limit],
+    );
+    const first = rows[0];
+    return {
+      status: 'ready',
+      snapshotKey: first.snapshot_key,
+      runId: first.run_id,
+      sourceRoundIndex: first.source_round_index === null ? null : Number(first.source_round_index),
+      asOfIssue: first.as_of_issue,
+      nextIssue: first.next_issue,
+      nextDrawDate: this.dateOnlyValue(first.next_draw_date),
+      trainMode: first.train_mode,
+      trainWindow: Number(first.train_window),
+      evalWindow: Number(first.eval_window),
+      topN: Number(first.top_n),
+      historyFingerprint: first.history_fingerprint,
+      configHash: first.config_hash,
+      config: this.numericRecordValue(first.config),
+      generatedAt: first.generated_at instanceof Date ? first.generated_at.toISOString() : first.generated_at ? String(first.generated_at) : null,
+      totalCount,
+      candidates: rows.map((row) => ({
+        rank: Number(row.rank),
+        redNumbers: Array.isArray(row.red_numbers) ? row.red_numbers.map((value: unknown) => Number(value)) : [],
+        score: Number(row.score),
+      })),
+      guardrail: '历史响应面候选清单，不代表预测能力或概率优势。',
+    };
+  }
+
   private trainingRoundListItem(row: Record<string, any>): TrainingRoundListItem {
     return {
       runId: row.run_id,
@@ -550,5 +621,16 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
       return `${year}-${month}-${day}`;
     }
     return value ? String(value).slice(0, 10) : null;
+  }
+
+  private numericRecordValue(value: unknown): Record<string, number> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return {};
+    }
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .map(([key, rawValue]) => [key, Number(rawValue)] as const)
+        .filter((entry): entry is readonly [string, number] => Number.isFinite(entry[1])),
+    );
   }
 }

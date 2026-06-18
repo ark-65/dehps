@@ -20,6 +20,7 @@ import {
   TrainingAdvisorSource,
   TrainingAdvisorSummary,
   TrainingMatrixCache,
+  TrainingNextCandidatesPayload,
   TrainingPrefilterRun,
   TrainingPrefilterStatus,
   TrainingProgress,
@@ -212,6 +213,10 @@ export class ResearchService {
     return this.repository.listTrainingWeightSignals(normalizedRunId, [...new Set(normalizedWeights)], this.normalizeSignalLimit(limit));
   }
 
+  getTrainingNextCandidates(limit = 10000): Promise<TrainingNextCandidatesPayload> {
+    return this.repository.getTrainingNextCandidates(this.normalizeCandidateLimit(limit));
+  }
+
   async trainingStatus(tailLines = DEFAULT_LOG_TAIL_LINES): Promise<TrainingStatusPayload> {
     const root = this.repoRoot();
     const normalizedTailLines = this.normalizeTailLines(tailLines);
@@ -231,46 +236,55 @@ export class ResearchService {
       const latestDetail = latestRoundItem
         ? await this.repository.getTrainingRoundDetail(latestRoundItem.runId, latestRoundItem.roundIndex).catch(() => null)
         : null;
+      const statusFile =
+        (runId ? await this.firstExistingPath(path.join(optimizationDir, `training-supervisor-${runId}.json`)) : null) ??
+        (await this.findLatestFile(optimizationDir, 'training-supervisor-', '.json'));
+      const rawStatus = statusFile ? await this.readJsonObject(statusFile) : null;
+      const rawStatusText = this.stringValue(rawStatus?.status);
+      const rawProgress = this.progressValue(rawStatus?.latest_progress);
+      const pid = this.numberValue(rawStatus?.pid);
+      const processAlive = pid === null ? null : this.isProcessAlive(pid);
       const logFile =
         (runId ? await this.firstExistingPath(path.join(logDir, `training-supervisor-${runId}.log`)) : null) ??
         (await this.findLatestFile(logDir, 'training-supervisor-', '.log'));
       const logTail = logFile ? await this.readTailLines(logFile, normalizedTailLines) : [];
-      const latestProgress = this.parseLatestProgress(logTail);
+      const latestProgress = rawProgress ?? this.parseLatestProgress(logTail);
       const serviceUnit = await this.readOptionalText(path.join(logDir, 'training-supervisor.unit'));
       const latestRound = latestRoundItem ? this.roundSummaryFromListItem(latestRoundItem, latestDetail) : null;
       const rounds = runRounds.map((round) =>
         this.roundSummaryFromListItem(round, round.roundIndex === latestRoundItem?.roundIndex ? latestDetail : null),
       );
       const completedRounds = latestRoundItem?.roundIndex ?? 0;
-      const active = latestProgress
+      const progressActive = latestProgress
         ? latestProgress.round > completedRounds || latestProgress.targetIndex < latestProgress.targetTotal
         : false;
+      const active = rawStatusText === 'running' && processAlive !== false ? true : progressActive;
       const latestPrefilter = this.prefilterRunValue(latestDetail?.prefilter);
       const advisorSummaries = this.advisorSummariesValue(null, latestDetail?.prefilter);
       const qianKun = await this.qianKunFromStatusOrHistory(null);
 
       return {
-        status: active ? 'running' : 'completed',
+        status: active ? 'running' : rawStatusText ?? 'completed',
         active,
-        processAlive: null,
+        processAlive,
         runId,
-        startedAt: runRounds[0]?.createdAt ?? null,
-        updatedAt: latestRoundItem?.createdAt ?? null,
-        deadline: null,
-        pid: null,
-        historyScope: null,
-        regimeYears: null,
-        regimeStartDate: null,
+        startedAt: this.stringValue(rawStatus?.started_at) ?? runRounds[0]?.createdAt ?? null,
+        updatedAt: this.stringValue(rawStatus?.updated_at) ?? latestRoundItem?.createdAt ?? null,
+        deadline: this.stringValue(rawStatus?.deadline),
+        pid,
+        historyScope: this.stringValue(rawStatus?.history_scope),
+        regimeYears: this.numberValue(rawStatus?.regime_years),
+        regimeStartDate: this.stringValue(rawStatus?.regime_start_date),
         trainMode: latestRoundItem?.trainMode ?? null,
         trainWindow: latestRoundItem?.trainWindow ?? null,
         evalWindow: latestRoundItem?.evalWindow ?? null,
         topN: latestRoundItem?.topN ?? null,
-        workers: null,
-        memoryBudgetGb: null,
+        workers: this.numberValue(rawStatus?.workers),
+        memoryBudgetGb: this.numberValue(rawStatus?.memory_budget_gb),
         universeSize: 1107568,
-        matrixBackend: null,
-        featureMatrixCache: null,
-        red5RankMode: null,
+        matrixBackend: this.stringValue(rawStatus?.matrix_backend),
+        featureMatrixCache: this.matrixCacheValue(rawStatus?.feature_matrix_cache),
+        red5RankMode: this.stringValue(rawStatus?.red5_rank_mode),
         prefilter: latestPrefilter ? { mode: latestPrefilter.mode, description: null, latest: latestPrefilter } : null,
         advisorSummaries,
         qianKun,
@@ -280,8 +294,8 @@ export class ResearchService {
         recentRounds: rounds.slice(-10).reverse(),
         best: this.resultValue(bestDetail?.bestSummary, 1107568) ?? (bestRoundItem ? this.resultFromRoundListItem(bestRoundItem) : null),
         latestProgress,
-        statusFile: null,
-        reportFile: null,
+        statusFile,
+        reportFile: this.stringValue(rawStatus?.report_path) ?? (statusFile ? this.deriveReportPath(statusFile) : null),
         logFile,
         serviceUnit,
         logTail,
@@ -348,6 +362,31 @@ export class ResearchService {
       logTail,
       syncSchedule: SYNC_SCHEDULE,
     };
+  }
+
+  async trainingStatusFromEvent(event: unknown): Promise<TrainingStatusPayload> {
+    const payload = await this.trainingStatus();
+    if (!event || typeof event !== 'object' || Array.isArray(event)) {
+      return payload;
+    }
+    const row = event as Record<string, unknown>;
+    const progress = this.progressValue(row.latest_progress ?? row.latestProgress);
+    const eventStatus = this.stringValue(row.status);
+    const updatedAt = this.stringValue(row.updated_at ?? row.updatedAt);
+    if (progress) {
+      payload.latestProgress = progress;
+      payload.updatedAt = updatedAt ?? progress.loggedAt;
+      payload.active = progress.targetIndex < progress.targetTotal || eventStatus === 'running';
+      payload.status = payload.active ? 'running' : eventStatus ?? payload.status;
+    } else if (eventStatus) {
+      payload.status = eventStatus;
+      payload.active = eventStatus === 'running';
+      payload.updatedAt = updatedAt ?? payload.updatedAt;
+    }
+    payload.runId = this.stringValue(row.run_id ?? row.runId) ?? payload.runId;
+    payload.statusFile = this.stringValue(row.status_path ?? row.statusPath) ?? payload.statusFile;
+    payload.reportFile = this.stringValue(row.report_path ?? row.reportPath) ?? payload.reportFile;
+    return payload;
   }
 
   async serviceStatus(): Promise<ServiceStatusPayload> {
@@ -817,6 +856,13 @@ export class ResearchService {
     return Math.min(Math.max(Math.trunc(limit), 1), 1000);
   }
 
+  private normalizeCandidateLimit(limit: number): number {
+    if (!Number.isFinite(limit)) {
+      return 10000;
+    }
+    return Math.min(Math.max(Math.trunc(limit), 1), 10000);
+  }
+
   private normalizeTailLines(lines: number): number {
     if (!Number.isFinite(lines)) {
       return DEFAULT_LOG_TAIL_LINES;
@@ -906,7 +952,7 @@ export class ResearchService {
 
   private parseLatestProgress(lines: string[]): TrainingProgress | null {
     const progressPattern =
-      /^\[supervisor\]\s+(\S+)\s+round=(\d+)\s+target=(\d+)\/(\d+)\s+issue=(\d+)\s+train_draws=(\d+)\s+elapsed=([\d.]+)s$/;
+      /^\[supervisor\]\s+(\S+)\s+round=(\d+)\s+target=(\d+)\/(\d+)\s+issue=(\d+)\s+train_draws=(\d+)\s+elapsed=([\d.]+)s(?:\s+.*)?$/;
     for (const line of [...lines].reverse()) {
       const match = progressPattern.exec(line);
       if (!match) {

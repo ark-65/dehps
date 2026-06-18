@@ -218,13 +218,17 @@ test('training view does not use periodic dashboard polling', () => {
   assert.equal(service.includes('/training-status/ws'), true);
   assert.equal(service.includes('/training-rounds?limit=50'), true);
   assert.equal(service.includes('/training-weight-signals?limit=1000'), true);
+  assert.equal(service.includes('/training-next-candidates?limit=10000'), true);
   assert.equal(service.includes('/training-rounds/${encodeURIComponent(runId)}'), true);
   assert.equal(component.includes('liveProgressOption'), true);
   assert.equal(component.includes('trainingWeightSignalsState$'), true);
   assert.equal(component.includes('weightKdjGroups'), true);
   assert.equal(component.includes('advisorSummaries(status: TrainingStatusPayload)'), true);
   assert.equal(component.includes('advisorVerdictText'), true);
-  assert.equal(component.includes("type DashboardTab = 'training' | 'training-rounds' | 'experiments' | 'service-status'"), true);
+  assert.equal(
+    component.includes("type DashboardTab = 'training' | 'training-rounds' | 'next-candidates' | 'experiments' | 'service-status'"),
+    true,
+  );
   assert.equal(component.includes('targetHitRows'), true);
   assert.equal(template.includes('@if (hasRoundCharts(training))'), true);
   assert.equal(template.includes('Advisor 解释'), true);
@@ -234,6 +238,7 @@ test('training view does not use periodic dashboard polling', () => {
   assert.equal(template.includes('control verdict'), true);
   assert.equal(template.includes('suggestedOffset'), true);
   assert.equal(template.includes('训练轮次'), true);
+  assert.equal(template.includes('下一期候选'), true);
   assert.equal(template.includes('服务状态'), true);
   assert.equal(template.includes('命中期次'), true);
   assert.equal(template.includes('红5候选'), true);
@@ -263,6 +268,22 @@ test('service status tab loads lazily from the dedicated endpoint', () => {
   assert.equal(proxy.includes('"/service-status"'), true);
   assert.equal(proxy.includes('"/training-rounds"'), true);
   assert.equal(proxy.includes('"/training-weight-signals"'), true);
+  assert.equal(proxy.includes('"/training-next-candidates"'), true);
+});
+
+test('next candidate tab loads current top 10000 snapshot lazily', () => {
+  const component = readFileSync(new URL('../src/app/app.component.ts', import.meta.url), 'utf8');
+  const template = readFileSync(new URL('../src/app/app.component.html', import.meta.url), 'utf8');
+  const service = readFileSync(new URL('../src/app/dashboard.service.ts', import.meta.url), 'utf8');
+
+  assert.equal(service.includes('loadTrainingNextCandidates(): Observable<TrainingNextCandidatesPayload>'), true);
+  assert.equal(component.includes("filter((tab) => tab === 'next-candidates')"), true);
+  assert.equal(component.includes('trainingNextCandidatesRefreshRequests'), true);
+  assert.equal(component.includes("this.activeTab === 'next-candidates'"), true);
+  assert.equal(template.includes("activeTab === 'next-candidates'"), true);
+  assert.equal(template.includes('trainingNextCandidatesState$ | async'), true);
+  assert.equal(template.includes('Top10000'), true);
+  assert.equal(template.includes('state.payload.guardrail'), true);
 });
 
 test('training round charts enable range zoom for long round sequences', () => {

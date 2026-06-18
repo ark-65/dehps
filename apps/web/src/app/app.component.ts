@@ -22,6 +22,7 @@ import {
   ServiceStatusPayload,
   TrainingAdvisorAdviceRow,
   TrainingAdvisorSummary,
+  TrainingNextCandidatesPayload,
   TrainingResult,
   TrainingRoundDetail,
   TrainingRoundListItem,
@@ -88,7 +89,13 @@ type ServiceStatusState =
   | { status: 'ready'; payload: ServiceStatusPayload; services: ServiceStatusItem[] }
   | { status: 'error'; message: string };
 
-type DashboardTab = 'training' | 'training-rounds' | 'experiments' | 'service-status';
+type TrainingNextCandidatesState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'ready'; payload: TrainingNextCandidatesPayload }
+  | { status: 'error'; message: string };
+
+type DashboardTab = 'training' | 'training-rounds' | 'next-candidates' | 'experiments' | 'service-status';
 type WeightTrendGroup = {
   key: string;
   title: string;
@@ -192,6 +199,7 @@ export class AppComponent {
   private readonly trainingWeightSignalsRefreshRequests = new Subject<void>();
   private readonly experimentsRefreshRequests = new Subject<void>();
   private readonly trainingRoundsRefreshRequests = new Subject<void>();
+  private readonly trainingNextCandidatesRefreshRequests = new Subject<void>();
   private readonly serviceStatusRefreshRequests = new Subject<void>();
   private readonly activeTabRequests = new BehaviorSubject<DashboardTab>('training');
   private readonly detailRequests = new BehaviorSubject<string | null>(null);
@@ -326,6 +334,26 @@ export class AppComponent {
     startWith({ status: 'idle' as const }),
     shareReplay({ bufferSize: 1, refCount: true }),
   );
+  readonly trainingNextCandidatesState$ = this.activeTabRequests.pipe(
+    filter((tab) => tab === 'next-candidates'),
+    map(() => undefined),
+  ).pipe(
+    mergeWith(this.trainingNextCandidatesRefreshRequests),
+    switchMap(() =>
+      this.dashboardService.loadTrainingNextCandidates().pipe(
+        map((payload): TrainingNextCandidatesState => ({ status: 'ready', payload })),
+        catchError((error: unknown) =>
+          of({
+            status: 'error' as const,
+            message: error instanceof Error ? error.message : '下一期候选加载失败',
+          }),
+        ),
+        startWith({ status: 'loading' as const }),
+      ),
+    ),
+    startWith({ status: 'idle' as const }),
+    shareReplay({ bufferSize: 1, refCount: true }),
+  );
   readonly trainingRoundDetailState$ = this.trainingRoundDetailRequests.pipe(
     switchMap((round) => {
       if (!round) {
@@ -382,6 +410,10 @@ export class AppComponent {
       this.trainingRoundsRefreshRequests.next();
       return;
     }
+    if (this.activeTab === 'next-candidates') {
+      this.trainingNextCandidatesRefreshRequests.next();
+      return;
+    }
     if (this.activeTab === 'service-status') {
       this.serviceStatusRefreshRequests.next();
       return;
@@ -433,6 +465,34 @@ export class AppComponent {
 
   trainingRoundRed5Summary(round: TrainingRoundListItem): string {
     return `红5Top10000 ${round.red5Top10000Hits}/${round.evalWindow}，红5Top100 ${round.red5Top100Hits}/${round.evalWindow}`;
+  }
+
+  nextCandidateMetaRows(payload: TrainingNextCandidatesPayload): { label: string; value: string }[] {
+    return [
+      { label: '基准期', value: payload.asOfIssue || '无' },
+      { label: '下一期', value: payload.nextIssue || '无' },
+      { label: '下期开奖日', value: payload.nextDrawDate || '无' },
+      { label: '训练 run', value: payload.runId || '无' },
+      { label: '来源轮次', value: payload.sourceRoundIndex === null ? '无' : String(payload.sourceRoundIndex) },
+      { label: 'TopN', value: payload.topN === null ? '无' : payload.topN.toLocaleString('zh-CN') },
+      { label: '候选行数', value: payload.totalCount.toLocaleString('zh-CN') },
+      { label: '生成时间', value: payload.generatedAt || '无' },
+    ];
+  }
+
+  nextCandidateConfigRows(payload: TrainingNextCandidatesPayload): { key: string; value: number }[] {
+    return Object.entries(payload.config)
+      .filter((entry) => Number.isFinite(entry[1]) && Math.abs(entry[1]) > 0)
+      .sort((left, right) => Math.abs(right[1]) - Math.abs(left[1]))
+      .slice(0, 12)
+      .map(([key, value]) => ({ key, value }));
+  }
+
+  nextCandidateSnapshotText(payload: TrainingNextCandidatesPayload): string {
+    if (payload.status === 'empty') {
+      return '暂无 current 候选快照';
+    }
+    return `${payload.nextIssue || '下一期'} Top${(payload.topN ?? payload.totalCount).toLocaleString('zh-CN')} / as-of ${payload.asOfIssue || '无'}`;
   }
 
   targetHitRows(detail: TrainingRoundDetail): TrainingTargetResult[] {
@@ -1097,7 +1157,7 @@ export class AppComponent {
     return number.toString().padStart(2, '0');
   }
 
-  private configLabel(key: string): string {
+  configLabel(key: string): string {
     const labels: Record<string, string> = {
       structural_weight: '结构',
       frequency_weight: '频率',

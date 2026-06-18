@@ -325,6 +325,31 @@ const repository: ResearchRepository = {
       weights: ['frequency_weight', 'structural_weight'],
     };
   },
+  async getTrainingNextCandidates(limit) {
+    return {
+      status: 'ready',
+      snapshotKey: 'training-next-2026068-config',
+      runId: 'run-100',
+      sourceRoundIndex: 2,
+      asOfIssue: '2026068',
+      nextIssue: '2026069',
+      nextDrawDate: '2026-06-18',
+      trainMode: 'expanding',
+      trainWindow: 900,
+      evalWindow: 100,
+      topN: 10000,
+      historyFingerprint: 'history-current',
+      configHash: 'config-1',
+      config: { frequency_weight: 0.4 },
+      generatedAt: '2026-06-18T09:00:00.000Z',
+      totalCount: 10000,
+      candidates: [
+        { rank: 1, redNumbers: [1, 2, 3, 4, 5, 6], score: 0.9 },
+        { rank: Math.min(limit, 10000), redNumbers: [7, 8, 9, 10, 11, 12], score: 0.8 },
+      ],
+      guardrail: '历史响应面候选清单，不代表预测能力或概率优势。',
+    };
+  },
 };
 
 test('dashboard returns experiments, pipeline runs, and sync runs', async () => {
@@ -397,6 +422,110 @@ test('training weight signals normalize run id, weights, and limit', async () =>
   assert.equal(series[0].points[0].jValue, 69.444444);
 });
 
+test('training next candidates allow a top 10000 current snapshot', async () => {
+  const service = new ResearchService(repository);
+
+  const payload = await service.getTrainingNextCandidates(50000);
+
+  assert.equal(payload.status, 'ready');
+  assert.equal(payload.nextIssue, '2026069');
+  assert.equal(payload.totalCount, 10000);
+  assert.equal(payload.candidates[1].rank, 10000);
+});
+
+test('training status parses progress log lines with worker suffix', async () => {
+  const previousRoot = process.env.DEHPS_ROOT;
+  const root = mkdtempSync(path.join(os.tmpdir(), 'dehps-progress-test-'));
+  mkdirSync(path.join(root, 'runtime/logs'), { recursive: true });
+  writeFileSync(
+    path.join(root, 'runtime/logs/training-supervisor-run-100.log'),
+    '[supervisor] 2026-06-18T17:09:30 round=39 target=40/100 issue=2026004 train_draws=1433 elapsed=16.7s target_workers=10\n',
+  );
+  try {
+    process.env.DEHPS_ROOT = root;
+    const service = new ResearchService(repository);
+
+    const status = await service.trainingStatus();
+
+    assert.equal(status.latestProgress?.round, 39);
+    assert.equal(status.latestProgress?.targetIndex, 40);
+    assert.equal(status.active, true);
+    assert.equal(status.status, 'running');
+  } finally {
+    if (previousRoot === undefined) {
+      delete process.env.DEHPS_ROOT;
+    } else {
+      process.env.DEHPS_ROOT = previousRoot;
+    }
+  }
+});
+
+test('training status keeps db-backed run active between completed rounds', async () => {
+  const previousRoot = process.env.DEHPS_ROOT;
+  const root = mkdtempSync(path.join(os.tmpdir(), 'dehps-live-status-test-'));
+  mkdirSync(path.join(root, 'data/output/optimization'), { recursive: true });
+  writeFileSync(
+    path.join(root, 'data/output/optimization/training-supervisor-run-100.json'),
+    JSON.stringify({
+      run_id: 'run-100',
+      status: 'running',
+      pid: process.pid,
+      updated_at: '2026-06-18T17:09:30',
+      workers: 10,
+      latest_progress: {
+        logged_at: '2026-06-18T17:09:30',
+        round: 2,
+        target_index: 100,
+        target_total: 100,
+        issue: '2026068',
+        train_draws: 1497,
+        elapsed_seconds: 40.4,
+      },
+    }),
+  );
+  try {
+    process.env.DEHPS_ROOT = root;
+    const service = new ResearchService(repository);
+
+    const status = await service.trainingStatus();
+
+    assert.equal(status.status, 'running');
+    assert.equal(status.active, true);
+    assert.equal(status.processAlive, true);
+    assert.equal(status.workers, 10);
+    assert.equal(status.latestProgress?.targetIndex, 100);
+  } finally {
+    if (previousRoot === undefined) {
+      delete process.env.DEHPS_ROOT;
+    } else {
+      process.env.DEHPS_ROOT = previousRoot;
+    }
+  }
+});
+
+test('training status event payload preserves live progress over db snapshot', async () => {
+  const service = new ResearchService(repository);
+
+  const status = await service.trainingStatusFromEvent({
+    run_id: 'run-100',
+    status: 'running',
+    updated_at: '2026-06-18T17:09:30',
+    latest_progress: {
+      logged_at: '2026-06-18T17:09:30',
+      round: 39,
+      target_index: 40,
+      target_total: 100,
+      issue: '2026004',
+      train_draws: 1433,
+      elapsed_seconds: 16.7,
+    },
+  });
+
+  assert.equal(status.status, 'running');
+  assert.equal(status.active, true);
+  assert.equal(status.latestProgress?.issue, '2026004');
+});
+
 test('postgres training weight signal mapping preserves date-only values', async () => {
   const repository = new PostgresResearchRepository();
   try {
@@ -457,6 +586,65 @@ test('postgres history draw mapping preserves sorted qian-kun inputs', async () 
     assert.equal(draws[0].issue, '2026068');
     assert.equal(draws[0].drawDate, '2026-06-16');
     assert.deepEqual(draws[0].redNumbers, [3, 5, 16, 18, 29, 32]);
+  } finally {
+    await repository.onModuleDestroy();
+    await originalPool.end();
+  }
+});
+
+test('postgres training next candidates mapping reads the current snapshot', async () => {
+  const repository = new PostgresResearchRepository();
+  const originalPool = (repository as any).pool;
+  const queries: Array<{ sql: string; params?: unknown[] }> = [];
+  (repository as any).pool = {
+    async query(sql: string, params?: unknown[]) {
+      queries.push({ sql, params });
+      if (sql.includes("to_regclass('public.training_next_candidates_current')")) {
+        return { rows: [{ table_name: 'training_next_candidates_current' }] };
+      }
+      if (sql.includes('count(*)::int AS total_count')) {
+        return { rows: [{ total_count: 10000 }] };
+      }
+      if (sql.includes('FROM training_next_candidates_current')) {
+        return {
+          rows: [
+            {
+              snapshot_key: 'training-next-1',
+              run_id: 'run-1',
+              source_round_index: 7,
+              as_of_issue: '2026068',
+              next_issue: '2026069',
+              next_draw_date: new Date(2026, 5, 18),
+              train_mode: 'expanding',
+              train_window: 900,
+              eval_window: 100,
+              top_n: 10000,
+              history_fingerprint: 'history-current',
+              config_hash: 'config-1',
+              config: { frequency_weight: '0.4' },
+              rank: 1,
+              red_numbers: ['1', '2', '3', '4', '5', '6'],
+              score: '0.90000000',
+              generated_at: new Date('2026-06-18T09:00:00.000Z'),
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    },
+    async end() {
+      return undefined;
+    },
+  };
+
+  try {
+    const payload = await repository.getTrainingNextCandidates(10000);
+
+    assert.equal(payload.status, 'ready');
+    assert.equal(payload.totalCount, 10000);
+    assert.equal(payload.nextDrawDate, '2026-06-18');
+    assert.deepEqual(payload.candidates[0].redNumbers, [1, 2, 3, 4, 5, 6]);
+    assert.deepEqual(queries.at(-1)?.params, [10000]);
   } finally {
     await repository.onModuleDestroy();
     await originalPool.end();

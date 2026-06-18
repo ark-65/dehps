@@ -10,6 +10,7 @@ from dehps.config import ROOT_DIR, get_settings
 from dehps.crawler.ssq_sync import sync_ssq
 from dehps.db import get_connection
 from dehps.models.frequency_ranker import FrequencyRankerConfig
+from dehps.optimization.next_candidates import refresh_training_next_candidates_current
 from dehps.optimization.weight_kdj import DEFAULT_KDJ_WINDOW
 from dehps.runtime.heavy_job import HeavyJobLock, apply_cpu_thread_env_defaults
 from dehps.storage.postgres_store import (
@@ -118,6 +119,14 @@ def run_pipeline(
                 dry_run=False,
             )
             heavy_lock.heartbeat(context={"weight_kdj": summary["weight_kdj"]})
+
+        if has_synced_changes:
+            try:
+                with get_connection() as conn:
+                    summary["training_next_candidates"] = refresh_training_next_candidates_current(conn, top_n=10000)
+            except Exception as exc:
+                summary["training_next_candidates"] = {"status": "failed", "error_message": str(exc)}
+            heavy_lock.heartbeat(context={"training_next_candidates": summary["training_next_candidates"]})
 
         daily_report = render_daily_report(run_key, source, latest, is_new_data, metrics, previous)
         daily_path = ROOT_DIR / "data/output/daily" / f"{date.today().isoformat()}-dehps-daily-report.md"

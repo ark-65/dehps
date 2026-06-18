@@ -6,6 +6,7 @@ import pytest
 
 from dehps.storage.postgres_store import DEFAULT_SSQ_DRAW_SITE
 from dehps.storage.postgres_store import CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID
+from dehps.storage.postgres_store import ensure_training_next_candidates_current_schema
 from dehps.storage.postgres_store import ensure_training_weight_signals_schema
 from dehps.storage.postgres_store import load_recent_training_weight_signals
 from dehps.storage.postgres_store import load_training_weight_signal_coverage
@@ -13,6 +14,7 @@ from dehps.storage.postgres_store import load_training_weight_signal_tail
 from dehps.storage.postgres_store import load_training_round_candidate_summaries
 from dehps.storage.postgres_store import load_red_combination_universe
 from dehps.storage.postgres_store import prune_stale_training_weight_signals
+from dehps.storage.postgres_store import replace_training_next_candidates_current
 from dehps.storage.postgres_store import upsert_training_round_result
 from dehps.storage.postgres_store import upsert_training_weight_signal
 from dehps.storage.postgres_store import upsert_ssq_draw_site
@@ -52,6 +54,10 @@ class FakeCursor:
     def execute(self, sql, params=None):
         self.conn.executed.append((sql, params))
         return FakeResult(self.conn.rows)
+
+    def executemany(self, sql, params_seq):
+        for params in params_seq:
+            self.conn.executed.append((sql, params))
 
 
 class FakeCursorConn(FakeConn):
@@ -148,6 +154,49 @@ def test_training_weight_signals_schema_uses_run_issue_weight_key():
     assert "UNIQUE (signal_run_id, issue, weight_name)" in schema_sql
     assert any("idx_training_weight_signals_weight_issue" in sql for sql, _params in conn.executed)
     assert any("idx_training_weight_signals_run_weight_issue" in sql for sql, _params in conn.executed)
+
+
+def test_training_next_candidates_schema_uses_current_rank_index():
+    conn = FakeConn([])
+
+    ensure_training_next_candidates_current_schema(conn)
+
+    schema_sql = conn.executed[0][0]
+    assert "CREATE TABLE IF NOT EXISTS training_next_candidates_current" in schema_sql
+    assert "snapshot_key TEXT NOT NULL" in schema_sql
+    assert any("idx_training_next_candidates_current_rank" in sql for sql, _params in conn.executed)
+
+
+def test_replace_training_next_candidates_current_deletes_previous_snapshot():
+    conn = FakeCursorConn([])
+
+    replace_training_next_candidates_current(
+        conn,
+        metadata={
+            "snapshot_key": "training-next-2026068",
+            "run_id": "run-1",
+            "source_round_index": 3,
+            "as_of_issue": "2026068",
+            "next_issue": "2026069",
+            "next_draw_date": "2026-06-18",
+            "train_mode": "expanding",
+            "train_window": 900,
+            "eval_window": 100,
+            "top_n": 10000,
+            "history_fingerprint": "history-current",
+            "config_hash": "config-1",
+            "config": {"frequency_weight": 0.4},
+            "generated_at": "2026-06-18T09:00:00Z",
+        },
+        candidates=[(1, (1, 2, 3, 4, 5, 6), 0.9), (2, (7, 8, 9, 10, 11, 12), 0.8)],
+    )
+
+    sql_statements = [sql for sql, _params in conn.executed]
+    assert any("DELETE FROM training_next_candidates_current" in sql for sql in sql_statements)
+    insert_params = [params for sql, params in conn.executed if "INSERT INTO training_next_candidates_current" in sql]
+    assert len(insert_params) == 2
+    assert insert_params[0][:4] == ("training-next-2026068", "run-1", 3, "2026068")
+    assert insert_params[0][13:16] == (1, [1, 2, 3, 4, 5, 6], 0.9)
 
 
 def test_upsert_training_weight_signal_is_idempotent_by_run_issue_weight():

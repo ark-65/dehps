@@ -27,6 +27,7 @@ from dehps.optimization.neural_kdj_advisor import (
     neural_kdj_advice_to_frequency_ranker_config_candidates,
     numpy_neural_kdj_offset_v0,
 )
+from dehps.optimization.next_candidates import refresh_training_next_candidates_current
 from dehps.optimization.ridge_kdj_advisor import (
     RidgeKdjOffsetAdvice,
     numpy_ridge_kdj_offset_v0,
@@ -1960,6 +1961,7 @@ def compact_status_payload(status: dict) -> dict:
         "weight_kdj_advisor": status.get("weight_kdj_advisor"),
         "ridge_kdj_advisor": status.get("ridge_kdj_advisor"),
         "qian_kun": status.get("qian_kun"),
+        "next_candidates": status.get("next_candidates"),
         "latest_progress": status.get("latest_progress"),
         "status_path": status.get("status_path"),
         "report_path": status.get("report_path"),
@@ -2215,6 +2217,7 @@ def run_supervisor(
             "latest": None,
         },
         "qian_kun": qian_kun_distribution(selection.history),
+        "next_candidates": None,
         "rounds": rounds,
         "best": strip_target_results(best_summary) if best_summary else None,
         "latest_progress": None,
@@ -2462,6 +2465,17 @@ def run_supervisor(
             with get_connection() as conn:
                 ensure_training_round_results_schema(conn)
                 upsert_training_round_result(conn, run_id=run_id, round_info=round_record, status=status)
+                if best_summary:
+                    try:
+                        status["next_candidates"] = refresh_training_next_candidates_current(
+                            conn,
+                            run_id=run_id,
+                            top_n=top_n,
+                            ranked_universe=ranked_universe,
+                        )
+                    except Exception as exc:  # pragma: no cover - candidate refresh must not stop training.
+                        status["next_candidates"] = {"status": "failed", "error": str(exc)}
+                        log(f"next_candidates_warning round={round_index + 1} error={exc}")
             rounds.append(compact_round_info(round_record))
             publish_status_snapshot(status_path, status, event_url=resolved_event_url, write_json=write_status_json)
             write_report(report_path, status)

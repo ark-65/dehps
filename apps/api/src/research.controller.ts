@@ -80,12 +80,17 @@ export class ResearchController {
     return this.researchService.listTrainingWeightSignals(runId, weights, Number(limit));
   }
 
+  @Get('training-next-candidates')
+  trainingNextCandidates(@Query('limit') limit?: string) {
+    return this.researchService.getTrainingNextCandidates(Number(limit));
+  }
+
   @Post('training-events/status')
-  async trainingStatusEvent(@Req() request: LocalRequest, @Body() _body: unknown) {
+  async trainingStatusEvent(@Req() request: LocalRequest, @Body() body: unknown) {
     if (!this.isLocalRequest(request)) {
       throw new ForbiddenException('training events only accept local requests');
     }
-    const payload = await this.researchService.trainingStatus();
+    const payload = await this.researchService.trainingStatusFromEvent(body);
     this.trainingStatusHub.publishStatus(payload);
     return {
       status: 'accepted',
