@@ -18,6 +18,8 @@ import {
   DashboardPayload,
   ExperimentDetail,
   ExperimentSummary,
+  ServiceStatusItem,
+  ServiceStatusPayload,
   TrainingResult,
   TrainingRoundDetail,
   TrainingRoundListItem,
@@ -33,8 +35,10 @@ import {
   percent,
   progressRate,
   reportStatus,
+  serviceStatusLabel,
   signedNumber,
   signedPercent,
+  sortedServiceStatuses,
   trainModeText,
   trainingStatusText,
 } from './dashboard.model';
@@ -74,7 +78,13 @@ type TrainingWeightSignalsState =
   | { status: 'ready'; series: TrainingWeightSignalSeries[] }
   | { status: 'error'; message: string };
 
-type DashboardTab = 'training' | 'training-rounds' | 'experiments';
+type ServiceStatusState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'ready'; payload: ServiceStatusPayload; services: ServiceStatusItem[] }
+  | { status: 'error'; message: string };
+
+type DashboardTab = 'training' | 'training-rounds' | 'experiments' | 'service-status';
 type WeightTrendGroup = {
   key: string;
   title: string;
@@ -178,6 +188,7 @@ export class AppComponent {
   private readonly trainingWeightSignalsRefreshRequests = new Subject<void>();
   private readonly experimentsRefreshRequests = new Subject<void>();
   private readonly trainingRoundsRefreshRequests = new Subject<void>();
+  private readonly serviceStatusRefreshRequests = new Subject<void>();
   private readonly activeTabRequests = new BehaviorSubject<DashboardTab>('training');
   private readonly detailRequests = new BehaviorSubject<string | null>(null);
   private readonly trainingRoundDetailRequests = new BehaviorSubject<TrainingRoundListItem | null>(null);
@@ -194,6 +205,7 @@ export class AppComponent {
   readonly progressRate = progressRate;
   readonly signedNumber = signedNumber;
   readonly signedPercent = signedPercent;
+  readonly serviceStatusLabel = serviceStatusLabel;
   readonly trainModeText = trainModeText;
   readonly trainingStatusText = trainingStatusText;
   readonly trainingStream$ = this.dashboardService.watchTrainingStatus().pipe(
@@ -288,6 +300,26 @@ export class AppComponent {
     startWith({ status: 'idle' as const }),
     shareReplay({ bufferSize: 1, refCount: true }),
   );
+  readonly serviceStatusState$ = this.activeTabRequests.pipe(
+    filter((tab) => tab === 'service-status'),
+    map(() => undefined),
+  ).pipe(
+    mergeWith(this.serviceStatusRefreshRequests),
+    switchMap(() =>
+      this.dashboardService.loadServiceStatus().pipe(
+        map((payload): ServiceStatusState => ({ status: 'ready', payload, services: sortedServiceStatuses(payload) })),
+        catchError((error: unknown) =>
+          of({
+            status: 'error' as const,
+            message: error instanceof Error ? error.message : '服务状态加载失败',
+          }),
+        ),
+        startWith({ status: 'loading' as const }),
+      ),
+    ),
+    startWith({ status: 'idle' as const }),
+    shareReplay({ bufferSize: 1, refCount: true }),
+  );
   readonly trainingRoundDetailState$ = this.trainingRoundDetailRequests.pipe(
     switchMap((round) => {
       if (!round) {
@@ -342,6 +374,10 @@ export class AppComponent {
     }
     if (this.activeTab === 'training-rounds') {
       this.trainingRoundsRefreshRequests.next();
+      return;
+    }
+    if (this.activeTab === 'service-status') {
+      this.serviceStatusRefreshRequests.next();
       return;
     }
     this.experimentsRefreshRequests.next();
@@ -447,6 +483,62 @@ export class AppComponent {
       return '未知';
     }
     return status.processAlive ? '进程存活' : '进程未存活';
+  }
+
+  serviceStatusClass(service: ServiceStatusItem): string {
+    return `service-${service.status}`;
+  }
+
+  serviceLevelClass(status: ServiceStatusPayload['overall']): string {
+    return `service-${status}`;
+  }
+
+  serviceProcessText(service: ServiceStatusItem): string {
+    if (service.processAlive === null) {
+      return service.pid ? `PID ${service.pid} / 未知` : '无 PID';
+    }
+    return service.processAlive ? `PID ${service.pid} / 存活` : `PID ${service.pid} / 未存活`;
+  }
+
+  serviceHeartbeatText(service: ServiceStatusItem): string {
+    if (service.heartbeatAgeSeconds === null) {
+      return service.heartbeatAt || '无心跳';
+    }
+    if (service.heartbeatAgeSeconds < 90) {
+      return `${service.heartbeatAgeSeconds} 秒前`;
+    }
+    const minutes = Math.floor(service.heartbeatAgeSeconds / 60);
+    if (minutes < 90) {
+      return `${minutes} 分钟前`;
+    }
+    const hours = Math.floor(minutes / 60);
+    if (hours < 48) {
+      return `${hours} 小时前`;
+    }
+    return `${Math.floor(hours / 24)} 天前`;
+  }
+
+  serviceMetricRows(service: ServiceStatusItem): { key: string; value: string }[] {
+    return Object.entries(service.metrics)
+      .filter((entry) => entry[1] !== null && entry[1] !== undefined)
+      .slice(0, 6)
+      .map(([key, value]) => ({
+        key,
+        value: this.serviceMetricValue(value),
+      }));
+  }
+
+  private serviceMetricValue(value: unknown): string {
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      return String(value);
+    }
+    if (Array.isArray(value)) {
+      return value.length ? value.join(', ') : '空';
+    }
+    if (value && typeof value === 'object') {
+      return JSON.stringify(value);
+    }
+    return '无';
   }
 
   progressText(status: TrainingStatusPayload): string {

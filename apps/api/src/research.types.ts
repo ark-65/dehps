@@ -223,6 +223,59 @@ export type TrainingWeightSignalSeries = {
   points: TrainingWeightSignalPoint[];
 };
 
+export type ServiceStatusLevel = 'ok' | 'warning' | 'failed' | 'unknown';
+
+export type ServiceStatusName = 'api' | 'web' | 'db' | 'sync' | 'kdj' | 'training';
+
+export type ServiceStatusItem = {
+  name: ServiceStatusName;
+  label: string;
+  status: ServiceStatusLevel;
+  pid: number | null;
+  processAlive: boolean | null;
+  heartbeatAt: string | null;
+  heartbeatAgeSeconds: number | null;
+  lastStartedAt: string | null;
+  lastFinishedAt: string | null;
+  recentError: string | null;
+  logFile: string | null;
+  metrics: Record<string, unknown>;
+};
+
+export type HeavyTaskLimits = {
+  cpuCount: number;
+  defaultWorkers: number;
+  recommendedInteractiveMax: number;
+  activeTrainingWorkers: number | null;
+};
+
+export type ServiceStatusPayload = {
+  generatedAt: string;
+  overall: ServiceStatusLevel;
+  services: ServiceStatusItem[];
+  heavyTaskLimits: HeavyTaskLimits;
+};
+
+export type SsqHistorySummary = {
+  tablePresent: boolean;
+  totalDraws: number;
+  minDrawDate: string | null;
+  maxDrawDate: string | null;
+  latestIssue: string | null;
+  latestDrawDate: string | null;
+  latestCreatedAt: string | null;
+};
+
+export type TrainingWeightSignalSummary = {
+  tablePresent: boolean;
+  totalRows: number;
+  latestSignalRunId: string | null;
+  latestIssue: string | null;
+  latestDrawDate: string | null;
+  latestCreatedAt: string | null;
+  weights: string[];
+};
+
 export type TrainingProgress = {
   loggedAt: string;
   round: number;
@@ -360,4 +413,6 @@ export interface ResearchRepository {
     weights: string[],
     limit: number,
   ): Promise<TrainingWeightSignalSeries[]>;
+  getSsqHistorySummary(): Promise<SsqHistorySummary>;
+  getTrainingWeightSignalSummary(): Promise<TrainingWeightSignalSummary>;
 }

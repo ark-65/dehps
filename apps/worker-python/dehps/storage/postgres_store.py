@@ -14,6 +14,7 @@ from dehps.crawler.ssq_parser import ValidatedSsqDraw
 
 
 TOTAL_SSQ_RED_COMBINATIONS = comb(33, 6)
+CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID = "weight-kdj-recent-1000-v1"
 
 
 @dataclass(frozen=True)
@@ -186,6 +187,12 @@ def ensure_training_weight_signals_schema(conn: Connection) -> None:
           ON training_weight_signals (signal_run_id, issue)
         """
     )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_training_weight_signals_run_weight_issue
+          ON training_weight_signals (signal_run_id, weight_name, issue)
+        """
+    )
 
 
 def upsert_training_weight_signal(conn: Connection, signal: dict[str, Any]) -> None:
@@ -262,6 +269,10 @@ def load_recent_training_weight_signals(
     conn: Connection,
     *,
     signal_run_id: str | None = None,
+    as_of_issue: str | None = None,
+    train_mode: str | None = None,
+    train_window: int | None = None,
+    top_n: int | None = None,
     limit: int = 1000,
 ) -> list[dict[str, Any]]:
     exists = conn.execute("SELECT to_regclass('public.training_weight_signals')").fetchone()
@@ -270,12 +281,26 @@ def load_recent_training_weight_signals(
     with conn.cursor(row_factory=dict_row) as cur:
         rows = cur.execute(
             """
-            WITH selected_run AS (
+            WITH eligible_signals AS (
+              SELECT *
+              FROM training_weight_signals
+              WHERE (%s IS NULL OR issue <= %s)
+                AND (%s IS NULL OR train_mode = %s)
+                AND (%s IS NULL OR train_window = %s)
+                AND (%s IS NULL OR top_n = %s)
+            ),
+            selected_run AS (
               SELECT COALESCE(
                 %s,
                 (
                   SELECT signal_run_id
-                  FROM training_weight_signals
+                  FROM eligible_signals
+                  WHERE signal_run_id = %s
+                  LIMIT 1
+                ),
+                (
+                  SELECT signal_run_id
+                  FROM eligible_signals
                   ORDER BY created_at DESC, issue DESC
                   LIMIT 1
                 )
@@ -284,7 +309,7 @@ def load_recent_training_weight_signals(
             ranked_points AS (
               SELECT s.*,
                      row_number() OVER (PARTITION BY s.weight_name ORDER BY s.issue DESC) AS row_number
-              FROM training_weight_signals s
+              FROM eligible_signals s
               JOIN selected_run r ON r.signal_run_id = s.signal_run_id
               WHERE r.signal_run_id IS NOT NULL
             )
@@ -295,9 +320,145 @@ def load_recent_training_weight_signals(
             WHERE row_number <= %s
             ORDER BY weight_name ASC, issue ASC
             """,
-            (signal_run_id, limit),
+            (
+                as_of_issue,
+                as_of_issue,
+                train_mode,
+                train_mode,
+                train_window,
+                train_window,
+                top_n,
+                top_n,
+                signal_run_id,
+                CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID,
+                limit,
+            ),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def has_training_weight_signal_run(conn: Connection, *, signal_run_id: str) -> bool:
+    exists = conn.execute("SELECT to_regclass('public.training_weight_signals')").fetchone()
+    if not exists or not exists[0]:
+        return False
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM training_weight_signals
+        WHERE signal_run_id = %s
+        LIMIT 1
+        """,
+        (signal_run_id,),
+    ).fetchone()
+    return bool(row)
+
+
+def load_training_weight_signal_coverage(
+    conn: Connection,
+    *,
+    signal_run_id: str,
+    issues: tuple[str, ...],
+    weights: tuple[str, ...],
+) -> dict[str, set[str]]:
+    if not issues or not weights:
+        return {}
+    with conn.cursor(row_factory=dict_row) as cur:
+        rows = cur.execute(
+            """
+            SELECT issue, weight_name
+            FROM training_weight_signals
+            WHERE signal_run_id = %s
+              AND issue = ANY(%s::text[])
+              AND weight_name = ANY(%s::text[])
+            ORDER BY issue ASC, weight_name ASC
+            """,
+            (signal_run_id, list(issues), list(weights)),
+        ).fetchall()
+    coverage: dict[str, set[str]] = {}
+    for row in rows:
+        coverage.setdefault(str(row["issue"]), set()).add(str(row["weight_name"]))
+    return coverage
+
+
+def load_training_weight_signal_rows(
+    conn: Connection,
+    *,
+    signal_run_id: str,
+    issues: tuple[str, ...],
+    weights: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    if not issues or not weights:
+        return []
+    with conn.cursor(row_factory=dict_row) as cur:
+        rows = cur.execute(
+            """
+            SELECT issue, weight_name, issue_low_value, issue_high_value,
+                   rsv, k_value, d_value, j_value
+            FROM training_weight_signals
+            WHERE signal_run_id = %s
+              AND issue = ANY(%s::text[])
+              AND weight_name = ANY(%s::text[])
+            ORDER BY issue ASC, weight_name ASC
+            """,
+            (signal_run_id, list(issues), list(weights)),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def load_training_weight_signal_tail(
+    conn: Connection,
+    *,
+    signal_run_id: str,
+    before_issue: str,
+    weights: tuple[str, ...],
+    limit_per_weight: int,
+) -> list[dict[str, Any]]:
+    if not weights or limit_per_weight < 1:
+        return []
+    with conn.cursor(row_factory=dict_row) as cur:
+        rows = cur.execute(
+            """
+            WITH ranked AS (
+              SELECT issue, weight_name, issue_low_value, issue_high_value,
+                     rsv, k_value, d_value, j_value,
+                     row_number() OVER (PARTITION BY weight_name ORDER BY issue DESC) AS row_number
+              FROM training_weight_signals
+              WHERE signal_run_id = %s
+                AND issue < %s
+                AND weight_name = ANY(%s::text[])
+            )
+            SELECT issue, weight_name, issue_low_value, issue_high_value,
+                   rsv, k_value, d_value, j_value
+            FROM ranked
+            WHERE row_number <= %s
+            ORDER BY issue ASC, weight_name ASC
+            """,
+            (signal_run_id, before_issue, list(weights), limit_per_weight),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def prune_stale_training_weight_signals(
+    conn: Connection,
+    *,
+    signal_run_id: str,
+    keep_issues: tuple[str, ...],
+) -> int:
+    if signal_run_id != CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID:
+        return 0
+    row = conn.execute(
+        """
+        WITH deleted AS (
+          DELETE FROM training_weight_signals
+          WHERE signal_run_id = %s
+            AND NOT (issue = ANY(%s::text[]))
+          RETURNING 1
+        )
+        SELECT count(*) FROM deleted
+        """,
+        (signal_run_id, list(keep_issues)),
+    ).fetchone()
+    return int(row[0]) if row else 0
 
 
 def upsert_training_round_result(conn: Connection, *, run_id: str, round_info: dict[str, Any], status: dict[str, Any]) -> None:

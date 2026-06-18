@@ -223,6 +223,39 @@ export type TrainingWeightSignalSeries = {
   points: TrainingWeightSignalPoint[];
 };
 
+export type ServiceStatusLevel = 'ok' | 'warning' | 'failed' | 'unknown';
+
+export type ServiceStatusName = 'api' | 'web' | 'db' | 'sync' | 'kdj' | 'training';
+
+export type ServiceStatusItem = {
+  name: ServiceStatusName;
+  label: string;
+  status: ServiceStatusLevel;
+  pid: number | null;
+  processAlive: boolean | null;
+  heartbeatAt: string | null;
+  heartbeatAgeSeconds: number | null;
+  lastStartedAt: string | null;
+  lastFinishedAt: string | null;
+  recentError: string | null;
+  logFile: string | null;
+  metrics: Record<string, unknown>;
+};
+
+export type HeavyTaskLimits = {
+  cpuCount: number;
+  defaultWorkers: number;
+  recommendedInteractiveMax: number;
+  activeTrainingWorkers: number | null;
+};
+
+export type ServiceStatusPayload = {
+  generatedAt: string;
+  overall: ServiceStatusLevel;
+  services: ServiceStatusItem[];
+  heavyTaskLimits: HeavyTaskLimits;
+};
+
 export type TrainingProgress = {
   loggedAt: string;
   round: number;
@@ -381,6 +414,33 @@ export function latestStatus(payload: Pick<DashboardPayload, 'pipelineRuns'>): s
     return '流水线失败';
   }
   return `流水线状态：${latestPipeline.status}`;
+}
+
+export function serviceStatusLabel(status: ServiceStatusLevel): string {
+  const labels: Record<ServiceStatusLevel, string> = {
+    ok: '正常',
+    warning: '警告',
+    failed: '失败',
+    unknown: '未知',
+  };
+  return labels[status];
+}
+
+export function serviceStatusSeverity(status: ServiceStatusLevel): number {
+  const severity: Record<ServiceStatusLevel, number> = {
+    failed: 3,
+    warning: 2,
+    unknown: 1,
+    ok: 0,
+  };
+  return severity[status];
+}
+
+export function sortedServiceStatuses(payload: ServiceStatusPayload): ServiceStatusItem[] {
+  return [...payload.services].sort((left, right) => {
+    const severityDelta = serviceStatusSeverity(right.status) - serviceStatusSeverity(left.status);
+    return severityDelta || left.name.localeCompare(right.name);
+  });
 }
 
 export function reportStatus(detail: ExperimentDetail | null): string {

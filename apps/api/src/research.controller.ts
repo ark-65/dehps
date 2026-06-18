@@ -56,6 +56,11 @@ export class ResearchController {
     return this.researchService.trainingStatus(Number(lines));
   }
 
+  @Get('service-status')
+  serviceStatus() {
+    return this.researchService.serviceStatus();
+  }
+
   @Get('training-rounds')
   trainingRounds(@Query('limit') limit?: string) {
     return this.researchService.listTrainingRounds(Number(limit));

@@ -23,6 +23,7 @@ from dehps.features.qian_kun import qian_kun_distribution
 from dehps.models.frequency_ranker import FrequencyRankerConfig
 from dehps.models.frequency_ranker import history_draw_date, history_issue, history_numbers
 from dehps.optimization.regime import HistoryScope, select_history
+from dehps.optimization.weight_kdj import WeightKdjAdvice, weight_kdj_advice_from_signals
 from dehps.optimization.walk_forward import (
     TargetRank,
     build_ranked_universe,
@@ -143,6 +144,11 @@ CANDIDATE_BUDGET_SHARES = {
     "replay": 0.20,
     "baseline": 0.10,
 }
+DEFAULT_WEIGHT_KDJ_BUDGET_SHARE = 0.15
+DEFAULT_WEIGHT_KDJ_MIN_OBJECTIVE_DELTA = 0.0
+DEFAULT_WEIGHT_KDJ_MIN_ABS_OFFSET = 0.005
+DEFAULT_WEIGHT_KDJ_SLOPE_WINDOW = 3
+DEFAULT_WEIGHT_KDJ_NEUTRAL_BAND = 5.0
 MAX_FROZEN_VALIDATION_WINDOW = 20
 
 
@@ -242,18 +248,26 @@ def add_unique_until(
         add_unique(configs, seen, config)
 
 
-def candidate_budget(max_configs: int) -> dict[str, int]:
+def candidate_budget(max_configs: int, *, weight_kdj_budget_share: float = 0.0) -> dict[str, int]:
     if max_configs <= 0:
-        return {name: 0 for name in CANDIDATE_BUDGET_SHARES}
+        counts = {name: 0 for name in CANDIDATE_BUDGET_SHARES}
+        if weight_kdj_budget_share > 0:
+            counts["weight_kdj"] = 0
+        return counts
+    weight_kdj_count = 0
+    if weight_kdj_budget_share > 0:
+        share = min(1.0, max(0.0, weight_kdj_budget_share))
+        weight_kdj_count = min(max_configs, max(1, int(ceil(max_configs * share))))
+    normal_budget = max_configs - weight_kdj_count
     names = tuple(CANDIDATE_BUDGET_SHARES)
     counts = {name: 0 for name in names}
-    remaining = max_configs
+    remaining = normal_budget
     for name in names:
         if remaining > 0:
             counts[name] = 1
             remaining -= 1
     raw = {
-        name: max_configs * share - counts[name]
+        name: normal_budget * share - counts[name]
         for name, share in CANDIDATE_BUDGET_SHARES.items()
     }
     for name in sorted(names, key=lambda item: raw[item], reverse=True):
@@ -268,6 +282,8 @@ def candidate_budget(max_configs: int) -> dict[str, int]:
             break
         counts[name] += 1
         remaining -= 1
+    if weight_kdj_budget_share > 0:
+        counts["weight_kdj"] = weight_kdj_count
     return counts
 
 
@@ -494,59 +510,101 @@ def weight_kdj_advisor_candidate_configs(
     signals: list[dict],
     *,
     max_configs: int,
+    min_objective_delta: float = DEFAULT_WEIGHT_KDJ_MIN_OBJECTIVE_DELTA,
+    min_abs_offset: float = DEFAULT_WEIGHT_KDJ_MIN_ABS_OFFSET,
+    slope_window: int = DEFAULT_WEIGHT_KDJ_SLOPE_WINDOW,
+    neutral_band: float = DEFAULT_WEIGHT_KDJ_NEUTRAL_BAND,
 ) -> tuple[FrequencyRankerConfig, ...]:
     if max_configs <= 0 or not signals:
         return ()
-    latest_by_field: dict[str, dict] = {}
-    for signal in signals:
-        field = str(signal.get("weight_name") or "")
-        if field not in ALL_FIELDS:
-            continue
-        current = latest_by_field.get(field)
-        if current is None or str(signal.get("issue") or "") >= str(current.get("issue") or ""):
-            latest_by_field[field] = signal
-
-    ranked = sorted(
-        latest_by_field.values(),
-        key=lambda signal: (
-            abs(float(signal.get("recommended_offset") or 0.0)),
-            float(signal.get("objective_delta") or 0.0),
-            abs(float(signal.get("j_value") or 50.0) - 50.0),
-        ),
-        reverse=True,
+    advice = weight_kdj_advice_from_signals(
+        signals,
+        allowed_fields=ALL_FIELDS,
+        min_objective_delta=min_objective_delta,
+        min_abs_offset=min_abs_offset,
+        slope_window=slope_window,
+        neutral_band=neutral_band,
     )
     configs: list[FrequencyRankerConfig] = []
     seen: set[str] = set()
-    add_unique(configs, seen, base)
-    for signal in ranked:
-        field = str(signal["weight_name"])
-        offset = float(signal.get("recommended_offset") or 0.0)
-        if offset == 0:
-            continue
-        add_unique_until(configs, seen, replace(base, **{field: getattr(base, field) + offset}), limit=max_configs)
+    usable = [item for item in advice if item.decision in {"selected", "downweighted"} and item.applied_offset]
+    for item in usable:
+        add_unique_until(configs, seen, replace(base, **{item.weight_name: getattr(base, item.weight_name) + item.applied_offset}), limit=max_configs)
         if len(configs) >= max_configs:
             return tuple(configs)
-    if len(ranked) >= 2:
+    selected = [item for item in usable if item.decision == "selected"]
+    if len(selected) >= 2:
         values = config_dict(base)
-        for signal in ranked[: min(4, len(ranked))]:
-            field = str(signal["weight_name"])
-            values[field] = values[field] + float(signal.get("recommended_offset") or 0.0) / 2
+        for item in selected[: min(4, len(selected))]:
+            values[item.weight_name] = values[item.weight_name] + item.applied_offset / 2
         add_unique_until(configs, seen, FrequencyRankerConfig(**values), limit=max_configs)
     return tuple(configs[:max_configs])
 
 
-def weight_kdj_advisor_metadata(signals: list[dict], configs: tuple[FrequencyRankerConfig, ...]) -> dict:
-    signal_run_id = str(signals[-1].get("signal_run_id") or "") if signals else ""
-    latest_issue = max((str(signal.get("issue") or "") for signal in signals), default="")
+def merge_reserved_candidate_configs(
+    normal_configs: tuple[FrequencyRankerConfig, ...],
+    reserved_configs: tuple[FrequencyRankerConfig, ...],
+    *,
+    max_configs: int,
+    reserved_budget: int,
+) -> tuple[FrequencyRankerConfig, ...]:
+    normal_limit = max(0, max_configs - max(0, reserved_budget))
+    configs: list[FrequencyRankerConfig] = []
+    seen: set[str] = set()
+    for config in normal_configs:
+        add_unique_until(configs, seen, config, limit=normal_limit)
+    for config in reserved_configs:
+        add_unique_until(configs, seen, config, limit=max_configs)
+    for config in normal_configs:
+        if len(configs) >= max_configs:
+            break
+        add_unique(configs, seen, config)
+    return tuple(configs[:max_configs])
+
+
+def weight_kdj_advisor_metadata(
+    signals: list[dict],
+    configs: tuple[FrequencyRankerConfig, ...],
+    *,
+    budget: int = 0,
+    thresholds: dict | None = None,
+    advice: tuple[WeightKdjAdvice, ...] = (),
+) -> dict:
+    if not advice and signals:
+        advice = weight_kdj_advice_from_signals(
+            signals,
+            allowed_fields=ALL_FIELDS,
+            min_objective_delta=float((thresholds or {}).get("min_objective_delta", DEFAULT_WEIGHT_KDJ_MIN_OBJECTIVE_DELTA)),
+            min_abs_offset=float((thresholds or {}).get("min_abs_offset", DEFAULT_WEIGHT_KDJ_MIN_ABS_OFFSET)),
+            slope_window=int((thresholds or {}).get("slope_window", DEFAULT_WEIGHT_KDJ_SLOPE_WINDOW)),
+            neutral_band=float((thresholds or {}).get("neutral_band", DEFAULT_WEIGHT_KDJ_NEUTRAL_BAND)),
+        )
+    counts = Counter(item.decision for item in advice)
+    latest_issue = max((item.latest_issue for item in advice), default=max((str(signal.get("issue") or "") for signal in signals), default=""))
     fields = sorted({str(signal.get("weight_name")) for signal in signals if signal.get("weight_name") in ALL_FIELDS})
+    selected_fields = [item.weight_name for item in advice if item.decision == "selected"]
+    downweighted_fields = [item.weight_name for item in advice if item.decision == "downweighted"]
     return {
         "enabled": bool(signals),
-        "signal_run_id": signal_run_id,
+        "signal_run_id": str(signals[-1].get("signal_run_id") or "") if signals else "",
         "latest_issue": latest_issue,
         "signal_count": len(signals),
         "field_count": len(fields),
         "fields": fields,
+        "budget": budget,
+        "thresholds": thresholds or {
+            "min_objective_delta": DEFAULT_WEIGHT_KDJ_MIN_OBJECTIVE_DELTA,
+            "min_abs_offset": DEFAULT_WEIGHT_KDJ_MIN_ABS_OFFSET,
+            "slope_window": DEFAULT_WEIGHT_KDJ_SLOPE_WINDOW,
+            "neutral_band": DEFAULT_WEIGHT_KDJ_NEUTRAL_BAND,
+        },
+        "selected_count": counts.get("selected", 0),
+        "downweighted_count": counts.get("downweighted", 0),
+        "rejected_count": counts.get("rejected", 0),
+        "selected_fields": selected_fields,
+        "downweighted_fields": downweighted_fields,
         "candidate_count": len(configs),
+        "advice": [item.as_dict() for item in advice],
         "mode": "advisor_only",
     }
 
@@ -1791,6 +1849,11 @@ def run_supervisor(
     enable_weight_kdj_advisor: bool = False,
     weight_kdj_run_id: str | None = None,
     weight_kdj_limit: int = 1000,
+    weight_kdj_budget_share: float = DEFAULT_WEIGHT_KDJ_BUDGET_SHARE,
+    weight_kdj_min_objective_delta: float = DEFAULT_WEIGHT_KDJ_MIN_OBJECTIVE_DELTA,
+    weight_kdj_min_abs_offset: float = DEFAULT_WEIGHT_KDJ_MIN_ABS_OFFSET,
+    weight_kdj_slope_window: int = DEFAULT_WEIGHT_KDJ_SLOPE_WINDOW,
+    weight_kdj_neutral_band: float = DEFAULT_WEIGHT_KDJ_NEUTRAL_BAND,
 ) -> dict:
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
     started_at = datetime.now()
@@ -1857,6 +1920,12 @@ def run_supervisor(
     base_config = FrequencyRankerConfig(**best_summary["config"]) if best_summary else FrequencyRankerConfig()
     leaderboard: list[dict] = prior_leaderboard
     rounds: list[dict] = []
+    weight_kdj_thresholds = {
+        "min_objective_delta": weight_kdj_min_objective_delta,
+        "min_abs_offset": weight_kdj_min_abs_offset,
+        "slope_window": weight_kdj_slope_window,
+        "neutral_band": weight_kdj_neutral_band,
+    }
     status = {
         "run_id": run_id,
         "started_at": started_at.isoformat(timespec="seconds"),
@@ -1886,6 +1955,8 @@ def run_supervisor(
             "enabled": enable_weight_kdj_advisor,
             "signal_run_id": weight_kdj_run_id,
             "limit": weight_kdj_limit,
+            "budget_share": weight_kdj_budget_share if enable_weight_kdj_advisor else 0.0,
+            "thresholds": weight_kdj_thresholds,
             "latest": None,
         },
         "qian_kun": qian_kun_distribution(selection.history),
@@ -1912,12 +1983,18 @@ def run_supervisor(
             low_coverage_fields = low_coverage_fields_from_summaries(historical_summaries)
             elite_configs = tuple(FrequencyRankerConfig(**summary["config"]) for summary in leaderboard[:4])
             control_configs = control_experiment_configs(base_config)
+            budgets = candidate_budget(
+                max_configs_per_round,
+                weight_kdj_budget_share=weight_kdj_budget_share if enable_weight_kdj_advisor else 0.0,
+            )
+            weight_kdj_budget = budgets.get("weight_kdj", 0)
+            normal_config_budget = max_configs_per_round - weight_kdj_budget
             configs = tuple(
                 generate_configs(
                     base_config,
                     phase=phase,
                     step=step,
-                    max_configs=max_configs_per_round,
+                    max_configs=normal_config_budget,
                     elite_configs=elite_configs,
                     historical_summaries=historical_summaries,
                     low_coverage_fields=low_coverage_fields,
@@ -1927,23 +2004,41 @@ def run_supervisor(
             )
             weight_kdj_signals: list[dict] = []
             weight_kdj_configs: tuple[FrequencyRankerConfig, ...] = ()
+            weight_kdj_advice: tuple[WeightKdjAdvice, ...] = ()
             if enable_weight_kdj_advisor:
                 with get_connection() as conn:
                     weight_kdj_signals = load_recent_training_weight_signals(
                         conn,
                         signal_run_id=weight_kdj_run_id,
+                        as_of_issue=as_of_issue_value,
+                        train_mode=train_mode,
+                        train_window=train_window,
+                        top_n=top_n,
                         limit=weight_kdj_limit,
                     )
+                weight_kdj_advice = weight_kdj_advice_from_signals(
+                    weight_kdj_signals,
+                    allowed_fields=ALL_FIELDS,
+                    min_objective_delta=weight_kdj_min_objective_delta,
+                    min_abs_offset=weight_kdj_min_abs_offset,
+                    slope_window=weight_kdj_slope_window,
+                    neutral_band=weight_kdj_neutral_band,
+                )
                 weight_kdj_configs = weight_kdj_advisor_candidate_configs(
                     base_config,
                     weight_kdj_signals,
-                    max_configs=max(1, candidate_budget(max_configs_per_round)["replay"] // 2),
+                    max_configs=weight_kdj_budget,
+                    min_objective_delta=weight_kdj_min_objective_delta,
+                    min_abs_offset=weight_kdj_min_abs_offset,
+                    slope_window=weight_kdj_slope_window,
+                    neutral_band=weight_kdj_neutral_band,
                 )
-                merged_configs: list[FrequencyRankerConfig] = []
-                seen_configs: set[str] = set()
-                for config in (*configs, *weight_kdj_configs):
-                    add_unique_until(merged_configs, seen_configs, config, limit=max_configs_per_round)
-                configs = tuple(merged_configs)
+                configs = merge_reserved_candidate_configs(
+                    configs,
+                    weight_kdj_configs,
+                    max_configs=max_configs_per_round,
+                    reserved_budget=weight_kdj_budget,
+                )
             generated_config_count = len(configs)
             keep_configs = (base_config, *elite_configs[:4], *(config for _label, config in control_configs))
             refined_configs, prefilter_info = prefilter_configs(
@@ -1962,8 +2057,14 @@ def run_supervisor(
             )
             prefilter_info["stagnation_rounds"] = stagnation_rounds
             prefilter_info["low_coverage_fields"] = list(low_coverage_fields)
-            prefilter_info["candidate_budget"] = candidate_budget(max_configs_per_round)
-            advisor_info = weight_kdj_advisor_metadata(weight_kdj_signals, weight_kdj_configs)
+            prefilter_info["candidate_budget"] = budgets
+            advisor_info = weight_kdj_advisor_metadata(
+                weight_kdj_signals,
+                weight_kdj_configs,
+                budget=weight_kdj_budget,
+                thresholds=weight_kdj_thresholds,
+                advice=weight_kdj_advice,
+            )
             prefilter_info["weight_kdj_advisor"] = advisor_info
             status["weight_kdj_advisor"]["latest"] = advisor_info
             status["prefilter"]["latest"] = prefilter_info
@@ -2072,6 +2173,11 @@ def main() -> None:
     parser.add_argument("--enable-weight-kdj-advisor", action="store_true", help="Use stored weight KDJ signals as advisor-only candidate proposals.")
     parser.add_argument("--weight-kdj-run-id", help="Optional training_weight_signals signal_run_id to read.")
     parser.add_argument("--weight-kdj-limit", type=int, default=1000, help="Recent signal points per weight for advisor context.")
+    parser.add_argument("--weight-kdj-budget-share", type=float, default=DEFAULT_WEIGHT_KDJ_BUDGET_SHARE, help="Candidate budget share reserved for KDJ advisor proposals when enabled.")
+    parser.add_argument("--weight-kdj-min-objective-delta", type=float, default=DEFAULT_WEIGHT_KDJ_MIN_OBJECTIVE_DELTA)
+    parser.add_argument("--weight-kdj-min-abs-offset", type=float, default=DEFAULT_WEIGHT_KDJ_MIN_ABS_OFFSET)
+    parser.add_argument("--weight-kdj-slope-window", type=int, default=DEFAULT_WEIGHT_KDJ_SLOPE_WINDOW)
+    parser.add_argument("--weight-kdj-neutral-band", type=float, default=DEFAULT_WEIGHT_KDJ_NEUTRAL_BAND)
     args = parser.parse_args()
     print(
         json.dumps(
@@ -2094,6 +2200,11 @@ def main() -> None:
                 enable_weight_kdj_advisor=args.enable_weight_kdj_advisor,
                 weight_kdj_run_id=args.weight_kdj_run_id,
                 weight_kdj_limit=args.weight_kdj_limit,
+                weight_kdj_budget_share=args.weight_kdj_budget_share,
+                weight_kdj_min_objective_delta=args.weight_kdj_min_objective_delta,
+                weight_kdj_min_abs_offset=args.weight_kdj_min_abs_offset,
+                weight_kdj_slope_window=args.weight_kdj_slope_window,
+                weight_kdj_neutral_band=args.weight_kdj_neutral_band,
             ),
             ensure_ascii=False,
             indent=2,

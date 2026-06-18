@@ -9,6 +9,8 @@ from dehps.backtest.report import render_daily_report, render_experiment_report
 from dehps.config import ROOT_DIR, get_settings
 from dehps.crawler.ssq_sync import sync_ssq
 from dehps.db import get_connection
+from dehps.models.frequency_ranker import FrequencyRankerConfig
+from dehps.optimization.weight_kdj import DEFAULT_KDJ_WINDOW
 from dehps.storage.postgres_store import (
     create_pipeline_run,
     finish_pipeline_run,
@@ -17,6 +19,7 @@ from dehps.storage.postgres_store import (
     previous_experiment_metrics,
     save_experiment,
 )
+from scripts.generate_weight_kdj_signals import CANONICAL_SIGNAL_RUN_ID, generate_signals, parse_weights
 
 
 def _load_git_helper():
@@ -36,6 +39,7 @@ def run_pipeline(
     csv_file: str | None = None,
     auto_git: bool = False,
     force: bool = False,
+    skip_weight_kdj_signals: bool = False,
 ) -> dict:
     settings = get_settings()
     run_key = f"daily-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
@@ -48,6 +52,7 @@ def run_pipeline(
     try:
         sync_summary = sync_ssq(source, history=(source == "csv"), csv_file=csv_file, run_key=f"{run_key}-sync")
         is_new_data = sync_summary.get("inserted_count", 0) > 0
+        has_synced_changes = is_new_data or sync_summary.get("updated_count", 0) > 0
         summary["sync_run_key"] = sync_summary["run_key"]
         summary["sync"] = sync_summary
 
@@ -76,6 +81,25 @@ def run_pipeline(
             experiment_path.write_text(experiment_report)
             summary["experiment_key"] = experiment_key
             summary["experiment_report_path"] = str(experiment_path)
+
+        if has_synced_changes and not skip_weight_kdj_signals:
+            summary["weight_kdj"] = generate_signals(
+                signal_run_id=CANONICAL_SIGNAL_RUN_ID,
+                mode="incremental",
+                as_of_issue=None,
+                issues=1000,
+                allow_partial=True,
+                train_mode="expanding",
+                train_window=900,
+                top_n=10000,
+                weights=parse_weights(None),
+                primary_step=0.03,
+                context_step=0.01,
+                kdj_window=DEFAULT_KDJ_WINDOW,
+                chunk_size=25,
+                base_config=FrequencyRankerConfig(),
+                dry_run=False,
+            )
 
         daily_report = render_daily_report(run_key, source, latest, is_new_data, metrics, previous)
         daily_path = ROOT_DIR / "data/output/daily" / f"{date.today().isoformat()}-dehps-daily-report.md"
@@ -115,10 +139,20 @@ def main() -> None:
     parser.add_argument("--csv-file", help="Explicit CSV path when --source csv is used")
     parser.add_argument("--auto-git", action="store_true")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--skip-weight-kdj-signals", action="store_true")
     args = parser.parse_args()
     if args.source == "csv" and not args.csv_file and not get_settings().ssq_csv_path:
         parser.error("--source csv requires --csv-file or SSQ_CSV_PATH")
-    print(run_pipeline(args.strategy_key, args.source, csv_file=args.csv_file, auto_git=args.auto_git, force=args.force))
+    print(
+        run_pipeline(
+            args.strategy_key,
+            args.source,
+            csv_file=args.csv_file,
+            auto_git=args.auto_git,
+            force=args.force,
+            skip_weight_kdj_signals=args.skip_weight_kdj_signals,
+        )
+    )
 
 
 if __name__ == "__main__":

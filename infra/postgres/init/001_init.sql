@@ -213,6 +213,9 @@ CREATE INDEX IF NOT EXISTS idx_training_weight_signals_weight_issue
 CREATE INDEX IF NOT EXISTS idx_training_weight_signals_run_issue
   ON training_weight_signals (signal_run_id, issue);
 
+CREATE INDEX IF NOT EXISTS idx_training_weight_signals_run_weight_issue
+  ON training_weight_signals (signal_run_id, weight_name, issue);
+
 INSERT INTO dehps_strategies (strategy_key, name, description, config)
 VALUES (
   'baseline_v1',

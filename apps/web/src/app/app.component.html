@@ -45,7 +45,113 @@
       >
         并行实验
       </button>
+      <button
+        type="button"
+        [class.active]="activeTab === 'service-status'"
+        (click)="selectTab('service-status')"
+      >
+        服务状态
+      </button>
     </nav>
+
+    @if (activeTab === 'service-status') {
+    @if (serviceStatusState$ | async; as state) {
+    @if (state.status === 'loading' || state.status === 'idle') {
+      <section class="detail-workbench">
+        <div class="detail-placeholder">正在加载服务状态...</div>
+      </section>
+    } @else if (state.status === 'error') {
+      <section class="detail-workbench">
+        <div class="detail-placeholder error-text">{{ state.message }}</div>
+      </section>
+    } @else {
+      <section class="service-status-panel">
+        <div class="section-heading">
+          <h2>服务状态</h2>
+          <span>{{ state.payload.generatedAt | date: 'yyyy-MM-dd HH:mm:ss' }}</span>
+        </div>
+        <div class="service-tile-grid">
+          <article class="service-tile" [ngClass]="serviceLevelClass(state.payload.overall)">
+            <span>总体状态</span>
+            <strong>{{ serviceStatusLabel(state.payload.overall) }}</strong>
+            <small>{{ state.payload.services.length }} 个只读状态源</small>
+          </article>
+          <article class="service-tile">
+            <span>CPU</span>
+            <strong>{{ state.payload.heavyTaskLimits.cpuCount }}</strong>
+            <small>默认训练 {{ state.payload.heavyTaskLimits.defaultWorkers }} workers</small>
+          </article>
+          <article class="service-tile">
+            <span>交互上限</span>
+            <strong>{{ state.payload.heavyTaskLimits.recommendedInteractiveMax }}</strong>
+            <small>recommendedInteractiveMax</small>
+          </article>
+          <article class="service-tile">
+            <span>训练占用</span>
+            <strong>{{ state.payload.heavyTaskLimits.activeTrainingWorkers ?? '未知' }}</strong>
+            <small>activeTrainingWorkers</small>
+          </article>
+        </div>
+        <div class="table-wrap service-table">
+          <table>
+            <thead>
+              <tr>
+                <th>服务</th>
+                <th>状态</th>
+                <th>进程</th>
+                <th>心跳</th>
+                <th>最近运行</th>
+                <th>日志</th>
+                <th>错误</th>
+                <th>指标</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (service of state.services; track service.name) {
+                <tr [ngClass]="serviceStatusClass(service)">
+                  <td>
+                    <strong>{{ service.label }}</strong>
+                    <small>{{ service.name }}</small>
+                  </td>
+                  <td>
+                    <span class="status-pill">{{ serviceStatusLabel(service.status) }}</span>
+                  </td>
+                  <td>{{ serviceProcessText(service) }}</td>
+                  <td>
+                    <strong>{{ serviceHeartbeatText(service) }}</strong>
+                    <small>{{ service.heartbeatAt || '无时间戳' }}</small>
+                  </td>
+                  <td>
+                    <span>启动 {{ service.lastStartedAt || '无' }}</span>
+                    <small>结束 {{ service.lastFinishedAt || '无' }}</small>
+                  </td>
+                  <td>{{ compactPath(service.logFile) }}</td>
+                  <td>
+                    @if (service.recentError) {
+                      <em>{{ service.recentError }}</em>
+                    } @else {
+                      <span>无</span>
+                    }
+                  </td>
+                  <td>
+                    <dl class="metric-list">
+                      @for (metric of serviceMetricRows(service); track metric.key) {
+                        <div>
+                          <dt>{{ metric.key }}</dt>
+                          <dd>{{ metric.value }}</dd>
+                        </div>
+                      }
+                    </dl>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </section>
+    }
+    }
+    }
 
     @if (activeTab === 'training') {
     @if (trainingStream?.payload; as training) {

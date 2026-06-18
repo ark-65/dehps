@@ -107,6 +107,7 @@ h2 {
 .detail-workbench,
 .comparison-workbench,
 .feature-distributions,
+.service-status-panel,
 .training-monitor,
 .panel {
   background: #ffffff;
@@ -131,7 +132,8 @@ h2 {
 }
 
 .comparison-workbench,
-.feature-distributions {
+.feature-distributions,
+.service-status-panel {
   margin-bottom: 18px;
 }
 
@@ -325,6 +327,124 @@ select {
   display: block;
   margin-top: 8px;
   color: #64717d;
+  overflow-wrap: anywhere;
+}
+
+.service-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px;
+}
+
+.service-tile {
+  display: grid;
+  align-content: center;
+  min-width: 0;
+  min-height: 96px;
+  padding: 12px;
+  border: 1px solid #e3e7eb;
+  border-left: 4px solid #4472a5;
+  border-radius: 6px;
+  background: #fbfcfd;
+}
+
+.service-tile span {
+  color: #64717d;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.service-tile strong {
+  margin-top: 8px;
+  font-size: 1.45rem;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.service-tile small {
+  margin-top: 8px;
+  color: #64717d;
+  overflow-wrap: anywhere;
+}
+
+.service-ok {
+  border-left-color: #327857;
+}
+
+.service-warning {
+  border-left-color: #987a24;
+  background: #fffaf0;
+}
+
+.service-failed {
+  border-left-color: #b5413f;
+  background: #fff5f5;
+}
+
+.service-unknown {
+  border-left-color: #64717d;
+}
+
+.service-table table {
+  min-width: 1120px;
+}
+
+.service-table tr.service-warning td {
+  background: #fffaf0;
+}
+
+.service-table tr.service-failed td {
+  background: #fff5f5;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 2px 9px;
+  background: #e9edf1;
+  color: #233040;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.service-ok .status-pill {
+  background: #dff1e7;
+  color: #1f6f45;
+}
+
+.service-warning .status-pill {
+  background: #f6e9c9;
+  color: #7a5a12;
+}
+
+.service-failed .status-pill {
+  background: #f6dddd;
+  color: #a33331;
+}
+
+.metric-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  min-width: 220px;
+}
+
+.metric-list div {
+  min-width: 0;
+}
+
+.metric-list dt {
+  font-size: 0.72rem;
+}
+
+.metric-list dd {
+  max-width: 360px;
+  margin: 2px 0 0;
+  color: #364556;
   overflow-wrap: anywhere;
 }
 
@@ -807,6 +927,7 @@ em {
   .chart-grid,
   .training-detail-grid,
   .training-grid,
+  .service-tile-grid,
   .feature-grid {
     grid-template-columns: 1fr;
   }

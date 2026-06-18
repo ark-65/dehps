@@ -6,6 +6,7 @@ from dehps.optimization.weight_kdj import (
     next_kdj_state,
     rsv_from_interval,
     signal_from_probe_results,
+    weight_kdj_advice_from_signals,
 )
 
 
@@ -51,3 +52,76 @@ def test_signal_from_probe_results_uses_best_objective_as_close():
     assert round(signal.objective_delta, 6) == 2.0
     assert signal.recommended_offset > 0
     assert round(state.k_value, 6) == round(signal.k_value, 6)
+
+
+def test_weight_kdj_advice_rejects_neutral_and_opposite_slope_and_downweights_noise():
+    signals = [
+        {
+            "signal_run_id": "run-1",
+            "issue": "2026066",
+            "weight_name": "frequency_weight",
+            "recommended_offset": 0.04,
+            "objective_delta": 2.0,
+            "j_value": 45.0,
+        },
+        {
+            "signal_run_id": "run-1",
+            "issue": "2026067",
+            "weight_name": "frequency_weight",
+            "recommended_offset": 0.04,
+            "objective_delta": 2.0,
+            "j_value": 75.0,
+        },
+        {
+            "signal_run_id": "run-1",
+            "issue": "2026068",
+            "weight_name": "frequency_weight",
+            "recommended_offset": 0.04,
+            "objective_delta": 2.0,
+            "j_value": 65.0,
+        },
+        {
+            "signal_run_id": "run-1",
+            "issue": "2026068",
+            "weight_name": "sum_tail_weight",
+            "recommended_offset": -0.03,
+            "objective_delta": 2.0,
+            "j_value": 47.0,
+        },
+        {
+            "signal_run_id": "run-1",
+            "issue": "2026067",
+            "weight_name": "weekday_trend_weight",
+            "recommended_offset": 0.02,
+            "objective_delta": 1.0,
+            "j_value": 70.0,
+        },
+        {
+            "signal_run_id": "run-1",
+            "issue": "2026068",
+            "weight_name": "weekday_trend_weight",
+            "recommended_offset": 0.02,
+            "objective_delta": 1.0,
+            "j_value": 60.0,
+        },
+    ]
+
+    advice = {
+        item.weight_name: item
+        for item in weight_kdj_advice_from_signals(
+            signals,
+            allowed_fields=("frequency_weight", "sum_tail_weight", "weekday_trend_weight"),
+            min_objective_delta=0.5,
+            min_abs_offset=0.01,
+            slope_window=3,
+            neutral_band=5.0,
+        )
+    }
+
+    assert advice["frequency_weight"].decision == "downweighted"
+    assert advice["frequency_weight"].reason == "noisy_slope"
+    assert advice["frequency_weight"].applied_offset == 0.02
+    assert advice["sum_tail_weight"].decision == "rejected"
+    assert advice["sum_tail_weight"].reason == "neutral_band"
+    assert advice["weekday_trend_weight"].decision == "rejected"
+    assert advice["weekday_trend_weight"].reason == "opposite_slope"

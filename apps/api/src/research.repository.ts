@@ -6,12 +6,16 @@ import {
   FeatureDistribution,
   PipelineRunSummary,
   ResearchRepository,
+  SsqHistorySummary,
   SyncRunSummary,
   TrainingRoundDetail,
   TrainingRoundListItem,
+  TrainingWeightSignalSummary,
   TrainingWeightSignalPoint,
   TrainingWeightSignalSeries,
 } from './research.types';
+
+export const CANONICAL_WEIGHT_KDJ_SIGNAL_RUN_ID = 'weight-kdj-recent-1000-v1';
 
 @Injectable()
 export class PostgresResearchRepository implements ResearchRepository, OnModuleDestroy {
@@ -316,6 +320,12 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
           (
             SELECT signal_run_id
             FROM training_weight_signals
+            WHERE signal_run_id = $4
+            LIMIT 1
+          ),
+          (
+            SELECT signal_run_id
+            FROM training_weight_signals
             ORDER BY created_at DESC, issue DESC
             LIMIT 1
           )
@@ -339,7 +349,7 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
       WHERE row_number <= $3
       ORDER BY weight_name ASC, issue ASC
       `,
-      [signalRunId, weightFilter, limit],
+      [signalRunId, weightFilter, limit, CANONICAL_WEIGHT_KDJ_SIGNAL_RUN_ID],
     );
 
     const byWeight = new Map<string, TrainingWeightSignalSeries>();
@@ -362,6 +372,106 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
       byWeight.set(weightName, series);
     }
     return [...byWeight.values()];
+  }
+
+  async getSsqHistorySummary(): Promise<SsqHistorySummary> {
+    const tableCheck = await this.pool.query("SELECT to_regclass('public.ssq_history') AS table_name");
+    if (!tableCheck.rows[0]?.table_name) {
+      return {
+        tablePresent: false,
+        totalDraws: 0,
+        minDrawDate: null,
+        maxDrawDate: null,
+        latestIssue: null,
+        latestDrawDate: null,
+        latestCreatedAt: null,
+      };
+    }
+
+    const { rows } = await this.pool.query(
+      `
+      WITH summary AS (
+        SELECT count(*)::int AS total_draws,
+               min(draw_date) AS min_draw_date,
+               max(draw_date) AS max_draw_date
+        FROM ssq_history
+      ),
+      latest AS (
+        SELECT issue, draw_date, created_at
+        FROM ssq_history
+        ORDER BY issue DESC
+        LIMIT 1
+      )
+      SELECT summary.total_draws, summary.min_draw_date, summary.max_draw_date,
+             latest.issue, latest.draw_date AS latest_draw_date, latest.created_at AS latest_created_at
+      FROM summary
+      LEFT JOIN latest ON true
+      `,
+    );
+    const row = rows[0] ?? {};
+    return {
+      tablePresent: true,
+      totalDraws: Number(row.total_draws ?? 0),
+      minDrawDate: this.dateOnlyValue(row.min_draw_date),
+      maxDrawDate: this.dateOnlyValue(row.max_draw_date),
+      latestIssue: row.issue ?? null,
+      latestDrawDate: this.dateOnlyValue(row.latest_draw_date),
+      latestCreatedAt: row.latest_created_at ? row.latest_created_at.toISOString() : null,
+    };
+  }
+
+  async getTrainingWeightSignalSummary(): Promise<TrainingWeightSignalSummary> {
+    const tableCheck = await this.pool.query("SELECT to_regclass('public.training_weight_signals') AS table_name");
+    if (!tableCheck.rows[0]?.table_name) {
+      return {
+        tablePresent: false,
+        totalRows: 0,
+        latestSignalRunId: null,
+        latestIssue: null,
+        latestDrawDate: null,
+        latestCreatedAt: null,
+        weights: [],
+      };
+    }
+
+    const [summaryResult, weightsResult] = await Promise.all([
+      this.pool.query(
+        `
+        WITH summary AS (
+          SELECT count(*)::int AS total_rows
+          FROM training_weight_signals
+        ),
+        latest AS (
+          SELECT signal_run_id, issue, draw_date, created_at
+          FROM training_weight_signals
+          ORDER BY created_at DESC, issue DESC
+          LIMIT 1
+        )
+        SELECT summary.total_rows, latest.signal_run_id, latest.issue,
+               latest.draw_date, latest.created_at
+        FROM summary
+        LEFT JOIN latest ON true
+        `,
+      ),
+      this.pool.query(
+        `
+        SELECT DISTINCT weight_name
+        FROM training_weight_signals
+        ORDER BY weight_name ASC
+        LIMIT 50
+        `,
+      ),
+    ]);
+    const row = summaryResult.rows[0] ?? {};
+    return {
+      tablePresent: true,
+      totalRows: Number(row.total_rows ?? 0),
+      latestSignalRunId: row.signal_run_id ?? null,
+      latestIssue: row.issue ?? null,
+      latestDrawDate: this.dateOnlyValue(row.draw_date),
+      latestCreatedAt: row.created_at ? row.created_at.toISOString() : null,
+      weights: weightsResult.rows.map((weightRow) => weightRow.weight_name).filter(Boolean),
+    };
   }
 
   private trainingRoundListItem(row: Record<string, any>): TrainingRoundListItem {

@@ -4,14 +4,18 @@ import { test } from 'node:test';
 import {
   DashboardPayload,
   ExperimentDetail,
+  ServiceStatusPayload,
   compareExperiments,
   combinationDistribution,
   ExperimentSummary,
   latestStatus,
   percent,
   reportStatus,
+  serviceStatusLabel,
+  serviceStatusSeverity,
   signedNumber,
   signedPercent,
+  sortedServiceStatuses,
 } from '../src/app/dashboard.model';
 
 test('percent formats ratios as dashboard percentages', () => {
@@ -42,6 +46,71 @@ test('latestStatus summarizes pipeline state', () => {
 
 test('latestStatus handles an empty pipeline list', () => {
   assert.equal(latestStatus({ experiments: [], pipelineRuns: [], syncRuns: [], featureDistributions: [] }), '暂无流水线记录');
+});
+
+test('service status labels and severity sorting keep failed states first', () => {
+  const payload: ServiceStatusPayload = {
+    generatedAt: '2026-06-18T12:00:00.000Z',
+    overall: 'failed',
+    heavyTaskLimits: {
+      cpuCount: 32,
+      defaultWorkers: 16,
+      recommendedInteractiveMax: 8,
+      activeTrainingWorkers: 16,
+    },
+    services: [
+      {
+        name: 'api',
+        label: 'API',
+        status: 'ok',
+        pid: 1,
+        processAlive: true,
+        heartbeatAt: '2026-06-18T12:00:00.000Z',
+        heartbeatAgeSeconds: 0,
+        lastStartedAt: null,
+        lastFinishedAt: null,
+        recentError: null,
+        logFile: null,
+        metrics: {},
+      },
+      {
+        name: 'sync',
+        label: '开奖同步',
+        status: 'failed',
+        pid: null,
+        processAlive: null,
+        heartbeatAt: null,
+        heartbeatAgeSeconds: null,
+        lastStartedAt: null,
+        lastFinishedAt: null,
+        recentError: 'failed',
+        logFile: null,
+        metrics: {},
+      },
+      {
+        name: 'kdj',
+        label: '权重KDJ',
+        status: 'warning',
+        pid: null,
+        processAlive: null,
+        heartbeatAt: null,
+        heartbeatAgeSeconds: null,
+        lastStartedAt: null,
+        lastFinishedAt: null,
+        recentError: null,
+        logFile: null,
+        metrics: {},
+      },
+    ],
+  };
+
+  assert.equal(serviceStatusLabel('ok'), '正常');
+  assert.equal(serviceStatusLabel('warning'), '警告');
+  assert.equal(serviceStatusSeverity('failed') > serviceStatusSeverity('warning'), true);
+  assert.deepEqual(
+    sortedServiceStatuses(payload).map((service) => service.name),
+    ['sync', 'kdj', 'api'],
+  );
 });
 
 test('combinationDistribution splits retained and rejected space', () => {
@@ -141,10 +210,11 @@ test('training view does not use periodic dashboard polling', () => {
   assert.equal(component.includes('liveProgressOption'), true);
   assert.equal(component.includes('trainingWeightSignalsState$'), true);
   assert.equal(component.includes('weightKdjGroups'), true);
-  assert.equal(component.includes("type DashboardTab = 'training' | 'training-rounds' | 'experiments'"), true);
+  assert.equal(component.includes("type DashboardTab = 'training' | 'training-rounds' | 'experiments' | 'service-status'"), true);
   assert.equal(component.includes('targetHitRows'), true);
   assert.equal(template.includes('@if (hasRoundCharts(training))'), true);
   assert.equal(template.includes('训练轮次'), true);
+  assert.equal(template.includes('服务状态'), true);
   assert.equal(template.includes('命中期次'), true);
   assert.equal(template.includes('红5候选'), true);
   assert.equal(template.includes('等待第 1 轮回归结果'), true);
@@ -154,6 +224,21 @@ test('training view does not use periodic dashboard polling', () => {
   assert.equal(template.includes('权重演化图待拆分'), false);
   assert.equal(component.includes("title: '权重演化 - 基础'"), true);
   assert.equal(component.includes("title: '权重演化 - 奖惩'"), true);
+});
+
+test('service status tab loads lazily from the dedicated endpoint', () => {
+  const component = readFileSync(new URL('../src/app/app.component.ts', import.meta.url), 'utf8');
+  const template = readFileSync(new URL('../src/app/app.component.html', import.meta.url), 'utf8');
+  const service = readFileSync(new URL('../src/app/dashboard.service.ts', import.meta.url), 'utf8');
+
+  assert.equal(service.includes('loadServiceStatus(): Observable<ServiceStatusPayload>'), true);
+  assert.equal(service.includes("'/service-status'"), true);
+  assert.equal(component.includes("filter((tab) => tab === 'service-status')"), true);
+  assert.equal(component.includes('serviceStatusRefreshRequests'), true);
+  assert.equal(component.includes("this.activeTab === 'service-status'"), true);
+  assert.equal(template.includes("activeTab === 'service-status'"), true);
+  assert.equal(template.includes('serviceStatusState$ | async'), true);
+  assert.equal(template.includes('activeTrainingWorkers'), true);
 });
 
 test('training round charts enable range zoom for long round sequences', () => {

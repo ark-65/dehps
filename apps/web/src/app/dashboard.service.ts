@@ -7,6 +7,7 @@ import {
   ExperimentSummary,
   FeatureDistribution,
   PipelineRunSummary,
+  ServiceStatusPayload,
   SyncRunSummary,
   TrainingRoundDetail,
   TrainingRoundListItem,
@@ -85,6 +86,10 @@ export class DashboardService {
 
   loadTrainingWeightSignals(): Observable<TrainingWeightSignalSeries[]> {
     return this.http.get<TrainingWeightSignalSeries[]>('/training-weight-signals?limit=1000');
+  }
+
+  loadServiceStatus(): Observable<ServiceStatusPayload> {
+    return this.http.get<ServiceStatusPayload>('/service-status');
   }
 
   watchTrainingStatus(): Observable<TrainingStatusStreamState> {

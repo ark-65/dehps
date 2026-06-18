@@ -2,10 +2,9 @@
 Description=Run DEHPS daily SSQ pipeline after SSQ draw days
 
 [Timer]
-OnCalendar=Tue,Thu,Sun 22:30:00
+OnCalendar=Tue,Thu,Sun 23:59:00
 Persistent=true
 Unit=dehps-daily-pipeline.service
 
 [Install]
 WantedBy=timers.target
-

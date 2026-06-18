@@ -16,6 +16,7 @@ from scripts.run_training_supervisor import (
     generate_configs,
     low_coverage_fields_from_summaries,
     load_prior_supervisor_candidates,
+    merge_reserved_candidate_configs,
     post_training_event,
     prefilter_configs,
     reward_summary,
@@ -27,6 +28,7 @@ from scripts.run_training_supervisor import (
     weight_kdj_advisor_candidate_configs,
     weight_kdj_advisor_metadata,
 )
+from dehps.optimization.weight_kdj import weight_kdj_advice_from_signals
 
 
 def test_generate_configs_keeps_base_and_clamps_weight_range():
@@ -50,6 +52,29 @@ def test_candidate_budget_uses_search_intelligence_mix():
 
     assert budget == {"exploitation": 8, "exploration": 6, "replay": 4, "baseline": 2}
     assert sum(budget.values()) == 20
+
+
+def test_candidate_budget_reserves_explicit_weight_kdj_bucket():
+    budget = candidate_budget(20, weight_kdj_budget_share=0.15)
+
+    assert budget["weight_kdj"] == 3
+    assert sum(budget.values()) == 20
+    assert sum(value for name, value in budget.items() if name != "weight_kdj") == 17
+
+
+def test_reserved_weight_kdj_candidates_survive_full_normal_round():
+    normal = tuple(FrequencyRankerConfig(frequency_weight=round(0.01 * index, 4)) for index in range(20))
+    kdj = (
+        FrequencyRankerConfig(frequency_weight=0.37),
+        FrequencyRankerConfig(sum_tail_weight=-0.03),
+        FrequencyRankerConfig(weekday_trend_weight=0.04),
+    )
+
+    merged = merge_reserved_candidate_configs(normal, kdj, max_configs=20, reserved_budget=3)
+
+    assert len(merged) == 20
+    assert all(config in merged for config in kdj)
+    assert len([config for config in merged if config in normal]) == 17
 
 
 def test_generate_configs_reuses_elite_configs_for_local_search():
@@ -166,6 +191,63 @@ def test_weight_kdj_advisor_generates_bounded_candidate_offsets():
     assert any(round(config.frequency_weight, 6) == 0.34 for config in configs)
     assert any(round(config.sum_tail_weight, 6) == -0.02 for config in configs)
     assert metadata["mode"] == "advisor_only"
+    assert metadata["candidate_count"] == len(configs)
+
+
+def test_weight_kdj_advisor_metadata_records_threshold_counts_and_fields():
+    base = FrequencyRankerConfig(frequency_weight=0.30, sum_tail_weight=0.0, weekday_trend_weight=0.0)
+    signals = [
+        {
+            "signal_run_id": "weight-kdj-run-1",
+            "issue": "2026066",
+            "weight_name": "frequency_weight",
+            "recommended_offset": 0.03,
+            "objective_delta": 2.0,
+            "j_value": 55.0,
+        },
+        {
+            "signal_run_id": "weight-kdj-run-1",
+            "issue": "2026068",
+            "weight_name": "frequency_weight",
+            "recommended_offset": 0.03,
+            "objective_delta": 2.0,
+            "j_value": 70.0,
+        },
+        {
+            "signal_run_id": "weight-kdj-run-1",
+            "issue": "2026068",
+            "weight_name": "sum_tail_weight",
+            "recommended_offset": -0.03,
+            "objective_delta": 0.2,
+            "j_value": 25.0,
+        },
+        {
+            "signal_run_id": "weight-kdj-run-1",
+            "issue": "2026068",
+            "weight_name": "weekday_trend_weight",
+            "recommended_offset": 0.03,
+            "objective_delta": 2.0,
+            "j_value": 52.0,
+        },
+    ]
+    thresholds = {
+        "min_objective_delta": 1.0,
+        "min_abs_offset": 0.01,
+        "slope_window": 2,
+        "neutral_band": 5.0,
+    }
+    advice = weight_kdj_advice_from_signals(signals, allowed_fields=tuple(base.__dict__), **thresholds)
+    configs = weight_kdj_advisor_candidate_configs(base, signals, max_configs=3, **thresholds)
+
+    metadata = weight_kdj_advisor_metadata(signals, configs, budget=3, thresholds=thresholds, advice=advice)
+
+    assert metadata["budget"] == 3
+    assert metadata["thresholds"] == thresholds
+    assert metadata["selected_count"] == 1
+    assert metadata["downweighted_count"] == 1
+    assert metadata["rejected_count"] == 1
+    assert metadata["selected_fields"] == ["frequency_weight"]
+    assert metadata["latest_issue"] == "2026068"
     assert metadata["candidate_count"] == len(configs)
 
 

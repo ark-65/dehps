@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { PostgresResearchRepository } from '../src/research.repository';
+import { CANONICAL_WEIGHT_KDJ_SIGNAL_RUN_ID, PostgresResearchRepository } from '../src/research.repository';
 import { ResearchService } from '../src/research.service';
 import { ResearchRepository } from '../src/research.types';
 
@@ -240,6 +240,28 @@ const repository: ResearchRepository = {
       },
     ];
   },
+  async getSsqHistorySummary() {
+    return {
+      tablePresent: true,
+      totalDraws: 1497,
+      minDrawDate: '2003-02-23',
+      maxDrawDate: '2026-06-16',
+      latestIssue: '2026067',
+      latestDrawDate: '2026-06-16',
+      latestCreatedAt: '2026-06-16T15:59:00.000Z',
+    };
+  },
+  async getTrainingWeightSignalSummary() {
+    return {
+      tablePresent: true,
+      totalRows: 3000,
+      latestSignalRunId: 'weight-kdj-run-1',
+      latestIssue: '2026068',
+      latestDrawDate: '2026-06-16',
+      latestCreatedAt: '2026-06-16T16:00:00.000Z',
+      weights: ['frequency_weight', 'structural_weight'],
+    };
+  },
 };
 
 test('dashboard returns experiments, pipeline runs, and sync runs', async () => {
@@ -340,6 +362,34 @@ test('postgres training weight signal mapping preserves date-only values', async
   }
 });
 
+test('postgres omitted training weight run id prefers canonical run before latest ad hoc', async () => {
+  const repository = new PostgresResearchRepository();
+  const originalPool = (repository as any).pool;
+  const queries: Array<{ sql: string; params?: unknown[] }> = [];
+  (repository as any).pool = {
+    async query(sql: string, params?: unknown[]) {
+      queries.push({ sql, params });
+      if (sql.includes("to_regclass('public.training_weight_signals')")) {
+        return { rows: [{ table_name: 'training_weight_signals' }] };
+      }
+      return { rows: [] };
+    },
+    async end() {
+      return undefined;
+    },
+  };
+
+  try {
+    await repository.listTrainingWeightSignals(null, [], 100);
+  } finally {
+    await repository.onModuleDestroy();
+    await originalPool.end();
+  }
+
+  assert.match(queries[1].sql, /WHERE signal_run_id = \$4/);
+  assert.deepEqual(queries[1].params, [null, null, 100, CANONICAL_WEIGHT_KDJ_SIGNAL_RUN_ID]);
+});
+
 test('training status is derived from database rounds without status json', async () => {
   const previousRoot = process.env.DEHPS_ROOT;
   process.env.DEHPS_ROOT = mkdtempSync(path.join(os.tmpdir(), 'dehps-api-test-'));
@@ -357,6 +407,135 @@ test('training status is derived from database rounds without status json', asyn
     assert.equal(status.prefilter?.latest?.frozenValidationWindow, 20);
     assert.equal(status.prefilter?.latest?.controlExperiments[0]?.label, 'structural_baseline');
     assert.equal(status.recentRounds[0].round, 2);
+  } finally {
+    if (previousRoot === undefined) {
+      delete process.env.DEHPS_ROOT;
+    } else {
+      process.env.DEHPS_ROOT = previousRoot;
+    }
+  }
+});
+
+test('service status returns the read-only service shape and heavy task limits', async () => {
+  const previousRoot = process.env.DEHPS_ROOT;
+  const root = mkdtempSync(path.join(os.tmpdir(), 'dehps-service-status-'));
+  mkdirSync(path.join(root, 'runtime/logs'), { recursive: true });
+  writeFileSync(path.join(root, 'runtime/logs/api-dashboard.log'), 'api ready\n');
+  writeFileSync(path.join(root, 'runtime/logs/web-dashboard.log'), 'web ready\n');
+  try {
+    process.env.DEHPS_ROOT = root;
+    const service = new ResearchService(repository);
+
+    const status = await service.serviceStatus();
+
+    assert.equal(typeof status.generatedAt, 'string');
+    assert.equal(status.services.length, 6);
+    assert.equal(status.services.map((item) => item.name).join(','), 'api,web,db,sync,kdj,training');
+    assert.equal(status.heavyTaskLimits.defaultWorkers, 16);
+    assert.equal(status.heavyTaskLimits.cpuCount > 0, true);
+    assert.equal(status.services.find((item) => item.name === 'api')?.pid, process.pid);
+    assert.equal(status.services.find((item) => item.name === 'db')?.metrics['latestIssue'], '2026067');
+    assert.equal(status.services.find((item) => item.name === 'kdj')?.metrics['totalRows'], 3000);
+  } finally {
+    if (previousRoot === undefined) {
+      delete process.env.DEHPS_ROOT;
+    } else {
+      process.env.DEHPS_ROOT = previousRoot;
+    }
+  }
+});
+
+test('service status ignores recovered web build errors', async () => {
+  const previousRoot = process.env.DEHPS_ROOT;
+  const root = mkdtempSync(path.join(os.tmpdir(), 'dehps-service-status-'));
+  mkdirSync(path.join(root, 'runtime/logs'), { recursive: true });
+  writeFileSync(path.join(root, 'runtime/logs/api-dashboard.log'), 'api ready\n');
+  writeFileSync(
+    path.join(root, 'runtime/logs/web-dashboard.log'),
+    [
+      'Application bundle generation failed.',
+      "ERROR TS2339: Property 'status' does not exist",
+      'Application bundle generation complete.',
+      'Page reload sent to client(s).',
+    ].join('\n'),
+  );
+  try {
+    process.env.DEHPS_ROOT = root;
+    const service = new ResearchService(repository);
+
+    const status = await service.serviceStatus();
+    const web = status.services.find((item) => item.name === 'web');
+
+    assert.equal(web?.status, 'ok');
+    assert.equal(web?.recentError, null);
+  } finally {
+    if (previousRoot === undefined) {
+      delete process.env.DEHPS_ROOT;
+    } else {
+      process.env.DEHPS_ROOT = previousRoot;
+    }
+  }
+});
+
+test('service status flags stale pid, missing log, and recent sync errors without shelling out', async () => {
+  const previousRoot = process.env.DEHPS_ROOT;
+  const root = mkdtempSync(path.join(os.tmpdir(), 'dehps-service-status-'));
+  mkdirSync(path.join(root, 'runtime/logs'), { recursive: true });
+  writeFileSync(path.join(root, 'runtime/logs/api-dashboard.log'), 'api ready\n');
+  writeFileSync(path.join(root, 'runtime/logs/web-dashboard.pid'), '999999999\n');
+  writeFileSync(path.join(root, 'runtime/logs/ssq_draw_sync.log'), 'sync ERROR failed to fetch draw\n');
+  try {
+    process.env.DEHPS_ROOT = root;
+    const service = new ResearchService(repository);
+
+    const status = await service.serviceStatus();
+    const web = status.services.find((item) => item.name === 'web');
+    const sync = status.services.find((item) => item.name === 'sync');
+
+    assert.equal(status.overall, 'failed');
+    assert.equal(web?.processAlive, false);
+    assert.equal(web?.status, 'failed');
+    assert.match(web?.recentError ?? '', /web-dashboard\.log/);
+    assert.equal(sync?.status, 'failed');
+    assert.match(sync?.recentError ?? '', /failed to fetch draw/);
+  } finally {
+    if (previousRoot === undefined) {
+      delete process.env.DEHPS_ROOT;
+    } else {
+      process.env.DEHPS_ROOT = previousRoot;
+    }
+  }
+});
+
+test('service status reports an empty but present KDJ signal table as warning', async () => {
+  const previousRoot = process.env.DEHPS_ROOT;
+  const root = mkdtempSync(path.join(os.tmpdir(), 'dehps-service-status-'));
+  mkdirSync(path.join(root, 'runtime/logs'), { recursive: true });
+  writeFileSync(path.join(root, 'runtime/logs/api-dashboard.log'), 'api ready\n');
+  const emptyKdjRepository: ResearchRepository = {
+    ...repository,
+    async getTrainingWeightSignalSummary() {
+      return {
+        tablePresent: true,
+        totalRows: 0,
+        latestSignalRunId: null,
+        latestIssue: null,
+        latestDrawDate: null,
+        latestCreatedAt: null,
+        weights: [],
+      };
+    },
+  };
+  try {
+    process.env.DEHPS_ROOT = root;
+    const service = new ResearchService(emptyKdjRepository);
+
+    const status = await service.serviceStatus();
+    const kdj = status.services.find((item) => item.name === 'kdj');
+
+    assert.equal(kdj?.status, 'warning');
+    assert.equal(kdj?.metrics['tablePresent'], true);
+    assert.match(kdj?.recentError ?? '', /暂无数据/);
   } finally {
     if (previousRoot === undefined) {
       delete process.env.DEHPS_ROOT;

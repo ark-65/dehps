@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { constants as fsConstants } from 'node:fs';
 import { access, readFile, readdir, stat } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import {
   DashboardPayload,
@@ -9,6 +10,10 @@ import {
   FeatureDistribution,
   PipelineRunSummary,
   ResearchRepository,
+  ServiceStatusItem,
+  ServiceStatusLevel,
+  ServiceStatusPayload,
+  ServiceStatusName,
   SyncRunSummary,
   TrainingMatrixCache,
   TrainingPrefilterRun,
@@ -25,8 +30,17 @@ import {
 
 const DEFAULT_LIMIT = 20;
 const DEFAULT_LOG_TAIL_LINES = 80;
+const DEFAULT_HEAVY_TASK_WORKERS = 16;
 const OPTIMIZATION_OUTPUT_DIR = 'data/output/optimization';
 const RUNTIME_LOG_DIR = 'runtime/logs';
+const SYNC_SCHEDULE = {
+  timezone: 'Asia/Shanghai',
+  cron: '59 23 * * 2,4,0',
+  description: '每周二、周四、周日 23:59 自动同步当期开奖数据',
+};
+const SYNC_STALE_SECONDS = 4 * 24 * 60 * 60;
+const KDJ_STALE_SECONDS = 14 * 24 * 60 * 60;
+const TRAINING_STALE_SECONDS = 24 * 60 * 60;
 const TOP_100_REWARD = 1000;
 const TOP_1000_REWARD = 100;
 const TOP_10000_REWARD = 10;
@@ -253,11 +267,7 @@ export class ResearchService {
         logFile,
         serviceUnit,
         logTail,
-        syncSchedule: {
-          timezone: 'Asia/Shanghai',
-          cron: '59 23 * * 2,4,0',
-          description: '每周二、周四、周日 23:59 自动同步当期开奖数据',
-        },
+        syncSchedule: SYNC_SCHEDULE,
       };
     }
 
@@ -314,10 +324,41 @@ export class ResearchService {
       logFile,
       serviceUnit,
       logTail,
-      syncSchedule: {
-        timezone: 'Asia/Shanghai',
-        cron: '59 23 * * 2,4,0',
-        description: '每周二、周四、周日 23:59 自动同步当期开奖数据',
+      syncSchedule: SYNC_SCHEDULE,
+    };
+  }
+
+  async serviceStatus(): Promise<ServiceStatusPayload> {
+    const generatedAt = new Date();
+    const root = this.repoRoot();
+    const logDir = path.join(root, RUNTIME_LOG_DIR);
+    const [trainingStatus, historySummary, weightSignalSummary, pipelineRuns, syncRuns] = await Promise.all([
+      this.trainingStatus(40).catch((error) => this.failedTrainingStatus(error)),
+      this.repository.getSsqHistorySummary().catch((error) => ({ error })),
+      this.repository.getTrainingWeightSignalSummary().catch((error) => ({ error })),
+      this.repository.listPipelineRuns(1).catch(() => []),
+      this.repository.listSyncRuns(1).catch(() => []),
+    ]);
+
+    const services: ServiceStatusItem[] = [
+      await this.apiServiceStatus(generatedAt, logDir),
+      await this.webServiceStatus(generatedAt, logDir),
+      this.dbServiceStatus(generatedAt, historySummary),
+      await this.syncServiceStatus(generatedAt, logDir, pipelineRuns[0] ?? null, syncRuns[0] ?? null),
+      this.kdjServiceStatus(generatedAt, weightSignalSummary),
+      await this.trainingServiceStatus(generatedAt, trainingStatus),
+    ];
+    const cpuCount = os.cpus().length;
+    const activeTrainingWorkers = trainingStatus.active ? trainingStatus.workers ?? null : 0;
+    return {
+      generatedAt: generatedAt.toISOString(),
+      overall: this.overallServiceStatus(services),
+      services,
+      heavyTaskLimits: {
+        cpuCount,
+        defaultWorkers: DEFAULT_HEAVY_TASK_WORKERS,
+        recommendedInteractiveMax: Math.max(1, Math.min(DEFAULT_HEAVY_TASK_WORKERS, Math.floor(cpuCount / 2) || 1)),
+        activeTrainingWorkers,
       },
     };
   }
@@ -332,6 +373,366 @@ export class ResearchService {
       this.trainingStatus(),
     ]);
     return { experiments, pipelineRuns, syncRuns, featureDistributions, trainingStatus };
+  }
+
+  private async apiServiceStatus(generatedAt: Date, logDir: string): Promise<ServiceStatusItem> {
+    const logFile = await this.firstExistingPath(path.join(logDir, 'api-dashboard.log'));
+    const logTail = logFile ? await this.readTailLines(logFile, 40) : [];
+    const recentError = this.latestErrorLine(logTail);
+    return this.serviceStatusItem({
+      name: 'api',
+      label: 'API',
+      status: recentError ? 'failed' : logFile ? 'ok' : 'warning',
+      pid: process.pid,
+      processAlive: true,
+      heartbeatAt: generatedAt.toISOString(),
+      generatedAt,
+      recentError,
+      logFile,
+      metrics: {
+        mode: 'read-only',
+        uptimeSeconds: Math.floor(process.uptime()),
+        nodeVersion: process.version,
+      },
+    });
+  }
+
+  private async webServiceStatus(generatedAt: Date, logDir: string): Promise<ServiceStatusItem> {
+    const pid = await this.readPidFile(path.join(logDir, 'web-dashboard.pid'));
+    const processAlive = pid === null ? null : this.isProcessAlive(pid);
+    const logFile = await this.firstExistingPath(path.join(logDir, 'web-dashboard.log'));
+    const logStat = logFile ? await this.safeStat(logFile) : null;
+    const logTail = logFile ? await this.readTailLines(logFile, 40) : [];
+    const heartbeatAt = logStat ? new Date(logStat.mtimeMs).toISOString() : null;
+    const recentError = this.latestErrorLine(logTail);
+    const status = processAlive === false || recentError ? 'failed' : logFile ? 'ok' : 'warning';
+    return this.serviceStatusItem({
+      name: 'web',
+      label: 'Web',
+      status,
+      pid,
+      processAlive,
+      heartbeatAt,
+      generatedAt,
+      recentError: logFile ? recentError : 'runtime/logs/web-dashboard.log 未找到',
+      logFile,
+      metrics: {
+        pidFile: path.join(logDir, 'web-dashboard.pid'),
+        schedule: SYNC_SCHEDULE.description,
+      },
+    });
+  }
+
+  private dbServiceStatus(generatedAt: Date, summary: unknown): ServiceStatusItem {
+    if (this.hasError(summary)) {
+      return this.serviceStatusItem({
+        name: 'db',
+        label: 'Postgres',
+        status: 'failed',
+        pid: null,
+        processAlive: null,
+        heartbeatAt: null,
+        generatedAt,
+        recentError: this.errorMessage(summary.error),
+        logFile: null,
+        metrics: {},
+      });
+    }
+    const typed = summary as Awaited<ReturnType<ResearchRepository['getSsqHistorySummary']>>;
+    const status = typed.tablePresent && typed.totalDraws > 0 ? 'ok' : typed.tablePresent ? 'warning' : 'failed';
+    return this.serviceStatusItem({
+      name: 'db',
+      label: '数据库',
+      status,
+      pid: null,
+      processAlive: null,
+      heartbeatAt: generatedAt.toISOString(),
+      generatedAt,
+      recentError: typed.tablePresent ? null : 'ssq_history 表不存在',
+      logFile: null,
+      metrics: {
+        tablePresent: typed.tablePresent,
+        totalDraws: typed.totalDraws,
+        minDrawDate: typed.minDrawDate,
+        maxDrawDate: typed.maxDrawDate,
+        latestIssue: typed.latestIssue,
+        latestDrawDate: typed.latestDrawDate,
+        latestCreatedAt: typed.latestCreatedAt,
+      },
+    });
+  }
+
+  private async syncServiceStatus(
+    generatedAt: Date,
+    logDir: string,
+    pipelineRun: PipelineRunSummary | null,
+    syncRun: SyncRunSummary | null,
+  ): Promise<ServiceStatusItem> {
+    const logFile = await this.firstExistingPath(path.join(logDir, 'ssq_draw_sync.log'));
+    const logStat = logFile ? await this.safeStat(logFile) : null;
+    const logTail = logFile ? await this.readTailLines(logFile, 40) : [];
+    const lastStartedAt = syncRun?.startedAt ?? pipelineRun?.startedAt ?? null;
+    const lastFinishedAt = syncRun?.finishedAt ?? pipelineRun?.finishedAt ?? null;
+    const heartbeatAt = lastFinishedAt ?? lastStartedAt ?? (logStat ? new Date(logStat.mtimeMs).toISOString() : null);
+    const recentError = syncRun?.errorMessage ?? pipelineRun?.errorMessage ?? this.latestErrorLine(logTail);
+    const latestStatus = syncRun?.status ?? pipelineRun?.status ?? null;
+    const stale = this.isStale(generatedAt, heartbeatAt, SYNC_STALE_SECONDS);
+    const status: ServiceStatusLevel =
+      latestStatus === 'failed' || recentError
+        ? 'failed'
+        : !syncRun && !pipelineRun
+          ? 'warning'
+          : stale
+            ? 'warning'
+            : 'ok';
+    return this.serviceStatusItem({
+      name: 'sync',
+      label: '开奖同步',
+      status,
+      pid: null,
+      processAlive: null,
+      heartbeatAt,
+      generatedAt,
+      lastStartedAt,
+      lastFinishedAt,
+      recentError,
+      logFile,
+      metrics: {
+        schedule: SYNC_SCHEDULE,
+        latestPipelineRun: pipelineRun,
+        latestSyncRun: syncRun,
+        stale,
+      },
+    });
+  }
+
+  private kdjServiceStatus(generatedAt: Date, summary: unknown): ServiceStatusItem {
+    if (this.hasError(summary)) {
+      return this.serviceStatusItem({
+        name: 'kdj',
+        label: '权重KDJ',
+        status: 'failed',
+        pid: null,
+        processAlive: null,
+        heartbeatAt: null,
+        generatedAt,
+        recentError: this.errorMessage(summary.error),
+        logFile: null,
+        metrics: {},
+      });
+    }
+    const typed = summary as Awaited<ReturnType<ResearchRepository['getTrainingWeightSignalSummary']>>;
+    const heartbeatAt = typed.latestCreatedAt ?? typed.latestDrawDate;
+    const stale = this.isStale(generatedAt, heartbeatAt, KDJ_STALE_SECONDS);
+    const status: ServiceStatusLevel =
+      !typed.tablePresent || typed.totalRows === 0 ? 'warning' : stale ? 'warning' : 'ok';
+    return this.serviceStatusItem({
+      name: 'kdj',
+      label: '权重KDJ',
+      status,
+      pid: null,
+      processAlive: null,
+      heartbeatAt,
+      generatedAt,
+      recentError: !typed.tablePresent
+        ? 'training_weight_signals 表不存在'
+        : typed.totalRows === 0
+          ? 'training_weight_signals 暂无数据'
+          : null,
+      logFile: null,
+      metrics: {
+        tablePresent: typed.tablePresent,
+        totalRows: typed.totalRows,
+        latestSignalRunId: typed.latestSignalRunId,
+        latestIssue: typed.latestIssue,
+        latestDrawDate: typed.latestDrawDate,
+        latestCreatedAt: typed.latestCreatedAt,
+        weights: typed.weights,
+        stale,
+      },
+    });
+  }
+
+  private async trainingServiceStatus(generatedAt: Date, status: TrainingStatusPayload): Promise<ServiceStatusItem> {
+    const logFile = status.logFile;
+    const logStat = logFile ? await this.safeStat(logFile) : null;
+    const heartbeatAt =
+      status.latestProgress?.loggedAt ??
+      status.updatedAt ??
+      (logStat ? new Date(logStat.mtimeMs).toISOString() : status.startedAt);
+    const recentError = status.status === 'failed' ? this.latestErrorLine(status.logTail) ?? 'training failed' : this.latestErrorLine(status.logTail);
+    const stale = !status.active && this.isStale(generatedAt, heartbeatAt, TRAINING_STALE_SECONDS);
+    const serviceStatus: ServiceStatusLevel =
+      status.status === 'failed' || status.processAlive === false
+        ? 'failed'
+        : status.active || status.status === 'completed'
+          ? stale
+            ? 'warning'
+            : 'ok'
+          : 'warning';
+    return this.serviceStatusItem({
+      name: 'training',
+      label: '训练',
+      status: serviceStatus,
+      pid: status.pid,
+      processAlive: status.processAlive,
+      heartbeatAt,
+      generatedAt,
+      lastStartedAt: status.startedAt,
+      lastFinishedAt: status.active ? null : status.updatedAt,
+      recentError,
+      logFile,
+      metrics: {
+        runId: status.runId,
+        active: status.active,
+        rawStatus: status.status,
+        completedRounds: status.completedRounds,
+        workers: status.workers,
+        trainWindow: status.trainWindow,
+        evalWindow: status.evalWindow,
+        topN: status.topN,
+        latestProgress: status.latestProgress,
+        stale,
+      },
+    });
+  }
+
+  private serviceStatusItem(
+    item: Omit<ServiceStatusItem, 'heartbeatAgeSeconds' | 'lastStartedAt' | 'lastFinishedAt'> & {
+      generatedAt: Date;
+      lastStartedAt?: string | null;
+      lastFinishedAt?: string | null;
+    },
+  ): ServiceStatusItem {
+    return {
+      name: item.name,
+      label: item.label,
+      status: item.status,
+      pid: item.pid,
+      processAlive: item.processAlive,
+      heartbeatAt: item.heartbeatAt,
+      heartbeatAgeSeconds: this.ageSeconds(item.generatedAt, item.heartbeatAt),
+      lastStartedAt: item.lastStartedAt ?? null,
+      lastFinishedAt: item.lastFinishedAt ?? null,
+      recentError: item.recentError,
+      logFile: item.logFile,
+      metrics: item.metrics,
+    };
+  }
+
+  private failedTrainingStatus(error: unknown): TrainingStatusPayload {
+    return {
+      status: 'failed',
+      active: false,
+      processAlive: null,
+      runId: null,
+      startedAt: null,
+      updatedAt: null,
+      deadline: null,
+      pid: null,
+      historyScope: null,
+      regimeYears: null,
+      regimeStartDate: null,
+      trainMode: null,
+      trainWindow: null,
+      evalWindow: null,
+      topN: null,
+      workers: null,
+      memoryBudgetGb: null,
+      universeSize: null,
+      matrixBackend: null,
+      featureMatrixCache: null,
+      red5RankMode: null,
+      prefilter: null,
+      qianKun: this.qianKunValue(null),
+      completedRounds: 0,
+      rounds: [],
+      latestRound: null,
+      recentRounds: [],
+      best: null,
+      latestProgress: null,
+      statusFile: null,
+      reportFile: null,
+      logFile: null,
+      serviceUnit: null,
+      logTail: [this.errorMessage(error)],
+      syncSchedule: SYNC_SCHEDULE,
+    };
+  }
+
+  private overallServiceStatus(services: ServiceStatusItem[]): ServiceStatusLevel {
+    const rank: Record<ServiceStatusLevel, number> = { ok: 0, unknown: 1, warning: 2, failed: 3 };
+    return services.reduce<ServiceStatusLevel>(
+      (overall, service) => (rank[service.status] > rank[overall] ? service.status : overall),
+      'ok',
+    );
+  }
+
+  private async readPidFile(filePath: string): Promise<number | null> {
+    try {
+      const content = await readFile(filePath, 'utf8');
+      const pid = Number.parseInt(content.trim(), 10);
+      return Number.isFinite(pid) && pid > 0 ? pid : null;
+    } catch (error) {
+      if (this.isNotFoundError(error)) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  private async safeStat(filePath: string): Promise<{ mtimeMs: number } | null> {
+    try {
+      return await stat(filePath);
+    } catch (error) {
+      if (this.isNotFoundError(error)) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  private latestErrorLine(lines: string[]): string | null {
+    const errorPattern = /\b(error|exception|failed|traceback)\b/i;
+    const recoveryPattern = /\b(ready|listening|started|success|successful|complete|completed)\b/i;
+    let latestErrorIndex = -1;
+    let latestRecoveryIndex = -1;
+    lines.forEach((line, index) => {
+      if (errorPattern.test(line)) {
+        latestErrorIndex = index;
+      }
+      if (recoveryPattern.test(line)) {
+        latestRecoveryIndex = index;
+      }
+    });
+    if (latestErrorIndex < 0 || latestRecoveryIndex > latestErrorIndex) {
+      return null;
+    }
+    return lines[latestErrorIndex].slice(0, 500);
+  }
+
+  private ageSeconds(now: Date, isoValue: string | null): number | null {
+    if (!isoValue) {
+      return null;
+    }
+    const value = Date.parse(isoValue);
+    if (!Number.isFinite(value)) {
+      return null;
+    }
+    return Math.max(0, Math.floor((now.getTime() - value) / 1000));
+  }
+
+  private isStale(now: Date, isoValue: string | null, maxAgeSeconds: number): boolean {
+    const age = this.ageSeconds(now, isoValue);
+    return age !== null && age > maxAgeSeconds;
+  }
+
+  private hasError(value: unknown): value is { error: unknown } {
+    return value !== null && typeof value === 'object' && 'error' in value;
+  }
+
+  private errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
   }
 
   private normalizeLimit(limit: number): number {
