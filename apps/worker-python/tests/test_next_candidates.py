@@ -27,3 +27,32 @@ def test_training_summary_sort_key_prefers_historical_hits_before_reward():
     }
 
     assert training_summary_sort_key(stronger_hits) > training_summary_sort_key(stronger_reward)
+
+
+def test_training_summary_sort_key_prefers_unique_baseline_hits_with_same_top10000():
+    unique_hits = {
+        "top_100_hits": 0,
+        "top_1000_hits": 0,
+        "top_10000_hits": 3,
+        "reward": {"objectiveScore": 12},
+        "rank_quality": {},
+        "red5": {},
+        "baseline_overlap": {
+            "bands": {
+                "top_1000": {"unique_hit_count": 0},
+                "top_10000": {"unique_hit_count": 3, "overlap_hit_count": 0},
+            }
+        },
+    }
+    overlapped_hits = {
+        **unique_hits,
+        "reward": {"objectiveScore": 3},
+        "baseline_overlap": {
+            "bands": {
+                "top_1000": {"unique_hit_count": 0},
+                "top_10000": {"unique_hit_count": 0, "overlap_hit_count": 3},
+            }
+        },
+    }
+
+    assert training_summary_sort_key(unique_hits) > training_summary_sort_key(overlapped_hits)

@@ -16,6 +16,7 @@ from scripts.run_training_supervisor import (
     calculate_tail_risk_penalty,
     candidate_budget,
     candidate_source_survival,
+    attach_baseline_overlap,
     attach_frozen_validation,
     config_hash,
     control_experiment_configs,
@@ -41,6 +42,7 @@ from scripts.run_training_supervisor import (
     should_continue_training,
     sort_key,
     stagnation_round_count,
+    target_hit_issues,
     training_event_payload,
     select_target_weight_inversion_anchor,
     select_next_search_base,
@@ -1121,12 +1123,17 @@ def test_control_experiments_and_frozen_validation_are_recorded():
     assert frozen_validation_window(100) == 20
     assert {label for label, _config in controls} == {
         "current_best_frozen_baseline",
+        "default_baseline",
         "structural_baseline",
         "frequency_baseline",
         "omission_baseline",
         "null_baseline",
     }
-    assert all(config.previous_consecutive_weight == 0 for label, config in controls if label != "current_best_frozen_baseline")
+    assert all(
+        config.previous_consecutive_weight == 0
+        for label, config in controls
+        if label not in {"current_best_frozen_baseline", "default_baseline"}
+    )
     assert len(rows) == len(controls)
     assert rows[0]["frozen_validation"]["window"] == 2
     assert rows[0]["frozen_validation"]["top_1000_hits"] == 1
@@ -1535,8 +1542,81 @@ def test_red5_reward_is_low_weight_and_cannot_override_exact_top1000():
     }
 
     assert reward_summary(red5_top100_heavy)["red5Reward"] > 0
-    assert reward_summary(red5_top100_heavy)["hitReward"] == 30
+    assert reward_summary(red5_top100_heavy)["hitReward"] == 9
     assert sort_key(exact_top1000) > sort_key(red5_top100_heavy)
+
+
+def _summary_for_overlap_test(config: FrequencyRankerConfig, issue_ranks: dict[str, int]) -> dict:
+    ranks = list(issue_ranks.values())
+    target_results = [
+        {
+            "issue": issue,
+            "rank": rank,
+            "hit_top_100": rank <= 100,
+            "hit_top_1000": rank <= 1000,
+            "hit_top_10000": rank <= 10000,
+        }
+        for issue, rank in issue_ranks.items()
+    ]
+    return {
+        "config": config.__dict__,
+        "config_hash": config_hash(config),
+        "evaluated_draws": len(target_results),
+        "top_100_hits": sum(rank <= 100 for rank in ranks),
+        "top_1000_hits": sum(rank <= 1000 for rank in ranks),
+        "top_10000_hits": sum(rank <= 10000 for rank in ranks),
+        "median_rank": sorted(ranks)[len(ranks) // 2],
+        "best_rank": min(ranks),
+        "worst_rank": max(ranks),
+        "red5": {"top_100_hits": 0, "top_1000_hits": 0, "top_10000_hits": 0},
+        "rank_quality": {"reward": 0, "tail_over_750000_count": 0, "tail_over_900000_count": 0, "tail_over_1000000_count": 0},
+        "target_results": target_results,
+    }
+
+
+def test_baseline_overlap_marks_unique_and_overlapped_hits():
+    candidate_config = FrequencyRankerConfig(frequency_weight=0.44)
+    default_config = FrequencyRankerConfig()
+    null_config = FrequencyRankerConfig(structural_weight=0.0, frequency_weight=0.0, omission_weight=0.0, previous_consecutive_weight=0.0)
+    candidate = _summary_for_overlap_test(candidate_config, {"2026001": 48, "2026002": 500, "2026003": 9000})
+    default = _summary_for_overlap_test(default_config, {"2026002": 8000, "2026004": 700000})
+    null = _summary_for_overlap_test(null_config, {"2026001": 9000, "2026005": 800000})
+    summaries = [candidate, default, null]
+
+    attach_baseline_overlap(
+        summaries,
+        (("default_baseline", default_config), ("null_baseline", null_config)),
+        universe_size=1_107_568,
+    )
+
+    assert target_hit_issues(candidate, cutoff=10000) == {"2026001", "2026002", "2026003"}
+    top10000 = candidate["baseline_overlap"]["bands"]["top_10000"]
+    assert top10000["unique_hit_issues"] == ["2026003"]
+    assert top10000["overlap_hit_issues"] == ["2026001", "2026002"]
+    assert candidate["reward"]["baselineUniqueReward"] == 374
+    assert candidate["reward"]["baselineOverlapPenalty"] == 6
+
+
+def test_sort_key_prefers_unique_baseline_beating_top10000_hits():
+    default_config = FrequencyRankerConfig()
+    null_config = FrequencyRankerConfig(structural_weight=0.0, frequency_weight=0.0, omission_weight=0.0, previous_consecutive_weight=0.0)
+    unique_config = FrequencyRankerConfig(frequency_weight=0.44)
+    overlapped_config = FrequencyRankerConfig(frequency_weight=0.45)
+    default = _summary_for_overlap_test(default_config, {"2026001": 9000, "2026002": 9100, "2026003": 9200})
+    null = _summary_for_overlap_test(null_config, {"2026004": 9300, "2026005": 9400, "2026006": 9500})
+    unique = _summary_for_overlap_test(unique_config, {"2026007": 9000, "2026008": 9100, "2026009": 9200})
+    overlapped = _summary_for_overlap_test(overlapped_config, {"2026001": 9000, "2026002": 9100, "2026003": 9200})
+    summaries = [unique, overlapped, default, null]
+
+    attach_baseline_overlap(
+        summaries,
+        (("default_baseline", default_config), ("null_baseline", null_config)),
+        universe_size=1_107_568,
+    )
+
+    assert unique["top_10000_hits"] == overlapped["top_10000_hits"] == 3
+    assert unique["reward"]["objectiveScore"] > overlapped["reward"]["objectiveScore"]
+    assert sort_key(unique) > sort_key(overlapped)
 
 
 def test_summarize_target_ranks_counts_red5_difference_numbers():
@@ -1649,7 +1729,7 @@ def test_load_prior_supervisor_candidates_keeps_same_protocol_global_best(tmp_pa
 
     assert candidates[0]["run_key"] == "prior-best"
     assert candidates[0]["top_1000_hits"] == 1
-    assert candidates[0]["reward"]["hitReward"] == 130
+    assert candidates[0]["reward"]["hitReward"] == 189
     assert candidates[0]["config"]["stable_range_weight"] == 0
 
 

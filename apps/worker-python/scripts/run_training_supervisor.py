@@ -133,18 +133,25 @@ PHASE_SEARCH_FIELDS = {
 DEFAULT_UNIVERSE_SIZE = 1_107_568
 DEFAULT_TRAINING_EVENT_URL = "http://127.0.0.1:3000/training-events/status"
 _TARGET_WORKER_UNIVERSE = None
-TOP_100_REWARD = 1000
-TOP_1000_REWARD = 100
-TOP_10000_REWARD = 10
+TOP_100_REWARD = 1200
+TOP_1000_REWARD = 180
+TOP_10000_REWARD = 3
+BASELINE_UNIQUE_TOP_100_REWARD = 250
+BASELINE_UNIQUE_TOP_1000_REWARD = 60
+BASELINE_UNIQUE_TOP_10000_REWARD = 4
+BASELINE_OVERLAP_TOP_100_PENALTY = 80
+BASELINE_OVERLAP_TOP_1000_PENALTY = 20
+BASELINE_OVERLAP_TOP_10000_PENALTY = 3
+BASELINE_OVERLAP_LABELS = ("null_baseline", "default_baseline")
 RED5_TOP_100_REWARD = 5
 RED5_TOP_1000_REWARD = 1
 RED5_TOP_10000_REWARD = 0.2
-RANK_TOP_50000_REWARD = 0.04
-RANK_TOP_100000_REWARD = 0.02
-RANK_TOP_250000_REWARD = 0.01
-RANK_TOP_500000_REWARD = 0.005
-WORST_RANK_REWARD = 3.0
-MEDIAN_RANK_REWARD = 2.0
+RANK_TOP_50000_REWARD = 0.10
+RANK_TOP_100000_REWARD = 0.05
+RANK_TOP_250000_REWARD = 0.02
+RANK_TOP_500000_REWARD = 0.01
+WORST_RANK_REWARD = 6.0
+MEDIAN_RANK_REWARD = 8.0
 TAIL_OVER_750000_PENALTY = 0.15
 TAIL_OVER_900000_PENALTY = 0.50
 TAIL_OVER_1000000_PENALTY = 1.25
@@ -476,6 +483,7 @@ def baseline_candidate_configs() -> tuple[FrequencyRankerConfig, ...]:
 def control_experiment_configs(base: FrequencyRankerConfig) -> tuple[tuple[str, FrequencyRankerConfig], ...]:
     return (
         ("current_best_frozen_baseline", base),
+        ("default_baseline", FrequencyRankerConfig()),
         ("structural_baseline", FrequencyRankerConfig(structural_weight=1.0, frequency_weight=0.0, omission_weight=0.0, previous_consecutive_weight=0.0)),
         ("frequency_baseline", FrequencyRankerConfig(structural_weight=0.0, frequency_weight=1.0, omission_weight=0.0, previous_consecutive_weight=0.0)),
         ("omission_baseline", FrequencyRankerConfig(structural_weight=0.0, frequency_weight=0.0, omission_weight=1.0, previous_consecutive_weight=0.0)),
@@ -588,6 +596,103 @@ def frozen_validation_promotion_gate(candidate: dict, incumbent: dict | None) ->
     }
 
 
+def target_hit_issues(summary: dict | None, *, cutoff: int) -> set[str]:
+    if not isinstance(summary, dict):
+        return set()
+    target_results = summary.get("target_results")
+    if not isinstance(target_results, list):
+        return set()
+    issues: set[str] = set()
+    for target in target_results:
+        if not isinstance(target, dict):
+            continue
+        issue = str(target.get("issue") or "")
+        rank = target.get("rank")
+        if issue and isinstance(rank, int | float) and int(rank) <= cutoff:
+            issues.add(issue)
+    return issues
+
+
+def control_summary_map(
+    summaries: list[dict],
+    controls: tuple[tuple[str, FrequencyRankerConfig], ...],
+) -> dict[str, dict]:
+    by_hash = {summary.get("config_hash"): summary for summary in summaries if isinstance(summary.get("config_hash"), str)}
+    rows: dict[str, dict] = {}
+    for label, config in controls:
+        summary = by_hash.get(config_hash(config))
+        if summary is not None:
+            rows[label] = summary
+    return rows
+
+
+def baseline_overlap_summary(
+    summary: dict,
+    baseline_summaries: dict[str, dict],
+    *,
+    baseline_labels: tuple[str, ...] = BASELINE_OVERLAP_LABELS,
+) -> dict:
+    selected_baselines = {
+        label: baseline_summaries[label]
+        for label in baseline_labels
+        if isinstance(baseline_summaries.get(label), dict)
+    }
+    result = {
+        "baseline_labels": list(selected_baselines),
+        "bands": {},
+        "unique_reward": 0.0,
+        "overlap_penalty": 0.0,
+    }
+    reward_weights = {
+        100: BASELINE_UNIQUE_TOP_100_REWARD,
+        1000: BASELINE_UNIQUE_TOP_1000_REWARD,
+        10000: BASELINE_UNIQUE_TOP_10000_REWARD,
+    }
+    penalty_weights = {
+        100: BASELINE_OVERLAP_TOP_100_PENALTY,
+        1000: BASELINE_OVERLAP_TOP_1000_PENALTY,
+        10000: BASELINE_OVERLAP_TOP_10000_PENALTY,
+    }
+    for cutoff in (100, 1000, 10000):
+        candidate_hits = target_hit_issues(summary, cutoff=cutoff)
+        baseline_hits: set[str] = set()
+        baseline_by_label = {}
+        for label, baseline in selected_baselines.items():
+            hits = target_hit_issues(baseline, cutoff=cutoff)
+            baseline_by_label[label] = sorted(hits)
+            baseline_hits.update(hits)
+        overlap_hits = candidate_hits & baseline_hits
+        unique_hits = candidate_hits - baseline_hits
+        result["bands"][f"top_{cutoff}"] = {
+            "candidate_hit_count": len(candidate_hits),
+            "baseline_union_hit_count": len(baseline_hits),
+            "unique_hit_count": len(unique_hits),
+            "overlap_hit_count": len(overlap_hits),
+            "candidate_hit_issues": sorted(candidate_hits),
+            "baseline_hit_issues": sorted(baseline_hits),
+            "unique_hit_issues": sorted(unique_hits),
+            "overlap_hit_issues": sorted(overlap_hits),
+            "baseline_hit_issues_by_label": baseline_by_label,
+        }
+        result["unique_reward"] += len(unique_hits) * reward_weights[cutoff]
+        result["overlap_penalty"] += len(overlap_hits) * penalty_weights[cutoff]
+    result["unique_reward"] = round(float(result["unique_reward"]), 6)
+    result["overlap_penalty"] = round(float(result["overlap_penalty"]), 6)
+    return result
+
+
+def attach_baseline_overlap(
+    summaries: list[dict],
+    controls: tuple[tuple[str, FrequencyRankerConfig], ...],
+    *,
+    universe_size: int,
+) -> None:
+    baseline_summaries = control_summary_map(summaries, controls)
+    for summary in summaries:
+        summary["baseline_overlap"] = baseline_overlap_summary(summary, baseline_summaries)
+        summary["reward"] = reward_summary(summary, universe_size=universe_size)
+
+
 def target_rank_movement(candidate: dict | None, baseline: dict | None) -> dict:
     if not isinstance(candidate, dict) or not isinstance(baseline, dict):
         return {"target_count": 0, "changed_target_count": 0, "median_abs_delta": 0.0, "max_abs_delta": 0}
@@ -636,6 +741,7 @@ def target_rank_movement(candidate: dict | None, baseline: dict | None) -> dict:
 
 def compact_control_summary(label: str, summary: dict) -> dict:
     validation = summary.get("frozen_validation") if isinstance(summary.get("frozen_validation"), dict) else None
+    baseline_overlap = summary.get("baseline_overlap") if isinstance(summary.get("baseline_overlap"), dict) else None
     return {
         "label": label,
         "config_hash": summary.get("config_hash"),
@@ -647,6 +753,7 @@ def compact_control_summary(label: str, summary: dict) -> dict:
         "median_rank": summary.get("median_rank"),
         "worst_rank": summary.get("worst_rank"),
         "objective_score": (summary.get("reward") or {}).get("objectiveScore") if isinstance(summary.get("reward"), dict) else None,
+        "baseline_overlap": baseline_overlap,
         "frozen_validation": validation,
     }
 
@@ -655,10 +762,10 @@ def control_experiment_summaries(
     summaries: list[dict],
     controls: tuple[tuple[str, FrequencyRankerConfig], ...],
 ) -> list[dict]:
-    by_hash = {summary.get("config_hash"): summary for summary in summaries if isinstance(summary.get("config_hash"), str)}
+    by_label = control_summary_map(summaries, controls)
     rows: list[dict] = []
     for label, config in controls:
-        summary = by_hash.get(config_hash(config))
+        summary = by_label.get(label)
         if summary is not None:
             rows.append(compact_control_summary(label, summary))
     return rows
@@ -1473,6 +1580,9 @@ def reward_summary(summary: dict, *, universe_size: int = DEFAULT_UNIVERSE_SIZE)
         + summary["top_1000_hits"] * TOP_1000_REWARD
         + summary["top_10000_hits"] * TOP_10000_REWARD
     )
+    baseline_overlap = summary.get("baseline_overlap") if isinstance(summary.get("baseline_overlap"), dict) else {}
+    baseline_unique_reward = float(baseline_overlap.get("unique_reward") or 0.0)
+    baseline_overlap_penalty = float(baseline_overlap.get("overlap_penalty") or 0.0)
     red5 = summary.get("red5") if isinstance(summary.get("red5"), dict) else {}
     red5_reward = (
         float(red5.get("top_100_hits") or 0) * RED5_TOP_100_REWARD
@@ -1498,11 +1608,16 @@ def reward_summary(summary: dict, *, universe_size: int = DEFAULT_UNIVERSE_SIZE)
     )
     return {
         "hitReward": round(hit_reward, 6),
+        "baselineUniqueReward": round(baseline_unique_reward, 6),
+        "baselineOverlapPenalty": round(baseline_overlap_penalty, 6),
         "red5Reward": round(red5_reward, 6),
         "rankQualityReward": round(rank_quality_reward, 6),
         "rankPenalty": round(rank_penalty, 6),
         "tailRiskPenalty": round(tail_risk_penalty, 6),
-        "objectiveScore": round(hit_reward + red5_reward + rank_quality_reward - rank_penalty - tail_risk_penalty, 6),
+        "objectiveScore": round(
+            hit_reward + baseline_unique_reward + red5_reward + rank_quality_reward - rank_penalty - tail_risk_penalty - baseline_overlap_penalty,
+            6,
+        ),
     }
 
 
@@ -1736,14 +1851,25 @@ def sort_key(summary: dict) -> tuple:
     reward = summary.get("reward") or reward_summary(summary)
     red5 = summary.get("red5") if isinstance(summary.get("red5"), dict) else {}
     rank_quality = summary.get("rank_quality") if isinstance(summary.get("rank_quality"), dict) else {}
+    baseline_overlap = summary.get("baseline_overlap") if isinstance(summary.get("baseline_overlap"), dict) else {}
+    baseline_bands = baseline_overlap.get("bands") if isinstance(baseline_overlap.get("bands"), dict) else {}
+    top_10000_overlap = baseline_bands.get("top_10000") if isinstance(baseline_bands.get("top_10000"), dict) else {}
+    top_1000_overlap = baseline_bands.get("top_1000") if isinstance(baseline_bands.get("top_1000"), dict) else {}
     return (
         summary["top_100_hits"],
         summary["top_1000_hits"],
-        summary["top_10000_hits"],
+        int(top_1000_overlap.get("unique_hit_count") or 0),
+        reward["objectiveScore"],
         -int(rank_quality.get("tail_over_1000000_count") or 0),
         -int(rank_quality.get("tail_over_900000_count") or 0),
         -int(rank_quality.get("tail_over_750000_count") or 0),
-        reward["objectiveScore"],
+        int(top_10000_overlap.get("unique_hit_count") or 0),
+        -int(top_10000_overlap.get("overlap_hit_count") or 0),
+        summary["top_10000_hits"],
+        int(rank_quality.get("top_50000_hits") or 0),
+        int(rank_quality.get("top_100000_hits") or 0),
+        int(rank_quality.get("top_250000_hits") or 0),
+        int(rank_quality.get("top_500000_hits") or 0),
         int(red5.get("top_100_hits") or 0),
         int(red5.get("top_1000_hits") or 0),
         int(red5.get("top_10000_hits") or 0),
@@ -3315,6 +3441,13 @@ def run_supervisor(
                 validation_window=validation_window,
                 universe_size=len(ranked_universe),
             )
+            attach_baseline_overlap(
+                summaries,
+                control_configs,
+                universe_size=len(ranked_universe),
+            )
+            summaries.sort(key=sort_key, reverse=True)
+            control_summaries = control_experiment_summaries(summaries, control_configs)
             round_best = summaries[0]
             prior_best_summary = best_summary
             raw_improved = prior_best_summary is None or sort_key(round_best) > sort_key(prior_best_summary)
@@ -3326,7 +3459,6 @@ def run_supervisor(
                 round_best=round_best,
                 improved=improved,
             )
-            control_summaries = control_experiment_summaries(summaries, control_configs)
             prefilter_info["frozen_validation_window"] = validation_window
             prefilter_info["control_experiments"] = control_summaries
             prefilter_info["promotion_gate"] = promotion_gate

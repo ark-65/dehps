@@ -36,6 +36,7 @@ CandidateSource = Literal["kdj", "neural", "config-json"]
 TrainMode = Literal["expanding", "rolling"]
 CONTROL_LABELS = (
     "current_best_frozen_baseline",
+    "default_baseline",
     "structural_baseline",
     "frequency_baseline",
     "omission_baseline",

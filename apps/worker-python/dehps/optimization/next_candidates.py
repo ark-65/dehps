@@ -29,14 +29,25 @@ def training_summary_sort_key(summary: dict[str, Any]) -> tuple:
     red5 = summary.get("red5") if isinstance(summary.get("red5"), dict) else {}
     reward = summary.get("reward") if isinstance(summary.get("reward"), dict) else {}
     rank_quality = summary.get("rank_quality") if isinstance(summary.get("rank_quality"), dict) else {}
+    baseline_overlap = summary.get("baseline_overlap") if isinstance(summary.get("baseline_overlap"), dict) else {}
+    baseline_bands = baseline_overlap.get("bands") if isinstance(baseline_overlap.get("bands"), dict) else {}
+    top_10000_overlap = baseline_bands.get("top_10000") if isinstance(baseline_bands.get("top_10000"), dict) else {}
+    top_1000_overlap = baseline_bands.get("top_1000") if isinstance(baseline_bands.get("top_1000"), dict) else {}
     return (
         int(summary.get("top_100_hits") or 0),
         int(summary.get("top_1000_hits") or 0),
-        int(summary.get("top_10000_hits") or 0),
+        int(top_1000_overlap.get("unique_hit_count") or 0),
+        float(reward.get("objectiveScore") or 0),
         -int(rank_quality.get("tail_over_1000000_count") or 0),
         -int(rank_quality.get("tail_over_900000_count") or 0),
         -int(rank_quality.get("tail_over_750000_count") or 0),
-        float(reward.get("objectiveScore") or 0),
+        int(top_10000_overlap.get("unique_hit_count") or 0),
+        -int(top_10000_overlap.get("overlap_hit_count") or 0),
+        int(summary.get("top_10000_hits") or 0),
+        int(rank_quality.get("top_50000_hits") or 0),
+        int(rank_quality.get("top_100000_hits") or 0),
+        int(rank_quality.get("top_250000_hits") or 0),
+        int(rank_quality.get("top_500000_hits") or 0),
         int(red5.get("top_100_hits") or 0),
         int(red5.get("top_1000_hits") or 0),
         int(red5.get("top_10000_hits") or 0),
