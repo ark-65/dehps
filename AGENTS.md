@@ -1,52 +1,67 @@
-# AGENTS.md - 总规则
+# AGENTS.md - DEHPS Agent Rules
 
-本仓库是 DEHPS: Discrete Event Human Plausibility Score, 离散事件人类合理性评分。长期目标是训练成可审计的预测系统；当前阶段必须先当作科学假设检验、训练和回测系统来建设。
+## Project Positioning
 
-## 核心立场
+DEHPS means Discrete Event Human Plausibility Score, or 离散事件人类合理性评分.
 
-- 当前未成熟阶段不声称已经能稳定预测随机开奖，不提供投注建议，不用“命中保证”“提高中奖率”等未验证语言。
-- 双色球红球 demo 的数学前提是: 每个合法 6 红球组合在开奖前等概率。
-- DEHPS 现阶段研究的问题是: 哪些组合在人类结构直觉上更自然，哪些规则更可解释，过滤器在历史数据上如何被反证或保留；只有通过冻结规则和未来窗口验证后，才允许逐步提升预测主张强度。
-- AI 只能提出假设；代码负责验证；历史数据负责审判。
+This project is not a lottery prediction system, does not provide betting advice, and must not package experimental results as predictive ability. The current 双色球 red-ball domain is a demo space for studying transparent structural scoring, strategy filters, historical backtests, training diagnostics, and operational reporting.
 
-## 爱因斯坦式工作法
+Core principle:
 
-每个实质性策略、评分、训练或报告变更都必须回答:
+```text
+AI proposes hypotheses. Code verifies them. Historical data judges them.
+```
 
-- Core question: 这次到底检验什么问题？
-- Invariant: 样本空间、合法组合、数据窗口、约束是否一致？
-- Hypothesis: 最小可检验主张是什么？
-- Measurement: 使用哪些指标，至少包含 keep_rate, coverage_rate, lift, missed issues, config snapshot。
-- Failure mode: 什么结果说明该想法无效、泄漏、过拟合或只是后验挑选？
-- Next experiment: 最小的下一步实验、代码改动或回测是什么？
+## Development Rules
 
-## 工程规则
+- Work in staged, reviewable rounds.
+- Each round must have one primary goal, explicit non-goals, relevant validation, and a human-readable report when the change affects project behavior or operations.
+- Do not add new algorithms, models, or strategies during consolidation or acceptance rounds.
+- Prefer small reversible changes over broad refactors.
+- Start by checking `git status --short`. If the tree is dirty, stop and report the blocker unless the user explicitly asks to work with those changes.
+- Never overwrite user changes, generated evidence, or runtime state without explicit instruction.
+- If a task cannot be completed, report the blocker, command output, and next step. Do not pretend completion.
 
-- 采用阶段制: 每轮只完成一个可验收闭环。
-- 每轮结束必须留下测试结果、可读报告或 UI 结果、可回滚提交建议。
-- 优先小改动、可解释改动、可复现实验，避免一次性改 crawler、agent、前端、训练和调度。
-- 对真实历史数据优先，不再引入隐藏样例数据或静默 fallback。
-- 任何新增数据入口必须显式: 例如 `--csv-file`, `SSQ_CSV_PATH`, source 参数或清晰配置。
-- 生成产物默认不进提交，除非任务明确要求；尤其谨慎处理 `data/output/...`。
+## Validation Commands
 
-## 数据与泄漏边界
+Use the smallest sufficient validation for the touched surface:
 
-- 训练、回测、候选生成必须声明 `as_of_issue`、历史窗口、配置哈希或等价快照。
-- 不允许用目标期结果、开奖后信息、报告筛选结果或导入顺序构造特征。
-- 新模型必须对比同样样本空间和同等 keep_rate 的 baseline 或 null model。
-- 惊人结果先查泄漏、重复组合、解析错误、同步错误、后验阈值选择和幸存者偏差。
+```bash
+apps/worker-python/.venv/bin/python -m pytest -q
+cd apps/api && npm test
+cd apps/web && npm test
+cd apps/web && npm run build
+```
 
-## 验证命令优先级
+If dependencies are missing, install them using the project-local instructions first. If validation still fails because of environment limits, record the exact failure and the next recovery step.
 
-- Worker 侧优先从仓库根目录运行: `apps/worker-python/.venv/bin/python -m pytest apps/worker-python/tests`
-- API 侧按 `apps/api/package.json` 的脚本运行测试。
-- Web 侧按 `apps/web/package.json` 的脚本运行测试或构建。
-- 若不能运行某项验证，必须在结论中说明原因和剩余风险。
+## Data, Runtime, And Git Rules
 
-## 协作与提交
+- Do not commit `data/output`, `runtime`, `node_modules`, `.venv`, `dist`, `build`, caches, logs, or other generated runtime artifacts unless the user explicitly asks for a specific small evidence artifact.
+- Commit only files that belong to the current round.
+- Every accepted code change should be committed and pushed unless the user explicitly says not to.
+- Reports under `docs/experiments/` are source evidence and may be committed when they are the intended round artifact.
 
-- 开始前先看 `git status --short`，不要覆盖已有未提交改动。
-- 每次修改完代码后，必须完成相关验证、提交并推送到远端；除非用户明确要求暂不提交或暂不推送。
-- 文档/规则改动若用于指导后续工程行为，也应作为独立小提交推送。
-- 提交前只暂存本轮相关文件，不夹带无关生成产物或历史脏改动。
-- 修改公共规则文件时，同时更新 `TASK_PLAN.md`, `ACCEPTANCE.md`, `PROGRESS.md`, `DECISIONS.md`, `RISKS.md` 中相关状态。
+## Component Responsibilities
+
+- Python worker (`apps/worker-python`): combination generation, structural feature calculation, crawling/syncing, storage integration, backtesting, training diagnostics, candidate artifacts, and experiment reports.
+- NestJS API (`apps/api`): read-only research and training-status APIs, database normalization, websocket status delivery, and service-level API contracts for the dashboard.
+- Angular Web (`apps/web`): operational dashboard, experiment review, comparison views, distribution charts, training status, and report browsing without predictive or betting language.
+- PostgreSQL (`infra/postgres`): durable history, strategy, experiment, sync, pipeline, training, and candidate tables.
+- Redis (`docker-compose.yaml`): reserved infrastructure for future queue or orchestration work.
+
+## Codex Self-Iteration Rules
+
+- Self-iteration must be conservative and auditable.
+- Automated runs must check for a clean working tree before changing files.
+- Prefer fixing test failures, obvious bugs, broken docs, startup errors, and observability gaps before broader cleanup.
+- Do not create speculative algorithms or promote experimental outputs during self-iteration.
+- If no safe improvement exists, stop and record why.
+
+## DEHPS Scientific Guardrails
+
+- Keep the legal sample space and historical window explicit.
+- Compare filters against a baseline or null model when making performance claims.
+- Treat historical lift as a diagnostic result, not proof of future predictive power.
+- Check leakage, duplicate combinations, parser errors, sync errors, and post-hoc threshold selection before trusting surprising results.
+- Report missed issues and failure modes alongside successful metrics.
