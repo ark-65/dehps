@@ -66,3 +66,7 @@ git status --short --ignored
 
 - Keep Round 18 focused on one concrete acceptance gap discovered by tests, if any.
 - Do not add new strategy or model work until Round 17 acceptance blockers are resolved.
+
+## Post-Round Positioning Note
+
+After the Round 17 commit, the user clarified that DEHPS may provide betting-oriented recommendations and may present experimental results as predictive ability direction. The current maturity boundary is that the system has not reached its training target yet, so prediction and betting language should carry evidence level, uncertainty, training status, and failure cases.

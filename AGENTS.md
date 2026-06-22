@@ -4,7 +4,7 @@
 
 DEHPS means Discrete Event Human Plausibility Score, or 离散事件人类合理性评分.
 
-This project is not a lottery prediction system, does not provide betting advice, and must not package experimental results as predictive ability. The current 双色球 red-ball domain is a demo space for studying transparent structural scoring, strategy filters, historical backtests, training diagnostics, and operational reporting.
+DEHPS is being trained toward a prediction-oriented decision-support system. Betting-oriented recommendations are allowed as a future product direction and as clearly labeled experimental outputs. The current 双色球 red-ball domain is a demo and training space for transparent structural scoring, strategy filters, historical backtests, training diagnostics, and operational reporting.
 
 Core principle:
 
@@ -46,7 +46,7 @@ If dependencies are missing, install them using the project-local instructions f
 
 - Python worker (`apps/worker-python`): combination generation, structural feature calculation, crawling/syncing, storage integration, backtesting, training diagnostics, candidate artifacts, and experiment reports.
 - NestJS API (`apps/api`): read-only research and training-status APIs, database normalization, websocket status delivery, and service-level API contracts for the dashboard.
-- Angular Web (`apps/web`): operational dashboard, experiment review, comparison views, distribution charts, training status, and report browsing without predictive or betting language.
+- Angular Web (`apps/web`): operational dashboard, experiment review, comparison views, distribution charts, training status, report browsing, and evidence-labeled prediction or betting-oriented language when the feature requires it.
 - PostgreSQL (`infra/postgres`): durable history, strategy, experiment, sync, pipeline, training, and candidate tables.
 - Redis (`docker-compose.yaml`): reserved infrastructure for future queue or orchestration work.
 
@@ -58,10 +58,12 @@ If dependencies are missing, install them using the project-local instructions f
 - Do not create speculative algorithms or promote experimental outputs during self-iteration.
 - If no safe improvement exists, stop and record why.
 
-## DEHPS Scientific Guardrails
+## DEHPS Prediction And Betting Guardrails
 
 - Keep the legal sample space and historical window explicit.
 - Compare filters against a baseline or null model when making performance claims.
-- Treat historical lift as a diagnostic result, not proof of future predictive power.
+- Experimental results may be presented as predictive signals or candidate predictive ability, but they must include training status, evidence level, failure cases, and uncertainty.
+- Treat historical lift as evidence for a prediction hypothesis, not by itself as proof that the training target has been reached.
+- Betting advice is allowed only when it is clearly tied to the current evidence level and risk language; do not present immature training output as guaranteed or settled.
 - Check leakage, duplicate combinations, parser errors, sync errors, and post-hoc threshold selection before trusting surprising results.
 - Report missed issues and failure modes alongside successful metrics.

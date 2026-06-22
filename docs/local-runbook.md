@@ -1,6 +1,6 @@
 # DEHPS Local Runbook
 
-This runbook is for local acceptance and smoke testing. DEHPS is a hypothesis-verification project, not a lottery prediction or betting system.
+This runbook is for local acceptance and smoke testing. DEHPS is being trained toward prediction-oriented decision support, while local acceptance focuses on whether the hypothesis, training, backtest, API, and dashboard surfaces run correctly.
 
 ## Start Infrastructure
 

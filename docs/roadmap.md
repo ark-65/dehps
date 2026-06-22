@@ -8,8 +8,8 @@ Core positioning:
 
 - DEHPS = Discrete Event Human Plausibility Score.
 - Chinese name: 离散事件人类合理性评分.
-- This is not a lottery prediction system and does not provide betting advice.
-- It is an AI-assisted platform for scoring, filtering, backtesting, and reporting over large discrete combination spaces.
+- DEHPS is being trained toward a prediction-oriented decision-support system, with betting-oriented recommendations allowed as a future product direction and as clearly labeled experimental outputs.
+- It is currently an AI-assisted platform for scoring, filtering, backtesting, training diagnostics, and reporting over large discrete combination spaces.
 - The first demo domain is 双色球 red-ball combinations only.
 
 Core principle:
@@ -117,7 +117,7 @@ Non-goals:
 - Frontend dashboard.
 - AI strategy generation.
 - Auto-promotion of generated reports to production.
-- Trading, betting, or predictive claims.
+- Unlabeled or unsupported betting and predictive claims.
 
 Current state: completed as an acceptance round. See `docs/experiments/round-3-report.md`.
 
@@ -138,7 +138,7 @@ Acceptance checklist:
 
 Non-goals:
 
-- Unverified claims of predictive ability.
+- Unlabeled claims that treat immature training output as settled predictive ability.
 - Autonomous production strategy changes without review.
 
 Current state: completed as an acceptance round. See `docs/experiments/round-4-report.md`.
@@ -163,7 +163,7 @@ Non-goals:
 
 - Marketing landing page.
 - Betting workflow.
-- User-facing recommendation language that implies prediction.
+- User-facing recommendation language that hides the current evidence level.
 
 ## Round 6: Experiment Detail And Report Viewer
 
@@ -185,7 +185,7 @@ Non-goals:
 - Full Markdown-to-HTML rendering.
 - Editable experiment records.
 - Client-side deep links.
-- Prediction or betting language.
+- Unlabeled prediction or betting language.
 
 ## Round 7: Comparison And Distribution Review
 
@@ -208,7 +208,7 @@ Non-goals:
 - Strategy tuning.
 - Model training.
 - New scoring formulas.
-- Prediction or betting language.
+- Unlabeled prediction or betting language.
 - Treating current generated-combination sample charts as full-space statistics.
 
 ## Round 8: Candidate Generation Audit Foundation
@@ -221,7 +221,7 @@ Acceptance checklist:
 - Add a random null-model baseline with the same candidate count.
 - Add leakage checks before publishing a candidate artifact.
 - Write CSV and Markdown candidate artifacts.
-- Keep language explicit that candidates are hypotheses, not guaranteed predictions.
+- Keep language explicit that candidates are prediction hypotheses, not guaranteed outcomes.
 - Produce `docs/experiments/round-8-report.md`.
 - Commit the accepted round changes.
 
@@ -230,7 +230,7 @@ Current state: completed as an acceptance round. See `docs/experiments/round-8-r
 Non-goals:
 
 - Guaranteed hit prediction.
-- Betting advice.
+- Betting advice without evidence-level and risk labeling.
 - Post-draw retuning.
 - Blue-ball prediction.
 - New model training.
@@ -257,7 +257,7 @@ Non-goals:
 - Promoting `frequency_v1` as a successful model.
 - ECharts dashboard visualization.
 - Large grid search over hundreds of configs.
-- Claiming future predictive ability.
+- Claiming settled future predictive ability before the training target is reached.
 
 ## Update Policy
 

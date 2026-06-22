@@ -2,7 +2,7 @@
 
 DEHPS means Discrete Event Human Plausibility Score, or 离散事件人类合理性评分.
 
-This project is not a lottery prediction system and does not provide betting advice. It studies large discrete combination spaces with transparent feature scoring, strategy filters, historical backtests, training diagnostics, and operational reports. The current demo domain uses only the red balls from 双色球.
+DEHPS is being trained toward a prediction-oriented decision-support system. Betting-oriented recommendations are allowed as a future product direction and as clearly labeled experimental outputs, but the project has not yet reached its training target. It studies large discrete combination spaces with transparent feature scoring, strategy filters, historical backtests, training diagnostics, and operational reports. The current demo domain uses only the red balls from 双色球.
 
 Core principle:
 
