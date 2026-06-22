@@ -50,6 +50,8 @@ def parse_experiment_report(markdown: str) -> ExperimentReportSummary:
 
 def _split_bullet(line: str) -> tuple[str, str]:
     body = line.removeprefix("- ")
+    if ":" not in body:
+        raise ValueError(f"expected '- key: value' bullet, got {line!r}")
     key, value = body.split(":", 1)
     return key.strip(), value.strip()
 

@@ -1,3 +1,5 @@
+import pytest
+
 from dehps.agents.report_reader import parse_experiment_report
 from dehps.backtest.report import render_experiment_report
 
@@ -48,3 +50,18 @@ def test_experiment_report_reader_ignores_none_missed_issue():
     summary = parse_experiment_report(report)
 
     assert summary.missed_issues == []
+
+
+def test_experiment_report_reader_rejects_malformed_metric_bullet():
+    report = "\n".join(
+        [
+            "# Experiment Report",
+            "- Experiment: `baseline_v1-test`",
+            "- Strategy: `baseline_v1`",
+            "## Metrics",
+            "- coverage_rate",
+        ]
+    )
+
+    with pytest.raises(ValueError, match="expected '- key: value' bullet"):
+        parse_experiment_report(report)
