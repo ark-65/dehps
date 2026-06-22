@@ -26,3 +26,6 @@ data/output/optimization/**
 data/output/cache/
 data/output/audits/*.json
 data/output/audits/*.md
+data/output/candidates/**
+data/output/daily/**
+data/output/experiments/**

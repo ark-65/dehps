@@ -84,8 +84,8 @@ lift: 1.03212676
 Generated verification outputs:
 
 ```text
-data/output/daily/2026-06-15-dehps-daily-report.md
-data/output/experiments/baseline_v1-daily-20260615-171818.md
+retired local artifact: data/output/daily/2026-06-15-dehps-daily-report.md
+retired local artifact: data/output/experiments/baseline_v1-daily-20260615-171818.md
 ```
 
 These outputs were generated from the isolated verification database and should not be treated as promoted production artifacts unless explicitly accepted.

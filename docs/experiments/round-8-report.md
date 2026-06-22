@@ -66,13 +66,13 @@ Next issue hint:
 Candidate report:
 
 ```text
-data/output/candidates/next-red-candidates-20260616-100322.md
+retired local artifact: data/output/candidates/next-red-candidates-20260616-100322.md
 ```
 
 Candidate CSV:
 
 ```text
-data/output/candidates/next-red-candidates-20260616-100322.csv
+retired local artifact: data/output/candidates/next-red-candidates-20260616-100322.csv
 ```
 
 Candidates:

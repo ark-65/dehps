@@ -60,7 +60,7 @@ lift: 1.03212676
 Markdown report:
 
 ```text
-data/output/experiments/baseline_v1-20260615-161817.md
+retired local artifact: data/output/experiments/baseline_v1-20260615-161817.md
 ```
 
 ## Problems
