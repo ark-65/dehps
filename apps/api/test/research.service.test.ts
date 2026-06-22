@@ -984,6 +984,37 @@ test('service status ignores recovered web build errors', async () => {
   }
 });
 
+test('service status keeps completed summaries with errors as failed', async () => {
+  const previousRoot = process.env.DEHPS_ROOT;
+  const root = mkdtempSync(path.join(os.tmpdir(), 'dehps-service-status-'));
+  mkdirSync(path.join(root, 'runtime/logs'), { recursive: true });
+  writeFileSync(path.join(root, 'runtime/logs/api-dashboard.log'), 'api ready\n');
+  writeFileSync(
+    path.join(root, 'runtime/logs/web-dashboard.log'),
+    [
+      'Application bundle generation failed.',
+      "ERROR TS2339: Property 'status' does not exist",
+      'Build completed with errors=1.',
+    ].join('\n'),
+  );
+  try {
+    process.env.DEHPS_ROOT = root;
+    const service = new ResearchService(repository);
+
+    const status = await service.serviceStatus();
+    const web = status.services.find((item) => item.name === 'web');
+
+    assert.equal(web?.status, 'failed');
+    assert.match(web?.recentError ?? '', /completed with errors=1/);
+  } finally {
+    if (previousRoot === undefined) {
+      delete process.env.DEHPS_ROOT;
+    } else {
+      process.env.DEHPS_ROOT = previousRoot;
+    }
+  }
+});
+
 test('service status ignores transient web proxy errors while web is alive', async () => {
   const previousRoot = process.env.DEHPS_ROOT;
   const root = mkdtempSync(path.join(os.tmpdir(), 'dehps-service-status-'));

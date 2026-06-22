@@ -837,12 +837,13 @@ export class ResearchService {
   }
 
   private latestErrorLine(lines: string[]): string | null {
-    const errorPattern = /\b(error|exception|failed|traceback)\b/i;
+    const errorPattern = /\b(errors?|exception|failed|traceback)\b/i;
+    const zeroErrorPattern = /\b(?:0|no)\s+errors?\b/i;
     const recoveryPattern = /\b(ready|listening|started|success|successful|complete|completed)\b/i;
     let latestErrorIndex = -1;
     let latestRecoveryIndex = -1;
     lines.forEach((line, index) => {
-      if (errorPattern.test(line)) {
+      if (errorPattern.test(line) && !zeroErrorPattern.test(line)) {
         latestErrorIndex = index;
       }
       if (recoveryPattern.test(line)) {
