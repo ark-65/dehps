@@ -1974,13 +1974,16 @@ def best_challenger_summary(
     incumbent_config_hash: str | None,
     *,
     incumbent_summary: dict | None = None,
+    excluded_config_hashes: set[str] | None = None,
 ) -> dict | None:
     if not incumbent_config_hash:
         return None
+    excluded = set(excluded_config_hashes or set())
+    excluded.add(incumbent_config_hash)
     challengers = [
         summary
         for summary in summaries
-        if summary_config_hash(summary) != incumbent_config_hash
+        if (summary_config_hash(summary) or "") not in excluded
     ]
     incumbent_rank_signature = summary_rank_vector_signature(incumbent_summary)
     if incumbent_rank_signature is not None:
@@ -2067,25 +2070,53 @@ def select_target_weight_inversion_anchor(
 def select_next_search_base(
     *,
     current_base: FrequencyRankerConfig,
+    summaries: list[dict],
     round_best: dict | None,
-    challenger_summary: dict | None,
     improved: bool,
+    recent_search_base_hashes: tuple[str, ...] = (),
 ) -> tuple[FrequencyRankerConfig, dict]:
+    current_base_hash = config_hash(current_base)
+    current_base_summary = None
+    for summary in summaries:
+        if summary_config_hash(summary) == current_base_hash:
+            current_base_summary = summary
+            break
+    excluded_hashes = {hash_value for hash_value in recent_search_base_hashes if hash_value}
+    excluded_hashes.add(current_base_hash)
+    search_challenger = best_challenger_summary(
+        summaries,
+        current_base_hash,
+        incumbent_summary=current_base_summary,
+        excluded_config_hashes=excluded_hashes,
+    )
+    fallback_search_challenger = None
+    if search_challenger is None:
+        fallback_search_challenger = best_challenger_summary(
+            summaries,
+            current_base_hash,
+            incumbent_summary=current_base_summary,
+        )
     if improved:
         source = "new_best"
         selected_summary = round_best
-    elif challenger_summary is not None:
-        source = "challenger_best"
-        selected_summary = challenger_summary
-    elif round_best is not None:
+    elif round_best is not None and summary_config_hash(round_best) not in excluded_hashes:
         source = "round_best"
+        selected_summary = round_best
+    elif search_challenger is not None:
+        source = "search_challenger"
+        selected_summary = search_challenger
+    elif fallback_search_challenger is not None:
+        source = "search_challenger_revisit"
+        selected_summary = fallback_search_challenger
+    elif round_best is not None:
+        source = "current_base_replay"
         selected_summary = round_best
     else:
         source = "unchanged"
         selected_summary = None
     selected_config = summary_config(selected_summary)
     next_base = selected_config or current_base
-    previous_hash = config_hash(current_base)
+    previous_hash = current_base_hash
     next_hash = config_hash(next_base)
     metadata = {
         "source": source,
@@ -2093,6 +2124,11 @@ def select_next_search_base(
         "previous_config_hash": previous_hash,
         "config_hash": next_hash,
         "candidate_config_hash": summary_config_hash(selected_summary) or "",
+        "search_challenger_config_hash": summary_config_hash(search_challenger) or "",
+        "fallback_search_challenger_config_hash": summary_config_hash(fallback_search_challenger) or "",
+        "search_challenger_rank_vector_changed": rank_vector_changed(current_base_summary, search_challenger),
+        "search_challenger_rank_vector_available": rank_vector_available(search_challenger),
+        "recent_search_base_hashes": list(recent_search_base_hashes),
         "top_100_hits": int(selected_summary.get("top_100_hits") or 0) if isinstance(selected_summary, dict) else 0,
         "top_1000_hits": int(selected_summary.get("top_1000_hits") or 0) if isinstance(selected_summary, dict) else 0,
         "top_10000_hits": int(selected_summary.get("top_10000_hits") or 0) if isinstance(selected_summary, dict) else 0,
@@ -2102,6 +2138,22 @@ def select_next_search_base(
         "config": config_dict(next_base),
     }
     return next_base, metadata
+
+
+def recent_search_base_hashes(rounds: list[dict], current_base: FrequencyRankerConfig, *, limit: int = 6) -> tuple[str, ...]:
+    hashes: list[str] = [config_hash(current_base)]
+    for round_info in reversed(rounds[-limit:]):
+        prefilter = round_info.get("prefilter") if isinstance(round_info.get("prefilter"), dict) else {}
+        for key in ("search_base", "search_base_start"):
+            item = prefilter.get(key) if isinstance(prefilter.get(key), dict) else {}
+            hash_value = item.get("config_hash")
+            if isinstance(hash_value, str) and hash_value:
+                hashes.append(hash_value)
+    deduped: list[str] = []
+    for hash_value in hashes:
+        if hash_value not in deduped:
+            deduped.append(hash_value)
+    return tuple(deduped[:limit])
 
 
 def compact_round_info(round_info: dict) -> dict:
@@ -2996,6 +3048,10 @@ def run_supervisor(
             )
             prefilter_info["stagnation_rounds"] = stagnation_rounds
             prefilter_info["phase_stage"] = phase_stage
+            prefilter_info["search_base_start"] = {
+                "config_hash": config_hash(search_base_config),
+                "config": config_dict(search_base_config),
+            }
             prefilter_info["low_coverage_fields"] = list(low_coverage_fields)
             prefilter_info["candidate_budget"] = budgets
             advisor_info = weight_kdj_advisor_metadata(
@@ -3116,9 +3172,10 @@ def run_supervisor(
             leaderboard = merge_leaderboard(leaderboard, summaries[: min(8, len(summaries))])
             next_search_base_config, search_base_info = select_next_search_base(
                 current_base=search_base_config,
+                summaries=summaries,
                 round_best=round_best,
-                challenger_summary=challenger_summary,
                 improved=improved,
+                recent_search_base_hashes=recent_search_base_hashes(rounds, search_base_config),
             )
             search_base_info["phase"] = phase
             search_base_info["phase_stage"] = phase_stage

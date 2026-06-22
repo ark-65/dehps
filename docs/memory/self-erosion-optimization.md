@@ -38,6 +38,7 @@
 | 2026-06-22 | 自我迭代运行显式记录同步校验失败。提交：`8b7c4b5`。 |
 | 2026-06-22 | 修复训练 supervisor 的 target inversion 锚点：若本轮 best 只是历史 best 重放，改用本轮 challenger 做反推锚点。验证：`apps/worker-python/.venv/bin/python -m pytest apps/worker-python/tests -q` 通过 `164 passed`；live run `20260622-103001` round 1 写入 `anchor.source=challenger_best`，round 2 status 显示 `candidate_budget.target_weight_inversion=4`。 |
 | 2026-06-22 | 调整训练节奏：初期 24 轮使用 large/medium 大步长，后期逐步退火到 small/micro；同时把 retained best 和 moving search base 分离，没刷新 best 时也用 rank-vector 不同的 challenger 推进下一轮 search base。验证：`apps/worker-python/.venv/bin/python -m pytest apps/worker-python/tests -q` 通过 `167 passed`。 |
+| 2026-06-22 | 修复 moving search base 的 A/B 回跳：选择下一轮 search base 时排除当前和最近 search base，优先选 rank-vector 不同的新 challenger。验证：`apps/worker-python/.venv/bin/python -m pytest apps/worker-python/tests -q` 通过 `169 passed`；live run `20260622-112552` R1 `37713bad -> fdacf9ec`，R2 `fdacf9ec -> f88482b2`。 |
 
 ## 如何更新这个 Memory
 

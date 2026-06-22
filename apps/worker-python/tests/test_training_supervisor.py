@@ -183,16 +183,61 @@ def test_next_search_base_advances_to_challenger_without_promoting_best():
 
     next_base, metadata = select_next_search_base(
         current_base=incumbent_config,
+        summaries=[incumbent, challenger],
         round_best=incumbent,
-        challenger_summary=challenger,
         improved=False,
     )
 
     assert config_hash(next_base) == config_hash(challenger_config)
-    assert metadata["source"] == "challenger_best"
+    assert metadata["source"] == "search_challenger"
     assert metadata["changed"] is True
     assert metadata["previous_config_hash"] == config_hash(incumbent_config)
     assert metadata["config_hash"] == config_hash(challenger_config)
+
+
+def test_next_search_base_does_not_stall_on_current_base_replay():
+    current_config = FrequencyRankerConfig(frequency_weight=0.45, omission_weight=0.10)
+    alternative_config = FrequencyRankerConfig(frequency_weight=0.20, omission_weight=0.40)
+    current = supervisor_summary_for_config(current_config, target_ranks=[100, 900, 50_000], objective_score=2190.0)
+    alternative = supervisor_summary_for_config(
+        alternative_config,
+        target_ranks=[99, 900, 50_000],
+        objective_score=2180.0,
+    )
+
+    next_base, metadata = select_next_search_base(
+        current_base=current_config,
+        summaries=[current, alternative],
+        round_best=current,
+        improved=False,
+    )
+
+    assert config_hash(next_base) == config_hash(alternative_config)
+    assert metadata["source"] == "search_challenger"
+    assert metadata["changed"] is True
+    assert metadata["search_challenger_rank_vector_changed"] is True
+
+
+def test_next_search_base_avoids_recent_two_config_bounce():
+    current_config = FrequencyRankerConfig(frequency_weight=0.45, omission_weight=0.10)
+    previous_config = FrequencyRankerConfig()
+    novel_config = FrequencyRankerConfig(frequency_weight=0.20, omission_weight=0.40)
+    current = supervisor_summary_for_config(current_config, target_ranks=[100, 900, 50_000], objective_score=2190.0)
+    previous = supervisor_summary_for_config(previous_config, target_ranks=[99, 900, 50_000], objective_score=2185.0)
+    novel = supervisor_summary_for_config(novel_config, target_ranks=[101, 850, 50_000], objective_score=2180.0)
+
+    next_base, metadata = select_next_search_base(
+        current_base=current_config,
+        summaries=[current, previous, novel],
+        round_best=current,
+        improved=False,
+        recent_search_base_hashes=(config_hash(current_config), config_hash(previous_config)),
+    )
+
+    assert config_hash(next_base) == config_hash(novel_config)
+    assert metadata["source"] == "search_challenger"
+    assert metadata["changed"] is True
+    assert metadata["config_hash"] not in metadata["recent_search_base_hashes"]
 
 
 def test_target_weight_inversion_anchor_keeps_new_best_when_improved():
