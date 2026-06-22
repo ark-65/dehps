@@ -14,6 +14,7 @@ from dehps.config import ROOT_DIR
 from dehps.db import get_connection
 from dehps.models.frequency_ranker import FrequencyRankerConfig
 from dehps.optimization.dynamic_kdj_backtest import (
+    DynamicKdjAcceptanceConfig,
     DynamicKdjThresholds,
     evaluate_dynamic_kdj_backtest,
     render_dynamic_kdj_report,
@@ -109,6 +110,11 @@ def main() -> None:
     parser.add_argument("--weight-kdj-min-abs-offset", type=float, default=0.005)
     parser.add_argument("--weight-kdj-slope-window", type=int, default=3)
     parser.add_argument("--weight-kdj-neutral-band", type=float, default=5.0)
+    parser.add_argument("--min-eval-window-for-pass", type=int, default=50)
+    parser.add_argument("--max-median-changed-weights", type=int, default=5)
+    parser.add_argument("--max-max-changed-weights", type=int, default=8)
+    parser.add_argument("--max-dynamic-abs-offset", type=float, default=0.06)
+    parser.add_argument("--disable-negative-controls", action="store_true")
     parser.add_argument("--output-dir", type=Path, default=default_output_dir())
     parser.add_argument("--no-write", action="store_true", help="Print the summary without writing md/json artifacts.")
     args = parser.parse_args()
@@ -159,6 +165,12 @@ def main() -> None:
         slope_window=args.weight_kdj_slope_window,
         neutral_band=args.weight_kdj_neutral_band,
     )
+    acceptance_config = DynamicKdjAcceptanceConfig(
+        min_eval_window_for_pass=args.min_eval_window_for_pass,
+        max_median_changed_weights=args.max_median_changed_weights,
+        max_max_changed_weights=args.max_max_changed_weights,
+        max_abs_offset=args.max_dynamic_abs_offset,
+    )
     payload = evaluate_dynamic_kdj_backtest(
         history=history,
         ranked_universe=ranked_universe,
@@ -169,12 +181,28 @@ def main() -> None:
         eval_window=args.eval_window,
         top_n=args.top_n,
         thresholds=thresholds,
+        acceptance_config=acceptance_config,
+        include_negative_controls=not args.disable_negative_controls,
     )
     payload["signal_run_id"] = args.signal_run_id
     payload["signal_count"] = len(signals)
     payload["base_config_source"] = "base_config_json" if args.base_config_json else args.base_config_source
     payload["base_config_metadata"] = base_metadata
     payload["base_config_hash"] = config_hash(base_config)
+    payload["command_args"] = {
+        "signal_run_id": args.signal_run_id,
+        "as_of_issue": args.as_of_issue,
+        "train_mode": args.train_mode,
+        "train_window": args.train_window,
+        "eval_window": args.eval_window,
+        "top_n": args.top_n,
+        "base_config_source": args.base_config_source,
+        "base_config_json": str(args.base_config_json) if args.base_config_json else None,
+        "history_scope": args.history_scope,
+        "regime_years": args.regime_years,
+        "kdj_signal_limit": args.kdj_signal_limit,
+        "disable_negative_controls": args.disable_negative_controls,
+    }
     payload["elapsed_seconds"] = round(time.time() - started, 3)
     if args.no_write:
         print(json.dumps(payload["acceptance"], ensure_ascii=False, indent=2, sort_keys=True))
@@ -186,6 +214,7 @@ def main() -> None:
                 "status": "completed",
                 "json_path": str(json_path),
                 "report_path": str(report_path),
+                "acceptance_status": payload["acceptance"].get("status"),
                 "acceptance": payload["acceptance"],
             },
             ensure_ascii=False,

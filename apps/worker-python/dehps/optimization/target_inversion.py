@@ -223,7 +223,18 @@ def _candidate_deltas(
         seen.add(key)
         unique.append(delta)
     unique.sort(key=delta_norm)
-    return unique[:24]
+    selected = unique[: min(12, len(unique))]
+    remaining = unique[min(12, len(unique)):]
+    while remaining and len(selected) < 24:
+        remaining.sort(
+            key=lambda vector: (
+                min(float(np.linalg.norm(vector - item)) for item in selected),
+                delta_norm(vector),
+            ),
+            reverse=True,
+        )
+        selected.append(remaining.pop(0))
+    return selected[:24]
 
 
 def _simplified_component_vector(components: dict) -> np.ndarray:
@@ -489,7 +500,12 @@ def invert_target_weight(
             outlier_reason=None if success else "not_enough_shift",
         )
         if success:
-            if best_result is None or result.delta_norm < best_result.delta_norm:
+            if (
+                best_result is None
+                or not best_result.success
+                or (int(result.adjusted_rank or current_rank), result.delta_norm)
+                < (int(best_result.adjusted_rank or current_rank), float(best_result.delta_norm or 0.0))
+            ):
                 best_result = result
         elif best_result is None or (best_result.adjusted_rank is not None and adjusted_rank < best_result.adjusted_rank):
             best_result = result

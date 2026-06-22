@@ -15,12 +15,14 @@ from scripts.run_training_supervisor import (
     bounded_unique_config_hashes,
     calculate_tail_risk_penalty,
     candidate_budget,
+    candidate_source_survival,
     attach_frozen_validation,
     config_hash,
     control_experiment_configs,
     control_experiment_summaries,
     carryover_candidate_configs_from_summaries,
     evaluate_configs,
+    frozen_validation_promotion_gate,
     frozen_validation_window,
     generate_configs,
     load_prior_supervisor_carryover_configs,
@@ -44,6 +46,7 @@ from scripts.run_training_supervisor import (
     select_next_search_base,
     summarize_target_ranks,
     summary_config_hash,
+    target_rank_movement,
     target_weight_inversion_advisor,
     target_weight_inversion_advisor_metadata,
     training_progress_payload,
@@ -373,6 +376,18 @@ def test_candidate_budget_reserves_bounded_target_weight_inversion_bucket():
     assert sum(budget.values()) == 20
 
 
+def test_candidate_budget_allows_larger_target_weight_inversion_bucket_when_configured():
+    budget = candidate_budget(
+        40,
+        target_weight_inversion_budget_share=0.30,
+        target_weight_inversion_available=12,
+        target_weight_inversion_max_candidates=12,
+    )
+
+    assert budget["target_weight_inversion"] == 12
+    assert sum(budget.values()) == 40
+
+
 def test_candidate_budget_skips_target_weight_inversion_bucket_without_candidates():
     budget = candidate_budget(
         20,
@@ -465,6 +480,31 @@ def test_reserved_target_weight_inversion_candidates_do_not_trim_existing_adviso
     assert all(config in merged for config in kdj)
     assert all(config in merged for config in target_inversion)
     assert len([config for config in merged if config in normal]) == 10
+
+
+def test_candidate_source_survival_tracks_prefilter_top5_and_round_best():
+    normal = (FrequencyRankerConfig(frequency_weight=0.31), FrequencyRankerConfig(frequency_weight=0.32))
+    kdj = (FrequencyRankerConfig(omission_weight=0.41),)
+    twi = (FrequencyRankerConfig(sum_tail_weight=0.07),)
+    top_results = [
+        {"config_hash": config_hash(kdj[0])},
+        {"config_hash": config_hash(normal[0])},
+    ]
+
+    survival = candidate_source_survival(
+        {"normal": normal, "weight_kdj": kdj, "target_weight_inversion": twi},
+        refined_configs=(normal[0], kdj[0]),
+        full_eval_top_results=top_results,
+        round_best=top_results[0],
+    )
+
+    assert survival["normal"]["generated"] == 2
+    assert survival["normal"]["prefilter_selected"] == 1
+    assert survival["normal"]["full_eval_top5"] == 1
+    assert survival["normal"]["round_best"] is False
+    assert survival["weight_kdj"]["prefilter_selected"] == 1
+    assert survival["weight_kdj"]["round_best"] is True
+    assert survival["target_weight_inversion"]["prefilter_selected"] == 0
 
 
 def test_generate_configs_reuses_elite_configs_for_local_search():
@@ -1091,6 +1131,60 @@ def test_control_experiments_and_frozen_validation_are_recorded():
     assert rows[0]["frozen_validation"]["window"] == 2
     assert rows[0]["frozen_validation"]["top_1000_hits"] == 1
     assert rows[0]["frozen_validation"]["red5"]["top_100_hits"] == 1
+
+
+def frozen_summary(*, objective: float, worst_rank: int = 800_000, tail1000: int = 0) -> dict:
+    return {
+        "config_hash": f"hash-{objective}-{worst_rank}-{tail1000}",
+        "frozen_validation": {
+            "worst_rank": worst_rank,
+            "rank_quality": {
+                "p95_rank": worst_rank,
+                "tail_over_750000_count": 1,
+                "tail_over_900000_count": 0,
+                "tail_over_1000000_count": tail1000,
+                "tail_risk_penalty": 1.0 + tail1000,
+            },
+            "reward": {"objectiveScore": objective},
+        },
+    }
+
+
+def test_frozen_validation_promotion_gate_requires_objective_and_tail():
+    incumbent = frozen_summary(objective=10.0, worst_rank=800_000)
+    better = frozen_summary(objective=12.0, worst_rank=790_000)
+    worse_tail = frozen_summary(objective=12.0, worst_rank=1_050_000, tail1000=1)
+    worse_objective = frozen_summary(objective=9.5, worst_rank=790_000)
+
+    assert frozen_validation_promotion_gate(better, incumbent)["passed"] is True
+    assert frozen_validation_promotion_gate(worse_tail, incumbent)["passed"] is False
+    assert frozen_validation_promotion_gate(worse_objective, incumbent)["passed"] is False
+    assert frozen_validation_promotion_gate(better, None)["passed"] is True
+
+
+def test_target_rank_movement_summarizes_per_issue_delta():
+    baseline = {
+        "target_results": [
+            {"issue": "001", "rank": 100},
+            {"issue": "002", "rank": 200},
+            {"issue": "003", "rank": 300},
+        ]
+    }
+    candidate = {
+        "target_results": [
+            {"issue": "001", "rank": 90},
+            {"issue": "002", "rank": 205},
+            {"issue": "003", "rank": 300},
+        ]
+    }
+
+    movement = target_rank_movement(candidate, baseline)
+
+    assert movement["target_count"] == 3
+    assert movement["changed_target_count"] == 2
+    assert movement["improved_count"] == 1
+    assert movement["worsened_count"] == 1
+    assert movement["median_abs_delta"] == 5.0
 
 
 def test_prefilter_configs_target_parallel_matches_single_worker():

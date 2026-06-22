@@ -198,7 +198,7 @@ DEFAULT_NEURAL_KDJ_HIDDEN_UNITS = 8
 DEFAULT_NEURAL_KDJ_EPOCHS = 120
 DEFAULT_NEURAL_KDJ_MIN_CONFIDENCE = 0.0
 DEFAULT_TARGET_WEIGHT_INVERSION_BUDGET_SHARE = 0.20
-DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES = 4
+DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES = 8
 DEFAULT_TARGET_WEIGHT_INVERSION_MAX_TARGETS = 100
 DEFAULT_TARGET_WEIGHT_INVERSION_MAX_DELTAS_PER_TARGET = 8
 MAX_FROZEN_VALIDATION_WINDOW = 20
@@ -352,6 +352,7 @@ def candidate_budget(
     neural_kdj_budget_share: float = 0.0,
     target_weight_inversion_budget_share: float = 0.0,
     target_weight_inversion_available: int = 0,
+    target_weight_inversion_max_candidates: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES,
 ) -> dict[str, int]:
     if max_configs <= 0:
         counts = {name: 0 for name in CANDIDATE_BUDGET_SHARES}
@@ -379,7 +380,7 @@ def candidate_budget(
         max_configs,
         target_weight_inversion_budget_share,
         available=min(
-            DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES,
+            max(0, target_weight_inversion_max_candidates),
             max(0, target_weight_inversion_available),
             max_configs - weight_kdj_count - ridge_kdj_count - neural_kdj_count,
         ),
@@ -531,6 +532,106 @@ def attach_frozen_validation(summaries: list[dict], *, validation_window: int, u
         )
         if validation is not None:
             summary["frozen_validation"] = validation
+
+
+def _frozen_objective(summary: dict) -> float:
+    validation = summary.get("frozen_validation") if isinstance(summary.get("frozen_validation"), dict) else {}
+    reward = validation.get("reward") if isinstance(validation.get("reward"), dict) else {}
+    return float(reward.get("objectiveScore") or 0.0)
+
+
+def _frozen_tail_not_worse(candidate: dict, incumbent: dict) -> bool:
+    candidate_validation = candidate.get("frozen_validation") if isinstance(candidate.get("frozen_validation"), dict) else {}
+    incumbent_validation = incumbent.get("frozen_validation") if isinstance(incumbent.get("frozen_validation"), dict) else {}
+    candidate_quality = candidate_validation.get("rank_quality") if isinstance(candidate_validation.get("rank_quality"), dict) else {}
+    incumbent_quality = incumbent_validation.get("rank_quality") if isinstance(incumbent_validation.get("rank_quality"), dict) else {}
+    if (candidate_validation.get("worst_rank") or 0) > (incumbent_validation.get("worst_rank") or 0):
+        return False
+    for field in ("p95_rank", "tail_risk_penalty"):
+        candidate_value = candidate_quality.get(field)
+        incumbent_value = incumbent_quality.get(field)
+        if candidate_value is not None and incumbent_value is not None and float(candidate_value) > float(incumbent_value):
+            return False
+    for field in ("tail_over_750000_count", "tail_over_900000_count", "tail_over_1000000_count"):
+        if int(candidate_quality.get(field) or 0) > int(incumbent_quality.get(field) or 0):
+            return False
+    return True
+
+
+def frozen_validation_promotion_gate(candidate: dict, incumbent: dict | None) -> dict:
+    if not isinstance(candidate, dict):
+        return {"passed": False, "reason": "missing_candidate"}
+    if not isinstance(incumbent, dict):
+        return {"passed": True, "reason": "no_incumbent"}
+    candidate_validation = candidate.get("frozen_validation")
+    incumbent_validation = incumbent.get("frozen_validation")
+    if not isinstance(candidate_validation, dict) or not isinstance(incumbent_validation, dict):
+        return {
+            "passed": True,
+            "reason": "missing_frozen_validation",
+            "candidate_config_hash": candidate.get("config_hash"),
+            "incumbent_config_hash": incumbent.get("config_hash"),
+        }
+    candidate_objective = _frozen_objective(candidate)
+    incumbent_objective = _frozen_objective(incumbent)
+    objective_passed = candidate_objective > incumbent_objective
+    tail_passed = _frozen_tail_not_worse(candidate, incumbent)
+    return {
+        "passed": bool(objective_passed and tail_passed),
+        "reason": "passed" if objective_passed and tail_passed else "frozen_validation_not_better",
+        "objective_passed": objective_passed,
+        "tail_passed": tail_passed,
+        "candidate_objective": candidate_objective,
+        "incumbent_objective": incumbent_objective,
+        "candidate_config_hash": candidate.get("config_hash"),
+        "incumbent_config_hash": incumbent.get("config_hash"),
+    }
+
+
+def target_rank_movement(candidate: dict | None, baseline: dict | None) -> dict:
+    if not isinstance(candidate, dict) or not isinstance(baseline, dict):
+        return {"target_count": 0, "changed_target_count": 0, "median_abs_delta": 0.0, "max_abs_delta": 0}
+    candidate_targets = candidate.get("target_results")
+    baseline_targets = baseline.get("target_results")
+    if not isinstance(candidate_targets, list) or not isinstance(baseline_targets, list):
+        return {"target_count": 0, "changed_target_count": 0, "median_abs_delta": 0.0, "max_abs_delta": 0}
+    baseline_by_issue = {
+        str(item.get("issue") or ""): int(item.get("rank"))
+        for item in baseline_targets
+        if isinstance(item, dict) and isinstance(item.get("rank"), int | float)
+    }
+    deltas: list[int] = []
+    rows: list[dict] = []
+    for item in candidate_targets:
+        if not isinstance(item, dict) or not isinstance(item.get("rank"), int | float):
+            continue
+        issue = str(item.get("issue") or "")
+        if issue not in baseline_by_issue:
+            continue
+        candidate_rank = int(item["rank"])
+        baseline_rank = baseline_by_issue[issue]
+        delta = candidate_rank - baseline_rank
+        deltas.append(delta)
+        rows.append(
+            {
+                "issue": issue,
+                "candidate_rank": candidate_rank,
+                "baseline_rank": baseline_rank,
+                "delta": delta,
+                "abs_delta": abs(delta),
+                "improved": delta < 0,
+            }
+        )
+    abs_deltas = [abs(delta) for delta in deltas]
+    return {
+        "target_count": len(deltas),
+        "changed_target_count": sum(delta != 0 for delta in deltas),
+        "improved_count": sum(delta < 0 for delta in deltas),
+        "worsened_count": sum(delta > 0 for delta in deltas),
+        "median_abs_delta": float(median(abs_deltas)) if abs_deltas else 0.0,
+        "max_abs_delta": max(abs_deltas, default=0),
+        "rows": rows[:12],
+    }
 
 
 def compact_control_summary(label: str, summary: dict) -> dict:
@@ -692,6 +793,38 @@ def merge_reserved_candidate_configs(
             break
         add_unique(configs, seen, config)
     return tuple(configs[:max_configs])
+
+
+def candidate_source_survival(
+    source_configs: dict[str, tuple[FrequencyRankerConfig, ...]],
+    *,
+    refined_configs: tuple[FrequencyRankerConfig, ...] = (),
+    full_eval_top_results: list[dict] | tuple[dict, ...] = (),
+    round_best: dict | None = None,
+    preview_limit: int = 8,
+) -> dict:
+    refined_hashes = {config_hash(config) for config in refined_configs}
+    top_hashes = [str(summary.get("config_hash") or "") for summary in full_eval_top_results if isinstance(summary, dict)]
+    round_best_hash = str(round_best.get("config_hash") or "") if isinstance(round_best, dict) else ""
+    survival: dict[str, dict] = {}
+    for source, configs in source_configs.items():
+        hashes: list[str] = []
+        seen: set[str] = set()
+        for config in configs:
+            key = config_hash(config)
+            if key in seen:
+                continue
+            seen.add(key)
+            hashes.append(key)
+        hash_set = set(hashes)
+        survival[source] = {
+            "generated": len(hashes),
+            "prefilter_selected": sum(hash_value in refined_hashes for hash_value in hashes),
+            "full_eval_top5": sum(hash_value in set(top_hashes[:5]) for hash_value in hashes),
+            "round_best": bool(round_best_hash and round_best_hash in hash_set),
+            "hashes": hashes[:preview_limit],
+        }
+    return survival
 
 
 def bounded_unique_config_hashes(configs: tuple[FrequencyRankerConfig, ...], *, limit: int = 16) -> list[str]:
@@ -1027,7 +1160,7 @@ def target_weight_inversion_advisor(
         max_delta_candidates=safe_max_deltas,
     )
     rows, aggregate, configs = target_inversion_payload(inversions=inversions, base_config=base_config)
-    limited_configs = tuple(configs[: min(max_candidates, budget, DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES)])
+    limited_configs = tuple(configs[: min(max(0, max_candidates), max(0, budget))])
     metadata = target_weight_inversion_advisor_metadata(
         enabled=True,
         budget=max(0, budget),
@@ -2906,7 +3039,7 @@ def run_supervisor(
         "target_weight_inversion_advisor": {
             "enabled": enable_target_weight_inversion_advisor,
             "budget_share": target_weight_inversion_budget_share if enable_target_weight_inversion_advisor else 0.0,
-            "max_candidates": min(DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES, max(0, target_weight_inversion_max_candidates)),
+            "max_candidates": max(0, target_weight_inversion_max_candidates),
             "max_targets": max(0, target_weight_inversion_max_targets),
             "max_deltas_per_target": max(1, target_weight_inversion_max_deltas_per_target),
             "latest": target_weight_inversion_latest,
@@ -2958,6 +3091,7 @@ def run_supervisor(
                 neural_kdj_budget_share=neural_kdj_budget_share if enable_neural_kdj_advisor else 0.0,
                 target_weight_inversion_budget_share=target_weight_inversion_budget_share if enable_target_weight_inversion_advisor else 0.0,
                 target_weight_inversion_available=len(target_weight_inversion_configs),
+                target_weight_inversion_max_candidates=target_weight_inversion_max_candidates,
             )
             weight_kdj_budget = budgets.get("weight_kdj", 0)
             ridge_kdj_budget = budgets.get("ridge_kdj", 0)
@@ -2977,6 +3111,7 @@ def run_supervisor(
                     round_index=round_index + 1,
                 )
             )
+            normal_configs = configs
             kdj_signals: list[dict] = []
             weight_kdj_signals: list[dict] = []
             weight_kdj_configs: tuple[FrequencyRankerConfig, ...] = ()
@@ -3047,6 +3182,13 @@ def run_supervisor(
                     max_configs=neural_kdj_budget,
                     min_confidence=neural_kdj_min_confidence,
                 )
+            source_configs = {
+                "normal": normal_configs,
+                "weight_kdj": weight_kdj_configs,
+                "ridge_kdj": ridge_kdj_configs,
+                "neural_kdj": neural_kdj_configs,
+                "target_weight_inversion": target_weight_inversion_configs,
+            }
             if enable_weight_kdj_advisor:
                 configs = merge_reserved_candidate_configs(
                     configs,
@@ -3100,6 +3242,10 @@ def run_supervisor(
             }
             prefilter_info["low_coverage_fields"] = list(low_coverage_fields)
             prefilter_info["candidate_budget"] = budgets
+            prefilter_info["source_survival"] = candidate_source_survival(
+                source_configs,
+                refined_configs=refined_configs,
+            )
             advisor_info = weight_kdj_advisor_metadata(
                 weight_kdj_signals,
                 weight_kdj_configs,
@@ -3171,7 +3317,9 @@ def run_supervisor(
             )
             round_best = summaries[0]
             prior_best_summary = best_summary
-            improved = prior_best_summary is None or sort_key(round_best) > sort_key(prior_best_summary)
+            raw_improved = prior_best_summary is None or sort_key(round_best) > sort_key(prior_best_summary)
+            promotion_gate = frozen_validation_promotion_gate(round_best, prior_best_summary)
+            improved = bool(raw_improved and promotion_gate["passed"])
             inversion_anchor, challenger_summary, inversion_anchor_info = select_target_weight_inversion_anchor(
                 summaries=summaries,
                 prior_best_summary=prior_best_summary,
@@ -3181,6 +3329,15 @@ def run_supervisor(
             control_summaries = control_experiment_summaries(summaries, control_configs)
             prefilter_info["frozen_validation_window"] = validation_window
             prefilter_info["control_experiments"] = control_summaries
+            prefilter_info["promotion_gate"] = promotion_gate
+            prefilter_info["raw_improved"] = raw_improved
+            prefilter_info["round_best_rank_movement_vs_incumbent"] = target_rank_movement(round_best, prior_best_summary)
+            prefilter_info["source_survival"] = candidate_source_survival(
+                source_configs,
+                refined_configs=refined_configs,
+                full_eval_top_results=summaries[: min(5, len(summaries))],
+                round_best=round_best,
+            )
             prefilter_info["round_best_replays_incumbent"] = inversion_anchor_info["round_best_replays_incumbent"]
             prefilter_info["challenger_best"] = strip_target_results(challenger_summary) if challenger_summary else None
             prefilter_info["target_weight_inversion_anchor"] = inversion_anchor_info
@@ -3197,7 +3354,7 @@ def run_supervisor(
                     max_candidates=target_weight_inversion_max_candidates,
                     max_targets=target_weight_inversion_max_targets,
                     max_deltas_per_target=target_weight_inversion_max_deltas_per_target,
-                    budget=min(DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES, max(0, target_weight_inversion_max_candidates)),
+                    budget=max(0, target_weight_inversion_max_candidates),
                     control_experiments=control_summaries,
                     frozen_validation_window_value=validation_window,
                 )
