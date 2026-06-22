@@ -242,6 +242,7 @@ def training_event_payload(status: dict) -> dict:
     return {
         "run_id": status.get("run_id"),
         "status": status.get("status"),
+        "pid": status.get("pid"),
         "updated_at": status.get("updated_at"),
         "latest_progress": status.get("latest_progress"),
         "search_base": status.get("search_base"),

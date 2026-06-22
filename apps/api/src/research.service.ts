@@ -406,6 +406,10 @@ export class ResearchService {
     const progress = this.progressValue(row.latest_progress ?? row.latestProgress);
     const eventStatus = this.stringValue(row.status);
     const updatedAt = this.stringValue(row.updated_at ?? row.updatedAt);
+    const eventPid = this.numberValue(row.pid);
+    const rawProcessAlive = row.process_alive ?? row.processAlive;
+    const eventProcessAlive =
+      typeof rawProcessAlive === 'boolean' ? rawProcessAlive : eventPid === null ? null : this.isProcessAlive(eventPid);
     if (progress) {
       payload.latestProgress = progress;
       payload.updatedAt = updatedAt ?? progress.loggedAt;
@@ -417,6 +421,15 @@ export class ResearchService {
       payload.updatedAt = updatedAt ?? payload.updatedAt;
     }
     payload.runId = this.stringValue(row.run_id ?? row.runId) ?? payload.runId;
+    if (eventPid !== null) {
+      payload.pid = eventPid;
+    }
+    if (eventProcessAlive !== null) {
+      payload.processAlive = eventProcessAlive;
+      if (eventProcessAlive === false && payload.status === 'running') {
+        payload.active = false;
+      }
+    }
     payload.statusFile = this.stringValue(row.status_path ?? row.statusPath) ?? payload.statusFile;
     payload.reportFile = this.stringValue(row.report_path ?? row.reportPath) ?? payload.reportFile;
     return payload;

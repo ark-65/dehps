@@ -695,6 +695,7 @@ test('training status event payload preserves live progress over db snapshot', a
   const status = await service.trainingStatusFromEvent({
     run_id: 'run-100',
     status: 'running',
+    pid: process.pid,
     updated_at: '2026-06-18T17:09:30',
     latest_progress: {
       logged_at: '2026-06-18T17:09:30',
@@ -709,7 +710,32 @@ test('training status event payload preserves live progress over db snapshot', a
 
   assert.equal(status.status, 'running');
   assert.equal(status.active, true);
+  assert.equal(status.pid, process.pid);
+  assert.equal(status.processAlive, true);
   assert.equal(status.latestProgress?.issue, '2026004');
+});
+
+test('training status event process observation can mark a running payload inactive', async () => {
+  const service = new ResearchService(repository);
+
+  const status = await service.trainingStatusFromEvent({
+    run_id: 'run-100',
+    status: 'running',
+    process_alive: false,
+    latest_progress: {
+      logged_at: '2026-06-18T17:09:30',
+      round: 39,
+      target_index: 40,
+      target_total: 100,
+      issue: '2026004',
+      train_draws: 1433,
+      elapsed_seconds: 16.7,
+    },
+  });
+
+  assert.equal(status.status, 'running');
+  assert.equal(status.active, false);
+  assert.equal(status.processAlive, false);
 });
 
 test('postgres training weight signal mapping preserves date-only values', async () => {
