@@ -167,9 +167,13 @@ def dynamic_config_for_target(
     )
     values = config_dict(base_config)
     applied_offsets: dict[str, float] = {}
+    applied_fields: set[str] = set()
     for item in advice:
         if item.decision not in {"selected", "downweighted"} or not item.applied_offset:
             continue
+        if item.weight_name in applied_fields:
+            continue
+        applied_fields.add(item.weight_name)
         values[item.weight_name] = float(values[item.weight_name]) + float(item.applied_offset)
         applied_offsets[item.weight_name] = float(item.applied_offset)
 

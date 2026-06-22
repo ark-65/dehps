@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from typing import Iterable
 
 
 DEFAULT_KDJ_WINDOW = 9
 DEFAULT_KDJ_SMOOTHING = 1 / 3
+DEFAULT_KDJ_EXTREME_HIGH = 80.0
+DEFAULT_KDJ_EXTREME_LOW = 20.0
+DEFAULT_KDJ_BREAKOUT_FRACTION = 0.35
+DEFAULT_KDJ_INTERVAL_PULL_FRACTION = 0.60
+DEFAULT_KDJ_MAX_ABS_APPLIED_OFFSET = 0.08
 
 
 @dataclass(frozen=True)
@@ -69,6 +75,13 @@ class WeightKdjAdvice:
     decision: str
     reason: str
     sample_count: int
+    scenario: str = "trend_follow"
+    probability_weight: float = 1.0
+    interval_position: float = 0.5
+    interval_low_value: float = 0.0
+    interval_high_value: float = 0.0
+    base_value: float = 0.0
+    close_value: float = 0.0
 
     def as_dict(self) -> dict:
         return {
@@ -84,6 +97,13 @@ class WeightKdjAdvice:
             "decision": self.decision,
             "reason": self.reason,
             "sample_count": self.sample_count,
+            "scenario": self.scenario,
+            "probability_weight": self.probability_weight,
+            "interval_position": self.interval_position,
+            "interval_low_value": self.interval_low_value,
+            "interval_high_value": self.interval_high_value,
+            "base_value": self.base_value,
+            "close_value": self.close_value,
         }
 
 
@@ -154,6 +174,248 @@ def _is_noisy_j_path(points: list[dict]) -> bool:
     return positive and negative
 
 
+def _interval_context(signal: dict) -> tuple[float, float, float, float, float]:
+    base_value = _safe_float(signal.get("base_value"))
+    close_value = _safe_float(signal.get("close_value"), base_value)
+    low_value = _safe_float(signal.get("rolling_low_value"), _safe_float(signal.get("issue_low_value"), min(base_value, close_value)))
+    high_value = _safe_float(signal.get("rolling_high_value"), _safe_float(signal.get("issue_high_value"), max(base_value, close_value)))
+    if high_value < low_value:
+        low_value, high_value = high_value, low_value
+    if high_value <= low_value:
+        low_value = min(low_value, base_value, close_value)
+        high_value = max(high_value, base_value, close_value)
+    width = high_value - low_value
+    if width <= 1e-12:
+        interval_position = 0.5
+    else:
+        interval_position = (close_value - low_value) / width
+    return base_value, close_value, low_value, high_value, min(1.0, max(0.0, interval_position))
+
+
+def _bounded_offset(offset: float, *, max_abs_applied_offset: float) -> float:
+    limit = max(0.0, float(max_abs_applied_offset))
+    if limit <= 0:
+        return 0.0
+    return min(limit, max(-limit, offset))
+
+
+def _interval_magnitude(
+    *,
+    offset: float,
+    low_value: float,
+    high_value: float,
+    min_abs_offset: float,
+    max_abs_applied_offset: float,
+) -> float:
+    width = max(0.0, high_value - low_value)
+    interval_component = width * 0.25
+    magnitude = max(abs(offset), interval_component, min_abs_offset)
+    return abs(_bounded_offset(magnitude, max_abs_applied_offset=max_abs_applied_offset))
+
+
+def _advice_record(
+    *,
+    latest: dict,
+    field: str,
+    offset: float,
+    applied_offset: float,
+    j_value: float,
+    j_slope: float,
+    objective_delta: float,
+    decision: str,
+    reason: str,
+    sample_count: int,
+    scenario: str,
+    probability_weight: float,
+    interval_position: float,
+    interval_low_value: float,
+    interval_high_value: float,
+    base_value: float,
+    close_value: float,
+) -> WeightKdjAdvice:
+    contribution_score = 0.0
+    if applied_offset:
+        contribution_score = (
+            abs(applied_offset)
+            * max(0.0, objective_delta)
+            * (1.0 + min(abs(j_slope), 100.0) / 100.0)
+            * max(0.0, probability_weight)
+        )
+    return WeightKdjAdvice(
+        signal_run_id=str(latest.get("signal_run_id") or ""),
+        latest_issue=_signal_issue(latest),
+        weight_name=field,
+        offset=offset,
+        applied_offset=applied_offset,
+        j_value=j_value,
+        j_slope=j_slope,
+        objective_delta=objective_delta,
+        contribution_score=contribution_score,
+        decision=decision,
+        reason=reason,
+        sample_count=sample_count,
+        scenario=scenario,
+        probability_weight=probability_weight,
+        interval_position=interval_position,
+        interval_low_value=interval_low_value,
+        interval_high_value=interval_high_value,
+        base_value=base_value,
+        close_value=close_value,
+    )
+
+
+def _extreme_path_advice(
+    *,
+    latest: dict,
+    field: str,
+    offset: float,
+    abs_offset: float,
+    j_value: float,
+    j_slope: float,
+    objective_delta: float,
+    sample_count: int,
+    min_abs_offset: float,
+    max_abs_applied_offset: float,
+    extreme_high: float,
+    extreme_low: float,
+) -> list[WeightKdjAdvice] | None:
+    if objective_delta <= 0 or abs_offset < min_abs_offset:
+        return None
+    if j_value <= extreme_high and j_value >= extreme_low:
+        return None
+
+    base_value, close_value, low_value, high_value, interval_position = _interval_context(latest)
+    magnitude = _interval_magnitude(
+        offset=offset,
+        low_value=low_value,
+        high_value=high_value,
+        min_abs_offset=min_abs_offset,
+        max_abs_applied_offset=max_abs_applied_offset,
+    )
+    if magnitude < min_abs_offset:
+        return None
+
+    midpoint = (low_value + high_value) / 2
+    interval_pull = _bounded_offset(
+        (midpoint - close_value) * DEFAULT_KDJ_INTERVAL_PULL_FRACTION,
+        max_abs_applied_offset=max_abs_applied_offset,
+    )
+    rows: list[WeightKdjAdvice] = []
+    if j_value > extreme_high:
+        rows.append(
+            _advice_record(
+                latest=latest,
+                field=field,
+                offset=offset,
+                applied_offset=-magnitude,
+                j_value=j_value,
+                j_slope=j_slope,
+                objective_delta=objective_delta,
+                decision="selected",
+                reason="extreme_high_reversion",
+                sample_count=sample_count,
+                scenario="high_reversal_to_low",
+                probability_weight=0.72,
+                interval_position=interval_position,
+                interval_low_value=low_value,
+                interval_high_value=high_value,
+                base_value=base_value,
+                close_value=close_value,
+            )
+        )
+        breakout = _bounded_offset(magnitude * DEFAULT_KDJ_BREAKOUT_FRACTION, max_abs_applied_offset=max_abs_applied_offset)
+        if abs(breakout) >= min_abs_offset:
+            rows.append(
+                _advice_record(
+                    latest=latest,
+                    field=field,
+                    offset=offset,
+                    applied_offset=breakout,
+                    j_value=j_value,
+                    j_slope=j_slope,
+                    objective_delta=objective_delta,
+                    decision="downweighted",
+                    reason="extreme_high_breakout_tail",
+                    sample_count=sample_count,
+                    scenario="high_breakout_continuation",
+                    probability_weight=0.18,
+                    interval_position=interval_position,
+                    interval_low_value=low_value,
+                    interval_high_value=high_value,
+                    base_value=base_value,
+                    close_value=close_value,
+                )
+            )
+    elif j_value < extreme_low:
+        rows.append(
+            _advice_record(
+                latest=latest,
+                field=field,
+                offset=offset,
+                applied_offset=magnitude,
+                j_value=j_value,
+                j_slope=j_slope,
+                objective_delta=objective_delta,
+                decision="selected",
+                reason="extreme_low_rebound",
+                sample_count=sample_count,
+                scenario="low_rebound_to_high",
+                probability_weight=0.72,
+                interval_position=interval_position,
+                interval_low_value=low_value,
+                interval_high_value=high_value,
+                base_value=base_value,
+                close_value=close_value,
+            )
+        )
+        breakdown = _bounded_offset(-magnitude * DEFAULT_KDJ_BREAKOUT_FRACTION, max_abs_applied_offset=max_abs_applied_offset)
+        if abs(breakdown) >= min_abs_offset:
+            rows.append(
+                _advice_record(
+                    latest=latest,
+                    field=field,
+                    offset=offset,
+                    applied_offset=breakdown,
+                    j_value=j_value,
+                    j_slope=j_slope,
+                    objective_delta=objective_delta,
+                    decision="downweighted",
+                    reason="extreme_low_breakdown_tail",
+                    sample_count=sample_count,
+                    scenario="low_breakdown_continuation",
+                    probability_weight=0.18,
+                    interval_position=interval_position,
+                    interval_low_value=low_value,
+                    interval_high_value=high_value,
+                    base_value=base_value,
+                    close_value=close_value,
+                )
+            )
+    if abs(interval_pull) >= min_abs_offset:
+        rows.append(
+            _advice_record(
+                latest=latest,
+                field=field,
+                offset=offset,
+                applied_offset=interval_pull,
+                j_value=j_value,
+                j_slope=j_slope,
+                objective_delta=objective_delta,
+                decision="downweighted",
+                reason="interval_midpoint_pull",
+                sample_count=sample_count,
+                scenario="interval_midpoint_pull",
+                probability_weight=0.42,
+                interval_position=interval_position,
+                interval_low_value=low_value,
+                interval_high_value=high_value,
+                base_value=base_value,
+                close_value=close_value,
+            )
+        )
+    return rows or None
+
+
 def weight_kdj_advice_from_signals(
     signals: Iterable[dict],
     *,
@@ -162,6 +424,9 @@ def weight_kdj_advice_from_signals(
     min_abs_offset: float = 0.0,
     slope_window: int = 3,
     neutral_band: float = 5.0,
+    extreme_high: float = DEFAULT_KDJ_EXTREME_HIGH,
+    extreme_low: float = DEFAULT_KDJ_EXTREME_LOW,
+    max_abs_applied_offset: float = DEFAULT_KDJ_MAX_ABS_APPLIED_OFFSET,
 ) -> tuple[WeightKdjAdvice, ...]:
     allowed = set(allowed_fields)
     grouped: dict[str, list[dict]] = {}
@@ -187,9 +452,27 @@ def weight_kdj_advice_from_signals(
             j_slope = j_value - 50.0
 
         direction = 1.0 if offset > 0 else -1.0 if offset < 0 else 0.0
+        extreme_advice = _extreme_path_advice(
+            latest=latest,
+            field=field,
+            offset=offset,
+            abs_offset=abs_offset,
+            j_value=j_value,
+            j_slope=j_slope,
+            objective_delta=objective_delta,
+            sample_count=len(ordered),
+            min_abs_offset=min_abs_offset,
+            max_abs_applied_offset=max_abs_applied_offset,
+            extreme_high=extreme_high,
+            extreme_low=extreme_low,
+        )
+        if extreme_advice is not None:
+            advice.extend(extreme_advice)
+            continue
+
         decision = "selected"
         reason = "aligned_signal"
-        applied_offset = offset
+        applied_offset = _bounded_offset(offset, max_abs_applied_offset=max_abs_applied_offset)
         if abs_offset < min_abs_offset:
             decision = "rejected"
             reason = "offset_below_min"
@@ -213,25 +496,28 @@ def weight_kdj_advice_from_signals(
         elif objective_delta < min_objective_delta:
             decision = "downweighted"
             reason = "objective_delta_below_min"
-            applied_offset = offset / 2
+            applied_offset = _bounded_offset(offset / 2, max_abs_applied_offset=max_abs_applied_offset)
 
-        contribution_score = 0.0
-        if applied_offset:
-            contribution_score = abs(applied_offset) * max(0.0, objective_delta) * (1.0 + min(abs(j_slope), 100.0) / 100.0)
+        base_value, close_value, low_value, high_value, interval_position = _interval_context(latest)
         advice.append(
-            WeightKdjAdvice(
-                signal_run_id=str(latest.get("signal_run_id") or ""),
-                latest_issue=_signal_issue(latest),
-                weight_name=field,
+            _advice_record(
+                latest=latest,
+                field=field,
                 offset=offset,
                 applied_offset=applied_offset,
                 j_value=j_value,
                 j_slope=j_slope,
                 objective_delta=objective_delta,
-                contribution_score=contribution_score,
                 decision=decision,
                 reason=reason,
                 sample_count=len(ordered),
+                scenario="trend_follow",
+                probability_weight=1.0 if decision == "selected" else 0.5 if decision == "downweighted" else 0.0,
+                interval_position=interval_position,
+                interval_low_value=low_value,
+                interval_high_value=high_value,
+                base_value=base_value,
+                close_value=close_value,
             )
         )
 
@@ -242,12 +528,18 @@ def weight_kdj_advice_from_signals(
             key=lambda item: (
                 decision_rank.get(item.decision, -1),
                 item.contribution_score,
+                item.probability_weight,
                 abs(item.applied_offset),
                 item.weight_name,
+                item.scenario,
             ),
             reverse=True,
         )
     )
+
+
+def weight_kdj_advice_scenario_counts(advice: Iterable[WeightKdjAdvice]) -> dict[str, int]:
+    return dict(sorted(Counter(item.scenario for item in advice).items()))
 
 
 def signal_from_probe_results(

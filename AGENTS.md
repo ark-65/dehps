@@ -35,6 +35,13 @@ cd apps/web && npm run build
 
 If dependencies are missing, install them using the project-local instructions first. If validation still fails because of environment limits, record the exact failure and the next recovery step.
 
+During rapid DEHPS training exploration, favor live program validation over broad unit-test churn:
+
+- After code changes to training, optimization, dynamic weights, or advisors, start the updated supervisor promptly and monitor at least 1-2 completed training rounds.
+- Treat the round as incomplete until the new run has produced round output without runtime errors.
+- Defer broad unit-test rewrites during fast iteration. Add or update tests only for critical leakage boundaries, crash reproducers, or when stabilizing a feature for acceptance.
+- If the live run errors, fix the runtime failure first, then restart a fresh supervisor and monitor again.
+
 ## Data, Runtime, And Git Rules
 
 - Do not commit `data/output`, `runtime`, `node_modules`, `.venv`, `dist`, `build`, caches, logs, or other generated runtime artifacts unless the user explicitly asks for a specific small evidence artifact.

@@ -35,7 +35,11 @@ from dehps.optimization.ridge_kdj_advisor import (
 )
 from dehps.optimization.regime import HistoryScope, select_history
 from dehps.optimization.target_inversion import invert_targets_for_summary, target_inversion_payload
-from dehps.optimization.weight_kdj import WeightKdjAdvice, weight_kdj_advice_from_signals
+from dehps.optimization.weight_kdj import (
+    WeightKdjAdvice,
+    weight_kdj_advice_from_signals,
+    weight_kdj_advice_scenario_counts,
+)
 from dehps.runtime.heavy_job import apply_cpu_thread_env_defaults, heavy_job_lock
 from dehps.optimization.walk_forward import (
     TargetRank,
@@ -187,7 +191,7 @@ CANDIDATE_BUDGET_SHARES = {
     "replay": 0.20,
     "baseline": 0.10,
 }
-DEFAULT_WEIGHT_KDJ_BUDGET_SHARE = 0.15
+DEFAULT_WEIGHT_KDJ_BUDGET_SHARE = 0.22
 DEFAULT_WEIGHT_KDJ_MIN_OBJECTIVE_DELTA = 0.0
 DEFAULT_WEIGHT_KDJ_MIN_ABS_OFFSET = 0.005
 DEFAULT_WEIGHT_KDJ_SLOPE_WINDOW = 3
@@ -198,7 +202,7 @@ DEFAULT_RIDGE_KDJ_ALPHA = 1.0
 DEFAULT_RIDGE_KDJ_MIN_CONFIDENCE = 0.0
 DEFAULT_RIDGE_KDJ_MIN_TRAIN_ROWS = 12
 DEFAULT_RIDGE_KDJ_MIN_VALIDATION_ROWS = 4
-DEFAULT_NEURAL_KDJ_BUDGET_SHARE = 0.05
+DEFAULT_NEURAL_KDJ_BUDGET_SHARE = 0.10
 DEFAULT_NEURAL_KDJ_STEP = 0.01
 DEFAULT_NEURAL_KDJ_SEED = 17
 DEFAULT_NEURAL_KDJ_HIDDEN_UNITS = 8
@@ -875,8 +879,14 @@ def weight_kdj_advisor_candidate_configs(
     selected = [item for item in usable if item.decision == "selected"]
     if len(selected) >= 2:
         values = config_dict(base)
-        for item in selected[: min(4, len(selected))]:
+        combined_fields: set[str] = set()
+        for item in selected:
+            if item.weight_name in combined_fields:
+                continue
+            combined_fields.add(item.weight_name)
             values[item.weight_name] = values[item.weight_name] + item.applied_offset / 2
+            if len(combined_fields) >= 4:
+                break
         add_unique_until(configs, seen, FrequencyRankerConfig(**values), limit=max_configs)
     return tuple(configs[:max_configs])
 
@@ -989,6 +999,8 @@ def weight_kdj_advisor_metadata(
         "rejected_count": counts.get("rejected", 0),
         "selected_fields": selected_fields,
         "downweighted_fields": downweighted_fields,
+        "scenario_counts": weight_kdj_advice_scenario_counts(advice),
+        "path_count": len(advice),
         "candidate_count": len(configs),
         "advice": [item.as_dict() for item in advice],
         "mode": "advisor_only",

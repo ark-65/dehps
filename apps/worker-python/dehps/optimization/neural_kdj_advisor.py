@@ -21,6 +21,12 @@ BASE_FEATURE_NAMES = (
     "j",
     "k_minus_d",
     "j_minus_50",
+    "interval_position",
+    "distance_to_low_steps",
+    "distance_to_high_steps",
+    "interval_width_steps",
+    "j_extreme_high",
+    "j_extreme_low",
     "recommended_offset_steps",
     "close_minus_base_steps",
     "scaled_objective_delta",
@@ -613,6 +619,9 @@ def _feature_row(
     required = (rsv, k_value, d_value, j_value, recommended_offset, close_value, base_value, objective_delta, sample_count)
     if any(value is None for value in required) or sample_count is None or sample_count < 0:
         return None
+    low_value, high_value = _interval_bounds(row, base_value=base_value, close_value=close_value)
+    width = max(high_value - low_value, step)
+    interval_position = _clip((close_value - low_value) / width, 0.0, 1.0)
     scale = max(abs(objective_delta_scale), 1e-12)
     return [
         rsv,
@@ -621,12 +630,37 @@ def _feature_row(
         j_value,
         k_value - d_value,
         j_value - 50.0,
+        interval_position,
+        (close_value - low_value) / step,
+        (high_value - close_value) / step,
+        width / step,
+        max(0.0, (j_value - 80.0) / 20.0),
+        max(0.0, (20.0 - j_value) / 20.0),
         recommended_offset / step,
         (close_value - base_value) / step,
         objective_delta / scale,
         log1p(sample_count),
         *one_hot,
     ]
+
+
+def _interval_bounds(row: Mapping[str, Any], *, base_value: float, close_value: float) -> tuple[float, float]:
+    low_value = _finite_float(row.get("rolling_low_value"))
+    high_value = _finite_float(row.get("rolling_high_value"))
+    if low_value is None:
+        low_value = _finite_float(row.get("issue_low_value"))
+    if high_value is None:
+        high_value = _finite_float(row.get("issue_high_value"))
+    if low_value is None:
+        low_value = min(base_value, close_value)
+    if high_value is None:
+        high_value = max(base_value, close_value)
+    if high_value < low_value:
+        low_value, high_value = high_value, low_value
+    if high_value <= low_value:
+        low_value = min(low_value, base_value, close_value)
+        high_value = max(high_value, base_value, close_value)
+    return low_value, high_value
 
 
 def _next_realized_offset(row: Mapping[str, Any], *, weight_name: str, step: float) -> float | None:
