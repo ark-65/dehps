@@ -40,6 +40,7 @@ If dependencies are missing, install them using the project-local instructions f
 - Do not commit `data/output`, `runtime`, `node_modules`, `.venv`, `dist`, `build`, caches, logs, or other generated runtime artifacts unless the user explicitly asks for a specific small evidence artifact.
 - Commit only files that belong to the current round.
 - Every accepted code change should be committed and pushed unless the user explicitly says not to.
+- After a training, optimization, worker-runtime, or supervisor change is accepted, do not continue relying on an older live training process. Start a fresh training supervisor with the updated code and arguments, then record the new run id before reporting completion.
 - Reports under `docs/experiments/` are source evidence and may be committed when they are the intended round artifact.
 
 ## Component Responsibilities
