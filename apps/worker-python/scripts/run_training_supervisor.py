@@ -52,6 +52,7 @@ from dehps.storage.postgres_store import (
     ensure_training_round_results_schema,
     ensure_training_target_weight_inversions_schema,
     load_red_combination_universe,
+    load_training_round_carryover_candidate_summaries,
     upsert_training_round_result,
     upsert_training_target_weight_inversion,
 )
@@ -1753,6 +1754,133 @@ def load_db_supervisor_candidates(
     return candidates
 
 
+def carryover_candidate_configs_from_summaries(
+    raw_candidates: list[object],
+    *,
+    current_as_of_issue: str,
+    current_history_fingerprint: str,
+    universe_size: int,
+    limit: int = 16,
+) -> tuple[FrequencyRankerConfig, ...]:
+    stale_leaderboard: list[dict] = []
+    merge_limit = max(limit * 4, limit)
+    for raw_candidate in raw_candidates:
+        candidate = normalize_summary(raw_candidate, universe_size=universe_size)
+        if not candidate:
+            continue
+        if (
+            candidate["as_of_issue"] == current_as_of_issue
+            and candidate["history_fingerprint"] == current_history_fingerprint
+        ):
+            continue
+        stale_leaderboard = merge_leaderboard(stale_leaderboard, [candidate], limit=merge_limit)
+
+    configs: list[FrequencyRankerConfig] = []
+    seen: set[str] = set()
+    for candidate in stale_leaderboard:
+        config = FrequencyRankerConfig(**candidate["config"])
+        key = config_hash(config)
+        if key in seen:
+            continue
+        seen.add(key)
+        configs.append(config)
+        if len(configs) >= limit:
+            break
+    return tuple(configs)
+
+
+def merge_config_candidates(
+    *config_sets: tuple[FrequencyRankerConfig, ...],
+    limit: int = 16,
+) -> tuple[FrequencyRankerConfig, ...]:
+    configs: list[FrequencyRankerConfig] = []
+    seen: set[str] = set()
+    for config_set in config_sets:
+        for config in config_set:
+            key = config_hash(config)
+            if key in seen:
+                continue
+            seen.add(key)
+            configs.append(config)
+            if len(configs) >= limit:
+                return tuple(configs)
+    return tuple(configs)
+
+
+def load_prior_supervisor_carryover_configs(
+    *,
+    output_dir: Path,
+    current_status_path: Path,
+    current_as_of_issue: str,
+    current_history_fingerprint: str,
+    train_window: int,
+    train_mode: str,
+    eval_window: int,
+    top_n: int,
+    universe_size: int,
+    limit: int = 16,
+) -> tuple[FrequencyRankerConfig, ...]:
+    raw_candidates: list[object] = []
+    for status_path in sorted(output_dir.glob("training-supervisor-*.json")):
+        if status_path == current_status_path:
+            continue
+        try:
+            status = json.loads(status_path.read_text())
+        except (OSError, json.JSONDecodeError):
+            continue
+        if (
+            status.get("train_window") != train_window
+            or status.get("train_mode") != train_mode
+            or status.get("eval_window") != eval_window
+            or status.get("top_n") != top_n
+        ):
+            continue
+        raw_candidates.append(status.get("best"))
+        for round_info in status.get("rounds") or []:
+            if isinstance(round_info, dict):
+                raw_candidates.append(round_info.get("best"))
+                raw_candidates.extend(round_info.get("top_results") or [])
+    return carryover_candidate_configs_from_summaries(
+        raw_candidates,
+        current_as_of_issue=current_as_of_issue,
+        current_history_fingerprint=current_history_fingerprint,
+        universe_size=universe_size,
+        limit=limit,
+    )
+
+
+def load_db_supervisor_carryover_configs(
+    *,
+    current_as_of_issue: str,
+    current_history_fingerprint: str,
+    train_window: int,
+    train_mode: str,
+    eval_window: int,
+    top_n: int,
+    universe_size: int,
+    limit: int = 16,
+) -> tuple[FrequencyRankerConfig, ...]:
+    with get_connection() as conn:
+        ensure_training_round_results_schema(conn)
+        raw_candidates = load_training_round_carryover_candidate_summaries(
+            conn,
+            current_as_of_issue=current_as_of_issue,
+            current_history_fingerprint=current_history_fingerprint,
+            train_window=train_window,
+            train_mode=train_mode,
+            eval_window=eval_window,
+            top_n=top_n,
+            limit=max(limit * 4, limit),
+        )
+    return carryover_candidate_configs_from_summaries(
+        raw_candidates,
+        current_as_of_issue=current_as_of_issue,
+        current_history_fingerprint=current_history_fingerprint,
+        universe_size=universe_size,
+        limit=limit,
+    )
+
+
 def stagnation_round_count(rounds: list[dict]) -> int:
     count = 0
     for round_info in reversed(rounds):
@@ -2148,6 +2276,7 @@ def compact_status_payload(status: dict) -> dict:
         "ridge_kdj_advisor": status.get("ridge_kdj_advisor"),
         "neural_kdj_advisor": status.get("neural_kdj_advisor"),
         "target_weight_inversion_advisor": status.get("target_weight_inversion_advisor"),
+        "carryover_seed": status.get("carryover_seed"),
         "qian_kun": status.get("qian_kun"),
         "next_candidates": status.get("next_candidates"),
         "latest_progress": status.get("latest_progress"),
@@ -2327,7 +2456,63 @@ def run_supervisor(
             f"top10000={prior_leaderboard[0]['top_10000_hits']} "
             f"run_key={prior_leaderboard[0]['run_key']}"
         )
+    db_carryover_configs = load_db_supervisor_carryover_configs(
+        current_as_of_issue=as_of_issue_value,
+        current_history_fingerprint=history_fingerprint_value,
+        train_window=train_window,
+        train_mode=train_mode,
+        eval_window=eval_window,
+        top_n=top_n,
+        universe_size=len(ranked_universe),
+    )
+    status_carryover_configs = load_prior_supervisor_carryover_configs(
+        output_dir=output_dir,
+        current_status_path=status_path,
+        current_as_of_issue=as_of_issue_value,
+        current_history_fingerprint=history_fingerprint_value,
+        train_window=train_window,
+        train_mode=train_mode,
+        eval_window=eval_window,
+        top_n=top_n,
+        universe_size=len(ranked_universe),
+    )
+    carryover_configs = merge_config_candidates(db_carryover_configs, status_carryover_configs, limit=16)
     pool = create_worker_pool(worker_count, ranked_universe)
+
+    carryover_summaries: list[dict] = []
+    if carryover_configs:
+        log(
+            "seeded_carryover_configs="
+            f"count={len(carryover_configs)} "
+            f"hashes={bounded_unique_config_hashes(carryover_configs, limit=len(carryover_configs))}"
+        )
+        carryover_summaries = evaluate_configs(
+            history=training_history,
+            ranked_universe=ranked_universe,
+            configs=carryover_configs,
+            train_window=train_window,
+            train_mode=train_mode,
+            eval_window=eval_window,
+            top_n=top_n,
+            workers=worker_count,
+            pool=pool,
+            progress_interval=0,
+            round_index=0,
+        )
+        attach_frozen_validation(
+            carryover_summaries,
+            validation_window=frozen_validation_window(eval_window),
+            universe_size=len(ranked_universe),
+        )
+        prior_leaderboard = merge_leaderboard(prior_leaderboard, carryover_summaries, limit=32)
+        if carryover_summaries:
+            log(
+                "seeded_carryover_best="
+                f"top100={carryover_summaries[0]['top_100_hits']} "
+                f"top1000={carryover_summaries[0]['top_1000_hits']} "
+                f"top10000={carryover_summaries[0]['top_10000_hits']} "
+                f"run_key={carryover_summaries[0]['run_key']}"
+            )
 
     best_summary: dict | None = prior_leaderboard[0] if prior_leaderboard else None
     base_config = FrequencyRankerConfig(**best_summary["config"]) if best_summary else FrequencyRankerConfig()
@@ -2419,6 +2604,13 @@ def run_supervisor(
             "max_targets": max(0, target_weight_inversion_max_targets),
             "max_deltas_per_target": max(1, target_weight_inversion_max_deltas_per_target),
             "latest": target_weight_inversion_latest,
+        },
+        "carryover_seed": {
+            "mode": "cross_history_config_replay",
+            "config_count": len(carryover_configs),
+            "config_hashes": bounded_unique_config_hashes(carryover_configs, limit=len(carryover_configs) or 1),
+            "evaluated_config_count": len(carryover_summaries),
+            "best": strip_target_results(carryover_summaries[0]) if carryover_summaries else None,
         },
         "qian_kun": qian_kun_distribution(selection.history),
         "next_candidates": None,

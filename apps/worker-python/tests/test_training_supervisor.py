@@ -18,11 +18,14 @@ from scripts.run_training_supervisor import (
     config_hash,
     control_experiment_configs,
     control_experiment_summaries,
+    carryover_candidate_configs_from_summaries,
     evaluate_configs,
     frozen_validation_window,
     generate_configs,
+    load_prior_supervisor_carryover_configs,
     low_coverage_fields_from_summaries,
     load_prior_supervisor_candidates,
+    merge_config_candidates,
     merge_reserved_candidate_configs,
     neural_kdj_advisor_metadata,
     post_training_event,
@@ -1316,3 +1319,117 @@ def test_load_prior_supervisor_candidates_keeps_same_protocol_global_best(tmp_pa
     assert candidates[0]["top_1000_hits"] == 1
     assert candidates[0]["reward"]["hitReward"] == 130
     assert candidates[0]["config"]["stable_range_weight"] == 0
+
+
+def test_carryover_candidate_configs_replay_only_cross_history_configs():
+    old_config = FrequencyRankerConfig(frequency_weight=0.765, omission_weight=0)
+    current_config = FrequencyRankerConfig(frequency_weight=0.111, omission_weight=0)
+    old_summary = {
+        "config": old_config.__dict__,
+        "as_of_issue": "2026068",
+        "history_fingerprint": "history-old",
+        "evaluated_draws": 100,
+        "top_100_hits": 2,
+        "top_1000_hits": 3,
+        "top_10000_hits": 3,
+        "median_rank": 579314.5,
+        "best_rank": 48,
+        "worst_rank": 1_100_657,
+        "run_key": "old-best",
+    }
+    current_summary = {
+        "config": current_config.__dict__,
+        "as_of_issue": "2026070",
+        "history_fingerprint": "history-current",
+        "evaluated_draws": 100,
+        "top_100_hits": 0,
+        "top_1000_hits": 1,
+        "top_10000_hits": 2,
+        "median_rank": 522990,
+        "best_rank": 441,
+        "worst_rank": 1_097_472,
+        "run_key": "current-best",
+    }
+
+    configs = carryover_candidate_configs_from_summaries(
+        [current_summary, old_summary, old_summary],
+        current_as_of_issue="2026070",
+        current_history_fingerprint="history-current",
+        universe_size=1_107_568,
+    )
+
+    assert configs == (old_config,)
+
+
+def test_load_prior_supervisor_carryover_configs_keeps_matching_protocol_only(tmp_path):
+    carryover_config = FrequencyRankerConfig(frequency_weight=0.765, omission_weight=0)
+    wrong_protocol_config = FrequencyRankerConfig(frequency_weight=0.333, omission_weight=0)
+    carryover_summary = {
+        "config": carryover_config.__dict__,
+        "as_of_issue": "2026068",
+        "history_fingerprint": "history-old",
+        "evaluated_draws": 100,
+        "top_100_hits": 2,
+        "top_1000_hits": 3,
+        "top_10000_hits": 3,
+        "median_rank": 579314.5,
+        "best_rank": 48,
+        "worst_rank": 1_100_657,
+        "run_key": "carryover-best",
+    }
+    wrong_protocol_summary = {
+        **carryover_summary,
+        "config": wrong_protocol_config.__dict__,
+        "run_key": "wrong-protocol",
+    }
+    current = tmp_path / "training-supervisor-current.json"
+    matching = tmp_path / "training-supervisor-prior.json"
+    wrong_protocol = tmp_path / "training-supervisor-wrong-protocol.json"
+    current.write_text("{}")
+    matching.write_text(
+        json.dumps(
+            {
+                "train_window": 900,
+                "train_mode": "expanding",
+                "eval_window": 100,
+                "top_n": 10000,
+                "best": carryover_summary,
+                "rounds": [{"best": carryover_summary, "top_results": [carryover_summary]}],
+            }
+        )
+    )
+    wrong_protocol.write_text(
+        json.dumps(
+            {
+                "train_window": 600,
+                "train_mode": "expanding",
+                "eval_window": 100,
+                "top_n": 10000,
+                "best": wrong_protocol_summary,
+            }
+        )
+    )
+
+    configs = load_prior_supervisor_carryover_configs(
+        output_dir=tmp_path,
+        current_status_path=current,
+        current_as_of_issue="2026070",
+        current_history_fingerprint="history-current",
+        train_window=900,
+        train_mode="expanding",
+        eval_window=100,
+        top_n=10000,
+        universe_size=1_107_568,
+    )
+
+    assert configs == (carryover_config,)
+
+
+def test_merge_config_candidates_dedupes_by_config_hash():
+    first = FrequencyRankerConfig(frequency_weight=0.765, omission_weight=0)
+    duplicate = FrequencyRankerConfig(frequency_weight=0.765, omission_weight=0)
+    second = FrequencyRankerConfig(frequency_weight=0.333, omission_weight=0)
+
+    configs = merge_config_candidates((first, duplicate), (second,), limit=4)
+
+    assert configs == (first, second)

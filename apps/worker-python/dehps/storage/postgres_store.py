@@ -810,6 +810,51 @@ def load_training_round_candidate_summaries(
     return candidates
 
 
+def load_training_round_carryover_candidate_summaries(
+    conn: Connection,
+    *,
+    current_as_of_issue: str,
+    current_history_fingerprint: str,
+    train_window: int,
+    train_mode: str,
+    eval_window: int,
+    top_n: int,
+    limit: int = 80,
+) -> list[dict[str, Any]]:
+    with conn.cursor(row_factory=dict_row) as cur:
+        rows = cur.execute(
+            """
+            SELECT best_summary, top_results
+            FROM training_round_results
+            WHERE train_window = %s
+              AND train_mode = %s
+              AND eval_window = %s
+              AND top_n = %s
+              AND (as_of_issue <> %s OR history_fingerprint <> %s)
+            ORDER BY objective_score DESC NULLS LAST, updated_at DESC
+            LIMIT %s
+            """,
+            (
+                train_window,
+                train_mode,
+                eval_window,
+                top_n,
+                current_as_of_issue,
+                current_history_fingerprint,
+                limit,
+            ),
+        ).fetchall()
+    candidates: list[dict[str, Any]] = []
+    for row in rows:
+        best_summary = row.get("best_summary")
+        if isinstance(best_summary, dict):
+            candidates.append(best_summary)
+        top_results = row.get("top_results")
+        if isinstance(top_results, list):
+            candidates.extend(item for item in top_results if isinstance(item, dict))
+    return candidates
+
+
 def upsert_ssq_draw_site(conn: Connection, site: SsqDrawSite = DEFAULT_SSQ_DRAW_SITE) -> None:
     conn.execute(
         """
