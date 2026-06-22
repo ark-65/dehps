@@ -2,10 +2,13 @@
 set -euo pipefail
 
 REPO_ROOT="/home/ark/workspace/dehps"
+NODE_BIN_DIR="/home/ark/.nodenv/versions/24.16.0/bin"
 CODEX_BIN="/home/ark/.nodenv/versions/24.16.0/bin/codex"
 LOG_DIR="$REPO_ROOT/runtime/logs"
 LOCK_FILE="$LOG_DIR/hourly_self_iterate.lock"
 LAST_MESSAGE="$LOG_DIR/hourly_self_iterate.last.md"
+
+export PATH="$NODE_BIN_DIR:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 mkdir -p "$LOG_DIR"
 
@@ -13,6 +16,11 @@ cd "$REPO_ROOT"
 
 if [[ ! -x "$CODEX_BIN" ]]; then
   echo "$(date -Is) codex executable not found: $CODEX_BIN" >&2
+  exit 1
+fi
+
+if [[ ! -x "$NODE_BIN_DIR/node" ]]; then
+  echo "$(date -Is) node executable not found: $NODE_BIN_DIR/node" >&2
   exit 1
 fi
 
