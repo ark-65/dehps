@@ -11,6 +11,16 @@ from dehps.features.pattern_complexity import calculate_pattern_complexity
 from dehps.features.red_ball_features import calculate_red_ball_features
 
 
+def positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"{value!r} must be an integer") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return parsed
+
+
 def build_row(numbers: tuple[int, ...]) -> tuple:
     features = calculate_red_ball_features(numbers)
     complexity = calculate_pattern_complexity(numbers)
@@ -41,12 +51,12 @@ def build_row(numbers: tuple[int, ...]) -> tuple:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--limit", type=int, default=None)
-    parser.add_argument("--batch-size", type=int, default=5000)
+    parser.add_argument("--limit", type=positive_int, default=None)
+    parser.add_argument("--batch-size", type=positive_int, default=5000)
     parser.add_argument("--reset", action="store_true")
     args = parser.parse_args()
     total_universe = comb(33, 6)
-    if args.limit:
+    if args.limit is not None:
         print(
             {
                 "warning": (
@@ -82,7 +92,7 @@ def main() -> None:
                 inserted += rowcount
                 skipped += len(batch) - rowcount
                 batch.clear()
-            if args.limit and idx >= args.limit:
+            if args.limit is not None and idx >= args.limit:
                 break
         if batch:
             with conn.cursor() as cur:
