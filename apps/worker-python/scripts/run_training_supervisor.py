@@ -66,6 +66,8 @@ from dehps.storage.postgres_store import load_recent_training_weight_signals
 
 PRIMARY_FIELDS = ("structural_weight", "frequency_weight", "omission_weight")
 CONTEXT_FIELDS = (
+    "short_hot_frequency_weight",
+    "long_omission_cooldown_weight",
     "previous_consecutive_weight",
     "previous_overlap_weight",
     "previous_parity_shape_weight",
@@ -97,6 +99,8 @@ CONTEXT_FIELDS = (
 ALL_FIELDS = PRIMARY_FIELDS + CONTEXT_FIELDS
 PHASE_SEARCH_FIELDS = {
     "micro": (
+        "short_hot_frequency_weight",
+        "long_omission_cooldown_weight",
         "weekday_trend_weight",
         "stable_range_weight",
         "parity_ratio_weight",
@@ -109,6 +113,8 @@ PHASE_SEARCH_FIELDS = {
         "consecutive_trend_weight",
     ),
     "small": (
+        "short_hot_frequency_weight",
+        "long_omission_cooldown_weight",
         "tail_distribution_weight",
         "sum_tail_weight",
         "mod012_weight",
@@ -121,6 +127,8 @@ PHASE_SEARCH_FIELDS = {
         "weekday_trend_weight",
     ),
     "medium": (
+        "short_hot_frequency_weight",
+        "long_omission_cooldown_weight",
         "recent_neighbor_weight",
         "lagged_consecutive_weight",
         "recent_gap_shape_weight",

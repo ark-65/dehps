@@ -10,6 +10,8 @@ from dehps.scoring.strategy import score_numbers
 
 PRIME_NUMBERS = frozenset({2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31})
 SSQ_DRAW_WEEKDAYS = frozenset({1, 3, 6})
+SHORT_HOT_WINDOW = 12
+RECENT_OMISSION_HORIZON = 60
 HistoryDraw = tuple[str, tuple[int, ...]] | tuple[str, date | None, tuple[int, ...]]
 
 
@@ -52,13 +54,17 @@ class FrequencyRankerConfig:
     repeat_trend_weight: float = 0.00
     stable_range_weight: float = 0.00
     weekday_trend_weight: float = 0.00
+    short_hot_frequency_weight: float = 0.00
+    long_omission_cooldown_weight: float = 0.00
 
 
 @dataclass(frozen=True)
 class FrequencyStats:
     train_draws: int
     frequency_rate: dict[int, float]
+    recent_frequency_rate: dict[int, float]
     omission_rate: dict[int, float]
+    recent_omission_pressure: dict[int, float]
     previous_numbers: tuple[int, ...]
     previous_number_set: frozenset[int]
     previous_consecutive_pair_count: int
@@ -133,6 +139,12 @@ def train_frequency_stats(history: list[HistoryDraw], *, target_draw_date: date 
     train_draws = len(records)
     denominator = train_draws * 6
     max_omission = max(1, train_draws)
+    omission_rate = {
+        number: (train_draws - 1 - last_seen_index[number]) / max_omission
+        if last_seen_index[number] >= 0
+        else 1.0
+        for number in range(1, 34)
+    }
     previous_numbers = records[-1].numbers
     previous_features = calculate_red_ball_features(previous_numbers)
     parity_transition_score_by_even_count = _parity_transition_score_by_even_count(records)
@@ -154,12 +166,9 @@ def train_frequency_stats(history: list[HistoryDraw], *, target_draw_date: date 
     return FrequencyStats(
         train_draws=train_draws,
         frequency_rate={number: counts[number] / denominator for number in range(1, 34)},
-        omission_rate={
-            number: (train_draws - 1 - last_seen_index[number]) / max_omission
-            if last_seen_index[number] >= 0
-            else 1.0
-            for number in range(1, 34)
-        },
+        recent_frequency_rate=_recent_frequency_rate(records[-SHORT_HOT_WINDOW:]),
+        omission_rate=omission_rate,
+        recent_omission_pressure=_recent_omission_pressure(last_seen_index, train_draws),
         previous_numbers=previous_numbers,
         previous_number_set=frozenset(previous_numbers),
         previous_consecutive_pair_count=previous_features["consecutive_pair_count"],
@@ -180,12 +189,7 @@ def train_frequency_stats(history: list[HistoryDraw], *, target_draw_date: date 
         shape_profile_rates=_shape_profile_rates(shape_profiles, recent_shape_profiles),
         sum_bucket_omission_rate=_feature_omission_rate([profile["sum_bucket"] for profile in shape_profiles]),
         span_bucket_omission_rate=_feature_omission_rate([profile["span_bucket"] for profile in shape_profiles]),
-        recent_average_omission=_recent_average_omission(shape_numbers, {
-            number: (train_draws - 1 - last_seen_index[number]) / max_omission
-            if last_seen_index[number] >= 0
-            else 1.0
-            for number in range(1, 34)
-        }),
+        recent_average_omission=_recent_average_omission(shape_numbers, omission_rate),
         stable_ranges=_stable_ranges(recent_shape_profiles),
         target_weekday=target_weekday,
         weekday_profile_rates=_shape_profile_rates(weekday_profiles, recent_weekday_profiles) if weekday_profiles else {},
@@ -200,7 +204,9 @@ def score_frequency_candidate(
     cfg = config or FrequencyRankerConfig()
     structural_score = score_numbers(numbers)["score"]
     frequency_score = sum(stats.frequency_rate[number] for number in numbers)
+    short_hot_frequency_score = _short_hot_frequency_score(numbers, stats)
     omission_score = sum(stats.omission_rate[number] for number in numbers) / 6
+    long_omission_cooldown_score = _long_omission_cooldown_score(numbers, stats)
     features = calculate_red_ball_features(numbers)
     previous_consecutive_score = _previous_consecutive_score(
         candidate_pair_count=features["consecutive_pair_count"],
@@ -268,12 +274,16 @@ def score_frequency_candidate(
         + cfg.repeat_trend_weight * repeat_trend_score
         + cfg.stable_range_weight * stable_range_score
         + cfg.weekday_trend_weight * weekday_trend_score
+        + cfg.short_hot_frequency_weight * short_hot_frequency_score
+        + cfg.long_omission_cooldown_weight * long_omission_cooldown_score
     )
     return {
         "score": round(score, 8),
         "structural_score": round(structural_score, 8),
         "frequency_score": round(frequency_score, 8),
+        "short_hot_frequency_score": round(short_hot_frequency_score, 8),
         "omission_score": round(omission_score, 8),
+        "long_omission_cooldown_score": round(long_omission_cooldown_score, 8),
         "previous_consecutive_score": round(previous_consecutive_score, 8),
         "previous_overlap_score": round(previous_overlap_score, 8),
         "previous_parity_shape_score": round(previous_parity_shape_score, 8),
@@ -324,6 +334,25 @@ def _recent_neighbor_rate(recent_numbers: list[tuple[int, ...]]) -> dict[int, fl
                 if 1 <= neighbor <= 33:
                     rates[neighbor] += weight
     return {number: min(value / max_weight, 1.0) for number, value in rates.items()}
+
+
+def _recent_frequency_rate(recent_records: list[NormalizedHistoryDraw]) -> dict[int, float]:
+    rates = {number: 0.0 for number in range(1, 34)}
+    denominator = max(1, len(recent_records))
+    for record in recent_records:
+        for number in record.numbers:
+            rates[number] += 1.0
+    return {number: min(value / denominator, 1.0) for number, value in rates.items()}
+
+
+def _recent_omission_pressure(last_seen_index: dict[int, int], train_draws: int) -> dict[int, float]:
+    horizon = max(1, RECENT_OMISSION_HORIZON)
+    return {
+        number: min(1.0, (train_draws - 1 - last_seen_index[number]) / horizon)
+        if last_seen_index[number] >= 0
+        else 1.0
+        for number in range(1, 34)
+    }
 
 
 def _lagged_consecutive_numbers(history: list[NormalizedHistoryDraw]) -> set[int]:
@@ -388,6 +417,15 @@ def _recent_average_gaps(recent_numbers: list[tuple[int, ...]]) -> tuple[float, 
 
 def _recent_neighbor_score(numbers: tuple[int, ...], stats: FrequencyStats) -> float:
     return sum(stats.recent_neighbor_rate[number] for number in numbers) / 6
+
+
+def _short_hot_frequency_score(numbers: tuple[int, ...], stats: FrequencyStats) -> float:
+    return sum(stats.recent_frequency_rate[number] for number in numbers) / 6
+
+
+def _long_omission_cooldown_score(numbers: tuple[int, ...], stats: FrequencyStats) -> float:
+    pressure = sum(stats.recent_omission_pressure[number] ** 1.5 for number in numbers) / 6
+    return max(0.0, min(1.0, 1 - pressure))
 
 
 def _lagged_consecutive_score(numbers: tuple[int, ...], stats: FrequencyStats) -> float:

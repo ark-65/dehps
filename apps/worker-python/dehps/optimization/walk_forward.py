@@ -82,6 +82,8 @@ CONFIG_WEIGHT_FIELDS = (
     "repeat_trend_weight",
     "stable_range_weight",
     "weekday_trend_weight",
+    "short_hot_frequency_weight",
+    "long_omission_cooldown_weight",
 )
 
 
@@ -428,7 +430,12 @@ def create_worker_pool(worker_count: int, ranked_universe: list[RankedUniverseEn
 
 def score_components_for_entry(entry: RankedUniverseEntry, stats: FrequencyStats) -> ScoreComponents:
     frequency_score = sum(stats.frequency_rate[number] for number in entry.numbers)
+    short_hot_frequency_score = sum(stats.recent_frequency_rate[number] for number in entry.numbers) / 6
     omission_score = sum(stats.omission_rate[number] for number in entry.numbers) / 6
+    long_omission_cooldown_score = max(
+        0.0,
+        min(1.0, 1 - sum(stats.recent_omission_pressure[number] ** 1.5 for number in entry.numbers) / 6),
+    )
     previous_consecutive_score = _previous_consecutive_score(
         candidate_pair_count=entry.consecutive_pair_count,
         previous_pair_count=stats.previous_consecutive_pair_count,
@@ -516,6 +523,8 @@ def score_components_for_entry(entry: RankedUniverseEntry, stats: FrequencyStats
         repeat_trend_score,
         stable_range_score,
         weekday_trend_score,
+        short_hot_frequency_score,
+        long_omission_cooldown_score,
     )
 
 
@@ -581,6 +590,8 @@ def score_components_for_numbers(numbers: tuple[int, ...], stats: FrequencyStats
         _profile_score("repeat_count", shape_profile, stats),
         _stable_range_score(shape_profile, stats),
         weekday_trend_score,
+        sum(stats.recent_frequency_rate[number] for number in numbers) / 6,
+        max(0.0, min(1.0, 1 - sum(stats.recent_omission_pressure[number] ** 1.5 for number in numbers) / 6)),
     )
 
 
@@ -616,6 +627,8 @@ def score_from_components(components: ScoreComponents, config: FrequencyRankerCo
         repeat_trend_score,
         stable_range_score,
         weekday_trend_score,
+        short_hot_frequency_score,
+        long_omission_cooldown_score,
     ) = components
     return round(
         config.structural_weight * structural_score
@@ -647,7 +660,9 @@ def score_from_components(components: ScoreComponents, config: FrequencyRankerCo
         + config.consecutive_trend_weight * consecutive_trend_score
         + config.repeat_trend_weight * repeat_trend_score
         + config.stable_range_weight * stable_range_score
-        + config.weekday_trend_weight * weekday_trend_score,
+        + config.weekday_trend_weight * weekday_trend_score
+        + config.short_hot_frequency_weight * short_hot_frequency_score
+        + config.long_omission_cooldown_weight * long_omission_cooldown_score,
         8,
     )
 
@@ -1381,11 +1396,19 @@ def _components_for_matrix(
     numbers = matrix.numbers[start:stop]
     presence = matrix.number_presence[start:stop]
     frequency_lookup = _number_lookup(stats.frequency_rate)
+    recent_frequency_lookup = _number_lookup(stats.recent_frequency_rate)
     omission_lookup = _number_lookup(stats.omission_rate)
+    recent_omission_pressure_lookup = _number_lookup(stats.recent_omission_pressure)
     neighbor_lookup = _number_lookup(stats.recent_neighbor_rate)
 
     frequency_score = frequency_lookup[numbers].sum(axis=1)
+    short_hot_frequency_score = recent_frequency_lookup[numbers].mean(axis=1)
     omission_score = omission_lookup[numbers].mean(axis=1)
+    long_omission_cooldown_score = np.clip(
+        1 - np.power(recent_omission_pressure_lookup[numbers], 1.5).mean(axis=1),
+        0.0,
+        1.0,
+    )
     candidate_consecutive_score = np.minimum(matrix.consecutive_pair_count[start:stop], 5).astype(np.float64) / 5
     if stats.previous_consecutive_pair_count > 0:
         previous_consecutive_score = candidate_consecutive_score
@@ -1521,6 +1544,8 @@ def _components_for_matrix(
             repeat_trend_score,
             stable_range_score,
             weekday_trend_score,
+            short_hot_frequency_score,
+            long_omission_cooldown_score,
         )
     )
 
