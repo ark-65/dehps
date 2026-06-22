@@ -181,6 +181,8 @@ export type TrainingRoundListItem = {
   bestRank: number | null;
   worstRank: number | null;
   objectiveScore: number | null;
+  bestRankQuality: TrainingRankQualitySummary | null;
+  prefilter: TrainingPrefilterRun | null;
   createdAt: string;
 };
 
@@ -400,11 +402,37 @@ export type TrainingPrefilterRun = {
   stagnationRounds: number | null;
   lowCoverageFields: string[];
   candidateBudget: Record<string, number>;
+  phaseStage: string | null;
+  searchBaseMinDistance: number | null;
+  searchBaseStart: TrainingSearchBaseSummary | null;
+  searchBase: TrainingSearchBaseSummary | null;
   frozenValidationWindow: number | null;
   controlExperiments: Record<string, unknown>[];
   refinedConfigCount: number | null;
   elapsedSeconds: number | null;
   note: string | null;
+};
+
+export type TrainingSearchBaseSummary = {
+  source: string | null;
+  changed: boolean;
+  previousConfigHash: string;
+  configHash: string;
+  candidateConfigHash: string;
+  minConfigDistance: number | null;
+  selectedConfigDistance: number | null;
+  searchChallengerConfigDistance: number | null;
+  searchChallengerRankVectorChanged: boolean | null;
+  recentSearchBaseHashes: string[];
+  top_100_hits: number;
+  top_1000_hits: number;
+  top_10000_hits: number;
+  median_rank: number | null;
+  best_rank: number | null;
+  worst_rank: number | null;
+  rank_quality: TrainingRankQualitySummary;
+  reward: TrainingRewardSummary | null;
+  config: Record<string, number>;
 };
 
 export type TrainingPrefilterStatus = {

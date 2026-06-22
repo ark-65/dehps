@@ -27,6 +27,7 @@ import {
   TrainingRoundDetail,
   TrainingRoundListItem,
   TrainingRoundSummary,
+  TrainingSearchBaseSummary,
   TrainingStatusPayload,
   TrainingTargetResult,
   TrainingWeightSignalSeries,
@@ -850,9 +851,12 @@ export class AppComponent {
       yName: '排名',
       inverse: true,
       series: [
-        this.lineSeries('最佳排名', rounds.map((round) => round.best?.best_rank ?? null), '#327857'),
-        this.lineSeries('中位排名', rounds.map((round) => round.best?.median_rank ?? null), '#4472a5'),
-        this.lineSeries('最差排名', rounds.map((round) => round.best?.worst_rank ?? null), '#8c5a2b'),
+        this.lineSeries('冠军最佳', rounds.map((round) => round.best?.best_rank ?? null), '#327857'),
+        this.searchBaseLineSeries('搜索最佳', rounds.map((round) => this.roundSearchBase(round)?.best_rank ?? null), '#6f9f4d'),
+        this.lineSeries('冠军中位', rounds.map((round) => round.best?.median_rank ?? null), '#4472a5'),
+        this.searchBaseLineSeries('搜索中位', rounds.map((round) => this.roundSearchBase(round)?.median_rank ?? null), '#6c92c8'),
+        this.lineSeries('冠军最差', rounds.map((round) => round.best?.worst_rank ?? null), '#8c5a2b'),
+        this.searchBaseLineSeries('搜索最差', rounds.map((round) => this.roundSearchBase(round)?.worst_rank ?? null), '#b8844f'),
       ],
     });
   }
@@ -938,9 +942,24 @@ export class AppComponent {
       xAxis,
       yName: '期数',
       series: [
-        this.lineSeries('超过75万', rounds.map((round) => round.best?.rank_quality.tail_over_750000_count ?? 0), '#987a24'),
-        this.lineSeries('超过90万', rounds.map((round) => round.best?.rank_quality.tail_over_900000_count ?? 0), '#a85c38'),
-        this.lineSeries('超过100万', rounds.map((round) => round.best?.rank_quality.tail_over_1000000_count ?? 0), '#b5413f'),
+        this.lineSeries('冠军超过75万', rounds.map((round) => round.best?.rank_quality.tail_over_750000_count ?? 0), '#987a24'),
+        this.searchBaseLineSeries(
+          '搜索超过75万',
+          rounds.map((round) => this.roundSearchBase(round)?.rank_quality.tail_over_750000_count ?? null),
+          '#c5a64d',
+        ),
+        this.lineSeries('冠军超过90万', rounds.map((round) => round.best?.rank_quality.tail_over_900000_count ?? 0), '#a85c38'),
+        this.searchBaseLineSeries(
+          '搜索超过90万',
+          rounds.map((round) => this.roundSearchBase(round)?.rank_quality.tail_over_900000_count ?? null),
+          '#cf7a54',
+        ),
+        this.lineSeries('冠军超过100万', rounds.map((round) => round.best?.rank_quality.tail_over_1000000_count ?? 0), '#b5413f'),
+        this.searchBaseLineSeries(
+          '搜索超过100万',
+          rounds.map((round) => this.roundSearchBase(round)?.rank_quality.tail_over_1000000_count ?? null),
+          '#d96865',
+        ),
       ],
       markLineValue: 0,
       markLineName: '目标 0',
@@ -1197,6 +1216,10 @@ export class AppComponent {
     return status.rounds.length ? status.rounds : [...status.recentRounds].reverse();
   }
 
+  private roundSearchBase(round: TrainingRoundSummary): TrainingSearchBaseSummary | null {
+    return round.prefilter?.searchBase ?? null;
+  }
+
   private groupedLineOption({
     title,
     rounds,
@@ -1409,6 +1432,13 @@ export class AppComponent {
       connectNulls: true,
       color,
       data,
+    };
+  }
+
+  private searchBaseLineSeries(name: string, data: Array<number | null>, color?: string): Record<string, unknown> {
+    return {
+      ...this.lineSeries(name, data, color),
+      lineStyle: { type: 'dashed', width: 2 },
     };
   }
 

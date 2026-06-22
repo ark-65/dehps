@@ -170,6 +170,9 @@ LATE_PHASES = (
     ("micro", 0.01),
     ("small", 0.02),
 )
+EARLY_SEARCH_BASE_MIN_DISTANCE = 0.08
+MID_SEARCH_BASE_MIN_DISTANCE = 0.04
+LATE_SEARCH_BASE_MIN_DISTANCE = 0.015
 STAGNATION_THRESHOLD = 16
 CANDIDATE_BUDGET_SHARES = {
     "exploitation": 0.40,
@@ -324,6 +327,14 @@ def phase_for_round(round_index: int, *, stagnation_rounds: int = 0) -> tuple[st
         return phase, step, "mid_search"
     phase, step = LATE_PHASES[(round_index - MID_SEARCH_ROUNDS) % len(LATE_PHASES)]
     return phase, step, "late_refine"
+
+
+def search_base_min_distance_for_phase(phase_stage: str) -> float:
+    if phase_stage in {"early_broad", "stagnation_broad"}:
+        return EARLY_SEARCH_BASE_MIN_DISTANCE
+    if phase_stage == "mid_search":
+        return MID_SEARCH_BASE_MIN_DISTANCE
+    return LATE_SEARCH_BASE_MIN_DISTANCE
 
 
 def _reserved_candidate_count(max_configs: int, budget_share: float, *, available: int) -> int:
@@ -1975,16 +1986,26 @@ def best_challenger_summary(
     *,
     incumbent_summary: dict | None = None,
     excluded_config_hashes: set[str] | None = None,
+    base_config: FrequencyRankerConfig | None = None,
+    min_config_distance: float = 0.0,
 ) -> dict | None:
     if not incumbent_config_hash:
         return None
     excluded = set(excluded_config_hashes or set())
     excluded.add(incumbent_config_hash)
-    challengers = [
-        summary
-        for summary in summaries
-        if (summary_config_hash(summary) or "") not in excluded
-    ]
+    challengers = []
+    for summary in summaries:
+        if (summary_config_hash(summary) or "") in excluded:
+            continue
+        summary_candidate_config = summary_config(summary)
+        if (
+            base_config is not None
+            and summary_candidate_config is not None
+            and min_config_distance > 0
+            and config_distance(summary_candidate_config, base_config) < min_config_distance
+        ):
+            continue
+        challengers.append(summary)
     incumbent_rank_signature = summary_rank_vector_signature(incumbent_summary)
     if incumbent_rank_signature is not None:
         for summary in challengers:
@@ -2025,6 +2046,8 @@ def _target_weight_anchor_metrics(summary: dict | None) -> dict:
         "tail_over_1000000_count": int(rank_quality.get("tail_over_1000000_count") or 0),
         "tail_over_900000_count": int(rank_quality.get("tail_over_900000_count") or 0),
         "tail_over_750000_count": int(rank_quality.get("tail_over_750000_count") or 0),
+        "rank_quality": rank_quality,
+        "reward": reward,
     }
 
 
@@ -2074,6 +2097,7 @@ def select_next_search_base(
     round_best: dict | None,
     improved: bool,
     recent_search_base_hashes: tuple[str, ...] = (),
+    min_config_distance: float = 0.0,
 ) -> tuple[FrequencyRankerConfig, dict]:
     current_base_hash = config_hash(current_base)
     current_base_summary = None
@@ -2088,6 +2112,8 @@ def select_next_search_base(
         current_base_hash,
         incumbent_summary=current_base_summary,
         excluded_config_hashes=excluded_hashes,
+        base_config=current_base,
+        min_config_distance=min_config_distance,
     )
     fallback_search_challenger = None
     if search_challenger is None:
@@ -2096,10 +2122,20 @@ def select_next_search_base(
             current_base_hash,
             incumbent_summary=current_base_summary,
         )
+    round_best_config = summary_config(round_best)
+    round_best_distance = (
+        config_distance(round_best_config, current_base)
+        if round_best_config is not None
+        else 0.0
+    )
     if improved:
         source = "new_best"
         selected_summary = round_best
-    elif round_best is not None and summary_config_hash(round_best) not in excluded_hashes:
+    elif (
+        round_best is not None
+        and summary_config_hash(round_best) not in excluded_hashes
+        and round_best_distance >= min_config_distance
+    ):
         source = "round_best"
         selected_summary = round_best
     elif search_challenger is not None:
@@ -2118,6 +2154,8 @@ def select_next_search_base(
     next_base = selected_config or current_base
     previous_hash = current_base_hash
     next_hash = config_hash(next_base)
+    search_challenger_config = summary_config(search_challenger)
+    selected_distance = config_distance(next_base, current_base)
     metadata = {
         "source": source,
         "changed": next_hash != previous_hash,
@@ -2126,6 +2164,11 @@ def select_next_search_base(
         "candidate_config_hash": summary_config_hash(selected_summary) or "",
         "search_challenger_config_hash": summary_config_hash(search_challenger) or "",
         "fallback_search_challenger_config_hash": summary_config_hash(fallback_search_challenger) or "",
+        "min_config_distance": min_config_distance,
+        "selected_config_distance": selected_distance,
+        "search_challenger_config_distance": config_distance(search_challenger_config, current_base)
+        if search_challenger_config is not None
+        else None,
         "search_challenger_rank_vector_changed": rank_vector_changed(current_base_summary, search_challenger),
         "search_challenger_rank_vector_available": rank_vector_available(search_challenger),
         "recent_search_base_hashes": list(recent_search_base_hashes),
@@ -2136,6 +2179,7 @@ def select_next_search_base(
         "best_rank": selected_summary.get("best_rank") if isinstance(selected_summary, dict) else None,
         "worst_rank": selected_summary.get("worst_rank") if isinstance(selected_summary, dict) else None,
         "config": config_dict(next_base),
+        **_target_weight_anchor_metrics(selected_summary),
     }
     return next_base, metadata
 
@@ -2902,6 +2946,7 @@ def run_supervisor(
         while should_continue_training(round_index, deadline):
             stagnation_rounds = stagnation_round_count(rounds)
             phase, step, phase_stage = phase_for_round(round_index, stagnation_rounds=stagnation_rounds)
+            min_search_base_distance = search_base_min_distance_for_phase(phase_stage)
             historical_summaries = merge_leaderboard(leaderboard, prior_leaderboard, limit=32)
             low_coverage_fields = low_coverage_fields_from_summaries(historical_summaries)
             elite_configs = tuple(FrequencyRankerConfig(**summary["config"]) for summary in leaderboard[:4])
@@ -3048,6 +3093,7 @@ def run_supervisor(
             )
             prefilter_info["stagnation_rounds"] = stagnation_rounds
             prefilter_info["phase_stage"] = phase_stage
+            prefilter_info["search_base_min_distance"] = min_search_base_distance
             prefilter_info["search_base_start"] = {
                 "config_hash": config_hash(search_base_config),
                 "config": config_dict(search_base_config),
@@ -3176,6 +3222,7 @@ def run_supervisor(
                 round_best=round_best,
                 improved=improved,
                 recent_search_base_hashes=recent_search_base_hashes(rounds, search_base_config),
+                min_config_distance=min_search_base_distance,
             )
             search_base_info["phase"] = phase
             search_base_info["phase_stage"] = phase_stage

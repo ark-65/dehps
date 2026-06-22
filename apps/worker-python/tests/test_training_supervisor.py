@@ -34,6 +34,7 @@ from scripts.run_training_supervisor import (
     prefilter_configs,
     reward_summary,
     resolve_training_deadline,
+    search_base_min_distance_for_phase,
     ridge_kdj_advisor_metadata,
     should_continue_training,
     sort_key,
@@ -119,6 +120,9 @@ def test_phase_for_round_starts_broad_then_anneals_to_late_refine():
         ("small", 0.02, "late_refine"),
     }
     assert phase_for_round(90, stagnation_rounds=16) == ("large", 0.15, "stagnation_broad")
+    assert search_base_min_distance_for_phase("early_broad") == 0.08
+    assert search_base_min_distance_for_phase("mid_search") == 0.04
+    assert search_base_min_distance_for_phase("late_refine") == 0.015
 
 
 def test_target_weight_inversion_anchor_uses_challenger_when_incumbent_replays():
@@ -238,6 +242,36 @@ def test_next_search_base_avoids_recent_two_config_bounce():
     assert metadata["source"] == "search_challenger"
     assert metadata["changed"] is True
     assert metadata["config_hash"] not in metadata["recent_search_base_hashes"]
+
+
+def test_next_search_base_prefers_distant_candidate_during_broad_phase():
+    current_config = FrequencyRankerConfig(frequency_weight=0.45, omission_weight=0.10)
+    tiny_variant_config = FrequencyRankerConfig(frequency_weight=0.45, omission_weight=0.10001)
+    distant_config = FrequencyRankerConfig(frequency_weight=0.25, omission_weight=0.30)
+    current = supervisor_summary_for_config(current_config, target_ranks=[100, 900, 50_000], objective_score=2190.0)
+    tiny_variant = supervisor_summary_for_config(
+        tiny_variant_config,
+        target_ranks=[99, 900, 50_000],
+        objective_score=2189.0,
+    )
+    distant = supervisor_summary_for_config(
+        distant_config,
+        target_ranks=[120, 1200, 80_000],
+        objective_score=2100.0,
+    )
+
+    next_base, metadata = select_next_search_base(
+        current_base=current_config,
+        summaries=[current, tiny_variant, distant],
+        round_best=current,
+        improved=False,
+        min_config_distance=0.08,
+    )
+
+    assert config_hash(next_base) == config_hash(distant_config)
+    assert metadata["source"] == "search_challenger"
+    assert metadata["selected_config_distance"] >= 0.08
+    assert metadata["search_challenger_config_distance"] >= 0.08
 
 
 def test_target_weight_inversion_anchor_keeps_new_best_when_improved():

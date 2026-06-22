@@ -264,7 +264,9 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
       SELECT run_id, round_index, phase, step, train_mode, train_window, eval_window, top_n,
              as_of_issue, improved, top_100_hits, top_1000_hits, top_10000_hits,
              red5_top_100_hits, red5_top_1000_hits, red5_top_10000_hits,
-             median_rank, best_rank, worst_rank, objective_score, created_at
+             median_rank, best_rank, worst_rank, objective_score,
+             best_summary->'rank_quality' AS best_rank_quality,
+             prefilter, created_at
       FROM training_round_results
       ORDER BY created_at DESC, round_index DESC
       LIMIT $1
@@ -588,6 +590,8 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
       bestRank: row.best_rank === null ? null : Number(row.best_rank),
       worstRank: row.worst_rank === null ? null : Number(row.worst_rank),
       objectiveScore: row.objective_score === null ? null : Number(row.objective_score),
+      bestRankQuality: row.best_rank_quality ?? null,
+      prefilter: row.prefilter ?? null,
       createdAt: row.created_at.toISOString(),
     };
   }

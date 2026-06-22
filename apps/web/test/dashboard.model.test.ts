@@ -331,6 +331,18 @@ test('training round charts enable range zoom for long round sequences', () => {
   assert.equal(component.includes('期号 ${round.best.as_of_issue}'), true);
 });
 
+test('rank and tail-risk charts include search-base series', () => {
+  const component = readFileSync(new URL('../src/app/app.component.ts', import.meta.url), 'utf8');
+
+  assert.equal(component.includes("this.searchBaseLineSeries('搜索最佳'"), true);
+  assert.equal(component.includes("this.searchBaseLineSeries('搜索中位'"), true);
+  assert.equal(component.includes("this.searchBaseLineSeries('搜索最差'"), true);
+  assert.equal(component.includes("'搜索超过75万'"), true);
+  assert.equal(component.includes("'搜索超过90万'"), true);
+  assert.equal(component.includes("'搜索超过100万'"), true);
+  assert.equal(component.includes("lineStyle: { type: 'dashed', width: 2 }"), true);
+});
+
 test('weight trend charts reuse the shared round range zoom helper', () => {
   const component = readFileSync(new URL('../src/app/app.component.ts', import.meta.url), 'utf8');
   const weightTrend = component.slice(

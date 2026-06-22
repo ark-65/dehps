@@ -116,6 +116,39 @@ const repository: ResearchRepository = {
         bestRank: 88,
         worstRank: 900000,
         objectiveScore: 29.5,
+        bestRankQuality: {
+          top_50000_hits: 4,
+          top_100000_hits: 7,
+          top_250000_hits: 23,
+          top_500000_hits: 41,
+          p90_rank: 918821,
+          p95_rank: 983672,
+          tail_over_750000_count: 33,
+          tail_over_900000_count: 13,
+          tail_over_1000000_count: 4,
+          worst_rank_reward: 0.013159,
+          median_rank_reward: 0.951943,
+          band_reward: 0.735,
+          tail_risk_penalty: 33.644567,
+          reward: 1.700102,
+        },
+        prefilter: {
+          mode: 'sampled-targets',
+          phase_stage: 'early_broad',
+          search_base_min_distance: 0.08,
+          search_base: {
+            source: 'search_challenger',
+            selected_config_distance: 1.21,
+            median_rank: 415503.5,
+            worst_rank: 1089391,
+            rank_quality: {
+              tail_over_750000_count: 30,
+              tail_over_900000_count: 15,
+              tail_over_1000000_count: 8,
+            },
+            reward: { objectiveScore: 14.147182 },
+          },
+        },
         createdAt: '2026-06-18T00:00:00.000Z',
       },
     ];
@@ -159,6 +192,22 @@ const repository: ResearchRepository = {
         median_rank: 12345.5,
         best_rank: 88,
         worst_rank: 900000,
+        rank_quality: {
+          top_50000_hits: 4,
+          top_100000_hits: 7,
+          top_250000_hits: 23,
+          top_500000_hits: 41,
+          p90_rank: 918821,
+          p95_rank: 983672,
+          tail_over_750000_count: 33,
+          tail_over_900000_count: 13,
+          tail_over_1000000_count: 4,
+          worst_rank_reward: 0.013159,
+          median_rank_reward: 0.951943,
+          band_reward: 0.735,
+          tail_risk_penalty: 33.644567,
+          reward: 1.700102,
+        },
         red5: { top_100_hits: 2, top_1000_hits: 4, top_10000_hits: 8 },
         run_key: 'result-1',
         frozen_validation: null,
@@ -198,6 +247,51 @@ const repository: ResearchRepository = {
         stagnation_rounds: 16,
         low_coverage_fields: ['sum_tail_weight'],
         candidate_budget: { exploitation: 26, exploration: 19, replay: 13, baseline: 6 },
+        phase_stage: 'early_broad',
+        search_base_min_distance: 0.08,
+        search_base: {
+          source: 'search_challenger',
+          changed: true,
+          previous_config_hash: 'best-config',
+          config_hash: 'search-config',
+          candidate_config_hash: 'search-config',
+          min_config_distance: 0.08,
+          selected_config_distance: 1.21,
+          search_challenger_config_distance: 1.21,
+          search_challenger_rank_vector_changed: true,
+          recent_search_base_hashes: ['best-config'],
+          top_100_hits: 0,
+          top_1000_hits: 0,
+          top_10000_hits: 3,
+          median_rank: 415503.5,
+          best_rank: 1474,
+          worst_rank: 1089391,
+          rank_quality: {
+            top_50000_hits: 11,
+            top_100000_hits: 17,
+            top_250000_hits: 26,
+            top_500000_hits: 59,
+            p90_rank: 962110,
+            p95_rank: 1021464,
+            tail_over_750000_count: 30,
+            tail_over_900000_count: 15,
+            tail_over_1000000_count: 8,
+            worst_rank_reward: 0.043731,
+            median_rank_reward: 1.248302,
+            band_reward: 1.335,
+            tail_risk_penalty: 39.057646,
+            reward: 2.627033,
+          },
+          reward: {
+            hitReward: 30,
+            red5Reward: 21.2,
+            rankQualityReward: 2.627033,
+            rankPenalty: 0.622205,
+            tailRiskPenalty: 39.057646,
+            objectiveScore: 14.147182,
+          },
+          config: { frequency_weight: 0 },
+        },
         frozen_validation_window: 20,
         control_experiments: [{ label: 'structural_baseline', top_10000_hits: 1 }],
         weight_kdj_advisor: {
@@ -416,6 +510,9 @@ test('training rounds list uses normalized limit', async () => {
 
   assert.equal(rounds[0].runId, 'run-100');
   assert.equal(rounds[0].red5Top10000Hits, 8);
+  assert.equal(rounds[0].bestRankQuality?.tail_over_750000_count, 33);
+  assert.equal(rounds[0].prefilter?.searchBase?.source, 'search_challenger');
+  assert.equal(rounds[0].prefilter?.searchBase?.rank_quality.tail_over_900000_count, 15);
 });
 
 test('training round detail normalizes target hit rows', async () => {
@@ -425,6 +522,12 @@ test('training round detail normalizes target hit rows', async () => {
 
   assert.equal(detail?.runId, 'run-1');
   assert.equal(detail?.bestSummary?.top_10000_hits, 3);
+  assert.equal(detail?.prefilter?.phaseStage, 'early_broad');
+  assert.equal(detail?.prefilter?.searchBaseMinDistance, 0.08);
+  assert.equal(detail?.prefilter?.searchBase?.source, 'search_challenger');
+  assert.equal(detail?.prefilter?.searchBase?.selectedConfigDistance, 1.21);
+  assert.equal(detail?.prefilter?.searchBase?.rank_quality.tail_over_1000000_count, 8);
+  assert.equal(detail?.prefilter?.searchBase?.reward?.objectiveScore, 14.147182);
   assert.equal(detail?.targetResults[0].redNumbers.join(','), '1,2,3,4,5,6');
   assert.equal(detail?.targetResults[0].red5MissingNumber, 6);
   assert.equal(await service.getTrainingRoundDetail('missing', 1), null);
@@ -796,6 +899,9 @@ test('training status is derived from database rounds without status json', asyn
     assert.equal(status.qianKun.qian_count, 1);
     assert.equal(status.qianKun.kun_count, 1);
     assert.equal(status.recentRounds[0].round, 2);
+    assert.equal(status.recentRounds[0].best?.rank_quality.tail_over_750000_count, 33);
+    assert.equal(status.recentRounds[0].prefilter?.searchBase?.source, 'search_challenger');
+    assert.equal(status.recentRounds[0].prefilter?.searchBase?.rank_quality.tail_over_1000000_count, 8);
   } finally {
     if (previousRoot === undefined) {
       delete process.env.DEHPS_ROOT;
