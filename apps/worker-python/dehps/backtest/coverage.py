@@ -15,7 +15,8 @@ def run_baseline_backtest(
 ) -> dict[str, float | int | list[str]]:
     cfg = config or StrategyConfig()
     kept_total = sum(1 for numbers in iter_ssq_red_combinations() if keep_by_baseline(numbers, cfg))
-    covered = [issue for issue, numbers in history if keep_by_baseline(numbers, cfg)]
+    evaluated_history = [(issue, keep_by_baseline(numbers, cfg)) for issue, numbers in history]
+    covered = [issue for issue, is_covered in evaluated_history if is_covered]
     keep_rate = kept_total / TOTAL_SSQ_RED_COMBINATIONS
     coverage_rate = len(covered) / len(history) if history else 0.0
     lift = coverage_rate / keep_rate if keep_rate else 0.0
@@ -28,6 +29,5 @@ def run_baseline_backtest(
         "coverage_rate": round(coverage_rate, 8),
         "lift": round(lift, 8),
         "covered_issues": covered,
-        "missed_issues": [issue for issue, _ in history if issue not in set(covered)],
+        "missed_issues": [issue for issue, is_covered in evaluated_history if not is_covered],
     }
-
