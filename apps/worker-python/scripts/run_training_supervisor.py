@@ -199,6 +199,8 @@ CANDIDATE_BUDGET_SHARES = {
     "replay": 0.20,
     "baseline": 0.10,
 }
+DEFAULT_RECENCY_CANARY_BUDGET_SHARE = 0.12
+RECENCY_CANARY_FIELDS = ("short_hot_frequency_weight", "long_omission_cooldown_weight")
 DEFAULT_WEIGHT_KDJ_BUDGET_SHARE = 0.22
 DEFAULT_WEIGHT_KDJ_MIN_OBJECTIVE_DELTA = 0.0
 DEFAULT_WEIGHT_KDJ_MIN_ABS_OFFSET = 0.005
@@ -366,6 +368,7 @@ def _reserved_candidate_count(max_configs: int, budget_share: float, *, availabl
 def candidate_budget(
     max_configs: int,
     *,
+    recency_canary_budget_share: float = 0.0,
     weight_kdj_budget_share: float = 0.0,
     ridge_kdj_budget_share: float = 0.0,
     neural_kdj_budget_share: float = 0.0,
@@ -375,6 +378,8 @@ def candidate_budget(
 ) -> dict[str, int]:
     if max_configs <= 0:
         counts = {name: 0 for name in CANDIDATE_BUDGET_SHARES}
+        if recency_canary_budget_share > 0:
+            counts["recency_canary"] = 0
         if weight_kdj_budget_share > 0:
             counts["weight_kdj"] = 0
         if ridge_kdj_budget_share > 0:
@@ -395,16 +400,21 @@ def candidate_budget(
         neural_kdj_budget_share,
         available=max_configs - weight_kdj_count - ridge_kdj_count,
     )
+    recency_canary_count = _reserved_candidate_count(
+        max_configs,
+        recency_canary_budget_share,
+        available=max_configs - weight_kdj_count - ridge_kdj_count - neural_kdj_count,
+    )
     target_weight_inversion_count = _reserved_candidate_count(
         max_configs,
         target_weight_inversion_budget_share,
         available=min(
             max(0, target_weight_inversion_max_candidates),
             max(0, target_weight_inversion_available),
-            max_configs - weight_kdj_count - ridge_kdj_count - neural_kdj_count,
+            max_configs - weight_kdj_count - ridge_kdj_count - neural_kdj_count - recency_canary_count,
         ),
     )
-    normal_budget = max_configs - weight_kdj_count - ridge_kdj_count - neural_kdj_count - target_weight_inversion_count
+    normal_budget = max_configs - weight_kdj_count - ridge_kdj_count - neural_kdj_count - recency_canary_count - target_weight_inversion_count
     names = tuple(CANDIDATE_BUDGET_SHARES)
     counts = {name: 0 for name in names}
     remaining = normal_budget
@@ -434,6 +444,8 @@ def candidate_budget(
         counts["ridge_kdj"] = ridge_kdj_count
     if neural_kdj_budget_share > 0:
         counts["neural_kdj"] = neural_kdj_count
+    if recency_canary_budget_share > 0:
+        counts["recency_canary"] = recency_canary_count
     if target_weight_inversion_budget_share > 0:
         counts["target_weight_inversion"] = target_weight_inversion_count
     return counts
@@ -805,6 +817,39 @@ def exploratory_candidate_configs(
             values[field] = float(values[field]) + rng.uniform(-radius, radius)
         candidates.append(FrequencyRankerConfig(**values))
     return tuple(candidates)
+
+
+def recency_canary_candidate_configs(
+    base: FrequencyRankerConfig,
+    *,
+    step: float,
+    max_configs: int,
+) -> tuple[FrequencyRankerConfig, ...]:
+    if max_configs <= 0:
+        return ()
+    bump = min(0.30, max(0.08, step))
+    short_field, omission_field = RECENCY_CANARY_FIELDS
+    candidates = (
+        replace(base, **{short_field: getattr(base, short_field) + bump}),
+        replace(base, **{short_field: getattr(base, short_field) - bump}),
+        replace(base, **{omission_field: getattr(base, omission_field) + bump}),
+        replace(base, **{omission_field: getattr(base, omission_field) - bump}),
+        replace(
+            base,
+            **{
+                short_field: getattr(base, short_field) + bump,
+                omission_field: getattr(base, omission_field) + bump,
+            },
+        ),
+        replace(
+            base,
+            **{
+                short_field: getattr(base, short_field) - bump,
+                omission_field: getattr(base, omission_field) + bump,
+            },
+        ),
+    )
+    return tuple(clamp_config(config) for config in candidates[:max_configs])
 
 
 def replay_candidate_configs(
@@ -3232,6 +3277,7 @@ def run_supervisor(
             control_configs = control_experiment_configs(best_config)
             budgets = candidate_budget(
                 max_configs_per_round,
+                recency_canary_budget_share=DEFAULT_RECENCY_CANARY_BUDGET_SHARE,
                 weight_kdj_budget_share=weight_kdj_budget_share if enable_weight_kdj_advisor else 0.0,
                 ridge_kdj_budget_share=ridge_kdj_budget_share if enable_ridge_kdj_advisor else 0.0,
                 neural_kdj_budget_share=neural_kdj_budget_share if enable_neural_kdj_advisor else 0.0,
@@ -3242,8 +3288,16 @@ def run_supervisor(
             weight_kdj_budget = budgets.get("weight_kdj", 0)
             ridge_kdj_budget = budgets.get("ridge_kdj", 0)
             neural_kdj_budget = budgets.get("neural_kdj", 0)
+            recency_canary_budget = budgets.get("recency_canary", 0)
             target_weight_inversion_budget = budgets.get("target_weight_inversion", 0)
-            normal_config_budget = max_configs_per_round - weight_kdj_budget - ridge_kdj_budget - neural_kdj_budget - target_weight_inversion_budget
+            normal_config_budget = (
+                max_configs_per_round
+                - weight_kdj_budget
+                - ridge_kdj_budget
+                - neural_kdj_budget
+                - recency_canary_budget
+                - target_weight_inversion_budget
+            )
             configs = tuple(
                 generate_configs(
                     search_base_config,
@@ -3258,6 +3312,11 @@ def run_supervisor(
                 )
             )
             normal_configs = configs
+            recency_canary_configs = recency_canary_candidate_configs(
+                search_base_config,
+                step=step,
+                max_configs=recency_canary_budget,
+            )
             kdj_signals: list[dict] = []
             weight_kdj_signals: list[dict] = []
             weight_kdj_configs: tuple[FrequencyRankerConfig, ...] = ()
@@ -3330,11 +3389,23 @@ def run_supervisor(
                 )
             source_configs = {
                 "normal": normal_configs,
+                "recency_canary": recency_canary_configs,
                 "weight_kdj": weight_kdj_configs,
                 "ridge_kdj": ridge_kdj_configs,
                 "neural_kdj": neural_kdj_configs,
                 "target_weight_inversion": target_weight_inversion_configs,
             }
+            if recency_canary_budget > 0:
+                configs = merge_reserved_candidate_configs(
+                    configs,
+                    recency_canary_configs,
+                    max_configs=max_configs_per_round
+                    - weight_kdj_budget
+                    - ridge_kdj_budget
+                    - neural_kdj_budget
+                    - target_weight_inversion_budget,
+                    reserved_budget=recency_canary_budget,
+                )
             if enable_weight_kdj_advisor:
                 configs = merge_reserved_candidate_configs(
                     configs,
