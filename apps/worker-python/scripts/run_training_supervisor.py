@@ -211,6 +211,20 @@ def training_event_payload(status: dict) -> dict:
     }
 
 
+def resolve_training_deadline(started_at: datetime, duration_hours: float) -> datetime | None:
+    if duration_hours <= 0:
+        return None
+    return started_at + timedelta(hours=duration_hours)
+
+
+def should_continue_training(round_index: int, deadline: datetime | None, *, now: datetime | None = None) -> bool:
+    if round_index == 0:
+        return True
+    if deadline is None:
+        return True
+    return (now or datetime.now()) < deadline
+
+
 def post_training_event(status: dict, *, event_url: str | None = None, timeout: float = 1.0) -> bool:
     resolved_url = training_event_url(event_url)
     if not resolved_url:
@@ -2256,7 +2270,7 @@ def run_supervisor(
 ) -> dict:
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
     started_at = datetime.now()
-    deadline = started_at + timedelta(hours=duration_hours)
+    deadline = resolve_training_deadline(started_at, duration_hours)
     resolved_event_url = training_event_url(event_url)
     output_dir.mkdir(parents=True, exist_ok=True)
     status_path = output_dir / f"training-supervisor-{run_id}.json"
@@ -2350,7 +2364,8 @@ def run_supervisor(
         "run_id": run_id,
         "started_at": started_at.isoformat(timespec="seconds"),
         "updated_at": started_at.isoformat(timespec="seconds"),
-        "deadline": deadline.isoformat(timespec="seconds"),
+        "deadline": deadline.isoformat(timespec="seconds") if deadline else None,
+        "run_mode": "continuous" if deadline is None else "timed",
         "status": "running",
         "pid": os.getpid(),
         "history_scope": selection.scope,
@@ -2423,7 +2438,7 @@ def run_supervisor(
 
     try:
         round_index = 0
-        while round_index == 0 or datetime.now() < deadline:
+        while should_continue_training(round_index, deadline):
             phase, step = PHASES[round_index % len(PHASES)]
             stagnation_rounds = stagnation_round_count(rounds)
             historical_summaries = merge_leaderboard(leaderboard, prior_leaderboard, limit=32)
@@ -2751,7 +2766,7 @@ def run_supervisor(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--duration-hours", type=float, default=24.0)
+    parser.add_argument("--duration-hours", type=float, default=0.0, help="Training duration. Use 0 or a negative value to run continuously until stopped.")
     parser.add_argument("--train-window", type=int, default=900)
     parser.add_argument("--eval-window", type=int, default=100)
     parser.add_argument("--top-n", type=int, default=10000)

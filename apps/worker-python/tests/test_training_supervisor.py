@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 import json
 
 from dehps.models.frequency_ranker import FrequencyRankerConfig
@@ -27,7 +28,9 @@ from scripts.run_training_supervisor import (
     post_training_event,
     prefilter_configs,
     reward_summary,
+    resolve_training_deadline,
     ridge_kdj_advisor_metadata,
+    should_continue_training,
     sort_key,
     stagnation_round_count,
     training_event_payload,
@@ -39,6 +42,24 @@ from scripts.run_training_supervisor import (
     weight_kdj_advisor_metadata,
 )
 from dehps.optimization.weight_kdj import weight_kdj_advice_from_signals
+
+
+def test_duration_hours_zero_means_continuous_training():
+    started_at = datetime(2026, 6, 22, 9, 0, 0)
+
+    assert resolve_training_deadline(started_at, 0) is None
+    assert resolve_training_deadline(started_at, -1) is None
+    assert should_continue_training(5000, None, now=started_at + timedelta(days=365))
+
+
+def test_positive_duration_hours_keeps_timed_training_mode():
+    started_at = datetime(2026, 6, 22, 9, 0, 0)
+    deadline = resolve_training_deadline(started_at, 24)
+
+    assert deadline == started_at + timedelta(hours=24)
+    assert should_continue_training(0, deadline, now=deadline + timedelta(seconds=1))
+    assert should_continue_training(1, deadline, now=deadline - timedelta(seconds=1))
+    assert not should_continue_training(1, deadline, now=deadline)
 
 
 def test_generate_configs_keeps_base_and_clamps_weight_range():
