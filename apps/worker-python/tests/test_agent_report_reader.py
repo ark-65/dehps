@@ -65,3 +65,18 @@ def test_experiment_report_reader_rejects_malformed_metric_bullet():
 
     with pytest.raises(ValueError, match="expected '- key: value' bullet"):
         parse_experiment_report(report)
+
+
+def test_experiment_report_reader_rejects_boolean_metric_value():
+    report = "\n".join(
+        [
+            "# Experiment Report",
+            "- Experiment: `baseline_v1-test`",
+            "- Strategy: `baseline_v1`",
+            "## Metrics",
+            "- coverage_rate: True",
+        ]
+    )
+
+    with pytest.raises(ValueError, match="expected numeric metric"):
+        parse_experiment_report(report)

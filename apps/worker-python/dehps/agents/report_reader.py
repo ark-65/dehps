@@ -62,7 +62,7 @@ def _strip_code(value: str) -> str:
 
 def _parse_number(value: str) -> int | float:
     parsed = _parse_value(value)
-    if not isinstance(parsed, int | float):
+    if isinstance(parsed, bool) or not isinstance(parsed, int | float):
         raise ValueError(f"expected numeric metric, got {value!r}")
     return parsed
 
