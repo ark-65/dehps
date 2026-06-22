@@ -26,15 +26,19 @@ def audit_candidate_protocol(
     candidate_numbers = [candidate.numbers for candidate in candidates]
     duplicated = len(candidate_numbers) != len(set(candidate_numbers))
     historical_overlap = sorted(set(candidate_numbers) & historical_numbers)
-    seed_mentions_future = bool(latest_issue and seed.isdigit() and int(seed) > int(latest_issue))
+    latest_issue_number = _issue_number(latest_issue)
+    seed_issue_number = _issue_number(seed)
+    has_comparable_issue_seed = latest_issue_number is not None and seed_issue_number is not None
+    seed_mentions_future = bool(has_comparable_issue_seed and seed_issue_number > latest_issue_number)
+    issue_seed_is_auditable = bool(latest_issue and has_comparable_issue_seed and not seed_mentions_future)
 
     return [
         LeakageCheck(
             name="future_outcome",
-            status="pass" if latest_issue and not seed_mentions_future else "warn",
+            status="pass" if issue_seed_is_auditable else "warn",
             detail="seed is derived from the latest known issue, not a future result"
-            if latest_issue and not seed_mentions_future
-            else "latest issue is missing or seed appears newer than latest known issue",
+            if issue_seed_is_auditable
+            else "latest issue is missing, malformed, or seed appears newer than latest known issue",
         ),
         LeakageCheck(
             name="history_overlap",
@@ -57,3 +61,9 @@ def audit_candidate_protocol(
             detail="baseline_v1 StrategyConfig is fixed at generation time",
         ),
     ]
+
+
+def _issue_number(issue: str | None) -> int | None:
+    if issue is None or not issue.isdigit():
+        return None
+    return int(issue)
