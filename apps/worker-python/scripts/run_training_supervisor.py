@@ -1896,6 +1896,86 @@ def strip_target_results(summary: dict) -> dict:
     return stripped
 
 
+def summary_config_hash(summary: dict | None) -> str | None:
+    if not isinstance(summary, dict):
+        return None
+    existing = summary.get("config_hash")
+    if isinstance(existing, str) and existing:
+        return existing
+    config_values = summary.get("config")
+    if not isinstance(config_values, dict):
+        return None
+    try:
+        return config_hash(FrequencyRankerConfig(**{**config_dict(FrequencyRankerConfig()), **config_values}))
+    except (TypeError, ValueError):
+        return None
+
+
+def best_challenger_summary(summaries: list[dict], incumbent_config_hash: str | None) -> dict | None:
+    if not incumbent_config_hash:
+        return None
+    for summary in summaries:
+        if summary_config_hash(summary) != incumbent_config_hash:
+            return summary
+    return None
+
+
+def _target_weight_anchor_metrics(summary: dict | None) -> dict:
+    if not isinstance(summary, dict):
+        return {}
+    reward = summary.get("reward") if isinstance(summary.get("reward"), dict) else {}
+    red5 = summary.get("red5") if isinstance(summary.get("red5"), dict) else {}
+    rank_quality = summary.get("rank_quality") if isinstance(summary.get("rank_quality"), dict) else {}
+    return {
+        "config_hash": summary_config_hash(summary) or "",
+        "top_100_hits": int(summary.get("top_100_hits") or 0),
+        "top_1000_hits": int(summary.get("top_1000_hits") or 0),
+        "top_10000_hits": int(summary.get("top_10000_hits") or 0),
+        "median_rank": summary.get("median_rank"),
+        "best_rank": summary.get("best_rank"),
+        "worst_rank": summary.get("worst_rank"),
+        "objective_score": float(reward.get("objectiveScore") or 0.0),
+        "red5_top_100_hits": int(red5.get("top_100_hits") or 0),
+        "red5_top_1000_hits": int(red5.get("top_1000_hits") or 0),
+        "red5_top_10000_hits": int(red5.get("top_10000_hits") or 0),
+        "tail_over_1000000_count": int(rank_quality.get("tail_over_1000000_count") or 0),
+        "tail_over_900000_count": int(rank_quality.get("tail_over_900000_count") or 0),
+        "tail_over_750000_count": int(rank_quality.get("tail_over_750000_count") or 0),
+    }
+
+
+def select_target_weight_inversion_anchor(
+    *,
+    summaries: list[dict],
+    prior_best_summary: dict | None,
+    round_best: dict | None,
+    improved: bool,
+) -> tuple[dict | None, dict | None, dict]:
+    incumbent_hash = summary_config_hash(prior_best_summary)
+    round_best_hash = summary_config_hash(round_best)
+    challenger = best_challenger_summary(summaries, incumbent_hash)
+    round_best_replays_incumbent = bool(incumbent_hash and round_best_hash == incumbent_hash)
+    if improved:
+        source = "new_best"
+        anchor = round_best
+    elif round_best_replays_incumbent and challenger is not None:
+        source = "challenger_best"
+        anchor = challenger
+    else:
+        source = "round_best"
+        anchor = round_best
+    metadata = {
+        "source": source,
+        "round_best_replays_incumbent": round_best_replays_incumbent,
+        "incumbent_config_hash": incumbent_hash or "",
+        "round_best_config_hash": round_best_hash or "",
+        "challenger_available": challenger is not None,
+        "challenger_config_hash": summary_config_hash(challenger) or "",
+        **_target_weight_anchor_metrics(anchor),
+    }
+    return anchor, challenger, metadata
+
+
 def compact_round_info(round_info: dict) -> dict:
     compact = dict(round_info)
     compact["best"] = strip_target_results(compact["best"]) if isinstance(compact.get("best"), dict) else compact.get("best")
@@ -2850,16 +2930,27 @@ def run_supervisor(
                 universe_size=len(ranked_universe),
             )
             round_best = summaries[0]
+            prior_best_summary = best_summary
+            improved = prior_best_summary is None or sort_key(round_best) > sort_key(prior_best_summary)
+            inversion_anchor, challenger_summary, inversion_anchor_info = select_target_weight_inversion_anchor(
+                summaries=summaries,
+                prior_best_summary=prior_best_summary,
+                round_best=round_best,
+                improved=improved,
+            )
             control_summaries = control_experiment_summaries(summaries, control_configs)
             prefilter_info["frozen_validation_window"] = validation_window
             prefilter_info["control_experiments"] = control_summaries
+            prefilter_info["round_best_replays_incumbent"] = inversion_anchor_info["round_best_replays_incumbent"]
+            prefilter_info["challenger_best"] = strip_target_results(challenger_summary) if challenger_summary else None
+            prefilter_info["target_weight_inversion_anchor"] = inversion_anchor_info
             inversion_rows: list[dict] = []
             inversion_aggregate: dict = {}
             if enable_target_weight_inversion_advisor:
                 inversion_rows, inversion_aggregate, target_weight_inversion_configs, target_weight_inversion_latest = target_weight_inversion_advisor(
                     history=training_history,
                     ranked_universe=ranked_universe,
-                    best_summary=round_best,
+                    best_summary=inversion_anchor,
                     train_window=train_window,
                     train_mode=train_mode,
                     top_n=top_n,
@@ -2878,10 +2969,19 @@ def run_supervisor(
                     max_targets=target_weight_inversion_max_targets,
                     max_deltas_per_target=target_weight_inversion_max_deltas_per_target,
                 )
+            target_weight_inversion_latest = {
+                **target_weight_inversion_latest,
+                "anchor": inversion_anchor_info,
+            }
             prefilter_info["target_weight_inversion_advisor"] = target_weight_inversion_latest
             status["target_weight_inversion_advisor"]["latest"] = target_weight_inversion_latest
             leaderboard = merge_leaderboard(leaderboard, summaries[: min(8, len(summaries))])
-            improved = best_summary is None or sort_key(round_best) > sort_key(best_summary)
+            log(
+                f"round={round_index + 1} target_weight_inversion_anchor="
+                f"{inversion_anchor_info['source']} "
+                f"config_hash={inversion_anchor_info.get('config_hash', '')} "
+                f"round_best_replays_incumbent={inversion_anchor_info['round_best_replays_incumbent']}"
+            )
             if improved:
                 best_summary = round_best
                 base_config = FrequencyRankerConfig(**round_best["config"])

@@ -11,6 +11,7 @@ from dehps.optimization.ridge_kdj_advisor import ridge_kdj_advice_to_frequency_r
 from dehps.optimization.walk_forward import TargetRank, build_ranked_universe
 import scripts.run_training_supervisor as supervisor
 from scripts.run_training_supervisor import (
+    best_challenger_summary,
     bounded_unique_config_hashes,
     calculate_tail_risk_penalty,
     candidate_budget,
@@ -37,7 +38,9 @@ from scripts.run_training_supervisor import (
     sort_key,
     stagnation_round_count,
     training_event_payload,
+    select_target_weight_inversion_anchor,
     summarize_target_ranks,
+    summary_config_hash,
     target_weight_inversion_advisor,
     target_weight_inversion_advisor_metadata,
     training_progress_payload,
@@ -45,6 +48,38 @@ from scripts.run_training_supervisor import (
     weight_kdj_advisor_metadata,
 )
 from dehps.optimization.weight_kdj import weight_kdj_advice_from_signals
+
+
+def supervisor_summary_for_config(
+    config: FrequencyRankerConfig,
+    *,
+    top_100_hits: int = 0,
+    top_1000_hits: int = 0,
+    top_10000_hits: int = 3,
+    median_rank: int = 500_000,
+    best_rank: int = 1_000,
+    worst_rank: int = 950_000,
+    objective_score: float = 100.0,
+) -> dict:
+    return {
+        "config": config.__dict__,
+        "config_hash": config_hash(config),
+        "evaluated_draws": 100,
+        "top_100_hits": top_100_hits,
+        "top_1000_hits": top_1000_hits,
+        "top_10000_hits": top_10000_hits,
+        "median_rank": median_rank,
+        "best_rank": best_rank,
+        "worst_rank": worst_rank,
+        "red5": {"top_100_hits": 0, "top_1000_hits": 0, "top_10000_hits": 0},
+        "rank_quality": {
+            "tail_over_1000000_count": 0,
+            "tail_over_900000_count": 0,
+            "tail_over_750000_count": 1,
+        },
+        "target_results": [{"issue": "2026001", "rank": best_rank}],
+        "reward": {"objectiveScore": objective_score},
+    }
 
 
 def test_duration_hours_zero_means_continuous_training():
@@ -63,6 +98,69 @@ def test_positive_duration_hours_keeps_timed_training_mode():
     assert should_continue_training(0, deadline, now=deadline + timedelta(seconds=1))
     assert should_continue_training(1, deadline, now=deadline - timedelta(seconds=1))
     assert not should_continue_training(1, deadline, now=deadline)
+
+
+def test_target_weight_inversion_anchor_uses_challenger_when_incumbent_replays():
+    incumbent_config = FrequencyRankerConfig()
+    challenger_config = FrequencyRankerConfig(frequency_weight=0.45, omission_weight=0.10)
+    incumbent = supervisor_summary_for_config(
+        incumbent_config,
+        top_100_hits=2,
+        top_1000_hits=3,
+        top_10000_hits=3,
+        median_rank=579_000,
+        objective_score=2200.0,
+    )
+    challenger = supervisor_summary_for_config(
+        challenger_config,
+        top_100_hits=2,
+        top_1000_hits=3,
+        top_10000_hits=3,
+        median_rank=581_000,
+        objective_score=2190.0,
+    )
+
+    anchor, challenger_best, metadata = select_target_weight_inversion_anchor(
+        summaries=[incumbent, challenger],
+        prior_best_summary=incumbent,
+        round_best=incumbent,
+        improved=False,
+    )
+
+    assert best_challenger_summary([incumbent, challenger], summary_config_hash(incumbent)) is challenger
+    assert anchor is challenger
+    assert challenger_best is challenger
+    assert metadata["source"] == "challenger_best"
+    assert metadata["round_best_replays_incumbent"] is True
+    assert metadata["config_hash"] == config_hash(challenger_config)
+    assert metadata["incumbent_config_hash"] == config_hash(incumbent_config)
+
+
+def test_target_weight_inversion_anchor_keeps_new_best_when_improved():
+    incumbent_config = FrequencyRankerConfig()
+    improved_config = FrequencyRankerConfig(frequency_weight=0.50, omission_weight=0.08)
+    incumbent = supervisor_summary_for_config(incumbent_config, objective_score=2200.0)
+    new_best = supervisor_summary_for_config(
+        improved_config,
+        top_100_hits=3,
+        top_1000_hits=4,
+        top_10000_hits=5,
+        median_rank=420_000,
+        objective_score=3200.0,
+    )
+
+    anchor, challenger_best, metadata = select_target_weight_inversion_anchor(
+        summaries=[new_best, incumbent],
+        prior_best_summary=incumbent,
+        round_best=new_best,
+        improved=True,
+    )
+
+    assert anchor is new_best
+    assert challenger_best is new_best
+    assert metadata["source"] == "new_best"
+    assert metadata["round_best_replays_incumbent"] is False
+    assert metadata["config_hash"] == config_hash(improved_config)
 
 
 def test_generate_configs_keeps_base_and_clamps_weight_range():
