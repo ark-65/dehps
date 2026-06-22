@@ -157,7 +157,7 @@ export class DashboardService {
             }
           } catch (error) {
             emit({
-              connection: 'disconnected',
+              connection: 'connected',
               payload: latestPayload,
               message: error instanceof Error ? error.message : '训练实时消息解析失败',
             });

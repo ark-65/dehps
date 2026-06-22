@@ -253,6 +253,18 @@ test('training view does not use periodic dashboard polling', () => {
   assert.equal(component.includes("title: '权重演化 - 奖惩'"), true);
 });
 
+test('training websocket parse errors keep the live connection state accurate', () => {
+  const service = readFileSync(new URL('../src/app/dashboard.service.ts', import.meta.url), 'utf8');
+  const parseFailureHandler = service.slice(
+    service.indexOf('          } catch (error) {'),
+    service.indexOf('        socket.onerror = () => {'),
+  );
+
+  assert.equal(parseFailureHandler.includes("connection: 'connected'"), true);
+  assert.equal(parseFailureHandler.includes("connection: 'disconnected'"), false);
+  assert.equal(parseFailureHandler.includes('训练实时消息解析失败'), true);
+});
+
 test('echart legend selection survives option refreshes', () => {
   const selection = legendSelectionFromEvent({
     selected: {
