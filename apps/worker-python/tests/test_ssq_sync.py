@@ -136,3 +136,38 @@ def test_sync_records_failed_status(monkeypatch):
     assert finished["status"] == "failed"
     assert finished["summary"]["status"] == "failed"
     assert finished["summary"]["error_message"] == "write failed"
+
+
+def test_sync_records_validation_failure_status(monkeypatch):
+    finished = {}
+
+    class FakeSource:
+        def fetch_latest(self):
+            return {"issue": "2026001", "red_numbers": [1, 2, 3, 4, 5, 34], "blue_number": 8}
+
+    class FakeContext:
+        def __enter__(self):
+            return FakeConn()
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr("dehps.crawler.ssq_sync.get_data_source", lambda *a, **k: FakeSource())
+    monkeypatch.setattr("dehps.crawler.ssq_sync.get_connection", lambda: FakeContext())
+    monkeypatch.setattr("dehps.crawler.ssq_sync.create_sync_run", lambda conn, run_key, source: None)
+    monkeypatch.setattr(
+        "dehps.crawler.ssq_sync.finish_sync_run",
+        lambda conn, run_key, status, summary: finished.update({"status": status, "summary": summary}),
+    )
+
+    try:
+        sync_ssq("fake", run_key="sync-validation-test")
+    except ValueError as exc:
+        assert str(exc) == "red numbers must be between 1 and 33"
+    else:
+        raise AssertionError("sync validation failure was not raised")
+
+    assert finished["status"] == "failed"
+    assert finished["summary"]["status"] == "failed"
+    assert finished["summary"]["fetched_count"] == 1
+    assert finished["summary"]["error_message"] == "red numbers must be between 1 and 33"
