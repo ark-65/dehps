@@ -53,8 +53,8 @@ cat <<'PROMPT' | "$CODEX_BIN" exec \
 - 不要删除或覆盖用户未提交改动。
 - 不要提交 data/output 或 runtime 下的大型生成产物，除非本轮明确创建的是小型验收报告。
 - 优先运行与改动相关的最小测试；必要时再跑 apps/worker-python/.venv/bin/python -m pytest、apps/api npm test、apps/web npm test。
-- 每轮结束必须留下清晰结果：若有代码改动且测试通过，创建一个本地 git commit，提交信息以 "self-iterate:" 开头；不要 push。
+- 每轮结束必须留下清晰结果：若有代码改动且测试通过，创建一个 git commit，提交信息以 "self-iterate:" 开头，然后推送到当前分支对应的 origin 分支；若 push 失败，明确写明失败原因。
 - 若没有安全可做的改动，也不要硬改；写明阻塞原因。
 
-请自主完成探索、修改、验证和本地提交。
+请自主完成探索、修改、验证、提交和推送。
 PROMPT
