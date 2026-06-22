@@ -149,6 +149,14 @@ const repository: ResearchRepository = {
             reward: { objectiveScore: 14.147182 },
           },
         },
+        rankMovement: {
+          comparedToRound: 1,
+          comparedTargetCount: 100,
+          changedTargetCount: 31,
+          medianChangedAbsDelta: 1,
+          maxAbsDelta: 2,
+          sameRankVector: false,
+        },
         createdAt: '2026-06-18T00:00:00.000Z',
       },
     ];
@@ -513,6 +521,8 @@ test('training rounds list uses normalized limit', async () => {
   assert.equal(rounds[0].bestRankQuality?.tail_over_750000_count, 33);
   assert.equal(rounds[0].prefilter?.searchBase?.source, 'search_challenger');
   assert.equal(rounds[0].prefilter?.searchBase?.rank_quality.tail_over_900000_count, 15);
+  assert.equal(rounds[0].rankMovement?.changedTargetCount, 31);
+  assert.equal(rounds[0].rankMovement?.maxAbsDelta, 2);
 });
 
 test('training round detail normalizes target hit rows', async () => {
@@ -900,6 +910,8 @@ test('training status is derived from database rounds without status json', asyn
     assert.equal(status.qianKun.kun_count, 1);
     assert.equal(status.recentRounds[0].round, 2);
     assert.equal(status.recentRounds[0].best?.rank_quality.tail_over_750000_count, 33);
+    assert.equal(status.recentRounds[0].rankMovement?.changedTargetCount, 31);
+    assert.equal(status.recentRounds[0].rankMovement?.medianChangedAbsDelta, 1);
     assert.equal(status.recentRounds[0].prefilter?.searchBase?.source, 'search_challenger');
     assert.equal(status.recentRounds[0].prefilter?.searchBase?.rank_quality.tail_over_1000000_count, 8);
   } finally {

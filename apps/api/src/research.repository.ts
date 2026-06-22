@@ -8,6 +8,7 @@ import {
   ResearchRepository,
   SsqHistorySummary,
   SyncRunSummary,
+  TrainingRankMovementSummary,
   TrainingRoundDetail,
   TrainingRoundListItem,
   SsqHistoryDraw,
@@ -266,6 +267,7 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
              red5_top_100_hits, red5_top_1000_hits, red5_top_10000_hits,
              median_rank, best_rank, worst_rank, objective_score,
              best_summary->'rank_quality' AS best_rank_quality,
+             best_summary->'target_results' AS best_target_results,
              prefilter, created_at
       FROM training_round_results
       ORDER BY created_at DESC, round_index DESC
@@ -273,7 +275,8 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
       `,
       [limit],
     );
-    return rows.map((row) => this.trainingRoundListItem(row));
+    const rankMovements = this.rankMovementsForRoundRows(rows);
+    return rows.map((row) => this.trainingRoundListItem(row, rankMovements.get(this.trainingRoundKey(row)) ?? null));
   }
 
   async getTrainingRoundDetail(runId: string, roundIndex: number): Promise<TrainingRoundDetail | null> {
@@ -568,7 +571,10 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
     };
   }
 
-  private trainingRoundListItem(row: Record<string, any>): TrainingRoundListItem {
+  private trainingRoundListItem(
+    row: Record<string, any>,
+    rankMovement: TrainingRankMovementSummary | null = null,
+  ): TrainingRoundListItem {
     return {
       runId: row.run_id,
       roundIndex: Number(row.round_index),
@@ -592,8 +598,95 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
       objectiveScore: row.objective_score === null ? null : Number(row.objective_score),
       bestRankQuality: row.best_rank_quality ?? null,
       prefilter: row.prefilter ?? null,
+      rankMovement,
       createdAt: row.created_at.toISOString(),
     };
+  }
+
+  private rankMovementsForRoundRows(rows: Record<string, any>[]): Map<string, TrainingRankMovementSummary | null> {
+    const byRunId = new Map<string, Record<string, any>[]>();
+    for (const row of rows) {
+      const runRows = byRunId.get(row.run_id) ?? [];
+      runRows.push(row);
+      byRunId.set(row.run_id, runRows);
+    }
+    const movements = new Map<string, TrainingRankMovementSummary | null>();
+    for (const runRows of byRunId.values()) {
+      const orderedRows = [...runRows].sort((left, right) => Number(left.round_index) - Number(right.round_index));
+      let previous: { roundIndex: number; ranks: Map<string, number> } | null = null;
+      for (const row of orderedRows) {
+        const currentRanks = this.targetRankVector(row.best_target_results);
+        movements.set(this.trainingRoundKey(row), this.rankMovementSummary(currentRanks, previous));
+        if (currentRanks.size > 0) {
+          previous = { roundIndex: Number(row.round_index), ranks: currentRanks };
+        }
+      }
+    }
+    return movements;
+  }
+
+  private trainingRoundKey(row: Record<string, any>): string {
+    return `${row.run_id}:${Number(row.round_index)}`;
+  }
+
+  private targetRankVector(value: unknown): Map<string, number> {
+    const ranks = new Map<string, number>();
+    if (!Array.isArray(value)) {
+      return ranks;
+    }
+    for (const item of value) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        continue;
+      }
+      const row = item as Record<string, unknown>;
+      const issue = row.issue === null || row.issue === undefined ? '' : String(row.issue);
+      const rank = Number(row.rank);
+      if (issue && Number.isFinite(rank)) {
+        ranks.set(issue, rank);
+      }
+    }
+    return ranks;
+  }
+
+  private rankMovementSummary(
+    currentRanks: Map<string, number>,
+    previous: { roundIndex: number; ranks: Map<string, number> } | null,
+  ): TrainingRankMovementSummary | null {
+    if (!previous || currentRanks.size === 0) {
+      return null;
+    }
+    const absDeltas: number[] = [];
+    for (const [issue, rank] of currentRanks) {
+      const previousRank = previous.ranks.get(issue);
+      if (previousRank !== undefined) {
+        absDeltas.push(Math.abs(rank - previousRank));
+      }
+    }
+    const changedDeltas = absDeltas.filter((delta) => delta > 0);
+    const sameRankVector =
+      currentRanks.size === previous.ranks.size &&
+      absDeltas.length === currentRanks.size &&
+      changedDeltas.length === 0;
+    return {
+      comparedToRound: previous.roundIndex,
+      comparedTargetCount: absDeltas.length,
+      changedTargetCount: changedDeltas.length,
+      medianChangedAbsDelta: this.medianNumber(changedDeltas),
+      maxAbsDelta: changedDeltas.length ? Math.max(...changedDeltas) : 0,
+      sameRankVector,
+    };
+  }
+
+  private medianNumber(values: number[]): number | null {
+    if (!values.length) {
+      return null;
+    }
+    const sorted = [...values].sort((left, right) => left - right);
+    const midpoint = Math.floor(sorted.length / 2);
+    if (sorted.length % 2 === 1) {
+      return sorted[midpoint];
+    }
+    return (sorted[midpoint - 1] + sorted[midpoint]) / 2;
   }
 
   private trainingWeightSignalPoint(row: Record<string, any>): TrainingWeightSignalPoint {

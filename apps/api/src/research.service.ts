@@ -25,6 +25,7 @@ import {
   TrainingPrefilterStatus,
   TrainingProgress,
   TrainingQianKunSummary,
+  TrainingRankMovementSummary,
   TrainingResult,
   TrainingRoundDetail,
   TrainingRoundListItem,
@@ -204,10 +205,16 @@ export class ResearchService {
     return {
       ...detail,
       bestConfig: this.numericRecordValue(detail.bestConfig),
+      bestRankQuality: this.rankQualityValue(detail.bestRankQuality, {
+        medianRank: detail.medianRank,
+        worstRank: detail.worstRank,
+        universeSize,
+      }),
       bestSummary: this.resultValue(detail.bestSummary, universeSize),
       topResults: this.resultsValue(detail.topResults, universeSize),
       targetResults: this.targetResultsValue(detail.targetResults),
       prefilter: this.prefilterRunValue(detail.prefilter),
+      rankMovement: detail.rankMovement ?? null,
     };
   }
 
@@ -1324,6 +1331,7 @@ export class ResearchService {
       generated_config_count: null,
       config_count: 0,
       prefilter: this.prefilterRunValue(detail?.prefilter ?? round.prefilter),
+      rankMovement: detail?.rankMovement ?? round.rankMovement,
       improved: round.improved,
       best: detailBest ?? this.resultFromRoundListItem(round),
       topResults: detail ? this.resultsValue(detail.topResults, 1107568) : [],
@@ -1401,9 +1409,28 @@ export class ResearchService {
       generated_config_count: this.numberValue(row.generated_config_count) ?? this.numberValue(row.generatedConfigCount),
       config_count: configCount,
       prefilter: this.prefilterRunValue(row.prefilter),
+      rankMovement: this.rankMovementValue(row.rank_movement ?? row.rankMovement),
       improved: Boolean(row.improved),
       best: this.resultValue(row.best, universeSize),
       topResults: this.resultsValue(row.top_results, universeSize),
+    };
+  }
+
+  private rankMovementValue(value: unknown): TrainingRankMovementSummary | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return null;
+    }
+    const row = value as Record<string, unknown>;
+    return {
+      comparedToRound: this.numberValue(row.compared_to_round ?? row.comparedToRound),
+      comparedTargetCount: this.numberValue(row.compared_target_count ?? row.comparedTargetCount) ?? 0,
+      changedTargetCount: this.numberValue(row.changed_target_count ?? row.changedTargetCount) ?? 0,
+      medianChangedAbsDelta: this.numberValue(row.median_changed_abs_delta ?? row.medianChangedAbsDelta),
+      maxAbsDelta: this.numberValue(row.max_abs_delta ?? row.maxAbsDelta),
+      sameRankVector:
+        typeof (row.same_rank_vector ?? row.sameRankVector) === 'boolean'
+          ? Boolean(row.same_rank_vector ?? row.sameRankVector)
+          : null,
     };
   }
 

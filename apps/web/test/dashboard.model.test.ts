@@ -333,6 +333,7 @@ test('training round charts enable range zoom for long round sequences', () => {
 
 test('rank and tail-risk charts include search-base series', () => {
   const component = readFileSync(new URL('../src/app/app.component.ts', import.meta.url), 'utf8');
+  const template = readFileSync(new URL('../src/app/app.component.html', import.meta.url), 'utf8');
 
   assert.equal(component.includes("this.searchBaseLineSeries('搜索最佳'"), true);
   assert.equal(component.includes("this.searchBaseLineSeries('搜索中位'"), true);
@@ -341,6 +342,11 @@ test('rank and tail-risk charts include search-base series', () => {
   assert.equal(component.includes("'搜索超过90万'"), true);
   assert.equal(component.includes("'搜索超过100万'"), true);
   assert.equal(component.includes("lineStyle: { type: 'dashed', width: 2 }"), true);
+  assert.equal(component.includes('rankMovementOption(status: TrainingStatusPayload)'), true);
+  assert.equal(component.includes("'排名向量变动'"), true);
+  assert.equal(component.includes("'变动目标数'"), true);
+  assert.equal(component.includes('rankMovement?.maxAbsDelta'), true);
+  assert.equal(template.includes('rankMovementOption(training)'), true);
 });
 
 test('weight trend charts reuse the shared round range zoom helper', () => {

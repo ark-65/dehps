@@ -376,6 +376,9 @@
         <article class="chart-panel">
           <app-echart [option]="tailRiskOption(training)" height="320px"></app-echart>
         </article>
+        <article class="chart-panel wide-chart">
+          <app-echart [option]="rankMovementOption(training)" height="320px"></app-echart>
+        </article>
         @for (group of weightTrendGroups(training); track group.key) {
         <article class="chart-panel wide-chart weight-chart-panel">
           <app-echart [option]="group.option" height="360px"></app-echart>

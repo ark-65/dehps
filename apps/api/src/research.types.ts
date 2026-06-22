@@ -136,9 +136,19 @@ export type TrainingRoundSummary = {
   generated_config_count: number | null;
   config_count: number;
   prefilter: TrainingPrefilterRun | null;
+  rankMovement: TrainingRankMovementSummary | null;
   improved: boolean;
   best: TrainingResult | null;
   topResults: TrainingResult[];
+};
+
+export type TrainingRankMovementSummary = {
+  comparedToRound: number | null;
+  comparedTargetCount: number;
+  changedTargetCount: number;
+  medianChangedAbsDelta: number | null;
+  maxAbsDelta: number | null;
+  sameRankVector: boolean | null;
 };
 
 export type TrainingTargetResult = {
@@ -183,6 +193,7 @@ export type TrainingRoundListItem = {
   objectiveScore: number | null;
   bestRankQuality: TrainingRankQualitySummary | null;
   prefilter: TrainingPrefilterRun | null;
+  rankMovement: TrainingRankMovementSummary | null;
   createdAt: string;
 };
 

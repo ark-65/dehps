@@ -966,6 +966,26 @@ export class AppComponent {
     });
   }
 
+  rankMovementOption(status: TrainingStatusPayload): ChartOption {
+    const rounds = this.chartRounds(status);
+    const xAxis = rounds.map((round) => `R${round.round}`);
+    return this.baseLineOption({
+      title: '排名向量变动',
+      rounds,
+      xAxis,
+      yName: '目标期 / 名次',
+      series: [
+        this.lineSeries('变动目标数', rounds.map((round) => round.rankMovement?.changedTargetCount ?? null), '#327857'),
+        this.lineSeries('最大变动名次', rounds.map((round) => round.rankMovement?.maxAbsDelta ?? null), '#a85c38'),
+        this.lineSeries(
+          '变动中位名次',
+          rounds.map((round) => round.rankMovement?.medianChangedAbsDelta ?? null),
+          '#4472a5',
+        ),
+      ],
+    });
+  }
+
   redFiveTrendOption(status: TrainingStatusPayload): ChartOption {
     const rounds = this.chartRounds(status);
     const xAxis = rounds.map((round) => `R${round.round}`);
