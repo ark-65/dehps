@@ -20,6 +20,8 @@ class ValidatedSsqDraw(BaseModel):
 def _parse_date(value: Any) -> date | None:
     if value in (None, ""):
         return None
+    if isinstance(value, datetime):
+        return value.date()
     if isinstance(value, date):
         return value
     text = str(value).strip()
@@ -62,4 +64,3 @@ def validate_ssq_draw(draw: dict[str, Any]) -> ValidatedSsqDraw:
         source=draw.get("source"),
         raw_payload=dict(draw),
     )
-
