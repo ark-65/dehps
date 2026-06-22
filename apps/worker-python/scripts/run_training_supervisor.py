@@ -151,11 +151,24 @@ TAIL_OVER_1000000_PENALTY = 1.25
 WORST_RANK_PENALTY_WEIGHT = 12.0
 P95_RANK_PENALTY_WEIGHT = 6.0
 MEDIAN_RANK_PENALTY_WEIGHT = 2.0
+EARLY_BROAD_ROUNDS = 24
+MID_SEARCH_ROUNDS = 72
 PHASES = (
-    ("micro", 0.01),
-    ("small", 0.03),
-    ("medium", 0.07),
+    ("large", 0.20),
     ("large", 0.15),
+    ("medium", 0.10),
+    ("large", 0.12),
+)
+MID_PHASES = (
+    ("medium", 0.08),
+    ("medium", 0.06),
+    ("small", 0.04),
+)
+LATE_PHASES = (
+    ("small", 0.03),
+    ("micro", 0.015),
+    ("micro", 0.01),
+    ("small", 0.02),
 )
 STAGNATION_THRESHOLD = 16
 CANDIDATE_BUDGET_SHARES = {
@@ -207,6 +220,7 @@ def training_event_payload(status: dict) -> dict:
         "status": status.get("status"),
         "updated_at": status.get("updated_at"),
         "latest_progress": status.get("latest_progress"),
+        "search_base": status.get("search_base"),
         "status_path": status.get("status_path"),
         "report_path": status.get("report_path"),
     }
@@ -296,6 +310,20 @@ def add_unique_until(
 ) -> None:
     if len(configs) < limit:
         add_unique(configs, seen, config)
+
+
+def phase_for_round(round_index: int, *, stagnation_rounds: int = 0) -> tuple[str, float, str]:
+    if stagnation_rounds >= STAGNATION_THRESHOLD:
+        phase, step = PHASES[round_index % len(PHASES)]
+        return "large", max(step, 0.15), "stagnation_broad"
+    if round_index < EARLY_BROAD_ROUNDS:
+        phase, step = PHASES[round_index % len(PHASES)]
+        return phase, step, "early_broad"
+    if round_index < MID_SEARCH_ROUNDS:
+        phase, step = MID_PHASES[(round_index - EARLY_BROAD_ROUNDS) % len(MID_PHASES)]
+        return phase, step, "mid_search"
+    phase, step = LATE_PHASES[(round_index - MID_SEARCH_ROUNDS) % len(LATE_PHASES)]
+    return phase, step, "late_refine"
 
 
 def _reserved_candidate_count(max_configs: int, budget_share: float, *, available: int) -> int:
@@ -1911,13 +1939,66 @@ def summary_config_hash(summary: dict | None) -> str | None:
         return None
 
 
-def best_challenger_summary(summaries: list[dict], incumbent_config_hash: str | None) -> dict | None:
+def summary_config(summary: dict | None) -> FrequencyRankerConfig | None:
+    if not isinstance(summary, dict):
+        return None
+    config_values = summary.get("config")
+    if not isinstance(config_values, dict):
+        return None
+    try:
+        return FrequencyRankerConfig(**{**config_dict(FrequencyRankerConfig()), **config_values})
+    except (TypeError, ValueError):
+        return None
+
+
+def summary_rank_vector_signature(summary: dict | None) -> tuple[tuple[str, int, int | None], ...] | None:
+    if not isinstance(summary, dict):
+        return None
+    target_results = summary.get("target_results")
+    if not isinstance(target_results, list) or not target_results:
+        return None
+    signature: list[tuple[str, int, int | None]] = []
+    for target in target_results:
+        if not isinstance(target, dict):
+            return None
+        rank = target.get("rank")
+        if not isinstance(rank, int):
+            return None
+        red5_rank = target.get("red5_rank")
+        signature.append((str(target.get("issue") or ""), rank, red5_rank if isinstance(red5_rank, int) else None))
+    return tuple(signature)
+
+
+def best_challenger_summary(
+    summaries: list[dict],
+    incumbent_config_hash: str | None,
+    *,
+    incumbent_summary: dict | None = None,
+) -> dict | None:
     if not incumbent_config_hash:
         return None
-    for summary in summaries:
-        if summary_config_hash(summary) != incumbent_config_hash:
-            return summary
-    return None
+    challengers = [
+        summary
+        for summary in summaries
+        if summary_config_hash(summary) != incumbent_config_hash
+    ]
+    incumbent_rank_signature = summary_rank_vector_signature(incumbent_summary)
+    if incumbent_rank_signature is not None:
+        for summary in challengers:
+            candidate_signature = summary_rank_vector_signature(summary)
+            if candidate_signature is not None and candidate_signature != incumbent_rank_signature:
+                return summary
+    return challengers[0] if challengers else None
+
+
+def rank_vector_changed(left: dict | None, right: dict | None) -> bool:
+    left_signature = summary_rank_vector_signature(left)
+    right_signature = summary_rank_vector_signature(right)
+    return left_signature is not None and right_signature is not None and left_signature != right_signature
+
+
+def rank_vector_available(summary: dict | None) -> bool:
+    return summary_rank_vector_signature(summary) is not None
 
 
 def _target_weight_anchor_metrics(summary: dict | None) -> dict:
@@ -1953,7 +2034,12 @@ def select_target_weight_inversion_anchor(
 ) -> tuple[dict | None, dict | None, dict]:
     incumbent_hash = summary_config_hash(prior_best_summary)
     round_best_hash = summary_config_hash(round_best)
-    challenger = best_challenger_summary(summaries, incumbent_hash)
+    incumbent_for_rank_signature = round_best if incumbent_hash and round_best_hash == incumbent_hash else prior_best_summary
+    challenger = best_challenger_summary(
+        summaries,
+        incumbent_hash,
+        incumbent_summary=incumbent_for_rank_signature,
+    )
     round_best_replays_incumbent = bool(incumbent_hash and round_best_hash == incumbent_hash)
     if improved:
         source = "new_best"
@@ -1971,9 +2057,51 @@ def select_target_weight_inversion_anchor(
         "round_best_config_hash": round_best_hash or "",
         "challenger_available": challenger is not None,
         "challenger_config_hash": summary_config_hash(challenger) or "",
+        "challenger_rank_vector_changed": rank_vector_changed(incumbent_for_rank_signature, challenger),
+        "challenger_rank_vector_available": rank_vector_available(challenger),
         **_target_weight_anchor_metrics(anchor),
     }
     return anchor, challenger, metadata
+
+
+def select_next_search_base(
+    *,
+    current_base: FrequencyRankerConfig,
+    round_best: dict | None,
+    challenger_summary: dict | None,
+    improved: bool,
+) -> tuple[FrequencyRankerConfig, dict]:
+    if improved:
+        source = "new_best"
+        selected_summary = round_best
+    elif challenger_summary is not None:
+        source = "challenger_best"
+        selected_summary = challenger_summary
+    elif round_best is not None:
+        source = "round_best"
+        selected_summary = round_best
+    else:
+        source = "unchanged"
+        selected_summary = None
+    selected_config = summary_config(selected_summary)
+    next_base = selected_config or current_base
+    previous_hash = config_hash(current_base)
+    next_hash = config_hash(next_base)
+    metadata = {
+        "source": source,
+        "changed": next_hash != previous_hash,
+        "previous_config_hash": previous_hash,
+        "config_hash": next_hash,
+        "candidate_config_hash": summary_config_hash(selected_summary) or "",
+        "top_100_hits": int(selected_summary.get("top_100_hits") or 0) if isinstance(selected_summary, dict) else 0,
+        "top_1000_hits": int(selected_summary.get("top_1000_hits") or 0) if isinstance(selected_summary, dict) else 0,
+        "top_10000_hits": int(selected_summary.get("top_10000_hits") or 0) if isinstance(selected_summary, dict) else 0,
+        "median_rank": selected_summary.get("median_rank") if isinstance(selected_summary, dict) else None,
+        "best_rank": selected_summary.get("best_rank") if isinstance(selected_summary, dict) else None,
+        "worst_rank": selected_summary.get("worst_rank") if isinstance(selected_summary, dict) else None,
+        "config": config_dict(next_base),
+    }
+    return next_base, metadata
 
 
 def compact_round_info(round_info: dict) -> dict:
@@ -2359,6 +2487,7 @@ def compact_status_payload(status: dict) -> dict:
         "carryover_seed": status.get("carryover_seed"),
         "qian_kun": status.get("qian_kun"),
         "next_candidates": status.get("next_candidates"),
+        "search_base": status.get("search_base"),
         "latest_progress": status.get("latest_progress"),
         "status_path": status.get("status_path"),
         "report_path": status.get("report_path"),
@@ -2595,7 +2724,8 @@ def run_supervisor(
             )
 
     best_summary: dict | None = prior_leaderboard[0] if prior_leaderboard else None
-    base_config = FrequencyRankerConfig(**best_summary["config"]) if best_summary else FrequencyRankerConfig()
+    best_config = FrequencyRankerConfig(**best_summary["config"]) if best_summary else FrequencyRankerConfig()
+    search_base_config = best_config
     leaderboard: list[dict] = prior_leaderboard
     rounds: list[dict] = []
     target_weight_inversion_configs: tuple[FrequencyRankerConfig, ...] = ()
@@ -2696,6 +2826,13 @@ def run_supervisor(
         "next_candidates": None,
         "rounds": rounds,
         "best": strip_target_results(best_summary) if best_summary else None,
+        "search_base": {
+            "source": "initial_best",
+            "changed": False,
+            "previous_config_hash": "",
+            "config_hash": config_hash(search_base_config),
+            "config": config_dict(search_base_config),
+        },
         "latest_progress": None,
         "status_path": str(status_path),
         "report_path": str(report_path),
@@ -2711,12 +2848,12 @@ def run_supervisor(
     try:
         round_index = 0
         while should_continue_training(round_index, deadline):
-            phase, step = PHASES[round_index % len(PHASES)]
             stagnation_rounds = stagnation_round_count(rounds)
+            phase, step, phase_stage = phase_for_round(round_index, stagnation_rounds=stagnation_rounds)
             historical_summaries = merge_leaderboard(leaderboard, prior_leaderboard, limit=32)
             low_coverage_fields = low_coverage_fields_from_summaries(historical_summaries)
             elite_configs = tuple(FrequencyRankerConfig(**summary["config"]) for summary in leaderboard[:4])
-            control_configs = control_experiment_configs(base_config)
+            control_configs = control_experiment_configs(best_config)
             budgets = candidate_budget(
                 max_configs_per_round,
                 weight_kdj_budget_share=weight_kdj_budget_share if enable_weight_kdj_advisor else 0.0,
@@ -2732,7 +2869,7 @@ def run_supervisor(
             normal_config_budget = max_configs_per_round - weight_kdj_budget - ridge_kdj_budget - neural_kdj_budget - target_weight_inversion_budget
             configs = tuple(
                 generate_configs(
-                    base_config,
+                    search_base_config,
                     phase=phase,
                     step=step,
                     max_configs=normal_config_budget,
@@ -2775,7 +2912,7 @@ def run_supervisor(
                     neutral_band=weight_kdj_neutral_band,
                 )
                 weight_kdj_configs = weight_kdj_advisor_candidate_configs(
-                    base_config,
+                    search_base_config,
                     weight_kdj_signals,
                     max_configs=weight_kdj_budget,
                     min_objective_delta=weight_kdj_min_objective_delta,
@@ -2793,7 +2930,7 @@ def run_supervisor(
                     min_validation_rows=ridge_kdj_min_validation_rows,
                 )
                 ridge_kdj_configs = ridge_kdj_advice_to_frequency_ranker_config_candidates(
-                    base_config,
+                    search_base_config,
                     ridge_kdj_advice,
                     max_configs=ridge_kdj_budget,
                     min_confidence=ridge_kdj_min_confidence,
@@ -2808,7 +2945,7 @@ def run_supervisor(
                     epochs=neural_kdj_epochs,
                 )
                 neural_kdj_configs = neural_kdj_advice_to_frequency_ranker_config_candidates(
-                    base_config,
+                    search_base_config,
                     neural_kdj_advice,
                     max_configs=neural_kdj_budget,
                     min_confidence=neural_kdj_min_confidence,
@@ -2842,7 +2979,7 @@ def run_supervisor(
                     reserved_budget=target_weight_inversion_budget,
                 )
             generated_config_count = len(configs)
-            keep_configs = (base_config, *elite_configs[:4], *(config for _label, config in control_configs))
+            keep_configs = (search_base_config, best_config, *elite_configs[:4], *(config for _label, config in control_configs))
             refined_configs, prefilter_info = prefilter_configs(
                 history=training_history,
                 ranked_universe=ranked_universe,
@@ -2858,6 +2995,7 @@ def run_supervisor(
                 diversity_quota=max(2, max_configs_per_round // 10),
             )
             prefilter_info["stagnation_rounds"] = stagnation_rounds
+            prefilter_info["phase_stage"] = phase_stage
             prefilter_info["low_coverage_fields"] = list(low_coverage_fields)
             prefilter_info["candidate_budget"] = budgets
             advisor_info = weight_kdj_advisor_metadata(
@@ -2907,7 +3045,7 @@ def run_supervisor(
                 f"prefilter_targets={prefilter_info['target_count']} "
                 f"prefilter_workers={prefilter_info.get('target_worker_count', 1)} "
                 f"prefilter_elapsed={prefilter_info['elapsed_seconds']}s "
-                f"base={config_dict(base_config)}"
+                f"search_base={config_dict(search_base_config)}"
             )
             summaries = evaluate_configs(
                 history=training_history,
@@ -2976,18 +3114,35 @@ def run_supervisor(
             prefilter_info["target_weight_inversion_advisor"] = target_weight_inversion_latest
             status["target_weight_inversion_advisor"]["latest"] = target_weight_inversion_latest
             leaderboard = merge_leaderboard(leaderboard, summaries[: min(8, len(summaries))])
+            next_search_base_config, search_base_info = select_next_search_base(
+                current_base=search_base_config,
+                round_best=round_best,
+                challenger_summary=challenger_summary,
+                improved=improved,
+            )
+            search_base_info["phase"] = phase
+            search_base_info["phase_stage"] = phase_stage
+            search_base_info["step"] = step
+            prefilter_info["search_base"] = search_base_info
             log(
                 f"round={round_index + 1} target_weight_inversion_anchor="
                 f"{inversion_anchor_info['source']} "
                 f"config_hash={inversion_anchor_info.get('config_hash', '')} "
                 f"round_best_replays_incumbent={inversion_anchor_info['round_best_replays_incumbent']}"
             )
+            log(
+                f"round={round_index + 1} search_base_next="
+                f"{search_base_info['source']} "
+                f"changed={search_base_info['changed']} "
+                f"config_hash={search_base_info['config_hash']}"
+            )
             if improved:
                 best_summary = round_best
-                base_config = FrequencyRankerConfig(**round_best["config"])
+                best_config = FrequencyRankerConfig(**round_best["config"])
                 log(f"round={round_index + 1} retained_new_best={round_best}")
             else:
                 log(f"round={round_index + 1} no_improvement best_top10000={best_summary['top_10000_hits'] if best_summary else 'n/a'}")
+            search_base_config = next_search_base_config
 
             round_record = {
                 "round": round_index + 1,
@@ -3003,6 +3158,7 @@ def run_supervisor(
             }
             status["updated_at"] = datetime.now().isoformat(timespec="seconds")
             status["best"] = strip_target_results(best_summary) if best_summary else None
+            status["search_base"] = search_base_info
             with get_connection() as conn:
                 ensure_training_round_results_schema(conn)
                 upsert_training_round_result(conn, run_id=run_id, round_info=round_record, status=status)

@@ -29,6 +29,7 @@ from scripts.run_training_supervisor import (
     merge_config_candidates,
     merge_reserved_candidate_configs,
     neural_kdj_advisor_metadata,
+    phase_for_round,
     post_training_event,
     prefilter_configs,
     reward_summary,
@@ -39,6 +40,7 @@ from scripts.run_training_supervisor import (
     stagnation_round_count,
     training_event_payload,
     select_target_weight_inversion_anchor,
+    select_next_search_base,
     summarize_target_ranks,
     summary_config_hash,
     target_weight_inversion_advisor,
@@ -60,7 +62,9 @@ def supervisor_summary_for_config(
     best_rank: int = 1_000,
     worst_rank: int = 950_000,
     objective_score: float = 100.0,
+    target_ranks: list[int] | None = None,
 ) -> dict:
+    target_ranks = target_ranks or [best_rank]
     return {
         "config": config.__dict__,
         "config_hash": config_hash(config),
@@ -77,7 +81,10 @@ def supervisor_summary_for_config(
             "tail_over_900000_count": 0,
             "tail_over_750000_count": 1,
         },
-        "target_results": [{"issue": "2026001", "rank": best_rank}],
+        "target_results": [
+            {"issue": f"2026{index:03d}", "rank": rank}
+            for index, rank in enumerate(target_ranks, start=1)
+        ],
         "reward": {"objectiveScore": objective_score},
     }
 
@@ -98,6 +105,20 @@ def test_positive_duration_hours_keeps_timed_training_mode():
     assert should_continue_training(0, deadline, now=deadline + timedelta(seconds=1))
     assert should_continue_training(1, deadline, now=deadline - timedelta(seconds=1))
     assert not should_continue_training(1, deadline, now=deadline)
+
+
+def test_phase_for_round_starts_broad_then_anneals_to_late_refine():
+    assert phase_for_round(0) == ("large", 0.20, "early_broad")
+    assert phase_for_round(1) == ("large", 0.15, "early_broad")
+    assert phase_for_round(24) == ("medium", 0.08, "mid_search")
+    assert phase_for_round(72) == ("small", 0.03, "late_refine")
+    assert phase_for_round(90) in {
+        ("small", 0.03, "late_refine"),
+        ("micro", 0.015, "late_refine"),
+        ("micro", 0.01, "late_refine"),
+        ("small", 0.02, "late_refine"),
+    }
+    assert phase_for_round(90, stagnation_rounds=16) == ("large", 0.15, "stagnation_broad")
 
 
 def test_target_weight_inversion_anchor_uses_challenger_when_incumbent_replays():
@@ -134,6 +155,44 @@ def test_target_weight_inversion_anchor_uses_challenger_when_incumbent_replays()
     assert metadata["round_best_replays_incumbent"] is True
     assert metadata["config_hash"] == config_hash(challenger_config)
     assert metadata["incumbent_config_hash"] == config_hash(incumbent_config)
+    assert metadata["challenger_rank_vector_changed"] is False
+
+
+def test_best_challenger_prefers_different_rank_vector_over_config_only_change():
+    incumbent_config = FrequencyRankerConfig()
+    same_rank_config = FrequencyRankerConfig(frequency_weight=0.45, omission_weight=0.10)
+    changed_rank_config = FrequencyRankerConfig(frequency_weight=0.20, omission_weight=0.40)
+    incumbent = supervisor_summary_for_config(incumbent_config, target_ranks=[100, 900, 50_000])
+    same_rank = supervisor_summary_for_config(same_rank_config, target_ranks=[100, 900, 50_000], objective_score=2190.0)
+    changed_rank = supervisor_summary_for_config(changed_rank_config, target_ranks=[99, 900, 50_000], objective_score=2180.0)
+
+    challenger = best_challenger_summary(
+        [incumbent, same_rank, changed_rank],
+        summary_config_hash(incumbent),
+        incumbent_summary=incumbent,
+    )
+
+    assert challenger is changed_rank
+
+
+def test_next_search_base_advances_to_challenger_without_promoting_best():
+    incumbent_config = FrequencyRankerConfig()
+    challenger_config = FrequencyRankerConfig(frequency_weight=0.45, omission_weight=0.10)
+    incumbent = supervisor_summary_for_config(incumbent_config, objective_score=2200.0)
+    challenger = supervisor_summary_for_config(challenger_config, objective_score=2190.0)
+
+    next_base, metadata = select_next_search_base(
+        current_base=incumbent_config,
+        round_best=incumbent,
+        challenger_summary=challenger,
+        improved=False,
+    )
+
+    assert config_hash(next_base) == config_hash(challenger_config)
+    assert metadata["source"] == "challenger_best"
+    assert metadata["changed"] is True
+    assert metadata["previous_config_hash"] == config_hash(incumbent_config)
+    assert metadata["config_hash"] == config_hash(challenger_config)
 
 
 def test_target_weight_inversion_anchor_keeps_new_best_when_improved():
@@ -1086,6 +1145,7 @@ def test_training_event_payload_is_compact_signal_only():
             "status": "running",
             "updated_at": "2026-06-17T12:00:00",
             "latest_progress": {"round": 1},
+            "search_base": {"source": "challenger_best"},
             "status_path": "/tmp/status.json",
             "report_path": "/tmp/status.md",
             "rounds": [{"large": "payload"}],
@@ -1098,6 +1158,7 @@ def test_training_event_payload_is_compact_signal_only():
         "status": "running",
         "updated_at": "2026-06-17T12:00:00",
         "latest_progress": {"round": 1},
+        "search_base": {"source": "challenger_best"},
         "status_path": "/tmp/status.json",
         "report_path": "/tmp/status.md",
     }
