@@ -29,8 +29,9 @@ def audit_candidate_protocol(
     latest_issue_number = _issue_number(latest_issue)
     seed_issue_number = _issue_number(seed)
     has_comparable_issue_seed = latest_issue_number is not None and seed_issue_number is not None
-    seed_mentions_future = bool(has_comparable_issue_seed and seed_issue_number > latest_issue_number)
-    issue_seed_is_auditable = bool(latest_issue and has_comparable_issue_seed and not seed_mentions_future)
+    issue_seed_is_auditable = bool(
+        latest_issue and has_comparable_issue_seed and seed_issue_number == latest_issue_number
+    )
 
     return [
         LeakageCheck(
@@ -38,7 +39,7 @@ def audit_candidate_protocol(
             status="pass" if issue_seed_is_auditable else "warn",
             detail="seed is derived from the latest known issue, not a future result"
             if issue_seed_is_auditable
-            else "latest issue is missing, malformed, or seed appears newer than latest known issue",
+            else "latest issue is missing, malformed, or seed is not exactly the latest known issue",
         ),
         LeakageCheck(
             name="history_overlap",

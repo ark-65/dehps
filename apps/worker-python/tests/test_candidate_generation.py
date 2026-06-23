@@ -90,3 +90,25 @@ def test_leakage_audit_warns_on_malformed_latest_issue():
     statuses = {check.name: check.status for check in checks}
 
     assert statuses["future_outcome"] == "warn"
+
+
+def test_leakage_audit_warns_on_stale_seed_issue():
+    candidate = Candidate(
+        rank=1,
+        numbers=(1, 2, 3, 4, 5, 6),
+        score=0.5,
+        anomaly_penalty=0.1,
+        structure_naturalness_score=0.5,
+        pattern_complexity_score=0.5,
+        tie_breaker="abc",
+    )
+
+    checks = audit_candidate_protocol(
+        candidates=[candidate],
+        history=[],
+        latest_issue="2026068",
+        seed="2026067",
+    )
+    statuses = {check.name: check.status for check in checks}
+
+    assert statuses["future_outcome"] == "warn"
