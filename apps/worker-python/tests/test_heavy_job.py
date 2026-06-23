@@ -154,3 +154,28 @@ def test_dead_pid_metadata_is_reported_inactive(tmp_path):
     assert owner_status.active is False
     assert owner_status.pid_active is False
     assert owner_status.reason == "pid_not_running"
+
+
+def test_completed_status_metadata_is_reported_inactive_even_with_live_pid(tmp_path):
+    lock_path = tmp_path / "dehps-heavy-job.lock"
+    metadata_path = metadata_path_for(lock_path)
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "owner": "finished-job",
+                "pid": os.getpid(),
+                "started_at": "2026-06-18T00:00:00Z",
+                "heartbeat_at": "2026-06-18T00:00:01Z",
+                "status": "completed",
+                "command": ["done"],
+                "context": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    owner_status = describe_heavy_job_owner(lock_path=lock_path)
+
+    assert owner_status.active is False
+    assert owner_status.pid_active is True
+    assert owner_status.reason == "status_completed"

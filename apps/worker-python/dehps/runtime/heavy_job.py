@@ -28,7 +28,7 @@ CPU_THREAD_ENV_VARS = (
 )
 DEFAULT_CPU_THREAD_COUNT = 1
 DEFAULT_LOCK_FILENAME = "dehps-heavy-job.lock"
-INACTIVE_STATUSES = {"released", "finished", "success", "failed", "error", "cancelled"}
+INACTIVE_STATUSES = {"released", "finished", "completed", "success", "failed", "error", "cancelled"}
 
 _HELD_LOCKS: set[Path] = set()
 _HELD_LOCKS_MUTEX = threading.Lock()

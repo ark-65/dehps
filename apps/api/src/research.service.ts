@@ -41,6 +41,15 @@ const DEFAULT_LOG_TAIL_LINES = 80;
 const DEFAULT_HEAVY_TASK_WORKERS = 16;
 const OPTIMIZATION_OUTPUT_DIR = 'data/output/optimization';
 const RUNTIME_LOG_DIR = 'runtime/logs';
+const HEAVY_JOB_INACTIVE_STATUSES = new Set([
+  'released',
+  'finished',
+  'completed',
+  'success',
+  'failed',
+  'error',
+  'cancelled',
+]);
 const SYNC_SCHEDULE = {
   timezone: 'Asia/Shanghai',
   cron: '59 23 * * 2,4,0',
@@ -480,7 +489,9 @@ export class ResearchService {
       const pid = this.numberValue(payload.pid);
       const pidActive = pid === null ? null : this.isProcessAlive(pid);
       const status = this.stringValue(payload.status);
-      const active = pidActive === true && !['released', 'finished', 'success', 'failed', 'error', 'cancelled'].includes(status ?? '');
+      const normalizedStatus = status?.toLowerCase() ?? null;
+      const statusInactive = normalizedStatus !== null && HEAVY_JOB_INACTIVE_STATUSES.has(normalizedStatus);
+      const active = pidActive === true && !statusInactive;
       return {
         lockPath,
         metadataPath,
@@ -493,7 +504,13 @@ export class ResearchService {
         heartbeatAt: this.stringValue(payload.heartbeat_at ?? payload.heartbeatAt),
         command: Array.isArray(payload.command) ? payload.command : null,
         context: payload.context && typeof payload.context === 'object' && !Array.isArray(payload.context) ? payload.context : null,
-        reason: active ? 'pid_running' : pidActive === false ? 'pid_not_running' : 'metadata_present',
+        reason: statusInactive
+          ? `status_${normalizedStatus}`
+          : active
+            ? 'pid_running'
+            : pidActive === false
+              ? 'pid_not_running'
+              : 'metadata_present',
       };
     } catch (error) {
       const code = typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : null;
