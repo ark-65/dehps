@@ -851,12 +851,14 @@ export class ResearchService {
 
   private latestErrorLine(lines: string[]): string | null {
     const errorPattern = /\b(errors?|exception|failed|traceback)\b/i;
-    const zeroErrorPattern = /\b(?:0|no)\s+errors?\b/i;
+    const zeroErrorPattern =
+      /\b(?:0|no)\s+(?:errors?|fail(?:ed|ures?)?)\b|\b(?:errors?|fail(?:ed|ures?)?)\s*[:=]\s*0\b/gi;
     const recoveryPattern = /\b(ready|listening|started|success|successful|complete|completed)\b/i;
     let latestErrorIndex = -1;
     let latestRecoveryIndex = -1;
     lines.forEach((line, index) => {
-      if (errorPattern.test(line) && !zeroErrorPattern.test(line)) {
+      const lineWithoutZeroSummaries = line.replace(zeroErrorPattern, ' ');
+      if (errorPattern.test(lineWithoutZeroSummaries)) {
         latestErrorIndex = index;
       }
       if (recoveryPattern.test(line)) {
