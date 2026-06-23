@@ -51,6 +51,7 @@ from scripts.run_training_supervisor import (
     target_rank_movement,
     target_weight_inversion_advisor,
     target_weight_inversion_advisor_metadata,
+    target_weight_inversion_budget_guardrail,
     training_progress_payload,
     weight_kdj_advisor_candidate_configs,
     weight_kdj_advisor_metadata,
@@ -399,6 +400,46 @@ def test_candidate_budget_skips_target_weight_inversion_bucket_without_candidate
 
     assert budget["target_weight_inversion"] == 0
     assert sum(budget.values()) == 20
+
+
+def test_target_weight_inversion_guardrail_disables_stale_no_lift_budget():
+    latest = {
+        "status": "ready",
+        "advice": [
+            {
+                "decision": "selected",
+                "validation_metric": 0.03,
+                "baseline_metric": 0.03,
+            }
+        ],
+    }
+
+    guardrail = target_weight_inversion_budget_guardrail(0.30, latest=latest, stagnation_rounds=227)
+
+    assert guardrail["active"] is True
+    assert guardrail["effective_share"] == 0.0
+    assert guardrail["reason"] == "stale_no_validation_lift"
+
+
+def test_target_weight_inversion_guardrail_keeps_budget_with_lift_or_early_rounds():
+    latest = {
+        "status": "ready",
+        "advice": [
+            {
+                "decision": "selected",
+                "validation_metric": 0.07,
+                "baseline_metric": 0.03,
+            }
+        ],
+    }
+
+    lifted = target_weight_inversion_budget_guardrail(0.30, latest=latest, stagnation_rounds=227)
+    early = target_weight_inversion_budget_guardrail(0.30, latest=None, stagnation_rounds=12)
+
+    assert lifted["active"] is False
+    assert lifted["effective_share"] == 0.30
+    assert early["active"] is False
+    assert early["effective_share"] == 0.30
 
 
 def test_reserved_weight_kdj_candidates_survive_full_normal_round():

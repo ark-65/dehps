@@ -222,6 +222,7 @@ DEFAULT_TARGET_WEIGHT_INVERSION_BUDGET_SHARE = 0.20
 DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES = 8
 DEFAULT_TARGET_WEIGHT_INVERSION_MAX_TARGETS = 100
 DEFAULT_TARGET_WEIGHT_INVERSION_MAX_DELTAS_PER_TARGET = 8
+TARGET_WEIGHT_INVERSION_STALE_STAGNATION_THRESHOLD = 64
 MAX_FROZEN_VALIDATION_WINDOW = 20
 
 
@@ -364,6 +365,50 @@ def _reserved_candidate_count(max_configs: int, budget_share: float, *, availabl
         return 0
     share = min(1.0, max(0.0, budget_share))
     return min(available, max(1, int(ceil(max_configs * share))))
+
+
+def _target_weight_inversion_has_validation_lift(latest: dict | None) -> bool:
+    if not isinstance(latest, dict):
+        return False
+    for advice in latest.get("advice") or ():
+        if not isinstance(advice, dict) or advice.get("decision") != "selected":
+            continue
+        validation_metric = advice.get("validation_metric")
+        baseline_metric = advice.get("baseline_metric")
+        if validation_metric is None or baseline_metric is None:
+            continue
+        try:
+            if float(validation_metric) > float(baseline_metric):
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+def target_weight_inversion_budget_guardrail(
+    configured_share: float,
+    *,
+    latest: dict | None,
+    stagnation_rounds: int,
+) -> dict:
+    effective_share = max(0.0, configured_share)
+    active = (
+        effective_share > 0
+        and stagnation_rounds >= TARGET_WEIGHT_INVERSION_STALE_STAGNATION_THRESHOLD
+        and isinstance(latest, dict)
+        and latest.get("status", "ready") == "ready"
+        and not _target_weight_inversion_has_validation_lift(latest)
+    )
+    if active:
+        effective_share = 0.0
+    return {
+        "active": active,
+        "configured_share": configured_share,
+        "effective_share": effective_share,
+        "stagnation_rounds": stagnation_rounds,
+        "threshold": TARGET_WEIGHT_INVERSION_STALE_STAGNATION_THRESHOLD,
+        "reason": "stale_no_validation_lift" if active else None,
+    }
 
 
 def candidate_budget(
@@ -3276,13 +3321,18 @@ def run_supervisor(
             low_coverage_fields = low_coverage_fields_from_summaries(historical_summaries)
             elite_configs = tuple(FrequencyRankerConfig(**summary["config"]) for summary in leaderboard[:4])
             control_configs = control_experiment_configs(best_config)
+            target_weight_inversion_guardrail = target_weight_inversion_budget_guardrail(
+                target_weight_inversion_budget_share if enable_target_weight_inversion_advisor else 0.0,
+                latest=target_weight_inversion_latest,
+                stagnation_rounds=stagnation_rounds,
+            )
             budgets = candidate_budget(
                 max_configs_per_round,
                 recency_canary_budget_share=DEFAULT_RECENCY_CANARY_BUDGET_SHARE,
                 weight_kdj_budget_share=weight_kdj_budget_share if enable_weight_kdj_advisor else 0.0,
                 ridge_kdj_budget_share=ridge_kdj_budget_share if enable_ridge_kdj_advisor else 0.0,
                 neural_kdj_budget_share=neural_kdj_budget_share if enable_neural_kdj_advisor else 0.0,
-                target_weight_inversion_budget_share=target_weight_inversion_budget_share if enable_target_weight_inversion_advisor else 0.0,
+                target_weight_inversion_budget_share=target_weight_inversion_guardrail["effective_share"],
                 target_weight_inversion_available=len(target_weight_inversion_configs),
                 target_weight_inversion_max_candidates=target_weight_inversion_max_candidates,
             )
@@ -3460,6 +3510,7 @@ def run_supervisor(
             }
             prefilter_info["low_coverage_fields"] = list(low_coverage_fields)
             prefilter_info["candidate_budget"] = budgets
+            prefilter_info["target_weight_inversion_budget_guardrail"] = target_weight_inversion_guardrail
             prefilter_info["source_survival"] = candidate_source_survival(
                 source_configs,
                 refined_configs=refined_configs,
