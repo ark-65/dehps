@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import sys
 from datetime import date, datetime
 
 from dehps.backtest.coverage import run_baseline_backtest
@@ -32,6 +33,22 @@ def _load_git_helper():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _heartbeat_heavy_lock(
+    heavy_lock: HeavyJobLock | None,
+    *,
+    status: str | None = None,
+    context: dict | None = None,
+) -> bool:
+    if heavy_lock is None:
+        return False
+    try:
+        heavy_lock.heartbeat(status=status, context=context)
+    except Exception as exc:
+        print(f"[daily_pipeline] heavy_job_heartbeat_warning error={exc}", file=sys.stderr, flush=True)
+        return False
+    return True
 
 
 def run_pipeline(
@@ -72,7 +89,10 @@ def run_pipeline(
         has_synced_changes = is_new_data or sync_summary.get("updated_count", 0) > 0
         summary["sync_run_key"] = sync_summary["run_key"]
         summary["sync"] = sync_summary
-        heavy_lock.heartbeat(context={"sync_run_key": sync_summary["run_key"], "has_synced_changes": has_synced_changes})
+        _heartbeat_heavy_lock(
+            heavy_lock,
+            context={"sync_run_key": sync_summary["run_key"], "has_synced_changes": has_synced_changes},
+        )
 
         metrics = {
             "total_combinations": 1107568,
@@ -118,7 +138,7 @@ def run_pipeline(
                 base_config=FrequencyRankerConfig(),
                 dry_run=False,
             )
-            heavy_lock.heartbeat(context={"weight_kdj": summary["weight_kdj"]})
+            _heartbeat_heavy_lock(heavy_lock, context={"weight_kdj": summary["weight_kdj"]})
 
         if has_synced_changes:
             try:
@@ -126,7 +146,10 @@ def run_pipeline(
                     summary["training_next_candidates"] = refresh_training_next_candidates_current(conn, top_n=10000)
             except Exception as exc:
                 summary["training_next_candidates"] = {"status": "failed", "error_message": str(exc)}
-            heavy_lock.heartbeat(context={"training_next_candidates": summary["training_next_candidates"]})
+            _heartbeat_heavy_lock(
+                heavy_lock,
+                context={"training_next_candidates": summary["training_next_candidates"]},
+            )
 
         daily_report = render_daily_report(run_key, source, latest, is_new_data, metrics, previous)
         daily_path = ROOT_DIR / "data/output/daily" / f"{date.today().isoformat()}-dehps-daily-report.md"
@@ -151,12 +174,11 @@ def run_pipeline(
 
         with get_connection() as conn:
             finish_pipeline_run(conn, run_key, "success", summary)
-        heavy_lock.heartbeat(status="completed", context={"daily_report_path": summary["daily_report_path"]})
+        _heartbeat_heavy_lock(heavy_lock, status="completed", context={"daily_report_path": summary["daily_report_path"]})
         return summary
     except Exception as exc:
         summary["error_message"] = str(exc)
-        if heavy_lock is not None:
-            heavy_lock.heartbeat(status="failed", context={"error": str(exc)})
+        _heartbeat_heavy_lock(heavy_lock, status="failed", context={"error": str(exc)})
         with get_connection() as conn:
             finish_pipeline_run(conn, run_key, "failed", summary)
         raise
