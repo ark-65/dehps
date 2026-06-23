@@ -637,6 +637,34 @@ def test_generate_configs_uses_history_and_stagnation_exploration():
     assert any(all(value == 0 for value in config.__dict__.values()) for config in configs)
 
 
+def test_generate_configs_reserves_high_stagnation_exploration_slots():
+    base = FrequencyRankerConfig()
+
+    baseline_configs = generate_configs(
+        base,
+        phase="large",
+        step=0.15,
+        max_configs=11,
+        stagnation_rounds=0,
+        round_index=77,
+    )
+    stagnated_configs = generate_configs(
+        base,
+        phase="large",
+        step=0.15,
+        max_configs=11,
+        stagnation_rounds=76,
+        round_index=77,
+    )
+
+    baseline_hashes = {config_hash(config) for config in baseline_configs}
+    stagnated_hashes = {config_hash(config) for config in stagnated_configs}
+
+    assert len(stagnated_configs) == 11
+    assert len(stagnated_hashes) == 11
+    assert len(stagnated_hashes - baseline_hashes) >= 2
+
+
 def test_weight_kdj_advisor_generates_bounded_candidate_offsets():
     base = FrequencyRankerConfig(frequency_weight=0.30, sum_tail_weight=0.0)
     signals = [

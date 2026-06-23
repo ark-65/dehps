@@ -1649,6 +1649,8 @@ def generate_configs(
         add_unique_until(configs, seen, config, limit=baseline_limit)
 
     if stagnation_rounds >= STAGNATION_THRESHOLD:
+        stagnation_configs: list[FrequencyRankerConfig] = []
+        stagnation_seen = set(seen)
         for config in exploratory_candidate_configs(
             base,
             phase="large",
@@ -1657,7 +1659,52 @@ def generate_configs(
             stagnation_rounds=stagnation_rounds,
             seed=deterministic_seed("stagnation", phase, round_index, stagnation_rounds),
         ):
-            add_unique(configs, seen, config)
+            key = config_hash(config)
+            if key in stagnation_seen:
+                continue
+            stagnation_configs.append(config)
+            stagnation_seen.add(key)
+        if stagnation_configs:
+            reserve = min(len(stagnation_configs), max(2, max_configs // 4), max_configs)
+            final_configs = configs[:max_configs]
+            final_seen = {config_hash(config) for config in final_configs}
+            protected_hashes = {
+                *(config_hash(config) for config in baseline_candidate_configs()),
+                *(config_hash(config) for config in historical_configs),
+            }
+            replace_indexes = [
+                index
+                for index in range(len(final_configs) - 1, -1, -1)
+                if config_hash(final_configs[index]) not in protected_hashes
+            ]
+            replaced = 0
+            for config in stagnation_configs:
+                key = config_hash(config)
+                if key in final_seen:
+                    continue
+                if len(final_configs) < max_configs:
+                    final_configs.append(config)
+                    final_seen.add(key)
+                    replaced += 1
+                elif replace_indexes:
+                    replace_index = replace_indexes.pop(0)
+                    final_seen.discard(config_hash(final_configs[replace_index]))
+                    final_configs[replace_index] = config
+                    final_seen.add(key)
+                    replaced += 1
+                else:
+                    break
+                if replaced >= reserve:
+                    break
+            for config in configs:
+                if len(final_configs) >= max_configs:
+                    break
+                key = config_hash(config)
+                if key in final_seen:
+                    continue
+                final_configs.append(config)
+                final_seen.add(key)
+            return final_configs[:max_configs]
 
     return configs[:max_configs]
 
