@@ -21,6 +21,25 @@ def staged_paths() -> subprocess.CompletedProcess:
     return run(["git", "diff", "--cached", "--name-only", "-z"])
 
 
+def resolve_push_branch(remote: str, branch: str | None) -> tuple[str | None, str | None]:
+    if branch:
+        return branch, None
+
+    upstream = run(["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])
+    upstream_ref = upstream.stdout.strip()
+    remote_prefix = f"{remote}/"
+    if upstream.returncode == 0 and upstream_ref.startswith(remote_prefix):
+        return upstream_ref[len(remote_prefix) :], None
+
+    current = run(["git", "branch", "--show-current"])
+    current_branch = current.stdout.strip()
+    if current.returncode == 0 and current_branch:
+        return current_branch, None
+
+    error = upstream.stderr.strip() or current.stderr.strip() or "unable to resolve current branch for push"
+    return None, error
+
+
 def split_null_paths(value: str) -> list[str]:
     return [path for path in value.split("\0") if path]
 
@@ -29,7 +48,7 @@ def path_is_allowed(path: str, allowed_paths: list[str]) -> bool:
     return any(path == allowed_path or path.startswith(f"{allowed_path}/") for allowed_path in allowed_paths)
 
 
-def git_commit_and_push(message: str, push: bool = False, remote: str = "origin", branch: str = "main") -> dict:
+def git_commit_and_push(message: str, push: bool = False, remote: str = "origin", branch: str | None = None) -> dict:
     status = run(["git", "status", "--short"])
     if status.returncode != 0:
         return {"status": "failed", "error": status.stderr.strip()}
@@ -73,7 +92,10 @@ def git_commit_and_push(message: str, push: bool = False, remote: str = "origin"
     sha = run(["git", "rev-parse", "HEAD"])
     result = {"status": "committed", "sha": sha.stdout.strip()}
     if push:
-        pushed = run(["git", "push", remote, branch])
+        push_branch, push_error = resolve_push_branch(remote, branch)
+        if push_branch is None:
+            return {**result, "status": "push_failed", "error": push_error or "unable to resolve push branch"}
+        pushed = run(["git", "push", remote, f"HEAD:{push_branch}"])
         if pushed.returncode != 0:
             return {**result, "status": "push_failed", "error": pushed.stderr.strip()}
         result["status"] = "pushed"
@@ -85,7 +107,7 @@ def main() -> None:
     parser.add_argument("--message", required=True)
     parser.add_argument("--push", action="store_true")
     parser.add_argument("--remote", default="origin")
-    parser.add_argument("--branch", default="main")
+    parser.add_argument("--branch", default=None)
     args = parser.parse_args()
     print(git_commit_and_push(args.message, args.push, args.remote, args.branch))
 

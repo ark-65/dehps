@@ -96,3 +96,54 @@ def test_git_helper_blocks_pre_staged_disallowed_paths(monkeypatch):
         "error": "staged changes outside allowed auto-git paths",
     }
     assert not any(call[:2] == ["git", "add"] for call in calls)
+
+
+def test_git_helper_pushes_current_upstream_branch_by_default(monkeypatch):
+    calls = []
+
+    def fake_run(cmd, cwd, text, capture_output, check):
+        calls.append(cmd)
+        if cmd == ["git", "status", "--short"]:
+            return FakeCompleted(stdout=" M docs/experiments/report.md\n")
+        if cmd == ["git", "diff", "--cached", "--name-only", "-z"]:
+            return FakeCompleted(stdout="docs/experiments/report.md\0")
+        if cmd == ["git", "rev-parse", "HEAD"]:
+            return FakeCompleted(stdout="abc123\n")
+        if cmd == ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]:
+            return FakeCompleted(stdout="origin/self-iterate/topic\n")
+        return FakeCompleted()
+
+    monkeypatch.setattr(git_commit_and_push, "ALLOWED_PATHS", ["docs/experiments"])
+    monkeypatch.setattr(git_commit_and_push.subprocess, "run", fake_run)
+
+    result = git_commit_and_push.git_commit_and_push("test commit", push=True)
+
+    assert result == {"status": "pushed", "sha": "abc123"}
+    assert ["git", "push", "origin", "HEAD:self-iterate/topic"] in calls
+    assert ["git", "push", "origin", "main"] not in calls
+
+
+def test_git_helper_push_falls_back_to_current_branch_without_upstream(monkeypatch):
+    calls = []
+
+    def fake_run(cmd, cwd, text, capture_output, check):
+        calls.append(cmd)
+        if cmd == ["git", "status", "--short"]:
+            return FakeCompleted(stdout=" M docs/experiments/report.md\n")
+        if cmd == ["git", "diff", "--cached", "--name-only", "-z"]:
+            return FakeCompleted(stdout="docs/experiments/report.md\0")
+        if cmd == ["git", "rev-parse", "HEAD"]:
+            return FakeCompleted(stdout="abc123\n")
+        if cmd == ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"]:
+            return FakeCompleted(returncode=128, stderr="no upstream configured\n")
+        if cmd == ["git", "branch", "--show-current"]:
+            return FakeCompleted(stdout="local-topic\n")
+        return FakeCompleted()
+
+    monkeypatch.setattr(git_commit_and_push, "ALLOWED_PATHS", ["docs/experiments"])
+    monkeypatch.setattr(git_commit_and_push.subprocess, "run", fake_run)
+
+    result = git_commit_and_push.git_commit_and_push("test commit", push=True)
+
+    assert result == {"status": "pushed", "sha": "abc123"}
+    assert ["git", "push", "origin", "HEAD:local-topic"] in calls
