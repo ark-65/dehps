@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from operator import index
 from typing import Any
 
 from pydantic import BaseModel
@@ -33,15 +34,30 @@ def _parse_date(value: Any) -> date | None:
     raise ValueError(f"invalid draw_date: {value}")
 
 
+def _parse_ball_number(value: Any, field_name: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be an integer")
+    if isinstance(value, str):
+        text = value.strip()
+        signed_digits = text[1:] if text.startswith(("+", "-")) else text
+        if text and signed_digits.isdecimal():
+            return int(text)
+        raise ValueError(f"{field_name} must be an integer")
+    try:
+        return index(value)
+    except TypeError as exc:
+        raise ValueError(f"{field_name} must be an integer") from exc
+
+
 def _extract_red_numbers(draw: dict[str, Any]) -> list[int]:
     if "red_numbers" in draw:
         value = draw["red_numbers"]
         if isinstance(value, str):
-            return [int(part) for part in value.replace(",", " ").split()]
-        return [int(n) for n in value]
+            return [_parse_ball_number(part, "red_numbers") for part in value.replace(",", " ").split()]
+        return [_parse_ball_number(n, "red_numbers") for n in value]
     keys = ["r1", "r2", "r3", "r4", "r5", "r6"]
     if all(k in draw for k in keys):
-        return [int(draw[k]) for k in keys]
+        return [_parse_ball_number(draw[k], k) for k in keys]
     raise ValueError("missing red_numbers")
 
 
@@ -52,7 +68,7 @@ def validate_ssq_draw(draw: dict[str, Any]) -> ValidatedSsqDraw:
 
     red_numbers = normalize_red_numbers(_extract_red_numbers(draw))
     blue_value = draw.get("blue_number", draw.get("blue"))
-    blue_number = int(blue_value) if blue_value not in (None, "") else None
+    blue_number = _parse_ball_number(blue_value, "blue_number") if blue_value not in (None, "") else None
     if blue_number is not None and not 1 <= blue_number <= 16:
         raise ValueError("blue_number must be between 1 and 16")
 
