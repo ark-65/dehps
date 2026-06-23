@@ -45,6 +45,7 @@ from scripts.run_training_supervisor import (
     target_hit_issues,
     training_event_payload,
     select_target_weight_inversion_anchor,
+    select_stagnation_exploration_champion,
     select_next_search_base,
     summarize_target_ranks,
     summary_config_hash,
@@ -548,6 +549,50 @@ def test_candidate_source_survival_tracks_prefilter_top5_and_round_best():
     assert survival["weight_kdj"]["prefilter_selected"] == 1
     assert survival["weight_kdj"]["round_best"] is True
     assert survival["target_weight_inversion"]["prefilter_selected"] == 0
+
+
+def test_stagnation_exploration_champion_waits_for_threshold():
+    normal = FrequencyRankerConfig()
+    target_inversion = FrequencyRankerConfig(frequency_weight=0.45, omission_weight=0.10)
+    normal_summary = supervisor_summary_for_config(normal, objective_score=2200.0)
+    target_summary = supervisor_summary_for_config(target_inversion, objective_score=2190.0)
+
+    champion, metadata = select_stagnation_exploration_champion(
+        summaries=[normal_summary, target_summary],
+        source_configs={"normal": (normal,), "target_weight_inversion": (target_inversion,)},
+        round_best=normal_summary,
+        stagnation_rounds=15,
+    )
+
+    assert champion is None
+    assert metadata["active"] is False
+    assert metadata["reason"] == "below_threshold"
+
+
+def test_stagnation_exploration_champion_selects_top_exploratory_candidate():
+    normal = FrequencyRankerConfig()
+    ridge = FrequencyRankerConfig(frequency_weight=0.45, omission_weight=0.10)
+    target_inversion = FrequencyRankerConfig(sum_tail_weight=0.07)
+    normal_summary = supervisor_summary_for_config(normal, objective_score=2200.0)
+    ridge_summary = supervisor_summary_for_config(ridge, objective_score=2195.0)
+    target_summary = supervisor_summary_for_config(target_inversion, objective_score=2190.0)
+
+    champion, metadata = select_stagnation_exploration_champion(
+        summaries=[normal_summary, ridge_summary, target_summary],
+        source_configs={
+            "normal": (normal,),
+            "ridge_kdj": (ridge,),
+            "target_weight_inversion": (target_inversion,),
+        },
+        round_best=normal_summary,
+        stagnation_rounds=16,
+    )
+
+    assert champion is ridge_summary
+    assert metadata["active"] is True
+    assert metadata["source"] == "ridge_kdj"
+    assert metadata["top_rank"] == 2
+    assert metadata["reason"] == "stagnation_top_eval_exploration"
 
 
 def test_generate_configs_reuses_elite_configs_for_local_search():

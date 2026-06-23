@@ -1043,6 +1043,58 @@ def candidate_source_survival(
     return survival
 
 
+def select_stagnation_exploration_champion(
+    *,
+    summaries: list[dict],
+    source_configs: dict[str, tuple[FrequencyRankerConfig, ...]],
+    round_best: dict | None,
+    stagnation_rounds: int,
+    top_limit: int = 5,
+) -> tuple[dict | None, dict]:
+    round_best_hash = summary_config_hash(round_best) or ""
+    source_by_hash: dict[str, str] = {}
+    for source, configs in source_configs.items():
+        for config in configs:
+            key = config_hash(config)
+            if key not in source_by_hash or source_by_hash[key] == "normal":
+                source_by_hash[key] = source
+    round_best_source = source_by_hash.get(round_best_hash, "")
+    metadata = {
+        "active": False,
+        "threshold": STAGNATION_THRESHOLD,
+        "stagnation_rounds": stagnation_rounds,
+        "source": "",
+        "config_hash": "",
+        "top_rank": None,
+        "round_best_config_hash": round_best_hash,
+        "round_best_source": round_best_source,
+        "reason": None,
+    }
+    if stagnation_rounds < STAGNATION_THRESHOLD:
+        metadata["reason"] = "below_threshold"
+        return None, metadata
+    if round_best_source and round_best_source != "normal":
+        metadata["reason"] = "round_best_already_exploratory"
+        return None, metadata
+    for index, summary in enumerate(summaries[: max(0, top_limit)], start=1):
+        key = summary_config_hash(summary) or ""
+        source = source_by_hash.get(key, "")
+        if not source or source == "normal":
+            continue
+        metadata.update(
+            {
+                "active": True,
+                "source": source,
+                "config_hash": key,
+                "top_rank": index,
+                "reason": "stagnation_top_eval_exploration",
+            }
+        )
+        return summary, metadata
+    metadata["reason"] = "no_exploratory_top_candidate"
+    return None, metadata
+
+
 def bounded_unique_config_hashes(configs: tuple[FrequencyRankerConfig, ...], *, limit: int = 16) -> list[str]:
     hashes: list[str] = []
     seen: set[str] = set()
@@ -3643,10 +3695,17 @@ def run_supervisor(
             raw_improved = prior_best_summary is None or sort_key(round_best) > sort_key(prior_best_summary)
             promotion_gate = frozen_validation_promotion_gate(round_best, prior_best_summary)
             improved = bool(raw_improved and promotion_gate["passed"])
+            exploration_champion, exploration_champion_info = select_stagnation_exploration_champion(
+                summaries=summaries,
+                source_configs=source_configs,
+                round_best=round_best,
+                stagnation_rounds=stagnation_rounds,
+            )
+            decision_round_best = exploration_champion if exploration_champion is not None and not improved else round_best
             inversion_anchor, challenger_summary, inversion_anchor_info = select_target_weight_inversion_anchor(
                 summaries=summaries,
                 prior_best_summary=prior_best_summary,
-                round_best=round_best,
+                round_best=decision_round_best,
                 improved=improved,
             )
             prefilter_info["frozen_validation_window"] = validation_window
@@ -3654,6 +3713,7 @@ def run_supervisor(
             prefilter_info["promotion_gate"] = promotion_gate
             prefilter_info["raw_improved"] = raw_improved
             prefilter_info["round_best_rank_movement_vs_incumbent"] = target_rank_movement(round_best, prior_best_summary)
+            prefilter_info["exploration_champion"] = exploration_champion_info
             prefilter_info["source_survival"] = candidate_source_survival(
                 source_configs,
                 refined_configs=refined_configs,
@@ -3698,7 +3758,7 @@ def run_supervisor(
             next_search_base_config, search_base_info = select_next_search_base(
                 current_base=search_base_config,
                 summaries=summaries,
-                round_best=round_best,
+                round_best=decision_round_best,
                 improved=improved,
                 recent_search_base_hashes=recent_search_base_hashes(rounds, search_base_config),
                 min_config_distance=min_search_base_distance,
@@ -3713,6 +3773,13 @@ def run_supervisor(
                 f"config_hash={inversion_anchor_info.get('config_hash', '')} "
                 f"round_best_replays_incumbent={inversion_anchor_info['round_best_replays_incumbent']}"
             )
+            if exploration_champion_info["active"]:
+                log(
+                    f"round={round_index + 1} exploration_champion="
+                    f"{exploration_champion_info['source']} "
+                    f"top_rank={exploration_champion_info['top_rank']} "
+                    f"config_hash={exploration_champion_info['config_hash']}"
+                )
             log(
                 f"round={round_index + 1} search_base_next="
                 f"{search_base_info['source']} "
