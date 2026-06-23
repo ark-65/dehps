@@ -13,6 +13,10 @@ def run(cmd: list[str], cwd: Path | str = REPO_ROOT) -> subprocess.CompletedProc
     return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True, check=False)
 
 
+def existing_allowed_paths() -> list[str]:
+    return [path for path in ALLOWED_PATHS if (REPO_ROOT / path).exists()]
+
+
 def git_commit_and_push(message: str, push: bool = False, remote: str = "origin", branch: str = "main") -> dict:
     status = run(["git", "status", "--short"])
     if status.returncode != 0:
@@ -20,7 +24,11 @@ def git_commit_and_push(message: str, push: bool = False, remote: str = "origin"
     if not status.stdout.strip():
         return {"status": "no_changes"}
 
-    add = run(["git", "add", *ALLOWED_PATHS])
+    allowed_paths = existing_allowed_paths()
+    if not allowed_paths:
+        return {"status": "no_allowed_changes"}
+
+    add = run(["git", "add", *allowed_paths])
     if add.returncode != 0:
         return {"status": "failed", "error": add.stderr.strip()}
 
