@@ -2004,7 +2004,11 @@ export class ResearchService {
   }
 
   private stringValue(value: unknown): string | null {
-    return typeof value === 'string' && value.length > 0 ? value : null;
+    if (typeof value !== 'string') {
+      return null;
+    }
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : null;
   }
 
   private numberValue(value: unknown): number | null {

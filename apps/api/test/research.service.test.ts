@@ -738,6 +738,29 @@ test('training status event process observation can mark a running payload inact
   assert.equal(status.processAlive, false);
 });
 
+test('training status event ignores blank run id updates', async () => {
+  const previousRoot = process.env.DEHPS_ROOT;
+  process.env.DEHPS_ROOT = mkdtempSync(path.join(os.tmpdir(), 'dehps-blank-event-test-'));
+  const service = new ResearchService(repository);
+
+  try {
+    const status = await service.trainingStatusFromEvent({
+      run_id: '   ',
+      status: 'running',
+      updated_at: '  ',
+    });
+
+    assert.equal(status.runId, 'run-100');
+    assert.equal(status.updatedAt, '2026-06-18T00:00:00.000Z');
+  } finally {
+    if (previousRoot === undefined) {
+      delete process.env.DEHPS_ROOT;
+    } else {
+      process.env.DEHPS_ROOT = previousRoot;
+    }
+  }
+});
+
 test('postgres training weight signal mapping preserves date-only values', async () => {
   const repository = new PostgresResearchRepository();
   try {
