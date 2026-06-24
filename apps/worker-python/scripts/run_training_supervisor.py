@@ -10,7 +10,7 @@ import urllib.request
 from collections import Counter
 from dataclasses import replace
 from datetime import datetime, timedelta
-from math import ceil
+from math import ceil, comb, sqrt
 import multiprocessing as mp
 from pathlib import Path
 import sys
@@ -949,6 +949,7 @@ def compact_control_summary(label: str, summary: dict) -> dict:
         "median_rank": summary.get("median_rank"),
         "worst_rank": summary.get("worst_rank"),
         "objective_score": (summary.get("reward") or {}).get("objectiveScore") if isinstance(summary.get("reward"), dict) else None,
+        "probability_calibration": summary.get("probability_calibration") if isinstance(summary.get("probability_calibration"), dict) else None,
         "baseline_overlap": baseline_overlap,
         "frozen_validation": validation,
     }
@@ -2145,6 +2146,156 @@ def reward_summary(summary: dict, *, universe_size: int = DEFAULT_UNIVERSE_SIZE)
     }
 
 
+def binomial_upper_tail_probability(trials: int, hits: int, probability: float) -> float:
+    if trials <= 0:
+        return 1.0
+    hits = max(0, min(int(hits), int(trials)))
+    probability = min(1.0, max(0.0, float(probability)))
+    if hits <= 0:
+        return 1.0
+    if probability <= 0.0:
+        return 0.0
+    if probability >= 1.0:
+        return 1.0
+    return min(
+        1.0,
+        max(
+            0.0,
+            sum(
+                comb(trials, value) * (probability**value) * ((1.0 - probability) ** (trials - value))
+                for value in range(hits, trials + 1)
+            ),
+        ),
+    )
+
+
+def wilson_interval(hits: int, trials: int, *, z_score: float = 1.96) -> dict[str, float]:
+    if trials <= 0:
+        return {"low": 0.0, "high": 0.0}
+    hits = max(0, min(int(hits), int(trials)))
+    z2 = z_score * z_score
+    phat = hits / trials
+    denominator = 1.0 + z2 / trials
+    center = (phat + z2 / (2 * trials)) / denominator
+    margin = z_score * sqrt((phat * (1.0 - phat) + z2 / (4 * trials)) / trials) / denominator
+    return {
+        "low": round(max(0.0, center - margin), 6),
+        "high": round(min(1.0, center + margin), 6),
+    }
+
+
+def probability_band_diagnostic(
+    *,
+    label: str,
+    cutoff: int,
+    hits: int,
+    trials: int,
+    universe_size: int,
+) -> dict:
+    safe_universe = max(1, int(universe_size))
+    safe_trials = max(0, int(trials))
+    null_probability = min(1.0, max(0.0, float(cutoff) / safe_universe))
+    expected_hits = safe_trials * null_probability
+    observed_rate = (hits / safe_trials) if safe_trials else 0.0
+    return {
+        "label": label,
+        "cutoff": int(cutoff),
+        "hits": int(hits),
+        "trials": safe_trials,
+        "null_probability": round(null_probability, 10),
+        "expected_hits": round(expected_hits, 6),
+        "observed_rate": round(observed_rate, 6),
+        "lift_vs_null": round(hits / expected_hits, 6) if expected_hits > 0 else None,
+        "binomial_tail_p_value": round(
+            binomial_upper_tail_probability(safe_trials, int(hits), null_probability),
+            10,
+        ),
+        "wilson_interval_95": wilson_interval(int(hits), safe_trials),
+    }
+
+
+def rank_percentile(rank: int | float | None, *, universe_size: int) -> float | None:
+    if not isinstance(rank, int | float):
+        return None
+    safe_universe = max(1, int(universe_size))
+    return round(max(0.0, min(1.0, 1.0 - (float(rank) - 1.0) / safe_universe)), 6)
+
+
+def probability_calibration_diagnostics(summary: dict, *, universe_size: int = DEFAULT_UNIVERSE_SIZE) -> dict:
+    trials = int(summary.get("evaluated_draws") or 0)
+    rank_quality = summary.get("rank_quality") if isinstance(summary.get("rank_quality"), dict) else {}
+    target_results = summary.get("target_results") if isinstance(summary.get("target_results"), list) else []
+    bands = [
+        probability_band_diagnostic(
+            label="top_100",
+            cutoff=100,
+            hits=int(summary.get("top_100_hits") or 0),
+            trials=trials,
+            universe_size=universe_size,
+        ),
+        probability_band_diagnostic(
+            label="top_1000",
+            cutoff=1000,
+            hits=int(summary.get("top_1000_hits") or 0),
+            trials=trials,
+            universe_size=universe_size,
+        ),
+        probability_band_diagnostic(
+            label="top_10000",
+            cutoff=10000,
+            hits=int(summary.get("top_10000_hits") or 0),
+            trials=trials,
+            universe_size=universe_size,
+        ),
+        probability_band_diagnostic(
+            label="top_50000",
+            cutoff=50000,
+            hits=int(rank_quality.get("top_50000_hits") or 0),
+            trials=trials,
+            universe_size=universe_size,
+        ),
+    ]
+    near_miss_windows = []
+    for band in NEAR_MISS_INVERSION_CUTOFF_BANDS:
+        cutoff = int(band["cutoff"])
+        upper = int(band["upper"])
+        count = 0
+        issues: list[str] = []
+        for target in target_results:
+            if not isinstance(target, dict):
+                continue
+            rank = target.get("rank")
+            if isinstance(rank, int | float) and cutoff < int(rank) <= upper:
+                count += 1
+                issues.append(str(target.get("issue") or ""))
+        window_probability = max(0, upper - cutoff) / max(1, universe_size)
+        near_miss_windows.append(
+            {
+                "cutoff": cutoff,
+                "upper": upper,
+                "count": count,
+                "expected_count": round(trials * window_probability, 6),
+                "lift_vs_null": round(count / (trials * window_probability), 6) if trials * window_probability > 0 else None,
+                "issues": issues[:12],
+            }
+        )
+    return {
+        "mode": "null_binomial_rank_calibration_v0",
+        "universe_size": int(universe_size),
+        "trials": trials,
+        "bands": bands,
+        "rank_percentiles": {
+            "best": rank_percentile(summary.get("best_rank"), universe_size=universe_size),
+            "median": rank_percentile(summary.get("median_rank"), universe_size=universe_size),
+            "worst": rank_percentile(summary.get("worst_rank"), universe_size=universe_size),
+            "p90": rank_percentile(rank_quality.get("p90_rank"), universe_size=universe_size),
+            "p95": rank_percentile(rank_quality.get("p95_rank"), universe_size=universe_size),
+        },
+        "near_miss_windows": near_miss_windows,
+        "interpretation_note": "Unadjusted null diagnostics; repeated training rounds and candidate search require separate multiple-testing caution.",
+    }
+
+
 def empty_rank_quality_summary() -> dict:
     return {
         "top_50000_hits": 0,
@@ -2358,6 +2509,7 @@ def summarize_target_ranks(
         "target_results": [target_result_payload(target) for target in target_ranks],
     }
     summary["reward"] = reward_summary(summary, universe_size=universe_size)
+    summary["probability_calibration"] = probability_calibration_diagnostics(summary, universe_size=universe_size)
     summary["run_key"] = deterministic_run_key(
         strategy_key="frequency_v1",
         as_of_issue=as_of_issue,
@@ -4086,6 +4238,7 @@ def run_supervisor(
             prefilter_info["raw_improved"] = raw_improved
             prefilter_info["round_best_rank_movement_vs_incumbent"] = target_rank_movement(round_best, prior_best_summary)
             prefilter_info["round_best_rank_signature_hash"] = rank_signature_hash(round_best)
+            prefilter_info["round_best_probability_calibration"] = round_best.get("probability_calibration")
             prefilter_info["exploration_champion"] = exploration_champion_info
             prefilter_info["rank_homogeneity_restart_champion"] = restart_champion_info
             prefilter_info["source_survival"] = candidate_source_survival(
@@ -4096,6 +4249,11 @@ def run_supervisor(
             )
             prefilter_info["round_best_replays_incumbent"] = inversion_anchor_info["round_best_replays_incumbent"]
             prefilter_info["challenger_best"] = strip_target_results(challenger_summary) if challenger_summary else None
+            prefilter_info["challenger_probability_calibration"] = (
+                challenger_summary.get("probability_calibration")
+                if isinstance(challenger_summary, dict)
+                else None
+            )
             prefilter_info["target_weight_inversion_anchor"] = inversion_anchor_info
             inversion_rows: list[dict] = []
             inversion_aggregate: dict = {}

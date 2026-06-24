@@ -12,6 +12,7 @@ from dehps.optimization.walk_forward import TargetRank, build_ranked_universe
 import scripts.run_training_supervisor as supervisor
 from scripts.run_training_supervisor import (
     best_challenger_summary,
+    binomial_upper_tail_probability,
     bounded_unique_config_hashes,
     calculate_tail_risk_penalty,
     candidate_budget,
@@ -37,6 +38,7 @@ from scripts.run_training_supervisor import (
     phase_for_round,
     post_training_event,
     prefilter_configs,
+    probability_calibration_diagnostics,
     reward_summary,
     resolve_training_deadline,
     rank_homogeneity_guardrail,
@@ -1726,6 +1728,46 @@ def test_reward_summary_penalizes_worse_rank_inside_same_hit_counts():
     assert sort_key(better_rank) > sort_key(worse_rank)
 
 
+def test_binomial_upper_tail_probability_is_exact_for_small_cases():
+    assert binomial_upper_tail_probability(2, 0, 0.5) == 1.0
+    assert binomial_upper_tail_probability(2, 1, 0.5) == 0.75
+    assert binomial_upper_tail_probability(2, 2, 0.5) == 0.25
+
+
+def test_probability_calibration_records_null_lift_and_near_miss_windows():
+    summary = {
+        "evaluated_draws": 100,
+        "top_100_hits": 2,
+        "top_1000_hits": 3,
+        "top_10000_hits": 3,
+        "best_rank": 47,
+        "median_rank": 564132,
+        "worst_rank": 1_100_000,
+        "rank_quality": {
+            "top_50000_hits": 4,
+            "p90_rank": 917953,
+            "p95_rank": 982913,
+        },
+        "target_results": [
+            {"issue": "near_top100", "rank": 408},
+            {"issue": "near_top1000", "rank": 1500},
+            {"issue": "near_top10000", "rank": 45362},
+        ],
+    }
+
+    diagnostics = probability_calibration_diagnostics(summary, universe_size=1_000_000)
+
+    assert diagnostics["mode"] == "null_binomial_rank_calibration_v0"
+    assert diagnostics["bands"][0]["label"] == "top_100"
+    assert diagnostics["bands"][0]["expected_hits"] == 0.01
+    assert diagnostics["bands"][0]["lift_vs_null"] == 200.0
+    assert diagnostics["bands"][3]["label"] == "top_50000"
+    assert diagnostics["bands"][3]["expected_hits"] == 5.0
+    assert diagnostics["rank_percentiles"]["best"] == 0.999954
+    assert [window["count"] for window in diagnostics["near_miss_windows"]] == [1, 1, 1]
+    assert diagnostics["near_miss_windows"][0]["issues"] == ["near_top100"]
+
+
 def test_rank_quality_reward_keeps_tail_improvements_visible():
     better_tail = {
         "top_100_hits": 0,
@@ -1985,6 +2027,8 @@ def test_summarize_target_ranks_counts_red5_difference_numbers():
     assert summary["rank_quality"]["tail_over_1000000_count"] == 0
     assert summary["reward"]["tailRiskPenalty"] > 0
     assert summary["reward"]["rankQualityReward"] > 0
+    assert summary["probability_calibration"]["mode"] == "null_binomial_rank_calibration_v0"
+    assert summary["probability_calibration"]["bands"][2]["label"] == "top_10000"
 
 
 def test_load_prior_supervisor_candidates_keeps_same_protocol_global_best(tmp_path):
