@@ -1,5 +1,6 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Pool } from 'pg';
+import { parseDbPort } from './config';
 import {
   ExperimentDetail,
   ExperimentSummary,
@@ -24,7 +25,7 @@ export const CANONICAL_WEIGHT_KDJ_SIGNAL_RUN_ID = 'weight-kdj-recent-1000-v1';
 export class PostgresResearchRepository implements ResearchRepository, OnModuleDestroy {
   private readonly pool = new Pool({
     host: process.env.DB_HOST ?? 'localhost',
-    port: Number(process.env.DB_PORT ?? 54329),
+    port: parseDbPort(process.env.DB_PORT),
     database: process.env.DB_NAME ?? 'dehps',
     user: process.env.DB_USER ?? 'dehps',
     password: process.env.DB_PASSWORD ?? 'dehps_password',
