@@ -58,6 +58,7 @@ const SYNC_SCHEDULE = {
 const SYNC_STALE_SECONDS = 4 * 24 * 60 * 60;
 const KDJ_STALE_SECONDS = 14 * 24 * 60 * 60;
 const TRAINING_STALE_SECONDS = 24 * 60 * 60;
+const STATUS_READ_ERROR_KEY = '__dehps_status_read_error';
 const TOP_100_REWARD = 1000;
 const TOP_1000_REWARD = 100;
 const TOP_10000_REWARD = 10;
@@ -289,7 +290,12 @@ export class ResearchService {
       const processAlive = pid === null ? null : this.isProcessAlive(pid);
       const runLogFile = runId ? await this.firstExistingPath(path.join(logDir, `training-supervisor-${runId}.log`)) : null;
       const logFile = runLogFile ?? (latestStatusRunId === runId ? latestLogFile : null);
-      const logTail = logFile ? await this.readTailLines(logFile, normalizedTailLines) : [];
+      const statusReadError = this.statusReadError(rawStatus);
+      const logTail = this.appendStatusReadError(
+        logFile ? await this.readTailLines(logFile, normalizedTailLines) : [],
+        statusReadError,
+        normalizedTailLines,
+      );
       const latestProgress = rawProgress ?? this.parseLatestProgress(logTail);
       const serviceUnit = await this.readOptionalText(path.join(logDir, 'training-supervisor.unit'));
       const latestRound = latestRoundItem ? this.roundSummaryFromListItem(latestRoundItem, latestDetail) : null;
@@ -300,13 +306,13 @@ export class ResearchService {
       const progressActive = latestProgress
         ? latestProgress.round > completedRounds || latestProgress.targetIndex < latestProgress.targetTotal
         : false;
-      const active = rawStatusText === 'running' && processAlive !== false ? true : progressActive;
+      const active = statusReadError ? false : rawStatusText === 'running' && processAlive !== false ? true : progressActive;
       const latestPrefilter = this.prefilterRunValue(latestDetail?.prefilter ?? latestRoundItem?.prefilter);
       const advisorSummaries = this.advisorSummariesValue(null, latestDetail?.prefilter ?? latestRoundItem?.prefilter);
       const qianKun = await this.qianKunFromStatusOrHistory(null);
 
       return {
-        status: active ? 'running' : rawStatusText ?? 'completed',
+        status: statusReadError ? 'failed' : active ? 'running' : rawStatusText ?? 'completed',
         active,
         processAlive,
         runId,
@@ -352,7 +358,12 @@ export class ResearchService {
     const logFile =
       (runId ? await this.firstExistingPath(path.join(logDir, `training-supervisor-${runId}.log`)) : null) ??
       latestLogFile;
-    const logTail = logFile ? await this.readTailLines(logFile, normalizedTailLines) : [];
+    const statusReadError = this.statusReadError(rawStatus);
+    const logTail = this.appendStatusReadError(
+      logFile ? await this.readTailLines(logFile, normalizedTailLines) : [],
+      statusReadError,
+      normalizedTailLines,
+    );
     const latestProgress = this.progressValue(rawStatus?.latest_progress) ?? this.parseLatestProgress(logTail);
     const serviceUnit = await this.readOptionalText(path.join(logDir, 'training-supervisor.unit'));
     const universeSize = this.numberValue(rawStatus?.universe_size);
@@ -360,8 +371,8 @@ export class ResearchService {
     const best = this.resultValue(rawStatus?.best, universeSize);
     const pid = this.numberValue(rawStatus?.pid);
     const processAlive = pid === null ? null : this.isProcessAlive(pid);
-    const status = this.stringValue(rawStatus?.status) ?? 'not_started';
-    const active = status === 'running' && processAlive !== false;
+    const status = statusReadError ? 'failed' : this.stringValue(rawStatus?.status) ?? 'not_started';
+    const active = !statusReadError && status === 'running' && processAlive !== false;
     const prefilterStatus = this.prefilterStatusValue(rawStatus?.prefilter);
     const advisorSummaries = this.advisorSummariesValue(rawStatus, this.prefilterLatestValue(rawStatus?.prefilter));
     const qianKun = await this.qianKunFromStatusOrHistory(rawStatus?.qian_kun);
@@ -912,6 +923,17 @@ export class ResearchService {
     return error instanceof Error ? error.message : String(error);
   }
 
+  private statusReadError(rawStatus: Record<string, unknown> | null): string | null {
+    return this.stringValue(rawStatus?.[STATUS_READ_ERROR_KEY]);
+  }
+
+  private appendStatusReadError(lines: string[], error: string | null, lineCount: number): string[] {
+    if (!error) {
+      return lines;
+    }
+    return [...lines, error].slice(-lineCount);
+  }
+
   private normalizeLimit(limit: number): number {
     if (!Number.isFinite(limit)) {
       return DEFAULT_LIMIT;
@@ -982,13 +1004,25 @@ export class ResearchService {
     try {
       const content = await readFile(filePath, 'utf8');
       const parsed: unknown = JSON.parse(content);
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : this.statusReadErrorObject(filePath, 'expected object root');
     } catch (error) {
-      if (this.isNotFoundError(error) || error instanceof SyntaxError) {
+      if (this.isNotFoundError(error)) {
         return null;
+      }
+      if (error instanceof SyntaxError) {
+        return this.statusReadErrorObject(filePath, error.message);
       }
       throw error;
     }
+  }
+
+  private statusReadErrorObject(filePath: string, reason: string): Record<string, unknown> {
+    return {
+      status: 'failed',
+      [STATUS_READ_ERROR_KEY]: `failed to read training status JSON ${filePath}: ${reason}`,
+    };
   }
 
   private async readOptionalText(filePath: string): Promise<string | null> {

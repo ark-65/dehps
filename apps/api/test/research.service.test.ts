@@ -689,6 +689,37 @@ test('training status prefers a live status json before the new run has db round
   }
 });
 
+test('training status reports malformed status json as failed', async () => {
+  const previousRoot = process.env.DEHPS_ROOT;
+  const root = mkdtempSync(path.join(os.tmpdir(), 'dehps-malformed-status-test-'));
+  mkdirSync(path.join(root, 'data/output/optimization'), { recursive: true });
+  writeFileSync(path.join(root, 'data/output/optimization/training-supervisor-bad.json'), '{"status": "running"');
+  const emptyRepository = {
+    ...repository,
+    async listTrainingRounds() {
+      return [];
+    },
+  } as ResearchRepository;
+
+  try {
+    process.env.DEHPS_ROOT = root;
+    const service = new ResearchService(emptyRepository);
+
+    const status = await service.trainingStatus();
+
+    assert.equal(status.status, 'failed');
+    assert.equal(status.active, false);
+    assert.match(status.logTail.at(-1) ?? '', /failed to read training status JSON/);
+    assert.equal(status.statusFile?.endsWith('training-supervisor-bad.json'), true);
+  } finally {
+    if (previousRoot === undefined) {
+      delete process.env.DEHPS_ROOT;
+    } else {
+      process.env.DEHPS_ROOT = previousRoot;
+    }
+  }
+});
+
 test('training status event payload preserves live progress over db snapshot', async () => {
   const service = new ResearchService(repository);
 
