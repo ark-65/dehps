@@ -1197,6 +1197,33 @@ test('service status treats completed heavy job metadata as inactive', async () 
   }
 });
 
+test('service status reports unreadable heavy job metadata without failing', async () => {
+  const previousRoot = process.env.DEHPS_ROOT;
+  const root = mkdtempSync(path.join(os.tmpdir(), 'dehps-heavy-status-'));
+  const logDir = path.join(root, 'runtime/logs');
+  mkdirSync(logDir, { recursive: true });
+  writeFileSync(path.join(logDir, 'api-dashboard.log'), 'api ready\n');
+  writeFileSync(path.join(logDir, 'web-dashboard.log'), 'web ready\n');
+  writeFileSync(path.join(logDir, 'dehps-heavy-job.lock.json'), '{not-json');
+  try {
+    process.env.DEHPS_ROOT = root;
+    const service = new ResearchService(repository);
+
+    const status = await service.serviceStatus();
+    const heavyJobLock = status.heavyTaskLimits.heavyJobLock;
+
+    assert.equal(heavyJobLock?.['active'], false);
+    assert.equal(heavyJobLock?.['reason'], 'metadata_unreadable');
+    assert.match(String(heavyJobLock?.['error']), /JSON|Unexpected|position/);
+  } finally {
+    if (previousRoot === undefined) {
+      delete process.env.DEHPS_ROOT;
+    } else {
+      process.env.DEHPS_ROOT = previousRoot;
+    }
+  }
+});
+
 test('service status reports an empty but present KDJ signal table as warning', async () => {
   const previousRoot = process.env.DEHPS_ROOT;
   const root = mkdtempSync(path.join(os.tmpdir(), 'dehps-service-status-'));
