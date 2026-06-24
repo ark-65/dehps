@@ -23,12 +23,12 @@ export class ResearchController {
 
   @Get('dashboard')
   dashboard(@Query('limit') limit?: string) {
-    return this.researchService.dashboard(Number(limit));
+    return this.researchService.dashboard(this.numberQuery(limit));
   }
 
   @Get('experiments')
   experiments(@Query('limit') limit?: string) {
-    return this.researchService.listExperiments(Number(limit));
+    return this.researchService.listExperiments(this.numberQuery(limit));
   }
 
   @Get('experiments/:experimentKey')
@@ -38,12 +38,12 @@ export class ResearchController {
 
   @Get('pipeline-runs')
   pipelineRuns(@Query('limit') limit?: string) {
-    return this.researchService.listPipelineRuns(Number(limit));
+    return this.researchService.listPipelineRuns(this.numberQuery(limit));
   }
 
   @Get('sync-runs')
   syncRuns(@Query('limit') limit?: string) {
-    return this.researchService.listSyncRuns(Number(limit));
+    return this.researchService.listSyncRuns(this.numberQuery(limit));
   }
 
   @Get('feature-distributions')
@@ -53,7 +53,7 @@ export class ResearchController {
 
   @Get('training-status')
   trainingStatus(@Query('lines') lines?: string) {
-    return this.researchService.trainingStatus(Number(lines));
+    return this.researchService.trainingStatus(this.numberQuery(lines));
   }
 
   @Get('service-status')
@@ -63,7 +63,7 @@ export class ResearchController {
 
   @Get('training-rounds')
   trainingRounds(@Query('limit') limit?: string) {
-    return this.researchService.listTrainingRounds(Number(limit));
+    return this.researchService.listTrainingRounds(this.numberQuery(limit));
   }
 
   @Get('training-rounds/:runId/:roundIndex')
@@ -77,12 +77,12 @@ export class ResearchController {
     @Query('weights') weights?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.researchService.listTrainingWeightSignals(runId, weights, Number(limit));
+    return this.researchService.listTrainingWeightSignals(runId, weights, this.numberQuery(limit));
   }
 
   @Get('training-next-candidates')
   trainingNextCandidates(@Query('limit') limit?: string) {
-    return this.researchService.getTrainingNextCandidates(Number(limit));
+    return this.researchService.getTrainingNextCandidates(this.numberQuery(limit));
   }
 
   @Post('training-events/status')
@@ -102,5 +102,10 @@ export class ResearchController {
   private isLocalRequest(request: LocalRequest): boolean {
     const address = request.ip ?? request.socket?.remoteAddress ?? request.connection?.remoteAddress ?? '';
     return ['127.0.0.1', '::1', '::ffff:127.0.0.1', 'localhost'].includes(address);
+  }
+
+  private numberQuery(value: string | undefined): number | undefined {
+    const trimmed = value?.trim();
+    return trimmed ? Number(trimmed) : undefined;
   }
 }
