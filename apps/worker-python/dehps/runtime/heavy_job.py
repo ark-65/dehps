@@ -61,6 +61,7 @@ class HeavyJobOwnerStatus:
     active: bool
     pid_active: bool | None
     reason: str
+    error: str | None = None
 
 
 def metadata_path_for(lock_path: str | os.PathLike[str] | None = None) -> Path:
@@ -103,6 +104,8 @@ def read_owner_metadata(metadata_path: str | os.PathLike[str] | None = None) -> 
         return None
     except json.JSONDecodeError as exc:
         raise HeavyJobLockError(f"Invalid heavy-job metadata JSON at {path}") from exc
+    except OSError as exc:
+        raise HeavyJobLockError(f"Unable to read heavy-job metadata at {path}: {exc}") from exc
 
 
 def describe_heavy_job_owner(
@@ -111,7 +114,17 @@ def describe_heavy_job_owner(
     metadata_path: str | os.PathLike[str] | None = None,
 ) -> HeavyJobOwnerStatus:
     resolved_metadata_path = Path(metadata_path) if metadata_path is not None else metadata_path_for(lock_path)
-    metadata = read_owner_metadata(resolved_metadata_path)
+    try:
+        metadata = read_owner_metadata(resolved_metadata_path)
+    except HeavyJobLockError as exc:
+        return HeavyJobOwnerStatus(
+            metadata_path=resolved_metadata_path,
+            metadata=None,
+            active=False,
+            pid_active=None,
+            reason="metadata_unreadable",
+            error=str(exc),
+        )
     if metadata is None:
         return HeavyJobOwnerStatus(
             metadata_path=resolved_metadata_path,

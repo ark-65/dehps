@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import scripts.watch_training_progress as watch
 from scripts.watch_training_progress import advisor_summary, recommendation_summary, render_markdown
@@ -129,6 +130,26 @@ def test_advisor_summary_and_markdown_include_guardrails():
     assert advisors["neural_kdj_advisor"]["top_advice"][0]["confidence"] == 0.03
     assert "Neural" not in markdown  # Machine-readable key is used in the table.
     assert "Historical response-surface monitoring only" in markdown
+
+
+def test_heavy_lock_summary_reports_unreadable_metadata_error(monkeypatch):
+    monkeypatch.setattr(
+        watch,
+        "describe_heavy_job_owner",
+        lambda: SimpleNamespace(
+            active=False,
+            pid_active=None,
+            reason="metadata_unreadable",
+            error="Unable to read heavy-job metadata",
+            metadata=None,
+        ),
+    )
+
+    summary = watch.heavy_lock_summary()
+
+    assert summary["active"] is False
+    assert summary["reason"] == "metadata_unreadable"
+    assert summary["error"] == "Unable to read heavy-job metadata"
 
 
 def test_load_rounds_queries_recent_window_before_chronological_sort(monkeypatch):

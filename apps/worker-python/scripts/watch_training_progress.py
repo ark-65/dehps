@@ -105,6 +105,7 @@ def heavy_lock_summary() -> dict[str, Any]:
         "active": status.active,
         "pid_active": status.pid_active,
         "reason": status.reason,
+        "error": status.error,
         "owner": metadata.get("owner"),
         "pid": metadata.get("pid"),
         "status": metadata.get("status"),
