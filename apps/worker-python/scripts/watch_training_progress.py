@@ -79,15 +79,19 @@ def load_rounds(run_id: str, *, limit: int) -> list[dict[str, Any]]:
             return list(
                 cur.execute(
                     """
-                    SELECT run_id, round_index, phase, step, improved, top_100_hits, top_1000_hits,
-                           top_10000_hits, red5_top_100_hits, red5_top_1000_hits,
-                           red5_top_10000_hits, median_rank, best_rank, worst_rank,
-                           objective_score, best_config, best_summary, top_results,
-                           target_results, prefilter, created_at, updated_at
-                    FROM training_round_results
-                    WHERE run_id = %s
+                    SELECT *
+                    FROM (
+                        SELECT run_id, round_index, phase, step, improved, top_100_hits, top_1000_hits,
+                               top_10000_hits, red5_top_100_hits, red5_top_1000_hits,
+                               red5_top_10000_hits, median_rank, best_rank, worst_rank,
+                               objective_score, best_config, best_summary, top_results,
+                               target_results, prefilter, created_at, updated_at
+                        FROM training_round_results
+                        WHERE run_id = %s
+                        ORDER BY round_index DESC
+                        LIMIT %s
+                    ) recent_rounds
                     ORDER BY round_index ASC
-                    LIMIT %s
                     """,
                     (run_id, limit),
                 ).fetchall()

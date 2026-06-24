@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import scripts.watch_training_progress as watch
 from scripts.watch_training_progress import advisor_summary, recommendation_summary, render_markdown
 
 
@@ -128,3 +129,46 @@ def test_advisor_summary_and_markdown_include_guardrails():
     assert advisors["neural_kdj_advisor"]["top_advice"][0]["confidence"] == 0.03
     assert "Neural" not in markdown  # Machine-readable key is used in the table.
     assert "Historical response-surface monitoring only" in markdown
+
+
+def test_load_rounds_queries_recent_window_before_chronological_sort(monkeypatch):
+    class FakeCursor:
+        def __init__(self):
+            self.sql = ""
+            self.params = ()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, sql, params):
+            self.sql = " ".join(sql.split())
+            self.params = params
+            return self
+
+        def fetchall(self):
+            return [{"round_index": 12}, {"round_index": 13}]
+
+    class FakeConnection:
+        def __init__(self, cursor):
+            self.cursor_instance = cursor
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def cursor(self, **_kwargs):
+            return self.cursor_instance
+
+    cursor = FakeCursor()
+    monkeypatch.setattr(watch, "get_connection", lambda: FakeConnection(cursor))
+
+    rows = watch.load_rounds("run-1", limit=2)
+
+    assert rows == [{"round_index": 12}, {"round_index": 13}]
+    assert cursor.params == ("run-1", 2)
+    assert "ORDER BY round_index DESC LIMIT %s ) recent_rounds ORDER BY round_index ASC" in cursor.sql
