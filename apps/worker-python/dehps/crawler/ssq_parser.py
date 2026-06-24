@@ -26,6 +26,8 @@ def _parse_date(value: Any) -> date | None:
     if isinstance(value, date):
         return value
     text = str(value).strip()
+    if not text:
+        return None
     for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"):
         try:
             return datetime.strptime(text[:10] if fmt != "%Y%m%d" else text, fmt).date()

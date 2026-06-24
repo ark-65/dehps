@@ -25,6 +25,19 @@ def test_datetime_draw_date_is_normalized_to_date():
     assert draw.draw_date == date(2026, 1, 4)
 
 
+def test_blank_draw_date_is_treated_as_missing():
+    draw = validate_ssq_draw(
+        {
+            "issue": "2026001",
+            "draw_date": "   ",
+            "red_numbers": [1, 2, 3, 4, 5, 6],
+            "blue_number": 8,
+        }
+    )
+
+    assert draw.draw_date is None
+
+
 def test_duplicate_red_numbers_error():
     with pytest.raises(ValueError):
         validate_ssq_draw({"issue": "x", "red_numbers": [1, 1, 2, 3, 4, 5], "blue_number": 8})
