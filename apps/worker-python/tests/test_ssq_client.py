@@ -95,3 +95,19 @@ def test_csv_source_reads_explicit_file(tmp_path):
             "source": "test",
         }
     ]
+
+
+def test_csv_source_reports_missing_required_columns(tmp_path):
+    csv_path = tmp_path / "history.csv"
+    csv_path.write_text(
+        "\n".join(
+            [
+                "issue,draw_date,r1,r2,r3,r4,r5,blue_number,source",
+                "2026001,2026-01-04,1,6,10,17,22,8,test",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=r"missing required columns: r6"):
+        CsvSsqDataSource(csv_path).fetch_history()
