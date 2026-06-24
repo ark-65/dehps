@@ -521,7 +521,7 @@ export class ResearchService {
             ? 'pid_running'
             : pidActive === false
               ? 'pid_not_running'
-              : 'metadata_present',
+              : 'pid_unknown',
       };
     } catch (error) {
       const code = typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : null;
