@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import random
@@ -193,6 +194,9 @@ EARLY_SEARCH_BASE_MIN_DISTANCE = 0.08
 MID_SEARCH_BASE_MIN_DISTANCE = 0.04
 LATE_SEARCH_BASE_MIN_DISTANCE = 0.015
 STAGNATION_THRESHOLD = 16
+RANK_HOMOGENEITY_STAGNATION_THRESHOLD = STAGNATION_THRESHOLD
+RANK_HOMOGENEITY_WINDOW = 12
+RANK_HOMOGENEITY_MAX_UNIQUE_SIGNATURES = 4
 CANDIDATE_BUDGET_SHARES = {
     "exploitation": 0.40,
     "exploration": 0.30,
@@ -336,6 +340,122 @@ def add_unique_until(
 ) -> None:
     if len(configs) < limit:
         add_unique(configs, seen, config)
+
+
+def rank_signature_hash(summary: dict | None) -> str:
+    signature = summary_rank_vector_signature(summary)
+    if signature is None:
+        return ""
+    payload = json.dumps(signature, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def rank_homogeneity_guardrail(
+    rounds: list[dict],
+    *,
+    stagnation_rounds: int,
+    window: int = RANK_HOMOGENEITY_WINDOW,
+    max_unique_signatures: int = RANK_HOMOGENEITY_MAX_UNIQUE_SIGNATURES,
+) -> dict:
+    signatures: list[str] = []
+    for round_info in rounds[-max(0, window):]:
+        prefilter = round_info.get("prefilter") if isinstance(round_info.get("prefilter"), dict) else {}
+        signature = prefilter.get("round_best_rank_signature_hash")
+        if isinstance(signature, str) and signature:
+            signatures.append(signature)
+    unique_signatures = sorted(set(signatures))
+    active = (
+        stagnation_rounds >= RANK_HOMOGENEITY_STAGNATION_THRESHOLD
+        and len(signatures) >= window
+        and len(unique_signatures) <= max_unique_signatures
+    )
+    reason = None
+    if active:
+        reason = "stale_rank_signature_cycle"
+    elif stagnation_rounds < RANK_HOMOGENEITY_STAGNATION_THRESHOLD:
+        reason = "below_stagnation_threshold"
+    elif len(signatures) < window:
+        reason = "insufficient_signature_window"
+    else:
+        reason = "rank_signatures_still_diverse"
+    return {
+        "active": active,
+        "reason": reason,
+        "stagnation_rounds": stagnation_rounds,
+        "stagnation_threshold": RANK_HOMOGENEITY_STAGNATION_THRESHOLD,
+        "window": window,
+        "observed": len(signatures),
+        "unique_signature_count": len(unique_signatures),
+        "max_unique_signatures": max_unique_signatures,
+        "signatures": unique_signatures[:8],
+    }
+
+
+def stagnation_restart_candidate_configs(
+    base: FrequencyRankerConfig,
+    *,
+    max_configs: int,
+    round_index: int,
+    stagnation_rounds: int,
+) -> tuple[FrequencyRankerConfig, ...]:
+    if max_configs <= 0:
+        return ()
+    configs: list[FrequencyRankerConfig] = []
+    seen: set[str] = set()
+    primary_extremes = (
+        {"structural_weight": 1.15, "frequency_weight": 0.05, "omission_weight": 0.05},
+        {"structural_weight": 0.05, "frequency_weight": 1.15, "omission_weight": 0.05},
+        {"structural_weight": 0.05, "frequency_weight": 0.05, "omission_weight": 1.15},
+        {"structural_weight": 0.70, "frequency_weight": 0.70, "omission_weight": 0.05},
+        {"structural_weight": 0.70, "frequency_weight": 0.05, "omission_weight": 0.70},
+        {"structural_weight": 0.05, "frequency_weight": 0.70, "omission_weight": 0.70},
+    )
+    context_patterns = (
+        {
+            "short_hot_frequency_weight": 0.30,
+            "long_omission_cooldown_weight": -0.30,
+            "tail_distribution_weight": -0.30,
+            "red_omission_shape_weight": 0.30,
+        },
+        {
+            "short_hot_frequency_weight": -0.30,
+            "long_omission_cooldown_weight": 0.30,
+            "recent_gap_shape_weight": 0.30,
+            "sum_span_omission_weight": -0.30,
+        },
+        {
+            "previous_zone_shape_weight": -0.30,
+            "dynamic_parity_transition_weight": 0.30,
+            "prime_composite_weight": 0.30,
+            "mod012_weight": -0.30,
+        },
+        {
+            "weekday_trend_weight": -0.30,
+            "stable_range_weight": 0.30,
+            "consecutive_trend_weight": 0.30,
+            "repeat_trend_weight": -0.30,
+        },
+    )
+    for primary in primary_extremes:
+        add_unique(configs, seen, FrequencyRankerConfig(**{**config_dict(base), **primary}))
+        if len(configs) >= max_configs:
+            return tuple(configs[:max_configs])
+    for primary in primary_extremes:
+        for context in context_patterns:
+            add_unique(configs, seen, FrequencyRankerConfig(**{**config_dict(base), **primary, **context}))
+            if len(configs) >= max_configs:
+                return tuple(configs[:max_configs])
+    rng = random.Random(deterministic_seed("stagnation_restart", round_index, stagnation_rounds))
+    while len(configs) < max_configs:
+        values = config_dict(base)
+        for field in PRIMARY_FIELDS:
+            values[field] = rng.choice((0.05, 0.20, 0.85, 1.15))
+        for field in rng.sample(tuple(CONTEXT_FIELDS), k=min(6, len(CONTEXT_FIELDS))):
+            values[field] = rng.choice((-0.30, -0.20, 0.20, 0.30))
+        add_unique(configs, seen, FrequencyRankerConfig(**values))
+        if len(seen) > max_configs * 8:
+            break
+    return tuple(configs[:max_configs])
 
 
 def phase_for_round(round_index: int, *, stagnation_rounds: int = 0) -> tuple[str, float, str]:
@@ -3416,6 +3536,12 @@ def run_supervisor(
             stagnation_rounds = stagnation_round_count(rounds)
             phase, step, phase_stage = phase_for_round(round_index, stagnation_rounds=stagnation_rounds)
             min_search_base_distance = search_base_min_distance_for_phase(phase_stage)
+            rank_homogeneity = rank_homogeneity_guardrail(rounds, stagnation_rounds=stagnation_rounds)
+            stagnation_restart_budget = (
+                min(max_configs_per_round, max(3, max_configs_per_round // 5))
+                if rank_homogeneity["active"]
+                else 0
+            )
             historical_summaries = merge_leaderboard(leaderboard, prior_leaderboard, limit=32)
             low_coverage_fields = low_coverage_fields_from_summaries(historical_summaries)
             elite_configs = tuple(FrequencyRankerConfig(**summary["config"]) for summary in leaderboard[:4])
@@ -3447,7 +3573,9 @@ def run_supervisor(
                 - neural_kdj_budget
                 - recency_canary_budget
                 - target_weight_inversion_budget
+                - stagnation_restart_budget
             )
+            normal_config_budget = max(1, normal_config_budget)
             configs = tuple(
                 generate_configs(
                     search_base_config,
@@ -3462,6 +3590,12 @@ def run_supervisor(
                 )
             )
             normal_configs = configs
+            stagnation_restart_configs = stagnation_restart_candidate_configs(
+                search_base_config,
+                max_configs=stagnation_restart_budget,
+                round_index=round_index + 1,
+                stagnation_rounds=stagnation_rounds,
+            )
             recency_canary_configs = recency_canary_candidate_configs(
                 search_base_config,
                 step=step,
@@ -3544,6 +3678,7 @@ def run_supervisor(
                 "ridge_kdj": ridge_kdj_configs,
                 "neural_kdj": neural_kdj_configs,
                 "target_weight_inversion": target_weight_inversion_configs,
+                "stagnation_restart": stagnation_restart_configs,
             }
             if recency_canary_budget > 0:
                 configs = merge_reserved_candidate_configs(
@@ -3584,6 +3719,13 @@ def run_supervisor(
                     max_configs=max_configs_per_round,
                     reserved_budget=target_weight_inversion_budget,
                 )
+            if stagnation_restart_budget > 0:
+                configs = merge_reserved_candidate_configs(
+                    configs,
+                    stagnation_restart_configs,
+                    max_configs=max_configs_per_round,
+                    reserved_budget=stagnation_restart_budget,
+                )
             generated_config_count = len(configs)
             keep_configs = (search_base_config, best_config, *elite_configs[:4], *(config for _label, config in control_configs))
             refined_configs, prefilter_info = prefilter_configs(
@@ -3609,6 +3751,8 @@ def run_supervisor(
             }
             prefilter_info["low_coverage_fields"] = list(low_coverage_fields)
             prefilter_info["candidate_budget"] = budgets
+            prefilter_info["candidate_budget"]["stagnation_restart"] = stagnation_restart_budget
+            prefilter_info["rank_homogeneity_guardrail"] = rank_homogeneity
             prefilter_info["target_weight_inversion_budget_guardrail"] = target_weight_inversion_guardrail
             prefilter_info["source_survival"] = candidate_source_survival(
                 source_configs,
@@ -3713,6 +3857,7 @@ def run_supervisor(
             prefilter_info["promotion_gate"] = promotion_gate
             prefilter_info["raw_improved"] = raw_improved
             prefilter_info["round_best_rank_movement_vs_incumbent"] = target_rank_movement(round_best, prior_best_summary)
+            prefilter_info["round_best_rank_signature_hash"] = rank_signature_hash(round_best)
             prefilter_info["exploration_champion"] = exploration_champion_info
             prefilter_info["source_survival"] = candidate_source_survival(
                 source_configs,
@@ -3773,6 +3918,12 @@ def run_supervisor(
                 f"config_hash={inversion_anchor_info.get('config_hash', '')} "
                 f"round_best_replays_incumbent={inversion_anchor_info['round_best_replays_incumbent']}"
             )
+            if rank_homogeneity["active"]:
+                log(
+                    f"round={round_index + 1} rank_homogeneity_restart="
+                    f"unique={rank_homogeneity['unique_signature_count']}/{rank_homogeneity['observed']} "
+                    f"budget={stagnation_restart_budget}"
+                )
             if exploration_champion_info["active"]:
                 log(
                     f"round={round_index + 1} exploration_champion="

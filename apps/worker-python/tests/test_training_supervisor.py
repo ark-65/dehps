@@ -37,6 +37,7 @@ from scripts.run_training_supervisor import (
     prefilter_configs,
     reward_summary,
     resolve_training_deadline,
+    rank_homogeneity_guardrail,
     search_base_min_distance_for_phase,
     ridge_kdj_advisor_metadata,
     should_continue_training,
@@ -47,6 +48,7 @@ from scripts.run_training_supervisor import (
     select_target_weight_inversion_anchor,
     select_stagnation_exploration_champion,
     select_next_search_base,
+    stagnation_restart_candidate_configs,
     summarize_target_ranks,
     summary_config_hash,
     target_rank_movement,
@@ -441,6 +443,58 @@ def test_target_weight_inversion_guardrail_keeps_budget_with_lift_or_early_round
     assert lifted["effective_share"] == 0.30
     assert early["active"] is False
     assert early["effective_share"] == 0.30
+
+
+def test_rank_homogeneity_guardrail_detects_repeated_rank_signatures():
+    rounds = [
+        {"prefilter": {"round_best_rank_signature_hash": f"sig-{index % 3}"}}
+        for index in range(12)
+    ]
+
+    guardrail = rank_homogeneity_guardrail(rounds, stagnation_rounds=16)
+
+    assert guardrail["active"] is True
+    assert guardrail["reason"] == "stale_rank_signature_cycle"
+    assert guardrail["unique_signature_count"] == 3
+
+
+def test_rank_homogeneity_guardrail_waits_for_enough_stagnation_and_window():
+    early = rank_homogeneity_guardrail(
+        [{"prefilter": {"round_best_rank_signature_hash": "sig"}} for _ in range(12)],
+        stagnation_rounds=15,
+    )
+    short = rank_homogeneity_guardrail(
+        [{"prefilter": {"round_best_rank_signature_hash": "sig"}} for _ in range(4)],
+        stagnation_rounds=16,
+    )
+
+    assert early["active"] is False
+    assert early["reason"] == "below_stagnation_threshold"
+    assert short["active"] is False
+    assert short["reason"] == "insufficient_signature_window"
+
+
+def test_stagnation_restart_candidate_configs_are_bounded_and_distant():
+    base = FrequencyRankerConfig(
+        structural_weight=0.30,
+        frequency_weight=0.30,
+        omission_weight=0.20,
+        tail_distribution_weight=0.10,
+    )
+
+    configs = stagnation_restart_candidate_configs(
+        base,
+        max_configs=8,
+        round_index=40,
+        stagnation_rounds=40,
+    )
+
+    assert len(configs) == 8
+    assert len({config_hash(config) for config in configs}) == 8
+    assert all(0 <= config.structural_weight <= 1.25 for config in configs)
+    assert all(-0.30 <= config.tail_distribution_weight <= 0.30 for config in configs)
+    assert any(config.frequency_weight >= 1.0 for config in configs)
+    assert any(config.omission_weight >= 1.0 for config in configs)
 
 
 def test_reserved_weight_kdj_candidates_survive_full_normal_round():
