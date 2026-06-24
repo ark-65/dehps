@@ -1215,6 +1215,75 @@ def select_stagnation_exploration_champion(
     return None, metadata
 
 
+def select_rank_homogeneity_restart_champion(
+    *,
+    summaries: list[dict],
+    source_configs: dict[str, tuple[FrequencyRankerConfig, ...]],
+    round_best: dict | None,
+    prior_best_summary: dict | None,
+    rank_homogeneity: dict,
+    source: str = "stagnation_restart",
+) -> tuple[dict | None, dict]:
+    source_hashes = {config_hash(config) for config in source_configs.get(source, ())}
+    round_best_hash = summary_config_hash(round_best) or ""
+    metadata = {
+        "active": False,
+        "source": source,
+        "config_hash": "",
+        "full_eval_rank": None,
+        "round_best_config_hash": round_best_hash,
+        "rank_vector_changed": None,
+        "changed_target_count": None,
+        "max_abs_delta": None,
+        "reason": None,
+    }
+    if not rank_homogeneity.get("active"):
+        metadata["reason"] = "rank_homogeneity_inactive"
+        return None, metadata
+    if not source_hashes:
+        metadata["reason"] = "no_restart_candidates"
+        return None, metadata
+
+    fallback: tuple[dict, int, dict] | None = None
+    for index, summary in enumerate(summaries, start=1):
+        key = summary_config_hash(summary) or ""
+        if key not in source_hashes:
+            continue
+        movement = target_rank_movement(summary, prior_best_summary)
+        if fallback is None:
+            fallback = (summary, index, movement)
+        if int(movement.get("changed_target_count") or 0) > 0:
+            metadata.update(
+                {
+                    "active": True,
+                    "config_hash": key,
+                    "full_eval_rank": index,
+                    "rank_vector_changed": True,
+                    "changed_target_count": movement.get("changed_target_count"),
+                    "max_abs_delta": movement.get("max_abs_delta"),
+                    "reason": "rank_homogeneity_restart_changed_rank_vector",
+                }
+            )
+            return summary, metadata
+
+    if fallback is None:
+        metadata["reason"] = "restart_not_in_full_eval"
+        return None, metadata
+    summary, index, movement = fallback
+    metadata.update(
+        {
+            "active": True,
+            "config_hash": summary_config_hash(summary) or "",
+            "full_eval_rank": index,
+            "rank_vector_changed": False,
+            "changed_target_count": movement.get("changed_target_count"),
+            "max_abs_delta": movement.get("max_abs_delta"),
+            "reason": "rank_homogeneity_restart_best_available",
+        }
+    )
+    return summary, metadata
+
+
 def bounded_unique_config_hashes(configs: tuple[FrequencyRankerConfig, ...], *, limit: int = 16) -> list[str]:
     hashes: list[str] = []
     seen: set[str] = set()
@@ -3845,7 +3914,19 @@ def run_supervisor(
                 round_best=round_best,
                 stagnation_rounds=stagnation_rounds,
             )
-            decision_round_best = exploration_champion if exploration_champion is not None and not improved else round_best
+            restart_champion, restart_champion_info = select_rank_homogeneity_restart_champion(
+                summaries=summaries,
+                source_configs=source_configs,
+                round_best=round_best,
+                prior_best_summary=prior_best_summary,
+                rank_homogeneity=rank_homogeneity,
+            )
+            decision_round_best = round_best
+            if not improved:
+                if restart_champion is not None:
+                    decision_round_best = restart_champion
+                elif exploration_champion is not None:
+                    decision_round_best = exploration_champion
             inversion_anchor, challenger_summary, inversion_anchor_info = select_target_weight_inversion_anchor(
                 summaries=summaries,
                 prior_best_summary=prior_best_summary,
@@ -3859,6 +3940,7 @@ def run_supervisor(
             prefilter_info["round_best_rank_movement_vs_incumbent"] = target_rank_movement(round_best, prior_best_summary)
             prefilter_info["round_best_rank_signature_hash"] = rank_signature_hash(round_best)
             prefilter_info["exploration_champion"] = exploration_champion_info
+            prefilter_info["rank_homogeneity_restart_champion"] = restart_champion_info
             prefilter_info["source_survival"] = candidate_source_survival(
                 source_configs,
                 refined_configs=refined_configs,
@@ -3930,6 +4012,13 @@ def run_supervisor(
                     f"{exploration_champion_info['source']} "
                     f"top_rank={exploration_champion_info['top_rank']} "
                     f"config_hash={exploration_champion_info['config_hash']}"
+                )
+            if restart_champion_info["active"]:
+                log(
+                    f"round={round_index + 1} rank_homogeneity_restart_champion="
+                    f"rank={restart_champion_info['full_eval_rank']} "
+                    f"changed_targets={restart_champion_info['changed_target_count']} "
+                    f"config_hash={restart_champion_info['config_hash']}"
                 )
             log(
                 f"round={round_index + 1} search_base_next="

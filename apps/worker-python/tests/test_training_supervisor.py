@@ -47,6 +47,7 @@ from scripts.run_training_supervisor import (
     training_event_payload,
     select_target_weight_inversion_anchor,
     select_stagnation_exploration_champion,
+    select_rank_homogeneity_restart_champion,
     select_next_search_base,
     stagnation_restart_candidate_configs,
     summarize_target_ranks,
@@ -647,6 +648,60 @@ def test_stagnation_exploration_champion_selects_top_exploratory_candidate():
     assert metadata["source"] == "ridge_kdj"
     assert metadata["top_rank"] == 2
     assert metadata["reason"] == "stagnation_top_eval_exploration"
+
+
+def test_rank_homogeneity_restart_champion_selects_changed_restart_outside_top5():
+    incumbent = FrequencyRankerConfig()
+    restart = FrequencyRankerConfig(frequency_weight=1.05, omission_weight=0.0)
+    normal_summaries = [
+        supervisor_summary_for_config(
+            FrequencyRankerConfig(frequency_weight=0.10 + index * 0.01),
+            target_ranks=[100 + index, 900, 50_000],
+            objective_score=2200.0 - index,
+        )
+        for index in range(5)
+    ]
+    restart_summary = supervisor_summary_for_config(
+        restart,
+        target_ranks=[80, 850, 49_000],
+        objective_score=100.0,
+    )
+    prior_best = supervisor_summary_for_config(incumbent, target_ranks=[100, 900, 50_000], objective_score=2200.0)
+
+    champion, metadata = select_rank_homogeneity_restart_champion(
+        summaries=[*normal_summaries, restart_summary],
+        source_configs={
+            "normal": tuple(FrequencyRankerConfig(frequency_weight=0.10 + index * 0.01) for index in range(5)),
+            "stagnation_restart": (restart,),
+        },
+        round_best=normal_summaries[0],
+        prior_best_summary=prior_best,
+        rank_homogeneity={"active": True},
+    )
+
+    assert champion is restart_summary
+    assert metadata["active"] is True
+    assert metadata["full_eval_rank"] == 6
+    assert metadata["rank_vector_changed"] is True
+    assert metadata["changed_target_count"] == 3
+    assert metadata["reason"] == "rank_homogeneity_restart_changed_rank_vector"
+
+
+def test_rank_homogeneity_restart_champion_waits_for_active_guardrail():
+    restart = FrequencyRankerConfig(frequency_weight=1.05, omission_weight=0.0)
+    restart_summary = supervisor_summary_for_config(restart, target_ranks=[80, 850, 49_000])
+
+    champion, metadata = select_rank_homogeneity_restart_champion(
+        summaries=[restart_summary],
+        source_configs={"stagnation_restart": (restart,)},
+        round_best=restart_summary,
+        prior_best_summary=None,
+        rank_homogeneity={"active": False},
+    )
+
+    assert champion is None
+    assert metadata["active"] is False
+    assert metadata["reason"] == "rank_homogeneity_inactive"
 
 
 def test_generate_configs_reuses_elite_configs_for_local_search():
