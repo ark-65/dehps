@@ -44,15 +44,36 @@ def split_null_paths(value: str) -> list[str]:
     return [path for path in value.split("\0") if path]
 
 
+def split_porcelain_status_paths(value: str) -> list[str]:
+    paths: list[str] = []
+    entries = split_null_paths(value)
+    index = 0
+    while index < len(entries):
+        entry = entries[index]
+        if len(entry) < 4:
+            index += 1
+            continue
+        status = entry[:2]
+        path = entry[3:]
+        if path:
+            paths.append(path)
+        if "R" in status or "C" in status:
+            index += 1
+            if index < len(entries) and entries[index]:
+                paths.append(entries[index])
+        index += 1
+    return paths
+
+
 def path_is_allowed(path: str, allowed_paths: list[str]) -> bool:
     return any(path == allowed_path or path.startswith(f"{allowed_path}/") for allowed_path in allowed_paths)
 
 
 def git_commit_and_push(message: str, push: bool = False, remote: str = "origin", branch: str | None = None) -> dict:
-    status = run(["git", "status", "--short"])
+    status = run(["git", "status", "--porcelain", "-z"])
     if status.returncode != 0:
         return {"status": "failed", "error": status.stderr.strip()}
-    if not status.stdout.strip():
+    if not status.stdout:
         return {"status": "no_changes"}
 
     allowed_paths = existing_allowed_paths()
@@ -70,6 +91,15 @@ def git_commit_and_push(message: str, push: bool = False, remote: str = "origin"
             "status": "blocked_disallowed_staged_changes",
             "paths": disallowed_staged_paths,
             "error": "staged changes outside allowed auto-git paths",
+        }
+    disallowed_worktree_paths = [
+        path for path in split_porcelain_status_paths(status.stdout) if not path_is_allowed(path, allowed_paths)
+    ]
+    if disallowed_worktree_paths:
+        return {
+            "status": "blocked_disallowed_worktree_changes",
+            "paths": disallowed_worktree_paths,
+            "error": "working tree changes outside allowed auto-git paths",
         }
 
     add = run(["git", "add", *allowed_paths])

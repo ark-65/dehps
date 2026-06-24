@@ -15,8 +15,8 @@ def test_git_helper_uses_repo_root(monkeypatch):
 
     def fake_run(cmd, cwd, text, capture_output, check):
         calls.append({"cmd": cmd, "cwd": cwd})
-        if cmd == ["git", "status", "--short"]:
-            return FakeCompleted(stdout=" M data/output/daily/report.md\n")
+        if cmd == ["git", "status", "--porcelain", "-z"]:
+            return FakeCompleted(stdout=" M data/output/daily/report.md\0")
         if cmd == ["git", "diff", "--cached", "--name-only", "-z"]:
             return FakeCompleted(stdout="data/output/daily/report.md\0")
         if cmd == ["git", "rev-parse", "HEAD"]:
@@ -38,8 +38,8 @@ def test_git_helper_skips_missing_allowed_paths(monkeypatch):
 
     def fake_run(cmd, cwd, text, capture_output, check):
         calls.append({"cmd": cmd, "cwd": cwd})
-        if cmd == ["git", "status", "--short"]:
-            return FakeCompleted(stdout=" M docs/experiments/report.md\n")
+        if cmd == ["git", "status", "--porcelain", "-z"]:
+            return FakeCompleted(stdout=" M docs/experiments/report.md\0")
         if cmd == ["git", "diff", "--cached", "--name-only", "-z"]:
             return FakeCompleted(stdout="docs/experiments/report.md\0")
         if cmd == ["git", "rev-parse", "HEAD"]:
@@ -61,8 +61,8 @@ def test_git_helper_reports_no_allowed_changes_when_allowed_paths_are_absent(mon
 
     def fake_run(cmd, cwd, text, capture_output, check):
         calls.append(cmd)
-        if cmd == ["git", "status", "--short"]:
-            return FakeCompleted(stdout=" M apps/api/src/main.ts\n")
+        if cmd == ["git", "status", "--porcelain", "-z"]:
+            return FakeCompleted(stdout=" M apps/api/src/main.ts\0")
         return FakeCompleted()
 
     monkeypatch.setattr(git_commit_and_push, "ALLOWED_PATHS", ["missing-data-dir"])
@@ -79,8 +79,8 @@ def test_git_helper_blocks_pre_staged_disallowed_paths(monkeypatch):
 
     def fake_run(cmd, cwd, text, capture_output, check):
         calls.append(cmd)
-        if cmd == ["git", "status", "--short"]:
-            return FakeCompleted(stdout="M  apps/api/src/main.ts\n M docs/experiments/report.md\n")
+        if cmd == ["git", "status", "--porcelain", "-z"]:
+            return FakeCompleted(stdout="M  apps/api/src/main.ts\0 M docs/experiments/report.md\0")
         if cmd == ["git", "diff", "--cached", "--name-only", "-z"]:
             return FakeCompleted(stdout="apps/api/src/main.ts\0")
         return FakeCompleted()
@@ -98,13 +98,37 @@ def test_git_helper_blocks_pre_staged_disallowed_paths(monkeypatch):
     assert not any(call[:2] == ["git", "add"] for call in calls)
 
 
+def test_git_helper_blocks_unstaged_disallowed_paths(monkeypatch):
+    calls = []
+
+    def fake_run(cmd, cwd, text, capture_output, check):
+        calls.append(cmd)
+        if cmd == ["git", "status", "--porcelain", "-z"]:
+            return FakeCompleted(stdout=" M apps/api/src/main.ts\0 M docs/experiments/report.md\0")
+        if cmd == ["git", "diff", "--cached", "--name-only", "-z"]:
+            return FakeCompleted(stdout="")
+        return FakeCompleted()
+
+    monkeypatch.setattr(git_commit_and_push, "ALLOWED_PATHS", ["docs/experiments"])
+    monkeypatch.setattr(git_commit_and_push.subprocess, "run", fake_run)
+
+    result = git_commit_and_push.git_commit_and_push("test commit")
+
+    assert result == {
+        "status": "blocked_disallowed_worktree_changes",
+        "paths": ["apps/api/src/main.ts"],
+        "error": "working tree changes outside allowed auto-git paths",
+    }
+    assert not any(call[:2] == ["git", "add"] for call in calls)
+
+
 def test_git_helper_pushes_current_upstream_branch_by_default(monkeypatch):
     calls = []
 
     def fake_run(cmd, cwd, text, capture_output, check):
         calls.append(cmd)
-        if cmd == ["git", "status", "--short"]:
-            return FakeCompleted(stdout=" M docs/experiments/report.md\n")
+        if cmd == ["git", "status", "--porcelain", "-z"]:
+            return FakeCompleted(stdout=" M docs/experiments/report.md\0")
         if cmd == ["git", "diff", "--cached", "--name-only", "-z"]:
             return FakeCompleted(stdout="docs/experiments/report.md\0")
         if cmd == ["git", "rev-parse", "HEAD"]:
@@ -128,8 +152,8 @@ def test_git_helper_push_falls_back_to_current_branch_without_upstream(monkeypat
 
     def fake_run(cmd, cwd, text, capture_output, check):
         calls.append(cmd)
-        if cmd == ["git", "status", "--short"]:
-            return FakeCompleted(stdout=" M docs/experiments/report.md\n")
+        if cmd == ["git", "status", "--porcelain", "-z"]:
+            return FakeCompleted(stdout=" M docs/experiments/report.md\0")
         if cmd == ["git", "diff", "--cached", "--name-only", "-z"]:
             return FakeCompleted(stdout="docs/experiments/report.md\0")
         if cmd == ["git", "rev-parse", "HEAD"]:
