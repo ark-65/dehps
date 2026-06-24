@@ -227,6 +227,12 @@ DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES = 8
 DEFAULT_TARGET_WEIGHT_INVERSION_MAX_TARGETS = 100
 DEFAULT_TARGET_WEIGHT_INVERSION_MAX_DELTAS_PER_TARGET = 8
 TARGET_WEIGHT_INVERSION_STALE_STAGNATION_THRESHOLD = 64
+NEAR_MISS_INVERSION_STAGNATION_THRESHOLD = STAGNATION_THRESHOLD
+NEAR_MISS_INVERSION_CUTOFF_BANDS = (
+    {"cutoff": 100, "upper": 500, "max_targets": 4},
+    {"cutoff": 1000, "upper": 5000, "max_targets": 4},
+    {"cutoff": 10000, "upper": 50000, "max_targets": 4},
+)
 MAX_FROZEN_VALIDATION_WINDOW = 20
 
 
@@ -1631,6 +1637,125 @@ def target_weight_inversion_advisor(
         max_deltas_per_target=safe_max_deltas,
     )
     return rows, aggregate, limited_configs, metadata
+
+
+def near_miss_targets_for_cutoff(
+    target_results: list[dict],
+    *,
+    cutoff: int,
+    upper: int,
+    limit: int,
+) -> list[dict]:
+    candidates: list[dict] = []
+    for target in target_results:
+        if not isinstance(target, dict):
+            continue
+        try:
+            rank = int(target.get("rank") or 0)
+        except (TypeError, ValueError):
+            continue
+        red_numbers = target.get("red_numbers")
+        if cutoff < rank <= upper and isinstance(red_numbers, list) and len(red_numbers) == 6:
+            candidates.append(target)
+    candidates.sort(key=lambda item: (int(item.get("rank") or 0) - cutoff, str(item.get("issue") or "")))
+    return candidates[: max(0, limit)]
+
+
+def near_miss_inversion_advisor(
+    *,
+    history: list,
+    ranked_universe,
+    best_summary: dict | None,
+    train_window: int,
+    train_mode: str,
+    enabled: bool,
+    max_configs: int,
+    max_delta_candidates: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_DELTAS_PER_TARGET,
+) -> tuple[tuple[FrequencyRankerConfig, ...], dict]:
+    metadata = {
+        "mode": "near_miss_cutoff_inversion_v0",
+        "enabled": enabled,
+        "status": "disabled" if not enabled else "waiting",
+        "candidate_count": 0,
+        "candidate_hashes": [],
+        "bands": [],
+        "reason": None,
+    }
+    if not enabled:
+        metadata["reason"] = "below_stagnation_threshold"
+        return (), metadata
+    if max_configs <= 0:
+        metadata["reason"] = "no_budget"
+        return (), metadata
+    if not isinstance(best_summary, dict):
+        metadata["reason"] = "missing_summary"
+        return (), metadata
+    target_results = best_summary.get("target_results")
+    config_values = best_summary.get("config")
+    if not isinstance(target_results, list) or not isinstance(config_values, dict):
+        metadata["reason"] = "missing_target_results"
+        return (), metadata
+
+    base_config = FrequencyRankerConfig(**{**config_dict(FrequencyRankerConfig()), **config_values})
+    configs: list[FrequencyRankerConfig] = []
+    seen: set[str] = set()
+    bands: list[dict] = []
+    for band in NEAR_MISS_INVERSION_CUTOFF_BANDS:
+        cutoff = int(band["cutoff"])
+        upper = int(band["upper"])
+        targets = near_miss_targets_for_cutoff(
+            target_results,
+            cutoff=cutoff,
+            upper=upper,
+            limit=int(band["max_targets"]),
+        )
+        if targets:
+            inversions = invert_targets_for_summary(
+                history=history,
+                ranked_universe=ranked_universe,
+                base_config=base_config,
+                target_results=targets,
+                train_window=train_window,
+                train_mode=train_mode,
+                top_n=cutoff,
+                max_targets=len(targets),
+                max_delta_candidates=max(1, int(max_delta_candidates)),
+            )
+            _rows, aggregate, band_configs = target_inversion_payload(inversions=inversions, base_config=base_config)
+            for config in band_configs:
+                add_unique(configs, seen, config)
+                if len(configs) >= max_configs:
+                    break
+        else:
+            aggregate = {}
+            band_configs = ()
+        bands.append(
+            {
+                "cutoff": cutoff,
+                "upper": upper,
+                "target_count": len(targets),
+                "target_issues": [str(target.get("issue") or "") for target in targets],
+                "target_ranks": [int(target.get("rank") or 0) for target in targets],
+                "success_count": int(aggregate.get("success_count") or 0),
+                "partial_improvement_count": int(aggregate.get("partial_improvement_count") or 0),
+                "candidate_count": len(band_configs),
+                "candidate_hashes": bounded_unique_config_hashes(band_configs, limit=8),
+            }
+        )
+        if len(configs) >= max_configs:
+            break
+
+    limited_configs = tuple(configs[:max_configs])
+    metadata.update(
+        {
+            "status": "ready" if limited_configs else "waiting",
+            "candidate_count": len(limited_configs),
+            "candidate_hashes": bounded_unique_config_hashes(limited_configs, limit=len(limited_configs) or 1),
+            "bands": bands,
+            "reason": None if limited_configs else "no_near_miss_candidates",
+        }
+    )
+    return limited_configs, metadata
 
 
 def search_fields_for_phase(phase: str) -> tuple[str, ...]:
@@ -3484,6 +3609,8 @@ def run_supervisor(
     rounds: list[dict] = []
     target_weight_inversion_configs: tuple[FrequencyRankerConfig, ...] = ()
     target_weight_inversion_latest: dict | None = None
+    near_miss_inversion_configs: tuple[FrequencyRankerConfig, ...] = ()
+    near_miss_inversion_latest: dict | None = None
     weight_kdj_thresholds = {
         "min_objective_delta": weight_kdj_min_objective_delta,
         "min_abs_offset": weight_kdj_min_abs_offset,
@@ -3569,6 +3696,11 @@ def run_supervisor(
             "max_deltas_per_target": max(1, target_weight_inversion_max_deltas_per_target),
             "latest": target_weight_inversion_latest,
         },
+        "near_miss_inversion_advisor": {
+            "enabled": enable_target_weight_inversion_advisor,
+            "stagnation_threshold": NEAR_MISS_INVERSION_STAGNATION_THRESHOLD,
+            "latest": near_miss_inversion_latest,
+        },
         "carryover_seed": {
             "mode": "cross_history_config_replay",
             "config_count": len(carryover_configs),
@@ -3611,6 +3743,11 @@ def run_supervisor(
                 if rank_homogeneity["active"]
                 else 0
             )
+            near_miss_inversion_budget = (
+                min(len(near_miss_inversion_configs), max(2, max_configs_per_round // 7))
+                if enable_target_weight_inversion_advisor and stagnation_rounds >= NEAR_MISS_INVERSION_STAGNATION_THRESHOLD
+                else 0
+            )
             historical_summaries = merge_leaderboard(leaderboard, prior_leaderboard, limit=32)
             low_coverage_fields = low_coverage_fields_from_summaries(historical_summaries)
             elite_configs = tuple(FrequencyRankerConfig(**summary["config"]) for summary in leaderboard[:4])
@@ -3635,6 +3772,7 @@ def run_supervisor(
             neural_kdj_budget = budgets.get("neural_kdj", 0)
             recency_canary_budget = budgets.get("recency_canary", 0)
             target_weight_inversion_budget = budgets.get("target_weight_inversion", 0)
+            budgets["near_miss_inversion"] = near_miss_inversion_budget
             normal_config_budget = (
                 max_configs_per_round
                 - weight_kdj_budget
@@ -3642,6 +3780,7 @@ def run_supervisor(
                 - neural_kdj_budget
                 - recency_canary_budget
                 - target_weight_inversion_budget
+                - near_miss_inversion_budget
                 - stagnation_restart_budget
             )
             normal_config_budget = max(1, normal_config_budget)
@@ -3747,6 +3886,7 @@ def run_supervisor(
                 "ridge_kdj": ridge_kdj_configs,
                 "neural_kdj": neural_kdj_configs,
                 "target_weight_inversion": target_weight_inversion_configs,
+                "near_miss_inversion": near_miss_inversion_configs,
                 "stagnation_restart": stagnation_restart_configs,
             }
             if recency_canary_budget > 0:
@@ -3785,8 +3925,15 @@ def run_supervisor(
                 configs = merge_reserved_candidate_configs(
                     configs,
                     target_weight_inversion_configs,
-                    max_configs=max_configs_per_round,
+                    max_configs=max_configs_per_round - near_miss_inversion_budget - stagnation_restart_budget,
                     reserved_budget=target_weight_inversion_budget,
+                )
+            if near_miss_inversion_budget > 0:
+                configs = merge_reserved_candidate_configs(
+                    configs,
+                    near_miss_inversion_configs,
+                    max_configs=max_configs_per_round - stagnation_restart_budget,
+                    reserved_budget=near_miss_inversion_budget,
                 )
             if stagnation_restart_budget > 0:
                 configs = merge_reserved_candidate_configs(
@@ -3981,6 +4128,19 @@ def run_supervisor(
             }
             prefilter_info["target_weight_inversion_advisor"] = target_weight_inversion_latest
             status["target_weight_inversion_advisor"]["latest"] = target_weight_inversion_latest
+            near_miss_inversion_configs, near_miss_inversion_latest = near_miss_inversion_advisor(
+                history=training_history,
+                ranked_universe=ranked_universe,
+                best_summary=decision_round_best,
+                train_window=train_window,
+                train_mode=train_mode,
+                enabled=enable_target_weight_inversion_advisor
+                and stagnation_rounds >= NEAR_MISS_INVERSION_STAGNATION_THRESHOLD,
+                max_configs=max(0, target_weight_inversion_max_candidates),
+                max_delta_candidates=target_weight_inversion_max_deltas_per_target,
+            )
+            prefilter_info["near_miss_inversion_advisor"] = near_miss_inversion_latest
+            status["near_miss_inversion_advisor"]["latest"] = near_miss_inversion_latest
             leaderboard = merge_leaderboard(leaderboard, summaries[: min(8, len(summaries))])
             next_search_base_config, search_base_info = select_next_search_base(
                 current_base=search_base_config,
@@ -4019,6 +4179,16 @@ def run_supervisor(
                     f"rank={restart_champion_info['full_eval_rank']} "
                     f"changed_targets={restart_champion_info['changed_target_count']} "
                     f"config_hash={restart_champion_info['config_hash']}"
+                )
+            if near_miss_inversion_latest["candidate_count"]:
+                band_summary = ",".join(
+                    f"{band['cutoff']}:{band['target_count']}"
+                    for band in near_miss_inversion_latest["bands"]
+                )
+                log(
+                    f"round={round_index + 1} near_miss_inversion="
+                    f"candidates={near_miss_inversion_latest['candidate_count']} "
+                    f"bands={band_summary}"
                 )
             log(
                 f"round={round_index + 1} search_base_next="

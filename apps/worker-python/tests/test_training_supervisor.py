@@ -32,6 +32,8 @@ from scripts.run_training_supervisor import (
     merge_config_candidates,
     merge_reserved_candidate_configs,
     neural_kdj_advisor_metadata,
+    near_miss_inversion_advisor,
+    near_miss_targets_for_cutoff,
     phase_for_round,
     post_training_event,
     prefilter_configs,
@@ -1109,6 +1111,83 @@ def test_target_weight_inversion_advisor_limits_candidates_for_next_round(monkey
     assert metadata["candidate_labels"] == ["candidate-0", "candidate-1", "candidate-2", "candidate-3"]
     assert metadata["control_experiment_count"] == 1
     assert metadata["frozen_validation"]["window"] == 20
+
+
+def test_near_miss_targets_for_cutoff_prioritizes_threshold_misses():
+    targets = [
+        {"issue": "2026001", "rank": 90, "red_numbers": [1, 2, 3, 4, 5, 6]},
+        {"issue": "2026002", "rank": 408, "red_numbers": [1, 2, 3, 4, 5, 7]},
+        {"issue": "2026003", "rank": 120, "red_numbers": [1, 2, 3, 4, 5, 8]},
+        {"issue": "2026004", "rank": 501, "red_numbers": [1, 2, 3, 4, 5, 9]},
+    ]
+
+    selected = near_miss_targets_for_cutoff(targets, cutoff=100, upper=500, limit=2)
+
+    assert [target["issue"] for target in selected] == ["2026003", "2026002"]
+
+
+def test_near_miss_inversion_advisor_uses_tighter_cutoffs(monkeypatch):
+    calls = []
+    configs_by_cutoff = {
+        100: FrequencyRankerConfig(frequency_weight=0.41),
+        1000: FrequencyRankerConfig(omission_weight=0.42),
+        10000: FrequencyRankerConfig(sum_tail_weight=0.09),
+    }
+
+    def fake_invert_targets_for_summary(**kwargs):
+        calls.append(
+            {
+                "top_n": kwargs["top_n"],
+                "issues": [target["issue"] for target in kwargs["target_results"]],
+            }
+        )
+        return [f"inversion-{kwargs['top_n']}"]
+
+    def fake_target_inversion_payload(*, inversions, base_config):
+        cutoff = int(str(inversions[0]).split("-")[-1])
+        config = configs_by_cutoff[cutoff]
+        return (
+            [{"target_issue": f"near-{cutoff}", "success": True}],
+            {
+                "success_count": 1,
+                "partial_improvement_count": 0,
+                "candidates": [{"config_hash": config_hash(config), "config": config.__dict__}],
+            },
+            (config,),
+        )
+
+    monkeypatch.setattr(supervisor, "invert_targets_for_summary", fake_invert_targets_for_summary)
+    monkeypatch.setattr(supervisor, "target_inversion_payload", fake_target_inversion_payload)
+    best_summary = {
+        "config": FrequencyRankerConfig().__dict__,
+        "target_results": [
+            {"issue": "already_top100", "rank": 47, "red_numbers": [1, 2, 3, 4, 5, 6]},
+            {"issue": "near_top100", "rank": 408, "red_numbers": [1, 2, 3, 4, 5, 7]},
+            {"issue": "near_top1000", "rank": 1500, "red_numbers": [1, 2, 3, 4, 5, 8]},
+            {"issue": "near_top10000", "rank": 45362, "red_numbers": [1, 2, 3, 4, 5, 9]},
+            {"issue": "too_far", "rank": 70000, "red_numbers": [1, 2, 3, 4, 5, 10]},
+        ],
+    }
+
+    configs, metadata = near_miss_inversion_advisor(
+        history=[],
+        ranked_universe=[],
+        best_summary=best_summary,
+        train_window=100,
+        train_mode="expanding",
+        enabled=True,
+        max_configs=8,
+        max_delta_candidates=8,
+    )
+
+    assert [call["top_n"] for call in calls] == [100, 1000, 10000]
+    assert calls[0]["issues"] == ["near_top100"]
+    assert calls[1]["issues"] == ["near_top1000"]
+    assert calls[2]["issues"] == ["near_top10000"]
+    assert len(configs) == 3
+    assert metadata["status"] == "ready"
+    assert metadata["candidate_count"] == 3
+    assert [band["target_count"] for band in metadata["bands"]] == [1, 1, 1]
 
 
 def test_bounded_unique_config_hashes_uses_hashes_and_limit():
