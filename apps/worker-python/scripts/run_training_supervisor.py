@@ -232,6 +232,8 @@ TARGET_WEIGHT_INVERSION_STALE_STAGNATION_THRESHOLD = 64
 NEAR_MISS_INVERSION_STAGNATION_THRESHOLD = STAGNATION_THRESHOLD
 PROBABILITY_CALIBRATION_STAGNATION_THRESHOLD = STAGNATION_THRESHOLD
 PROBABILITY_FOCUS_HOLD_ROUNDS = 4
+SOURCE_FRONTIER_STAGNATION_THRESHOLD = max(4, STAGNATION_THRESHOLD // 4)
+SOURCE_FRONTIER_TOP_LIMIT = 12
 NEAR_MISS_INVERSION_CUTOFF_BANDS = (
     {"cutoff": 100, "upper": 500, "max_targets": 4},
     {"cutoff": 1000, "upper": 5000, "max_targets": 4},
@@ -1185,6 +1187,230 @@ def candidate_source_survival(
             "hashes": hashes[:preview_limit],
         }
     return survival
+
+
+def _source_by_config_hash(source_configs: dict[str, tuple[FrequencyRankerConfig, ...]]) -> dict[str, str]:
+    source_by_hash: dict[str, str] = {}
+    for source, configs in source_configs.items():
+        for config in configs:
+            key = config_hash(config)
+            if key not in source_by_hash or source_by_hash[key] == "normal":
+                source_by_hash[key] = source
+    return source_by_hash
+
+
+def _metric_int(container: dict, key: str, default: int = 0) -> int:
+    try:
+        return int(container.get(key, default) or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _metric_float(container: dict, key: str, default: float = 0.0) -> float:
+    try:
+        return float(container.get(key, default) or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _frozen_validation_metrics(summary: dict | None) -> dict:
+    validation = summary.get("frozen_validation") if isinstance(summary, dict) else None
+    if not isinstance(validation, dict):
+        return {
+            "top_100_hits": 0,
+            "top_1000_hits": 0,
+            "top_10000_hits": 0,
+            "red5_top_100_hits": 0,
+            "red5_top_1000_hits": 0,
+            "red5_top_10000_hits": 0,
+            "tail_over_1000000_count": 0,
+            "median_rank": None,
+            "objective_score": 0.0,
+        }
+    red5 = validation.get("red5") if isinstance(validation.get("red5"), dict) else {}
+    rank_quality = validation.get("rank_quality") if isinstance(validation.get("rank_quality"), dict) else {}
+    reward = validation.get("reward") if isinstance(validation.get("reward"), dict) else {}
+    return {
+        "top_100_hits": _metric_int(validation, "top_100_hits"),
+        "top_1000_hits": _metric_int(validation, "top_1000_hits"),
+        "top_10000_hits": _metric_int(validation, "top_10000_hits"),
+        "red5_top_100_hits": _metric_int(red5, "top_100_hits"),
+        "red5_top_1000_hits": _metric_int(red5, "top_1000_hits"),
+        "red5_top_10000_hits": _metric_int(red5, "top_10000_hits"),
+        "tail_over_1000000_count": _metric_int(rank_quality, "tail_over_1000000_count"),
+        "median_rank": validation.get("median_rank"),
+        "objective_score": _metric_float(reward, "objectiveScore"),
+    }
+
+
+def source_frontier_score(summary: dict | None) -> tuple:
+    metrics = _frozen_validation_metrics(summary)
+    median_rank = metrics["median_rank"]
+    median_value = float(median_rank) if isinstance(median_rank, int | float) else 1_000_000_000.0
+    return (
+        metrics["top_100_hits"],
+        metrics["top_1000_hits"],
+        metrics["top_10000_hits"],
+        metrics["red5_top_100_hits"],
+        metrics["red5_top_1000_hits"],
+        metrics["red5_top_10000_hits"],
+        -metrics["tail_over_1000000_count"],
+        -median_value,
+        metrics["objective_score"],
+    )
+
+
+def _source_frontier_summary_metrics(summary: dict | None) -> dict:
+    if not isinstance(summary, dict):
+        return {}
+    reward = summary.get("reward") if isinstance(summary.get("reward"), dict) else {}
+    frozen = _frozen_validation_metrics(summary)
+    return {
+        "config_hash": summary_config_hash(summary) or "",
+        "top_100_hits": _metric_int(summary, "top_100_hits"),
+        "top_1000_hits": _metric_int(summary, "top_1000_hits"),
+        "top_10000_hits": _metric_int(summary, "top_10000_hits"),
+        "median_rank": summary.get("median_rank"),
+        "objective_score": _metric_float(reward, "objectiveScore"),
+        "frozen_top_100_hits": frozen["top_100_hits"],
+        "frozen_top_1000_hits": frozen["top_1000_hits"],
+        "frozen_top_10000_hits": frozen["top_10000_hits"],
+        "frozen_median_rank": frozen["median_rank"],
+        "frozen_objective_score": frozen["objective_score"],
+    }
+
+
+def source_frontier_diagnostics(
+    *,
+    summaries: list[dict],
+    source_configs: dict[str, tuple[FrequencyRankerConfig, ...]],
+    prior_best_summary: dict | None,
+    round_best: dict | None,
+    top_limit: int = SOURCE_FRONTIER_TOP_LIMIT,
+) -> dict:
+    summary_by_hash = {
+        summary_config_hash(summary): (index, summary)
+        for index, summary in enumerate(summaries, start=1)
+        if summary_config_hash(summary)
+    }
+    round_best_hash = summary_config_hash(round_best) or ""
+    baseline = prior_best_summary if isinstance(prior_best_summary, dict) else round_best
+    baseline_score = source_frontier_score(baseline)
+    sources: dict[str, dict] = {}
+    best_non_normal: tuple[str, int, dict, tuple] | None = None
+
+    for source, configs in source_configs.items():
+        hashes = bounded_unique_config_hashes(configs, limit=64)
+        evaluated: list[tuple[int, dict]] = [
+            summary_by_hash[key]
+            for key in hashes
+            if key in summary_by_hash
+        ]
+        top5_count = sum(index <= 5 for index, _summary in evaluated)
+        best_entry = min(evaluated, key=lambda item: item[0]) if evaluated else None
+        best_summary = best_entry[1] if best_entry is not None else None
+        best_rank = best_entry[0] if best_entry is not None else None
+        best_score = source_frontier_score(best_summary)
+        sources[source] = {
+            "generated": len(hashes),
+            "full_eval_count": len(evaluated),
+            "full_eval_top5": top5_count,
+            "round_best": bool(round_best_hash and round_best_hash in set(hashes)),
+            "best_full_eval_rank": best_rank,
+            "best": _source_frontier_summary_metrics(best_summary),
+            "score": list(best_score),
+        }
+        if (
+            source != "normal"
+            and best_summary is not None
+            and (best_non_normal is None or best_score > best_non_normal[3])
+        ):
+            best_non_normal = (source, int(best_rank or 0), best_summary, best_score)
+
+    return {
+        "top_limit": top_limit,
+        "baseline_config_hash": summary_config_hash(baseline) or "",
+        "baseline_score": list(baseline_score),
+        "round_best_config_hash": round_best_hash,
+        "sources": sources,
+        "best_non_normal": {
+            "source": best_non_normal[0],
+            "full_eval_rank": best_non_normal[1],
+            "score": list(best_non_normal[3]),
+            **_source_frontier_summary_metrics(best_non_normal[2]),
+        }
+        if best_non_normal is not None
+        else None,
+    }
+
+
+def select_source_frontier_champion(
+    *,
+    summaries: list[dict],
+    source_configs: dict[str, tuple[FrequencyRankerConfig, ...]],
+    round_best: dict | None,
+    prior_best_summary: dict | None,
+    stagnation_rounds: int,
+    top_limit: int = SOURCE_FRONTIER_TOP_LIMIT,
+) -> tuple[dict | None, dict]:
+    baseline = prior_best_summary if isinstance(prior_best_summary, dict) else round_best
+    baseline_score = source_frontier_score(baseline)
+    source_by_hash = _source_by_config_hash(source_configs)
+    round_best_hash = summary_config_hash(round_best) or ""
+    metadata = {
+        "active": False,
+        "threshold": SOURCE_FRONTIER_STAGNATION_THRESHOLD,
+        "stagnation_rounds": stagnation_rounds,
+        "source": "",
+        "config_hash": "",
+        "full_eval_rank": None,
+        "round_best_config_hash": round_best_hash,
+        "baseline_config_hash": summary_config_hash(baseline) or "",
+        "baseline_score": list(baseline_score),
+        "candidate_score": None,
+        "rank_vector_changed": None,
+        "changed_target_count": None,
+        "reason": None,
+    }
+    if stagnation_rounds < SOURCE_FRONTIER_STAGNATION_THRESHOLD:
+        metadata["reason"] = "below_threshold"
+        return None, metadata
+    if not summaries:
+        metadata["reason"] = "no_summaries"
+        return None, metadata
+
+    selected: tuple[dict, int, tuple] | None = None
+    for index, summary in enumerate(summaries[: max(1, top_limit)], start=1):
+        key = summary_config_hash(summary) or ""
+        source = source_by_hash.get(key, "")
+        if not source or source == "normal" or key == round_best_hash:
+            continue
+        score = source_frontier_score(summary)
+        if score <= baseline_score:
+            continue
+        if selected is None or score > selected[2] or (score == selected[2] and sort_key(summary) > sort_key(selected[0])):
+            selected = (summary, index, score)
+
+    if selected is None:
+        metadata["reason"] = "no_non_normal_frozen_frontier_lift"
+        return None, metadata
+
+    summary, index, score = selected
+    key = summary_config_hash(summary) or ""
+    movement = target_rank_movement(summary, baseline)
+    metadata.update(
+        {
+            "active": True,
+            "source": source_by_hash.get(key, "unknown"),
+            "config_hash": key,
+            "full_eval_rank": index,
+            "candidate_score": list(score),
+            "rank_vector_changed": rank_vector_changed(baseline, summary),
+            "changed_target_count": movement.get("changed_target_count"),
+            "reason": "source_frontier_frozen_validation_lift",
+        }
+    )
+    return summary, metadata
 
 
 def select_stagnation_exploration_champion(
@@ -3738,6 +3964,53 @@ def publish_status_snapshot(
         post_training_event(payload, event_url=event_url)
 
 
+def source_frontier_report_section(status: dict) -> str:
+    latest_prefilter = (status.get("prefilter") or {}).get("latest")
+    if not isinstance(latest_prefilter, dict):
+        for round_info in reversed(status.get("rounds") or []):
+            candidate = round_info.get("prefilter") if isinstance(round_info, dict) else None
+            if isinstance(candidate, dict):
+                latest_prefilter = candidate
+                break
+    frontier = latest_prefilter.get("source_frontier") if isinstance(latest_prefilter, dict) else None
+    if not isinstance(frontier, dict):
+        return "## Source Frontier\n\nNo source-frontier diagnostics recorded yet.\n"
+    champion = latest_prefilter.get("source_frontier_champion") if isinstance(latest_prefilter, dict) else {}
+    champion_line = (
+        f"- Champion: active={bool(champion.get('active'))} "
+        f"reason={champion.get('reason')} "
+        f"source={champion.get('source', '')} "
+        f"rank={champion.get('full_eval_rank')} "
+        f"config_hash=`{champion.get('config_hash', '')}`"
+        if isinstance(champion, dict)
+        else "- Champion: unavailable"
+    )
+    rows: list[str] = []
+    sources = frontier.get("sources") if isinstance(frontier.get("sources"), dict) else {}
+    for source, info in sorted(sources.items()):
+        if not isinstance(info, dict):
+            continue
+        best = info.get("best") if isinstance(info.get("best"), dict) else {}
+        rows.append(
+            f"| {source} | {info.get('generated', 0)} | {info.get('full_eval_count', 0)} | "
+            f"{info.get('full_eval_top5', 0)} | {info.get('round_best', False)} | "
+            f"{info.get('best_full_eval_rank')} | {best.get('top_10000_hits', 0)} | "
+            f"{best.get('frozen_top_10000_hits', 0)} | {best.get('frozen_median_rank')} | "
+            f"`{best.get('config_hash', '')}` |"
+        )
+    table = "\n".join(rows) or "| none | 0 | 0 | 0 | False |  | 0 | 0 |  | `` |"
+    return f"""## Source Frontier
+
+{champion_line}
+- Baseline config hash: `{frontier.get("baseline_config_hash", "")}`
+- Best non-normal: `{(frontier.get("best_non_normal") or {}).get("source", "")}` `{(frontier.get("best_non_normal") or {}).get("config_hash", "")}`
+
+| Source | Generated | Full eval | Top5 | Round best | Best rank | Best Top10000 | Frozen Top10000 | Frozen median | Config hash |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+{table}
+"""
+
+
 def write_report(report_path: Path, status: dict) -> None:
     report_path.parent.mkdir(parents=True, exist_ok=True)
     rounds = "\n".join(
@@ -3754,6 +4027,7 @@ def write_report(report_path: Path, status: dict) -> None:
         for round_info in status["rounds"]
     )
     best = status["best"]
+    source_frontier = source_frontier_report_section(status)
     report_path.write_text(
         f"""# DEHPS 24h Training Supervisor Report
 
@@ -3779,6 +4053,8 @@ def write_report(report_path: Path, status: dict) -> None:
 ```json
 {json.dumps(best, ensure_ascii=False, indent=2, sort_keys=True)}
 ```
+
+{source_frontier}
 
 ## Rounds
 
@@ -4458,6 +4734,13 @@ def run_supervisor(
                 prior_best_summary=prior_best_summary,
                 stagnation_rounds=stagnation_rounds,
             )
+            source_frontier_champion, source_frontier_champion_info = select_source_frontier_champion(
+                summaries=summaries,
+                source_configs=source_configs,
+                round_best=round_best,
+                prior_best_summary=prior_best_summary,
+                stagnation_rounds=stagnation_rounds,
+            )
             evaluated_probability_focus_summary = None
             if probability_focus_hash:
                 for summary in summaries:
@@ -4569,6 +4852,8 @@ def run_supervisor(
                     decision_round_best = probability_focus_decision_summary
                 elif probability_champion is not None:
                     decision_round_best = probability_champion
+                elif source_frontier_champion is not None:
+                    decision_round_best = source_frontier_champion
                 elif restart_champion is not None:
                     decision_round_best = restart_champion
                 elif exploration_champion is not None:
@@ -4597,6 +4882,13 @@ def run_supervisor(
                 full_eval_top_results=summaries[: min(5, len(summaries))],
                 round_best=round_best,
             )
+            prefilter_info["source_frontier"] = source_frontier_diagnostics(
+                summaries=summaries,
+                source_configs=source_configs,
+                prior_best_summary=prior_best_summary,
+                round_best=round_best,
+            )
+            prefilter_info["source_frontier_champion"] = source_frontier_champion_info
             prefilter_info["round_best_replays_incumbent"] = inversion_anchor_info["round_best_replays_incumbent"]
             prefilter_info["challenger_best"] = strip_target_results(challenger_summary) if challenger_summary else None
             prefilter_info["challenger_probability_calibration"] = (
@@ -4711,6 +5003,14 @@ def run_supervisor(
                     f"rank={probability_champion_info['full_eval_rank']} "
                     f"changed_targets={probability_champion_info['changed_target_count']} "
                     f"config_hash={probability_champion_info['config_hash']}"
+                )
+            if source_frontier_champion_info["active"]:
+                log(
+                    f"round={round_index + 1} source_frontier_champion="
+                    f"{source_frontier_champion_info['source']} "
+                    f"rank={source_frontier_champion_info['full_eval_rank']} "
+                    f"changed_targets={source_frontier_champion_info['changed_target_count']} "
+                    f"config_hash={source_frontier_champion_info['config_hash']}"
                 )
             if probability_focus_info["active"]:
                 log(

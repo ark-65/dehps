@@ -56,8 +56,10 @@ from scripts.run_training_supervisor import (
     select_probability_focus_search_base,
     select_stagnation_exploration_champion,
     select_rank_homogeneity_restart_champion,
+    select_source_frontier_champion,
     select_next_search_base,
     should_log_training_event_warning,
+    source_frontier_diagnostics,
     stagnation_restart_candidate_configs,
     summarize_target_ranks,
     summary_config_hash,
@@ -107,6 +109,28 @@ def supervisor_summary_for_config(
         ],
         "reward": {"objectiveScore": objective_score},
     }
+
+
+def attach_test_frozen_validation(
+    summary: dict,
+    *,
+    top_100_hits: int = 0,
+    top_1000_hits: int = 0,
+    top_10000_hits: int = 0,
+    median_rank: int = 700_000,
+    objective_score: float = 0.0,
+) -> dict:
+    summary["frozen_validation"] = {
+        "top_100_hits": top_100_hits,
+        "top_1000_hits": top_1000_hits,
+        "top_10000_hits": top_10000_hits,
+        "median_rank": median_rank,
+        "worst_rank": 1_000_000,
+        "red5": {"top_100_hits": 0, "top_1000_hits": 0, "top_10000_hits": 0},
+        "rank_quality": {"tail_over_1000000_count": 0},
+        "reward": {"objectiveScore": objective_score},
+    }
+    return summary
 
 
 def test_duration_hours_zero_means_continuous_training():
@@ -613,6 +637,117 @@ def test_candidate_source_survival_tracks_prefilter_top5_and_round_best():
     assert survival["weight_kdj"]["prefilter_selected"] == 1
     assert survival["weight_kdj"]["round_best"] is True
     assert survival["target_weight_inversion"]["prefilter_selected"] == 0
+
+
+def test_source_frontier_diagnostics_tracks_best_non_normal_frozen_frontier():
+    normal = FrequencyRankerConfig(frequency_weight=0.31)
+    recency = FrequencyRankerConfig(short_hot_frequency_weight=0.18)
+    normal_summary = attach_test_frozen_validation(
+        supervisor_summary_for_config(normal, objective_score=2200.0),
+        top_10000_hits=0,
+        median_rank=800_000,
+        objective_score=0.0,
+    )
+    recency_summary = attach_test_frozen_validation(
+        supervisor_summary_for_config(recency, objective_score=2100.0),
+        top_10000_hits=1,
+        median_rank=650_000,
+        objective_score=3.0,
+    )
+
+    diagnostics = source_frontier_diagnostics(
+        summaries=[normal_summary, recency_summary],
+        source_configs={"normal": (normal,), "recency_canary": (recency,)},
+        prior_best_summary=normal_summary,
+        round_best=normal_summary,
+    )
+
+    assert diagnostics["sources"]["normal"]["generated"] == 1
+    assert diagnostics["sources"]["recency_canary"]["full_eval_count"] == 1
+    assert diagnostics["sources"]["recency_canary"]["best"]["frozen_top_10000_hits"] == 1
+    assert diagnostics["best_non_normal"]["source"] == "recency_canary"
+    assert diagnostics["best_non_normal"]["config_hash"] == config_hash(recency)
+
+
+def test_source_frontier_champion_waits_for_stagnation_threshold():
+    normal = FrequencyRankerConfig()
+    recency = FrequencyRankerConfig(short_hot_frequency_weight=0.18)
+    normal_summary = attach_test_frozen_validation(supervisor_summary_for_config(normal), top_10000_hits=0)
+    recency_summary = attach_test_frozen_validation(supervisor_summary_for_config(recency), top_10000_hits=1)
+
+    champion, metadata = select_source_frontier_champion(
+        summaries=[normal_summary, recency_summary],
+        source_configs={"normal": (normal,), "recency_canary": (recency,)},
+        round_best=normal_summary,
+        prior_best_summary=normal_summary,
+        stagnation_rounds=supervisor.SOURCE_FRONTIER_STAGNATION_THRESHOLD - 1,
+    )
+
+    assert champion is None
+    assert metadata["active"] is False
+    assert metadata["reason"] == "below_threshold"
+
+
+def test_source_frontier_champion_selects_non_normal_frozen_lift():
+    normal = FrequencyRankerConfig()
+    recency = FrequencyRankerConfig(short_hot_frequency_weight=0.18, long_omission_cooldown_weight=0.12)
+    normal_summary = attach_test_frozen_validation(
+        supervisor_summary_for_config(normal, target_ranks=[10_000, 600_000]),
+        top_10000_hits=0,
+        median_rank=800_000,
+        objective_score=0.0,
+    )
+    recency_summary = attach_test_frozen_validation(
+        supervisor_summary_for_config(recency, target_ranks=[9_000, 590_000], objective_score=100.0),
+        top_10000_hits=1,
+        median_rank=650_000,
+        objective_score=3.0,
+    )
+
+    champion, metadata = select_source_frontier_champion(
+        summaries=[normal_summary, recency_summary],
+        source_configs={"normal": (normal,), "recency_canary": (recency,)},
+        round_best=normal_summary,
+        prior_best_summary=normal_summary,
+        stagnation_rounds=supervisor.SOURCE_FRONTIER_STAGNATION_THRESHOLD,
+    )
+
+    assert champion is recency_summary
+    assert metadata["active"] is True
+    assert metadata["source"] == "recency_canary"
+    assert metadata["full_eval_rank"] == 2
+    assert metadata["rank_vector_changed"] is True
+    assert metadata["changed_target_count"] == 2
+    assert metadata["reason"] == "source_frontier_frozen_validation_lift"
+
+
+def test_source_frontier_champion_rejects_non_normal_without_frozen_lift():
+    normal = FrequencyRankerConfig()
+    ridge = FrequencyRankerConfig(frequency_weight=0.45)
+    normal_summary = attach_test_frozen_validation(
+        supervisor_summary_for_config(normal, objective_score=2200.0),
+        top_10000_hits=1,
+        median_rank=650_000,
+        objective_score=3.0,
+    )
+    ridge_summary = attach_test_frozen_validation(
+        supervisor_summary_for_config(ridge, objective_score=2100.0),
+        top_10000_hits=0,
+        median_rank=900_000,
+        objective_score=0.0,
+    )
+
+    champion, metadata = select_source_frontier_champion(
+        summaries=[normal_summary, ridge_summary],
+        source_configs={"normal": (normal,), "ridge_kdj": (ridge,)},
+        round_best=normal_summary,
+        prior_best_summary=normal_summary,
+        stagnation_rounds=supervisor.SOURCE_FRONTIER_STAGNATION_THRESHOLD,
+    )
+
+    assert champion is None
+    assert metadata["active"] is False
+    assert metadata["reason"] == "no_non_normal_frozen_frontier_lift"
 
 
 def test_stagnation_exploration_champion_waits_for_threshold():
