@@ -41,6 +41,7 @@ from scripts.run_training_supervisor import (
     prefilter_configs,
     probability_calibration_diagnostics,
     probability_calibration_score,
+    rank_signature_hash,
     reward_summary,
     resolve_training_deadline,
     rank_homogeneity_guardrail,
@@ -58,6 +59,7 @@ from scripts.run_training_supervisor import (
     select_rank_homogeneity_restart_champion,
     select_source_frontier_champion,
     select_next_search_base,
+    should_refresh_probability_focus,
     should_log_training_event_warning,
     source_frontier_diagnostics,
     stagnation_restart_candidate_configs,
@@ -117,6 +119,9 @@ def attach_test_frozen_validation(
     top_100_hits: int = 0,
     top_1000_hits: int = 0,
     top_10000_hits: int = 0,
+    red5_top_100_hits: int = 0,
+    red5_top_1000_hits: int = 0,
+    red5_top_10000_hits: int = 0,
     median_rank: int = 700_000,
     objective_score: float = 0.0,
 ) -> dict:
@@ -126,7 +131,11 @@ def attach_test_frozen_validation(
         "top_10000_hits": top_10000_hits,
         "median_rank": median_rank,
         "worst_rank": 1_000_000,
-        "red5": {"top_100_hits": 0, "top_1000_hits": 0, "top_10000_hits": 0},
+        "red5": {
+            "top_100_hits": red5_top_100_hits,
+            "top_1000_hits": red5_top_1000_hits,
+            "top_10000_hits": red5_top_10000_hits,
+        },
         "rank_quality": {"tail_over_1000000_count": 0},
         "reward": {"objectiveScore": objective_score},
     }
@@ -666,7 +675,38 @@ def test_source_frontier_diagnostics_tracks_best_non_normal_frozen_frontier():
     assert diagnostics["sources"]["recency_canary"]["full_eval_count"] == 1
     assert diagnostics["sources"]["recency_canary"]["best"]["frozen_top_10000_hits"] == 1
     assert diagnostics["best_non_normal"]["source"] == "recency_canary"
+    assert diagnostics["best_non_normal_primary"]["source"] == "recency_canary"
     assert diagnostics["best_non_normal"]["config_hash"] == config_hash(recency)
+
+
+def test_source_frontier_diagnostics_marks_secondary_without_primary_lift():
+    normal = FrequencyRankerConfig(frequency_weight=0.31)
+    weight_kdj = FrequencyRankerConfig(sum_tail_weight=0.08)
+    normal_summary = attach_test_frozen_validation(
+        supervisor_summary_for_config(normal, objective_score=2200.0),
+        top_10000_hits=0,
+        red5_top_10000_hits=3,
+        median_rank=800_000,
+        objective_score=0.0,
+    )
+    weight_summary = attach_test_frozen_validation(
+        supervisor_summary_for_config(weight_kdj, objective_score=2100.0),
+        top_10000_hits=0,
+        red5_top_10000_hits=5,
+        median_rank=650_000,
+        objective_score=3.0,
+    )
+
+    diagnostics = source_frontier_diagnostics(
+        summaries=[normal_summary, weight_summary],
+        source_configs={"normal": (normal,), "weight_kdj": (weight_kdj,)},
+        prior_best_summary=normal_summary,
+        round_best=normal_summary,
+    )
+
+    assert diagnostics["best_non_normal_primary"] is None
+    assert diagnostics["best_non_normal_secondary"]["source"] == "weight_kdj"
+    assert diagnostics["sources"]["weight_kdj"]["primary_score"] == [0, 0, 0]
 
 
 def test_source_frontier_champion_waits_for_stagnation_threshold():
@@ -718,7 +758,8 @@ def test_source_frontier_champion_selects_non_normal_frozen_lift():
     assert metadata["full_eval_rank"] == 2
     assert metadata["rank_vector_changed"] is True
     assert metadata["changed_target_count"] == 2
-    assert metadata["reason"] == "source_frontier_frozen_validation_lift"
+    assert metadata["reason"] == "source_frontier_primary_hit_lift"
+    assert metadata["candidate_primary_score"] == [0, 0, 1]
 
 
 def test_source_frontier_champion_rejects_non_normal_without_frozen_lift():
@@ -747,7 +788,39 @@ def test_source_frontier_champion_rejects_non_normal_without_frozen_lift():
 
     assert champion is None
     assert metadata["active"] is False
-    assert metadata["reason"] == "no_non_normal_frozen_frontier_lift"
+    assert metadata["reason"] == "no_non_normal_primary_frontier_lift"
+
+
+def test_source_frontier_champion_rejects_secondary_only_lift():
+    normal = FrequencyRankerConfig()
+    weight_kdj = FrequencyRankerConfig(sum_tail_weight=0.08)
+    normal_summary = attach_test_frozen_validation(
+        supervisor_summary_for_config(normal, objective_score=2200.0),
+        top_10000_hits=0,
+        red5_top_10000_hits=3,
+        median_rank=800_000,
+        objective_score=0.0,
+    )
+    weight_summary = attach_test_frozen_validation(
+        supervisor_summary_for_config(weight_kdj, objective_score=2100.0),
+        top_10000_hits=0,
+        red5_top_10000_hits=5,
+        median_rank=650_000,
+        objective_score=3.0,
+    )
+
+    champion, metadata = select_source_frontier_champion(
+        summaries=[normal_summary, weight_summary],
+        source_configs={"normal": (normal,), "weight_kdj": (weight_kdj,)},
+        round_best=normal_summary,
+        prior_best_summary=normal_summary,
+        stagnation_rounds=supervisor.SOURCE_FRONTIER_STAGNATION_THRESHOLD,
+    )
+
+    assert champion is None
+    assert metadata["reason"] == "no_non_normal_primary_frontier_lift"
+    assert metadata["secondary_candidate_available"] is True
+    assert metadata["secondary_candidate_source"] == "weight_kdj"
 
 
 def test_stagnation_exploration_champion_waits_for_threshold():
@@ -893,6 +966,91 @@ def test_probability_focus_search_base_can_hold_current_base_for_local_search():
     assert metadata["changed"] is False
     assert metadata["selected_config_distance"] == 0.0
     assert metadata["remaining_rounds"] == 3
+
+
+def test_probability_focus_same_hash_same_score_does_not_refresh_ttl():
+    config = FrequencyRankerConfig(frequency_weight=0.45)
+    champion_hash = config_hash(config)
+
+    assert should_refresh_probability_focus(
+        champion_config=config,
+        champion_hash=champion_hash,
+        champion_score=(1, 2, 3),
+        probability_focus_hash="",
+        probability_focus_score=(),
+    )
+    assert not should_refresh_probability_focus(
+        champion_config=config,
+        champion_hash=champion_hash,
+        champion_score=(1, 2, 3),
+        probability_focus_hash=champion_hash,
+        probability_focus_score=(1, 2, 3),
+    )
+    assert should_refresh_probability_focus(
+        champion_config=config,
+        champion_hash=champion_hash,
+        champion_score=(1, 2, 4),
+        probability_focus_hash=champion_hash,
+        probability_focus_score=(1, 2, 3),
+    )
+
+
+def test_probability_focus_search_base_returns_none_on_rank_signature_cooldown():
+    current_config = FrequencyRankerConfig(frequency_weight=0.30)
+    focus_config = FrequencyRankerConfig(frequency_weight=0.45, omission_weight=0.10)
+    focus_summary = supervisor_summary_for_config(
+        focus_config,
+        target_ranks=[100, 900, 50_000],
+        objective_score=2100.0,
+    )
+    signature = rank_signature_hash(focus_summary)
+
+    next_base, metadata = select_probability_focus_search_base(
+        current_base=current_config,
+        focus_summary=focus_summary,
+        focus_info={
+            "active": True,
+            "source": "probability_focus",
+            "reason": "refreshed_from_probability_champion",
+            "hold_rounds": 4,
+            "remaining_rounds": 4,
+            "refreshed": True,
+        },
+        excluded_rank_signature_hashes=(signature,),
+    )
+
+    assert next_base is None
+    assert metadata["reason"] == "rank_signature_cooldown"
+    assert metadata["rank_signature_cooldown_hit"] is True
+
+
+def test_next_search_base_skips_round_best_with_excluded_rank_signature():
+    current_config = FrequencyRankerConfig()
+    round_best_config = FrequencyRankerConfig(frequency_weight=0.40)
+    challenger_config = FrequencyRankerConfig(frequency_weight=0.60)
+    round_best = supervisor_summary_for_config(
+        round_best_config,
+        target_ranks=[100, 900, 50_000],
+        objective_score=2200.0,
+    )
+    challenger = supervisor_summary_for_config(
+        challenger_config,
+        target_ranks=[90, 850, 49_000],
+        objective_score=2100.0,
+    )
+
+    next_base, metadata = select_next_search_base(
+        current_base=current_config,
+        summaries=[round_best, challenger],
+        round_best=round_best,
+        improved=False,
+        excluded_rank_signature_hashes=(rank_signature_hash(round_best),),
+    )
+
+    assert config_hash(next_base) == config_hash(challenger_config)
+    assert metadata["source"] == "search_challenger"
+    assert metadata["round_best_rank_signature_hash"] == rank_signature_hash(round_best)
+    assert metadata["rank_signature_hash"] == rank_signature_hash(challenger)
 
 
 def test_probability_calibration_champion_waits_for_stagnation_threshold():
@@ -1706,10 +1864,21 @@ def test_control_experiments_and_frozen_validation_are_recorded():
     assert rows[0]["frozen_validation"]["red5"]["top_100_hits"] == 1
 
 
-def frozen_summary(*, objective: float, worst_rank: int = 800_000, tail1000: int = 0) -> dict:
+def frozen_summary(
+    *,
+    objective: float,
+    worst_rank: int = 800_000,
+    tail1000: int = 0,
+    top100: int = 0,
+    top1000: int = 0,
+    top10000: int = 0,
+) -> dict:
     return {
         "config_hash": f"hash-{objective}-{worst_rank}-{tail1000}",
         "frozen_validation": {
+            "top_100_hits": top100,
+            "top_1000_hits": top1000,
+            "top_10000_hits": top10000,
             "worst_rank": worst_rank,
             "rank_quality": {
                 "p95_rank": worst_rank,
@@ -1725,11 +1894,15 @@ def frozen_summary(*, objective: float, worst_rank: int = 800_000, tail1000: int
 
 def test_frozen_validation_promotion_gate_requires_objective_and_tail():
     incumbent = frozen_summary(objective=10.0, worst_rank=800_000)
-    better = frozen_summary(objective=12.0, worst_rank=790_000)
-    worse_tail = frozen_summary(objective=12.0, worst_rank=1_050_000, tail1000=1)
-    worse_objective = frozen_summary(objective=9.5, worst_rank=790_000)
+    better = frozen_summary(objective=12.0, worst_rank=790_000, top10000=1)
+    secondary_only = frozen_summary(objective=12.0, worst_rank=790_000)
+    worse_tail = frozen_summary(objective=12.0, worst_rank=1_050_000, tail1000=1, top10000=1)
+    worse_objective = frozen_summary(objective=9.5, worst_rank=790_000, top10000=1)
 
     assert frozen_validation_promotion_gate(better, incumbent)["passed"] is True
+    secondary_gate = frozen_validation_promotion_gate(secondary_only, incumbent)
+    assert secondary_gate["passed"] is False
+    assert secondary_gate["primary_hit_passed"] is False
     assert frozen_validation_promotion_gate(worse_tail, incumbent)["passed"] is False
     assert frozen_validation_promotion_gate(worse_objective, incumbent)["passed"] is False
     assert frozen_validation_promotion_gate(better, None)["passed"] is True

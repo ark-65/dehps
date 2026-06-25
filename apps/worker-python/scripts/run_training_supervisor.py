@@ -799,11 +799,17 @@ def frozen_validation_promotion_gate(candidate: dict, incumbent: dict | None) ->
     incumbent_objective = _frozen_objective(incumbent)
     objective_passed = candidate_objective > incumbent_objective
     tail_passed = _frozen_tail_not_worse(candidate, incumbent)
+    candidate_primary_score = source_frontier_primary_score(candidate)
+    incumbent_primary_score = source_frontier_primary_score(incumbent)
+    primary_hit_passed = candidate_primary_score > incumbent_primary_score
     return {
-        "passed": bool(objective_passed and tail_passed),
-        "reason": "passed" if objective_passed and tail_passed else "frozen_validation_not_better",
+        "passed": bool(objective_passed and tail_passed and primary_hit_passed),
+        "reason": "passed" if objective_passed and tail_passed and primary_hit_passed else "frozen_validation_not_better",
         "objective_passed": objective_passed,
         "tail_passed": tail_passed,
+        "primary_hit_passed": primary_hit_passed,
+        "candidate_primary_score": list(candidate_primary_score),
+        "incumbent_primary_score": list(incumbent_primary_score),
         "candidate_objective": candidate_objective,
         "incumbent_objective": incumbent_objective,
         "candidate_config_hash": candidate.get("config_hash"),
@@ -1243,14 +1249,20 @@ def _frozen_validation_metrics(summary: dict | None) -> dict:
     }
 
 
-def source_frontier_score(summary: dict | None) -> tuple:
+def source_frontier_primary_score(summary: dict | None) -> tuple:
     metrics = _frozen_validation_metrics(summary)
-    median_rank = metrics["median_rank"]
-    median_value = float(median_rank) if isinstance(median_rank, int | float) else 1_000_000_000.0
     return (
         metrics["top_100_hits"],
         metrics["top_1000_hits"],
         metrics["top_10000_hits"],
+    )
+
+
+def source_frontier_secondary_score(summary: dict | None) -> tuple:
+    metrics = _frozen_validation_metrics(summary)
+    median_rank = metrics["median_rank"]
+    median_value = float(median_rank) if isinstance(median_rank, int | float) else 1_000_000_000.0
+    return (
         metrics["red5_top_100_hits"],
         metrics["red5_top_1000_hits"],
         metrics["red5_top_10000_hits"],
@@ -1258,6 +1270,10 @@ def source_frontier_score(summary: dict | None) -> tuple:
         -median_value,
         metrics["objective_score"],
     )
+
+
+def source_frontier_score(summary: dict | None) -> tuple:
+    return source_frontier_primary_score(summary) + source_frontier_secondary_score(summary)
 
 
 def _source_frontier_summary_metrics(summary: dict | None) -> dict:
@@ -1277,6 +1293,8 @@ def _source_frontier_summary_metrics(summary: dict | None) -> dict:
         "frozen_top_10000_hits": frozen["top_10000_hits"],
         "frozen_median_rank": frozen["median_rank"],
         "frozen_objective_score": frozen["objective_score"],
+        "frozen_primary_score": list(source_frontier_primary_score(summary)),
+        "frozen_secondary_score": list(source_frontier_secondary_score(summary)),
     }
 
 
@@ -1296,8 +1314,12 @@ def source_frontier_diagnostics(
     round_best_hash = summary_config_hash(round_best) or ""
     baseline = prior_best_summary if isinstance(prior_best_summary, dict) else round_best
     baseline_score = source_frontier_score(baseline)
+    baseline_primary_score = source_frontier_primary_score(baseline)
+    baseline_secondary_score = source_frontier_secondary_score(baseline)
     sources: dict[str, dict] = {}
     best_non_normal: tuple[str, int, dict, tuple] | None = None
+    best_non_normal_primary: tuple[str, int, dict, tuple] | None = None
+    best_non_normal_secondary: tuple[str, int, dict, tuple] | None = None
 
     for source, configs in source_configs.items():
         hashes = bounded_unique_config_hashes(configs, limit=64)
@@ -1311,6 +1333,8 @@ def source_frontier_diagnostics(
         best_summary = best_entry[1] if best_entry is not None else None
         best_rank = best_entry[0] if best_entry is not None else None
         best_score = source_frontier_score(best_summary)
+        best_primary_score = source_frontier_primary_score(best_summary)
+        best_secondary_score = source_frontier_secondary_score(best_summary)
         sources[source] = {
             "generated": len(hashes),
             "full_eval_count": len(evaluated),
@@ -1319,18 +1343,32 @@ def source_frontier_diagnostics(
             "best_full_eval_rank": best_rank,
             "best": _source_frontier_summary_metrics(best_summary),
             "score": list(best_score),
+            "primary_score": list(best_primary_score),
+            "secondary_score": list(best_secondary_score),
         }
+        if source != "normal" and best_summary is not None and (best_non_normal is None or best_score > best_non_normal[3]):
+            best_non_normal = (source, int(best_rank or 0), best_summary, best_score)
         if (
             source != "normal"
             and best_summary is not None
-            and (best_non_normal is None or best_score > best_non_normal[3])
+            and best_primary_score > baseline_primary_score
+            and (best_non_normal_primary is None or best_primary_score > best_non_normal_primary[3])
         ):
-            best_non_normal = (source, int(best_rank or 0), best_summary, best_score)
+            best_non_normal_primary = (source, int(best_rank or 0), best_summary, best_primary_score)
+        if (
+            source != "normal"
+            and best_summary is not None
+            and best_secondary_score > baseline_secondary_score
+            and (best_non_normal_secondary is None or best_secondary_score > best_non_normal_secondary[3])
+        ):
+            best_non_normal_secondary = (source, int(best_rank or 0), best_summary, best_secondary_score)
 
     return {
         "top_limit": top_limit,
         "baseline_config_hash": summary_config_hash(baseline) or "",
         "baseline_score": list(baseline_score),
+        "baseline_primary_score": list(baseline_primary_score),
+        "baseline_secondary_score": list(baseline_secondary_score),
         "round_best_config_hash": round_best_hash,
         "sources": sources,
         "best_non_normal": {
@@ -1340,6 +1378,22 @@ def source_frontier_diagnostics(
             **_source_frontier_summary_metrics(best_non_normal[2]),
         }
         if best_non_normal is not None
+        else None,
+        "best_non_normal_primary": {
+            "source": best_non_normal_primary[0],
+            "full_eval_rank": best_non_normal_primary[1],
+            "primary_score": list(best_non_normal_primary[3]),
+            **_source_frontier_summary_metrics(best_non_normal_primary[2]),
+        }
+        if best_non_normal_primary is not None
+        else None,
+        "best_non_normal_secondary": {
+            "source": best_non_normal_secondary[0],
+            "full_eval_rank": best_non_normal_secondary[1],
+            "secondary_score": list(best_non_normal_secondary[3]),
+            **_source_frontier_summary_metrics(best_non_normal_secondary[2]),
+        }
+        if best_non_normal_secondary is not None
         else None,
     }
 
@@ -1355,6 +1409,8 @@ def select_source_frontier_champion(
 ) -> tuple[dict | None, dict]:
     baseline = prior_best_summary if isinstance(prior_best_summary, dict) else round_best
     baseline_score = source_frontier_score(baseline)
+    baseline_primary_score = source_frontier_primary_score(baseline)
+    baseline_secondary_score = source_frontier_secondary_score(baseline)
     source_by_hash = _source_by_config_hash(source_configs)
     round_best_hash = summary_config_hash(round_best) or ""
     metadata = {
@@ -1367,7 +1423,14 @@ def select_source_frontier_champion(
         "round_best_config_hash": round_best_hash,
         "baseline_config_hash": summary_config_hash(baseline) or "",
         "baseline_score": list(baseline_score),
+        "baseline_primary_score": list(baseline_primary_score),
+        "baseline_secondary_score": list(baseline_secondary_score),
         "candidate_score": None,
+        "candidate_primary_score": None,
+        "candidate_secondary_score": None,
+        "secondary_candidate_available": False,
+        "secondary_candidate_config_hash": "",
+        "secondary_candidate_source": "",
         "rank_vector_changed": None,
         "changed_target_count": None,
         "reason": None,
@@ -1386,17 +1449,31 @@ def select_source_frontier_champion(
         if not source or source == "normal" or key == round_best_hash:
             continue
         score = source_frontier_score(summary)
-        if score <= baseline_score:
+        primary_score = source_frontier_primary_score(summary)
+        secondary_score = source_frontier_secondary_score(summary)
+        if primary_score <= baseline_primary_score:
+            if secondary_score > baseline_secondary_score:
+                metadata.update(
+                    {
+                        "secondary_candidate_available": True,
+                        "secondary_candidate_config_hash": key,
+                        "secondary_candidate_source": source,
+                    }
+                )
             continue
-        if selected is None or score > selected[2] or (score == selected[2] and sort_key(summary) > sort_key(selected[0])):
-            selected = (summary, index, score)
+        if selected is None or primary_score > selected[2] or (
+            primary_score == selected[2]
+            and (secondary_score, sort_key(summary)) > (source_frontier_secondary_score(selected[0]), sort_key(selected[0]))
+        ):
+            selected = (summary, index, primary_score)
 
     if selected is None:
-        metadata["reason"] = "no_non_normal_frozen_frontier_lift"
+        metadata["reason"] = "no_non_normal_primary_frontier_lift"
         return None, metadata
 
-    summary, index, score = selected
+    summary, index, primary_score = selected
     key = summary_config_hash(summary) or ""
+    secondary_score = source_frontier_secondary_score(summary)
     movement = target_rank_movement(summary, baseline)
     metadata.update(
         {
@@ -1404,10 +1481,12 @@ def select_source_frontier_champion(
             "source": source_by_hash.get(key, "unknown"),
             "config_hash": key,
             "full_eval_rank": index,
-            "candidate_score": list(score),
+            "candidate_score": list(source_frontier_score(summary)),
+            "candidate_primary_score": list(primary_score),
+            "candidate_secondary_score": list(secondary_score),
             "rank_vector_changed": rank_vector_changed(baseline, summary),
             "changed_target_count": movement.get("changed_target_count"),
-            "reason": "source_frontier_frozen_validation_lift",
+            "reason": "source_frontier_primary_hit_lift",
         }
     )
     return summary, metadata
@@ -3291,6 +3370,7 @@ def best_challenger_summary(
     *,
     incumbent_summary: dict | None = None,
     excluded_config_hashes: set[str] | None = None,
+    excluded_rank_signature_hashes: set[str] | None = None,
     base_config: FrequencyRankerConfig | None = None,
     min_config_distance: float = 0.0,
 ) -> dict | None:
@@ -3298,9 +3378,12 @@ def best_challenger_summary(
         return None
     excluded = set(excluded_config_hashes or set())
     excluded.add(incumbent_config_hash)
+    excluded_signatures = {hash_value for hash_value in (excluded_rank_signature_hashes or set()) if hash_value}
     challengers = []
     for summary in summaries:
         if (summary_config_hash(summary) or "") in excluded:
+            continue
+        if rank_signature_hash(summary) in excluded_signatures:
             continue
         summary_candidate_config = summary_config(summary)
         if (
@@ -3402,6 +3485,7 @@ def select_next_search_base(
     round_best: dict | None,
     improved: bool,
     recent_search_base_hashes: tuple[str, ...] = (),
+    excluded_rank_signature_hashes: tuple[str, ...] = (),
     min_config_distance: float = 0.0,
 ) -> tuple[FrequencyRankerConfig, dict]:
     current_base_hash = config_hash(current_base)
@@ -3417,6 +3501,7 @@ def select_next_search_base(
         current_base_hash,
         incumbent_summary=current_base_summary,
         excluded_config_hashes=excluded_hashes,
+        excluded_rank_signature_hashes=set(excluded_rank_signature_hashes),
         base_config=current_base,
         min_config_distance=min_config_distance,
     )
@@ -3426,6 +3511,7 @@ def select_next_search_base(
             summaries,
             current_base_hash,
             incumbent_summary=current_base_summary,
+            excluded_rank_signature_hashes=set(excluded_rank_signature_hashes),
         )
     round_best_config = summary_config(round_best)
     round_best_distance = (
@@ -3439,6 +3525,7 @@ def select_next_search_base(
     elif (
         round_best is not None
         and summary_config_hash(round_best) not in excluded_hashes
+        and rank_signature_hash(round_best) not in set(excluded_rank_signature_hashes)
         and round_best_distance >= min_config_distance
     ):
         source = "round_best"
@@ -3469,6 +3556,15 @@ def select_next_search_base(
         "candidate_config_hash": summary_config_hash(selected_summary) or "",
         "search_challenger_config_hash": summary_config_hash(search_challenger) or "",
         "fallback_search_challenger_config_hash": summary_config_hash(fallback_search_challenger) or "",
+        "rank_signature_hash": rank_signature_hash(selected_summary),
+        "round_best_rank_signature_hash": rank_signature_hash(round_best),
+        "search_challenger_rank_signature_hash": rank_signature_hash(search_challenger),
+        "excluded_rank_signature_hashes": list(excluded_rank_signature_hashes),
+        "rank_signature_cooldown_hit": bool(
+            selected_summary is not None
+            and rank_signature_hash(selected_summary) in set(excluded_rank_signature_hashes)
+            and not improved
+        ),
         "min_config_distance": min_config_distance,
         "selected_config_distance": selected_distance,
         "search_challenger_config_distance": config_distance(search_challenger_config, current_base)
@@ -3489,11 +3585,29 @@ def select_next_search_base(
     return next_base, metadata
 
 
+def should_refresh_probability_focus(
+    *,
+    champion_config: FrequencyRankerConfig | None,
+    champion_hash: str,
+    champion_score: tuple,
+    probability_focus_hash: str,
+    probability_focus_score: tuple,
+) -> bool:
+    if champion_config is None or not champion_hash:
+        return False
+    if not probability_focus_hash or not probability_focus_score:
+        return True
+    if champion_hash == probability_focus_hash:
+        return champion_score > probability_focus_score
+    return champion_score >= probability_focus_score
+
+
 def select_probability_focus_search_base(
     *,
     current_base: FrequencyRankerConfig,
     focus_summary: dict | None,
     focus_info: dict,
+    excluded_rank_signature_hashes: tuple[str, ...] = (),
 ) -> tuple[FrequencyRankerConfig | None, dict]:
     selected_config = summary_config(focus_summary)
     current_base_hash = config_hash(current_base)
@@ -3508,6 +3622,21 @@ def select_probability_focus_search_base(
             "reason": "missing_focus_config" if focus_info.get("active") else "inactive",
             "config": config_dict(current_base),
         }
+    focus_rank_signature_hash = rank_signature_hash(focus_summary)
+    if focus_rank_signature_hash in set(excluded_rank_signature_hashes):
+        return None, {
+            "source": "probability_focus",
+            "active": False,
+            "changed": False,
+            "previous_config_hash": current_base_hash,
+            "config_hash": current_base_hash,
+            "candidate_config_hash": summary_config_hash(focus_summary) or "",
+            "rank_signature_hash": focus_rank_signature_hash,
+            "excluded_rank_signature_hashes": list(excluded_rank_signature_hashes),
+            "rank_signature_cooldown_hit": True,
+            "reason": "rank_signature_cooldown",
+            "config": config_dict(current_base),
+        }
 
     next_hash = config_hash(selected_config)
     metadata = {
@@ -3519,6 +3648,9 @@ def select_probability_focus_search_base(
         "candidate_config_hash": summary_config_hash(focus_summary) or "",
         "search_challenger_config_hash": "",
         "fallback_search_challenger_config_hash": "",
+        "rank_signature_hash": focus_rank_signature_hash,
+        "excluded_rank_signature_hashes": list(excluded_rank_signature_hashes),
+        "rank_signature_cooldown_hit": False,
         "min_config_distance": 0.0,
         "selected_config_distance": config_distance(selected_config, current_base),
         "search_challenger_config_distance": None,
@@ -3929,6 +4061,9 @@ def compact_status_payload(status: dict) -> dict:
         "top_n": status.get("top_n"),
         "workers": status.get("workers"),
         "memory_budget_gb": status.get("memory_budget_gb"),
+        "legal_universe_size": status.get("legal_universe_size"),
+        "ranked_universe_size": status.get("ranked_universe_size"),
+        "excluded_universe_count": status.get("excluded_universe_count"),
         "universe_size": status.get("universe_size"),
         "matrix_backend": status.get("matrix_backend"),
         "feature_matrix_cache": status.get("feature_matrix_cache"),
@@ -3977,14 +4112,16 @@ def source_frontier_report_section(status: dict) -> str:
         return "## Source Frontier\n\nNo source-frontier diagnostics recorded yet.\n"
     champion = latest_prefilter.get("source_frontier_champion") if isinstance(latest_prefilter, dict) else {}
     champion_line = (
-        f"- Champion: active={bool(champion.get('active'))} "
+        f"- Primary champion: active={bool(champion.get('active'))} "
         f"reason={champion.get('reason')} "
         f"source={champion.get('source', '')} "
         f"rank={champion.get('full_eval_rank')} "
         f"config_hash=`{champion.get('config_hash', '')}`"
         if isinstance(champion, dict)
-        else "- Champion: unavailable"
+        else "- Primary champion: unavailable"
     )
+    primary_best = frontier.get("best_non_normal_primary") or {}
+    secondary_best = frontier.get("best_non_normal_secondary") or {}
     rows: list[str] = []
     sources = frontier.get("sources") if isinstance(frontier.get("sources"), dict) else {}
     for source, info in sorted(sources.items()):
@@ -3995,18 +4132,20 @@ def source_frontier_report_section(status: dict) -> str:
             f"| {source} | {info.get('generated', 0)} | {info.get('full_eval_count', 0)} | "
             f"{info.get('full_eval_top5', 0)} | {info.get('round_best', False)} | "
             f"{info.get('best_full_eval_rank')} | {best.get('top_10000_hits', 0)} | "
+            f"{best.get('frozen_top_100_hits', 0)} | {best.get('frozen_top_1000_hits', 0)} | "
             f"{best.get('frozen_top_10000_hits', 0)} | {best.get('frozen_median_rank')} | "
             f"`{best.get('config_hash', '')}` |"
         )
-    table = "\n".join(rows) or "| none | 0 | 0 | 0 | False |  | 0 | 0 |  | `` |"
+    table = "\n".join(rows) or "| none | 0 | 0 | 0 | False |  | 0 | 0 | 0 | 0 |  | `` |"
     return f"""## Source Frontier
 
 {champion_line}
 - Baseline config hash: `{frontier.get("baseline_config_hash", "")}`
-- Best non-normal: `{(frontier.get("best_non_normal") or {}).get("source", "")}` `{(frontier.get("best_non_normal") or {}).get("config_hash", "")}`
+- Primary non-normal: `{primary_best.get("source", "")}` `{primary_best.get("config_hash", "")}`
+- Secondary non-normal: `{secondary_best.get("source", "")}` `{secondary_best.get("config_hash", "")}`
 
-| Source | Generated | Full eval | Top5 | Round best | Best rank | Best Top10000 | Frozen Top10000 | Frozen median | Config hash |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Source | Generated | Full eval | Top5 | Round best | Best rank | Best Top10000 | Frozen Top100 | Frozen Top1000 | Frozen Top10000 | Frozen median | Config hash |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 {table}
 """
 
@@ -4042,6 +4181,9 @@ def write_report(report_path: Path, status: dict) -> None:
 - Top-N: {status["top_n"]}
 - Workers: {status["workers"]}
 - Memory budget GB: {status["memory_budget_gb"]}
+- Legal universe size: {status.get("legal_universe_size", status["universe_size"])}
+- Ranked universe size: {status.get("ranked_universe_size", status["universe_size"])}
+- Excluded universe count: {status.get("excluded_universe_count", 0)}
 - Universe size: {status["universe_size"]}
 - Matrix backend: {status.get("matrix_backend", "")}
 - Matrix cache: hit={status.get("feature_matrix_cache", {}).get("cache_hit")} build_seconds={status.get("feature_matrix_cache", {}).get("build_seconds")} path=`{status.get("feature_matrix_cache", {}).get("cache_path", "")}`
@@ -4285,6 +4427,9 @@ def run_supervisor(
         "top_n": top_n,
         "workers": worker_count,
         "memory_budget_gb": memory_budget_gb,
+        "legal_universe_size": len(universe),
+        "ranked_universe_size": len(ranked_universe),
+        "excluded_universe_count": max(0, len(universe) - len(ranked_universe)),
         "universe_size": len(ranked_universe),
         "matrix_backend": "NumPy 特征矩阵",
         "feature_matrix_cache": matrix_cache_info,
@@ -4375,6 +4520,7 @@ def run_supervisor(
             phase, step, phase_stage = phase_for_round(round_index, stagnation_rounds=stagnation_rounds)
             min_search_base_distance = search_base_min_distance_for_phase(phase_stage)
             rank_homogeneity = rank_homogeneity_guardrail(rounds, stagnation_rounds=stagnation_rounds)
+            rank_signature_cooldown_hashes = tuple(rank_homogeneity.get("signatures") or ()) if rank_homogeneity["active"] else ()
             stagnation_restart_budget = (
                 min(max_configs_per_round, max(3, max_configs_per_round // 5))
                 if rank_homogeneity["active"]
@@ -4772,15 +4918,12 @@ def run_supervisor(
                 champion_config = summary_config(probability_champion)
                 champion_hash = summary_config_hash(probability_champion) or ""
                 champion_score = probability_calibration_score(probability_champion)
-                should_refresh_focus = (
-                    champion_config is not None
-                    and champion_hash
-                    and (
-                        not probability_focus_hash
-                        or champion_hash == probability_focus_hash
-                        or not probability_focus_score
-                        or champion_score >= probability_focus_score
-                    )
+                should_refresh_focus = should_refresh_probability_focus(
+                    champion_config=champion_config,
+                    champion_hash=champion_hash,
+                    champion_score=champion_score,
+                    probability_focus_hash=probability_focus_hash,
+                    probability_focus_score=probability_focus_score,
                 )
                 if should_refresh_focus and champion_config is not None:
                     probability_focus_config = champion_config
@@ -4947,6 +5090,7 @@ def run_supervisor(
                     current_base=search_base_config,
                     focus_summary=probability_focus_decision_summary,
                     focus_info=probability_focus_info,
+                    excluded_rank_signature_hashes=rank_signature_cooldown_hashes,
                 )
                 if next_search_base_config is None:
                     next_search_base_config, search_base_info = select_next_search_base(
@@ -4955,6 +5099,7 @@ def run_supervisor(
                         round_best=decision_round_best,
                         improved=improved,
                         recent_search_base_hashes=recent_search_base_hashes(rounds, search_base_config),
+                        excluded_rank_signature_hashes=rank_signature_cooldown_hashes,
                         min_config_distance=min_search_base_distance,
                     )
             else:
@@ -4964,6 +5109,7 @@ def run_supervisor(
                     round_best=decision_round_best,
                     improved=improved,
                     recent_search_base_hashes=recent_search_base_hashes(rounds, search_base_config),
+                    excluded_rank_signature_hashes=rank_signature_cooldown_hashes,
                     min_config_distance=min_search_base_distance,
                 )
             search_base_info["phase"] = phase
