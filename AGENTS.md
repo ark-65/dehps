@@ -42,6 +42,13 @@ During rapid DEHPS training exploration, favor live program validation over broa
 - Defer broad unit-test rewrites during fast iteration. Add or update tests only for critical leakage boundaries, crash reproducers, or when stabilizing a feature for acceptance.
 - If the live run errors, fix the runtime failure first, then restart a fresh supervisor and monitor again.
 
+When model training or optimization appears to diverge, stall, collapse into one candidate family, or produce suspicious jumps, bring in the local historical math skills as a diagnostic constraint before changing strategy logic:
+
+- Use `$gauss` for exact checks: legal sample space, null baseline, leakage, duplicate combinations, residuals, numerical sensitivity, weight bounds, and proof obligations.
+- Use `$riemann` for structural checks: whether the search space, candidate diversity, co-occurrence geometry, continuity/discrete transitions, or latent state representation is being framed incorrectly.
+- Use `$gauss-riemann-dialogue` for cross-review when a fix looks plausible but unproven; record the Gauss pass, Riemann pass, disagreement, smallest shared conclusion, and next verification in the round report or supervisor notes.
+- Do not promote a new weight, advisor, candidate source, or training heuristic from these skills until code and live historical rounds verify it against the same baseline/null-model discipline.
+
 ## Data, Runtime, And Git Rules
 
 - Do not commit `data/output`, `runtime`, `node_modules`, `.venv`, `dist`, `build`, caches, logs, or other generated runtime artifacts unless the user explicitly asks for a specific small evidence artifact.
