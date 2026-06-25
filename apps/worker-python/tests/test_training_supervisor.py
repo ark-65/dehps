@@ -39,6 +39,7 @@ from scripts.run_training_supervisor import (
     post_training_event,
     prefilter_configs,
     probability_calibration_diagnostics,
+    probability_calibration_score,
     reward_summary,
     resolve_training_deadline,
     rank_homogeneity_guardrail,
@@ -50,9 +51,11 @@ from scripts.run_training_supervisor import (
     target_hit_issues,
     training_event_payload,
     select_target_weight_inversion_anchor,
+    select_probability_calibration_champion,
     select_stagnation_exploration_champion,
     select_rank_homogeneity_restart_champion,
     select_next_search_base,
+    should_log_training_event_warning,
     stagnation_restart_candidate_configs,
     summarize_target_ranks,
     summary_config_hash,
@@ -652,6 +655,66 @@ def test_stagnation_exploration_champion_selects_top_exploratory_candidate():
     assert metadata["source"] == "ridge_kdj"
     assert metadata["top_rank"] == 2
     assert metadata["reason"] == "stagnation_top_eval_exploration"
+
+
+def test_probability_calibration_champion_guides_stagnated_search():
+    round_best_config = FrequencyRankerConfig(frequency_weight=0.30)
+    probability_config = FrequencyRankerConfig(frequency_weight=0.45, omission_weight=0.10)
+    round_best = supervisor_summary_for_config(
+        round_best_config,
+        top_100_hits=1,
+        top_1000_hits=1,
+        top_10000_hits=3,
+        target_ranks=[50, 2_000, 40_000],
+        objective_score=2200.0,
+    )
+    probability_candidate = supervisor_summary_for_config(
+        probability_config,
+        top_100_hits=1,
+        top_1000_hits=2,
+        top_10000_hits=3,
+        target_ranks=[50, 500, 40_000],
+        objective_score=2100.0,
+    )
+    for summary in (round_best, probability_candidate):
+        summary["rank_quality"]["top_50000_hits"] = 3
+        summary["probability_calibration"] = probability_calibration_diagnostics(summary, universe_size=1_000_000)
+
+    champion, metadata = select_probability_calibration_champion(
+        summaries=[round_best, probability_candidate],
+        source_configs={"normal": (round_best_config,), "ridge_kdj": (probability_config,)},
+        round_best=round_best,
+        prior_best_summary=round_best,
+        stagnation_rounds=16,
+    )
+
+    assert probability_calibration_score(probability_candidate) > probability_calibration_score(round_best)
+    assert champion is probability_candidate
+    assert metadata["active"] is True
+    assert metadata["source"] == "ridge_kdj"
+    assert metadata["full_eval_rank"] == 2
+    assert metadata["reason"] == "stagnation_probability_calibration_better"
+
+
+def test_probability_calibration_champion_waits_for_stagnation_threshold():
+    round_best_config = FrequencyRankerConfig(frequency_weight=0.30)
+    challenger_config = FrequencyRankerConfig(frequency_weight=0.45)
+    round_best = supervisor_summary_for_config(round_best_config, top_100_hits=1, top_1000_hits=1)
+    challenger = supervisor_summary_for_config(challenger_config, top_100_hits=1, top_1000_hits=2)
+    for summary in (round_best, challenger):
+        summary["probability_calibration"] = probability_calibration_diagnostics(summary, universe_size=1_000_000)
+
+    champion, metadata = select_probability_calibration_champion(
+        summaries=[round_best, challenger],
+        source_configs={"normal": (round_best_config,), "weight_kdj": (challenger_config,)},
+        round_best=round_best,
+        prior_best_summary=round_best,
+        stagnation_rounds=15,
+    )
+
+    assert champion is None
+    assert metadata["active"] is False
+    assert metadata["reason"] == "below_threshold"
 
 
 def test_rank_homogeneity_restart_champion_selects_changed_restart_outside_top5():
@@ -1620,6 +1683,14 @@ def test_training_event_post_failure_is_non_fatal():
     sent = post_training_event({"run_id": "event-test"}, event_url="http://127.0.0.1:9/training-events/status", timeout=0.05)
 
     assert sent is False
+
+
+def test_training_event_warning_is_rate_limited():
+    supervisor._TRAINING_EVENT_WARNING_LAST.clear()
+
+    assert should_log_training_event_warning("http://127.0.0.1:9", now=100.0) is True
+    assert should_log_training_event_warning("http://127.0.0.1:9", now=120.0) is False
+    assert should_log_training_event_warning("http://127.0.0.1:9", now=161.0) is True
 
 
 def test_training_event_payload_is_compact_signal_only():

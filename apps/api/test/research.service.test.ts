@@ -761,6 +761,38 @@ test('training status event payload preserves live progress over db snapshot', a
   });
 });
 
+test('training status event can merge into cached payload without rereading full status', async () => {
+  const service = new ResearchService(repository);
+  const cached = await service.trainingStatus();
+  const cachedIssue = cached.latestProgress?.issue ?? null;
+  service.trainingStatus = async () => {
+    throw new Error('unexpected full status read');
+  };
+
+  const status = await service.trainingStatusFromEvent(
+    {
+      run_id: cached.runId,
+      status: 'running',
+      pid: process.pid,
+      updated_at: '2026-06-18T17:10:30',
+      latest_progress: {
+        logged_at: '2026-06-18T17:10:30',
+        round: 40,
+        target_index: 50,
+        target_total: 100,
+        issue: '2026005',
+        train_draws: 1434,
+        elapsed_seconds: 26.7,
+      },
+    },
+    cached,
+  );
+
+  assert.equal(status.status, 'running');
+  assert.equal(status.latestProgress?.issue, '2026005');
+  assert.equal(cached.latestProgress?.issue ?? null, cachedIssue);
+});
+
 test('training status event process observation can mark a running payload inactive', async () => {
   await withTempDehpsRoot('dehps-event-process-test-', async () => {
     const service = new ResearchService(repository);

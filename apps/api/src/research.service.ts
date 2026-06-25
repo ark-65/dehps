@@ -417,8 +417,8 @@ export class ResearchService {
     };
   }
 
-  async trainingStatusFromEvent(event: unknown): Promise<TrainingStatusPayload> {
-    const payload = await this.trainingStatus();
+  async trainingStatusFromEvent(event: unknown, basePayload?: TrainingStatusPayload | null): Promise<TrainingStatusPayload> {
+    const payload = basePayload ? this.cloneTrainingStatusPayload(basePayload) : await this.trainingStatus();
     if (!event || typeof event !== 'object' || Array.isArray(event)) {
       return payload;
     }
@@ -463,6 +463,17 @@ export class ResearchService {
     payload.statusFile = this.stringValue(row.status_path ?? row.statusPath) ?? payload.statusFile;
     payload.reportFile = this.stringValue(row.report_path ?? row.reportPath) ?? payload.reportFile;
     return payload;
+  }
+
+  private cloneTrainingStatusPayload(payload: TrainingStatusPayload): TrainingStatusPayload {
+    return {
+      ...payload,
+      advisorSummaries: [...payload.advisorSummaries],
+      rounds: [...payload.rounds],
+      recentRounds: [...payload.recentRounds],
+      logTail: [...payload.logTail],
+      syncSchedule: { ...payload.syncSchedule },
+    };
   }
 
   async serviceStatus(): Promise<ServiceStatusPayload> {

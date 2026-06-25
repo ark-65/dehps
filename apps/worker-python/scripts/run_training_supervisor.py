@@ -10,7 +10,7 @@ import urllib.request
 from collections import Counter
 from dataclasses import replace
 from datetime import datetime, timedelta
-from math import ceil, comb, sqrt
+from math import ceil, comb, isfinite, sqrt
 import multiprocessing as mp
 from pathlib import Path
 import sys
@@ -145,6 +145,8 @@ PHASE_SEARCH_FIELDS = {
 }
 DEFAULT_UNIVERSE_SIZE = 1_107_568
 DEFAULT_TRAINING_EVENT_URL = "http://127.0.0.1:3000/training-events/status"
+TRAINING_EVENT_TIMEOUT_SECONDS = 3.0
+TRAINING_EVENT_WARNING_INTERVAL_SECONDS = 60.0
 _TARGET_WORKER_UNIVERSE = None
 TOP_100_REWARD = 1200
 TOP_1000_REWARD = 180
@@ -228,6 +230,7 @@ DEFAULT_TARGET_WEIGHT_INVERSION_MAX_TARGETS = 100
 DEFAULT_TARGET_WEIGHT_INVERSION_MAX_DELTAS_PER_TARGET = 8
 TARGET_WEIGHT_INVERSION_STALE_STAGNATION_THRESHOLD = 64
 NEAR_MISS_INVERSION_STAGNATION_THRESHOLD = STAGNATION_THRESHOLD
+PROBABILITY_CALIBRATION_STAGNATION_THRESHOLD = STAGNATION_THRESHOLD
 NEAR_MISS_INVERSION_CUTOFF_BANDS = (
     {"cutoff": 100, "upper": 500, "max_targets": 4},
     {"cutoff": 1000, "upper": 5000, "max_targets": 4},
@@ -242,6 +245,18 @@ def _target_pool_context():
 
 def log(message: str) -> None:
     print(f"[supervisor] {datetime.now().isoformat(timespec='seconds')} {message}", file=sys.stderr, flush=True)
+
+
+_TRAINING_EVENT_WARNING_LAST: dict[str, float] = {}
+
+
+def should_log_training_event_warning(key: str, *, now: float | None = None) -> bool:
+    current = time.monotonic() if now is None else now
+    last = _TRAINING_EVENT_WARNING_LAST.get(key)
+    if last is not None and current - last < TRAINING_EVENT_WARNING_INTERVAL_SECONDS:
+        return False
+    _TRAINING_EVENT_WARNING_LAST[key] = current
+    return True
 
 
 def training_event_url(value: str | None = None) -> str | None:
@@ -276,7 +291,7 @@ def should_continue_training(round_index: int, deadline: datetime | None, *, now
     return (now or datetime.now()) < deadline
 
 
-def post_training_event(status: dict, *, event_url: str | None = None, timeout: float = 1.0) -> bool:
+def post_training_event(status: dict, *, event_url: str | None = None, timeout: float = TRAINING_EVENT_TIMEOUT_SECONDS) -> bool:
     resolved_url = training_event_url(event_url)
     if not resolved_url:
         return False
@@ -291,7 +306,8 @@ def post_training_event(status: dict, *, event_url: str | None = None, timeout: 
         with urllib.request.urlopen(request, timeout=timeout) as response:
             return 200 <= response.status < 300
     except (OSError, TimeoutError, urllib.error.URLError) as exc:
-        log(f"training_event_warning url={resolved_url} error={exc}")
+        if should_log_training_event_warning(resolved_url):
+            log(f"training_event_warning url={resolved_url} error={exc}")
         return False
 
 
@@ -1286,6 +1302,78 @@ def select_rank_homogeneity_restart_champion(
             "changed_target_count": movement.get("changed_target_count"),
             "max_abs_delta": movement.get("max_abs_delta"),
             "reason": "rank_homogeneity_restart_best_available",
+        }
+    )
+    return summary, metadata
+
+
+def select_probability_calibration_champion(
+    *,
+    summaries: list[dict],
+    source_configs: dict[str, tuple[FrequencyRankerConfig, ...]],
+    round_best: dict | None,
+    prior_best_summary: dict | None,
+    stagnation_rounds: int,
+    top_limit: int = 8,
+) -> tuple[dict | None, dict]:
+    round_best_hash = summary_config_hash(round_best) or ""
+    source_by_hash: dict[str, str] = {}
+    for source, configs in source_configs.items():
+        for config in configs:
+            key = config_hash(config)
+            if key not in source_by_hash or source_by_hash[key] == "normal":
+                source_by_hash[key] = source
+    baseline = round_best if isinstance(round_best, dict) else prior_best_summary
+    baseline_score = probability_calibration_score(baseline)
+    metadata = {
+        "active": False,
+        "threshold": PROBABILITY_CALIBRATION_STAGNATION_THRESHOLD,
+        "stagnation_rounds": stagnation_rounds,
+        "source": "",
+        "config_hash": "",
+        "full_eval_rank": None,
+        "round_best_config_hash": round_best_hash,
+        "round_best_score": list(baseline_score),
+        "candidate_score": None,
+        "rank_vector_changed": None,
+        "changed_target_count": None,
+        "reason": None,
+    }
+    if stagnation_rounds < PROBABILITY_CALIBRATION_STAGNATION_THRESHOLD:
+        metadata["reason"] = "below_threshold"
+        return None, metadata
+    if not summaries:
+        metadata["reason"] = "no_summaries"
+        return None, metadata
+
+    selected: tuple[dict, int, tuple] | None = None
+    for index, summary in enumerate(summaries[: max(1, top_limit)], start=1):
+        key = summary_config_hash(summary) or ""
+        if key and key == round_best_hash:
+            continue
+        score = probability_calibration_score(summary)
+        if score <= baseline_score:
+            continue
+        if selected is None or score > selected[2] or (score == selected[2] and sort_key(summary) > sort_key(selected[0])):
+            selected = (summary, index, score)
+
+    if selected is None:
+        metadata["reason"] = "no_probability_better_candidate"
+        return None, metadata
+
+    summary, index, score = selected
+    movement = target_rank_movement(summary, prior_best_summary or round_best)
+    key = summary_config_hash(summary) or ""
+    metadata.update(
+        {
+            "active": True,
+            "source": source_by_hash.get(key, "unknown"),
+            "config_hash": key,
+            "full_eval_rank": index,
+            "candidate_score": list(score),
+            "rank_vector_changed": rank_vector_changed(prior_best_summary or round_best, summary),
+            "changed_target_count": movement.get("changed_target_count"),
+            "reason": "stagnation_probability_calibration_better",
         }
     )
     return summary, metadata
@@ -2294,6 +2382,61 @@ def probability_calibration_diagnostics(summary: dict, *, universe_size: int = D
         "near_miss_windows": near_miss_windows,
         "interpretation_note": "Unadjusted null diagnostics; repeated training rounds and candidate search require separate multiple-testing caution.",
     }
+
+
+def finite_float(value: object, default: float = 0.0) -> float:
+    try:
+        result = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+    return result if isfinite(result) else default
+
+
+def _probability_calibration_for_score(summary: dict | None) -> dict:
+    if not isinstance(summary, dict):
+        return {}
+    calibration = summary.get("probability_calibration")
+    if isinstance(calibration, dict):
+        return calibration
+    return probability_calibration_diagnostics(summary)
+
+
+def probability_calibration_score(summary: dict | None) -> tuple:
+    calibration = _probability_calibration_for_score(summary)
+    bands = calibration.get("bands") if isinstance(calibration.get("bands"), list) else []
+    by_label = {
+        str(band.get("label") or ""): band
+        for band in bands
+        if isinstance(band, dict)
+    }
+
+    def band_score(label: str) -> tuple[int, float, float]:
+        band = by_label.get(label) or {}
+        hits = int(band.get("hits") or 0)
+        p_value = min(1.0, max(0.0, finite_float(band.get("binomial_tail_p_value"), 1.0)))
+        lift = finite_float(band.get("lift_vs_null"), 0.0)
+        return hits, -p_value, lift
+
+    near_miss_windows = calibration.get("near_miss_windows")
+    near_miss_count = 0
+    near_miss_lift = 0.0
+    if isinstance(near_miss_windows, list):
+        for window in near_miss_windows:
+            if not isinstance(window, dict):
+                continue
+            near_miss_count += int(window.get("count") or 0)
+            near_miss_lift += finite_float(window.get("lift_vs_null"), 0.0)
+    percentiles = calibration.get("rank_percentiles") if isinstance(calibration.get("rank_percentiles"), dict) else {}
+    return (
+        *band_score("top_100"),
+        *band_score("top_1000"),
+        *band_score("top_10000"),
+        *band_score("top_50000"),
+        near_miss_count,
+        round(near_miss_lift, 6),
+        finite_float(percentiles.get("best"), 0.0),
+        finite_float(percentiles.get("median"), 0.0),
+    )
 
 
 def empty_rank_quality_summary() -> dict:
@@ -4220,9 +4363,18 @@ def run_supervisor(
                 prior_best_summary=prior_best_summary,
                 rank_homogeneity=rank_homogeneity,
             )
+            probability_champion, probability_champion_info = select_probability_calibration_champion(
+                summaries=summaries,
+                source_configs=source_configs,
+                round_best=round_best,
+                prior_best_summary=prior_best_summary,
+                stagnation_rounds=stagnation_rounds,
+            )
             decision_round_best = round_best
             if not improved:
-                if restart_champion is not None:
+                if probability_champion is not None:
+                    decision_round_best = probability_champion
+                elif restart_champion is not None:
                     decision_round_best = restart_champion
                 elif exploration_champion is not None:
                     decision_round_best = exploration_champion
@@ -4241,6 +4393,7 @@ def run_supervisor(
             prefilter_info["round_best_probability_calibration"] = round_best.get("probability_calibration")
             prefilter_info["exploration_champion"] = exploration_champion_info
             prefilter_info["rank_homogeneity_restart_champion"] = restart_champion_info
+            prefilter_info["probability_calibration_champion"] = probability_champion_info
             prefilter_info["source_survival"] = candidate_source_survival(
                 source_configs,
                 refined_configs=refined_configs,
@@ -4337,6 +4490,14 @@ def run_supervisor(
                     f"rank={restart_champion_info['full_eval_rank']} "
                     f"changed_targets={restart_champion_info['changed_target_count']} "
                     f"config_hash={restart_champion_info['config_hash']}"
+                )
+            if probability_champion_info["active"]:
+                log(
+                    f"round={round_index + 1} probability_calibration_champion="
+                    f"{probability_champion_info['source']} "
+                    f"rank={probability_champion_info['full_eval_rank']} "
+                    f"changed_targets={probability_champion_info['changed_target_count']} "
+                    f"config_hash={probability_champion_info['config_hash']}"
                 )
             if near_miss_inversion_latest["candidate_count"]:
                 band_summary = ",".join(

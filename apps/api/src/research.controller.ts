@@ -90,7 +90,7 @@ export class ResearchController {
     if (!this.isLocalRequest(request)) {
       throw new ForbiddenException('training events only accept local requests');
     }
-    const payload = await this.researchService.trainingStatusFromEvent(body);
+    const payload = await this.researchService.trainingStatusFromEvent(body, this.trainingStatusHub.latestStatus());
     this.trainingStatusHub.publishStatus(payload);
     return {
       status: 'accepted',
