@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import scripts.watch_training_progress as watch
-from scripts.watch_training_progress import advisor_summary, recommendation_summary, render_markdown
+from scripts.watch_training_progress import advisor_summary, recommendation_summary, render_markdown, summarize_watch
 
 
 def test_recommendation_continues_healthy_active_training_run():
@@ -150,6 +150,36 @@ def test_heavy_lock_summary_reports_unreadable_metadata_error(monkeypatch):
     assert summary["active"] is False
     assert summary["reason"] == "metadata_unreadable"
     assert summary["error"] == "Unable to read heavy-job metadata"
+
+
+def test_summarize_watch_normalizes_non_positive_windows(monkeypatch):
+    now = datetime(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+    captured = {}
+
+    def fake_load_rounds(run_id, *, limit):
+        captured["run_id"] = run_id
+        captured["limit"] = limit
+        return [
+            {
+                "round_index": 1,
+                "improved": False,
+                "updated_at": now,
+                "objective_score": 1.0,
+                "prefilter": {},
+            }
+        ]
+
+    monkeypatch.setattr(watch, "utc_now", lambda: now)
+    monkeypatch.setattr(watch, "resolve_run_id", lambda run_id: "run-1")
+    monkeypatch.setattr(watch, "load_rounds", fake_load_rounds)
+    monkeypatch.setattr(watch, "heavy_lock_summary", lambda: {"active": True, "owner": "training-supervisor"})
+
+    payload = summarize_watch(None, limit=0, stale_minutes=-10)
+
+    assert captured == {"run_id": "run-1", "limit": watch.DEFAULT_ROUND_LIMIT}
+    assert payload["round_limit"] == watch.DEFAULT_ROUND_LIMIT
+    assert payload["stale_minutes"] == watch.DEFAULT_STALE_MINUTES
+    assert payload["recommendation"]["severity"] == "ok"
 
 
 def test_load_rounds_queries_recent_window_before_chronological_sort(monkeypatch):

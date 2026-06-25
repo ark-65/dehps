@@ -21,6 +21,8 @@ ADVISOR_KEYS = (
     "target_weight_inversion_advisor",
 )
 DEFAULT_OUTPUT_DIR = ROOT_DIR / "data/output/optimization/training-watch"
+DEFAULT_ROUND_LIMIT = 5000
+DEFAULT_STALE_MINUTES = 30
 
 
 def utc_now() -> datetime:
@@ -55,6 +57,11 @@ def safe_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def positive_int_or_default(value: Any, *, default: int) -> int:
+    parsed = safe_int(value)
+    return parsed if parsed is not None and parsed > 0 else default
 
 
 def resolve_run_id(run_id: str | None) -> str | None:
@@ -240,6 +247,8 @@ def recommendation_summary(
 
 
 def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> dict[str, Any]:
+    limit = positive_int_or_default(limit, default=DEFAULT_ROUND_LIMIT)
+    stale_minutes = positive_int_or_default(stale_minutes, default=DEFAULT_STALE_MINUTES)
     generated_at = utc_now()
     resolved_run_id = resolve_run_id(run_id)
     rows = load_rounds(resolved_run_id, limit=limit) if resolved_run_id else []
@@ -260,6 +269,8 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
     return {
         "generated_at": isoformat(generated_at),
         "run_id": resolved_run_id,
+        "round_limit": limit,
+        "stale_minutes": stale_minutes,
         "round_count": len(rows),
         "latest_round": improvement["latest_round"],
         "last_improved_round": improvement["last_improved_round"],
@@ -359,8 +370,8 @@ def write_outputs(payload: dict[str, Any], output_dir: Path) -> tuple[Path, Path
 def main() -> None:
     parser = argparse.ArgumentParser(description="Watch active DEHPS training and write advisor-only progress judgement.")
     parser.add_argument("--run-id")
-    parser.add_argument("--limit", type=int, default=5000)
-    parser.add_argument("--stale-minutes", type=int, default=30)
+    parser.add_argument("--limit", type=int, default=DEFAULT_ROUND_LIMIT)
+    parser.add_argument("--stale-minutes", type=int, default=DEFAULT_STALE_MINUTES)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     args = parser.parse_args()
 
