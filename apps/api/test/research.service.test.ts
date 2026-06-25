@@ -817,6 +817,32 @@ test('training status event process observation can mark a running payload inact
   });
 });
 
+test('training status event terminal status overrides stale progress', async () => {
+  await withTempDehpsRoot('dehps-event-terminal-test-', async () => {
+    const service = new ResearchService(repository);
+    const status = await service.trainingStatusFromEvent({
+      run_id: 'run-100',
+      status: 'failed',
+      process_alive: false,
+      updated_at: '2026-06-18T17:11:30',
+      latest_progress: {
+        logged_at: '2026-06-18T17:11:30',
+        round: 40,
+        target_index: 50,
+        target_total: 100,
+        issue: '2026005',
+        train_draws: 1434,
+        elapsed_seconds: 26.7,
+      },
+    });
+
+    assert.equal(status.status, 'failed');
+    assert.equal(status.active, false);
+    assert.equal(status.processAlive, false);
+    assert.equal(status.latestProgress?.issue, '2026005');
+  });
+});
+
 test('training status event ignores blank run id updates', async () => {
   const previousRoot = process.env.DEHPS_ROOT;
   process.env.DEHPS_ROOT = mkdtempSync(path.join(os.tmpdir(), 'dehps-blank-event-test-'));

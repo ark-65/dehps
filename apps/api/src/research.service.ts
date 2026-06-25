@@ -59,6 +59,7 @@ const SYNC_STALE_SECONDS = 4 * 24 * 60 * 60;
 const KDJ_STALE_SECONDS = 14 * 24 * 60 * 60;
 const TRAINING_STALE_SECONDS = 24 * 60 * 60;
 const STATUS_READ_ERROR_KEY = '__dehps_status_read_error';
+const TERMINAL_TRAINING_STATUSES = new Set(['completed', 'failed', 'interrupted']);
 const TOP_100_REWARD = 1000;
 const TOP_1000_REWARD = 100;
 const TOP_10000_REWARD = 10;
@@ -440,11 +441,12 @@ export class ResearchService {
     const rawProcessAlive = row.process_alive ?? row.processAlive;
     const eventProcessAlive =
       typeof rawProcessAlive === 'boolean' ? rawProcessAlive : eventPid === null ? null : this.isProcessAlive(eventPid);
+    const eventIsTerminal = eventStatus !== null && TERMINAL_TRAINING_STATUSES.has(eventStatus);
     if (progress) {
       payload.latestProgress = progress;
       payload.updatedAt = updatedAt ?? progress.loggedAt;
-      payload.active = progress.targetIndex < progress.targetTotal || eventStatus === 'running';
-      payload.status = payload.active ? 'running' : eventStatus ?? payload.status;
+      payload.active = eventIsTerminal ? false : progress.targetIndex < progress.targetTotal || eventStatus === 'running';
+      payload.status = eventIsTerminal ? eventStatus : payload.active ? 'running' : eventStatus ?? payload.status;
     } else if (eventStatus) {
       payload.status = eventStatus;
       payload.active = eventStatus === 'running';
