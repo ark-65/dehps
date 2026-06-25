@@ -5,7 +5,7 @@ from hashlib import sha256
 from heapq import nsmallest
 from typing import Iterable
 
-from dehps.domain.combination import iter_ssq_red_combinations
+from dehps.domain.combination import iter_ssq_red_combinations, normalize_red_numbers
 from dehps.scoring.strategy import StrategyConfig, keep_by_baseline, score_numbers
 
 
@@ -39,10 +39,15 @@ def generate_candidates(
     if limit < 1:
         raise ValueError("limit must be at least 1")
     cfg = config or StrategyConfig()
-    historical_numbers = {numbers for _, numbers in history or []}
+    historical_numbers = {normalize_red_numbers(numbers) for _, numbers in history or []}
+    seen_numbers: set[tuple[int, ...]] = set()
     ranked: list[tuple[float, float, str, tuple[int, ...], dict[str, float]]] = []
 
-    for numbers in universe or iter_ssq_red_combinations():
+    for raw_numbers in universe or iter_ssq_red_combinations():
+        numbers = normalize_red_numbers(raw_numbers)
+        if numbers in seen_numbers:
+            continue
+        seen_numbers.add(numbers)
         if numbers in historical_numbers:
             continue
         if not keep_by_baseline(numbers, cfg):

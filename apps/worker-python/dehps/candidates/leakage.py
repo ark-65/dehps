@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from dehps.candidates.generator import Candidate
+from dehps.domain.combination import normalize_red_numbers
 
 
 @dataclass(frozen=True)
@@ -22,8 +23,8 @@ def audit_candidate_protocol(
     latest_issue: str | None,
     seed: str,
 ) -> list[LeakageCheck]:
-    historical_numbers = {numbers for _, numbers in history}
-    candidate_numbers = [candidate.numbers for candidate in candidates]
+    historical_numbers = {normalize_red_numbers(numbers) for _, numbers in history}
+    candidate_numbers = [normalize_red_numbers(candidate.numbers) for candidate in candidates]
     duplicated = len(candidate_numbers) != len(set(candidate_numbers))
     historical_overlap = sorted(set(candidate_numbers) & historical_numbers)
     latest_issue_number = _issue_number(latest_issue)

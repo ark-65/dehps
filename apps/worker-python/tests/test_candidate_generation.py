@@ -29,6 +29,26 @@ def test_generate_candidates_is_seeded_and_excludes_history():
     assert all(candidate.score >= 0.4 for candidate in first)
 
 
+def test_generate_candidates_canonicalizes_red_sets_for_history_and_duplicates():
+    config = StrategyConfig(min_score=0.0, max_anomaly_penalty=1.0)
+    history = [("2026001", (6, 5, 4, 3, 2, 1))]
+    universe = [
+        (1, 2, 3, 4, 5, 6),
+        (31, 23, 18, 13, 8, 1),
+        (1, 8, 13, 18, 23, 31),
+        (2, 9, 14, 19, 24, 32),
+    ]
+
+    candidates = generate_candidates(limit=5, seed="2026067", history=history, config=config, universe=universe)
+
+    candidate_numbers = [candidate.numbers for candidate in candidates]
+    assert (1, 2, 3, 4, 5, 6) not in candidate_numbers
+    assert set(candidate_numbers) == {
+        (1, 8, 13, 18, 23, 31),
+        (2, 9, 14, 19, 24, 32),
+    }
+
+
 def test_stable_tie_breaker_changes_with_seed():
     numbers = (1, 8, 13, 18, 23, 31)
 
@@ -112,3 +132,35 @@ def test_leakage_audit_warns_on_stale_seed_issue():
     statuses = {check.name: check.status for check in checks}
 
     assert statuses["future_outcome"] == "warn"
+
+
+def test_leakage_audit_canonicalizes_red_sets_before_comparison():
+    first = Candidate(
+        rank=1,
+        numbers=(1, 2, 3, 4, 5, 6),
+        score=0.5,
+        anomaly_penalty=0.1,
+        structure_naturalness_score=0.5,
+        pattern_complexity_score=0.5,
+        tie_breaker="abc",
+    )
+    second = Candidate(
+        rank=2,
+        numbers=(6, 5, 4, 3, 2, 1),
+        score=0.5,
+        anomaly_penalty=0.1,
+        structure_naturalness_score=0.5,
+        pattern_complexity_score=0.5,
+        tie_breaker="def",
+    )
+
+    checks = audit_candidate_protocol(
+        candidates=[first, second],
+        history=[("2026067", (6, 5, 4, 3, 2, 1))],
+        latest_issue="2026067",
+        seed="2026067",
+    )
+    statuses = {check.name: check.status for check in checks}
+
+    assert statuses["history_overlap"] == "fail"
+    assert statuses["duplicate_candidates"] == "fail"
