@@ -426,6 +426,16 @@ export class ResearchService {
     const progress = this.progressValue(row.latest_progress ?? row.latestProgress);
     const eventStatus = this.stringValue(row.status);
     const updatedAt = this.stringValue(row.updated_at ?? row.updatedAt);
+    const eventRunId = this.stringValue(row.run_id ?? row.runId);
+    const eventTimestamp = updatedAt ?? progress?.loggedAt ?? null;
+    if (
+      eventRunId &&
+      payload.runId &&
+      eventRunId !== payload.runId &&
+      this.isOlderTimestamp(eventTimestamp, payload.updatedAt)
+    ) {
+      return payload;
+    }
     const eventPid = this.numberValue(row.pid);
     const rawProcessAlive = row.process_alive ?? row.processAlive;
     const eventProcessAlive =
@@ -440,7 +450,7 @@ export class ResearchService {
       payload.active = eventStatus === 'running';
       payload.updatedAt = updatedAt ?? payload.updatedAt;
     }
-    payload.runId = this.stringValue(row.run_id ?? row.runId) ?? payload.runId;
+    payload.runId = eventRunId ?? payload.runId;
     if (eventPid !== null) {
       payload.pid = eventPid;
     }
@@ -913,6 +923,15 @@ export class ResearchService {
   private isStale(now: Date, isoValue: string | null, maxAgeSeconds: number): boolean {
     const age = this.ageSeconds(now, isoValue);
     return age !== null && age > maxAgeSeconds;
+  }
+
+  private isOlderTimestamp(candidate: string | null, baseline: string | null): boolean {
+    if (!candidate || !baseline) {
+      return false;
+    }
+    const candidateTime = Date.parse(candidate);
+    const baselineTime = Date.parse(baseline);
+    return Number.isFinite(candidateTime) && Number.isFinite(baselineTime) && candidateTime < baselineTime;
   }
 
   private hasError(value: unknown): value is { error: unknown } {

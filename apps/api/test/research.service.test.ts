@@ -472,6 +472,20 @@ const repository: ResearchRepository = {
   },
 };
 
+async function withTempDehpsRoot(prefix: string, run: () => Promise<void>): Promise<void> {
+  const previousRoot = process.env.DEHPS_ROOT;
+  process.env.DEHPS_ROOT = mkdtempSync(path.join(os.tmpdir(), prefix));
+  try {
+    await run();
+  } finally {
+    if (previousRoot === undefined) {
+      delete process.env.DEHPS_ROOT;
+    } else {
+      process.env.DEHPS_ROOT = previousRoot;
+    }
+  }
+}
+
 test('dashboard returns experiments, pipeline runs, and sync runs', async () => {
   const service = new ResearchService(repository);
 
@@ -721,52 +735,54 @@ test('training status reports malformed status json as failed', async () => {
 });
 
 test('training status event payload preserves live progress over db snapshot', async () => {
-  const service = new ResearchService(repository);
+  await withTempDehpsRoot('dehps-event-progress-test-', async () => {
+    const service = new ResearchService(repository);
+    const status = await service.trainingStatusFromEvent({
+      run_id: 'run-100',
+      status: 'running',
+      pid: process.pid,
+      updated_at: '2026-06-18T17:09:30',
+      latest_progress: {
+        logged_at: '2026-06-18T17:09:30',
+        round: 39,
+        target_index: 40,
+        target_total: 100,
+        issue: '2026004',
+        train_draws: 1433,
+        elapsed_seconds: 16.7,
+      },
+    });
 
-  const status = await service.trainingStatusFromEvent({
-    run_id: 'run-100',
-    status: 'running',
-    pid: process.pid,
-    updated_at: '2026-06-18T17:09:30',
-    latest_progress: {
-      logged_at: '2026-06-18T17:09:30',
-      round: 39,
-      target_index: 40,
-      target_total: 100,
-      issue: '2026004',
-      train_draws: 1433,
-      elapsed_seconds: 16.7,
-    },
+    assert.equal(status.status, 'running');
+    assert.equal(status.active, true);
+    assert.equal(status.pid, process.pid);
+    assert.equal(status.processAlive, true);
+    assert.equal(status.latestProgress?.issue, '2026004');
   });
-
-  assert.equal(status.status, 'running');
-  assert.equal(status.active, true);
-  assert.equal(status.pid, process.pid);
-  assert.equal(status.processAlive, true);
-  assert.equal(status.latestProgress?.issue, '2026004');
 });
 
 test('training status event process observation can mark a running payload inactive', async () => {
-  const service = new ResearchService(repository);
+  await withTempDehpsRoot('dehps-event-process-test-', async () => {
+    const service = new ResearchService(repository);
+    const status = await service.trainingStatusFromEvent({
+      run_id: 'run-100',
+      status: 'running',
+      process_alive: false,
+      latest_progress: {
+        logged_at: '2026-06-18T17:09:30',
+        round: 39,
+        target_index: 40,
+        target_total: 100,
+        issue: '2026004',
+        train_draws: 1433,
+        elapsed_seconds: 16.7,
+      },
+    });
 
-  const status = await service.trainingStatusFromEvent({
-    run_id: 'run-100',
-    status: 'running',
-    process_alive: false,
-    latest_progress: {
-      logged_at: '2026-06-18T17:09:30',
-      round: 39,
-      target_index: 40,
-      target_total: 100,
-      issue: '2026004',
-      train_draws: 1433,
-      elapsed_seconds: 16.7,
-    },
+    assert.equal(status.status, 'running');
+    assert.equal(status.active, false);
+    assert.equal(status.processAlive, false);
   });
-
-  assert.equal(status.status, 'running');
-  assert.equal(status.active, false);
-  assert.equal(status.processAlive, false);
 });
 
 test('training status event ignores blank run id updates', async () => {
@@ -790,6 +806,30 @@ test('training status event ignores blank run id updates', async () => {
       process.env.DEHPS_ROOT = previousRoot;
     }
   }
+});
+
+test('training status event ignores stale updates from an older run', async () => {
+  await withTempDehpsRoot('dehps-stale-event-test-', async () => {
+    const service = new ResearchService(repository);
+    const status = await service.trainingStatusFromEvent({
+      run_id: 'run-099',
+      status: 'running',
+      updated_at: '2026-06-17T23:59:59.000Z',
+      latest_progress: {
+        logged_at: '2026-06-17T23:59:59.000Z',
+        round: 50,
+        target_index: 1,
+        target_total: 100,
+        issue: '2026060',
+        train_draws: 1400,
+        elapsed_seconds: 3.5,
+      },
+    });
+
+    assert.equal(status.runId, 'run-100');
+    assert.equal(status.updatedAt, '2026-06-18T00:00:00.000Z');
+    assert.notEqual(status.latestProgress?.issue, '2026060');
+  });
 });
 
 test('postgres training weight signal mapping preserves date-only values', async () => {
