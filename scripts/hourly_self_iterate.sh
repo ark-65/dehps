@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_ROOT="/home/ark/workspace/dehps"
-NODE_BIN_DIR="/home/ark/.nodenv/versions/24.16.0/bin"
-CODEX_BIN="/home/ark/.nodenv/versions/24.16.0/bin/codex"
-LOG_DIR="$REPO_ROOT/runtime/logs"
+REPO_ROOT="${DEHPS_REPO_ROOT:-/home/ark/workspace/dehps}"
+NODE_BIN_DIR="${DEHPS_NODE_BIN_DIR:-/home/ark/.nodenv/versions/24.16.0/bin}"
+CODEX_BIN="${DEHPS_CODEX_BIN:-$NODE_BIN_DIR/codex}"
+LOG_DIR="${DEHPS_LOG_DIR:-$REPO_ROOT/runtime/logs}"
 LOCK_FILE="$LOG_DIR/hourly_self_iterate.lock"
 LAST_MESSAGE="$LOG_DIR/hourly_self_iterate.last.md"
 
@@ -14,13 +14,30 @@ mkdir -p "$LOG_DIR"
 
 cd "$REPO_ROOT"
 
+write_last_message() {
+  local title="$1"
+  local status="$2"
+  local detail="${3:-}"
+
+  {
+    printf '# %s\n\n' "$title"
+    printf -- '- Status: `%s`\n' "$status"
+    printf -- '- Timestamp: %s\n' "$(date -Is)"
+    if [[ -n "$detail" ]]; then
+      printf -- '- Detail: %s\n' "$detail"
+    fi
+  } > "$LAST_MESSAGE"
+}
+
 if [[ ! -x "$CODEX_BIN" ]]; then
   echo "$(date -Is) codex executable not found: $CODEX_BIN" >&2
+  write_last_message "DEHPS Hourly Self-Iteration Failed" "codex_missing" "codex executable not found: $CODEX_BIN"
   exit 1
 fi
 
 if [[ ! -x "$NODE_BIN_DIR/node" ]]; then
   echo "$(date -Is) node executable not found: $NODE_BIN_DIR/node" >&2
+  write_last_message "DEHPS Hourly Self-Iteration Failed" "node_missing" "node executable not found: $NODE_BIN_DIR/node"
   exit 1
 fi
 
@@ -30,12 +47,24 @@ if ! flock -n 9; then
   exit 0
 fi
 
-if [[ -n "$(git status --porcelain)" ]]; then
+dirty_status="$(git status --short)"
+if [[ -n "$dirty_status" ]]; then
   echo "$(date -Is) working tree is dirty; skip to avoid overwriting human or previous-agent work."
-  git status --short
+  printf '%s\n' "$dirty_status"
+  {
+    printf '# DEHPS Hourly Self-Iteration Skipped\n\n'
+    printf -- '- Status: `dirty_worktree`\n'
+    printf -- '- Timestamp: %s\n\n' "$(date -Is)"
+    printf '## Git Status\n\n'
+    printf '```text\n'
+    printf '%s\n' "$dirty_status"
+    printf '```\n'
+  } > "$LAST_MESSAGE"
   exit 0
 fi
 
+run_started_at="$(date -Is)"
+set +e
 cat <<'PROMPT' | "$CODEX_BIN" exec \
   --cd "$REPO_ROOT" \
   --dangerously-bypass-approvals-and-sandbox \
@@ -58,3 +87,17 @@ cat <<'PROMPT' | "$CODEX_BIN" exec \
 
 请自主完成探索、修改、验证、提交和推送。
 PROMPT
+codex_status=$?
+set -e
+
+if [[ $codex_status -ne 0 ]]; then
+  {
+    printf '# DEHPS Hourly Self-Iteration Failed\n\n'
+    printf -- '- Status: `codex_failed`\n'
+    printf -- '- Started at: %s\n' "$run_started_at"
+    printf -- '- Failed at: %s\n' "$(date -Is)"
+    printf -- '- Exit code: %s\n\n' "$codex_status"
+    printf 'Codex exited before completing the scheduled self-iteration. Check scheduler logs for stdout/stderr.\n'
+  } > "$LAST_MESSAGE"
+  exit "$codex_status"
+fi
