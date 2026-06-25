@@ -900,6 +900,7 @@ export class ResearchService {
 
   private latestErrorLine(lines: string[]): string | null {
     const errorPattern = /\b(errors?|exception|failed|traceback)\b/i;
+    const unhandledRejectionPattern = /\bunhandled\s+(?:promise\s+)?rejection\b|\bunhandled(?:promise)?rejection(?:warning)?\b/i;
     const zeroErrorPattern =
       /\b(?:0|no)\s+(?:errors?|fail(?:ed|ures?)?)\b|\b(?:errors?|fail(?:ed|ures?)?)\s*[:=]\s*0\b/gi;
     const recoveryPattern = /\b(ready|listening|started|success|successful|complete|completed)\b/i;
@@ -907,7 +908,7 @@ export class ResearchService {
     let latestRecoveryIndex = -1;
     lines.forEach((line, index) => {
       const lineWithoutZeroSummaries = line.replace(zeroErrorPattern, ' ');
-      if (errorPattern.test(lineWithoutZeroSummaries)) {
+      if (errorPattern.test(lineWithoutZeroSummaries) || unhandledRejectionPattern.test(lineWithoutZeroSummaries)) {
         latestErrorIndex = index;
       }
       if (recoveryPattern.test(line)) {
