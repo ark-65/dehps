@@ -19,6 +19,7 @@ from scripts.run_training_supervisor import (
     candidate_source_survival,
     attach_baseline_overlap,
     attach_frozen_validation,
+    compact_status_payload,
     config_hash,
     control_experiment_configs,
     control_experiment_summaries,
@@ -52,6 +53,7 @@ from scripts.run_training_supervisor import (
     training_event_payload,
     select_target_weight_inversion_anchor,
     select_probability_calibration_champion,
+    select_probability_focus_search_base,
     select_stagnation_exploration_champion,
     select_rank_homogeneity_restart_champion,
     select_next_search_base,
@@ -694,6 +696,68 @@ def test_probability_calibration_champion_guides_stagnated_search():
     assert metadata["source"] == "ridge_kdj"
     assert metadata["full_eval_rank"] == 2
     assert metadata["reason"] == "stagnation_probability_calibration_better"
+
+
+def test_probability_focus_search_base_can_hold_probability_candidate():
+    current_config = FrequencyRankerConfig(frequency_weight=0.30)
+    focus_config = FrequencyRankerConfig(frequency_weight=0.45, omission_weight=0.10)
+    focus_summary = supervisor_summary_for_config(
+        focus_config,
+        top_100_hits=1,
+        top_1000_hits=2,
+        top_10000_hits=3,
+        objective_score=2100.0,
+    )
+
+    next_base, metadata = select_probability_focus_search_base(
+        current_base=current_config,
+        focus_summary=focus_summary,
+        focus_info={
+            "active": True,
+            "source": "ridge_kdj",
+            "reason": "refreshed_from_probability_champion",
+            "hold_rounds": 4,
+            "remaining_rounds": 4,
+            "refreshed": True,
+        },
+    )
+
+    assert config_hash(next_base) == config_hash(focus_config)
+    assert metadata["source"] == "probability_focus"
+    assert metadata["focus_source"] == "ridge_kdj"
+    assert metadata["changed"] is True
+    assert metadata["remaining_rounds"] == 4
+    assert metadata["top_1000_hits"] == 2
+
+
+def test_probability_focus_search_base_can_hold_current_base_for_local_search():
+    current_config = FrequencyRankerConfig(frequency_weight=0.45, omission_weight=0.10)
+    focus_summary = supervisor_summary_for_config(
+        current_config,
+        top_100_hits=1,
+        top_1000_hits=2,
+        top_10000_hits=3,
+        objective_score=2100.0,
+    )
+
+    next_base, metadata = select_probability_focus_search_base(
+        current_base=current_config,
+        focus_summary=focus_summary,
+        focus_info={
+            "active": True,
+            "source": "probability_focus",
+            "reason": "held_previous_probability_focus",
+            "hold_rounds": 4,
+            "remaining_rounds": 3,
+            "refreshed": False,
+        },
+    )
+
+    assert config_hash(next_base) == config_hash(current_config)
+    assert metadata["source"] == "probability_focus"
+    assert metadata["changed"] is False
+    assert metadata["selected_config_distance"] == 0.0
+    assert metadata["remaining_rounds"] == 3
 
 
 def test_probability_calibration_champion_waits_for_stagnation_threshold():
@@ -1719,6 +1783,23 @@ def test_training_event_payload_is_compact_signal_only():
         "status_path": "/tmp/status.json",
         "report_path": "/tmp/status.md",
     }
+
+
+def test_compact_status_payload_includes_probability_focus_diagnostics():
+    payload = compact_status_payload(
+        {
+            "run_id": "run-1",
+            "near_miss_inversion_advisor": {"latest": {"candidate_count": 2}},
+            "probability_focus": {"latest": {"active": True, "remaining_rounds": 3}},
+            "rounds": [{"large": "payload"}],
+            "best": {"large": "payload"},
+        }
+    )
+
+    assert payload["near_miss_inversion_advisor"] == {"latest": {"candidate_count": 2}}
+    assert payload["probability_focus"] == {"latest": {"active": True, "remaining_rounds": 3}}
+    assert "rounds" not in payload
+    assert "best" not in payload
 
 
 def test_training_progress_payload_is_json_status_compatible():

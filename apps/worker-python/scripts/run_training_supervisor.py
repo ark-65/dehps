@@ -231,6 +231,7 @@ DEFAULT_TARGET_WEIGHT_INVERSION_MAX_DELTAS_PER_TARGET = 8
 TARGET_WEIGHT_INVERSION_STALE_STAGNATION_THRESHOLD = 64
 NEAR_MISS_INVERSION_STAGNATION_THRESHOLD = STAGNATION_THRESHOLD
 PROBABILITY_CALIBRATION_STAGNATION_THRESHOLD = STAGNATION_THRESHOLD
+PROBABILITY_FOCUS_HOLD_ROUNDS = 4
 NEAR_MISS_INVERSION_CUTOFF_BANDS = (
     {"cutoff": 100, "upper": 500, "max_targets": 4},
     {"cutoff": 1000, "upper": 5000, "max_targets": 4},
@@ -3262,6 +3263,59 @@ def select_next_search_base(
     return next_base, metadata
 
 
+def select_probability_focus_search_base(
+    *,
+    current_base: FrequencyRankerConfig,
+    focus_summary: dict | None,
+    focus_info: dict,
+) -> tuple[FrequencyRankerConfig | None, dict]:
+    selected_config = summary_config(focus_summary)
+    current_base_hash = config_hash(current_base)
+    if not focus_info.get("active") or selected_config is None:
+        return None, {
+            "source": "probability_focus",
+            "active": False,
+            "changed": False,
+            "previous_config_hash": current_base_hash,
+            "config_hash": current_base_hash,
+            "candidate_config_hash": summary_config_hash(focus_summary) or "",
+            "reason": "missing_focus_config" if focus_info.get("active") else "inactive",
+            "config": config_dict(current_base),
+        }
+
+    next_hash = config_hash(selected_config)
+    metadata = {
+        "source": "probability_focus",
+        "active": True,
+        "changed": next_hash != current_base_hash,
+        "previous_config_hash": current_base_hash,
+        "config_hash": next_hash,
+        "candidate_config_hash": summary_config_hash(focus_summary) or "",
+        "search_challenger_config_hash": "",
+        "fallback_search_challenger_config_hash": "",
+        "min_config_distance": 0.0,
+        "selected_config_distance": config_distance(selected_config, current_base),
+        "search_challenger_config_distance": None,
+        "search_challenger_rank_vector_changed": False,
+        "search_challenger_rank_vector_available": False,
+        "recent_search_base_hashes": [],
+        "focus_source": str(focus_info.get("source") or ""),
+        "focus_reason": str(focus_info.get("reason") or ""),
+        "hold_rounds": int(focus_info.get("hold_rounds") or 0),
+        "remaining_rounds": int(focus_info.get("remaining_rounds") or 0),
+        "refreshed": bool(focus_info.get("refreshed")),
+        "top_100_hits": int(focus_summary.get("top_100_hits") or 0) if isinstance(focus_summary, dict) else 0,
+        "top_1000_hits": int(focus_summary.get("top_1000_hits") or 0) if isinstance(focus_summary, dict) else 0,
+        "top_10000_hits": int(focus_summary.get("top_10000_hits") or 0) if isinstance(focus_summary, dict) else 0,
+        "median_rank": focus_summary.get("median_rank") if isinstance(focus_summary, dict) else None,
+        "best_rank": focus_summary.get("best_rank") if isinstance(focus_summary, dict) else None,
+        "worst_rank": focus_summary.get("worst_rank") if isinstance(focus_summary, dict) else None,
+        "config": config_dict(selected_config),
+        **_target_weight_anchor_metrics(focus_summary),
+    }
+    return selected_config, metadata
+
+
 def recent_search_base_hashes(rounds: list[dict], current_base: FrequencyRankerConfig, *, limit: int = 6) -> tuple[str, ...]:
     hashes: list[str] = [config_hash(current_base)]
     for round_info in reversed(rounds[-limit:]):
@@ -3658,6 +3712,8 @@ def compact_status_payload(status: dict) -> dict:
         "ridge_kdj_advisor": status.get("ridge_kdj_advisor"),
         "neural_kdj_advisor": status.get("neural_kdj_advisor"),
         "target_weight_inversion_advisor": status.get("target_weight_inversion_advisor"),
+        "near_miss_inversion_advisor": status.get("near_miss_inversion_advisor"),
+        "probability_focus": status.get("probability_focus"),
         "carryover_seed": status.get("carryover_seed"),
         "qian_kun": status.get("qian_kun"),
         "next_candidates": status.get("next_candidates"),
@@ -3906,6 +3962,11 @@ def run_supervisor(
     target_weight_inversion_latest: dict | None = None
     near_miss_inversion_configs: tuple[FrequencyRankerConfig, ...] = ()
     near_miss_inversion_latest: dict | None = None
+    probability_focus_config: FrequencyRankerConfig | None = None
+    probability_focus_hash = ""
+    probability_focus_source = ""
+    probability_focus_score: tuple = ()
+    probability_focus_remaining = 0
     weight_kdj_thresholds = {
         "min_objective_delta": weight_kdj_min_objective_delta,
         "min_abs_offset": weight_kdj_min_abs_offset,
@@ -3996,6 +4057,11 @@ def run_supervisor(
             "stagnation_threshold": NEAR_MISS_INVERSION_STAGNATION_THRESHOLD,
             "latest": near_miss_inversion_latest,
         },
+        "probability_focus": {
+            "enabled": True,
+            "hold_rounds": PROBABILITY_FOCUS_HOLD_ROUNDS,
+            "latest": None,
+        },
         "carryover_seed": {
             "mode": "cross_history_config_replay",
             "config_count": len(carryover_configs),
@@ -4043,6 +4109,12 @@ def run_supervisor(
                 if enable_target_weight_inversion_advisor and stagnation_rounds >= NEAR_MISS_INVERSION_STAGNATION_THRESHOLD
                 else 0
             )
+            probability_focus_configs = (
+                (probability_focus_config,)
+                if probability_focus_config is not None and probability_focus_remaining > 0
+                else ()
+            )
+            probability_focus_budget = len(probability_focus_configs)
             historical_summaries = merge_leaderboard(leaderboard, prior_leaderboard, limit=32)
             low_coverage_fields = low_coverage_fields_from_summaries(historical_summaries)
             elite_configs = tuple(FrequencyRankerConfig(**summary["config"]) for summary in leaderboard[:4])
@@ -4068,6 +4140,7 @@ def run_supervisor(
             recency_canary_budget = budgets.get("recency_canary", 0)
             target_weight_inversion_budget = budgets.get("target_weight_inversion", 0)
             budgets["near_miss_inversion"] = near_miss_inversion_budget
+            budgets["probability_focus"] = probability_focus_budget
             normal_config_budget = (
                 max_configs_per_round
                 - weight_kdj_budget
@@ -4077,6 +4150,7 @@ def run_supervisor(
                 - target_weight_inversion_budget
                 - near_miss_inversion_budget
                 - stagnation_restart_budget
+                - probability_focus_budget
             )
             normal_config_budget = max(1, normal_config_budget)
             configs = tuple(
@@ -4183,6 +4257,7 @@ def run_supervisor(
                 "target_weight_inversion": target_weight_inversion_configs,
                 "near_miss_inversion": near_miss_inversion_configs,
                 "stagnation_restart": stagnation_restart_configs,
+                "probability_focus": probability_focus_configs,
             }
             if recency_canary_budget > 0:
                 configs = merge_reserved_candidate_configs(
@@ -4237,8 +4312,21 @@ def run_supervisor(
                     max_configs=max_configs_per_round,
                     reserved_budget=stagnation_restart_budget,
                 )
+            if probability_focus_budget > 0:
+                configs = merge_reserved_candidate_configs(
+                    configs,
+                    probability_focus_configs,
+                    max_configs=max_configs_per_round,
+                    reserved_budget=probability_focus_budget,
+                )
             generated_config_count = len(configs)
-            keep_configs = (search_base_config, best_config, *elite_configs[:4], *(config for _label, config in control_configs))
+            keep_configs = (
+                search_base_config,
+                best_config,
+                *elite_configs[:4],
+                *probability_focus_configs,
+                *(config for _label, config in control_configs),
+            )
             refined_configs, prefilter_info = prefilter_configs(
                 history=training_history,
                 ranked_universe=ranked_universe,
@@ -4370,9 +4458,116 @@ def run_supervisor(
                 prior_best_summary=prior_best_summary,
                 stagnation_rounds=stagnation_rounds,
             )
+            evaluated_probability_focus_summary = None
+            if probability_focus_hash:
+                for summary in summaries:
+                    if summary_config_hash(summary) == probability_focus_hash:
+                        evaluated_probability_focus_summary = summary
+                        break
+            probability_focus_had_state = bool(
+                probability_focus_hash or probability_focus_config is not None or probability_focus_remaining > 0
+            )
+            probability_focus_info = {
+                "active": False,
+                "hold_rounds": PROBABILITY_FOCUS_HOLD_ROUNDS,
+                "remaining_rounds": max(0, probability_focus_remaining),
+                "source": probability_focus_source,
+                "config_hash": probability_focus_hash,
+                "score": list(probability_focus_score) if probability_focus_score else None,
+                "refreshed": False,
+                "reason": "inactive",
+            }
+            probability_focus_decision_summary = None
+            if improved:
+                probability_focus_config = None
+                probability_focus_hash = ""
+                probability_focus_source = ""
+                probability_focus_score = ()
+                probability_focus_remaining = 0
+                probability_focus_info["reason"] = "cleared_on_new_best" if probability_focus_had_state else "inactive"
+            elif probability_champion is not None:
+                champion_config = summary_config(probability_champion)
+                champion_hash = summary_config_hash(probability_champion) or ""
+                champion_score = probability_calibration_score(probability_champion)
+                should_refresh_focus = (
+                    champion_config is not None
+                    and champion_hash
+                    and (
+                        not probability_focus_hash
+                        or champion_hash == probability_focus_hash
+                        or not probability_focus_score
+                        or champion_score >= probability_focus_score
+                    )
+                )
+                if should_refresh_focus and champion_config is not None:
+                    probability_focus_config = champion_config
+                    probability_focus_hash = champion_hash
+                    probability_focus_source = str(probability_champion_info.get("source") or "")
+                    probability_focus_score = champion_score
+                    probability_focus_remaining = PROBABILITY_FOCUS_HOLD_ROUNDS
+                    probability_focus_decision_summary = probability_champion
+                    probability_focus_info.update(
+                        {
+                            "active": True,
+                            "remaining_rounds": probability_focus_remaining,
+                            "source": probability_focus_source,
+                            "config_hash": probability_focus_hash,
+                            "score": list(probability_focus_score),
+                            "refreshed": True,
+                            "reason": "refreshed_from_probability_champion",
+                        }
+                    )
+                elif probability_focus_config is not None and probability_focus_remaining > 0:
+                    probability_focus_remaining = max(0, probability_focus_remaining - 1)
+                    probability_focus_decision_summary = evaluated_probability_focus_summary
+                    probability_focus_info.update(
+                        {
+                            "active": evaluated_probability_focus_summary is not None and probability_focus_remaining > 0,
+                            "remaining_rounds": probability_focus_remaining,
+                            "source": probability_focus_source,
+                            "config_hash": probability_focus_hash,
+                            "score": list(probability_focus_score) if probability_focus_score else None,
+                            "reason": "kept_stronger_existing_focus",
+                        }
+                    )
+            elif probability_focus_config is not None and probability_focus_remaining > 0:
+                probability_focus_remaining = max(0, probability_focus_remaining - 1)
+                probability_focus_decision_summary = evaluated_probability_focus_summary
+                probability_focus_info.update(
+                    {
+                        "active": evaluated_probability_focus_summary is not None and probability_focus_remaining > 0,
+                        "remaining_rounds": probability_focus_remaining,
+                        "source": probability_focus_source,
+                        "config_hash": probability_focus_hash,
+                        "score": list(probability_focus_score) if probability_focus_score else None,
+                        "reason": "held_previous_probability_focus",
+                    }
+                )
+            if probability_focus_remaining <= 0 and probability_focus_had_state:
+                probability_focus_reason = probability_focus_info.get("reason")
+                probability_focus_decision_summary = None
+                probability_focus_config = None
+                probability_focus_hash = ""
+                probability_focus_source = ""
+                probability_focus_score = ()
+                probability_focus_remaining = 0
+                probability_focus_info.update(
+                    {
+                        "active": False,
+                        "remaining_rounds": 0,
+                        "source": "",
+                        "config_hash": "",
+                        "score": None,
+                        "reason": "cleared_on_new_best"
+                        if probability_focus_reason == "cleared_on_new_best"
+                        else "expired",
+                    }
+                )
             decision_round_best = round_best
             if not improved:
-                if probability_champion is not None:
+                if probability_focus_decision_summary is not None:
+                    decision_round_best = probability_focus_decision_summary
+                elif probability_champion is not None:
                     decision_round_best = probability_champion
                 elif restart_champion is not None:
                     decision_round_best = restart_champion
@@ -4394,6 +4589,8 @@ def run_supervisor(
             prefilter_info["exploration_champion"] = exploration_champion_info
             prefilter_info["rank_homogeneity_restart_champion"] = restart_champion_info
             prefilter_info["probability_calibration_champion"] = probability_champion_info
+            prefilter_info["probability_focus"] = probability_focus_info
+            status["probability_focus"]["latest"] = probability_focus_info
             prefilter_info["source_survival"] = candidate_source_survival(
                 source_configs,
                 refined_configs=refined_configs,
@@ -4453,14 +4650,30 @@ def run_supervisor(
             prefilter_info["near_miss_inversion_advisor"] = near_miss_inversion_latest
             status["near_miss_inversion_advisor"]["latest"] = near_miss_inversion_latest
             leaderboard = merge_leaderboard(leaderboard, summaries[: min(8, len(summaries))])
-            next_search_base_config, search_base_info = select_next_search_base(
-                current_base=search_base_config,
-                summaries=summaries,
-                round_best=decision_round_best,
-                improved=improved,
-                recent_search_base_hashes=recent_search_base_hashes(rounds, search_base_config),
-                min_config_distance=min_search_base_distance,
-            )
+            if probability_focus_info["active"] and probability_focus_decision_summary is not None:
+                next_search_base_config, search_base_info = select_probability_focus_search_base(
+                    current_base=search_base_config,
+                    focus_summary=probability_focus_decision_summary,
+                    focus_info=probability_focus_info,
+                )
+                if next_search_base_config is None:
+                    next_search_base_config, search_base_info = select_next_search_base(
+                        current_base=search_base_config,
+                        summaries=summaries,
+                        round_best=decision_round_best,
+                        improved=improved,
+                        recent_search_base_hashes=recent_search_base_hashes(rounds, search_base_config),
+                        min_config_distance=min_search_base_distance,
+                    )
+            else:
+                next_search_base_config, search_base_info = select_next_search_base(
+                    current_base=search_base_config,
+                    summaries=summaries,
+                    round_best=decision_round_best,
+                    improved=improved,
+                    recent_search_base_hashes=recent_search_base_hashes(rounds, search_base_config),
+                    min_config_distance=min_search_base_distance,
+                )
             search_base_info["phase"] = phase
             search_base_info["phase_stage"] = phase_stage
             search_base_info["step"] = step
@@ -4498,6 +4711,14 @@ def run_supervisor(
                     f"rank={probability_champion_info['full_eval_rank']} "
                     f"changed_targets={probability_champion_info['changed_target_count']} "
                     f"config_hash={probability_champion_info['config_hash']}"
+                )
+            if probability_focus_info["active"]:
+                log(
+                    f"round={round_index + 1} probability_focus="
+                    f"{probability_focus_info['reason']} "
+                    f"source={probability_focus_info['source']} "
+                    f"remaining={probability_focus_info['remaining_rounds']} "
+                    f"config_hash={probability_focus_info['config_hash']}"
                 )
             if near_miss_inversion_latest["candidate_count"]:
                 band_summary = ",".join(
