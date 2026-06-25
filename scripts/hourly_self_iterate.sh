@@ -44,6 +44,7 @@ fi
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
   echo "$(date -Is) hourly self-iteration already running; skip."
+  write_last_message "DEHPS Hourly Self-Iteration Skipped" "lock_held" "another hourly self-iteration process holds $LOCK_FILE"
   exit 0
 fi
 
