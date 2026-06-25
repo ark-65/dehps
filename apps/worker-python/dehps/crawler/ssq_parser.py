@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date, datetime
 from operator import index
 from typing import Any
@@ -54,9 +55,16 @@ def _parse_ball_number(value: Any, field_name: str) -> int:
 def _extract_red_numbers(draw: dict[str, Any]) -> list[int]:
     if "red_numbers" in draw:
         value = draw["red_numbers"]
+        if value is None:
+            raise ValueError("missing red_numbers")
         if isinstance(value, str):
             return [_parse_ball_number(part, "red_numbers") for part in value.replace(",", " ").split()]
-        return [_parse_ball_number(n, "red_numbers") for n in value]
+        if isinstance(value, Mapping) or isinstance(value, (bytes, bytearray)):
+            raise ValueError("red_numbers must be a sequence or comma-separated string")
+        try:
+            return [_parse_ball_number(n, "red_numbers") for n in value]
+        except TypeError as exc:
+            raise ValueError("red_numbers must be a sequence or comma-separated string") from exc
     keys = ["r1", "r2", "r3", "r4", "r5", "r6"]
     if all(k in draw for k in keys):
         return [_parse_ball_number(draw[k], k) for k in keys]

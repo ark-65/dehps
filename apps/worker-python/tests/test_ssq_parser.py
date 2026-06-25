@@ -48,6 +48,17 @@ def test_red_out_of_range_error():
         validate_ssq_draw({"issue": "x", "red_numbers": [1, 2, 3, 4, 5, 34], "blue_number": 8})
 
 
+def test_missing_red_numbers_value_error():
+    with pytest.raises(ValueError, match="missing red_numbers"):
+        validate_ssq_draw({"issue": "x", "red_numbers": None, "blue_number": 8})
+
+
+@pytest.mark.parametrize("value", [1, {"r1": 1}, b"010203040506"])
+def test_malformed_red_numbers_container_error(value):
+    with pytest.raises(ValueError, match="red_numbers must be a sequence or comma-separated string"):
+        validate_ssq_draw({"issue": "x", "red_numbers": value, "blue_number": 8})
+
+
 def test_blue_out_of_range_error():
     with pytest.raises(ValueError):
         validate_ssq_draw({"issue": "x", "red_numbers": [1, 2, 3, 4, 5, 6], "blue_number": 17})
