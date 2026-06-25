@@ -1284,6 +1284,33 @@ test('service status ignores transient web proxy errors while web is alive', asy
   }
 });
 
+test('service status reports unreadable web logs without failing the response', async () => {
+  const previousRoot = process.env.DEHPS_ROOT;
+  const root = mkdtempSync(path.join(os.tmpdir(), 'dehps-service-status-'));
+  const logDir = path.join(root, 'runtime/logs');
+  mkdirSync(logDir, { recursive: true });
+  writeFileSync(path.join(logDir, 'api-dashboard.log'), 'api ready\n');
+  mkdirSync(path.join(logDir, 'web-dashboard.log'));
+  try {
+    process.env.DEHPS_ROOT = root;
+    const service = new ResearchService(repository);
+
+    const status = await service.serviceStatus();
+    const web = status.services.find((item) => item.name === 'web');
+
+    assert.equal(status.overall, 'failed');
+    assert.equal(web?.status, 'failed');
+    assert.match(web?.recentError ?? '', /failed to read log file/);
+    assert.match(web?.recentError ?? '', /web-dashboard\.log/);
+  } finally {
+    if (previousRoot === undefined) {
+      delete process.env.DEHPS_ROOT;
+    } else {
+      process.env.DEHPS_ROOT = previousRoot;
+    }
+  }
+});
+
 test('service status flags stale pid, missing log, and recent sync errors without shelling out', async () => {
   const previousRoot = process.env.DEHPS_ROOT;
   const root = mkdtempSync(path.join(os.tmpdir(), 'dehps-service-status-'));

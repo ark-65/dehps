@@ -1079,7 +1079,7 @@ export class ResearchService {
       if (this.isNotFoundError(error)) {
         return [];
       }
-      throw error;
+      return [`failed to read log file ${filePath}: ${this.errorMessage(error)}`].slice(-lineCount);
     }
   }
 
