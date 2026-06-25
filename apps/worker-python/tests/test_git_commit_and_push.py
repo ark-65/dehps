@@ -122,6 +122,44 @@ def test_git_helper_blocks_unstaged_disallowed_paths(monkeypatch):
     assert not any(call[:2] == ["git", "add"] for call in calls)
 
 
+def test_porcelain_parser_includes_rename_and_copy_peer_paths():
+    value = (
+        "R  docs/experiments/new-report.md\0apps/api/src/old-report.ts\0"
+        "C  data/output/new-report.md\0apps/web/src/old-report.ts\0"
+    )
+
+    assert git_commit_and_push.split_porcelain_status_paths(value) == [
+        "docs/experiments/new-report.md",
+        "apps/api/src/old-report.ts",
+        "data/output/new-report.md",
+        "apps/web/src/old-report.ts",
+    ]
+
+
+def test_git_helper_blocks_staged_rename_from_disallowed_path(monkeypatch):
+    calls = []
+
+    def fake_run(cmd, cwd, text, capture_output, check):
+        calls.append(cmd)
+        if cmd == ["git", "status", "--porcelain", "-z"]:
+            return FakeCompleted(stdout="R  docs/experiments/report.md\0apps/api/src/report.ts\0")
+        if cmd == ["git", "diff", "--cached", "--name-only", "-z"]:
+            return FakeCompleted(stdout="docs/experiments/report.md\0")
+        return FakeCompleted()
+
+    monkeypatch.setattr(git_commit_and_push, "ALLOWED_PATHS", ["docs/experiments"])
+    monkeypatch.setattr(git_commit_and_push.subprocess, "run", fake_run)
+
+    result = git_commit_and_push.git_commit_and_push("test commit")
+
+    assert result == {
+        "status": "blocked_disallowed_worktree_changes",
+        "paths": ["apps/api/src/report.ts"],
+        "error": "working tree changes outside allowed auto-git paths",
+    }
+    assert not any(call[:2] == ["git", "add"] for call in calls)
+
+
 def test_git_helper_pushes_current_upstream_branch_by_default(monkeypatch):
     calls = []
 
