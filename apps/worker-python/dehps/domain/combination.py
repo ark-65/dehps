@@ -20,7 +20,9 @@ def _coerce_red_number(value: object) -> int:
         raise ValueError("red numbers must be integers") from exc
 
 
-def normalize_red_numbers(numbers: Iterable[int]) -> tuple[int, ...]:
+def normalize_red_numbers(numbers: Iterable[object]) -> tuple[int, ...]:
+    if isinstance(numbers, (str, bytes, bytearray)):
+        raise ValueError("red numbers must contain exactly 6 values")
     normalized = tuple(sorted(_coerce_red_number(n) for n in numbers))
     if len(normalized) != 6:
         raise ValueError("red numbers must contain exactly 6 values")
