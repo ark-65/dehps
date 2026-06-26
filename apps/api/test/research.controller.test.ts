@@ -82,3 +82,37 @@ test('controller numeric params reject non-decimal integer forms', () => {
   assert.deepEqual(roundCalls[0], { runId: 'run-100', roundIndex: 2 });
   assert.deepEqual(roundCalls[1], { runId: 'run-100', roundIndex: 0 });
 });
+
+test('controller numeric params reject unsafe integers', () => {
+  const calls: Array<{ method: string; value: number | undefined }> = [];
+  const roundCalls: Array<{ runId: string; roundIndex: number }> = [];
+  const service = {
+    dashboard(limit?: number) {
+      calls.push({ method: 'dashboard', value: limit });
+      return {};
+    },
+    trainingStatus(lines?: number) {
+      calls.push({ method: 'trainingStatus', value: lines });
+      return {};
+    },
+    getTrainingRoundDetail(runId: string, roundIndex: number) {
+      roundCalls.push({ runId, roundIndex });
+      return null;
+    },
+  } as unknown as ResearchService;
+  const controller = new ResearchController(service, new TrainingStatusHub());
+
+  controller.dashboard('9007199254740992');
+  controller.trainingStatus('-9007199254740992');
+  controller.trainingRoundDetail('run-100', '9007199254740992');
+  controller.trainingRoundDetail('run-100', '9007199254740991');
+
+  assert.deepEqual(calls, [
+    { method: 'dashboard', value: undefined },
+    { method: 'trainingStatus', value: undefined },
+  ]);
+  assert.deepEqual(roundCalls, [
+    { runId: 'run-100', roundIndex: 0 },
+    { runId: 'run-100', roundIndex: 9007199254740991 },
+  ]);
+});

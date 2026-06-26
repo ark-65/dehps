@@ -118,6 +118,6 @@ export class ResearchController {
       return undefined;
     }
     const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : undefined;
+    return Number.isSafeInteger(parsed) ? parsed : undefined;
   }
 }
