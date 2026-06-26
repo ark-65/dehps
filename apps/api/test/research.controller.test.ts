@@ -38,3 +38,47 @@ test('controller keeps blank numeric query params on service defaults', () => {
     { method: 'listTrainingWeightSignals', value: undefined },
   ]);
 });
+
+test('controller numeric params reject non-decimal integer forms', () => {
+  const calls: Array<{ method: string; value: number | undefined }> = [];
+  const roundCalls: Array<{ runId: string; roundIndex: number }> = [];
+  const service = {
+    dashboard(limit?: number) {
+      calls.push({ method: 'dashboard', value: limit });
+      return {};
+    },
+    trainingStatus(lines?: number) {
+      calls.push({ method: 'trainingStatus', value: lines });
+      return {};
+    },
+    getTrainingNextCandidates(limit?: number) {
+      calls.push({ method: 'getTrainingNextCandidates', value: limit });
+      return {};
+    },
+    listTrainingWeightSignals(_runId?: string, _weights?: string, limit?: number) {
+      calls.push({ method: 'listTrainingWeightSignals', value: limit });
+      return [];
+    },
+    getTrainingRoundDetail(runId: string, roundIndex: number) {
+      roundCalls.push({ runId, roundIndex });
+      return null;
+    },
+  } as unknown as ResearchService;
+  const controller = new ResearchController(service, new TrainingStatusHub());
+
+  controller.dashboard('1e2');
+  controller.trainingStatus('0x50');
+  controller.trainingNextCandidates('2.5');
+  controller.trainingWeightSignals(undefined, undefined, '0010');
+  controller.trainingRoundDetail('run-100', '002');
+  controller.trainingRoundDetail('run-100', '2.9');
+
+  assert.deepEqual(calls, [
+    { method: 'dashboard', value: undefined },
+    { method: 'trainingStatus', value: undefined },
+    { method: 'getTrainingNextCandidates', value: undefined },
+    { method: 'listTrainingWeightSignals', value: 10 },
+  ]);
+  assert.deepEqual(roundCalls[0], { runId: 'run-100', roundIndex: 2 });
+  assert.deepEqual(roundCalls[1], { runId: 'run-100', roundIndex: 0 });
+});

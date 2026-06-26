@@ -68,7 +68,7 @@ export class ResearchController {
 
   @Get('training-rounds/:runId/:roundIndex')
   trainingRoundDetail(@Param('runId') runId: string, @Param('roundIndex') roundIndex: string) {
-    return this.researchService.getTrainingRoundDetail(runId, Number(roundIndex));
+    return this.researchService.getTrainingRoundDetail(runId, this.integerParam(roundIndex));
   }
 
   @Get('training-weight-signals')
@@ -106,6 +106,18 @@ export class ResearchController {
 
   private numberQuery(value: string | undefined): number | undefined {
     const trimmed = value?.trim();
-    return trimmed ? Number(trimmed) : undefined;
+    return trimmed ? this.decimalInteger(trimmed) : undefined;
+  }
+
+  private integerParam(value: string): number {
+    return this.decimalInteger(value.trim()) ?? 0;
+  }
+
+  private decimalInteger(value: string): number | undefined {
+    if (!/^-?\d+$/.test(value)) {
+      return undefined;
+    }
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
   }
 }
