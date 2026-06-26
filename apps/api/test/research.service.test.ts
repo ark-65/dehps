@@ -1380,6 +1380,45 @@ test('service status treats completed heavy job metadata as inactive', async () 
   }
 });
 
+test('service status treats interrupted heavy job metadata as inactive', async () => {
+  const previousRoot = process.env.DEHPS_ROOT;
+  const root = mkdtempSync(path.join(os.tmpdir(), 'dehps-heavy-status-'));
+  const logDir = path.join(root, 'runtime/logs');
+  mkdirSync(logDir, { recursive: true });
+  writeFileSync(path.join(logDir, 'api-dashboard.log'), 'api ready\n');
+  writeFileSync(path.join(logDir, 'web-dashboard.log'), 'web ready\n');
+  writeFileSync(
+    path.join(logDir, 'dehps-heavy-job.lock.json'),
+    JSON.stringify({
+      owner: 'interrupted-job',
+      pid: process.pid,
+      started_at: '2026-06-18T00:00:00Z',
+      heartbeat_at: '2026-06-18T00:00:01Z',
+      status: 'interrupted',
+      command: ['stopped'],
+      context: {},
+    }),
+  );
+  try {
+    process.env.DEHPS_ROOT = root;
+    const service = new ResearchService(repository);
+
+    const status = await service.serviceStatus();
+    const heavyJobLock = status.heavyTaskLimits.heavyJobLock;
+
+    assert.equal(heavyJobLock?.['status'], 'interrupted');
+    assert.equal(heavyJobLock?.['active'], false);
+    assert.equal(heavyJobLock?.['pidActive'], true);
+    assert.equal(heavyJobLock?.['reason'], 'status_interrupted');
+  } finally {
+    if (previousRoot === undefined) {
+      delete process.env.DEHPS_ROOT;
+    } else {
+      process.env.DEHPS_ROOT = previousRoot;
+    }
+  }
+});
+
 test('service status reports unreadable heavy job metadata without failing', async () => {
   const previousRoot = process.env.DEHPS_ROOT;
   const root = mkdtempSync(path.join(os.tmpdir(), 'dehps-heavy-status-'));

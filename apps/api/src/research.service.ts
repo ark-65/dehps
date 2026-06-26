@@ -49,6 +49,7 @@ const HEAVY_JOB_INACTIVE_STATUSES = new Set([
   'failed',
   'error',
   'cancelled',
+  'interrupted',
 ]);
 const SYNC_SCHEDULE = {
   timezone: 'Asia/Shanghai',
