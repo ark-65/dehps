@@ -187,7 +187,7 @@ class CsvSsqDataSource(SsqDataSource):
 
     def fetch_latest(self) -> dict[str, Any] | None:
         rows = self.fetch_history()
-        return rows[-1] if rows else None
+        return max(rows, key=lambda row: str(row.get("issue") or "").strip()) if rows else None
 
     def fetch_history(self, start_issue: str | None = None, end_issue: str | None = None) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
