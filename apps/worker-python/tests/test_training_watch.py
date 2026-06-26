@@ -196,6 +196,8 @@ def test_safe_numeric_helpers_reject_bool_and_non_finite_values():
     assert safe_float(float("inf")) is None
 
     assert safe_int("3") == 3
+    assert safe_int(3.0) == 3
+    assert safe_int(3.5) is None
     assert safe_int(False) is None
     assert safe_int(float("inf")) is None
 

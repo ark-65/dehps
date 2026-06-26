@@ -59,10 +59,20 @@ def safe_int(value: Any) -> int | None:
         return None
     if isinstance(value, bool):
         return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value) if isfinite(value) and value.is_integer() else None
     try:
-        return int(value)
+        parsed = int(value)
     except (OverflowError, TypeError, ValueError):
         return None
+    try:
+        if not isinstance(value, str) and value != parsed:
+            return None
+    except Exception:
+        return None
+    return parsed
 
 
 def positive_int_or_default(value: Any, *, default: int) -> int:
