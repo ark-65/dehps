@@ -4,7 +4,14 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import scripts.watch_training_progress as watch
-from scripts.watch_training_progress import advisor_summary, recommendation_summary, render_markdown, summarize_watch
+from scripts.watch_training_progress import (
+    advisor_summary,
+    recommendation_summary,
+    render_markdown,
+    safe_float,
+    safe_int,
+    summarize_watch,
+)
 
 
 def test_recommendation_continues_healthy_active_training_run():
@@ -180,6 +187,17 @@ def test_summarize_watch_normalizes_non_positive_windows(monkeypatch):
     assert payload["round_limit"] == watch.DEFAULT_ROUND_LIMIT
     assert payload["stale_minutes"] == watch.DEFAULT_STALE_MINUTES
     assert payload["recommendation"]["severity"] == "ok"
+
+
+def test_safe_numeric_helpers_reject_bool_and_non_finite_values():
+    assert safe_float("3.5") == 3.5
+    assert safe_float(True) is None
+    assert safe_float("nan") is None
+    assert safe_float(float("inf")) is None
+
+    assert safe_int("3") == 3
+    assert safe_int(False) is None
+    assert safe_int(float("inf")) is None
 
 
 def test_load_rounds_queries_recent_window_before_chronological_sort(monkeypatch):

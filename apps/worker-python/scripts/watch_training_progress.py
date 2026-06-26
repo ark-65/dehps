@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 from datetime import datetime, timezone
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
@@ -44,18 +45,23 @@ def isoformat(moment: datetime | None) -> str | None:
 def safe_float(value: Any) -> float | None:
     if value is None:
         return None
+    if isinstance(value, bool):
+        return None
     try:
-        return float(value)
+        parsed = float(value)
     except (TypeError, ValueError):
         return None
+    return parsed if isfinite(parsed) else None
 
 
 def safe_int(value: Any) -> int | None:
     if value is None:
         return None
+    if isinstance(value, bool):
+        return None
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (OverflowError, TypeError, ValueError):
         return None
 
 
