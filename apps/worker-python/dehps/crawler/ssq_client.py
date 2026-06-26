@@ -192,6 +192,8 @@ class CsvSsqDataSource(SsqDataSource):
     def fetch_history(self, start_issue: str | None = None, end_issue: str | None = None) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         required_columns = {"issue", *(f"r{i}" for i in range(1, 7))}
+        start_issue_key = start_issue.strip() if start_issue else None
+        end_issue_key = end_issue.strip() if end_issue else None
         with self.path.open(newline="", encoding="utf-8") as fh:
             reader = csv.DictReader(fh)
             missing_columns = sorted(required_columns - set(reader.fieldnames or []))
@@ -200,10 +202,10 @@ class CsvSsqDataSource(SsqDataSource):
                 raise ValueError(f"CSV source {self.path} missing required columns: {joined}")
 
             for row in reader:
-                issue = row["issue"]
-                if start_issue and issue < start_issue:
+                issue = (row.get("issue") or "").strip()
+                if start_issue_key and issue < start_issue_key:
                     continue
-                if end_issue and issue > end_issue:
+                if end_issue_key and issue > end_issue_key:
                     continue
                 rows.append(
                     {

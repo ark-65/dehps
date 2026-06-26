@@ -118,6 +118,25 @@ def test_csv_source_latest_uses_highest_issue_not_file_order(tmp_path):
     assert latest["blue_number"] == "10"
 
 
+def test_csv_source_trims_issue_before_range_filtering(tmp_path):
+    csv_path = tmp_path / "history.csv"
+    csv_path.write_text(
+        "\n".join(
+            [
+                "issue,draw_date,r1,r2,r3,r4,r5,r6,blue_number,source",
+                "2026001,2026-01-04,1,6,10,17,22,30,8,test",
+                " 2026002 ,2026-01-08,2,7,11,18,23,31,9,test",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    rows = CsvSsqDataSource(csv_path).fetch_history(start_issue=" 2026002 ", end_issue="2026002")
+
+    assert [row["issue"] for row in rows] == ["2026002"]
+    assert rows[0]["blue_number"] == "9"
+
+
 def test_csv_source_reports_missing_required_columns(tmp_path):
     csv_path = tmp_path / "history.csv"
     csv_path.write_text(
