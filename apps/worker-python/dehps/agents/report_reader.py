@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import json
+import math
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -64,6 +65,8 @@ def _parse_number(value: str) -> int | float:
     parsed = _parse_value(value)
     if isinstance(parsed, bool) or not isinstance(parsed, int | float):
         raise ValueError(f"expected numeric metric, got {value!r}")
+    if isinstance(parsed, float) and not math.isfinite(parsed):
+        raise ValueError(f"expected finite numeric metric, got {value!r}")
     return parsed
 
 

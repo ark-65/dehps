@@ -80,3 +80,19 @@ def test_experiment_report_reader_rejects_boolean_metric_value():
 
     with pytest.raises(ValueError, match="expected numeric metric"):
         parse_experiment_report(report)
+
+
+@pytest.mark.parametrize("metric_value", ["NaN", "Infinity", "-Infinity"])
+def test_experiment_report_reader_rejects_nonfinite_metric_value(metric_value):
+    report = "\n".join(
+        [
+            "# Experiment Report",
+            "- Experiment: `baseline_v1-test`",
+            "- Strategy: `baseline_v1`",
+            "## Metrics",
+            f"- coverage_rate: {metric_value}",
+        ]
+    )
+
+    with pytest.raises(ValueError, match="expected finite numeric metric"):
+        parse_experiment_report(report)
