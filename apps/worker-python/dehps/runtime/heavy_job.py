@@ -143,7 +143,7 @@ def describe_heavy_job_owner(
             reason="metadata_missing",
         )
 
-    status = str(metadata.get("status", "")).lower()
+    status = str(metadata.get("status", "")).strip().lower()
     pid_active = is_pid_active(metadata.get("pid"))
     if status in INACTIVE_STATUSES:
         return HeavyJobOwnerStatus(
