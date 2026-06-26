@@ -1,11 +1,70 @@
 from __future__ import annotations
 
-from dehps.optimization.next_candidates import next_issue_hint, training_summary_sort_key
+import dehps.optimization.next_candidates as next_candidates
+from dehps.optimization.next_candidates import (
+    build_training_next_candidate_snapshot,
+    next_issue_hint,
+    training_freshness_metadata,
+    training_summary_sort_key,
+)
 
 
 def test_next_issue_hint_increments_numeric_issue():
     assert next_issue_hint("2026068") == "2026069"
     assert next_issue_hint("bad") == ""
+
+
+def test_training_freshness_metadata_marks_stale_history():
+    metadata = training_freshness_metadata(
+        training_as_of_issue="2026067",
+        latest_issue="2026069",
+        training_history_fingerprint="history-old",
+        current_history_fingerprint="history-current",
+    )
+
+    assert metadata == {
+        "status": "stale",
+        "training_issue_matches_current": False,
+        "training_history_matches_current": False,
+        "training_issue_lag": 2,
+    }
+
+
+def test_training_next_candidate_snapshot_reports_training_freshness(monkeypatch):
+    history = [
+        ("2026067", None, (1, 2, 3, 4, 5, 6)),
+        ("2026068", None, (2, 3, 4, 5, 6, 7)),
+    ]
+    best = {
+        "run_id": "run-1",
+        "source_round_index": 5,
+        "train_mode": "expanding",
+        "train_window": 900,
+        "eval_window": 100,
+        "top_n": 10000,
+        "training_as_of_issue": "2026067",
+        "training_history_fingerprint": "history-old",
+        "summary": {},
+        "config": {},
+    }
+    monkeypatch.setattr(next_candidates, "load_best_training_summary", lambda _conn, _run_id: best)
+    monkeypatch.setattr(next_candidates, "load_history_with_dates", lambda _conn: history)
+    monkeypatch.setattr(
+        next_candidates,
+        "top_candidates_for_next",
+        lambda **_kwargs: [(1, (1, 2, 3, 4, 5, 6), 0.75)],
+    )
+
+    snapshot = build_training_next_candidate_snapshot(object(), top_n=10, ranked_universe=[object(), object()])
+
+    metadata = snapshot["metadata"]
+    assert metadata["history_fingerprint"] == next_candidates.fingerprint_history(history)
+    assert metadata["training_freshness"] == {
+        "status": "stale",
+        "training_issue_matches_current": False,
+        "training_history_matches_current": False,
+        "training_issue_lag": 1,
+    }
 
 
 def test_training_summary_sort_key_prefers_historical_hits_before_reward():

@@ -25,6 +25,32 @@ def next_issue_hint(issue: str | None) -> str:
     return str(int(issue) + 1)
 
 
+def training_freshness_metadata(
+    *,
+    training_as_of_issue: str | None,
+    latest_issue: str | None,
+    training_history_fingerprint: str | None,
+    current_history_fingerprint: str | None,
+) -> dict[str, Any]:
+    training_issue = str(training_as_of_issue or "")
+    current_issue = str(latest_issue or "")
+    issue_lag: int | None = None
+    if training_issue.isdigit() and current_issue.isdigit():
+        issue_lag = int(current_issue) - int(training_issue)
+    issue_matches = bool(training_issue and current_issue and training_issue == current_issue)
+    history_matches = bool(
+        training_history_fingerprint
+        and current_history_fingerprint
+        and training_history_fingerprint == current_history_fingerprint
+    )
+    return {
+        "status": "current" if issue_matches and history_matches else "stale",
+        "training_issue_matches_current": issue_matches,
+        "training_history_matches_current": history_matches,
+        "training_issue_lag": issue_lag,
+    }
+
+
 def training_summary_sort_key(summary: dict[str, Any]) -> tuple:
     red5 = summary.get("red5") if isinstance(summary.get("red5"), dict) else {}
     reward = summary.get("reward") if isinstance(summary.get("reward"), dict) else {}
@@ -125,6 +151,7 @@ def build_training_next_candidate_snapshot(
         raise RuntimeError("ssq_history is empty")
     latest_issue = str(history[-1][0])
     target_draw_date = infer_next_ssq_draw_date(history)
+    current_history_fingerprint = fingerprint_history(history)
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     config = FrequencyRankerConfig(**best["config"])
     matrix = ranked_universe or build_ranked_universe()
@@ -147,9 +174,15 @@ def build_training_next_candidate_snapshot(
         "train_window": best["train_window"],
         "eval_window": best["eval_window"],
         "top_n": resolved_top_n,
-        "history_fingerprint": fingerprint_history(history),
+        "history_fingerprint": current_history_fingerprint,
         "training_as_of_issue": best["training_as_of_issue"],
         "training_history_fingerprint": best["training_history_fingerprint"],
+        "training_freshness": training_freshness_metadata(
+            training_as_of_issue=best["training_as_of_issue"],
+            latest_issue=latest_issue,
+            training_history_fingerprint=best["training_history_fingerprint"],
+            current_history_fingerprint=current_history_fingerprint,
+        ),
         "config_hash": config_hash(config),
         "config": best["config"],
         "generated_at": generated_at,
