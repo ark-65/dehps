@@ -232,6 +232,7 @@ TARGET_WEIGHT_INVERSION_STALE_STAGNATION_THRESHOLD = 64
 NEAR_MISS_INVERSION_STAGNATION_THRESHOLD = STAGNATION_THRESHOLD
 PROBABILITY_CALIBRATION_STAGNATION_THRESHOLD = STAGNATION_THRESHOLD
 PROBABILITY_FOCUS_HOLD_ROUNDS = 4
+PROBABILITY_PRIMARY_GATE_STAGNATION_THRESHOLD = TARGET_WEIGHT_INVERSION_STALE_STAGNATION_THRESHOLD
 SOURCE_FRONTIER_STAGNATION_THRESHOLD = max(4, STAGNATION_THRESHOLD // 4)
 SOURCE_FRONTIER_TOP_LIMIT = 12
 NEAR_MISS_INVERSION_CUTOFF_BANDS = (
@@ -1631,16 +1632,26 @@ def select_probability_calibration_champion(
                 source_by_hash[key] = source
     baseline = round_best if isinstance(round_best, dict) else prior_best_summary
     baseline_score = probability_calibration_score(baseline)
+    primary_baseline = prior_best_summary if isinstance(prior_best_summary, dict) else baseline
+    baseline_primary_score = source_frontier_primary_score(primary_baseline)
+    primary_gate_active = stagnation_rounds >= PROBABILITY_PRIMARY_GATE_STAGNATION_THRESHOLD
     metadata = {
         "active": False,
         "threshold": PROBABILITY_CALIBRATION_STAGNATION_THRESHOLD,
+        "primary_gate_active": primary_gate_active,
+        "primary_gate_threshold": PROBABILITY_PRIMARY_GATE_STAGNATION_THRESHOLD,
         "stagnation_rounds": stagnation_rounds,
         "source": "",
         "config_hash": "",
         "full_eval_rank": None,
         "round_best_config_hash": round_best_hash,
         "round_best_score": list(baseline_score),
+        "baseline_primary_score": list(baseline_primary_score),
         "candidate_score": None,
+        "candidate_primary_score": None,
+        "blocked_candidate_score": None,
+        "blocked_candidate_primary_score": None,
+        "blocked_candidate_config_hash": "",
         "rank_vector_changed": None,
         "changed_target_count": None,
         "reason": None,
@@ -1652,7 +1663,8 @@ def select_probability_calibration_champion(
         metadata["reason"] = "no_summaries"
         return None, metadata
 
-    selected: tuple[dict, int, tuple] | None = None
+    selected: tuple[dict, int, tuple, tuple] | None = None
+    blocked: tuple[dict, tuple, tuple] | None = None
     for index, summary in enumerate(summaries[: max(1, top_limit)], start=1):
         key = summary_config_hash(summary) or ""
         if key and key == round_best_hash:
@@ -1660,14 +1672,30 @@ def select_probability_calibration_champion(
         score = probability_calibration_score(summary)
         if score <= baseline_score:
             continue
+        primary_score = source_frontier_primary_score(summary)
+        if primary_gate_active and primary_score <= baseline_primary_score:
+            if blocked is None or score > blocked[1] or (score == blocked[1] and sort_key(summary) > sort_key(blocked[0])):
+                blocked = (summary, score, primary_score)
+            continue
         if selected is None or score > selected[2] or (score == selected[2] and sort_key(summary) > sort_key(selected[0])):
-            selected = (summary, index, score)
+            selected = (summary, index, score, primary_score)
 
     if selected is None:
-        metadata["reason"] = "no_probability_better_candidate"
+        if blocked is not None:
+            blocked_summary, blocked_score, blocked_primary_score = blocked
+            metadata.update(
+                {
+                    "reason": "probability_primary_gate_no_lift",
+                    "blocked_candidate_score": list(blocked_score),
+                    "blocked_candidate_primary_score": list(blocked_primary_score),
+                    "blocked_candidate_config_hash": summary_config_hash(blocked_summary) or "",
+                }
+            )
+        else:
+            metadata["reason"] = "no_probability_better_candidate"
         return None, metadata
 
-    summary, index, score = selected
+    summary, index, score, primary_score = selected
     movement = target_rank_movement(summary, prior_best_summary or round_best)
     key = summary_config_hash(summary) or ""
     metadata.update(
@@ -1677,6 +1705,7 @@ def select_probability_calibration_champion(
             "config_hash": key,
             "full_eval_rank": index,
             "candidate_score": list(score),
+            "candidate_primary_score": list(primary_score),
             "rank_vector_changed": rank_vector_changed(prior_best_summary or round_best, summary),
             "changed_target_count": movement.get("changed_target_count"),
             "reason": "stagnation_probability_calibration_better",
@@ -3597,9 +3626,7 @@ def should_refresh_probability_focus(
         return False
     if not probability_focus_hash or not probability_focus_score:
         return True
-    if champion_hash == probability_focus_hash:
-        return champion_score > probability_focus_score
-    return champion_score >= probability_focus_score
+    return champion_score > probability_focus_score
 
 
 def select_probability_focus_search_base(
@@ -3608,6 +3635,8 @@ def select_probability_focus_search_base(
     focus_summary: dict | None,
     focus_info: dict,
     excluded_rank_signature_hashes: tuple[str, ...] = (),
+    recent_search_base_hashes: tuple[str, ...] = (),
+    min_config_distance: float = 0.0,
 ) -> tuple[FrequencyRankerConfig | None, dict]:
     selected_config = summary_config(focus_summary)
     current_base_hash = config_hash(current_base)
@@ -3620,6 +3649,8 @@ def select_probability_focus_search_base(
             "config_hash": current_base_hash,
             "candidate_config_hash": summary_config_hash(focus_summary) or "",
             "reason": "missing_focus_config" if focus_info.get("active") else "inactive",
+            "min_config_distance": min_config_distance,
+            "recent_search_base_hashes": list(recent_search_base_hashes),
             "config": config_dict(current_base),
         }
     focus_rank_signature_hash = rank_signature_hash(focus_summary)
@@ -3634,11 +3665,49 @@ def select_probability_focus_search_base(
             "rank_signature_hash": focus_rank_signature_hash,
             "excluded_rank_signature_hashes": list(excluded_rank_signature_hashes),
             "rank_signature_cooldown_hit": True,
+            "min_config_distance": min_config_distance,
+            "recent_search_base_hashes": list(recent_search_base_hashes),
             "reason": "rank_signature_cooldown",
             "config": config_dict(current_base),
         }
 
     next_hash = config_hash(selected_config)
+    selected_distance = config_distance(selected_config, current_base)
+    recent_hashes = {hash_value for hash_value in recent_search_base_hashes if hash_value}
+    if next_hash in recent_hashes:
+        return None, {
+            "source": "probability_focus",
+            "active": False,
+            "changed": False,
+            "previous_config_hash": current_base_hash,
+            "config_hash": current_base_hash,
+            "candidate_config_hash": summary_config_hash(focus_summary) or "",
+            "rank_signature_hash": focus_rank_signature_hash,
+            "excluded_rank_signature_hashes": list(excluded_rank_signature_hashes),
+            "rank_signature_cooldown_hit": False,
+            "min_config_distance": min_config_distance,
+            "selected_config_distance": selected_distance,
+            "recent_search_base_hashes": list(recent_search_base_hashes),
+            "reason": "search_base_cooldown",
+            "config": config_dict(current_base),
+        }
+    if min_config_distance > 0 and selected_distance < min_config_distance:
+        return None, {
+            "source": "probability_focus",
+            "active": False,
+            "changed": False,
+            "previous_config_hash": current_base_hash,
+            "config_hash": current_base_hash,
+            "candidate_config_hash": summary_config_hash(focus_summary) or "",
+            "rank_signature_hash": focus_rank_signature_hash,
+            "excluded_rank_signature_hashes": list(excluded_rank_signature_hashes),
+            "rank_signature_cooldown_hit": False,
+            "min_config_distance": min_config_distance,
+            "selected_config_distance": selected_distance,
+            "recent_search_base_hashes": list(recent_search_base_hashes),
+            "reason": "search_base_too_close",
+            "config": config_dict(current_base),
+        }
     metadata = {
         "source": "probability_focus",
         "active": True,
@@ -3651,12 +3720,12 @@ def select_probability_focus_search_base(
         "rank_signature_hash": focus_rank_signature_hash,
         "excluded_rank_signature_hashes": list(excluded_rank_signature_hashes),
         "rank_signature_cooldown_hit": False,
-        "min_config_distance": 0.0,
-        "selected_config_distance": config_distance(selected_config, current_base),
+        "min_config_distance": min_config_distance,
+        "selected_config_distance": selected_distance,
         "search_challenger_config_distance": None,
         "search_challenger_rank_vector_changed": False,
         "search_challenger_rank_vector_available": False,
-        "recent_search_base_hashes": [],
+        "recent_search_base_hashes": list(recent_search_base_hashes),
         "focus_source": str(focus_info.get("source") or ""),
         "focus_reason": str(focus_info.get("reason") or ""),
         "hold_rounds": int(focus_info.get("hold_rounds") or 0),
@@ -4438,6 +4507,7 @@ def run_supervisor(
             "mode": "light_prefilter",
             "description": "每轮先用最近100期每4期取1期做轻量预筛，正式指标仍来自完整精排",
             "latest": None,
+            "completed_latest": None,
         },
         "weight_kdj_advisor": {
             "enabled": enable_weight_kdj_advisor,
@@ -5086,11 +5156,18 @@ def run_supervisor(
             status["near_miss_inversion_advisor"]["latest"] = near_miss_inversion_latest
             leaderboard = merge_leaderboard(leaderboard, summaries[: min(8, len(summaries))])
             if probability_focus_info["active"] and probability_focus_decision_summary is not None:
+                focus_recent_search_base_hashes = (
+                    recent_search_base_hashes(rounds, search_base_config)
+                    if rank_homogeneity["active"]
+                    else ()
+                )
                 next_search_base_config, search_base_info = select_probability_focus_search_base(
                     current_base=search_base_config,
                     focus_summary=probability_focus_decision_summary,
                     focus_info=probability_focus_info,
                     excluded_rank_signature_hashes=rank_signature_cooldown_hashes,
+                    recent_search_base_hashes=focus_recent_search_base_hashes,
+                    min_config_distance=min_search_base_distance if rank_homogeneity["active"] else 0.0,
                 )
                 if next_search_base_config is None:
                     next_search_base_config, search_base_info = select_next_search_base(
@@ -5205,6 +5282,7 @@ def run_supervisor(
             status["updated_at"] = datetime.now().isoformat(timespec="seconds")
             status["best"] = strip_target_results(best_summary) if best_summary else None
             status["search_base"] = search_base_info
+            status["prefilter"]["completed_latest"] = prefilter_info
             with get_connection() as conn:
                 ensure_training_round_results_schema(conn)
                 upsert_training_round_result(conn, run_id=run_id, round_info=round_record, status=status)

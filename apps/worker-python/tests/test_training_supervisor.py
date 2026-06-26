@@ -906,6 +906,94 @@ def test_probability_calibration_champion_guides_stagnated_search():
     assert metadata["reason"] == "stagnation_probability_calibration_better"
 
 
+def test_probability_calibration_champion_requires_primary_lift_after_stale_stagnation():
+    round_best_config = FrequencyRankerConfig(frequency_weight=0.30)
+    probability_config = FrequencyRankerConfig(frequency_weight=0.45, omission_weight=0.10)
+    round_best = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            round_best_config,
+            top_100_hits=1,
+            top_1000_hits=1,
+            top_10000_hits=3,
+            target_ranks=[50, 2_000, 40_000],
+            objective_score=2200.0,
+        ),
+        top_10000_hits=1,
+    )
+    probability_candidate = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            probability_config,
+            top_100_hits=1,
+            top_1000_hits=2,
+            top_10000_hits=3,
+            target_ranks=[50, 500, 40_000],
+            objective_score=2100.0,
+        ),
+        top_10000_hits=1,
+    )
+    for summary in (round_best, probability_candidate):
+        summary["rank_quality"]["top_50000_hits"] = 3
+        summary["probability_calibration"] = probability_calibration_diagnostics(summary, universe_size=1_000_000)
+
+    champion, metadata = select_probability_calibration_champion(
+        summaries=[round_best, probability_candidate],
+        source_configs={"normal": (round_best_config,), "ridge_kdj": (probability_config,)},
+        round_best=round_best,
+        prior_best_summary=round_best,
+        stagnation_rounds=supervisor.PROBABILITY_PRIMARY_GATE_STAGNATION_THRESHOLD,
+    )
+
+    assert probability_calibration_score(probability_candidate) > probability_calibration_score(round_best)
+    assert champion is None
+    assert metadata["primary_gate_active"] is True
+    assert metadata["reason"] == "probability_primary_gate_no_lift"
+    assert metadata["blocked_candidate_config_hash"] == config_hash(probability_config)
+    assert metadata["blocked_candidate_primary_score"] == [0, 0, 1]
+
+
+def test_probability_calibration_champion_allows_primary_lift_after_stale_stagnation():
+    round_best_config = FrequencyRankerConfig(frequency_weight=0.30)
+    probability_config = FrequencyRankerConfig(frequency_weight=0.45, omission_weight=0.10)
+    round_best = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            round_best_config,
+            top_100_hits=1,
+            top_1000_hits=1,
+            top_10000_hits=3,
+            target_ranks=[50, 2_000, 40_000],
+            objective_score=2200.0,
+        ),
+        top_10000_hits=1,
+    )
+    probability_candidate = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            probability_config,
+            top_100_hits=1,
+            top_1000_hits=2,
+            top_10000_hits=3,
+            target_ranks=[50, 500, 40_000],
+            objective_score=2100.0,
+        ),
+        top_10000_hits=2,
+    )
+    for summary in (round_best, probability_candidate):
+        summary["rank_quality"]["top_50000_hits"] = 3
+        summary["probability_calibration"] = probability_calibration_diagnostics(summary, universe_size=1_000_000)
+
+    champion, metadata = select_probability_calibration_champion(
+        summaries=[round_best, probability_candidate],
+        source_configs={"normal": (round_best_config,), "ridge_kdj": (probability_config,)},
+        round_best=round_best,
+        prior_best_summary=round_best,
+        stagnation_rounds=supervisor.PROBABILITY_PRIMARY_GATE_STAGNATION_THRESHOLD,
+    )
+
+    assert champion is probability_candidate
+    assert metadata["primary_gate_active"] is True
+    assert metadata["candidate_primary_score"] == [0, 0, 2]
+    assert metadata["reason"] == "stagnation_probability_calibration_better"
+
+
 def test_probability_focus_search_base_can_hold_probability_candidate():
     current_config = FrequencyRankerConfig(frequency_weight=0.30)
     focus_config = FrequencyRankerConfig(frequency_weight=0.45, omission_weight=0.10)
@@ -968,6 +1056,37 @@ def test_probability_focus_search_base_can_hold_current_base_for_local_search():
     assert metadata["remaining_rounds"] == 3
 
 
+def test_probability_focus_search_base_obeys_recent_base_cooldown():
+    current_config = FrequencyRankerConfig(frequency_weight=0.45, omission_weight=0.10)
+    focus_summary = supervisor_summary_for_config(
+        current_config,
+        top_100_hits=1,
+        top_1000_hits=2,
+        top_10000_hits=3,
+        objective_score=2100.0,
+    )
+
+    next_base, metadata = select_probability_focus_search_base(
+        current_base=current_config,
+        focus_summary=focus_summary,
+        focus_info={
+            "active": True,
+            "source": "probability_focus",
+            "reason": "held_previous_probability_focus",
+            "hold_rounds": 4,
+            "remaining_rounds": 3,
+            "refreshed": False,
+        },
+        recent_search_base_hashes=(config_hash(current_config),),
+        min_config_distance=0.08,
+    )
+
+    assert next_base is None
+    assert metadata["reason"] == "search_base_cooldown"
+    assert metadata["selected_config_distance"] == 0.0
+    assert metadata["recent_search_base_hashes"] == [config_hash(current_config)]
+
+
 def test_probability_focus_same_hash_same_score_does_not_refresh_ttl():
     config = FrequencyRankerConfig(frequency_weight=0.45)
     champion_hash = config_hash(config)
@@ -991,6 +1110,18 @@ def test_probability_focus_same_hash_same_score_does_not_refresh_ttl():
         champion_hash=champion_hash,
         champion_score=(1, 2, 4),
         probability_focus_hash=champion_hash,
+        probability_focus_score=(1, 2, 3),
+    )
+
+
+def test_probability_focus_different_hash_same_score_does_not_refresh_ttl():
+    config = FrequencyRankerConfig(frequency_weight=0.46)
+
+    assert not should_refresh_probability_focus(
+        champion_config=config,
+        champion_hash=config_hash(config),
+        champion_score=(1, 2, 3),
+        probability_focus_hash="older-focus-hash",
         probability_focus_score=(1, 2, 3),
     )
 
