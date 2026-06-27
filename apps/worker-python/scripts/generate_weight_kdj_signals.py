@@ -16,6 +16,7 @@ if str(WORKER_ROOT) not in sys.path:
 
 from dehps.db import get_connection
 from dehps.models.frequency_ranker import FrequencyRankerConfig, history_draw_date, history_issue, history_numbers
+from dehps.optimization.config_io import frequency_ranker_config_values
 from dehps.optimization.walk_forward import (
     CONFIG_WEIGHT_FIELDS,
     RedFiveMatch,
@@ -52,7 +53,7 @@ from dehps.storage.postgres_store import (
     upsert_training_weight_signal,
 )
 from scripts.run_training_supervisor import ALL_FIELDS, PRIMARY_FIELDS
-from scripts.run_training_supervisor import clamp_config, config_dict, summarize_target_ranks
+from scripts.run_training_supervisor import clamp_config, summarize_target_ranks
 
 
 TrainMode = Literal["expanding", "rolling"]
@@ -129,8 +130,11 @@ def load_base_config(path: str | None) -> FrequencyRankerConfig:
     payload = json.loads(Path(path).read_text())
     if not isinstance(payload, dict):
         raise ValueError("--base-config-json must point to a JSON object")
-    values = config_dict(FrequencyRankerConfig())
-    values.update({field: float(value) for field, value in payload.items() if field in values})
+    values = frequency_ranker_config_values(
+        payload,
+        source_label="--base-config-json",
+        reject_unknown=False,
+    )
     return clamp_config(FrequencyRankerConfig(**values))
 
 

@@ -11,6 +11,7 @@ from typing import Iterable, Literal
 
 from dehps.config import ROOT_DIR
 from dehps.models.frequency_ranker import FrequencyRankerConfig, HistoryDraw, history_draw_date, history_issue, history_numbers
+from dehps.optimization.config_io import frequency_ranker_config_values
 from dehps.optimization.walk_forward import (
     TargetRank,
     build_ranked_universe,
@@ -23,7 +24,6 @@ from scripts.run_training_supervisor import (
     ALL_FIELDS,
     attach_frozen_validation,
     clamp_config,
-    config_dict,
     control_experiment_configs,
     frozen_validation_window,
     reward_summary,
@@ -112,11 +112,11 @@ def load_config_json_candidate(path: Path) -> LoadedCandidate:
     raw_config = payload.get("config") or payload.get("candidate_config") or payload.get("best_config") or payload
     if not isinstance(raw_config, dict):
         raise ValueError("config-json payload must be a config object or contain config/candidate_config/best_config")
-    values = config_dict(FrequencyRankerConfig())
-    unknown = sorted(set(raw_config) - set(values))
-    if unknown:
-        raise ValueError(f"unknown config fields: {', '.join(unknown)}")
-    values.update({field: float(raw_config[field]) for field in raw_config if field in values})
+    values = frequency_ranker_config_values(
+        raw_config,
+        source_label="config-json",
+        unknown_error_prefix="unknown config fields",
+    )
     return LoadedCandidate(
         label=str(payload.get("label") or "candidate_config_json"),
         source="config-json",

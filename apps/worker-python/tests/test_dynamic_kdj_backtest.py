@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from dehps.models.frequency_ranker import FrequencyRankerConfig
 from dehps.optimization import dynamic_kdj_backtest as dynamic
 from dehps.optimization.dynamic_kdj_backtest import (
@@ -9,6 +11,7 @@ from dehps.optimization.dynamic_kdj_backtest import (
     dynamic_config_for_target,
     evaluate_dynamic_kdj_backtest,
 )
+from scripts.run_dynamic_kdj_backtest import load_base_config_json
 
 
 def signal(
@@ -218,3 +221,11 @@ def test_acceptance_rejects_when_negative_control_passes():
     assert result["status"] == "FAIL"
     assert result["negative_controls_passed"] is False
     assert "negative_control_passed" in result["failures"]
+
+
+def test_base_config_json_rejects_nonfinite_values(tmp_path):
+    path = tmp_path / "base-config.json"
+    path.write_text('{"config": {"frequency_weight": "Infinity"}}')
+
+    with pytest.raises(ValueError, match="--base-config-json field frequency_weight must be a finite number"):
+        load_base_config_json(path)

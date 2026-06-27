@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from datetime import date, timedelta
 
+import pytest
+
 from dehps.models.frequency_ranker import FrequencyRankerConfig
 from dehps.optimization.control_experiments import (
     CONTROL_LABELS,
@@ -143,3 +145,11 @@ def test_config_json_candidate_path_loads_normalized_config(tmp_path):
         omission_weight=0.21,
     )
     assert parse_random_seeds("1, 2,3") == (1, 2, 3)
+
+
+def test_config_json_candidate_rejects_nonfinite_config_values(tmp_path):
+    config_path = tmp_path / "candidate.json"
+    config_path.write_text('{"config": {"frequency_weight": "NaN"}}')
+
+    with pytest.raises(ValueError, match="config-json field frequency_weight must be a finite number"):
+        load_config_json_candidate(config_path)

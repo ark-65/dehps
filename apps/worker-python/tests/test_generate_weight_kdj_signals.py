@@ -24,6 +24,14 @@ def test_parse_weights_defaults_to_all_fields_and_rejects_unknown():
         parse_weights("frequency_weight,not_a_weight")
 
 
+def test_base_config_json_rejects_nonfinite_weight_value(tmp_path):
+    config_path = tmp_path / "base-config.json"
+    config_path.write_text('{"previous_overlap_weight": "NaN"}')
+
+    with pytest.raises(ValueError, match="--base-config-json field previous_overlap_weight must be a finite number"):
+        kdj_script.load_base_config(str(config_path))
+
+
 def test_probe_configs_deduplicates_clamped_values():
     configs = probe_configs(
         FrequencyRankerConfig(frequency_weight=0.0),

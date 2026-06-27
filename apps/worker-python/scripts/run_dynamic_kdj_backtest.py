@@ -19,6 +19,7 @@ from dehps.optimization.dynamic_kdj_backtest import (
     evaluate_dynamic_kdj_backtest,
     render_dynamic_kdj_report,
 )
+from dehps.optimization.config_io import frequency_ranker_config_values
 from dehps.optimization.regime import select_history
 from dehps.optimization.walk_forward import build_ranked_universe, config_hash, fingerprint_history
 from dehps.storage.postgres_store import (
@@ -27,7 +28,7 @@ from dehps.storage.postgres_store import (
     load_red_combination_universe,
 )
 from scripts.run_control_experiments import latest_prior_base_config, validate_train_mode
-from scripts.run_training_supervisor import clamp_config, config_dict
+from scripts.run_training_supervisor import clamp_config
 
 
 def default_output_dir() -> Path:
@@ -41,11 +42,11 @@ def load_base_config_json(path: Path) -> FrequencyRankerConfig:
     raw_config = payload.get("config") or payload.get("candidate_config") or payload.get("best_config") or payload
     if not isinstance(raw_config, dict):
         raise ValueError("--base-config-json must contain a config object")
-    values = config_dict(FrequencyRankerConfig())
-    unknown = sorted(set(raw_config) - set(values))
-    if unknown:
-        raise ValueError(f"unknown config fields in --base-config-json: {', '.join(unknown)}")
-    values.update({field: float(raw_config[field]) for field in raw_config if field in values})
+    values = frequency_ranker_config_values(
+        raw_config,
+        source_label="--base-config-json",
+        unknown_error_prefix="unknown config fields in --base-config-json",
+    )
     return clamp_config(FrequencyRankerConfig(**values))
 
 

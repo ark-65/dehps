@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from dehps.models.frequency_ranker import FrequencyRankerConfig
 from dehps.optimization.neural_kdj_advisor import (
     ADVISOR_SOURCE,
@@ -12,6 +14,7 @@ from dehps.optimization.neural_kdj_advisor import (
     numpy_neural_kdj_offset_v0,
 )
 from dehps.optimization.control_experiments import load_config_json_candidate
+from scripts.generate_neural_kdj_advisor_candidate import load_base_config as load_neural_base_config
 
 
 def _row(
@@ -183,3 +186,11 @@ def test_neural_kdj_payload_is_loadable_by_control_experiment_config_json_path(t
     assert candidate.config == configs[0]
     assert payload["metadata"]["advisor_source"] == ADVISOR_SOURCE
     assert payload["metadata"]["advisory_only"] is True
+
+
+def test_neural_base_config_rejects_nonfinite_values(tmp_path):
+    path = tmp_path / "base-config.json"
+    path.write_text('{"config": {"sum_tail_weight": "-Infinity"}}')
+
+    with pytest.raises(ValueError, match="--base-config-json field sum_tail_weight must be a finite number"):
+        load_neural_base_config(path)

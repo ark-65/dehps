@@ -14,8 +14,8 @@ if str(WORKER_ROOT) not in sys.path:
 from dehps.config import ROOT_DIR
 from dehps.db import get_connection
 from dehps.models.frequency_ranker import FrequencyRankerConfig
+from dehps.optimization.config_io import frequency_ranker_config_values
 from dehps.optimization.neural_kdj_advisor import (
-    config_dict,
     neural_kdj_advice_to_frequency_ranker_config_candidates,
     neural_kdj_config_json_payload,
     numpy_neural_kdj_offset_v0,
@@ -35,11 +35,11 @@ def load_base_config(path: Path | None) -> FrequencyRankerConfig:
     raw_config = payload.get("config") or payload.get("candidate_config") or payload.get("best_config") or payload
     if not isinstance(raw_config, dict):
         raise ValueError("--base-config-json must contain a config object")
-    values = config_dict(FrequencyRankerConfig())
-    unknown = sorted(set(raw_config) - set(values))
-    if unknown:
-        raise ValueError(f"unknown base config fields: {', '.join(unknown)}")
-    values.update({field: float(raw_config[field]) for field in raw_config})
+    values = frequency_ranker_config_values(
+        raw_config,
+        source_label="--base-config-json",
+        unknown_error_prefix="unknown base config fields",
+    )
     return FrequencyRankerConfig(**values)
 
 
