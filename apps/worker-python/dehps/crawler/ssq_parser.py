@@ -29,12 +29,32 @@ def _parse_date(value: Any) -> date | None:
     text = str(value).strip()
     if not text:
         return None
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"):
+
+    delimited_text = _normalize_delimited_date_text(text)
+    if delimited_text is not None:
         try:
-            return datetime.strptime(text[:10] if fmt != "%Y%m%d" else text, fmt).date()
+            if len(delimited_text) > 10 and not (delimited_text[10].isspace() or delimited_text[10] == "T"):
+                raise ValueError
+            return datetime.fromisoformat(delimited_text).date()
         except ValueError:
-            continue
+            pass
+
+    if len(text) == 8 and text.isdecimal():
+        try:
+            return datetime.strptime(text, "%Y%m%d").date()
+        except ValueError:
+            pass
     raise ValueError(f"invalid draw_date: {value}")
+
+
+def _normalize_delimited_date_text(text: str) -> str | None:
+    if len(text) < 10:
+        return None
+    if text[4] == "-" and text[7] == "-":
+        return text
+    if text[4] == "/" and text[7] == "/":
+        return f"{text[:4]}-{text[5:7]}-{text[8:]}"
+    return None
 
 
 def _parse_ball_number(value: Any, field_name: str) -> int:

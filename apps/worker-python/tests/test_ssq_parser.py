@@ -38,6 +38,32 @@ def test_blank_draw_date_is_treated_as_missing():
     assert draw.draw_date is None
 
 
+@pytest.mark.parametrize("draw_date", ["2026-01-04 21:15:00", "2026/01/04T21:15:00"])
+def test_datetime_like_draw_date_string_is_normalized_to_date(draw_date):
+    draw = validate_ssq_draw(
+        {
+            "issue": "2026001",
+            "draw_date": draw_date,
+            "red_numbers": [1, 2, 3, 4, 5, 6],
+            "blue_number": 8,
+        }
+    )
+
+    assert draw.draw_date == date(2026, 1, 4)
+
+
+def test_draw_date_rejects_extra_suffix_after_date_prefix():
+    with pytest.raises(ValueError, match="invalid draw_date"):
+        validate_ssq_draw(
+            {
+                "issue": "2026001",
+                "draw_date": "2026-01-04junk",
+                "red_numbers": [1, 2, 3, 4, 5, 6],
+                "blue_number": 8,
+            }
+        )
+
+
 def test_duplicate_red_numbers_error():
     with pytest.raises(ValueError):
         validate_ssq_draw({"issue": "x", "red_numbers": [1, 1, 2, 3, 4, 5], "blue_number": 8})
