@@ -835,6 +835,26 @@ def target_hit_issues(summary: dict | None, *, cutoff: int) -> set[str]:
     return issues
 
 
+def target_hit_issue_rows(summary: dict | None, *, cutoff: int) -> list[dict]:
+    if not isinstance(summary, dict):
+        return []
+    target_results = summary.get("target_results")
+    if not isinstance(target_results, list):
+        return []
+    rows: list[dict] = []
+    for target in target_results:
+        if not isinstance(target, dict):
+            continue
+        issue = str(target.get("issue") or "")
+        rank = target.get("rank")
+        if not issue or not isinstance(rank, int | float):
+            continue
+        rank_value = int(rank)
+        if rank_value <= cutoff:
+            rows.append({"issue": issue, "rank": rank_value})
+    return rows
+
+
 def control_summary_map(
     summaries: list[dict],
     controls: tuple[tuple[str, FrequencyRankerConfig], ...],
@@ -1299,6 +1319,123 @@ def _source_frontier_summary_metrics(summary: dict | None) -> dict:
     }
 
 
+def eval_slice_overfit_guardrail(
+    *,
+    summaries: list[dict],
+    source_configs: dict[str, tuple[FrequencyRankerConfig, ...]],
+    round_best: dict | None,
+    prior_best_summary: dict | None,
+    rank_homogeneity: dict,
+    promotion_gate: dict,
+    stagnation_rounds: int,
+    top_100_threshold: int = 3,
+    top_limit: int = 8,
+) -> dict:
+    source_by_hash = _source_by_config_hash(source_configs)
+    round_best_hash = summary_config_hash(round_best) or ""
+    round_best_eval_primary = (
+        _metric_int(round_best or {}, "top_100_hits"),
+        _metric_int(round_best or {}, "top_1000_hits"),
+        _metric_int(round_best or {}, "top_10000_hits"),
+    )
+    round_best_frozen_primary = source_frontier_primary_score(round_best)
+    incumbent_frozen_primary = source_frontier_primary_score(prior_best_summary)
+    promotion_passed = bool(promotion_gate.get("passed")) if isinstance(promotion_gate, dict) else False
+    primary_hit_passed = bool(promotion_gate.get("primary_hit_passed")) if isinstance(promotion_gate, dict) else False
+    rank_homogeneity_active = bool(rank_homogeneity.get("active"))
+    active = bool(
+        rank_homogeneity_active
+        and stagnation_rounds >= STAGNATION_THRESHOLD
+        and not promotion_passed
+        and not primary_hit_passed
+        and round_best_eval_primary[0] >= top_100_threshold
+        and round_best_frozen_primary == (0, 0, 0)
+    )
+    if active:
+        reason = "eval_slice_overfit_no_frozen_primary_lift"
+    elif promotion_passed:
+        reason = "promotion_passed"
+    elif primary_hit_passed:
+        reason = "primary_hit_passed"
+    elif round_best_eval_primary[0] < top_100_threshold:
+        reason = "below_eval_top100_threshold"
+    elif round_best_frozen_primary != (0, 0, 0):
+        reason = "frozen_primary_present"
+    elif stagnation_rounds < STAGNATION_THRESHOLD:
+        reason = "below_stagnation_threshold"
+    elif not rank_homogeneity_active:
+        reason = "rank_homogeneity_inactive"
+    else:
+        reason = "inactive"
+
+    suspicious_rows: list[dict] = []
+    validation_issues = set()
+    validation = round_best.get("frozen_validation") if isinstance(round_best, dict) else None
+    if isinstance(validation, dict) and isinstance(validation.get("issues"), list):
+        validation_issues = {str(issue) for issue in validation.get("issues") if issue}
+    for index, summary in enumerate(summaries[: max(1, top_limit)], start=1):
+        summary_eval_primary = (
+            _metric_int(summary, "top_100_hits"),
+            _metric_int(summary, "top_1000_hits"),
+            _metric_int(summary, "top_10000_hits"),
+        )
+        summary_frozen_primary = source_frontier_primary_score(summary)
+        if summary_eval_primary[0] < top_100_threshold or summary_frozen_primary != (0, 0, 0):
+            continue
+        summary_hash = summary_config_hash(summary) or ""
+        hit_rows = target_hit_issue_rows(summary, cutoff=100)
+        suspicious_rows.append(
+            {
+                "full_eval_rank": index,
+                "config_hash": summary_hash,
+                "source": source_by_hash.get(summary_hash, "unknown"),
+                "rank_signature_hash": rank_signature_hash(summary),
+                "eval_primary_score": list(summary_eval_primary),
+                "frozen_primary_score": list(summary_frozen_primary),
+                "top_100_hit_issues": [row["issue"] for row in hit_rows],
+                "top_100_hit_ranks": [row["rank"] for row in hit_rows],
+                "non_frozen_top_100_hit_issues": [
+                    row["issue"] for row in hit_rows if row["issue"] not in validation_issues
+                ],
+            }
+        )
+
+    issue_counts: Counter[str] = Counter()
+    source_counts: Counter[str] = Counter()
+    signature_counts: Counter[str] = Counter()
+    for row in suspicious_rows:
+        source_counts[str(row.get("source") or "unknown")] += 1
+        signature_counts[str(row.get("rank_signature_hash") or "")] += 1
+        for issue in row.get("top_100_hit_issues") or []:
+            issue_counts[str(issue)] += 1
+
+    return {
+        "active": active,
+        "reason": reason,
+        "threshold": STAGNATION_THRESHOLD,
+        "stagnation_rounds": stagnation_rounds,
+        "top_100_threshold": top_100_threshold,
+        "rank_homogeneity_active": rank_homogeneity_active,
+        "rank_homogeneity_unique_signature_count": rank_homogeneity.get("unique_signature_count"),
+        "promotion_passed": promotion_passed,
+        "primary_hit_passed": primary_hit_passed,
+        "round_best_config_hash": round_best_hash,
+        "round_best_source": source_by_hash.get(round_best_hash, "unknown") if round_best_hash else "",
+        "round_best_rank_signature_hash": rank_signature_hash(round_best),
+        "round_best_eval_primary_score": list(round_best_eval_primary),
+        "round_best_frozen_primary_score": list(round_best_frozen_primary),
+        "incumbent_frozen_primary_score": list(incumbent_frozen_primary),
+        "round_best_top_100_hit_issues": [row["issue"] for row in target_hit_issue_rows(round_best, cutoff=100)],
+        "suspicious_candidate_count": len(suspicious_rows),
+        "suspicious_candidates": suspicious_rows,
+        "issue_counts": dict(sorted(issue_counts.items())),
+        "source_counts": dict(sorted(source_counts.items())),
+        "rank_signature_counts": dict(sorted(signature_counts.items())),
+        "force_primary_gate": active,
+        "allow_unpromoted_round_best": not active,
+    }
+
+
 def source_frontier_diagnostics(
     *,
     summaries: list[dict],
@@ -1622,6 +1759,7 @@ def select_probability_calibration_champion(
     prior_best_summary: dict | None,
     stagnation_rounds: int,
     top_limit: int = 8,
+    force_primary_gate: bool = False,
 ) -> tuple[dict | None, dict]:
     round_best_hash = summary_config_hash(round_best) or ""
     source_by_hash: dict[str, str] = {}
@@ -1634,11 +1772,12 @@ def select_probability_calibration_champion(
     baseline_score = probability_calibration_score(baseline)
     primary_baseline = prior_best_summary if isinstance(prior_best_summary, dict) else baseline
     baseline_primary_score = source_frontier_primary_score(primary_baseline)
-    primary_gate_active = stagnation_rounds >= PROBABILITY_PRIMARY_GATE_STAGNATION_THRESHOLD
+    primary_gate_active = force_primary_gate or stagnation_rounds >= PROBABILITY_PRIMARY_GATE_STAGNATION_THRESHOLD
     metadata = {
         "active": False,
         "threshold": PROBABILITY_CALIBRATION_STAGNATION_THRESHOLD,
         "primary_gate_active": primary_gate_active,
+        "primary_gate_forced": force_primary_gate,
         "primary_gate_threshold": PROBABILITY_PRIMARY_GATE_STAGNATION_THRESHOLD,
         "stagnation_rounds": stagnation_rounds,
         "source": "",
@@ -3516,6 +3655,8 @@ def select_next_search_base(
     recent_search_base_hashes: tuple[str, ...] = (),
     excluded_rank_signature_hashes: tuple[str, ...] = (),
     min_config_distance: float = 0.0,
+    allow_unpromoted_round_best: bool = True,
+    round_best_skip_reason: str = "",
 ) -> tuple[FrequencyRankerConfig, dict]:
     current_base_hash = config_hash(current_base)
     current_base_summary = None
@@ -3523,8 +3664,24 @@ def select_next_search_base(
         if summary_config_hash(summary) == current_base_hash:
             current_base_summary = summary
             break
+    round_best_config = summary_config(round_best)
+    round_best_distance = (
+        config_distance(round_best_config, current_base)
+        if round_best_config is not None
+        else 0.0
+    )
+    round_best_hash = summary_config_hash(round_best) or ""
+    round_best_signature_hash = rank_signature_hash(round_best)
+    round_best_search_allowed = bool(improved or allow_unpromoted_round_best)
+    round_best_search_blocked = bool(
+        round_best is not None
+        and not improved
+        and not allow_unpromoted_round_best
+    )
+    blocked_round_best_hashes = {round_best_hash} if round_best_search_blocked and round_best_hash else set()
     excluded_hashes = {hash_value for hash_value in recent_search_base_hashes if hash_value}
     excluded_hashes.add(current_base_hash)
+    excluded_hashes.update(blocked_round_best_hashes)
     search_challenger = best_challenger_summary(
         summaries,
         current_base_hash,
@@ -3540,23 +3697,19 @@ def select_next_search_base(
             summaries,
             current_base_hash,
             incumbent_summary=current_base_summary,
+            excluded_config_hashes=blocked_round_best_hashes,
             excluded_rank_signature_hashes=set(excluded_rank_signature_hashes),
         )
-    round_best_config = summary_config(round_best)
-    round_best_distance = (
-        config_distance(round_best_config, current_base)
-        if round_best_config is not None
-        else 0.0
+    round_best_eligible = (
+        round_best is not None
+        and round_best_hash not in excluded_hashes
+        and round_best_signature_hash not in set(excluded_rank_signature_hashes)
+        and round_best_distance >= min_config_distance
     )
     if improved:
         source = "new_best"
         selected_summary = round_best
-    elif (
-        round_best is not None
-        and summary_config_hash(round_best) not in excluded_hashes
-        and rank_signature_hash(round_best) not in set(excluded_rank_signature_hashes)
-        and round_best_distance >= min_config_distance
-    ):
+    elif round_best_eligible and round_best_search_allowed:
         source = "round_best"
         selected_summary = round_best
     elif search_challenger is not None:
@@ -3565,7 +3718,7 @@ def select_next_search_base(
     elif fallback_search_challenger is not None:
         source = "search_challenger_revisit"
         selected_summary = fallback_search_challenger
-    elif round_best is not None:
+    elif round_best is not None and round_best_search_allowed:
         source = "current_base_replay"
         selected_summary = round_best
     else:
@@ -3583,10 +3736,11 @@ def select_next_search_base(
         "previous_config_hash": previous_hash,
         "config_hash": next_hash,
         "candidate_config_hash": summary_config_hash(selected_summary) or "",
+        "round_best_config_hash": round_best_hash,
         "search_challenger_config_hash": summary_config_hash(search_challenger) or "",
         "fallback_search_challenger_config_hash": summary_config_hash(fallback_search_challenger) or "",
         "rank_signature_hash": rank_signature_hash(selected_summary),
-        "round_best_rank_signature_hash": rank_signature_hash(round_best),
+        "round_best_rank_signature_hash": round_best_signature_hash,
         "search_challenger_rank_signature_hash": rank_signature_hash(search_challenger),
         "excluded_rank_signature_hashes": list(excluded_rank_signature_hashes),
         "rank_signature_cooldown_hit": bool(
@@ -3594,6 +3748,10 @@ def select_next_search_base(
             and rank_signature_hash(selected_summary) in set(excluded_rank_signature_hashes)
             and not improved
         ),
+        "round_best_search_allowed": round_best_search_allowed,
+        "round_best_search_blocked": round_best_search_blocked,
+        "round_best_skip_reason": round_best_skip_reason if round_best_search_blocked else "",
+        "round_best_config_distance": round_best_distance if round_best_config is not None else None,
         "min_config_distance": min_config_distance,
         "selected_config_distance": selected_distance,
         "search_challenger_config_distance": config_distance(search_challenger_config, current_base)
@@ -3612,6 +3770,54 @@ def select_next_search_base(
         **_target_weight_anchor_metrics(selected_summary),
     }
     return next_base, metadata
+
+
+def stale_round_best_search_base_gate(
+    *,
+    stagnation_rounds: int,
+    rank_homogeneity: dict,
+    promotion_gate: dict,
+    eval_slice_overfit: dict | None = None,
+) -> dict:
+    threshold = PROBABILITY_PRIMARY_GATE_STAGNATION_THRESHOLD
+    rank_homogeneity_active = bool(rank_homogeneity.get("active"))
+    promotion_passed = bool(promotion_gate.get("passed")) if isinstance(promotion_gate, dict) else False
+    primary_hit_passed = bool(promotion_gate.get("primary_hit_passed")) if isinstance(promotion_gate, dict) else False
+    eval_slice_overfit_active = bool(eval_slice_overfit.get("active")) if isinstance(eval_slice_overfit, dict) else False
+    active = bool(
+        eval_slice_overfit_active
+        or (
+            rank_homogeneity_active
+            and stagnation_rounds >= threshold
+            and not promotion_passed
+            and not primary_hit_passed
+        )
+    )
+    if eval_slice_overfit_active:
+        reason = str(eval_slice_overfit.get("reason") or "eval_slice_overfit_no_frozen_primary_lift")
+    elif active:
+        reason = "stale_unpromoted_round_best_primary_gate"
+    elif promotion_passed:
+        reason = "promotion_passed"
+    elif primary_hit_passed:
+        reason = "primary_hit_passed"
+    elif stagnation_rounds < threshold:
+        reason = "below_threshold"
+    elif not rank_homogeneity_active:
+        reason = "rank_homogeneity_inactive"
+    else:
+        reason = "inactive"
+    return {
+        "active": active,
+        "reason": reason,
+        "threshold": threshold,
+        "stagnation_rounds": stagnation_rounds,
+        "rank_homogeneity_active": rank_homogeneity_active,
+        "promotion_passed": promotion_passed,
+        "primary_hit_passed": primary_hit_passed,
+        "eval_slice_overfit_active": eval_slice_overfit_active,
+        "allow_unpromoted_round_best": not active,
+    }
 
 
 def should_refresh_probability_focus(
@@ -4930,6 +5136,21 @@ def run_supervisor(
             raw_improved = prior_best_summary is None or sort_key(round_best) > sort_key(prior_best_summary)
             promotion_gate = frozen_validation_promotion_gate(round_best, prior_best_summary)
             improved = bool(raw_improved and promotion_gate["passed"])
+            eval_slice_overfit = eval_slice_overfit_guardrail(
+                summaries=summaries,
+                source_configs=source_configs,
+                round_best=round_best,
+                prior_best_summary=prior_best_summary,
+                rank_homogeneity=rank_homogeneity,
+                promotion_gate=promotion_gate,
+                stagnation_rounds=stagnation_rounds,
+            )
+            round_best_search_gate = stale_round_best_search_base_gate(
+                stagnation_rounds=stagnation_rounds,
+                rank_homogeneity=rank_homogeneity,
+                promotion_gate=promotion_gate,
+                eval_slice_overfit=eval_slice_overfit,
+            )
             exploration_champion, exploration_champion_info = select_stagnation_exploration_champion(
                 summaries=summaries,
                 source_configs=source_configs,
@@ -4949,6 +5170,7 @@ def run_supervisor(
                 round_best=round_best,
                 prior_best_summary=prior_best_summary,
                 stagnation_rounds=stagnation_rounds,
+                force_primary_gate=bool(eval_slice_overfit["force_primary_gate"]),
             )
             source_frontier_champion, source_frontier_champion_info = select_source_frontier_champion(
                 summaries=summaries,
@@ -5080,6 +5302,8 @@ def run_supervisor(
             prefilter_info["frozen_validation_window"] = validation_window
             prefilter_info["control_experiments"] = control_summaries
             prefilter_info["promotion_gate"] = promotion_gate
+            prefilter_info["eval_slice_overfit_guardrail"] = eval_slice_overfit
+            prefilter_info["stale_round_best_search_base_gate"] = round_best_search_gate
             prefilter_info["raw_improved"] = raw_improved
             prefilter_info["round_best_rank_movement_vs_incumbent"] = target_rank_movement(round_best, prior_best_summary)
             prefilter_info["round_best_rank_signature_hash"] = rank_signature_hash(round_best)
@@ -5178,6 +5402,10 @@ def run_supervisor(
                         recent_search_base_hashes=recent_search_base_hashes(rounds, search_base_config),
                         excluded_rank_signature_hashes=rank_signature_cooldown_hashes,
                         min_config_distance=min_search_base_distance,
+                        allow_unpromoted_round_best=bool(
+                            round_best_search_gate["allow_unpromoted_round_best"]
+                        ),
+                        round_best_skip_reason=str(round_best_search_gate["reason"]),
                     )
             else:
                 next_search_base_config, search_base_info = select_next_search_base(
@@ -5188,6 +5416,8 @@ def run_supervisor(
                     recent_search_base_hashes=recent_search_base_hashes(rounds, search_base_config),
                     excluded_rank_signature_hashes=rank_signature_cooldown_hashes,
                     min_config_distance=min_search_base_distance,
+                    allow_unpromoted_round_best=bool(round_best_search_gate["allow_unpromoted_round_best"]),
+                    round_best_skip_reason=str(round_best_search_gate["reason"]),
                 )
             search_base_info["phase"] = phase
             search_base_info["phase_stage"] = phase_stage
@@ -5204,6 +5434,14 @@ def run_supervisor(
                     f"round={round_index + 1} rank_homogeneity_restart="
                     f"unique={rank_homogeneity['unique_signature_count']}/{rank_homogeneity['observed']} "
                     f"budget={stagnation_restart_budget}"
+                )
+            if eval_slice_overfit["active"]:
+                log(
+                    f"round={round_index + 1} eval_slice_overfit_guardrail="
+                    f"{eval_slice_overfit['reason']} "
+                    f"eval_primary={eval_slice_overfit['round_best_eval_primary_score']} "
+                    f"frozen_primary={eval_slice_overfit['round_best_frozen_primary_score']} "
+                    f"suspicious={eval_slice_overfit['suspicious_candidate_count']}"
                 )
             if exploration_champion_info["active"]:
                 log(

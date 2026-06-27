@@ -326,6 +326,138 @@ def test_next_search_base_prefers_distant_candidate_during_broad_phase():
     assert metadata["search_challenger_config_distance"] >= 0.08
 
 
+def test_next_search_base_skips_unpromoted_round_best_when_gate_closed():
+    current_config = FrequencyRankerConfig()
+    round_best_config = FrequencyRankerConfig(frequency_weight=0.40)
+    challenger_config = FrequencyRankerConfig(frequency_weight=0.60)
+    current = supervisor_summary_for_config(current_config, objective_score=2000.0)
+    round_best = supervisor_summary_for_config(
+        round_best_config,
+        target_ranks=[100, 900, 50_000],
+        objective_score=2300.0,
+    )
+    challenger = supervisor_summary_for_config(
+        challenger_config,
+        target_ranks=[90, 850, 49_000],
+        objective_score=2100.0,
+    )
+
+    next_base, metadata = select_next_search_base(
+        current_base=current_config,
+        summaries=[current, round_best, challenger],
+        round_best=round_best,
+        improved=False,
+        allow_unpromoted_round_best=False,
+        round_best_skip_reason="stale_unpromoted_round_best_primary_gate",
+    )
+
+    assert config_hash(next_base) == config_hash(challenger_config)
+    assert metadata["source"] == "search_challenger"
+    assert metadata["round_best_search_allowed"] is False
+    assert metadata["round_best_search_blocked"] is True
+    assert metadata["round_best_skip_reason"] == "stale_unpromoted_round_best_primary_gate"
+    assert metadata["round_best_config_hash"] == config_hash(round_best_config)
+
+
+def test_next_search_base_keeps_unpromoted_round_best_when_gate_open():
+    current_config = FrequencyRankerConfig()
+    round_best_config = FrequencyRankerConfig(frequency_weight=0.40)
+    challenger_config = FrequencyRankerConfig(frequency_weight=0.60)
+    current = supervisor_summary_for_config(current_config, objective_score=2000.0)
+    round_best = supervisor_summary_for_config(
+        round_best_config,
+        target_ranks=[100, 900, 50_000],
+        objective_score=2300.0,
+    )
+    challenger = supervisor_summary_for_config(
+        challenger_config,
+        target_ranks=[90, 850, 49_000],
+        objective_score=2100.0,
+    )
+
+    next_base, metadata = select_next_search_base(
+        current_base=current_config,
+        summaries=[current, round_best, challenger],
+        round_best=round_best,
+        improved=False,
+        allow_unpromoted_round_best=True,
+    )
+
+    assert config_hash(next_base) == config_hash(round_best_config)
+    assert metadata["source"] == "round_best"
+    assert metadata["round_best_search_allowed"] is True
+    assert metadata["round_best_search_blocked"] is False
+    assert metadata["round_best_skip_reason"] == ""
+
+
+def test_stale_round_best_search_base_gate_blocks_collapsed_unpromoted_round_best():
+    gate = supervisor.stale_round_best_search_base_gate(
+        stagnation_rounds=supervisor.PROBABILITY_PRIMARY_GATE_STAGNATION_THRESHOLD,
+        rank_homogeneity={"active": True},
+        promotion_gate={"passed": False, "primary_hit_passed": False},
+    )
+
+    assert gate["active"] is True
+    assert gate["allow_unpromoted_round_best"] is False
+    assert gate["reason"] == "stale_unpromoted_round_best_primary_gate"
+
+
+def test_eval_slice_overfit_guardrail_blocks_unpromoted_round_best():
+    round_best_config = FrequencyRankerConfig(frequency_weight=0.40)
+    challenger_config = FrequencyRankerConfig(frequency_weight=0.60)
+    round_best = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            round_best_config,
+            top_100_hits=3,
+            top_1000_hits=3,
+            top_10000_hits=3,
+            target_ranks=[17, 55, 89, 50_000],
+            objective_score=2300.0,
+        ),
+        top_100_hits=0,
+        top_1000_hits=0,
+        top_10000_hits=0,
+    )
+    challenger = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            challenger_config,
+            top_100_hits=3,
+            top_1000_hits=3,
+            top_10000_hits=3,
+            target_ranks=[19, 60, 95, 40_000],
+            objective_score=2200.0,
+        ),
+        top_100_hits=0,
+        top_1000_hits=0,
+        top_10000_hits=0,
+    )
+
+    overfit = supervisor.eval_slice_overfit_guardrail(
+        summaries=[round_best, challenger],
+        source_configs={"normal": (round_best_config,), "ridge_kdj": (challenger_config,)},
+        round_best=round_best,
+        prior_best_summary=round_best,
+        rank_homogeneity={"active": True, "unique_signature_count": 1},
+        promotion_gate={"passed": False, "primary_hit_passed": False},
+        stagnation_rounds=supervisor.STAGNATION_THRESHOLD,
+    )
+    gate = supervisor.stale_round_best_search_base_gate(
+        stagnation_rounds=supervisor.STAGNATION_THRESHOLD,
+        rank_homogeneity={"active": True},
+        promotion_gate={"passed": False, "primary_hit_passed": False},
+        eval_slice_overfit=overfit,
+    )
+
+    assert overfit["active"] is True
+    assert overfit["reason"] == "eval_slice_overfit_no_frozen_primary_lift"
+    assert overfit["round_best_eval_primary_score"] == [3, 3, 3]
+    assert overfit["round_best_frozen_primary_score"] == [0, 0, 0]
+    assert overfit["round_best_top_100_hit_issues"] == ["2026001", "2026002", "2026003"]
+    assert overfit["source_counts"] == {"normal": 1, "ridge_kdj": 1}
+    assert gate["allow_unpromoted_round_best"] is False
+    assert gate["reason"] == "eval_slice_overfit_no_frozen_primary_lift"
+
+
 def test_target_weight_inversion_anchor_keeps_new_best_when_improved():
     incumbent_config = FrequencyRankerConfig()
     improved_config = FrequencyRankerConfig(frequency_weight=0.50, omission_weight=0.08)
@@ -949,6 +1081,57 @@ def test_probability_calibration_champion_requires_primary_lift_after_stale_stag
     assert metadata["reason"] == "probability_primary_gate_no_lift"
     assert metadata["blocked_candidate_config_hash"] == config_hash(probability_config)
     assert metadata["blocked_candidate_primary_score"] == [0, 0, 1]
+
+
+def test_probability_calibration_champion_primary_gate_can_be_forced_by_overfit_guardrail():
+    round_best_config = FrequencyRankerConfig(frequency_weight=0.30)
+    probability_config = FrequencyRankerConfig(frequency_weight=0.45, omission_weight=0.10)
+    round_best = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            round_best_config,
+            top_100_hits=3,
+            top_1000_hits=3,
+            top_10000_hits=3,
+            target_ranks=[50, 90, 99, 40_000],
+            objective_score=2200.0,
+        ),
+        top_100_hits=0,
+        top_1000_hits=0,
+        top_10000_hits=0,
+    )
+    probability_candidate = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            probability_config,
+            top_100_hits=3,
+            top_1000_hits=3,
+            top_10000_hits=4,
+            target_ranks=[50, 90, 99, 5_000],
+            objective_score=2100.0,
+        ),
+        top_100_hits=0,
+        top_1000_hits=0,
+        top_10000_hits=0,
+    )
+    for summary in (round_best, probability_candidate):
+        summary["rank_quality"]["top_50000_hits"] = 4
+        summary["probability_calibration"] = probability_calibration_diagnostics(summary, universe_size=1_000_000)
+
+    champion, metadata = select_probability_calibration_champion(
+        summaries=[round_best, probability_candidate],
+        source_configs={"normal": (round_best_config,), "ridge_kdj": (probability_config,)},
+        round_best=round_best,
+        prior_best_summary=round_best,
+        stagnation_rounds=supervisor.STAGNATION_THRESHOLD,
+        force_primary_gate=True,
+    )
+
+    assert probability_calibration_score(probability_candidate) > probability_calibration_score(round_best)
+    assert champion is None
+    assert metadata["primary_gate_active"] is True
+    assert metadata["primary_gate_forced"] is True
+    assert metadata["reason"] == "probability_primary_gate_no_lift"
+    assert metadata["blocked_candidate_config_hash"] == config_hash(probability_config)
+    assert metadata["blocked_candidate_primary_score"] == [0, 0, 0]
 
 
 def test_probability_calibration_champion_allows_primary_lift_after_stale_stagnation():
