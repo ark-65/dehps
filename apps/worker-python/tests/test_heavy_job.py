@@ -171,6 +171,21 @@ def test_unreadable_metadata_is_reported_inactive(tmp_path):
     assert str(metadata_path) in owner_status.error
 
 
+def test_non_object_metadata_is_reported_inactive(tmp_path):
+    lock_path = tmp_path / "dehps-heavy-job.lock"
+    metadata_path = metadata_path_for(lock_path)
+    metadata_path.write_text("[]", encoding="utf-8")
+
+    owner_status = describe_heavy_job_owner(lock_path=lock_path)
+
+    assert owner_status.metadata is None
+    assert owner_status.active is False
+    assert owner_status.pid_active is None
+    assert owner_status.reason == "metadata_unreadable"
+    assert owner_status.error is not None
+    assert "expected object root" in owner_status.error
+
+
 def test_completed_status_metadata_is_reported_inactive_even_with_live_pid(tmp_path):
     lock_path = tmp_path / "dehps-heavy-job.lock"
     metadata_path = metadata_path_for(lock_path)

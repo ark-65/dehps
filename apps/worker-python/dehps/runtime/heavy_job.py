@@ -108,7 +108,10 @@ def apply_cpu_thread_env_defaults(
 def read_owner_metadata(metadata_path: str | os.PathLike[str] | None = None) -> dict[str, Any] | None:
     path = Path(metadata_path) if metadata_path is not None else DEFAULT_METADATA_PATH
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        metadata = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(metadata, dict):
+            raise HeavyJobLockError(f"Invalid heavy-job metadata JSON at {path}: expected object root")
+        return metadata
     except FileNotFoundError:
         return None
     except json.JSONDecodeError as exc:

@@ -520,7 +520,11 @@ export class ResearchService {
     const lockPath = path.join(logDir, 'dehps-heavy-job.lock');
     const metadataPath = `${lockPath}.json`;
     try {
-      const payload = JSON.parse(await readFile(metadataPath, 'utf8')) as Record<string, unknown>;
+      const parsed: unknown = JSON.parse(await readFile(metadataPath, 'utf8'));
+      const payload = this.objectValue(parsed);
+      if (!payload) {
+        throw new Error(`Invalid heavy-job metadata JSON at ${metadataPath}: expected object root`);
+      }
       const pid = this.numberValue(payload.pid);
       const pidActive = pid === null ? null : this.isProcessAlive(pid);
       const status = this.stringValue(payload.status);
