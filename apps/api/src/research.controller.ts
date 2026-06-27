@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, Inject, Param, Post, Query, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, Param, Post, Query, Req } from '@nestjs/common';
 import { ResearchService } from './research.service';
 import { TrainingStatusHub } from './training-status.hub';
 
@@ -68,7 +68,7 @@ export class ResearchController {
 
   @Get('training-rounds/:runId/:roundIndex')
   trainingRoundDetail(@Param('runId') runId: string, @Param('roundIndex') roundIndex: string) {
-    return this.researchService.getTrainingRoundDetail(runId, this.integerParam(roundIndex));
+    return this.researchService.getTrainingRoundDetail(runId, this.positiveIntegerParam(roundIndex, 'roundIndex'));
   }
 
   @Get('training-weight-signals')
@@ -109,8 +109,12 @@ export class ResearchController {
     return trimmed ? this.decimalInteger(trimmed) : undefined;
   }
 
-  private integerParam(value: string): number {
-    return this.decimalInteger(value.trim()) ?? 0;
+  private positiveIntegerParam(value: string, fieldName: string): number {
+    const parsed = this.decimalInteger(value.trim());
+    if (parsed === undefined || parsed < 1) {
+      throw new BadRequestException(`${fieldName} must be a positive decimal integer`);
+    }
+    return parsed;
   }
 
   private decimalInteger(value: string): number | undefined {

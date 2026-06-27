@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { BadRequestException } from '@nestjs/common';
 import { ResearchController } from '../src/research.controller';
 import { ResearchService } from '../src/research.service';
 import { TrainingStatusHub } from '../src/training-status.hub';
@@ -71,7 +72,6 @@ test('controller numeric params reject non-decimal integer forms', () => {
   controller.trainingNextCandidates('2.5');
   controller.trainingWeightSignals(undefined, undefined, '0010');
   controller.trainingRoundDetail('run-100', '002');
-  controller.trainingRoundDetail('run-100', '2.9');
 
   assert.deepEqual(calls, [
     { method: 'dashboard', value: undefined },
@@ -79,8 +79,8 @@ test('controller numeric params reject non-decimal integer forms', () => {
     { method: 'getTrainingNextCandidates', value: undefined },
     { method: 'listTrainingWeightSignals', value: 10 },
   ]);
-  assert.deepEqual(roundCalls[0], { runId: 'run-100', roundIndex: 2 });
-  assert.deepEqual(roundCalls[1], { runId: 'run-100', roundIndex: 0 });
+  assert.deepEqual(roundCalls, [{ runId: 'run-100', roundIndex: 2 }]);
+  assert.throws(() => controller.trainingRoundDetail('run-100', '2.9'), BadRequestException);
 });
 
 test('controller numeric params reject unsafe integers', () => {
@@ -104,15 +104,24 @@ test('controller numeric params reject unsafe integers', () => {
 
   controller.dashboard('9007199254740992');
   controller.trainingStatus('-9007199254740992');
-  controller.trainingRoundDetail('run-100', '9007199254740992');
   controller.trainingRoundDetail('run-100', '9007199254740991');
 
   assert.deepEqual(calls, [
     { method: 'dashboard', value: undefined },
     { method: 'trainingStatus', value: undefined },
   ]);
-  assert.deepEqual(roundCalls, [
-    { runId: 'run-100', roundIndex: 0 },
-    { runId: 'run-100', roundIndex: 9007199254740991 },
-  ]);
+  assert.deepEqual(roundCalls, [{ runId: 'run-100', roundIndex: 9007199254740991 }]);
+  assert.throws(() => controller.trainingRoundDetail('run-100', '9007199254740992'), BadRequestException);
+});
+
+test('controller round index path param rejects non-positive integers', () => {
+  const service = {
+    getTrainingRoundDetail() {
+      throw new Error('service should not receive invalid round indexes');
+    },
+  } as unknown as ResearchService;
+  const controller = new ResearchController(service, new TrainingStatusHub());
+
+  assert.throws(() => controller.trainingRoundDetail('run-100', '0'), BadRequestException);
+  assert.throws(() => controller.trainingRoundDetail('run-100', '-1'), BadRequestException);
 });
