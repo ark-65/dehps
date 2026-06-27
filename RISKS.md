@@ -28,7 +28,7 @@
 - 严重度: 中高
 - 表现: 后续 agent 在未检查状态时格式化、重置或夹带提交。
 - 影响: 丢失用户或自动化正在进行的训练/回测改动。
-- 缓解: 每轮先跑 `git status --short`；当前已知 dynamic KDJ、target inversion、training supervisor 相关文件有未提交改动，非相关任务不得触碰。
+- 缓解: 每轮先跑 `git status --short` 并以实时输出为准；不要沿用过期 dirty-file 列表。若发现未提交改动，非相关任务不得触碰，提交前只暂存本轮文件。
 
 ## R5 - 隐藏样例数据污染真实历史
 

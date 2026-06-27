@@ -21,9 +21,9 @@
 
 ### P0 - 保护当前工作区
 
-- 检查并保留已有未提交改动。
-- 当前已观察到 `apps/worker-python/dehps/optimization/dynamic_kdj_backtest.py`、`apps/worker-python/scripts/run_dynamic_kdj_backtest.py`、`apps/worker-python/tests/test_dynamic_kdj_backtest.py` 存在未提交修改。
-- 后续 agent 不得重置、覆盖或顺手格式化这些文件，除非任务明确要求处理该主题。
+- 每轮开始检查 `git status --short`，并以实时输出为准。
+- 2026-06-27 自我迭代检查时工作区为干净状态；不要沿用过期的 dirty-file 列表作为当前事实。
+- 若后续出现未提交改动，后续 agent 不得重置、覆盖或顺手格式化相关文件，除非任务明确要求处理该主题。
 
 ### P1 - 训练停滞诊断闭环
 
