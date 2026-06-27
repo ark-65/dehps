@@ -1130,6 +1130,33 @@ test('service status returns the read-only service shape and heavy task limits',
   }
 });
 
+test('service status preserves training status read errors', async () => {
+  const previousRoot = process.env.DEHPS_ROOT;
+  const root = mkdtempSync(path.join(os.tmpdir(), 'dehps-service-status-'));
+  mkdirSync(path.join(root, 'runtime/logs'), { recursive: true });
+  writeFileSync(path.join(root, 'runtime/logs/api-dashboard.log'), 'api ready\n');
+  writeFileSync(path.join(root, 'runtime/logs/web-dashboard.log'), 'web ready\n');
+  try {
+    process.env.DEHPS_ROOT = root;
+    const service = new ResearchService(repository);
+    service.trainingStatus = async () => {
+      throw new Error('database connection unavailable');
+    };
+
+    const status = await service.serviceStatus();
+    const training = status.services.find((item) => item.name === 'training');
+
+    assert.equal(training?.status, 'failed');
+    assert.equal(training?.recentError, 'database connection unavailable');
+  } finally {
+    if (previousRoot === undefined) {
+      delete process.env.DEHPS_ROOT;
+    } else {
+      process.env.DEHPS_ROOT = previousRoot;
+    }
+  }
+});
+
 test('service status ignores recovered web build errors', async () => {
   const previousRoot = process.env.DEHPS_ROOT;
   const root = mkdtempSync(path.join(os.tmpdir(), 'dehps-service-status-'));

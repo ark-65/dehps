@@ -768,7 +768,10 @@ export class ResearchService {
       status.latestProgress?.loggedAt ??
       status.updatedAt ??
       (logStat ? new Date(logStat.mtimeMs).toISOString() : status.startedAt);
-    const recentError = status.status === 'failed' ? this.latestErrorLine(status.logTail) ?? 'training failed' : this.latestErrorLine(status.logTail);
+    const recentError =
+      status.status === 'failed'
+        ? this.latestErrorLine(status.logTail) ?? status.logTail.at(-1) ?? 'training failed'
+        : this.latestErrorLine(status.logTail);
     const stale = !status.active && this.isStale(generatedAt, heartbeatAt, TRAINING_STALE_SECONDS);
     const serviceStatus: ServiceStatusLevel =
       status.status === 'failed' || status.processAlive === false
