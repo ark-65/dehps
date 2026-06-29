@@ -65,6 +65,28 @@ def test_history_dry_run_reports_latest_issue(monkeypatch):
     assert summary["latest_draw"]["issue"] == "2026002"
 
 
+def test_open_ended_history_sync_uses_remote_latest_as_end_issue(monkeypatch):
+    history_args = []
+
+    class FakeSource:
+        def fetch_latest(self):
+            return {"issue": "2026003", "red_numbers": [1, 2, 3, 4, 5, 6], "blue_number": 8}
+
+        def fetch_history(self, start_issue=None, end_issue=None):
+            history_args.append((start_issue, end_issue))
+            return [
+                {"issue": "2026002", "red_numbers": [1, 2, 3, 4, 5, 6], "blue_number": 8},
+                {"issue": "2026003", "red_numbers": [2, 3, 4, 5, 6, 7], "blue_number": 9},
+            ]
+
+    monkeypatch.setattr("dehps.crawler.ssq_sync.get_data_source", lambda *a, **k: FakeSource())
+
+    summary = sync_ssq("fake", history=True, from_issue="2026001", dry_run=True)
+
+    assert history_args == [("2026001", "2026003")]
+    assert summary["latest_draw"]["issue"] == "2026003"
+
+
 def test_history_sync_writes_draws_in_issue_order(monkeypatch):
     written_issues = []
 

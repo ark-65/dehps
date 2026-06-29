@@ -3,9 +3,16 @@ from scripts.daily_pipeline import run_pipeline
 
 def test_daily_pipeline_no_new_data_finishes(monkeypatch, tmp_path):
     finished = {}
+    sync_calls = []
 
     monkeypatch.setattr("scripts.daily_pipeline.ROOT_DIR", tmp_path)
-    monkeypatch.setattr("scripts.daily_pipeline.sync_ssq", lambda *a, **k: {"run_key": "sync", "inserted_count": 0})
+    monkeypatch.setattr("scripts.daily_pipeline._latest_local_issue", lambda: "2026067")
+
+    def fake_sync(*args, **kwargs):
+        sync_calls.append((args, kwargs))
+        return {"run_key": "sync", "inserted_count": 0}
+
+    monkeypatch.setattr("scripts.daily_pipeline.sync_ssq", fake_sync)
 
     class FakeConn:
         pass
@@ -25,6 +32,9 @@ def test_daily_pipeline_no_new_data_finishes(monkeypatch, tmp_path):
     )
     result = run_pipeline("baseline_v1", "zhcw")
     assert result["sync"]["inserted_count"] == 0
+    assert sync_calls[0][0] == ("zhcw",)
+    assert sync_calls[0][1]["history"] is True
+    assert sync_calls[0][1]["from_issue"] == "2026067"
     assert finished["status"] == "success"
 
 
@@ -33,6 +43,7 @@ def test_daily_pipeline_runs_incremental_weight_kdj_after_sync_change(monkeypatc
     kdj_calls = []
 
     monkeypatch.setattr("scripts.daily_pipeline.ROOT_DIR", tmp_path)
+    monkeypatch.setattr("scripts.daily_pipeline._latest_local_issue", lambda: "2026067")
     monkeypatch.setattr(
         "scripts.daily_pipeline.sync_ssq",
         lambda *a, **k: {
@@ -85,6 +96,7 @@ def test_daily_pipeline_records_failed_status(monkeypatch, tmp_path):
     finished = {}
 
     monkeypatch.setattr("scripts.daily_pipeline.ROOT_DIR", tmp_path)
+    monkeypatch.setattr("scripts.daily_pipeline._latest_local_issue", lambda: "2026067")
 
     def fail_sync(*args, **kwargs):
         raise RuntimeError("sync unavailable")
@@ -123,6 +135,7 @@ def test_daily_pipeline_preserves_sync_failure_when_lock_heartbeat_fails(monkeyp
     released = {"called": False}
 
     monkeypatch.setattr("scripts.daily_pipeline.ROOT_DIR", tmp_path)
+    monkeypatch.setattr("scripts.daily_pipeline._latest_local_issue", lambda: "2026067")
 
     class FailingHeartbeatLock:
         def __init__(self, **kwargs):

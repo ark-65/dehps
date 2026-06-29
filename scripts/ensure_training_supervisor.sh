@@ -21,15 +21,7 @@ is_training_pid_active() {
   ps -p "$pid" -o args= 2>/dev/null | grep -Fq "scripts/run_training_supervisor.py"
 }
 
-if [[ -s "$PID_FILE" ]]; then
-  pid="$(tr -d '[:space:]' < "$PID_FILE")"
-  if is_training_pid_active "$pid"; then
-    log "training supervisor already running pid=$pid"
-    exit 0
-  fi
-fi
-
-latest_issue="$(
+latest_db_issue() {
   .venv/bin/python - <<'PY'
 from dehps.db import get_connection
 
@@ -37,7 +29,64 @@ with get_connection() as conn:
     row = conn.execute("SELECT max(issue) FROM ssq_history").fetchone()
 print(row[0] or "")
 PY
-)"
+}
+
+training_pid_as_of_issue() {
+  local pid="$1"
+  ps -p "$pid" -o args= 2>/dev/null | awk '
+    {
+      for (i = 1; i <= NF; i++) {
+        if ($i == "--as-of-issue" && i < NF) {
+          print $(i + 1)
+          exit
+        }
+        if ($i ~ /^--as-of-issue=/) {
+          sub(/^--as-of-issue=/, "", $i)
+          print $i
+          exit
+        }
+      }
+    }
+  '
+}
+
+stop_training_pid() {
+  local pid="$1"
+  log "stopping stale training supervisor pid=$pid"
+  kill "$pid" 2>/dev/null || true
+  for _ in $(seq 1 60); do
+    if ! is_training_pid_active "$pid"; then
+      return 0
+    fi
+    sleep 1
+  done
+  log "training supervisor pid=$pid did not stop after SIGTERM"
+  return 1
+}
+
+sync_from_issue="$(latest_db_issue)"
+if [[ -n "$sync_from_issue" ]]; then
+  log "syncing ssq history from issue=$sync_from_issue"
+  .venv/bin/python scripts/sync_latest_ssq.py --source zhcw --history --from-issue "$sync_from_issue"
+else
+  log "syncing ssq history with no local issue"
+  .venv/bin/python scripts/sync_latest_ssq.py --source zhcw --history
+fi
+
+latest_issue="$(latest_db_issue)"
+
+if [[ -s "$PID_FILE" ]]; then
+  pid="$(tr -d '[:space:]' < "$PID_FILE")"
+  if is_training_pid_active "$pid"; then
+    running_as_of="$(training_pid_as_of_issue "$pid")"
+    if [[ "$running_as_of" == "$latest_issue" ]]; then
+      log "training supervisor already running pid=$pid as_of_issue=${running_as_of:-auto}"
+      exit 0
+    fi
+    log "training supervisor stale pid=$pid running_as_of=${running_as_of:-auto} latest_issue=${latest_issue:-none}"
+    stop_training_pid "$pid"
+  fi
+fi
 
 stamp="$(date +%Y%m%d-%H%M%S)"
 run_log="$LOG_DIR/training-supervisor-kdj-ridge-neural-target-inversion-$stamp.log"

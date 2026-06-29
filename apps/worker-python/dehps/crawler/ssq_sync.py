@@ -33,7 +33,15 @@ def sync_ssq(
         "latest_draw": None,
     }
 
-    raw_draws = data_source.fetch_history(from_issue, to_issue) if history else [data_source.fetch_latest()]
+    if history:
+        effective_to_issue = to_issue
+        if from_issue and not effective_to_issue:
+            latest = data_source.fetch_latest()
+            latest_issue = str(latest.get("issue") or "").strip() if latest else ""
+            effective_to_issue = latest_issue or None
+        raw_draws = data_source.fetch_history(from_issue, effective_to_issue)
+    else:
+        raw_draws = [data_source.fetch_latest()]
     raw_draws = [draw for draw in raw_draws if draw]
     summary["fetched_count"] = len(raw_draws)
     if dry_run:

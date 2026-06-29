@@ -25,6 +25,27 @@ from dehps.storage.postgres_store import (
 from scripts.generate_weight_kdj_signals import CANONICAL_SIGNAL_RUN_ID, generate_signals, parse_weights
 
 
+def _latest_local_issue() -> str | None:
+    with get_connection() as conn:
+        row = conn.execute("SELECT max(issue) FROM ssq_history").fetchone()
+    if not row or not row[0]:
+        return None
+    return str(row[0])
+
+
+def _sync_for_source(source: str, *, csv_file: str | None, run_key: str) -> dict:
+    if source == "zhcw":
+        latest_issue = _latest_local_issue()
+        return sync_ssq(
+            source,
+            history=True,
+            from_issue=latest_issue,
+            csv_file=csv_file,
+            run_key=run_key,
+        )
+    return sync_ssq(source, history=(source == "csv"), csv_file=csv_file, run_key=run_key)
+
+
 def _load_git_helper():
     helper_path = ROOT_DIR / "apps/worker-python/scripts/git_commit_and_push.py"
     spec = importlib.util.spec_from_file_location("git_commit_and_push", helper_path)
@@ -84,7 +105,7 @@ def run_pipeline(
                 "skip_weight_kdj_signals": skip_weight_kdj_signals,
             },
         ).acquire()
-        sync_summary = sync_ssq(source, history=(source == "csv"), csv_file=csv_file, run_key=f"{run_key}-sync")
+        sync_summary = _sync_for_source(source, csv_file=csv_file, run_key=f"{run_key}-sync")
         is_new_data = sync_summary.get("inserted_count", 0) > 0
         has_synced_changes = is_new_data or sync_summary.get("updated_count", 0) > 0
         summary["sync_run_key"] = sync_summary["run_key"]
