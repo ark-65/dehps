@@ -228,18 +228,31 @@ def get_data_source(source: str, *, csv_file: str | Path | None = None) -> SsqDa
 
 
 def _normalize_remote_record(record: dict[str, Any], source: str) -> dict[str, Any]:
-    red = record.get("red") or record.get("red_numbers") or record.get("redBalls") or record.get("frontWinningNum")
+    red = _first_nonblank_value(record, ("red", "red_numbers", "redBalls", "frontWinningNum"))
     if isinstance(red, str):
         red_numbers = red.replace(",", " ").split()
     else:
         red_numbers = red
     return {
-        "issue": record.get("issue") or record.get("code") or record.get("term"),
-        "draw_date": record.get("date") or record.get("draw_date") or record.get("openTime"),
+        "issue": _first_nonblank_value(record, ("issue", "code", "term")),
+        "draw_date": _first_nonblank_value(record, ("date", "draw_date", "openTime")),
         "red_numbers": red_numbers,
-        "blue_number": record.get("blue") or record.get("blue_number") or record.get("blueBall") or record.get("backWinningNum"),
+        "blue_number": _first_nonblank_value(record, ("blue", "blue_number", "blueBall", "backWinningNum")),
         "source": source,
     }
+
+
+def _first_nonblank_value(record: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        if key not in record:
+            continue
+        value = record[key]
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        return value
+    return None
 
 
 def _subtract_years(value: date, years: int) -> date:

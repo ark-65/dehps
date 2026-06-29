@@ -3,6 +3,7 @@ from datetime import date
 import pytest
 
 from dehps.crawler import ssq_client
+from dehps.crawler.ssq_parser import validate_ssq_draw
 from dehps.crawler.ssq_client import CsvSsqDataSource, ZhcwSsqDataSource, _normalize_remote_record, _subtract_years
 
 
@@ -24,6 +25,21 @@ def test_normalize_zhcw_record():
         "blue_number": "07",
         "source": "zhcw",
     }
+
+
+def test_normalize_remote_record_preserves_zero_blue_for_validation():
+    draw = _normalize_remote_record(
+        {
+            "issue": "2026068",
+            "frontWinningNum": "01 02 03 04 05 06",
+            "blue": 0,
+        },
+        "zhcw",
+    )
+
+    assert draw["blue_number"] == 0
+    with pytest.raises(ValueError, match="blue_number must be between 1 and 16"):
+        validate_ssq_draw(draw)
 
 
 def test_subtract_years_handles_leap_day():
