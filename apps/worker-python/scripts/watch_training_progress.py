@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 from datetime import datetime, timezone
 from math import isfinite
 from pathlib import Path
@@ -24,6 +25,7 @@ ADVISOR_KEYS = (
 DEFAULT_OUTPUT_DIR = ROOT_DIR / "data/output/optimization/training-watch"
 DEFAULT_ROUND_LIMIT = 5000
 DEFAULT_STALE_MINUTES = 30
+SAFE_FILENAME_COMPONENT_PATTERN = re.compile(r"[^A-Za-z0-9_-]+")
 
 
 def utc_now() -> datetime:
@@ -78,6 +80,14 @@ def safe_int(value: Any) -> int | None:
 def positive_int_or_default(value: Any, *, default: int) -> int:
     parsed = safe_int(value)
     return parsed if parsed is not None and parsed > 0 else default
+
+
+def safe_filename_component(value: Any, *, default: str = "none") -> str:
+    text = "" if value is None else str(value).strip()
+    if not text:
+        return default
+    normalized = SAFE_FILENAME_COMPONENT_PATTERN.sub("_", text).strip("_-")
+    return normalized or default
 
 
 def resolve_run_id(run_id: str | None) -> str | None:
@@ -369,7 +379,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
 def write_outputs(payload: dict[str, Any], output_dir: Path) -> tuple[Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     stamp = utc_stamp()
-    run_id = payload.get("run_id") or "none"
+    run_id = safe_filename_component(payload.get("run_id"))
     json_path = output_dir / f"training-watch-{run_id}-{stamp}.json"
     md_path = output_dir / f"training-watch-{run_id}-{stamp}.md"
     latest_json = output_dir / "training-watch-latest.json"

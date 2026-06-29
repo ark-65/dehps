@@ -9,6 +9,7 @@ from scripts.watch_training_progress import (
     recommendation_summary,
     render_markdown,
     safe_float,
+    safe_filename_component,
     safe_int,
     summarize_watch,
 )
@@ -137,6 +138,34 @@ def test_advisor_summary_and_markdown_include_guardrails():
     assert advisors["neural_kdj_advisor"]["top_advice"][0]["confidence"] == 0.03
     assert "Neural" not in markdown  # Machine-readable key is used in the table.
     assert "Historical response-surface monitoring only" in markdown
+
+
+def test_write_outputs_sanitizes_run_id_filename(monkeypatch, tmp_path):
+    monkeypatch.setattr(watch, "utc_stamp", lambda: "20260618-100000")
+    payload = {
+        "generated_at": "2026-06-18T10:00:00Z",
+        "run_id": " ../run:bad/..//escape ",
+        "round_count": 0,
+        "latest_round": None,
+        "last_improved_round": None,
+        "stagnation_rounds": 0,
+        "latest_metrics": {},
+        "advisor_summary": {},
+        "heavy_job_lock": {},
+        "recommendation": {"severity": "ok", "action": "continue_current_run", "notes": []},
+        "guardrail": "Historical response-surface monitoring only.",
+    }
+
+    json_path, md_path = watch.write_outputs(payload, tmp_path)
+
+    assert safe_filename_component(payload["run_id"]) == "run_bad_escape"
+    assert safe_filename_component(None) == "none"
+    assert safe_filename_component(" / ") == "none"
+    assert safe_filename_component(0) == "0"
+    assert json_path == tmp_path / "training-watch-run_bad_escape-20260618-100000.json"
+    assert md_path == tmp_path / "training-watch-run_bad_escape-20260618-100000.md"
+    assert (tmp_path / "training-watch-latest.json").exists()
+    assert (tmp_path / "training-watch-latest.md").exists()
 
 
 def test_heavy_lock_summary_reports_unreadable_metadata_error(monkeypatch):
