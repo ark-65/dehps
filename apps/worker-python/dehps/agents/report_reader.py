@@ -44,7 +44,7 @@ def parse_experiment_report(markdown: str) -> ExperimentReportSummary:
             continue
         if section == "Config Snapshot" and line.startswith("- "):
             key, value = _split_bullet(line)
-            fields["config_snapshot"][key] = _parse_value(value)
+            fields["config_snapshot"][key] = _parse_config_value(value, field=key)
 
     return ExperimentReportSummary(**fields)
 
@@ -68,6 +68,23 @@ def _parse_number(value: str) -> int | float:
     if isinstance(parsed, float) and not math.isfinite(parsed):
         raise ValueError(f"expected finite numeric metric, got {value!r}")
     return parsed
+
+
+def _parse_config_value(value: str, *, field: str) -> Any:
+    parsed = _parse_value(value)
+    _reject_nonfinite_config_value(parsed, path=field, raw_value=value)
+    return parsed
+
+
+def _reject_nonfinite_config_value(value: Any, *, path: str, raw_value: str) -> None:
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"expected finite config snapshot value at {path}, got {raw_value!r}")
+    if isinstance(value, dict):
+        for key, nested_value in value.items():
+            _reject_nonfinite_config_value(nested_value, path=f"{path}.{key}", raw_value=raw_value)
+    if isinstance(value, (list, tuple, set)):
+        for index, nested_value in enumerate(value):
+            _reject_nonfinite_config_value(nested_value, path=f"{path}[{index}]", raw_value=raw_value)
 
 
 def _parse_value(value: str) -> Any:

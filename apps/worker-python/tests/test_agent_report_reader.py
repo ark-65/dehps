@@ -96,3 +96,49 @@ def test_experiment_report_reader_rejects_nonfinite_metric_value(metric_value):
 
     with pytest.raises(ValueError, match="expected finite numeric metric"):
         parse_experiment_report(report)
+
+
+@pytest.mark.parametrize("config_value", ["NaN", "Infinity", "-Infinity", "1e309"])
+def test_experiment_report_reader_rejects_nonfinite_config_snapshot_value(config_value):
+    report = "\n".join(
+        [
+            "# Experiment Report",
+            "- Experiment: `baseline_v1-test`",
+            "- Strategy: `baseline_v1`",
+            "## Config Snapshot",
+            f"- frequency_weight: {config_value}",
+        ]
+    )
+
+    with pytest.raises(ValueError, match="expected finite config snapshot value at frequency_weight"):
+        parse_experiment_report(report)
+
+
+def test_experiment_report_reader_rejects_nested_nonfinite_config_snapshot_value():
+    report = "\n".join(
+        [
+            "# Experiment Report",
+            "- Experiment: `baseline_v1-test`",
+            "- Strategy: `baseline_v1`",
+            "## Config Snapshot",
+            '- bounds: {"frequency_weight": Infinity}',
+        ]
+    )
+
+    with pytest.raises(ValueError, match=r"expected finite config snapshot value at bounds\.frequency_weight"):
+        parse_experiment_report(report)
+
+
+def test_experiment_report_reader_rejects_ast_container_nonfinite_config_snapshot_value():
+    report = "\n".join(
+        [
+            "# Experiment Report",
+            "- Experiment: `baseline_v1-test`",
+            "- Strategy: `baseline_v1`",
+            "## Config Snapshot",
+            "- bounds: (1e309,)",
+        ]
+    )
+
+    with pytest.raises(ValueError, match=r"expected finite config snapshot value at bounds\[0\]"):
+        parse_experiment_report(report)
