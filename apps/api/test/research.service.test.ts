@@ -843,6 +843,32 @@ test('training status event terminal status overrides stale progress', async () 
   });
 });
 
+test('training status event terminal status is case-insensitive', async () => {
+  await withTempDehpsRoot('dehps-event-terminal-case-test-', async () => {
+    const service = new ResearchService(repository);
+    const status = await service.trainingStatusFromEvent({
+      run_id: 'run-100',
+      status: ' Completed ',
+      process_alive: true,
+      updated_at: '2026-06-18T17:12:30',
+      latest_progress: {
+        logged_at: '2026-06-18T17:12:30',
+        round: 41,
+        target_index: 50,
+        target_total: 100,
+        issue: '2026006',
+        train_draws: 1435,
+        elapsed_seconds: 32.4,
+      },
+    });
+
+    assert.equal(status.status, 'completed');
+    assert.equal(status.active, false);
+    assert.equal(status.processAlive, true);
+    assert.equal(status.latestProgress?.issue, '2026006');
+  });
+});
+
 test('training status event ignores blank run id updates', async () => {
   const previousRoot = process.env.DEHPS_ROOT;
   process.env.DEHPS_ROOT = mkdtempSync(path.join(os.tmpdir(), 'dehps-blank-event-test-'));

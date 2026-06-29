@@ -426,7 +426,7 @@ export class ResearchService {
     }
     const row = event as Record<string, unknown>;
     const progress = this.progressValue(row.latest_progress ?? row.latestProgress);
-    const eventStatus = this.stringValue(row.status);
+    const eventStatus = this.stringValue(row.status)?.toLowerCase() ?? null;
     const updatedAt = this.stringValue(row.updated_at ?? row.updatedAt);
     const eventRunId = this.stringValue(row.run_id ?? row.runId);
     const eventTimestamp = updatedAt ?? progress?.loggedAt ?? null;
