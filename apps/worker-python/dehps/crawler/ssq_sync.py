@@ -9,6 +9,21 @@ from dehps.db import get_connection
 from dehps.storage.postgres_store import create_sync_run, finish_sync_run, upsert_ssq_draw
 
 
+def _fetch_raw_draws(
+    data_source: Any, *, history: bool, from_issue: str | None, to_issue: str | None
+) -> list[dict[str, Any]]:
+    if history:
+        effective_to_issue = to_issue
+        if from_issue and not effective_to_issue:
+            latest = data_source.fetch_latest()
+            latest_issue = str(latest.get("issue") or "").strip() if latest else ""
+            effective_to_issue = latest_issue or None
+        raw_draws = data_source.fetch_history(from_issue, effective_to_issue)
+    else:
+        raw_draws = [data_source.fetch_latest()]
+    return [draw for draw in raw_draws if draw]
+
+
 def sync_ssq(
     source: str,
     *,
@@ -20,7 +35,6 @@ def sync_ssq(
     run_key: str | None = None,
 ) -> dict[str, Any]:
     run_key = run_key or f"sync-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-    data_source = get_data_source(source, csv_file=csv_file)
     summary: dict[str, Any] = {
         "run_key": run_key,
         "source": source,
@@ -33,18 +47,15 @@ def sync_ssq(
         "latest_draw": None,
     }
 
-    if history:
-        effective_to_issue = to_issue
-        if from_issue and not effective_to_issue:
-            latest = data_source.fetch_latest()
-            latest_issue = str(latest.get("issue") or "").strip() if latest else ""
-            effective_to_issue = latest_issue or None
-        raw_draws = data_source.fetch_history(from_issue, effective_to_issue)
-    else:
-        raw_draws = [data_source.fetch_latest()]
-    raw_draws = [draw for draw in raw_draws if draw]
-    summary["fetched_count"] = len(raw_draws)
     if dry_run:
+        data_source = get_data_source(source, csv_file=csv_file)
+        raw_draws = _fetch_raw_draws(
+            data_source,
+            history=history,
+            from_issue=from_issue,
+            to_issue=to_issue,
+        )
+        summary["fetched_count"] = len(raw_draws)
         validated = sorted((validate_ssq_draw(draw) for draw in raw_draws), key=lambda draw: draw.issue)
         summary["latest_draw"] = max(validated, key=lambda draw: draw.issue).model_dump(mode="json") if validated else None
         summary["status"] = "dry_run"
@@ -52,8 +63,18 @@ def sync_ssq(
 
     with get_connection() as conn:
         create_sync_run(conn, run_key, source)
-        try:
-            validated = sorted((validate_ssq_draw(draw) for draw in raw_draws), key=lambda draw: draw.issue)
+
+    try:
+        data_source = get_data_source(source, csv_file=csv_file)
+        raw_draws = _fetch_raw_draws(
+            data_source,
+            history=history,
+            from_issue=from_issue,
+            to_issue=to_issue,
+        )
+        summary["fetched_count"] = len(raw_draws)
+        validated = sorted((validate_ssq_draw(draw) for draw in raw_draws), key=lambda draw: draw.issue)
+        with get_connection() as conn:
             summary["latest_draw"] = (
                 max(validated, key=lambda draw: draw.issue).model_dump(mode="json") if validated else None
             )
@@ -62,9 +83,10 @@ def sync_ssq(
                 summary[f"{result}_count"] = summary.get(f"{result}_count", 0) + 1
             summary["status"] = "success"
             finish_sync_run(conn, run_key, "success", summary)
-        except Exception as exc:
-            summary["status"] = "failed"
-            summary["error_message"] = str(exc)
+    except Exception as exc:
+        summary["status"] = "failed"
+        summary["error_message"] = str(exc)
+        with get_connection() as conn:
             finish_sync_run(conn, run_key, "failed", summary)
-            raise
+        raise
     return summary

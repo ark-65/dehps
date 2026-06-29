@@ -160,6 +160,63 @@ def test_sync_records_failed_status(monkeypatch):
     assert finished["summary"]["error_message"] == "write failed"
 
 
+def test_sync_failure_status_commits_after_write_rollback(monkeypatch):
+    events = []
+    next_conn_id = {"value": 0}
+
+    class FakeSource:
+        def fetch_latest(self):
+            return {"issue": "2026001", "red_numbers": [1, 2, 3, 4, 5, 6], "blue_number": 8}
+
+    class FakeContext:
+        def __enter__(self):
+            next_conn_id["value"] += 1
+            self.conn = FakeConn()
+            self.conn.conn_id = next_conn_id["value"]
+            events.append(("enter", self.conn.conn_id))
+            return self.conn
+
+        def __exit__(self, exc_type, exc, tb):
+            action = "rollback" if exc_type else "commit"
+            events.append((action, self.conn.conn_id))
+            return False
+
+    def record_create(conn, run_key, source):
+        events.append(("create", conn.conn_id, run_key, source))
+
+    def fail_upsert(conn, draw, source):
+        events.append(("upsert", conn.conn_id, draw.issue, source))
+        raise RuntimeError("write failed")
+
+    def record_finish(conn, run_key, status, summary):
+        events.append(("finish", conn.conn_id, run_key, status, summary["status"], summary["error_message"]))
+
+    monkeypatch.setattr("dehps.crawler.ssq_sync.get_data_source", lambda *a, **k: FakeSource())
+    monkeypatch.setattr("dehps.crawler.ssq_sync.get_connection", lambda: FakeContext())
+    monkeypatch.setattr("dehps.crawler.ssq_sync.create_sync_run", record_create)
+    monkeypatch.setattr("dehps.crawler.ssq_sync.upsert_ssq_draw", fail_upsert)
+    monkeypatch.setattr("dehps.crawler.ssq_sync.finish_sync_run", record_finish)
+
+    try:
+        sync_ssq("fake", run_key="sync-rollback-test")
+    except RuntimeError as exc:
+        assert str(exc) == "write failed"
+    else:
+        raise AssertionError("sync failure was not raised")
+
+    assert events == [
+        ("enter", 1),
+        ("create", 1, "sync-rollback-test", "fake"),
+        ("commit", 1),
+        ("enter", 2),
+        ("upsert", 2, "2026001", "fake"),
+        ("rollback", 2),
+        ("enter", 3),
+        ("finish", 3, "sync-rollback-test", "failed", "failed", "write failed"),
+        ("commit", 3),
+    ]
+
+
 def test_sync_records_validation_failure_status(monkeypatch):
     finished = {}
 
