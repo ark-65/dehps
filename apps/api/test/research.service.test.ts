@@ -1368,6 +1368,33 @@ test('service status flags stale pid, missing log, and recent sync errors withou
   }
 });
 
+test('service status treats malformed web pid files as unknown instead of stale', async () => {
+  const previousRoot = process.env.DEHPS_ROOT;
+  const root = mkdtempSync(path.join(os.tmpdir(), 'dehps-service-status-'));
+  mkdirSync(path.join(root, 'runtime/logs'), { recursive: true });
+  writeFileSync(path.join(root, 'runtime/logs/api-dashboard.log'), 'api ready\n');
+  writeFileSync(path.join(root, 'runtime/logs/web-dashboard.log'), 'web ready\n');
+  writeFileSync(path.join(root, 'runtime/logs/web-dashboard.pid'), '999999999abc\n');
+  try {
+    process.env.DEHPS_ROOT = root;
+    const service = new ResearchService(repository);
+
+    const status = await service.serviceStatus();
+    const web = status.services.find((item) => item.name === 'web');
+
+    assert.equal(web?.pid, null);
+    assert.equal(web?.processAlive, null);
+    assert.equal(web?.status, 'ok');
+    assert.equal(web?.recentError, null);
+  } finally {
+    if (previousRoot === undefined) {
+      delete process.env.DEHPS_ROOT;
+    } else {
+      process.env.DEHPS_ROOT = previousRoot;
+    }
+  }
+});
+
 test('service status treats completed heavy job metadata as inactive', async () => {
   const previousRoot = process.env.DEHPS_ROOT;
   const root = mkdtempSync(path.join(os.tmpdir(), 'dehps-heavy-status-'));

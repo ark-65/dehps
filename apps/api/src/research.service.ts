@@ -887,7 +887,11 @@ export class ResearchService {
   private async readPidFile(filePath: string): Promise<number | null> {
     try {
       const content = await readFile(filePath, 'utf8');
-      const pid = Number.parseInt(content.trim(), 10);
+      const trimmed = content.trim();
+      if (!/^\d+$/.test(trimmed)) {
+        return null;
+      }
+      const pid = Number(trimmed);
       return Number.isFinite(pid) && pid > 0 ? pid : null;
     } catch (error) {
       if (this.isNotFoundError(error)) {
