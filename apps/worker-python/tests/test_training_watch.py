@@ -236,10 +236,16 @@ def test_safe_numeric_helpers_reject_bool_and_non_finite_values():
     assert safe_float(float("inf")) is None
 
     assert safe_int("3") == 3
+    assert safe_int(" 003 ") == 3
     assert safe_int(3.0) == 3
     assert safe_int(3.5) is None
     assert safe_int(False) is None
     assert safe_int(float("inf")) is None
+
+
+def test_safe_int_rejects_non_decimal_string_forms():
+    for value in ("+3", "-1", "1_000", "0x10", "1e3", "3.0", "", "\uff13"):
+        assert safe_int(value) is None
 
 
 def test_load_rounds_queries_recent_window_before_chronological_sort(monkeypatch):

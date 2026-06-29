@@ -27,6 +27,7 @@ DEFAULT_OUTPUT_DIR = ROOT_DIR / "data/output/optimization/training-watch"
 DEFAULT_ROUND_LIMIT = 5000
 DEFAULT_STALE_MINUTES = 30
 SAFE_FILENAME_COMPONENT_PATTERN = re.compile(r"[^A-Za-z0-9_-]+")
+SAFE_INTEGER_TEXT_PATTERN = re.compile(r"[0-9]+")
 MAX_SAFE_FILENAME_COMPONENT_LENGTH = 96
 
 
@@ -63,6 +64,11 @@ def safe_int(value: Any) -> int | None:
         return None
     if isinstance(value, bool):
         return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not SAFE_INTEGER_TEXT_PATTERN.fullmatch(text):
+            return None
+        return int(text)
     if isinstance(value, int):
         return value
     if isinstance(value, float):
