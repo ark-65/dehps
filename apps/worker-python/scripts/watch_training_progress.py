@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -26,6 +27,7 @@ DEFAULT_OUTPUT_DIR = ROOT_DIR / "data/output/optimization/training-watch"
 DEFAULT_ROUND_LIMIT = 5000
 DEFAULT_STALE_MINUTES = 30
 SAFE_FILENAME_COMPONENT_PATTERN = re.compile(r"[^A-Za-z0-9_-]+")
+MAX_SAFE_FILENAME_COMPONENT_LENGTH = 96
 
 
 def utc_now() -> datetime:
@@ -82,12 +84,24 @@ def positive_int_or_default(value: Any, *, default: int) -> int:
     return parsed if parsed is not None and parsed > 0 else default
 
 
-def safe_filename_component(value: Any, *, default: str = "none") -> str:
+def safe_filename_component(
+    value: Any,
+    *,
+    default: str = "none",
+    max_length: int = MAX_SAFE_FILENAME_COMPONENT_LENGTH,
+) -> str:
     text = "" if value is None else str(value).strip()
     if not text:
         return default
     normalized = SAFE_FILENAME_COMPONENT_PATTERN.sub("_", text).strip("_-")
-    return normalized or default
+    if not normalized:
+        return default
+    if max_length <= 0 or len(normalized) <= max_length:
+        return normalized
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:12]
+    prefix_length = max(1, max_length - len(digest) - 1)
+    prefix = normalized[:prefix_length].rstrip("_-") or normalized[:prefix_length]
+    return f"{prefix}_{digest}"[:max_length]
 
 
 def resolve_run_id(run_id: str | None) -> str | None:

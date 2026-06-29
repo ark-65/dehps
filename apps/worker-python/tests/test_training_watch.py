@@ -168,6 +168,17 @@ def test_write_outputs_sanitizes_run_id_filename(monkeypatch, tmp_path):
     assert (tmp_path / "training-watch-latest.md").exists()
 
 
+def test_safe_filename_component_bounds_long_run_ids():
+    first = safe_filename_component("run-" + ("a" * 240), max_length=48)
+    second = safe_filename_component("run-" + ("b" * 240), max_length=48)
+
+    assert len(first) == 48
+    assert len(second) == 48
+    assert first.startswith("run")
+    assert second.startswith("run")
+    assert first != second
+
+
 def test_heavy_lock_summary_reports_unreadable_metadata_error(monkeypatch):
     monkeypatch.setattr(
         watch,
