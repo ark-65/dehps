@@ -38,7 +38,7 @@ def generate_null_candidates(
         raise ValueError("random_sets must be at least 1")
 
     rng = Random(seed)
-    historical_numbers = {numbers for _, numbers in history or []}
+    historical_numbers = {normalize_red_numbers(numbers) for _, numbers in history or []}
     scores: list[float] = []
     for _ in range(random_sets):
         generated: set[tuple[int, ...]] = set()

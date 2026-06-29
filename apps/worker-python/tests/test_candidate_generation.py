@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import dehps.candidates.null_model as null_model
 from dehps.candidates.generator import Candidate, generate_candidates, stable_tie_breaker
 from dehps.candidates.leakage import audit_candidate_protocol
 from dehps.candidates.null_model import generate_null_candidates
-from dehps.scoring.strategy import StrategyConfig
+from dehps.scoring.strategy import StrategyConfig, score_numbers
 
 
 def test_generate_candidates_is_seeded_and_excludes_history():
@@ -64,6 +65,32 @@ def test_null_candidates_are_reproducible():
     assert first.random_sets == 4
     assert first.candidate_count == 3
     assert 0 <= first.min_score <= first.mean_score <= first.max_score <= 1
+
+
+def test_null_candidates_canonicalize_history_before_exclusion(monkeypatch):
+    class FixedRandom:
+        def __init__(self, _seed: str):
+            self.samples = [
+                [6, 5, 4, 3, 2, 1],
+                [1, 8, 13, 18, 23, 31],
+            ]
+
+        def sample(self, _population: range, _count: int) -> list[int]:
+            return self.samples.pop(0)
+
+    monkeypatch.setattr(null_model, "Random", FixedRandom)
+
+    summary = generate_null_candidates(
+        candidate_count=1,
+        random_sets=1,
+        seed="null-seed",
+        history=[("2026001", (6, 5, 4, 3, 2, 1))],
+    )
+
+    accepted_score = round(score_numbers((1, 8, 13, 18, 23, 31))["score"], 6)
+    assert summary.mean_score == accepted_score
+    assert summary.min_score == accepted_score
+    assert summary.max_score == accepted_score
 
 
 def test_leakage_audit_flags_history_overlap_and_duplicates():
