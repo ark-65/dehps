@@ -1593,6 +1593,57 @@ def test_next_search_base_stays_put_when_gated_challengers_have_no_frozen_primar
     assert metadata["selected_frozen_primary_score"] == [0, 0, 0]
 
 
+def test_next_search_base_uses_bounded_experimental_navigation_when_frozen_gate_blocks():
+    current_config = FrequencyRankerConfig()
+    blocked_config = FrequencyRankerConfig(frequency_weight=0.40)
+    exploration_config = FrequencyRankerConfig(frequency_weight=0.15, omission_weight=0.35)
+    incumbent = attach_test_frozen_validation(
+        supervisor_summary_for_config(current_config, target_ranks=[100, 900, 50_000]),
+        top_10000_hits=0,
+    )
+    blocked = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            blocked_config,
+            top_100_hits=3,
+            top_1000_hits=3,
+            top_10000_hits=3,
+            target_ranks=[17, 55, 89],
+            objective_score=2300.0,
+        ),
+        top_10000_hits=0,
+    )
+    exploration = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            exploration_config,
+            target_ranks=[900, 80, 40_000],
+            objective_score=1800.0,
+        ),
+        top_10000_hits=0,
+    )
+
+    next_base, metadata = select_next_search_base(
+        current_base=current_config,
+        summaries=[incumbent, blocked, exploration],
+        round_best=blocked,
+        improved=False,
+        exploration_navigation_candidate=exploration,
+        allow_unpromoted_round_best=False,
+        round_best_skip_reason="eval_slice_overfit_no_frozen_primary_lift",
+        require_frozen_primary_lift=True,
+        frozen_primary_lift_baseline=incumbent,
+        min_config_distance=0.08,
+    )
+
+    assert config_hash(next_base) == config_hash(exploration_config)
+    assert metadata["source"] == "experimental_navigation"
+    assert metadata["changed"] is True
+    assert metadata["round_best_search_blocked"] is True
+    assert metadata["exploration_navigation_eligible"] is True
+    assert metadata["exploration_navigation_frozen_primary_score"] == [0, 0, 0]
+    assert metadata["exploration_navigation_rank_vector_changed"] is True
+    assert metadata["selected_frozen_primary_score"] == [0, 0, 0]
+
+
 def test_probability_calibration_champion_waits_for_stagnation_threshold():
     round_best_config = FrequencyRankerConfig(frequency_weight=0.30)
     challenger_config = FrequencyRankerConfig(frequency_weight=0.45)

@@ -3677,6 +3677,7 @@ def select_next_search_base(
     summaries: list[dict],
     round_best: dict | None,
     improved: bool,
+    exploration_navigation_candidate: dict | None = None,
     recent_search_base_hashes: tuple[str, ...] = (),
     excluded_rank_signature_hashes: tuple[str, ...] = (),
     min_config_distance: float = 0.0,
@@ -3737,6 +3738,23 @@ def select_next_search_base(
             require_frozen_primary_lift=require_frozen_primary_lift,
             frozen_primary_lift_baseline=primary_lift_baseline,
         )
+    exploration_navigation_hash = summary_config_hash(exploration_navigation_candidate) or ""
+    exploration_navigation_config = summary_config(exploration_navigation_candidate)
+    exploration_navigation_distance = (
+        config_distance(exploration_navigation_config, current_base)
+        if exploration_navigation_config is not None
+        else None
+    )
+    exploration_navigation_eligible = bool(
+        require_frozen_primary_lift
+        and exploration_navigation_candidate is not None
+        and exploration_navigation_hash not in excluded_hashes
+        and rank_signature_hash(exploration_navigation_candidate) not in set(excluded_rank_signature_hashes)
+        and exploration_navigation_config is not None
+        and (exploration_navigation_distance or 0.0) >= min_config_distance
+        and source_frontier_primary_score(exploration_navigation_candidate) <= primary_lift_baseline_score
+        and rank_vector_changed(current_base_summary, exploration_navigation_candidate)
+    )
     round_best_eligible = (
         round_best is not None
         and round_best_hash not in excluded_hashes
@@ -3759,6 +3777,9 @@ def select_next_search_base(
     elif fallback_search_challenger is not None:
         source = "search_challenger_revisit"
         selected_summary = fallback_search_challenger
+    elif exploration_navigation_eligible:
+        source = "experimental_navigation"
+        selected_summary = exploration_navigation_candidate
     elif round_best is not None and round_best_search_allowed:
         source = "current_base_replay"
         selected_summary = round_best
@@ -3798,6 +3819,13 @@ def select_next_search_base(
         "round_best_frozen_primary_score": list(source_frontier_primary_score(round_best)),
         "search_challenger_frozen_primary_score": list(source_frontier_primary_score(search_challenger)),
         "fallback_search_challenger_frozen_primary_score": list(source_frontier_primary_score(fallback_search_challenger)),
+        "exploration_navigation_config_hash": exploration_navigation_hash,
+        "exploration_navigation_eligible": exploration_navigation_eligible,
+        "exploration_navigation_frozen_primary_score": list(source_frontier_primary_score(exploration_navigation_candidate)),
+        "exploration_navigation_config_distance": exploration_navigation_distance,
+        "exploration_navigation_rank_vector_changed": rank_vector_changed(
+            current_base_summary, exploration_navigation_candidate
+        ),
         "round_best_config_distance": round_best_distance if round_best_config is not None else None,
         "min_config_distance": min_config_distance,
         "selected_config_distance": selected_distance,
@@ -5584,6 +5612,7 @@ def run_supervisor(
                         summaries=summaries,
                         round_best=decision_round_best,
                         improved=improved,
+                        exploration_navigation_candidate=exploration_champion,
                         recent_search_base_hashes=recent_search_base_hashes(rounds, search_base_config),
                         excluded_rank_signature_hashes=rank_signature_cooldown_hashes,
                         min_config_distance=min_search_base_distance,
@@ -5600,6 +5629,7 @@ def run_supervisor(
                     summaries=summaries,
                     round_best=decision_round_best,
                     improved=improved,
+                    exploration_navigation_candidate=exploration_champion,
                     recent_search_base_hashes=recent_search_base_hashes(rounds, search_base_config),
                     excluded_rank_signature_hashes=rank_signature_cooldown_hashes,
                     min_config_distance=min_search_base_distance,
