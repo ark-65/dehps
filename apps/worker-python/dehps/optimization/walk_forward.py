@@ -1736,6 +1736,9 @@ def top_candidates_for_next(
     workers: int = 1,
     pool: Pool | None = None,
 ) -> list[tuple[int, tuple[int, ...], float]]:
+    if top_n < 1:
+        raise ValueError("top_n must be at least 1")
+
     resolved_target_draw_date = target_draw_date or infer_next_ssq_draw_date(history)
     stats = train_frequency_stats(history, target_draw_date=resolved_target_draw_date)
     matrix = ranked_universe or build_ranked_universe(universe)
@@ -1763,6 +1766,8 @@ def run_walk_forward(
         raise ValueError("train_window must be at least 1")
     if eval_window < 1:
         raise ValueError("eval_window must be at least 1")
+    if top_n < 1:
+        raise ValueError("top_n must be at least 1")
     if train_mode not in ("expanding", "rolling"):
         raise ValueError("train_mode must be 'expanding' or 'rolling'")
     if len(history) <= train_window:
@@ -1825,7 +1830,7 @@ def run_walk_forward(
 
         top_candidates = top_candidates_for_next(
             history=history if train_mode == "expanding" else history[-train_window:],
-            top_n=min(top_n, len(ranked_universe)),
+            top_n=top_n,
             config=cfg,
             target_draw_date=infer_next_ssq_draw_date(history),
             ranked_universe=ranked_universe,

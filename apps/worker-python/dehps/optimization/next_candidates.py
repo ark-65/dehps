@@ -143,6 +143,9 @@ def build_training_next_candidate_snapshot(
     top_n: int = 10000,
     ranked_universe: Any | None = None,
 ) -> dict[str, Any]:
+    if top_n < 1:
+        raise ValueError("top_n must be at least 1")
+
     best = load_best_training_summary(conn, run_id)
     if best is None:
         raise RuntimeError("no training_round_results best config is available")

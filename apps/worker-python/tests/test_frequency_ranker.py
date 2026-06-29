@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import date
 
+import pytest
+
 from dehps.features.qian_kun import (
     qian_kun_distribution,
     qian_kun_icon,
@@ -311,6 +313,28 @@ def test_walk_forward_reports_target_ranks_on_small_universe():
     assert result.universe_size == 2
     assert all(1 <= rank.rank <= result.universe_size for rank in result.target_ranks)
     assert len(result.top_candidates) == 2
+
+
+def test_walk_forward_rejects_nonpositive_top_n():
+    universe = [
+        (1, 2, 3, 4, 5, 6),
+        (1, 7, 8, 9, 10, 11),
+        (2, 7, 12, 17, 22, 27),
+    ]
+
+    with pytest.raises(ValueError, match="top_n must be at least 1"):
+        run_walk_forward(
+            history=[
+                ("001", universe[0]),
+                ("002", universe[1]),
+                ("003", universe[2]),
+            ],
+            train_window=1,
+            eval_window=1,
+            top_n=0,
+            config=FrequencyRankerConfig(),
+            universe=universe,
+        )
 
 
 def test_walk_forward_parallel_matches_single_worker_on_small_universe():

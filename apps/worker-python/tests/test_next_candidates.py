@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 import dehps.optimization.next_candidates as next_candidates
 from dehps.optimization.next_candidates import (
     build_training_next_candidate_snapshot,
@@ -28,6 +30,11 @@ def test_training_freshness_metadata_marks_stale_history():
         "training_history_matches_current": False,
         "training_issue_lag": 2,
     }
+
+
+def test_training_next_candidate_snapshot_rejects_nonpositive_top_n():
+    with pytest.raises(ValueError, match="top_n must be at least 1"):
+        build_training_next_candidate_snapshot(object(), top_n=0)
 
 
 def test_training_next_candidate_snapshot_reports_training_freshness(monkeypatch):
