@@ -3541,17 +3541,22 @@ def best_challenger_summary(
     excluded_rank_signature_hashes: set[str] | None = None,
     base_config: FrequencyRankerConfig | None = None,
     min_config_distance: float = 0.0,
+    require_frozen_primary_lift: bool = False,
+    frozen_primary_lift_baseline: dict | None = None,
 ) -> dict | None:
     if not incumbent_config_hash:
         return None
     excluded = set(excluded_config_hashes or set())
     excluded.add(incumbent_config_hash)
     excluded_signatures = {hash_value for hash_value in (excluded_rank_signature_hashes or set()) if hash_value}
+    baseline_primary_score = source_frontier_primary_score(frozen_primary_lift_baseline)
     challengers = []
     for summary in summaries:
         if (summary_config_hash(summary) or "") in excluded:
             continue
         if rank_signature_hash(summary) in excluded_signatures:
+            continue
+        if require_frozen_primary_lift and source_frontier_primary_score(summary) <= baseline_primary_score:
             continue
         summary_candidate_config = summary_config(summary)
         if (
@@ -3613,19 +3618,34 @@ def select_target_weight_inversion_anchor(
     prior_best_summary: dict | None,
     round_best: dict | None,
     improved: bool,
+    require_frozen_primary_lift: bool = False,
+    frozen_primary_lift_baseline: dict | None = None,
 ) -> tuple[dict | None, dict | None, dict]:
     incumbent_hash = summary_config_hash(prior_best_summary)
     round_best_hash = summary_config_hash(round_best)
     incumbent_for_rank_signature = round_best if incumbent_hash and round_best_hash == incumbent_hash else prior_best_summary
+    baseline = frozen_primary_lift_baseline if isinstance(frozen_primary_lift_baseline, dict) else prior_best_summary
+    baseline_primary_score = source_frontier_primary_score(baseline)
     challenger = best_challenger_summary(
         summaries,
         incumbent_hash,
         incumbent_summary=incumbent_for_rank_signature,
+        require_frozen_primary_lift=require_frozen_primary_lift,
+        frozen_primary_lift_baseline=baseline,
     )
     round_best_replays_incumbent = bool(incumbent_hash and round_best_hash == incumbent_hash)
+    round_best_primary_score = source_frontier_primary_score(round_best)
+    round_best_primary_allowed = bool(
+        not require_frozen_primary_lift
+        or improved
+        or round_best_primary_score > baseline_primary_score
+    )
     if improved:
         source = "new_best"
         anchor = round_best
+    elif not round_best_primary_allowed and isinstance(prior_best_summary, dict):
+        source = "incumbent_primary_gate"
+        anchor = prior_best_summary
     elif round_best_replays_incumbent and challenger is not None:
         source = "challenger_best"
         anchor = challenger
@@ -3641,6 +3661,11 @@ def select_target_weight_inversion_anchor(
         "challenger_config_hash": summary_config_hash(challenger) or "",
         "challenger_rank_vector_changed": rank_vector_changed(incumbent_for_rank_signature, challenger),
         "challenger_rank_vector_available": rank_vector_available(challenger),
+        "frozen_primary_lift_required": require_frozen_primary_lift,
+        "frozen_primary_lift_baseline_score": list(baseline_primary_score),
+        "round_best_frozen_primary_score": list(round_best_primary_score),
+        "round_best_primary_allowed": round_best_primary_allowed,
+        "challenger_frozen_primary_score": list(source_frontier_primary_score(challenger)),
         **_target_weight_anchor_metrics(anchor),
     }
     return anchor, challenger, metadata
@@ -3657,6 +3682,8 @@ def select_next_search_base(
     min_config_distance: float = 0.0,
     allow_unpromoted_round_best: bool = True,
     round_best_skip_reason: str = "",
+    require_frozen_primary_lift: bool = False,
+    frozen_primary_lift_baseline: dict | None = None,
 ) -> tuple[FrequencyRankerConfig, dict]:
     current_base_hash = config_hash(current_base)
     current_base_summary = None
@@ -3664,6 +3691,12 @@ def select_next_search_base(
         if summary_config_hash(summary) == current_base_hash:
             current_base_summary = summary
             break
+    primary_lift_baseline = (
+        frozen_primary_lift_baseline
+        if isinstance(frozen_primary_lift_baseline, dict)
+        else current_base_summary
+    )
+    primary_lift_baseline_score = source_frontier_primary_score(primary_lift_baseline)
     round_best_config = summary_config(round_best)
     round_best_distance = (
         config_distance(round_best_config, current_base)
@@ -3690,6 +3723,8 @@ def select_next_search_base(
         excluded_rank_signature_hashes=set(excluded_rank_signature_hashes),
         base_config=current_base,
         min_config_distance=min_config_distance,
+        require_frozen_primary_lift=require_frozen_primary_lift,
+        frozen_primary_lift_baseline=primary_lift_baseline,
     )
     fallback_search_challenger = None
     if search_challenger is None:
@@ -3699,12 +3734,18 @@ def select_next_search_base(
             incumbent_summary=current_base_summary,
             excluded_config_hashes=blocked_round_best_hashes,
             excluded_rank_signature_hashes=set(excluded_rank_signature_hashes),
+            require_frozen_primary_lift=require_frozen_primary_lift,
+            frozen_primary_lift_baseline=primary_lift_baseline,
         )
     round_best_eligible = (
         round_best is not None
         and round_best_hash not in excluded_hashes
         and round_best_signature_hash not in set(excluded_rank_signature_hashes)
         and round_best_distance >= min_config_distance
+        and (
+            not require_frozen_primary_lift
+            or source_frontier_primary_score(round_best) > primary_lift_baseline_score
+        )
     )
     if improved:
         source = "new_best"
@@ -3751,6 +3792,12 @@ def select_next_search_base(
         "round_best_search_allowed": round_best_search_allowed,
         "round_best_search_blocked": round_best_search_blocked,
         "round_best_skip_reason": round_best_skip_reason if round_best_search_blocked else "",
+        "frozen_primary_lift_required": require_frozen_primary_lift,
+        "frozen_primary_lift_baseline_score": list(primary_lift_baseline_score),
+        "selected_frozen_primary_score": list(source_frontier_primary_score(selected_summary)),
+        "round_best_frozen_primary_score": list(source_frontier_primary_score(round_best)),
+        "search_challenger_frozen_primary_score": list(source_frontier_primary_score(search_challenger)),
+        "fallback_search_challenger_frozen_primary_score": list(source_frontier_primary_score(fallback_search_challenger)),
         "round_best_config_distance": round_best_distance if round_best_config is not None else None,
         "min_config_distance": min_config_distance,
         "selected_config_distance": selected_distance,
@@ -3817,7 +3864,99 @@ def stale_round_best_search_base_gate(
         "primary_hit_passed": primary_hit_passed,
         "eval_slice_overfit_active": eval_slice_overfit_active,
         "allow_unpromoted_round_best": not active,
+        "require_frozen_primary_challenger": active,
     }
+
+
+def select_decision_round_best(
+    *,
+    round_best: dict | None,
+    prior_best_summary: dict | None,
+    improved: bool,
+    probability_focus_decision_summary: dict | None = None,
+    probability_champion: dict | None = None,
+    source_frontier_champion: dict | None = None,
+    restart_champion: dict | None = None,
+    exploration_champion: dict | None = None,
+    require_frozen_primary_lift: bool = False,
+) -> tuple[dict | None, dict]:
+    baseline_primary_score = source_frontier_primary_score(prior_best_summary)
+    metadata = {
+        "source": "",
+        "config_hash": "",
+        "improved": improved,
+        "frozen_primary_lift_required": require_frozen_primary_lift,
+        "frozen_primary_lift_baseline_score": list(baseline_primary_score),
+        "selected_frozen_primary_score": [],
+        "blocked_candidates": [],
+        "reason": None,
+    }
+    if improved:
+        selected = round_best
+        metadata.update(
+            {
+                "source": "new_best",
+                "config_hash": summary_config_hash(selected) or "",
+                "selected_frozen_primary_score": list(source_frontier_primary_score(selected)),
+                "reason": "new_best",
+            }
+        )
+        return selected, metadata
+
+    candidates = (
+        ("probability_focus", probability_focus_decision_summary),
+        ("probability_calibration", probability_champion),
+        ("source_frontier", source_frontier_champion),
+        ("rank_homogeneity_restart", restart_champion),
+        ("exploration", exploration_champion),
+    )
+    blocked_candidates: list[dict] = []
+    for source, candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        candidate_primary_score = source_frontier_primary_score(candidate)
+        if require_frozen_primary_lift and candidate_primary_score <= baseline_primary_score:
+            blocked_candidates.append(
+                {
+                    "source": source,
+                    "config_hash": summary_config_hash(candidate) or "",
+                    "frozen_primary_score": list(candidate_primary_score),
+                }
+            )
+            continue
+        metadata.update(
+            {
+                "source": source,
+                "config_hash": summary_config_hash(candidate) or "",
+                "selected_frozen_primary_score": list(candidate_primary_score),
+                "blocked_candidates": blocked_candidates,
+                "reason": "selected_candidate",
+            }
+        )
+        return candidate, metadata
+
+    if require_frozen_primary_lift and isinstance(prior_best_summary, dict):
+        metadata.update(
+            {
+                "source": "incumbent",
+                "config_hash": summary_config_hash(prior_best_summary) or "",
+                "selected_frozen_primary_score": list(source_frontier_primary_score(prior_best_summary)),
+                "blocked_candidates": blocked_candidates,
+                "reason": "incumbent_due_to_required_frozen_primary_lift",
+            }
+        )
+        return prior_best_summary, metadata
+
+    metadata.update(
+        {
+            "source": "round_best",
+            "config_hash": summary_config_hash(round_best) or "",
+            "selected_frozen_primary_score": list(source_frontier_primary_score(round_best)),
+            "blocked_candidates": blocked_candidates,
+            "reason": "round_best_default",
+        }
+    )
+    return round_best, metadata
 
 
 def should_refresh_probability_focus(
@@ -3843,9 +3982,13 @@ def select_probability_focus_search_base(
     excluded_rank_signature_hashes: tuple[str, ...] = (),
     recent_search_base_hashes: tuple[str, ...] = (),
     min_config_distance: float = 0.0,
+    require_frozen_primary_lift: bool = False,
+    frozen_primary_lift_baseline: dict | None = None,
 ) -> tuple[FrequencyRankerConfig | None, dict]:
     selected_config = summary_config(focus_summary)
     current_base_hash = config_hash(current_base)
+    baseline_primary_score = source_frontier_primary_score(frozen_primary_lift_baseline)
+    focus_primary_score = source_frontier_primary_score(focus_summary)
     if not focus_info.get("active") or selected_config is None:
         return None, {
             "source": "probability_focus",
@@ -3856,7 +3999,30 @@ def select_probability_focus_search_base(
             "candidate_config_hash": summary_config_hash(focus_summary) or "",
             "reason": "missing_focus_config" if focus_info.get("active") else "inactive",
             "min_config_distance": min_config_distance,
+            "frozen_primary_lift_required": require_frozen_primary_lift,
+            "frozen_primary_lift_baseline_score": list(baseline_primary_score),
+            "selected_frozen_primary_score": list(focus_primary_score),
             "recent_search_base_hashes": list(recent_search_base_hashes),
+            "config": config_dict(current_base),
+        }
+    if require_frozen_primary_lift and focus_primary_score <= baseline_primary_score:
+        return None, {
+            "source": "probability_focus",
+            "active": False,
+            "changed": False,
+            "previous_config_hash": current_base_hash,
+            "config_hash": current_base_hash,
+            "candidate_config_hash": summary_config_hash(focus_summary) or "",
+            "rank_signature_hash": rank_signature_hash(focus_summary),
+            "excluded_rank_signature_hashes": list(excluded_rank_signature_hashes),
+            "rank_signature_cooldown_hit": False,
+            "min_config_distance": min_config_distance,
+            "selected_config_distance": config_distance(selected_config, current_base),
+            "frozen_primary_lift_required": require_frozen_primary_lift,
+            "frozen_primary_lift_baseline_score": list(baseline_primary_score),
+            "selected_frozen_primary_score": list(focus_primary_score),
+            "recent_search_base_hashes": list(recent_search_base_hashes),
+            "reason": "frozen_primary_lift_required",
             "config": config_dict(current_base),
         }
     focus_rank_signature_hash = rank_signature_hash(focus_summary)
@@ -3872,6 +4038,9 @@ def select_probability_focus_search_base(
             "excluded_rank_signature_hashes": list(excluded_rank_signature_hashes),
             "rank_signature_cooldown_hit": True,
             "min_config_distance": min_config_distance,
+            "frozen_primary_lift_required": require_frozen_primary_lift,
+            "frozen_primary_lift_baseline_score": list(baseline_primary_score),
+            "selected_frozen_primary_score": list(focus_primary_score),
             "recent_search_base_hashes": list(recent_search_base_hashes),
             "reason": "rank_signature_cooldown",
             "config": config_dict(current_base),
@@ -3893,6 +4062,9 @@ def select_probability_focus_search_base(
             "rank_signature_cooldown_hit": False,
             "min_config_distance": min_config_distance,
             "selected_config_distance": selected_distance,
+            "frozen_primary_lift_required": require_frozen_primary_lift,
+            "frozen_primary_lift_baseline_score": list(baseline_primary_score),
+            "selected_frozen_primary_score": list(focus_primary_score),
             "recent_search_base_hashes": list(recent_search_base_hashes),
             "reason": "search_base_cooldown",
             "config": config_dict(current_base),
@@ -3910,6 +4082,9 @@ def select_probability_focus_search_base(
             "rank_signature_cooldown_hit": False,
             "min_config_distance": min_config_distance,
             "selected_config_distance": selected_distance,
+            "frozen_primary_lift_required": require_frozen_primary_lift,
+            "frozen_primary_lift_baseline_score": list(baseline_primary_score),
+            "selected_frozen_primary_score": list(focus_primary_score),
             "recent_search_base_hashes": list(recent_search_base_hashes),
             "reason": "search_base_too_close",
             "config": config_dict(current_base),
@@ -3928,6 +4103,9 @@ def select_probability_focus_search_base(
         "rank_signature_cooldown_hit": False,
         "min_config_distance": min_config_distance,
         "selected_config_distance": selected_distance,
+        "frozen_primary_lift_required": require_frozen_primary_lift,
+        "frozen_primary_lift_baseline_score": list(baseline_primary_score),
+        "selected_frozen_primary_score": list(focus_primary_score),
         "search_challenger_config_distance": None,
         "search_challenger_rank_vector_changed": False,
         "search_challenger_rank_vector_available": False,
@@ -5151,6 +5329,9 @@ def run_supervisor(
                 promotion_gate=promotion_gate,
                 eval_slice_overfit=eval_slice_overfit,
             )
+            require_frozen_primary_navigation = bool(
+                round_best_search_gate.get("require_frozen_primary_challenger")
+            )
             exploration_champion, exploration_champion_info = select_stagnation_exploration_champion(
                 summaries=summaries,
                 source_configs=source_configs,
@@ -5281,23 +5462,24 @@ def run_supervisor(
                         else "expired",
                     }
                 )
-            decision_round_best = round_best
-            if not improved:
-                if probability_focus_decision_summary is not None:
-                    decision_round_best = probability_focus_decision_summary
-                elif probability_champion is not None:
-                    decision_round_best = probability_champion
-                elif source_frontier_champion is not None:
-                    decision_round_best = source_frontier_champion
-                elif restart_champion is not None:
-                    decision_round_best = restart_champion
-                elif exploration_champion is not None:
-                    decision_round_best = exploration_champion
+            decision_round_best, decision_round_best_info = select_decision_round_best(
+                round_best=round_best,
+                prior_best_summary=prior_best_summary,
+                improved=improved,
+                probability_focus_decision_summary=probability_focus_decision_summary,
+                probability_champion=probability_champion,
+                source_frontier_champion=source_frontier_champion,
+                restart_champion=restart_champion,
+                exploration_champion=exploration_champion,
+                require_frozen_primary_lift=require_frozen_primary_navigation,
+            )
             inversion_anchor, challenger_summary, inversion_anchor_info = select_target_weight_inversion_anchor(
                 summaries=summaries,
                 prior_best_summary=prior_best_summary,
                 round_best=decision_round_best,
                 improved=improved,
+                require_frozen_primary_lift=require_frozen_primary_navigation,
+                frozen_primary_lift_baseline=prior_best_summary,
             )
             prefilter_info["frozen_validation_window"] = validation_window
             prefilter_info["control_experiments"] = control_summaries
@@ -5312,6 +5494,7 @@ def run_supervisor(
             prefilter_info["rank_homogeneity_restart_champion"] = restart_champion_info
             prefilter_info["probability_calibration_champion"] = probability_champion_info
             prefilter_info["probability_focus"] = probability_focus_info
+            prefilter_info["decision_round_best"] = decision_round_best_info
             status["probability_focus"]["latest"] = probability_focus_info
             prefilter_info["source_survival"] = candidate_source_survival(
                 source_configs,
@@ -5392,6 +5575,8 @@ def run_supervisor(
                     excluded_rank_signature_hashes=rank_signature_cooldown_hashes,
                     recent_search_base_hashes=focus_recent_search_base_hashes,
                     min_config_distance=min_search_base_distance if rank_homogeneity["active"] else 0.0,
+                    require_frozen_primary_lift=require_frozen_primary_navigation,
+                    frozen_primary_lift_baseline=prior_best_summary,
                 )
                 if next_search_base_config is None:
                     next_search_base_config, search_base_info = select_next_search_base(
@@ -5406,6 +5591,8 @@ def run_supervisor(
                             round_best_search_gate["allow_unpromoted_round_best"]
                         ),
                         round_best_skip_reason=str(round_best_search_gate["reason"]),
+                        require_frozen_primary_lift=require_frozen_primary_navigation,
+                        frozen_primary_lift_baseline=prior_best_summary,
                     )
             else:
                 next_search_base_config, search_base_info = select_next_search_base(
@@ -5418,6 +5605,8 @@ def run_supervisor(
                     min_config_distance=min_search_base_distance,
                     allow_unpromoted_round_best=bool(round_best_search_gate["allow_unpromoted_round_best"]),
                     round_best_skip_reason=str(round_best_search_gate["reason"]),
+                    require_frozen_primary_lift=require_frozen_primary_navigation,
+                    frozen_primary_lift_baseline=prior_best_summary,
                 )
             search_base_info["phase"] = phase
             search_base_info["phase_stage"] = phase_stage

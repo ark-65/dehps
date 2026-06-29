@@ -52,6 +52,7 @@ from scripts.run_training_supervisor import (
     stagnation_round_count,
     target_hit_issues,
     training_event_payload,
+    select_decision_round_best,
     select_target_weight_inversion_anchor,
     select_probability_calibration_champion,
     select_probability_focus_search_base,
@@ -212,6 +213,41 @@ def test_target_weight_inversion_anchor_uses_challenger_when_incumbent_replays()
     assert metadata["config_hash"] == config_hash(challenger_config)
     assert metadata["incumbent_config_hash"] == config_hash(incumbent_config)
     assert metadata["challenger_rank_vector_changed"] is False
+
+
+def test_target_weight_inversion_anchor_blocks_challenger_without_frozen_primary_lift():
+    incumbent_config = FrequencyRankerConfig()
+    challenger_config = FrequencyRankerConfig(frequency_weight=0.45, omission_weight=0.10)
+    incumbent = attach_test_frozen_validation(
+        supervisor_summary_for_config(incumbent_config, target_ranks=[100, 900, 50_000]),
+        top_10000_hits=0,
+    )
+    challenger = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            challenger_config,
+            top_100_hits=3,
+            top_1000_hits=3,
+            top_10000_hits=3,
+            target_ranks=[17, 55, 89],
+            objective_score=2300.0,
+        ),
+        top_10000_hits=0,
+    )
+
+    anchor, challenger_best, metadata = select_target_weight_inversion_anchor(
+        summaries=[incumbent, challenger],
+        prior_best_summary=incumbent,
+        round_best=challenger,
+        improved=False,
+        require_frozen_primary_lift=True,
+        frozen_primary_lift_baseline=incumbent,
+    )
+
+    assert anchor is incumbent
+    assert challenger_best is None
+    assert metadata["source"] == "incumbent_primary_gate"
+    assert metadata["round_best_primary_allowed"] is False
+    assert metadata["round_best_frozen_primary_score"] == [0, 0, 0]
 
 
 def test_best_challenger_prefers_different_rank_vector_over_config_only_change():
@@ -455,7 +491,73 @@ def test_eval_slice_overfit_guardrail_blocks_unpromoted_round_best():
     assert overfit["round_best_top_100_hit_issues"] == ["2026001", "2026002", "2026003"]
     assert overfit["source_counts"] == {"normal": 1, "ridge_kdj": 1}
     assert gate["allow_unpromoted_round_best"] is False
+    assert gate["require_frozen_primary_challenger"] is True
     assert gate["reason"] == "eval_slice_overfit_no_frozen_primary_lift"
+
+
+def test_decision_round_best_requires_frozen_primary_lift_under_overfit_gate():
+    incumbent_config = FrequencyRankerConfig(frequency_weight=0.30)
+    restart_config = FrequencyRankerConfig(frequency_weight=0.90)
+    incumbent = attach_test_frozen_validation(
+        supervisor_summary_for_config(incumbent_config, target_ranks=[100, 900, 50_000]),
+        top_100_hits=0,
+        top_1000_hits=0,
+        top_10000_hits=0,
+    )
+    restart = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            restart_config,
+            top_100_hits=3,
+            top_1000_hits=3,
+            top_10000_hits=3,
+            target_ranks=[17, 55, 89],
+        ),
+        top_100_hits=0,
+        top_1000_hits=0,
+        top_10000_hits=0,
+    )
+
+    selected, metadata = select_decision_round_best(
+        round_best=restart,
+        prior_best_summary=incumbent,
+        improved=False,
+        restart_champion=restart,
+        require_frozen_primary_lift=True,
+    )
+
+    assert selected is incumbent
+    assert metadata["source"] == "incumbent"
+    assert metadata["reason"] == "incumbent_due_to_required_frozen_primary_lift"
+    assert metadata["blocked_candidates"] == [
+        {
+            "source": "rank_homogeneity_restart",
+            "config_hash": summary_config_hash(restart),
+            "frozen_primary_score": [0, 0, 0],
+        }
+    ]
+
+
+def test_decision_round_best_allows_primary_lift_under_overfit_gate():
+    incumbent = attach_test_frozen_validation(
+        supervisor_summary_for_config(FrequencyRankerConfig(frequency_weight=0.30)),
+        top_10000_hits=0,
+    )
+    source_frontier = attach_test_frozen_validation(
+        supervisor_summary_for_config(FrequencyRankerConfig(frequency_weight=0.65)),
+        top_10000_hits=1,
+    )
+
+    selected, metadata = select_decision_round_best(
+        round_best=source_frontier,
+        prior_best_summary=incumbent,
+        improved=False,
+        source_frontier_champion=source_frontier,
+        require_frozen_primary_lift=True,
+    )
+
+    assert selected is source_frontier
+    assert metadata["source"] == "source_frontier"
+    assert metadata["selected_frozen_primary_score"] == [0, 0, 1]
 
 
 def test_target_weight_inversion_anchor_keeps_new_best_when_improved():
@@ -1338,6 +1440,44 @@ def test_probability_focus_search_base_returns_none_on_rank_signature_cooldown()
     assert metadata["rank_signature_cooldown_hit"] is True
 
 
+def test_probability_focus_search_base_requires_frozen_primary_lift_when_gated():
+    current_config = FrequencyRankerConfig(frequency_weight=0.30)
+    focus_config = FrequencyRankerConfig(frequency_weight=0.45, omission_weight=0.10)
+    incumbent = attach_test_frozen_validation(
+        supervisor_summary_for_config(current_config),
+        top_10000_hits=0,
+    )
+    focus_summary = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            focus_config,
+            top_100_hits=3,
+            top_1000_hits=3,
+            top_10000_hits=3,
+        ),
+        top_10000_hits=0,
+    )
+
+    next_base, metadata = select_probability_focus_search_base(
+        current_base=current_config,
+        focus_summary=focus_summary,
+        focus_info={
+            "active": True,
+            "source": "probability_focus",
+            "reason": "held_previous_probability_focus",
+            "hold_rounds": 4,
+            "remaining_rounds": 2,
+            "refreshed": False,
+        },
+        require_frozen_primary_lift=True,
+        frozen_primary_lift_baseline=incumbent,
+    )
+
+    assert next_base is None
+    assert metadata["reason"] == "frozen_primary_lift_required"
+    assert metadata["frozen_primary_lift_required"] is True
+    assert metadata["selected_frozen_primary_score"] == [0, 0, 0]
+
+
 def test_next_search_base_skips_round_best_with_excluded_rank_signature():
     current_config = FrequencyRankerConfig()
     round_best_config = FrequencyRankerConfig(frequency_weight=0.40)
@@ -1365,6 +1505,92 @@ def test_next_search_base_skips_round_best_with_excluded_rank_signature():
     assert metadata["source"] == "search_challenger"
     assert metadata["round_best_rank_signature_hash"] == rank_signature_hash(round_best)
     assert metadata["rank_signature_hash"] == rank_signature_hash(challenger)
+
+
+def test_next_search_base_requires_frozen_primary_lift_for_challenger_when_gated():
+    current_config = FrequencyRankerConfig()
+    blocked_config = FrequencyRankerConfig(frequency_weight=0.40)
+    lift_config = FrequencyRankerConfig(frequency_weight=0.65)
+    incumbent = attach_test_frozen_validation(
+        supervisor_summary_for_config(current_config, target_ranks=[100, 900, 50_000]),
+        top_10000_hits=0,
+    )
+    blocked = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            blocked_config,
+            top_100_hits=3,
+            top_1000_hits=3,
+            top_10000_hits=3,
+            target_ranks=[17, 55, 89],
+            objective_score=2300.0,
+        ),
+        top_10000_hits=0,
+    )
+    lift = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            lift_config,
+            top_100_hits=1,
+            top_1000_hits=2,
+            top_10000_hits=3,
+            target_ranks=[500, 900, 8_000],
+            objective_score=100.0,
+        ),
+        top_10000_hits=1,
+    )
+
+    next_base, metadata = select_next_search_base(
+        current_base=current_config,
+        summaries=[incumbent, blocked, lift],
+        round_best=blocked,
+        improved=False,
+        allow_unpromoted_round_best=False,
+        round_best_skip_reason="eval_slice_overfit_no_frozen_primary_lift",
+        require_frozen_primary_lift=True,
+        frozen_primary_lift_baseline=incumbent,
+    )
+
+    assert config_hash(next_base) == config_hash(lift_config)
+    assert metadata["source"] == "search_challenger"
+    assert metadata["frozen_primary_lift_required"] is True
+    assert metadata["frozen_primary_lift_baseline_score"] == [0, 0, 0]
+    assert metadata["search_challenger_frozen_primary_score"] == [0, 0, 1]
+
+
+def test_next_search_base_stays_put_when_gated_challengers_have_no_frozen_primary_lift():
+    current_config = FrequencyRankerConfig()
+    blocked_config = FrequencyRankerConfig(frequency_weight=0.40)
+    incumbent = attach_test_frozen_validation(
+        supervisor_summary_for_config(current_config, target_ranks=[100, 900, 50_000]),
+        top_10000_hits=0,
+    )
+    blocked = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            blocked_config,
+            top_100_hits=3,
+            top_1000_hits=3,
+            top_10000_hits=3,
+            target_ranks=[17, 55, 89],
+            objective_score=2300.0,
+        ),
+        top_10000_hits=0,
+    )
+
+    next_base, metadata = select_next_search_base(
+        current_base=current_config,
+        summaries=[incumbent, blocked],
+        round_best=blocked,
+        improved=False,
+        allow_unpromoted_round_best=False,
+        round_best_skip_reason="eval_slice_overfit_no_frozen_primary_lift",
+        require_frozen_primary_lift=True,
+        frozen_primary_lift_baseline=incumbent,
+    )
+
+    assert config_hash(next_base) == config_hash(current_config)
+    assert metadata["source"] == "unchanged"
+    assert metadata["changed"] is False
+    assert metadata["search_challenger_config_hash"] == ""
+    assert metadata["selected_frozen_primary_score"] == [0, 0, 0]
 
 
 def test_probability_calibration_champion_waits_for_stagnation_threshold():
