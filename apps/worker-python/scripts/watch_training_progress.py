@@ -244,6 +244,95 @@ def advisor_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return result
 
 
+def safe_score(value: Any) -> list[Any]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    return []
+
+
+def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    promotion = prefilter.get("promotion_gate") if isinstance(prefilter.get("promotion_gate"), dict) else {}
+    eval_guard = (
+        prefilter.get("eval_slice_overfit_guardrail")
+        if isinstance(prefilter.get("eval_slice_overfit_guardrail"), dict)
+        else {}
+    )
+    stale_gate = (
+        prefilter.get("stale_round_best_search_base_gate")
+        if isinstance(prefilter.get("stale_round_best_search_base_gate"), dict)
+        else {}
+    )
+    rank_homogeneity = (
+        prefilter.get("rank_homogeneity_guardrail")
+        if isinstance(prefilter.get("rank_homogeneity_guardrail"), dict)
+        else {}
+    )
+    decision = prefilter.get("decision_round_best") if isinstance(prefilter.get("decision_round_best"), dict) else {}
+    blocked_candidates = decision.get("blocked_candidates") if isinstance(decision.get("blocked_candidates"), list) else []
+
+    result: dict[str, dict[str, Any]] = {}
+    if promotion:
+        result["promotion_gate"] = {
+            "passed": bool(promotion.get("passed")),
+            "reason": promotion.get("reason"),
+            "tail_passed": bool(promotion.get("tail_passed")),
+            "objective_passed": bool(promotion.get("objective_passed")),
+            "primary_hit_passed": bool(promotion.get("primary_hit_passed")),
+            "candidate_primary_score": safe_score(promotion.get("candidate_primary_score")),
+            "incumbent_primary_score": safe_score(promotion.get("incumbent_primary_score")),
+        }
+    if eval_guard:
+        result["eval_slice_overfit_guardrail"] = {
+            "active": bool(eval_guard.get("active")),
+            "reason": eval_guard.get("reason"),
+            "force_primary_gate": bool(eval_guard.get("force_primary_gate")),
+            "rank_homogeneity_active": bool(eval_guard.get("rank_homogeneity_active")),
+            "rank_homogeneity_unique_signature_count": safe_int(
+                eval_guard.get("rank_homogeneity_unique_signature_count")
+            ),
+            "round_best_eval_primary_score": safe_score(eval_guard.get("round_best_eval_primary_score")),
+            "round_best_frozen_primary_score": safe_score(eval_guard.get("round_best_frozen_primary_score")),
+            "incumbent_frozen_primary_score": safe_score(eval_guard.get("incumbent_frozen_primary_score")),
+            "suspicious_candidate_count": safe_int(eval_guard.get("suspicious_candidate_count")) or 0,
+            "issue_counts": eval_guard.get("issue_counts") if isinstance(eval_guard.get("issue_counts"), dict) else {},
+            "source_counts": eval_guard.get("source_counts") if isinstance(eval_guard.get("source_counts"), dict) else {},
+        }
+    if stale_gate:
+        result["stale_round_best_search_base_gate"] = {
+            "active": bool(stale_gate.get("active")),
+            "reason": stale_gate.get("reason"),
+            "require_frozen_primary_challenger": bool(stale_gate.get("require_frozen_primary_challenger")),
+            "allow_unpromoted_round_best": bool(stale_gate.get("allow_unpromoted_round_best")),
+            "threshold": safe_int(stale_gate.get("threshold")),
+        }
+    if rank_homogeneity:
+        result["rank_homogeneity_guardrail"] = {
+            "active": bool(rank_homogeneity.get("active")),
+            "reason": rank_homogeneity.get("reason"),
+            "window": safe_int(rank_homogeneity.get("window")),
+            "observed": safe_int(rank_homogeneity.get("observed")),
+            "unique_signature_count": safe_int(rank_homogeneity.get("unique_signature_count")),
+            "max_unique_signatures": safe_int(rank_homogeneity.get("max_unique_signatures")),
+        }
+    if decision:
+        result["decision_round_best"] = {
+            "source": decision.get("source"),
+            "reason": decision.get("reason"),
+            "frozen_primary_lift_required": bool(decision.get("frozen_primary_lift_required")),
+            "selected_frozen_primary_score": safe_score(decision.get("selected_frozen_primary_score")),
+            "frozen_primary_lift_baseline_score": safe_score(decision.get("frozen_primary_lift_baseline_score")),
+            "blocked_candidate_count": len(blocked_candidates),
+            "blocked_candidate_sources": [
+                str(item.get("source"))
+                for item in blocked_candidates[:5]
+                if isinstance(item, dict) and item.get("source")
+            ],
+        }
+    return result
+
+
 def round_age_minutes(row: dict[str, Any], *, now: datetime) -> float | None:
     updated_at = row.get("updated_at") or row.get("created_at")
     if not isinstance(updated_at, datetime):
@@ -274,6 +363,7 @@ def recommendation_summary(
     now: datetime,
     stale_minutes: int,
     round_stats: dict[str, Any] | None = None,
+    gates: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if not rows:
         return {
@@ -327,6 +417,49 @@ def recommendation_summary(
     if int(ridge.get("candidate_count") or 0) > 0:
         notes.append("Ridge advisor remains a viable lightweight candidate source.")
 
+    gates = gates or {}
+    promotion = gates.get("promotion_gate") if isinstance(gates.get("promotion_gate"), dict) else {}
+    if promotion and not promotion.get("passed"):
+        notes.append(
+            "Promotion gate blocked the latest round: "
+            f"{promotion.get('reason')} "
+            f"candidate_primary={promotion.get('candidate_primary_score')} "
+            f"incumbent_primary={promotion.get('incumbent_primary_score')}."
+        )
+    eval_guard = (
+        gates.get("eval_slice_overfit_guardrail")
+        if isinstance(gates.get("eval_slice_overfit_guardrail"), dict)
+        else {}
+    )
+    if eval_guard.get("active"):
+        notes.append(
+            "Eval-slice overfit guardrail is active: "
+            f"{eval_guard.get('reason')} "
+            f"eval_primary={eval_guard.get('round_best_eval_primary_score')} "
+            f"frozen_primary={eval_guard.get('round_best_frozen_primary_score')} "
+            f"suspicious_candidates={eval_guard.get('suspicious_candidate_count')}."
+        )
+    stale_gate = (
+        gates.get("stale_round_best_search_base_gate")
+        if isinstance(gates.get("stale_round_best_search_base_gate"), dict)
+        else {}
+    )
+    if stale_gate.get("active"):
+        notes.append(
+            "Search-base gate requires a frozen-primary challenger before leaving the incumbent search base."
+        )
+    rank_homogeneity = (
+        gates.get("rank_homogeneity_guardrail")
+        if isinstance(gates.get("rank_homogeneity_guardrail"), dict)
+        else {}
+    )
+    if rank_homogeneity.get("active"):
+        notes.append(
+            "Rank homogeneity guardrail is active: "
+            f"{rank_homogeneity.get('reason')} "
+            f"unique_signatures={rank_homogeneity.get('unique_signature_count')}."
+        )
+
     if not actions:
         actions.append("continue_current_run")
 
@@ -359,11 +492,13 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
     latest = rows[-1] if rows else {}
     prefilter = latest.get("prefilter") if isinstance(latest.get("prefilter"), dict) else {}
     advisors = advisor_summary(prefilter)
+    gates = gate_summary(prefilter)
     lock = heavy_lock_summary()
     recommendation = recommendation_summary(
         rows=rows,
         lock=lock,
         advisors=advisors,
+        gates=gates,
         now=generated_at,
         stale_minutes=stale_minutes,
         round_stats=round_stats,
@@ -396,6 +531,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         },
         "candidate_budget": prefilter.get("candidate_budget") if isinstance(prefilter.get("candidate_budget"), dict) else {},
         "advisor_summary": advisors,
+        "gate_summary": gates,
         "heavy_job_lock": lock,
         "recommendation": recommendation,
         "guardrail": "Historical response-surface monitoring only; no predictive claim and no automatic promotion without controls.",
@@ -415,6 +551,67 @@ def render_markdown(payload: dict[str, Any]) -> str:
         for key, value in payload["advisor_summary"].items()
     )
     note_rows = "\n".join(f"- {markdown_inline_text(note)}" for note in rec.get("notes", []))
+    gates = payload.get("gate_summary") if isinstance(payload.get("gate_summary"), dict) else {}
+    gate_section = ""
+    if gates:
+        promotion = gates.get("promotion_gate") if isinstance(gates.get("promotion_gate"), dict) else {}
+        eval_guard = (
+            gates.get("eval_slice_overfit_guardrail")
+            if isinstance(gates.get("eval_slice_overfit_guardrail"), dict)
+            else {}
+        )
+        stale_gate = (
+            gates.get("stale_round_best_search_base_gate")
+            if isinstance(gates.get("stale_round_best_search_base_gate"), dict)
+            else {}
+        )
+        rank_homogeneity = (
+            gates.get("rank_homogeneity_guardrail")
+            if isinstance(gates.get("rank_homogeneity_guardrail"), dict)
+            else {}
+        )
+        decision = gates.get("decision_round_best") if isinstance(gates.get("decision_round_best"), dict) else {}
+        gate_lines = ["## Gate Snapshot", ""]
+        if promotion:
+            gate_lines.append(
+                "- Promotion gate: "
+                f"passed={promotion.get('passed')} "
+                f"reason={markdown_inline_text(promotion.get('reason'))} "
+                f"candidate_primary={promotion.get('candidate_primary_score')} "
+                f"incumbent_primary={promotion.get('incumbent_primary_score')}"
+            )
+        if eval_guard:
+            gate_lines.append(
+                "- Eval-slice overfit guardrail: "
+                f"active={eval_guard.get('active')} "
+                f"reason={markdown_inline_text(eval_guard.get('reason'))} "
+                f"eval_primary={eval_guard.get('round_best_eval_primary_score')} "
+                f"frozen_primary={eval_guard.get('round_best_frozen_primary_score')} "
+                f"suspicious={eval_guard.get('suspicious_candidate_count')}"
+            )
+        if stale_gate:
+            gate_lines.append(
+                "- Search-base gate: "
+                f"active={stale_gate.get('active')} "
+                f"reason={markdown_inline_text(stale_gate.get('reason'))} "
+                f"require_frozen_primary_challenger={stale_gate.get('require_frozen_primary_challenger')}"
+            )
+        if rank_homogeneity:
+            gate_lines.append(
+                "- Rank homogeneity: "
+                f"active={rank_homogeneity.get('active')} "
+                f"reason={markdown_inline_text(rank_homogeneity.get('reason'))} "
+                f"unique_signatures={rank_homogeneity.get('unique_signature_count')}"
+            )
+        if decision:
+            gate_lines.append(
+                "- Decision round best: "
+                f"source={markdown_inline_text(decision.get('source'))} "
+                f"reason={markdown_inline_text(decision.get('reason'))} "
+                f"selected_frozen_primary={decision.get('selected_frozen_primary_score')} "
+                f"blocked_candidates={decision.get('blocked_candidate_count')}"
+            )
+        gate_section = "\n".join(gate_lines) + "\n\n"
     return f"""# DEHPS Training Watch
 
 - Generated at: {payload.get("generated_at")}
@@ -441,6 +638,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
 | --- | ---: | ---: | ---: | --- |
 {advisor_rows}
 
+{gate_section}\
 ## Heavy Job Lock
 
 ```json

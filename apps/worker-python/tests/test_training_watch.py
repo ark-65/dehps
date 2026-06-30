@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import scripts.watch_training_progress as watch
 from scripts.watch_training_progress import (
     advisor_summary,
+    gate_summary,
     recommendation_summary,
     render_markdown,
     safe_float,
@@ -138,6 +139,111 @@ def test_advisor_summary_and_markdown_include_guardrails():
     assert advisors["neural_kdj_advisor"]["top_advice"][0]["confidence"] == 0.03
     assert "Neural" not in markdown  # Machine-readable key is used in the table.
     assert "Historical response-surface monitoring only" in markdown
+
+
+def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_markdown():
+    now = datetime(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+    prefilter = {
+        "promotion_gate": {
+            "passed": False,
+            "reason": "frozen_validation_not_better",
+            "tail_passed": True,
+            "objective_passed": False,
+            "primary_hit_passed": False,
+            "candidate_primary_score": [0, 0, 0],
+            "incumbent_primary_score": [0, 0, 0],
+        },
+        "eval_slice_overfit_guardrail": {
+            "active": True,
+            "reason": "eval_slice_overfit_no_frozen_primary_lift",
+            "force_primary_gate": True,
+            "rank_homogeneity_active": True,
+            "rank_homogeneity_unique_signature_count": 1,
+            "round_best_eval_primary_score": [3, 3, 3],
+            "round_best_frozen_primary_score": [0, 0, 0],
+            "incumbent_frozen_primary_score": [0, 0, 0],
+            "suspicious_candidate_count": 4,
+            "issue_counts": {"2026025": 4},
+            "source_counts": {"stagnation_restart": 1},
+        },
+        "stale_round_best_search_base_gate": {
+            "active": True,
+            "reason": "eval_slice_overfit_no_frozen_primary_lift",
+            "require_frozen_primary_challenger": True,
+            "allow_unpromoted_round_best": False,
+            "threshold": 64,
+        },
+        "rank_homogeneity_guardrail": {
+            "active": True,
+            "reason": "stale_rank_signature_cycle",
+            "window": 12,
+            "observed": 12,
+            "unique_signature_count": 1,
+            "max_unique_signatures": 4,
+        },
+        "decision_round_best": {
+            "source": "incumbent",
+            "reason": "incumbent_due_to_required_frozen_primary_lift",
+            "frozen_primary_lift_required": True,
+            "selected_frozen_primary_score": [0, 0, 0],
+            "frozen_primary_lift_baseline_score": [0, 0, 0],
+            "blocked_candidates": [{"source": "rank_homogeneity_restart"}],
+        },
+    }
+
+    gates = gate_summary(prefilter)
+    recommendation = recommendation_summary(
+        rows=[
+            {
+                "round_index": index,
+                "improved": False,
+                "updated_at": now - timedelta(minutes=2),
+            }
+            for index in range(1, 35)
+        ],
+        lock={"active": True, "owner": "training-supervisor"},
+        advisors={"neural_kdj_advisor": {"candidate_count": 0}},
+        gates=gates,
+        now=now,
+        stale_minutes=30,
+    )
+    payload = {
+        "generated_at": "2026-06-18T10:00:00Z",
+        "run_id": "run-1",
+        "round_count": 34,
+        "latest_round": 34,
+        "last_improved_round": None,
+        "stagnation_rounds": 34,
+        "latest_metrics": {
+            "phase": "large",
+            "step": 0.15,
+            "improved": False,
+            "top_100_hits": 3,
+            "top_1000_hits": 3,
+            "top_10000_hits": 3,
+            "red5_top_10000_hits": 28,
+            "best_rank": 39,
+            "median_rank": 557702,
+            "worst_rank": 1079121,
+            "objective_score": 5085.35383,
+            "best_objective_seen": 5085.35383,
+        },
+        "advisor_summary": {},
+        "gate_summary": gates,
+        "heavy_job_lock": {"active": True},
+        "recommendation": recommendation,
+        "guardrail": "Historical response-surface monitoring only.",
+    }
+
+    markdown = render_markdown(payload)
+
+    assert gates["promotion_gate"]["reason"] == "frozen_validation_not_better"
+    assert gates["eval_slice_overfit_guardrail"]["round_best_eval_primary_score"] == [3, 3, 3]
+    assert gates["decision_round_best"]["blocked_candidate_count"] == 1
+    assert any("Promotion gate blocked" in note for note in recommendation["notes"])
+    assert any("Eval-slice overfit guardrail is active" in note for note in recommendation["notes"])
+    assert "## Gate Snapshot" in markdown
+    assert "frozen_primary=[0, 0, 0]" in markdown
 
 
 def test_render_markdown_escapes_untrusted_inline_text():
