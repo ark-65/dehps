@@ -15,6 +15,7 @@ from dehps.optimization.neural_kdj_advisor import (
 )
 from dehps.optimization.control_experiments import load_config_json_candidate
 from scripts.generate_neural_kdj_advisor_candidate import load_base_config as load_neural_base_config
+from scripts.generate_neural_kdj_advisor_candidate import load_signal_rows
 
 
 def _row(
@@ -194,3 +195,16 @@ def test_neural_base_config_rejects_nonfinite_values(tmp_path):
 
     with pytest.raises(ValueError, match="--base-config-json field sum_tail_weight must be a finite number"):
         load_neural_base_config(path)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"limit": 0, "train_window": None, "top_n": None}, "limit must be at least 1"),
+        ({"limit": 1, "train_window": 0, "top_n": None}, "train_window must be at least 1"),
+        ({"limit": 1, "train_window": None, "top_n": 0}, "top_n must be at least 1"),
+    ],
+)
+def test_neural_signal_loader_rejects_nonpositive_query_bounds(kwargs, match):
+    with pytest.raises(ValueError, match=match):
+        load_signal_rows(signal_run_id="neural-kdj-test", **kwargs)

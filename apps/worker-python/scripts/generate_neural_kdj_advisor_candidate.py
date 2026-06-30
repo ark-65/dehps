@@ -50,8 +50,7 @@ def load_signal_rows(
     train_window: int | None,
     top_n: int | None,
 ) -> list[dict[str, Any]]:
-    if limit < 1:
-        return []
+    _validate_signal_query_args(limit=limit, train_window=train_window, top_n=top_n)
     conditions = ["signal_run_id = %s"]
     params: list[Any] = [signal_run_id]
     if train_window is not None:
@@ -107,6 +106,15 @@ def load_signal_rows(
         }
         for row in rows
     ]
+
+
+def _validate_signal_query_args(*, limit: int, train_window: int | None, top_n: int | None) -> None:
+    if limit < 1:
+        raise ValueError("limit must be at least 1")
+    if train_window is not None and train_window < 1:
+        raise ValueError("train_window must be at least 1")
+    if top_n is not None and top_n < 1:
+        raise ValueError("top_n must be at least 1")
 
 
 def default_output_path(output_dir: Path) -> Path:
