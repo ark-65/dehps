@@ -2,7 +2,7 @@
 
 这个项目级 memory 用于记录 DEHPS 自溶蚀 / 自我迭代任务的历史、操作规则和后续优化约束。
 
-这里的“自溶蚀”指一个由调度器驱动的维护循环：持续、缓慢地蚀除 bug、陈旧假设、噪音产物和可观测性缺口。它不是彩票预测机制。
+这里的“自溶蚀”指一个由调度器驱动的私有预测训练维护循环：持续、缓慢地蚀除 bug、陈旧假设、噪音产物、训练盲点和可观测性缺口。它可以围绕彩票预测信号做内部训练优化，但必须受合法样本空间、历史窗口、baseline/null model、泄漏检查、证据等级、风险、不确定性和失败案例约束。
 
 ## 当前约定
 
@@ -19,7 +19,11 @@
 - 开始先检查 `git status`。
 - 如果工作区不干净，停止并说明原因；不要覆盖用户或上一轮 agent 的改动。
 - 每轮只做一个小而可验证的改进。
-- 优先修 bug、失败测试、启动错误、陈旧假设、噪音产物和可观测性缺口。
+- 每轮优先查看训练进度：运行或读取 `apps/worker-python/.venv/bin/python apps/worker-python/scripts/watch_training_progress.py --limit 5`，并检查最新 training supervisor status/report。
+- 优先修训练 watch / supervisor 运行错误、失败测试、明显 bug、类型错误和启动错误。
+- 当训练停滞、发散、候选族塌缩或出现可疑跳变时，先做 `$gauss` / `$riemann` / `$gauss-riemann-dialogue` 诊断，再改策略逻辑。
+- 诊断必须覆盖合法样本空间、历史窗口、baseline/null model、泄漏、重复组合、parser/sync 错误、后验阈值、候选多样性、共现结构和局部-全局一致性。
+- 自主改动限制在 bug、诊断、现有参数边界或现有策略的明显安全约束；没有人工明确要求时，不新增模型、advisor、候选源或大策略。
 - 不提交 `data/output` 或 `runtime` 下的生成产物，除非本轮明确要提升一个小型验收报告为正式产物。
 - 先跑最小相关测试；只有改动面要求时再扩大测试范围。
 - 若代码改动通过验证，提交信息使用 `self-iterate:` 前缀，并推送到当前 upstream 分支。
@@ -38,6 +42,7 @@
 | 2026-06-22 | 更新自我迭代 prompt，使成功创建的自主提交会继续推送。提交：`ef895bc`。 |
 | 2026-06-22 | 自我迭代运行显式记录同步校验失败。提交：`8b7c4b5`。 |
 | 2026-06-30 | 调整调度器自我迭代提交归属：脚本导出 ark-65 GitHub noreply author/committer，并启用 commit-msg hook 自动追加 inhuman-0 co-author trailer，避免后续自主提交继续显示为 `Ark Codex <codex@local>`。验证：`bash -n scripts/hourly_self_iterate.sh`、临时仓库 hook 提交冒烟。 |
+| 2026-06-30 | 调整自我迭代目标：从普通维护优先改为训练进度优先、Gauss/Riemann 数学诊断优先的私有预测训练维护循环；自主改动限制在小修、诊断和现有策略安全边界。验证：`bash -n scripts/hourly_self_iterate.sh`、`apps/worker-python/.venv/bin/python apps/worker-python/scripts/watch_training_progress.py --limit 5`、`git diff --check`。 |
 | 2026-06-22 | 修复训练 supervisor 的 target inversion 锚点：若本轮 best 只是历史 best 重放，改用本轮 challenger 做反推锚点。验证：`apps/worker-python/.venv/bin/python -m pytest apps/worker-python/tests -q` 通过 `164 passed`；live run `20260622-103001` round 1 写入 `anchor.source=challenger_best`，round 2 status 显示 `candidate_budget.target_weight_inversion=4`。 |
 | 2026-06-22 | 调整训练节奏：初期 24 轮使用 large/medium 大步长，后期逐步退火到 small/micro；同时把 retained best 和 moving search base 分离，没刷新 best 时也用 rank-vector 不同的 challenger 推进下一轮 search base。验证：`apps/worker-python/.venv/bin/python -m pytest apps/worker-python/tests -q` 通过 `167 passed`。 |
 | 2026-06-22 | 修复 moving search base 的 A/B 回跳：选择下一轮 search base 时排除当前和最近 search base，优先选 rank-vector 不同的新 challenger。验证：`apps/worker-python/.venv/bin/python -m pytest apps/worker-python/tests -q` 通过 `169 passed`；live run `20260622-112552` R1 `37713bad -> fdacf9ec`，R2 `fdacf9ec -> f88482b2`。 |
@@ -69,6 +74,7 @@
 crontab -l
 tail -n 120 runtime/logs/hourly_self_iterate.log
 cat runtime/logs/hourly_self_iterate.last.md
+apps/worker-python/.venv/bin/python apps/worker-python/scripts/watch_training_progress.py --limit 5
 git status --short
 git log --oneline --grep='self-iterate' -n 20
 ```
