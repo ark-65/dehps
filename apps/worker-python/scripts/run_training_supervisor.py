@@ -432,7 +432,7 @@ def stagnation_restart_candidate_configs(
     if max_configs <= 0:
         return ()
     configs: list[FrequencyRankerConfig] = []
-    seen: set[str] = set()
+    seen: set[str] = {json.dumps(config_dict(clamp_config(base)), sort_keys=True)}
     primary_extremes = (
         {"structural_weight": 1.15, "frequency_weight": 0.05, "omission_weight": 0.05},
         {"structural_weight": 0.05, "frequency_weight": 1.15, "omission_weight": 0.05},

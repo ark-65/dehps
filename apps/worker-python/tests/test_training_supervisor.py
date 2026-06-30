@@ -823,6 +823,24 @@ def test_stagnation_restart_candidate_configs_are_bounded_and_distant():
     assert any(config.omission_weight >= 1.0 for config in configs)
 
 
+def test_stagnation_restart_candidate_configs_skip_current_extreme_base():
+    base = FrequencyRankerConfig(
+        structural_weight=0.05,
+        frequency_weight=1.15,
+        omission_weight=0.05,
+    )
+
+    configs = stagnation_restart_candidate_configs(
+        base,
+        max_configs=5,
+        round_index=29,
+        stagnation_rounds=28,
+    )
+
+    assert len(configs) == 5
+    assert config_hash(base) not in {config_hash(config) for config in configs}
+
+
 def test_reserved_weight_kdj_candidates_survive_full_normal_round():
     normal = tuple(FrequencyRankerConfig(frequency_weight=round(0.01 * index, 4)) for index in range(20))
     kdj = (
