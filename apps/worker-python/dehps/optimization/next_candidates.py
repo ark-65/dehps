@@ -7,6 +7,7 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 
 from dehps.models.frequency_ranker import FrequencyRankerConfig, infer_next_ssq_draw_date
+from dehps.optimization.regime import select_history
 from dehps.optimization.walk_forward import (
     build_ranked_universe,
     config_hash,
@@ -106,7 +107,8 @@ def load_best_training_summary(conn: Connection, run_id: str | None = None) -> d
         rows = cur.execute(
             """
             SELECT run_id, round_index, train_mode, train_window, eval_window, top_n,
-                   as_of_issue, history_fingerprint, best_summary, best_config, updated_at
+                   as_of_issue, history_fingerprint, history_scope, regime_years, regime_start_date,
+                   best_summary, best_config, updated_at
             FROM training_round_results
             WHERE run_id = %s
             ORDER BY round_index ASC
@@ -128,12 +130,36 @@ def load_best_training_summary(conn: Connection, run_id: str | None = None) -> d
             "top_n": int(row["top_n"]),
             "training_as_of_issue": str(row["as_of_issue"]),
             "training_history_fingerprint": str(row["history_fingerprint"]),
+            "history_scope": str(row.get("history_scope") or ""),
+            "regime_years": int(row.get("regime_years") or 0),
+            "training_regime_start_date": row.get("regime_start_date").isoformat()
+            if row.get("regime_start_date")
+            else "",
             "summary": summary,
             "config": {key: float(value) for key, value in config.items() if isinstance(value, int | float)},
         }
         if best is None or training_summary_sort_key(candidate["summary"]) > training_summary_sort_key(best["summary"]):
             best = candidate
     return best
+
+
+def load_current_history_for_training_scope(conn: Connection, best: dict[str, Any]) -> tuple[list, dict[str, Any]]:
+    scope = str(best.get("history_scope") or "")
+    regime_years = int(best.get("regime_years") or 0)
+    if scope in {"full_history_audit", "current_regime_default"} and regime_years >= 1:
+        selection = select_history(conn, scope=scope, regime_years=regime_years)
+        return selection.dated_history, {
+            "history_scope": selection.scope,
+            "regime_years": selection.regime_years,
+            "regime_start_date": selection.start_date.isoformat() if selection.start_date else "",
+            "freshness_mode": "training_scope",
+        }
+    return load_history_with_dates(conn), {
+        "history_scope": scope,
+        "regime_years": regime_years,
+        "regime_start_date": "",
+        "freshness_mode": "legacy_full_history",
+    }
 
 
 def build_training_next_candidate_snapshot(
@@ -149,7 +175,7 @@ def build_training_next_candidate_snapshot(
     best = load_best_training_summary(conn, run_id)
     if best is None:
         raise RuntimeError("no training_round_results best config is available")
-    history = load_history_with_dates(conn)
+    history, history_context = load_current_history_for_training_scope(conn, best)
     if not history:
         raise RuntimeError("ssq_history is empty")
     latest_issue = str(history[-1][0])
@@ -180,6 +206,11 @@ def build_training_next_candidate_snapshot(
         "history_fingerprint": current_history_fingerprint,
         "training_as_of_issue": best["training_as_of_issue"],
         "training_history_fingerprint": best["training_history_fingerprint"],
+        "history_scope": history_context["history_scope"],
+        "regime_years": history_context["regime_years"],
+        "regime_start_date": history_context["regime_start_date"],
+        "training_regime_start_date": best.get("training_regime_start_date") or "",
+        "freshness_mode": history_context["freshness_mode"],
         "training_freshness": training_freshness_metadata(
             training_as_of_issue=best["training_as_of_issue"],
             latest_issue=latest_issue,

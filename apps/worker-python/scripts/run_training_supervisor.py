@@ -1751,6 +1751,38 @@ def select_rank_homogeneity_restart_champion(
     return summary, metadata
 
 
+def select_experimental_navigation_candidate(
+    *,
+    exploration_champion: dict | None,
+    exploration_champion_info: dict,
+    restart_champion: dict | None,
+    restart_champion_info: dict,
+) -> tuple[dict | None, dict]:
+    if exploration_champion is not None and exploration_champion_info.get("active"):
+        return exploration_champion, {
+            "source": "exploration_champion",
+            "reason": exploration_champion_info.get("reason") or "active_exploration_champion",
+            "config_hash": summary_config_hash(exploration_champion) or "",
+        }
+    if (
+        restart_champion is not None
+        and restart_champion_info.get("active")
+        and restart_champion_info.get("rank_vector_changed") is True
+    ):
+        return restart_champion, {
+            "source": "rank_homogeneity_restart_champion",
+            "reason": restart_champion_info.get("reason") or "rank_vector_changed_restart_champion",
+            "config_hash": summary_config_hash(restart_champion) or "",
+        }
+    if restart_champion is not None and restart_champion_info.get("active"):
+        return None, {
+            "source": "rank_homogeneity_restart_champion",
+            "reason": "restart_champion_without_rank_vector_change",
+            "config_hash": summary_config_hash(restart_champion) or "",
+        }
+    return None, {"source": "", "reason": "no_experimental_navigation_candidate", "config_hash": ""}
+
+
 def select_probability_calibration_champion(
     *,
     summaries: list[dict],
@@ -3678,6 +3710,8 @@ def select_next_search_base(
     round_best: dict | None,
     improved: bool,
     exploration_navigation_candidate: dict | None = None,
+    exploration_navigation_source: str = "",
+    exploration_navigation_reason: str = "",
     recent_search_base_hashes: tuple[str, ...] = (),
     excluded_rank_signature_hashes: tuple[str, ...] = (),
     min_config_distance: float = 0.0,
@@ -3820,6 +3854,8 @@ def select_next_search_base(
         "search_challenger_frozen_primary_score": list(source_frontier_primary_score(search_challenger)),
         "fallback_search_challenger_frozen_primary_score": list(source_frontier_primary_score(fallback_search_challenger)),
         "exploration_navigation_config_hash": exploration_navigation_hash,
+        "exploration_navigation_source": exploration_navigation_source if exploration_navigation_hash else "",
+        "exploration_navigation_reason": exploration_navigation_reason if exploration_navigation_hash else "",
         "exploration_navigation_eligible": exploration_navigation_eligible,
         "exploration_navigation_frozen_primary_score": list(source_frontier_primary_score(exploration_navigation_candidate)),
         "exploration_navigation_config_distance": exploration_navigation_distance,
@@ -5373,6 +5409,12 @@ def run_supervisor(
                 prior_best_summary=prior_best_summary,
                 rank_homogeneity=rank_homogeneity,
             )
+            experimental_navigation_candidate, experimental_navigation_info = select_experimental_navigation_candidate(
+                exploration_champion=exploration_champion,
+                exploration_champion_info=exploration_champion_info,
+                restart_champion=restart_champion,
+                restart_champion_info=restart_champion_info,
+            )
             probability_champion, probability_champion_info = select_probability_calibration_champion(
                 summaries=summaries,
                 source_configs=source_configs,
@@ -5520,6 +5562,7 @@ def run_supervisor(
             prefilter_info["round_best_probability_calibration"] = round_best.get("probability_calibration")
             prefilter_info["exploration_champion"] = exploration_champion_info
             prefilter_info["rank_homogeneity_restart_champion"] = restart_champion_info
+            prefilter_info["experimental_navigation_candidate"] = experimental_navigation_info
             prefilter_info["probability_calibration_champion"] = probability_champion_info
             prefilter_info["probability_focus"] = probability_focus_info
             prefilter_info["decision_round_best"] = decision_round_best_info
@@ -5612,7 +5655,9 @@ def run_supervisor(
                         summaries=summaries,
                         round_best=decision_round_best,
                         improved=improved,
-                        exploration_navigation_candidate=exploration_champion,
+                        exploration_navigation_candidate=experimental_navigation_candidate,
+                        exploration_navigation_source=str(experimental_navigation_info.get("source") or ""),
+                        exploration_navigation_reason=str(experimental_navigation_info.get("reason") or ""),
                         recent_search_base_hashes=recent_search_base_hashes(rounds, search_base_config),
                         excluded_rank_signature_hashes=rank_signature_cooldown_hashes,
                         min_config_distance=min_search_base_distance,
@@ -5629,7 +5674,9 @@ def run_supervisor(
                     summaries=summaries,
                     round_best=decision_round_best,
                     improved=improved,
-                    exploration_navigation_candidate=exploration_champion,
+                    exploration_navigation_candidate=experimental_navigation_candidate,
+                    exploration_navigation_source=str(experimental_navigation_info.get("source") or ""),
+                    exploration_navigation_reason=str(experimental_navigation_info.get("reason") or ""),
                     recent_search_base_hashes=recent_search_base_hashes(rounds, search_base_config),
                     excluded_rank_signature_hashes=rank_signature_cooldown_hashes,
                     min_config_distance=min_search_base_distance,

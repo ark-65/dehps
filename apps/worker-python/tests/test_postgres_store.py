@@ -136,13 +136,21 @@ def test_upsert_training_round_result_uses_run_round_conflict_key():
             "top_results": [best],
             "prefilter": {"target_count": 25},
         },
-        status={"train_mode": "expanding", "train_window": 900, "eval_window": 100, "top_n": 10000},
+        status={
+            "train_mode": "expanding",
+            "train_window": 900,
+            "eval_window": 100,
+            "top_n": 10000,
+            "history_scope": "current_regime_default",
+            "regime_years": 10,
+            "regime_start_date": "2016-06-22",
+        },
     )
 
     sql, params = conn.executed[-1]
     assert "ON CONFLICT (run_id, round_index) DO UPDATE" in sql
     assert params[:4] == ("run-1", 1, "micro", 0.01)
-    assert params[10] is True
+    assert params[10:14] == ("current_regime_default", 10, "2016-06-22", True)
     assert '"frequency_weight": 0.4' in params[-5]
     assert '"target_count": 25' in params[-1]
 

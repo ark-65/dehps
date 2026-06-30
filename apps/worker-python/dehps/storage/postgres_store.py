@@ -108,6 +108,9 @@ def ensure_training_round_results_schema(conn: Connection) -> None:
           top_n INTEGER NOT NULL,
           as_of_issue TEXT NOT NULL,
           history_fingerprint TEXT NOT NULL,
+          history_scope TEXT NOT NULL DEFAULT '',
+          regime_years INTEGER NOT NULL DEFAULT 0,
+          regime_start_date DATE,
           improved BOOLEAN NOT NULL DEFAULT false,
           top_100_hits INTEGER NOT NULL DEFAULT 0,
           top_1000_hits INTEGER NOT NULL DEFAULT 0,
@@ -130,6 +133,9 @@ def ensure_training_round_results_schema(conn: Connection) -> None:
         )
         """
     )
+    conn.execute("ALTER TABLE training_round_results ADD COLUMN IF NOT EXISTS history_scope TEXT NOT NULL DEFAULT ''")
+    conn.execute("ALTER TABLE training_round_results ADD COLUMN IF NOT EXISTS regime_years INTEGER NOT NULL DEFAULT 0")
+    conn.execute("ALTER TABLE training_round_results ADD COLUMN IF NOT EXISTS regime_start_date DATE")
     conn.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_training_round_results_created_at
@@ -706,12 +712,13 @@ def upsert_training_round_result(conn: Connection, *, run_id: str, round_info: d
         """
         INSERT INTO training_round_results (
           run_id, round_index, phase, step, train_mode, train_window, eval_window, top_n,
-          as_of_issue, history_fingerprint, improved, top_100_hits, top_1000_hits, top_10000_hits,
+          as_of_issue, history_fingerprint, history_scope, regime_years, regime_start_date,
+          improved, top_100_hits, top_1000_hits, top_10000_hits,
           red5_top_100_hits, red5_top_1000_hits, red5_top_10000_hits, median_rank, best_rank,
           worst_rank, objective_score, best_config, best_summary, top_results, target_results, prefilter
         )
         VALUES (
-          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
           %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb
         )
         ON CONFLICT (run_id, round_index) DO UPDATE
@@ -723,6 +730,9 @@ def upsert_training_round_result(conn: Connection, *, run_id: str, round_info: d
             top_n = EXCLUDED.top_n,
             as_of_issue = EXCLUDED.as_of_issue,
             history_fingerprint = EXCLUDED.history_fingerprint,
+            history_scope = EXCLUDED.history_scope,
+            regime_years = EXCLUDED.regime_years,
+            regime_start_date = EXCLUDED.regime_start_date,
             improved = EXCLUDED.improved,
             top_100_hits = EXCLUDED.top_100_hits,
             top_1000_hits = EXCLUDED.top_1000_hits,
@@ -752,6 +762,9 @@ def upsert_training_round_result(conn: Connection, *, run_id: str, round_info: d
             int(status["top_n"]),
             str(best.get("as_of_issue") or status.get("as_of_issue") or ""),
             str(best.get("history_fingerprint") or ""),
+            str(status.get("history_scope") or ""),
+            int(status.get("regime_years") or 0),
+            status.get("regime_start_date") or None,
             bool(round_info.get("improved")),
             int(best.get("top_100_hits") or 0),
             int(best.get("top_1000_hits") or 0),

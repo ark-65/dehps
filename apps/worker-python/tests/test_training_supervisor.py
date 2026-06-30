@@ -56,6 +56,7 @@ from scripts.run_training_supervisor import (
     select_target_weight_inversion_anchor,
     select_probability_calibration_champion,
     select_probability_focus_search_base,
+    select_experimental_navigation_candidate,
     select_stagnation_exploration_champion,
     select_rank_homogeneity_restart_champion,
     select_source_frontier_champion,
@@ -1641,6 +1642,69 @@ def test_next_search_base_uses_bounded_experimental_navigation_when_frozen_gate_
     assert metadata["exploration_navigation_eligible"] is True
     assert metadata["exploration_navigation_frozen_primary_score"] == [0, 0, 0]
     assert metadata["exploration_navigation_rank_vector_changed"] is True
+    assert metadata["selected_frozen_primary_score"] == [0, 0, 0]
+
+
+def test_restart_champion_can_feed_experimental_navigation_fallback():
+    current_config = FrequencyRankerConfig()
+    blocked_config = FrequencyRankerConfig(frequency_weight=0.40)
+    restart_config = FrequencyRankerConfig(frequency_weight=1.05, omission_weight=0.0)
+    incumbent = attach_test_frozen_validation(
+        supervisor_summary_for_config(current_config, target_ranks=[100, 900, 50_000]),
+        top_10000_hits=0,
+    )
+    blocked = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            blocked_config,
+            top_100_hits=3,
+            top_1000_hits=3,
+            top_10000_hits=3,
+            target_ranks=[17, 55, 89],
+            objective_score=2300.0,
+        ),
+        top_10000_hits=0,
+    )
+    restart = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            restart_config,
+            target_ranks=[80, 850, 49_000],
+            objective_score=100.0,
+        ),
+        top_10000_hits=0,
+    )
+    restart_info = {
+        "active": True,
+        "rank_vector_changed": True,
+        "reason": "rank_homogeneity_restart_changed_rank_vector",
+    }
+
+    navigation_candidate, navigation_info = select_experimental_navigation_candidate(
+        exploration_champion=None,
+        exploration_champion_info={"active": False, "reason": "no_exploratory_top_candidate"},
+        restart_champion=restart,
+        restart_champion_info=restart_info,
+    )
+    next_base, metadata = select_next_search_base(
+        current_base=current_config,
+        summaries=[incumbent, blocked, restart],
+        round_best=blocked,
+        improved=False,
+        exploration_navigation_candidate=navigation_candidate,
+        exploration_navigation_source=str(navigation_info["source"]),
+        exploration_navigation_reason=str(navigation_info["reason"]),
+        allow_unpromoted_round_best=False,
+        round_best_skip_reason="eval_slice_overfit_no_frozen_primary_lift",
+        require_frozen_primary_lift=True,
+        frozen_primary_lift_baseline=incumbent,
+        min_config_distance=0.08,
+    )
+
+    assert navigation_candidate is restart
+    assert config_hash(next_base) == config_hash(restart_config)
+    assert metadata["source"] == "experimental_navigation"
+    assert metadata["exploration_navigation_source"] == "rank_homogeneity_restart_champion"
+    assert metadata["exploration_navigation_reason"] == "rank_homogeneity_restart_changed_rank_vector"
+    assert metadata["exploration_navigation_eligible"] is True
     assert metadata["selected_frozen_primary_score"] == [0, 0, 0]
 
 

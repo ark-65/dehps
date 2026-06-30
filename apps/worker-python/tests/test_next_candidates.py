@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import date
+from types import SimpleNamespace
+
 import pytest
 
 import dehps.optimization.next_candidates as next_candidates
@@ -66,11 +69,105 @@ def test_training_next_candidate_snapshot_reports_training_freshness(monkeypatch
 
     metadata = snapshot["metadata"]
     assert metadata["history_fingerprint"] == next_candidates.fingerprint_history(history)
+    assert metadata["freshness_mode"] == "legacy_full_history"
     assert metadata["training_freshness"] == {
         "status": "stale",
         "training_issue_matches_current": False,
         "training_history_matches_current": False,
         "training_issue_lag": 1,
+    }
+
+
+def test_training_next_candidate_snapshot_uses_training_regime_for_freshness(monkeypatch):
+    history = [
+        ("2026067", date(2026, 6, 20), (1, 2, 3, 4, 5, 6)),
+        ("2026068", date(2026, 6, 22), (2, 3, 4, 5, 6, 7)),
+    ]
+    best = {
+        "run_id": "run-1",
+        "source_round_index": 5,
+        "train_mode": "expanding",
+        "train_window": 900,
+        "eval_window": 100,
+        "top_n": 10000,
+        "training_as_of_issue": "2026068",
+        "training_history_fingerprint": next_candidates.fingerprint_history(history),
+        "history_scope": "current_regime_default",
+        "regime_years": 10,
+        "training_regime_start_date": "2016-06-22",
+        "summary": {},
+        "config": {},
+    }
+    seen = {}
+    selection = SimpleNamespace(
+        dated_history=history,
+        scope="current_regime_default",
+        regime_years=10,
+        start_date=date(2016, 6, 22),
+    )
+    monkeypatch.setattr(next_candidates, "load_best_training_summary", lambda _conn, _run_id: best)
+    monkeypatch.setattr(next_candidates, "select_history", lambda *_args, **_kwargs: selection)
+
+    def fake_top_candidates_for_next(**kwargs):
+        seen["history"] = kwargs["history"]
+        return [(1, (1, 2, 3, 4, 5, 6), 0.75)]
+
+    monkeypatch.setattr(next_candidates, "top_candidates_for_next", fake_top_candidates_for_next)
+
+    snapshot = build_training_next_candidate_snapshot(object(), top_n=10, ranked_universe=[object(), object()])
+
+    metadata = snapshot["metadata"]
+    assert seen["history"] == history
+    assert metadata["freshness_mode"] == "training_scope"
+    assert metadata["history_scope"] == "current_regime_default"
+    assert metadata["regime_start_date"] == "2016-06-22"
+    assert metadata["training_freshness"] == {
+        "status": "current",
+        "training_issue_matches_current": True,
+        "training_history_matches_current": True,
+        "training_issue_lag": 0,
+    }
+
+
+def test_training_next_candidate_snapshot_marks_regime_fingerprint_mismatch_stale(monkeypatch):
+    history = [
+        ("2026068", date(2026, 6, 22), (2, 3, 4, 5, 6, 7)),
+    ]
+    best = {
+        "run_id": "run-1",
+        "source_round_index": 5,
+        "train_mode": "expanding",
+        "train_window": 900,
+        "eval_window": 100,
+        "top_n": 10000,
+        "training_as_of_issue": "2026068",
+        "training_history_fingerprint": "old-regime-fingerprint",
+        "history_scope": "current_regime_default",
+        "regime_years": 10,
+        "summary": {},
+        "config": {},
+    }
+    selection = SimpleNamespace(
+        dated_history=history,
+        scope="current_regime_default",
+        regime_years=10,
+        start_date=date(2016, 6, 22),
+    )
+    monkeypatch.setattr(next_candidates, "load_best_training_summary", lambda _conn, _run_id: best)
+    monkeypatch.setattr(next_candidates, "select_history", lambda *_args, **_kwargs: selection)
+    monkeypatch.setattr(
+        next_candidates,
+        "top_candidates_for_next",
+        lambda **_kwargs: [(1, (1, 2, 3, 4, 5, 6), 0.75)],
+    )
+
+    snapshot = build_training_next_candidate_snapshot(object(), top_n=10, ranked_universe=[object(), object()])
+
+    assert snapshot["metadata"]["training_freshness"] == {
+        "status": "stale",
+        "training_issue_matches_current": True,
+        "training_history_matches_current": False,
+        "training_issue_lag": 0,
     }
 
 
