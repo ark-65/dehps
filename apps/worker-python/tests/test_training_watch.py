@@ -140,6 +140,54 @@ def test_advisor_summary_and_markdown_include_guardrails():
     assert "Historical response-surface monitoring only" in markdown
 
 
+def test_render_markdown_escapes_untrusted_inline_text():
+    payload = {
+        "generated_at": "2026-06-18T10:00:00Z",
+        "run_id": "run`id\nwith-line",
+        "round_count": 1,
+        "latest_round": 1,
+        "last_improved_round": None,
+        "stagnation_rounds": 1,
+        "latest_metrics": {
+            "phase": "micro|phase\nretry",
+            "step": 0.01,
+            "improved": False,
+            "top_100_hits": 0,
+            "top_1000_hits": 0,
+            "top_10000_hits": 0,
+            "red5_top_10000_hits": 0,
+            "best_rank": None,
+            "median_rank": None,
+            "worst_rank": None,
+            "objective_score": None,
+            "best_objective_seen": None,
+        },
+        "advisor_summary": {
+            "custom|advisor": {
+                "candidate_count": 1,
+                "selected_count": 1,
+                "rejected_count": 0,
+                "selected_fields": ["weight|field", "line\nfield"],
+            }
+        },
+        "heavy_job_lock": {},
+        "recommendation": {
+            "severity": "warn",
+            "action": "inspect|log",
+            "notes": ["first line\nsecond line | detail"],
+        },
+        "guardrail": "Historical response-surface monitoring only.",
+    }
+
+    markdown = render_markdown(payload)
+
+    assert "- Run id: ``run`id with-line``" in markdown
+    assert "- Phase/step: micro\\|phase retry / 0.01" in markdown
+    assert "| custom\\|advisor | 1 | 1 | 0 | weight\\|field, line field |" in markdown
+    assert "- first line second line \\| detail" in markdown
+    assert "first line\nsecond line" not in markdown
+
+
 def test_write_outputs_sanitizes_run_id_filename(monkeypatch, tmp_path):
     monkeypatch.setattr(watch, "utc_stamp", lambda: "20260618-100000")
     payload = {

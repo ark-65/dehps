@@ -110,6 +110,23 @@ def safe_filename_component(
     return f"{prefix}_{digest}"[:max_length]
 
 
+def markdown_inline_text(value: Any) -> str:
+    text = "" if value is None else str(value)
+    single_line = " ".join(text.replace("\r\n", "\n").replace("\r", "\n").splitlines())
+    return single_line.replace("\\", "\\\\").replace("|", "\\|")
+
+
+def markdown_inline_code(value: Any) -> str:
+    text = "" if value is None else str(value)
+    single_line = " ".join(text.replace("\r\n", "\n").replace("\r", "\n").splitlines())
+    if not single_line:
+        return "``"
+    longest_tick_run = max((len(match.group(0)) for match in re.finditer(r"`+", single_line)), default=0)
+    fence = "`" * (longest_tick_run + 1)
+    padding = " " if single_line.startswith("`") or single_line.endswith("`") else ""
+    return f"{fence}{padding}{single_line}{padding}{fence}"
+
+
 def resolve_run_id(run_id: str | None) -> str | None:
     if run_id:
         return run_id
@@ -349,25 +366,26 @@ def render_markdown(payload: dict[str, Any]) -> str:
     latest = payload["latest_metrics"]
     rec = payload["recommendation"]
     advisor_rows = "\n".join(
-        f"| {key} | {value.get('candidate_count', 0)} | {value.get('selected_count', 0)} | "
-        f"{value.get('rejected_count', 0)} | {', '.join(str(item) for item in value.get('selected_fields', [])[:6])} |"
+        f"| {markdown_inline_text(key)} | {value.get('candidate_count', 0)} | {value.get('selected_count', 0)} | "
+        f"{value.get('rejected_count', 0)} | "
+        f"{markdown_inline_text(', '.join(str(item) for item in value.get('selected_fields', [])[:6]))} |"
         for key, value in payload["advisor_summary"].items()
     )
-    note_rows = "\n".join(f"- {note}" for note in rec.get("notes", []))
+    note_rows = "\n".join(f"- {markdown_inline_text(note)}" for note in rec.get("notes", []))
     return f"""# DEHPS Training Watch
 
 - Generated at: {payload.get("generated_at")}
-- Run id: `{payload.get("run_id") or ""}`
+- Run id: {markdown_inline_code(payload.get("run_id") or "")}
 - Rounds: {payload.get("round_count")}
 - Latest round: {payload.get("latest_round")}
 - Last improved round: {payload.get("last_improved_round")}
 - Stagnation rounds: {payload.get("stagnation_rounds")}
-- Severity: `{rec.get("severity")}`
-- Action: `{rec.get("action")}`
+- Severity: {markdown_inline_code(rec.get("severity"))}
+- Action: {markdown_inline_code(rec.get("action"))}
 
 ## Latest Metrics
 
-- Phase/step: {latest.get("phase")} / {latest.get("step")}
+- Phase/step: {markdown_inline_text(latest.get("phase"))} / {latest.get("step")}
 - Improved: {latest.get("improved")}
 - Top100/1000/10000: {latest.get("top_100_hits")} / {latest.get("top_1000_hits")} / {latest.get("top_10000_hits")}
 - Red5 Top10000: {latest.get("red5_top_10000_hits")}
