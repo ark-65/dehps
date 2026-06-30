@@ -23,6 +23,7 @@
 - 不提交 `data/output` 或 `runtime` 下的生成产物，除非本轮明确要提升一个小型验收报告为正式产物。
 - 先跑最小相关测试；只有改动面要求时再扩大测试范围。
 - 若代码改动通过验证，提交信息使用 `self-iterate:` 前缀，并推送到当前 upstream 分支。
+- 自主提交由调度脚本设置 Git 身份：author/committer 使用 `ark-65 <25193106+ark-65@users.noreply.github.com>`，并通过 commit-msg hook 自动追加 `Co-authored-by: give me a 98K <240642031+inhuman-0@users.noreply.github.com>`。
 - 若没有安全可做的改动，记录阻塞原因，不强行为了变化而变化。
 
 ## 历史记忆
@@ -36,6 +37,7 @@
 | 2026-06-22 | 自我迭代运行把 backtest misses 从聚合级记录改成记录级。提交：`41da058`。 |
 | 2026-06-22 | 更新自我迭代 prompt，使成功创建的自主提交会继续推送。提交：`ef895bc`。 |
 | 2026-06-22 | 自我迭代运行显式记录同步校验失败。提交：`8b7c4b5`。 |
+| 2026-06-30 | 调整调度器自我迭代提交归属：脚本导出 ark-65 GitHub noreply author/committer，并启用 commit-msg hook 自动追加 inhuman-0 co-author trailer，避免后续自主提交继续显示为 `Ark Codex <codex@local>`。验证：`bash -n scripts/hourly_self_iterate.sh`、临时仓库 hook 提交冒烟。 |
 | 2026-06-22 | 修复训练 supervisor 的 target inversion 锚点：若本轮 best 只是历史 best 重放，改用本轮 challenger 做反推锚点。验证：`apps/worker-python/.venv/bin/python -m pytest apps/worker-python/tests -q` 通过 `164 passed`；live run `20260622-103001` round 1 写入 `anchor.source=challenger_best`，round 2 status 显示 `candidate_budget.target_weight_inversion=4`。 |
 | 2026-06-22 | 调整训练节奏：初期 24 轮使用 large/medium 大步长，后期逐步退火到 small/micro；同时把 retained best 和 moving search base 分离，没刷新 best 时也用 rank-vector 不同的 challenger 推进下一轮 search base。验证：`apps/worker-python/.venv/bin/python -m pytest apps/worker-python/tests -q` 通过 `167 passed`。 |
 | 2026-06-22 | 修复 moving search base 的 A/B 回跳：选择下一轮 search base 时排除当前和最近 search base，优先选 rank-vector 不同的新 challenger。验证：`apps/worker-python/.venv/bin/python -m pytest apps/worker-python/tests -q` 通过 `169 passed`；live run `20260622-112552` R1 `37713bad -> fdacf9ec`，R2 `fdacf9ec -> f88482b2`。 |

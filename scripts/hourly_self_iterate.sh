@@ -7,8 +7,19 @@ CODEX_BIN="${DEHPS_CODEX_BIN:-$NODE_BIN_DIR/codex}"
 LOG_DIR="${DEHPS_LOG_DIR:-$REPO_ROOT/runtime/logs}"
 LOCK_FILE="$LOG_DIR/hourly_self_iterate.lock"
 LAST_MESSAGE="$LOG_DIR/hourly_self_iterate.last.md"
+SELF_ITERATE_GIT_AUTHOR_NAME="${DEHPS_SELF_ITERATE_GIT_AUTHOR_NAME:-ark-65}"
+SELF_ITERATE_GIT_AUTHOR_EMAIL="${DEHPS_SELF_ITERATE_GIT_AUTHOR_EMAIL:-25193106+ark-65@users.noreply.github.com}"
+SELF_ITERATE_GIT_COAUTHOR_TRAILER="${DEHPS_SELF_ITERATE_GIT_COAUTHOR_TRAILER:-Co-authored-by: give me a 98K <240642031+inhuman-0@users.noreply.github.com>}"
 
 export PATH="$NODE_BIN_DIR:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export GIT_AUTHOR_NAME="$SELF_ITERATE_GIT_AUTHOR_NAME"
+export GIT_AUTHOR_EMAIL="$SELF_ITERATE_GIT_AUTHOR_EMAIL"
+export GIT_COMMITTER_NAME="$SELF_ITERATE_GIT_AUTHOR_NAME"
+export GIT_COMMITTER_EMAIL="$SELF_ITERATE_GIT_AUTHOR_EMAIL"
+export DEHPS_SELF_ITERATE_GIT_COAUTHOR_TRAILER="$SELF_ITERATE_GIT_COAUTHOR_TRAILER"
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0=core.hooksPath
+export GIT_CONFIG_VALUE_0="$REPO_ROOT/scripts/git-hooks"
 
 mkdir -p "$LOG_DIR"
 
@@ -84,6 +95,7 @@ cat <<'PROMPT' | "$CODEX_BIN" exec \
 - 不要提交 data/output 或 runtime 下的大型生成产物，除非本轮明确创建的是小型验收报告。
 - 优先运行与改动相关的最小测试；必要时再跑 apps/worker-python/.venv/bin/python -m pytest、apps/api npm test、apps/web npm test。
 - 每轮结束必须留下清晰结果：若有代码改动且测试通过，创建一个 git commit，提交信息以 "self-iterate:" 开头，然后推送到当前分支对应的 origin 分支；若 push 失败，明确写明失败原因。
+- 自主提交使用脚本已设置的 Git 身份：author/committer 为 ark-65 的 GitHub noreply 身份；commit-msg hook 会补充 inhuman-0 的 Co-authored-by trailer，避免生成 Ark Codex <codex@local> 身份的自我迭代提交。
 - 若没有安全可做的改动，也不要硬改；写明阻塞原因。
 
 请自主完成探索、修改、验证、提交和推送。

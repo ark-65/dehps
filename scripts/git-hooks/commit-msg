@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+message_file="${1:?commit message file is required}"
+trailer="${DEHPS_SELF_ITERATE_GIT_COAUTHOR_TRAILER:-}"
+
+if [[ -z "$trailer" ]]; then
+  exit 0
+fi
+
+git interpret-trailers --in-place --if-exists doNothing --trailer "$trailer" "$message_file"
