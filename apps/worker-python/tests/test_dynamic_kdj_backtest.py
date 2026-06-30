@@ -10,7 +10,10 @@ from dehps.optimization.dynamic_kdj_backtest import (
     acceptance_summary,
     dynamic_config_for_target,
     evaluate_dynamic_kdj_backtest,
+    kdj_layer_audit_summary,
+    retention_audit_summary,
 )
+from dehps.optimization.walk_forward import TargetRank
 from scripts.run_dynamic_kdj_backtest import load_base_config_json
 
 
@@ -103,6 +106,26 @@ def test_dynamic_config_uses_only_prior_issue_signals():
     assert round(result.config.frequency_weight, 6) == 0.32
 
 
+def test_dynamic_config_scales_offsets_without_leaking_target_issue():
+    result = dynamic_config_for_target(
+        base_config=FrequencyRankerConfig(frequency_weight=0.30),
+        target_issue="2026068",
+        signals=[
+            signal("2026066", j_value=65.0, recommended_offset=0.02),
+            signal("2026067", j_value=70.0, recommended_offset=0.02),
+            signal("2026068", j_value=95.0, recommended_offset=0.20),
+        ],
+        thresholds=DynamicKdjThresholds(min_abs_offset=0.005, neutral_band=5.0, slope_window=3),
+        offset_scale=0.5,
+    )
+
+    assert result.leakage_passed is True
+    assert result.latest_signal_issue == "2026067"
+    assert result.excluded_signal_count == 1
+    assert result.applied_offsets == {"frequency_weight": 0.01}
+    assert round(result.config.frequency_weight, 6) == 0.31
+
+
 def test_dynamic_config_rejects_neutral_opposite_slope_and_non_positive_delta():
     result = dynamic_config_for_target(
         base_config=FrequencyRankerConfig(frequency_weight=0.30, omission_weight=0.25, sum_tail_weight=0.0),
@@ -172,6 +195,99 @@ def test_backtest_builds_per_target_dynamic_configs_without_mutating_static(monk
     assert dynamic_configs[1]["applied_offsets"] == {"frequency_weight": 0.04}
     assert payload["rank_movement"]["changed_target_count"] == 2
     assert payload["leakage_audit"]["passed"] is True
+
+
+def test_strength_sweep_includes_zero_static_equivalent(monkeypatch):
+    def fake_rank_target_grid_with_red5(**kwargs):
+        return [
+            (int(10_000 - getattr(config, "frequency_weight") * 1_000), 0.0, None)
+            for config in kwargs["configs"]
+        ]
+
+    monkeypatch.setattr(dynamic, "rank_target_grid_with_red5", fake_rank_target_grid_with_red5)
+    history = [
+        ("0000", None, (1, 2, 3, 8, 13, 21)),
+        ("0001", None, (2, 4, 6, 11, 19, 31)),
+        ("0002", None, (3, 5, 9, 14, 22, 30)),
+        ("0003", None, (4, 7, 12, 18, 23, 32)),
+        ("0004", None, (5, 10, 15, 20, 25, 33)),
+    ]
+
+    payload = evaluate_dynamic_kdj_backtest(
+        history=history,
+        ranked_universe=FakeRankedUniverse(),
+        base_config=FrequencyRankerConfig(frequency_weight=0.30),
+        signals=[
+            signal("0000", j_value=60.0, recommended_offset=0.02),
+            signal("0001", j_value=65.0, recommended_offset=0.02),
+            signal("0002", j_value=70.0, recommended_offset=0.02),
+            signal("0003", j_value=80.0, recommended_offset=0.04),
+        ],
+        train_window=3,
+        train_mode="expanding",
+        eval_window=2,
+        top_n=10000,
+        thresholds=DynamicKdjThresholds(min_abs_offset=0.005, neutral_band=5.0, slope_window=3),
+        include_negative_controls=False,
+        strength_sweep=(0.0, 0.25, 0.5, 1.0),
+    )
+
+    rows = {row["strength"]: row for row in payload["strength_sweep"]["rows"]}
+    assert tuple(payload["strength_sweep"]["strengths"]) == (0.0, 0.25, 0.5, 1.0)
+    assert rows[0.0]["median_rank"] == payload["static_baseline"]["median_rank"]
+    assert rows[0.0]["changed_target_count"] == 0
+    assert rows[1.0]["median_changed_weights"] == 1.0
+
+
+def test_retention_audit_tracks_lost_top10000_and_acceptance_failure():
+    static_ranks = [
+        TargetRank(
+            issue="2026068",
+            rank=9_500,
+            score=0.0,
+            hit_top_100=False,
+            hit_top_1000=False,
+            hit_top_10000=True,
+        )
+    ]
+    dynamic_ranks = [
+        TargetRank(
+            issue="2026068",
+            rank=12_000,
+            score=0.0,
+            hit_top_100=False,
+            hit_top_1000=False,
+            hit_top_10000=False,
+        )
+    ]
+
+    retention = retention_audit_summary(static_ranks=static_ranks, dynamic_ranks=dynamic_ranks, bands=(10000,))
+    result = passing_gate(retention_audit=retention)
+
+    assert retention["bands"]["10000"]["lost_count"] == 1
+    assert retention["lost_top10000_count"] == 1
+    assert result["status"] == "FAIL"
+    assert result["retention_passed"] is False
+    assert "retention_lost_top10000" in result["failures"]
+
+
+def test_kdj_layer_audit_groups_structural_weights_and_warns_on_concentration():
+    result = dynamic_config_for_target(
+        base_config=FrequencyRankerConfig(parity_ratio_weight=0.0, sum_tail_weight=0.0),
+        target_issue="2026068",
+        signals=[
+            signal("2026067", weight_name="parity_ratio_weight", recommended_offset=0.02, j_value=70.0),
+            signal("2026067", weight_name="sum_tail_weight", recommended_offset=0.02, j_value=53.0),
+        ],
+        thresholds=DynamicKdjThresholds(min_abs_offset=0.005, neutral_band=5.0, slope_window=3),
+    )
+
+    audit = kdj_layer_audit_summary([result], concentration_threshold=0.5)
+
+    assert audit["layers"]["parity"]["selected"] == 1
+    assert audit["layers"]["sum"]["rejected"] == 1
+    assert audit["top_layer"]["name"] == "parity"
+    assert audit["warnings"] == ["layer_contribution_concentration:parity:1.000"]
 
 
 def test_acceptance_marks_short_windows_research_only():

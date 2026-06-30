@@ -4,6 +4,7 @@ import argparse
 import json
 import sys
 import time
+from math import isfinite
 from pathlib import Path
 
 WORKER_ROOT = Path(__file__).resolve().parents[1]
@@ -14,9 +15,13 @@ from dehps.config import ROOT_DIR
 from dehps.db import get_connection
 from dehps.models.frequency_ranker import FrequencyRankerConfig
 from dehps.optimization.dynamic_kdj_backtest import (
+    DEFAULT_KDJ_STRENGTH_SWEEP,
+    DEFAULT_RETENTION_BANDS,
     DynamicKdjAcceptanceConfig,
     DynamicKdjThresholds,
     evaluate_dynamic_kdj_backtest,
+    normalize_retention_bands,
+    normalize_strength_sweep,
     render_dynamic_kdj_report,
 )
 from dehps.optimization.config_io import frequency_ranker_config_values
@@ -33,6 +38,40 @@ from scripts.run_training_supervisor import clamp_config
 
 def default_output_dir() -> Path:
     return ROOT_DIR / "data/output/optimization"
+
+
+def _csv_parts(value: str) -> list[str]:
+    return [part.strip() for part in str(value).split(",") if part.strip()]
+
+
+def parse_strength_sweep(value: str) -> tuple[float, ...]:
+    strengths: list[float] = []
+    for part in _csv_parts(value):
+        try:
+            strength = float(part)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError("--kdj-strength-sweep must be comma-separated numbers") from exc
+        if not isfinite(strength) or strength < 0:
+            raise argparse.ArgumentTypeError("--kdj-strength-sweep values must be finite non-negative numbers")
+        strengths.append(strength)
+    return normalize_strength_sweep(strengths)
+
+
+def parse_retention_bands(value: str) -> tuple[int, ...]:
+    bands: list[int] = []
+    for part in _csv_parts(value):
+        try:
+            band = int(part)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError("--retention-bands must be comma-separated positive integers") from exc
+        if band < 1:
+            raise argparse.ArgumentTypeError("--retention-bands values must be positive integers")
+        bands.append(band)
+    return normalize_retention_bands(bands)
+
+
+def _csv_default(values: tuple[float, ...] | tuple[int, ...]) -> str:
+    return ",".join(str(value) for value in values)
 
 
 def load_base_config_json(path: Path) -> FrequencyRankerConfig:
@@ -115,12 +154,16 @@ def main() -> None:
     parser.add_argument("--max-median-changed-weights", type=int, default=5)
     parser.add_argument("--max-max-changed-weights", type=int, default=8)
     parser.add_argument("--max-dynamic-abs-offset", type=float, default=0.06)
+    parser.add_argument("--kdj-strength-sweep", type=parse_strength_sweep, default=_csv_default(DEFAULT_KDJ_STRENGTH_SWEEP))
+    parser.add_argument("--retention-bands", type=parse_retention_bands, default=_csv_default(DEFAULT_RETENTION_BANDS))
     parser.add_argument("--disable-negative-controls", action="store_true")
     parser.add_argument("--output-dir", type=Path, default=default_output_dir())
     parser.add_argument("--no-write", action="store_true", help="Print the summary without writing md/json artifacts.")
     args = parser.parse_args()
 
     train_mode = validate_train_mode(args.train_mode)
+    kdj_strength_sweep = args.kdj_strength_sweep if isinstance(args.kdj_strength_sweep, tuple) else parse_strength_sweep(args.kdj_strength_sweep)
+    retention_bands = args.retention_bands if isinstance(args.retention_bands, tuple) else parse_retention_bands(args.retention_bands)
     started = time.time()
     with get_connection() as conn:
         selection = select_history(
@@ -184,6 +227,8 @@ def main() -> None:
         thresholds=thresholds,
         acceptance_config=acceptance_config,
         include_negative_controls=not args.disable_negative_controls,
+        strength_sweep=kdj_strength_sweep,
+        retention_bands=retention_bands,
     )
     payload["signal_run_id"] = args.signal_run_id
     payload["signal_count"] = len(signals)
@@ -202,11 +247,25 @@ def main() -> None:
         "history_scope": args.history_scope,
         "regime_years": args.regime_years,
         "kdj_signal_limit": args.kdj_signal_limit,
+        "kdj_strength_sweep": list(kdj_strength_sweep),
+        "retention_bands": list(retention_bands),
         "disable_negative_controls": args.disable_negative_controls,
     }
     payload["elapsed_seconds"] = round(time.time() - started, 3)
     if args.no_write:
-        print(json.dumps(payload["acceptance"], ensure_ascii=False, indent=2, sort_keys=True))
+        print(
+            json.dumps(
+                {
+                    "acceptance": payload["acceptance"],
+                    "retention_audit": payload["retention_audit"],
+                    "strength_sweep": payload["strength_sweep"],
+                    "kdj_layer_audit": payload["kdj_layer_audit"],
+                },
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return
     json_path, report_path = write_artifacts(payload, args.output_dir)
     print(
