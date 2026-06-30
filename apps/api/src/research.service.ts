@@ -525,8 +525,8 @@ export class ResearchService {
       if (!payload) {
         throw new Error(`Invalid heavy-job metadata JSON at ${metadataPath}: expected object root`);
       }
-      const pid = this.numberValue(payload.pid);
-      const pidActive = pid === null ? null : this.isProcessAlive(pid);
+      const pid = this.integerValue(payload.pid);
+      const pidActive = pid === null ? null : pid > 0 ? this.isProcessAlive(pid) : false;
       const status = this.stringValue(payload.status);
       const normalizedStatus = status?.toLowerCase() ?? null;
       const statusInactive = normalizedStatus !== null && HEAVY_JOB_INACTIVE_STATUSES.has(normalizedStatus);
@@ -2109,6 +2109,10 @@ export class ResearchService {
 
   private numberValue(value: unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  }
+
+  private integerValue(value: unknown): number | null {
+    return typeof value === 'number' && Number.isSafeInteger(value) ? value : null;
   }
 
   private numberArrayValue(value: unknown): number[] {

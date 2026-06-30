@@ -167,9 +167,8 @@ def describe_heavy_job_owner(
 
 
 def is_pid_active(pid: Any) -> bool | None:
-    try:
-        parsed_pid = int(pid)
-    except (TypeError, ValueError):
+    parsed_pid = _parse_pid(pid)
+    if parsed_pid is None:
         return None
     if parsed_pid <= 0:
         return False
@@ -186,6 +185,20 @@ def is_pid_active(pid: Any) -> bool | None:
             return True
         return None
     return True
+
+
+def _parse_pid(pid: Any) -> int | None:
+    if isinstance(pid, bool):
+        return None
+    if isinstance(pid, int):
+        return pid
+    if isinstance(pid, str):
+        normalized = pid.strip()
+        if not normalized:
+            return None
+        digits = normalized[1:] if normalized[0] in {"+", "-"} else normalized
+        return int(normalized) if digits.isdecimal() else None
+    return None
 
 
 def _pid_reason(pid_active: bool | None) -> str:

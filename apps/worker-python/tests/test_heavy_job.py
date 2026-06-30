@@ -12,6 +12,7 @@ from dehps.runtime.heavy_job import (
     cpu_thread_env_overrides,
     describe_heavy_job_owner,
     heavy_job_lock,
+    is_pid_active,
     metadata_path_for,
     read_owner_metadata,
 )
@@ -154,6 +155,32 @@ def test_dead_pid_metadata_is_reported_inactive(tmp_path):
     assert owner_status.active is False
     assert owner_status.pid_active is False
     assert owner_status.reason == "pid_not_running"
+
+
+def test_fractional_pid_metadata_is_reported_unknown(tmp_path):
+    lock_path = tmp_path / "dehps-heavy-job.lock"
+    metadata_path = metadata_path_for(lock_path)
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "owner": "bad-pid-job",
+                "pid": os.getpid() + 0.5,
+                "started_at": "2026-06-18T00:00:00Z",
+                "heartbeat_at": "2026-06-18T00:00:01Z",
+                "status": "running",
+                "command": ["bad-pid"],
+                "context": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    owner_status = describe_heavy_job_owner(lock_path=lock_path)
+
+    assert is_pid_active(f"{os.getpid()}.0") is None
+    assert owner_status.active is False
+    assert owner_status.pid_active is None
+    assert owner_status.reason == "pid_unknown"
 
 
 def test_unreadable_metadata_is_reported_inactive(tmp_path):
