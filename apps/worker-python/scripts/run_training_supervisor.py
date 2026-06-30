@@ -1221,12 +1221,44 @@ def candidate_source_survival(
     return survival
 
 
+def _is_diagnostic_only_source(source: str) -> bool:
+    return source.startswith("keep_") or source.startswith("control_")
+
+
+def diagnostic_source_configs(
+    source_configs: dict[str, tuple[FrequencyRankerConfig, ...]],
+    *,
+    search_base_config: FrequencyRankerConfig | None = None,
+    best_config: FrequencyRankerConfig | None = None,
+    elite_configs: tuple[FrequencyRankerConfig, ...] = (),
+    probability_focus_configs: tuple[FrequencyRankerConfig, ...] = (),
+    control_configs: tuple[tuple[str, FrequencyRankerConfig], ...] = (),
+) -> dict[str, tuple[FrequencyRankerConfig, ...]]:
+    diagnostic = dict(source_configs)
+    if search_base_config is not None:
+        diagnostic["keep_search_base"] = (search_base_config,)
+    if best_config is not None:
+        diagnostic["keep_incumbent"] = (best_config,)
+    if elite_configs:
+        diagnostic["keep_elite"] = tuple(elite_configs)
+    if probability_focus_configs:
+        diagnostic["keep_probability_focus"] = tuple(probability_focus_configs)
+    for label, config in control_configs:
+        diagnostic[f"control_{label}"] = (config,)
+    return diagnostic
+
+
 def _source_by_config_hash(source_configs: dict[str, tuple[FrequencyRankerConfig, ...]]) -> dict[str, str]:
     source_by_hash: dict[str, str] = {}
     for source, configs in source_configs.items():
         for config in configs:
             key = config_hash(config)
-            if key not in source_by_hash or source_by_hash[key] == "normal":
+            existing = source_by_hash.get(key)
+            if (
+                existing is None
+                or (existing == "normal" and not _is_diagnostic_only_source(source))
+                or (_is_diagnostic_only_source(existing) and not _is_diagnostic_only_source(source))
+            ):
                 source_by_hash[key] = source
     return source_by_hash
 
@@ -5307,6 +5339,14 @@ def run_supervisor(
                 *probability_focus_configs,
                 *(config for _label, config in control_configs),
             )
+            diagnostic_sources = diagnostic_source_configs(
+                source_configs,
+                search_base_config=search_base_config,
+                best_config=best_config,
+                elite_configs=elite_configs[:4],
+                probability_focus_configs=probability_focus_configs,
+                control_configs=control_configs,
+            )
             refined_configs, prefilter_info = prefilter_configs(
                 history=training_history,
                 ranked_universe=ranked_universe,
@@ -5420,7 +5460,7 @@ def run_supervisor(
             improved = bool(raw_improved and promotion_gate["passed"])
             eval_slice_overfit = eval_slice_overfit_guardrail(
                 summaries=summaries,
-                source_configs=source_configs,
+                source_configs=diagnostic_sources,
                 round_best=round_best,
                 prior_best_summary=prior_best_summary,
                 rank_homogeneity=rank_homogeneity,

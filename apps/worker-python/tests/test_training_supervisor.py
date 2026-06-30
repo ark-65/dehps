@@ -24,6 +24,7 @@ from scripts.run_training_supervisor import (
     control_experiment_configs,
     control_experiment_summaries,
     carryover_candidate_configs_from_summaries,
+    diagnostic_source_configs,
     evaluate_configs,
     frozen_validation_promotion_gate,
     frozen_validation_window,
@@ -494,6 +495,53 @@ def test_eval_slice_overfit_guardrail_blocks_unpromoted_round_best():
     assert gate["allow_unpromoted_round_best"] is False
     assert gate["require_frozen_primary_challenger"] is True
     assert gate["reason"] == "eval_slice_overfit_no_frozen_primary_lift"
+
+
+def test_eval_slice_overfit_guardrail_labels_kept_diagnostic_sources():
+    generated_config = FrequencyRankerConfig(frequency_weight=0.40)
+    kept_elite_config = FrequencyRankerConfig(frequency_weight=0.60)
+    round_best = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            generated_config,
+            top_100_hits=3,
+            top_1000_hits=3,
+            top_10000_hits=3,
+            target_ranks=[17, 55, 89],
+        ),
+        top_100_hits=0,
+        top_1000_hits=0,
+        top_10000_hits=0,
+    )
+    kept_elite = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            kept_elite_config,
+            top_100_hits=3,
+            top_1000_hits=3,
+            top_10000_hits=3,
+            target_ranks=[19, 60, 95],
+        ),
+        top_100_hits=0,
+        top_1000_hits=0,
+        top_10000_hits=0,
+    )
+
+    sources = diagnostic_source_configs(
+        {"normal": (generated_config,)},
+        best_config=generated_config,
+        elite_configs=(kept_elite_config,),
+    )
+    overfit = supervisor.eval_slice_overfit_guardrail(
+        summaries=[round_best, kept_elite],
+        source_configs=sources,
+        round_best=round_best,
+        prior_best_summary=round_best,
+        rank_homogeneity={"active": True, "unique_signature_count": 1},
+        promotion_gate={"passed": False, "primary_hit_passed": False},
+        stagnation_rounds=supervisor.STAGNATION_THRESHOLD,
+    )
+
+    assert overfit["source_counts"] == {"keep_elite": 1, "normal": 1}
+    assert [row["source"] for row in overfit["suspicious_candidates"]] == ["normal", "keep_elite"]
 
 
 def test_decision_round_best_requires_frozen_primary_lift_under_overfit_gate():
