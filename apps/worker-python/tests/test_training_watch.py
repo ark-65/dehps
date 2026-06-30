@@ -216,6 +216,40 @@ def test_write_outputs_sanitizes_run_id_filename(monkeypatch, tmp_path):
     assert (tmp_path / "training-watch-latest.md").exists()
 
 
+def test_write_outputs_uses_atomic_writer(monkeypatch, tmp_path):
+    monkeypatch.setattr(watch, "utc_stamp", lambda: "20260618-100000")
+    writes = []
+
+    def fake_atomic_write_text(path, text):
+        writes.append((path.name, text))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+
+    monkeypatch.setattr(watch, "atomic_write_text", fake_atomic_write_text)
+    payload = {
+        "generated_at": "2026-06-18T10:00:00Z",
+        "run_id": "run-1",
+        "round_count": 0,
+        "latest_round": None,
+        "last_improved_round": None,
+        "stagnation_rounds": 0,
+        "latest_metrics": {},
+        "advisor_summary": {},
+        "heavy_job_lock": {},
+        "recommendation": {"severity": "ok", "action": "continue_current_run", "notes": []},
+        "guardrail": "Historical response-surface monitoring only.",
+    }
+
+    watch.write_outputs(payload, tmp_path)
+
+    assert [name for name, _ in writes] == [
+        "training-watch-run-1-20260618-100000.json",
+        "training-watch-run-1-20260618-100000.md",
+        "training-watch-latest.json",
+        "training-watch-latest.md",
+    ]
+
+
 def test_safe_filename_component_bounds_long_run_ids():
     first = safe_filename_component("run-" + ("a" * 240), max_length=48)
     second = safe_filename_component("run-" + ("b" * 240), max_length=48)

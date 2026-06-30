@@ -2748,6 +2748,55 @@ def test_training_event_payload_is_compact_signal_only():
     }
 
 
+def test_write_status_uses_atomic_writer(monkeypatch, tmp_path):
+    writes = []
+
+    def fake_atomic_write_text(path, text):
+        writes.append((path.name, text))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+
+    monkeypatch.setattr(supervisor, "atomic_write_text", fake_atomic_write_text)
+
+    supervisor.write_status(tmp_path / "status.json", {"run_id": "run-1", "status": "running"})
+
+    assert [name for name, _ in writes] == ["status.json"]
+    assert json.loads(writes[0][1]) == {"run_id": "run-1", "status": "running"}
+
+
+def test_write_report_uses_atomic_writer(monkeypatch, tmp_path):
+    writes = []
+
+    def fake_atomic_write_text(path, text):
+        writes.append((path.name, text))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+
+    monkeypatch.setattr(supervisor, "atomic_write_text", fake_atomic_write_text)
+    status = {
+        "run_id": "run-1",
+        "started_at": "2026-06-30T00:00:00",
+        "updated_at": "2026-06-30T00:01:00",
+        "deadline": None,
+        "status": "running",
+        "train_mode": "expanding",
+        "train_window": 900,
+        "eval_window": 100,
+        "top_n": 10000,
+        "workers": 1,
+        "memory_budget_gb": 20,
+        "universe_size": 1105506,
+        "qian_kun": {"latest_issue": "2026073", "latest_label": "家人卦", "latest_pattern": "101011"},
+        "rounds": [],
+        "best": {"config": {}, "top_10000_hits": 0},
+    }
+
+    supervisor.write_report(tmp_path / "status.md", status)
+
+    assert [name for name, _ in writes] == ["status.md"]
+    assert writes[0][1].startswith("# DEHPS 24h Training Supervisor Report")
+
+
 def test_compact_status_payload_includes_probability_focus_diagnostics():
     payload = compact_status_payload(
         {

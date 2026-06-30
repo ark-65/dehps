@@ -12,6 +12,7 @@ from typing import Any
 
 from psycopg.rows import dict_row
 
+from dehps.artifacts import atomic_write_text
 from dehps.config import ROOT_DIR
 from dehps.db import get_connection
 from dehps.runtime.heavy_job import describe_heavy_job_owner
@@ -424,10 +425,10 @@ def write_outputs(payload: dict[str, Any], output_dir: Path) -> tuple[Path, Path
     latest_md = output_dir / "training-watch-latest.md"
     json_text = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
     md_text = render_markdown(payload)
-    json_path.write_text(json_text)
-    md_path.write_text(md_text)
-    latest_json.write_text(json_text)
-    latest_md.write_text(md_text)
+    atomic_write_text(json_path, json_text)
+    atomic_write_text(md_path, md_text)
+    atomic_write_text(latest_json, json_text)
+    atomic_write_text(latest_md, md_text)
     return json_path, md_path
 
 

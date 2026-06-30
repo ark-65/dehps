@@ -41,6 +41,7 @@ from dehps.optimization.weight_kdj import (
     weight_kdj_advice_from_signals,
     weight_kdj_advice_scenario_counts,
 )
+from dehps.artifacts import atomic_write_text
 from dehps.runtime.heavy_job import apply_cpu_thread_env_defaults, heavy_job_lock
 from dehps.optimization.walk_forward import (
     TargetRank,
@@ -4586,7 +4587,7 @@ def evaluate_configs(
 
 def write_status(output_path: Path, status: dict, *, event_url: str | None = None) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(status, ensure_ascii=False, indent=2))
+    atomic_write_text(output_path, json.dumps(status, ensure_ascii=False, indent=2))
     if event_url is not None:
         post_training_event(status, event_url=event_url)
 
@@ -4714,8 +4715,7 @@ def write_report(report_path: Path, status: dict) -> None:
     )
     best = status["best"]
     source_frontier = source_frontier_report_section(status)
-    report_path.write_text(
-        f"""# DEHPS 24h Training Supervisor Report
+    report = f"""# DEHPS 24h Training Supervisor Report
 
 - Run id: `{status["run_id"]}`
 - Started at: {status["started_at"]}
@@ -4755,7 +4755,7 @@ def write_report(report_path: Path, status: dict) -> None:
 
 The supervisor optimizes historical expanding walk-forward rank coverage. Any large jump must be checked for leakage and validated on future frozen draws before promotion.
 """
-    )
+    atomic_write_text(report_path, report)
 
 
 def run_supervisor(
