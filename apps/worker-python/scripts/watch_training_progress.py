@@ -276,6 +276,10 @@ def safe_score(value: Any) -> list[Any]:
     return []
 
 
+def safe_bool(value: Any) -> bool | None:
+    return value if isinstance(value, bool) else None
+
+
 def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
     promotion = prefilter.get("promotion_gate") if isinstance(prefilter.get("promotion_gate"), dict) else {}
     eval_guard = (
@@ -291,6 +295,16 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
     rank_homogeneity = (
         prefilter.get("rank_homogeneity_guardrail")
         if isinstance(prefilter.get("rank_homogeneity_guardrail"), dict)
+        else {}
+    )
+    restart_champion = (
+        prefilter.get("rank_homogeneity_restart_champion")
+        if isinstance(prefilter.get("rank_homogeneity_restart_champion"), dict)
+        else {}
+    )
+    navigation = (
+        prefilter.get("experimental_navigation_candidate")
+        if isinstance(prefilter.get("experimental_navigation_candidate"), dict)
         else {}
     )
     decision = prefilter.get("decision_round_best") if isinstance(prefilter.get("decision_round_best"), dict) else {}
@@ -339,6 +353,23 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "observed": safe_int(rank_homogeneity.get("observed")),
             "unique_signature_count": safe_int(rank_homogeneity.get("unique_signature_count")),
             "max_unique_signatures": safe_int(rank_homogeneity.get("max_unique_signatures")),
+        }
+    if restart_champion:
+        result["rank_homogeneity_restart_champion"] = {
+            "active": bool(restart_champion.get("active")),
+            "reason": restart_champion.get("reason"),
+            "source": restart_champion.get("source"),
+            "config_hash": restart_champion.get("config_hash"),
+            "full_eval_rank": safe_int(restart_champion.get("full_eval_rank")),
+            "rank_vector_changed": safe_bool(restart_champion.get("rank_vector_changed")),
+            "changed_target_count": safe_int(restart_champion.get("changed_target_count")),
+            "max_abs_delta": safe_int(restart_champion.get("max_abs_delta")),
+        }
+    if navigation:
+        result["experimental_navigation_candidate"] = {
+            "source": navigation.get("source"),
+            "reason": navigation.get("reason"),
+            "config_hash": navigation.get("config_hash"),
         }
     if decision:
         result["decision_round_best"] = {
@@ -486,6 +517,20 @@ def recommendation_summary(
             f"{rank_homogeneity.get('reason')} "
             f"unique_signatures={rank_homogeneity.get('unique_signature_count')}."
         )
+    restart_champion = (
+        gates.get("rank_homogeneity_restart_champion")
+        if isinstance(gates.get("rank_homogeneity_restart_champion"), dict)
+        else {}
+    )
+    if restart_champion.get("active"):
+        notes.append(
+            "Rank-homogeneity restart champion observed: "
+            f"{restart_champion.get('reason')} "
+            f"rank_vector_changed={restart_champion.get('rank_vector_changed')} "
+            f"changed_targets={restart_champion.get('changed_target_count')} "
+            f"full_eval_rank={restart_champion.get('full_eval_rank')} "
+            f"max_abs_delta={restart_champion.get('max_abs_delta')}."
+        )
 
     if not actions:
         actions.append("continue_current_run")
@@ -597,6 +642,16 @@ def render_markdown(payload: dict[str, Any]) -> str:
             if isinstance(gates.get("rank_homogeneity_guardrail"), dict)
             else {}
         )
+        restart_champion = (
+            gates.get("rank_homogeneity_restart_champion")
+            if isinstance(gates.get("rank_homogeneity_restart_champion"), dict)
+            else {}
+        )
+        navigation = (
+            gates.get("experimental_navigation_candidate")
+            if isinstance(gates.get("experimental_navigation_candidate"), dict)
+            else {}
+        )
         decision = gates.get("decision_round_best") if isinstance(gates.get("decision_round_best"), dict) else {}
         gate_lines = ["## Gate Snapshot", ""]
         if promotion:
@@ -633,6 +688,22 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 f"active={rank_homogeneity.get('active')} "
                 f"reason={markdown_inline_text(rank_homogeneity.get('reason'))} "
                 f"unique_signatures={rank_homogeneity.get('unique_signature_count')}"
+            )
+        if restart_champion:
+            gate_lines.append(
+                "- Restart champion: "
+                f"active={restart_champion.get('active')} "
+                f"reason={markdown_inline_text(restart_champion.get('reason'))} "
+                f"rank_vector_changed={restart_champion.get('rank_vector_changed')} "
+                f"changed_targets={restart_champion.get('changed_target_count')} "
+                f"full_eval_rank={restart_champion.get('full_eval_rank')} "
+                f"max_abs_delta={restart_champion.get('max_abs_delta')}"
+            )
+        if navigation:
+            gate_lines.append(
+                "- Experimental navigation: "
+                f"source={markdown_inline_text(navigation.get('source'))} "
+                f"reason={markdown_inline_text(navigation.get('reason'))}"
             )
         if decision:
             blocked_sources = compact_inline_list(decision.get("blocked_candidate_sources"))
