@@ -12,6 +12,7 @@ from dehps.optimization.control_experiments import (
     LoadedCandidate,
     fixed_control_labels,
     load_config_json_candidate,
+    load_neural_candidate,
     parse_random_seeds,
     promotion_gate,
     random_same_budget_summary,
@@ -75,6 +76,36 @@ def test_random_same_budget_has_deterministic_math_and_monte_carlo():
     assert first["analytical"]["top_n"]["expected_hits"] == 1.5
     assert first["analytical"]["top_10000"]["expected_hits"] == 1.5
     assert [item["seed"] for item in first["monte_carlo"]] == [7, 11]
+
+
+def test_random_same_budget_rejects_nonpositive_top_n():
+    with pytest.raises(ValueError, match="top_n must be at least 1"):
+        random_same_budget_summary(evaluated_draws=5, universe_size=10, top_n=0, random_seeds=(7,))
+
+
+def test_control_experiment_rejects_nonpositive_top_n_before_evaluation():
+    with pytest.raises(ValueError, match="top_n must be at least 1"):
+        run_control_experiments(
+            history=toy_history(),
+            universe=TOY_UNIVERSE,
+            candidate=LoadedCandidate(
+                label="candidate_config_json",
+                source="config-json",
+                config=FrequencyRankerConfig(frequency_weight=0.45),
+            ),
+            base_config=FrequencyRankerConfig(),
+            train_mode="expanding",
+            train_window=2,
+            eval_window=2,
+            top_n=0,
+            random_seeds=(3, 5),
+            workers=1,
+        )
+
+
+def test_neural_candidate_loader_rejects_nonpositive_top_n_before_read(tmp_path):
+    with pytest.raises(ValueError, match="top_n must be at least 1"):
+        load_neural_candidate(tmp_path / "missing.json", top_n=0)
 
 
 def test_promotion_gate_requires_control_win_and_tail_risk_not_worse():

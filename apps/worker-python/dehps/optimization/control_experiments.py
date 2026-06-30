@@ -126,6 +126,7 @@ def load_config_json_candidate(path: Path) -> LoadedCandidate:
 
 
 def load_neural_candidate(path: Path, *, top_n: int) -> LoadedCandidate:
+    top_n = validate_positive_int("top_n", top_n)
     payload = json.loads(path.read_text())
     scoring = payload.get("scoring") if isinstance(payload.get("scoring"), dict) else {}
     raw_candidates = scoring.get("top_candidates") if isinstance(scoring, dict) else None
@@ -281,6 +282,7 @@ def evaluate_fixed_candidate_set(
     eval_window: int,
     top_n: int,
 ) -> dict:
+    top_n = validate_positive_int("top_n", top_n)
     candidate_rank_by_numbers = {
         numbers: rank
         for rank, numbers, _score in candidate.fixed_ranked_candidates[:top_n]
@@ -337,6 +339,7 @@ def random_same_budget_summary(
     top_n: int,
     random_seeds: tuple[int, ...],
 ) -> dict:
+    top_n = validate_positive_int("top_n", top_n)
     safe_universe = max(1, universe_size)
     cutoffs = {
         "top_100": min(100, top_n, safe_universe),
@@ -444,6 +447,7 @@ def run_control_experiments(
     ranked_universe=None,
 ) -> dict:
     started = time.time()
+    top_n = validate_positive_int("top_n", top_n)
     worker_count = normalize_worker_count(workers)
     ranked_universe = ranked_universe or build_ranked_universe(universe)
     history_fingerprint_value = fingerprint_history(history)
@@ -606,6 +610,12 @@ def validate_train_mode(value: str) -> TrainMode:
     if value not in ("expanding", "rolling"):
         raise ValueError("train_mode must be expanding or rolling")
     return value  # type: ignore[return-value]
+
+
+def validate_positive_int(name: str, value: int) -> int:
+    if value < 1:
+        raise ValueError(f"{name} must be at least 1")
+    return value
 
 
 def all_weight_fields() -> tuple[str, ...]:
