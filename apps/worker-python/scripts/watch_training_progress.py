@@ -169,6 +169,33 @@ def load_rounds(run_id: str, *, limit: int) -> list[dict[str, Any]]:
             )
 
 
+def load_round_stats(run_id: str) -> dict[str, Any]:
+    with get_connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            rows = list(
+                cur.execute(
+                    """
+                    SELECT round_index, improved, objective_score
+                    FROM training_round_results
+                    WHERE run_id = %s
+                    ORDER BY round_index ASC
+                    """,
+                    (run_id,),
+                ).fetchall()
+            )
+    improvement = improvement_summary(rows)
+    objective_values = [safe_float(row.get("objective_score")) for row in rows]
+    objective_values = [value for value in objective_values if value is not None]
+    return {
+        "round_count": len(rows),
+        "latest_round": improvement["latest_round"],
+        "last_improved_round": improvement["last_improved_round"],
+        "stagnation_rounds": improvement["stagnation_rounds"],
+        "improvement_count": improvement["improvement_count"],
+        "best_objective_seen": max(objective_values) if objective_values else None,
+    }
+
+
 def heavy_lock_summary() -> dict[str, Any]:
     status = describe_heavy_job_owner()
     metadata = status.metadata or {}
@@ -246,6 +273,7 @@ def recommendation_summary(
     advisors: dict[str, dict[str, Any]],
     now: datetime,
     stale_minutes: int,
+    round_stats: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not rows:
         return {
@@ -255,7 +283,7 @@ def recommendation_summary(
         }
 
     latest = rows[-1]
-    improvement = improvement_summary(rows)
+    improvement = round_stats or improvement_summary(rows)
     latest_age = round_age_minutes(latest, now=now)
     notes: list[str] = []
     actions: list[str] = []
@@ -316,30 +344,41 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
     generated_at = utc_now()
     resolved_run_id = resolve_run_id(run_id)
     rows = load_rounds(resolved_run_id, limit=limit) if resolved_run_id else []
+    round_stats = (
+        load_round_stats(resolved_run_id)
+        if resolved_run_id
+        else {
+            "round_count": 0,
+            "latest_round": None,
+            "last_improved_round": None,
+            "stagnation_rounds": 0,
+            "improvement_count": 0,
+            "best_objective_seen": None,
+        }
+    )
     latest = rows[-1] if rows else {}
     prefilter = latest.get("prefilter") if isinstance(latest.get("prefilter"), dict) else {}
     advisors = advisor_summary(prefilter)
     lock = heavy_lock_summary()
-    improvement = improvement_summary(rows)
     recommendation = recommendation_summary(
         rows=rows,
         lock=lock,
         advisors=advisors,
         now=generated_at,
         stale_minutes=stale_minutes,
+        round_stats=round_stats,
     )
-    objective_values = [safe_float(row.get("objective_score")) for row in rows]
-    objective_values = [value for value in objective_values if value is not None]
     return {
         "generated_at": isoformat(generated_at),
         "run_id": resolved_run_id,
         "round_limit": limit,
+        "round_window_count": len(rows),
         "stale_minutes": stale_minutes,
-        "round_count": len(rows),
-        "latest_round": improvement["latest_round"],
-        "last_improved_round": improvement["last_improved_round"],
-        "stagnation_rounds": improvement["stagnation_rounds"],
-        "improvement_count": improvement["improvement_count"],
+        "round_count": round_stats["round_count"],
+        "latest_round": round_stats["latest_round"],
+        "last_improved_round": round_stats["last_improved_round"],
+        "stagnation_rounds": round_stats["stagnation_rounds"],
+        "improvement_count": round_stats["improvement_count"],
         "latest_round_age_minutes": round_age_minutes(latest, now=generated_at) if latest else None,
         "latest_metrics": {
             "phase": latest.get("phase"),
@@ -353,7 +392,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
             "best_rank": safe_int(latest.get("best_rank")),
             "worst_rank": safe_int(latest.get("worst_rank")),
             "objective_score": safe_float(latest.get("objective_score")),
-            "best_objective_seen": max(objective_values) if objective_values else None,
+            "best_objective_seen": round_stats["best_objective_seen"],
         },
         "candidate_budget": prefilter.get("candidate_budget") if isinstance(prefilter.get("candidate_budget"), dict) else {},
         "advisor_summary": advisors,
@@ -366,6 +405,9 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
 def render_markdown(payload: dict[str, Any]) -> str:
     latest = payload["latest_metrics"]
     rec = payload["recommendation"]
+    window_line = ""
+    if payload.get("round_window_count") is not None or payload.get("round_limit") is not None:
+        window_line = f"\n- Recent window: {payload.get('round_window_count')} / limit {payload.get('round_limit')}"
     advisor_rows = "\n".join(
         f"| {markdown_inline_text(key)} | {value.get('candidate_count', 0)} | {value.get('selected_count', 0)} | "
         f"{value.get('rejected_count', 0)} | "
@@ -377,7 +419,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
 
 - Generated at: {payload.get("generated_at")}
 - Run id: {markdown_inline_code(payload.get("run_id") or "")}
-- Rounds: {payload.get("round_count")}
+- Rounds: {payload.get("round_count")}{window_line}
 - Latest round: {payload.get("latest_round")}
 - Last improved round: {payload.get("last_improved_round")}
 - Stagnation rounds: {payload.get("stagnation_rounds")}
@@ -447,6 +489,7 @@ def main() -> None:
             {
                 "run_id": payload.get("run_id"),
                 "round_count": payload.get("round_count"),
+                "round_window_count": payload.get("round_window_count"),
                 "severity": payload.get("recommendation", {}).get("severity"),
                 "action": payload.get("recommendation", {}).get("action"),
                 "json_path": str(json_path),

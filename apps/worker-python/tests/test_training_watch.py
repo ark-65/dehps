@@ -286,7 +286,7 @@ def test_summarize_watch_normalizes_non_positive_windows(monkeypatch):
     captured = {}
 
     def fake_load_rounds(run_id, *, limit):
-        captured["run_id"] = run_id
+        captured["rounds_run_id"] = run_id
         captured["limit"] = limit
         return [
             {
@@ -298,16 +298,83 @@ def test_summarize_watch_normalizes_non_positive_windows(monkeypatch):
             }
         ]
 
+    def fake_load_round_stats(run_id):
+        captured["stats_run_id"] = run_id
+        return {
+            "round_count": 1,
+            "latest_round": 1,
+            "last_improved_round": None,
+            "stagnation_rounds": 1,
+            "improvement_count": 0,
+            "best_objective_seen": 1.0,
+        }
+
     monkeypatch.setattr(watch, "utc_now", lambda: now)
     monkeypatch.setattr(watch, "resolve_run_id", lambda run_id: "run-1")
     monkeypatch.setattr(watch, "load_rounds", fake_load_rounds)
+    monkeypatch.setattr(watch, "load_round_stats", fake_load_round_stats)
     monkeypatch.setattr(watch, "heavy_lock_summary", lambda: {"active": True, "owner": "training-supervisor"})
 
     payload = summarize_watch(None, limit=0, stale_minutes=-10)
 
-    assert captured == {"run_id": "run-1", "limit": watch.DEFAULT_ROUND_LIMIT}
+    assert captured == {
+        "rounds_run_id": "run-1",
+        "stats_run_id": "run-1",
+        "limit": watch.DEFAULT_ROUND_LIMIT,
+    }
     assert payload["round_limit"] == watch.DEFAULT_ROUND_LIMIT
     assert payload["stale_minutes"] == watch.DEFAULT_STALE_MINUTES
+    assert payload["recommendation"]["severity"] == "ok"
+
+
+def test_summarize_watch_uses_full_stats_beyond_recent_limit(monkeypatch):
+    now = datetime(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+    captured = {}
+
+    def fake_load_rounds(run_id, *, limit):
+        captured["rounds"] = (run_id, limit)
+        return [
+            {
+                "round_index": 11,
+                "improved": False,
+                "updated_at": now - timedelta(minutes=2),
+                "objective_score": 1.0,
+                "prefilter": {},
+            },
+            {
+                "round_index": 12,
+                "improved": False,
+                "updated_at": now - timedelta(minutes=1),
+                "objective_score": 2.0,
+                "prefilter": {},
+            },
+        ]
+
+    def fake_load_round_stats(run_id):
+        captured["stats"] = run_id
+        return {
+            "round_count": 12,
+            "latest_round": 12,
+            "last_improved_round": 10,
+            "stagnation_rounds": 2,
+            "improvement_count": 4,
+            "best_objective_seen": 99.0,
+        }
+
+    monkeypatch.setattr(watch, "utc_now", lambda: now)
+    monkeypatch.setattr(watch, "resolve_run_id", lambda run_id: "run-1")
+    monkeypatch.setattr(watch, "load_rounds", fake_load_rounds)
+    monkeypatch.setattr(watch, "load_round_stats", fake_load_round_stats)
+    monkeypatch.setattr(watch, "heavy_lock_summary", lambda: {"active": True, "owner": "training-supervisor"})
+
+    payload = summarize_watch("input-run", limit=2, stale_minutes=30)
+
+    assert captured == {"rounds": ("run-1", 2), "stats": "run-1"}
+    assert payload["round_count"] == 12
+    assert payload["round_window_count"] == 2
+    assert payload["last_improved_round"] == 10
+    assert payload["stagnation_rounds"] == 2
+    assert payload["latest_metrics"]["best_objective_seen"] == 99.0
     assert payload["recommendation"]["severity"] == "ok"
 
 
