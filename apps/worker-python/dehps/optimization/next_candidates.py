@@ -15,6 +15,7 @@ from dehps.optimization.walk_forward import (
     top_candidates_for_next,
 )
 from dehps.storage.postgres_store import (
+    ensure_training_supervisor_best_schema,
     load_history_with_dates,
     replace_training_next_candidates_current,
 )
@@ -99,7 +100,64 @@ def resolve_latest_training_run_id(conn: Connection, run_id: str | None = None) 
     return str(row[0]) if row else None
 
 
+def training_best_candidate_from_row(row: dict[str, Any]) -> dict[str, Any] | None:
+    summary = row.get("best_summary") if isinstance(row.get("best_summary"), dict) else {}
+    config = summary.get("config") if isinstance(summary.get("config"), dict) else row.get("best_config")
+    if not isinstance(config, dict) or not config:
+        return None
+    return {
+        "run_id": str(row["run_id"]),
+        "source_round_index": int(row["round_index"]),
+        "train_mode": str(row["train_mode"]),
+        "train_window": int(row["train_window"]),
+        "eval_window": int(row["eval_window"]),
+        "top_n": int(row["top_n"]),
+        "training_as_of_issue": str(row["as_of_issue"]),
+        "training_history_fingerprint": str(row["history_fingerprint"]),
+        "history_scope": str(row.get("history_scope") or ""),
+        "regime_years": int(row.get("regime_years") or 0),
+        "training_regime_start_date": row.get("regime_start_date").isoformat()
+        if row.get("regime_start_date")
+        else "",
+        "summary": summary,
+        "config": {key: float(value) for key, value in config.items() if isinstance(value, int | float)},
+    }
+
+
+def load_training_supervisor_best_summary(conn: Connection, run_id: str | None = None) -> dict[str, Any] | None:
+    ensure_training_supervisor_best_schema(conn)
+    if run_id:
+        query = """
+            SELECT run_id, round_index, train_mode, train_window, eval_window, top_n,
+                   as_of_issue, history_fingerprint, history_scope, regime_years, regime_start_date,
+                   best_summary, best_config, updated_at
+            FROM training_supervisor_best
+            WHERE run_id = %s
+            ORDER BY round_index DESC, updated_at DESC
+            LIMIT 1
+        """
+        params: tuple[Any, ...] = (run_id,)
+    else:
+        query = """
+            SELECT run_id, round_index, train_mode, train_window, eval_window, top_n,
+                   as_of_issue, history_fingerprint, history_scope, regime_years, regime_start_date,
+                   best_summary, best_config, updated_at
+            FROM training_supervisor_best
+            ORDER BY updated_at DESC
+            LIMIT 1
+        """
+        params = ()
+    with conn.cursor(row_factory=dict_row) as cur:
+        row = cur.execute(query, params).fetchone()
+    if not row:
+        return None
+    return training_best_candidate_from_row(row)
+
+
 def load_best_training_summary(conn: Connection, run_id: str | None = None) -> dict[str, Any] | None:
+    checkpoint_best = load_training_supervisor_best_summary(conn, run_id)
+    if checkpoint_best is not None:
+        return checkpoint_best
     resolved_run_id = resolve_latest_training_run_id(conn, run_id)
     if not resolved_run_id:
         return None
@@ -117,27 +175,9 @@ def load_best_training_summary(conn: Connection, run_id: str | None = None) -> d
         ).fetchall()
     best: dict[str, Any] | None = None
     for row in rows:
-        summary = row.get("best_summary") if isinstance(row.get("best_summary"), dict) else {}
-        config = summary.get("config") if isinstance(summary.get("config"), dict) else row.get("best_config")
-        if not isinstance(config, dict) or not config:
+        candidate = training_best_candidate_from_row(row)
+        if candidate is None:
             continue
-        candidate = {
-            "run_id": str(row["run_id"]),
-            "source_round_index": int(row["round_index"]),
-            "train_mode": str(row["train_mode"]),
-            "train_window": int(row["train_window"]),
-            "eval_window": int(row["eval_window"]),
-            "top_n": int(row["top_n"]),
-            "training_as_of_issue": str(row["as_of_issue"]),
-            "training_history_fingerprint": str(row["history_fingerprint"]),
-            "history_scope": str(row.get("history_scope") or ""),
-            "regime_years": int(row.get("regime_years") or 0),
-            "training_regime_start_date": row.get("regime_start_date").isoformat()
-            if row.get("regime_start_date")
-            else "",
-            "summary": summary,
-            "config": {key: float(value) for key, value in config.items() if isinstance(value, int | float)},
-        }
         if best is None or training_summary_sort_key(candidate["summary"]) > training_summary_sort_key(best["summary"]):
             best = candidate
     return best

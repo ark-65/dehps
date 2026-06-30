@@ -55,10 +55,14 @@ from dehps.optimization.walk_forward import (
 )
 from dehps.storage.postgres_store import (
     ensure_training_round_results_schema,
+    ensure_training_supervisor_best_schema,
     ensure_training_target_weight_inversions_schema,
     load_red_combination_universe,
     load_training_round_carryover_candidate_summaries,
+    load_training_supervisor_best_carryover_candidate_summaries,
+    load_training_supervisor_best_candidate_summaries,
     upsert_training_round_result,
+    upsert_training_supervisor_best,
     upsert_training_target_weight_inversion,
 )
 from dehps.storage.postgres_store import load_training_round_candidate_summaries
@@ -3359,7 +3363,8 @@ def load_db_supervisor_candidates(
 ) -> list[dict]:
     with get_connection() as conn:
         ensure_training_round_results_schema(conn)
-        raw_candidates = load_training_round_candidate_summaries(
+        ensure_training_supervisor_best_schema(conn)
+        raw_candidates = load_training_supervisor_best_candidate_summaries(
             conn,
             as_of_issue=as_of_issue,
             history_fingerprint=history_fingerprint_value,
@@ -3368,6 +3373,18 @@ def load_db_supervisor_candidates(
             eval_window=eval_window,
             top_n=top_n,
             limit=limit,
+        )
+        raw_candidates.extend(
+            load_training_round_candidate_summaries(
+                conn,
+                as_of_issue=as_of_issue,
+                history_fingerprint=history_fingerprint_value,
+                train_window=train_window,
+                train_mode=train_mode,
+                eval_window=eval_window,
+                top_n=top_n,
+                limit=limit,
+            )
         )
     candidates: list[dict] = []
     for raw_candidate in raw_candidates:
@@ -3485,7 +3502,8 @@ def load_db_supervisor_carryover_configs(
 ) -> tuple[FrequencyRankerConfig, ...]:
     with get_connection() as conn:
         ensure_training_round_results_schema(conn)
-        raw_candidates = load_training_round_carryover_candidate_summaries(
+        ensure_training_supervisor_best_schema(conn)
+        raw_candidates = load_training_supervisor_best_carryover_candidate_summaries(
             conn,
             current_as_of_issue=current_as_of_issue,
             current_history_fingerprint=current_history_fingerprint,
@@ -3493,7 +3511,19 @@ def load_db_supervisor_carryover_configs(
             train_mode=train_mode,
             eval_window=eval_window,
             top_n=top_n,
-            limit=max(limit * 4, limit),
+            limit=max(limit * 2, limit),
+        )
+        raw_candidates.extend(
+            load_training_round_carryover_candidate_summaries(
+                conn,
+                current_as_of_issue=current_as_of_issue,
+                current_history_fingerprint=current_history_fingerprint,
+                train_window=train_window,
+                train_mode=train_mode,
+                eval_window=eval_window,
+                top_n=top_n,
+                limit=max(limit * 4, limit),
+            )
         )
     return carryover_candidate_configs_from_summaries(
         raw_candidates,
@@ -4781,6 +4811,7 @@ def run_supervisor(
 
     with get_connection() as conn:
         ensure_training_round_results_schema(conn)
+        ensure_training_supervisor_best_schema(conn)
         selection = select_history(conn, scope=history_scope, as_of_issue=as_of_issue, regime_years=regime_years)
         universe = load_red_combination_universe(conn)
 
@@ -5029,6 +5060,15 @@ def run_supervisor(
         status["updated_at"] = progress["logged_at"]
         publish_status_snapshot(status_path, status, event_url=resolved_event_url, write_json=write_status_json)
 
+    if best_summary:
+        with get_connection() as conn:
+            upsert_training_supervisor_best(
+                conn,
+                run_id=run_id,
+                round_index=0,
+                best_summary=best_summary,
+                status=status,
+            )
     publish_status_snapshot(status_path, status, event_url=resolved_event_url, write_json=write_status_json)
 
     try:
@@ -5790,6 +5830,14 @@ def run_supervisor(
             with get_connection() as conn:
                 ensure_training_round_results_schema(conn)
                 upsert_training_round_result(conn, run_id=run_id, round_info=round_record, status=status)
+                if best_summary:
+                    upsert_training_supervisor_best(
+                        conn,
+                        run_id=run_id,
+                        round_index=round_index + 1,
+                        best_summary=best_summary,
+                        status=status,
+                    )
                 if enable_target_weight_inversion_advisor and inversion_rows:
                     ensure_training_target_weight_inversions_schema(conn)
                     for inversion in inversion_rows:

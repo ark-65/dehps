@@ -144,6 +144,52 @@ def ensure_training_round_results_schema(conn: Connection) -> None:
     )
 
 
+def ensure_training_supervisor_best_schema(conn: Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS training_supervisor_best (
+          id BIGSERIAL PRIMARY KEY,
+          run_id TEXT NOT NULL,
+          round_index INTEGER NOT NULL,
+          train_mode TEXT NOT NULL,
+          train_window INTEGER NOT NULL,
+          eval_window INTEGER NOT NULL,
+          top_n INTEGER NOT NULL,
+          as_of_issue TEXT NOT NULL,
+          history_fingerprint TEXT NOT NULL,
+          history_scope TEXT NOT NULL DEFAULT '',
+          regime_years INTEGER NOT NULL DEFAULT 0,
+          regime_start_date DATE,
+          config_hash TEXT NOT NULL,
+          top_100_hits INTEGER NOT NULL DEFAULT 0,
+          top_1000_hits INTEGER NOT NULL DEFAULT 0,
+          top_10000_hits INTEGER NOT NULL DEFAULT 0,
+          red5_top_100_hits INTEGER NOT NULL DEFAULT 0,
+          red5_top_1000_hits INTEGER NOT NULL DEFAULT 0,
+          red5_top_10000_hits INTEGER NOT NULL DEFAULT 0,
+          median_rank NUMERIC(12,2),
+          best_rank INTEGER,
+          worst_rank INTEGER,
+          objective_score NUMERIC(14,6),
+          best_config JSONB NOT NULL DEFAULT '{}'::jsonb,
+          best_summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (train_mode, train_window, eval_window, top_n, as_of_issue, history_fingerprint)
+        )
+        """
+    )
+    conn.execute("ALTER TABLE training_supervisor_best ADD COLUMN IF NOT EXISTS history_scope TEXT NOT NULL DEFAULT ''")
+    conn.execute("ALTER TABLE training_supervisor_best ADD COLUMN IF NOT EXISTS regime_years INTEGER NOT NULL DEFAULT 0")
+    conn.execute("ALTER TABLE training_supervisor_best ADD COLUMN IF NOT EXISTS regime_start_date DATE")
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_training_supervisor_best_updated
+          ON training_supervisor_best (updated_at DESC)
+        """
+    )
+
+
 def ensure_training_weight_signals_schema(conn: Connection) -> None:
     conn.execute(
         """
@@ -783,6 +829,149 @@ def upsert_training_round_result(conn: Connection, *, run_id: str, round_info: d
             json.dumps(round_info.get("prefilter") or {}),
         ),
     )
+
+
+def upsert_training_supervisor_best(
+    conn: Connection,
+    *,
+    run_id: str,
+    round_index: int,
+    best_summary: dict[str, Any],
+    status: dict[str, Any],
+) -> None:
+    ensure_training_supervisor_best_schema(conn)
+    config = best_summary.get("config") if isinstance(best_summary.get("config"), dict) else {}
+    red5 = best_summary.get("red5") if isinstance(best_summary.get("red5"), dict) else {}
+    reward = best_summary.get("reward") if isinstance(best_summary.get("reward"), dict) else {}
+    conn.execute(
+        """
+        INSERT INTO training_supervisor_best (
+          run_id, round_index, train_mode, train_window, eval_window, top_n,
+          as_of_issue, history_fingerprint, history_scope, regime_years, regime_start_date,
+          config_hash, top_100_hits, top_1000_hits, top_10000_hits,
+          red5_top_100_hits, red5_top_1000_hits, red5_top_10000_hits,
+          median_rank, best_rank, worst_rank, objective_score, best_config, best_summary
+        )
+        VALUES (
+          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+          %s::jsonb, %s::jsonb
+        )
+        ON CONFLICT (train_mode, train_window, eval_window, top_n, as_of_issue, history_fingerprint)
+        DO UPDATE
+        SET run_id = EXCLUDED.run_id,
+            round_index = EXCLUDED.round_index,
+            history_scope = EXCLUDED.history_scope,
+            regime_years = EXCLUDED.regime_years,
+            regime_start_date = EXCLUDED.regime_start_date,
+            config_hash = EXCLUDED.config_hash,
+            top_100_hits = EXCLUDED.top_100_hits,
+            top_1000_hits = EXCLUDED.top_1000_hits,
+            top_10000_hits = EXCLUDED.top_10000_hits,
+            red5_top_100_hits = EXCLUDED.red5_top_100_hits,
+            red5_top_1000_hits = EXCLUDED.red5_top_1000_hits,
+            red5_top_10000_hits = EXCLUDED.red5_top_10000_hits,
+            median_rank = EXCLUDED.median_rank,
+            best_rank = EXCLUDED.best_rank,
+            worst_rank = EXCLUDED.worst_rank,
+            objective_score = EXCLUDED.objective_score,
+            best_config = EXCLUDED.best_config,
+            best_summary = EXCLUDED.best_summary,
+            updated_at = now()
+        """,
+        (
+            run_id,
+            int(round_index),
+            str(status["train_mode"]),
+            int(status["train_window"]),
+            int(status["eval_window"]),
+            int(status["top_n"]),
+            str(best_summary.get("as_of_issue") or status.get("as_of_issue") or ""),
+            str(best_summary.get("history_fingerprint") or ""),
+            str(status.get("history_scope") or ""),
+            int(status.get("regime_years") or 0),
+            status.get("regime_start_date") or None,
+            str(best_summary.get("config_hash") or ""),
+            int(best_summary.get("top_100_hits") or 0),
+            int(best_summary.get("top_1000_hits") or 0),
+            int(best_summary.get("top_10000_hits") or 0),
+            int(red5.get("top_100_hits") or 0),
+            int(red5.get("top_1000_hits") or 0),
+            int(red5.get("top_10000_hits") or 0),
+            best_summary.get("median_rank"),
+            best_summary.get("best_rank"),
+            best_summary.get("worst_rank"),
+            reward.get("objectiveScore"),
+            json.dumps(config),
+            json.dumps(best_summary),
+        ),
+    )
+
+
+def load_training_supervisor_best_candidate_summaries(
+    conn: Connection,
+    *,
+    as_of_issue: str,
+    history_fingerprint: str,
+    train_window: int,
+    train_mode: str,
+    eval_window: int,
+    top_n: int,
+    limit: int = 12,
+) -> list[dict[str, Any]]:
+    with conn.cursor(row_factory=dict_row) as cur:
+        rows = cur.execute(
+            """
+            SELECT best_summary
+            FROM training_supervisor_best
+            WHERE as_of_issue = %s
+              AND history_fingerprint = %s
+              AND train_window = %s
+              AND train_mode = %s
+              AND eval_window = %s
+              AND top_n = %s
+            ORDER BY objective_score DESC NULLS LAST, updated_at DESC
+            LIMIT %s
+            """,
+            (as_of_issue, history_fingerprint, train_window, train_mode, eval_window, top_n, limit),
+        ).fetchall()
+    return [row["best_summary"] for row in rows if isinstance(row.get("best_summary"), dict)]
+
+
+def load_training_supervisor_best_carryover_candidate_summaries(
+    conn: Connection,
+    *,
+    current_as_of_issue: str,
+    current_history_fingerprint: str,
+    train_window: int,
+    train_mode: str,
+    eval_window: int,
+    top_n: int,
+    limit: int = 24,
+) -> list[dict[str, Any]]:
+    with conn.cursor(row_factory=dict_row) as cur:
+        rows = cur.execute(
+            """
+            SELECT best_summary
+            FROM training_supervisor_best
+            WHERE train_window = %s
+              AND train_mode = %s
+              AND eval_window = %s
+              AND top_n = %s
+              AND (as_of_issue <> %s OR history_fingerprint <> %s)
+            ORDER BY objective_score DESC NULLS LAST, updated_at DESC
+            LIMIT %s
+            """,
+            (
+                train_window,
+                train_mode,
+                eval_window,
+                top_n,
+                current_as_of_issue,
+                current_history_fingerprint,
+                limit,
+            ),
+        ).fetchall()
+    return [row["best_summary"] for row in rows if isinstance(row.get("best_summary"), dict)]
 
 
 def load_training_round_candidate_summaries(

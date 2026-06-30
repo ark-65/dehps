@@ -8,7 +8,9 @@ from dehps.storage.postgres_store import DEFAULT_SSQ_DRAW_SITE
 from dehps.storage.postgres_store import CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID
 from dehps.storage.postgres_store import ensure_training_next_candidates_current_schema
 from dehps.storage.postgres_store import ensure_training_target_weight_inversions_schema
+from dehps.storage.postgres_store import ensure_training_supervisor_best_schema
 from dehps.storage.postgres_store import ensure_training_weight_signals_schema
+from dehps.storage.postgres_store import load_training_supervisor_best_candidate_summaries
 from dehps.storage.postgres_store import load_recent_training_weight_signals
 from dehps.storage.postgres_store import load_training_target_weight_inversion_context
 from dehps.storage.postgres_store import load_training_weight_signal_coverage
@@ -19,6 +21,7 @@ from dehps.storage.postgres_store import prune_stale_training_weight_signals
 from dehps.storage.postgres_store import replace_training_next_candidates_current
 from dehps.storage.postgres_store import upsert_training_target_weight_inversion
 from dehps.storage.postgres_store import upsert_training_round_result
+from dehps.storage.postgres_store import upsert_training_supervisor_best
 from dehps.storage.postgres_store import upsert_training_weight_signal
 from dehps.storage.postgres_store import upsert_ssq_draw_site
 
@@ -176,6 +179,86 @@ def test_training_next_candidates_schema_uses_current_rank_index():
     assert "CREATE TABLE IF NOT EXISTS training_next_candidates_current" in schema_sql
     assert "snapshot_key TEXT NOT NULL" in schema_sql
     assert any("idx_training_next_candidates_current_rank" in sql for sql, _params in conn.executed)
+
+
+def test_training_supervisor_best_schema_uses_protocol_history_key():
+    conn = FakeConn([])
+
+    ensure_training_supervisor_best_schema(conn)
+
+    schema_sql = conn.executed[0][0]
+    assert "CREATE TABLE IF NOT EXISTS training_supervisor_best" in schema_sql
+    assert "best_config JSONB NOT NULL" in schema_sql
+    assert "best_summary JSONB NOT NULL" in schema_sql
+    assert "UNIQUE (train_mode, train_window, eval_window, top_n, as_of_issue, history_fingerprint)" in schema_sql
+
+
+def test_upsert_training_supervisor_best_persists_global_best_config():
+    conn = FakeConn([])
+    best = {
+        "as_of_issue": "2026073",
+        "history_fingerprint": "history-current",
+        "config_hash": "best-config-hash",
+        "top_100_hits": 3,
+        "top_1000_hits": 3,
+        "top_10000_hits": 3,
+        "median_rank": 12345.5,
+        "best_rank": 39,
+        "worst_rank": 900000,
+        "config": {"structural_weight": 0.7, "frequency_weight": 0.8, "omission_weight": 0.05},
+        "reward": {"objectiveScore": 123.45},
+        "red5": {"top_100_hits": 1, "top_1000_hits": 2, "top_10000_hits": 3},
+    }
+
+    upsert_training_supervisor_best(
+        conn,
+        run_id="run-1",
+        round_index=7,
+        best_summary=best,
+        status={
+            "train_mode": "expanding",
+            "train_window": 900,
+            "eval_window": 100,
+            "top_n": 10000,
+            "history_scope": "current_regime_default",
+            "regime_years": 10,
+            "regime_start_date": "2016-06-28",
+        },
+    )
+
+    sql, params = conn.executed[-1]
+    assert "ON CONFLICT (train_mode, train_window, eval_window, top_n, as_of_issue, history_fingerprint)" in sql
+    assert params[:6] == ("run-1", 7, "expanding", 900, 100, 10000)
+    assert params[6:12] == (
+        "2026073",
+        "history-current",
+        "current_regime_default",
+        10,
+        "2016-06-28",
+        "best-config-hash",
+    )
+    assert '"frequency_weight": 0.8' in params[-2]
+    assert '"config_hash": "best-config-hash"' in params[-1]
+
+
+def test_load_training_supervisor_best_candidate_summaries_reads_checkpoint_rows():
+    best = {"config_hash": "best-config-hash"}
+    conn = FakeCursorConn([{"best_summary": best}])
+
+    rows = load_training_supervisor_best_candidate_summaries(
+        conn,
+        as_of_issue="2026073",
+        history_fingerprint="history-current",
+        train_window=900,
+        train_mode="expanding",
+        eval_window=100,
+        top_n=10000,
+    )
+
+    assert rows == [best]
+    sql, params = conn.executed[-1]
+    assert "FROM training_supervisor_best" in sql
+    assert params[:2] == ("2026073", "history-current")
 
 
 def test_training_target_weight_inversions_schema_uses_target_config_key():

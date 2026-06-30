@@ -8,15 +8,80 @@ import pytest
 import dehps.optimization.next_candidates as next_candidates
 from dehps.optimization.next_candidates import (
     build_training_next_candidate_snapshot,
+    load_best_training_summary,
     next_issue_hint,
     training_freshness_metadata,
     training_summary_sort_key,
 )
 
 
+class FakeCursor:
+    def __init__(self, conn):
+        self.conn = conn
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, _exc_type, _exc, _traceback):
+        return False
+
+    def execute(self, sql, params=None):
+        self.conn.queries.append((sql, params))
+        return self
+
+    def fetchone(self):
+        return self.conn.row
+
+
+class FakeConn:
+    def __init__(self, row):
+        self.row = row
+        self.queries = []
+
+    def cursor(self, row_factory=None):
+        self.row_factory = row_factory
+        return FakeCursor(self)
+
+
 def test_next_issue_hint_increments_numeric_issue():
     assert next_issue_hint("2026068") == "2026069"
     assert next_issue_hint("bad") == ""
+
+
+def test_load_best_training_summary_prefers_supervisor_best_checkpoint(monkeypatch):
+    checkpoint_row = {
+        "run_id": "run-1",
+        "round_index": 9,
+        "train_mode": "expanding",
+        "train_window": 900,
+        "eval_window": 100,
+        "top_n": 10000,
+        "as_of_issue": "2026073",
+        "history_fingerprint": "history-current",
+        "history_scope": "current_regime_default",
+        "regime_years": 10,
+        "regime_start_date": date(2016, 6, 28),
+        "best_summary": {
+            "config_hash": "checkpoint-best",
+            "config": {"structural_weight": 0.7, "frequency_weight": 0.8, "omission_weight": 0.05},
+            "top_100_hits": 3,
+            "top_1000_hits": 3,
+            "top_10000_hits": 3,
+        },
+        "best_config": {"frequency_weight": 0.1},
+    }
+    conn = FakeConn(checkpoint_row)
+    monkeypatch.setattr(next_candidates, "ensure_training_supervisor_best_schema", lambda _conn: None)
+
+    best = load_best_training_summary(conn)
+
+    assert best is not None
+    assert best["source_round_index"] == 9
+    assert best["training_regime_start_date"] == "2016-06-28"
+    assert best["summary"]["config_hash"] == "checkpoint-best"
+    assert best["config"]["frequency_weight"] == 0.8
+    assert len(conn.queries) == 1
+    assert "FROM training_supervisor_best" in conn.queries[0][0]
 
 
 def test_training_freshness_metadata_marks_stale_history():
