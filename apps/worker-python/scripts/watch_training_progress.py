@@ -128,6 +128,30 @@ def markdown_inline_code(value: Any) -> str:
     return f"{fence}{padding}{single_line}{padding}{fence}"
 
 
+def compact_count_map(value: Any, *, limit: int = 5) -> str:
+    if not isinstance(value, dict) or not value:
+        return "{}"
+    items = sorted(
+        value.items(),
+        key=lambda item: (-(safe_int(item[1]) or 0), str(item[0])),
+    )
+    parts = [f"{key}={count}" for key, count in items[:limit]]
+    overflow = len(items) - limit
+    if overflow > 0:
+        parts.append(f"+{overflow} more")
+    return ", ".join(parts)
+
+
+def compact_inline_list(value: Any, *, limit: int = 5) -> str:
+    if not isinstance(value, list) or not value:
+        return "[]"
+    parts = [str(item) for item in value[:limit]]
+    overflow = len(value) - limit
+    if overflow > 0:
+        parts.append(f"+{overflow} more")
+    return "[" + ", ".join(parts) + "]"
+
+
 def resolve_run_id(run_id: str | None) -> str | None:
     if run_id:
         return run_id
@@ -432,12 +456,15 @@ def recommendation_summary(
         else {}
     )
     if eval_guard.get("active"):
+        source_counts = compact_count_map(eval_guard.get("source_counts"))
+        issue_counts = compact_count_map(eval_guard.get("issue_counts"))
         notes.append(
             "Eval-slice overfit guardrail is active: "
             f"{eval_guard.get('reason')} "
             f"eval_primary={eval_guard.get('round_best_eval_primary_score')} "
             f"frozen_primary={eval_guard.get('round_best_frozen_primary_score')} "
-            f"suspicious_candidates={eval_guard.get('suspicious_candidate_count')}."
+            f"suspicious_candidates={eval_guard.get('suspicious_candidate_count')} "
+            f"sources={source_counts} issues={issue_counts}."
         )
     stale_gate = (
         gates.get("stale_round_best_search_base_gate")
@@ -581,13 +608,17 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 f"incumbent_primary={promotion.get('incumbent_primary_score')}"
             )
         if eval_guard:
+            source_counts = compact_count_map(eval_guard.get("source_counts"))
+            issue_counts = compact_count_map(eval_guard.get("issue_counts"))
             gate_lines.append(
                 "- Eval-slice overfit guardrail: "
                 f"active={eval_guard.get('active')} "
                 f"reason={markdown_inline_text(eval_guard.get('reason'))} "
                 f"eval_primary={eval_guard.get('round_best_eval_primary_score')} "
                 f"frozen_primary={eval_guard.get('round_best_frozen_primary_score')} "
-                f"suspicious={eval_guard.get('suspicious_candidate_count')}"
+                f"suspicious={eval_guard.get('suspicious_candidate_count')} "
+                f"sources={markdown_inline_text(source_counts)} "
+                f"issues={markdown_inline_text(issue_counts)}"
             )
         if stale_gate:
             gate_lines.append(
@@ -604,12 +635,14 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 f"unique_signatures={rank_homogeneity.get('unique_signature_count')}"
             )
         if decision:
+            blocked_sources = compact_inline_list(decision.get("blocked_candidate_sources"))
             gate_lines.append(
                 "- Decision round best: "
                 f"source={markdown_inline_text(decision.get('source'))} "
                 f"reason={markdown_inline_text(decision.get('reason'))} "
                 f"selected_frozen_primary={decision.get('selected_frozen_primary_score')} "
-                f"blocked_candidates={decision.get('blocked_candidate_count')}"
+                f"blocked_candidates={decision.get('blocked_candidate_count')} "
+                f"blocked_sources={markdown_inline_text(blocked_sources)}"
             )
         gate_section = "\n".join(gate_lines) + "\n\n"
     return f"""# DEHPS Training Watch

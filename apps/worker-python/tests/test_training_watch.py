@@ -164,7 +164,7 @@ def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_mar
             "incumbent_frozen_primary_score": [0, 0, 0],
             "suspicious_candidate_count": 4,
             "issue_counts": {"2026025": 4},
-            "source_counts": {"stagnation_restart": 1},
+            "source_counts": {"unknown": 3, "stagnation_restart": 1},
         },
         "stale_round_best_search_base_gate": {
             "active": True,
@@ -242,8 +242,13 @@ def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_mar
     assert gates["decision_round_best"]["blocked_candidate_count"] == 1
     assert any("Promotion gate blocked" in note for note in recommendation["notes"])
     assert any("Eval-slice overfit guardrail is active" in note for note in recommendation["notes"])
+    assert any("sources=unknown=3, stagnation_restart=1" in note for note in recommendation["notes"])
+    assert any("issues=2026025=4" in note for note in recommendation["notes"])
     assert "## Gate Snapshot" in markdown
     assert "frozen_primary=[0, 0, 0]" in markdown
+    assert "sources=unknown=3, stagnation_restart=1" in markdown
+    assert "issues=2026025=4" in markdown
+    assert "blocked_sources=[rank_homogeneity_restart]" in markdown
 
 
 def test_render_markdown_escapes_untrusted_inline_text():
