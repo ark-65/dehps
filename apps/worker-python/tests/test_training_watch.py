@@ -9,6 +9,7 @@ from scripts.watch_training_progress import (
     gate_summary,
     recommendation_summary,
     render_markdown,
+    restart_readiness_summary,
     safe_float,
     safe_filename_component,
     safe_int,
@@ -75,6 +76,79 @@ def test_recommendation_flags_high_stagnation_for_restart_preparation():
     assert recommendation["severity"] == "alert"
     assert recommendation["action"] == "prepare_restart_with_more_exploration"
     assert "prepare_restart_with_more_exploration" in recommendation["actions"]
+    assert any("not launch-ready" in note for note in recommendation["notes"])
+
+
+def test_restart_readiness_blocks_parallel_supervisor_while_lock_is_active():
+    recommendation = {
+        "action": "prepare_restart_with_more_exploration",
+        "actions": ["prepare_restart_with_more_exploration"],
+    }
+    lock = {
+        "active": True,
+        "owner": "training-supervisor",
+        "pid": 12345,
+        "pid_active": True,
+        "heartbeat_at": "2026-07-01T00:00:00Z",
+    }
+
+    readiness = restart_readiness_summary(recommendation=recommendation, lock=lock)
+
+    assert readiness["requested"] is True
+    assert readiness["ready"] is False
+    assert readiness["status"] == "blocked_by_active_heavy_job_lock"
+    assert readiness["blockers"] == ["active_training_supervisor_lock"]
+    assert readiness["pid"] == 12345
+
+
+def test_render_markdown_includes_restart_readiness_when_restart_is_requested():
+    payload = {
+        "generated_at": "2026-07-01T00:00:00Z",
+        "run_id": "run-1",
+        "round_count": 34,
+        "latest_round": 34,
+        "last_improved_round": None,
+        "stagnation_rounds": 34,
+        "latest_metrics": {
+            "phase": "large",
+            "step": 0.15,
+            "improved": False,
+            "top_100_hits": 3,
+            "top_1000_hits": 3,
+            "top_10000_hits": 3,
+            "red5_top_10000_hits": 27,
+            "best_rank": 39,
+            "median_rank": 555738,
+            "worst_rank": 1091255,
+            "objective_score": 5082.552393,
+            "best_objective_seen": 5082.552393,
+        },
+        "advisor_summary": {},
+        "gate_summary": {},
+        "heavy_job_lock": {"active": True, "owner": "training-supervisor", "pid": 12345},
+        "recommendation": {
+            "severity": "alert",
+            "action": "prepare_restart_with_more_exploration",
+            "notes": [],
+        },
+        "restart_readiness": {
+            "requested": True,
+            "ready": False,
+            "status": "blocked_by_active_heavy_job_lock",
+            "blockers": ["active_training_supervisor_lock"],
+            "owner": "training-supervisor",
+            "pid": 12345,
+            "heartbeat_at": "2026-07-01T00:00:00Z",
+        },
+        "guardrail": "Historical response-surface monitoring only.",
+    }
+
+    markdown = render_markdown(payload)
+
+    assert "## Restart Readiness" in markdown
+    assert "Ready for fresh supervisor: False" in markdown
+    assert "Blockers: [active_training_supervisor_lock]" in markdown
+    assert "Lock owner/PID: training-supervisor / 12345" in markdown
 
 
 def test_advisor_summary_and_markdown_include_guardrails():

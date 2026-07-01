@@ -532,6 +532,13 @@ def recommendation_summary(
             f"max_abs_delta={restart_champion.get('max_abs_delta')}."
         )
 
+    if "prepare_restart_with_more_exploration" in actions and lock.get("active"):
+        notes.append(
+            "Restart preparation is not launch-ready while a heavy-job lock is active: "
+            f"owner={lock.get('owner')} pid={lock.get('pid')}. "
+            "Stop or transfer the current supervisor before starting a fresh run."
+        )
+
     if not actions:
         actions.append("continue_current_run")
 
@@ -540,6 +547,42 @@ def recommendation_summary(
         "action": actions[0],
         "actions": actions,
         "notes": notes,
+    }
+
+
+def restart_readiness_summary(*, recommendation: dict[str, Any], lock: dict[str, Any]) -> dict[str, Any]:
+    raw_actions = recommendation.get("actions")
+    actions = [str(item) for item in raw_actions] if isinstance(raw_actions, list) else []
+    if not actions and recommendation.get("action"):
+        actions = [str(recommendation.get("action"))]
+    requested = "prepare_restart_with_more_exploration" in actions
+    if not requested:
+        return {
+            "requested": False,
+            "ready": False,
+            "status": "not_requested",
+            "blockers": [],
+        }
+
+    blockers: list[str] = []
+    lock_active = bool(lock.get("active"))
+    owner = lock.get("owner")
+    if lock_active and owner == "training-supervisor":
+        blockers.append("active_training_supervisor_lock")
+    elif lock_active:
+        blockers.append("active_heavy_job_lock")
+
+    return {
+        "requested": True,
+        "ready": not blockers,
+        "status": "ready_for_fresh_supervisor_after_operator_review"
+        if not blockers
+        else "blocked_by_active_heavy_job_lock",
+        "blockers": blockers,
+        "owner": owner,
+        "pid": lock.get("pid"),
+        "pid_active": lock.get("pid_active"),
+        "heartbeat_at": lock.get("heartbeat_at"),
     }
 
 
@@ -606,6 +649,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         "gate_summary": gates,
         "heavy_job_lock": lock,
         "recommendation": recommendation,
+        "restart_readiness": restart_readiness_summary(recommendation=recommendation, lock=lock),
         "guardrail": "Historical response-surface monitoring only; no predictive claim and no automatic promotion without controls.",
     }
 
@@ -716,6 +760,22 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 f"blocked_sources={markdown_inline_text(blocked_sources)}"
             )
         gate_section = "\n".join(gate_lines) + "\n\n"
+    restart_readiness = (
+        payload.get("restart_readiness")
+        if isinstance(payload.get("restart_readiness"), dict)
+        else {}
+    )
+    restart_section = ""
+    if restart_readiness.get("requested"):
+        blockers = compact_inline_list(restart_readiness.get("blockers"))
+        restart_section = (
+            "## Restart Readiness\n\n"
+            f"- Ready for fresh supervisor: {restart_readiness.get('ready')}\n"
+            f"- Status: {markdown_inline_text(restart_readiness.get('status'))}\n"
+            f"- Blockers: {markdown_inline_text(blockers)}\n"
+            f"- Lock owner/PID: {markdown_inline_text(restart_readiness.get('owner'))} / {restart_readiness.get('pid')}\n"
+            f"- Heartbeat: {markdown_inline_text(restart_readiness.get('heartbeat_at'))}\n\n"
+        )
     return f"""# DEHPS Training Watch
 
 - Generated at: {payload.get("generated_at")}
@@ -743,6 +803,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
 {advisor_rows}
 
 {gate_section}\
+{restart_section}\
 ## Heavy Job Lock
 
 ```json
