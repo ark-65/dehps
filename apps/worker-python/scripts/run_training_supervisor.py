@@ -71,6 +71,13 @@ from dehps.storage.postgres_store import load_recent_training_weight_signals
 
 
 PRIMARY_FIELDS = ("structural_weight", "frequency_weight", "omission_weight")
+RESTART_CONTEXT_FIELDS = (
+    "tail_distribution_weight",
+    "red_omission_shape_weight",
+    "sum_span_omission_weight",
+    "previous_zone_shape_weight",
+    "lagged_consecutive_weight",
+)
 CONTEXT_FIELDS = (
     "short_hot_frequency_weight",
     "long_omission_cooldown_weight",
@@ -433,55 +440,60 @@ def stagnation_restart_candidate_configs(
         return ()
     configs: list[FrequencyRankerConfig] = []
     seen: set[str] = {json.dumps(config_dict(clamp_config(base)), sort_keys=True)}
-    primary_extremes = (
-        {"structural_weight": 1.15, "frequency_weight": 0.05, "omission_weight": 0.05},
+    primary_anchors = (
         {"structural_weight": 0.05, "frequency_weight": 1.15, "omission_weight": 0.05},
         {"structural_weight": 0.05, "frequency_weight": 0.05, "omission_weight": 1.15},
+        {"structural_weight": 1.15, "frequency_weight": 0.05, "omission_weight": 0.05},
         {"structural_weight": 0.70, "frequency_weight": 0.70, "omission_weight": 0.05},
         {"structural_weight": 0.70, "frequency_weight": 0.05, "omission_weight": 0.70},
         {"structural_weight": 0.05, "frequency_weight": 0.70, "omission_weight": 0.70},
     )
-    context_patterns = (
+    context_bundles = (
         {
-            "short_hot_frequency_weight": 0.30,
-            "long_omission_cooldown_weight": -0.30,
             "tail_distribution_weight": -0.30,
             "red_omission_shape_weight": 0.30,
+            "sum_span_omission_weight": -0.20,
+            "previous_zone_shape_weight": 0.20,
+            "lagged_consecutive_weight": -0.20,
         },
         {
-            "short_hot_frequency_weight": -0.30,
-            "long_omission_cooldown_weight": 0.30,
-            "recent_gap_shape_weight": 0.30,
+            "tail_distribution_weight": 0.30,
+            "red_omission_shape_weight": -0.20,
             "sum_span_omission_weight": -0.30,
+            "previous_zone_shape_weight": -0.20,
+            "lagged_consecutive_weight": 0.20,
         },
         {
+            "tail_distribution_weight": -0.20,
+            "red_omission_shape_weight": -0.30,
+            "sum_span_omission_weight": 0.30,
             "previous_zone_shape_weight": -0.30,
-            "dynamic_parity_transition_weight": 0.30,
-            "prime_composite_weight": 0.30,
-            "mod012_weight": -0.30,
+            "lagged_consecutive_weight": 0.30,
         },
         {
-            "weekday_trend_weight": -0.30,
-            "stable_range_weight": 0.30,
-            "consecutive_trend_weight": 0.30,
-            "repeat_trend_weight": -0.30,
+            "tail_distribution_weight": 0.20,
+            "red_omission_shape_weight": 0.20,
+            "sum_span_omission_weight": 0.30,
+            "previous_zone_shape_weight": 0.30,
+            "lagged_consecutive_weight": -0.30,
         },
     )
-    for primary in primary_extremes:
-        add_unique(configs, seen, FrequencyRankerConfig(**{**config_dict(base), **primary}))
-        if len(configs) >= max_configs:
-            return tuple(configs[:max_configs])
-    for primary in primary_extremes:
-        for context in context_patterns:
+    for index, primary in enumerate(primary_anchors):
+        for offset in range(len(context_bundles)):
+            context = context_bundles[(index + offset) % len(context_bundles)]
             add_unique(configs, seen, FrequencyRankerConfig(**{**config_dict(base), **primary, **context}))
             if len(configs) >= max_configs:
                 return tuple(configs[:max_configs])
+    for primary in primary_anchors:
+        add_unique(configs, seen, FrequencyRankerConfig(**{**config_dict(base), **primary}))
+        if len(configs) >= max_configs:
+            return tuple(configs[:max_configs])
     rng = random.Random(deterministic_seed("stagnation_restart", round_index, stagnation_rounds))
     while len(configs) < max_configs:
         values = config_dict(base)
         for field in PRIMARY_FIELDS:
             values[field] = rng.choice((0.05, 0.20, 0.85, 1.15))
-        for field in rng.sample(tuple(CONTEXT_FIELDS), k=min(6, len(CONTEXT_FIELDS))):
+        for field in rng.sample(RESTART_CONTEXT_FIELDS, k=min(5, len(RESTART_CONTEXT_FIELDS))):
             values[field] = rng.choice((-0.30, -0.20, 0.20, 0.30))
         add_unique(configs, seen, FrequencyRankerConfig(**values))
         if len(seen) > max_configs * 8:
@@ -983,6 +995,103 @@ def target_rank_movement(candidate: dict | None, baseline: dict | None) -> dict:
         "median_abs_delta": float(median(abs_deltas)) if abs_deltas else 0.0,
         "max_abs_delta": max(abs_deltas, default=0),
         "rows": rows[:12],
+    }
+
+
+def primary_weight_pattern(summary: dict | None) -> str:
+    config = summary_config(summary)
+    if config is None:
+        return ""
+    values = config_dict(config)
+    return "/".join(f"{field.removesuffix('_weight')}={values[field]:.2f}" for field in PRIMARY_FIELDS)
+
+
+def context_field_movement_count(candidate: dict | None, baseline: dict | None) -> int:
+    candidate_config = summary_config(candidate)
+    baseline_config = summary_config(baseline)
+    if candidate_config is None or baseline_config is None:
+        return 0
+    candidate_values = config_dict(candidate_config)
+    baseline_values = config_dict(baseline_config)
+    return sum(
+        abs(float(candidate_values[field]) - float(baseline_values[field])) > 1e-9
+        for field in RESTART_CONTEXT_FIELDS
+    )
+
+
+def frozen_tail_over_1000000_count(summary: dict | None) -> int | None:
+    if not isinstance(summary, dict):
+        return None
+    validation = summary.get("frozen_validation")
+    if not isinstance(validation, dict):
+        return None
+    rank_quality = validation.get("rank_quality")
+    if not isinstance(rank_quality, dict) or "tail_over_1000000_count" not in rank_quality:
+        return None
+    return _metric_int(rank_quality, "tail_over_1000000_count")
+
+
+def frozen_tail_over_1000000_delta(candidate: dict | None, baseline: dict | None) -> int | None:
+    candidate_tail = frozen_tail_over_1000000_count(candidate)
+    baseline_tail = frozen_tail_over_1000000_count(baseline)
+    if candidate_tail is None or baseline_tail is None:
+        return None
+    return candidate_tail - baseline_tail
+
+
+def experimental_navigation_quality(candidate: dict | None, baseline: dict | None) -> dict:
+    candidate_primary = source_frontier_primary_score(candidate)
+    baseline_primary = source_frontier_primary_score(baseline)
+    if not isinstance(candidate, dict) or not isinstance(baseline, dict):
+        return {
+            "passed": False,
+            "reason": "missing_candidate_or_baseline",
+            "frozen_primary_score": list(candidate_primary),
+            "baseline_frozen_primary_score": list(baseline_primary),
+            "tail_over_1000000_delta": None,
+            "tail_over_1000000_improved": False,
+            "source_frontier_score_improved": False,
+        }
+    tail_delta = frozen_tail_over_1000000_delta(candidate, baseline)
+    tail_improved = tail_delta is not None and tail_delta < 0
+    source_frontier_improved = bool(
+        source_frontier_score(candidate) > source_frontier_score(baseline)
+    )
+    passed = not (
+        candidate_primary == (0, 0, 0)
+        and not tail_improved
+        and not source_frontier_improved
+    )
+    if passed:
+        reason = "passed"
+    elif candidate_primary == (0, 0, 0):
+        reason = "zero_frozen_primary_without_tail_or_frontier_lift"
+    else:
+        reason = "inactive"
+    return {
+        "passed": passed,
+        "reason": reason,
+        "frozen_primary_score": list(candidate_primary),
+        "baseline_frozen_primary_score": list(baseline_primary),
+        "tail_over_1000000_delta": tail_delta,
+        "tail_over_1000000_improved": tail_improved,
+        "source_frontier_score_improved": source_frontier_improved,
+    }
+
+
+def restart_champion_diagnostics(
+    candidate: dict | None,
+    baseline: dict | None,
+    rank_homogeneity: dict,
+) -> dict:
+    quality = experimental_navigation_quality(candidate, baseline)
+    return {
+        "primary_weight_pattern": primary_weight_pattern(candidate),
+        "context_field_movement_count": context_field_movement_count(candidate, baseline),
+        "frozen_primary_score": quality["frozen_primary_score"],
+        "tail_over_1000000_delta": quality["tail_over_1000000_delta"],
+        "source_frontier_score_improved": quality["source_frontier_score_improved"],
+        "unique_rank_signature_count": rank_homogeneity.get("unique_signature_count"),
     }
 
 
@@ -1739,6 +1848,12 @@ def select_rank_homogeneity_restart_champion(
         "rank_vector_changed": None,
         "changed_target_count": None,
         "max_abs_delta": None,
+        "primary_weight_pattern": "",
+        "context_field_movement_count": 0,
+        "frozen_primary_score": [],
+        "tail_over_1000000_delta": None,
+        "source_frontier_score_improved": False,
+        "unique_rank_signature_count": rank_homogeneity.get("unique_signature_count"),
         "reason": None,
     }
     if not rank_homogeneity.get("active"):
@@ -1757,6 +1872,7 @@ def select_rank_homogeneity_restart_champion(
         if fallback is None:
             fallback = (summary, index, movement)
         if int(movement.get("changed_target_count") or 0) > 0:
+            diagnostics = restart_champion_diagnostics(summary, prior_best_summary or round_best, rank_homogeneity)
             metadata.update(
                 {
                     "active": True,
@@ -1766,6 +1882,7 @@ def select_rank_homogeneity_restart_champion(
                     "changed_target_count": movement.get("changed_target_count"),
                     "max_abs_delta": movement.get("max_abs_delta"),
                     "reason": "rank_homogeneity_restart_changed_rank_vector",
+                    **diagnostics,
                 }
             )
             return summary, metadata
@@ -1774,6 +1891,7 @@ def select_rank_homogeneity_restart_champion(
         metadata["reason"] = "restart_not_in_full_eval"
         return None, metadata
     summary, index, movement = fallback
+    diagnostics = restart_champion_diagnostics(summary, prior_best_summary or round_best, rank_homogeneity)
     metadata.update(
         {
             "active": True,
@@ -1783,6 +1901,7 @@ def select_rank_homogeneity_restart_champion(
             "changed_target_count": movement.get("changed_target_count"),
             "max_abs_delta": movement.get("max_abs_delta"),
             "reason": "rank_homogeneity_restart_best_available",
+            **diagnostics,
         }
     )
     return summary, metadata
@@ -3842,6 +3961,10 @@ def select_next_search_base(
         if exploration_navigation_config is not None
         else None
     )
+    exploration_navigation_quality_info = experimental_navigation_quality(
+        exploration_navigation_candidate,
+        primary_lift_baseline,
+    )
     exploration_navigation_eligible = bool(
         require_frozen_primary_lift
         and exploration_navigation_candidate is not None
@@ -3850,6 +3973,7 @@ def select_next_search_base(
         and exploration_navigation_config is not None
         and (exploration_navigation_distance or 0.0) >= min_config_distance
         and source_frontier_primary_score(exploration_navigation_candidate) <= primary_lift_baseline_score
+        and exploration_navigation_quality_info["passed"]
         and rank_vector_changed(current_base_summary, exploration_navigation_candidate)
     )
     round_best_eligible = (
@@ -3921,6 +4045,16 @@ def select_next_search_base(
         "exploration_navigation_reason": exploration_navigation_reason if exploration_navigation_hash else "",
         "exploration_navigation_eligible": exploration_navigation_eligible,
         "exploration_navigation_frozen_primary_score": list(source_frontier_primary_score(exploration_navigation_candidate)),
+        "exploration_navigation_baseline_frozen_primary_score": exploration_navigation_quality_info[
+            "baseline_frozen_primary_score"
+        ],
+        "exploration_navigation_quality_reason": exploration_navigation_quality_info["reason"],
+        "exploration_navigation_tail_over_1000000_delta": exploration_navigation_quality_info[
+            "tail_over_1000000_delta"
+        ],
+        "exploration_navigation_source_frontier_score_improved": exploration_navigation_quality_info[
+            "source_frontier_score_improved"
+        ],
         "exploration_navigation_config_distance": exploration_navigation_distance,
         "exploration_navigation_rank_vector_changed": rank_vector_changed(
             current_base_summary, exploration_navigation_candidate
