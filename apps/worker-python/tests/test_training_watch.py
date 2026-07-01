@@ -535,8 +535,34 @@ def test_evidence_context_surfaces_sample_space_baseline_and_leakage_guardrails(
         "regime_years": 10.0,
         "top_n": 10000,
     }
+    parser_sync_duplicate_checks = {
+        "status": "checked",
+        "ok": True,
+        "history_ok": True,
+        "history_draw_count": 1494,
+        "history_first_issue": "2003001",
+        "history_latest_issue": "2026074",
+        "history_duplicate_issue_count": 0,
+        "history_invalid_red_length_count": 0,
+        "history_red_out_of_range_count": 0,
+        "history_duplicate_red_numbers_count": 0,
+        "history_blue_out_of_range_count": 0,
+        "universe_ok": True,
+        "red_combination_universe_count": 1107568,
+        "expected_red_combination_universe_count": 1107568,
+        "red_combination_universe_complete": True,
+        "red_combination_duplicate_count": 0,
+        "red_combination_invalid_shape_count": 0,
+        "latest_sync_ok": True,
+        "latest_sync": {"status": "success", "conflict_count": 0},
+        "recorded_data_conflict_count": 0,
+    }
 
-    evidence = evidence_context_summary(supervisor_status=supervisor_status, gates=gates)
+    evidence = evidence_context_summary(
+        supervisor_status=supervisor_status,
+        gates=gates,
+        parser_sync_duplicate_checks=parser_sync_duplicate_checks,
+    )
     payload = {
         "generated_at": "2026-07-01T00:00:00Z",
         "run_id": "run-1",
@@ -581,7 +607,8 @@ def test_evidence_context_surfaces_sample_space_baseline_and_leakage_guardrails(
     assert null_expectation["bands"]["top_1000"]["expected_eval_hits"] == 0.090288
     assert null_expectation["bands"]["top_10000"]["expected_eval_hits"] == 0.902879
     assert evidence["leakage_checks"]["eval_slice_overfit_guardrail_active"] is True
-    assert evidence["leakage_checks"]["parser_sync_duplicate_checks"] == "not_rerun_by_training_watch"
+    assert evidence["leakage_checks"]["parser_sync_duplicate_checks"]["status"] == "checked"
+    assert evidence["leakage_checks"]["parser_sync_duplicate_checks"]["history_draw_count"] == 1494
     assert "## Evidence Context" in markdown
     assert "Legal sample space: domain=ssq_red_ball_combinations legal_universe=1107568" in markdown
     assert "Historical window: scope=current_regime_default mode=expanding train_window=900 eval_window=100" in markdown
@@ -589,7 +616,8 @@ def test_evidence_context_surfaces_sample_space_baseline_and_leakage_guardrails(
     assert "top_100:p=0.00009029,eval_expected=0.009029" in markdown
     assert "top_10000:p=0.00902879,eval_expected=0.902879" in markdown
     assert "eval_overfit_active=True" in markdown
-    assert "parser_sync_duplicates=not_rerun_by_training_watch" in markdown
+    assert "parser_sync_duplicates=status=checked ok=True history_ok=True draws=1494" in markdown
+    assert "universe=1107568/1107568" in markdown
     assert "guaranteed hits or low-risk betting" in markdown
 
 
