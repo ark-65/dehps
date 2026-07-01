@@ -1002,20 +1002,74 @@ def recommendation_summary(
     }
 
 
-def restart_readiness_summary(*, recommendation: dict[str, Any], lock: dict[str, Any]) -> dict[str, Any]:
+def supervisor_progress_readiness_context(
+    supervisor_status: dict[str, Any] | None,
+    *,
+    now: datetime | None,
+    stale_minutes: int,
+) -> dict[str, Any]:
+    if not isinstance(supervisor_status, dict) or not supervisor_status.get("available"):
+        return {}
+    progress = (
+        supervisor_status.get("latest_progress")
+        if isinstance(supervisor_status.get("latest_progress"), dict)
+        else {}
+    )
+    status_age_minutes = (
+        observed_age_minutes(supervisor_status.get("updated_at"), now=now) if now else None
+    )
+    progress_age_minutes = (
+        observed_age_minutes(progress.get("logged_at"), now=now) if now and progress else None
+    )
+    freshness_age = progress_age_minutes if progress_age_minutes is not None else status_age_minutes
+    freshness_threshold = positive_int_or_default(
+        stale_minutes,
+        default=DEFAULT_STALE_MINUTES,
+    )
+    return {
+        "supervisor_status": supervisor_status.get("status"),
+        "supervisor_updated_age_minutes": status_age_minutes,
+        "supervisor_progress_age_minutes": progress_age_minutes,
+        "supervisor_progress_fresh": (
+            freshness_age is not None and freshness_age <= freshness_threshold
+        ),
+        "supervisor_progress_stale_minutes": freshness_threshold,
+        "supervisor_progress_round": progress.get("round"),
+        "supervisor_target_index": progress.get("target_index"),
+        "supervisor_target_total": progress.get("target_total"),
+        "supervisor_target_complete": progress.get("target_complete"),
+    }
+
+
+def restart_readiness_summary(
+    *,
+    recommendation: dict[str, Any],
+    lock: dict[str, Any],
+    supervisor_status: dict[str, Any] | None = None,
+    now: datetime | None = None,
+    stale_minutes: int = DEFAULT_STALE_MINUTES,
+) -> dict[str, Any]:
     raw_actions = recommendation.get("actions")
     actions = [str(item) for item in raw_actions] if isinstance(raw_actions, list) else []
     if not actions and recommendation.get("action"):
         actions = [str(recommendation.get("action"))]
     requested = "prepare_restart_with_more_exploration" in actions
     if not requested:
-        return {
+        result = {
             "requested": False,
             "ready": False,
             "status": "not_requested",
             "blockers": [],
             "operator_action": "continue_current_training_watch",
         }
+        result.update(
+            supervisor_progress_readiness_context(
+                supervisor_status,
+                now=now,
+                stale_minutes=stale_minutes,
+            )
+        )
+        return result
 
     blockers: list[str] = []
     lock_active = bool(lock.get("active"))
@@ -1031,7 +1085,7 @@ def restart_readiness_summary(*, recommendation: dict[str, Any], lock: dict[str,
     else:
         operator_action = "wait_for_or_clear_active_heavy_job_lock_before_restart"
 
-    return {
+    result = {
         "requested": True,
         "ready": not blockers,
         "status": "ready_for_fresh_supervisor_after_operator_review"
@@ -1047,6 +1101,14 @@ def restart_readiness_summary(*, recommendation: dict[str, Any], lock: dict[str,
         "lock_age_hours": lock.get("lock_age_hours"),
         "heartbeat_age_minutes": lock.get("heartbeat_age_minutes"),
     }
+    result.update(
+        supervisor_progress_readiness_context(
+            supervisor_status,
+            now=now,
+            stale_minutes=stale_minutes,
+        )
+    )
+    return result
 
 
 def evidence_context_summary(
@@ -1200,7 +1262,13 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         ),
         "heavy_job_lock": lock,
         "recommendation": recommendation,
-        "restart_readiness": restart_readiness_summary(recommendation=recommendation, lock=lock),
+        "restart_readiness": restart_readiness_summary(
+            recommendation=recommendation,
+            lock=lock,
+            supervisor_status=supervisor_status,
+            now=generated_at,
+            stale_minutes=stale_minutes,
+        ),
         "guardrail": "Historical response-surface monitoring only; no predictive claim and no automatic promotion without controls.",
     }
 
@@ -1339,6 +1407,37 @@ def render_markdown(payload: dict[str, Any]) -> str:
             heartbeat_age_line = (
                 f"- Heartbeat age: {restart_readiness.get('heartbeat_age_minutes')} minutes\n"
             )
+        supervisor_progress_lines = ""
+        if restart_readiness.get("supervisor_status") is not None:
+            supervisor_progress_lines = (
+                f"- Supervisor status: {markdown_inline_text(restart_readiness.get('supervisor_status'))}\n"
+                f"- Supervisor progress fresh: {restart_readiness.get('supervisor_progress_fresh')} "
+                f"(threshold {restart_readiness.get('supervisor_progress_stale_minutes')} minutes)\n"
+            )
+            if restart_readiness.get("supervisor_progress_round") is not None:
+                supervisor_progress_lines += (
+                    f"- Supervisor progress round: {restart_readiness.get('supervisor_progress_round')}\n"
+                )
+            if (
+                restart_readiness.get("supervisor_target_index") is not None
+                and restart_readiness.get("supervisor_target_total") is not None
+            ):
+                supervisor_progress_lines += (
+                    "- Supervisor target progress: "
+                    f"{restart_readiness.get('supervisor_target_index')} / "
+                    f"{restart_readiness.get('supervisor_target_total')} "
+                    f"complete={restart_readiness.get('supervisor_target_complete')}\n"
+                )
+            if restart_readiness.get("supervisor_progress_age_minutes") is not None:
+                supervisor_progress_lines += (
+                    "- Supervisor progress age: "
+                    f"{restart_readiness.get('supervisor_progress_age_minutes')} minutes\n"
+                )
+            if restart_readiness.get("supervisor_updated_age_minutes") is not None:
+                supervisor_progress_lines += (
+                    "- Supervisor status age: "
+                    f"{restart_readiness.get('supervisor_updated_age_minutes')} minutes\n"
+                )
         restart_section = (
             "## Restart Readiness\n\n"
             f"- Ready for fresh supervisor: {restart_readiness.get('ready')}\n"
@@ -1348,7 +1447,8 @@ def render_markdown(payload: dict[str, Any]) -> str:
             f"- Lock owner/PID: {markdown_inline_text(restart_readiness.get('owner'))} / {restart_readiness.get('pid')}\n"
             f"- Heartbeat: {markdown_inline_text(restart_readiness.get('heartbeat_at'))}\n"
             f"{lock_age_line}"
-            f"{heartbeat_age_line}\n"
+            f"{heartbeat_age_line}"
+            f"{supervisor_progress_lines}\n"
         )
     supervisor_status = (
         payload.get("supervisor_status")
@@ -1508,6 +1608,44 @@ def write_outputs(payload: dict[str, Any], output_dir: Path) -> tuple[Path, Path
     return json_path, md_path
 
 
+def cli_summary(payload: dict[str, Any], json_path: Path, md_path: Path) -> dict[str, Any]:
+    recommendation = (
+        payload.get("recommendation")
+        if isinstance(payload.get("recommendation"), dict)
+        else {}
+    )
+    summary = {
+        "run_id": payload.get("run_id"),
+        "round_count": payload.get("round_count"),
+        "round_window_count": payload.get("round_window_count"),
+        "severity": recommendation.get("severity"),
+        "action": recommendation.get("action"),
+        "json_path": str(json_path),
+        "report_path": str(md_path),
+    }
+    restart_readiness = (
+        payload.get("restart_readiness")
+        if isinstance(payload.get("restart_readiness"), dict)
+        else {}
+    )
+    if restart_readiness.get("requested"):
+        summary["restart_readiness"] = {
+            "ready": restart_readiness.get("ready"),
+            "status": restart_readiness.get("status"),
+            "blockers": restart_readiness.get("blockers") or [],
+            "operator_action": restart_readiness.get("operator_action"),
+            "owner": restart_readiness.get("owner"),
+            "pid": restart_readiness.get("pid"),
+            "heartbeat_age_minutes": restart_readiness.get("heartbeat_age_minutes"),
+            "supervisor_progress_fresh": restart_readiness.get("supervisor_progress_fresh"),
+            "supervisor_progress_age_minutes": restart_readiness.get(
+                "supervisor_progress_age_minutes"
+            ),
+            "supervisor_progress_round": restart_readiness.get("supervisor_progress_round"),
+        }
+    return summary
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Watch active DEHPS training and write advisor-only progress judgement.")
     parser.add_argument("--run-id")
@@ -1518,20 +1656,7 @@ def main() -> None:
 
     payload = summarize_watch(args.run_id, limit=args.limit, stale_minutes=args.stale_minutes)
     json_path, md_path = write_outputs(payload, args.output_dir)
-    print(
-        json.dumps(
-            {
-                "run_id": payload.get("run_id"),
-                "round_count": payload.get("round_count"),
-                "round_window_count": payload.get("round_window_count"),
-                "severity": payload.get("recommendation", {}).get("severity"),
-                "action": payload.get("recommendation", {}).get("action"),
-                "json_path": str(json_path),
-                "report_path": str(md_path),
-            },
-            ensure_ascii=False,
-        )
-    )
+    print(json.dumps(cli_summary(payload, json_path, md_path), ensure_ascii=False))
 
 
 if __name__ == "__main__":
