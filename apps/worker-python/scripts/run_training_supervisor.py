@@ -1795,12 +1795,6 @@ def select_experimental_navigation_candidate(
     restart_champion: dict | None,
     restart_champion_info: dict,
 ) -> tuple[dict | None, dict]:
-    if exploration_champion is not None and exploration_champion_info.get("active"):
-        return exploration_champion, {
-            "source": "exploration_champion",
-            "reason": exploration_champion_info.get("reason") or "active_exploration_champion",
-            "config_hash": summary_config_hash(exploration_champion) or "",
-        }
     if (
         restart_champion is not None
         and restart_champion_info.get("active")
@@ -1810,6 +1804,12 @@ def select_experimental_navigation_candidate(
             "source": "rank_homogeneity_restart_champion",
             "reason": restart_champion_info.get("reason") or "rank_vector_changed_restart_champion",
             "config_hash": summary_config_hash(restart_champion) or "",
+        }
+    if exploration_champion is not None and exploration_champion_info.get("active"):
+        return exploration_champion, {
+            "source": "exploration_champion",
+            "reason": exploration_champion_info.get("reason") or "active_exploration_champion",
+            "config_hash": summary_config_hash(exploration_champion) or "",
         }
     if restart_champion is not None and restart_champion_info.get("active"):
         return None, {

@@ -1774,6 +1774,33 @@ def test_restart_champion_can_feed_experimental_navigation_fallback():
     assert metadata["selected_frozen_primary_score"] == [0, 0, 0]
 
 
+def test_rank_vector_restart_champion_preempts_exploration_navigation():
+    exploration_config = FrequencyRankerConfig(sum_span_omission_weight=-0.148)
+    restart_config = FrequencyRankerConfig(frequency_weight=0.05, omission_weight=1.15)
+    exploration = supervisor_summary_for_config(exploration_config)
+    restart = supervisor_summary_for_config(restart_config)
+
+    navigation_candidate, navigation_info = select_experimental_navigation_candidate(
+        exploration_champion=exploration,
+        exploration_champion_info={
+            "active": True,
+            "source": "neural_kdj",
+            "reason": "stagnation_top_eval_exploration",
+        },
+        restart_champion=restart,
+        restart_champion_info={
+            "active": True,
+            "rank_vector_changed": True,
+            "reason": "rank_homogeneity_restart_changed_rank_vector",
+        },
+    )
+
+    assert navigation_candidate is restart
+    assert navigation_info["source"] == "rank_homogeneity_restart_champion"
+    assert navigation_info["reason"] == "rank_homogeneity_restart_changed_rank_vector"
+    assert navigation_info["config_hash"] == summary_config_hash(restart)
+
+
 def test_probability_calibration_champion_waits_for_stagnation_threshold():
     round_best_config = FrequencyRankerConfig(frequency_weight=0.30)
     challenger_config = FrequencyRankerConfig(frequency_weight=0.45)
