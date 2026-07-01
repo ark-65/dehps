@@ -26,7 +26,7 @@
 - 自主改动限制在 bug、诊断、现有参数边界或现有策略的明显安全约束；没有人工明确要求时，不新增模型、advisor、候选源或大策略。
 - 不提交 `data/output` 或 `runtime` 下的生成产物，除非本轮明确要提升一个小型验收报告为正式产物。
 - 先跑最小相关测试；只有改动面要求时再扩大测试范围。
-- 若代码改动通过验证，提交信息使用 `self-iterate:` 前缀，并推送到当前 upstream 分支。
+- 若代码改动通过验证，从干净 `main` 切出 `<type>/self-iterate-YYYYMMDD-HHMM-<slug>` 分支，提交信息和 PR 标题使用同一个 Conventional Commit 前缀，然后创建 ready PR 并启用 squash auto-merge；不要直推 `main`。
 - 自主提交由调度脚本设置 Git 身份：author/committer 使用 `ark-65 <25193106+ark-65@users.noreply.github.com>`，并通过 commit-msg hook 自动追加 `Co-authored-by: give me a 98K <240642031+inhuman-0@users.noreply.github.com>`。
 - 若没有安全可做的改动，记录阻塞原因，不强行为了变化而变化。
 
@@ -43,6 +43,7 @@
 | 2026-06-22 | 自我迭代运行显式记录同步校验失败。提交：`8b7c4b5`。 |
 | 2026-06-30 | 调整调度器自我迭代提交归属：脚本导出 ark-65 GitHub noreply author/committer，并启用 commit-msg hook 自动追加 inhuman-0 co-author trailer，避免后续自主提交继续显示为 `Ark Codex <codex@local>`。验证：`bash -n scripts/hourly_self_iterate.sh`、临时仓库 hook 提交冒烟。 |
 | 2026-06-30 | 调整自我迭代目标：从普通维护优先改为训练进度优先、Gauss/Riemann 数学诊断优先的私有预测训练维护循环；自主改动限制在小修、诊断和现有策略安全边界。验证：`bash -n scripts/hourly_self_iterate.sh`、`apps/worker-python/.venv/bin/python apps/worker-python/scripts/watch_training_progress.py --limit 5`、`git diff --check`。 |
+| 2026-07-01 | 调整自我迭代发布流程：成功改动不再直推当前分支，而是从 `main` 切 `<type>/self-iterate-*` 分支、提交带 co-author trailer 的 Conventional Commit、创建 ready PR 并启用 squash auto-merge，以便 Pair Extraordinaire 统计 co-authored merged PR。验证：`bash -n scripts/hourly_self_iterate.sh`、`apps/worker-python/.venv/bin/python -m pytest -q apps/worker-python/tests/test_self_iteration_publish_pr.py`。 |
 | 2026-06-22 | 修复训练 supervisor 的 target inversion 锚点：若本轮 best 只是历史 best 重放，改用本轮 challenger 做反推锚点。验证：`apps/worker-python/.venv/bin/python -m pytest apps/worker-python/tests -q` 通过 `164 passed`；live run `20260622-103001` round 1 写入 `anchor.source=challenger_best`，round 2 status 显示 `candidate_budget.target_weight_inversion=4`。 |
 | 2026-06-22 | 调整训练节奏：初期 24 轮使用 large/medium 大步长，后期逐步退火到 small/micro；同时把 retained best 和 moving search base 分离，没刷新 best 时也用 rank-vector 不同的 challenger 推进下一轮 search base。验证：`apps/worker-python/.venv/bin/python -m pytest apps/worker-python/tests -q` 通过 `167 passed`。 |
 | 2026-06-22 | 修复 moving search base 的 A/B 回跳：选择下一轮 search base 时排除当前和最近 search base，优先选 rank-vector 不同的新 challenger。验证：`apps/worker-python/.venv/bin/python -m pytest apps/worker-python/tests -q` 通过 `169 passed`；live run `20260622-112552` R1 `37713bad -> fdacf9ec`，R2 `fdacf9ec -> f88482b2`。 |
