@@ -180,6 +180,80 @@ def compact_inline_list(value: Any, *, limit: int = 5) -> str:
     return "[" + ", ".join(parts) + "]"
 
 
+def compact_decimal(value: Any) -> str:
+    if isinstance(value, bool):
+        return str(value)
+    parsed = safe_float(value)
+    if parsed is None:
+        return "" if value is None else str(value)
+    return f"{parsed:.8f}".rstrip("0").rstrip(".")
+
+
+def random_null_expectation_summary(supervisor_status: dict[str, Any]) -> dict[str, Any]:
+    ranked_universe_size = safe_int(supervisor_status.get("ranked_universe_size"))
+    eval_window = safe_int(supervisor_status.get("eval_window"))
+    top_n = safe_int(supervisor_status.get("top_n"))
+    result: dict[str, Any] = {
+        "model": "ranked_uniform_per_draw",
+        "ranked_universe_size": ranked_universe_size,
+        "eval_window": eval_window,
+        "bands": {},
+    }
+    if ranked_universe_size is None or ranked_universe_size <= 0:
+        result["status"] = "missing_ranked_universe_size"
+        return result
+
+    band_sizes: list[int] = []
+    for raw_band_size in (100, 1000, top_n):
+        band_size = safe_int(raw_band_size)
+        if band_size is None or band_size <= 0 or band_size in band_sizes:
+            continue
+        band_sizes.append(band_size)
+
+    bands: dict[str, dict[str, Any]] = {}
+    for band_size in band_sizes:
+        capped_band_size = min(band_size, ranked_universe_size)
+        per_draw_probability = capped_band_size / ranked_universe_size
+        band: dict[str, Any] = {
+            "band_size": capped_band_size,
+            "per_draw_probability": round(per_draw_probability, 8),
+        }
+        if eval_window is not None and eval_window > 0:
+            band["expected_eval_hits"] = round(eval_window * per_draw_probability, 6)
+        bands[f"top_{band_size}"] = band
+
+    result["status"] = "estimated"
+    result["bands"] = bands
+    return result
+
+
+def compact_random_null_expectation(value: Any, *, limit: int = 5) -> str:
+    if not isinstance(value, dict):
+        return "{}"
+    bands = value.get("bands") if isinstance(value.get("bands"), dict) else {}
+    if not bands:
+        status = value.get("status")
+        return f"status={status}" if status else "{}"
+    items = sorted(
+        bands.items(),
+        key=lambda item: safe_int(item[1].get("band_size"))
+        if isinstance(item[1], dict)
+        else 0,
+    )
+    parts: list[str] = []
+    for label, band in items[:limit]:
+        if not isinstance(band, dict):
+            continue
+        parts.append(
+            f"{label}:p={compact_decimal(band.get('per_draw_probability'))},"
+            f"eval_expected={compact_decimal(band.get('expected_eval_hits'))}"
+        )
+    overflow = len(items) - limit
+    if overflow > 0:
+        parts.append(f"+{overflow} more")
+    return "; ".join(parts) if parts else "{}"
+
+
 def resolve_run_id(run_id: str | None) -> str | None:
     if run_id:
         return run_id
@@ -802,7 +876,8 @@ def evidence_context_summary(
         },
         "baseline_or_null_model": {
             "operational_baseline": "incumbent_config_frozen_primary_baseline",
-            "random_null_model": "not_estimated_by_training_watch",
+            "random_null_model": "ranked_uniform_per_draw",
+            "random_null_expectation": random_null_expectation_summary(supervisor_status),
             "baseline_score": decision.get("frozen_primary_lift_baseline_score"),
         },
         "leakage_checks": {
@@ -1087,6 +1162,9 @@ def render_markdown(payload: dict[str, Any]) -> str:
             else {}
         )
         failure_modes = compact_inline_list(evidence_context.get("failure_modes"))
+        random_null_expectation = compact_random_null_expectation(
+            baseline.get("random_null_expectation")
+        )
         evidence_section = (
             "## Evidence Context\n\n"
             "- Legal sample space: "
@@ -1105,6 +1183,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
             "- Baseline/null model: "
             f"operational={markdown_inline_text(baseline.get('operational_baseline'))} "
             f"random_null={markdown_inline_text(baseline.get('random_null_model'))} "
+            f"random_null_eval={markdown_inline_text(random_null_expectation)} "
             f"baseline_score={baseline.get('baseline_score')}\n"
             "- Leakage checks: "
             f"promotion_gate={markdown_inline_text(leakage.get('promotion_gate_reason'))} "

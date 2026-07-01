@@ -558,13 +558,20 @@ def test_evidence_context_surfaces_sample_space_baseline_and_leakage_guardrails(
     markdown = render_markdown(payload)
 
     assert evidence["legal_sample_space"]["legal_universe_size"] == 1107568
-    assert evidence["baseline_or_null_model"]["random_null_model"] == "not_estimated_by_training_watch"
+    assert evidence["baseline_or_null_model"]["random_null_model"] == "ranked_uniform_per_draw"
+    null_expectation = evidence["baseline_or_null_model"]["random_null_expectation"]
+    assert null_expectation["status"] == "estimated"
+    assert null_expectation["bands"]["top_100"]["expected_eval_hits"] == 0.009029
+    assert null_expectation["bands"]["top_1000"]["expected_eval_hits"] == 0.090288
+    assert null_expectation["bands"]["top_10000"]["expected_eval_hits"] == 0.902879
     assert evidence["leakage_checks"]["eval_slice_overfit_guardrail_active"] is True
     assert evidence["leakage_checks"]["parser_sync_duplicate_checks"] == "not_rerun_by_training_watch"
     assert "## Evidence Context" in markdown
     assert "Legal sample space: domain=ssq_red_ball_combinations legal_universe=1107568" in markdown
     assert "Historical window: scope=current_regime_default mode=expanding train_window=900 eval_window=100" in markdown
-    assert "random_null=not_estimated_by_training_watch" in markdown
+    assert "random_null=ranked_uniform_per_draw" in markdown
+    assert "top_100:p=0.00009029,eval_expected=0.009029" in markdown
+    assert "top_10000:p=0.00902879,eval_expected=0.902879" in markdown
     assert "eval_overfit_active=True" in markdown
     assert "parser_sync_duplicates=not_rerun_by_training_watch" in markdown
     assert "guaranteed hits or low-risk betting" in markdown
