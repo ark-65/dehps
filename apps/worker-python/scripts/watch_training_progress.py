@@ -281,6 +281,16 @@ def supervisor_status_summary(status: dict[str, Any], *, path: Path) -> dict[str
         "started_at": status.get("started_at"),
         "updated_at": status.get("updated_at"),
         "report_path": status.get("report_path"),
+        "legal_universe_size": safe_int(status.get("legal_universe_size")),
+        "ranked_universe_size": safe_int(status.get("ranked_universe_size") or status.get("universe_size")),
+        "excluded_universe_count": safe_int(status.get("excluded_universe_count")),
+        "history_scope": status.get("history_scope"),
+        "train_mode": status.get("train_mode"),
+        "train_window": safe_int(status.get("train_window")),
+        "eval_window": safe_int(status.get("eval_window")),
+        "top_n": safe_int(status.get("top_n")),
+        "regime_start_date": status.get("regime_start_date"),
+        "regime_years": safe_float(status.get("regime_years")),
         "latest_progress": supervisor_progress_summary(status.get("latest_progress")),
     }
 
@@ -744,6 +754,77 @@ def restart_readiness_summary(*, recommendation: dict[str, Any], lock: dict[str,
     }
 
 
+def evidence_context_summary(
+    *,
+    supervisor_status: dict[str, Any],
+    gates: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    promotion = gates.get("promotion_gate") if isinstance(gates.get("promotion_gate"), dict) else {}
+    eval_guard = (
+        gates.get("eval_slice_overfit_guardrail")
+        if isinstance(gates.get("eval_slice_overfit_guardrail"), dict)
+        else {}
+    )
+    decision = gates.get("decision_round_best") if isinstance(gates.get("decision_round_best"), dict) else {}
+    rank_homogeneity = (
+        gates.get("rank_homogeneity_guardrail")
+        if isinstance(gates.get("rank_homogeneity_guardrail"), dict)
+        else {}
+    )
+
+    failure_modes: list[str] = []
+    if promotion and not promotion.get("passed"):
+        failure_modes.append(f"promotion_gate:{promotion.get('reason')}")
+    if eval_guard.get("active"):
+        failure_modes.append(f"eval_slice_overfit:{eval_guard.get('reason')}")
+    if rank_homogeneity.get("active"):
+        failure_modes.append(f"rank_homogeneity:{rank_homogeneity.get('reason')}")
+    blocked_count = safe_int(decision.get("blocked_candidate_count")) or 0
+    if blocked_count > 0:
+        blocked_sources = compact_inline_list(decision.get("blocked_candidate_sources"))
+        failure_modes.append(f"blocked_candidates:{blocked_count}:{blocked_sources}")
+
+    return {
+        "legal_sample_space": {
+            "domain": "ssq_red_ball_combinations",
+            "legal_universe_size": supervisor_status.get("legal_universe_size"),
+            "ranked_universe_size": supervisor_status.get("ranked_universe_size"),
+            "excluded_universe_count": supervisor_status.get("excluded_universe_count"),
+        },
+        "historical_window": {
+            "history_scope": supervisor_status.get("history_scope"),
+            "train_mode": supervisor_status.get("train_mode"),
+            "train_window": supervisor_status.get("train_window"),
+            "eval_window": supervisor_status.get("eval_window"),
+            "regime_start_date": supervisor_status.get("regime_start_date"),
+            "regime_years": supervisor_status.get("regime_years"),
+            "top_n": supervisor_status.get("top_n"),
+        },
+        "baseline_or_null_model": {
+            "operational_baseline": "incumbent_config_frozen_primary_baseline",
+            "random_null_model": "not_estimated_by_training_watch",
+            "baseline_score": decision.get("frozen_primary_lift_baseline_score"),
+        },
+        "leakage_checks": {
+            "promotion_gate_reason": promotion.get("reason"),
+            "eval_slice_overfit_guardrail_active": bool(eval_guard.get("active")),
+            "eval_slice_overfit_guardrail_reason": eval_guard.get("reason"),
+            "suspicious_candidate_count": safe_int(eval_guard.get("suspicious_candidate_count")) or 0,
+            "frozen_primary_lift_required": bool(decision.get("frozen_primary_lift_required")),
+            "parser_sync_duplicate_checks": "not_rerun_by_training_watch",
+        },
+        "training_status": {
+            "status": supervisor_status.get("status"),
+            "run_id": supervisor_status.get("run_id"),
+            "pid": supervisor_status.get("pid"),
+        },
+        "evidence_level": "operational_training_diagnostic_no_predictive_claim",
+        "risk": "Historical response-surface behavior is hypothesis evidence only; this watch does not support guaranteed hits or low-risk betting.",
+        "uncertainty": "Frozen validation can remain at baseline even when eval-slice metrics look strong.",
+        "failure_modes": failure_modes[:6],
+    }
+
+
 def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> dict[str, Any]:
     limit = positive_int_or_default(limit, default=DEFAULT_ROUND_LIMIT)
     stale_minutes = positive_int_or_default(stale_minutes, default=DEFAULT_STALE_MINUTES)
@@ -808,6 +889,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         "advisor_summary": advisors,
         "gate_summary": gates,
         "supervisor_status": supervisor_status,
+        "evidence_context": evidence_context_summary(supervisor_status=supervisor_status, gates=gates),
         "heavy_job_lock": lock,
         "recommendation": recommendation,
         "restart_readiness": restart_readiness_summary(recommendation=recommendation, lock=lock),
@@ -977,6 +1059,66 @@ def render_markdown(payload: dict[str, Any]) -> str:
             f"- Status file: {markdown_inline_code(supervisor_status.get('path'))}\n"
             f"{progress_lines}\n"
         )
+    evidence_context = (
+        payload.get("evidence_context")
+        if isinstance(payload.get("evidence_context"), dict)
+        else {}
+    )
+    evidence_section = ""
+    if evidence_context:
+        legal = (
+            evidence_context.get("legal_sample_space")
+            if isinstance(evidence_context.get("legal_sample_space"), dict)
+            else {}
+        )
+        historical = (
+            evidence_context.get("historical_window")
+            if isinstance(evidence_context.get("historical_window"), dict)
+            else {}
+        )
+        baseline = (
+            evidence_context.get("baseline_or_null_model")
+            if isinstance(evidence_context.get("baseline_or_null_model"), dict)
+            else {}
+        )
+        leakage = (
+            evidence_context.get("leakage_checks")
+            if isinstance(evidence_context.get("leakage_checks"), dict)
+            else {}
+        )
+        failure_modes = compact_inline_list(evidence_context.get("failure_modes"))
+        evidence_section = (
+            "## Evidence Context\n\n"
+            "- Legal sample space: "
+            f"domain={markdown_inline_text(legal.get('domain'))} "
+            f"legal_universe={legal.get('legal_universe_size')} "
+            f"ranked_universe={legal.get('ranked_universe_size')} "
+            f"excluded={legal.get('excluded_universe_count')}\n"
+            "- Historical window: "
+            f"scope={markdown_inline_text(historical.get('history_scope'))} "
+            f"mode={markdown_inline_text(historical.get('train_mode'))} "
+            f"train_window={historical.get('train_window')} "
+            f"eval_window={historical.get('eval_window')} "
+            f"regime_start={markdown_inline_text(historical.get('regime_start_date'))} "
+            f"regime_years={historical.get('regime_years')} "
+            f"top_n={historical.get('top_n')}\n"
+            "- Baseline/null model: "
+            f"operational={markdown_inline_text(baseline.get('operational_baseline'))} "
+            f"random_null={markdown_inline_text(baseline.get('random_null_model'))} "
+            f"baseline_score={baseline.get('baseline_score')}\n"
+            "- Leakage checks: "
+            f"promotion_gate={markdown_inline_text(leakage.get('promotion_gate_reason'))} "
+            f"eval_overfit_active={leakage.get('eval_slice_overfit_guardrail_active')} "
+            f"eval_reason={markdown_inline_text(leakage.get('eval_slice_overfit_guardrail_reason'))} "
+            f"suspicious={leakage.get('suspicious_candidate_count')} "
+            f"frozen_required={leakage.get('frozen_primary_lift_required')} "
+            f"parser_sync_duplicates={markdown_inline_text(leakage.get('parser_sync_duplicate_checks'))}\n"
+            "- Evidence/risk: "
+            f"{markdown_inline_text(evidence_context.get('evidence_level'))}; "
+            f"{markdown_inline_text(evidence_context.get('risk'))}\n"
+            f"- Uncertainty: {markdown_inline_text(evidence_context.get('uncertainty'))}\n"
+            f"- Failure modes: {markdown_inline_text(failure_modes)}\n\n"
+        )
     return f"""# DEHPS Training Watch
 
 - Generated at: {payload.get("generated_at")}
@@ -1006,6 +1148,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
 {gate_section}\
 {restart_section}\
 {supervisor_section}\
+{evidence_section}\
 ## Heavy Job Lock
 
 ```json

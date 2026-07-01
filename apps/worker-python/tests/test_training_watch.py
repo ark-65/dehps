@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import scripts.watch_training_progress as watch
 from scripts.watch_training_progress import (
     advisor_summary,
+    evidence_context_summary,
     gate_summary,
     load_supervisor_status,
     observed_age_minutes,
@@ -119,6 +120,16 @@ def test_load_supervisor_status_reads_current_progress(tmp_path):
           "started_at": "2026-07-01T00:00:00",
           "updated_at": "2026-07-01T00:03:00",
           "report_path": "/tmp/training-supervisor-run-1.md",
+          "legal_universe_size": 1107568,
+          "ranked_universe_size": 1107568,
+          "excluded_universe_count": 0,
+          "history_scope": "current_regime_default",
+          "train_mode": "expanding",
+          "train_window": 900,
+          "eval_window": 100,
+          "top_n": 10000,
+          "regime_start_date": "2016-01-01",
+          "regime_years": 10,
           "latest_progress": {
             "logged_at": "2026-07-01T00:03:00",
             "round": 9,
@@ -141,6 +152,10 @@ def test_load_supervisor_status_reads_current_progress(tmp_path):
     assert status["latest_progress"]["round"] == 9
     assert status["latest_progress"]["target_complete"] is True
     assert status["latest_progress"]["elapsed_seconds"] == 53.3
+    assert status["legal_universe_size"] == 1107568
+    assert status["history_scope"] == "current_regime_default"
+    assert status["train_window"] == 900
+    assert status["eval_window"] == 100
 
 
 def test_recommendation_and_markdown_include_supervisor_progress():
@@ -464,6 +479,95 @@ def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_mar
     assert "rank_vector_changed=True changed_targets=99 full_eval_rank=12 max_abs_delta=904798" in markdown
     assert "Experimental navigation: source=exploration_champion reason=stagnation_top_eval_exploration" in markdown
     assert "blocked_sources=[rank_homogeneity_restart]" in markdown
+
+
+def test_evidence_context_surfaces_sample_space_baseline_and_leakage_guardrails():
+    gates = {
+        "promotion_gate": {
+            "passed": False,
+            "reason": "frozen_validation_not_better",
+        },
+        "eval_slice_overfit_guardrail": {
+            "active": True,
+            "reason": "eval_slice_overfit_no_frozen_primary_lift",
+            "suspicious_candidate_count": 8,
+        },
+        "rank_homogeneity_guardrail": {
+            "active": True,
+            "reason": "stale_rank_signature_cycle",
+        },
+        "decision_round_best": {
+            "frozen_primary_lift_required": True,
+            "frozen_primary_lift_baseline_score": [0, 0, 0],
+            "blocked_candidate_count": 2,
+            "blocked_candidate_sources": ["rank_homogeneity_restart", "exploration"],
+        },
+    }
+    supervisor_status = {
+        "available": True,
+        "run_id": "run-1",
+        "status": "running",
+        "pid": 12345,
+        "legal_universe_size": 1107568,
+        "ranked_universe_size": 1107568,
+        "excluded_universe_count": 0,
+        "history_scope": "current_regime_default",
+        "train_mode": "expanding",
+        "train_window": 900,
+        "eval_window": 100,
+        "regime_start_date": "2016-01-01",
+        "regime_years": 10.0,
+        "top_n": 10000,
+    }
+
+    evidence = evidence_context_summary(supervisor_status=supervisor_status, gates=gates)
+    payload = {
+        "generated_at": "2026-07-01T00:00:00Z",
+        "run_id": "run-1",
+        "round_count": 34,
+        "latest_round": 34,
+        "last_improved_round": None,
+        "stagnation_rounds": 34,
+        "latest_metrics": {
+            "phase": "large",
+            "step": 0.15,
+            "improved": False,
+            "top_100_hits": 3,
+            "top_1000_hits": 3,
+            "top_10000_hits": 3,
+            "red5_top_10000_hits": 27,
+            "best_rank": 39,
+            "median_rank": 555738,
+            "worst_rank": 1091255,
+            "objective_score": 5082.552393,
+            "best_objective_seen": 5082.552393,
+        },
+        "advisor_summary": {},
+        "gate_summary": {},
+        "supervisor_status": supervisor_status,
+        "evidence_context": evidence,
+        "heavy_job_lock": {"active": True},
+        "recommendation": {
+            "severity": "alert",
+            "action": "prepare_restart_with_more_exploration",
+            "notes": [],
+        },
+        "guardrail": "Historical response-surface monitoring only.",
+    }
+
+    markdown = render_markdown(payload)
+
+    assert evidence["legal_sample_space"]["legal_universe_size"] == 1107568
+    assert evidence["baseline_or_null_model"]["random_null_model"] == "not_estimated_by_training_watch"
+    assert evidence["leakage_checks"]["eval_slice_overfit_guardrail_active"] is True
+    assert evidence["leakage_checks"]["parser_sync_duplicate_checks"] == "not_rerun_by_training_watch"
+    assert "## Evidence Context" in markdown
+    assert "Legal sample space: domain=ssq_red_ball_combinations legal_universe=1107568" in markdown
+    assert "Historical window: scope=current_regime_default mode=expanding train_window=900 eval_window=100" in markdown
+    assert "random_null=not_estimated_by_training_watch" in markdown
+    assert "eval_overfit_active=True" in markdown
+    assert "parser_sync_duplicates=not_rerun_by_training_watch" in markdown
+    assert "guaranteed hits or low-risk betting" in markdown
 
 
 def test_render_markdown_escapes_untrusted_inline_text():
