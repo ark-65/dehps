@@ -1508,6 +1508,39 @@ def write_outputs(payload: dict[str, Any], output_dir: Path) -> tuple[Path, Path
     return json_path, md_path
 
 
+def cli_summary(payload: dict[str, Any], json_path: Path, md_path: Path) -> dict[str, Any]:
+    recommendation = (
+        payload.get("recommendation")
+        if isinstance(payload.get("recommendation"), dict)
+        else {}
+    )
+    summary = {
+        "run_id": payload.get("run_id"),
+        "round_count": payload.get("round_count"),
+        "round_window_count": payload.get("round_window_count"),
+        "severity": recommendation.get("severity"),
+        "action": recommendation.get("action"),
+        "json_path": str(json_path),
+        "report_path": str(md_path),
+    }
+    restart_readiness = (
+        payload.get("restart_readiness")
+        if isinstance(payload.get("restart_readiness"), dict)
+        else {}
+    )
+    if restart_readiness.get("requested"):
+        summary["restart_readiness"] = {
+            "ready": restart_readiness.get("ready"),
+            "status": restart_readiness.get("status"),
+            "blockers": restart_readiness.get("blockers") or [],
+            "operator_action": restart_readiness.get("operator_action"),
+            "owner": restart_readiness.get("owner"),
+            "pid": restart_readiness.get("pid"),
+            "heartbeat_age_minutes": restart_readiness.get("heartbeat_age_minutes"),
+        }
+    return summary
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Watch active DEHPS training and write advisor-only progress judgement.")
     parser.add_argument("--run-id")
@@ -1518,20 +1551,7 @@ def main() -> None:
 
     payload = summarize_watch(args.run_id, limit=args.limit, stale_minutes=args.stale_minutes)
     json_path, md_path = write_outputs(payload, args.output_dir)
-    print(
-        json.dumps(
-            {
-                "run_id": payload.get("run_id"),
-                "round_count": payload.get("round_count"),
-                "round_window_count": payload.get("round_window_count"),
-                "severity": payload.get("recommendation", {}).get("severity"),
-                "action": payload.get("recommendation", {}).get("action"),
-                "json_path": str(json_path),
-                "report_path": str(md_path),
-            },
-            ensure_ascii=False,
-        )
-    )
+    print(json.dumps(cli_summary(payload, json_path, md_path), ensure_ascii=False))
 
 
 if __name__ == "__main__":

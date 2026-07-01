@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import scripts.watch_training_progress as watch
 from scripts.watch_training_progress import (
     advisor_summary,
+    cli_summary,
     evidence_context_summary,
     gate_summary,
     load_supervisor_status,
@@ -111,6 +112,42 @@ def test_restart_readiness_blocks_parallel_supervisor_while_lock_is_active():
     assert readiness["pid"] == 12345
     assert readiness["lock_age_hours"] == 2.0
     assert readiness["heartbeat_age_minutes"] == 1.5
+
+
+def test_cli_summary_includes_restart_readiness_when_restart_is_requested(tmp_path):
+    payload = {
+        "run_id": "run-1",
+        "round_count": 34,
+        "round_window_count": 5,
+        "recommendation": {
+            "severity": "alert",
+            "action": "prepare_restart_with_more_exploration",
+        },
+        "restart_readiness": {
+            "requested": True,
+            "ready": False,
+            "status": "blocked_by_active_heavy_job_lock",
+            "blockers": ["active_training_supervisor_lock"],
+            "operator_action": "stop_or_transfer_active_training_supervisor_before_restart",
+            "owner": "training-supervisor",
+            "pid": 12345,
+            "heartbeat_age_minutes": 1.5,
+        },
+    }
+
+    summary = cli_summary(payload, tmp_path / "watch.json", tmp_path / "watch.md")
+
+    assert summary["severity"] == "alert"
+    assert summary["action"] == "prepare_restart_with_more_exploration"
+    assert summary["restart_readiness"] == {
+        "ready": False,
+        "status": "blocked_by_active_heavy_job_lock",
+        "blockers": ["active_training_supervisor_lock"],
+        "operator_action": "stop_or_transfer_active_training_supervisor_before_restart",
+        "owner": "training-supervisor",
+        "pid": 12345,
+        "heartbeat_age_minutes": 1.5,
+    }
 
 
 def test_restart_readiness_reports_operator_action_for_non_training_lock():
