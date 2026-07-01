@@ -7,6 +7,7 @@ import scripts.watch_training_progress as watch
 from scripts.watch_training_progress import (
     advisor_summary,
     gate_summary,
+    load_supervisor_status,
     observed_age_minutes,
     parse_iso_datetime,
     recommendation_summary,
@@ -105,6 +106,114 @@ def test_restart_readiness_blocks_parallel_supervisor_while_lock_is_active():
     assert readiness["pid"] == 12345
     assert readiness["lock_age_hours"] == 2.0
     assert readiness["heartbeat_age_minutes"] == 1.5
+
+
+def test_load_supervisor_status_reads_current_progress(tmp_path):
+    status_path = tmp_path / "training-supervisor-run-1.json"
+    status_path.write_text(
+        """
+        {
+          "run_id": "run-1",
+          "status": "running",
+          "pid": 12345,
+          "started_at": "2026-07-01T00:00:00",
+          "updated_at": "2026-07-01T00:03:00",
+          "report_path": "/tmp/training-supervisor-run-1.md",
+          "latest_progress": {
+            "logged_at": "2026-07-01T00:03:00",
+            "round": 9,
+            "target_index": 100,
+            "target_total": 100,
+            "issue": "2026074",
+            "train_draws": 1494,
+            "elapsed_seconds": 53.3
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    status = load_supervisor_status("run-1", output_dir=tmp_path)
+
+    assert status["available"] is True
+    assert status["status"] == "running"
+    assert status["pid"] == 12345
+    assert status["latest_progress"]["round"] == 9
+    assert status["latest_progress"]["target_complete"] is True
+    assert status["latest_progress"]["elapsed_seconds"] == 53.3
+
+
+def test_recommendation_and_markdown_include_supervisor_progress():
+    now = datetime(2026, 7, 1, 0, 5, tzinfo=timezone.utc)
+    supervisor_status = {
+        "available": True,
+        "path": "/tmp/training-supervisor-run-1.json",
+        "status": "running",
+        "pid": 12345,
+        "updated_at": "2026-07-01T00:03:00",
+        "latest_progress": {
+            "logged_at": "2026-07-01T00:03:00",
+            "round": 9,
+            "target_index": 42,
+            "target_total": 100,
+            "target_complete": False,
+            "issue": "2026074",
+            "train_draws": 1494,
+            "elapsed_seconds": 12.5,
+        },
+    }
+    recommendation = recommendation_summary(
+        rows=[
+            {
+                "round_index": 8,
+                "improved": False,
+                "updated_at": now - timedelta(minutes=1),
+            }
+        ],
+        lock={"active": True, "owner": "training-supervisor"},
+        advisors={"neural_kdj_advisor": {"candidate_count": 0}},
+        now=now,
+        stale_minutes=30,
+        supervisor_status=supervisor_status,
+    )
+    payload = {
+        "generated_at": "2026-07-01T00:05:00Z",
+        "run_id": "run-1",
+        "round_count": 8,
+        "latest_round": 8,
+        "last_improved_round": None,
+        "stagnation_rounds": 8,
+        "latest_metrics": {
+            "phase": "large",
+            "step": 0.15,
+            "improved": False,
+            "top_100_hits": 0,
+            "top_1000_hits": 0,
+            "top_10000_hits": 0,
+            "red5_top_10000_hits": 0,
+            "best_rank": 100,
+            "median_rank": 1000,
+            "worst_rank": 9000,
+            "objective_score": 1.0,
+            "best_objective_seen": 1.0,
+        },
+        "advisor_summary": {},
+        "gate_summary": {},
+        "supervisor_status": supervisor_status,
+        "heavy_job_lock": {"active": True},
+        "recommendation": recommendation,
+        "guardrail": "Historical response-surface monitoring only.",
+    }
+
+    markdown = render_markdown(payload)
+
+    assert any("Supervisor status file reports current progress" in note for note in recommendation["notes"])
+    assert any("round=9" in note and "target=42/100" in note for note in recommendation["notes"])
+    assert "## Supervisor Progress" in markdown
+    assert "Status/PID: running / 12345" in markdown
+    assert "Progress round: 9" in markdown
+    assert "Target progress: 42 / 100" in markdown
+    assert "Issue: 2026074" in markdown
 
 
 def test_render_markdown_includes_restart_readiness_when_restart_is_requested():

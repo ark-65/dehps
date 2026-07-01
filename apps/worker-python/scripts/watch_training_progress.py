@@ -24,7 +24,8 @@ ADVISOR_KEYS = (
     "neural_kdj_advisor",
     "target_weight_inversion_advisor",
 )
-DEFAULT_OUTPUT_DIR = ROOT_DIR / "data/output/optimization/training-watch"
+DEFAULT_SUPERVISOR_OUTPUT_DIR = ROOT_DIR / "data/output/optimization"
+DEFAULT_OUTPUT_DIR = DEFAULT_SUPERVISOR_OUTPUT_DIR / "training-watch"
 DEFAULT_ROUND_LIMIT = 5000
 DEFAULT_STALE_MINUTES = 30
 SAFE_FILENAME_COMPONENT_PATTERN = re.compile(r"[^A-Za-z0-9_-]+")
@@ -247,6 +248,109 @@ def load_round_stats(run_id: str) -> dict[str, Any]:
     }
 
 
+def supervisor_progress_summary(progress: Any) -> dict[str, Any]:
+    if not isinstance(progress, dict):
+        return {}
+    target_index = safe_int(progress.get("target_index"))
+    target_total = safe_int(progress.get("target_total"))
+    target_complete = (
+        target_index is not None
+        and target_total is not None
+        and target_total > 0
+        and target_index >= target_total
+    )
+    return {
+        "logged_at": progress.get("logged_at"),
+        "round": safe_int(progress.get("round")),
+        "target_index": target_index,
+        "target_total": target_total,
+        "target_complete": target_complete,
+        "issue": progress.get("issue"),
+        "train_draws": safe_int(progress.get("train_draws")),
+        "elapsed_seconds": safe_float(progress.get("elapsed_seconds")),
+    }
+
+
+def supervisor_status_summary(status: dict[str, Any], *, path: Path) -> dict[str, Any]:
+    return {
+        "available": True,
+        "path": str(path),
+        "run_id": status.get("run_id"),
+        "status": status.get("status"),
+        "pid": safe_int(status.get("pid")),
+        "started_at": status.get("started_at"),
+        "updated_at": status.get("updated_at"),
+        "report_path": status.get("report_path"),
+        "latest_progress": supervisor_progress_summary(status.get("latest_progress")),
+    }
+
+
+def load_supervisor_status(
+    run_id: str | None,
+    *,
+    output_dir: Path = DEFAULT_SUPERVISOR_OUTPUT_DIR,
+) -> dict[str, Any]:
+    if not run_id:
+        return {"available": False, "reason": "missing_run_id"}
+    path = output_dir / f"training-supervisor-{safe_filename_component(run_id)}.json"
+    if not path.exists():
+        return {"available": False, "reason": "status_file_missing", "path": str(path)}
+    try:
+        status = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return {
+            "available": False,
+            "reason": "status_file_invalid_json",
+            "path": str(path),
+            "error": str(exc),
+        }
+    except OSError as exc:
+        return {
+            "available": False,
+            "reason": "status_file_unreadable",
+            "path": str(path),
+            "error": str(exc),
+        }
+    if not isinstance(status, dict):
+        return {
+            "available": False,
+            "reason": "status_file_invalid_root",
+            "path": str(path),
+        }
+    if str(status.get("run_id") or "") != str(run_id):
+        return {
+            "available": False,
+            "reason": "status_run_id_mismatch",
+            "path": str(path),
+            "observed_run_id": status.get("run_id"),
+        }
+    return supervisor_status_summary(status, path=path)
+
+
+def supervisor_progress_note(supervisor_status: dict[str, Any]) -> str | None:
+    if not supervisor_status.get("available"):
+        return None
+    progress = (
+        supervisor_status.get("latest_progress")
+        if isinstance(supervisor_status.get("latest_progress"), dict)
+        else {}
+    )
+    parts = [f"status={supervisor_status.get('status')}"]
+    if supervisor_status.get("pid") is not None:
+        parts.append(f"pid={supervisor_status.get('pid')}")
+    if progress.get("round") is not None:
+        parts.append(f"round={progress.get('round')}")
+    if progress.get("target_index") is not None and progress.get("target_total") is not None:
+        parts.append(f"target={progress.get('target_index')}/{progress.get('target_total')}")
+    if progress.get("issue"):
+        parts.append(f"issue={progress.get('issue')}")
+    if progress.get("elapsed_seconds") is not None:
+        parts.append(f"elapsed_seconds={progress.get('elapsed_seconds')}")
+    if supervisor_status.get("updated_at"):
+        parts.append(f"updated_at={supervisor_status.get('updated_at')}")
+    return "Supervisor status file reports current progress: " + " ".join(parts) + "."
+
+
 def heavy_lock_summary() -> dict[str, Any]:
     status = describe_heavy_job_owner()
     metadata = status.metadata or {}
@@ -458,6 +562,7 @@ def recommendation_summary(
     stale_minutes: int,
     round_stats: dict[str, Any] | None = None,
     gates: dict[str, dict[str, Any]] | None = None,
+    supervisor_status: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not rows:
         return {
@@ -478,6 +583,9 @@ def recommendation_summary(
     else:
         severity = "warn"
         notes.append("Training heavy-job lock is not active; verify whether the supervisor stopped.")
+    progress_note = supervisor_progress_note(supervisor_status or {})
+    if progress_note:
+        notes.append(progress_note)
 
     if latest_age is not None and latest_age > stale_minutes:
         severity = "warn"
@@ -658,6 +766,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
     prefilter = latest.get("prefilter") if isinstance(latest.get("prefilter"), dict) else {}
     advisors = advisor_summary(prefilter)
     gates = gate_summary(prefilter)
+    supervisor_status = load_supervisor_status(resolved_run_id)
     lock = add_heavy_lock_observation_ages(heavy_lock_summary(), now=generated_at)
     recommendation = recommendation_summary(
         rows=rows,
@@ -667,6 +776,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         now=generated_at,
         stale_minutes=stale_minutes,
         round_stats=round_stats,
+        supervisor_status=supervisor_status,
     )
     return {
         "generated_at": isoformat(generated_at),
@@ -697,6 +807,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         "candidate_budget": prefilter.get("candidate_budget") if isinstance(prefilter.get("candidate_budget"), dict) else {},
         "advisor_summary": advisors,
         "gate_summary": gates,
+        "supervisor_status": supervisor_status,
         "heavy_job_lock": lock,
         "recommendation": recommendation,
         "restart_readiness": restart_readiness_summary(recommendation=recommendation, lock=lock),
@@ -836,6 +947,36 @@ def render_markdown(payload: dict[str, Any]) -> str:
             f"{lock_age_line}"
             f"{heartbeat_age_line}\n"
         )
+    supervisor_status = (
+        payload.get("supervisor_status")
+        if isinstance(payload.get("supervisor_status"), dict)
+        else {}
+    )
+    supervisor_section = ""
+    if supervisor_status.get("available"):
+        progress = (
+            supervisor_status.get("latest_progress")
+            if isinstance(supervisor_status.get("latest_progress"), dict)
+            else {}
+        )
+        progress_lines = ""
+        if progress:
+            progress_lines = (
+                f"- Progress round: {progress.get('round')}\n"
+                f"- Target progress: {progress.get('target_index')} / {progress.get('target_total')}\n"
+                f"- Target complete: {progress.get('target_complete')}\n"
+                f"- Issue: {markdown_inline_text(progress.get('issue'))}\n"
+                f"- Train draws: {progress.get('train_draws')}\n"
+                f"- Elapsed seconds: {progress.get('elapsed_seconds')}\n"
+                f"- Progress logged at: {markdown_inline_text(progress.get('logged_at'))}\n"
+            )
+        supervisor_section = (
+            "## Supervisor Progress\n\n"
+            f"- Status/PID: {markdown_inline_text(supervisor_status.get('status'))} / {supervisor_status.get('pid')}\n"
+            f"- Updated at: {markdown_inline_text(supervisor_status.get('updated_at'))}\n"
+            f"- Status file: {markdown_inline_code(supervisor_status.get('path'))}\n"
+            f"{progress_lines}\n"
+        )
     return f"""# DEHPS Training Watch
 
 - Generated at: {payload.get("generated_at")}
@@ -864,6 +1005,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
 
 {gate_section}\
 {restart_section}\
+{supervisor_section}\
 ## Heavy Job Lock
 
 ```json
