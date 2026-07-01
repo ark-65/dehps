@@ -591,6 +591,14 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "rank_vector_changed": safe_bool(restart_champion.get("rank_vector_changed")),
             "changed_target_count": safe_int(restart_champion.get("changed_target_count")),
             "max_abs_delta": safe_int(restart_champion.get("max_abs_delta")),
+            "primary_weight_pattern": restart_champion.get("primary_weight_pattern"),
+            "context_field_movement_count": safe_int(restart_champion.get("context_field_movement_count")),
+            "frozen_primary_score": safe_score(restart_champion.get("frozen_primary_score")),
+            "tail_over_1000000_delta": safe_int(restart_champion.get("tail_over_1000000_delta")),
+            "source_frontier_score_improved": safe_bool(
+                restart_champion.get("source_frontier_score_improved")
+            ),
+            "unique_rank_signature_count": safe_int(restart_champion.get("unique_rank_signature_count")),
         }
     if navigation:
         result["experimental_navigation_candidate"] = {
@@ -1059,7 +1067,13 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 f"rank_vector_changed={restart_champion.get('rank_vector_changed')} "
                 f"changed_targets={restart_champion.get('changed_target_count')} "
                 f"full_eval_rank={restart_champion.get('full_eval_rank')} "
-                f"max_abs_delta={restart_champion.get('max_abs_delta')}"
+                f"max_abs_delta={restart_champion.get('max_abs_delta')} "
+                f"primary_pattern={markdown_inline_text(restart_champion.get('primary_weight_pattern'))} "
+                f"context_moves={restart_champion.get('context_field_movement_count')} "
+                f"frozen_primary={restart_champion.get('frozen_primary_score')} "
+                f"tail1000000_delta={restart_champion.get('tail_over_1000000_delta')} "
+                f"source_frontier_improved={restart_champion.get('source_frontier_score_improved')} "
+                f"unique_signatures={restart_champion.get('unique_rank_signature_count')}"
             )
         if navigation:
             gate_lines.append(

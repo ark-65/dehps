@@ -398,6 +398,12 @@ def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_mar
             "rank_vector_changed": True,
             "changed_target_count": 99,
             "max_abs_delta": 904798,
+            "primary_weight_pattern": "structural=0.05/frequency=0.70/omission=0.70",
+            "context_field_movement_count": 5,
+            "frozen_primary_score": [0, 0, 0],
+            "tail_over_1000000_delta": -1,
+            "source_frontier_score_improved": True,
+            "unique_rank_signature_count": 3,
         },
         "experimental_navigation_candidate": {
             "source": "exploration_champion",
@@ -464,6 +470,14 @@ def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_mar
     assert gates["eval_slice_overfit_guardrail"]["round_best_eval_primary_score"] == [3, 3, 3]
     assert gates["rank_homogeneity_restart_champion"]["rank_vector_changed"] is True
     assert gates["rank_homogeneity_restart_champion"]["changed_target_count"] == 99
+    assert gates["rank_homogeneity_restart_champion"]["primary_weight_pattern"] == (
+        "structural=0.05/frequency=0.70/omission=0.70"
+    )
+    assert gates["rank_homogeneity_restart_champion"]["context_field_movement_count"] == 5
+    assert gates["rank_homogeneity_restart_champion"]["frozen_primary_score"] == [0, 0, 0]
+    assert gates["rank_homogeneity_restart_champion"]["tail_over_1000000_delta"] == -1
+    assert gates["rank_homogeneity_restart_champion"]["source_frontier_score_improved"] is True
+    assert gates["rank_homogeneity_restart_champion"]["unique_rank_signature_count"] == 3
     assert gates["experimental_navigation_candidate"]["source"] == "exploration_champion"
     assert gates["decision_round_best"]["blocked_candidate_count"] == 1
     assert any("Promotion gate blocked" in note for note in recommendation["notes"])
@@ -477,6 +491,8 @@ def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_mar
     assert "issues=2026025=4" in markdown
     assert "Restart champion: active=True" in markdown
     assert "rank_vector_changed=True changed_targets=99 full_eval_rank=12 max_abs_delta=904798" in markdown
+    assert "context_moves=5 frozen_primary=[0, 0, 0] tail1000000_delta=-1" in markdown
+    assert "source_frontier_improved=True unique_signatures=3" in markdown
     assert "Experimental navigation: source=exploration_champion reason=stagnation_top_eval_exploration" in markdown
     assert "blocked_sources=[rank_homogeneity_restart]" in markdown
 
