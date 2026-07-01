@@ -6,7 +6,7 @@ import json
 import os
 import re
 from datetime import datetime, timezone
-from math import isfinite
+from math import comb, isfinite
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +31,7 @@ DEFAULT_STALE_MINUTES = 30
 SAFE_FILENAME_COMPONENT_PATTERN = re.compile(r"[^A-Za-z0-9_-]+")
 SAFE_INTEGER_TEXT_PATTERN = re.compile(r"[0-9]+")
 MAX_SAFE_FILENAME_COMPONENT_LENGTH = 96
+EXPECTED_SSQ_RED_COMBINATION_COUNT = comb(33, 6)
 
 
 def utc_now() -> datetime:
@@ -252,6 +253,210 @@ def compact_random_null_expectation(value: Any, *, limit: int = 5) -> str:
     if overflow > 0:
         parts.append(f"+{overflow} more")
     return "; ".join(parts) if parts else "{}"
+
+
+def isoformat_date(value: Any) -> str | None:
+    if value is None:
+        return None
+    formatter = getattr(value, "isoformat", None)
+    return str(formatter()) if callable(formatter) else str(value)
+
+
+def load_parser_sync_duplicate_checks() -> dict[str, Any]:
+    try:
+        with get_connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                history = cur.execute(
+                    """
+                    WITH checked AS (
+                      SELECT
+                        issue,
+                        draw_date,
+                        blue_number,
+                        COALESCE(array_length(red_numbers, 1), 0) AS red_length,
+                        (
+                          SELECT count(*)
+                          FROM unnest(red_numbers) AS red(value)
+                          WHERE value IS NULL OR value < 1 OR value > 33
+                        ) AS invalid_red_value_count,
+                        (
+                          SELECT count(*)
+                          FROM (
+                            SELECT value
+                            FROM unnest(red_numbers) AS red(value)
+                            GROUP BY value
+                            HAVING count(*) > 1
+                          ) duplicate_values
+                        ) AS duplicate_red_value_count
+                      FROM ssq_history
+                    ),
+                    duplicate_issues AS (
+                      SELECT COALESCE(sum(issue_count - 1), 0) AS duplicate_issue_count
+                      FROM (
+                        SELECT issue, count(*) AS issue_count
+                        FROM ssq_history
+                        GROUP BY issue
+                        HAVING count(*) > 1
+                      ) issues
+                    )
+                    SELECT
+                      count(*) AS draw_count,
+                      min(issue) AS first_issue,
+                      max(issue) AS latest_issue,
+                      min(draw_date) AS first_draw_date,
+                      max(draw_date) AS latest_draw_date,
+                      (SELECT duplicate_issue_count FROM duplicate_issues) AS duplicate_issue_count,
+                      count(*) FILTER (WHERE red_length != 6) AS invalid_red_length_count,
+                      count(*) FILTER (WHERE invalid_red_value_count > 0) AS red_out_of_range_count,
+                      count(*) FILTER (WHERE duplicate_red_value_count > 0) AS duplicate_red_numbers_count,
+                      count(*) FILTER (
+                        WHERE blue_number IS NOT NULL AND (blue_number < 1 OR blue_number > 16)
+                      ) AS blue_out_of_range_count
+                    FROM checked
+                    """
+                ).fetchone() or {}
+                universe = cur.execute(
+                    """
+                    SELECT
+                      count(*) AS combination_count,
+                      count(DISTINCT numbers) AS distinct_combination_count,
+                      count(*) FILTER (
+                        WHERE NOT (
+                          COALESCE(array_length(numbers, 1), 0) = 6
+                          AND 1 <= n1 AND n1 < n2 AND n2 < n3 AND n3 < n4
+                          AND n4 < n5 AND n5 < n6 AND n6 <= 33
+                          AND numbers = ARRAY[n1, n2, n3, n4, n5, n6]::smallint[]
+                        )
+                      ) AS invalid_combination_shape_count
+                    FROM ssq_red_combinations
+                    """
+                ).fetchone() or {}
+                latest_sync = cur.execute(
+                    """
+                    SELECT
+                      run_key, source, status, started_at, finished_at, fetched_count,
+                      inserted_count, updated_count, skipped_count, conflict_count, error_message
+                    FROM ssq_sync_runs
+                    ORDER BY started_at DESC, id DESC
+                    LIMIT 1
+                    """
+                ).fetchone()
+                conflict_row = cur.execute(
+                    "SELECT count(*) AS recorded_data_conflict_count FROM ssq_data_conflicts"
+                ).fetchone() or {}
+    except Exception as exc:
+        return {
+            "status": "unavailable",
+            "reason": "db_integrity_query_failed",
+            "error": str(exc),
+        }
+
+    duplicate_issue_count = safe_int(history.get("duplicate_issue_count")) or 0
+    invalid_red_length_count = safe_int(history.get("invalid_red_length_count")) or 0
+    red_out_of_range_count = safe_int(history.get("red_out_of_range_count")) or 0
+    duplicate_red_numbers_count = safe_int(history.get("duplicate_red_numbers_count")) or 0
+    blue_out_of_range_count = safe_int(history.get("blue_out_of_range_count")) or 0
+    combination_count = safe_int(universe.get("combination_count")) or 0
+    distinct_combination_count = safe_int(universe.get("distinct_combination_count")) or 0
+    invalid_combination_shape_count = safe_int(universe.get("invalid_combination_shape_count")) or 0
+    duplicate_combination_count = max(0, combination_count - distinct_combination_count)
+    latest_sync_status = latest_sync.get("status") if isinstance(latest_sync, dict) else None
+
+    history_ok = (
+        duplicate_issue_count == 0
+        and invalid_red_length_count == 0
+        and red_out_of_range_count == 0
+        and duplicate_red_numbers_count == 0
+        and blue_out_of_range_count == 0
+    )
+    universe_complete = combination_count == EXPECTED_SSQ_RED_COMBINATION_COUNT
+    universe_ok = (
+        universe_complete
+        and duplicate_combination_count == 0
+        and invalid_combination_shape_count == 0
+    )
+    latest_sync_ok = latest_sync_status not in {"failed", "error"}
+    latest_sync_summary = (
+        {
+            "run_key": latest_sync.get("run_key"),
+            "source": latest_sync.get("source"),
+            "status": latest_sync_status,
+            "started_at": isoformat(latest_sync.get("started_at")),
+            "finished_at": isoformat(latest_sync.get("finished_at")),
+            "fetched_count": safe_int(latest_sync.get("fetched_count")),
+            "inserted_count": safe_int(latest_sync.get("inserted_count")),
+            "updated_count": safe_int(latest_sync.get("updated_count")),
+            "skipped_count": safe_int(latest_sync.get("skipped_count")),
+            "conflict_count": safe_int(latest_sync.get("conflict_count")),
+            "error_message": latest_sync.get("error_message"),
+        }
+        if isinstance(latest_sync, dict)
+        else None
+    )
+
+    return {
+        "status": "checked",
+        "ok": history_ok and universe_ok and latest_sync_ok,
+        "history_ok": history_ok,
+        "history_draw_count": safe_int(history.get("draw_count")) or 0,
+        "history_first_issue": history.get("first_issue"),
+        "history_latest_issue": history.get("latest_issue"),
+        "history_first_draw_date": isoformat_date(history.get("first_draw_date")),
+        "history_latest_draw_date": isoformat_date(history.get("latest_draw_date")),
+        "history_duplicate_issue_count": duplicate_issue_count,
+        "history_invalid_red_length_count": invalid_red_length_count,
+        "history_red_out_of_range_count": red_out_of_range_count,
+        "history_duplicate_red_numbers_count": duplicate_red_numbers_count,
+        "history_blue_out_of_range_count": blue_out_of_range_count,
+        "universe_ok": universe_ok,
+        "red_combination_universe_count": combination_count,
+        "expected_red_combination_universe_count": EXPECTED_SSQ_RED_COMBINATION_COUNT,
+        "red_combination_universe_complete": universe_complete,
+        "red_combination_duplicate_count": duplicate_combination_count,
+        "red_combination_invalid_shape_count": invalid_combination_shape_count,
+        "latest_sync_ok": latest_sync_ok,
+        "latest_sync": latest_sync_summary,
+        "recorded_data_conflict_count": (
+            safe_int(conflict_row.get("recorded_data_conflict_count")) or 0
+        ),
+    }
+
+
+def compact_parser_sync_duplicate_checks(value: Any) -> str:
+    if not isinstance(value, dict):
+        return "" if value is None else str(value)
+    status = value.get("status")
+    if status != "checked":
+        parts = [f"status={status or 'unknown'}"]
+        reason = value.get("reason")
+        if reason:
+            parts.append(f"reason={reason}")
+        error = value.get("error")
+        if error:
+            parts.append(f"error={error}")
+        return " ".join(parts)
+
+    latest_sync = value.get("latest_sync") if isinstance(value.get("latest_sync"), dict) else {}
+    issue_range = ""
+    if value.get("history_first_issue") or value.get("history_latest_issue"):
+        issue_range = f" issues={value.get('history_first_issue')}..{value.get('history_latest_issue')}"
+    return (
+        f"status=checked ok={value.get('ok')} "
+        f"history_ok={value.get('history_ok')} draws={value.get('history_draw_count')}{issue_range} "
+        f"dup_issues={value.get('history_duplicate_issue_count')} "
+        f"dup_red_draws={value.get('history_duplicate_red_numbers_count')} "
+        f"invalid_red_len={value.get('history_invalid_red_length_count')} "
+        f"red_oob={value.get('history_red_out_of_range_count')} "
+        f"blue_oob={value.get('history_blue_out_of_range_count')} "
+        f"universe_ok={value.get('universe_ok')} "
+        f"universe={value.get('red_combination_universe_count')}/"
+        f"{value.get('expected_red_combination_universe_count')} "
+        f"universe_dups={value.get('red_combination_duplicate_count')} "
+        f"universe_invalid={value.get('red_combination_invalid_shape_count')} "
+        f"latest_sync_status={latest_sync.get('status')} "
+        f"latest_sync_conflicts={latest_sync.get('conflict_count')} "
+        f"recorded_conflicts={value.get('recorded_data_conflict_count')}"
+    )
 
 
 def resolve_run_id(run_id: str | None) -> str | None:
@@ -840,6 +1045,7 @@ def evidence_context_summary(
     *,
     supervisor_status: dict[str, Any],
     gates: dict[str, dict[str, Any]],
+    parser_sync_duplicate_checks: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     promotion = gates.get("promotion_gate") if isinstance(gates.get("promotion_gate"), dict) else {}
     eval_guard = (
@@ -865,6 +1071,12 @@ def evidence_context_summary(
     if blocked_count > 0:
         blocked_sources = compact_inline_list(decision.get("blocked_candidate_sources"))
         failure_modes.append(f"blocked_candidates:{blocked_count}:{blocked_sources}")
+    parser_sync_duplicate_checks = parser_sync_duplicate_checks or {
+        "status": "not_loaded",
+        "reason": "parser_sync_duplicate_checks_not_passed",
+    }
+    if parser_sync_duplicate_checks.get("status") != "checked" or not parser_sync_duplicate_checks.get("ok"):
+        failure_modes.append(f"parser_sync_duplicates:{parser_sync_duplicate_checks.get('status')}")
 
     return {
         "legal_sample_space": {
@@ -894,7 +1106,7 @@ def evidence_context_summary(
             "eval_slice_overfit_guardrail_reason": eval_guard.get("reason"),
             "suspicious_candidate_count": safe_int(eval_guard.get("suspicious_candidate_count")) or 0,
             "frozen_primary_lift_required": bool(decision.get("frozen_primary_lift_required")),
-            "parser_sync_duplicate_checks": "not_rerun_by_training_watch",
+            "parser_sync_duplicate_checks": parser_sync_duplicate_checks,
         },
         "training_status": {
             "status": supervisor_status.get("status"),
@@ -932,6 +1144,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
     gates = gate_summary(prefilter)
     supervisor_status = load_supervisor_status(resolved_run_id)
     lock = add_heavy_lock_observation_ages(heavy_lock_summary(), now=generated_at)
+    parser_sync_duplicate_checks = load_parser_sync_duplicate_checks()
     recommendation = recommendation_summary(
         rows=rows,
         lock=lock,
@@ -972,7 +1185,11 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         "advisor_summary": advisors,
         "gate_summary": gates,
         "supervisor_status": supervisor_status,
-        "evidence_context": evidence_context_summary(supervisor_status=supervisor_status, gates=gates),
+        "evidence_context": evidence_context_summary(
+            supervisor_status=supervisor_status,
+            gates=gates,
+            parser_sync_duplicate_checks=parser_sync_duplicate_checks,
+        ),
         "heavy_job_lock": lock,
         "recommendation": recommendation,
         "restart_readiness": restart_readiness_summary(recommendation=recommendation, lock=lock),
@@ -1205,7 +1422,8 @@ def render_markdown(payload: dict[str, Any]) -> str:
             f"eval_reason={markdown_inline_text(leakage.get('eval_slice_overfit_guardrail_reason'))} "
             f"suspicious={leakage.get('suspicious_candidate_count')} "
             f"frozen_required={leakage.get('frozen_primary_lift_required')} "
-            f"parser_sync_duplicates={markdown_inline_text(leakage.get('parser_sync_duplicate_checks'))}\n"
+            "parser_sync_duplicates="
+            f"{markdown_inline_text(compact_parser_sync_duplicate_checks(leakage.get('parser_sync_duplicate_checks')))}\n"
             "- Evidence/risk: "
             f"{markdown_inline_text(evidence_context.get('evidence_level'))}; "
             f"{markdown_inline_text(evidence_context.get('risk'))}\n"
