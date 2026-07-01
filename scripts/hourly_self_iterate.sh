@@ -94,6 +94,9 @@ cat <<'PROMPT' | "$CODEX_BIN" exec \
 
 约束：
 - 开始先检查 git status。若工作区不干净，立即停止并说明原因。
+- 选择本轮唯一目标后、任何 repo-tracked 文件修改前，必须先确认当前仓库可回到干净 `main`，然后执行 `git switch main`、`git pull --ff-only origin main`，再切出 topic branch。
+- 自我迭代分支名固定为 `<type>/self-iterate-YYYYMMDD-HHMM-<slug>`；`type` 只能是 `fix`、`feat`、`chore`、`docs`、`test`、`refactor`，并且要和本轮改动性质一致。
+- commit subject 和 PR title 必须使用同一个 Conventional Commit 前缀，例如 `fix: self-iterate training watch restart guard`；不要再使用 `self-iterate:` 作为 commit 前缀。
 - 不要删除或覆盖用户未提交改动。
 - 不要提交 data/output 或 runtime 下的大型生成产物，除非本轮明确创建的是小型验收报告。
 - Gauss/Riemann 是历史启发的验证和结构化诊断流程，不是权威背书，也不是对历史人物心智的重构。
@@ -104,11 +107,13 @@ cat <<'PROMPT' | "$CODEX_BIN" exec \
 - 自主度是诊断优先：允许修 bug、补诊断、改现有参数边界或现有策略的明显安全约束；不要新增模型、advisor、候选源或大策略，除非人类明确要求。
 - 如果改动触及 training、optimization、dynamic weights、advisor 或 supervisor 代码，验证通过后必须启动更新后的 fresh supervisor，并监控至少 1-2 个完成训练轮次；不要继续依赖旧 live training process。
 - 优先运行与改动相关的最小测试；必要时再跑 apps/worker-python/.venv/bin/python -m pytest、apps/api npm test、apps/web npm test。
-- 每轮结束必须留下清晰结果：若有代码改动且测试通过，创建一个 git commit，提交信息以 "self-iterate:" 开头，然后推送到当前分支对应的 origin 分支；若 push 失败，明确写明失败原因。
+- 每轮结束必须留下清晰结果：若有代码改动且测试通过，创建一个 git commit，然后用 `apps/worker-python/.venv/bin/python apps/worker-python/scripts/self_iteration_publish_pr.py --title "$PR_TITLE" --body-file "$PR_BODY_FILE" --base main --remote origin` 创建 ready PR 并启用 auto-merge；若发布失败，明确写明失败原因并保留当前分支供人工恢复。
+- 禁止直接 push 或 merge 到 `main`；也不要使用旧的直推流程作为 fallback。Pair Extraordinaire 计数依赖 co-authored commit 通过 merged PR 进入默认分支。
 - 自主提交使用脚本已设置的 Git 身份：author/committer 为 ark-65 的 GitHub noreply 身份；commit-msg hook 会补充 inhuman-0 的 Co-authored-by trailer，避免生成 Ark Codex <codex@local> 身份的自我迭代提交。
+- 发布前必须确认 `git log -1 --format=%B` 包含 `Co-authored-by: give me a 98K <240642031+inhuman-0@users.noreply.github.com>`；helper 会再次强制校验。
 - 若没有安全可做的改动，也不要硬改；写明阻塞原因。
 
-请自主完成探索、修改、验证、提交和推送。
+请自主完成探索、修改、验证、提交、创建 PR 和启用 auto-merge。
 PROMPT
 codex_status=$?
 set -e
