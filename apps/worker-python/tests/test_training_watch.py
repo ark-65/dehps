@@ -7,6 +7,8 @@ import scripts.watch_training_progress as watch
 from scripts.watch_training_progress import (
     advisor_summary,
     gate_summary,
+    observed_age_minutes,
+    parse_iso_datetime,
     recommendation_summary,
     render_markdown,
     restart_readiness_summary,
@@ -90,6 +92,8 @@ def test_restart_readiness_blocks_parallel_supervisor_while_lock_is_active():
         "pid": 12345,
         "pid_active": True,
         "heartbeat_at": "2026-07-01T00:00:00Z",
+        "lock_age_hours": 2.0,
+        "heartbeat_age_minutes": 1.5,
     }
 
     readiness = restart_readiness_summary(recommendation=recommendation, lock=lock)
@@ -99,6 +103,8 @@ def test_restart_readiness_blocks_parallel_supervisor_while_lock_is_active():
     assert readiness["status"] == "blocked_by_active_heavy_job_lock"
     assert readiness["blockers"] == ["active_training_supervisor_lock"]
     assert readiness["pid"] == 12345
+    assert readiness["lock_age_hours"] == 2.0
+    assert readiness["heartbeat_age_minutes"] == 1.5
 
 
 def test_render_markdown_includes_restart_readiness_when_restart_is_requested():
@@ -139,6 +145,8 @@ def test_render_markdown_includes_restart_readiness_when_restart_is_requested():
             "owner": "training-supervisor",
             "pid": 12345,
             "heartbeat_at": "2026-07-01T00:00:00Z",
+            "lock_age_hours": 2.0,
+            "heartbeat_age_minutes": 1.5,
         },
         "guardrail": "Historical response-surface monitoring only.",
     }
@@ -149,6 +157,8 @@ def test_render_markdown_includes_restart_readiness_when_restart_is_requested():
     assert "Ready for fresh supervisor: False" in markdown
     assert "Blockers: [active_training_supervisor_lock]" in markdown
     assert "Lock owner/PID: training-supervisor / 12345" in markdown
+    assert "Lock age: 2.0 hours" in markdown
+    assert "Heartbeat age: 1.5 minutes" in markdown
 
 
 def test_advisor_summary_and_markdown_include_guardrails():
@@ -597,6 +607,21 @@ def test_safe_numeric_helpers_reject_bool_and_non_finite_values():
     assert safe_int(3.5) is None
     assert safe_int(False) is None
     assert safe_int(float("inf")) is None
+
+
+def test_observed_age_minutes_parses_utc_lock_timestamps():
+    now = datetime(2026, 7, 1, 2, 0, tzinfo=timezone.utc)
+
+    assert parse_iso_datetime("2026-07-01T00:00:00Z") == datetime(
+        2026,
+        7,
+        1,
+        0,
+        0,
+        tzinfo=timezone.utc,
+    )
+    assert observed_age_minutes("2026-07-01T01:58:30Z", now=now) == 1.5
+    assert observed_age_minutes("not-a-date", now=now) is None
 
 
 def test_safe_int_rejects_non_decimal_string_forms():

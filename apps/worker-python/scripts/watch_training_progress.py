@@ -48,6 +48,33 @@ def isoformat(moment: datetime | None) -> str | None:
     return moment.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+def parse_iso_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        moment = value
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        if text.endswith("Z"):
+            text = f"{text[:-1]}+00:00"
+        try:
+            moment = datetime.fromisoformat(text)
+        except ValueError:
+            return None
+    else:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(timezone.utc)
+
+
+def observed_age_minutes(value: Any, *, now: datetime) -> float | None:
+    moment = parse_iso_datetime(value)
+    if moment is None:
+        return None
+    return round(max(0.0, (now - moment).total_seconds() / 60.0), 6)
+
+
 def safe_float(value: Any) -> float | None:
     if value is None:
         return None
@@ -235,6 +262,18 @@ def heavy_lock_summary() -> dict[str, Any]:
         "heartbeat_at": metadata.get("heartbeat_at"),
         "context": metadata.get("context") if isinstance(metadata.get("context"), dict) else {},
     }
+
+
+def add_heavy_lock_observation_ages(lock: dict[str, Any], *, now: datetime) -> dict[str, Any]:
+    enriched = dict(lock)
+    lock_age_minutes = observed_age_minutes(enriched.get("started_at"), now=now)
+    heartbeat_age_minutes = observed_age_minutes(enriched.get("heartbeat_at"), now=now)
+    enriched["lock_age_minutes"] = lock_age_minutes
+    enriched["lock_age_hours"] = (
+        round(lock_age_minutes / 60.0, 6) if lock_age_minutes is not None else None
+    )
+    enriched["heartbeat_age_minutes"] = heartbeat_age_minutes
+    return enriched
 
 
 def advisor_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -533,9 +572,17 @@ def recommendation_summary(
         )
 
     if "prepare_restart_with_more_exploration" in actions and lock.get("active"):
+        lock_age_hours = safe_float(lock.get("lock_age_hours"))
+        heartbeat_age_minutes = safe_float(lock.get("heartbeat_age_minutes"))
+        age_details = []
+        if lock_age_hours is not None:
+            age_details.append(f"lock_age_hours={lock_age_hours}")
+        if heartbeat_age_minutes is not None:
+            age_details.append(f"heartbeat_age_minutes={heartbeat_age_minutes}")
+        age_suffix = f" {' '.join(age_details)}." if age_details else "."
         notes.append(
             "Restart preparation is not launch-ready while a heavy-job lock is active: "
-            f"owner={lock.get('owner')} pid={lock.get('pid')}. "
+            f"owner={lock.get('owner')} pid={lock.get('pid')}{age_suffix} "
             "Stop or transfer the current supervisor before starting a fresh run."
         )
 
@@ -583,6 +630,9 @@ def restart_readiness_summary(*, recommendation: dict[str, Any], lock: dict[str,
         "pid": lock.get("pid"),
         "pid_active": lock.get("pid_active"),
         "heartbeat_at": lock.get("heartbeat_at"),
+        "lock_age_minutes": lock.get("lock_age_minutes"),
+        "lock_age_hours": lock.get("lock_age_hours"),
+        "heartbeat_age_minutes": lock.get("heartbeat_age_minutes"),
     }
 
 
@@ -608,7 +658,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
     prefilter = latest.get("prefilter") if isinstance(latest.get("prefilter"), dict) else {}
     advisors = advisor_summary(prefilter)
     gates = gate_summary(prefilter)
-    lock = heavy_lock_summary()
+    lock = add_heavy_lock_observation_ages(heavy_lock_summary(), now=generated_at)
     recommendation = recommendation_summary(
         rows=rows,
         lock=lock,
@@ -768,13 +818,23 @@ def render_markdown(payload: dict[str, Any]) -> str:
     restart_section = ""
     if restart_readiness.get("requested"):
         blockers = compact_inline_list(restart_readiness.get("blockers"))
+        lock_age_line = ""
+        if restart_readiness.get("lock_age_hours") is not None:
+            lock_age_line = f"- Lock age: {restart_readiness.get('lock_age_hours')} hours\n"
+        heartbeat_age_line = ""
+        if restart_readiness.get("heartbeat_age_minutes") is not None:
+            heartbeat_age_line = (
+                f"- Heartbeat age: {restart_readiness.get('heartbeat_age_minutes')} minutes\n"
+            )
         restart_section = (
             "## Restart Readiness\n\n"
             f"- Ready for fresh supervisor: {restart_readiness.get('ready')}\n"
             f"- Status: {markdown_inline_text(restart_readiness.get('status'))}\n"
             f"- Blockers: {markdown_inline_text(blockers)}\n"
             f"- Lock owner/PID: {markdown_inline_text(restart_readiness.get('owner'))} / {restart_readiness.get('pid')}\n"
-            f"- Heartbeat: {markdown_inline_text(restart_readiness.get('heartbeat_at'))}\n\n"
+            f"- Heartbeat: {markdown_inline_text(restart_readiness.get('heartbeat_at'))}\n"
+            f"{lock_age_line}"
+            f"{heartbeat_age_line}\n"
         )
     return f"""# DEHPS Training Watch
 
