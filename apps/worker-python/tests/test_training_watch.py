@@ -104,9 +104,50 @@ def test_restart_readiness_blocks_parallel_supervisor_while_lock_is_active():
     assert readiness["ready"] is False
     assert readiness["status"] == "blocked_by_active_heavy_job_lock"
     assert readiness["blockers"] == ["active_training_supervisor_lock"]
+    assert (
+        readiness["operator_action"]
+        == "stop_or_transfer_active_training_supervisor_before_restart"
+    )
     assert readiness["pid"] == 12345
     assert readiness["lock_age_hours"] == 2.0
     assert readiness["heartbeat_age_minutes"] == 1.5
+
+
+def test_restart_readiness_reports_operator_action_for_non_training_lock():
+    recommendation = {
+        "action": "prepare_restart_with_more_exploration",
+        "actions": ["prepare_restart_with_more_exploration"],
+    }
+    lock = {
+        "active": True,
+        "owner": "history-sync",
+        "pid": 23456,
+    }
+
+    readiness = restart_readiness_summary(recommendation=recommendation, lock=lock)
+
+    assert readiness["ready"] is False
+    assert readiness["blockers"] == ["active_heavy_job_lock"]
+    assert (
+        readiness["operator_action"]
+        == "wait_for_or_clear_active_heavy_job_lock_before_restart"
+    )
+
+
+def test_restart_readiness_reports_operator_action_when_ready():
+    recommendation = {
+        "action": "prepare_restart_with_more_exploration",
+        "actions": ["prepare_restart_with_more_exploration"],
+    }
+
+    readiness = restart_readiness_summary(
+        recommendation=recommendation,
+        lock={"active": False},
+    )
+
+    assert readiness["ready"] is True
+    assert readiness["blockers"] == []
+    assert readiness["operator_action"] == "operator_review_then_start_fresh_supervisor"
 
 
 def test_load_supervisor_status_reads_current_progress(tmp_path):
@@ -271,6 +312,7 @@ def test_render_markdown_includes_restart_readiness_when_restart_is_requested():
             "heartbeat_at": "2026-07-01T00:00:00Z",
             "lock_age_hours": 2.0,
             "heartbeat_age_minutes": 1.5,
+            "operator_action": "stop_or_transfer_active_training_supervisor_before_restart",
         },
         "guardrail": "Historical response-surface monitoring only.",
     }
@@ -280,6 +322,10 @@ def test_render_markdown_includes_restart_readiness_when_restart_is_requested():
     assert "## Restart Readiness" in markdown
     assert "Ready for fresh supervisor: False" in markdown
     assert "Blockers: [active_training_supervisor_lock]" in markdown
+    assert (
+        "Operator action: stop_or_transfer_active_training_supervisor_before_restart"
+        in markdown
+    )
     assert "Lock owner/PID: training-supervisor / 12345" in markdown
     assert "Lock age: 2.0 hours" in markdown
     assert "Heartbeat age: 1.5 minutes" in markdown

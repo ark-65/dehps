@@ -1014,6 +1014,7 @@ def restart_readiness_summary(*, recommendation: dict[str, Any], lock: dict[str,
             "ready": False,
             "status": "not_requested",
             "blockers": [],
+            "operator_action": "continue_current_training_watch",
         }
 
     blockers: list[str] = []
@@ -1023,6 +1024,12 @@ def restart_readiness_summary(*, recommendation: dict[str, Any], lock: dict[str,
         blockers.append("active_training_supervisor_lock")
     elif lock_active:
         blockers.append("active_heavy_job_lock")
+    if not blockers:
+        operator_action = "operator_review_then_start_fresh_supervisor"
+    elif "active_training_supervisor_lock" in blockers:
+        operator_action = "stop_or_transfer_active_training_supervisor_before_restart"
+    else:
+        operator_action = "wait_for_or_clear_active_heavy_job_lock_before_restart"
 
     return {
         "requested": True,
@@ -1031,6 +1038,7 @@ def restart_readiness_summary(*, recommendation: dict[str, Any], lock: dict[str,
         if not blockers
         else "blocked_by_active_heavy_job_lock",
         "blockers": blockers,
+        "operator_action": operator_action,
         "owner": owner,
         "pid": lock.get("pid"),
         "pid_active": lock.get("pid_active"),
@@ -1317,6 +1325,12 @@ def render_markdown(payload: dict[str, Any]) -> str:
     restart_section = ""
     if restart_readiness.get("requested"):
         blockers = compact_inline_list(restart_readiness.get("blockers"))
+        operator_action_line = ""
+        if restart_readiness.get("operator_action"):
+            operator_action_line = (
+                "- Operator action: "
+                f"{markdown_inline_text(restart_readiness.get('operator_action'))}\n"
+            )
         lock_age_line = ""
         if restart_readiness.get("lock_age_hours") is not None:
             lock_age_line = f"- Lock age: {restart_readiness.get('lock_age_hours')} hours\n"
@@ -1330,6 +1344,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
             f"- Ready for fresh supervisor: {restart_readiness.get('ready')}\n"
             f"- Status: {markdown_inline_text(restart_readiness.get('status'))}\n"
             f"- Blockers: {markdown_inline_text(blockers)}\n"
+            f"{operator_action_line}"
             f"- Lock owner/PID: {markdown_inline_text(restart_readiness.get('owner'))} / {restart_readiness.get('pid')}\n"
             f"- Heartbeat: {markdown_inline_text(restart_readiness.get('heartbeat_at'))}\n"
             f"{lock_age_line}"
