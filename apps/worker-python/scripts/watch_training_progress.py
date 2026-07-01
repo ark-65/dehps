@@ -853,10 +853,22 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "primary_weight_pattern": restart_champion.get("primary_weight_pattern"),
             "context_field_movement_count": safe_int(restart_champion.get("context_field_movement_count")),
             "frozen_primary_score": safe_score(restart_champion.get("frozen_primary_score")),
+            "baseline_frozen_primary_score": safe_score(restart_champion.get("baseline_frozen_primary_score")),
+            "source_frontier_secondary_score": safe_score(restart_champion.get("source_frontier_secondary_score")),
+            "baseline_source_frontier_secondary_score": safe_score(
+                restart_champion.get("baseline_source_frontier_secondary_score")
+            ),
             "tail_over_1000000_delta": safe_int(restart_champion.get("tail_over_1000000_delta")),
             "source_frontier_score_improved": safe_bool(
                 restart_champion.get("source_frontier_score_improved")
             ),
+            "source_frontier_primary_score_improved": safe_bool(
+                restart_champion.get("source_frontier_primary_score_improved")
+            ),
+            "source_frontier_secondary_score_improved": safe_bool(
+                restart_champion.get("source_frontier_secondary_score_improved")
+            ),
+            "source_frontier_improvement_basis": restart_champion.get("source_frontier_improvement_basis"),
             "unique_rank_signature_count": safe_int(restart_champion.get("unique_rank_signature_count")),
         }
     if navigation:
@@ -1399,6 +1411,9 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 f"frozen_primary={restart_champion.get('frozen_primary_score')} "
                 f"tail1000000_delta={restart_champion.get('tail_over_1000000_delta')} "
                 f"source_frontier_improved={restart_champion.get('source_frontier_score_improved')} "
+                f"frontier_basis={markdown_inline_text(restart_champion.get('source_frontier_improvement_basis'))} "
+                f"primary_improved={restart_champion.get('source_frontier_primary_score_improved')} "
+                f"secondary_improved={restart_champion.get('source_frontier_secondary_score_improved')} "
                 f"unique_signatures={restart_champion.get('unique_rank_signature_count')}"
             )
         if navigation:

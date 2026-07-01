@@ -1993,8 +1993,14 @@ def test_rank_homogeneity_restart_champion_selects_changed_restart_outside_top5(
     assert metadata["primary_weight_pattern"] == "structural=0.40/frequency=1.05/omission=0.00"
     assert metadata["context_field_movement_count"] == 3
     assert metadata["frozen_primary_score"] == [0, 0, 0]
+    assert metadata["baseline_frozen_primary_score"] == [0, 0, 0]
     assert metadata["tail_over_1000000_delta"] == -1
     assert metadata["source_frontier_score_improved"] is True
+    assert metadata["source_frontier_primary_score_improved"] is False
+    assert metadata["source_frontier_secondary_score_improved"] is True
+    assert metadata["source_frontier_improvement_basis"] == "secondary"
+    assert metadata["source_frontier_secondary_score"] == [0, 0, 0, -1, -700000.0, 0.0]
+    assert metadata["baseline_source_frontier_secondary_score"] == [0, 0, 0, -2, -700000.0, 0.0]
     assert metadata["unique_rank_signature_count"] == 3
 
 

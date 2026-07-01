@@ -1042,21 +1042,33 @@ def frozen_tail_over_1000000_delta(candidate: dict | None, baseline: dict | None
 def experimental_navigation_quality(candidate: dict | None, baseline: dict | None) -> dict:
     candidate_primary = source_frontier_primary_score(candidate)
     baseline_primary = source_frontier_primary_score(baseline)
+    candidate_secondary = source_frontier_secondary_score(candidate)
+    baseline_secondary = source_frontier_secondary_score(baseline)
     if not isinstance(candidate, dict) or not isinstance(baseline, dict):
         return {
             "passed": False,
             "reason": "missing_candidate_or_baseline",
             "frozen_primary_score": list(candidate_primary),
             "baseline_frozen_primary_score": list(baseline_primary),
+            "source_frontier_secondary_score": list(candidate_secondary),
+            "baseline_source_frontier_secondary_score": list(baseline_secondary),
             "tail_over_1000000_delta": None,
             "tail_over_1000000_improved": False,
             "source_frontier_score_improved": False,
+            "source_frontier_primary_score_improved": False,
+            "source_frontier_secondary_score_improved": False,
+            "source_frontier_improvement_basis": "none",
         }
     tail_delta = frozen_tail_over_1000000_delta(candidate, baseline)
     tail_improved = tail_delta is not None and tail_delta < 0
+    source_frontier_primary_improved = bool(candidate_primary > baseline_primary)
+    source_frontier_secondary_improved = bool(candidate_secondary > baseline_secondary)
     source_frontier_improved = bool(
         source_frontier_score(candidate) > source_frontier_score(baseline)
     )
+    source_frontier_basis = "none"
+    if source_frontier_improved:
+        source_frontier_basis = "primary" if source_frontier_primary_improved else "secondary"
     passed = not (
         candidate_primary == (0, 0, 0)
         and not tail_improved
@@ -1073,9 +1085,14 @@ def experimental_navigation_quality(candidate: dict | None, baseline: dict | Non
         "reason": reason,
         "frozen_primary_score": list(candidate_primary),
         "baseline_frozen_primary_score": list(baseline_primary),
+        "source_frontier_secondary_score": list(candidate_secondary),
+        "baseline_source_frontier_secondary_score": list(baseline_secondary),
         "tail_over_1000000_delta": tail_delta,
         "tail_over_1000000_improved": tail_improved,
         "source_frontier_score_improved": source_frontier_improved,
+        "source_frontier_primary_score_improved": source_frontier_primary_improved,
+        "source_frontier_secondary_score_improved": source_frontier_secondary_improved,
+        "source_frontier_improvement_basis": source_frontier_basis,
     }
 
 
@@ -1089,8 +1106,14 @@ def restart_champion_diagnostics(
         "primary_weight_pattern": primary_weight_pattern(candidate),
         "context_field_movement_count": context_field_movement_count(candidate, baseline),
         "frozen_primary_score": quality["frozen_primary_score"],
+        "baseline_frozen_primary_score": quality["baseline_frozen_primary_score"],
+        "source_frontier_secondary_score": quality["source_frontier_secondary_score"],
+        "baseline_source_frontier_secondary_score": quality["baseline_source_frontier_secondary_score"],
         "tail_over_1000000_delta": quality["tail_over_1000000_delta"],
         "source_frontier_score_improved": quality["source_frontier_score_improved"],
+        "source_frontier_primary_score_improved": quality["source_frontier_primary_score_improved"],
+        "source_frontier_secondary_score_improved": quality["source_frontier_secondary_score_improved"],
+        "source_frontier_improvement_basis": quality["source_frontier_improvement_basis"],
         "unique_rank_signature_count": rank_homogeneity.get("unique_signature_count"),
     }
 
@@ -1851,8 +1874,14 @@ def select_rank_homogeneity_restart_champion(
         "primary_weight_pattern": "",
         "context_field_movement_count": 0,
         "frozen_primary_score": [],
+        "baseline_frozen_primary_score": [],
+        "source_frontier_secondary_score": [],
+        "baseline_source_frontier_secondary_score": [],
         "tail_over_1000000_delta": None,
         "source_frontier_score_improved": False,
+        "source_frontier_primary_score_improved": False,
+        "source_frontier_secondary_score_improved": False,
+        "source_frontier_improvement_basis": "none",
         "unique_rank_signature_count": rank_homogeneity.get("unique_signature_count"),
         "reason": None,
     }
