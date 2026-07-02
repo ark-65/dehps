@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import scripts.watch_training_progress as watch
 from scripts.watch_training_progress import (
+    add_supervisor_status_observation_ages,
     advisor_summary,
     cli_summary,
     evidence_context_summary,
@@ -115,7 +116,6 @@ def test_restart_readiness_blocks_parallel_supervisor_while_lock_is_active():
 
 
 def test_restart_readiness_surfaces_fresh_supervisor_progress(tmp_path):
-    now = datetime(2026, 7, 1, 0, 10, tzinfo=timezone.utc)
     recommendation = {
         "action": "prepare_restart_with_more_exploration",
         "actions": ["prepare_restart_with_more_exploration"],
@@ -133,12 +133,16 @@ def test_restart_readiness_surfaces_fresh_supervisor_progress(tmp_path):
         "available": True,
         "status": "running",
         "updated_at": "2026-07-01T00:09:00Z",
+        "updated_at_age_minutes": 1.0,
         "latest_progress": {
             "logged_at": "2026-07-01T00:08:30Z",
             "round": 42,
             "target_index": 17,
             "target_total": 100,
             "target_complete": False,
+            "age_minutes": 1.5,
+            "fresh": True,
+            "freshness_threshold_minutes": 30,
         },
     }
 
@@ -146,8 +150,6 @@ def test_restart_readiness_surfaces_fresh_supervisor_progress(tmp_path):
         recommendation=recommendation,
         lock=lock,
         supervisor_status=supervisor_status,
-        now=now,
-        stale_minutes=30,
     )
     payload = {
         "generated_at": "2026-07-01T00:10:00Z",
@@ -200,6 +202,42 @@ def test_restart_readiness_surfaces_fresh_supervisor_progress(tmp_path):
     assert "Supervisor progress age: 1.5 minutes" in markdown
 
 
+def test_cli_summary_includes_restart_readiness_when_restart_is_requested(tmp_path):
+    payload = {
+        "run_id": "run-1",
+        "round_count": 34,
+        "round_window_count": 5,
+        "recommendation": {
+            "severity": "alert",
+            "action": "prepare_restart_with_more_exploration",
+        },
+        "restart_readiness": {
+            "requested": True,
+            "ready": False,
+            "status": "blocked_by_active_heavy_job_lock",
+            "blockers": ["active_training_supervisor_lock"],
+            "operator_action": "stop_or_transfer_active_training_supervisor_before_restart",
+            "owner": "training-supervisor",
+            "pid": 12345,
+            "heartbeat_age_minutes": 1.5,
+        },
+    }
+
+    summary = cli_summary(payload, tmp_path / "watch.json", tmp_path / "watch.md")
+
+    assert summary["severity"] == "alert"
+    assert summary["action"] == "prepare_restart_with_more_exploration"
+    assert summary["restart_readiness"] == {
+        "ready": False,
+        "status": "blocked_by_active_heavy_job_lock",
+        "blockers": ["active_training_supervisor_lock"],
+        "operator_action": "stop_or_transfer_active_training_supervisor_before_restart",
+        "owner": "training-supervisor",
+        "pid": 12345,
+        "heartbeat_age_minutes": 1.5,
+    }
+
+
 def test_restart_readiness_reports_operator_action_for_non_training_lock():
     recommendation = {
         "action": "prepare_restart_with_more_exploration",
@@ -235,6 +273,30 @@ def test_restart_readiness_reports_operator_action_when_ready():
     assert readiness["ready"] is True
     assert readiness["blockers"] == []
     assert readiness["operator_action"] == "operator_review_then_start_fresh_supervisor"
+
+
+def test_restart_readiness_includes_supervisor_progress_freshness():
+    recommendation = {
+        "action": "prepare_restart_with_more_exploration",
+        "actions": ["prepare_restart_with_more_exploration"],
+    }
+
+    readiness = restart_readiness_summary(
+        recommendation=recommendation,
+        lock={"active": True, "owner": "training-supervisor"},
+        supervisor_status={
+            "available": True,
+            "latest_progress": {
+                "round": 42,
+                "age_minutes": 1.5,
+                "fresh": True,
+            },
+        },
+    )
+
+    assert readiness["supervisor_progress_round"] == 42
+    assert readiness["supervisor_progress_age_minutes"] == 1.5
+    assert readiness["supervisor_progress_fresh"] is True
 
 
 def test_load_supervisor_status_reads_current_progress(tmp_path):
@@ -286,6 +348,66 @@ def test_load_supervisor_status_reads_current_progress(tmp_path):
     assert status["eval_window"] == 100
 
 
+def test_supervisor_status_progress_age_uses_local_timezone_for_naive_timestamps():
+    now = datetime(2026, 7, 1, 18, 5, tzinfo=timezone.utc)
+    local_tz = timezone(timedelta(hours=8))
+    status = {
+        "available": True,
+        "updated_at": "2026-07-02T02:03:00",
+        "latest_progress": {
+            "logged_at": "2026-07-02T02:03:30",
+            "round": 9,
+        },
+    }
+
+    enriched = add_supervisor_status_observation_ages(
+        status,
+        now=now,
+        stale_minutes=30,
+        default_timezone=local_tz,
+    )
+
+    assert enriched["updated_at_age_minutes"] == 2.0
+    assert enriched["latest_progress"]["age_minutes"] == 1.5
+    assert enriched["latest_progress"]["fresh"] is True
+    assert enriched["latest_progress"]["freshness_threshold_minutes"] == 30
+
+
+def test_recommendation_flags_stale_supervisor_progress():
+    now = datetime(2026, 7, 1, 18, 5, tzinfo=timezone.utc)
+    rows = [
+        {
+            "round_index": 1,
+            "improved": True,
+            "updated_at": now - timedelta(minutes=1),
+        }
+    ]
+    supervisor_status = {
+        "available": True,
+        "status": "running",
+        "pid": 12345,
+        "latest_progress": {
+            "logged_at": "2026-07-01T17:20:00Z",
+            "round": 1,
+            "age_minutes": 45.0,
+            "fresh": False,
+        },
+    }
+
+    recommendation = recommendation_summary(
+        rows=rows,
+        lock={"active": True, "owner": "training-supervisor"},
+        advisors={"neural_kdj_advisor": {"candidate_count": 0}},
+        now=now,
+        stale_minutes=30,
+        supervisor_status=supervisor_status,
+    )
+
+    assert recommendation["severity"] == "warn"
+    assert recommendation["action"] == "inspect_training_log"
+    assert any("Supervisor progress is stale" in note for note in recommendation["notes"])
+
+
 def test_recommendation_and_markdown_include_supervisor_progress():
     now = datetime(2026, 7, 1, 0, 5, tzinfo=timezone.utc)
     supervisor_status = {
@@ -294,6 +416,7 @@ def test_recommendation_and_markdown_include_supervisor_progress():
         "status": "running",
         "pid": 12345,
         "updated_at": "2026-07-01T00:03:00",
+        "updated_at_age_minutes": 2.0,
         "latest_progress": {
             "logged_at": "2026-07-01T00:03:00",
             "round": 9,
@@ -303,6 +426,9 @@ def test_recommendation_and_markdown_include_supervisor_progress():
             "issue": "2026074",
             "train_draws": 1494,
             "elapsed_seconds": 12.5,
+            "age_minutes": 2.0,
+            "fresh": True,
+            "freshness_threshold_minutes": 30,
         },
     }
     recommendation = recommendation_summary(
@@ -354,8 +480,11 @@ def test_recommendation_and_markdown_include_supervisor_progress():
     assert any("round=9" in note and "target=42/100" in note for note in recommendation["notes"])
     assert "## Supervisor Progress" in markdown
     assert "Status/PID: running / 12345" in markdown
+    assert "Updated age: 2.0 minutes" in markdown
     assert "Progress round: 9" in markdown
     assert "Target progress: 42 / 100" in markdown
+    assert "Progress age: 2.0 minutes" in markdown
+    assert "Progress fresh: True (threshold 30 minutes)" in markdown
     assert "Issue: 2026074" in markdown
 
 
@@ -399,6 +528,9 @@ def test_render_markdown_includes_restart_readiness_when_restart_is_requested():
             "heartbeat_at": "2026-07-01T00:00:00Z",
             "lock_age_hours": 2.0,
             "heartbeat_age_minutes": 1.5,
+            "supervisor_progress_fresh": True,
+            "supervisor_progress_age_minutes": 2.0,
+            "supervisor_progress_round": 34,
             "operator_action": "stop_or_transfer_active_training_supervisor_before_restart",
         },
         "guardrail": "Historical response-surface monitoring only.",
@@ -416,6 +548,7 @@ def test_render_markdown_includes_restart_readiness_when_restart_is_requested():
     assert "Lock owner/PID: training-supervisor / 12345" in markdown
     assert "Lock age: 2.0 hours" in markdown
     assert "Heartbeat age: 1.5 minutes" in markdown
+    assert "Supervisor progress fresh: True (age=2.0 minutes, round=34)" in markdown
 
 
 def test_advisor_summary_and_markdown_include_guardrails():
