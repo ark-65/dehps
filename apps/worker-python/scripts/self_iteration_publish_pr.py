@@ -15,6 +15,7 @@ DEFAULT_COAUTHOR_TRAILER = (
 )
 ALLOWED_TYPES = ("fix", "feat", "chore", "docs", "test", "refactor")
 BRANCH_RE = re.compile(rf"^({'|'.join(ALLOWED_TYPES)})/[a-z0-9][a-z0-9._-]*[a-z0-9]$")
+SELF_ITERATE_BRANCH_RE = re.compile(rf"^({'|'.join(ALLOWED_TYPES)})/self-iterate-[a-z0-9._-]+$")
 TITLE_RE = re.compile(rf"^({'|'.join(ALLOWED_TYPES)})(\([a-z0-9._-]+\))?: .+")
 
 
@@ -104,6 +105,48 @@ def merge_body_from(body_file: Path, coauthor_trailer: str) -> str:
     return f"{coauthor_trailer}\n"
 
 
+def is_self_iteration_pr(row: dict) -> bool:
+    head = str(row.get("headRefName") or "")
+    title = str(row.get("title") or "").lower()
+    return bool(SELF_ITERATE_BRANCH_RE.match(head)) or "self-iterate" in title
+
+
+def open_self_iteration_prs(base: str) -> tuple[list[dict], str | None]:
+    listed = run(
+        [
+            "gh",
+            "pr",
+            "list",
+            "--state",
+            "open",
+            "--base",
+            base,
+            "--json",
+            "number,title,headRefName,url,mergeable,mergeStateStatus",
+        ]
+    )
+    if listed.returncode != 0:
+        return [], command_error(listed) or "unable to list open pull requests"
+    try:
+        rows = json.loads(listed.stdout or "[]")
+    except json.JSONDecodeError as exc:
+        return [], f"unable to parse open pull request list: {exc}"
+    if not isinstance(rows, list):
+        return [], "open pull request list did not return a JSON array"
+    return [
+        {
+            "number": row.get("number"),
+            "title": row.get("title"),
+            "headRefName": row.get("headRefName"),
+            "url": row.get("url"),
+            "mergeable": row.get("mergeable"),
+            "mergeStateStatus": row.get("mergeStateStatus"),
+        }
+        for row in rows
+        if isinstance(row, dict) and is_self_iteration_pr(row)
+    ], None
+
+
 def publish_self_iteration_pr(
     *,
     title: str,
@@ -133,6 +176,16 @@ def publish_self_iteration_pr(
     auth = run(["gh", "auth", "status"])
     if auth.returncode != 0:
         return {"status": "gh_auth_failed", "error": command_error(auth) or "gh auth status failed"}
+
+    open_prs, open_prs_error = open_self_iteration_prs(base)
+    if open_prs_error is not None:
+        return {"status": "open_pr_backlog_check_failed", "error": open_prs_error}
+    if open_prs:
+        return {
+            "status": "open_self_iteration_pr_backlog",
+            "error": "merge or close existing self-iteration PRs before publishing another",
+            "open_prs": open_prs,
+        }
 
     commit_message, commit_error = last_commit_message()
     if commit_error or commit_message is None:

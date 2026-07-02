@@ -30,6 +30,8 @@ def test_publish_pr_pushes_creates_pr_and_enables_auto_merge(monkeypatch, tmp_pa
             return FakeCompleted(stdout="")
         if cmd == ["gh", "auth", "status"]:
             return FakeCompleted(stdout="logged in\n")
+        if cmd[:3] == ["gh", "pr", "list"]:
+            return FakeCompleted(stdout="[]\n")
         if cmd == ["git", "log", "-1", "--format=%B"]:
             return FakeCompleted(stdout=f"{title}\n\n{trailer}\n")
         if cmd == ["git", "rev-parse", "HEAD"]:
@@ -170,6 +172,54 @@ def test_publish_pr_rejects_dirty_worktree(monkeypatch, tmp_path):
     assert not any(call[:2] == ["git", "push"] for call in calls)
 
 
+def test_publish_pr_rejects_open_self_iteration_pr_backlog(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_run(cmd, cwd, text, capture_output, check):
+        calls.append(cmd)
+        if cmd == ["git", "branch", "--show-current"]:
+            return FakeCompleted(stdout="fix/self-iterate-20260702-1000-next-fix\n")
+        if cmd == ["git", "status", "--porcelain"]:
+            return FakeCompleted(stdout="")
+        if cmd == ["gh", "auth", "status"]:
+            return FakeCompleted(stdout="logged in\n")
+        if cmd[:3] == ["gh", "pr", "list"]:
+            return FakeCompleted(
+                stdout=(
+                    '[{"number":9,"title":"fix: self-iterate training watch progress readiness",'
+                    '"headRefName":"fix/self-iterate-20260702-0002-watch-progress-readiness",'
+                    '"url":"https://github.com/ark-65/dehps/pull/9",'
+                    '"mergeable":"CONFLICTING","mergeStateStatus":"DIRTY"}]\n'
+                )
+            )
+        return FakeCompleted()
+
+    monkeypatch.setattr(self_iteration_publish_pr.subprocess, "run", fake_run)
+
+    result = self_iteration_publish_pr.publish_self_iteration_pr(
+        title="fix: self-iterate next fix",
+        body_file=write_body(tmp_path),
+    )
+
+    assert result == {
+        "status": "open_self_iteration_pr_backlog",
+        "error": "merge or close existing self-iteration PRs before publishing another",
+        "open_prs": [
+            {
+                "number": 9,
+                "title": "fix: self-iterate training watch progress readiness",
+                "headRefName": "fix/self-iterate-20260702-0002-watch-progress-readiness",
+                "url": "https://github.com/ark-65/dehps/pull/9",
+                "mergeable": "CONFLICTING",
+                "mergeStateStatus": "DIRTY",
+            }
+        ],
+    }
+    assert ["git", "log", "-1", "--format=%B"] not in calls
+    assert not any(call[:2] == ["git", "push"] for call in calls)
+    assert not any(call[:3] == ["gh", "pr", "create"] for call in calls)
+
+
 def test_publish_pr_rejects_missing_coauthor_trailer(monkeypatch, tmp_path):
     calls = []
 
@@ -181,6 +231,8 @@ def test_publish_pr_rejects_missing_coauthor_trailer(monkeypatch, tmp_path):
             return FakeCompleted(stdout="")
         if cmd == ["gh", "auth", "status"]:
             return FakeCompleted(stdout="logged in\n")
+        if cmd[:3] == ["gh", "pr", "list"]:
+            return FakeCompleted(stdout="[]\n")
         if cmd == ["git", "log", "-1", "--format=%B"]:
             return FakeCompleted(stdout="chore: self-iterate PR auto-merge flow\n")
         return FakeCompleted()
