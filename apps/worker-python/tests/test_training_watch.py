@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -13,6 +14,7 @@ from scripts.watch_training_progress import (
     gate_summary,
     load_supervisor_status,
     observed_age_minutes,
+    operator_summary,
     parse_iso_datetime,
     recommendation_summary,
     render_markdown,
@@ -326,6 +328,36 @@ def test_cli_summary_includes_restart_readiness_when_restart_is_requested(tmp_pa
         "pid": 12345,
         "heartbeat_age_minutes": 1.5,
     }
+
+
+def test_operator_summary_matches_cli_summary_without_paths(tmp_path):
+    payload = {
+        "run_id": "run-1",
+        "round_count": 34,
+        "round_window_count": 5,
+        "recommendation": {
+            "severity": "alert",
+            "action": "prepare_restart_with_more_exploration",
+        },
+        "gate_summary": {
+            "rank_homogeneity_guardrail": {
+                "active": True,
+                "reason": "stale_rank_signature_cycle",
+                "unique_signature_count": 1,
+                "signature_hashes": ["sig-a"],
+            },
+        },
+    }
+
+    summary = operator_summary(payload)
+    cli = cli_summary(payload, tmp_path / "watch.json", tmp_path / "watch.md")
+    cli_without_paths = {
+        key: value
+        for key, value in cli.items()
+        if key not in {"json_path", "report_path"}
+    }
+
+    assert summary == cli_without_paths
 
 
 def test_cli_summary_surfaces_recovery_gate_decision(tmp_path):
@@ -1260,6 +1292,47 @@ def test_write_outputs_sanitizes_run_id_filename(monkeypatch, tmp_path):
     assert md_path == tmp_path / "training-watch-run_bad_escape-20260618-100000.md"
     assert (tmp_path / "training-watch-latest.json").exists()
     assert (tmp_path / "training-watch-latest.md").exists()
+
+
+def test_write_outputs_embeds_operator_summary(monkeypatch, tmp_path):
+    monkeypatch.setattr(watch, "utc_stamp", lambda: "20260618-100000")
+    payload = {
+        "generated_at": "2026-06-18T10:00:00Z",
+        "run_id": "run-1",
+        "round_count": 34,
+        "latest_round": 34,
+        "last_improved_round": None,
+        "stagnation_rounds": 34,
+        "latest_metrics": {},
+        "advisor_summary": {},
+        "heavy_job_lock": {},
+        "recommendation": {
+            "severity": "alert",
+            "action": "prepare_restart_with_more_exploration",
+            "notes": [],
+        },
+        "gate_summary": {
+            "rank_homogeneity_guardrail": {
+                "active": True,
+                "reason": "stale_rank_signature_cycle",
+                "unique_signature_count": 1,
+                "signature_hashes": ["sig-a"],
+            },
+        },
+        "guardrail": "Historical response-surface monitoring only.",
+    }
+
+    json_path, _ = watch.write_outputs(payload, tmp_path)
+    artifact = json.loads(json_path.read_text())
+
+    assert artifact["severity"] == "alert"
+    assert artifact["action"] == "prepare_restart_with_more_exploration"
+    assert artifact["operator_summary"]["severity"] == artifact["severity"]
+    assert artifact["operator_summary"]["rank_homogeneity"] == {
+        "reason": "stale_rank_signature_cycle",
+        "unique_signature_count": 1,
+        "signature_hashes": ["sig-a"],
+    }
 
 
 def test_write_outputs_uses_atomic_writer(monkeypatch, tmp_path):
