@@ -190,6 +190,18 @@ def compact_inline_list(value: Any, *, limit: int = 5) -> str:
     return "[" + ", ".join(parts) + "]"
 
 
+def safe_string_list(value: Any, *, limit: int = 8) -> list[str]:
+    if not isinstance(value, list) or limit <= 0:
+        return []
+    result: list[str] = []
+    for item in value:
+        if isinstance(item, str) and item:
+            result.append(item)
+        if len(result) >= limit:
+            break
+    return result
+
+
 def compact_decimal(value: Any) -> str:
     if isinstance(value, bool):
         return str(value)
@@ -839,6 +851,7 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "observed": safe_int(rank_homogeneity.get("observed")),
             "unique_signature_count": safe_int(rank_homogeneity.get("unique_signature_count")),
             "max_unique_signatures": safe_int(rank_homogeneity.get("max_unique_signatures")),
+            "signature_hashes": safe_string_list(rank_homogeneity.get("signatures")),
         }
     if restart_champion:
         result["rank_homogeneity_restart_champion"] = {
@@ -1041,10 +1054,12 @@ def recommendation_summary(
         else {}
     )
     if rank_homogeneity.get("active"):
+        signature_hashes = compact_inline_list(rank_homogeneity.get("signature_hashes"), limit=3)
         notes.append(
             "Rank homogeneity guardrail is active: "
             f"{rank_homogeneity.get('reason')} "
-            f"unique_signatures={rank_homogeneity.get('unique_signature_count')}."
+            f"unique_signatures={rank_homogeneity.get('unique_signature_count')} "
+            f"signature_hashes={signature_hashes}."
         )
     restart_champion = (
         gates.get("rank_homogeneity_restart_champion")
@@ -1411,11 +1426,13 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 f"require_frozen_primary_challenger={stale_gate.get('require_frozen_primary_challenger')}"
             )
         if rank_homogeneity:
+            signature_hashes = compact_inline_list(rank_homogeneity.get("signature_hashes"), limit=3)
             gate_lines.append(
                 "- Rank homogeneity: "
                 f"active={rank_homogeneity.get('active')} "
                 f"reason={markdown_inline_text(rank_homogeneity.get('reason'))} "
-                f"unique_signatures={rank_homogeneity.get('unique_signature_count')}"
+                f"unique_signatures={rank_homogeneity.get('unique_signature_count')} "
+                f"signature_hashes={markdown_inline_text(signature_hashes)}"
             )
         if restart_champion:
             gate_lines.append(
@@ -1796,6 +1813,22 @@ def cli_summary(payload: dict[str, Any], json_path: Path, md_path: Path) -> dict
     evidence_context = cli_evidence_context_summary(payload)
     if evidence_context:
         summary["evidence_context"] = evidence_context
+    gates = (
+        payload.get("gate_summary")
+        if isinstance(payload.get("gate_summary"), dict)
+        else {}
+    )
+    rank_homogeneity = (
+        gates.get("rank_homogeneity_guardrail")
+        if isinstance(gates.get("rank_homogeneity_guardrail"), dict)
+        else {}
+    )
+    if rank_homogeneity.get("active"):
+        summary["rank_homogeneity"] = {
+            "reason": rank_homogeneity.get("reason"),
+            "unique_signature_count": rank_homogeneity.get("unique_signature_count"),
+            "signature_hashes": rank_homogeneity.get("signature_hashes") or [],
+        }
     restart_readiness = (
         payload.get("restart_readiness")
         if isinstance(payload.get("restart_readiness"), dict)
