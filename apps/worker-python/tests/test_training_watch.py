@@ -7,6 +7,7 @@ import scripts.watch_training_progress as watch
 from scripts.watch_training_progress import (
     add_supervisor_status_observation_ages,
     advisor_summary,
+    cli_summary,
     evidence_context_summary,
     gate_summary,
     load_supervisor_status,
@@ -112,6 +113,129 @@ def test_restart_readiness_blocks_parallel_supervisor_while_lock_is_active():
     assert readiness["pid"] == 12345
     assert readiness["lock_age_hours"] == 2.0
     assert readiness["heartbeat_age_minutes"] == 1.5
+
+
+def test_restart_readiness_surfaces_fresh_supervisor_progress(tmp_path):
+    recommendation = {
+        "action": "prepare_restart_with_more_exploration",
+        "actions": ["prepare_restart_with_more_exploration"],
+    }
+    lock = {
+        "active": True,
+        "owner": "training-supervisor",
+        "pid": 12345,
+        "pid_active": True,
+        "heartbeat_at": "2026-07-01T00:09:30Z",
+        "lock_age_hours": 2.0,
+        "heartbeat_age_minutes": 0.5,
+    }
+    supervisor_status = {
+        "available": True,
+        "status": "running",
+        "updated_at": "2026-07-01T00:09:00Z",
+        "updated_at_age_minutes": 1.0,
+        "latest_progress": {
+            "logged_at": "2026-07-01T00:08:30Z",
+            "round": 42,
+            "target_index": 17,
+            "target_total": 100,
+            "target_complete": False,
+            "age_minutes": 1.5,
+            "fresh": True,
+            "freshness_threshold_minutes": 30,
+        },
+    }
+
+    readiness = restart_readiness_summary(
+        recommendation=recommendation,
+        lock=lock,
+        supervisor_status=supervisor_status,
+    )
+    payload = {
+        "generated_at": "2026-07-01T00:10:00Z",
+        "run_id": "run-1",
+        "round_count": 42,
+        "latest_round": 42,
+        "last_improved_round": None,
+        "stagnation_rounds": 42,
+        "latest_metrics": {
+            "phase": "large",
+            "step": 0.15,
+            "improved": False,
+            "top_100_hits": 0,
+            "top_1000_hits": 0,
+            "top_10000_hits": 0,
+            "red5_top_10000_hits": 0,
+            "best_rank": None,
+            "median_rank": None,
+            "worst_rank": None,
+            "objective_score": None,
+            "best_objective_seen": None,
+        },
+        "advisor_summary": {},
+        "heavy_job_lock": lock,
+        "recommendation": {
+            "severity": "alert",
+            "action": "prepare_restart_with_more_exploration",
+            "notes": [],
+        },
+        "restart_readiness": readiness,
+        "guardrail": "Historical response-surface monitoring only.",
+    }
+
+    summary = cli_summary(payload, tmp_path / "watch.json", tmp_path / "watch.md")
+    markdown = render_markdown(payload)
+
+    assert readiness["ready"] is False
+    assert readiness["blockers"] == ["active_training_supervisor_lock"]
+    assert readiness["supervisor_progress_fresh"] is True
+    assert readiness["supervisor_progress_age_minutes"] == 1.5
+    assert readiness["supervisor_updated_age_minutes"] == 1.0
+    assert readiness["supervisor_progress_round"] == 42
+    assert readiness["supervisor_target_index"] == 17
+    assert summary["restart_readiness"]["supervisor_progress_fresh"] is True
+    assert summary["restart_readiness"]["supervisor_progress_age_minutes"] == 1.5
+    assert summary["restart_readiness"]["supervisor_progress_round"] == 42
+    assert "Supervisor progress fresh: True (threshold 30 minutes)" in markdown
+    assert "Supervisor progress round: 42" in markdown
+    assert "Supervisor target progress: 17 / 100 complete=False" in markdown
+    assert "Supervisor progress age: 1.5 minutes" in markdown
+
+
+def test_cli_summary_includes_restart_readiness_when_restart_is_requested(tmp_path):
+    payload = {
+        "run_id": "run-1",
+        "round_count": 34,
+        "round_window_count": 5,
+        "recommendation": {
+            "severity": "alert",
+            "action": "prepare_restart_with_more_exploration",
+        },
+        "restart_readiness": {
+            "requested": True,
+            "ready": False,
+            "status": "blocked_by_active_heavy_job_lock",
+            "blockers": ["active_training_supervisor_lock"],
+            "operator_action": "stop_or_transfer_active_training_supervisor_before_restart",
+            "owner": "training-supervisor",
+            "pid": 12345,
+            "heartbeat_age_minutes": 1.5,
+        },
+    }
+
+    summary = cli_summary(payload, tmp_path / "watch.json", tmp_path / "watch.md")
+
+    assert summary["severity"] == "alert"
+    assert summary["action"] == "prepare_restart_with_more_exploration"
+    assert summary["restart_readiness"] == {
+        "ready": False,
+        "status": "blocked_by_active_heavy_job_lock",
+        "blockers": ["active_training_supervisor_lock"],
+        "operator_action": "stop_or_transfer_active_training_supervisor_before_restart",
+        "owner": "training-supervisor",
+        "pid": 12345,
+        "heartbeat_age_minutes": 1.5,
+    }
 
 
 def test_restart_readiness_reports_operator_action_for_non_training_lock():

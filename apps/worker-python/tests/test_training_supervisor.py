@@ -3046,6 +3046,83 @@ def test_compact_status_payload_includes_probability_focus_diagnostics():
     assert "best" not in payload
 
 
+def test_compact_status_payload_includes_round_summary_without_full_rounds():
+    payload = compact_status_payload(
+        {
+            "run_id": "run-1",
+            "rounds": [
+                {
+                    "round": 1,
+                    "phase": "large",
+                    "step": 0.2,
+                    "improved": True,
+                    "best": {
+                        "top_100_hits": 1,
+                        "top_1000_hits": 2,
+                        "top_10000_hits": 3,
+                        "median_rank": 12345.0,
+                        "best_rank": 42,
+                        "worst_rank": 999999,
+                        "red5": {"top_10000_hits": 7},
+                        "rank_quality": {
+                            "top_50000_hits": 4,
+                            "tail_over_1000000_count": 0,
+                        },
+                        "reward": {"objectiveScore": 12.34},
+                    },
+                    "top_results": [{"large": "payload"}],
+                },
+                {
+                    "round": 2,
+                    "phase": "medium",
+                    "step": 0.1,
+                    "improved": False,
+                    "best": {
+                        "top_100_hits": 1,
+                        "top_1000_hits": 2,
+                        "top_10000_hits": 3,
+                        "median_rank": 23456.0,
+                        "best_rank": 84,
+                        "worst_rank": 888888,
+                        "red5": {"top_10000_hits": 8},
+                        "rank_quality": {
+                            "top_50000_hits": 5,
+                            "tail_over_1000000_count": 1,
+                        },
+                        "reward": {"objectiveScore": 23.45},
+                    },
+                    "top_results": [{"large": "payload"}],
+                },
+            ],
+            "best": {"large": "payload"},
+        }
+    )
+
+    assert payload["round_summary"] == {
+        "round_count": 2,
+        "latest_round": 2,
+        "last_improved_round": 1,
+        "stagnation_rounds": 1,
+        "latest_metrics": {
+            "phase": "medium",
+            "step": 0.1,
+            "improved": False,
+            "top_100_hits": 1,
+            "top_1000_hits": 2,
+            "top_10000_hits": 3,
+            "red5_top_10000_hits": 8,
+            "top_50000_hits": 5,
+            "tail_over_1000000_count": 1,
+            "median_rank": 23456.0,
+            "best_rank": 84,
+            "worst_rank": 888888,
+            "objective_score": 23.45,
+        },
+    }
+    assert "rounds" not in payload
+    assert "best" not in payload
+
+
 def test_training_progress_payload_is_json_status_compatible():
     payload = training_progress_payload(
         round_index=2,
