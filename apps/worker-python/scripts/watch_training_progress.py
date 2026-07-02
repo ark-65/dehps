@@ -572,6 +572,11 @@ def supervisor_progress_summary(progress: Any) -> dict[str, Any]:
 
 
 def supervisor_status_summary(status: dict[str, Any], *, path: Path) -> dict[str, Any]:
+    deadline_present = "deadline" in status
+    deadline = status.get("deadline") if deadline_present else None
+    run_mode = status.get("run_mode")
+    if run_mode is None and deadline_present and deadline is None:
+        run_mode = "continuous"
     return {
         "available": True,
         "path": str(path),
@@ -580,6 +585,8 @@ def supervisor_status_summary(status: dict[str, Any], *, path: Path) -> dict[str
         "pid": safe_int(status.get("pid")),
         "started_at": status.get("started_at"),
         "updated_at": status.get("updated_at"),
+        "deadline": deadline,
+        "run_mode": run_mode,
         "report_path": status.get("report_path"),
         "legal_universe_size": safe_int(status.get("legal_universe_size")),
         "ranked_universe_size": safe_int(status.get("ranked_universe_size") or status.get("universe_size")),
@@ -689,6 +696,10 @@ def supervisor_progress_note(supervisor_status: dict[str, Any]) -> str | None:
     parts = [f"status={supervisor_status.get('status')}"]
     if supervisor_status.get("pid") is not None:
         parts.append(f"pid={supervisor_status.get('pid')}")
+    if supervisor_status.get("run_mode"):
+        parts.append(f"run_mode={supervisor_status.get('run_mode')}")
+    if supervisor_status.get("deadline") is not None:
+        parts.append(f"deadline={supervisor_status.get('deadline')}")
     if progress.get("round") is not None:
         parts.append(f"round={progress.get('round')}")
     if progress.get("target_index") is not None and progress.get("target_total") is not None:
@@ -1112,6 +1123,8 @@ def supervisor_progress_readiness_context(supervisor_status: dict[str, Any] | No
     )
     return {
         "supervisor_status": supervisor_status.get("status"),
+        "supervisor_run_mode": supervisor_status.get("run_mode"),
+        "supervisor_deadline": supervisor_status.get("deadline"),
         "supervisor_updated_age_minutes": supervisor_status.get("updated_at_age_minutes"),
         "supervisor_progress_age_minutes": progress.get("age_minutes"),
         "supervisor_progress_fresh": progress.get("fresh"),
@@ -1157,7 +1170,12 @@ def restart_readiness_summary(
     if not blockers:
         operator_action = "operator_review_then_start_fresh_supervisor"
     elif "active_training_supervisor_lock" in blockers:
-        if progress_context.get("supervisor_progress_fresh") is True:
+        if (
+            progress_context.get("supervisor_progress_fresh") is True
+            and progress_context.get("supervisor_run_mode") == "continuous"
+        ):
+            operator_action = "operator_review_then_stop_continuous_training_supervisor_before_restart"
+        elif progress_context.get("supervisor_progress_fresh") is True:
             operator_action = "wait_for_active_training_supervisor_to_finish_or_stop_before_restart"
         else:
             operator_action = "stop_or_transfer_active_training_supervisor_before_restart"
@@ -1498,6 +1516,14 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 supervisor_progress_lines += (
                     f"- Supervisor status: {markdown_inline_text(restart_readiness.get('supervisor_status'))}\n"
                 )
+            if restart_readiness.get("supervisor_run_mode") is not None:
+                supervisor_progress_lines += (
+                    f"- Supervisor run mode: {markdown_inline_text(restart_readiness.get('supervisor_run_mode'))}\n"
+                )
+            if restart_readiness.get("supervisor_deadline") is not None:
+                supervisor_progress_lines += (
+                    f"- Supervisor deadline: {markdown_inline_text(restart_readiness.get('supervisor_deadline'))}\n"
+                )
             if restart_readiness.get("supervisor_progress_stale_minutes") is not None:
                 supervisor_progress_lines += (
                     f"- Supervisor progress fresh: {restart_readiness.get('supervisor_progress_fresh')} "
@@ -1583,6 +1609,8 @@ def render_markdown(payload: dict[str, Any]) -> str:
         supervisor_section = (
             "## Supervisor Progress\n\n"
             f"- Status/PID: {markdown_inline_text(supervisor_status.get('status'))} / {supervisor_status.get('pid')}\n"
+            f"- Run mode: {markdown_inline_text(supervisor_status.get('run_mode'))}\n"
+            f"- Deadline: {markdown_inline_text(supervisor_status.get('deadline'))}\n"
             f"- Updated at: {markdown_inline_text(supervisor_status.get('updated_at'))}\n"
             f"- Updated age: {supervisor_status.get('updated_at_age_minutes')} minutes\n"
             f"- Status file: {markdown_inline_code(supervisor_status.get('path'))}\n"
@@ -1892,6 +1920,8 @@ def cli_summary(payload: dict[str, Any], json_path: Path, md_path: Path) -> dict
             "supervisor_progress_fresh",
             "supervisor_progress_age_minutes",
             "supervisor_progress_round",
+            "supervisor_run_mode",
+            "supervisor_deadline",
         ):
             if restart_readiness.get(key) is not None:
                 readiness[key] = restart_readiness.get(key)

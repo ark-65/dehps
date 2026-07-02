@@ -207,6 +207,78 @@ def test_restart_readiness_surfaces_fresh_supervisor_progress(tmp_path):
     assert "Supervisor progress age: 1.5 minutes" in markdown
 
 
+def test_restart_readiness_marks_continuous_supervisor_for_operator_review(tmp_path):
+    recommendation = {
+        "action": "prepare_restart_with_more_exploration",
+        "actions": ["prepare_restart_with_more_exploration"],
+    }
+    lock = {
+        "active": True,
+        "owner": "training-supervisor",
+        "pid": 12345,
+        "pid_active": True,
+    }
+    supervisor_status = {
+        "available": True,
+        "status": "running",
+        "run_mode": "continuous",
+        "deadline": None,
+        "latest_progress": {
+            "round": 60,
+            "target_index": 100,
+            "target_total": 100,
+            "target_complete": True,
+            "age_minutes": 0.9,
+            "fresh": True,
+            "freshness_threshold_minutes": 30,
+        },
+    }
+
+    readiness = restart_readiness_summary(
+        recommendation=recommendation,
+        lock=lock,
+        supervisor_status=supervisor_status,
+    )
+    payload = {
+        "generated_at": "2026-07-01T00:10:00Z",
+        "run_id": "run-1",
+        "round_count": 60,
+        "latest_round": 60,
+        "last_improved_round": None,
+        "stagnation_rounds": 60,
+        "latest_metrics": {},
+        "advisor_summary": {},
+        "heavy_job_lock": lock,
+        "recommendation": {
+            "severity": "alert",
+            "action": "prepare_restart_with_more_exploration",
+            "notes": [],
+        },
+        "restart_readiness": readiness,
+        "guardrail": "Historical response-surface monitoring only.",
+    }
+
+    summary = cli_summary(payload, tmp_path / "watch.json", tmp_path / "watch.md")
+    markdown = render_markdown(payload)
+
+    assert (
+        readiness["operator_action"]
+        == "operator_review_then_stop_continuous_training_supervisor_before_restart"
+    )
+    assert readiness["supervisor_run_mode"] == "continuous"
+    assert readiness["supervisor_deadline"] is None
+    assert summary["restart_readiness"]["supervisor_run_mode"] == "continuous"
+    assert (
+        summary["restart_readiness"]["operator_action"]
+        == "operator_review_then_stop_continuous_training_supervisor_before_restart"
+    )
+    assert "Supervisor run mode: continuous" in markdown
+    assert (
+        "Operator action: operator_review_then_stop_continuous_training_supervisor_before_restart"
+        in markdown
+    )
+
+
 def test_cli_summary_includes_restart_readiness_when_restart_is_requested(tmp_path):
     payload = {
         "run_id": "run-1",
@@ -397,6 +469,8 @@ def test_load_supervisor_status_reads_current_progress(tmp_path):
           "pid": 12345,
           "started_at": "2026-07-01T00:00:00",
           "updated_at": "2026-07-01T00:03:00",
+          "deadline": "2026-07-01T06:00:00",
+          "run_mode": "timed",
           "report_path": "/tmp/training-supervisor-run-1.md",
           "legal_universe_size": 1107568,
           "ranked_universe_size": 1107568,
@@ -427,6 +501,8 @@ def test_load_supervisor_status_reads_current_progress(tmp_path):
     assert status["available"] is True
     assert status["status"] == "running"
     assert status["pid"] == 12345
+    assert status["run_mode"] == "timed"
+    assert status["deadline"] == "2026-07-01T06:00:00"
     assert status["latest_progress"]["round"] == 9
     assert status["latest_progress"]["target_complete"] is True
     assert status["latest_progress"]["elapsed_seconds"] == 53.3
@@ -434,6 +510,31 @@ def test_load_supervisor_status_reads_current_progress(tmp_path):
     assert status["history_scope"] == "current_regime_default"
     assert status["train_window"] == 900
     assert status["eval_window"] == 100
+
+
+def test_load_supervisor_status_infers_continuous_run_mode_from_null_deadline(tmp_path):
+    status_path = tmp_path / "training-supervisor-run-1.json"
+    status_path.write_text(
+        """
+        {
+          "run_id": "run-1",
+          "status": "running",
+          "pid": 12345,
+          "updated_at": "2026-07-01T00:03:00",
+          "deadline": null,
+          "latest_progress": {
+            "logged_at": "2026-07-01T00:03:00",
+            "round": 9
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    status = load_supervisor_status("run-1", output_dir=tmp_path)
+
+    assert status["run_mode"] == "continuous"
+    assert status["deadline"] is None
 
 
 def test_supervisor_status_progress_age_uses_local_timezone_for_naive_timestamps():
