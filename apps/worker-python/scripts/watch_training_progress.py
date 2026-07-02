@@ -1829,6 +1829,50 @@ def cli_summary(payload: dict[str, Any], json_path: Path, md_path: Path) -> dict
             "unique_signature_count": rank_homogeneity.get("unique_signature_count"),
             "signature_hashes": rank_homogeneity.get("signature_hashes") or [],
         }
+    restart_champion = (
+        gates.get("rank_homogeneity_restart_champion")
+        if isinstance(gates.get("rank_homogeneity_restart_champion"), dict)
+        else {}
+    )
+    if restart_champion.get("active"):
+        summary["rank_homogeneity_restart_champion"] = {
+            "source": restart_champion.get("source"),
+            "reason": restart_champion.get("reason"),
+            "rank_vector_changed": restart_champion.get("rank_vector_changed"),
+            "changed_target_count": restart_champion.get("changed_target_count"),
+            "full_eval_rank": restart_champion.get("full_eval_rank"),
+            "frozen_primary_score": restart_champion.get("frozen_primary_score"),
+            "tail_over_1000000_delta": restart_champion.get("tail_over_1000000_delta"),
+            "source_frontier_score_improved": restart_champion.get(
+                "source_frontier_score_improved"
+            ),
+            "source_frontier_improvement_basis": restart_champion.get(
+                "source_frontier_improvement_basis"
+            ),
+        }
+    navigation = (
+        gates.get("experimental_navigation_candidate")
+        if isinstance(gates.get("experimental_navigation_candidate"), dict)
+        else {}
+    )
+    if navigation:
+        summary["experimental_navigation_candidate"] = {
+            "source": navigation.get("source"),
+            "reason": navigation.get("reason"),
+        }
+    decision = (
+        gates.get("decision_round_best")
+        if isinstance(gates.get("decision_round_best"), dict)
+        else {}
+    )
+    if decision:
+        summary["decision_round_best"] = {
+            "source": decision.get("source"),
+            "reason": decision.get("reason"),
+            "selected_frozen_primary_score": decision.get("selected_frozen_primary_score"),
+            "blocked_candidate_count": decision.get("blocked_candidate_count"),
+            "blocked_candidate_sources": decision.get("blocked_candidate_sources") or [],
+        }
     restart_readiness = (
         payload.get("restart_readiness")
         if isinstance(payload.get("restart_readiness"), dict)

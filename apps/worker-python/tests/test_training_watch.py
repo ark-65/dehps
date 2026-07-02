@@ -256,6 +256,75 @@ def test_cli_summary_includes_restart_readiness_when_restart_is_requested(tmp_pa
     }
 
 
+def test_cli_summary_surfaces_recovery_gate_decision(tmp_path):
+    payload = {
+        "run_id": "run-1",
+        "round_count": 29,
+        "round_window_count": 5,
+        "recommendation": {
+            "severity": "warn",
+            "action": "watch_stagnation_recovery",
+        },
+        "gate_summary": {
+            "rank_homogeneity_guardrail": {
+                "active": True,
+                "reason": "stale_rank_signature_cycle",
+                "unique_signature_count": 1,
+                "signature_hashes": ["sig-a"],
+            },
+            "rank_homogeneity_restart_champion": {
+                "active": True,
+                "source": "stagnation_restart",
+                "reason": "rank_homogeneity_restart_changed_rank_vector",
+                "rank_vector_changed": True,
+                "changed_target_count": 100,
+                "full_eval_rank": 14,
+                "frozen_primary_score": [0, 0, 0],
+                "tail_over_1000000_delta": -2,
+                "source_frontier_score_improved": False,
+                "source_frontier_improvement_basis": "none",
+            },
+            "experimental_navigation_candidate": {
+                "source": "rank_homogeneity_restart_champion",
+                "reason": "rank_homogeneity_restart_changed_rank_vector",
+                "config_hash": "nav-hash",
+            },
+            "decision_round_best": {
+                "source": "source_frontier",
+                "reason": "selected_candidate",
+                "selected_frozen_primary_score": [0, 0, 1],
+                "blocked_candidate_count": 0,
+                "blocked_candidate_sources": [],
+            },
+        },
+    }
+
+    summary = cli_summary(payload, tmp_path / "watch.json", tmp_path / "watch.md")
+
+    assert summary["rank_homogeneity_restart_champion"] == {
+        "source": "stagnation_restart",
+        "reason": "rank_homogeneity_restart_changed_rank_vector",
+        "rank_vector_changed": True,
+        "changed_target_count": 100,
+        "full_eval_rank": 14,
+        "frozen_primary_score": [0, 0, 0],
+        "tail_over_1000000_delta": -2,
+        "source_frontier_score_improved": False,
+        "source_frontier_improvement_basis": "none",
+    }
+    assert summary["experimental_navigation_candidate"] == {
+        "source": "rank_homogeneity_restart_champion",
+        "reason": "rank_homogeneity_restart_changed_rank_vector",
+    }
+    assert summary["decision_round_best"] == {
+        "source": "source_frontier",
+        "reason": "selected_candidate",
+        "selected_frozen_primary_score": [0, 0, 1],
+        "blocked_candidate_count": 0,
+        "blocked_candidate_sources": [],
+    }
+
+
 def test_restart_readiness_reports_operator_action_for_non_training_lock():
     recommendation = {
         "action": "prepare_restart_with_more_exploration",
