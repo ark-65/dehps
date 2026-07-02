@@ -1694,6 +1694,85 @@ def write_outputs(payload: dict[str, Any], output_dir: Path) -> tuple[Path, Path
     return json_path, md_path
 
 
+def cli_evidence_context_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    evidence_context = (
+        payload.get("evidence_context")
+        if isinstance(payload.get("evidence_context"), dict)
+        else {}
+    )
+    if not evidence_context:
+        return {}
+
+    legal = (
+        evidence_context.get("legal_sample_space")
+        if isinstance(evidence_context.get("legal_sample_space"), dict)
+        else {}
+    )
+    historical = (
+        evidence_context.get("historical_window")
+        if isinstance(evidence_context.get("historical_window"), dict)
+        else {}
+    )
+    baseline = (
+        evidence_context.get("baseline_or_null_model")
+        if isinstance(evidence_context.get("baseline_or_null_model"), dict)
+        else {}
+    )
+    leakage = (
+        evidence_context.get("leakage_checks")
+        if isinstance(evidence_context.get("leakage_checks"), dict)
+        else {}
+    )
+    parser_checks = (
+        leakage.get("parser_sync_duplicate_checks")
+        if isinstance(leakage.get("parser_sync_duplicate_checks"), dict)
+        else {}
+    )
+    random_null_expectation = (
+        baseline.get("random_null_expectation")
+        if isinstance(baseline.get("random_null_expectation"), dict)
+        else {}
+    )
+    return {
+        "evidence_level": evidence_context.get("evidence_level"),
+        "risk": evidence_context.get("risk"),
+        "uncertainty": evidence_context.get("uncertainty"),
+        "failure_modes": (
+            evidence_context.get("failure_modes")
+            if isinstance(evidence_context.get("failure_modes"), list)
+            else []
+        ),
+        "legal_sample_space": {
+            "domain": legal.get("domain"),
+            "legal_universe_size": legal.get("legal_universe_size"),
+            "ranked_universe_size": legal.get("ranked_universe_size"),
+            "excluded_universe_count": legal.get("excluded_universe_count"),
+        },
+        "historical_window": {
+            "history_scope": historical.get("history_scope"),
+            "train_mode": historical.get("train_mode"),
+            "train_window": historical.get("train_window"),
+            "eval_window": historical.get("eval_window"),
+            "regime_start_date": historical.get("regime_start_date"),
+            "top_n": historical.get("top_n"),
+        },
+        "baseline_or_null_model": {
+            "operational_baseline": baseline.get("operational_baseline"),
+            "random_null_model": baseline.get("random_null_model"),
+            "random_null_expectation_status": random_null_expectation.get("status"),
+            "baseline_score": baseline.get("baseline_score"),
+        },
+        "leakage_checks": {
+            "promotion_gate_reason": leakage.get("promotion_gate_reason"),
+            "eval_slice_overfit_guardrail_active": leakage.get("eval_slice_overfit_guardrail_active"),
+            "suspicious_candidate_count": leakage.get("suspicious_candidate_count"),
+            "frozen_primary_lift_required": leakage.get("frozen_primary_lift_required"),
+            "parser_sync_duplicate_status": parser_checks.get("status"),
+            "parser_sync_duplicate_ok": parser_checks.get("ok"),
+        },
+    }
+
+
 def cli_summary(payload: dict[str, Any], json_path: Path, md_path: Path) -> dict[str, Any]:
     recommendation = (
         payload.get("recommendation")
@@ -1709,6 +1788,9 @@ def cli_summary(payload: dict[str, Any], json_path: Path, md_path: Path) -> dict
         "json_path": str(json_path),
         "report_path": str(md_path),
     }
+    evidence_context = cli_evidence_context_summary(payload)
+    if evidence_context:
+        summary["evidence_context"] = evidence_context
     restart_readiness = (
         payload.get("restart_readiness")
         if isinstance(payload.get("restart_readiness"), dict)
