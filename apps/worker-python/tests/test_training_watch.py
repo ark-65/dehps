@@ -7,6 +7,7 @@ import scripts.watch_training_progress as watch
 from scripts.watch_training_progress import (
     add_supervisor_status_observation_ages,
     advisor_summary,
+    cli_evidence_context_summary,
     cli_summary,
     evidence_context_summary,
     gate_summary,
@@ -899,6 +900,79 @@ def test_evidence_context_surfaces_sample_space_baseline_and_leakage_guardrails(
     assert "parser_sync_duplicates=status=checked ok=True history_ok=True draws=1494" in markdown
     assert "universe=1107568/1107568" in markdown
     assert "guaranteed hits or low-risk betting" in markdown
+
+
+def test_cli_summary_includes_evidence_context_guardrails(tmp_path):
+    payload = {
+        "run_id": "run-1",
+        "round_count": 34,
+        "round_window_count": 5,
+        "recommendation": {"severity": "warn", "action": "inspect_training_log"},
+        "evidence_context": {
+            "legal_sample_space": {
+                "domain": "ssq_red_ball_combinations",
+                "legal_universe_size": 1107568,
+                "ranked_universe_size": 1105506,
+                "excluded_universe_count": 2062,
+            },
+            "historical_window": {
+                "history_scope": "current_regime_default",
+                "train_mode": "expanding",
+                "train_window": 900,
+                "eval_window": 100,
+                "regime_start_date": "2016-06-30",
+                "top_n": 10000,
+            },
+            "baseline_or_null_model": {
+                "operational_baseline": "incumbent_config_frozen_primary_baseline",
+                "random_null_model": "ranked_uniform_per_draw",
+                "random_null_expectation": {"status": "estimated"},
+                "baseline_score": [0, 0, 0],
+            },
+            "leakage_checks": {
+                "promotion_gate_reason": "frozen_validation_not_better",
+                "eval_slice_overfit_guardrail_active": True,
+                "suspicious_candidate_count": 8,
+                "frozen_primary_lift_required": True,
+                "parser_sync_duplicate_checks": {"status": "checked", "ok": True},
+            },
+            "evidence_level": "operational_training_diagnostic_no_predictive_claim",
+            "risk": "Historical response-surface behavior is hypothesis evidence only.",
+            "uncertainty": "Frozen validation can remain at baseline.",
+            "failure_modes": ["promotion_gate:frozen_validation_not_better"],
+        },
+    }
+
+    summary = cli_summary(payload, tmp_path / "watch.json", tmp_path / "watch.md")
+    evidence = summary["evidence_context"]
+
+    assert cli_evidence_context_summary({}) == {}
+    assert evidence["evidence_level"] == "operational_training_diagnostic_no_predictive_claim"
+    assert evidence["risk"] == "Historical response-surface behavior is hypothesis evidence only."
+    assert evidence["uncertainty"] == "Frozen validation can remain at baseline."
+    assert evidence["failure_modes"] == ["promotion_gate:frozen_validation_not_better"]
+    assert evidence["legal_sample_space"] == {
+        "domain": "ssq_red_ball_combinations",
+        "legal_universe_size": 1107568,
+        "ranked_universe_size": 1105506,
+        "excluded_universe_count": 2062,
+    }
+    assert evidence["historical_window"]["train_window"] == 900
+    assert evidence["historical_window"]["eval_window"] == 100
+    assert evidence["baseline_or_null_model"] == {
+        "operational_baseline": "incumbent_config_frozen_primary_baseline",
+        "random_null_model": "ranked_uniform_per_draw",
+        "random_null_expectation_status": "estimated",
+        "baseline_score": [0, 0, 0],
+    }
+    assert evidence["leakage_checks"] == {
+        "promotion_gate_reason": "frozen_validation_not_better",
+        "eval_slice_overfit_guardrail_active": True,
+        "suspicious_candidate_count": 8,
+        "frozen_primary_lift_required": True,
+        "parser_sync_duplicate_status": "checked",
+        "parser_sync_duplicate_ok": True,
+    }
 
 
 def test_render_markdown_escapes_untrusted_inline_text():
