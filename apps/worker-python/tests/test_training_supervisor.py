@@ -48,6 +48,7 @@ from scripts.run_training_supervisor import (
     rank_homogeneity_guardrail,
     search_base_min_distance_for_phase,
     ridge_kdj_advisor_metadata,
+    should_checkpoint_supervisor_best,
     should_continue_training,
     sort_key,
     stagnation_round_count,
@@ -144,6 +145,15 @@ def attach_test_frozen_validation(
         "reward": {"objectiveScore": objective_score},
     }
     return summary
+
+
+def test_should_checkpoint_supervisor_best_only_for_carryover_or_promoted_best():
+    summary = {"config_hash": "best"}
+
+    assert should_checkpoint_supervisor_best(summary, round_index=0, improved=False) is True
+    assert should_checkpoint_supervisor_best(summary, round_index=7, improved=False) is False
+    assert should_checkpoint_supervisor_best(summary, round_index=7, improved=True) is True
+    assert should_checkpoint_supervisor_best(None, round_index=0, improved=True) is False
 
 
 def test_duration_hours_zero_means_continuous_training():

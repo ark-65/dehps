@@ -4433,6 +4433,15 @@ def recent_search_base_hashes(rounds: list[dict], current_base: FrequencyRankerC
     return tuple(deduped[:limit])
 
 
+def should_checkpoint_supervisor_best(
+    best_summary: dict | None,
+    *,
+    round_index: int,
+    improved: bool,
+) -> bool:
+    return isinstance(best_summary, dict) and (round_index == 0 or improved)
+
+
 def compact_round_info(round_info: dict) -> dict:
     compact = dict(round_info)
     compact["best"] = strip_target_results(compact["best"]) if isinstance(compact.get("best"), dict) else compact.get("best")
@@ -5292,7 +5301,7 @@ def run_supervisor(
         status["updated_at"] = progress["logged_at"]
         publish_status_snapshot(status_path, status, event_url=resolved_event_url, write_json=write_status_json)
 
-    if best_summary:
+    if should_checkpoint_supervisor_best(best_summary, round_index=0, improved=True):
         with get_connection() as conn:
             upsert_training_supervisor_best(
                 conn,
@@ -6070,7 +6079,11 @@ def run_supervisor(
             with get_connection() as conn:
                 ensure_training_round_results_schema(conn)
                 upsert_training_round_result(conn, run_id=run_id, round_info=round_record, status=status)
-                if best_summary:
+                if should_checkpoint_supervisor_best(
+                    best_summary,
+                    round_index=round_index + 1,
+                    improved=improved,
+                ):
                     upsert_training_supervisor_best(
                         conn,
                         run_id=run_id,
