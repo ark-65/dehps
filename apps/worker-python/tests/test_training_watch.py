@@ -216,6 +216,14 @@ def test_cli_summary_includes_restart_readiness_when_restart_is_requested(tmp_pa
             "severity": "alert",
             "action": "prepare_restart_with_more_exploration",
         },
+        "gate_summary": {
+            "rank_homogeneity_guardrail": {
+                "active": True,
+                "reason": "stale_rank_signature_cycle",
+                "unique_signature_count": 1,
+                "signature_hashes": ["sig-a", "sig-b"],
+            },
+        },
         "restart_readiness": {
             "requested": True,
             "ready": False,
@@ -232,6 +240,11 @@ def test_cli_summary_includes_restart_readiness_when_restart_is_requested(tmp_pa
 
     assert summary["severity"] == "alert"
     assert summary["action"] == "prepare_restart_with_more_exploration"
+    assert summary["rank_homogeneity"] == {
+        "reason": "stale_rank_signature_cycle",
+        "unique_signature_count": 1,
+        "signature_hashes": ["sig-a", "sig-b"],
+    }
     assert summary["restart_readiness"] == {
         "ready": False,
         "status": "blocked_by_active_heavy_job_lock",
@@ -660,6 +673,12 @@ def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_mar
             "observed": 12,
             "unique_signature_count": 1,
             "max_unique_signatures": 4,
+            "signatures": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            ],
         },
         "rank_homogeneity_restart_champion": {
             "active": True,
@@ -760,18 +779,36 @@ def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_mar
     assert gates["rank_homogeneity_restart_champion"]["source_frontier_secondary_score_improved"] is True
     assert gates["rank_homogeneity_restart_champion"]["source_frontier_improvement_basis"] == "secondary"
     assert gates["rank_homogeneity_restart_champion"]["unique_rank_signature_count"] == 3
+    assert gates["rank_homogeneity_guardrail"]["signature_hashes"] == [
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    ]
     assert gates["experimental_navigation_candidate"]["source"] == "exploration_champion"
     assert gates["decision_round_best"]["blocked_candidate_count"] == 1
     assert any("Promotion gate blocked" in note for note in recommendation["notes"])
     assert any("Eval-slice overfit guardrail is active" in note for note in recommendation["notes"])
     assert any("sources=unknown=3, stagnation_restart=1" in note for note in recommendation["notes"])
     assert any("issues=2026025=4" in note for note in recommendation["notes"])
+    assert any(
+        "signature_hashes=[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, "
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb, "
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc, +1 more]"
+        in note
+        for note in recommendation["notes"]
+    )
     assert any("Rank-homogeneity restart champion observed" in note for note in recommendation["notes"])
     assert "## Gate Snapshot" in markdown
     assert "frozen_primary=[0, 0, 0]" in markdown
     assert "sources=unknown=3, stagnation_restart=1" in markdown
     assert "issues=2026025=4" in markdown
     assert "Restart champion: active=True" in markdown
+    assert (
+        "signature_hashes=[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, "
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb, "
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc, +1 more]"
+    ) in markdown
     assert "rank_vector_changed=True changed_targets=99 full_eval_rank=12 max_abs_delta=904798" in markdown
     assert "context_moves=5 frozen_primary=[0, 0, 0] tail1000000_delta=-1" in markdown
     assert (
