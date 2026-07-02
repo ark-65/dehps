@@ -1073,7 +1073,7 @@ def recommendation_summary(
         notes.append(
             "Restart preparation is not launch-ready while a heavy-job lock is active: "
             f"owner={lock.get('owner')} pid={lock.get('pid')}{age_suffix} "
-            "Stop or transfer the current supervisor before starting a fresh run."
+            "Wait for active work to finish, or stop/transfer the lock owner before starting a fresh run."
         )
 
     if not actions:
@@ -1130,6 +1130,8 @@ def restart_readiness_summary(
         result.update(supervisor_progress_readiness_context(supervisor_status))
         return result
 
+    progress_context = supervisor_progress_readiness_context(supervisor_status)
+
     blockers: list[str] = []
     lock_active = bool(lock.get("active"))
     owner = lock.get("owner")
@@ -1140,7 +1142,10 @@ def restart_readiness_summary(
     if not blockers:
         operator_action = "operator_review_then_start_fresh_supervisor"
     elif "active_training_supervisor_lock" in blockers:
-        operator_action = "stop_or_transfer_active_training_supervisor_before_restart"
+        if progress_context.get("supervisor_progress_fresh") is True:
+            operator_action = "wait_for_active_training_supervisor_to_finish_or_stop_before_restart"
+        else:
+            operator_action = "stop_or_transfer_active_training_supervisor_before_restart"
     else:
         operator_action = "wait_for_or_clear_active_heavy_job_lock_before_restart"
 
@@ -1165,7 +1170,7 @@ def restart_readiness_summary(
         "lock_age_hours": lock.get("lock_age_hours"),
         "heartbeat_age_minutes": lock.get("heartbeat_age_minutes"),
     }
-    result.update(supervisor_progress_readiness_context(supervisor_status))
+    result.update(progress_context)
     return result
 
 

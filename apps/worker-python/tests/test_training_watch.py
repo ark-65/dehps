@@ -189,6 +189,10 @@ def test_restart_readiness_surfaces_fresh_supervisor_progress(tmp_path):
 
     assert readiness["ready"] is False
     assert readiness["blockers"] == ["active_training_supervisor_lock"]
+    assert (
+        readiness["operator_action"]
+        == "wait_for_active_training_supervisor_to_finish_or_stop_before_restart"
+    )
     assert readiness["supervisor_progress_fresh"] is True
     assert readiness["supervisor_progress_age_minutes"] == 1.5
     assert readiness["supervisor_updated_age_minutes"] == 1.0
@@ -533,7 +537,7 @@ def test_render_markdown_includes_restart_readiness_when_restart_is_requested():
             "supervisor_progress_fresh": True,
             "supervisor_progress_age_minutes": 2.0,
             "supervisor_progress_round": 34,
-            "operator_action": "stop_or_transfer_active_training_supervisor_before_restart",
+            "operator_action": "wait_for_active_training_supervisor_to_finish_or_stop_before_restart",
         },
         "guardrail": "Historical response-surface monitoring only.",
     }
@@ -544,7 +548,7 @@ def test_render_markdown_includes_restart_readiness_when_restart_is_requested():
     assert "Ready for fresh supervisor: False" in markdown
     assert "Blockers: [active_training_supervisor_lock]" in markdown
     assert (
-        "Operator action: stop_or_transfer_active_training_supervisor_before_restart"
+        "Operator action: wait_for_active_training_supervisor_to_finish_or_stop_before_restart"
         in markdown
     )
     assert "Lock owner/PID: training-supervisor / 12345" in markdown
