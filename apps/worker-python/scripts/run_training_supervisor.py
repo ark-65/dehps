@@ -4443,6 +4443,42 @@ def compact_round_info(round_info: dict) -> dict:
     return compact
 
 
+def compact_round_status_summary(status: dict) -> dict:
+    rounds = status.get("rounds") if isinstance(status.get("rounds"), list) else []
+    latest = rounds[-1] if rounds and isinstance(rounds[-1], dict) else {}
+    best = latest.get("best") if isinstance(latest.get("best"), dict) else {}
+    red5 = best.get("red5") if isinstance(best.get("red5"), dict) else {}
+    rank_quality = best.get("rank_quality") if isinstance(best.get("rank_quality"), dict) else {}
+    improved_rounds = [
+        round_info.get("round")
+        for round_info in rounds
+        if isinstance(round_info, dict) and round_info.get("improved")
+    ]
+    return {
+        "round_count": len(rounds),
+        "latest_round": latest.get("round"),
+        "last_improved_round": improved_rounds[-1] if improved_rounds else None,
+        "stagnation_rounds": stagnation_round_count(rounds),
+        "latest_metrics": {
+            "phase": latest.get("phase"),
+            "step": latest.get("step"),
+            "improved": latest.get("improved"),
+            "top_100_hits": best.get("top_100_hits"),
+            "top_1000_hits": best.get("top_1000_hits"),
+            "top_10000_hits": best.get("top_10000_hits"),
+            "red5_top_10000_hits": red5.get("top_10000_hits"),
+            "top_50000_hits": rank_quality.get("top_50000_hits"),
+            "tail_over_1000000_count": rank_quality.get("tail_over_1000000_count"),
+            "median_rank": best.get("median_rank"),
+            "best_rank": best.get("best_rank"),
+            "worst_rank": best.get("worst_rank"),
+            "objective_score": (best.get("reward") or {}).get("objectiveScore")
+            if isinstance(best.get("reward"), dict)
+            else None,
+        },
+    }
+
+
 def prefilter_configs(
     *,
     history: list,
@@ -4811,6 +4847,7 @@ def compact_status_payload(status: dict) -> dict:
         "matrix_backend": status.get("matrix_backend"),
         "feature_matrix_cache": status.get("feature_matrix_cache"),
         "red5_rank_mode": status.get("red5_rank_mode"),
+        "round_summary": compact_round_status_summary(status),
         "prefilter": status.get("prefilter"),
         "weight_kdj_advisor": status.get("weight_kdj_advisor"),
         "ridge_kdj_advisor": status.get("ridge_kdj_advisor"),
