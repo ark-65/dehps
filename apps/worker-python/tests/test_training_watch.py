@@ -104,7 +104,7 @@ def test_restart_readiness_blocks_parallel_supervisor_while_lock_is_active():
 
     assert readiness["requested"] is True
     assert readiness["ready"] is False
-    assert readiness["status"] == "blocked_by_active_heavy_job_lock"
+    assert readiness["status"] == "blocked_by_active_training_supervisor_lock"
     assert readiness["blockers"] == ["active_training_supervisor_lock"]
     assert (
         readiness["operator_action"]
@@ -252,6 +252,7 @@ def test_restart_readiness_reports_operator_action_for_non_training_lock():
     readiness = restart_readiness_summary(recommendation=recommendation, lock=lock)
 
     assert readiness["ready"] is False
+    assert readiness["status"] == "blocked_by_active_heavy_job_lock"
     assert readiness["blockers"] == ["active_heavy_job_lock"]
     assert (
         readiness["operator_action"]
@@ -521,7 +522,7 @@ def test_render_markdown_includes_restart_readiness_when_restart_is_requested():
         "restart_readiness": {
             "requested": True,
             "ready": False,
-            "status": "blocked_by_active_heavy_job_lock",
+            "status": "blocked_by_active_training_supervisor_lock",
             "blockers": ["active_training_supervisor_lock"],
             "owner": "training-supervisor",
             "pid": 12345,

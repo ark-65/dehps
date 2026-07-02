@@ -1132,12 +1132,17 @@ def restart_readiness_summary(
     else:
         operator_action = "wait_for_or_clear_active_heavy_job_lock_before_restart"
 
+    if not blockers:
+        status = "ready_for_fresh_supervisor_after_operator_review"
+    elif "active_training_supervisor_lock" in blockers:
+        status = "blocked_by_active_training_supervisor_lock"
+    else:
+        status = "blocked_by_active_heavy_job_lock"
+
     result = {
         "requested": True,
         "ready": not blockers,
-        "status": "ready_for_fresh_supervisor_after_operator_review"
-        if not blockers
-        else "blocked_by_active_heavy_job_lock",
+        "status": status,
         "blockers": blockers,
         "operator_action": operator_action,
         "owner": owner,
