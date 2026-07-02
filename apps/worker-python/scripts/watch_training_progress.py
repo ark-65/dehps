@@ -5,7 +5,7 @@ import hashlib
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, tzinfo
 from math import comb, isfinite
 from pathlib import Path
 from typing import Any
@@ -50,7 +50,11 @@ def isoformat(moment: datetime | None) -> str | None:
     return moment.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def parse_iso_datetime(value: Any) -> datetime | None:
+def local_timezone() -> tzinfo:
+    return datetime.now().astimezone().tzinfo or timezone.utc
+
+
+def parse_iso_datetime(value: Any, *, default_timezone: tzinfo = timezone.utc) -> datetime | None:
     if isinstance(value, datetime):
         moment = value
     elif isinstance(value, str):
@@ -66,12 +70,17 @@ def parse_iso_datetime(value: Any) -> datetime | None:
     else:
         return None
     if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=timezone.utc)
+        moment = moment.replace(tzinfo=default_timezone)
     return moment.astimezone(timezone.utc)
 
 
-def observed_age_minutes(value: Any, *, now: datetime) -> float | None:
-    moment = parse_iso_datetime(value)
+def observed_age_minutes(
+    value: Any,
+    *,
+    now: datetime,
+    default_timezone: tzinfo = timezone.utc,
+) -> float | None:
+    moment = parse_iso_datetime(value, default_timezone=default_timezone)
     if moment is None:
         return None
     return round(max(0.0, (now - moment).total_seconds() / 60.0), 6)
@@ -616,6 +625,47 @@ def load_supervisor_status(
     return supervisor_status_summary(status, path=path)
 
 
+def add_supervisor_status_observation_ages(
+    supervisor_status: dict[str, Any],
+    *,
+    now: datetime,
+    stale_minutes: int,
+    default_timezone: tzinfo | None = None,
+) -> dict[str, Any]:
+    if not supervisor_status.get("available"):
+        return dict(supervisor_status)
+
+    status_tz = default_timezone or local_timezone()
+    enriched = dict(supervisor_status)
+    enriched["updated_at_age_minutes"] = observed_age_minutes(
+        enriched.get("updated_at"),
+        now=now,
+        default_timezone=status_tz,
+    )
+    enriched["timestamp_timezone_assumption"] = "aware_or_local_timezone_for_naive_supervisor_status"
+
+    progress = (
+        dict(enriched.get("latest_progress"))
+        if isinstance(enriched.get("latest_progress"), dict)
+        else {}
+    )
+    if progress:
+        progress_age = observed_age_minutes(
+            progress.get("logged_at"),
+            now=now,
+            default_timezone=status_tz,
+        )
+        progress["age_minutes"] = progress_age
+        progress["fresh"] = (
+            None
+            if progress_age is None
+            else progress_age <= stale_minutes
+        )
+        progress["freshness_threshold_minutes"] = stale_minutes
+        enriched["latest_progress"] = progress
+    return enriched
+
+
 def supervisor_progress_note(supervisor_status: dict[str, Any]) -> str | None:
     if not supervisor_status.get("available"):
         return None
@@ -635,6 +685,10 @@ def supervisor_progress_note(supervisor_status: dict[str, Any]) -> str | None:
         parts.append(f"issue={progress.get('issue')}")
     if progress.get("elapsed_seconds") is not None:
         parts.append(f"elapsed_seconds={progress.get('elapsed_seconds')}")
+    if progress.get("age_minutes") is not None:
+        parts.append(f"progress_age_minutes={progress.get('age_minutes')}")
+    if progress.get("fresh") is not None:
+        parts.append(f"progress_fresh={progress.get('fresh')}")
     if supervisor_status.get("updated_at"):
         parts.append(f"updated_at={supervisor_status.get('updated_at')}")
     return "Supervisor status file reports current progress: " + " ".join(parts) + "."
@@ -883,6 +937,25 @@ def recommendation_summary(
     progress_note = supervisor_progress_note(supervisor_status or {})
     if progress_note:
         notes.append(progress_note)
+    supervisor_progress = (
+        supervisor_status.get("latest_progress")
+        if isinstance(supervisor_status, dict)
+        and isinstance(supervisor_status.get("latest_progress"), dict)
+        else {}
+    )
+    supervisor_progress_age = safe_float(supervisor_progress.get("age_minutes"))
+    if supervisor_progress.get("fresh") is False:
+        severity = "warn" if severity == "ok" else severity
+        actions.append("inspect_training_log")
+        age_text = (
+            f"{supervisor_progress_age:.1f}"
+            if supervisor_progress_age is not None
+            else "unknown"
+        )
+        notes.append(
+            "Supervisor progress is stale: "
+            f"{age_text} minutes since latest_progress.logged_at."
+        )
 
     if latest_age is not None and latest_age > stale_minutes:
         severity = "warn"
@@ -1002,7 +1075,12 @@ def recommendation_summary(
     }
 
 
-def restart_readiness_summary(*, recommendation: dict[str, Any], lock: dict[str, Any]) -> dict[str, Any]:
+def restart_readiness_summary(
+    *,
+    recommendation: dict[str, Any],
+    lock: dict[str, Any],
+    supervisor_status: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     raw_actions = recommendation.get("actions")
     actions = [str(item) for item in raw_actions] if isinstance(raw_actions, list) else []
     if not actions and recommendation.get("action"):
@@ -1031,7 +1109,7 @@ def restart_readiness_summary(*, recommendation: dict[str, Any], lock: dict[str,
     else:
         operator_action = "wait_for_or_clear_active_heavy_job_lock_before_restart"
 
-    return {
+    result = {
         "requested": True,
         "ready": not blockers,
         "status": "ready_for_fresh_supervisor_after_operator_review"
@@ -1047,6 +1125,21 @@ def restart_readiness_summary(*, recommendation: dict[str, Any], lock: dict[str,
         "lock_age_hours": lock.get("lock_age_hours"),
         "heartbeat_age_minutes": lock.get("heartbeat_age_minutes"),
     }
+    progress = (
+        supervisor_status.get("latest_progress")
+        if isinstance(supervisor_status, dict)
+        and isinstance(supervisor_status.get("latest_progress"), dict)
+        else {}
+    )
+    if progress:
+        result.update(
+            {
+                "supervisor_progress_fresh": progress.get("fresh"),
+                "supervisor_progress_age_minutes": progress.get("age_minutes"),
+                "supervisor_progress_round": progress.get("round"),
+            }
+        )
+    return result
 
 
 def evidence_context_summary(
@@ -1150,7 +1243,11 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
     prefilter = latest.get("prefilter") if isinstance(latest.get("prefilter"), dict) else {}
     advisors = advisor_summary(prefilter)
     gates = gate_summary(prefilter)
-    supervisor_status = load_supervisor_status(resolved_run_id)
+    supervisor_status = add_supervisor_status_observation_ages(
+        load_supervisor_status(resolved_run_id),
+        now=generated_at,
+        stale_minutes=stale_minutes,
+    )
     lock = add_heavy_lock_observation_ages(heavy_lock_summary(), now=generated_at)
     parser_sync_duplicate_checks = load_parser_sync_duplicate_checks()
     recommendation = recommendation_summary(
@@ -1200,7 +1297,11 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         ),
         "heavy_job_lock": lock,
         "recommendation": recommendation,
-        "restart_readiness": restart_readiness_summary(recommendation=recommendation, lock=lock),
+        "restart_readiness": restart_readiness_summary(
+            recommendation=recommendation,
+            lock=lock,
+            supervisor_status=supervisor_status,
+        ),
         "guardrail": "Historical response-surface monitoring only; no predictive claim and no automatic promotion without controls.",
     }
 
@@ -1339,6 +1440,14 @@ def render_markdown(payload: dict[str, Any]) -> str:
             heartbeat_age_line = (
                 f"- Heartbeat age: {restart_readiness.get('heartbeat_age_minutes')} minutes\n"
             )
+        supervisor_progress_line = ""
+        if restart_readiness.get("supervisor_progress_fresh") is not None:
+            supervisor_progress_line = (
+                "- Supervisor progress fresh: "
+                f"{restart_readiness.get('supervisor_progress_fresh')} "
+                f"(age={restart_readiness.get('supervisor_progress_age_minutes')} minutes, "
+                f"round={restart_readiness.get('supervisor_progress_round')})\n"
+            )
         restart_section = (
             "## Restart Readiness\n\n"
             f"- Ready for fresh supervisor: {restart_readiness.get('ready')}\n"
@@ -1348,7 +1457,8 @@ def render_markdown(payload: dict[str, Any]) -> str:
             f"- Lock owner/PID: {markdown_inline_text(restart_readiness.get('owner'))} / {restart_readiness.get('pid')}\n"
             f"- Heartbeat: {markdown_inline_text(restart_readiness.get('heartbeat_at'))}\n"
             f"{lock_age_line}"
-            f"{heartbeat_age_line}\n"
+            f"{heartbeat_age_line}"
+            f"{supervisor_progress_line}\n"
         )
     supervisor_status = (
         payload.get("supervisor_status")
@@ -1364,6 +1474,15 @@ def render_markdown(payload: dict[str, Any]) -> str:
         )
         progress_lines = ""
         if progress:
+            progress_age_line = ""
+            if progress.get("age_minutes") is not None:
+                progress_age_line = f"- Progress age: {progress.get('age_minutes')} minutes\n"
+            progress_fresh_line = ""
+            if progress.get("fresh") is not None:
+                progress_fresh_line = (
+                    f"- Progress fresh: {progress.get('fresh')} "
+                    f"(threshold {progress.get('freshness_threshold_minutes')} minutes)\n"
+                )
             progress_lines = (
                 f"- Progress round: {progress.get('round')}\n"
                 f"- Target progress: {progress.get('target_index')} / {progress.get('target_total')}\n"
@@ -1372,11 +1491,14 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 f"- Train draws: {progress.get('train_draws')}\n"
                 f"- Elapsed seconds: {progress.get('elapsed_seconds')}\n"
                 f"- Progress logged at: {markdown_inline_text(progress.get('logged_at'))}\n"
+                f"{progress_age_line}"
+                f"{progress_fresh_line}"
             )
         supervisor_section = (
             "## Supervisor Progress\n\n"
             f"- Status/PID: {markdown_inline_text(supervisor_status.get('status'))} / {supervisor_status.get('pid')}\n"
             f"- Updated at: {markdown_inline_text(supervisor_status.get('updated_at'))}\n"
+            f"- Updated age: {supervisor_status.get('updated_at_age_minutes')} minutes\n"
             f"- Status file: {markdown_inline_code(supervisor_status.get('path'))}\n"
             f"{progress_lines}\n"
         )
