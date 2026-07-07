@@ -1301,6 +1301,30 @@ def restart_candidate_readiness_context(
     return {key: value for key, value in context.items() if value is not None}
 
 
+def restart_blocker_stage(
+    blockers: list[str],
+    progress_context: dict[str, Any],
+) -> str:
+    if not blockers:
+        return "clear"
+    if "active_training_supervisor_lock" not in blockers:
+        return "active_heavy_job_lock"
+
+    progress_fresh = progress_context.get("supervisor_progress_fresh")
+    if progress_fresh is not True:
+        return "active_training_supervisor_progress_unknown_or_stale"
+
+    if progress_context.get("supervisor_run_mode") != "continuous":
+        return "active_training_supervisor_fresh_progress"
+
+    target_complete = progress_context.get("supervisor_target_complete")
+    if target_complete is True:
+        return "active_continuous_supervisor_target_complete"
+    if target_complete is False:
+        return "active_continuous_supervisor_target_incomplete"
+    return "active_continuous_supervisor_target_unknown"
+
+
 def restart_readiness_summary(
     *,
     recommendation: dict[str, Any],
@@ -1319,6 +1343,7 @@ def restart_readiness_summary(
             "ready": False,
             "status": "not_requested",
             "blockers": [],
+            "blocker_stage": "not_requested",
             "operator_action": "continue_current_training_watch",
         }
         result.update(supervisor_progress_readiness_context(supervisor_status))
@@ -1334,6 +1359,7 @@ def restart_readiness_summary(
         blockers.append("active_training_supervisor_lock")
     elif lock_active:
         blockers.append("active_heavy_job_lock")
+    blocker_stage = restart_blocker_stage(blockers, progress_context)
     if not blockers:
         operator_action = "operator_review_then_start_fresh_supervisor"
     elif "active_training_supervisor_lock" in blockers:
@@ -1369,6 +1395,7 @@ def restart_readiness_summary(
         "ready": not blockers,
         "status": status,
         "blockers": blockers,
+        "blocker_stage": blocker_stage,
         "operator_action": operator_action,
         "owner": owner,
         "pid": lock.get("pid"),
@@ -1707,6 +1734,12 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 "- Operator action: "
                 f"{markdown_inline_text(restart_readiness.get('operator_action'))}\n"
             )
+        blocker_stage_line = ""
+        if restart_readiness.get("blocker_stage"):
+            blocker_stage_line = (
+                "- Blocker stage: "
+                f"{markdown_inline_text(restart_readiness.get('blocker_stage'))}\n"
+            )
         lock_age_line = ""
         if restart_readiness.get("lock_age_hours") is not None:
             lock_age_line = f"- Lock age: {restart_readiness.get('lock_age_hours')} hours\n"
@@ -1800,6 +1833,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
             f"- Ready for fresh supervisor: {restart_readiness.get('ready')}\n"
             f"- Status: {markdown_inline_text(restart_readiness.get('status'))}\n"
             f"- Blockers: {markdown_inline_text(blockers)}\n"
+            f"{blocker_stage_line}"
             f"{operator_action_line}"
             f"- Lock owner/PID: {markdown_inline_text(restart_readiness.get('owner'))} / {restart_readiness.get('pid')}\n"
             f"- Heartbeat: {markdown_inline_text(restart_readiness.get('heartbeat_at'))}\n"
@@ -2173,6 +2207,7 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "heartbeat_age_minutes": restart_readiness.get("heartbeat_age_minutes"),
         }
         for key in (
+            "blocker_stage",
             "supervisor_progress_fresh",
             "supervisor_progress_age_minutes",
             "supervisor_progress_round",

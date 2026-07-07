@@ -109,6 +109,7 @@ def test_restart_readiness_blocks_parallel_supervisor_while_lock_is_active():
     assert readiness["ready"] is False
     assert readiness["status"] == "blocked_by_active_training_supervisor_lock"
     assert readiness["blockers"] == ["active_training_supervisor_lock"]
+    assert readiness["blocker_stage"] == "active_training_supervisor_progress_unknown_or_stale"
     assert (
         readiness["operator_action"]
         == "stop_or_transfer_active_training_supervisor_before_restart"
@@ -191,6 +192,7 @@ def test_restart_readiness_surfaces_fresh_supervisor_progress(tmp_path):
 
     assert readiness["ready"] is False
     assert readiness["blockers"] == ["active_training_supervisor_lock"]
+    assert readiness["blocker_stage"] == "active_training_supervisor_fresh_progress"
     assert (
         readiness["operator_action"]
         == "wait_for_active_training_supervisor_to_finish_or_stop_before_restart"
@@ -270,8 +272,13 @@ def test_restart_readiness_marks_continuous_supervisor_for_operator_review(tmp_p
         readiness["operator_action"]
         == "operator_review_then_stop_continuous_training_supervisor_before_restart"
     )
+    assert readiness["blocker_stage"] == "active_continuous_supervisor_target_complete"
     assert readiness["supervisor_run_mode"] == "continuous"
     assert readiness["supervisor_deadline"] is None
+    assert (
+        summary["restart_readiness"]["blocker_stage"]
+        == "active_continuous_supervisor_target_complete"
+    )
     assert summary["restart_readiness"]["supervisor_run_mode"] == "continuous"
     assert summary["restart_readiness"]["supervisor_target_index"] == 100
     assert summary["restart_readiness"]["supervisor_target_total"] == 100
@@ -281,6 +288,7 @@ def test_restart_readiness_marks_continuous_supervisor_for_operator_review(tmp_p
         == "operator_review_then_stop_continuous_training_supervisor_before_restart"
     )
     assert "Supervisor run mode: continuous" in markdown
+    assert "Blocker stage: active_continuous_supervisor_target_complete" in markdown
     assert (
         "Operator action: operator_review_then_stop_continuous_training_supervisor_before_restart"
         in markdown
@@ -321,6 +329,7 @@ def test_restart_readiness_waits_for_continuous_supervisor_target_boundary():
 
     assert readiness["ready"] is False
     assert readiness["status"] == "blocked_by_active_training_supervisor_lock"
+    assert readiness["blocker_stage"] == "active_continuous_supervisor_target_incomplete"
     assert (
         readiness["operator_action"]
         == "wait_for_continuous_training_supervisor_target_boundary_before_restart"
@@ -711,6 +720,7 @@ def test_restart_readiness_reports_operator_action_for_non_training_lock():
     assert readiness["ready"] is False
     assert readiness["status"] == "blocked_by_active_heavy_job_lock"
     assert readiness["blockers"] == ["active_heavy_job_lock"]
+    assert readiness["blocker_stage"] == "active_heavy_job_lock"
     assert (
         readiness["operator_action"]
         == "wait_for_or_clear_active_heavy_job_lock_before_restart"
@@ -730,6 +740,7 @@ def test_restart_readiness_reports_operator_action_when_ready():
 
     assert readiness["ready"] is True
     assert readiness["blockers"] == []
+    assert readiness["blocker_stage"] == "clear"
     assert readiness["operator_action"] == "operator_review_then_start_fresh_supervisor"
 
 
