@@ -402,6 +402,12 @@ def test_cli_summary_surfaces_recovery_gate_decision(tmp_path):
                 "source": "rank_homogeneity_restart_champion",
                 "reason": "rank_homogeneity_restart_changed_rank_vector",
                 "config_hash": "nav-hash",
+                "eligible": False,
+                "eligibility_reason": "below_min_config_distance",
+                "quality_reason": "passed",
+                "rank_vector_changed": True,
+                "config_distance": 0.006,
+                "min_config_distance": 0.08,
             },
             "decision_round_best": {
                 "source": "source_frontier",
@@ -429,6 +435,12 @@ def test_cli_summary_surfaces_recovery_gate_decision(tmp_path):
     assert summary["experimental_navigation_candidate"] == {
         "source": "rank_homogeneity_restart_champion",
         "reason": "rank_homogeneity_restart_changed_rank_vector",
+        "eligible": False,
+        "eligibility_reason": "below_min_config_distance",
+        "quality_reason": "passed",
+        "rank_vector_changed": True,
+        "config_distance": 0.006,
+        "min_config_distance": 0.08,
     }
     assert summary["decision_round_best"] == {
         "source": "source_frontier",
@@ -437,6 +449,83 @@ def test_cli_summary_surfaces_recovery_gate_decision(tmp_path):
         "blocked_candidate_count": 0,
         "blocked_candidate_sources": [],
     }
+
+
+def test_gate_summary_surfaces_ineligible_navigation_distance():
+    now = datetime(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+    prefilter = {
+        "experimental_navigation_candidate": {
+            "source": "rank_homogeneity_restart_champion",
+            "reason": "rank_homogeneity_restart_changed_rank_vector",
+            "config_hash": "restart-hash",
+        },
+        "search_base": {
+            "exploration_navigation_config_hash": "restart-hash",
+            "exploration_navigation_eligible": False,
+            "exploration_navigation_quality_reason": "passed",
+            "exploration_navigation_config_distance": 0.006042,
+            "min_config_distance": 0.08,
+            "exploration_navigation_rank_vector_changed": True,
+            "exploration_navigation_frozen_primary_score": [0, 0, 1],
+            "exploration_navigation_baseline_frozen_primary_score": [0, 0, 1],
+            "exploration_navigation_tail_over_1000000_delta": 0,
+            "exploration_navigation_source_frontier_score_improved": False,
+        },
+    }
+
+    gates = gate_summary(prefilter)
+    navigation = gates["experimental_navigation_candidate"]
+
+    assert navigation == {
+        "source": "rank_homogeneity_restart_champion",
+        "reason": "rank_homogeneity_restart_changed_rank_vector",
+        "config_hash": "restart-hash",
+        "eligible": False,
+        "eligibility_reason": "below_min_config_distance",
+        "config_distance": 0.006042,
+        "min_config_distance": 0.08,
+        "rank_vector_changed": True,
+        "tail_over_1000000_delta": 0,
+        "source_frontier_score_improved": False,
+        "quality_reason": "passed",
+        "frozen_primary_score": [0, 0, 1],
+        "baseline_frozen_primary_score": [0, 0, 1],
+    }
+
+    recommendation = recommendation_summary(
+        rows=[{"round_index": 34, "improved": False, "updated_at": now}],
+        lock={"active": True, "owner": "training-supervisor"},
+        advisors={"neural_kdj_advisor": {"candidate_count": 0}},
+        gates=gates,
+        now=now,
+        stale_minutes=30,
+        round_stats={"stagnation_rounds": 34},
+    )
+    payload = {
+        "generated_at": "2026-06-18T10:00:00Z",
+        "run_id": "run-1",
+        "round_count": 34,
+        "latest_round": 34,
+        "last_improved_round": None,
+        "stagnation_rounds": 34,
+        "latest_metrics": {},
+        "advisor_summary": {},
+        "gate_summary": gates,
+        "heavy_job_lock": {"active": True},
+        "recommendation": recommendation,
+        "guardrail": "Historical response-surface monitoring only.",
+    }
+
+    markdown = render_markdown(payload)
+
+    assert any(
+        "reason=below_min_config_distance" in note
+        and "config_distance=0.006042" in note
+        and "min_config_distance=0.08" in note
+        for note in recommendation["notes"]
+    )
+    assert "eligibility_reason=below_min_config_distance" in markdown
+    assert "config_distance=0.006042 min_config_distance=0.08" in markdown
 
 
 def test_restart_readiness_reports_operator_action_for_non_training_lock():

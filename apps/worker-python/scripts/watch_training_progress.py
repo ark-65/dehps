@@ -789,6 +789,29 @@ def safe_bool(value: Any) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
+def experimental_navigation_eligibility_reason(search_base: dict[str, Any]) -> str:
+    eligible = safe_bool(search_base.get("exploration_navigation_eligible"))
+    if eligible is True:
+        return "eligible"
+    if not search_base.get("exploration_navigation_config_hash"):
+        return "no_experimental_navigation_candidate"
+
+    quality_reason = search_base.get("exploration_navigation_quality_reason")
+    if quality_reason and quality_reason != "passed":
+        return str(quality_reason)
+
+    distance = safe_float(search_base.get("exploration_navigation_config_distance"))
+    min_distance = safe_float(search_base.get("min_config_distance"))
+    if distance is not None and min_distance is not None and distance < min_distance:
+        return "below_min_config_distance"
+
+    rank_vector_changed = safe_bool(search_base.get("exploration_navigation_rank_vector_changed"))
+    if rank_vector_changed is False:
+        return "rank_vector_unchanged"
+
+    return "ineligible_by_search_base_rules" if eligible is False else ""
+
+
 def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
     promotion = prefilter.get("promotion_gate") if isinstance(prefilter.get("promotion_gate"), dict) else {}
     eval_guard = (
@@ -816,6 +839,7 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
         if isinstance(prefilter.get("experimental_navigation_candidate"), dict)
         else {}
     )
+    search_base = prefilter.get("search_base") if isinstance(prefilter.get("search_base"), dict) else {}
     decision = prefilter.get("decision_round_best") if isinstance(prefilter.get("decision_round_best"), dict) else {}
     blocked_candidates = decision.get("blocked_candidates") if isinstance(decision.get("blocked_candidates"), list) else []
 
@@ -898,11 +922,45 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "unique_rank_signature_count": safe_int(restart_champion.get("unique_rank_signature_count")),
         }
     if navigation:
-        result["experimental_navigation_candidate"] = {
+        navigation_summary: dict[str, Any] = {
             "source": navigation.get("source"),
             "reason": navigation.get("reason"),
             "config_hash": navigation.get("config_hash"),
         }
+        if search_base:
+            eligible = safe_bool(search_base.get("exploration_navigation_eligible"))
+            if eligible is not None:
+                navigation_summary["eligible"] = eligible
+            eligibility_reason = experimental_navigation_eligibility_reason(search_base)
+            if eligibility_reason:
+                navigation_summary["eligibility_reason"] = eligibility_reason
+            for source_key, output_key, parser in (
+                ("exploration_navigation_config_distance", "config_distance", safe_float),
+                ("min_config_distance", "min_config_distance", safe_float),
+                ("exploration_navigation_rank_vector_changed", "rank_vector_changed", safe_bool),
+                ("exploration_navigation_tail_over_1000000_delta", "tail_over_1000000_delta", safe_int),
+                (
+                    "exploration_navigation_source_frontier_score_improved",
+                    "source_frontier_score_improved",
+                    safe_bool,
+                ),
+            ):
+                parsed = parser(search_base.get(source_key))
+                if parsed is not None:
+                    navigation_summary[output_key] = parsed
+            if search_base.get("exploration_navigation_quality_reason") is not None:
+                navigation_summary["quality_reason"] = search_base.get(
+                    "exploration_navigation_quality_reason"
+                )
+            frozen_primary_score = safe_score(search_base.get("exploration_navigation_frozen_primary_score"))
+            if frozen_primary_score:
+                navigation_summary["frozen_primary_score"] = frozen_primary_score
+            baseline_frozen_primary_score = safe_score(
+                search_base.get("exploration_navigation_baseline_frozen_primary_score")
+            )
+            if baseline_frozen_primary_score:
+                navigation_summary["baseline_frozen_primary_score"] = baseline_frozen_primary_score
+        result["experimental_navigation_candidate"] = navigation_summary
     if decision:
         result["decision_round_best"] = {
             "source": decision.get("source"),
@@ -1092,6 +1150,21 @@ def recommendation_summary(
             f"changed_targets={restart_champion.get('changed_target_count')} "
             f"full_eval_rank={restart_champion.get('full_eval_rank')} "
             f"max_abs_delta={restart_champion.get('max_abs_delta')}."
+        )
+    navigation = (
+        gates.get("experimental_navigation_candidate")
+        if isinstance(gates.get("experimental_navigation_candidate"), dict)
+        else {}
+    )
+    if navigation.get("eligible") is False:
+        notes.append(
+            "Experimental navigation candidate is not search-base eligible: "
+            f"source={navigation.get('source')} "
+            f"reason={navigation.get('eligibility_reason')} "
+            f"quality={navigation.get('quality_reason')} "
+            f"rank_vector_changed={navigation.get('rank_vector_changed')} "
+            f"config_distance={navigation.get('config_distance')} "
+            f"min_config_distance={navigation.get('min_config_distance')}."
         )
 
     if "prepare_restart_with_more_exploration" in actions and lock.get("active"):
@@ -1485,11 +1558,24 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 f"unique_signatures={restart_champion.get('unique_rank_signature_count')}"
             )
         if navigation:
-            gate_lines.append(
+            navigation_details = [
                 "- Experimental navigation: "
                 f"source={markdown_inline_text(navigation.get('source'))} "
                 f"reason={markdown_inline_text(navigation.get('reason'))}"
-            )
+            ]
+            for label, key in (
+                ("eligible", "eligible"),
+                ("eligibility_reason", "eligibility_reason"),
+                ("quality", "quality_reason"),
+                ("rank_vector_changed", "rank_vector_changed"),
+                ("config_distance", "config_distance"),
+                ("min_config_distance", "min_config_distance"),
+            ):
+                if navigation.get(key) is not None:
+                    navigation_details.append(
+                        f"{label}={markdown_inline_text(navigation.get(key))}"
+                    )
+            gate_lines.append(" ".join(navigation_details))
         if decision:
             blocked_sources = compact_inline_list(decision.get("blocked_candidate_sources"))
             gate_lines.append(
@@ -1906,10 +1992,21 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
         else {}
     )
     if navigation:
-        summary["experimental_navigation_candidate"] = {
+        navigation_summary = {
             "source": navigation.get("source"),
             "reason": navigation.get("reason"),
         }
+        for key in (
+            "eligible",
+            "eligibility_reason",
+            "quality_reason",
+            "rank_vector_changed",
+            "config_distance",
+            "min_config_distance",
+        ):
+            if navigation.get(key) is not None:
+                navigation_summary[key] = navigation.get(key)
+        summary["experimental_navigation_candidate"] = navigation_summary
     decision = (
         gates.get("decision_round_best")
         if isinstance(gates.get("decision_round_best"), dict)
