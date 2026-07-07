@@ -352,6 +352,57 @@ def test_cli_summary_includes_restart_readiness_when_restart_is_requested(tmp_pa
     }
 
 
+def test_cli_summary_includes_restart_candidate_readiness_context(tmp_path):
+    payload = {
+        "run_id": "run-1",
+        "round_count": 67,
+        "round_window_count": 5,
+        "recommendation": {
+            "severity": "alert",
+            "action": "prepare_restart_with_more_exploration",
+        },
+        "restart_readiness": {
+            "requested": True,
+            "ready": False,
+            "status": "blocked_by_active_training_supervisor_lock",
+            "blockers": ["active_training_supervisor_lock"],
+            "operator_action": "operator_review_then_stop_continuous_training_supervisor_before_restart",
+            "owner": "training-supervisor",
+            "pid": 12345,
+            "heartbeat_age_minutes": 0.5,
+            "restart_candidate_active": True,
+            "restart_candidate_source": "stagnation_restart",
+            "restart_candidate_reason": "rank_homogeneity_restart_changed_rank_vector",
+            "restart_candidate_rank_vector_changed": True,
+            "restart_candidate_changed_target_count": 100,
+            "restart_candidate_full_eval_rank": 13,
+            "restart_candidate_frozen_primary_score": [0, 0, 0],
+            "restart_candidate_baseline_frozen_primary_score": [0, 0, 0],
+            "restart_candidate_primary_score_improved": False,
+            "restart_candidate_secondary_score_improved": True,
+            "restart_candidate_improvement_basis": "secondary",
+            "restart_candidate_tail_over_1000000_delta": -2,
+            "experimental_navigation_eligible": True,
+            "experimental_navigation_eligibility_reason": "eligible",
+            "experimental_navigation_quality_reason": "passed",
+            "experimental_navigation_rank_vector_changed": True,
+            "experimental_navigation_config_distance": 3.62905,
+            "experimental_navigation_min_config_distance": 0.08,
+        },
+    }
+
+    summary = cli_summary(payload, tmp_path / "watch.json", tmp_path / "watch.md")
+
+    readiness = summary["restart_readiness"]
+    assert readiness["restart_candidate_frozen_primary_score"] == [0, 0, 0]
+    assert readiness["restart_candidate_primary_score_improved"] is False
+    assert readiness["restart_candidate_secondary_score_improved"] is True
+    assert readiness["restart_candidate_improvement_basis"] == "secondary"
+    assert readiness["experimental_navigation_eligible"] is True
+    assert readiness["experimental_navigation_eligibility_reason"] == "eligible"
+    assert readiness["experimental_navigation_config_distance"] == 3.62905
+
+
 def test_operator_summary_matches_cli_summary_without_paths(tmp_path):
     payload = {
         "run_id": "run-1",
@@ -662,6 +713,56 @@ def test_restart_readiness_includes_supervisor_progress_freshness():
     assert readiness["supervisor_progress_fresh"] is True
 
 
+def test_restart_readiness_includes_restart_candidate_evidence():
+    recommendation = {
+        "action": "prepare_restart_with_more_exploration",
+        "actions": ["prepare_restart_with_more_exploration"],
+    }
+    gates = {
+        "rank_homogeneity_restart_champion": {
+            "active": True,
+            "source": "stagnation_restart",
+            "reason": "rank_homogeneity_restart_changed_rank_vector",
+            "rank_vector_changed": True,
+            "changed_target_count": 100,
+            "full_eval_rank": 13,
+            "frozen_primary_score": [0, 0, 0],
+            "baseline_frozen_primary_score": [0, 0, 0],
+            "source_frontier_primary_score_improved": False,
+            "source_frontier_secondary_score_improved": True,
+            "source_frontier_improvement_basis": "secondary",
+            "tail_over_1000000_delta": -2,
+        },
+        "experimental_navigation_candidate": {
+            "eligible": True,
+            "eligibility_reason": "eligible",
+            "quality_reason": "passed",
+            "rank_vector_changed": True,
+            "config_distance": 3.62905,
+            "min_config_distance": 0.08,
+        },
+    }
+
+    readiness = restart_readiness_summary(
+        recommendation=recommendation,
+        lock={"active": False},
+        gates=gates,
+    )
+
+    assert readiness["ready"] is True
+    assert readiness["restart_candidate_active"] is True
+    assert readiness["restart_candidate_source"] == "stagnation_restart"
+    assert readiness["restart_candidate_frozen_primary_score"] == [0, 0, 0]
+    assert readiness["restart_candidate_baseline_frozen_primary_score"] == [0, 0, 0]
+    assert readiness["restart_candidate_primary_score_improved"] is False
+    assert readiness["restart_candidate_secondary_score_improved"] is True
+    assert readiness["restart_candidate_improvement_basis"] == "secondary"
+    assert readiness["experimental_navigation_eligible"] is True
+    assert readiness["experimental_navigation_eligibility_reason"] == "eligible"
+    assert readiness["experimental_navigation_config_distance"] == 3.62905
+    assert readiness["experimental_navigation_min_config_distance"] == 0.08
+
+
 def test_load_supervisor_status_reads_current_progress(tmp_path):
     status_path = tmp_path / "training-supervisor-run-1.json"
     status_path.write_text(
@@ -924,6 +1025,24 @@ def test_render_markdown_includes_restart_readiness_when_restart_is_requested():
             "supervisor_progress_age_minutes": 2.0,
             "supervisor_progress_round": 34,
             "operator_action": "wait_for_active_training_supervisor_to_finish_or_stop_before_restart",
+            "restart_candidate_active": True,
+            "restart_candidate_source": "stagnation_restart",
+            "restart_candidate_reason": "rank_homogeneity_restart_changed_rank_vector",
+            "restart_candidate_rank_vector_changed": True,
+            "restart_candidate_changed_target_count": 100,
+            "restart_candidate_full_eval_rank": 13,
+            "restart_candidate_frozen_primary_score": [0, 0, 0],
+            "restart_candidate_baseline_frozen_primary_score": [0, 0, 0],
+            "restart_candidate_primary_score_improved": False,
+            "restart_candidate_secondary_score_improved": True,
+            "restart_candidate_improvement_basis": "secondary",
+            "restart_candidate_tail_over_1000000_delta": -2,
+            "experimental_navigation_eligible": True,
+            "experimental_navigation_eligibility_reason": "eligible",
+            "experimental_navigation_quality_reason": "passed",
+            "experimental_navigation_rank_vector_changed": True,
+            "experimental_navigation_config_distance": 3.62905,
+            "experimental_navigation_min_config_distance": 0.08,
         },
         "guardrail": "Historical response-surface monitoring only.",
     }
@@ -938,6 +1057,10 @@ def test_render_markdown_includes_restart_readiness_when_restart_is_requested():
         in markdown
     )
     assert "Lock owner/PID: training-supervisor / 12345" in markdown
+    assert "Restart candidate: active=True source=stagnation_restart" in markdown
+    assert "frozen_primary=[0, 0, 0] baseline_frozen_primary=[0, 0, 0]" in markdown
+    assert "primary_improved=False secondary_improved=True frontier_basis=secondary" in markdown
+    assert "Experimental navigation readiness: eligible=True reason=eligible quality=passed" in markdown
     assert "Lock age: 2.0 hours" in markdown
     assert "Heartbeat age: 1.5 minutes" in markdown
     assert "Supervisor progress fresh: True (age=2.0 minutes, round=34)" in markdown
