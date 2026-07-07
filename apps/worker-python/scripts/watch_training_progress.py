@@ -2067,6 +2067,9 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "supervisor_progress_fresh",
             "supervisor_progress_age_minutes",
             "supervisor_progress_round",
+            "supervisor_target_index",
+            "supervisor_target_total",
+            "supervisor_target_complete",
             "supervisor_run_mode",
             "supervisor_deadline",
         ):

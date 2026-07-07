@@ -203,6 +203,9 @@ def test_restart_readiness_surfaces_fresh_supervisor_progress(tmp_path):
     assert summary["restart_readiness"]["supervisor_progress_fresh"] is True
     assert summary["restart_readiness"]["supervisor_progress_age_minutes"] == 1.5
     assert summary["restart_readiness"]["supervisor_progress_round"] == 42
+    assert summary["restart_readiness"]["supervisor_target_index"] == 17
+    assert summary["restart_readiness"]["supervisor_target_total"] == 100
+    assert summary["restart_readiness"]["supervisor_target_complete"] is False
     assert "Supervisor progress fresh: True (threshold 30 minutes)" in markdown
     assert "Supervisor progress round: 42" in markdown
     assert "Supervisor target progress: 17 / 100 complete=False" in markdown
@@ -270,6 +273,9 @@ def test_restart_readiness_marks_continuous_supervisor_for_operator_review(tmp_p
     assert readiness["supervisor_run_mode"] == "continuous"
     assert readiness["supervisor_deadline"] is None
     assert summary["restart_readiness"]["supervisor_run_mode"] == "continuous"
+    assert summary["restart_readiness"]["supervisor_target_index"] == 100
+    assert summary["restart_readiness"]["supervisor_target_total"] == 100
+    assert summary["restart_readiness"]["supervisor_target_complete"] is True
     assert (
         summary["restart_readiness"]["operator_action"]
         == "operator_review_then_stop_continuous_training_supervisor_before_restart"
@@ -312,6 +318,9 @@ def test_cli_summary_includes_restart_readiness_when_restart_is_requested(tmp_pa
             "owner": "training-supervisor",
             "pid": 12345,
             "heartbeat_age_minutes": 1.5,
+            "supervisor_target_index": 100,
+            "supervisor_target_total": 100,
+            "supervisor_target_complete": True,
         },
     }
 
@@ -337,6 +346,9 @@ def test_cli_summary_includes_restart_readiness_when_restart_is_requested(tmp_pa
         "owner": "training-supervisor",
         "pid": 12345,
         "heartbeat_age_minutes": 1.5,
+        "supervisor_target_index": 100,
+        "supervisor_target_total": 100,
+        "supervisor_target_complete": True,
     }
 
 
