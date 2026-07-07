@@ -1325,7 +1325,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         round_stats=round_stats,
         supervisor_status=supervisor_status,
     )
-    return {
+    payload = {
         "generated_at": isoformat(generated_at),
         "run_id": resolved_run_id,
         "round_limit": limit,
@@ -1369,6 +1369,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         ),
         "guardrail": "Historical response-surface monitoring only; no predictive claim and no automatic promotion without controls.",
     }
+    return attach_operator_summary(payload)
 
 
 def render_markdown(payload: dict[str, Any]) -> str:
@@ -1729,6 +1730,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
 
 def write_outputs(payload: dict[str, Any], output_dir: Path) -> tuple[Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    payload = attach_operator_summary(payload)
     stamp = utc_stamp()
     run_id = safe_filename_component(payload.get("run_id"))
     json_path = output_dir / f"training-watch-{run_id}-{stamp}.json"
@@ -1823,7 +1825,7 @@ def cli_evidence_context_summary(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def cli_summary(payload: dict[str, Any], json_path: Path, md_path: Path) -> dict[str, Any]:
+def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
     recommendation = (
         payload.get("recommendation")
         if isinstance(payload.get("recommendation"), dict)
@@ -1835,8 +1837,6 @@ def cli_summary(payload: dict[str, Any], json_path: Path, md_path: Path) -> dict
         "round_window_count": payload.get("round_window_count"),
         "severity": recommendation.get("severity"),
         "action": recommendation.get("action"),
-        "json_path": str(json_path),
-        "report_path": str(md_path),
     }
     evidence_context = cli_evidence_context_summary(payload)
     if evidence_context:
@@ -1926,6 +1926,21 @@ def cli_summary(payload: dict[str, Any], json_path: Path, md_path: Path) -> dict
             if restart_readiness.get(key) is not None:
                 readiness[key] = restart_readiness.get(key)
         summary["restart_readiness"] = readiness
+    return summary
+
+
+def attach_operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    summary = operator_summary(payload)
+    payload["operator_summary"] = summary
+    payload["severity"] = summary.get("severity")
+    payload["action"] = summary.get("action")
+    return payload
+
+
+def cli_summary(payload: dict[str, Any], json_path: Path, md_path: Path) -> dict[str, Any]:
+    summary = operator_summary(payload)
+    summary["json_path"] = str(json_path)
+    summary["report_path"] = str(md_path)
     return summary
 
 
