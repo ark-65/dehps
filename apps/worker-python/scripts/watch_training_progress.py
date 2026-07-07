@@ -1235,11 +1235,78 @@ def supervisor_progress_readiness_context(supervisor_status: dict[str, Any] | No
     }
 
 
+def restart_candidate_readiness_context(
+    gates: dict[str, dict[str, Any]] | None,
+) -> dict[str, Any]:
+    if not isinstance(gates, dict):
+        return {}
+    restart_champion = (
+        gates.get("rank_homogeneity_restart_champion")
+        if isinstance(gates.get("rank_homogeneity_restart_champion"), dict)
+        else {}
+    )
+    navigation = (
+        gates.get("experimental_navigation_candidate")
+        if isinstance(gates.get("experimental_navigation_candidate"), dict)
+        else {}
+    )
+    if not restart_champion and not navigation:
+        return {}
+
+    context: dict[str, Any] = {}
+    if restart_champion:
+        context.update(
+            {
+                "restart_candidate_active": bool(restart_champion.get("active")),
+                "restart_candidate_source": restart_champion.get("source"),
+                "restart_candidate_reason": restart_champion.get("reason"),
+                "restart_candidate_rank_vector_changed": restart_champion.get(
+                    "rank_vector_changed"
+                ),
+                "restart_candidate_changed_target_count": restart_champion.get(
+                    "changed_target_count"
+                ),
+                "restart_candidate_full_eval_rank": restart_champion.get("full_eval_rank"),
+                "restart_candidate_frozen_primary_score": restart_champion.get(
+                    "frozen_primary_score"
+                ),
+                "restart_candidate_baseline_frozen_primary_score": restart_champion.get(
+                    "baseline_frozen_primary_score"
+                ),
+                "restart_candidate_primary_score_improved": restart_champion.get(
+                    "source_frontier_primary_score_improved"
+                ),
+                "restart_candidate_secondary_score_improved": restart_champion.get(
+                    "source_frontier_secondary_score_improved"
+                ),
+                "restart_candidate_improvement_basis": restart_champion.get(
+                    "source_frontier_improvement_basis"
+                ),
+                "restart_candidate_tail_over_1000000_delta": restart_champion.get(
+                    "tail_over_1000000_delta"
+                ),
+            }
+        )
+    if navigation:
+        for key in (
+            "eligible",
+            "eligibility_reason",
+            "quality_reason",
+            "rank_vector_changed",
+            "config_distance",
+            "min_config_distance",
+        ):
+            if navigation.get(key) is not None:
+                context[f"experimental_navigation_{key}"] = navigation.get(key)
+    return {key: value for key, value in context.items() if value is not None}
+
+
 def restart_readiness_summary(
     *,
     recommendation: dict[str, Any],
     lock: dict[str, Any],
     supervisor_status: dict[str, Any] | None = None,
+    gates: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     raw_actions = recommendation.get("actions")
     actions = [str(item) for item in raw_actions] if isinstance(raw_actions, list) else []
@@ -1258,6 +1325,7 @@ def restart_readiness_summary(
         return result
 
     progress_context = supervisor_progress_readiness_context(supervisor_status)
+    candidate_context = restart_candidate_readiness_context(gates)
 
     blockers: list[str] = []
     lock_active = bool(lock.get("active"))
@@ -1303,6 +1371,7 @@ def restart_readiness_summary(
         "heartbeat_age_minutes": lock.get("heartbeat_age_minutes"),
     }
     result.update(progress_context)
+    result.update(candidate_context)
     return result
 
 
@@ -1465,6 +1534,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
             recommendation=recommendation,
             lock=lock,
             supervisor_status=supervisor_status,
+            gates=gates,
         ),
         "guardrail": "Historical response-surface monitoring only; no predictive claim and no automatic promotion without controls.",
     }
@@ -1637,6 +1707,36 @@ def render_markdown(payload: dict[str, Any]) -> str:
             heartbeat_age_line = (
                 f"- Heartbeat age: {restart_readiness.get('heartbeat_age_minutes')} minutes\n"
             )
+        restart_candidate_lines = ""
+        if restart_readiness.get("restart_candidate_active") is not None:
+            restart_candidate_lines += (
+                "- Restart candidate: "
+                f"active={restart_readiness.get('restart_candidate_active')} "
+                f"source={markdown_inline_text(restart_readiness.get('restart_candidate_source'))} "
+                f"reason={markdown_inline_text(restart_readiness.get('restart_candidate_reason'))} "
+                f"rank_vector_changed={restart_readiness.get('restart_candidate_rank_vector_changed')} "
+                f"changed_targets={restart_readiness.get('restart_candidate_changed_target_count')} "
+                f"full_eval_rank={restart_readiness.get('restart_candidate_full_eval_rank')}\n"
+            )
+            restart_candidate_lines += (
+                "- Restart candidate evidence: "
+                f"frozen_primary={restart_readiness.get('restart_candidate_frozen_primary_score')} "
+                f"baseline_frozen_primary={restart_readiness.get('restart_candidate_baseline_frozen_primary_score')} "
+                f"primary_improved={restart_readiness.get('restart_candidate_primary_score_improved')} "
+                f"secondary_improved={restart_readiness.get('restart_candidate_secondary_score_improved')} "
+                f"frontier_basis={markdown_inline_text(restart_readiness.get('restart_candidate_improvement_basis'))} "
+                f"tail1000000_delta={restart_readiness.get('restart_candidate_tail_over_1000000_delta')}\n"
+            )
+        if restart_readiness.get("experimental_navigation_eligible") is not None:
+            restart_candidate_lines += (
+                "- Experimental navigation readiness: "
+                f"eligible={restart_readiness.get('experimental_navigation_eligible')} "
+                f"reason={markdown_inline_text(restart_readiness.get('experimental_navigation_eligibility_reason'))} "
+                f"quality={markdown_inline_text(restart_readiness.get('experimental_navigation_quality_reason'))} "
+                f"rank_vector_changed={restart_readiness.get('experimental_navigation_rank_vector_changed')} "
+                f"config_distance={restart_readiness.get('experimental_navigation_config_distance')} "
+                f"min_config_distance={restart_readiness.get('experimental_navigation_min_config_distance')}\n"
+            )
         supervisor_progress_lines = ""
         if restart_readiness.get("supervisor_progress_fresh") is not None:
             if restart_readiness.get("supervisor_status") is not None:
@@ -1697,6 +1797,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
             f"- Heartbeat: {markdown_inline_text(restart_readiness.get('heartbeat_at'))}\n"
             f"{lock_age_line}"
             f"{heartbeat_age_line}"
+            f"{restart_candidate_lines}"
             f"{supervisor_progress_lines}\n"
         )
     supervisor_status = (
@@ -2072,6 +2173,24 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "supervisor_target_complete",
             "supervisor_run_mode",
             "supervisor_deadline",
+            "restart_candidate_active",
+            "restart_candidate_source",
+            "restart_candidate_reason",
+            "restart_candidate_rank_vector_changed",
+            "restart_candidate_changed_target_count",
+            "restart_candidate_full_eval_rank",
+            "restart_candidate_frozen_primary_score",
+            "restart_candidate_baseline_frozen_primary_score",
+            "restart_candidate_primary_score_improved",
+            "restart_candidate_secondary_score_improved",
+            "restart_candidate_improvement_basis",
+            "restart_candidate_tail_over_1000000_delta",
+            "experimental_navigation_eligible",
+            "experimental_navigation_eligibility_reason",
+            "experimental_navigation_quality_reason",
+            "experimental_navigation_rank_vector_changed",
+            "experimental_navigation_config_distance",
+            "experimental_navigation_min_config_distance",
         ):
             if restart_readiness.get(key) is not None:
                 readiness[key] = restart_readiness.get(key)
