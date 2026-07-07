@@ -287,6 +287,50 @@ def test_restart_readiness_marks_continuous_supervisor_for_operator_review(tmp_p
     )
 
 
+def test_restart_readiness_waits_for_continuous_supervisor_target_boundary():
+    recommendation = {
+        "action": "prepare_restart_with_more_exploration",
+        "actions": ["prepare_restart_with_more_exploration"],
+    }
+    lock = {
+        "active": True,
+        "owner": "training-supervisor",
+        "pid": 12345,
+        "pid_active": True,
+    }
+    supervisor_status = {
+        "available": True,
+        "status": "running",
+        "run_mode": "continuous",
+        "latest_progress": {
+            "round": 98,
+            "target_index": 30,
+            "target_total": 100,
+            "target_complete": False,
+            "age_minutes": 0.1,
+            "fresh": True,
+            "freshness_threshold_minutes": 30,
+        },
+    }
+
+    readiness = restart_readiness_summary(
+        recommendation=recommendation,
+        lock=lock,
+        supervisor_status=supervisor_status,
+    )
+
+    assert readiness["ready"] is False
+    assert readiness["status"] == "blocked_by_active_training_supervisor_lock"
+    assert (
+        readiness["operator_action"]
+        == "wait_for_continuous_training_supervisor_target_boundary_before_restart"
+    )
+    assert readiness["supervisor_run_mode"] == "continuous"
+    assert readiness["supervisor_target_index"] == 30
+    assert readiness["supervisor_target_total"] == 100
+    assert readiness["supervisor_target_complete"] is False
+
+
 def test_cli_summary_includes_restart_readiness_when_restart_is_requested(tmp_path):
     payload = {
         "run_id": "run-1",
