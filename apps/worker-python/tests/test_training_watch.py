@@ -294,7 +294,12 @@ def test_cli_summary_includes_restart_readiness_when_restart_is_requested(tmp_pa
             "rank_homogeneity_guardrail": {
                 "active": True,
                 "reason": "stale_rank_signature_cycle",
+                "stagnation_rounds": 34,
+                "stagnation_threshold": 16,
+                "window": 12,
+                "observed": 12,
                 "unique_signature_count": 1,
+                "max_unique_signatures": 4,
                 "signature_hashes": ["sig-a", "sig-b"],
             },
         },
@@ -316,7 +321,12 @@ def test_cli_summary_includes_restart_readiness_when_restart_is_requested(tmp_pa
     assert summary["action"] == "prepare_restart_with_more_exploration"
     assert summary["rank_homogeneity"] == {
         "reason": "stale_rank_signature_cycle",
+        "stagnation_rounds": 34,
+        "stagnation_threshold": 16,
+        "window": 12,
+        "observed": 12,
         "unique_signature_count": 1,
+        "max_unique_signatures": 4,
         "signature_hashes": ["sig-a", "sig-b"],
     }
     assert summary["restart_readiness"] == {
@@ -871,6 +881,8 @@ def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_mar
         "rank_homogeneity_guardrail": {
             "active": True,
             "reason": "stale_rank_signature_cycle",
+            "stagnation_rounds": 34,
+            "stagnation_threshold": 16,
             "window": 12,
             "observed": 12,
             "unique_signature_count": 1,
@@ -981,6 +993,11 @@ def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_mar
     assert gates["rank_homogeneity_restart_champion"]["source_frontier_secondary_score_improved"] is True
     assert gates["rank_homogeneity_restart_champion"]["source_frontier_improvement_basis"] == "secondary"
     assert gates["rank_homogeneity_restart_champion"]["unique_rank_signature_count"] == 3
+    assert gates["rank_homogeneity_guardrail"]["stagnation_rounds"] == 34
+    assert gates["rank_homogeneity_guardrail"]["stagnation_threshold"] == 16
+    assert gates["rank_homogeneity_guardrail"]["window"] == 12
+    assert gates["rank_homogeneity_guardrail"]["observed"] == 12
+    assert gates["rank_homogeneity_guardrail"]["max_unique_signatures"] == 4
     assert gates["rank_homogeneity_guardrail"]["signature_hashes"] == [
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -994,6 +1011,10 @@ def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_mar
     assert any("sources=unknown=3, stagnation_restart=1" in note for note in recommendation["notes"])
     assert any("issues=2026025=4" in note for note in recommendation["notes"])
     assert any(
+        "window=12 observed=12 unique_signatures=1/4 stagnation=34/16" in note
+        for note in recommendation["notes"]
+    )
+    assert any(
         "signature_hashes=[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, "
         "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb, "
         "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc, +1 more]"
@@ -1006,6 +1027,7 @@ def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_mar
     assert "sources=unknown=3, stagnation_restart=1" in markdown
     assert "issues=2026025=4" in markdown
     assert "Restart champion: active=True" in markdown
+    assert "window=12 observed=12 unique_signatures=1/4 stagnation=34/16" in markdown
     assert (
         "signature_hashes=[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, "
         "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb, "

@@ -858,6 +858,8 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
         result["rank_homogeneity_guardrail"] = {
             "active": bool(rank_homogeneity.get("active")),
             "reason": rank_homogeneity.get("reason"),
+            "stagnation_rounds": safe_int(rank_homogeneity.get("stagnation_rounds")),
+            "stagnation_threshold": safe_int(rank_homogeneity.get("stagnation_threshold")),
             "window": safe_int(rank_homogeneity.get("window")),
             "observed": safe_int(rank_homogeneity.get("observed")),
             "unique_signature_count": safe_int(rank_homogeneity.get("unique_signature_count")),
@@ -1069,7 +1071,12 @@ def recommendation_summary(
         notes.append(
             "Rank homogeneity guardrail is active: "
             f"{rank_homogeneity.get('reason')} "
-            f"unique_signatures={rank_homogeneity.get('unique_signature_count')} "
+            f"window={rank_homogeneity.get('window')} "
+            f"observed={rank_homogeneity.get('observed')} "
+            f"unique_signatures={rank_homogeneity.get('unique_signature_count')}/"
+            f"{rank_homogeneity.get('max_unique_signatures')} "
+            f"stagnation={rank_homogeneity.get('stagnation_rounds')}/"
+            f"{rank_homogeneity.get('stagnation_threshold')} "
             f"signature_hashes={signature_hashes}."
         )
     restart_champion = (
@@ -1450,7 +1457,12 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 "- Rank homogeneity: "
                 f"active={rank_homogeneity.get('active')} "
                 f"reason={markdown_inline_text(rank_homogeneity.get('reason'))} "
-                f"unique_signatures={rank_homogeneity.get('unique_signature_count')} "
+                f"window={rank_homogeneity.get('window')} "
+                f"observed={rank_homogeneity.get('observed')} "
+                f"unique_signatures={rank_homogeneity.get('unique_signature_count')}/"
+                f"{rank_homogeneity.get('max_unique_signatures')} "
+                f"stagnation={rank_homogeneity.get('stagnation_rounds')}/"
+                f"{rank_homogeneity.get('stagnation_threshold')} "
                 f"signature_hashes={markdown_inline_text(signature_hashes)}"
             )
         if restart_champion:
@@ -1852,11 +1864,21 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
         else {}
     )
     if rank_homogeneity.get("active"):
-        summary["rank_homogeneity"] = {
+        rank_summary: dict[str, Any] = {
             "reason": rank_homogeneity.get("reason"),
             "unique_signature_count": rank_homogeneity.get("unique_signature_count"),
             "signature_hashes": rank_homogeneity.get("signature_hashes") or [],
         }
+        for key in (
+            "stagnation_rounds",
+            "stagnation_threshold",
+            "window",
+            "observed",
+            "max_unique_signatures",
+        ):
+            if rank_homogeneity.get(key) is not None:
+                rank_summary[key] = rank_homogeneity.get(key)
+        summary["rank_homogeneity"] = rank_summary
     restart_champion = (
         gates.get("rank_homogeneity_restart_champion")
         if isinstance(gates.get("rank_homogeneity_restart_champion"), dict)
