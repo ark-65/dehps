@@ -1340,6 +1340,14 @@ def restart_readiness_summary(
         if (
             progress_context.get("supervisor_progress_fresh") is True
             and progress_context.get("supervisor_run_mode") == "continuous"
+            and progress_context.get("supervisor_target_complete") is False
+        ):
+            operator_action = (
+                "wait_for_continuous_training_supervisor_target_boundary_before_restart"
+            )
+        elif (
+            progress_context.get("supervisor_progress_fresh") is True
+            and progress_context.get("supervisor_run_mode") == "continuous"
         ):
             operator_action = "operator_review_then_stop_continuous_training_supervisor_before_restart"
         elif progress_context.get("supervisor_progress_fresh") is True:
