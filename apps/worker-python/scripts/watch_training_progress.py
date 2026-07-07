@@ -190,6 +190,15 @@ def compact_inline_list(value: Any, *, limit: int = 5) -> str:
     return "[" + ", ".join(parts) + "]"
 
 
+def compact_observed_fields(fields: list[tuple[str, Any]]) -> str:
+    parts = []
+    for label, value in fields:
+        if value is None or value == "":
+            continue
+        parts.append(f"{label}={value}")
+    return " ".join(parts)
+
+
 def safe_string_list(value: Any, *, limit: int = 8) -> list[str]:
     if not isinstance(value, list) or limit <= 0:
         return []
@@ -1157,15 +1166,25 @@ def recommendation_summary(
         else {}
     )
     if navigation.get("eligible") is False:
-        notes.append(
-            "Experimental navigation candidate is not search-base eligible: "
-            f"source={navigation.get('source')} "
-            f"reason={navigation.get('eligibility_reason')} "
-            f"quality={navigation.get('quality_reason')} "
-            f"rank_vector_changed={navigation.get('rank_vector_changed')} "
-            f"config_distance={navigation.get('config_distance')} "
-            f"min_config_distance={navigation.get('min_config_distance')}."
+        note_prefix = (
+            "No experimental navigation candidate is available:"
+            if navigation.get("eligibility_reason") == "no_experimental_navigation_candidate"
+            else "Experimental navigation candidate is not search-base eligible:"
         )
+        fields = [
+            ("source", navigation.get("source")),
+            ("reason", navigation.get("eligibility_reason")),
+            ("quality", navigation.get("quality_reason")),
+            ("rank_vector_changed", navigation.get("rank_vector_changed")),
+        ]
+        if navigation.get("config_distance") is not None:
+            fields.extend(
+                [
+                    ("config_distance", navigation.get("config_distance")),
+                    ("min_config_distance", navigation.get("min_config_distance")),
+                ]
+            )
+        notes.append(f"{note_prefix} {compact_observed_fields(fields)}.")
 
     if "prepare_restart_with_more_exploration" in actions and lock.get("active"):
         lock_age_hours = safe_float(lock.get("lock_age_hours"))
@@ -1559,22 +1578,31 @@ def render_markdown(payload: dict[str, Any]) -> str:
             )
         if navigation:
             navigation_details = [
-                "- Experimental navigation: "
-                f"source={markdown_inline_text(navigation.get('source'))} "
-                f"reason={markdown_inline_text(navigation.get('reason'))}"
+                "- Experimental navigation:"
             ]
-            for label, key in (
+            navigation_fields = [
+                ("source", "source"),
+                ("reason", "reason"),
                 ("eligible", "eligible"),
                 ("eligibility_reason", "eligibility_reason"),
                 ("quality", "quality_reason"),
                 ("rank_vector_changed", "rank_vector_changed"),
-                ("config_distance", "config_distance"),
-                ("min_config_distance", "min_config_distance"),
-            ):
-                if navigation.get(key) is not None:
-                    navigation_details.append(
-                        f"{label}={markdown_inline_text(navigation.get(key))}"
-                    )
+            ]
+            if navigation.get("config_distance") is not None:
+                navigation_fields.extend(
+                    [
+                        ("config_distance", "config_distance"),
+                        ("min_config_distance", "min_config_distance"),
+                    ]
+                )
+            navigation_details.append(
+                compact_observed_fields(
+                    [
+                        (label, markdown_inline_text(navigation.get(key)))
+                        for label, key in navigation_fields
+                    ]
+                )
+            )
             gate_lines.append(" ".join(navigation_details))
         if decision:
             blocked_sources = compact_inline_list(decision.get("blocked_candidate_sources"))

@@ -528,6 +528,66 @@ def test_gate_summary_surfaces_ineligible_navigation_distance():
     assert "config_distance=0.006042 min_config_distance=0.08" in markdown
 
 
+def test_recommendation_omits_missing_navigation_distance_when_no_candidate():
+    now = datetime(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+    prefilter = {
+        "experimental_navigation_candidate": {
+            "source": "",
+            "reason": "no_experimental_navigation_candidate",
+            "config_hash": "",
+        },
+        "search_base": {
+            "exploration_navigation_eligible": False,
+            "exploration_navigation_quality_reason": "missing_candidate_or_baseline",
+            "exploration_navigation_rank_vector_changed": False,
+            "min_config_distance": 0.08,
+        },
+    }
+
+    gates = gate_summary(prefilter)
+    recommendation = recommendation_summary(
+        rows=[{"round_index": 7, "improved": False, "updated_at": now}],
+        lock={"active": True, "owner": "training-supervisor"},
+        advisors={"neural_kdj_advisor": {"candidate_count": 0}},
+        gates=gates,
+        now=now,
+        stale_minutes=30,
+        round_stats={"stagnation_rounds": 7},
+    )
+    payload = {
+        "generated_at": "2026-06-18T10:00:00Z",
+        "run_id": "run-1",
+        "round_count": 7,
+        "latest_round": 7,
+        "last_improved_round": None,
+        "stagnation_rounds": 7,
+        "latest_metrics": {},
+        "advisor_summary": {},
+        "gate_summary": gates,
+        "heavy_job_lock": {"active": True},
+        "recommendation": recommendation,
+        "guardrail": "Historical response-surface monitoring only.",
+    }
+
+    note = next(
+        note
+        for note in recommendation["notes"]
+        if note.startswith("No experimental navigation candidate is available:")
+    )
+    markdown = render_markdown(payload)
+
+    assert "reason=no_experimental_navigation_candidate" in note
+    assert "quality=missing_candidate_or_baseline" in note
+    assert "rank_vector_changed=False" in note
+    assert "source=" not in note
+    assert "config_distance" not in note
+    assert "min_config_distance" not in note
+    assert "Experimental navigation: reason=no_experimental_navigation_candidate" in markdown
+    assert "source=" not in markdown
+    assert "config_distance" not in markdown
+    assert "min_config_distance" not in markdown
+
+
 def test_restart_readiness_reports_operator_action_for_non_training_lock():
     recommendation = {
         "action": "prepare_restart_with_more_exploration",
