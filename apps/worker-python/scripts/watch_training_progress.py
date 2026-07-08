@@ -1186,6 +1186,31 @@ def recommendation_summary(
             )
         notes.append(f"{note_prefix} {compact_observed_fields(fields)}.")
 
+    decision = (
+        gates.get("decision_round_best")
+        if isinstance(gates.get("decision_round_best"), dict)
+        else {}
+    )
+    if decision and (restart_champion.get("active") or navigation.get("source")):
+        blocked_sources = decision.get("blocked_candidate_sources")
+        fields = [
+            ("selected_source", decision.get("source")),
+            ("selected_reason", decision.get("reason")),
+            ("selected_frozen_primary", decision.get("selected_frozen_primary_score")),
+            ("navigation_source", navigation.get("source")),
+            ("navigation_eligible", navigation.get("eligible")),
+            (
+                "navigation_reason",
+                navigation.get("eligibility_reason") or navigation.get("reason"),
+            ),
+            ("restart_source", restart_champion.get("source")),
+            ("restart_frozen_primary", restart_champion.get("frozen_primary_score")),
+            ("restart_frontier_basis", restart_champion.get("source_frontier_improvement_basis")),
+        ]
+        if isinstance(blocked_sources, list) and blocked_sources:
+            fields.append(("blocked_sources", compact_inline_list(blocked_sources)))
+        notes.append(f"Recovery decision: {compact_observed_fields(fields)}.")
+
     if "prepare_restart_with_more_exploration" in actions and lock.get("active"):
         lock_age_hours = safe_float(lock.get("lock_age_hours"))
         heartbeat_age_minutes = safe_float(lock.get("heartbeat_age_minutes"))
