@@ -12,6 +12,7 @@ from dehps.optimization.next_candidates import (
     build_training_next_candidate_snapshot,
     dynamic_kdj_regression_summary,
     dynamic_kdj_config_for_next,
+    dynamic_kdj_strength_sweep_training_summary,
     load_best_training_summary,
     next_issue_hint,
     refresh_training_prediction_lines_current,
@@ -208,6 +209,29 @@ def test_dynamic_kdj_config_for_next_applies_only_prior_issue_signals():
     assert metadata["leakage_passed"] is True
 
 
+def test_dynamic_kdj_config_for_next_scales_offsets():
+    base_config = next_candidates.FrequencyRankerConfig(frequency_weight=0.30)
+
+    config, metadata = dynamic_kdj_config_for_next(
+        base_config=base_config,
+        target_issue="2026069",
+        offset_scale=0.5,
+        signals=[
+            {
+                "issue": "2026067",
+                "weight_name": "frequency_weight",
+                "recommended_offset": 0.02,
+                "j_value": 65.0,
+                "objective_delta": 1.0,
+            },
+        ],
+    )
+
+    assert round(config.frequency_weight, 6) == 0.31
+    assert metadata["thresholds"]["offset_scale"] == 0.5
+    assert metadata["applied_offsets"] == {"frequency_weight": 0.01}
+
+
 def test_dynamic_kdj_regression_summary_runs_per_target_without_future_signals(monkeypatch):
     history = [
         ("2026061", date(2026, 6, 1), (1, 2, 3, 4, 5, 6)),
@@ -265,6 +289,49 @@ def test_dynamic_kdj_regression_summary_runs_per_target_without_future_signals(m
     assert summary["fallback_target_count"] == 1
     assert summary["latest_signal_issue"] == "2026063"
     assert summary["leakage_passed"] is True
+
+
+def test_dynamic_kdj_strength_sweep_training_summary_selects_best_strength(monkeypatch):
+    history = [
+        ("2026061", date(2026, 6, 1), (1, 2, 3, 4, 5, 6)),
+        ("2026062", date(2026, 6, 3), (2, 3, 4, 5, 6, 7)),
+        ("2026063", date(2026, 6, 5), (3, 4, 5, 6, 7, 8)),
+        ("2026064", date(2026, 6, 7), (4, 5, 6, 7, 8, 9)),
+    ]
+
+    def fake_rank_target_grid_with_red5(**kwargs):
+        ranks = [1000, 500, 80, 9000]
+        return [(rank, 0.5, SimpleNamespace(rank=rank + 10)) for rank in ranks[: len(kwargs["configs"])]]
+
+    monkeypatch.setattr(next_candidates, "rank_target_grid_with_red5", fake_rank_target_grid_with_red5)
+
+    payload = dynamic_kdj_strength_sweep_training_summary(
+        history=history,
+        base_config=next_candidates.FrequencyRankerConfig(frequency_weight=0.30),
+        signals=[
+            {
+                "issue": "2026062",
+                "weight_name": "frequency_weight",
+                "recommended_offset": 0.02,
+                "j_value": 65.0,
+                "objective_delta": 1.0,
+            },
+        ],
+        ranked_universe=[object()],
+        train_mode="rolling",
+        train_window=2,
+        eval_window=2,
+        top_n=10000,
+        strength_values=(0.0, 0.25, 0.5, 1.0),
+    )
+
+    assert payload["status"] == "evaluated"
+    assert payload["selected_strength"] == 0.5
+    assert len(payload["rows"]) == 4
+    assert payload["selected_summary"]["top_100_hits"] == 2
+    assert payload["selected_summary"]["red5"]["top_100_hits"] == 2
+    assert payload["selected_summary"]["as_of_issue"] == "2026064"
+    assert payload["selected_summary"]["history_fingerprint"] == next_candidates.fingerprint_history(history)
 
 
 def test_dynamic_kdj_next_candidate_snapshot_includes_regression_summary(monkeypatch):

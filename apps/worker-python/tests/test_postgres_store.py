@@ -8,6 +8,7 @@ from dehps.storage.postgres_store import DEFAULT_SSQ_DRAW_SITE
 from dehps.storage.postgres_store import CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID
 from dehps.storage.postgres_store import ensure_training_next_candidates_current_schema
 from dehps.storage.postgres_store import ensure_training_prediction_line_regressions_schema
+from dehps.storage.postgres_store import ensure_training_line_round_results_schema
 from dehps.storage.postgres_store import ensure_training_target_weight_inversions_schema
 from dehps.storage.postgres_store import ensure_training_supervisor_best_schema
 from dehps.storage.postgres_store import ensure_training_weight_signals_schema
@@ -22,6 +23,7 @@ from dehps.storage.postgres_store import prune_stale_training_weight_signals
 from dehps.storage.postgres_store import replace_training_next_candidates_current
 from dehps.storage.postgres_store import upsert_training_target_weight_inversion
 from dehps.storage.postgres_store import upsert_training_prediction_line_regression
+from dehps.storage.postgres_store import upsert_training_line_round_result
 from dehps.storage.postgres_store import upsert_training_round_result
 from dehps.storage.postgres_store import upsert_training_supervisor_best
 from dehps.storage.postgres_store import upsert_training_weight_signal
@@ -194,6 +196,18 @@ def test_training_prediction_line_regressions_schema_uses_unique_regression_key(
     assert "regression_key TEXT NOT NULL UNIQUE" in schema_sql
     assert "exact_top_10000_hits INTEGER" in schema_sql
     assert any("idx_training_prediction_line_regressions_line_generated" in sql for sql, _params in conn.executed)
+
+
+def test_training_line_round_results_schema_uses_run_round_line_key():
+    conn = FakeConn([])
+
+    ensure_training_line_round_results_schema(conn)
+
+    schema_sql = conn.executed[0][0]
+    assert "CREATE TABLE IF NOT EXISTS training_line_round_results" in schema_sql
+    assert "UNIQUE (run_id, round_index, line_key)" in schema_sql
+    assert "policy_params JSONB" in schema_sql
+    assert any("idx_training_line_round_results_line_generated" in sql for sql, _params in conn.executed)
 
 
 def test_training_supervisor_best_schema_uses_protocol_history_key():
@@ -454,6 +468,60 @@ def test_upsert_training_prediction_line_regression_persists_comparison_metrics(
     assert params[16:22] == (1, 2, 4, 3, 5, 8)
     assert params[25:28] == (7, 93, True)
     assert '"fallback_static_base": false' in params[-2]
+
+
+def test_upsert_training_line_round_result_persists_dual_line_training_metrics():
+    conn = FakeConn([])
+
+    upsert_training_line_round_result(
+        conn,
+        {
+            "run_id": "run-1",
+            "round_index": 3,
+            "line_key": "dynamic_kdj",
+            "line_label": "Dynamic KDJ adjustment",
+            "line_kind": "dynamic_kdj_training",
+            "policy_key": "dynamic:config:strength:0.5",
+            "policy_params": {"offset_scale": 0.5},
+            "as_of_issue": "2026068",
+            "history_fingerprint": "history-current",
+            "train_mode": "expanding",
+            "train_window": 900,
+            "eval_window": 100,
+            "top_n": 10000,
+            "base_config_hash": "base-config-1",
+            "status": "evaluated",
+            "summary": {
+                "top_100_hits": 1,
+                "top_1000_hits": 2,
+                "top_10000_hits": 3,
+                "median_rank": 12345,
+                "best_rank": 88,
+                "worst_rank": 900000,
+                "fallback_target_count": 4,
+                "changed_target_count": 96,
+                "leakage_passed": True,
+                "red5": {"top_100_hits": 2, "top_1000_hits": 7, "top_10000_hits": 28},
+            },
+            "training_payload": {"selected_strength": 0.5},
+            "generated_at": "2026-06-18T09:00:00Z",
+        },
+    )
+
+    sql, params = conn.executed[-1]
+    assert "ON CONFLICT (run_id, round_index, line_key) DO UPDATE" in sql
+    assert params[:7] == (
+        "run-1",
+        3,
+        "dynamic_kdj",
+        "Dynamic KDJ adjustment",
+        "dynamic_kdj_training",
+        "dynamic:config:strength:0.5",
+        '{"offset_scale": 0.5}',
+    )
+    assert params[15:21] == (1, 2, 3, 2, 7, 28)
+    assert params[24:27] == (4, 96, True)
+    assert '"selected_strength": 0.5' in params[-2]
 
 
 def test_upsert_training_weight_signal_is_idempotent_by_run_issue_weight():

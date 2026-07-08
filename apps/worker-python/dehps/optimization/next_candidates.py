@@ -41,6 +41,8 @@ DYNAMIC_KDJ_LINE_LABEL = "Dynamic KDJ adjustment"
 PRIMARY_CONFIG_FIELDS = frozenset({"structural_weight", "frequency_weight", "omission_weight"})
 CONTEXT_CONFIG_FIELDS = tuple(field for field in CONFIG_WEIGHT_FIELDS if field not in PRIMARY_CONFIG_FIELDS)
 REGRESSION_PROTOCOL_VERSION = "dual-line-regression-100-v1"
+DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION = "dynamic-kdj-line-training-v1"
+DEFAULT_DYNAMIC_KDJ_STRENGTH_SWEEP = (0.0, 0.25, 0.5, 1.0)
 
 
 def next_issue_hint(issue: str | None) -> str:
@@ -179,6 +181,71 @@ def compact_static_regression_summary(best: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def regression_summary_from_ranks(
+    *,
+    line_key: str,
+    source: str,
+    eval_window: int,
+    configured_eval_window: int,
+    exact_ranks: list[int],
+    red5_ranks: list[int],
+    fallback_target_count: int,
+    changed_target_count: int,
+    leakage_passed: bool,
+    latest_signal_issue: str | None = None,
+    offset_scale: float | None = None,
+    top_n: int | None = None,
+) -> dict[str, Any]:
+    summary = {
+        "status": "evaluated" if exact_ranks else "skipped_insufficient_history",
+        "protocol": REGRESSION_PROTOCOL_VERSION,
+        "source": source,
+        "line_key": line_key,
+        "eval_window": eval_window,
+        "configured_eval_window": configured_eval_window,
+        "top_100_hits": sum(rank <= 100 for rank in exact_ranks),
+        "top_1000_hits": sum(rank <= 1000 for rank in exact_ranks),
+        "top_10000_hits": sum(rank <= 10000 for rank in exact_ranks),
+        "median_rank": median(exact_ranks) if exact_ranks else None,
+        "best_rank": min(exact_ranks) if exact_ranks else None,
+        "worst_rank": max(exact_ranks) if exact_ranks else None,
+        "red5": {
+            "eval_window": eval_window,
+            "top_100_hits": sum(rank <= 100 for rank in red5_ranks),
+            "top_1000_hits": sum(rank <= 1000 for rank in red5_ranks),
+            "top_10000_hits": sum(rank <= 10000 for rank in red5_ranks),
+            "median_rank": median(red5_ranks) if red5_ranks else None,
+            "best_rank": min(red5_ranks) if red5_ranks else None,
+        },
+        "fallback_target_count": fallback_target_count,
+        "changed_target_count": changed_target_count,
+        "leakage_passed": leakage_passed,
+        "latest_signal_issue": latest_signal_issue,
+        "legal_sample_space": TOTAL_SSQ_RED_COMBINATIONS,
+    }
+    if offset_scale is not None:
+        summary["offset_scale"] = round(float(offset_scale), 8)
+    if top_n is not None:
+        summary["top_n"] = int(top_n)
+    return summary
+
+
+def regression_training_sort_key(summary: dict[str, Any]) -> tuple:
+    red5 = summary.get("red5") if isinstance(summary.get("red5"), dict) else {}
+    return (
+        int(summary.get("top_100_hits") or 0),
+        int(summary.get("top_1000_hits") or 0),
+        int(red5.get("top_100_hits") or 0),
+        int(red5.get("top_1000_hits") or 0),
+        int(summary.get("top_10000_hits") or 0),
+        int(red5.get("top_10000_hits") or 0),
+        -float(summary.get("worst_rank") or 0),
+        -float(summary.get("median_rank") or 0),
+        -float(summary.get("best_rank") or 0),
+        float(summary.get("offset_scale") or 0.0),
+    )
+
+
 def regression_target_indexes(*, history_len: int, train_window: int, eval_window: int) -> range:
     if train_window < 1:
         raise ValueError("train_window must be at least 1")
@@ -199,6 +266,7 @@ def dynamic_kdj_regression_summary(
     train_window: int,
     eval_window: int,
     top_n: int,
+    offset_scale: float = 1.0,
 ) -> dict[str, Any]:
     indexes = list(regression_target_indexes(history_len=len(history), train_window=train_window, eval_window=eval_window))
     if not indexes:
@@ -240,6 +308,7 @@ def dynamic_kdj_regression_summary(
             base_config=base_config,
             signals=signals,
             target_issue=target_issue,
+            offset_scale=offset_scale,
         )
         if dynamic_metadata["fallback_static_base"]:
             fallback_target_count += 1
@@ -266,33 +335,189 @@ def dynamic_kdj_regression_summary(
         if red5_match is not None:
             red5_ranks.append(int(red5_match.rank))
 
+    return regression_summary_from_ranks(
+        line_key=DYNAMIC_KDJ_LINE_KEY,
+        source="dynamic_kdj_per_target",
+        eval_window=len(exact_ranks),
+        configured_eval_window=eval_window,
+        exact_ranks=exact_ranks,
+        red5_ranks=red5_ranks,
+        fallback_target_count=fallback_target_count,
+        changed_target_count=changed_target_count,
+        leakage_passed=leakage_passed,
+        latest_signal_issue=latest_signal_issue,
+        offset_scale=offset_scale,
+        top_n=top_n,
+    )
+
+
+def normalize_strength_sweep(strength_values: tuple[float, ...] | list[float] | None = None) -> tuple[float, ...]:
+    values = DEFAULT_DYNAMIC_KDJ_STRENGTH_SWEEP if strength_values is None else tuple(strength_values)
+    normalized = {round(max(0.0, float(value)), 8) for value in values}
+    normalized.add(0.0)
+    normalized.add(1.0)
+    return tuple(sorted(normalized))
+
+
+def dynamic_kdj_strength_sweep_training_summary(
+    *,
+    history: list[HistoryDraw],
+    base_config: FrequencyRankerConfig,
+    signals: list[dict[str, Any]],
+    ranked_universe: Any,
+    train_mode: str,
+    train_window: int,
+    eval_window: int,
+    top_n: int,
+    strength_values: tuple[float, ...] | list[float] | None = None,
+) -> dict[str, Any]:
+    strengths = normalize_strength_sweep(strength_values)
+    indexes = list(regression_target_indexes(history_len=len(history), train_window=train_window, eval_window=eval_window))
+    if not indexes:
+        return {
+            "status": "skipped_insufficient_history",
+            "protocol": DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
+            "line_key": DYNAMIC_KDJ_LINE_KEY,
+            "strengths": list(strengths),
+            "selected_strength": 0.0,
+            "selected_summary": regression_summary_from_ranks(
+                line_key=DYNAMIC_KDJ_LINE_KEY,
+                source="dynamic_kdj_strength_sweep",
+                eval_window=0,
+                configured_eval_window=eval_window,
+                exact_ranks=[],
+                red5_ranks=[],
+                fallback_target_count=0,
+                changed_target_count=0,
+                leakage_passed=True,
+                offset_scale=0.0,
+                top_n=top_n,
+            ),
+            "rows": [],
+            "base_config_hash": config_hash(base_config),
+            "base_config": config_values(base_config),
+        }
+
+    exact_ranks_by_strength: dict[float, list[int]] = {strength: [] for strength in strengths}
+    red5_ranks_by_strength: dict[float, list[int]] = {strength: [] for strength in strengths}
+    fallback_counts: dict[float, int] = {strength: 0 for strength in strengths}
+    changed_counts: dict[float, int] = {strength: 0 for strength in strengths}
+    leakage_by_strength: dict[float, bool] = {strength: True for strength in strengths}
+    latest_signal_by_strength: dict[float, str | None] = {strength: None for strength in strengths}
+    as_of_issue = history_issue(history[-1])
+    history_fingerprint_value = fingerprint_history(history)
+
+    for target_index in indexes:
+        target_draw = history[target_index]
+        target_issue = history_issue(target_draw)
+        configs: list[FrequencyRankerConfig] = []
+        target_strengths: list[float] = []
+        for strength in strengths:
+            if strength == 0.0:
+                dynamic_config = base_config
+                dynamic_metadata = {
+                    "fallback_static_base": True,
+                    "leakage_passed": True,
+                    "latest_signal_issue": None,
+                }
+            else:
+                dynamic_config, dynamic_metadata = dynamic_kdj_config_for_next(
+                    base_config=base_config,
+                    signals=signals,
+                    target_issue=target_issue,
+                    offset_scale=strength,
+                )
+            if dynamic_metadata["fallback_static_base"]:
+                fallback_counts[strength] += 1
+            else:
+                changed_counts[strength] += 1
+            leakage_by_strength[strength] = leakage_by_strength[strength] and bool(dynamic_metadata["leakage_passed"])
+            signal_issue = dynamic_metadata.get("latest_signal_issue")
+            if signal_issue is not None and (
+                latest_signal_by_strength[strength] is None
+                or issue_sort_key(signal_issue) > issue_sort_key(latest_signal_by_strength[strength])
+            ):
+                latest_signal_by_strength[strength] = str(signal_issue)
+            configs.append(dynamic_config)
+            target_strengths.append(strength)
+
+        train_start = 0 if train_mode == "expanding" else max(0, target_index - train_window)
+        ranked_targets = rank_target_grid_with_red5(
+            target_numbers=history_numbers(target_draw),
+            train_history=history[train_start:target_index],
+            configs=tuple(configs),
+            ranked_universe=ranked_universe,
+            target_draw_date=history_draw_date(target_draw),
+            workers=1,
+            pool=None,
+        )
+        for strength, ranked_target in zip(target_strengths, ranked_targets, strict=True):
+            rank, _score, red5_match = ranked_target
+            exact_ranks_by_strength[strength].append(int(rank))
+            if red5_match is not None:
+                red5_ranks_by_strength[strength].append(int(red5_match.rank))
+
+    summaries = [
+        regression_summary_from_ranks(
+            line_key=DYNAMIC_KDJ_LINE_KEY,
+            source="dynamic_kdj_strength_sweep",
+            eval_window=len(exact_ranks_by_strength[strength]),
+            configured_eval_window=eval_window,
+            exact_ranks=exact_ranks_by_strength[strength],
+            red5_ranks=red5_ranks_by_strength[strength],
+            fallback_target_count=fallback_counts[strength],
+            changed_target_count=changed_counts[strength],
+            leakage_passed=leakage_by_strength[strength],
+            latest_signal_issue=latest_signal_by_strength[strength],
+            offset_scale=strength,
+            top_n=top_n,
+        )
+        for strength in strengths
+    ]
+    for summary in summaries:
+        summary["as_of_issue"] = as_of_issue
+        summary["history_fingerprint"] = history_fingerprint_value
+        summary["base_config_hash"] = config_hash(base_config)
+    selected_summary = max(summaries, key=regression_training_sort_key)
+    selected_strength = float(selected_summary.get("offset_scale") or 0.0)
+    rows = [
+        {
+            "strength": float(summary.get("offset_scale") or 0.0),
+            "top_100_hits": int(summary.get("top_100_hits") or 0),
+            "top_1000_hits": int(summary.get("top_1000_hits") or 0),
+            "top_10000_hits": int(summary.get("top_10000_hits") or 0),
+            "red5_top_100_hits": int((summary.get("red5") or {}).get("top_100_hits") or 0)
+            if isinstance(summary.get("red5"), dict)
+            else 0,
+            "red5_top_1000_hits": int((summary.get("red5") or {}).get("top_1000_hits") or 0)
+            if isinstance(summary.get("red5"), dict)
+            else 0,
+            "red5_top_10000_hits": int((summary.get("red5") or {}).get("top_10000_hits") or 0)
+            if isinstance(summary.get("red5"), dict)
+            else 0,
+            "median_rank": summary.get("median_rank"),
+            "best_rank": summary.get("best_rank"),
+            "worst_rank": summary.get("worst_rank"),
+            "fallback_target_count": int(summary.get("fallback_target_count") or 0),
+            "changed_target_count": int(summary.get("changed_target_count") or 0),
+            "leakage_passed": bool(summary.get("leakage_passed")),
+        }
+        for summary in summaries
+    ]
     return {
         "status": "evaluated",
-        "protocol": REGRESSION_PROTOCOL_VERSION,
-        "source": "dynamic_kdj_per_target",
+        "protocol": DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
         "line_key": DYNAMIC_KDJ_LINE_KEY,
-        "eval_window": len(exact_ranks),
+        "selection_method": "regression_training_sort_key",
+        "strengths": list(strengths),
+        "selected_strength": selected_strength,
+        "selected_summary": selected_summary,
+        "rows": rows,
+        "base_config_hash": config_hash(base_config),
+        "base_config": config_values(base_config),
+        "eval_window": len(indexes),
         "configured_eval_window": eval_window,
-        "top_100_hits": sum(rank <= 100 for rank in exact_ranks),
-        "top_1000_hits": sum(rank <= 1000 for rank in exact_ranks),
-        "top_10000_hits": sum(rank <= 10000 for rank in exact_ranks),
-        "median_rank": median(exact_ranks) if exact_ranks else None,
-        "best_rank": min(exact_ranks) if exact_ranks else None,
-        "worst_rank": max(exact_ranks) if exact_ranks else None,
-        "red5": {
-            "eval_window": len(exact_ranks),
-            "top_100_hits": sum(rank <= 100 for rank in red5_ranks),
-            "top_1000_hits": sum(rank <= 1000 for rank in red5_ranks),
-            "top_10000_hits": sum(rank <= 10000 for rank in red5_ranks),
-            "median_rank": median(red5_ranks) if red5_ranks else None,
-            "best_rank": min(red5_ranks) if red5_ranks else None,
-        },
-        "fallback_target_count": fallback_target_count,
-        "changed_target_count": changed_target_count,
-        "leakage_passed": leakage_passed,
-        "latest_signal_issue": latest_signal_issue,
         "legal_sample_space": TOTAL_SSQ_RED_COMBINATIONS,
-        "top_n": top_n,
     }
 
 
@@ -505,11 +730,13 @@ def dynamic_kdj_config_for_next(
     base_config: FrequencyRankerConfig,
     signals: list[dict[str, Any]],
     target_issue: str,
+    offset_scale: float = 1.0,
     min_objective_delta: float = 0.0,
     min_abs_offset: float = 0.005,
     slope_window: int = 3,
     neutral_band: float = 5.0,
 ) -> tuple[FrequencyRankerConfig, dict[str, Any]]:
+    scale = max(0.0, float(offset_scale))
     eligible = [signal for signal in signals if issue_less_than(signal.get("issue"), target_issue)]
     excluded = len(signals) - len(eligible)
     advice = weight_kdj_advice_from_signals(
@@ -529,7 +756,9 @@ def dynamic_kdj_config_for_next(
         if item.weight_name in applied_fields:
             continue
         applied_fields.add(item.weight_name)
-        offset = float(item.applied_offset)
+        offset = float(item.applied_offset) * scale
+        if not offset:
+            continue
         values[item.weight_name] = float(values[item.weight_name]) + offset
         applied_offsets[item.weight_name] = offset
 
@@ -544,6 +773,7 @@ def dynamic_kdj_config_for_next(
         leakage_passed = leakage_passed and issue_less_than(latest_signal_issue, target_issue)
     metadata = {
         "thresholds": {
+            "offset_scale": scale,
             "min_objective_delta": min_objective_delta,
             "min_abs_offset": min_abs_offset,
             "slope_window": slope_window,
@@ -568,6 +798,7 @@ def build_dynamic_kdj_next_candidate_snapshot(
     top_n: int = 10000,
     ranked_universe: Any | None = None,
     signal_run_id: str | None = None,
+    dynamic_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if top_n < 1:
         raise ValueError("top_n must be at least 1")
@@ -583,7 +814,15 @@ def build_dynamic_kdj_next_candidate_snapshot(
     target_draw_date = infer_next_ssq_draw_date(history)
     current_history_fingerprint = fingerprint_history(history)
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    base_config = FrequencyRankerConfig(**best["config"])
+    policy = dynamic_policy if isinstance(dynamic_policy, dict) else {}
+    policy_base_config = policy.get("base_config") if isinstance(policy.get("base_config"), dict) else None
+    base_config_values = {
+        key: float(value)
+        for key, value in (policy_base_config or best["config"]).items()
+        if isinstance(value, int | float)
+    }
+    base_config = FrequencyRankerConfig(**base_config_values)
+    offset_scale = float(policy.get("offset_scale") if isinstance(policy.get("offset_scale"), int | float) else 1.0)
     signals = load_recent_training_weight_signals(
         conn,
         signal_run_id=signal_run_id or CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID,
@@ -597,9 +836,11 @@ def build_dynamic_kdj_next_candidate_snapshot(
         base_config=base_config,
         signals=signals,
         target_issue=next_issue,
+        offset_scale=offset_scale,
     )
     matrix = ranked_universe or build_ranked_universe()
-    regression_summary = dynamic_kdj_regression_summary(
+    policy_regression = policy.get("regression_summary") if isinstance(policy.get("regression_summary"), dict) else None
+    regression_summary = policy_regression or dynamic_kdj_regression_summary(
         history=history,
         base_config=base_config,
         signals=signals,
@@ -608,6 +849,7 @@ def build_dynamic_kdj_next_candidate_snapshot(
         train_window=best["train_window"],
         eval_window=best["eval_window"],
         top_n=best["top_n"],
+        offset_scale=offset_scale,
     )
     resolved_top_n = min(top_n, len(matrix))
     candidates = top_candidates_for_next(
@@ -623,8 +865,8 @@ def build_dynamic_kdj_next_candidate_snapshot(
         "line_label": DYNAMIC_KDJ_LINE_LABEL,
         "line_kind": "dynamic_kdj",
         "snapshot_key": f"training-next-dynamic-kdj-{latest_issue}-{config_hash(dynamic_config)[:12]}",
-        "run_id": best["run_id"],
-        "source_round_index": best["source_round_index"],
+        "run_id": str(policy.get("run_id") or best["run_id"]),
+        "source_round_index": int(policy.get("source_round_index") or best["source_round_index"]),
         "as_of_issue": latest_issue,
         "next_issue": next_issue,
         "next_draw_date": target_draw_date.isoformat() if target_draw_date else None,
@@ -653,7 +895,15 @@ def build_dynamic_kdj_next_candidate_snapshot(
             "line_label": DYNAMIC_KDJ_LINE_LABEL,
             "protocol": "dynamic_kdj_next_issue",
             "base_config_hash": config_hash(base_config),
-            "base_config": best["config"],
+            "base_config": base_config_values,
+            "dynamic_policy": {
+                "protocol": policy.get("protocol") or DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
+                "selection_method": policy.get("selection_method") or "fixed_strength",
+                "offset_scale": offset_scale,
+                "source_round_index": policy.get("source_round_index"),
+                "base_config_hash": config_hash(base_config),
+                "policy_key": policy.get("policy_key"),
+            },
             "signal_run_id": signal_run_id or CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID,
             "target_issue": next_issue,
             "legal_sample_space": TOTAL_SSQ_RED_COMBINATIONS,
@@ -703,6 +953,7 @@ def refresh_dynamic_kdj_next_candidates_current(
     top_n: int = 10000,
     ranked_universe: Any | None = None,
     signal_run_id: str | None = None,
+    dynamic_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     snapshot = build_dynamic_kdj_next_candidate_snapshot(
         conn,
@@ -710,6 +961,7 @@ def refresh_dynamic_kdj_next_candidates_current(
         top_n=top_n,
         ranked_universe=ranked_universe,
         signal_run_id=signal_run_id,
+        dynamic_policy=dynamic_policy,
     )
     replace_training_next_candidates_current(
         conn,
@@ -726,6 +978,7 @@ def refresh_training_prediction_lines_current(
     top_n: int = 10000,
     ranked_universe: Any | None = None,
     signal_run_id: str | None = None,
+    dynamic_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     matrix = ranked_universe or build_ranked_universe()
     static_snapshot = build_training_next_candidate_snapshot(
@@ -740,6 +993,7 @@ def refresh_training_prediction_lines_current(
         top_n=top_n,
         ranked_universe=matrix,
         signal_run_id=signal_run_id,
+        dynamic_policy=dynamic_policy,
     )
     replace_training_next_candidates_current(
         conn,

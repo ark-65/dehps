@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from math import comb
 from typing import Any
@@ -406,6 +406,61 @@ def ensure_training_prediction_line_regressions_schema(conn: Connection) -> None
         """
         CREATE INDEX IF NOT EXISTS idx_training_prediction_line_regressions_run_round
           ON training_prediction_line_regressions (run_id, source_round_index)
+        """
+    )
+
+
+def ensure_training_line_round_results_schema(conn: Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS training_line_round_results (
+          id BIGSERIAL PRIMARY KEY,
+          run_id TEXT NOT NULL,
+          round_index INTEGER NOT NULL,
+          line_key TEXT NOT NULL,
+          line_label TEXT NOT NULL,
+          line_kind TEXT NOT NULL,
+          policy_key TEXT NOT NULL,
+          policy_params JSONB NOT NULL DEFAULT '{}'::jsonb,
+          as_of_issue TEXT NOT NULL,
+          history_fingerprint TEXT NOT NULL,
+          train_mode TEXT NOT NULL,
+          train_window INTEGER NOT NULL,
+          eval_window INTEGER NOT NULL,
+          top_n INTEGER NOT NULL,
+          base_config_hash TEXT,
+          status TEXT NOT NULL,
+          exact_top_100_hits INTEGER NOT NULL DEFAULT 0,
+          exact_top_1000_hits INTEGER NOT NULL DEFAULT 0,
+          exact_top_10000_hits INTEGER NOT NULL DEFAULT 0,
+          red5_top_100_hits INTEGER NOT NULL DEFAULT 0,
+          red5_top_1000_hits INTEGER NOT NULL DEFAULT 0,
+          red5_top_10000_hits INTEGER NOT NULL DEFAULT 0,
+          median_rank NUMERIC(12,2),
+          best_rank INTEGER,
+          worst_rank INTEGER,
+          fallback_target_count INTEGER NOT NULL DEFAULT 0,
+          changed_target_count INTEGER NOT NULL DEFAULT 0,
+          leakage_passed BOOLEAN NOT NULL DEFAULT false,
+          summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+          training_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+          generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (run_id, round_index, line_key)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_training_line_round_results_line_generated
+          ON training_line_round_results (line_key, generated_at DESC)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_training_line_round_results_run_round
+          ON training_line_round_results (run_id, round_index)
         """
     )
 
@@ -981,6 +1036,92 @@ def upsert_training_prediction_line_regression(
             json.dumps(regression, ensure_ascii=False),
             json.dumps(prediction_metadata, ensure_ascii=False),
             metadata.get("generated_at"),
+        ),
+    )
+
+
+def upsert_training_line_round_result(conn: Connection, payload: dict[str, Any]) -> None:
+    ensure_training_line_round_results_schema(conn)
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    red5 = summary.get("red5") if isinstance(summary.get("red5"), dict) else {}
+    policy_params = payload.get("policy_params") if isinstance(payload.get("policy_params"), dict) else {}
+    training_payload = payload.get("training_payload") if isinstance(payload.get("training_payload"), dict) else {}
+    conn.execute(
+        """
+        INSERT INTO training_line_round_results (
+          run_id, round_index, line_key, line_label, line_kind, policy_key, policy_params,
+          as_of_issue, history_fingerprint, train_mode, train_window, eval_window, top_n,
+          base_config_hash, status,
+          exact_top_100_hits, exact_top_1000_hits, exact_top_10000_hits,
+          red5_top_100_hits, red5_top_1000_hits, red5_top_10000_hits,
+          median_rank, best_rank, worst_rank, fallback_target_count, changed_target_count,
+          leakage_passed, summary, training_payload, generated_at
+        )
+        VALUES (
+          %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s,
+          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s
+        )
+        ON CONFLICT (run_id, round_index, line_key) DO UPDATE
+        SET line_label = EXCLUDED.line_label,
+            line_kind = EXCLUDED.line_kind,
+            policy_key = EXCLUDED.policy_key,
+            policy_params = EXCLUDED.policy_params,
+            as_of_issue = EXCLUDED.as_of_issue,
+            history_fingerprint = EXCLUDED.history_fingerprint,
+            train_mode = EXCLUDED.train_mode,
+            train_window = EXCLUDED.train_window,
+            eval_window = EXCLUDED.eval_window,
+            top_n = EXCLUDED.top_n,
+            base_config_hash = EXCLUDED.base_config_hash,
+            status = EXCLUDED.status,
+            exact_top_100_hits = EXCLUDED.exact_top_100_hits,
+            exact_top_1000_hits = EXCLUDED.exact_top_1000_hits,
+            exact_top_10000_hits = EXCLUDED.exact_top_10000_hits,
+            red5_top_100_hits = EXCLUDED.red5_top_100_hits,
+            red5_top_1000_hits = EXCLUDED.red5_top_1000_hits,
+            red5_top_10000_hits = EXCLUDED.red5_top_10000_hits,
+            median_rank = EXCLUDED.median_rank,
+            best_rank = EXCLUDED.best_rank,
+            worst_rank = EXCLUDED.worst_rank,
+            fallback_target_count = EXCLUDED.fallback_target_count,
+            changed_target_count = EXCLUDED.changed_target_count,
+            leakage_passed = EXCLUDED.leakage_passed,
+            summary = EXCLUDED.summary,
+            training_payload = EXCLUDED.training_payload,
+            generated_at = EXCLUDED.generated_at,
+            updated_at = now()
+        """,
+        (
+            payload["run_id"],
+            int(payload["round_index"]),
+            payload["line_key"],
+            payload.get("line_label") or "",
+            payload.get("line_kind") or "",
+            payload.get("policy_key") or "",
+            json.dumps(policy_params, ensure_ascii=False),
+            payload["as_of_issue"],
+            payload["history_fingerprint"],
+            payload["train_mode"],
+            int(payload["train_window"]),
+            int(payload["eval_window"]),
+            int(payload["top_n"]),
+            payload.get("base_config_hash"),
+            payload.get("status") or summary.get("status") or "unknown",
+            int(summary.get("top_100_hits") or 0),
+            int(summary.get("top_1000_hits") or 0),
+            int(summary.get("top_10000_hits") or 0),
+            int(red5.get("top_100_hits") or 0),
+            int(red5.get("top_1000_hits") or 0),
+            int(red5.get("top_10000_hits") or 0),
+            summary.get("median_rank"),
+            summary.get("best_rank"),
+            summary.get("worst_rank"),
+            int(summary.get("fallback_target_count") or 0),
+            int(summary.get("changed_target_count") or 0),
+            bool(summary.get("leakage_passed", payload.get("leakage_passed", False))),
+            json.dumps(summary, ensure_ascii=False),
+            json.dumps(training_payload, ensure_ascii=False),
+            payload.get("generated_at") or datetime.now().isoformat(timespec="seconds"),
         ),
     )
 

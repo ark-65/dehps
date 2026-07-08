@@ -601,6 +601,147 @@ def load_round_stats(run_id: str) -> dict[str, Any]:
     }
 
 
+def default_line_progress() -> dict[str, Any]:
+    return {
+        "status": "not_available",
+        "latest_round": None,
+        "lines": {},
+        "comparison": {},
+    }
+
+
+def line_metric_vector(row: dict[str, Any], *, prefix: str) -> list[int | None]:
+    return [
+        safe_int(row.get(f"{prefix}_top_100_hits")),
+        safe_int(row.get(f"{prefix}_top_1000_hits")),
+        safe_int(row.get(f"{prefix}_top_10000_hits")),
+    ]
+
+
+def vector_delta(left: list[int | None], right: list[int | None]) -> list[int | None]:
+    deltas: list[int | None] = []
+    for left_value, right_value in zip(left, right, strict=True):
+        if left_value is None or right_value is None:
+            deltas.append(None)
+        else:
+            deltas.append(left_value - right_value)
+    return deltas
+
+
+def summarize_line_rounds(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    if not rows:
+        return default_line_progress()
+
+    by_line: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        line_key = str(row.get("line_key") or "")
+        if not line_key:
+            continue
+        by_line.setdefault(line_key, []).append(row)
+
+    latest_round = max(
+        (safe_int(row.get("round_index")) or 0 for row in rows),
+        default=None,
+    )
+    lines: dict[str, dict[str, Any]] = {}
+    for line_key, line_rows in sorted(by_line.items()):
+        latest = line_rows[-1]
+        exact = line_metric_vector(latest, prefix="exact")
+        red5 = line_metric_vector(latest, prefix="red5")
+        recent_exact_totals = [
+            sum(safe_int(row.get(name)) or 0 for row in line_rows)
+            for name in ("exact_top_100_hits", "exact_top_1000_hits", "exact_top_10000_hits")
+        ]
+        recent_red5_totals = [
+            sum(safe_int(row.get(name)) or 0 for row in line_rows)
+            for name in ("red5_top_100_hits", "red5_top_1000_hits", "red5_top_10000_hits")
+        ]
+        lines[line_key] = {
+            "line_key": line_key,
+            "line_label": latest.get("line_label"),
+            "line_kind": latest.get("line_kind"),
+            "round_index": safe_int(latest.get("round_index")),
+            "status": latest.get("status"),
+            "policy_key": latest.get("policy_key"),
+            "policy_params": latest.get("policy_params") if isinstance(latest.get("policy_params"), dict) else {},
+            "exact_top_100_1000_10000": exact,
+            "red5_top_100_1000_10000": red5,
+            "recent_round_count": len(line_rows),
+            "recent_exact_top_100_1000_10000_total": recent_exact_totals,
+            "recent_red5_top_100_1000_10000_total": recent_red5_totals,
+            "fallback_target_count": safe_int(latest.get("fallback_target_count")),
+            "changed_target_count": safe_int(latest.get("changed_target_count")),
+            "leakage_passed": latest.get("leakage_passed"),
+            "generated_at": isoformat(latest.get("generated_at")),
+            "updated_at": isoformat(latest.get("updated_at")),
+        }
+
+    comparison: dict[str, Any] = {}
+    baseline = lines.get("static_100")
+    dynamic = lines.get("dynamic_kdj")
+    if baseline and dynamic:
+        comparison = {
+            "baseline_line_key": "static_100",
+            "challenger_line_key": "dynamic_kdj",
+            "exact_delta_dynamic_minus_static": vector_delta(
+                dynamic["exact_top_100_1000_10000"],
+                baseline["exact_top_100_1000_10000"],
+            ),
+            "red5_delta_dynamic_minus_static": vector_delta(
+                dynamic["red5_top_100_1000_10000"],
+                baseline["red5_top_100_1000_10000"],
+            ),
+            "recent_exact_total_delta_dynamic_minus_static": vector_delta(
+                dynamic["recent_exact_top_100_1000_10000_total"],
+                baseline["recent_exact_top_100_1000_10000_total"],
+            ),
+            "recent_red5_total_delta_dynamic_minus_static": vector_delta(
+                dynamic["recent_red5_top_100_1000_10000_total"],
+                baseline["recent_red5_top_100_1000_10000_total"],
+            ),
+        }
+
+    return {
+        "status": "ready",
+        "latest_round": latest_round,
+        "lines": lines,
+        "comparison": comparison,
+    }
+
+
+def load_line_progress(run_id: str, *, limit: int) -> dict[str, Any]:
+    with get_connection() as conn:
+        table = conn.execute("SELECT to_regclass('public.training_line_round_results')").fetchone()
+        if not table or not table[0]:
+            return default_line_progress()
+        with conn.cursor(row_factory=dict_row) as cur:
+            rows = list(
+                cur.execute(
+                    """
+                    WITH recent_rounds AS (
+                        SELECT DISTINCT round_index
+                        FROM training_line_round_results
+                        WHERE run_id = %s
+                        ORDER BY round_index DESC
+                        LIMIT %s
+                    )
+                    SELECT line.run_id, line.round_index, line.line_key, line.line_label, line.line_kind,
+                           line.policy_key, line.policy_params, line.status,
+                           line.exact_top_100_hits, line.exact_top_1000_hits, line.exact_top_10000_hits,
+                           line.red5_top_100_hits, line.red5_top_1000_hits, line.red5_top_10000_hits,
+                           line.fallback_target_count, line.changed_target_count, line.leakage_passed,
+                           line.generated_at, line.updated_at
+                    FROM training_line_round_results line
+                    JOIN recent_rounds USING (round_index)
+                    WHERE line.run_id = %s
+                    ORDER BY line.round_index ASC, line.line_key ASC
+                    """,
+                    (run_id, limit, run_id),
+                ).fetchall()
+            )
+    return summarize_line_rounds(rows)
+
+
 def supervisor_progress_summary(progress: Any) -> dict[str, Any]:
     if not isinstance(progress, dict):
         return {}
@@ -1641,6 +1782,12 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
             round_stats = load_round_stats(resolved_run_id)
         except Exception as exc:
             db_read_errors.append(db_read_error_summary("load_round_stats", exc))
+    line_progress = default_line_progress()
+    if resolved_run_id:
+        try:
+            line_progress = load_line_progress(resolved_run_id, limit=limit)
+        except Exception as exc:
+            db_read_errors.append(db_read_error_summary("load_line_progress", exc))
     latest = rows[-1] if rows else {}
     prefilter = latest.get("prefilter") if isinstance(latest.get("prefilter"), dict) else {}
     advisors = advisor_summary(prefilter)
@@ -1712,6 +1859,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
             "best_objective_seen": round_stats["best_objective_seen"],
         },
         "candidate_budget": prefilter.get("candidate_budget") if isinstance(prefilter.get("candidate_budget"), dict) else {},
+        "line_progress": line_progress,
         "advisor_summary": advisors,
         "gate_summary": gates,
         "db_read_errors": db_read_errors,
@@ -1736,6 +1884,49 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         "guardrail": "Historical response-surface monitoring only; no predictive claim and no automatic promotion without controls.",
     }
     return attach_operator_summary(payload)
+
+
+def markdown_metric_vector(value: Any) -> str:
+    if not isinstance(value, (list, tuple)):
+        return ""
+    return " / ".join("" if item is None else str(item) for item in value[:3])
+
+
+def render_line_progress_markdown(line_progress: Any) -> str:
+    if not isinstance(line_progress, dict) or line_progress.get("status") != "ready":
+        return ""
+    lines = line_progress.get("lines") if isinstance(line_progress.get("lines"), dict) else {}
+    if not lines:
+        return ""
+    rows = "\n".join(
+        "| "
+        f"{markdown_inline_code(line_key)} | "
+        f"{line.get('round_index')} | "
+        f"{markdown_inline_text(markdown_metric_vector(line.get('exact_top_100_1000_10000')))} | "
+        f"{markdown_inline_text(markdown_metric_vector(line.get('red5_top_100_1000_10000')))} | "
+        f"{markdown_inline_text(markdown_metric_vector(line.get('recent_exact_top_100_1000_10000_total')))} | "
+        f"{markdown_inline_text(markdown_metric_vector(line.get('recent_red5_top_100_1000_10000_total')))} | "
+        f"{markdown_inline_text(line.get('status'))} | "
+        f"{markdown_inline_text(line.get('policy_key'))} |"
+        for line_key, line in sorted(lines.items())
+        if isinstance(line, dict)
+    )
+    comparison = line_progress.get("comparison") if isinstance(line_progress.get("comparison"), dict) else {}
+    comparison_line = ""
+    if comparison:
+        comparison_line = (
+            "\nDynamic minus static latest exact delta: "
+            f"{markdown_inline_text(markdown_metric_vector(comparison.get('exact_delta_dynamic_minus_static')))}; "
+            "red5 delta: "
+            f"{markdown_inline_text(markdown_metric_vector(comparison.get('red5_delta_dynamic_minus_static')))}.\n"
+        )
+    return f"""## Line Progress
+
+| Line | Round | Exact Top100/1000/10000 | Red5 Top100/1000/10000 | Recent exact total | Recent red5 total | Status | Policy |
+| --- | ---: | ---: | ---: | ---: | ---: | --- | --- |
+{rows}
+{comparison_line}
+"""
 
 
 def render_markdown(payload: dict[str, Any]) -> str:
@@ -2004,6 +2195,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
             f"{restart_candidate_lines}"
             f"{supervisor_progress_lines}\n"
         )
+    line_progress_section = render_line_progress_markdown(payload.get("line_progress"))
     supervisor_status = (
         payload.get("supervisor_status")
         if isinstance(payload.get("supervisor_status"), dict)
@@ -2172,6 +2364,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
 {advisor_rows}
 
 {gate_section}\
+{line_progress_section}\
 {restart_section}\
 {supervisor_section}\
 {evidence_section}\
@@ -2335,6 +2528,18 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "target_total": round_boundary.get("target_total"),
             "target_complete": round_boundary.get("target_complete"),
             "progress_fresh": round_boundary.get("progress_fresh"),
+        }
+    line_progress = (
+        payload.get("line_progress")
+        if isinstance(payload.get("line_progress"), dict)
+        else {}
+    )
+    if line_progress:
+        summary["line_progress"] = {
+            "status": line_progress.get("status"),
+            "latest_round": line_progress.get("latest_round"),
+            "lines": line_progress.get("lines") or {},
+            "comparison": line_progress.get("comparison") or {},
         }
     gates = (
         payload.get("gate_summary")
