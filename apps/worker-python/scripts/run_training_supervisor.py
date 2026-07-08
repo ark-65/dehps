@@ -28,7 +28,16 @@ from dehps.optimization.neural_kdj_advisor import (
     neural_kdj_advice_to_frequency_ranker_config_candidates,
     numpy_neural_kdj_offset_v0,
 )
-from dehps.optimization.next_candidates import refresh_training_prediction_lines_current
+from dehps.optimization.next_candidates import (
+    DYNAMIC_KDJ_LINE_KEY,
+    DYNAMIC_KDJ_LINE_LABEL,
+    STATIC_100_LINE_KEY,
+    STATIC_100_LINE_LABEL,
+    DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
+    dynamic_kdj_strength_sweep_training_summary,
+    regression_training_sort_key,
+    refresh_training_prediction_lines_current,
+)
 from dehps.optimization.ridge_kdj_advisor import (
     RidgeKdjOffsetAdvice,
     numpy_ridge_kdj_offset_v0,
@@ -63,6 +72,7 @@ from dehps.storage.postgres_store import (
     load_training_supervisor_best_carryover_candidate_summaries,
     load_training_supervisor_best_candidate_summaries,
     upsert_training_round_result,
+    upsert_training_line_round_result,
     upsert_training_supervisor_best,
     upsert_training_target_weight_inversion,
 )
@@ -4452,6 +4462,73 @@ def compact_round_info(round_info: dict) -> dict:
     return compact
 
 
+def training_line_round_payload(
+    *,
+    run_id: str,
+    round_index: int,
+    line_key: str,
+    line_label: str,
+    line_kind: str,
+    policy_key: str,
+    policy_params: dict,
+    summary: dict,
+    status: dict,
+    training_payload: dict | None = None,
+) -> dict:
+    line_summary = dict(summary)
+    if "leakage_passed" not in line_summary:
+        line_summary["leakage_passed"] = True
+    return {
+        "run_id": run_id,
+        "round_index": round_index,
+        "line_key": line_key,
+        "line_label": line_label,
+        "line_kind": line_kind,
+        "policy_key": policy_key,
+        "policy_params": policy_params,
+        "as_of_issue": str(line_summary.get("as_of_issue") or ""),
+        "history_fingerprint": str(line_summary.get("history_fingerprint") or ""),
+        "train_mode": status["train_mode"],
+        "train_window": int(status["train_window"]),
+        "eval_window": int(line_summary.get("evaluated_draws") or status["eval_window"]),
+        "top_n": int(status["top_n"]),
+        "base_config_hash": line_summary.get("config_hash") or policy_params.get("base_config_hash"),
+        "status": line_summary.get("status") or "evaluated",
+        "summary": line_summary,
+        "training_payload": training_payload or {},
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def dynamic_policy_from_training_payload(
+    *,
+    run_id: str,
+    round_index: int,
+    base_summary: dict,
+    training_payload: dict,
+) -> dict:
+    selected = (
+        training_payload.get("selected_summary")
+        if isinstance(training_payload.get("selected_summary"), dict)
+        else {}
+    )
+    offset_scale = float(training_payload.get("selected_strength") or selected.get("offset_scale") or 0.0)
+    base_config = base_summary.get("config") if isinstance(base_summary.get("config"), dict) else {}
+    base_hash = str(training_payload.get("base_config_hash") or base_summary.get("config_hash") or "")
+    return {
+        "run_id": run_id,
+        "source_round_index": round_index,
+        "protocol": DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
+        "selection_method": training_payload.get("selection_method") or "regression_training_sort_key",
+        "offset_scale": offset_scale,
+        "policy_key": f"{DYNAMIC_KDJ_LINE_KEY}:{base_hash}:strength:{offset_scale:g}",
+        "base_config": base_config,
+        "base_config_hash": base_hash,
+        "regression_summary": selected,
+        "training_payload": training_payload,
+    }
+
+
 def compact_round_status_summary(status: dict) -> dict:
     rounds = status.get("rounds") if isinstance(status.get("rounds"), list) else []
     latest = rounds[-1] if rounds and isinstance(rounds[-1], dict) else {}
@@ -5163,6 +5240,8 @@ def run_supervisor(
     best_summary: dict | None = prior_leaderboard[0] if prior_leaderboard else None
     best_config = FrequencyRankerConfig(**best_summary["config"]) if best_summary else FrequencyRankerConfig()
     search_base_config = best_config
+    dynamic_kdj_best_training_summary: dict | None = None
+    dynamic_kdj_best_policy: dict | None = None
     leaderboard: list[dict] = prior_leaderboard
     rounds: list[dict] = []
     target_weight_inversion_configs: tuple[FrequencyRankerConfig, ...] = ()
@@ -5254,6 +5333,13 @@ def run_supervisor(
             "params": neural_kdj_params,
             "thresholds": neural_kdj_thresholds,
             "latest": None,
+        },
+        "dynamic_kdj_training": {
+            "enabled": True,
+            "protocol": DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
+            "line_key": DYNAMIC_KDJ_LINE_KEY,
+            "latest": None,
+            "best": None,
         },
         "target_weight_inversion_advisor": {
             "enabled": enable_target_weight_inversion_advisor,
@@ -6059,6 +6145,107 @@ def run_supervisor(
             else:
                 log(f"round={round_index + 1} no_improvement best_top10000={best_summary['top_10000_hits'] if best_summary else 'n/a'}")
             search_base_config = next_search_base_config
+            dynamic_training_payload: dict = {
+                "status": "skipped",
+                "reason": "not_started",
+                "protocol": DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
+            }
+            dynamic_training_selected: dict = {}
+            dynamic_line_payload: dict | None = None
+            dynamic_training_base_summary = (
+                decision_round_best
+                if isinstance(decision_round_best, dict) and isinstance(decision_round_best.get("config"), dict)
+                else round_best
+            )
+            try:
+                dynamic_training_signals = kdj_signals
+                if not dynamic_training_signals:
+                    with get_connection() as conn:
+                        dynamic_training_signals = load_recent_training_weight_signals(
+                            conn,
+                            signal_run_id=weight_kdj_run_id,
+                            as_of_issue=as_of_issue_value,
+                            train_mode=train_mode,
+                            train_window=train_window,
+                            top_n=top_n,
+                            limit=weight_kdj_limit,
+                        )
+                dynamic_training_payload = dynamic_kdj_strength_sweep_training_summary(
+                    history=training_history,
+                    base_config=FrequencyRankerConfig(**dynamic_training_base_summary["config"]),
+                    signals=dynamic_training_signals,
+                    ranked_universe=ranked_universe,
+                    train_mode=train_mode,
+                    train_window=train_window,
+                    eval_window=eval_window,
+                    top_n=top_n,
+                )
+                dynamic_training_selected = (
+                    dynamic_training_payload.get("selected_summary")
+                    if isinstance(dynamic_training_payload.get("selected_summary"), dict)
+                    else {}
+                )
+                dynamic_policy = dynamic_policy_from_training_payload(
+                    run_id=run_id,
+                    round_index=round_index + 1,
+                    base_summary=dynamic_training_base_summary,
+                    training_payload=dynamic_training_payload,
+                )
+                if (
+                    dynamic_kdj_best_training_summary is None
+                    or regression_training_sort_key(dynamic_training_selected)
+                    > regression_training_sort_key(dynamic_kdj_best_training_summary)
+                ):
+                    dynamic_kdj_best_training_summary = dynamic_training_selected
+                    dynamic_kdj_best_policy = dynamic_policy
+                dynamic_line_payload = training_line_round_payload(
+                    run_id=run_id,
+                    round_index=round_index + 1,
+                    line_key=DYNAMIC_KDJ_LINE_KEY,
+                    line_label=DYNAMIC_KDJ_LINE_LABEL,
+                    line_kind="dynamic_kdj_training",
+                    policy_key=str(dynamic_policy.get("policy_key") or ""),
+                    policy_params={
+                        "offset_scale": dynamic_policy.get("offset_scale"),
+                        "selection_method": dynamic_policy.get("selection_method"),
+                        "base_config_hash": dynamic_policy.get("base_config_hash"),
+                    },
+                    summary=dynamic_training_selected,
+                    status=status,
+                    training_payload=dynamic_training_payload,
+                )
+                status["dynamic_kdj_training"]["latest"] = strip_target_results(dynamic_line_payload)
+                if dynamic_kdj_best_policy is not None:
+                    status["dynamic_kdj_training"]["best"] = {
+                        "policy_key": dynamic_kdj_best_policy.get("policy_key"),
+                        "offset_scale": dynamic_kdj_best_policy.get("offset_scale"),
+                        "source_round_index": dynamic_kdj_best_policy.get("source_round_index"),
+                        "summary": dynamic_kdj_best_training_summary,
+                    }
+                prefilter_info["dynamic_kdj_training"] = {
+                    "status": dynamic_training_payload.get("status"),
+                    "selected_strength": dynamic_training_payload.get("selected_strength"),
+                    "selected_summary": dynamic_training_selected,
+                    "rows": dynamic_training_payload.get("rows"),
+                    "best_policy_key": dynamic_kdj_best_policy.get("policy_key") if dynamic_kdj_best_policy else None,
+                }
+                log(
+                    f"round={round_index + 1} dynamic_kdj_training="
+                    f"strength={dynamic_training_payload.get('selected_strength')} "
+                    f"top100={dynamic_training_selected.get('top_100_hits')} "
+                    f"top1000={dynamic_training_selected.get('top_1000_hits')} "
+                    f"top10000={dynamic_training_selected.get('top_10000_hits')} "
+                    f"red5_top10000={(dynamic_training_selected.get('red5') or {}).get('top_10000_hits') if isinstance(dynamic_training_selected.get('red5'), dict) else None}"
+                )
+            except Exception as exc:  # pragma: no cover - dynamic line training must not stop static training.
+                dynamic_training_payload = {
+                    "status": "failed",
+                    "error": str(exc),
+                    "protocol": DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
+                }
+                status["dynamic_kdj_training"]["latest"] = dynamic_training_payload
+                prefilter_info["dynamic_kdj_training"] = dynamic_training_payload
+                log(f"dynamic_kdj_training_warning round={round_index + 1} error={exc}")
 
             round_record = {
                 "round": round_index + 1,
@@ -6079,6 +6266,23 @@ def run_supervisor(
             with get_connection() as conn:
                 ensure_training_round_results_schema(conn)
                 upsert_training_round_result(conn, run_id=run_id, round_info=round_record, status=status)
+                upsert_training_line_round_result(
+                    conn,
+                    training_line_round_payload(
+                        run_id=run_id,
+                        round_index=round_index + 1,
+                        line_key=STATIC_100_LINE_KEY,
+                        line_label=STATIC_100_LINE_LABEL,
+                        line_kind="static_training",
+                        policy_key=str(round_best.get("config_hash") or ""),
+                        policy_params={"config_hash": round_best.get("config_hash")},
+                        summary=round_best,
+                        status=status,
+                        training_payload={"source": "training_supervisor_round_best"},
+                    ),
+                )
+                if dynamic_line_payload is not None:
+                    upsert_training_line_round_result(conn, dynamic_line_payload)
                 if should_checkpoint_supervisor_best(
                     best_summary,
                     round_index=round_index + 1,
@@ -6111,6 +6315,7 @@ def run_supervisor(
                             run_id=run_id,
                             top_n=top_n,
                             ranked_universe=ranked_universe,
+                            dynamic_policy=dynamic_kdj_best_policy,
                         )
                     except Exception as exc:  # pragma: no cover - candidate refresh must not stop training.
                         status["next_candidates"] = {"status": "failed", "error": str(exc)}
