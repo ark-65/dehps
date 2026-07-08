@@ -1026,6 +1026,15 @@ def safe_score(value: Any) -> list[Any]:
     return []
 
 
+def score_greater(left: list[Any], right: list[Any]) -> bool:
+    if not left or not right:
+        return False
+    try:
+        return tuple(left) > tuple(right)
+    except TypeError:
+        return False
+
+
 def safe_bool(value: Any) -> bool | None:
     return value if isinstance(value, bool) else None
 
@@ -1049,6 +1058,13 @@ def experimental_navigation_eligibility_reason(search_base: dict[str, Any]) -> s
     rank_vector_changed = safe_bool(search_base.get("exploration_navigation_rank_vector_changed"))
     if rank_vector_changed is False:
         return "rank_vector_unchanged"
+
+    frozen_primary_score = safe_score(search_base.get("exploration_navigation_frozen_primary_score"))
+    baseline_frozen_primary_score = safe_score(
+        search_base.get("exploration_navigation_baseline_frozen_primary_score")
+    )
+    if score_greater(frozen_primary_score, baseline_frozen_primary_score):
+        return "primary_lift_candidate_uses_standard_search_path"
 
     return "ineligible_by_search_base_rules" if eligible is False else ""
 

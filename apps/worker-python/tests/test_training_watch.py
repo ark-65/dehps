@@ -710,6 +710,70 @@ def test_gate_summary_surfaces_ineligible_navigation_distance():
     assert "config_distance=0.006042 min_config_distance=0.08" in markdown
 
 
+def test_gate_summary_labels_primary_lift_navigation_as_standard_search_path():
+    now = datetime(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+    prefilter = {
+        "experimental_navigation_candidate": {
+            "source": "rank_homogeneity_restart_champion",
+            "reason": "rank_homogeneity_restart_changed_rank_vector",
+            "config_hash": "restart-hash",
+        },
+        "search_base": {
+            "exploration_navigation_config_hash": "restart-hash",
+            "exploration_navigation_eligible": False,
+            "exploration_navigation_quality_reason": "passed",
+            "exploration_navigation_config_distance": 2.354982,
+            "min_config_distance": 0.08,
+            "exploration_navigation_rank_vector_changed": True,
+            "exploration_navigation_frozen_primary_score": [0, 0, 1],
+            "exploration_navigation_baseline_frozen_primary_score": [0, 0, 0],
+            "exploration_navigation_tail_over_1000000_delta": 0,
+            "exploration_navigation_source_frontier_score_improved": True,
+        },
+    }
+
+    gates = gate_summary(prefilter)
+    navigation = gates["experimental_navigation_candidate"]
+
+    assert navigation["eligibility_reason"] == "primary_lift_candidate_uses_standard_search_path"
+    assert navigation["frozen_primary_score"] == [0, 0, 1]
+    assert navigation["baseline_frozen_primary_score"] == [0, 0, 0]
+
+    recommendation = recommendation_summary(
+        rows=[{"round_index": 17, "improved": False, "updated_at": now}],
+        lock={"active": True, "owner": "training-supervisor"},
+        advisors={"neural_kdj_advisor": {"candidate_count": 0}},
+        gates=gates,
+        now=now,
+        stale_minutes=30,
+        round_stats={"stagnation_rounds": 17},
+    )
+    payload = {
+        "generated_at": "2026-06-18T10:00:00Z",
+        "run_id": "run-1",
+        "round_count": 17,
+        "latest_round": 17,
+        "last_improved_round": None,
+        "stagnation_rounds": 17,
+        "latest_metrics": {},
+        "advisor_summary": {},
+        "gate_summary": gates,
+        "heavy_job_lock": {"active": True},
+        "recommendation": recommendation,
+        "guardrail": "Historical response-surface monitoring only.",
+    }
+
+    markdown = render_markdown(payload)
+
+    assert any(
+        "reason=primary_lift_candidate_uses_standard_search_path" in note
+        and "quality=passed" in note
+        and "rank_vector_changed=True" in note
+        for note in recommendation["notes"]
+    )
+    assert "eligibility_reason=primary_lift_candidate_uses_standard_search_path" in markdown
+
+
 def test_recommendation_omits_missing_navigation_distance_when_no_candidate():
     now = datetime(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
     prefilter = {
