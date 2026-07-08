@@ -1221,7 +1221,9 @@ def supervisor_progress_readiness_context(supervisor_status: dict[str, Any] | No
         else {}
     )
     return {
+        "supervisor_run_id": supervisor_status.get("run_id"),
         "supervisor_status": supervisor_status.get("status"),
+        "supervisor_pid": supervisor_status.get("pid"),
         "supervisor_run_mode": supervisor_status.get("run_mode"),
         "supervisor_deadline": supervisor_status.get("deadline"),
         "supervisor_updated_age_minutes": supervisor_status.get("updated_at_age_minutes"),
@@ -2208,6 +2210,8 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
         }
         for key in (
             "blocker_stage",
+            "supervisor_run_id",
+            "supervisor_pid",
             "supervisor_progress_fresh",
             "supervisor_progress_age_minutes",
             "supervisor_progress_round",

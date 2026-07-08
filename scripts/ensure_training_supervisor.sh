@@ -64,6 +64,33 @@ stop_training_pid() {
   return 1
 }
 
+watch_recommends_supervisor_restart() {
+  local pid="$1"
+  local watch_file
+  local reason_file
+  local reason
+  watch_file="$(mktemp "$LOG_DIR/training-watch-summary.XXXXXX.json")"
+  reason_file="$(mktemp "$LOG_DIR/training-watch-restart-guard.XXXXXX.txt")"
+  if ! .venv/bin/python scripts/watch_training_progress.py --limit 5 > "$watch_file"; then
+    log "training watch check failed; keeping supervisor pid=$pid"
+    rm -f "$watch_file" "$reason_file"
+    return 1
+  fi
+  if .venv/bin/python scripts/training_watch_restart_guard.py \
+    --expected-pid "$pid" \
+    < "$watch_file" \
+    > "$reason_file"; then
+    reason="$(tr -d '\n' < "$reason_file")"
+    log "training watch requested supervisor restart pid=$pid reason=${reason:-unknown}"
+    rm -f "$watch_file" "$reason_file"
+    return 0
+  fi
+  reason="$(tr -d '\n' < "$reason_file" 2>/dev/null || true)"
+  log "training watch did not request supervisor restart pid=$pid reason=${reason:-unknown}"
+  rm -f "$watch_file" "$reason_file"
+  return 1
+}
+
 sync_from_issue="$(latest_db_issue)"
 if [[ -n "$sync_from_issue" ]]; then
   log "syncing ssq history from issue=$sync_from_issue"
@@ -80,11 +107,16 @@ if [[ -s "$PID_FILE" ]]; then
   if is_training_pid_active "$pid"; then
     running_as_of="$(training_pid_as_of_issue "$pid")"
     if [[ "$running_as_of" == "$latest_issue" ]]; then
-      log "training supervisor already running pid=$pid as_of_issue=${running_as_of:-auto}"
-      exit 0
+      if watch_recommends_supervisor_restart "$pid"; then
+        stop_training_pid "$pid"
+      else
+        log "training supervisor already running pid=$pid as_of_issue=${running_as_of:-auto}"
+        exit 0
+      fi
+    else
+      log "training supervisor stale pid=$pid running_as_of=${running_as_of:-auto} latest_issue=${latest_issue:-none}"
+      stop_training_pid "$pid"
     fi
-    log "training supervisor stale pid=$pid running_as_of=${running_as_of:-auto} latest_issue=${latest_issue:-none}"
-    stop_training_pid "$pid"
   fi
 fi
 
