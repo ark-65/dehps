@@ -28,7 +28,7 @@ from dehps.optimization.neural_kdj_advisor import (
     neural_kdj_advice_to_frequency_ranker_config_candidates,
     numpy_neural_kdj_offset_v0,
 )
-from dehps.optimization.next_candidates import refresh_training_next_candidates_current
+from dehps.optimization.next_candidates import refresh_training_prediction_lines_current
 from dehps.optimization.ridge_kdj_advisor import (
     RidgeKdjOffsetAdvice,
     numpy_ridge_kdj_offset_v0,
@@ -6106,7 +6106,7 @@ def run_supervisor(
                         )
                 if best_summary:
                     try:
-                        status["next_candidates"] = refresh_training_next_candidates_current(
+                        status["next_candidates"] = refresh_training_prediction_lines_current(
                             conn,
                             run_id=run_id,
                             top_n=top_n,

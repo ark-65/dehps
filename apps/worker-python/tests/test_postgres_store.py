@@ -177,8 +177,9 @@ def test_training_next_candidates_schema_uses_current_rank_index():
 
     schema_sql = conn.executed[0][0]
     assert "CREATE TABLE IF NOT EXISTS training_next_candidates_current" in schema_sql
+    assert "line_key TEXT NOT NULL" in schema_sql
     assert "snapshot_key TEXT NOT NULL" in schema_sql
-    assert any("idx_training_next_candidates_current_rank" in sql for sql, _params in conn.executed)
+    assert any("idx_training_next_candidates_current_line_rank" in sql for sql, _params in conn.executed)
 
 
 def test_training_supervisor_best_schema_uses_protocol_history_key():
@@ -371,11 +372,21 @@ def test_replace_training_next_candidates_current_deletes_previous_snapshot():
     )
 
     sql_statements = [sql for sql, _params in conn.executed]
-    assert any("DELETE FROM training_next_candidates_current" in sql for sql in sql_statements)
+    delete_calls = [(sql, params) for sql, params in conn.executed if "DELETE FROM training_next_candidates_current" in sql]
+    assert delete_calls
+    assert delete_calls[-1][1] == ("static_100",)
     insert_params = [params for sql, params in conn.executed if "INSERT INTO training_next_candidates_current" in sql]
     assert len(insert_params) == 2
-    assert insert_params[0][:4] == ("training-next-2026068", "run-1", 3, "2026068")
-    assert insert_params[0][13:16] == (1, [1, 2, 3, 4, 5, 6], 0.9)
+    assert insert_params[0][:7] == (
+        "static_100",
+        "100-period static training",
+        "static",
+        "training-next-2026068",
+        "run-1",
+        3,
+        "2026068",
+    )
+    assert insert_params[0][17:20] == (1, [1, 2, 3, 4, 5, 6], 0.9)
 
 
 def test_upsert_training_weight_signal_is_idempotent_by_run_issue_weight():

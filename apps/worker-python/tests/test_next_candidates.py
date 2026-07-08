@@ -7,9 +7,12 @@ import pytest
 
 import dehps.optimization.next_candidates as next_candidates
 from dehps.optimization.next_candidates import (
+    DYNAMIC_KDJ_LINE_KEY,
     build_training_next_candidate_snapshot,
+    dynamic_kdj_config_for_next,
     load_best_training_summary,
     next_issue_hint,
+    STATIC_100_LINE_KEY,
     training_freshness_metadata,
     training_summary_sort_key,
 )
@@ -133,6 +136,8 @@ def test_training_next_candidate_snapshot_reports_training_freshness(monkeypatch
     snapshot = build_training_next_candidate_snapshot(object(), top_n=10, ranked_universe=[object(), object()])
 
     metadata = snapshot["metadata"]
+    assert metadata["line_key"] == STATIC_100_LINE_KEY
+    assert metadata["prediction_metadata"]["protocol"] == "static_training_best"
     assert metadata["history_fingerprint"] == next_candidates.fingerprint_history(history)
     assert metadata["freshness_mode"] == "legacy_full_history"
     assert metadata["training_freshness"] == {
@@ -141,6 +146,53 @@ def test_training_next_candidate_snapshot_reports_training_freshness(monkeypatch
         "training_history_matches_current": False,
         "training_issue_lag": 1,
     }
+
+
+def test_dynamic_kdj_config_for_next_falls_back_to_static_when_signals_missing():
+    base_config = next_candidates.FrequencyRankerConfig(frequency_weight=0.30)
+
+    config, metadata = dynamic_kdj_config_for_next(
+        base_config=base_config,
+        signals=[],
+        target_issue="2026069",
+    )
+
+    assert config.frequency_weight == 0.30
+    assert metadata["fallback_static_base"] is True
+    assert metadata["applied_offsets"] == {}
+    assert metadata["leakage_passed"] is True
+
+
+def test_dynamic_kdj_config_for_next_applies_only_prior_issue_signals():
+    base_config = next_candidates.FrequencyRankerConfig(frequency_weight=0.30)
+
+    config, metadata = dynamic_kdj_config_for_next(
+        base_config=base_config,
+        target_issue="2026069",
+        signals=[
+            {
+                "issue": "2026067",
+                "weight_name": "frequency_weight",
+                "recommended_offset": 0.02,
+                "j_value": 65.0,
+                "objective_delta": 1.0,
+            },
+            {
+                "issue": "2026069",
+                "weight_name": "frequency_weight",
+                "recommended_offset": 0.20,
+                "j_value": 95.0,
+                "objective_delta": 1.0,
+            },
+        ],
+    )
+
+    assert round(config.frequency_weight, 6) == 0.32
+    assert metadata["fallback_static_base"] is False
+    assert metadata["excluded_signal_count"] == 1
+    assert metadata["applied_offsets"] == {"frequency_weight": 0.02}
+    assert metadata["latest_signal_issue"] == "2026067"
+    assert metadata["leakage_passed"] is True
 
 
 def test_training_next_candidate_snapshot_uses_training_regime_for_freshness(monkeypatch):

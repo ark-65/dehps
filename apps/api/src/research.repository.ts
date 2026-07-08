@@ -502,9 +502,12 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
     };
   }
 
-  async getTrainingNextCandidates(limit: number): Promise<TrainingNextCandidatesPayload> {
+  async getTrainingNextCandidates(limit: number, lineKey = 'static_100'): Promise<TrainingNextCandidatesPayload> {
     const empty = (): TrainingNextCandidatesPayload => ({
       status: 'empty',
+      lineKey,
+      lineLabel: null,
+      lineKind: null,
       snapshotKey: null,
       runId: null,
       sourceRoundIndex: null,
@@ -518,6 +521,7 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
       historyFingerprint: null,
       configHash: null,
       config: {},
+      predictionMetadata: {},
       generatedAt: null,
       totalCount: 0,
       candidates: [],
@@ -528,7 +532,10 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
       return empty();
     }
 
-    const countResult = await this.pool.query('SELECT count(*)::int AS total_count FROM training_next_candidates_current');
+    const countResult = await this.pool.query(
+      'SELECT count(*)::int AS total_count FROM training_next_candidates_current WHERE line_key = $1',
+      [lineKey],
+    );
     const totalCount = Number(countResult.rows[0]?.total_count ?? 0);
     if (totalCount === 0) {
       return empty();
@@ -536,18 +543,23 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
 
     const { rows } = await this.pool.query(
       `
-      SELECT snapshot_key, run_id, source_round_index, as_of_issue, next_issue, next_draw_date,
+      SELECT line_key, line_label, line_kind,
+             snapshot_key, run_id, source_round_index, as_of_issue, next_issue, next_draw_date,
              train_mode, train_window, eval_window, top_n, history_fingerprint, config_hash,
-             config, rank, red_numbers, score, generated_at
+             config, prediction_metadata, rank, red_numbers, score, generated_at
       FROM training_next_candidates_current
+      WHERE line_key = $2
       ORDER BY rank ASC
       LIMIT $1
       `,
-      [limit],
+      [limit, lineKey],
     );
     const first = rows[0];
     return {
       status: 'ready',
+      lineKey: first.line_key,
+      lineLabel: first.line_label,
+      lineKind: first.line_kind,
       snapshotKey: first.snapshot_key,
       runId: first.run_id,
       sourceRoundIndex: first.source_round_index === null ? null : Number(first.source_round_index),
@@ -561,6 +573,10 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
       historyFingerprint: first.history_fingerprint,
       configHash: first.config_hash,
       config: this.numericRecordValue(first.config),
+      predictionMetadata:
+        first.prediction_metadata && typeof first.prediction_metadata === 'object' && !Array.isArray(first.prediction_metadata)
+          ? first.prediction_metadata
+          : {},
       generatedAt: first.generated_at instanceof Date ? first.generated_at.toISOString() : first.generated_at ? String(first.generated_at) : null,
       totalCount,
       candidates: rows.map((row) => ({

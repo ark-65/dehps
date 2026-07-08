@@ -10,388 +10,353 @@ from typing import Any
 from psycopg import Connection
 from psycopg.rows import dict_row
 
-from dehps.artifacts import atomic_write_text
 from dehps.config import ROOT_DIR
-from dehps.domain.combination import normalize_red_numbers
-from dehps.storage.postgres_store import ensure_training_next_candidates_current_schema
+from dehps.storage.postgres_store import TOTAL_SSQ_RED_COMBINATIONS, upsert_training_prediction_evaluation
 
 
 DEFAULT_OUTPUT_DIR = ROOT_DIR / "data/output/prediction-evaluations"
-TOP_BANDS = (100, 1000, 10000)
-SAFE_FILENAME_COMPONENT_PATTERN = re.compile(r"[^A-Za-z0-9_-]+")
+DEFAULT_GUARDRAIL = (
+    "Forward prediction evaluation only. Red-ball exact/red5 hits are measured after sync; "
+    "blue ball is recorded but not scored."
+)
 
 
-def utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+def default_output_dir() -> Path:
+    return DEFAULT_OUTPUT_DIR
 
 
-def json_default(value: Any) -> Any:
-    if isinstance(value, datetime):
-        if value.tzinfo is None:
-            value = value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-    if isinstance(value, date):
-        return value.isoformat()
+def issue_less_than(left: object, right: object) -> bool:
+    left_text = str(left)
+    right_text = str(right)
+    try:
+        return int(left_text) < int(right_text)
+    except ValueError:
+        return left_text < right_text
+
+
+def json_safe(value: Any) -> Any:
     if isinstance(value, Decimal):
         return float(value)
-    if isinstance(value, tuple):
-        return list(value)
-    raise TypeError(f"object of type {type(value).__name__} is not JSON serializable")
-
-
-def safe_filename_component(value: Any, *, fallback: str) -> str:
-    text = str(value or "").strip()
-    text = SAFE_FILENAME_COMPONENT_PATTERN.sub("-", text).strip("-")
-    return (text or fallback)[:96]
-
-
-def _date_to_json(value: Any) -> str | None:
-    if value is None:
-        return None
     if isinstance(value, datetime):
-        if value.tzinfo is None:
-            value = value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+        return value.isoformat()
     if isinstance(value, date):
         return value.isoformat()
-    return str(value)
+    if isinstance(value, tuple):
+        return [json_safe(item) for item in value]
+    if isinstance(value, list):
+        return [json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): json_safe(item) for key, item in value.items()}
+    return value
 
 
-def load_latest_issue(conn: Connection) -> str | None:
-    row = conn.execute("SELECT max(issue) FROM ssq_history").fetchone()
-    return str(row[0]) if row and row[0] else None
+def _safe_file_part(value: object) -> str:
+    text = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(value or "").strip())
+    return text.strip("-")[:80] or "none"
 
 
-def load_actual_draw(conn: Connection, issue: str) -> dict[str, Any] | None:
+def evaluation_key(*, line_key: str, predicted_issue: str, snapshot_key: str | None) -> str:
+    return f"{line_key}:{predicted_issue}:{snapshot_key or 'missing-snapshot'}"
+
+
+def load_prediction_rows(
+    conn: Connection,
+    *,
+    line_key: str,
+    predicted_issue: str,
+    snapshot_key: str | None = None,
+) -> tuple[list[dict[str, Any]], str | None]:
+    exists = conn.execute("SELECT to_regclass('public.training_next_candidates_current')").fetchone()
+    if not exists or not exists[0]:
+        return [], None
+    params: tuple[Any, ...]
+    snapshot_filter = ""
+    if snapshot_key:
+        snapshot_filter = "AND snapshot_key = %s"
+        params = (line_key, predicted_issue, snapshot_key)
+    else:
+        params = (line_key, predicted_issue)
+    with conn.cursor(row_factory=dict_row) as cur:
+        rows = cur.execute(
+            f"""
+            SELECT line_key, line_label, line_kind, snapshot_key, run_id, source_round_index,
+                   as_of_issue, next_issue, next_draw_date, train_mode, train_window, eval_window,
+                   top_n, history_fingerprint, config_hash, config, prediction_metadata,
+                   rank, red_numbers, score, generated_at
+            FROM training_next_candidates_current
+            WHERE line_key = %s
+              AND next_issue = %s
+              {snapshot_filter}
+            ORDER BY rank ASC
+            """,
+            params,
+        ).fetchall()
+    if rows or not snapshot_key:
+        return [dict(row) for row in rows], None
+
+    with conn.cursor(row_factory=dict_row) as cur:
+        mismatch = cur.execute(
+            """
+            SELECT snapshot_key
+            FROM training_next_candidates_current
+            WHERE line_key = %s
+              AND next_issue = %s
+            ORDER BY generated_at DESC
+            LIMIT 1
+            """,
+            (line_key, predicted_issue),
+        ).fetchone()
+    return [], str(mismatch["snapshot_key"]) if mismatch else None
+
+
+def load_actual_draw(conn: Connection, *, issue: str) -> dict[str, Any] | None:
     with conn.cursor(row_factory=dict_row) as cur:
         row = cur.execute(
             """
-            SELECT issue, draw_date, red_numbers, blue_number, source
+            SELECT issue, draw_date, red_numbers, blue_number
             FROM ssq_history
             WHERE issue = %s
             """,
             (issue,),
         ).fetchone()
-    if not row:
-        return None
-    return {
-        "issue": str(row["issue"]),
-        "draw_date": _date_to_json(row.get("draw_date")),
-        "red_numbers": list(normalize_red_numbers(row["red_numbers"])),
-        "blue_number": int(row["blue_number"]) if row.get("blue_number") is not None else None,
-        "source": row.get("source"),
-    }
+    return dict(row) if row else None
 
 
-def _metadata_from_prediction_row(row: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "snapshot_key": row.get("snapshot_key"),
-        "run_id": row.get("run_id"),
-        "source_round_index": row.get("source_round_index"),
-        "as_of_issue": str(row.get("as_of_issue") or ""),
-        "next_issue": str(row.get("next_issue") or ""),
-        "next_draw_date": _date_to_json(row.get("next_draw_date")),
-        "train_mode": row.get("train_mode"),
-        "train_window": row.get("train_window"),
-        "eval_window": row.get("eval_window"),
-        "top_n": row.get("top_n"),
-        "history_fingerprint": row.get("history_fingerprint"),
-        "config_hash": row.get("config_hash"),
-        "config": row.get("config") or {},
-        "generated_at": _date_to_json(row.get("generated_at")),
-    }
+def _line_defaults(line_key: str) -> tuple[str, str]:
+    if line_key == "dynamic_kdj":
+        return "Dynamic KDJ adjustment", "dynamic_kdj"
+    return "100-period static training", "static"
 
 
-def _candidate_from_prediction_row(row: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "rank": int(row["rank"]),
-        "red_numbers": list(normalize_red_numbers(row["red_numbers"])),
-        "score": float(row["score"]) if row.get("score") is not None else None,
-    }
-
-
-def load_current_prediction_metadata(conn: Connection) -> dict[str, Any] | None:
-    with conn.cursor(row_factory=dict_row) as cur:
-        row = cur.execute(
-            """
-            SELECT snapshot_key, run_id, source_round_index, as_of_issue, next_issue, next_draw_date,
-                   train_mode, train_window, eval_window, top_n, history_fingerprint, config_hash,
-                   config, generated_at
-            FROM training_next_candidates_current
-            ORDER BY generated_at DESC, rank ASC
-            LIMIT 1
-            """
-        ).fetchone()
-    return _metadata_from_prediction_row(row) if row else None
-
-
-def load_prediction_snapshot_for_issue(conn: Connection, issue: str) -> dict[str, Any]:
-    ensure_training_next_candidates_current_schema(conn)
-    with conn.cursor(row_factory=dict_row) as cur:
-        rows = cur.execute(
-            """
-            SELECT snapshot_key, run_id, source_round_index, as_of_issue, next_issue, next_draw_date,
-                   train_mode, train_window, eval_window, top_n, history_fingerprint, config_hash,
-                   config, rank, red_numbers, score, generated_at
-            FROM training_next_candidates_current
-            WHERE next_issue = %s
-            ORDER BY rank ASC
-            """,
-            (issue,),
-        ).fetchall()
-    if rows:
-        return {
-            "status": "loaded",
-            "metadata": _metadata_from_prediction_row(rows[0]),
-            "candidates": [_candidate_from_prediction_row(row) for row in rows],
-        }
-    current_metadata = load_current_prediction_metadata(conn)
-    return {
-        "status": "missing" if current_metadata is None else "mismatch",
-        "metadata": current_metadata,
-        "candidates": [],
-    }
-
-
-def issue_is_before(left: str | None, right: str | None) -> bool:
-    if not left or not right:
-        return False
-    if str(left).isdigit() and str(right).isdigit():
-        return int(left) < int(right)
-    return str(left) < str(right)
-
-
-def evaluate_prediction_candidates(
-    actual_red_numbers: list[int] | tuple[int, ...],
-    candidates: list[dict[str, Any]],
+def _base_payload(
     *,
-    top_bands: tuple[int, ...] = TOP_BANDS,
+    line_key: str,
+    predicted_issue: str,
+    snapshot_key: str | None,
+    status: str,
+    evaluated_at: str,
 ) -> dict[str, Any]:
-    actual_numbers = normalize_red_numbers(actual_red_numbers)
-    actual_set = set(actual_numbers)
-    exact_rank: int | None = None
-    red5_or_better_rank: int | None = None
-    best_overlap = -1
-    best_overlap_rank: int | None = None
-    best_overlap_examples: list[dict[str, Any]] = []
-    first_rank_by_overlap: dict[int, int] = {}
+    line_label, line_kind = _line_defaults(line_key)
+    return {
+        "evaluation_key": evaluation_key(line_key=line_key, predicted_issue=predicted_issue, snapshot_key=snapshot_key),
+        "line_key": line_key,
+        "line_label": line_label,
+        "line_kind": line_kind,
+        "snapshot_key": snapshot_key,
+        "run_id": None,
+        "source_round_index": None,
+        "as_of_issue": None,
+        "predicted_issue": predicted_issue,
+        "actual_draw_date": None,
+        "actual_red_numbers": None,
+        "actual_blue_number": None,
+        "exact_rank": None,
+        "exact_score": None,
+        "hit_top_100": False,
+        "hit_top_1000": False,
+        "hit_top_10000": False,
+        "red5_rank": None,
+        "red5_score": None,
+        "red5_numbers": None,
+        "hit_red5_top_100": False,
+        "hit_red5_top_1000": False,
+        "hit_red5_top_10000": False,
+        "candidate_count": 0,
+        "snapshot_generated_at": None,
+        "status": status,
+        "summary": {},
+        "prediction_metadata": {},
+        "json_path": None,
+        "report_path": None,
+        "guardrail": DEFAULT_GUARDRAIL,
+        "evaluated_at": evaluated_at,
+    }
 
-    for candidate in candidates:
-        rank = int(candidate["rank"])
-        red_numbers = normalize_red_numbers(candidate["red_numbers"])
-        overlap = len(actual_set.intersection(red_numbers))
-        first_rank_by_overlap.setdefault(overlap, rank)
-        if red_numbers == actual_numbers and exact_rank is None:
-            exact_rank = rank
-        if overlap >= 5 and (red5_or_better_rank is None or rank < red5_or_better_rank):
-            red5_or_better_rank = rank
-        if overlap > best_overlap:
-            best_overlap = overlap
-            best_overlap_rank = rank
-            best_overlap_examples = [
+
+def evaluate_prediction_snapshot(
+    conn: Connection,
+    *,
+    line_key: str,
+    predicted_issue: str,
+    snapshot_key: str | None = None,
+    output_dir: Path | None = None,
+    write_report: bool = True,
+    persist: bool = True,
+) -> dict[str, Any]:
+    evaluated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    rows, found_snapshot_key = load_prediction_rows(
+        conn,
+        line_key=line_key,
+        predicted_issue=predicted_issue,
+        snapshot_key=snapshot_key,
+    )
+    actual = load_actual_draw(conn, issue=predicted_issue)
+    if actual is None:
+        first = rows[0] if rows else {}
+        payload = _base_payload(
+            line_key=line_key,
+            predicted_issue=predicted_issue,
+            snapshot_key=str(first.get("snapshot_key") or snapshot_key or "") if first or snapshot_key else None,
+            status="missing_actual_draw",
+            evaluated_at=evaluated_at,
+        )
+        if first:
+            payload.update(
                 {
-                    "rank": rank,
-                    "red_numbers": list(red_numbers),
-                    "score": candidate.get("score"),
-                    "overlap": overlap,
-                }
-            ]
-        elif overlap == best_overlap and len(best_overlap_examples) < 5:
-            best_overlap_examples.append(
-                {
-                    "rank": rank,
-                    "red_numbers": list(red_numbers),
-                    "score": candidate.get("score"),
-                    "overlap": overlap,
+                    "line_label": str(first.get("line_label") or payload["line_label"]),
+                    "line_kind": str(first.get("line_kind") or payload["line_kind"]),
+                    "run_id": first.get("run_id"),
+                    "source_round_index": first.get("source_round_index"),
+                    "as_of_issue": first.get("as_of_issue"),
+                    "candidate_count": len(rows),
+                    "snapshot_generated_at": first.get("generated_at"),
+                    "prediction_metadata": first.get("prediction_metadata")
+                    if isinstance(first.get("prediction_metadata"), dict)
+                    else {},
                 }
             )
-
-    candidate_count = len(candidates)
-    red5_rank = first_rank_by_overlap.get(5)
-    if best_overlap < 0:
-        best_overlap = 0
-
-    exact = {
-        "rank": exact_rank,
-        "hit_top_n": exact_rank is not None and exact_rank <= candidate_count,
-    }
-    red5 = {
-        "rank": red5_rank,
-        "hit_top_n": red5_rank is not None and red5_rank <= candidate_count,
-    }
-    red5_or_better = {
-        "rank": red5_or_better_rank,
-        "hit_top_n": red5_or_better_rank is not None and red5_or_better_rank <= candidate_count,
-    }
-    for band in top_bands:
-        exact[f"hit_top_{band}"] = exact_rank is not None and exact_rank <= band
-        red5[f"hit_top_{band}"] = red5_rank is not None and red5_rank <= band
-        red5_or_better[f"hit_top_{band}"] = red5_or_better_rank is not None and red5_or_better_rank <= band
-
-    return {
-        "actual_red_numbers": list(actual_numbers),
-        "candidate_count": candidate_count,
-        "exact_red6": exact,
-        "red5": red5,
-        "red5_or_better": red5_or_better,
-        "red_overlap": {
-            "best_overlap": best_overlap,
-            "best_overlap_rank": best_overlap_rank,
-            "first_rank_by_overlap": {str(key): value for key, value in sorted(first_rank_by_overlap.items())},
-            "best_overlap_examples": best_overlap_examples,
-        },
-    }
-
-
-def build_prediction_evaluation(conn: Connection, *, issue: str | None = None) -> dict[str, Any]:
-    resolved_issue = issue or load_latest_issue(conn)
-    payload: dict[str, Any] = {
-        "schema_version": 1,
-        "evaluated_at": utc_now_iso(),
-        "issue": str(resolved_issue or ""),
-        "status": "unknown",
-        "evaluable": False,
-        "actual_draw": None,
-        "prediction_snapshot": None,
-        "result": None,
-        "warnings": [],
-    }
-    if not resolved_issue:
-        payload["status"] = "missing_issue"
-        payload["warnings"].append("No issue was supplied and ssq_history has no latest issue.")
-        return payload
-
-    actual_draw = load_actual_draw(conn, str(resolved_issue))
-    payload["actual_draw"] = actual_draw
-    if actual_draw is None:
-        payload["status"] = "missing_actual_draw"
-        payload["warnings"].append(f"Issue {resolved_issue} is not present in ssq_history.")
-        return payload
-
-    snapshot = load_prediction_snapshot_for_issue(conn, str(resolved_issue))
-    payload["prediction_snapshot"] = {
-        "status": snapshot["status"],
-        "metadata": snapshot["metadata"],
-        "candidate_count": len(snapshot["candidates"]),
-    }
-    metadata = snapshot.get("metadata") or {}
-    if snapshot["status"] == "missing":
-        payload["status"] = "missing_prediction_snapshot"
-        payload["warnings"].append(f"No current prediction snapshot exists for issue {resolved_issue}.")
-        return payload
-    if snapshot["status"] == "mismatch":
-        payload["status"] = "prediction_snapshot_mismatch"
-        payload["warnings"].append(
-            "Current prediction snapshot targets "
-            f"issue {metadata.get('next_issue') or 'unknown'}, not actual issue {resolved_issue}."
+        return finalize_prediction_evaluation(conn, payload, output_dir=output_dir, write_report=write_report, persist=persist)
+    if not rows:
+        status = "prediction_snapshot_mismatch" if snapshot_key and found_snapshot_key else "missing_prediction_snapshot"
+        payload = _base_payload(
+            line_key=line_key,
+            predicted_issue=predicted_issue,
+            snapshot_key=snapshot_key,
+            status=status,
+            evaluated_at=evaluated_at,
         )
-        return payload
-    if not issue_is_before(metadata.get("as_of_issue"), str(resolved_issue)):
+        payload["actual_draw_date"] = actual.get("draw_date")
+        payload["actual_red_numbers"] = list(actual.get("red_numbers") or [])
+        payload["actual_blue_number"] = actual.get("blue_number")
+        payload["summary"] = {"found_snapshot_key": found_snapshot_key} if found_snapshot_key else {}
+        return finalize_prediction_evaluation(conn, payload, output_dir=output_dir, write_report=write_report, persist=persist)
+
+    first = rows[0]
+    payload = _base_payload(
+        line_key=line_key,
+        predicted_issue=predicted_issue,
+        snapshot_key=str(first.get("snapshot_key") or snapshot_key or ""),
+        status="evaluated",
+        evaluated_at=evaluated_at,
+    )
+    payload.update(
+        {
+            "line_label": str(first.get("line_label") or payload["line_label"]),
+            "line_kind": str(first.get("line_kind") or payload["line_kind"]),
+            "run_id": first.get("run_id"),
+            "source_round_index": first.get("source_round_index"),
+            "as_of_issue": first.get("as_of_issue"),
+            "actual_draw_date": actual.get("draw_date"),
+            "actual_red_numbers": list(actual.get("red_numbers") or []),
+            "actual_blue_number": actual.get("blue_number"),
+            "candidate_count": len(rows),
+            "snapshot_generated_at": first.get("generated_at"),
+            "prediction_metadata": first.get("prediction_metadata") if isinstance(first.get("prediction_metadata"), dict) else {},
+        }
+    )
+    actual_red = tuple(int(value) for value in actual.get("red_numbers") or [])
+    actual_set = set(actual_red)
+    exact_row = None
+    red5_row = None
+    for row in rows:
+        numbers = tuple(int(value) for value in row.get("red_numbers") or [])
+        if numbers == actual_red and exact_row is None:
+            exact_row = row
+        if len(actual_set.intersection(numbers)) == 5 and red5_row is None:
+            red5_row = row
+        if exact_row is not None and red5_row is not None:
+            break
+
+    if exact_row is not None:
+        rank = int(exact_row["rank"])
+        payload["exact_rank"] = rank
+        payload["exact_score"] = float(exact_row["score"])
+        payload["hit_top_100"] = rank <= 100
+        payload["hit_top_1000"] = rank <= 1000
+        payload["hit_top_10000"] = rank <= 10000
+    if red5_row is not None:
+        rank = int(red5_row["rank"])
+        payload["red5_rank"] = rank
+        payload["red5_score"] = float(red5_row["score"])
+        payload["red5_numbers"] = [int(value) for value in red5_row.get("red_numbers") or []]
+        payload["hit_red5_top_100"] = rank <= 100
+        payload["hit_red5_top_1000"] = rank <= 1000
+        payload["hit_red5_top_10000"] = rank <= 10000
+
+    leakage_passed = bool(payload["as_of_issue"]) and issue_less_than(payload["as_of_issue"], predicted_issue)
+    if not leakage_passed:
         payload["status"] = "leakage_guard_failed"
-        payload["warnings"].append(
-            "Prediction snapshot is not strictly earlier than the actual issue; evaluation is blocked."
-        )
-        return payload
+    payload["summary"] = {
+        "legal_sample_space": TOTAL_SSQ_RED_COMBINATIONS,
+        "leakage_passed": leakage_passed,
+        "candidate_count": len(rows),
+        "exact_hit": exact_row is not None,
+        "red5_hit": red5_row is not None,
+        "actual_red_numbers": list(actual_red),
+        "actual_blue_number": actual.get("blue_number"),
+        "blue_scored": False,
+    }
+    return finalize_prediction_evaluation(conn, payload, output_dir=output_dir, write_report=write_report, persist=persist)
 
-    payload["status"] = "evaluated"
-    payload["evaluable"] = True
-    payload["result"] = evaluate_prediction_candidates(actual_draw["red_numbers"], snapshot["candidates"])
-    if actual_draw.get("blue_number") is not None:
-        payload["warnings"].append("The current training prediction snapshot is red-ball only; blue is recorded but not scored.")
-    return payload
+
+def finalize_prediction_evaluation(
+    conn: Connection,
+    payload: dict[str, Any],
+    *,
+    output_dir: Path | None,
+    write_report: bool,
+    persist: bool,
+) -> dict[str, Any]:
+    if write_report:
+        json_path, report_path = write_prediction_evaluation_artifacts(payload, output_dir or default_output_dir())
+        payload["json_path"] = str(json_path)
+        payload["report_path"] = str(report_path)
+    if persist:
+        upsert_training_prediction_evaluation(conn, json_safe(payload))
+    return json_safe(payload)
+
+
+def write_prediction_evaluation_artifacts(payload: dict[str, Any], output_dir: Path) -> tuple[Path, Path]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    issue = _safe_file_part(payload.get("predicted_issue"))
+    line_key = _safe_file_part(payload.get("line_key"))
+    snapshot = _safe_file_part(payload.get("snapshot_key") or payload.get("status"))
+    json_path = output_dir / f"prediction-eval-{issue}-{line_key}-{snapshot}.json"
+    md_path = output_dir / f"prediction-eval-{issue}-{line_key}-{snapshot}.md"
+    json_path.write_text(json.dumps(json_safe(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+    md_path.write_text(render_prediction_evaluation_report(payload), encoding="utf-8")
+    return json_path, md_path
 
 
 def render_prediction_evaluation_report(payload: dict[str, Any]) -> str:
-    issue = payload.get("issue") or "unknown"
-    actual = payload.get("actual_draw") or {}
-    snapshot = payload.get("prediction_snapshot") or {}
-    metadata = snapshot.get("metadata") or {}
-    result = payload.get("result") or {}
-    exact = result.get("exact_red6") or {}
-    red5 = result.get("red5") or {}
-    red5_or_better = result.get("red5_or_better") or {}
-    overlap = result.get("red_overlap") or {}
-    warnings = payload.get("warnings") or []
+    actual = payload.get("actual_red_numbers") or []
+    exact_rank = payload.get("exact_rank")
+    red5_rank = payload.get("red5_rank")
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    prediction_metadata = (
+        payload.get("prediction_metadata") if isinstance(payload.get("prediction_metadata"), dict) else {}
+    )
+    return f"""# Training Prediction Evaluation
 
-    actual_red = " ".join(f"{number:02d}" for number in actual.get("red_numbers") or [])
-    exact_rank = exact.get("rank")
-    red5_rank = red5.get("rank")
-    red5_or_better_rank = red5_or_better.get("rank")
-    exact_rank_text = f"#{exact_rank}" if exact_rank else "not in snapshot"
-    red5_rank_text = f"#{red5_rank}" if red5_rank else "not in snapshot"
-    red5_or_better_rank_text = f"#{red5_or_better_rank}" if red5_or_better_rank else "not in snapshot"
+- Line: `{payload.get("line_key")}` ({payload.get("line_label")})
+- Status: `{payload.get("status")}`
+- Predicted issue: `{payload.get("predicted_issue")}`
+- Snapshot: `{payload.get("snapshot_key") or "none"}`
+- As-of issue: `{payload.get("as_of_issue") or "none"}`
+- Actual red: `{actual}`
+- Actual blue: `{payload.get("actual_blue_number")}` (recorded, not scored)
+- Exact red rank: `{exact_rank if exact_rank is not None else "miss"}`
+- Exact Top100/1000/10000: `{payload.get("hit_top_100")}/{payload.get("hit_top_1000")}/{payload.get("hit_top_10000")}`
+- Red5 best rank: `{red5_rank if red5_rank is not None else "miss"}`
+- Red5 Top100/1000/10000: `{payload.get("hit_red5_top_100")}/{payload.get("hit_red5_top_1000")}/{payload.get("hit_red5_top_10000")}`
+- Candidate count: `{payload.get("candidate_count")}`
 
-    lines = [
-        f"# Training Prediction Evaluation - Issue {issue}",
-        "",
-        f"- Status: {payload.get('status')}",
-        f"- Evaluable: {payload.get('evaluable')}",
-        f"- Evaluated at: {payload.get('evaluated_at')}",
-        "",
-        "## Actual Draw",
-        "",
-        f"- Issue: {actual.get('issue') or issue}",
-        f"- Draw date: {actual.get('draw_date') or 'unknown'}",
-        f"- Red balls: {actual_red or 'unknown'}",
-        f"- Blue ball: {actual.get('blue_number') if actual.get('blue_number') is not None else 'unknown'}",
-        f"- Source: {actual.get('source') or 'unknown'}",
-        "",
-        "## Prediction Snapshot",
-        "",
-        f"- Snapshot status: {snapshot.get('status') or 'unknown'}",
-        f"- Snapshot key: {metadata.get('snapshot_key') or 'none'}",
-        f"- Run id: {metadata.get('run_id') or 'none'}",
-        f"- As-of issue: {metadata.get('as_of_issue') or 'none'}",
-        f"- Target issue: {metadata.get('next_issue') or 'none'}",
-        f"- Generated at: {metadata.get('generated_at') or 'none'}",
-        f"- Train mode/window/eval: {metadata.get('train_mode') or 'none'} / "
-        f"{metadata.get('train_window') or 'none'} / {metadata.get('eval_window') or 'none'}",
-        f"- Candidate count: {snapshot.get('candidate_count') or 0}",
-        "",
-        "## Result",
-        "",
-        f"- Exact red6 rank: {exact_rank_text}",
-        f"- Exact hit Top100/Top1000/Top10000: "
-        f"{exact.get('hit_top_100', False)} / {exact.get('hit_top_1000', False)} / "
-        f"{exact.get('hit_top_10000', False)}",
-        f"- Red5 first rank: {red5_rank_text}",
-        f"- Red5 hit Top100/Top1000/Top10000: "
-        f"{red5.get('hit_top_100', False)} / {red5.get('hit_top_1000', False)} / "
-        f"{red5.get('hit_top_10000', False)}",
-        f"- Red5-or-better first rank: {red5_or_better_rank_text}",
-        f"- Red5-or-better hit Top100/Top1000/Top10000: "
-        f"{red5_or_better.get('hit_top_100', False)} / {red5_or_better.get('hit_top_1000', False)} / "
-        f"{red5_or_better.get('hit_top_10000', False)}",
-        f"- Best red overlap: {overlap.get('best_overlap', 0)}/6 at "
-        f"#{overlap.get('best_overlap_rank') or 'none'}",
-    ]
-    examples = overlap.get("best_overlap_examples") or []
-    if examples:
-        lines.extend(["", "## Best Overlap Examples", ""])
-        for example in examples:
-            numbers = " ".join(f"{number:02d}" for number in example.get("red_numbers") or [])
-            lines.append(
-                f"- #{example.get('rank')}: {numbers} "
-                f"(overlap={example.get('overlap')}, score={example.get('score')})"
-            )
-    if warnings:
-        lines.extend(["", "## Guardrails", ""])
-        lines.extend(f"- {warning}" for warning in warnings)
-    lines.append("")
-    return "\n".join(lines)
+## Guardrails
 
+- Legal sample space: `{summary.get("legal_sample_space", TOTAL_SSQ_RED_COMBINATIONS)}`
+- Leakage passed: `{summary.get("leakage_passed")}`
+- Blue scored: `False`
+- Fallback static base: `{prediction_metadata.get("fallback_static_base")}`
 
-def write_prediction_evaluation_report(
-    payload: dict[str, Any],
-    *,
-    output_dir: Path = DEFAULT_OUTPUT_DIR,
-) -> dict[str, str]:
-    issue = safe_filename_component(payload.get("issue"), fallback="unknown-issue")
-    metadata = ((payload.get("prediction_snapshot") or {}).get("metadata") or {})
-    snapshot_key = safe_filename_component(metadata.get("snapshot_key"), fallback="no-snapshot")
-    stem = f"prediction-evaluation-{issue}-{snapshot_key}"
-    json_path = output_dir / f"{stem}.json"
-    markdown_path = output_dir / f"{stem}.md"
-    atomic_write_text(json_path, json.dumps(payload, ensure_ascii=False, indent=2, default=json_default) + "\n")
-    atomic_write_text(markdown_path, render_prediction_evaluation_report(payload))
-    return {"json_path": str(json_path), "report_path": str(markdown_path)}
+{payload.get("guardrail") or DEFAULT_GUARDRAIL}
+"""

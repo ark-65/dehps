@@ -244,6 +244,9 @@ export type TrainingNextCandidate = {
 
 export type TrainingNextCandidatesPayload = {
   status: 'ready' | 'empty';
+  lineKey: string;
+  lineLabel: string | null;
+  lineKind: string | null;
   snapshotKey: string | null;
   runId: string | null;
   sourceRoundIndex: number | null;
@@ -257,6 +260,7 @@ export type TrainingNextCandidatesPayload = {
   historyFingerprint: string | null;
   configHash: string | null;
   config: Record<string, number>;
+  predictionMetadata: Record<string, unknown>;
   generatedAt: string | null;
   totalCount: number;
   candidates: TrainingNextCandidate[];

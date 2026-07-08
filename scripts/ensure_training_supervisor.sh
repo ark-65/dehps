@@ -31,28 +31,42 @@ print(row[0] or "")
 PY
 }
 
-current_prediction_next_issue() {
-  .venv/bin/python - <<'PY'
+capture_current_prediction_snapshots() {
+  local output_path="$1"
+  .venv/bin/python - "$output_path" <<'PY'
+import json
+import sys
 from dehps.db import get_connection
 
+output_path = sys.argv[1]
+rows = []
 try:
     with get_connection() as conn:
         table = conn.execute("SELECT to_regclass('public.training_next_candidates_current')").fetchone()
-        if not table or not table[0]:
-            print("")
-            raise SystemExit(0)
-        row = conn.execute(
-            """
-            SELECT next_issue
-            FROM training_next_candidates_current
-            ORDER BY generated_at DESC, rank ASC
-            LIMIT 1
-            """
-        ).fetchone()
+        if table and table[0]:
+            with conn.cursor() as cur:
+                rows = cur.execute(
+                    """
+                    SELECT line_key, next_issue, snapshot_key, as_of_issue
+                    FROM training_next_candidates_current
+                    WHERE line_key IN ('static_100', 'dynamic_kdj')
+                    GROUP BY line_key, next_issue, snapshot_key, as_of_issue
+                    ORDER BY line_key
+                    """
+                ).fetchall()
 except Exception:
-    print("")
-    raise SystemExit(0)
-print(row[0] if row and row[0] else "")
+    rows = []
+payload = [
+    {
+        "line_key": str(row[0]),
+        "next_issue": str(row[1]),
+        "snapshot_key": str(row[2]),
+        "as_of_issue": str(row[3]),
+    }
+    for row in rows
+]
+with open(output_path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle, ensure_ascii=False)
 PY
 }
 
@@ -89,37 +103,52 @@ print(int(payload.get("inserted_count") or 0) + int(payload.get("updated_count")
 PY
 }
 
-evaluate_synced_prediction_if_needed() {
+evaluate_synced_predictions_if_needed() {
   local sync_output_file="$1"
   local previous_issue="$2"
   local current_issue="$3"
-  local predicted_issue_before_sync="$4"
+  local prediction_snapshot_file="$4"
   local changed_count
   local sync_latest_issue
-  local issue_to_evaluate
   changed_count="$(sync_changed_draw_count "$sync_output_file")"
   sync_latest_issue="$(sync_latest_draw_issue "$sync_output_file")"
-  issue_to_evaluate=""
-  if [[ "$changed_count" != "0" && -n "$predicted_issue_before_sync" && "$predicted_issue_before_sync" =~ ^[0-9]+$ && "$current_issue" =~ ^[0-9]+$ && "$predicted_issue_before_sync" -le "$current_issue" ]]; then
-    issue_to_evaluate="$predicted_issue_before_sync"
-  elif [[ "$changed_count" != "0" && -n "$sync_latest_issue" ]]; then
-    issue_to_evaluate="$sync_latest_issue"
-  elif [[ -n "$previous_issue" && -n "$current_issue" && "$previous_issue" != "$current_issue" ]]; then
-    issue_to_evaluate="${predicted_issue_before_sync:-$current_issue}"
-  fi
-  if [[ -z "$issue_to_evaluate" ]]; then
+  if [[ "$changed_count" == "0" && "${previous_issue:-}" == "${current_issue:-}" ]]; then
     log "prediction evaluation skipped changed_count=$changed_count sync_latest_issue=${sync_latest_issue:-none}"
     return 0
   fi
-  if [[ "$issue_to_evaluate" =~ ^[0-9]+$ && "$current_issue" =~ ^[0-9]+$ && "$issue_to_evaluate" -lt "$current_issue" ]]; then
-    log "prediction evaluation covers predicted issue=$issue_to_evaluate while synced latest issue=$current_issue; later synced issues were not pre-predicted by the current snapshot"
-  fi
-  log "evaluating prediction issue=$issue_to_evaluate changed_count=$changed_count previous_issue=${previous_issue:-none} current_issue=${current_issue:-none} predicted_before_sync=${predicted_issue_before_sync:-none}"
-  if .venv/bin/python scripts/evaluate_training_prediction.py --issue "$issue_to_evaluate"; then
-    log "prediction evaluation completed issue=$issue_to_evaluate"
-  else
-    log "prediction evaluation failed issue=$issue_to_evaluate"
-  fi
+  while IFS=$'\t' read -r line_key next_issue snapshot_key; do
+    [[ -n "${line_key:-}" && -n "${next_issue:-}" && -n "${snapshot_key:-}" ]] || continue
+    if [[ "$next_issue" =~ ^[0-9]+$ && "$current_issue" =~ ^[0-9]+$ && "$next_issue" -gt "$current_issue" ]]; then
+      continue
+    fi
+    log "evaluating prediction line=$line_key issue=$next_issue snapshot=$snapshot_key changed_count=$changed_count previous_issue=${previous_issue:-none} current_issue=${current_issue:-none}"
+    if .venv/bin/python scripts/evaluate_training_prediction.py --line-key "$line_key" --issue "$next_issue" --snapshot-key "$snapshot_key"; then
+      log "prediction evaluation completed line=$line_key issue=$next_issue"
+    else
+      log "prediction evaluation failed line=$line_key issue=$next_issue"
+    fi
+  done < <(
+    .venv/bin/python - "$prediction_snapshot_file" <<'PY'
+import json
+import sys
+from dehps.db import get_connection
+
+try:
+    snapshots = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception:
+    snapshots = []
+with get_connection() as conn:
+    for snapshot in snapshots:
+        line_key = str(snapshot.get("line_key") or "")
+        next_issue = str(snapshot.get("next_issue") or "")
+        snapshot_key = str(snapshot.get("snapshot_key") or "")
+        if line_key not in {"static_100", "dynamic_kdj"} or not next_issue or not snapshot_key:
+            continue
+        row = conn.execute("SELECT 1 FROM ssq_history WHERE issue = %s LIMIT 1", (next_issue,)).fetchone()
+        if row:
+            print("\t".join((line_key, next_issue, snapshot_key)))
+PY
+  )
 }
 
 training_pid_as_of_issue() {
@@ -183,7 +212,8 @@ watch_recommends_supervisor_restart() {
 }
 
 sync_from_issue="$(latest_db_issue)"
-predicted_issue_before_sync="$(current_prediction_next_issue)"
+prediction_snapshot_file="$(mktemp "$LOG_DIR/training-prediction-snapshots.XXXXXX.json")"
+capture_current_prediction_snapshots "$prediction_snapshot_file"
 sync_output_file="$(mktemp "$LOG_DIR/ssq-sync.XXXXXX.json")"
 if [[ -n "$sync_from_issue" ]]; then
   log "syncing ssq history from issue=$sync_from_issue"
@@ -194,8 +224,9 @@ else
 fi
 
 latest_issue="$(latest_db_issue)"
-evaluate_synced_prediction_if_needed "$sync_output_file" "$sync_from_issue" "$latest_issue" "$predicted_issue_before_sync"
+evaluate_synced_predictions_if_needed "$sync_output_file" "$sync_from_issue" "$latest_issue" "$prediction_snapshot_file"
 rm -f "$sync_output_file"
+rm -f "$prediction_snapshot_file"
 
 if [[ -s "$PID_FILE" ]]; then
   pid="$(tr -d '[:space:]' < "$PID_FILE")"

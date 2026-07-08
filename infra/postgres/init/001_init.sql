@@ -249,6 +249,9 @@ CREATE INDEX IF NOT EXISTS idx_training_weight_signals_run_weight_issue
 
 CREATE TABLE IF NOT EXISTS training_next_candidates_current (
   id BIGSERIAL PRIMARY KEY,
+  line_key TEXT NOT NULL DEFAULT 'static_100',
+  line_label TEXT NOT NULL DEFAULT '100-period static training',
+  line_kind TEXT NOT NULL DEFAULT 'static',
   snapshot_key TEXT NOT NULL,
   run_id TEXT NOT NULL,
   source_round_index INTEGER,
@@ -262,17 +265,62 @@ CREATE TABLE IF NOT EXISTS training_next_candidates_current (
   history_fingerprint TEXT NOT NULL,
   config_hash TEXT NOT NULL,
   config JSONB NOT NULL DEFAULT '{}'::jsonb,
+  prediction_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   rank INTEGER NOT NULL,
   red_numbers SMALLINT[] NOT NULL,
   score NUMERIC(14,8) NOT NULL,
   generated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_training_next_candidates_current_rank
-  ON training_next_candidates_current (rank);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_training_next_candidates_current_line_rank
+  ON training_next_candidates_current (line_key, rank);
 
 CREATE INDEX IF NOT EXISTS idx_training_next_candidates_current_generated
   ON training_next_candidates_current (generated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_training_next_candidates_current_line_issue
+  ON training_next_candidates_current (line_key, next_issue, generated_at DESC);
+
+CREATE TABLE IF NOT EXISTS training_prediction_evaluations (
+  id BIGSERIAL PRIMARY KEY,
+  evaluation_key TEXT NOT NULL UNIQUE,
+  line_key TEXT NOT NULL,
+  line_label TEXT NOT NULL,
+  line_kind TEXT NOT NULL,
+  snapshot_key TEXT,
+  run_id TEXT,
+  source_round_index INTEGER,
+  as_of_issue TEXT,
+  predicted_issue TEXT NOT NULL,
+  actual_draw_date DATE,
+  actual_red_numbers SMALLINT[],
+  actual_blue_number SMALLINT,
+  exact_rank INTEGER,
+  exact_score NUMERIC(14,8),
+  hit_top_100 BOOLEAN NOT NULL DEFAULT false,
+  hit_top_1000 BOOLEAN NOT NULL DEFAULT false,
+  hit_top_10000 BOOLEAN NOT NULL DEFAULT false,
+  red5_rank INTEGER,
+  red5_score NUMERIC(14,8),
+  red5_numbers SMALLINT[],
+  hit_red5_top_100 BOOLEAN NOT NULL DEFAULT false,
+  hit_red5_top_1000 BOOLEAN NOT NULL DEFAULT false,
+  hit_red5_top_10000 BOOLEAN NOT NULL DEFAULT false,
+  candidate_count INTEGER NOT NULL DEFAULT 0,
+  snapshot_generated_at TIMESTAMPTZ,
+  status TEXT NOT NULL,
+  summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+  prediction_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  json_path TEXT,
+  report_path TEXT,
+  guardrail TEXT NOT NULL DEFAULT '',
+  evaluated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_training_prediction_evaluations_line_issue
+  ON training_prediction_evaluations (line_key, predicted_issue, evaluated_at DESC);
 
 INSERT INTO dehps_strategies (strategy_key, name, description, config)
 VALUES (

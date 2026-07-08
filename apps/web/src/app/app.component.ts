@@ -97,6 +97,7 @@ type TrainingNextCandidatesState =
   | { status: 'error'; message: string };
 
 type DashboardTab = 'training' | 'training-rounds' | 'next-candidates' | 'experiments' | 'service-status';
+type PredictionLineKey = 'static_100' | 'dynamic_kdj';
 type WeightTrendGroup = {
   key: string;
   title: string;
@@ -203,12 +204,18 @@ export class AppComponent {
   private readonly trainingNextCandidatesRefreshRequests = new Subject<void>();
   private readonly serviceStatusRefreshRequests = new Subject<void>();
   private readonly activeTabRequests = new BehaviorSubject<DashboardTab>('training');
+  private readonly trainingPredictionLineRequests = new BehaviorSubject<PredictionLineKey>('static_100');
   private readonly detailRequests = new BehaviorSubject<string | null>(null);
   private readonly trainingRoundDetailRequests = new BehaviorSubject<TrainingRoundListItem | null>(null);
   selectedExperimentKey: string | null = null;
   selectedComparisonKey: string | null = null;
   selectedTrainingRoundKey: string | null = null;
+  selectedPredictionLineKey: PredictionLineKey = 'static_100';
   activeTab: DashboardTab = 'training';
+  readonly predictionLineOptions: { key: PredictionLineKey; label: string }[] = [
+    { key: 'static_100', label: '100主线' },
+    { key: 'dynamic_kdj', label: '动态KDJ' },
+  ];
 
   readonly compareExperiments = compareExperiments;
   readonly advisorSourceLabel = advisorSourceLabel;
@@ -337,11 +344,14 @@ export class AppComponent {
   );
   readonly trainingNextCandidatesState$ = this.activeTabRequests.pipe(
     filter((tab) => tab === 'next-candidates'),
-    map(() => undefined),
+    map(() => this.selectedPredictionLineKey),
   ).pipe(
-    mergeWith(this.trainingNextCandidatesRefreshRequests),
-    switchMap(() =>
-      this.dashboardService.loadTrainingNextCandidates().pipe(
+    mergeWith(
+      this.trainingNextCandidatesRefreshRequests.pipe(map(() => this.selectedPredictionLineKey)),
+      this.trainingPredictionLineRequests,
+    ),
+    switchMap((lineKey) =>
+      this.dashboardService.loadTrainingNextCandidates(lineKey).pipe(
         map((payload): TrainingNextCandidatesState => ({ status: 'ready', payload })),
         catchError((error: unknown) =>
           of({
@@ -433,6 +443,14 @@ export class AppComponent {
     }
   }
 
+  selectPredictionLine(lineKey: PredictionLineKey): void {
+    if (this.selectedPredictionLineKey === lineKey) {
+      return;
+    }
+    this.selectedPredictionLineKey = lineKey;
+    this.trainingPredictionLineRequests.next(lineKey);
+  }
+
   selectExperiment(experimentKey: string): void {
     this.selectedExperimentKey = experimentKey;
     if (this.selectedComparisonKey === experimentKey) {
@@ -470,6 +488,7 @@ export class AppComponent {
 
   nextCandidateMetaRows(payload: TrainingNextCandidatesPayload): { label: string; value: string }[] {
     return [
+      { label: '预测线', value: payload.lineLabel || payload.lineKey },
       { label: '基准期', value: payload.asOfIssue || '无' },
       { label: '下一期', value: payload.nextIssue || '无' },
       { label: '下期开奖日', value: payload.nextDrawDate || '无' },
@@ -479,6 +498,25 @@ export class AppComponent {
       { label: '候选行数', value: payload.totalCount.toLocaleString('zh-CN') },
       { label: '生成时间', value: payload.generatedAt || '无' },
     ];
+  }
+
+  nextCandidateDynamicRows(payload: TrainingNextCandidatesPayload): { key: string; value: number }[] {
+    const offsets = payload.predictionMetadata['applied_offsets'];
+    if (!offsets || typeof offsets !== 'object' || Array.isArray(offsets)) {
+      return [];
+    }
+    return Object.entries(offsets as Record<string, unknown>)
+      .map(([key, value]) => ({ key, value: Number(value) }))
+      .filter((entry) => Number.isFinite(entry.value) && entry.value !== 0)
+      .sort((left, right) => Math.abs(right.value) - Math.abs(left.value))
+      .slice(0, 12);
+  }
+
+  nextCandidateLineState(payload: TrainingNextCandidatesPayload): string {
+    if (payload.lineKey !== 'dynamic_kdj') {
+      return '静态主线';
+    }
+    return payload.predictionMetadata['fallback_static_base'] === true ? '静态基底' : 'KDJ调权';
   }
 
   nextCandidateConfigRows(payload: TrainingNextCandidatesPayload): { key: string; value: number }[] {
@@ -493,7 +531,7 @@ export class AppComponent {
     if (payload.status === 'empty') {
       return '暂无 current 候选快照';
     }
-    return `${payload.nextIssue || '下一期'} Top${(payload.topN ?? payload.totalCount).toLocaleString('zh-CN')} / as-of ${payload.asOfIssue || '无'}`;
+    return `${payload.lineLabel || payload.lineKey} / ${payload.nextIssue || '下一期'} Top${(payload.topN ?? payload.totalCount).toLocaleString('zh-CN')} / as-of ${payload.asOfIssue || '无'}`;
   }
 
   targetHitRows(detail: TrainingRoundDetail): TrainingTargetResult[] {

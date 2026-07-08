@@ -11,7 +11,7 @@ from dehps.config import ROOT_DIR, get_settings
 from dehps.crawler.ssq_sync import sync_ssq
 from dehps.db import get_connection
 from dehps.models.frequency_ranker import FrequencyRankerConfig
-from dehps.optimization.next_candidates import refresh_training_next_candidates_current
+from dehps.optimization.next_candidates import refresh_training_prediction_lines_current
 from dehps.optimization.weight_kdj import DEFAULT_KDJ_WINDOW
 from dehps.runtime.heavy_job import HeavyJobLock, apply_cpu_thread_env_defaults
 from dehps.storage.postgres_store import (
@@ -164,7 +164,7 @@ def run_pipeline(
         if has_synced_changes:
             try:
                 with get_connection() as conn:
-                    summary["training_next_candidates"] = refresh_training_next_candidates_current(conn, top_n=10000)
+                    summary["training_next_candidates"] = refresh_training_prediction_lines_current(conn, top_n=10000)
             except Exception as exc:
                 summary["training_next_candidates"] = {"status": "failed", "error_message": str(exc)}
             _heartbeat_heavy_lock(

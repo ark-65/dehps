@@ -999,6 +999,9 @@ test('postgres training next candidates mapping reads the current snapshot', asy
         return {
           rows: [
             {
+              line_key: params?.[1] ?? 'static_100',
+              line_label: params?.[1] === 'dynamic_kdj' ? 'Dynamic KDJ adjustment' : '100-period static training',
+              line_kind: params?.[1] === 'dynamic_kdj' ? 'dynamic_kdj' : 'static',
               snapshot_key: 'training-next-1',
               run_id: 'run-1',
               source_round_index: 7,
@@ -1012,6 +1015,7 @@ test('postgres training next candidates mapping reads the current snapshot', asy
               history_fingerprint: 'history-current',
               config_hash: 'config-1',
               config: { frequency_weight: '0.4' },
+              prediction_metadata: { fallback_static_base: params?.[1] === 'dynamic_kdj' },
               rank: 1,
               red_numbers: ['1', '2', '3', '4', '5', '6'],
               score: '0.90000000',
@@ -1031,10 +1035,19 @@ test('postgres training next candidates mapping reads the current snapshot', asy
     const payload = await repository.getTrainingNextCandidates(10000);
 
     assert.equal(payload.status, 'ready');
+    assert.equal(payload.lineKey, 'static_100');
+    assert.equal(payload.lineKind, 'static');
     assert.equal(payload.totalCount, 10000);
     assert.equal(payload.nextDrawDate, '2026-06-18');
+    assert.deepEqual(payload.predictionMetadata, { fallback_static_base: false });
     assert.deepEqual(payload.candidates[0].redNumbers, [1, 2, 3, 4, 5, 6]);
-    assert.deepEqual(queries.at(-1)?.params, [10000]);
+    assert.deepEqual(queries.at(-1)?.params, [10000, 'static_100']);
+
+    const dynamicPayload = await repository.getTrainingNextCandidates(10000, 'dynamic_kdj');
+    assert.equal(dynamicPayload.lineKey, 'dynamic_kdj');
+    assert.equal(dynamicPayload.lineKind, 'dynamic_kdj');
+    assert.deepEqual(dynamicPayload.predictionMetadata, { fallback_static_base: true });
+    assert.deepEqual(queries.at(-1)?.params, [10000, 'dynamic_kdj']);
   } finally {
     await repository.onModuleDestroy();
     await originalPool.end();

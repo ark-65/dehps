@@ -341,6 +341,9 @@ export type TrainingNextCandidate = {
 
 export type TrainingNextCandidatesPayload = {
   status: 'ready' | 'empty';
+  lineKey: string;
+  lineLabel: string | null;
+  lineKind: string | null;
   snapshotKey: string | null;
   runId: string | null;
   sourceRoundIndex: number | null;
@@ -354,6 +357,7 @@ export type TrainingNextCandidatesPayload = {
   historyFingerprint: string | null;
   configHash: string | null;
   config: Record<string, number>;
+  predictionMetadata: Record<string, unknown>;
   generatedAt: string | null;
   totalCount: number;
   candidates: TrainingNextCandidate[];
@@ -527,5 +531,5 @@ export interface ResearchRepository {
   getSsqHistorySummary(): Promise<SsqHistorySummary>;
   listSsqHistoryDraws(): Promise<SsqHistoryDraw[]>;
   getTrainingWeightSignalSummary(): Promise<TrainingWeightSignalSummary>;
-  getTrainingNextCandidates(limit: number): Promise<TrainingNextCandidatesPayload>;
+  getTrainingNextCandidates(limit: number, lineKey: string): Promise<TrainingNextCandidatesPayload>;
 }

@@ -681,6 +681,33 @@ select {
   margin: 0 16px 16px;
 }
 
+.line-switch {
+  display: inline-flex;
+  gap: 4px;
+  margin: 0 16px 16px;
+  padding: 4px;
+  border: 1px solid #d4dce2;
+  border-radius: 8px;
+  background: #f7f9fa;
+}
+
+.line-switch button {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #44515f;
+  cursor: pointer;
+  font: inherit;
+  min-height: 32px;
+  padding: 6px 12px;
+}
+
+.line-switch button.active {
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(21, 38, 55, 0.14);
+  color: #111827;
+}
+
 .chip-row {
   display: flex;
   flex-wrap: wrap;
@@ -695,6 +722,10 @@ select {
   color: #364556;
   padding: 6px 10px;
   font-size: 0.82rem;
+}
+
+.dynamic-offsets {
+  padding-top: 0;
 }
 
 .next-candidates-table {

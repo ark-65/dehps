@@ -8,23 +8,65 @@ from psycopg.rows import dict_row
 
 from dehps.models.frequency_ranker import FrequencyRankerConfig, infer_next_ssq_draw_date
 from dehps.optimization.regime import select_history
+from dehps.optimization.weight_kdj import weight_kdj_advice_from_signals
 from dehps.optimization.walk_forward import (
+    CONFIG_WEIGHT_FIELDS,
     build_ranked_universe,
     config_hash,
     fingerprint_history,
     top_candidates_for_next,
 )
 from dehps.storage.postgres_store import (
+    CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID,
+    TOTAL_SSQ_RED_COMBINATIONS,
     ensure_training_supervisor_best_schema,
     load_history_with_dates,
+    load_recent_training_weight_signals,
     replace_training_next_candidates_current,
 )
+
+STATIC_100_LINE_KEY = "static_100"
+DYNAMIC_KDJ_LINE_KEY = "dynamic_kdj"
+STATIC_100_LINE_LABEL = "100-period static training"
+DYNAMIC_KDJ_LINE_LABEL = "Dynamic KDJ adjustment"
+PRIMARY_CONFIG_FIELDS = frozenset({"structural_weight", "frequency_weight", "omission_weight"})
+CONTEXT_CONFIG_FIELDS = tuple(field for field in CONFIG_WEIGHT_FIELDS if field not in PRIMARY_CONFIG_FIELDS)
 
 
 def next_issue_hint(issue: str | None) -> str:
     if not issue or not issue.isdigit():
         return ""
     return str(int(issue) + 1)
+
+
+def issue_less_than(left: object, right: object) -> bool:
+    left_text = str(left)
+    right_text = str(right)
+    try:
+        return int(left_text) < int(right_text)
+    except ValueError:
+        return left_text < right_text
+
+
+def issue_sort_key(value: object) -> tuple[int, int | str]:
+    text = str(value)
+    try:
+        return (0, int(text))
+    except ValueError:
+        return (1, text)
+
+
+def config_values(config: FrequencyRankerConfig) -> dict[str, float]:
+    return {field: float(getattr(config, field)) for field in CONFIG_WEIGHT_FIELDS}
+
+
+def clamp_frequency_config(config: FrequencyRankerConfig) -> FrequencyRankerConfig:
+    values = config_values(config)
+    for field in PRIMARY_CONFIG_FIELDS:
+        values[field] = min(1.25, max(0.0, values[field]))
+    for field in CONTEXT_CONFIG_FIELDS:
+        values[field] = min(0.30, max(-0.30, values[field]))
+    return FrequencyRankerConfig(**values)
 
 
 def training_freshness_metadata(
@@ -233,6 +275,9 @@ def build_training_next_candidate_snapshot(
         ranked_universe=matrix,
     )
     metadata = {
+        "line_key": STATIC_100_LINE_KEY,
+        "line_label": STATIC_100_LINE_LABEL,
+        "line_kind": "static",
         "snapshot_key": f"training-next-{latest_issue}-{config_hash(config)[:12]}",
         "run_id": best["run_id"],
         "source_round_index": best["source_round_index"],
@@ -259,6 +304,191 @@ def build_training_next_candidate_snapshot(
         ),
         "config_hash": config_hash(config),
         "config": best["config"],
+        "prediction_metadata": {
+            "line_key": STATIC_100_LINE_KEY,
+            "line_label": STATIC_100_LINE_LABEL,
+            "protocol": "static_training_best",
+            "legal_sample_space": TOTAL_SSQ_RED_COMBINATIONS,
+            "gauss_guardrail": {
+                "sample_space": TOTAL_SSQ_RED_COMBINATIONS,
+                "as_of_issue": latest_issue,
+                "next_issue": next_issue_hint(latest_issue),
+                "leakage_boundary": "snapshot uses history through as_of_issue only",
+            },
+            "riemann_guardrail": {
+                "shared_history_space": True,
+                "shared_candidate_universe": True,
+                "structural_change": "none_static_best_config",
+            },
+            "fallback_static_base": False,
+        },
+        "generated_at": generated_at,
+        "candidate_count": len(candidates),
+    }
+    return {"metadata": metadata, "candidates": candidates}
+
+
+def dynamic_kdj_config_for_next(
+    *,
+    base_config: FrequencyRankerConfig,
+    signals: list[dict[str, Any]],
+    target_issue: str,
+    min_objective_delta: float = 0.0,
+    min_abs_offset: float = 0.005,
+    slope_window: int = 3,
+    neutral_band: float = 5.0,
+) -> tuple[FrequencyRankerConfig, dict[str, Any]]:
+    eligible = [signal for signal in signals if issue_less_than(signal.get("issue"), target_issue)]
+    excluded = len(signals) - len(eligible)
+    advice = weight_kdj_advice_from_signals(
+        eligible,
+        allowed_fields=CONFIG_WEIGHT_FIELDS,
+        min_objective_delta=min_objective_delta,
+        min_abs_offset=min_abs_offset,
+        slope_window=slope_window,
+        neutral_band=neutral_band,
+    )
+    values = config_values(base_config)
+    applied_offsets: dict[str, float] = {}
+    applied_fields: set[str] = set()
+    for item in advice:
+        if item.decision not in {"selected", "downweighted"} or not item.applied_offset:
+            continue
+        if item.weight_name in applied_fields:
+            continue
+        applied_fields.add(item.weight_name)
+        offset = float(item.applied_offset)
+        values[item.weight_name] = float(values[item.weight_name]) + offset
+        applied_offsets[item.weight_name] = offset
+
+    dynamic_config = clamp_frequency_config(FrequencyRankerConfig(**values))
+    latest_signal_issue = max(
+        (str(signal.get("issue") or "") for signal in eligible),
+        key=issue_sort_key,
+        default=None,
+    )
+    leakage_passed = all(issue_less_than(signal.get("issue"), target_issue) for signal in eligible)
+    if latest_signal_issue is not None:
+        leakage_passed = leakage_passed and issue_less_than(latest_signal_issue, target_issue)
+    metadata = {
+        "thresholds": {
+            "min_objective_delta": min_objective_delta,
+            "min_abs_offset": min_abs_offset,
+            "slope_window": slope_window,
+            "neutral_band": neutral_band,
+        },
+        "signal_count": len(signals),
+        "eligible_signal_count": len(eligible),
+        "excluded_signal_count": excluded,
+        "latest_signal_issue": latest_signal_issue,
+        "leakage_passed": leakage_passed,
+        "fallback_static_base": not bool(applied_offsets),
+        "applied_offsets": {field: round(value, 8) for field, value in sorted(applied_offsets.items())},
+        "advice": [item.as_dict() for item in advice],
+    }
+    return dynamic_config, metadata
+
+
+def build_dynamic_kdj_next_candidate_snapshot(
+    conn: Connection,
+    *,
+    run_id: str | None = None,
+    top_n: int = 10000,
+    ranked_universe: Any | None = None,
+    signal_run_id: str | None = None,
+) -> dict[str, Any]:
+    if top_n < 1:
+        raise ValueError("top_n must be at least 1")
+
+    best = load_best_training_summary(conn, run_id)
+    if best is None:
+        raise RuntimeError("no training_round_results best config is available")
+    history, history_context = load_current_history_for_training_scope(conn, best)
+    if not history:
+        raise RuntimeError("ssq_history is empty")
+    latest_issue = str(history[-1][0])
+    next_issue = next_issue_hint(latest_issue)
+    target_draw_date = infer_next_ssq_draw_date(history)
+    current_history_fingerprint = fingerprint_history(history)
+    generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    base_config = FrequencyRankerConfig(**best["config"])
+    signals = load_recent_training_weight_signals(
+        conn,
+        signal_run_id=signal_run_id or CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID,
+        as_of_issue=latest_issue,
+        train_mode=best["train_mode"],
+        train_window=best["train_window"],
+        top_n=best["top_n"],
+        limit=1000,
+    )
+    dynamic_config, dynamic_metadata = dynamic_kdj_config_for_next(
+        base_config=base_config,
+        signals=signals,
+        target_issue=next_issue,
+    )
+    matrix = ranked_universe or build_ranked_universe()
+    resolved_top_n = min(top_n, len(matrix))
+    candidates = top_candidates_for_next(
+        history=history if best["train_mode"] == "expanding" else history[-best["train_window"] :],
+        top_n=resolved_top_n,
+        config=dynamic_config,
+        target_draw_date=target_draw_date,
+        ranked_universe=matrix,
+    )
+    dynamic_config_values = config_values(dynamic_config)
+    metadata = {
+        "line_key": DYNAMIC_KDJ_LINE_KEY,
+        "line_label": DYNAMIC_KDJ_LINE_LABEL,
+        "line_kind": "dynamic_kdj",
+        "snapshot_key": f"training-next-dynamic-kdj-{latest_issue}-{config_hash(dynamic_config)[:12]}",
+        "run_id": best["run_id"],
+        "source_round_index": best["source_round_index"],
+        "as_of_issue": latest_issue,
+        "next_issue": next_issue,
+        "next_draw_date": target_draw_date.isoformat() if target_draw_date else None,
+        "train_mode": best["train_mode"],
+        "train_window": best["train_window"],
+        "eval_window": best["eval_window"],
+        "top_n": resolved_top_n,
+        "history_fingerprint": current_history_fingerprint,
+        "training_as_of_issue": best["training_as_of_issue"],
+        "training_history_fingerprint": best["training_history_fingerprint"],
+        "history_scope": history_context["history_scope"],
+        "regime_years": history_context["regime_years"],
+        "regime_start_date": history_context["regime_start_date"],
+        "training_regime_start_date": best.get("training_regime_start_date") or "",
+        "freshness_mode": history_context["freshness_mode"],
+        "training_freshness": training_freshness_metadata(
+            training_as_of_issue=best["training_as_of_issue"],
+            latest_issue=latest_issue,
+            training_history_fingerprint=best["training_history_fingerprint"],
+            current_history_fingerprint=current_history_fingerprint,
+        ),
+        "config_hash": config_hash(dynamic_config),
+        "config": dynamic_config_values,
+        "prediction_metadata": {
+            "line_key": DYNAMIC_KDJ_LINE_KEY,
+            "line_label": DYNAMIC_KDJ_LINE_LABEL,
+            "protocol": "dynamic_kdj_next_issue",
+            "base_config_hash": config_hash(base_config),
+            "base_config": best["config"],
+            "signal_run_id": signal_run_id or CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID,
+            "target_issue": next_issue,
+            "legal_sample_space": TOTAL_SSQ_RED_COMBINATIONS,
+            **dynamic_metadata,
+            "gauss_guardrail": {
+                "sample_space": TOTAL_SSQ_RED_COMBINATIONS,
+                "as_of_issue": latest_issue,
+                "next_issue": next_issue,
+                "leakage_boundary": "KDJ signals must have issue < next_issue",
+                "leakage_passed": dynamic_metadata["leakage_passed"],
+            },
+            "riemann_guardrail": {
+                "shared_history_space": True,
+                "shared_candidate_universe": True,
+                "structural_change": "same base config plus per-issue KDJ weight offsets",
+            },
+        },
         "generated_at": generated_at,
         "candidate_count": len(candidates),
     }
@@ -279,3 +509,56 @@ def refresh_training_next_candidates_current(
         candidates=snapshot["candidates"],
     )
     return snapshot["metadata"]
+
+
+def refresh_dynamic_kdj_next_candidates_current(
+    conn: Connection,
+    *,
+    run_id: str | None = None,
+    top_n: int = 10000,
+    ranked_universe: Any | None = None,
+    signal_run_id: str | None = None,
+) -> dict[str, Any]:
+    snapshot = build_dynamic_kdj_next_candidate_snapshot(
+        conn,
+        run_id=run_id,
+        top_n=top_n,
+        ranked_universe=ranked_universe,
+        signal_run_id=signal_run_id,
+    )
+    replace_training_next_candidates_current(
+        conn,
+        metadata=snapshot["metadata"],
+        candidates=snapshot["candidates"],
+    )
+    return snapshot["metadata"]
+
+
+def refresh_training_prediction_lines_current(
+    conn: Connection,
+    *,
+    run_id: str | None = None,
+    top_n: int = 10000,
+    ranked_universe: Any | None = None,
+    signal_run_id: str | None = None,
+) -> dict[str, Any]:
+    static_metadata = refresh_training_next_candidates_current(
+        conn,
+        run_id=run_id,
+        top_n=top_n,
+        ranked_universe=ranked_universe,
+    )
+    dynamic_metadata = refresh_dynamic_kdj_next_candidates_current(
+        conn,
+        run_id=run_id,
+        top_n=top_n,
+        ranked_universe=ranked_universe,
+        signal_run_id=signal_run_id,
+    )
+    return {
+        "status": "ready",
+        "lines": {
+            STATIC_100_LINE_KEY: static_metadata,
+            DYNAMIC_KDJ_LINE_KEY: dynamic_metadata,
+        },
+    }

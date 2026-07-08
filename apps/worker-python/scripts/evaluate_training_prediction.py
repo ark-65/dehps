@@ -2,41 +2,41 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
-from dehps.optimization.prediction_evaluation import (
-    DEFAULT_OUTPUT_DIR,
-    build_prediction_evaluation,
-    json_default,
-    write_prediction_evaluation_report,
-)
+WORKER_ROOT = Path(__file__).resolve().parents[1]
+if str(WORKER_ROOT) not in sys.path:
+    sys.path.insert(0, str(WORKER_ROOT))
+
 from dehps.db import get_connection
+from dehps.optimization.prediction_evaluation import (
+    default_output_dir,
+    evaluate_prediction_snapshot,
+)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate the current training prediction snapshot against an actual SSQ draw.")
-    parser.add_argument("--issue", help="Actual issue to evaluate. Defaults to the latest issue in ssq_history.")
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser = argparse.ArgumentParser(description="Evaluate a current training prediction snapshot after SSQ sync.")
+    parser.add_argument("--issue", required=True, help="Actual issue to evaluate after it exists in ssq_history.")
+    parser.add_argument("--line-key", choices=["static_100", "dynamic_kdj"], default="static_100")
+    parser.add_argument("--snapshot-key", help="Optional pre-sync snapshot key guard.")
+    parser.add_argument("--output-dir", type=Path, default=default_output_dir())
     parser.add_argument("--no-write-report", action="store_true")
+    parser.add_argument("--no-persist", action="store_true")
     args = parser.parse_args()
 
     with get_connection() as conn:
-        payload = build_prediction_evaluation(conn, issue=args.issue)
-
-    if not args.no_write_report:
-        payload["artifact_paths"] = write_prediction_evaluation_report(payload, output_dir=args.output_dir)
-
-    summary = {
-        "status": payload["status"],
-        "evaluable": payload["evaluable"],
-        "issue": payload["issue"],
-        "exact_red6_rank": (payload.get("result") or {}).get("exact_red6", {}).get("rank"),
-        "red5_rank": (payload.get("result") or {}).get("red5", {}).get("rank"),
-        "red5_or_better_rank": (payload.get("result") or {}).get("red5_or_better", {}).get("rank"),
-        "artifact_paths": payload.get("artifact_paths"),
-        "warnings": payload.get("warnings") or [],
-    }
-    print(json.dumps(summary, ensure_ascii=False, indent=2, default=json_default))
+        payload = evaluate_prediction_snapshot(
+            conn,
+            line_key=args.line_key,
+            predicted_issue=args.issue,
+            snapshot_key=args.snapshot_key,
+            output_dir=args.output_dir,
+            write_report=not args.no_write_report,
+            persist=not args.no_persist,
+        )
+    print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":

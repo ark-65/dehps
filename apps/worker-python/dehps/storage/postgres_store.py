@@ -252,6 +252,9 @@ def ensure_training_next_candidates_current_schema(conn: Connection) -> None:
         """
         CREATE TABLE IF NOT EXISTS training_next_candidates_current (
           id BIGSERIAL PRIMARY KEY,
+          line_key TEXT NOT NULL DEFAULT 'static_100',
+          line_label TEXT NOT NULL DEFAULT '100-period static training',
+          line_kind TEXT NOT NULL DEFAULT 'static',
           snapshot_key TEXT NOT NULL,
           run_id TEXT NOT NULL,
           source_round_index INTEGER,
@@ -265,6 +268,7 @@ def ensure_training_next_candidates_current_schema(conn: Connection) -> None:
           history_fingerprint TEXT NOT NULL,
           config_hash TEXT NOT NULL,
           config JSONB NOT NULL DEFAULT '{}'::jsonb,
+          prediction_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
           rank INTEGER NOT NULL,
           red_numbers SMALLINT[] NOT NULL,
           score NUMERIC(14,8) NOT NULL,
@@ -272,16 +276,81 @@ def ensure_training_next_candidates_current_schema(conn: Connection) -> None:
         )
         """
     )
+    conn.execute("ALTER TABLE training_next_candidates_current ADD COLUMN IF NOT EXISTS line_key TEXT NOT NULL DEFAULT 'static_100'")
+    conn.execute("ALTER TABLE training_next_candidates_current ADD COLUMN IF NOT EXISTS line_label TEXT NOT NULL DEFAULT '100-period static training'")
+    conn.execute("ALTER TABLE training_next_candidates_current ADD COLUMN IF NOT EXISTS line_kind TEXT NOT NULL DEFAULT 'static'")
+    conn.execute("ALTER TABLE training_next_candidates_current ADD COLUMN IF NOT EXISTS prediction_metadata JSONB NOT NULL DEFAULT '{}'::jsonb")
     conn.execute(
         """
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_training_next_candidates_current_rank
-          ON training_next_candidates_current (rank)
+        DROP INDEX IF EXISTS idx_training_next_candidates_current_rank
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_training_next_candidates_current_line_rank
+          ON training_next_candidates_current (line_key, rank)
         """
     )
     conn.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_training_next_candidates_current_generated
           ON training_next_candidates_current (generated_at DESC)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_training_next_candidates_current_line_issue
+          ON training_next_candidates_current (line_key, next_issue, generated_at DESC)
+        """
+    )
+
+
+def ensure_training_prediction_evaluations_schema(conn: Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS training_prediction_evaluations (
+          id BIGSERIAL PRIMARY KEY,
+          evaluation_key TEXT NOT NULL UNIQUE,
+          line_key TEXT NOT NULL,
+          line_label TEXT NOT NULL,
+          line_kind TEXT NOT NULL,
+          snapshot_key TEXT,
+          run_id TEXT,
+          source_round_index INTEGER,
+          as_of_issue TEXT,
+          predicted_issue TEXT NOT NULL,
+          actual_draw_date DATE,
+          actual_red_numbers SMALLINT[],
+          actual_blue_number SMALLINT,
+          exact_rank INTEGER,
+          exact_score NUMERIC(14,8),
+          hit_top_100 BOOLEAN NOT NULL DEFAULT false,
+          hit_top_1000 BOOLEAN NOT NULL DEFAULT false,
+          hit_top_10000 BOOLEAN NOT NULL DEFAULT false,
+          red5_rank INTEGER,
+          red5_score NUMERIC(14,8),
+          red5_numbers SMALLINT[],
+          hit_red5_top_100 BOOLEAN NOT NULL DEFAULT false,
+          hit_red5_top_1000 BOOLEAN NOT NULL DEFAULT false,
+          hit_red5_top_10000 BOOLEAN NOT NULL DEFAULT false,
+          candidate_count INTEGER NOT NULL DEFAULT 0,
+          snapshot_generated_at TIMESTAMPTZ,
+          status TEXT NOT NULL,
+          summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+          prediction_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+          json_path TEXT,
+          report_path TEXT,
+          guardrail TEXT NOT NULL DEFAULT '',
+          evaluated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_training_prediction_evaluations_line_issue
+          ON training_prediction_evaluations (line_key, predicted_issue, evaluated_at DESC)
         """
     )
 
@@ -708,11 +777,18 @@ def replace_training_next_candidates_current(
     candidates: list[tuple[int, tuple[int, ...], float]],
 ) -> None:
     ensure_training_next_candidates_current_schema(conn)
-    conn.execute("DELETE FROM training_next_candidates_current")
+    line_key = str(metadata.get("line_key") or "static_100")
+    line_label = str(metadata.get("line_label") or "100-period static training")
+    line_kind = str(metadata.get("line_kind") or "static")
+    prediction_metadata = metadata.get("prediction_metadata") if isinstance(metadata.get("prediction_metadata"), dict) else {}
+    conn.execute("DELETE FROM training_next_candidates_current WHERE line_key = %s", (line_key,))
     if not candidates:
         return
     params = [
         (
+            line_key,
+            line_label,
+            line_kind,
             metadata["snapshot_key"],
             metadata["run_id"],
             metadata.get("source_round_index"),
@@ -726,6 +802,7 @@ def replace_training_next_candidates_current(
             metadata["history_fingerprint"],
             metadata["config_hash"],
             json.dumps(metadata.get("config") or {}),
+            json.dumps(prediction_metadata),
             rank,
             list(numbers),
             score,
@@ -737,17 +814,108 @@ def replace_training_next_candidates_current(
         cur.executemany(
             """
             INSERT INTO training_next_candidates_current (
+              line_key, line_label, line_kind,
               snapshot_key, run_id, source_round_index, as_of_issue, next_issue, next_draw_date,
               train_mode, train_window, eval_window, top_n, history_fingerprint, config_hash,
-              config, rank, red_numbers, score, generated_at
+              config, prediction_metadata, rank, red_numbers, score, generated_at
             )
             VALUES (
-              %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-              %s::jsonb, %s, %s, %s, %s
+              %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+              %s::jsonb, %s::jsonb, %s, %s, %s, %s
             )
             """,
             params,
         )
+
+
+def upsert_training_prediction_evaluation(conn: Connection, payload: dict[str, Any]) -> None:
+    ensure_training_prediction_evaluations_schema(conn)
+    summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+    prediction_metadata = (
+        payload.get("prediction_metadata") if isinstance(payload.get("prediction_metadata"), dict) else {}
+    )
+    conn.execute(
+        """
+        INSERT INTO training_prediction_evaluations (
+          evaluation_key, line_key, line_label, line_kind, snapshot_key, run_id, source_round_index,
+          as_of_issue, predicted_issue, actual_draw_date, actual_red_numbers, actual_blue_number,
+          exact_rank, exact_score, hit_top_100, hit_top_1000, hit_top_10000,
+          red5_rank, red5_score, red5_numbers, hit_red5_top_100, hit_red5_top_1000, hit_red5_top_10000,
+          candidate_count, snapshot_generated_at, status, summary, prediction_metadata,
+          json_path, report_path, guardrail, evaluated_at
+        )
+        VALUES (
+          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb,
+          %s, %s, %s, %s
+        )
+        ON CONFLICT (evaluation_key) DO UPDATE
+        SET line_label = EXCLUDED.line_label,
+            line_kind = EXCLUDED.line_kind,
+            snapshot_key = EXCLUDED.snapshot_key,
+            run_id = EXCLUDED.run_id,
+            source_round_index = EXCLUDED.source_round_index,
+            as_of_issue = EXCLUDED.as_of_issue,
+            actual_draw_date = EXCLUDED.actual_draw_date,
+            actual_red_numbers = EXCLUDED.actual_red_numbers,
+            actual_blue_number = EXCLUDED.actual_blue_number,
+            exact_rank = EXCLUDED.exact_rank,
+            exact_score = EXCLUDED.exact_score,
+            hit_top_100 = EXCLUDED.hit_top_100,
+            hit_top_1000 = EXCLUDED.hit_top_1000,
+            hit_top_10000 = EXCLUDED.hit_top_10000,
+            red5_rank = EXCLUDED.red5_rank,
+            red5_score = EXCLUDED.red5_score,
+            red5_numbers = EXCLUDED.red5_numbers,
+            hit_red5_top_100 = EXCLUDED.hit_red5_top_100,
+            hit_red5_top_1000 = EXCLUDED.hit_red5_top_1000,
+            hit_red5_top_10000 = EXCLUDED.hit_red5_top_10000,
+            candidate_count = EXCLUDED.candidate_count,
+            snapshot_generated_at = EXCLUDED.snapshot_generated_at,
+            status = EXCLUDED.status,
+            summary = EXCLUDED.summary,
+            prediction_metadata = EXCLUDED.prediction_metadata,
+            json_path = EXCLUDED.json_path,
+            report_path = EXCLUDED.report_path,
+            guardrail = EXCLUDED.guardrail,
+            evaluated_at = EXCLUDED.evaluated_at,
+            updated_at = now()
+        """,
+        (
+            payload["evaluation_key"],
+            payload["line_key"],
+            payload.get("line_label") or "",
+            payload.get("line_kind") or "",
+            payload.get("snapshot_key"),
+            payload.get("run_id"),
+            payload.get("source_round_index"),
+            payload.get("as_of_issue"),
+            payload["predicted_issue"],
+            payload.get("actual_draw_date"),
+            payload.get("actual_red_numbers"),
+            payload.get("actual_blue_number"),
+            payload.get("exact_rank"),
+            payload.get("exact_score"),
+            bool(payload.get("hit_top_100")),
+            bool(payload.get("hit_top_1000")),
+            bool(payload.get("hit_top_10000")),
+            payload.get("red5_rank"),
+            payload.get("red5_score"),
+            payload.get("red5_numbers"),
+            bool(payload.get("hit_red5_top_100")),
+            bool(payload.get("hit_red5_top_1000")),
+            bool(payload.get("hit_red5_top_10000")),
+            int(payload.get("candidate_count") or 0),
+            payload.get("snapshot_generated_at"),
+            payload["status"],
+            json.dumps(summary, ensure_ascii=False),
+            json.dumps(prediction_metadata, ensure_ascii=False),
+            payload.get("json_path"),
+            payload.get("report_path"),
+            payload.get("guardrail") or "",
+            payload["evaluated_at"],
+        ),
+    )
 
 
 def upsert_training_round_result(conn: Connection, *, run_id: str, round_info: dict[str, Any], status: dict[str, Any]) -> None:

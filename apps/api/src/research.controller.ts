@@ -81,8 +81,8 @@ export class ResearchController {
   }
 
   @Get('training-next-candidates')
-  trainingNextCandidates(@Query('limit') limit?: string) {
-    return this.researchService.getTrainingNextCandidates(this.numberQuery(limit));
+  trainingNextCandidates(@Query('limit') limit?: string, @Query('lineKey') lineKey?: string) {
+    return this.researchService.getTrainingNextCandidates(this.numberQuery(limit), lineKey);
   }
 
   @Post('training-events/status')

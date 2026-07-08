@@ -243,8 +243,8 @@ export class ResearchService {
     return this.repository.listTrainingWeightSignals(normalizedRunId, [...new Set(normalizedWeights)], this.normalizeSignalLimit(limit));
   }
 
-  getTrainingNextCandidates(limit = 10000): Promise<TrainingNextCandidatesPayload> {
-    return this.repository.getTrainingNextCandidates(this.normalizeCandidateLimit(limit));
+  getTrainingNextCandidates(limit = 10000, lineKey = 'static_100'): Promise<TrainingNextCandidatesPayload> {
+    return this.repository.getTrainingNextCandidates(this.normalizeCandidateLimit(limit), this.normalizePredictionLineKey(lineKey));
   }
 
   async trainingStatus(tailLines = DEFAULT_LOG_TAIL_LINES): Promise<TrainingStatusPayload> {
@@ -1031,6 +1031,14 @@ export class ResearchService {
       }
       throw error;
     }
+  }
+
+  private normalizePredictionLineKey(value: string | null | undefined): string {
+    const lineKey = value?.trim() || 'static_100';
+    if (lineKey === 'static_100' || lineKey === 'dynamic_kdj') {
+      return lineKey;
+    }
+    return 'static_100';
   }
 
   private async firstExistingPath(filePath: string): Promise<string | null> {
