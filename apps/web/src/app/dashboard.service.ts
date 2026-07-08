@@ -89,9 +89,9 @@ export class DashboardService {
     return this.http.get<TrainingWeightSignalSeries[]>('/training-weight-signals?limit=1000');
   }
 
-  loadTrainingNextCandidates(lineKey = 'static_100'): Observable<TrainingNextCandidatesPayload> {
+  loadTrainingNextCandidates(lineKey = 'static_100', limit = 10000): Observable<TrainingNextCandidatesPayload> {
     return this.http.get<TrainingNextCandidatesPayload>(
-      `/training-next-candidates?limit=10000&lineKey=${encodeURIComponent(lineKey)}`,
+      `/training-next-candidates?limit=${encodeURIComponent(String(limit))}&lineKey=${encodeURIComponent(lineKey)}`,
     );
   }
 

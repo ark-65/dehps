@@ -203,6 +203,33 @@
               </article>
             }
           </div>
+          <section class="training-panel prediction-comparison-panel">
+            <h3>100期回归对比</h3>
+            <div class="table-wrap compact-table prediction-comparison-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>线</th>
+                    <th>状态</th>
+                    <th>Exact</th>
+                    <th>红5</th>
+                    <th>动态目标</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (row of nextCandidateComparisonRows(state.comparison); track row.lineKey) {
+                    <tr>
+                      <td><strong>{{ row.lineLabel }}</strong></td>
+                      <td>{{ row.state }} / {{ row.status }}</td>
+                      <td>{{ row.exact }}</td>
+                      <td>{{ row.red5 }}</td>
+                      <td>{{ row.detail }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </section>
           <section class="training-panel">
             <h3>生成边界</h3>
             <p>{{ state.payload.guardrail }}</p>
@@ -223,6 +250,12 @@
                 <dt>预测线状态</dt>
                 <dd>{{ nextCandidateLineState(state.payload) }}</dd>
               </div>
+              @for (row of nextCandidateRegressionRows(state.payload); track row.label) {
+                <div>
+                  <dt>{{ row.label }}</dt>
+                  <dd>{{ row.value }}</dd>
+                </div>
+              }
             </dl>
             <div class="chip-row">
               @for (row of nextCandidateConfigRows(state.payload); track row.key) {

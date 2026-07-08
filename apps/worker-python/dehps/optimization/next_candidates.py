@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from statistics import median
 from typing import Any
 
 from psycopg import Connection
 from psycopg.rows import dict_row
 
-from dehps.models.frequency_ranker import FrequencyRankerConfig, infer_next_ssq_draw_date
+from dehps.models.frequency_ranker import (
+    FrequencyRankerConfig,
+    HistoryDraw,
+    history_draw_date,
+    history_issue,
+    history_numbers,
+    infer_next_ssq_draw_date,
+)
 from dehps.optimization.regime import select_history
 from dehps.optimization.weight_kdj import weight_kdj_advice_from_signals
 from dehps.optimization.walk_forward import (
@@ -14,6 +22,7 @@ from dehps.optimization.walk_forward import (
     build_ranked_universe,
     config_hash,
     fingerprint_history,
+    rank_target_grid_with_red5,
     top_candidates_for_next,
 )
 from dehps.storage.postgres_store import (
@@ -31,6 +40,7 @@ STATIC_100_LINE_LABEL = "100-period static training"
 DYNAMIC_KDJ_LINE_LABEL = "Dynamic KDJ adjustment"
 PRIMARY_CONFIG_FIELDS = frozenset({"structural_weight", "frequency_weight", "omission_weight"})
 CONTEXT_CONFIG_FIELDS = tuple(field for field in CONFIG_WEIGHT_FIELDS if field not in PRIMARY_CONFIG_FIELDS)
+REGRESSION_PROTOCOL_VERSION = "dual-line-regression-100-v1"
 
 
 def next_issue_hint(issue: str | None) -> str:
@@ -125,6 +135,165 @@ def training_summary_sort_key(summary: dict[str, Any]) -> tuple:
         -float(summary.get("median_rank") or 0),
         -float(summary.get("best_rank") or 0),
     )
+
+
+def int_metric(source: dict[str, Any], key: str) -> int:
+    return int(source.get(key) or 0)
+
+
+def numeric_metric(source: dict[str, Any], key: str) -> float | None:
+    value = source.get(key)
+    return float(value) if isinstance(value, int | float) else None
+
+
+def compact_static_regression_summary(best: dict[str, Any]) -> dict[str, Any]:
+    summary = best.get("summary") if isinstance(best.get("summary"), dict) else {}
+    red5 = summary.get("red5") if isinstance(summary.get("red5"), dict) else {}
+    configured_eval_window = int(best.get("eval_window") or 0)
+    evaluated_draws = int(summary.get("evaluated_draws") or configured_eval_window)
+    return {
+        "status": "evaluated" if evaluated_draws else "unknown",
+        "protocol": REGRESSION_PROTOCOL_VERSION,
+        "source": "training_supervisor_best",
+        "line_key": STATIC_100_LINE_KEY,
+        "eval_window": evaluated_draws,
+        "configured_eval_window": configured_eval_window,
+        "top_100_hits": int_metric(summary, "top_100_hits"),
+        "top_1000_hits": int_metric(summary, "top_1000_hits"),
+        "top_10000_hits": int_metric(summary, "top_10000_hits"),
+        "median_rank": numeric_metric(summary, "median_rank"),
+        "best_rank": int_metric(summary, "best_rank") or None,
+        "worst_rank": int_metric(summary, "worst_rank") or None,
+        "red5": {
+            "eval_window": evaluated_draws,
+            "top_100_hits": int_metric(red5, "top_100_hits"),
+            "top_1000_hits": int_metric(red5, "top_1000_hits"),
+            "top_10000_hits": int_metric(red5, "top_10000_hits"),
+            "median_rank": numeric_metric(red5, "median_rank"),
+            "best_rank": int_metric(red5, "best_rank") or None,
+        },
+        "fallback_target_count": 0,
+        "changed_target_count": 0,
+        "leakage_passed": True,
+        "legal_sample_space": TOTAL_SSQ_RED_COMBINATIONS,
+    }
+
+
+def regression_target_indexes(*, history_len: int, train_window: int, eval_window: int) -> range:
+    if train_window < 1:
+        raise ValueError("train_window must be at least 1")
+    if eval_window < 1:
+        raise ValueError("eval_window must be at least 1")
+    if history_len <= train_window:
+        return range(0)
+    return range(max(train_window, history_len - eval_window), history_len)
+
+
+def dynamic_kdj_regression_summary(
+    *,
+    history: list[HistoryDraw],
+    base_config: FrequencyRankerConfig,
+    signals: list[dict[str, Any]],
+    ranked_universe: Any,
+    train_mode: str,
+    train_window: int,
+    eval_window: int,
+    top_n: int,
+) -> dict[str, Any]:
+    indexes = list(regression_target_indexes(history_len=len(history), train_window=train_window, eval_window=eval_window))
+    if not indexes:
+        return {
+            "status": "skipped_insufficient_history",
+            "protocol": REGRESSION_PROTOCOL_VERSION,
+            "source": "dynamic_kdj_per_target",
+            "line_key": DYNAMIC_KDJ_LINE_KEY,
+            "eval_window": 0,
+            "configured_eval_window": eval_window,
+            "top_100_hits": 0,
+            "top_1000_hits": 0,
+            "top_10000_hits": 0,
+            "red5": {
+                "eval_window": 0,
+                "top_100_hits": 0,
+                "top_1000_hits": 0,
+                "top_10000_hits": 0,
+                "median_rank": None,
+                "best_rank": None,
+            },
+            "fallback_target_count": 0,
+            "changed_target_count": 0,
+            "leakage_passed": True,
+            "legal_sample_space": TOTAL_SSQ_RED_COMBINATIONS,
+        }
+
+    exact_ranks: list[int] = []
+    red5_ranks: list[int] = []
+    fallback_target_count = 0
+    changed_target_count = 0
+    leakage_passed = True
+    latest_signal_issue: str | None = None
+
+    for target_index in indexes:
+        target_draw = history[target_index]
+        target_issue = history_issue(target_draw)
+        dynamic_config, dynamic_metadata = dynamic_kdj_config_for_next(
+            base_config=base_config,
+            signals=signals,
+            target_issue=target_issue,
+        )
+        if dynamic_metadata["fallback_static_base"]:
+            fallback_target_count += 1
+        else:
+            changed_target_count += 1
+        leakage_passed = leakage_passed and bool(dynamic_metadata["leakage_passed"])
+        signal_issue = dynamic_metadata.get("latest_signal_issue")
+        if signal_issue is not None and (latest_signal_issue is None or issue_sort_key(signal_issue) > issue_sort_key(latest_signal_issue)):
+            latest_signal_issue = str(signal_issue)
+
+        train_start = 0 if train_mode == "expanding" else max(0, target_index - train_window)
+        train_history = history[train_start:target_index]
+        ranked_target = rank_target_grid_with_red5(
+            target_numbers=history_numbers(target_draw),
+            train_history=train_history,
+            configs=(dynamic_config,),
+            ranked_universe=ranked_universe,
+            target_draw_date=history_draw_date(target_draw),
+            workers=1,
+            pool=None,
+        )[0]
+        rank, _score, red5_match = ranked_target
+        exact_ranks.append(int(rank))
+        if red5_match is not None:
+            red5_ranks.append(int(red5_match.rank))
+
+    return {
+        "status": "evaluated",
+        "protocol": REGRESSION_PROTOCOL_VERSION,
+        "source": "dynamic_kdj_per_target",
+        "line_key": DYNAMIC_KDJ_LINE_KEY,
+        "eval_window": len(exact_ranks),
+        "configured_eval_window": eval_window,
+        "top_100_hits": sum(rank <= 100 for rank in exact_ranks),
+        "top_1000_hits": sum(rank <= 1000 for rank in exact_ranks),
+        "top_10000_hits": sum(rank <= 10000 for rank in exact_ranks),
+        "median_rank": median(exact_ranks) if exact_ranks else None,
+        "best_rank": min(exact_ranks) if exact_ranks else None,
+        "worst_rank": max(exact_ranks) if exact_ranks else None,
+        "red5": {
+            "eval_window": len(exact_ranks),
+            "top_100_hits": sum(rank <= 100 for rank in red5_ranks),
+            "top_1000_hits": sum(rank <= 1000 for rank in red5_ranks),
+            "top_10000_hits": sum(rank <= 10000 for rank in red5_ranks),
+            "median_rank": median(red5_ranks) if red5_ranks else None,
+            "best_rank": min(red5_ranks) if red5_ranks else None,
+        },
+        "fallback_target_count": fallback_target_count,
+        "changed_target_count": changed_target_count,
+        "leakage_passed": leakage_passed,
+        "latest_signal_issue": latest_signal_issue,
+        "legal_sample_space": TOTAL_SSQ_RED_COMBINATIONS,
+        "top_n": top_n,
+    }
 
 
 def resolve_latest_training_run_id(conn: Connection, run_id: str | None = None) -> str | None:
@@ -274,6 +443,7 @@ def build_training_next_candidate_snapshot(
         target_draw_date=target_draw_date,
         ranked_universe=matrix,
     )
+    regression_summary = compact_static_regression_summary(best)
     metadata = {
         "line_key": STATIC_100_LINE_KEY,
         "line_label": STATIC_100_LINE_LABEL,
@@ -309,11 +479,13 @@ def build_training_next_candidate_snapshot(
             "line_label": STATIC_100_LINE_LABEL,
             "protocol": "static_training_best",
             "legal_sample_space": TOTAL_SSQ_RED_COMBINATIONS,
+            "regression_100": regression_summary,
             "gauss_guardrail": {
                 "sample_space": TOTAL_SSQ_RED_COMBINATIONS,
                 "as_of_issue": latest_issue,
                 "next_issue": next_issue_hint(latest_issue),
                 "leakage_boundary": "snapshot uses history through as_of_issue only",
+                "regression_window": regression_summary["eval_window"],
             },
             "riemann_guardrail": {
                 "shared_history_space": True,
@@ -427,6 +599,16 @@ def build_dynamic_kdj_next_candidate_snapshot(
         target_issue=next_issue,
     )
     matrix = ranked_universe or build_ranked_universe()
+    regression_summary = dynamic_kdj_regression_summary(
+        history=history,
+        base_config=base_config,
+        signals=signals,
+        ranked_universe=matrix,
+        train_mode=best["train_mode"],
+        train_window=best["train_window"],
+        eval_window=best["eval_window"],
+        top_n=best["top_n"],
+    )
     resolved_top_n = min(top_n, len(matrix))
     candidates = top_candidates_for_next(
         history=history if best["train_mode"] == "expanding" else history[-best["train_window"] :],
@@ -475,6 +657,7 @@ def build_dynamic_kdj_next_candidate_snapshot(
             "signal_run_id": signal_run_id or CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID,
             "target_issue": next_issue,
             "legal_sample_space": TOTAL_SSQ_RED_COMBINATIONS,
+            "regression_100": regression_summary,
             **dynamic_metadata,
             "gauss_guardrail": {
                 "sample_space": TOTAL_SSQ_RED_COMBINATIONS,
@@ -482,6 +665,8 @@ def build_dynamic_kdj_next_candidate_snapshot(
                 "next_issue": next_issue,
                 "leakage_boundary": "KDJ signals must have issue < next_issue",
                 "leakage_passed": dynamic_metadata["leakage_passed"],
+                "regression_window": regression_summary["eval_window"],
+                "regression_leakage_passed": regression_summary["leakage_passed"],
             },
             "riemann_guardrail": {
                 "shared_history_space": True,

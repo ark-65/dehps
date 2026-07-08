@@ -220,7 +220,7 @@ test('training view does not use periodic dashboard polling', () => {
   assert.equal(service.includes('/training-status/ws'), true);
   assert.equal(service.includes('/training-rounds?limit=50'), true);
   assert.equal(service.includes('/training-weight-signals?limit=1000'), true);
-  assert.equal(service.includes('/training-next-candidates?limit=10000'), true);
+  assert.equal(service.includes('/training-next-candidates?limit=${encodeURIComponent(String(limit))}'), true);
   assert.equal(service.includes('/training-rounds/${encodeURIComponent(runId)}'), true);
   assert.equal(component.includes('liveProgressOption'), true);
   assert.equal(component.includes('trainingWeightSignalsState$'), true);
@@ -316,16 +316,20 @@ test('next candidate tab loads current top 10000 snapshot lazily', () => {
   const template = readFileSync(new URL('../src/app/app.component.html', import.meta.url), 'utf8');
   const service = readFileSync(new URL('../src/app/dashboard.service.ts', import.meta.url), 'utf8');
 
-  assert.equal(service.includes("loadTrainingNextCandidates(lineKey = 'static_100'): Observable<TrainingNextCandidatesPayload>"), true);
+  assert.equal(service.includes("loadTrainingNextCandidates(lineKey = 'static_100', limit = 10000): Observable<TrainingNextCandidatesPayload>"), true);
+  assert.equal(service.includes('limit=${encodeURIComponent(String(limit))}'), true);
   assert.equal(service.includes('lineKey=${encodeURIComponent(lineKey)}'), true);
   assert.equal(component.includes("filter((tab) => tab === 'next-candidates')"), true);
   assert.equal(component.includes('trainingNextCandidatesRefreshRequests'), true);
   assert.equal(component.includes('trainingPredictionLineRequests'), true);
+  assert.equal(component.includes("this.dashboardService.loadTrainingNextCandidates('dynamic_kdj', 1)"), true);
+  assert.equal(component.includes('nextCandidateComparisonRows'), true);
   assert.equal(component.includes("selectedPredictionLineKey: PredictionLineKey = 'static_100'"), true);
   assert.equal(component.includes("this.activeTab === 'next-candidates'"), true);
   assert.equal(template.includes("activeTab === 'next-candidates'"), true);
   assert.equal(template.includes('trainingNextCandidatesState$ | async'), true);
   assert.equal(template.includes('selectPredictionLine(line.key)'), true);
+  assert.equal(template.includes('100期回归对比'), true);
   assert.equal(template.includes('Top10000'), true);
   assert.equal(template.includes('state.payload.guardrail'), true);
 });

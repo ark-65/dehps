@@ -7,6 +7,7 @@ import pytest
 from dehps.storage.postgres_store import DEFAULT_SSQ_DRAW_SITE
 from dehps.storage.postgres_store import CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID
 from dehps.storage.postgres_store import ensure_training_next_candidates_current_schema
+from dehps.storage.postgres_store import ensure_training_prediction_line_regressions_schema
 from dehps.storage.postgres_store import ensure_training_target_weight_inversions_schema
 from dehps.storage.postgres_store import ensure_training_supervisor_best_schema
 from dehps.storage.postgres_store import ensure_training_weight_signals_schema
@@ -20,6 +21,7 @@ from dehps.storage.postgres_store import load_red_combination_universe
 from dehps.storage.postgres_store import prune_stale_training_weight_signals
 from dehps.storage.postgres_store import replace_training_next_candidates_current
 from dehps.storage.postgres_store import upsert_training_target_weight_inversion
+from dehps.storage.postgres_store import upsert_training_prediction_line_regression
 from dehps.storage.postgres_store import upsert_training_round_result
 from dehps.storage.postgres_store import upsert_training_supervisor_best
 from dehps.storage.postgres_store import upsert_training_weight_signal
@@ -180,6 +182,18 @@ def test_training_next_candidates_schema_uses_current_rank_index():
     assert "line_key TEXT NOT NULL" in schema_sql
     assert "snapshot_key TEXT NOT NULL" in schema_sql
     assert any("idx_training_next_candidates_current_line_rank" in sql for sql, _params in conn.executed)
+
+
+def test_training_prediction_line_regressions_schema_uses_unique_regression_key():
+    conn = FakeConn([])
+
+    ensure_training_prediction_line_regressions_schema(conn)
+
+    schema_sql = conn.executed[0][0]
+    assert "CREATE TABLE IF NOT EXISTS training_prediction_line_regressions" in schema_sql
+    assert "regression_key TEXT NOT NULL UNIQUE" in schema_sql
+    assert "exact_top_10000_hits INTEGER" in schema_sql
+    assert any("idx_training_prediction_line_regressions_line_generated" in sql for sql, _params in conn.executed)
 
 
 def test_training_supervisor_best_schema_uses_protocol_history_key():
@@ -387,6 +401,59 @@ def test_replace_training_next_candidates_current_deletes_previous_snapshot():
         "2026068",
     )
     assert insert_params[0][17:20] == (1, [1, 2, 3, 4, 5, 6], 0.9)
+
+
+def test_upsert_training_prediction_line_regression_persists_comparison_metrics():
+    conn = FakeConn([])
+
+    upsert_training_prediction_line_regression(
+        conn,
+        metadata={
+            "line_key": "dynamic_kdj",
+            "line_label": "Dynamic KDJ adjustment",
+            "line_kind": "dynamic_kdj",
+            "snapshot_key": "training-next-dynamic-2026068",
+            "run_id": "run-1",
+            "source_round_index": 5,
+            "as_of_issue": "2026068",
+            "next_issue": "2026069",
+            "train_mode": "expanding",
+            "train_window": 900,
+            "eval_window": 100,
+            "top_n": 10000,
+            "history_fingerprint": "history-current",
+            "config_hash": "config-1",
+            "prediction_metadata": {"fallback_static_base": False},
+            "generated_at": "2026-06-18T09:00:00Z",
+        },
+        regression={
+            "status": "evaluated",
+            "top_100_hits": 1,
+            "top_1000_hits": 2,
+            "top_10000_hits": 4,
+            "median_rank": 12345.5,
+            "best_rank": 88,
+            "worst_rank": 900000,
+            "fallback_target_count": 7,
+            "changed_target_count": 93,
+            "leakage_passed": True,
+            "red5": {"top_100_hits": 3, "top_1000_hits": 5, "top_10000_hits": 8},
+        },
+    )
+
+    sql, params = conn.executed[-1]
+    assert "ON CONFLICT (regression_key) DO UPDATE" in sql
+    assert params[:6] == (
+        "dynamic_kdj:run-1:5:2026068:2026069:config-1",
+        "dynamic_kdj",
+        "Dynamic KDJ adjustment",
+        "dynamic_kdj",
+        "training-next-dynamic-2026068",
+        "run-1",
+    )
+    assert params[16:22] == (1, 2, 4, 3, 5, 8)
+    assert params[25:28] == (7, 93, True)
+    assert '"fallback_static_base": false' in params[-2]
 
 
 def test_upsert_training_weight_signal_is_idempotent_by_run_issue_weight():

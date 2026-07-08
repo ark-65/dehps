@@ -355,6 +355,61 @@ def ensure_training_prediction_evaluations_schema(conn: Connection) -> None:
     )
 
 
+def ensure_training_prediction_line_regressions_schema(conn: Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS training_prediction_line_regressions (
+          id BIGSERIAL PRIMARY KEY,
+          regression_key TEXT NOT NULL UNIQUE,
+          line_key TEXT NOT NULL,
+          line_label TEXT NOT NULL,
+          line_kind TEXT NOT NULL,
+          snapshot_key TEXT NOT NULL,
+          run_id TEXT,
+          source_round_index INTEGER,
+          as_of_issue TEXT NOT NULL,
+          next_issue TEXT NOT NULL,
+          train_mode TEXT NOT NULL,
+          train_window INTEGER NOT NULL,
+          eval_window INTEGER NOT NULL,
+          top_n INTEGER NOT NULL,
+          history_fingerprint TEXT NOT NULL,
+          config_hash TEXT NOT NULL,
+          status TEXT NOT NULL,
+          exact_top_100_hits INTEGER NOT NULL DEFAULT 0,
+          exact_top_1000_hits INTEGER NOT NULL DEFAULT 0,
+          exact_top_10000_hits INTEGER NOT NULL DEFAULT 0,
+          red5_top_100_hits INTEGER NOT NULL DEFAULT 0,
+          red5_top_1000_hits INTEGER NOT NULL DEFAULT 0,
+          red5_top_10000_hits INTEGER NOT NULL DEFAULT 0,
+          median_rank NUMERIC(12,2),
+          best_rank INTEGER,
+          worst_rank INTEGER,
+          fallback_target_count INTEGER NOT NULL DEFAULT 0,
+          changed_target_count INTEGER NOT NULL DEFAULT 0,
+          leakage_passed BOOLEAN NOT NULL DEFAULT false,
+          summary JSONB NOT NULL DEFAULT '{}'::jsonb,
+          prediction_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+          generated_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_training_prediction_line_regressions_line_generated
+          ON training_prediction_line_regressions (line_key, generated_at DESC)
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_training_prediction_line_regressions_run_round
+          ON training_prediction_line_regressions (run_id, source_round_index)
+        """
+    )
+
+
 def ensure_training_target_weight_inversions_schema(conn: Connection) -> None:
     conn.execute(
         """
@@ -826,6 +881,108 @@ def replace_training_next_candidates_current(
             """,
             params,
         )
+    regression = prediction_metadata.get("regression_100") if isinstance(prediction_metadata.get("regression_100"), dict) else None
+    if regression is not None:
+        upsert_training_prediction_line_regression(conn, metadata=metadata, regression=regression)
+
+
+def upsert_training_prediction_line_regression(
+    conn: Connection,
+    *,
+    metadata: dict[str, Any],
+    regression: dict[str, Any],
+) -> None:
+    ensure_training_prediction_line_regressions_schema(conn)
+    line_key = str(metadata.get("line_key") or "static_100")
+    line_label = str(metadata.get("line_label") or "100-period static training")
+    line_kind = str(metadata.get("line_kind") or "static")
+    snapshot_key = str(metadata["snapshot_key"])
+    run_id = metadata.get("run_id")
+    source_round_index = metadata.get("source_round_index")
+    regression_key = ":".join(
+        [
+            line_key,
+            str(run_id or ""),
+            str(source_round_index or ""),
+            str(metadata["as_of_issue"]),
+            str(metadata["next_issue"]),
+            str(metadata["config_hash"]),
+        ]
+    )
+    red5 = regression.get("red5") if isinstance(regression.get("red5"), dict) else {}
+    prediction_metadata = metadata.get("prediction_metadata") if isinstance(metadata.get("prediction_metadata"), dict) else {}
+    conn.execute(
+        """
+        INSERT INTO training_prediction_line_regressions (
+          regression_key, line_key, line_label, line_kind, snapshot_key, run_id, source_round_index,
+          as_of_issue, next_issue, train_mode, train_window, eval_window, top_n,
+          history_fingerprint, config_hash, status,
+          exact_top_100_hits, exact_top_1000_hits, exact_top_10000_hits,
+          red5_top_100_hits, red5_top_1000_hits, red5_top_10000_hits,
+          median_rank, best_rank, worst_rank, fallback_target_count, changed_target_count,
+          leakage_passed, summary, prediction_metadata, generated_at
+        )
+        VALUES (
+          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s
+        )
+        ON CONFLICT (regression_key) DO UPDATE
+        SET line_label = EXCLUDED.line_label,
+            line_kind = EXCLUDED.line_kind,
+            snapshot_key = EXCLUDED.snapshot_key,
+            source_round_index = EXCLUDED.source_round_index,
+            status = EXCLUDED.status,
+            exact_top_100_hits = EXCLUDED.exact_top_100_hits,
+            exact_top_1000_hits = EXCLUDED.exact_top_1000_hits,
+            exact_top_10000_hits = EXCLUDED.exact_top_10000_hits,
+            red5_top_100_hits = EXCLUDED.red5_top_100_hits,
+            red5_top_1000_hits = EXCLUDED.red5_top_1000_hits,
+            red5_top_10000_hits = EXCLUDED.red5_top_10000_hits,
+            median_rank = EXCLUDED.median_rank,
+            best_rank = EXCLUDED.best_rank,
+            worst_rank = EXCLUDED.worst_rank,
+            fallback_target_count = EXCLUDED.fallback_target_count,
+            changed_target_count = EXCLUDED.changed_target_count,
+            leakage_passed = EXCLUDED.leakage_passed,
+            summary = EXCLUDED.summary,
+            prediction_metadata = EXCLUDED.prediction_metadata,
+            generated_at = EXCLUDED.generated_at,
+            updated_at = now()
+        """,
+        (
+            regression_key,
+            line_key,
+            line_label,
+            line_kind,
+            snapshot_key,
+            run_id,
+            source_round_index,
+            metadata["as_of_issue"],
+            metadata["next_issue"],
+            metadata["train_mode"],
+            int(metadata["train_window"]),
+            int(metadata["eval_window"]),
+            int(metadata["top_n"]),
+            metadata["history_fingerprint"],
+            metadata["config_hash"],
+            str(regression.get("status") or "unknown"),
+            int(regression.get("top_100_hits") or 0),
+            int(regression.get("top_1000_hits") or 0),
+            int(regression.get("top_10000_hits") or 0),
+            int(red5.get("top_100_hits") or 0),
+            int(red5.get("top_1000_hits") or 0),
+            int(red5.get("top_10000_hits") or 0),
+            regression.get("median_rank"),
+            regression.get("best_rank"),
+            regression.get("worst_rank"),
+            int(regression.get("fallback_target_count") or 0),
+            int(regression.get("changed_target_count") or 0),
+            bool(regression.get("leakage_passed")),
+            json.dumps(regression, ensure_ascii=False),
+            json.dumps(prediction_metadata, ensure_ascii=False),
+            metadata.get("generated_at"),
+        ),
+    )
 
 
 def upsert_training_prediction_evaluation(conn: Connection, payload: dict[str, Any]) -> None:

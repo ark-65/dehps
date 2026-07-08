@@ -93,11 +93,20 @@ type ServiceStatusState =
 type TrainingNextCandidatesState =
   | { status: 'idle' }
   | { status: 'loading' }
-  | { status: 'ready'; payload: TrainingNextCandidatesPayload }
+  | { status: 'ready'; payload: TrainingNextCandidatesPayload; comparison: TrainingNextCandidatesPayload[] }
   | { status: 'error'; message: string };
 
 type DashboardTab = 'training' | 'training-rounds' | 'next-candidates' | 'experiments' | 'service-status';
 type PredictionLineKey = 'static_100' | 'dynamic_kdj';
+type NextCandidateComparisonRow = {
+  lineKey: string;
+  lineLabel: string;
+  state: string;
+  exact: string;
+  red5: string;
+  detail: string;
+  status: string;
+};
 type WeightTrendGroup = {
   key: string;
   title: string;
@@ -350,9 +359,28 @@ export class AppComponent {
       this.trainingNextCandidatesRefreshRequests.pipe(map(() => this.selectedPredictionLineKey)),
       this.trainingPredictionLineRequests,
     ),
-    switchMap((lineKey) =>
-      this.dashboardService.loadTrainingNextCandidates(lineKey).pipe(
-        map((payload): TrainingNextCandidatesState => ({ status: 'ready', payload })),
+    switchMap((lineKey) => {
+      const selectedPayload$ = this.dashboardService
+        .loadTrainingNextCandidates(lineKey, 10000)
+        .pipe(shareReplay({ bufferSize: 1, refCount: false }));
+      return forkJoin({
+        payload: selectedPayload$,
+        staticLine:
+          lineKey === 'static_100'
+            ? selectedPayload$
+            : this.dashboardService.loadTrainingNextCandidates('static_100', 1),
+        dynamicLine:
+          lineKey === 'dynamic_kdj'
+            ? selectedPayload$
+            : this.dashboardService.loadTrainingNextCandidates('dynamic_kdj', 1),
+      }).pipe(
+        map(
+          ({ payload, staticLine, dynamicLine }): TrainingNextCandidatesState => ({
+            status: 'ready',
+            payload,
+            comparison: [staticLine, dynamicLine],
+          }),
+        ),
         catchError((error: unknown) =>
           of({
             status: 'error' as const,
@@ -360,8 +388,8 @@ export class AppComponent {
           }),
         ),
         startWith({ status: 'loading' as const }),
-      ),
-    ),
+      );
+    }),
     startWith({ status: 'idle' as const }),
     shareReplay({ bufferSize: 1, refCount: true }),
   );
@@ -500,6 +528,44 @@ export class AppComponent {
     ];
   }
 
+  nextCandidateRegression(payload: TrainingNextCandidatesPayload): Record<string, unknown> | null {
+    const regression = payload.predictionMetadata['regression_100'];
+    if (!regression || typeof regression !== 'object' || Array.isArray(regression)) {
+      return null;
+    }
+    return regression as Record<string, unknown>;
+  }
+
+  nextCandidateRegressionRows(payload: TrainingNextCandidatesPayload): { label: string; value: string }[] {
+    const regression = this.nextCandidateRegression(payload);
+    if (!regression) {
+      return [];
+    }
+    const red5 = this.recordField(regression, 'red5');
+    return [
+      { label: '100期Exact', value: this.topHitText(regression) },
+      { label: '100期红5', value: this.topHitText(red5) },
+      { label: 'Exact Rank', value: this.rankRangeText(regression) },
+      { label: '动态目标', value: this.dynamicTargetText(regression) },
+    ];
+  }
+
+  nextCandidateComparisonRows(payloads: TrainingNextCandidatesPayload[]): NextCandidateComparisonRow[] {
+    return payloads.map((payload) => {
+      const regression = this.nextCandidateRegression(payload);
+      const red5 = regression ? this.recordField(regression, 'red5') : {};
+      return {
+        lineKey: payload.lineKey,
+        lineLabel: payload.lineLabel || payload.lineKey,
+        state: this.nextCandidateLineState(payload),
+        exact: regression ? this.topHitText(regression) : '无',
+        red5: regression ? this.topHitText(red5) : '无',
+        detail: regression ? this.dynamicTargetText(regression) : '无',
+        status: regression ? String(regression['status'] || 'unknown') : 'missing',
+      };
+    });
+  }
+
   nextCandidateDynamicRows(payload: TrainingNextCandidatesPayload): { key: string; value: number }[] {
     const offsets = payload.predictionMetadata['applied_offsets'];
     if (!offsets || typeof offsets !== 'object' || Array.isArray(offsets)) {
@@ -532,6 +598,38 @@ export class AppComponent {
       return '暂无 current 候选快照';
     }
     return `${payload.lineLabel || payload.lineKey} / ${payload.nextIssue || '下一期'} Top${(payload.topN ?? payload.totalCount).toLocaleString('zh-CN')} / as-of ${payload.asOfIssue || '无'}`;
+  }
+
+  recordField(source: Record<string, unknown>, key: string): Record<string, unknown> {
+    const value = source[key];
+    return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  }
+
+  numericField(source: Record<string, unknown>, key: string): number | null {
+    const value = source[key];
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  }
+
+  topHitText(source: Record<string, unknown>): string {
+    const top100 = this.numericField(source, 'top_100_hits');
+    const top1000 = this.numericField(source, 'top_1000_hits');
+    const top10000 = this.numericField(source, 'top_10000_hits');
+    const evalWindow = this.numericField(source, 'eval_window');
+    const suffix = evalWindow === null ? '' : ` / ${evalWindow}`;
+    return `Top100 ${top100 ?? 0}${suffix}，Top1000 ${top1000 ?? 0}${suffix}，Top10000 ${top10000 ?? 0}${suffix}`;
+  }
+
+  rankRangeText(source: Record<string, unknown>): string {
+    const best = this.numericField(source, 'best_rank');
+    const medianRank = this.numericField(source, 'median_rank');
+    const worst = this.numericField(source, 'worst_rank');
+    return `Best ${best ?? '无'}，Median ${medianRank ?? '无'}，Worst ${worst ?? '无'}`;
+  }
+
+  dynamicTargetText(source: Record<string, unknown>): string {
+    const changed = this.numericField(source, 'changed_target_count') ?? 0;
+    const fallback = this.numericField(source, 'fallback_target_count') ?? 0;
+    return `调权 ${changed}，静态基底 ${fallback}`;
   }
 
   targetHitRows(detail: TrainingRoundDetail): TrainingTargetResult[] {

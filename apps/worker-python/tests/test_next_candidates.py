@@ -8,7 +8,9 @@ import pytest
 import dehps.optimization.next_candidates as next_candidates
 from dehps.optimization.next_candidates import (
     DYNAMIC_KDJ_LINE_KEY,
+    build_dynamic_kdj_next_candidate_snapshot,
     build_training_next_candidate_snapshot,
+    dynamic_kdj_regression_summary,
     dynamic_kdj_config_for_next,
     load_best_training_summary,
     next_issue_hint,
@@ -122,7 +124,13 @@ def test_training_next_candidate_snapshot_reports_training_freshness(monkeypatch
         "top_n": 10000,
         "training_as_of_issue": "2026067",
         "training_history_fingerprint": "history-old",
-        "summary": {},
+        "summary": {
+            "evaluated_draws": 100,
+            "top_100_hits": 1,
+            "top_1000_hits": 2,
+            "top_10000_hits": 4,
+            "red5": {"top_100_hits": 3, "top_1000_hits": 5, "top_10000_hits": 8},
+        },
         "config": {},
     }
     monkeypatch.setattr(next_candidates, "load_best_training_summary", lambda _conn, _run_id: best)
@@ -138,6 +146,10 @@ def test_training_next_candidate_snapshot_reports_training_freshness(monkeypatch
     metadata = snapshot["metadata"]
     assert metadata["line_key"] == STATIC_100_LINE_KEY
     assert metadata["prediction_metadata"]["protocol"] == "static_training_best"
+    assert metadata["prediction_metadata"]["regression_100"]["top_100_hits"] == 1
+    assert metadata["prediction_metadata"]["regression_100"]["top_1000_hits"] == 2
+    assert metadata["prediction_metadata"]["regression_100"]["top_10000_hits"] == 4
+    assert metadata["prediction_metadata"]["regression_100"]["red5"]["top_10000_hits"] == 8
     assert metadata["history_fingerprint"] == next_candidates.fingerprint_history(history)
     assert metadata["freshness_mode"] == "legacy_full_history"
     assert metadata["training_freshness"] == {
@@ -193,6 +205,106 @@ def test_dynamic_kdj_config_for_next_applies_only_prior_issue_signals():
     assert metadata["applied_offsets"] == {"frequency_weight": 0.02}
     assert metadata["latest_signal_issue"] == "2026067"
     assert metadata["leakage_passed"] is True
+
+
+def test_dynamic_kdj_regression_summary_runs_per_target_without_future_signals(monkeypatch):
+    history = [
+        ("2026061", date(2026, 6, 1), (1, 2, 3, 4, 5, 6)),
+        ("2026062", date(2026, 6, 3), (2, 3, 4, 5, 6, 7)),
+        ("2026063", date(2026, 6, 5), (3, 4, 5, 6, 7, 8)),
+        ("2026064", date(2026, 6, 7), (4, 5, 6, 7, 8, 9)),
+    ]
+    calls: list[str] = []
+
+    def fake_rank_target_grid_with_red5(**kwargs):
+        target = kwargs["target_numbers"]
+        calls.append(str(target[0]))
+        red5 = SimpleNamespace(rank=50 if target[0] == 3 else 1200)
+        exact_rank = 80 if target[0] == 3 else 9000
+        return [(exact_rank, 0.5, red5)]
+
+    monkeypatch.setattr(next_candidates, "rank_target_grid_with_red5", fake_rank_target_grid_with_red5)
+
+    summary = dynamic_kdj_regression_summary(
+        history=history,
+        base_config=next_candidates.FrequencyRankerConfig(frequency_weight=0.30),
+        signals=[
+            {
+                "issue": "2026063",
+                "weight_name": "frequency_weight",
+                "recommended_offset": 0.02,
+                "j_value": 65.0,
+                "objective_delta": 1.0,
+            },
+            {
+                "issue": "2026064",
+                "weight_name": "frequency_weight",
+                "recommended_offset": 0.20,
+                "j_value": 95.0,
+                "objective_delta": 1.0,
+            },
+        ],
+        ranked_universe=[object()],
+        train_mode="rolling",
+        train_window=2,
+        eval_window=2,
+        top_n=10000,
+    )
+
+    assert calls == ["3", "4"]
+    assert summary["status"] == "evaluated"
+    assert summary["eval_window"] == 2
+    assert summary["top_100_hits"] == 1
+    assert summary["top_1000_hits"] == 1
+    assert summary["top_10000_hits"] == 2
+    assert summary["red5"]["top_100_hits"] == 1
+    assert summary["red5"]["top_1000_hits"] == 1
+    assert summary["red5"]["top_10000_hits"] == 2
+    assert summary["changed_target_count"] == 1
+    assert summary["fallback_target_count"] == 1
+    assert summary["latest_signal_issue"] == "2026063"
+    assert summary["leakage_passed"] is True
+
+
+def test_dynamic_kdj_next_candidate_snapshot_includes_regression_summary(monkeypatch):
+    history = [
+        ("2026061", date(2026, 6, 1), (1, 2, 3, 4, 5, 6)),
+        ("2026062", date(2026, 6, 3), (2, 3, 4, 5, 6, 7)),
+        ("2026063", date(2026, 6, 5), (3, 4, 5, 6, 7, 8)),
+    ]
+    best = {
+        "run_id": "run-1",
+        "source_round_index": 5,
+        "train_mode": "rolling",
+        "train_window": 2,
+        "eval_window": 1,
+        "top_n": 10000,
+        "training_as_of_issue": "2026063",
+        "training_history_fingerprint": next_candidates.fingerprint_history(history),
+        "history_scope": "",
+        "regime_years": 0,
+        "training_regime_start_date": "",
+        "summary": {},
+        "config": {"frequency_weight": 0.3},
+    }
+    monkeypatch.setattr(next_candidates, "load_best_training_summary", lambda _conn, _run_id: best)
+    monkeypatch.setattr(next_candidates, "load_history_with_dates", lambda _conn: history)
+    monkeypatch.setattr(next_candidates, "load_recent_training_weight_signals", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(next_candidates, "rank_target_grid_with_red5", lambda **_kwargs: [(1234, 0.5, SimpleNamespace(rank=99))])
+    monkeypatch.setattr(
+        next_candidates,
+        "top_candidates_for_next",
+        lambda **_kwargs: [(1, (1, 2, 3, 4, 5, 6), 0.75)],
+    )
+
+    snapshot = build_dynamic_kdj_next_candidate_snapshot(object(), top_n=10, ranked_universe=[object(), object()])
+
+    metadata = snapshot["metadata"]
+    assert metadata["line_key"] == DYNAMIC_KDJ_LINE_KEY
+    assert metadata["prediction_metadata"]["regression_100"]["top_1000_hits"] == 0
+    assert metadata["prediction_metadata"]["regression_100"]["top_10000_hits"] == 1
+    assert metadata["prediction_metadata"]["regression_100"]["red5"]["top_100_hits"] == 1
+    assert metadata["prediction_metadata"]["gauss_guardrail"]["regression_leakage_passed"] is True
 
 
 def test_training_next_candidate_snapshot_uses_training_regime_for_freshness(monkeypatch):

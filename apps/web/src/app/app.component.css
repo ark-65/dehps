@@ -728,6 +728,15 @@ select {
   padding-top: 0;
 }
 
+.prediction-comparison-table table {
+  min-width: 820px;
+}
+
+.prediction-comparison-table td {
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
 .next-candidates-table {
   max-height: 680px;
   border-top: 1px solid #edf0f2;
