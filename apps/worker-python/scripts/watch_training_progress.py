@@ -726,6 +726,53 @@ def supervisor_progress_note(supervisor_status: dict[str, Any]) -> str | None:
     return "Supervisor status file reports current progress: " + " ".join(parts) + "."
 
 
+def supervisor_round_boundary_summary(
+    *,
+    supervisor_status: dict[str, Any] | None,
+    round_stats: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not isinstance(supervisor_status, dict) or not supervisor_status.get("available"):
+        return {}
+    progress = (
+        supervisor_status.get("latest_progress")
+        if isinstance(supervisor_status.get("latest_progress"), dict)
+        else {}
+    )
+    if not progress:
+        return {}
+
+    progress_round = safe_int(progress.get("round"))
+    latest_db_round = safe_int((round_stats or {}).get("latest_round"))
+    round_lag = (
+        progress_round - latest_db_round
+        if progress_round is not None and latest_db_round is not None
+        else None
+    )
+    target_complete = safe_bool(progress.get("target_complete"))
+    if target_complete is True and round_lag is not None and round_lag > 0:
+        status = "target_complete_waiting_round_result"
+    elif target_complete is True and round_lag == 0:
+        status = "target_complete_round_recorded"
+    elif target_complete is False:
+        status = "target_in_progress"
+    elif round_lag is not None and round_lag < 0:
+        status = "db_round_ahead_of_progress"
+    else:
+        status = "target_state_unknown"
+
+    return {
+        "status": status,
+        "supervisor_progress_round": progress_round,
+        "latest_db_round": latest_db_round,
+        "round_lag": round_lag,
+        "target_index": safe_int(progress.get("target_index")),
+        "target_total": safe_int(progress.get("target_total")),
+        "target_complete": target_complete,
+        "progress_fresh": safe_bool(progress.get("fresh")),
+        "progress_age_minutes": safe_float(progress.get("age_minutes")),
+    }
+
+
 def heavy_lock_summary() -> dict[str, Any]:
     status = describe_heavy_job_owner()
     metadata = status.metadata or {}
@@ -1042,6 +1089,18 @@ def recommendation_summary(
     progress_note = supervisor_progress_note(supervisor_status or {})
     if progress_note:
         notes.append(progress_note)
+    round_boundary = supervisor_round_boundary_summary(
+        supervisor_status=supervisor_status,
+        round_stats=improvement,
+    )
+    if round_boundary.get("status") == "target_complete_waiting_round_result":
+        notes.append(
+            "Supervisor target boundary reached but round results are not visible yet: "
+            f"progress_round={round_boundary.get('supervisor_progress_round')} "
+            f"latest_db_round={round_boundary.get('latest_db_round')} "
+            f"round_lag={round_boundary.get('round_lag')} "
+            "wait for DB/report flush before restart decisions."
+        )
     supervisor_progress = (
         supervisor_status.get("latest_progress")
         if isinstance(supervisor_status, dict)
@@ -1585,6 +1644,10 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         "advisor_summary": advisors,
         "gate_summary": gates,
         "supervisor_status": supervisor_status,
+        "supervisor_round_boundary": supervisor_round_boundary_summary(
+            supervisor_status=supervisor_status,
+            round_stats=round_stats,
+        ),
         "evidence_context": evidence_context_summary(
             supervisor_status=supervisor_status,
             gates=gates,
@@ -1903,6 +1966,21 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 f"{progress_age_line}"
                 f"{progress_fresh_line}"
             )
+        round_boundary = (
+            payload.get("supervisor_round_boundary")
+            if isinstance(payload.get("supervisor_round_boundary"), dict)
+            else {}
+        )
+        round_boundary_line = ""
+        if round_boundary:
+            round_boundary_line = (
+                "- Round boundary: "
+                f"status={markdown_inline_text(round_boundary.get('status'))} "
+                f"progress_round={round_boundary.get('supervisor_progress_round')} "
+                f"latest_db_round={round_boundary.get('latest_db_round')} "
+                f"round_lag={round_boundary.get('round_lag')} "
+                f"target_complete={round_boundary.get('target_complete')}\n"
+            )
         supervisor_section = (
             "## Supervisor Progress\n\n"
             f"- Status/PID: {markdown_inline_text(supervisor_status.get('status'))} / {supervisor_status.get('pid')}\n"
@@ -1912,6 +1990,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
             f"- Updated age: {supervisor_status.get('updated_at_age_minutes')} minutes\n"
             f"- Status file: {markdown_inline_code(supervisor_status.get('path'))}\n"
             f"{progress_lines}\n"
+            f"{round_boundary_line}"
         )
     evidence_context = (
         payload.get("evidence_context")
@@ -2137,6 +2216,22 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
     evidence_context = cli_evidence_context_summary(payload)
     if evidence_context:
         summary["evidence_context"] = evidence_context
+    round_boundary = (
+        payload.get("supervisor_round_boundary")
+        if isinstance(payload.get("supervisor_round_boundary"), dict)
+        else {}
+    )
+    if round_boundary:
+        summary["supervisor_round_boundary"] = {
+            "status": round_boundary.get("status"),
+            "supervisor_progress_round": round_boundary.get("supervisor_progress_round"),
+            "latest_db_round": round_boundary.get("latest_db_round"),
+            "round_lag": round_boundary.get("round_lag"),
+            "target_index": round_boundary.get("target_index"),
+            "target_total": round_boundary.get("target_total"),
+            "target_complete": round_boundary.get("target_complete"),
+            "progress_fresh": round_boundary.get("progress_fresh"),
+        }
     gates = (
         payload.get("gate_summary")
         if isinstance(payload.get("gate_summary"), dict)
