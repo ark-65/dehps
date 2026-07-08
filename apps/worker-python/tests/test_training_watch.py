@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -2033,6 +2034,75 @@ def test_summarize_watch_uses_full_stats_beyond_recent_limit(monkeypatch):
     assert payload["stagnation_rounds"] == 2
     assert payload["latest_metrics"]["best_objective_seen"] == 99.0
     assert payload["recommendation"]["severity"] == "ok"
+
+
+def test_summarize_watch_reports_db_read_errors_with_status_fallback(monkeypatch):
+    now = datetime(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+
+    def raise_db_unavailable(*_args, **_kwargs):
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(watch, "utc_now", lambda: now)
+    monkeypatch.setattr(watch, "resolve_run_id", raise_db_unavailable)
+    monkeypatch.setattr(watch, "latest_supervisor_run_id_from_status_file", lambda: "run-1")
+    monkeypatch.setattr(watch, "load_rounds", raise_db_unavailable)
+    monkeypatch.setattr(watch, "load_round_stats", raise_db_unavailable)
+    monkeypatch.setattr(
+        watch,
+        "load_supervisor_status",
+        lambda run_id: {
+            "available": True,
+            "path": "/tmp/training-supervisor-run-1.json",
+            "run_id": run_id,
+            "status": "running",
+            "pid": 123,
+            "updated_at": "2026-06-18T09:59:00Z",
+            "latest_progress": {
+                "logged_at": "2026-06-18T09:59:30Z",
+                "round": 7,
+                "target_index": 12,
+                "target_total": 100,
+                "target_complete": False,
+            },
+        },
+    )
+    monkeypatch.setattr(watch, "heavy_lock_summary", lambda: {"active": True, "owner": "training-supervisor"})
+    monkeypatch.setattr(watch, "load_parser_sync_duplicate_checks", lambda: {"status": "checked", "ok": True})
+
+    payload = summarize_watch(None, limit=2, stale_minutes=30)
+
+    assert payload["run_id"] == "run-1"
+    assert payload["round_count"] == 0
+    assert payload["recommendation"]["severity"] == "alert"
+    assert payload["recommendation"]["action"] == "inspect_training_db"
+    assert payload["recommendation"]["actions"][0] == "inspect_training_db"
+    assert [
+        error["stage"] for error in payload["db_read_errors"]
+    ] == ["resolve_run_id", "load_rounds", "load_round_stats"]
+    assert all(error["error_type"] == "RuntimeError" for error in payload["db_read_errors"])
+    assert "diagnostic-only until DB reads recover" in payload["recommendation"]["notes"][0]
+
+    summary = operator_summary(payload)
+    assert summary["db_read_errors"][0]["stage"] == "resolve_run_id"
+    assert summary["action"] == "inspect_training_db"
+
+    markdown = render_markdown(payload)
+    assert "## Database Read Errors" in markdown
+    assert "stage=resolve_run_id" in markdown
+
+
+def test_latest_supervisor_run_id_from_status_file_skips_invalid_newest(tmp_path):
+    invalid = tmp_path / "training-supervisor-invalid.json"
+    older = tmp_path / "training-supervisor-old.json"
+    newer = tmp_path / "training-supervisor-new.json"
+    invalid.write_text("{", encoding="utf-8")
+    older.write_text(json.dumps({"run_id": "run-old"}), encoding="utf-8")
+    newer.write_text(json.dumps({"run_id": "run-new"}), encoding="utf-8")
+    os.utime(older, (1, 1))
+    os.utime(newer, (2, 2))
+    os.utime(invalid, (3, 3))
+
+    assert watch.latest_supervisor_run_id_from_status_file(output_dir=tmp_path) == "run-new"
 
 
 def test_safe_numeric_helpers_reject_bool_and_non_finite_values():
