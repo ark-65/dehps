@@ -727,23 +727,34 @@ def refresh_training_prediction_lines_current(
     ranked_universe: Any | None = None,
     signal_run_id: str | None = None,
 ) -> dict[str, Any]:
-    static_metadata = refresh_training_next_candidates_current(
+    matrix = ranked_universe or build_ranked_universe()
+    static_snapshot = build_training_next_candidate_snapshot(
         conn,
         run_id=run_id,
         top_n=top_n,
-        ranked_universe=ranked_universe,
+        ranked_universe=matrix,
     )
-    dynamic_metadata = refresh_dynamic_kdj_next_candidates_current(
+    dynamic_snapshot = build_dynamic_kdj_next_candidate_snapshot(
         conn,
         run_id=run_id,
         top_n=top_n,
-        ranked_universe=ranked_universe,
+        ranked_universe=matrix,
         signal_run_id=signal_run_id,
+    )
+    replace_training_next_candidates_current(
+        conn,
+        metadata=static_snapshot["metadata"],
+        candidates=static_snapshot["candidates"],
+    )
+    replace_training_next_candidates_current(
+        conn,
+        metadata=dynamic_snapshot["metadata"],
+        candidates=dynamic_snapshot["candidates"],
     )
     return {
         "status": "ready",
         "lines": {
-            STATIC_100_LINE_KEY: static_metadata,
-            DYNAMIC_KDJ_LINE_KEY: dynamic_metadata,
+            STATIC_100_LINE_KEY: static_snapshot["metadata"],
+            DYNAMIC_KDJ_LINE_KEY: dynamic_snapshot["metadata"],
         },
     }

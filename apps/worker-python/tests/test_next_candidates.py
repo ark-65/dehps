@@ -14,6 +14,7 @@ from dehps.optimization.next_candidates import (
     dynamic_kdj_config_for_next,
     load_best_training_summary,
     next_issue_hint,
+    refresh_training_prediction_lines_current,
     STATIC_100_LINE_KEY,
     training_freshness_metadata,
     training_summary_sort_key,
@@ -305,6 +306,37 @@ def test_dynamic_kdj_next_candidate_snapshot_includes_regression_summary(monkeyp
     assert metadata["prediction_metadata"]["regression_100"]["top_10000_hits"] == 1
     assert metadata["prediction_metadata"]["regression_100"]["red5"]["top_100_hits"] == 1
     assert metadata["prediction_metadata"]["gauss_guardrail"]["regression_leakage_passed"] is True
+
+
+def test_refresh_training_prediction_lines_builds_both_snapshots_before_writes(monkeypatch):
+    events: list[str] = []
+
+    def fake_static_snapshot(*_args, **_kwargs):
+        events.append("build_static")
+        return {
+            "metadata": {"line_key": STATIC_100_LINE_KEY},
+            "candidates": [],
+        }
+
+    def fake_dynamic_snapshot(*_args, **_kwargs):
+        assert "replace_static_100" not in events
+        events.append("build_dynamic")
+        return {
+            "metadata": {"line_key": DYNAMIC_KDJ_LINE_KEY},
+            "candidates": [],
+        }
+
+    def fake_replace(_conn, *, metadata, candidates):
+        events.append(f"replace_{metadata['line_key']}")
+
+    monkeypatch.setattr(next_candidates, "build_training_next_candidate_snapshot", fake_static_snapshot)
+    monkeypatch.setattr(next_candidates, "build_dynamic_kdj_next_candidate_snapshot", fake_dynamic_snapshot)
+    monkeypatch.setattr(next_candidates, "replace_training_next_candidates_current", fake_replace)
+
+    result = refresh_training_prediction_lines_current(object(), ranked_universe=[object()])
+
+    assert result["status"] == "ready"
+    assert events == ["build_static", "build_dynamic", "replace_static_100", "replace_dynamic_kdj"]
 
 
 def test_training_next_candidate_snapshot_uses_training_regime_for_freshness(monkeypatch):
