@@ -28,6 +28,30 @@ def _as_int(value: Any) -> int | None:
     return None
 
 
+def _as_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def _positive_int(value: Any) -> bool:
+    parsed = _as_int(value)
+    return parsed is not None and parsed > 0
+
+
+def _navigation_distance_ready(readiness: dict[str, Any]) -> bool:
+    distance = _as_float(readiness.get("experimental_navigation_config_distance"))
+    minimum = _as_float(readiness.get("experimental_navigation_min_config_distance"))
+    return distance is not None and minimum is not None and distance >= minimum
+
+
 def restart_decision_from_watch_summary(
     summary: dict[str, Any],
     *,
@@ -37,6 +61,16 @@ def restart_decision_from_watch_summary(
     if not isinstance(readiness, dict):
         return RestartDecision(False, "watch_restart_not_requested")
 
+    restart_rank_changed = readiness.get("restart_candidate_rank_vector_changed") is True
+    restart_primary_improved = (
+        readiness.get("restart_candidate_primary_score_improved") is True
+    )
+    restart_secondary_improved = (
+        readiness.get("restart_candidate_secondary_score_improved") is True
+    )
+    navigation_rank_changed = (
+        readiness.get("experimental_navigation_rank_vector_changed") is True
+    )
     checks = {
         "action": summary.get("action") == RESTART_ACTION,
         "status": readiness.get("status") == "blocked_by_active_training_supervisor_lock",
@@ -50,6 +84,23 @@ def restart_decision_from_watch_summary(
         "progress_fresh": readiness.get("supervisor_progress_fresh") is True,
         "target_complete": readiness.get("supervisor_target_complete") is True,
         "restart_candidate": readiness.get("restart_candidate_active") is True,
+        "restart_rank_vector_changed": restart_rank_changed,
+        "restart_changed_targets": _positive_int(
+            readiness.get("restart_candidate_changed_target_count")
+        ),
+        "restart_full_eval_rank": _positive_int(
+            readiness.get("restart_candidate_full_eval_rank")
+        ),
+        "restart_frontier_improved": (
+            restart_primary_improved or restart_secondary_improved
+        ),
+        "restart_improvement_basis": readiness.get("restart_candidate_improvement_basis")
+        in {"primary", "secondary"},
+        "navigation_eligible": readiness.get("experimental_navigation_eligible") is True,
+        "navigation_quality": readiness.get("experimental_navigation_quality_reason")
+        == "passed",
+        "navigation_rank_vector_changed": navigation_rank_changed,
+        "navigation_distance": _navigation_distance_ready(readiness),
     }
     missing = [name for name, passed in checks.items() if not passed]
     if missing:
