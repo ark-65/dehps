@@ -489,6 +489,50 @@ def compact_parser_sync_duplicate_checks(value: Any) -> str:
     )
 
 
+def default_round_stats() -> dict[str, Any]:
+    return {
+        "round_count": 0,
+        "latest_round": None,
+        "last_improved_round": None,
+        "stagnation_rounds": 0,
+        "improvement_count": 0,
+        "best_objective_seen": None,
+    }
+
+
+def db_read_error_summary(stage: str, exc: Exception) -> dict[str, str]:
+    return {
+        "stage": stage,
+        "error_type": exc.__class__.__name__,
+        "error": str(exc),
+    }
+
+
+def latest_supervisor_run_id_from_status_file(
+    *,
+    output_dir: Path = DEFAULT_SUPERVISOR_OUTPUT_DIR,
+) -> str | None:
+    try:
+        paths = list(output_dir.glob("training-supervisor-*.json"))
+    except OSError:
+        return None
+    candidates: list[tuple[float, str, Path]] = []
+    for path in paths:
+        try:
+            if path.is_file():
+                candidates.append((path.stat().st_mtime, path.name, path))
+        except OSError:
+            continue
+    for _, _, path in sorted(candidates, reverse=True):
+        try:
+            status = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        if isinstance(status, dict) and status.get("run_id"):
+            return str(status["run_id"])
+    return None
+
+
 def resolve_run_id(run_id: str | None) -> str | None:
     if run_id:
         return run_id
@@ -1579,20 +1623,24 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
     limit = positive_int_or_default(limit, default=DEFAULT_ROUND_LIMIT)
     stale_minutes = positive_int_or_default(stale_minutes, default=DEFAULT_STALE_MINUTES)
     generated_at = utc_now()
-    resolved_run_id = resolve_run_id(run_id)
-    rows = load_rounds(resolved_run_id, limit=limit) if resolved_run_id else []
-    round_stats = (
-        load_round_stats(resolved_run_id)
-        if resolved_run_id
-        else {
-            "round_count": 0,
-            "latest_round": None,
-            "last_improved_round": None,
-            "stagnation_rounds": 0,
-            "improvement_count": 0,
-            "best_objective_seen": None,
-        }
-    )
+    db_read_errors: list[dict[str, str]] = []
+    try:
+        resolved_run_id = resolve_run_id(run_id)
+    except Exception as exc:
+        db_read_errors.append(db_read_error_summary("resolve_run_id", exc))
+        resolved_run_id = run_id or latest_supervisor_run_id_from_status_file()
+
+    rows: list[dict[str, Any]] = []
+    round_stats = default_round_stats()
+    if resolved_run_id:
+        try:
+            rows = load_rounds(resolved_run_id, limit=limit)
+        except Exception as exc:
+            db_read_errors.append(db_read_error_summary("load_rounds", exc))
+        try:
+            round_stats = load_round_stats(resolved_run_id)
+        except Exception as exc:
+            db_read_errors.append(db_read_error_summary("load_round_stats", exc))
     latest = rows[-1] if rows else {}
     prefilter = latest.get("prefilter") if isinstance(latest.get("prefilter"), dict) else {}
     advisors = advisor_summary(prefilter)
@@ -1614,6 +1662,29 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         round_stats=round_stats,
         supervisor_status=supervisor_status,
     )
+    if db_read_errors:
+        actions = [
+            "inspect_training_db",
+            *[
+                action
+                for action in recommendation.get("actions", [])
+                if action != "inspect_training_db"
+            ],
+        ]
+        failed_stages = ", ".join(error["stage"] for error in db_read_errors)
+        recommendation = {
+            **recommendation,
+            "severity": "alert",
+            "action": actions[0],
+            "actions": actions,
+            "notes": [
+                (
+                    "Training database read failed during "
+                    f"{failed_stages}; supervisor status-file context is diagnostic-only until DB reads recover."
+                ),
+                *recommendation.get("notes", []),
+            ],
+        }
     payload = {
         "generated_at": isoformat(generated_at),
         "run_id": resolved_run_id,
@@ -1643,6 +1714,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         "candidate_budget": prefilter.get("candidate_budget") if isinstance(prefilter.get("candidate_budget"), dict) else {},
         "advisor_summary": advisors,
         "gate_summary": gates,
+        "db_read_errors": db_read_errors,
         "supervisor_status": supervisor_status,
         "supervisor_round_boundary": supervisor_round_boundary_summary(
             supervisor_status=supervisor_status,
@@ -2057,6 +2129,22 @@ def render_markdown(payload: dict[str, Any]) -> str:
             f"- Uncertainty: {markdown_inline_text(evidence_context.get('uncertainty'))}\n"
             f"- Failure modes: {markdown_inline_text(failure_modes)}\n\n"
         )
+    db_read_errors = (
+        payload.get("db_read_errors")
+        if isinstance(payload.get("db_read_errors"), list)
+        else []
+    )
+    db_error_section = ""
+    if db_read_errors:
+        db_error_rows = "\n".join(
+            "- "
+            f"stage={markdown_inline_text(error.get('stage'))} "
+            f"type={markdown_inline_text(error.get('error_type'))} "
+            f"error={markdown_inline_text(error.get('error'))}"
+            for error in db_read_errors
+            if isinstance(error, dict)
+        )
+        db_error_section = f"## Database Read Errors\n\n{db_error_rows}\n\n"
     return f"""# DEHPS Training Watch
 
 - Generated at: {payload.get("generated_at")}
@@ -2087,6 +2175,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
 {restart_section}\
 {supervisor_section}\
 {evidence_section}\
+{db_error_section}\
 ## Heavy Job Lock
 
 ```json
@@ -2216,6 +2305,21 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
     evidence_context = cli_evidence_context_summary(payload)
     if evidence_context:
         summary["evidence_context"] = evidence_context
+    db_read_errors = (
+        payload.get("db_read_errors")
+        if isinstance(payload.get("db_read_errors"), list)
+        else []
+    )
+    if db_read_errors:
+        summary["db_read_errors"] = [
+            {
+                "stage": error.get("stage"),
+                "error_type": error.get("error_type"),
+                "error": error.get("error"),
+            }
+            for error in db_read_errors
+            if isinstance(error, dict)
+        ]
     round_boundary = (
         payload.get("supervisor_round_boundary")
         if isinstance(payload.get("supervisor_round_boundary"), dict)
