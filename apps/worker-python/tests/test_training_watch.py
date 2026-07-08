@@ -567,6 +567,70 @@ def test_cli_summary_surfaces_recovery_gate_decision(tmp_path):
     }
 
 
+def test_recommendation_surfaces_recovery_decision_note():
+    now = datetime(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+    gates = {
+        "rank_homogeneity_restart_champion": {
+            "active": True,
+            "source": "stagnation_restart",
+            "reason": "rank_homogeneity_restart_changed_rank_vector",
+            "frozen_primary_score": [0, 0, 0],
+            "source_frontier_improvement_basis": "none",
+        },
+        "experimental_navigation_candidate": {
+            "source": "rank_homogeneity_restart_champion",
+            "reason": "rank_homogeneity_restart_changed_rank_vector",
+            "eligible": True,
+            "eligibility_reason": "eligible",
+        },
+        "decision_round_best": {
+            "source": "source_frontier",
+            "reason": "selected_candidate",
+            "selected_frozen_primary_score": [0, 0, 1],
+            "blocked_candidate_count": 0,
+            "blocked_candidate_sources": [],
+        },
+    }
+
+    recommendation = recommendation_summary(
+        rows=[{"round_index": 29, "improved": False, "updated_at": now}],
+        lock={"active": True, "owner": "training-supervisor"},
+        advisors={"neural_kdj_advisor": {"candidate_count": 0}},
+        gates=gates,
+        now=now,
+        stale_minutes=30,
+        round_stats={"stagnation_rounds": 29},
+    )
+    payload = {
+        "generated_at": "2026-06-18T10:00:00Z",
+        "run_id": "run-1",
+        "round_count": 29,
+        "latest_round": 29,
+        "last_improved_round": None,
+        "stagnation_rounds": 29,
+        "latest_metrics": {},
+        "advisor_summary": {},
+        "gate_summary": gates,
+        "heavy_job_lock": {"active": True},
+        "recommendation": recommendation,
+        "guardrail": "Historical response-surface monitoring only.",
+    }
+
+    markdown = render_markdown(payload)
+    note = next(
+        note
+        for note in recommendation["notes"]
+        if note.startswith("Recovery decision:")
+    )
+
+    assert "selected_source=source_frontier" in note
+    assert "selected_frozen_primary=[0, 0, 1]" in note
+    assert "navigation_source=rank_homogeneity_restart_champion" in note
+    assert "navigation_eligible=True" in note
+    assert "restart_frozen_primary=[0, 0, 0]" in note
+    assert "- Recovery decision:" in markdown
+
+
 def test_gate_summary_surfaces_ineligible_navigation_distance():
     now = datetime(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
     prefilter = {
