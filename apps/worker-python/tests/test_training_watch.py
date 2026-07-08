@@ -22,6 +22,7 @@ from scripts.watch_training_progress import (
     safe_float,
     safe_filename_component,
     safe_int,
+    supervisor_round_boundary_summary,
     summarize_watch,
 )
 
@@ -1098,6 +1099,118 @@ def test_recommendation_and_markdown_include_supervisor_progress():
     assert "Progress age: 2.0 minutes" in markdown
     assert "Progress fresh: True (threshold 30 minutes)" in markdown
     assert "Issue: 2026074" in markdown
+
+
+def test_supervisor_round_boundary_waits_for_completed_round_result():
+    now = datetime(2026, 7, 1, 0, 5, tzinfo=timezone.utc)
+    round_stats = {
+        "latest_round": 23,
+        "last_improved_round": None,
+        "stagnation_rounds": 23,
+        "improvement_count": 0,
+    }
+    supervisor_status = {
+        "available": True,
+        "path": "/tmp/training-supervisor-run-1.json",
+        "status": "running",
+        "pid": 12345,
+        "run_mode": "continuous",
+        "updated_at": "2026-07-01T00:04:30Z",
+        "updated_at_age_minutes": 0.5,
+        "latest_progress": {
+            "logged_at": "2026-07-01T00:04:20Z",
+            "round": 24,
+            "target_index": 100,
+            "target_total": 100,
+            "target_complete": True,
+            "issue": "2026077",
+            "elapsed_seconds": 55.0,
+            "age_minutes": 0.666667,
+            "fresh": True,
+            "freshness_threshold_minutes": 30,
+        },
+    }
+
+    round_boundary = supervisor_round_boundary_summary(
+        supervisor_status=supervisor_status,
+        round_stats=round_stats,
+    )
+    recommendation = recommendation_summary(
+        rows=[
+            {
+                "round_index": 23,
+                "improved": False,
+                "updated_at": now - timedelta(minutes=1),
+            }
+        ],
+        lock={"active": True, "owner": "training-supervisor"},
+        advisors={"neural_kdj_advisor": {"candidate_count": 0}},
+        now=now,
+        stale_minutes=30,
+        round_stats=round_stats,
+        supervisor_status=supervisor_status,
+    )
+    payload = {
+        "generated_at": "2026-07-01T00:05:00Z",
+        "run_id": "run-1",
+        "round_count": 23,
+        "round_window_count": 5,
+        "latest_round": 23,
+        "last_improved_round": None,
+        "stagnation_rounds": 23,
+        "latest_metrics": {
+            "phase": "large",
+            "step": 0.15,
+            "improved": False,
+            "top_100_hits": 3,
+            "top_1000_hits": 3,
+            "top_10000_hits": 3,
+            "red5_top_10000_hits": 29,
+            "best_rank": 39,
+            "median_rank": 580674,
+            "worst_rank": 1091258,
+            "objective_score": 5083.69366,
+            "best_objective_seen": 5083.69366,
+        },
+        "advisor_summary": {},
+        "gate_summary": {},
+        "supervisor_status": supervisor_status,
+        "supervisor_round_boundary": round_boundary,
+        "heavy_job_lock": {"active": True},
+        "recommendation": recommendation,
+        "guardrail": "Historical response-surface monitoring only.",
+    }
+
+    markdown = render_markdown(payload)
+    summary = operator_summary(payload)
+
+    assert round_boundary == {
+        "status": "target_complete_waiting_round_result",
+        "supervisor_progress_round": 24,
+        "latest_db_round": 23,
+        "round_lag": 1,
+        "target_index": 100,
+        "target_total": 100,
+        "target_complete": True,
+        "progress_fresh": True,
+        "progress_age_minutes": 0.666667,
+    }
+    assert any(
+        "Supervisor target boundary reached but round results are not visible yet" in note
+        for note in recommendation["notes"]
+    )
+    assert "Round boundary: status=target_complete_waiting_round_result" in markdown
+    assert "progress_round=24 latest_db_round=23 round_lag=1 target_complete=True" in markdown
+    assert summary["supervisor_round_boundary"] == {
+        "status": "target_complete_waiting_round_result",
+        "supervisor_progress_round": 24,
+        "latest_db_round": 23,
+        "round_lag": 1,
+        "target_index": 100,
+        "target_total": 100,
+        "target_complete": True,
+        "progress_fresh": True,
+    }
 
 
 def test_render_markdown_includes_restart_readiness_when_restart_is_requested():
