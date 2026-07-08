@@ -21,6 +21,17 @@ def restart_ready_summary(**overrides):
             "supervisor_progress_fresh": True,
             "supervisor_target_complete": True,
             "restart_candidate_active": True,
+            "restart_candidate_rank_vector_changed": True,
+            "restart_candidate_changed_target_count": 100,
+            "restart_candidate_full_eval_rank": 14,
+            "restart_candidate_primary_score_improved": False,
+            "restart_candidate_secondary_score_improved": True,
+            "restart_candidate_improvement_basis": "secondary",
+            "experimental_navigation_eligible": True,
+            "experimental_navigation_quality_reason": "passed",
+            "experimental_navigation_rank_vector_changed": True,
+            "experimental_navigation_config_distance": 2.0982626296634663,
+            "experimental_navigation_min_config_distance": 0.08,
         },
     }
     readiness_overrides = overrides.pop("restart_readiness", None)
@@ -119,3 +130,54 @@ def test_restart_decision_rejects_missing_restart_candidate():
 
     assert decision.should_restart is False
     assert "restart_candidate" in decision.reason
+
+
+def test_restart_decision_rejects_unchanged_restart_candidate_rank_vector():
+    decision = restart_decision_from_watch_summary(
+        restart_ready_summary(
+            restart_readiness={
+                "restart_candidate_rank_vector_changed": False,
+                "experimental_navigation_rank_vector_changed": False,
+            }
+        ),
+        expected_pid=12345,
+    )
+
+    assert decision.should_restart is False
+    assert "restart_rank_vector_changed" in decision.reason
+    assert "navigation_rank_vector_changed" in decision.reason
+
+
+def test_restart_decision_rejects_restart_candidate_without_frontier_improvement():
+    decision = restart_decision_from_watch_summary(
+        restart_ready_summary(
+            restart_readiness={
+                "restart_candidate_primary_score_improved": False,
+                "restart_candidate_secondary_score_improved": False,
+                "restart_candidate_improvement_basis": "none",
+            }
+        ),
+        expected_pid=12345,
+    )
+
+    assert decision.should_restart is False
+    assert "restart_frontier_improved" in decision.reason
+    assert "restart_improvement_basis" in decision.reason
+
+
+def test_restart_decision_rejects_navigation_quality_failure():
+    decision = restart_decision_from_watch_summary(
+        restart_ready_summary(
+            restart_readiness={
+                "experimental_navigation_eligible": False,
+                "experimental_navigation_quality_reason": "below_min_config_distance",
+                "experimental_navigation_config_distance": 0.01,
+            }
+        ),
+        expected_pid=12345,
+    )
+
+    assert decision.should_restart is False
+    assert "navigation_eligible" in decision.reason
+    assert "navigation_quality" in decision.reason
+    assert "navigation_distance" in decision.reason
