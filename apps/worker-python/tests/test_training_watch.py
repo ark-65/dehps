@@ -665,6 +665,7 @@ def test_cli_summary_surfaces_recovery_gate_decision(tmp_path):
     assert summary["experimental_navigation_candidate"] == {
         "source": "rank_homogeneity_restart_champion",
         "reason": "rank_homogeneity_restart_changed_rank_vector",
+        "candidate_present": True,
         "eligible": False,
         "eligibility_reason": "below_min_config_distance",
         "quality_reason": "passed",
@@ -774,6 +775,7 @@ def test_gate_summary_surfaces_ineligible_navigation_distance():
         "source": "rank_homogeneity_restart_champion",
         "reason": "rank_homogeneity_restart_changed_rank_vector",
         "config_hash": "restart-hash",
+        "candidate_present": True,
         "eligible": False,
         "eligibility_reason": "below_min_config_distance",
         "config_distance": 0.006042,
@@ -934,6 +936,7 @@ def test_recommendation_omits_missing_navigation_distance_when_no_candidate():
     )
     markdown = render_markdown(payload)
 
+    assert gates["experimental_navigation_candidate"]["candidate_present"] is False
     assert "reason=no_experimental_navigation_candidate" in note
     assert "quality=missing_candidate_or_baseline" in note
     assert "rank_vector_changed=False" in note
@@ -1054,6 +1057,7 @@ def test_restart_readiness_includes_restart_candidate_evidence():
     assert readiness["restart_candidate_primary_score_improved"] is False
     assert readiness["restart_candidate_secondary_score_improved"] is True
     assert readiness["restart_candidate_improvement_basis"] == "secondary"
+    assert readiness["experimental_navigation_candidate_present"] is True
     assert readiness["experimental_navigation_eligible"] is True
     assert readiness["experimental_navigation_eligibility_reason"] == "eligible"
     assert readiness["experimental_navigation_config_distance"] == 3.62905
