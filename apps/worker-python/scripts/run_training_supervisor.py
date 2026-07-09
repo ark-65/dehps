@@ -34,6 +34,7 @@ from dehps.optimization.next_candidates import (
     STATIC_100_LINE_KEY,
     STATIC_100_LINE_LABEL,
     DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
+    dynamic_regression_is_fully_dynamic,
     dynamic_kdj_strength_sweep_training_summary,
     regression_training_sort_key,
     refresh_training_prediction_lines_current,
@@ -4512,16 +4513,36 @@ def dynamic_policy_from_training_payload(
         if isinstance(training_payload.get("selected_summary"), dict)
         else {}
     )
+    if not dynamic_regression_is_fully_dynamic(selected):
+        raise ValueError("dynamic KDJ selected summary is not fully dynamic")
     offset_scale = float(training_payload.get("selected_strength") or selected.get("offset_scale") or 0.0)
+    strength_policy = (
+        training_payload.get("selected_strength_policy")
+        if isinstance(training_payload.get("selected_strength_policy"), dict)
+        else selected.get("strength_policy")
+        if isinstance(selected.get("strength_policy"), dict)
+        else {}
+    )
+    min_offset_scale = strength_policy.get("min_offset_scale") if isinstance(strength_policy, dict) else None
+    max_offset_scale = strength_policy.get("max_offset_scale") if isinstance(strength_policy, dict) else None
     base_config = base_summary.get("config") if isinstance(base_summary.get("config"), dict) else {}
     base_hash = str(training_payload.get("base_config_hash") or base_summary.get("config_hash") or "")
+    policy_key = (
+        f"{DYNAMIC_KDJ_LINE_KEY}:{base_hash}:anchor:{offset_scale:g}:"
+        f"band:{float(min_offset_scale or offset_scale):g}-{float(max_offset_scale or offset_scale):g}"
+    )
     return {
         "run_id": run_id,
         "source_round_index": round_index,
         "protocol": DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
         "selection_method": training_payload.get("selection_method") or "regression_training_sort_key",
+        "strength_mode": training_payload.get("strength_mode") or strength_policy.get("mode") or "kdj_state_band",
         "offset_scale": offset_scale,
-        "policy_key": f"{DYNAMIC_KDJ_LINE_KEY}:{base_hash}:strength:{offset_scale:g}",
+        "anchor_offset_scale": offset_scale,
+        "min_offset_scale": min_offset_scale,
+        "max_offset_scale": max_offset_scale,
+        "strength_policy": strength_policy,
+        "policy_key": policy_key,
         "base_config": base_config,
         "base_config_hash": base_hash,
         "regression_summary": selected,
@@ -6207,6 +6228,10 @@ def run_supervisor(
                     policy_key=str(dynamic_policy.get("policy_key") or ""),
                     policy_params={
                         "offset_scale": dynamic_policy.get("offset_scale"),
+                        "anchor_offset_scale": dynamic_policy.get("anchor_offset_scale"),
+                        "min_offset_scale": dynamic_policy.get("min_offset_scale"),
+                        "max_offset_scale": dynamic_policy.get("max_offset_scale"),
+                        "strength_mode": dynamic_policy.get("strength_mode"),
                         "selection_method": dynamic_policy.get("selection_method"),
                         "base_config_hash": dynamic_policy.get("base_config_hash"),
                     },
@@ -6219,12 +6244,17 @@ def run_supervisor(
                     status["dynamic_kdj_training"]["best"] = {
                         "policy_key": dynamic_kdj_best_policy.get("policy_key"),
                         "offset_scale": dynamic_kdj_best_policy.get("offset_scale"),
+                        "anchor_offset_scale": dynamic_kdj_best_policy.get("anchor_offset_scale"),
+                        "min_offset_scale": dynamic_kdj_best_policy.get("min_offset_scale"),
+                        "max_offset_scale": dynamic_kdj_best_policy.get("max_offset_scale"),
+                        "strength_mode": dynamic_kdj_best_policy.get("strength_mode"),
                         "source_round_index": dynamic_kdj_best_policy.get("source_round_index"),
                         "summary": dynamic_kdj_best_training_summary,
                     }
                 prefilter_info["dynamic_kdj_training"] = {
                     "status": dynamic_training_payload.get("status"),
                     "selected_strength": dynamic_training_payload.get("selected_strength"),
+                    "selected_strength_policy": dynamic_training_payload.get("selected_strength_policy"),
                     "selected_summary": dynamic_training_selected,
                     "rows": dynamic_training_payload.get("rows"),
                     "best_policy_key": dynamic_kdj_best_policy.get("policy_key") if dynamic_kdj_best_policy else None,
@@ -6232,6 +6262,8 @@ def run_supervisor(
                 log(
                     f"round={round_index + 1} dynamic_kdj_training="
                     f"strength={dynamic_training_payload.get('selected_strength')} "
+                    f"mode={dynamic_training_payload.get('strength_mode')} "
+                    f"eff={dynamic_training_selected.get('effective_offset_scale_median')} "
                     f"top100={dynamic_training_selected.get('top_100_hits')} "
                     f"top1000={dynamic_training_selected.get('top_1000_hits')} "
                     f"top10000={dynamic_training_selected.get('top_10000_hits')} "

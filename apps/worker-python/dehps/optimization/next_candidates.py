@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from math import isfinite
 from statistics import median
 from typing import Any
 
@@ -42,7 +43,9 @@ PRIMARY_CONFIG_FIELDS = frozenset({"structural_weight", "frequency_weight", "omi
 CONTEXT_CONFIG_FIELDS = tuple(field for field in CONFIG_WEIGHT_FIELDS if field not in PRIMARY_CONFIG_FIELDS)
 REGRESSION_PROTOCOL_VERSION = "dual-line-regression-100-v1"
 DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION = "dynamic-kdj-line-training-v1"
-DEFAULT_DYNAMIC_KDJ_STRENGTH_SWEEP = (0.0, 0.25, 0.5, 1.0)
+DEFAULT_DYNAMIC_KDJ_STRENGTH_SWEEP = (0.25, 0.5, 1.0)
+DEFAULT_DYNAMIC_KDJ_MIN_EFFECTIVE_STRENGTH = 0.05
+DEFAULT_DYNAMIC_KDJ_MAX_EFFECTIVE_STRENGTH = 1.0
 
 
 def next_issue_hint(issue: str | None) -> str:
@@ -148,6 +151,188 @@ def numeric_metric(source: dict[str, Any], key: str) -> float | None:
     return float(value) if isinstance(value, int | float) else None
 
 
+def clamp_numeric(value: float, *, low: float, high: float) -> float:
+    if high < low:
+        low, high = high, low
+    return min(high, max(low, value))
+
+
+def positive_float(value: object, default: float = 0.0) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    return number if isfinite(number) and number > 0.0 else default
+
+
+def rounded_float(value: float, digits: int = 8) -> float:
+    return round(float(value), digits)
+
+
+def normalize_strength_sweep(strength_values: tuple[float, ...] | list[float] | None = None) -> tuple[float, ...]:
+    values = DEFAULT_DYNAMIC_KDJ_STRENGTH_SWEEP if strength_values is None else tuple(strength_values)
+    normalized: set[float] = set()
+    for value in values:
+        scale = positive_float(value)
+        if scale > 0.0:
+            normalized.add(rounded_float(scale))
+    normalized.add(1.0)
+    return tuple(sorted(normalized))
+
+
+def dynamic_strength_policy_from_anchor(
+    anchor_offset_scale: float,
+    *,
+    strength_values: tuple[float, ...] | list[float] | None = None,
+) -> dict[str, Any]:
+    anchor = positive_float(anchor_offset_scale, 1.0)
+    strengths = normalize_strength_sweep(strength_values)
+    lower_neighbors = [strength for strength in strengths if strength < anchor]
+    upper_neighbors = [strength for strength in strengths if strength > anchor]
+    min_scale = lower_neighbors[-1] if lower_neighbors else anchor * 0.5
+    max_scale = upper_neighbors[0] if upper_neighbors else anchor * 2.0
+    min_scale = clamp_numeric(
+        min_scale,
+        low=DEFAULT_DYNAMIC_KDJ_MIN_EFFECTIVE_STRENGTH,
+        high=DEFAULT_DYNAMIC_KDJ_MAX_EFFECTIVE_STRENGTH,
+    )
+    max_scale = clamp_numeric(
+        max_scale,
+        low=DEFAULT_DYNAMIC_KDJ_MIN_EFFECTIVE_STRENGTH,
+        high=DEFAULT_DYNAMIC_KDJ_MAX_EFFECTIVE_STRENGTH,
+    )
+    anchor = clamp_numeric(
+        anchor,
+        low=DEFAULT_DYNAMIC_KDJ_MIN_EFFECTIVE_STRENGTH,
+        high=DEFAULT_DYNAMIC_KDJ_MAX_EFFECTIVE_STRENGTH,
+    )
+    if min_scale > anchor:
+        min_scale = max(DEFAULT_DYNAMIC_KDJ_MIN_EFFECTIVE_STRENGTH, anchor * 0.5)
+    if max_scale < anchor:
+        max_scale = min(DEFAULT_DYNAMIC_KDJ_MAX_EFFECTIVE_STRENGTH, anchor * 2.0)
+    if max_scale <= min_scale:
+        min_scale = max(DEFAULT_DYNAMIC_KDJ_MIN_EFFECTIVE_STRENGTH, anchor * 0.75)
+        max_scale = min(DEFAULT_DYNAMIC_KDJ_MAX_EFFECTIVE_STRENGTH, anchor * 1.25)
+    return {
+        "mode": "kdj_state_band",
+        "anchor_offset_scale": rounded_float(anchor),
+        "min_offset_scale": rounded_float(min_scale),
+        "max_offset_scale": rounded_float(max_scale),
+        "confidence_midpoint": 0.5,
+        "confidence_formula": "weighted_probability_j_extremity_slope_interval",
+    }
+
+
+def _weighted_average(values: list[tuple[float, float]]) -> float:
+    total_weight = sum(max(0.0, weight) for _value, weight in values)
+    if total_weight <= 0.0:
+        return 0.0
+    return sum(value * max(0.0, weight) for value, weight in values) / total_weight
+
+
+def dynamic_effective_strength_from_advice(
+    advice: list[Any],
+    *,
+    anchor_offset_scale: float,
+    strength_policy: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    try:
+        raw_anchor = float(anchor_offset_scale)
+    except (TypeError, ValueError):
+        raw_anchor = 1.0
+    if not isfinite(raw_anchor) or raw_anchor < 0.0:
+        raw_anchor = 1.0
+    anchor = raw_anchor
+    if not isinstance(strength_policy, dict) or strength_policy.get("mode") != "kdj_state_band":
+        return {
+            "mode": "fixed_strength",
+            "anchor_offset_scale": rounded_float(anchor),
+            "effective_offset_scale": rounded_float(anchor),
+            "min_offset_scale": rounded_float(anchor),
+            "max_offset_scale": rounded_float(anchor),
+            "confidence": 0.5,
+            "usable_advice_count": len(advice),
+            "downweighted_share": 0.0,
+        }
+
+    anchor = positive_float(strength_policy.get("anchor_offset_scale"), positive_float(anchor, 1.0))
+    min_scale = positive_float(strength_policy.get("min_offset_scale"), max(anchor * 0.5, DEFAULT_DYNAMIC_KDJ_MIN_EFFECTIVE_STRENGTH))
+    max_scale = positive_float(strength_policy.get("max_offset_scale"), min(anchor * 2.0, DEFAULT_DYNAMIC_KDJ_MAX_EFFECTIVE_STRENGTH))
+    min_scale = clamp_numeric(
+        min_scale,
+        low=DEFAULT_DYNAMIC_KDJ_MIN_EFFECTIVE_STRENGTH,
+        high=DEFAULT_DYNAMIC_KDJ_MAX_EFFECTIVE_STRENGTH,
+    )
+    max_scale = clamp_numeric(
+        max_scale,
+        low=DEFAULT_DYNAMIC_KDJ_MIN_EFFECTIVE_STRENGTH,
+        high=DEFAULT_DYNAMIC_KDJ_MAX_EFFECTIVE_STRENGTH,
+    )
+    anchor = clamp_numeric(anchor, low=min_scale, high=max_scale)
+    usable = [item for item in advice if getattr(item, "decision", "") in {"selected", "downweighted"} and getattr(item, "applied_offset", 0.0)]
+    if not usable:
+        return {
+            "mode": "kdj_state_band",
+            "anchor_offset_scale": rounded_float(anchor),
+            "effective_offset_scale": rounded_float(anchor),
+            "min_offset_scale": rounded_float(min_scale),
+            "max_offset_scale": rounded_float(max_scale),
+            "confidence": 0.5,
+            "usable_advice_count": 0,
+            "downweighted_share": 0.0,
+        }
+
+    weighted_probability: list[tuple[float, float]] = []
+    weighted_j_extremity: list[tuple[float, float]] = []
+    weighted_slope: list[tuple[float, float]] = []
+    weighted_interval_edge: list[tuple[float, float]] = []
+    downweighted_count = 0
+    for item in usable:
+        probability_weight = clamp_numeric(float(getattr(item, "probability_weight", 0.0) or 0.0), low=0.0, high=1.0)
+        applied_offset = abs(float(getattr(item, "applied_offset", 0.0) or 0.0))
+        objective_delta = max(0.0, float(getattr(item, "objective_delta", 0.0) or 0.0))
+        weight = max(1e-9, applied_offset * max(0.05, probability_weight) * (1.0 + min(objective_delta, 10.0) / 10.0))
+        weighted_probability.append((probability_weight, weight))
+        weighted_j_extremity.append((clamp_numeric(abs(float(getattr(item, "j_value", 50.0) or 50.0) - 50.0) / 50.0, low=0.0, high=1.0), weight))
+        weighted_slope.append((clamp_numeric(abs(float(getattr(item, "j_slope", 0.0) or 0.0)) / 100.0, low=0.0, high=1.0), weight))
+        weighted_interval_edge.append((clamp_numeric(abs(float(getattr(item, "interval_position", 0.5) or 0.5) - 0.5) * 2.0, low=0.0, high=1.0), weight))
+        if getattr(item, "decision", "") == "downweighted":
+            downweighted_count += 1
+
+    probability = _weighted_average(weighted_probability)
+    j_extremity = _weighted_average(weighted_j_extremity)
+    slope = _weighted_average(weighted_slope)
+    interval_edge = _weighted_average(weighted_interval_edge)
+    downweighted_share = downweighted_count / len(usable)
+    confidence = (
+        probability * 0.30
+        + j_extremity * 0.30
+        + slope * 0.20
+        + interval_edge * 0.20
+    )
+    confidence *= 1.0 - min(0.35, downweighted_share * 0.35)
+    confidence = clamp_numeric(confidence, low=0.0, high=1.0)
+    if confidence >= 0.5:
+        effective_scale = anchor + (max_scale - anchor) * ((confidence - 0.5) / 0.5)
+    else:
+        effective_scale = min_scale + (anchor - min_scale) * (confidence / 0.5)
+    effective_scale = clamp_numeric(effective_scale, low=min_scale, high=max_scale)
+    return {
+        "mode": "kdj_state_band",
+        "anchor_offset_scale": rounded_float(anchor),
+        "effective_offset_scale": rounded_float(effective_scale),
+        "min_offset_scale": rounded_float(min_scale),
+        "max_offset_scale": rounded_float(max_scale),
+        "confidence": rounded_float(confidence),
+        "probability": rounded_float(probability),
+        "j_extremity": rounded_float(j_extremity),
+        "slope_strength": rounded_float(slope),
+        "interval_edge_strength": rounded_float(interval_edge),
+        "usable_advice_count": len(usable),
+        "downweighted_share": rounded_float(downweighted_share),
+    }
+
+
 def compact_static_regression_summary(best: dict[str, Any]) -> dict[str, Any]:
     summary = best.get("summary") if isinstance(best.get("summary"), dict) else {}
     red5 = summary.get("red5") if isinstance(summary.get("red5"), dict) else {}
@@ -194,6 +379,8 @@ def regression_summary_from_ranks(
     leakage_passed: bool,
     latest_signal_issue: str | None = None,
     offset_scale: float | None = None,
+    effective_offset_scales: list[float] | None = None,
+    strength_policy: dict[str, Any] | None = None,
     top_n: int | None = None,
 ) -> dict[str, Any]:
     summary = {
@@ -225,6 +412,13 @@ def regression_summary_from_ranks(
     }
     if offset_scale is not None:
         summary["offset_scale"] = round(float(offset_scale), 8)
+        summary["anchor_offset_scale"] = round(float(offset_scale), 8)
+    if effective_offset_scales:
+        summary["effective_offset_scale_min"] = round(min(effective_offset_scales), 8)
+        summary["effective_offset_scale_median"] = round(median(effective_offset_scales), 8)
+        summary["effective_offset_scale_max"] = round(max(effective_offset_scales), 8)
+    if isinstance(strength_policy, dict):
+        summary["strength_policy"] = strength_policy
     if top_n is not None:
         summary["top_n"] = int(top_n)
     return summary
@@ -243,6 +437,18 @@ def regression_training_sort_key(summary: dict[str, Any]) -> tuple:
         -float(summary.get("median_rank") or 0),
         -float(summary.get("best_rank") or 0),
         float(summary.get("offset_scale") or 0.0),
+    )
+
+
+def dynamic_regression_is_fully_dynamic(summary: dict[str, Any]) -> bool:
+    eval_window = int(summary.get("eval_window") or 0)
+    return (
+        summary.get("status") == "evaluated"
+        and eval_window > 0
+        and positive_float(summary.get("anchor_offset_scale", summary.get("offset_scale"))) > 0.0
+        and int(summary.get("fallback_target_count") or 0) == 0
+        and int(summary.get("changed_target_count") or 0) == eval_window
+        and bool(summary.get("leakage_passed"))
     )
 
 
@@ -267,6 +473,7 @@ def dynamic_kdj_regression_summary(
     eval_window: int,
     top_n: int,
     offset_scale: float = 1.0,
+    strength_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     indexes = list(regression_target_indexes(history_len=len(history), train_window=train_window, eval_window=eval_window))
     if not indexes:
@@ -300,6 +507,7 @@ def dynamic_kdj_regression_summary(
     changed_target_count = 0
     leakage_passed = True
     latest_signal_issue: str | None = None
+    effective_offset_scales: list[float] = []
 
     for target_index in indexes:
         target_draw = history[target_index]
@@ -309,6 +517,7 @@ def dynamic_kdj_regression_summary(
             signals=signals,
             target_issue=target_issue,
             offset_scale=offset_scale,
+            strength_policy=strength_policy,
         )
         if dynamic_metadata["fallback_static_base"]:
             fallback_target_count += 1
@@ -318,6 +527,7 @@ def dynamic_kdj_regression_summary(
         signal_issue = dynamic_metadata.get("latest_signal_issue")
         if signal_issue is not None and (latest_signal_issue is None or issue_sort_key(signal_issue) > issue_sort_key(latest_signal_issue)):
             latest_signal_issue = str(signal_issue)
+        effective_offset_scales.append(float(dynamic_metadata.get("effective_offset_scale") or offset_scale))
 
         train_start = 0 if train_mode == "expanding" else max(0, target_index - train_window)
         train_history = history[train_start:target_index]
@@ -347,16 +557,10 @@ def dynamic_kdj_regression_summary(
         leakage_passed=leakage_passed,
         latest_signal_issue=latest_signal_issue,
         offset_scale=offset_scale,
+        effective_offset_scales=effective_offset_scales,
+        strength_policy=strength_policy,
         top_n=top_n,
     )
-
-
-def normalize_strength_sweep(strength_values: tuple[float, ...] | list[float] | None = None) -> tuple[float, ...]:
-    values = DEFAULT_DYNAMIC_KDJ_STRENGTH_SWEEP if strength_values is None else tuple(strength_values)
-    normalized = {round(max(0.0, float(value)), 8) for value in values}
-    normalized.add(0.0)
-    normalized.add(1.0)
-    return tuple(sorted(normalized))
 
 
 def dynamic_kdj_strength_sweep_training_summary(
@@ -374,12 +578,15 @@ def dynamic_kdj_strength_sweep_training_summary(
     strengths = normalize_strength_sweep(strength_values)
     indexes = list(regression_target_indexes(history_len=len(history), train_window=train_window, eval_window=eval_window))
     if not indexes:
+        default_anchor = strengths[0] if strengths else 1.0
+        default_policy = dynamic_strength_policy_from_anchor(default_anchor, strength_values=strengths)
         return {
             "status": "skipped_insufficient_history",
             "protocol": DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
             "line_key": DYNAMIC_KDJ_LINE_KEY,
             "strengths": list(strengths),
-            "selected_strength": 0.0,
+            "selected_strength": default_anchor,
+            "selected_strength_policy": default_policy,
             "selected_summary": regression_summary_from_ranks(
                 line_key=DYNAMIC_KDJ_LINE_KEY,
                 source="dynamic_kdj_strength_sweep",
@@ -390,7 +597,8 @@ def dynamic_kdj_strength_sweep_training_summary(
                 fallback_target_count=0,
                 changed_target_count=0,
                 leakage_passed=True,
-                offset_scale=0.0,
+                offset_scale=default_anchor,
+                strength_policy=default_policy,
                 top_n=top_n,
             ),
             "rows": [],
@@ -404,6 +612,11 @@ def dynamic_kdj_strength_sweep_training_summary(
     changed_counts: dict[float, int] = {strength: 0 for strength in strengths}
     leakage_by_strength: dict[float, bool] = {strength: True for strength in strengths}
     latest_signal_by_strength: dict[float, str | None] = {strength: None for strength in strengths}
+    effective_scales_by_strength: dict[float, list[float]] = {strength: [] for strength in strengths}
+    strength_policies: dict[float, dict[str, Any]] = {
+        strength: dynamic_strength_policy_from_anchor(strength, strength_values=strengths)
+        for strength in strengths
+    }
     as_of_issue = history_issue(history[-1])
     history_fingerprint_value = fingerprint_history(history)
 
@@ -413,20 +626,13 @@ def dynamic_kdj_strength_sweep_training_summary(
         configs: list[FrequencyRankerConfig] = []
         target_strengths: list[float] = []
         for strength in strengths:
-            if strength == 0.0:
-                dynamic_config = base_config
-                dynamic_metadata = {
-                    "fallback_static_base": True,
-                    "leakage_passed": True,
-                    "latest_signal_issue": None,
-                }
-            else:
-                dynamic_config, dynamic_metadata = dynamic_kdj_config_for_next(
-                    base_config=base_config,
-                    signals=signals,
-                    target_issue=target_issue,
-                    offset_scale=strength,
-                )
+            dynamic_config, dynamic_metadata = dynamic_kdj_config_for_next(
+                base_config=base_config,
+                signals=signals,
+                target_issue=target_issue,
+                offset_scale=strength,
+                strength_policy=strength_policies[strength],
+            )
             if dynamic_metadata["fallback_static_base"]:
                 fallback_counts[strength] += 1
             else:
@@ -438,6 +644,7 @@ def dynamic_kdj_strength_sweep_training_summary(
                 or issue_sort_key(signal_issue) > issue_sort_key(latest_signal_by_strength[strength])
             ):
                 latest_signal_by_strength[strength] = str(signal_issue)
+            effective_scales_by_strength[strength].append(float(dynamic_metadata.get("effective_offset_scale") or strength))
             configs.append(dynamic_config)
             target_strengths.append(strength)
 
@@ -470,6 +677,8 @@ def dynamic_kdj_strength_sweep_training_summary(
             leakage_passed=leakage_by_strength[strength],
             latest_signal_issue=latest_signal_by_strength[strength],
             offset_scale=strength,
+            effective_offset_scales=effective_scales_by_strength[strength],
+            strength_policy=strength_policies[strength],
             top_n=top_n,
         )
         for strength in strengths
@@ -478,11 +687,14 @@ def dynamic_kdj_strength_sweep_training_summary(
         summary["as_of_issue"] = as_of_issue
         summary["history_fingerprint"] = history_fingerprint_value
         summary["base_config_hash"] = config_hash(base_config)
-    selected_summary = max(summaries, key=regression_training_sort_key)
-    selected_strength = float(selected_summary.get("offset_scale") or 0.0)
+    fully_dynamic_summaries = [summary for summary in summaries if dynamic_regression_is_fully_dynamic(summary)]
     rows = [
         {
             "strength": float(summary.get("offset_scale") or 0.0),
+            "anchor_offset_scale": float(summary.get("anchor_offset_scale") or summary.get("offset_scale") or 0.0),
+            "effective_offset_scale_min": summary.get("effective_offset_scale_min"),
+            "effective_offset_scale_median": summary.get("effective_offset_scale_median"),
+            "effective_offset_scale_max": summary.get("effective_offset_scale_max"),
             "top_100_hits": int(summary.get("top_100_hits") or 0),
             "top_1000_hits": int(summary.get("top_1000_hits") or 0),
             "top_10000_hits": int(summary.get("top_10000_hits") or 0),
@@ -501,16 +713,42 @@ def dynamic_kdj_strength_sweep_training_summary(
             "fallback_target_count": int(summary.get("fallback_target_count") or 0),
             "changed_target_count": int(summary.get("changed_target_count") or 0),
             "leakage_passed": bool(summary.get("leakage_passed")),
+            "fully_dynamic": dynamic_regression_is_fully_dynamic(summary),
+            "strength_policy": summary.get("strength_policy"),
         }
         for summary in summaries
     ]
+    if not fully_dynamic_summaries:
+        return {
+            "status": "skipped_no_fully_dynamic_kdj",
+            "protocol": DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
+            "line_key": DYNAMIC_KDJ_LINE_KEY,
+            "selection_method": "regression_training_sort_key",
+            "strength_mode": "kdj_state_band",
+            "strengths": list(strengths),
+            "selected_strength": 0.0,
+            "selected_strength_policy": {},
+            "selected_summary": {},
+            "rows": rows,
+            "base_config_hash": config_hash(base_config),
+            "base_config": config_values(base_config),
+            "eval_window": len(indexes),
+            "configured_eval_window": eval_window,
+            "legal_sample_space": TOTAL_SSQ_RED_COMBINATIONS,
+            "as_of_issue": as_of_issue,
+            "history_fingerprint": history_fingerprint_value,
+        }
+    selected_summary = max(fully_dynamic_summaries, key=regression_training_sort_key)
+    selected_strength = float(selected_summary.get("offset_scale") or 0.0)
     return {
         "status": "evaluated",
         "protocol": DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
         "line_key": DYNAMIC_KDJ_LINE_KEY,
         "selection_method": "regression_training_sort_key",
+        "strength_mode": "kdj_state_band",
         "strengths": list(strengths),
         "selected_strength": selected_strength,
+        "selected_strength_policy": selected_summary.get("strength_policy"),
         "selected_summary": selected_summary,
         "rows": rows,
         "base_config_hash": config_hash(base_config),
@@ -731,12 +969,13 @@ def dynamic_kdj_config_for_next(
     signals: list[dict[str, Any]],
     target_issue: str,
     offset_scale: float = 1.0,
+    strength_policy: dict[str, Any] | None = None,
     min_objective_delta: float = 0.0,
     min_abs_offset: float = 0.005,
     slope_window: int = 3,
     neutral_band: float = 5.0,
 ) -> tuple[FrequencyRankerConfig, dict[str, Any]]:
-    scale = max(0.0, float(offset_scale))
+    anchor_scale = positive_float(offset_scale)
     eligible = [signal for signal in signals if issue_less_than(signal.get("issue"), target_issue)]
     excluded = len(signals) - len(eligible)
     advice = weight_kdj_advice_from_signals(
@@ -747,15 +986,24 @@ def dynamic_kdj_config_for_next(
         slope_window=slope_window,
         neutral_band=neutral_band,
     )
-    values = config_values(base_config)
-    applied_offsets: dict[str, float] = {}
-    applied_fields: set[str] = set()
+    usable_advice: list[Any] = []
+    used_fields: set[str] = set()
     for item in advice:
         if item.decision not in {"selected", "downweighted"} or not item.applied_offset:
             continue
-        if item.weight_name in applied_fields:
+        if item.weight_name in used_fields:
             continue
-        applied_fields.add(item.weight_name)
+        used_fields.add(item.weight_name)
+        usable_advice.append(item)
+    strength_state = dynamic_effective_strength_from_advice(
+        usable_advice,
+        anchor_offset_scale=anchor_scale,
+        strength_policy=strength_policy,
+    )
+    scale = float(strength_state["effective_offset_scale"])
+    values = config_values(base_config)
+    applied_offsets: dict[str, float] = {}
+    for item in usable_advice:
         offset = float(item.applied_offset) * scale
         if not offset:
             continue
@@ -774,11 +1022,21 @@ def dynamic_kdj_config_for_next(
     metadata = {
         "thresholds": {
             "offset_scale": scale,
+            "anchor_offset_scale": anchor_scale,
             "min_objective_delta": min_objective_delta,
             "min_abs_offset": min_abs_offset,
             "slope_window": slope_window,
             "neutral_band": neutral_band,
         },
+        "strength_policy": strength_policy or {
+            "mode": "fixed_strength",
+            "anchor_offset_scale": rounded_float(anchor_scale),
+            "min_offset_scale": rounded_float(anchor_scale),
+            "max_offset_scale": rounded_float(anchor_scale),
+        },
+        "strength_state": strength_state,
+        "anchor_offset_scale": rounded_float(anchor_scale),
+        "effective_offset_scale": rounded_float(scale),
         "signal_count": len(signals),
         "eligible_signal_count": len(eligible),
         "excluded_signal_count": excluded,
@@ -822,7 +1080,13 @@ def build_dynamic_kdj_next_candidate_snapshot(
         if isinstance(value, int | float)
     }
     base_config = FrequencyRankerConfig(**base_config_values)
-    offset_scale = float(policy.get("offset_scale") if isinstance(policy.get("offset_scale"), int | float) else 1.0)
+    offset_scale = positive_float(
+        policy.get("anchor_offset_scale", policy.get("offset_scale")),
+        1.0,
+    )
+    strength_policy = policy.get("strength_policy") if isinstance(policy.get("strength_policy"), dict) else None
+    if strength_policy is None:
+        strength_policy = dynamic_strength_policy_from_anchor(offset_scale)
     signals = load_recent_training_weight_signals(
         conn,
         signal_run_id=signal_run_id or CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID,
@@ -837,9 +1101,14 @@ def build_dynamic_kdj_next_candidate_snapshot(
         signals=signals,
         target_issue=next_issue,
         offset_scale=offset_scale,
+        strength_policy=strength_policy,
     )
+    if dynamic_metadata["fallback_static_base"]:
+        raise RuntimeError("dynamic KDJ line produced no KDJ offsets; refusing static fallback")
     matrix = ranked_universe or build_ranked_universe()
     policy_regression = policy.get("regression_summary") if isinstance(policy.get("regression_summary"), dict) else None
+    if policy_regression is not None and not dynamic_regression_is_fully_dynamic(policy_regression):
+        raise RuntimeError("dynamic KDJ policy regression is not fully dynamic")
     regression_summary = policy_regression or dynamic_kdj_regression_summary(
         history=history,
         base_config=base_config,
@@ -850,7 +1119,10 @@ def build_dynamic_kdj_next_candidate_snapshot(
         eval_window=best["eval_window"],
         top_n=best["top_n"],
         offset_scale=offset_scale,
+        strength_policy=strength_policy,
     )
+    if not dynamic_regression_is_fully_dynamic(regression_summary):
+        raise RuntimeError("dynamic KDJ regression is not fully dynamic")
     resolved_top_n = min(top_n, len(matrix))
     candidates = top_candidates_for_next(
         history=history if best["train_mode"] == "expanding" else history[-best["train_window"] :],
@@ -898,11 +1170,16 @@ def build_dynamic_kdj_next_candidate_snapshot(
             "base_config": base_config_values,
             "dynamic_policy": {
                 "protocol": policy.get("protocol") or DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
-                "selection_method": policy.get("selection_method") or "fixed_strength",
+                "selection_method": policy.get("selection_method") or "kdj_state_band",
+                "strength_mode": strength_policy.get("mode") or "kdj_state_band",
                 "offset_scale": offset_scale,
+                "anchor_offset_scale": offset_scale,
+                "min_offset_scale": strength_policy.get("min_offset_scale"),
+                "max_offset_scale": strength_policy.get("max_offset_scale"),
                 "source_round_index": policy.get("source_round_index"),
                 "base_config_hash": config_hash(base_config),
                 "policy_key": policy.get("policy_key"),
+                "strength_policy": strength_policy,
             },
             "signal_run_id": signal_run_id or CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID,
             "target_issue": next_issue,
@@ -921,7 +1198,7 @@ def build_dynamic_kdj_next_candidate_snapshot(
             "riemann_guardrail": {
                 "shared_history_space": True,
                 "shared_candidate_universe": True,
-                "structural_change": "same base config plus per-issue KDJ weight offsets",
+                "structural_change": "same base config plus per-issue KDJ offsets and KDJ-state adaptive offset-scale interval",
             },
         },
         "generated_at": generated_at,

@@ -232,6 +232,41 @@ def test_dynamic_kdj_config_for_next_scales_offsets():
     assert metadata["applied_offsets"] == {"frequency_weight": 0.01}
 
 
+def test_dynamic_kdj_config_for_next_uses_kdj_state_strength_band():
+    base_config = next_candidates.FrequencyRankerConfig(frequency_weight=0.30)
+    strength_policy = next_candidates.dynamic_strength_policy_from_anchor(
+        0.25,
+        strength_values=(0.25, 0.5, 1.0),
+    )
+
+    config, metadata = dynamic_kdj_config_for_next(
+        base_config=base_config,
+        target_issue="2026069",
+        offset_scale=0.25,
+        strength_policy=strength_policy,
+        signals=[
+            {
+                "issue": "2026067",
+                "weight_name": "frequency_weight",
+                "recommended_offset": 0.02,
+                "j_value": 100.0,
+                "objective_delta": 1.0,
+                "base_value": 0.0,
+                "close_value": 0.02,
+                "rolling_low_value": 0.0,
+                "rolling_high_value": 0.02,
+            },
+        ],
+    )
+
+    effective_scale = metadata["effective_offset_scale"]
+    assert 0.25 < effective_scale <= 0.5
+    assert metadata["strength_policy"]["mode"] == "kdj_state_band"
+    assert metadata["strength_state"]["confidence"] > 0.5
+    assert round(config.frequency_weight, 8) == round(0.30 - 0.02 * effective_scale, 8)
+    assert metadata["applied_offsets"] == {"frequency_weight": round(-0.02 * effective_scale, 8)}
+
+
 def test_dynamic_kdj_regression_summary_runs_per_target_without_future_signals(monkeypatch):
     history = [
         ("2026061", date(2026, 6, 1), (1, 2, 3, 4, 5, 6)),
@@ -326,10 +361,16 @@ def test_dynamic_kdj_strength_sweep_training_summary_selects_best_strength(monke
     )
 
     assert payload["status"] == "evaluated"
-    assert payload["selected_strength"] == 0.5
-    assert len(payload["rows"]) == 4
+    assert payload["selected_strength"] == 1.0
+    assert payload["selected_strength_policy"]["mode"] == "kdj_state_band"
+    assert len(payload["rows"]) == 3
+    assert {row["strength"] for row in payload["rows"]} == {0.25, 0.5, 1.0}
+    assert all(row["fully_dynamic"] for row in payload["rows"])
     assert payload["selected_summary"]["top_100_hits"] == 2
     assert payload["selected_summary"]["red5"]["top_100_hits"] == 2
+    assert payload["selected_summary"]["fallback_target_count"] == 0
+    assert payload["selected_summary"]["changed_target_count"] == 2
+    assert payload["selected_summary"]["strength_policy"]["mode"] == "kdj_state_band"
     assert payload["selected_summary"]["as_of_issue"] == "2026064"
     assert payload["selected_summary"]["history_fingerprint"] == next_candidates.fingerprint_history(history)
 
@@ -357,7 +398,19 @@ def test_dynamic_kdj_next_candidate_snapshot_includes_regression_summary(monkeyp
     }
     monkeypatch.setattr(next_candidates, "load_best_training_summary", lambda _conn, _run_id: best)
     monkeypatch.setattr(next_candidates, "load_history_with_dates", lambda _conn: history)
-    monkeypatch.setattr(next_candidates, "load_recent_training_weight_signals", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        next_candidates,
+        "load_recent_training_weight_signals",
+        lambda *_args, **_kwargs: [
+            {
+                "issue": "2026062",
+                "weight_name": "frequency_weight",
+                "recommended_offset": 0.02,
+                "j_value": 65.0,
+                "objective_delta": 1.0,
+            }
+        ],
+    )
     monkeypatch.setattr(next_candidates, "rank_target_grid_with_red5", lambda **_kwargs: [(1234, 0.5, SimpleNamespace(rank=99))])
     monkeypatch.setattr(
         next_candidates,
@@ -372,6 +425,9 @@ def test_dynamic_kdj_next_candidate_snapshot_includes_regression_summary(monkeyp
     assert metadata["prediction_metadata"]["regression_100"]["top_1000_hits"] == 0
     assert metadata["prediction_metadata"]["regression_100"]["top_10000_hits"] == 1
     assert metadata["prediction_metadata"]["regression_100"]["red5"]["top_100_hits"] == 1
+    assert metadata["prediction_metadata"]["regression_100"]["fallback_target_count"] == 0
+    assert metadata["prediction_metadata"]["dynamic_policy"]["strength_mode"] == "kdj_state_band"
+    assert metadata["prediction_metadata"]["fallback_static_base"] is False
     assert metadata["prediction_metadata"]["gauss_guardrail"]["regression_leakage_passed"] is True
 
 
