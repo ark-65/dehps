@@ -60,6 +60,17 @@ def restart_decision_from_watch_summary(
     readiness = summary.get("restart_readiness")
     if not isinstance(readiness, dict):
         return RestartDecision(False, "watch_restart_not_requested")
+    if readiness.get("requested") is False or readiness.get("status") == "not_requested":
+        round_boundary = summary.get("supervisor_round_boundary")
+        if (
+            isinstance(round_boundary, dict)
+            and round_boundary.get("status") == "target_complete_waiting_round_result"
+        ):
+            return RestartDecision(
+                False,
+                "watch_restart_not_requested:target_complete_waiting_round_result",
+            )
+        return RestartDecision(False, "watch_restart_not_requested")
 
     restart_rank_changed = readiness.get("restart_candidate_rank_vector_changed") is True
     restart_primary_improved = (
