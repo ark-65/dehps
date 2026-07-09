@@ -1588,6 +1588,53 @@ def restart_candidate_readiness_context(
     return {key: value for key, value in context.items() if value is not None}
 
 
+def navigation_distance_ready(candidate_context: dict[str, Any]) -> bool:
+    distance = safe_float(candidate_context.get("experimental_navigation_config_distance"))
+    minimum = safe_float(candidate_context.get("experimental_navigation_min_config_distance"))
+    return distance is not None and minimum is not None and distance >= minimum
+
+
+def restart_candidate_evidence_blockers(candidate_context: dict[str, Any]) -> list[str]:
+    if not candidate_context:
+        return []
+
+    primary_improved = (
+        candidate_context.get("restart_candidate_primary_score_improved") is True
+    )
+    secondary_improved = (
+        candidate_context.get("restart_candidate_secondary_score_improved") is True
+    )
+    checks = {
+        "restart_candidate": candidate_context.get("restart_candidate_active") is True,
+        "restart_rank_vector_changed": (
+            candidate_context.get("restart_candidate_rank_vector_changed") is True
+        ),
+        "restart_changed_targets": (
+            (safe_int(candidate_context.get("restart_candidate_changed_target_count")) or 0)
+            > 0
+        ),
+        "restart_full_eval_rank": (
+            (safe_int(candidate_context.get("restart_candidate_full_eval_rank")) or 0) > 0
+        ),
+        "restart_frontier_improved": primary_improved or secondary_improved,
+        "restart_improvement_basis": candidate_context.get(
+            "restart_candidate_improvement_basis"
+        )
+        in {"primary", "secondary"},
+        "navigation_eligible": (
+            candidate_context.get("experimental_navigation_eligible") is True
+        ),
+        "navigation_quality": (
+            candidate_context.get("experimental_navigation_quality_reason") == "passed"
+        ),
+        "navigation_rank_vector_changed": (
+            candidate_context.get("experimental_navigation_rank_vector_changed") is True
+        ),
+        "navigation_distance": navigation_distance_ready(candidate_context),
+    }
+    return [name for name, passed in checks.items() if not passed]
+
+
 def restart_blocker_stage(
     blockers: list[str],
     progress_context: dict[str, Any],
@@ -1605,6 +1652,8 @@ def restart_blocker_stage(
         return "active_training_supervisor_fresh_progress"
 
     target_complete = progress_context.get("supervisor_target_complete")
+    if target_complete is True and "restart_candidate_evidence" in blockers:
+        return "restart_candidate_evidence_incomplete"
     if target_complete is True:
         return "active_continuous_supervisor_target_complete"
     if target_complete is False:
@@ -1638,6 +1687,7 @@ def restart_readiness_summary(
 
     progress_context = supervisor_progress_readiness_context(supervisor_status)
     candidate_context = restart_candidate_readiness_context(gates)
+    evidence_blockers = restart_candidate_evidence_blockers(candidate_context)
 
     blockers: list[str] = []
     lock_active = bool(lock.get("active"))
@@ -1646,6 +1696,8 @@ def restart_readiness_summary(
         blockers.append("active_training_supervisor_lock")
     elif lock_active:
         blockers.append("active_heavy_job_lock")
+    if evidence_blockers:
+        blockers.append("restart_candidate_evidence")
     blocker_stage = restart_blocker_stage(blockers, progress_context)
     if not blockers:
         operator_action = "operator_review_then_start_fresh_supervisor"
@@ -1661,17 +1713,31 @@ def restart_readiness_summary(
         elif (
             progress_context.get("supervisor_progress_fresh") is True
             and progress_context.get("supervisor_run_mode") == "continuous"
+            and "restart_candidate_evidence" in blockers
+        ):
+            operator_action = (
+                "continue_current_training_supervisor_until_restart_candidate_evidence_improves"
+            )
+        elif (
+            progress_context.get("supervisor_progress_fresh") is True
+            and progress_context.get("supervisor_run_mode") == "continuous"
         ):
             operator_action = "operator_review_then_stop_continuous_training_supervisor_before_restart"
         elif progress_context.get("supervisor_progress_fresh") is True:
             operator_action = "wait_for_active_training_supervisor_to_finish_or_stop_before_restart"
         else:
             operator_action = "stop_or_transfer_active_training_supervisor_before_restart"
+    elif "restart_candidate_evidence" in blockers:
+        operator_action = "wait_for_restart_candidate_evidence_before_starting_fresh_supervisor"
     else:
         operator_action = "wait_for_or_clear_active_heavy_job_lock_before_restart"
 
     if not blockers:
         status = "ready_for_fresh_supervisor_after_operator_review"
+    elif blocker_stage == "restart_candidate_evidence_incomplete":
+        status = "blocked_by_restart_candidate_evidence"
+    elif "restart_candidate_evidence" in blockers and "active_heavy_job_lock" not in blockers:
+        status = "blocked_by_restart_candidate_evidence"
     elif "active_training_supervisor_lock" in blockers:
         status = "blocked_by_active_training_supervisor_lock"
     else:
@@ -1692,6 +1758,9 @@ def restart_readiness_summary(
         "lock_age_hours": lock.get("lock_age_hours"),
         "heartbeat_age_minutes": lock.get("heartbeat_age_minutes"),
     }
+    if candidate_context:
+        result["restart_candidate_evidence_ready"] = not evidence_blockers
+        result["restart_candidate_evidence_blockers"] = evidence_blockers
     result.update(progress_context)
     result.update(candidate_context)
     return result
@@ -2136,6 +2205,15 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 f"secondary_improved={restart_readiness.get('restart_candidate_secondary_score_improved')} "
                 f"frontier_basis={markdown_inline_text(restart_readiness.get('restart_candidate_improvement_basis'))} "
                 f"tail1000000_delta={restart_readiness.get('restart_candidate_tail_over_1000000_delta')}\n"
+            )
+        if restart_readiness.get("restart_candidate_evidence_ready") is not None:
+            evidence_blockers = compact_inline_list(
+                restart_readiness.get("restart_candidate_evidence_blockers")
+            )
+            restart_candidate_lines += (
+                "- Restart candidate evidence gate: "
+                f"ready={restart_readiness.get('restart_candidate_evidence_ready')} "
+                f"blockers={markdown_inline_text(evidence_blockers)}\n"
             )
         if restart_readiness.get("experimental_navigation_eligible") is not None:
             restart_candidate_lines += (
@@ -2677,6 +2755,8 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "restart_candidate_secondary_score_improved",
             "restart_candidate_improvement_basis",
             "restart_candidate_tail_over_1000000_delta",
+            "restart_candidate_evidence_ready",
+            "restart_candidate_evidence_blockers",
             "experimental_navigation_eligible",
             "experimental_navigation_eligibility_reason",
             "experimental_navigation_quality_reason",

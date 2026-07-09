@@ -297,6 +297,114 @@ def test_restart_readiness_marks_continuous_supervisor_for_operator_review(tmp_p
     )
 
 
+def test_restart_readiness_blocks_target_boundary_stop_when_evidence_gate_fails(tmp_path):
+    recommendation = {
+        "action": "prepare_restart_with_more_exploration",
+        "actions": ["prepare_restart_with_more_exploration"],
+    }
+    lock = {
+        "active": True,
+        "owner": "training-supervisor",
+        "pid": 12345,
+        "pid_active": True,
+    }
+    supervisor_status = {
+        "available": True,
+        "status": "running",
+        "run_mode": "continuous",
+        "latest_progress": {
+            "round": 35,
+            "target_index": 100,
+            "target_total": 100,
+            "target_complete": True,
+            "age_minutes": 0.6,
+            "fresh": True,
+            "freshness_threshold_minutes": 30,
+        },
+    }
+    gates = {
+        "rank_homogeneity_restart_champion": {
+            "active": True,
+            "source": "stagnation_restart",
+            "reason": "rank_homogeneity_restart_changed_rank_vector",
+            "rank_vector_changed": True,
+            "changed_target_count": 100,
+            "full_eval_rank": 14,
+            "frozen_primary_score": [0, 0, 0],
+            "baseline_frozen_primary_score": [0, 0, 0],
+            "source_frontier_primary_score_improved": False,
+            "source_frontier_secondary_score_improved": False,
+            "source_frontier_improvement_basis": "none",
+            "tail_over_1000000_delta": -2,
+        },
+        "experimental_navigation_candidate": {
+            "eligible": True,
+            "eligibility_reason": "eligible",
+            "quality_reason": "passed",
+            "rank_vector_changed": True,
+            "config_distance": 3.60011,
+            "min_config_distance": 0.08,
+        },
+    }
+
+    readiness = restart_readiness_summary(
+        recommendation=recommendation,
+        lock=lock,
+        supervisor_status=supervisor_status,
+        gates=gates,
+    )
+    payload = {
+        "generated_at": "2026-07-01T00:10:00Z",
+        "run_id": "run-1",
+        "round_count": 35,
+        "latest_round": 34,
+        "last_improved_round": None,
+        "stagnation_rounds": 33,
+        "latest_metrics": {},
+        "advisor_summary": {},
+        "heavy_job_lock": lock,
+        "recommendation": {
+            "severity": "alert",
+            "action": "prepare_restart_with_more_exploration",
+            "notes": [],
+        },
+        "restart_readiness": readiness,
+        "guardrail": "Historical response-surface monitoring only.",
+    }
+
+    summary = cli_summary(payload, tmp_path / "watch.json", tmp_path / "watch.md")
+    markdown = render_markdown(payload)
+
+    assert readiness["ready"] is False
+    assert readiness["status"] == "blocked_by_restart_candidate_evidence"
+    assert readiness["blockers"] == [
+        "active_training_supervisor_lock",
+        "restart_candidate_evidence",
+    ]
+    assert readiness["blocker_stage"] == "restart_candidate_evidence_incomplete"
+    assert (
+        readiness["operator_action"]
+        == "continue_current_training_supervisor_until_restart_candidate_evidence_improves"
+    )
+    assert readiness["restart_candidate_evidence_ready"] is False
+    assert readiness["restart_candidate_evidence_blockers"] == [
+        "restart_frontier_improved",
+        "restart_improvement_basis",
+    ]
+    assert summary["restart_readiness"]["status"] == "blocked_by_restart_candidate_evidence"
+    assert (
+        summary["restart_readiness"]["operator_action"]
+        == "continue_current_training_supervisor_until_restart_candidate_evidence_improves"
+    )
+    assert (
+        summary["restart_readiness"]["restart_candidate_evidence_blockers"]
+        == ["restart_frontier_improved", "restart_improvement_basis"]
+    )
+    assert "Restart candidate evidence gate: ready=False" in markdown
+    assert "restart_frontier_improved" in markdown
+    assert "restart_improvement_basis" in markdown
+
+
 def test_restart_readiness_waits_for_continuous_supervisor_target_boundary():
     recommendation = {
         "action": "prepare_restart_with_more_exploration",
@@ -437,6 +545,8 @@ def test_cli_summary_includes_restart_candidate_readiness_context(tmp_path):
             "restart_candidate_secondary_score_improved": True,
             "restart_candidate_improvement_basis": "secondary",
             "restart_candidate_tail_over_1000000_delta": -2,
+            "restart_candidate_evidence_ready": True,
+            "restart_candidate_evidence_blockers": [],
             "experimental_navigation_eligible": True,
             "experimental_navigation_eligibility_reason": "eligible",
             "experimental_navigation_quality_reason": "passed",
@@ -453,6 +563,8 @@ def test_cli_summary_includes_restart_candidate_readiness_context(tmp_path):
     assert readiness["restart_candidate_primary_score_improved"] is False
     assert readiness["restart_candidate_secondary_score_improved"] is True
     assert readiness["restart_candidate_improvement_basis"] == "secondary"
+    assert readiness["restart_candidate_evidence_ready"] is True
+    assert readiness["restart_candidate_evidence_blockers"] == []
     assert readiness["experimental_navigation_eligible"] is True
     assert readiness["experimental_navigation_eligibility_reason"] == "eligible"
     assert readiness["experimental_navigation_config_distance"] == 3.62905
