@@ -50,6 +50,50 @@ def test_restart_decision_accepts_target_boundary_stop_action():
     assert decision == RestartDecision(True, "watch_restart_ready_target_boundary")
 
 
+def test_restart_decision_rejects_not_requested_watch_summary_without_check_noise():
+    decision = restart_decision_from_watch_summary(
+        restart_ready_summary(
+            action="watch_stagnation_recovery",
+            restart_readiness={
+                "requested": False,
+                "ready": False,
+                "status": "not_requested",
+                "operator_action": "continue_current_training_watch",
+            },
+        ),
+        expected_pid=12345,
+    )
+
+    assert decision == RestartDecision(False, "watch_restart_not_requested")
+
+
+def test_restart_decision_rejects_not_requested_round_boundary_wait_state():
+    decision = restart_decision_from_watch_summary(
+        restart_ready_summary(
+            action="watch_stagnation_recovery",
+            supervisor_round_boundary={
+                "status": "target_complete_waiting_round_result",
+                "supervisor_progress_round": 28,
+                "latest_db_round": 27,
+                "round_lag": 1,
+                "target_complete": True,
+            },
+            restart_readiness={
+                "requested": False,
+                "ready": False,
+                "status": "not_requested",
+                "operator_action": "continue_current_training_watch",
+            },
+        ),
+        expected_pid=12345,
+    )
+
+    assert decision == RestartDecision(
+        False,
+        "watch_restart_not_requested:target_complete_waiting_round_result",
+    )
+
+
 def test_restart_decision_rejects_incomplete_target_boundary():
     decision = restart_decision_from_watch_summary(
         restart_ready_summary(
