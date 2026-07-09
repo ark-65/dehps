@@ -2642,6 +2642,7 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "target_total": round_boundary.get("target_total"),
             "target_complete": round_boundary.get("target_complete"),
             "progress_fresh": round_boundary.get("progress_fresh"),
+            "progress_age_minutes": round_boundary.get("progress_age_minutes"),
         }
     line_progress = (
         payload.get("line_progress")
