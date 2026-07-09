@@ -1039,6 +1039,20 @@ def safe_bool(value: Any) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
+def experimental_navigation_candidate_present(
+    navigation: dict[str, Any],
+    search_base: dict[str, Any] | None = None,
+) -> bool:
+    search_base = search_base if isinstance(search_base, dict) else {}
+    return bool(
+        navigation.get("source")
+        or navigation.get("config_hash")
+        or search_base.get("exploration_navigation_config_hash")
+        or safe_bool(navigation.get("eligible")) is True
+        or safe_bool(search_base.get("exploration_navigation_eligible")) is True
+    )
+
+
 def experimental_navigation_eligibility_reason(search_base: dict[str, Any]) -> str:
     eligible = safe_bool(search_base.get("exploration_navigation_eligible"))
     if eligible is True:
@@ -1179,10 +1193,12 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "unique_rank_signature_count": safe_int(restart_champion.get("unique_rank_signature_count")),
         }
     if navigation:
+        candidate_present = experimental_navigation_candidate_present(navigation, search_base)
         navigation_summary: dict[str, Any] = {
             "source": navigation.get("source"),
             "reason": navigation.get("reason"),
             "config_hash": navigation.get("config_hash"),
+            "candidate_present": candidate_present,
         }
         if search_base:
             eligible = safe_bool(search_base.get("exploration_navigation_eligible"))
@@ -1575,6 +1591,10 @@ def restart_candidate_readiness_context(
             }
         )
     if navigation:
+        candidate_present = navigation.get("candidate_present")
+        if candidate_present is None:
+            candidate_present = experimental_navigation_candidate_present(navigation)
+        context["experimental_navigation_candidate_present"] = bool(candidate_present)
         for key in (
             "eligible",
             "eligibility_reason",
@@ -2688,9 +2708,13 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
         else {}
     )
     if navigation:
+        candidate_present = navigation.get("candidate_present")
+        if candidate_present is None:
+            candidate_present = experimental_navigation_candidate_present(navigation)
         navigation_summary = {
             "source": navigation.get("source"),
             "reason": navigation.get("reason"),
+            "candidate_present": bool(candidate_present),
         }
         for key in (
             "eligible",
@@ -2757,6 +2781,7 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "restart_candidate_tail_over_1000000_delta",
             "restart_candidate_evidence_ready",
             "restart_candidate_evidence_blockers",
+            "experimental_navigation_candidate_present",
             "experimental_navigation_eligible",
             "experimental_navigation_eligibility_reason",
             "experimental_navigation_quality_reason",
