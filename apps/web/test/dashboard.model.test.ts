@@ -331,6 +331,10 @@ test('next candidate tab loads current top 10000 snapshot lazily', () => {
   assert.equal(template.includes('trainingNextCandidatesState$ | async'), true);
   assert.equal(template.includes('selectPredictionLine(line.key)'), true);
   assert.equal(template.includes('预测线回归对比'), true);
+  assert.equal(template.includes('复制Top100'), true);
+  assert.equal(template.includes("downloadTopCandidates(state.payload, 'csv', 100)"), true);
+  assert.equal(component.includes('copyTopCandidates(payload: TrainingNextCandidatesPayload, limit = 100)'), true);
+  assert.equal(component.includes('topCandidatesCsv(payload: TrainingNextCandidatesPayload, limit = 100)'), true);
   assert.equal(template.includes('Top10000'), true);
   assert.equal(template.includes('state.payload.guardrail'), true);
 });

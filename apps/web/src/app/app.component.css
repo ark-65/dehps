@@ -728,6 +728,62 @@ select {
   padding-top: 0;
 }
 
+.candidate-list-panel {
+  border-top: 1px solid #edf0f2;
+}
+
+.candidate-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+}
+
+.candidate-toolbar h3 {
+  margin: 0;
+  color: #1d2733;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.candidate-toolbar span {
+  display: block;
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 0.82rem;
+}
+
+.candidate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.candidate-actions button {
+  min-height: 34px;
+  border: 1px solid #c8d3dc;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #243447;
+  cursor: pointer;
+  font: inherit;
+  padding: 6px 11px;
+}
+
+.candidate-actions button:hover {
+  border-color: #6b879c;
+  background: #f7fafc;
+}
+
+.candidate-action-message {
+  margin: 0;
+  padding: 0 16px 10px;
+  color: #166534;
+  font-size: 0.86rem;
+}
+
 .prediction-comparison-table table {
   min-width: 820px;
 }
@@ -787,6 +843,17 @@ select {
   grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
   gap: 18px;
   padding: 16px;
+}
+
+@media (max-width: 760px) {
+  .candidate-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .candidate-actions {
+    justify-content: flex-start;
+  }
 }
 
 .detail-summary {

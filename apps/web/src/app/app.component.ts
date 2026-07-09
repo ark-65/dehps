@@ -23,6 +23,7 @@ import {
   TrainingAdvisorAdviceRow,
   TrainingAdvisorSummary,
   TrainingNextCandidatesPayload,
+  TrainingNextCandidate,
   TrainingResult,
   TrainingRoundDetail,
   TrainingRoundListItem,
@@ -107,6 +108,7 @@ type NextCandidateComparisonRow = {
   detail: string;
   status: string;
 };
+type CandidateExportFormat = 'csv' | 'txt';
 type WeightTrendGroup = {
   key: string;
   title: string;
@@ -220,6 +222,7 @@ export class AppComponent {
   selectedComparisonKey: string | null = null;
   selectedTrainingRoundKey: string | null = null;
   selectedPredictionLineKey: PredictionLineKey = 'static_100';
+  candidateActionMessage = '';
   activeTab: DashboardTab = 'training';
   readonly predictionLineOptions: { key: PredictionLineKey; label: string }[] = [
     { key: 'static_100', label: '100主线' },
@@ -480,6 +483,7 @@ export class AppComponent {
     if (this.selectedPredictionLineKey === lineKey) {
       return;
     }
+    this.candidateActionMessage = '';
     this.selectedPredictionLineKey = lineKey;
     this.trainingPredictionLineRequests.next(lineKey);
   }
@@ -669,6 +673,116 @@ export class AppComponent {
 
   numbersText(numbers: number[]): string {
     return numbers.length ? numbers.map((number) => this.ballText(number)).join(' ') : '无';
+  }
+
+  topCandidateRows(payload: TrainingNextCandidatesPayload, limit = 100): TrainingNextCandidate[] {
+    return payload.candidates.slice(0, Math.max(0, limit));
+  }
+
+  topCandidateActionLabel(payload: TrainingNextCandidatesPayload, limit = 100): string {
+    const count = this.topCandidateRows(payload, limit).length;
+    return `${payload.nextIssue || '下一期'} / Top${count}`;
+  }
+
+  async copyTopCandidates(payload: TrainingNextCandidatesPayload, limit = 100): Promise<void> {
+    const rows = this.topCandidateRows(payload, limit);
+    if (!rows.length) {
+      this.candidateActionMessage = '暂无可复制候选';
+      return;
+    }
+    const text = this.topCandidatesText(payload, limit, { plainList: true });
+    try {
+      await this.writeClipboardText(text);
+      this.candidateActionMessage = `已复制 ${rows.length} 条 ${payload.nextIssue || '下一期'} 候选`;
+    } catch {
+      this.candidateActionMessage = '复制失败，请改用导出';
+    }
+  }
+
+  downloadTopCandidates(payload: TrainingNextCandidatesPayload, format: CandidateExportFormat, limit = 100): void {
+    const rows = this.topCandidateRows(payload, limit);
+    if (!rows.length) {
+      this.candidateActionMessage = '暂无可导出候选';
+      return;
+    }
+    const text = format === 'csv' ? this.topCandidatesCsv(payload, limit) : this.topCandidatesText(payload, limit);
+    const mime = format === 'csv' ? 'text/csv;charset=utf-8' : 'text/plain;charset=utf-8';
+    const blob = new Blob([text], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = this.topCandidatesFilename(payload, format);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    this.candidateActionMessage = `已导出 ${rows.length} 条 ${payload.nextIssue || '下一期'} 候选`;
+  }
+
+  topCandidatesText(
+    payload: TrainingNextCandidatesPayload,
+    limit = 100,
+    options: { plainList?: boolean } = {},
+  ): string {
+    const rows = this.topCandidateRows(payload, limit);
+    const header = [
+      `${payload.lineLabel || payload.lineKey} ${payload.nextIssue || '下一期'} Top${rows.length}`,
+      `as-of ${payload.asOfIssue || '无'} / snapshot ${payload.snapshotKey || '无'}`,
+    ];
+    const body = rows.map(
+      (candidate) =>
+        `${String(candidate.rank).padStart(3, '0')}\t${this.numbersText(candidate.redNumbers)}\t${candidate.score.toFixed(8)}`,
+    );
+    return [...(options.plainList ? [] : header), 'Rank\t红球组合\tScore', ...body].join('\n');
+  }
+
+  topCandidatesCsv(payload: TrainingNextCandidatesPayload, limit = 100): string {
+    const rows = this.topCandidateRows(payload, limit);
+    const header = ['rank', 'red_numbers', 'score', 'line_key', 'next_issue', 'as_of_issue', 'snapshot_key', 'generated_at'];
+    const body = rows.map((candidate) =>
+      [
+        candidate.rank,
+        this.numbersText(candidate.redNumbers),
+        candidate.score.toFixed(8),
+        payload.lineKey,
+        payload.nextIssue || '',
+        payload.asOfIssue || '',
+        payload.snapshotKey || '',
+        payload.generatedAt || '',
+      ]
+        .map((value) => this.csvCell(value))
+        .join(','),
+    );
+    return [header.map((value) => this.csvCell(value)).join(','), ...body].join('\n');
+  }
+
+  topCandidatesFilename(payload: TrainingNextCandidatesPayload, format: CandidateExportFormat): string {
+    const lineKey = payload.lineKey || 'line';
+    const issue = payload.nextIssue || 'next';
+    return `${lineKey}-${issue}-top100.${format}`;
+  }
+
+  private async writeClipboardText(text: string): Promise<void> {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', 'true');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    if (!copied) {
+      throw new Error('copy command failed');
+    }
+  }
+
+  private csvCell(value: string | number): string {
+    return `"${String(value).replace(/"/g, '""')}"`;
   }
 
   findExperiment(payload: ExperimentsPayload, experimentKey: string | null): ExperimentSummary | null {

@@ -278,26 +278,42 @@
               </div>
             }
           </section>
-          <div class="table-wrap next-candidates-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Rank</th>
-                  <th>红球组合</th>
-                  <th>Score</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (candidate of state.payload.candidates; track candidate.rank) {
+          <section class="candidate-list-panel">
+            <div class="candidate-toolbar">
+              <div>
+                <h3>候选号码</h3>
+                <span>{{ topCandidateActionLabel(state.payload, 100) }}</span>
+              </div>
+              <div class="candidate-actions">
+                <button type="button" (click)="copyTopCandidates(state.payload, 100)">复制Top100</button>
+                <button type="button" (click)="downloadTopCandidates(state.payload, 'csv', 100)">导出CSV</button>
+                <button type="button" (click)="downloadTopCandidates(state.payload, 'txt', 100)">导出TXT</button>
+              </div>
+            </div>
+            @if (candidateActionMessage) {
+              <p class="candidate-action-message">{{ candidateActionMessage }}</p>
+            }
+            <div class="table-wrap next-candidates-table">
+              <table>
+                <thead>
                   <tr>
-                    <td>{{ candidate.rank }}</td>
-                    <td><strong>{{ numbersText(candidate.redNumbers) }}</strong></td>
-                    <td>{{ candidate.score | number: '1.8-8' }}</td>
+                    <th>Rank</th>
+                    <th>红球组合</th>
+                    <th>Score</th>
                   </tr>
-                }
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  @for (candidate of state.payload.candidates; track candidate.rank) {
+                    <tr>
+                      <td>{{ candidate.rank }}</td>
+                      <td><strong>{{ numbersText(candidate.redNumbers) }}</strong></td>
+                      <td>{{ candidate.score | number: '1.8-8' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </section>
         }
       </section>
     }
