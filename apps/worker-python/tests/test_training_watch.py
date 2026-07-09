@@ -1391,6 +1391,7 @@ def test_supervisor_round_boundary_waits_for_completed_round_result():
         "target_total": 100,
         "target_complete": True,
         "progress_fresh": True,
+        "progress_age_minutes": 0.666667,
     }
 
 
