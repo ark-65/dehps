@@ -534,7 +534,8 @@ def test_near_dynamic_kdj_next_candidate_snapshot_marks_window(monkeypatch):
     assert metadata["prediction_metadata"]["regression"]["eval_window"] == 9
     assert metadata["prediction_metadata"]["regression_9"]["target_issues"] == [f"2026{i:03d}" for i in range(103, 112)]
     assert near_window["window_key"] == "2026103-2026111->2026112"
-    assert near_window["sealed"] is True
+    assert near_window["sealed"] is False
+    assert near_window["seal_reason"] is None
 
 
 def test_refresh_training_prediction_lines_builds_both_snapshots_before_writes(monkeypatch):
@@ -580,7 +581,7 @@ def test_refresh_training_prediction_lines_writes_near_line_when_policy_exists(m
         return {"metadata": {"line_key": DYNAMIC_KDJ_LINE_KEY}, "candidates": []}
 
     def fake_near_snapshot(*_args, **kwargs):
-        assert kwargs["sealed"] is True
+        assert kwargs["sealed"] is False
         events.append("build_near")
         return {"metadata": {"line_key": NEAR_DYNAMIC_KDJ_LINE_KEY}, "candidates": []}
 

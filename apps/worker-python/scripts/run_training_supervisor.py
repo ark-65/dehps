@@ -263,7 +263,6 @@ PROBABILITY_FOCUS_HOLD_ROUNDS = 4
 PROBABILITY_PRIMARY_GATE_STAGNATION_THRESHOLD = TARGET_WEIGHT_INVERSION_STALE_STAGNATION_THRESHOLD
 SOURCE_FRONTIER_STAGNATION_THRESHOLD = max(4, STAGNATION_THRESHOLD // 4)
 SOURCE_FRONTIER_TOP_LIMIT = 12
-NEAR_DYNAMIC_KDJ_LOCK_STAGNATION_ROUNDS = 3
 NEAR_MISS_INVERSION_CUTOFF_BANDS = (
     {"cutoff": 100, "upper": 500, "max_targets": 4},
     {"cutoff": 1000, "upper": 5000, "max_targets": 4},
@@ -5275,6 +5274,7 @@ def run_supervisor(
     dynamic_kdj_best_policy: dict | None = None
     near_dynamic_kdj_best_training_summary: dict | None = None
     near_dynamic_kdj_best_policy: dict | None = None
+    near_dynamic_kdj_latest_policy: dict | None = None
     near_dynamic_kdj_stagnation_rounds = 0
     near_dynamic_kdj_sealed = False
     near_dynamic_kdj_seal_reason = ""
@@ -5382,7 +5382,7 @@ def run_supervisor(
             "protocol": NEAR_DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
             "line_key": NEAR_DYNAMIC_KDJ_LINE_KEY,
             "eval_window": NEAR_DYNAMIC_KDJ_EVAL_WINDOW,
-            "lock_stagnation_rounds": NEAR_DYNAMIC_KDJ_LOCK_STAGNATION_ROUNDS,
+            "continuous_training": True,
             "latest": None,
             "best": None,
             "sealed": False,
@@ -6313,89 +6313,58 @@ def run_supervisor(
             }
             near_dynamic_training_selected: dict = {}
             try:
-                if near_dynamic_kdj_sealed and near_dynamic_kdj_best_policy is not None:
-                    near_dynamic_training_selected = dict(near_dynamic_kdj_best_training_summary or {})
-                    near_dynamic_training_payload = {
-                        "status": "sealed",
-                        "reason": near_dynamic_kdj_seal_reason or "near_window_stagnation_lock",
-                        "protocol": NEAR_DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
-                        "line_key": NEAR_DYNAMIC_KDJ_LINE_KEY,
-                        "selection_method": "regression_training_sort_key",
-                        "strength_mode": "kdj_state_band",
-                        "selected_strength": near_dynamic_kdj_best_policy.get("anchor_offset_scale"),
-                        "selected_strength_policy": near_dynamic_kdj_best_policy.get("strength_policy"),
-                        "selected_summary": near_dynamic_training_selected,
-                        "rows": [],
-                        "eval_window": NEAR_DYNAMIC_KDJ_EVAL_WINDOW,
-                        "configured_eval_window": NEAR_DYNAMIC_KDJ_EVAL_WINDOW,
-                        "sealed": True,
-                        "sealed_round_index": near_dynamic_kdj_best_policy.get("sealed_round_index"),
-                    }
-                    near_dynamic_policy = near_dynamic_kdj_best_policy
+                near_dynamic_training_signals = kdj_signals
+                if not near_dynamic_training_signals:
+                    with get_connection() as conn:
+                        near_dynamic_training_signals = load_recent_training_weight_signals(
+                            conn,
+                            signal_run_id=weight_kdj_run_id,
+                            as_of_issue=as_of_issue_value,
+                            train_mode=train_mode,
+                            train_window=train_window,
+                            top_n=top_n,
+                            limit=weight_kdj_limit,
+                        )
+                near_dynamic_training_payload = dynamic_kdj_strength_sweep_training_summary(
+                    history=training_history,
+                    base_config=FrequencyRankerConfig(**dynamic_training_base_summary["config"]),
+                    signals=near_dynamic_training_signals,
+                    ranked_universe=ranked_universe,
+                    train_mode=train_mode,
+                    train_window=train_window,
+                    eval_window=NEAR_DYNAMIC_KDJ_EVAL_WINDOW,
+                    top_n=top_n,
+                    line_key=NEAR_DYNAMIC_KDJ_LINE_KEY,
+                    protocol=NEAR_DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
+                    source="near_dynamic_kdj_strength_sweep",
+                )
+                near_dynamic_training_selected = (
+                    near_dynamic_training_payload.get("selected_summary")
+                    if isinstance(near_dynamic_training_payload.get("selected_summary"), dict)
+                    else {}
+                )
+                near_dynamic_policy = dynamic_policy_from_training_payload(
+                    run_id=run_id,
+                    round_index=round_index + 1,
+                    base_summary=dynamic_training_base_summary,
+                    training_payload=near_dynamic_training_payload,
+                    line_key=NEAR_DYNAMIC_KDJ_LINE_KEY,
+                    protocol=NEAR_DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
+                )
+                near_improved = (
+                    near_dynamic_kdj_best_training_summary is None
+                    or regression_training_sort_key(near_dynamic_training_selected)
+                    > regression_training_sort_key(near_dynamic_kdj_best_training_summary)
+                )
+                if near_improved:
+                    near_dynamic_kdj_best_training_summary = near_dynamic_training_selected
+                    near_dynamic_kdj_best_policy = near_dynamic_policy
+                    near_dynamic_kdj_stagnation_rounds = 0
                 else:
-                    near_dynamic_training_signals = kdj_signals
-                    if not near_dynamic_training_signals:
-                        with get_connection() as conn:
-                            near_dynamic_training_signals = load_recent_training_weight_signals(
-                                conn,
-                                signal_run_id=weight_kdj_run_id,
-                                as_of_issue=as_of_issue_value,
-                                train_mode=train_mode,
-                                train_window=train_window,
-                                top_n=top_n,
-                                limit=weight_kdj_limit,
-                            )
-                    near_dynamic_training_payload = dynamic_kdj_strength_sweep_training_summary(
-                        history=training_history,
-                        base_config=FrequencyRankerConfig(**dynamic_training_base_summary["config"]),
-                        signals=near_dynamic_training_signals,
-                        ranked_universe=ranked_universe,
-                        train_mode=train_mode,
-                        train_window=train_window,
-                        eval_window=NEAR_DYNAMIC_KDJ_EVAL_WINDOW,
-                        top_n=top_n,
-                        line_key=NEAR_DYNAMIC_KDJ_LINE_KEY,
-                        protocol=NEAR_DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
-                        source="near_dynamic_kdj_strength_sweep",
-                    )
-                    near_dynamic_training_selected = (
-                        near_dynamic_training_payload.get("selected_summary")
-                        if isinstance(near_dynamic_training_payload.get("selected_summary"), dict)
-                        else {}
-                    )
-                    near_dynamic_policy = dynamic_policy_from_training_payload(
-                        run_id=run_id,
-                        round_index=round_index + 1,
-                        base_summary=dynamic_training_base_summary,
-                        training_payload=near_dynamic_training_payload,
-                        line_key=NEAR_DYNAMIC_KDJ_LINE_KEY,
-                        protocol=NEAR_DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
-                    )
-                    near_improved = (
-                        near_dynamic_kdj_best_training_summary is None
-                        or regression_training_sort_key(near_dynamic_training_selected)
-                        > regression_training_sort_key(near_dynamic_kdj_best_training_summary)
-                    )
-                    if near_improved:
-                        near_dynamic_kdj_best_training_summary = near_dynamic_training_selected
-                        near_dynamic_kdj_best_policy = near_dynamic_policy
-                        near_dynamic_kdj_stagnation_rounds = 0
-                    else:
-                        near_dynamic_kdj_stagnation_rounds += 1
-                    if (
-                        near_dynamic_kdj_best_policy is not None
-                        and near_dynamic_kdj_stagnation_rounds >= NEAR_DYNAMIC_KDJ_LOCK_STAGNATION_ROUNDS
-                    ):
-                        near_dynamic_kdj_sealed = True
-                        near_dynamic_kdj_seal_reason = "near_window_stagnation_lock"
-                        near_dynamic_kdj_best_policy = {
-                            **near_dynamic_kdj_best_policy,
-                            "sealed": True,
-                            "seal_reason": near_dynamic_kdj_seal_reason,
-                            "sealed_round_index": round_index + 1,
-                            "stagnation_rounds": near_dynamic_kdj_stagnation_rounds,
-                        }
-                    near_dynamic_policy = near_dynamic_kdj_best_policy or near_dynamic_policy
+                    near_dynamic_kdj_stagnation_rounds += 1
+                near_dynamic_kdj_sealed = False
+                near_dynamic_kdj_seal_reason = ""
+                near_dynamic_kdj_latest_policy = near_dynamic_policy
 
                 if near_dynamic_policy is not None:
                     near_dynamic_line_payload = training_line_round_payload(
@@ -6547,10 +6516,10 @@ def run_supervisor(
                             top_n=top_n,
                             ranked_universe=ranked_universe,
                             dynamic_policy=dynamic_kdj_best_policy,
-                            near_dynamic_policy=near_dynamic_kdj_best_policy,
-                            near_dynamic_sealed=near_dynamic_kdj_sealed,
+                            near_dynamic_policy=near_dynamic_kdj_latest_policy or near_dynamic_kdj_best_policy,
+                            near_dynamic_sealed=False,
                         )
-                        if near_dynamic_kdj_best_policy is not None:
+                        if near_dynamic_kdj_latest_policy is not None or near_dynamic_kdj_best_policy is not None:
                             try:
                                 status["near_dynamic_kdj_training"]["report"] = write_near_dynamic_line_report(conn)
                             except Exception as report_exc:  # pragma: no cover - reporting must not stop training.

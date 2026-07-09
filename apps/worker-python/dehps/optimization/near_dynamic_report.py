@@ -194,8 +194,8 @@ def render_near_dynamic_line_report(payload: dict[str, Any]) -> str:
 - Window: `{near_window.get("window_key") or "unknown"}`
 - Current as-of: `{pending.get("as_of_issue") or "none"}`
 - Pending next issue: `{pending.get("next_issue") or "none"}`
-- Snapshot sealed: `{near_window.get("sealed")}`
-- Best/locked round: `{pending.get("source_round_index") if pending else "none"}`
+- Training mode: `continuous`
+- Snapshot source round: `{pending.get("source_round_index") if pending else "none"}`
 - Exact Top100 progress: `{payload.get("exact_top100_hits")}/{payload.get("success_window")}` target `{payload.get("success_top100_goal")}`
 - Goal reached: `{payload.get("goal_reached")}`
 

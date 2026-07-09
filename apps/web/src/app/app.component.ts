@@ -590,9 +590,7 @@ export class AppComponent {
 
   nextCandidateLineState(payload: TrainingNextCandidatesPayload): string {
     if (payload.lineKey === 'dynamic_kdj_near') {
-      const nearWindow = this.recordField(payload.predictionMetadata, 'near_window');
-      const sealed = nearWindow['sealed'] === true || payload.predictionMetadata['snapshot_sealed'] === true;
-      return sealed ? '临期快照已封存' : '临期调权中';
+      return '临期持续调权';
     }
     if (payload.lineKey !== 'dynamic_kdj') {
       return '静态主线';
@@ -607,8 +605,8 @@ export class AppComponent {
     const nearWindow = this.recordField(payload.predictionMetadata, 'near_window');
     return [
       { label: '临期窗口', value: String(nearWindow['window_key'] || '无') },
-      { label: '快照封存', value: nearWindow['sealed'] === true ? '是' : '否' },
-      { label: '封存轮次', value: nearWindow['sealed_round_index'] === undefined ? '无' : String(nearWindow['sealed_round_index']) },
+      { label: '训练模式', value: '持续调权' },
+      { label: '封存策略', value: '已关闭' },
       {
         label: 'Top100目标',
         value: `${nearWindow['success_top100_goal'] ?? 3}/${nearWindow['success_window'] ?? 10}`,

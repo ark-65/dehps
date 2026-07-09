@@ -1313,20 +1313,24 @@ def build_near_dynamic_kdj_next_candidate_snapshot(
     dynamic_policy: dict[str, Any] | None = None,
     sealed: bool = False,
 ) -> dict[str, Any]:
+    policy = dict(dynamic_policy or {})
+    policy.pop("sealed", None)
+    policy.pop("seal_reason", None)
+    policy.pop("sealed_round_index", None)
     return build_dynamic_kdj_next_candidate_snapshot(
         conn,
         run_id=run_id,
         top_n=top_n,
         ranked_universe=ranked_universe,
         signal_run_id=signal_run_id,
-        dynamic_policy=dynamic_policy,
+        dynamic_policy=policy,
         line_key=NEAR_DYNAMIC_KDJ_LINE_KEY,
         line_label=NEAR_DYNAMIC_KDJ_LINE_LABEL,
         line_kind="dynamic_kdj_near",
         training_protocol=NEAR_DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
         prediction_protocol="near_dynamic_kdj_next_issue",
         regression_eval_window=NEAR_DYNAMIC_KDJ_EVAL_WINDOW,
-        sealed=sealed,
+        sealed=False,
     )
 
 
@@ -1392,7 +1396,7 @@ def refresh_training_prediction_lines_current(
             ranked_universe=matrix,
             signal_run_id=signal_run_id,
             dynamic_policy=near_dynamic_policy,
-            sealed=near_dynamic_sealed,
+            sealed=False,
         )
     replace_training_next_candidates_current(
         conn,
