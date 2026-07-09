@@ -384,6 +384,7 @@ def regression_summary_from_ranks(
     changed_target_count: int,
     leakage_passed: bool,
     target_issues: list[str] | None = None,
+    target_results: list[dict[str, Any]] | None = None,
     latest_signal_issue: str | None = None,
     offset_scale: float | None = None,
     effective_offset_scales: list[float] | None = None,
@@ -416,6 +417,7 @@ def regression_summary_from_ranks(
         "changed_target_count": changed_target_count,
         "leakage_passed": leakage_passed,
         "target_issues": issue_window,
+        "target_results": list(target_results or []),
         "window_start_issue": issue_window[0] if issue_window else None,
         "window_end_issue": issue_window[-1] if issue_window else None,
         "latest_signal_issue": latest_signal_issue,
@@ -433,6 +435,40 @@ def regression_summary_from_ranks(
     if top_n is not None:
         summary["top_n"] = int(top_n)
     return summary
+
+
+def regression_target_result_payload(
+    *,
+    target_draw: HistoryDraw,
+    rank: int,
+    score: float,
+    red5_match: Any | None,
+) -> dict[str, Any]:
+    red5_rank = getattr(red5_match, "rank", None) if red5_match is not None else None
+    red5_score = getattr(red5_match, "score", None) if red5_match is not None else None
+    red5_numbers = getattr(red5_match, "numbers", None) if red5_match is not None else None
+    red5_missing_number = getattr(red5_match, "missing_number", None) if red5_match is not None else None
+    red5_extra_number = getattr(red5_match, "extra_number", None) if red5_match is not None else None
+    normalized_red5_rank = int(red5_rank) if isinstance(red5_rank, int | float) else None
+    draw_date = history_draw_date(target_draw)
+    return {
+        "issue": str(history_issue(target_draw)),
+        "draw_date": draw_date.isoformat() if draw_date else None,
+        "red_numbers": list(history_numbers(target_draw)),
+        "rank": int(rank),
+        "score": float(score),
+        "hit_top_100": int(rank) <= 100,
+        "hit_top_1000": int(rank) <= 1000,
+        "hit_top_10000": int(rank) <= 10000,
+        "red5_rank": normalized_red5_rank,
+        "red5_score": float(red5_score) if isinstance(red5_score, int | float) else None,
+        "red5_numbers": list(red5_numbers or ()),
+        "red5_missing_number": red5_missing_number,
+        "red5_extra_number": red5_extra_number,
+        "hit_red5_top_100": normalized_red5_rank is not None and normalized_red5_rank <= 100,
+        "hit_red5_top_1000": normalized_red5_rank is not None and normalized_red5_rank <= 1000,
+        "hit_red5_top_10000": normalized_red5_rank is not None and normalized_red5_rank <= 10000,
+    }
 
 
 def regression_training_sort_key(summary: dict[str, Any]) -> tuple:
@@ -512,6 +548,7 @@ def dynamic_kdj_regression_summary(
             "changed_target_count": 0,
             "leakage_passed": True,
             "legal_sample_space": TOTAL_SSQ_RED_COMBINATIONS,
+            "target_results": [],
         }
 
     exact_ranks: list[int] = []
@@ -522,6 +559,7 @@ def dynamic_kdj_regression_summary(
     latest_signal_issue: str | None = None
     effective_offset_scales: list[float] = []
     target_issues: list[str] = []
+    target_results: list[dict[str, Any]] = []
 
     for target_index in indexes:
         target_draw = history[target_index]
@@ -555,10 +593,18 @@ def dynamic_kdj_regression_summary(
             workers=1,
             pool=None,
         )[0]
-        rank, _score, red5_match = ranked_target
+        rank, score, red5_match = ranked_target
         exact_ranks.append(int(rank))
         if red5_match is not None:
             red5_ranks.append(int(red5_match.rank))
+        target_results.append(
+            regression_target_result_payload(
+                target_draw=target_draw,
+                rank=int(rank),
+                score=float(score),
+                red5_match=red5_match,
+            )
+        )
 
     return regression_summary_from_ranks(
         line_key=line_key,
@@ -571,6 +617,7 @@ def dynamic_kdj_regression_summary(
         changed_target_count=changed_target_count,
         leakage_passed=leakage_passed,
         target_issues=target_issues,
+        target_results=target_results,
         latest_signal_issue=latest_signal_issue,
         offset_scale=offset_scale,
         effective_offset_scales=effective_offset_scales,
@@ -616,6 +663,7 @@ def dynamic_kdj_strength_sweep_training_summary(
                 fallback_target_count=0,
                 changed_target_count=0,
                 leakage_passed=True,
+                target_results=[],
                 offset_scale=default_anchor,
                 strength_policy=default_policy,
                 top_n=top_n,
@@ -632,6 +680,7 @@ def dynamic_kdj_strength_sweep_training_summary(
     leakage_by_strength: dict[float, bool] = {strength: True for strength in strengths}
     latest_signal_by_strength: dict[float, str | None] = {strength: None for strength in strengths}
     effective_scales_by_strength: dict[float, list[float]] = {strength: [] for strength in strengths}
+    target_results_by_strength: dict[float, list[dict[str, Any]]] = {strength: [] for strength in strengths}
     target_issues: list[str] = []
     strength_policies: dict[float, dict[str, Any]] = {
         strength: dynamic_strength_policy_from_anchor(strength, strength_values=strengths)
@@ -680,10 +729,18 @@ def dynamic_kdj_strength_sweep_training_summary(
             pool=None,
         )
         for strength, ranked_target in zip(target_strengths, ranked_targets, strict=True):
-            rank, _score, red5_match = ranked_target
+            rank, score, red5_match = ranked_target
             exact_ranks_by_strength[strength].append(int(rank))
             if red5_match is not None:
                 red5_ranks_by_strength[strength].append(int(red5_match.rank))
+            target_results_by_strength[strength].append(
+                regression_target_result_payload(
+                    target_draw=target_draw,
+                    rank=int(rank),
+                    score=float(score),
+                    red5_match=red5_match,
+                )
+            )
 
     summaries = [
         regression_summary_from_ranks(
@@ -697,6 +754,7 @@ def dynamic_kdj_strength_sweep_training_summary(
             changed_target_count=changed_counts[strength],
             leakage_passed=leakage_by_strength[strength],
             target_issues=target_issues,
+            target_results=target_results_by_strength[strength],
             latest_signal_issue=latest_signal_by_strength[strength],
             offset_scale=strength,
             effective_offset_scales=effective_scales_by_strength[strength],

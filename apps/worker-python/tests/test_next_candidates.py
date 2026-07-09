@@ -328,6 +328,44 @@ def test_dynamic_kdj_regression_summary_runs_per_target_without_future_signals(m
     assert summary["latest_signal_issue"] == "2026063"
     assert summary["leakage_passed"] is True
     assert summary["target_issues"] == ["2026063", "2026064"]
+    assert summary["target_results"] == [
+        {
+            "issue": "2026063",
+            "draw_date": "2026-06-05",
+            "red_numbers": [3, 4, 5, 6, 7, 8],
+            "rank": 80,
+            "score": 0.5,
+            "hit_top_100": True,
+            "hit_top_1000": True,
+            "hit_top_10000": True,
+            "red5_rank": 50,
+            "red5_score": None,
+            "red5_numbers": [],
+            "red5_missing_number": None,
+            "red5_extra_number": None,
+            "hit_red5_top_100": True,
+            "hit_red5_top_1000": True,
+            "hit_red5_top_10000": True,
+        },
+        {
+            "issue": "2026064",
+            "draw_date": "2026-06-07",
+            "red_numbers": [4, 5, 6, 7, 8, 9],
+            "rank": 9000,
+            "score": 0.5,
+            "hit_top_100": False,
+            "hit_top_1000": False,
+            "hit_top_10000": True,
+            "red5_rank": 1200,
+            "red5_score": None,
+            "red5_numbers": [],
+            "red5_missing_number": None,
+            "red5_extra_number": None,
+            "hit_red5_top_100": False,
+            "hit_red5_top_1000": False,
+            "hit_red5_top_10000": True,
+        },
+    ]
 
 
 def test_near_dynamic_kdj_strength_sweep_uses_latest_nine_targets(monkeypatch):
@@ -368,6 +406,10 @@ def test_near_dynamic_kdj_strength_sweep_uses_latest_nine_targets(monkeypatch):
     assert payload["line_key"] == NEAR_DYNAMIC_KDJ_LINE_KEY
     assert payload["selected_summary"]["eval_window"] == 9
     assert payload["selected_summary"]["target_issues"] == [f"2026{i:03d}" for i in range(103, 112)]
+    assert [target["issue"] for target in payload["selected_summary"]["target_results"]] == [
+        f"2026{i:03d}" for i in range(103, 112)
+    ]
+    assert all(target["hit_top_100"] for target in payload["selected_summary"]["target_results"])
     assert sorted(set(seen_targets)) == [f"2026{i:03d}" for i in range(103, 112)]
 
 
@@ -418,6 +460,8 @@ def test_dynamic_kdj_strength_sweep_training_summary_selects_best_strength(monke
     assert payload["selected_summary"]["strength_policy"]["mode"] == "kdj_state_band"
     assert payload["selected_summary"]["as_of_issue"] == "2026064"
     assert payload["selected_summary"]["history_fingerprint"] == next_candidates.fingerprint_history(history)
+    assert [target["rank"] for target in payload["selected_summary"]["target_results"]] == [80, 80]
+    assert [target["red5_rank"] for target in payload["selected_summary"]["target_results"]] == [90, 90]
 
 
 def test_dynamic_kdj_next_candidate_snapshot_includes_regression_summary(monkeypatch):

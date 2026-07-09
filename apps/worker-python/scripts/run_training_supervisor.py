@@ -4496,7 +4496,7 @@ def training_line_round_payload(
         "history_fingerprint": str(line_summary.get("history_fingerprint") or ""),
         "train_mode": status["train_mode"],
         "train_window": int(status["train_window"]),
-        "eval_window": int(line_summary.get("evaluated_draws") or status["eval_window"]),
+        "eval_window": int(line_summary.get("evaluated_draws") or line_summary.get("eval_window") or status["eval_window"]),
         "top_n": int(status["top_n"]),
         "base_config_hash": line_summary.get("config_hash") or policy_params.get("base_config_hash"),
         "status": line_summary.get("status") or "evaluated",
