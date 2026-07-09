@@ -6,6 +6,7 @@ import json
 from dehps.db import get_connection
 from dehps.optimization.next_candidates import (
     refresh_dynamic_kdj_next_candidates_current,
+    refresh_near_dynamic_kdj_next_candidates_current,
     refresh_training_next_candidates_current,
     refresh_training_prediction_lines_current,
 )
@@ -29,6 +30,8 @@ def generate_training_next_candidates(
                 return refresh_training_next_candidates_current(conn, run_id=run_id, top_n=top_n)
             if line_key == "dynamic_kdj":
                 return refresh_dynamic_kdj_next_candidates_current(conn, run_id=run_id, top_n=top_n)
+            if line_key == "dynamic_kdj_near":
+                return refresh_near_dynamic_kdj_next_candidates_current(conn, run_id=run_id, top_n=top_n)
             return refresh_training_prediction_lines_current(conn, run_id=run_id, top_n=top_n)
 
     if skip_heavy_job_lock:
@@ -46,7 +49,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Refresh the current next-issue Top-N candidate snapshot from training results.")
     parser.add_argument("--run-id")
     parser.add_argument("--top-n", type=int, default=10000)
-    parser.add_argument("--line-key", choices=["all", "static_100", "dynamic_kdj"], default="all")
+    parser.add_argument("--line-key", choices=["all", "static_100", "dynamic_kdj", "dynamic_kdj_near"], default="all")
     parser.add_argument("--heavy-job-lock-timeout-seconds", type=float, default=0.0)
     parser.add_argument("--cpu-threads", type=int, default=1)
     parser.add_argument("--skip-heavy-job-lock", action="store_true")

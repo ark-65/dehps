@@ -37,12 +37,18 @@ from dehps.storage.postgres_store import (
 
 STATIC_100_LINE_KEY = "static_100"
 DYNAMIC_KDJ_LINE_KEY = "dynamic_kdj"
+NEAR_DYNAMIC_KDJ_LINE_KEY = "dynamic_kdj_near"
 STATIC_100_LINE_LABEL = "100-period static training"
 DYNAMIC_KDJ_LINE_LABEL = "Dynamic KDJ adjustment"
+NEAR_DYNAMIC_KDJ_LINE_LABEL = "Near-term Dynamic KDJ"
 PRIMARY_CONFIG_FIELDS = frozenset({"structural_weight", "frequency_weight", "omission_weight"})
 CONTEXT_CONFIG_FIELDS = tuple(field for field in CONFIG_WEIGHT_FIELDS if field not in PRIMARY_CONFIG_FIELDS)
 REGRESSION_PROTOCOL_VERSION = "dual-line-regression-100-v1"
 DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION = "dynamic-kdj-line-training-v1"
+NEAR_DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION = "near-dynamic-kdj-line-training-v1"
+NEAR_DYNAMIC_KDJ_EVAL_WINDOW = 9
+NEAR_DYNAMIC_KDJ_SUCCESS_WINDOW = 10
+NEAR_DYNAMIC_KDJ_SUCCESS_TOP100_GOAL = 3
 DEFAULT_DYNAMIC_KDJ_STRENGTH_SWEEP = (0.25, 0.5, 1.0)
 DEFAULT_DYNAMIC_KDJ_MIN_EFFECTIVE_STRENGTH = 0.05
 DEFAULT_DYNAMIC_KDJ_MAX_EFFECTIVE_STRENGTH = 1.0
@@ -377,12 +383,14 @@ def regression_summary_from_ranks(
     fallback_target_count: int,
     changed_target_count: int,
     leakage_passed: bool,
+    target_issues: list[str] | None = None,
     latest_signal_issue: str | None = None,
     offset_scale: float | None = None,
     effective_offset_scales: list[float] | None = None,
     strength_policy: dict[str, Any] | None = None,
     top_n: int | None = None,
 ) -> dict[str, Any]:
+    issue_window = list(target_issues or [])
     summary = {
         "status": "evaluated" if exact_ranks else "skipped_insufficient_history",
         "protocol": REGRESSION_PROTOCOL_VERSION,
@@ -407,6 +415,9 @@ def regression_summary_from_ranks(
         "fallback_target_count": fallback_target_count,
         "changed_target_count": changed_target_count,
         "leakage_passed": leakage_passed,
+        "target_issues": issue_window,
+        "window_start_issue": issue_window[0] if issue_window else None,
+        "window_end_issue": issue_window[-1] if issue_window else None,
         "latest_signal_issue": latest_signal_issue,
         "legal_sample_space": TOTAL_SSQ_RED_COMBINATIONS,
     }
@@ -474,14 +485,16 @@ def dynamic_kdj_regression_summary(
     top_n: int,
     offset_scale: float = 1.0,
     strength_policy: dict[str, Any] | None = None,
+    line_key: str = DYNAMIC_KDJ_LINE_KEY,
+    source: str = "dynamic_kdj_per_target",
 ) -> dict[str, Any]:
     indexes = list(regression_target_indexes(history_len=len(history), train_window=train_window, eval_window=eval_window))
     if not indexes:
         return {
             "status": "skipped_insufficient_history",
             "protocol": REGRESSION_PROTOCOL_VERSION,
-            "source": "dynamic_kdj_per_target",
-            "line_key": DYNAMIC_KDJ_LINE_KEY,
+            "source": source,
+            "line_key": line_key,
             "eval_window": 0,
             "configured_eval_window": eval_window,
             "top_100_hits": 0,
@@ -508,10 +521,12 @@ def dynamic_kdj_regression_summary(
     leakage_passed = True
     latest_signal_issue: str | None = None
     effective_offset_scales: list[float] = []
+    target_issues: list[str] = []
 
     for target_index in indexes:
         target_draw = history[target_index]
         target_issue = history_issue(target_draw)
+        target_issues.append(str(target_issue))
         dynamic_config, dynamic_metadata = dynamic_kdj_config_for_next(
             base_config=base_config,
             signals=signals,
@@ -546,8 +561,8 @@ def dynamic_kdj_regression_summary(
             red5_ranks.append(int(red5_match.rank))
 
     return regression_summary_from_ranks(
-        line_key=DYNAMIC_KDJ_LINE_KEY,
-        source="dynamic_kdj_per_target",
+        line_key=line_key,
+        source=source,
         eval_window=len(exact_ranks),
         configured_eval_window=eval_window,
         exact_ranks=exact_ranks,
@@ -555,6 +570,7 @@ def dynamic_kdj_regression_summary(
         fallback_target_count=fallback_target_count,
         changed_target_count=changed_target_count,
         leakage_passed=leakage_passed,
+        target_issues=target_issues,
         latest_signal_issue=latest_signal_issue,
         offset_scale=offset_scale,
         effective_offset_scales=effective_offset_scales,
@@ -574,6 +590,9 @@ def dynamic_kdj_strength_sweep_training_summary(
     eval_window: int,
     top_n: int,
     strength_values: tuple[float, ...] | list[float] | None = None,
+    line_key: str = DYNAMIC_KDJ_LINE_KEY,
+    protocol: str = DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
+    source: str = "dynamic_kdj_strength_sweep",
 ) -> dict[str, Any]:
     strengths = normalize_strength_sweep(strength_values)
     indexes = list(regression_target_indexes(history_len=len(history), train_window=train_window, eval_window=eval_window))
@@ -582,14 +601,14 @@ def dynamic_kdj_strength_sweep_training_summary(
         default_policy = dynamic_strength_policy_from_anchor(default_anchor, strength_values=strengths)
         return {
             "status": "skipped_insufficient_history",
-            "protocol": DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
-            "line_key": DYNAMIC_KDJ_LINE_KEY,
+            "protocol": protocol,
+            "line_key": line_key,
             "strengths": list(strengths),
             "selected_strength": default_anchor,
             "selected_strength_policy": default_policy,
             "selected_summary": regression_summary_from_ranks(
-                line_key=DYNAMIC_KDJ_LINE_KEY,
-                source="dynamic_kdj_strength_sweep",
+                line_key=line_key,
+                source=source,
                 eval_window=0,
                 configured_eval_window=eval_window,
                 exact_ranks=[],
@@ -613,6 +632,7 @@ def dynamic_kdj_strength_sweep_training_summary(
     leakage_by_strength: dict[float, bool] = {strength: True for strength in strengths}
     latest_signal_by_strength: dict[float, str | None] = {strength: None for strength in strengths}
     effective_scales_by_strength: dict[float, list[float]] = {strength: [] for strength in strengths}
+    target_issues: list[str] = []
     strength_policies: dict[float, dict[str, Any]] = {
         strength: dynamic_strength_policy_from_anchor(strength, strength_values=strengths)
         for strength in strengths
@@ -623,6 +643,7 @@ def dynamic_kdj_strength_sweep_training_summary(
     for target_index in indexes:
         target_draw = history[target_index]
         target_issue = history_issue(target_draw)
+        target_issues.append(str(target_issue))
         configs: list[FrequencyRankerConfig] = []
         target_strengths: list[float] = []
         for strength in strengths:
@@ -666,8 +687,8 @@ def dynamic_kdj_strength_sweep_training_summary(
 
     summaries = [
         regression_summary_from_ranks(
-            line_key=DYNAMIC_KDJ_LINE_KEY,
-            source="dynamic_kdj_strength_sweep",
+            line_key=line_key,
+            source=source,
             eval_window=len(exact_ranks_by_strength[strength]),
             configured_eval_window=eval_window,
             exact_ranks=exact_ranks_by_strength[strength],
@@ -675,6 +696,7 @@ def dynamic_kdj_strength_sweep_training_summary(
             fallback_target_count=fallback_counts[strength],
             changed_target_count=changed_counts[strength],
             leakage_passed=leakage_by_strength[strength],
+            target_issues=target_issues,
             latest_signal_issue=latest_signal_by_strength[strength],
             offset_scale=strength,
             effective_offset_scales=effective_scales_by_strength[strength],
@@ -721,8 +743,8 @@ def dynamic_kdj_strength_sweep_training_summary(
     if not fully_dynamic_summaries:
         return {
             "status": "skipped_no_fully_dynamic_kdj",
-            "protocol": DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
-            "line_key": DYNAMIC_KDJ_LINE_KEY,
+            "protocol": protocol,
+            "line_key": line_key,
             "selection_method": "regression_training_sort_key",
             "strength_mode": "kdj_state_band",
             "strengths": list(strengths),
@@ -742,8 +764,8 @@ def dynamic_kdj_strength_sweep_training_summary(
     selected_strength = float(selected_summary.get("offset_scale") or 0.0)
     return {
         "status": "evaluated",
-        "protocol": DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
-        "line_key": DYNAMIC_KDJ_LINE_KEY,
+        "protocol": protocol,
+        "line_key": line_key,
         "selection_method": "regression_training_sort_key",
         "strength_mode": "kdj_state_band",
         "strengths": list(strengths),
@@ -1057,6 +1079,13 @@ def build_dynamic_kdj_next_candidate_snapshot(
     ranked_universe: Any | None = None,
     signal_run_id: str | None = None,
     dynamic_policy: dict[str, Any] | None = None,
+    line_key: str = DYNAMIC_KDJ_LINE_KEY,
+    line_label: str = DYNAMIC_KDJ_LINE_LABEL,
+    line_kind: str = "dynamic_kdj",
+    training_protocol: str = DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
+    prediction_protocol: str = "dynamic_kdj_next_issue",
+    regression_eval_window: int | None = None,
+    sealed: bool = False,
 ) -> dict[str, Any]:
     if top_n < 1:
         raise ValueError("top_n must be at least 1")
@@ -1106,6 +1135,7 @@ def build_dynamic_kdj_next_candidate_snapshot(
     if dynamic_metadata["fallback_static_base"]:
         raise RuntimeError("dynamic KDJ line produced no KDJ offsets; refusing static fallback")
     matrix = ranked_universe or build_ranked_universe()
+    resolved_regression_eval_window = int(regression_eval_window or best["eval_window"])
     policy_regression = policy.get("regression_summary") if isinstance(policy.get("regression_summary"), dict) else None
     if policy_regression is not None and not dynamic_regression_is_fully_dynamic(policy_regression):
         raise RuntimeError("dynamic KDJ policy regression is not fully dynamic")
@@ -1116,10 +1146,11 @@ def build_dynamic_kdj_next_candidate_snapshot(
         ranked_universe=matrix,
         train_mode=best["train_mode"],
         train_window=best["train_window"],
-        eval_window=best["eval_window"],
+        eval_window=resolved_regression_eval_window,
         top_n=best["top_n"],
         offset_scale=offset_scale,
         strength_policy=strength_policy,
+        line_key=line_key,
     )
     if not dynamic_regression_is_fully_dynamic(regression_summary):
         raise RuntimeError("dynamic KDJ regression is not fully dynamic")
@@ -1132,11 +1163,27 @@ def build_dynamic_kdj_next_candidate_snapshot(
         ranked_universe=matrix,
     )
     dynamic_config_values = config_values(dynamic_config)
+    regression_key = "regression_9" if resolved_regression_eval_window == NEAR_DYNAMIC_KDJ_EVAL_WINDOW else "regression_100"
+    near_window = {
+        "enabled": line_key == NEAR_DYNAMIC_KDJ_LINE_KEY,
+        "known_eval_window": resolved_regression_eval_window,
+        "success_window": NEAR_DYNAMIC_KDJ_SUCCESS_WINDOW,
+        "success_top100_goal": NEAR_DYNAMIC_KDJ_SUCCESS_TOP100_GOAL,
+        "target_issues": regression_summary.get("target_issues") or [],
+        "window_start_issue": regression_summary.get("window_start_issue"),
+        "window_end_issue": regression_summary.get("window_end_issue"),
+        "as_of_issue": latest_issue,
+        "next_issue": next_issue,
+        "sealed": bool(sealed or policy.get("sealed")),
+        "seal_reason": policy.get("seal_reason"),
+        "sealed_round_index": policy.get("sealed_round_index"),
+        "window_key": f"{regression_summary.get('window_start_issue') or 'none'}-{regression_summary.get('window_end_issue') or latest_issue}->{next_issue}",
+    }
     metadata = {
-        "line_key": DYNAMIC_KDJ_LINE_KEY,
-        "line_label": DYNAMIC_KDJ_LINE_LABEL,
-        "line_kind": "dynamic_kdj",
-        "snapshot_key": f"training-next-dynamic-kdj-{latest_issue}-{config_hash(dynamic_config)[:12]}",
+        "line_key": line_key,
+        "line_label": line_label,
+        "line_kind": line_kind,
+        "snapshot_key": f"training-next-{line_key.replace('_', '-')}-{latest_issue}-{config_hash(dynamic_config)[:12]}",
         "run_id": str(policy.get("run_id") or best["run_id"]),
         "source_round_index": int(policy.get("source_round_index") or best["source_round_index"]),
         "as_of_issue": latest_issue,
@@ -1144,7 +1191,7 @@ def build_dynamic_kdj_next_candidate_snapshot(
         "next_draw_date": target_draw_date.isoformat() if target_draw_date else None,
         "train_mode": best["train_mode"],
         "train_window": best["train_window"],
-        "eval_window": best["eval_window"],
+        "eval_window": resolved_regression_eval_window,
         "top_n": resolved_top_n,
         "history_fingerprint": current_history_fingerprint,
         "training_as_of_issue": best["training_as_of_issue"],
@@ -1163,13 +1210,13 @@ def build_dynamic_kdj_next_candidate_snapshot(
         "config_hash": config_hash(dynamic_config),
         "config": dynamic_config_values,
         "prediction_metadata": {
-            "line_key": DYNAMIC_KDJ_LINE_KEY,
-            "line_label": DYNAMIC_KDJ_LINE_LABEL,
-            "protocol": "dynamic_kdj_next_issue",
+            "line_key": line_key,
+            "line_label": line_label,
+            "protocol": prediction_protocol,
             "base_config_hash": config_hash(base_config),
             "base_config": base_config_values,
             "dynamic_policy": {
-                "protocol": policy.get("protocol") or DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
+                "protocol": policy.get("protocol") or training_protocol,
                 "selection_method": policy.get("selection_method") or "kdj_state_band",
                 "strength_mode": strength_policy.get("mode") or "kdj_state_band",
                 "offset_scale": offset_scale,
@@ -1184,7 +1231,11 @@ def build_dynamic_kdj_next_candidate_snapshot(
             "signal_run_id": signal_run_id or CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID,
             "target_issue": next_issue,
             "legal_sample_space": TOTAL_SSQ_RED_COMBINATIONS,
+            "regression": regression_summary,
             "regression_100": regression_summary,
+            regression_key: regression_summary,
+            "near_window": near_window,
+            "snapshot_sealed": near_window["sealed"],
             **dynamic_metadata,
             "gauss_guardrail": {
                 "sample_space": TOTAL_SSQ_RED_COMBINATIONS,
@@ -1194,6 +1245,10 @@ def build_dynamic_kdj_next_candidate_snapshot(
                 "leakage_passed": dynamic_metadata["leakage_passed"],
                 "regression_window": regression_summary["eval_window"],
                 "regression_leakage_passed": regression_summary["leakage_passed"],
+                "random_top100_expected_hits_per_10": round(
+                    NEAR_DYNAMIC_KDJ_SUCCESS_WINDOW * 100 / TOTAL_SSQ_RED_COMBINATIONS,
+                    8,
+                ),
             },
             "riemann_guardrail": {
                 "shared_history_space": True,
@@ -1248,6 +1303,60 @@ def refresh_dynamic_kdj_next_candidates_current(
     return snapshot["metadata"]
 
 
+def build_near_dynamic_kdj_next_candidate_snapshot(
+    conn: Connection,
+    *,
+    run_id: str | None = None,
+    top_n: int = 10000,
+    ranked_universe: Any | None = None,
+    signal_run_id: str | None = None,
+    dynamic_policy: dict[str, Any] | None = None,
+    sealed: bool = False,
+) -> dict[str, Any]:
+    return build_dynamic_kdj_next_candidate_snapshot(
+        conn,
+        run_id=run_id,
+        top_n=top_n,
+        ranked_universe=ranked_universe,
+        signal_run_id=signal_run_id,
+        dynamic_policy=dynamic_policy,
+        line_key=NEAR_DYNAMIC_KDJ_LINE_KEY,
+        line_label=NEAR_DYNAMIC_KDJ_LINE_LABEL,
+        line_kind="dynamic_kdj_near",
+        training_protocol=NEAR_DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
+        prediction_protocol="near_dynamic_kdj_next_issue",
+        regression_eval_window=NEAR_DYNAMIC_KDJ_EVAL_WINDOW,
+        sealed=sealed,
+    )
+
+
+def refresh_near_dynamic_kdj_next_candidates_current(
+    conn: Connection,
+    *,
+    run_id: str | None = None,
+    top_n: int = 10000,
+    ranked_universe: Any | None = None,
+    signal_run_id: str | None = None,
+    dynamic_policy: dict[str, Any] | None = None,
+    sealed: bool = False,
+) -> dict[str, Any]:
+    snapshot = build_near_dynamic_kdj_next_candidate_snapshot(
+        conn,
+        run_id=run_id,
+        top_n=top_n,
+        ranked_universe=ranked_universe,
+        signal_run_id=signal_run_id,
+        dynamic_policy=dynamic_policy,
+        sealed=sealed,
+    )
+    replace_training_next_candidates_current(
+        conn,
+        metadata=snapshot["metadata"],
+        candidates=snapshot["candidates"],
+    )
+    return snapshot["metadata"]
+
+
 def refresh_training_prediction_lines_current(
     conn: Connection,
     *,
@@ -1256,6 +1365,8 @@ def refresh_training_prediction_lines_current(
     ranked_universe: Any | None = None,
     signal_run_id: str | None = None,
     dynamic_policy: dict[str, Any] | None = None,
+    near_dynamic_policy: dict[str, Any] | None = None,
+    near_dynamic_sealed: bool = False,
 ) -> dict[str, Any]:
     matrix = ranked_universe or build_ranked_universe()
     static_snapshot = build_training_next_candidate_snapshot(
@@ -1272,6 +1383,17 @@ def refresh_training_prediction_lines_current(
         signal_run_id=signal_run_id,
         dynamic_policy=dynamic_policy,
     )
+    near_snapshot = None
+    if isinstance(near_dynamic_policy, dict):
+        near_snapshot = build_near_dynamic_kdj_next_candidate_snapshot(
+            conn,
+            run_id=run_id,
+            top_n=top_n,
+            ranked_universe=matrix,
+            signal_run_id=signal_run_id,
+            dynamic_policy=near_dynamic_policy,
+            sealed=near_dynamic_sealed,
+        )
     replace_training_next_candidates_current(
         conn,
         metadata=static_snapshot["metadata"],
@@ -1282,10 +1404,19 @@ def refresh_training_prediction_lines_current(
         metadata=dynamic_snapshot["metadata"],
         candidates=dynamic_snapshot["candidates"],
     )
+    if near_snapshot is not None:
+        replace_training_next_candidates_current(
+            conn,
+            metadata=near_snapshot["metadata"],
+            candidates=near_snapshot["candidates"],
+        )
+    lines = {
+        STATIC_100_LINE_KEY: static_snapshot["metadata"],
+        DYNAMIC_KDJ_LINE_KEY: dynamic_snapshot["metadata"],
+    }
+    if near_snapshot is not None:
+        lines[NEAR_DYNAMIC_KDJ_LINE_KEY] = near_snapshot["metadata"]
     return {
         "status": "ready",
-        "lines": {
-            STATIC_100_LINE_KEY: static_snapshot["metadata"],
-            DYNAMIC_KDJ_LINE_KEY: dynamic_snapshot["metadata"],
-        },
+        "lines": lines,
     }

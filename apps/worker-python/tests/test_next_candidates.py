@@ -8,7 +8,10 @@ import pytest
 import dehps.optimization.next_candidates as next_candidates
 from dehps.optimization.next_candidates import (
     DYNAMIC_KDJ_LINE_KEY,
+    NEAR_DYNAMIC_KDJ_EVAL_WINDOW,
+    NEAR_DYNAMIC_KDJ_LINE_KEY,
     build_dynamic_kdj_next_candidate_snapshot,
+    build_near_dynamic_kdj_next_candidate_snapshot,
     build_training_next_candidate_snapshot,
     dynamic_kdj_regression_summary,
     dynamic_kdj_config_for_next,
@@ -324,6 +327,48 @@ def test_dynamic_kdj_regression_summary_runs_per_target_without_future_signals(m
     assert summary["fallback_target_count"] == 1
     assert summary["latest_signal_issue"] == "2026063"
     assert summary["leakage_passed"] is True
+    assert summary["target_issues"] == ["2026063", "2026064"]
+
+
+def test_near_dynamic_kdj_strength_sweep_uses_latest_nine_targets(monkeypatch):
+    history = [
+        (f"2026{i:03d}", date(2026, 1, min(i, 28)), (i, i + 1, i + 2, i + 3, i + 4, i + 5))
+        for i in range(1, 112)
+    ]
+    seen_targets: list[str] = []
+
+    def fake_rank_target_grid_with_red5(**kwargs):
+        target_issue = history[next(index for index, draw in enumerate(history) if draw[2] == kwargs["target_numbers"])][0]
+        seen_targets.append(target_issue)
+        return [(90, 0.5, SimpleNamespace(rank=80)) for _config in kwargs["configs"]]
+
+    monkeypatch.setattr(next_candidates, "rank_target_grid_with_red5", fake_rank_target_grid_with_red5)
+
+    payload = dynamic_kdj_strength_sweep_training_summary(
+        history=history,
+        base_config=next_candidates.FrequencyRankerConfig(frequency_weight=0.30),
+        signals=[
+            {
+                "issue": "2026099",
+                "weight_name": "frequency_weight",
+                "recommended_offset": 0.02,
+                "j_value": 65.0,
+                "objective_delta": 1.0,
+            }
+        ],
+        ranked_universe=[object()],
+        train_mode="expanding",
+        train_window=100,
+        eval_window=NEAR_DYNAMIC_KDJ_EVAL_WINDOW,
+        top_n=10000,
+        strength_values=(0.25, 0.5, 1.0),
+        line_key=NEAR_DYNAMIC_KDJ_LINE_KEY,
+    )
+
+    assert payload["line_key"] == NEAR_DYNAMIC_KDJ_LINE_KEY
+    assert payload["selected_summary"]["eval_window"] == 9
+    assert payload["selected_summary"]["target_issues"] == [f"2026{i:03d}" for i in range(103, 112)]
+    assert sorted(set(seen_targets)) == [f"2026{i:03d}" for i in range(103, 112)]
 
 
 def test_dynamic_kdj_strength_sweep_training_summary_selects_best_strength(monkeypatch):
@@ -431,6 +476,67 @@ def test_dynamic_kdj_next_candidate_snapshot_includes_regression_summary(monkeyp
     assert metadata["prediction_metadata"]["gauss_guardrail"]["regression_leakage_passed"] is True
 
 
+def test_near_dynamic_kdj_next_candidate_snapshot_marks_window(monkeypatch):
+    history = [
+        (f"2026{i:03d}", date(2026, 1, min(i, 28)), (i, i + 1, i + 2, i + 3, i + 4, i + 5))
+        for i in range(1, 112)
+    ]
+    best = {
+        "run_id": "run-1",
+        "source_round_index": 5,
+        "train_mode": "expanding",
+        "train_window": 100,
+        "eval_window": 100,
+        "top_n": 10000,
+        "training_as_of_issue": "2026111",
+        "training_history_fingerprint": next_candidates.fingerprint_history(history),
+        "history_scope": "",
+        "regime_years": 0,
+        "training_regime_start_date": "",
+        "summary": {},
+        "config": {"frequency_weight": 0.3},
+    }
+    monkeypatch.setattr(next_candidates, "load_best_training_summary", lambda _conn, _run_id: best)
+    monkeypatch.setattr(next_candidates, "load_history_with_dates", lambda _conn: history)
+    monkeypatch.setattr(
+        next_candidates,
+        "load_recent_training_weight_signals",
+        lambda *_args, **_kwargs: [
+            {
+                "issue": "2026099",
+                "weight_name": "frequency_weight",
+                "recommended_offset": 0.02,
+                "j_value": 65.0,
+                "objective_delta": 1.0,
+            }
+        ],
+    )
+    monkeypatch.setattr(next_candidates, "rank_target_grid_with_red5", lambda **_kwargs: [(80, 0.5, SimpleNamespace(rank=90))])
+    monkeypatch.setattr(
+        next_candidates,
+        "top_candidates_for_next",
+        lambda **_kwargs: [(1, (1, 2, 3, 4, 5, 6), 0.75)],
+    )
+
+    snapshot = build_near_dynamic_kdj_next_candidate_snapshot(
+        object(),
+        top_n=10,
+        ranked_universe=[object(), object()],
+        dynamic_policy={"sealed": True, "seal_reason": "test"},
+        sealed=True,
+    )
+
+    metadata = snapshot["metadata"]
+    near_window = metadata["prediction_metadata"]["near_window"]
+    assert metadata["line_key"] == NEAR_DYNAMIC_KDJ_LINE_KEY
+    assert metadata["line_kind"] == "dynamic_kdj_near"
+    assert metadata["eval_window"] == 9
+    assert metadata["prediction_metadata"]["regression"]["eval_window"] == 9
+    assert metadata["prediction_metadata"]["regression_9"]["target_issues"] == [f"2026{i:03d}" for i in range(103, 112)]
+    assert near_window["window_key"] == "2026103-2026111->2026112"
+    assert near_window["sealed"] is True
+
+
 def test_refresh_training_prediction_lines_builds_both_snapshots_before_writes(monkeypatch):
     events: list[str] = []
 
@@ -460,6 +566,49 @@ def test_refresh_training_prediction_lines_builds_both_snapshots_before_writes(m
 
     assert result["status"] == "ready"
     assert events == ["build_static", "build_dynamic", "replace_static_100", "replace_dynamic_kdj"]
+
+
+def test_refresh_training_prediction_lines_writes_near_line_when_policy_exists(monkeypatch):
+    events: list[str] = []
+
+    def fake_static_snapshot(*_args, **_kwargs):
+        events.append("build_static")
+        return {"metadata": {"line_key": STATIC_100_LINE_KEY}, "candidates": []}
+
+    def fake_dynamic_snapshot(*_args, **_kwargs):
+        events.append("build_dynamic")
+        return {"metadata": {"line_key": DYNAMIC_KDJ_LINE_KEY}, "candidates": []}
+
+    def fake_near_snapshot(*_args, **kwargs):
+        assert kwargs["sealed"] is True
+        events.append("build_near")
+        return {"metadata": {"line_key": NEAR_DYNAMIC_KDJ_LINE_KEY}, "candidates": []}
+
+    def fake_replace(_conn, *, metadata, candidates):
+        events.append(f"replace_{metadata['line_key']}")
+
+    monkeypatch.setattr(next_candidates, "build_training_next_candidate_snapshot", fake_static_snapshot)
+    monkeypatch.setattr(next_candidates, "build_dynamic_kdj_next_candidate_snapshot", fake_dynamic_snapshot)
+    monkeypatch.setattr(next_candidates, "build_near_dynamic_kdj_next_candidate_snapshot", fake_near_snapshot)
+    monkeypatch.setattr(next_candidates, "replace_training_next_candidates_current", fake_replace)
+
+    result = refresh_training_prediction_lines_current(
+        object(),
+        ranked_universe=[object()],
+        near_dynamic_policy={"policy_key": "near"},
+        near_dynamic_sealed=True,
+    )
+
+    assert result["status"] == "ready"
+    assert set(result["lines"]) == {STATIC_100_LINE_KEY, DYNAMIC_KDJ_LINE_KEY, NEAR_DYNAMIC_KDJ_LINE_KEY}
+    assert events == [
+        "build_static",
+        "build_dynamic",
+        "build_near",
+        "replace_static_100",
+        "replace_dynamic_kdj",
+        "replace_dynamic_kdj_near",
+    ]
 
 
 def test_training_next_candidate_snapshot_uses_training_regime_for_freshness(monkeypatch):

@@ -1035,7 +1035,7 @@ export class ResearchService {
 
   private normalizePredictionLineKey(value: string | null | undefined): string {
     const lineKey = value?.trim() || 'static_100';
-    if (lineKey === 'static_100' || lineKey === 'dynamic_kdj') {
+    if (lineKey === 'static_100' || lineKey === 'dynamic_kdj' || lineKey === 'dynamic_kdj_near') {
       return lineKey;
     }
     return 'static_100';

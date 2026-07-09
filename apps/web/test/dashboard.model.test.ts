@@ -323,13 +323,14 @@ test('next candidate tab loads current top 10000 snapshot lazily', () => {
   assert.equal(component.includes('trainingNextCandidatesRefreshRequests'), true);
   assert.equal(component.includes('trainingPredictionLineRequests'), true);
   assert.equal(component.includes("this.dashboardService.loadTrainingNextCandidates('dynamic_kdj', 1)"), true);
+  assert.equal(component.includes("this.dashboardService.loadTrainingNextCandidates('dynamic_kdj_near', 1)"), true);
   assert.equal(component.includes('nextCandidateComparisonRows'), true);
   assert.equal(component.includes("selectedPredictionLineKey: PredictionLineKey = 'static_100'"), true);
   assert.equal(component.includes("this.activeTab === 'next-candidates'"), true);
   assert.equal(template.includes("activeTab === 'next-candidates'"), true);
   assert.equal(template.includes('trainingNextCandidatesState$ | async'), true);
   assert.equal(template.includes('selectPredictionLine(line.key)'), true);
-  assert.equal(template.includes('100期回归对比'), true);
+  assert.equal(template.includes('预测线回归对比'), true);
   assert.equal(template.includes('Top10000'), true);
   assert.equal(template.includes('state.payload.guardrail'), true);
 });

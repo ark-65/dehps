@@ -204,7 +204,7 @@
             }
           </div>
           <section class="training-panel prediction-comparison-panel">
-            <h3>100期回归对比</h3>
+            <h3>预测线回归对比</h3>
             <div class="table-wrap compact-table prediction-comparison-table">
               <table>
                 <thead>
@@ -250,7 +250,13 @@
                 <dt>预测线状态</dt>
                 <dd>{{ nextCandidateLineState(state.payload) }}</dd>
               </div>
-              @for (row of nextCandidateRegressionRows(state.payload); track row.label) {
+            @for (row of nextCandidateRegressionRows(state.payload); track row.label) {
+                <div>
+                  <dt>{{ row.label }}</dt>
+                  <dd>{{ row.value }}</dd>
+                </div>
+              }
+              @for (row of nextCandidateNearRows(state.payload); track row.label) {
                 <div>
                   <dt>{{ row.label }}</dt>
                   <dd>{{ row.value }}</dd>
@@ -262,7 +268,7 @@
                 <span>{{ configLabel(row.key) }} {{ row.value | number: '1.3-3' }}</span>
               }
             </div>
-            @if (state.payload.lineKey === 'dynamic_kdj') {
+            @if (state.payload.lineKey === 'dynamic_kdj' || state.payload.lineKey === 'dynamic_kdj_near') {
               <div class="chip-row dynamic-offsets">
                 @for (row of nextCandidateDynamicRows(state.payload); track row.key) {
                   <span>{{ configLabel(row.key) }} {{ row.value | number: '1.3-3' }}</span>

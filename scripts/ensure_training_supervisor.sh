@@ -49,7 +49,7 @@ try:
                     """
                     SELECT line_key, next_issue, snapshot_key, as_of_issue
                     FROM training_next_candidates_current
-                    WHERE line_key IN ('static_100', 'dynamic_kdj')
+                    WHERE line_key IN ('static_100', 'dynamic_kdj', 'dynamic_kdj_near')
                     GROUP BY line_key, next_issue, snapshot_key, as_of_issue
                     ORDER BY line_key
                     """
@@ -142,7 +142,7 @@ with get_connection() as conn:
         line_key = str(snapshot.get("line_key") or "")
         next_issue = str(snapshot.get("next_issue") or "")
         snapshot_key = str(snapshot.get("snapshot_key") or "")
-        if line_key not in {"static_100", "dynamic_kdj"} or not next_issue or not snapshot_key:
+        if line_key not in {"static_100", "dynamic_kdj", "dynamic_kdj_near"} or not next_issue or not snapshot_key:
             continue
         row = conn.execute("SELECT 1 FROM ssq_history WHERE issue = %s LIMIT 1", (next_issue,)).fetchone()
         if row:

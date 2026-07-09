@@ -936,7 +936,12 @@ def replace_training_next_candidates_current(
             """,
             params,
         )
-    regression = prediction_metadata.get("regression_100") if isinstance(prediction_metadata.get("regression_100"), dict) else None
+    regression = None
+    for regression_key in ("regression", "regression_100", "regression_9"):
+        candidate = prediction_metadata.get(regression_key)
+        if isinstance(candidate, dict):
+            regression = candidate
+            break
     if regression is not None:
         upsert_training_prediction_line_regression(conn, metadata=metadata, regression=regression)
 

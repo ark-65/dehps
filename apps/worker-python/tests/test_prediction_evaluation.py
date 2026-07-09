@@ -7,10 +7,19 @@ from dehps.optimization.prediction_evaluation import evaluate_prediction_snapsho
 
 
 def _row(*, rank: int, numbers: tuple[int, ...], line_key: str = "static_100", as_of_issue: str = "2026068") -> dict:
+    if line_key == "dynamic_kdj_near":
+        line_label = "Near-term Dynamic KDJ"
+        line_kind = "dynamic_kdj_near"
+    elif line_key == "dynamic_kdj":
+        line_label = "Dynamic KDJ adjustment"
+        line_kind = "dynamic_kdj"
+    else:
+        line_label = "100-period static training"
+        line_kind = "static"
     return {
         "line_key": line_key,
-        "line_label": "100-period static training" if line_key == "static_100" else "Dynamic KDJ adjustment",
-        "line_kind": "static" if line_key == "static_100" else "dynamic_kdj",
+        "line_label": line_label,
+        "line_kind": line_kind,
         "snapshot_key": f"snapshot-{line_key}",
         "run_id": "run-1",
         "source_round_index": 7,
@@ -79,6 +88,24 @@ def test_evaluate_prediction_snapshot_reports_missing_snapshot(monkeypatch):
     assert payload["status"] == "missing_prediction_snapshot"
     assert payload["line_key"] == "dynamic_kdj"
     assert payload["actual_red_numbers"] == [1, 2, 3, 4, 5, 6]
+
+
+def test_evaluate_prediction_snapshot_supports_near_dynamic_defaults(monkeypatch):
+    monkeypatch.setattr(evaluation, "load_prediction_rows", lambda *_args, **_kwargs: ([], None))
+    monkeypatch.setattr(evaluation, "load_actual_draw", lambda *_args, **_kwargs: None)
+
+    payload = evaluate_prediction_snapshot(
+        object(),
+        line_key="dynamic_kdj_near",
+        predicted_issue="2026069",
+        write_report=False,
+        persist=False,
+    )
+
+    assert payload["status"] == "missing_actual_draw"
+    assert payload["line_key"] == "dynamic_kdj_near"
+    assert payload["line_label"] == "Near-term Dynamic KDJ"
+    assert payload["line_kind"] == "dynamic_kdj_near"
 
 
 def test_evaluate_prediction_snapshot_reports_snapshot_mismatch(monkeypatch):

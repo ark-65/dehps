@@ -11,6 +11,14 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 
 from dehps.config import ROOT_DIR
+from dehps.optimization.next_candidates import (
+    DYNAMIC_KDJ_LINE_KEY,
+    DYNAMIC_KDJ_LINE_LABEL,
+    NEAR_DYNAMIC_KDJ_LINE_KEY,
+    NEAR_DYNAMIC_KDJ_LINE_LABEL,
+    STATIC_100_LINE_KEY,
+    STATIC_100_LINE_LABEL,
+)
 from dehps.storage.postgres_store import TOTAL_SSQ_RED_COMBINATIONS, upsert_training_prediction_evaluation
 
 
@@ -123,9 +131,11 @@ def load_actual_draw(conn: Connection, *, issue: str) -> dict[str, Any] | None:
 
 
 def _line_defaults(line_key: str) -> tuple[str, str]:
-    if line_key == "dynamic_kdj":
-        return "Dynamic KDJ adjustment", "dynamic_kdj"
-    return "100-period static training", "static"
+    if line_key == DYNAMIC_KDJ_LINE_KEY:
+        return DYNAMIC_KDJ_LINE_LABEL, "dynamic_kdj"
+    if line_key == NEAR_DYNAMIC_KDJ_LINE_KEY:
+        return NEAR_DYNAMIC_KDJ_LINE_LABEL, "dynamic_kdj_near"
+    return STATIC_100_LINE_LABEL, "static"
 
 
 def _base_payload(

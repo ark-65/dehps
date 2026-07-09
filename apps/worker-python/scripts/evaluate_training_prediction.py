@@ -10,6 +10,12 @@ if str(WORKER_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKER_ROOT))
 
 from dehps.db import get_connection
+from dehps.optimization.next_candidates import (
+    DYNAMIC_KDJ_LINE_KEY,
+    NEAR_DYNAMIC_KDJ_LINE_KEY,
+    STATIC_100_LINE_KEY,
+)
+from dehps.optimization.near_dynamic_report import write_near_dynamic_line_report
 from dehps.optimization.prediction_evaluation import (
     default_output_dir,
     evaluate_prediction_snapshot,
@@ -19,7 +25,11 @@ from dehps.optimization.prediction_evaluation import (
 def main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate a current training prediction snapshot after SSQ sync.")
     parser.add_argument("--issue", required=True, help="Actual issue to evaluate after it exists in ssq_history.")
-    parser.add_argument("--line-key", choices=["static_100", "dynamic_kdj"], default="static_100")
+    parser.add_argument(
+        "--line-key",
+        choices=[STATIC_100_LINE_KEY, DYNAMIC_KDJ_LINE_KEY, NEAR_DYNAMIC_KDJ_LINE_KEY],
+        default=STATIC_100_LINE_KEY,
+    )
     parser.add_argument("--snapshot-key", help="Optional pre-sync snapshot key guard.")
     parser.add_argument("--output-dir", type=Path, default=default_output_dir())
     parser.add_argument("--no-write-report", action="store_true")
@@ -36,6 +46,8 @@ def main() -> None:
             write_report=not args.no_write_report,
             persist=not args.no_persist,
         )
+        if args.line_key == NEAR_DYNAMIC_KDJ_LINE_KEY and not args.no_write_report:
+            payload["near_dynamic_report"] = write_near_dynamic_line_report(conn)
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
 
 

@@ -97,7 +97,7 @@ type TrainingNextCandidatesState =
   | { status: 'error'; message: string };
 
 type DashboardTab = 'training' | 'training-rounds' | 'next-candidates' | 'experiments' | 'service-status';
-type PredictionLineKey = 'static_100' | 'dynamic_kdj';
+type PredictionLineKey = 'static_100' | 'dynamic_kdj' | 'dynamic_kdj_near';
 type NextCandidateComparisonRow = {
   lineKey: string;
   lineLabel: string;
@@ -224,6 +224,7 @@ export class AppComponent {
   readonly predictionLineOptions: { key: PredictionLineKey; label: string }[] = [
     { key: 'static_100', label: '100主线' },
     { key: 'dynamic_kdj', label: '动态KDJ' },
+    { key: 'dynamic_kdj_near', label: '临期动态' },
   ];
 
   readonly compareExperiments = compareExperiments;
@@ -373,12 +374,16 @@ export class AppComponent {
           lineKey === 'dynamic_kdj'
             ? selectedPayload$
             : this.dashboardService.loadTrainingNextCandidates('dynamic_kdj', 1),
+        nearDynamicLine:
+          lineKey === 'dynamic_kdj_near'
+            ? selectedPayload$
+            : this.dashboardService.loadTrainingNextCandidates('dynamic_kdj_near', 1),
       }).pipe(
         map(
-          ({ payload, staticLine, dynamicLine }): TrainingNextCandidatesState => ({
+          ({ payload, staticLine, dynamicLine, nearDynamicLine }): TrainingNextCandidatesState => ({
             status: 'ready',
             payload,
-            comparison: [staticLine, dynamicLine],
+            comparison: [staticLine, dynamicLine, nearDynamicLine],
           }),
         ),
         catchError((error: unknown) =>
@@ -529,7 +534,10 @@ export class AppComponent {
   }
 
   nextCandidateRegression(payload: TrainingNextCandidatesPayload): Record<string, unknown> | null {
-    const regression = payload.predictionMetadata['regression_100'];
+    const regression =
+      payload.predictionMetadata['regression'] ??
+      payload.predictionMetadata['regression_9'] ??
+      payload.predictionMetadata['regression_100'];
     if (!regression || typeof regression !== 'object' || Array.isArray(regression)) {
       return null;
     }
@@ -542,9 +550,11 @@ export class AppComponent {
       return [];
     }
     const red5 = this.recordField(regression, 'red5');
+    const evalWindow = this.numericField(regression, 'eval_window') ?? payload.evalWindow ?? 0;
+    const windowLabel = evalWindow ? `${evalWindow}期` : '回归';
     return [
-      { label: '100期Exact', value: this.topHitText(regression) },
-      { label: '100期红5', value: this.topHitText(red5) },
+      { label: `${windowLabel}Exact`, value: this.topHitText(regression) },
+      { label: `${windowLabel}红5`, value: this.topHitText(red5) },
       { label: 'Exact Rank', value: this.rankRangeText(regression) },
       { label: '动态目标', value: this.dynamicTargetText(regression) },
     ];
@@ -579,10 +589,32 @@ export class AppComponent {
   }
 
   nextCandidateLineState(payload: TrainingNextCandidatesPayload): string {
+    if (payload.lineKey === 'dynamic_kdj_near') {
+      const nearWindow = this.recordField(payload.predictionMetadata, 'near_window');
+      const sealed = nearWindow['sealed'] === true || payload.predictionMetadata['snapshot_sealed'] === true;
+      return sealed ? '临期快照已封存' : '临期调权中';
+    }
     if (payload.lineKey !== 'dynamic_kdj') {
       return '静态主线';
     }
     return payload.predictionMetadata['fallback_static_base'] === true ? '静态基底' : 'KDJ调权';
+  }
+
+  nextCandidateNearRows(payload: TrainingNextCandidatesPayload): { label: string; value: string }[] {
+    if (payload.lineKey !== 'dynamic_kdj_near') {
+      return [];
+    }
+    const nearWindow = this.recordField(payload.predictionMetadata, 'near_window');
+    return [
+      { label: '临期窗口', value: String(nearWindow['window_key'] || '无') },
+      { label: '快照封存', value: nearWindow['sealed'] === true ? '是' : '否' },
+      { label: '封存轮次', value: nearWindow['sealed_round_index'] === undefined ? '无' : String(nearWindow['sealed_round_index']) },
+      {
+        label: 'Top100目标',
+        value: `${nearWindow['success_top100_goal'] ?? 3}/${nearWindow['success_window'] ?? 10}`,
+      },
+      { label: '预测状态', value: payload.nextIssue ? `${payload.nextIssue} pending` : '无' },
+    ];
   }
 
   nextCandidateConfigRows(payload: TrainingNextCandidatesPayload): { key: string; value: number }[] {
