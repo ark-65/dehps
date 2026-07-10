@@ -45,6 +45,10 @@ from dehps.optimization.next_candidates import (
     refresh_training_prediction_lines_current,
 )
 from dehps.optimization.near_dynamic_report import write_near_dynamic_line_report
+from dehps.optimization.self_diagnostics import (
+    SELF_DIAGNOSTICS_PROTOCOL,
+    signal_vs_noise_diagnostic,
+)
 from dehps.optimization.ridge_kdj_advisor import (
     RidgeKdjOffsetAdvice,
     numpy_ridge_kdj_offset_v0,
@@ -1368,6 +1372,189 @@ def candidate_source_survival(
             "hashes": hashes[:preview_limit],
         }
     return survival
+
+
+def training_candidate_space_diagnostic(
+    *,
+    source_configs: dict[str, tuple[FrequencyRankerConfig, ...]],
+    refined_configs: tuple[FrequencyRankerConfig, ...],
+    summaries: list[dict],
+    rank_homogeneity: dict,
+    top_limit: int = 10,
+) -> dict:
+    generated_sources = {
+        source: bounded_unique_config_hashes(configs, limit=max(1, len(configs)))
+        for source, configs in source_configs.items()
+        if configs
+    }
+    refined_hashes = set(bounded_unique_config_hashes(refined_configs, limit=max(1, len(refined_configs))))
+    source_survival_counts = {
+        source: sum(hash_value in refined_hashes for hash_value in hashes)
+        for source, hashes in generated_sources.items()
+    }
+    active_refined_source_count = sum(count > 0 for count in source_survival_counts.values())
+    top_signatures = [
+        rank_signature_hash(summary)
+        for summary in summaries[: max(1, top_limit)]
+        if rank_signature_hash(summary)
+    ]
+    unique_top_signatures = sorted(set(top_signatures))
+    reasons: list[str] = []
+    status_value = "diverse"
+    if bool(rank_homogeneity.get("active")):
+        status_value = "collapsed"
+        reasons.append("rank_homogeneity_guardrail_active")
+    if len(summaries) >= 5 and len(unique_top_signatures) <= 2:
+        status_value = "collapsed"
+        reasons.append("top_results_share_too_few_rank_signatures")
+    if status_value == "diverse" and active_refined_source_count <= 1 and len(generated_sources) > 1:
+        status_value = "narrow"
+        reasons.append("prefilter_kept_only_one_candidate_source")
+    if status_value == "diverse" and len(summaries) >= 5 and len(unique_top_signatures) <= 4:
+        status_value = "narrow"
+        reasons.append("top_results_are_rank-signature_narrow")
+    if not reasons:
+        reasons.append("configuration_space_has_no_collapse_flag")
+    return {
+        "status": status_value,
+        "generated_source_count": len(generated_sources),
+        "active_refined_source_count": active_refined_source_count,
+        "generated_config_count": sum(len(hashes) for hashes in generated_sources.values()),
+        "refined_config_count": len(refined_hashes),
+        "source_survival_counts": source_survival_counts,
+        "top_limit": top_limit,
+        "top_rank_signature_count": len(top_signatures),
+        "unique_top_rank_signature_count": len(unique_top_signatures),
+        "rank_homogeneity_active": bool(rank_homogeneity.get("active")),
+        "rank_homogeneity_unique_signature_count": rank_homogeneity.get("unique_signature_count"),
+        "reasons": reasons,
+    }
+
+
+def training_weight_trust_diagnostic(
+    *,
+    advisor_info: dict,
+    ridge_advisor_info: dict,
+    neural_advisor_info: dict,
+    promotion_gate: dict,
+    target_weight_inversion_guardrail: dict,
+) -> dict:
+    selected_count = int(advisor_info.get("selected_count") or 0)
+    downweighted_count = int(advisor_info.get("downweighted_count") or 0)
+    rejected_count = int(advisor_info.get("rejected_count") or 0)
+    ridge_selected = int(ridge_advisor_info.get("selected_count") or 0)
+    neural_selected = int(neural_advisor_info.get("selected_count") or 0)
+    reasons: list[str] = []
+    score = 1.0
+    if not bool(promotion_gate.get("passed", True)):
+        score -= 0.35
+        reasons.append("promotion_gate_not_passed")
+    if not bool(promotion_gate.get("primary_hit_passed", True)):
+        score -= 0.20
+        reasons.append("no_frozen_primary_lift")
+    if bool(target_weight_inversion_guardrail.get("active")):
+        score -= 0.20
+        reasons.append(str(target_weight_inversion_guardrail.get("reason") or "target_weight_inversion_guardrail_active"))
+    if selected_count == 0 and ridge_selected == 0 and neural_selected == 0:
+        score -= 0.20
+        reasons.append("no_advisor_weight_selected")
+    if downweighted_count > selected_count:
+        score -= 0.10
+        reasons.append("more_downweighted_than_selected_kdj_paths")
+    if rejected_count > selected_count + downweighted_count and rejected_count >= 3:
+        score -= 0.10
+        reasons.append("many_rejected_kdj_paths")
+    score = max(0.0, min(1.0, score))
+    if score <= 0.25:
+        status_value = "blocked"
+        action = "do_not_trust_weight_update"
+    elif score < 0.70:
+        status_value = "caution"
+        action = "downweight_or_observe"
+    else:
+        status_value = "trusted"
+        action = "eligible_for_monitoring_not_promotion"
+    if not reasons:
+        reasons.append("weight_update_has_no_current_trust_blocker")
+    return {
+        "status": status_value,
+        "score": round(score, 6),
+        "action": action,
+        "selected_count": selected_count,
+        "downweighted_count": downweighted_count,
+        "rejected_count": rejected_count,
+        "ridge_selected_count": ridge_selected,
+        "neural_selected_count": neural_selected,
+        "promotion_passed": bool(promotion_gate.get("passed", False)),
+        "primary_hit_passed": bool(promotion_gate.get("primary_hit_passed", False)),
+        "reasons": reasons,
+    }
+
+
+def training_round_self_diagnostics(
+    *,
+    round_best: dict,
+    source_configs: dict[str, tuple[FrequencyRankerConfig, ...]],
+    refined_configs: tuple[FrequencyRankerConfig, ...],
+    summaries: list[dict],
+    rank_homogeneity: dict,
+    promotion_gate: dict,
+    eval_slice_overfit: dict,
+    target_weight_inversion_guardrail: dict,
+    advisor_info: dict,
+    ridge_advisor_info: dict,
+    neural_advisor_info: dict,
+    universe_size: int,
+) -> dict:
+    weight = training_weight_trust_diagnostic(
+        advisor_info=advisor_info,
+        ridge_advisor_info=ridge_advisor_info,
+        neural_advisor_info=neural_advisor_info,
+        promotion_gate=promotion_gate,
+        target_weight_inversion_guardrail=target_weight_inversion_guardrail,
+    )
+    candidate_space = training_candidate_space_diagnostic(
+        source_configs=source_configs,
+        refined_configs=refined_configs,
+        summaries=summaries,
+        rank_homogeneity=rank_homogeneity,
+    )
+    signal = signal_vs_noise_diagnostic(
+        round_best,
+        legal_sample_space=universe_size,
+        overfit_guard_active=bool(eval_slice_overfit.get("active")),
+    )
+    statuses = (weight["status"], candidate_space["status"], signal["status"])
+    if "blocked" in statuses or "collapsed" in statuses:
+        synthesis_status = "blocked"
+        action = "freeze_promotion_and_force_diagnostics"
+    elif "noise_risk" in statuses:
+        synthesis_status = "noise_risk"
+        action = "require_forward_or_frozen_primary_lift"
+    elif "caution" in statuses or "narrow" in statuses:
+        synthesis_status = "caution"
+        action = "continue_with_uncertainty"
+    else:
+        synthesis_status = "monitor"
+        action = "continue_monitoring"
+    return {
+        "protocol": SELF_DIAGNOSTICS_PROTOCOL,
+        "task_frame": "Round-level diagnosis for untrusted weights, candidate collapse, and noise chasing.",
+        "historical_boundary": "Gauss/Riemann lenses are verification discipline, not authority.",
+        "weight_trust": weight,
+        "candidate_space": candidate_space,
+        "signal_vs_noise": signal,
+        "synthesis": {
+            "status": synthesis_status,
+            "action": action,
+            "evidence_level": "experimental_training_diagnostic",
+            "guardrails": {
+                "promotion_gate_passed": bool(promotion_gate.get("passed", False)),
+                "eval_slice_overfit_active": bool(eval_slice_overfit.get("active", False)),
+                "rank_homogeneity_active": bool(rank_homogeneity.get("active", False)),
+            },
+        },
+    }
 
 
 def _is_diagnostic_only_source(source: str) -> bool:
@@ -4977,6 +5164,7 @@ def compact_status_payload(status: dict) -> dict:
         "carryover_seed": status.get("carryover_seed"),
         "qian_kun": status.get("qian_kun"),
         "next_candidates": status.get("next_candidates"),
+        "self_diagnostics": status.get("self_diagnostics"),
         "search_base": status.get("search_base"),
         "latest_progress": status.get("latest_progress"),
         "status_path": status.get("status_path"),
@@ -5049,6 +5237,23 @@ def source_frontier_report_section(status: dict) -> str:
 """
 
 
+def self_diagnostics_report_section(status: dict) -> str:
+    diagnostics = status.get("self_diagnostics")
+    if not isinstance(diagnostics, dict):
+        return "## Self Diagnostics\n\nNo self-diagnostics recorded yet.\n"
+    synthesis = diagnostics.get("synthesis") if isinstance(diagnostics.get("synthesis"), dict) else {}
+    weight = diagnostics.get("weight_trust") if isinstance(diagnostics.get("weight_trust"), dict) else {}
+    candidate_space = diagnostics.get("candidate_space") if isinstance(diagnostics.get("candidate_space"), dict) else {}
+    signal = diagnostics.get("signal_vs_noise") if isinstance(diagnostics.get("signal_vs_noise"), dict) else {}
+    return f"""## Self Diagnostics
+
+- Synthesis: `{synthesis.get("status", "missing")}` action `{synthesis.get("action", "missing")}`.
+- Weight trust: `{weight.get("status", "missing")}` score `{weight.get("score", "missing")}` action `{weight.get("action", "missing")}`.
+- Candidate space: `{candidate_space.get("status", "missing")}` active sources `{candidate_space.get("active_refined_source_count", "missing")}` unique top signatures `{candidate_space.get("unique_top_rank_signature_count", "missing")}`.
+- Signal vs noise: `{signal.get("status", "missing")}` eval window `{signal.get("eval_window", "missing")}` overfit active `{signal.get("overfit_guard_active", "missing")}`.
+"""
+
+
 def write_report(report_path: Path, status: dict) -> None:
     report_path.parent.mkdir(parents=True, exist_ok=True)
     rounds = "\n".join(
@@ -5066,6 +5271,7 @@ def write_report(report_path: Path, status: dict) -> None:
     )
     best = status["best"]
     source_frontier = source_frontier_report_section(status)
+    self_diagnostics = self_diagnostics_report_section(status)
     report = f"""# DEHPS 24h Training Supervisor Report
 
 - Run id: `{status["run_id"]}`
@@ -5095,6 +5301,8 @@ def write_report(report_path: Path, status: dict) -> None:
 ```
 
 {source_frontier}
+
+{self_diagnostics}
 
 ## Rounds
 
@@ -5418,6 +5626,7 @@ def run_supervisor(
         },
         "qian_kun": qian_kun_distribution(selection.history),
         "next_candidates": None,
+        "self_diagnostics": None,
         "rounds": rounds,
         "best": strip_target_results(best_summary) if best_summary else None,
         "search_base": {
@@ -6005,6 +6214,22 @@ def run_supervisor(
                 round_best=round_best,
             )
             prefilter_info["source_frontier_champion"] = source_frontier_champion_info
+            self_diagnostics = training_round_self_diagnostics(
+                round_best=round_best,
+                source_configs=source_configs,
+                refined_configs=refined_configs,
+                summaries=summaries,
+                rank_homogeneity=rank_homogeneity,
+                promotion_gate=promotion_gate,
+                eval_slice_overfit=eval_slice_overfit,
+                target_weight_inversion_guardrail=target_weight_inversion_guardrail,
+                advisor_info=advisor_info,
+                ridge_advisor_info=ridge_advisor_info,
+                neural_advisor_info=neural_advisor_info,
+                universe_size=len(ranked_universe),
+            )
+            prefilter_info["self_diagnostics"] = self_diagnostics
+            status["self_diagnostics"] = self_diagnostics
             prefilter_info["round_best_replays_incumbent"] = inversion_anchor_info["round_best_replays_incumbent"]
             prefilter_info["challenger_best"] = strip_target_results(challenger_summary) if challenger_summary else None
             prefilter_info["challenger_probability_calibration"] = (
@@ -6134,6 +6359,14 @@ def run_supervisor(
                     f"frozen_primary={eval_slice_overfit['round_best_frozen_primary_score']} "
                     f"suspicious={eval_slice_overfit['suspicious_candidate_count']}"
                 )
+            log(
+                f"round={round_index + 1} self_diagnostics="
+                f"{self_diagnostics['synthesis']['status']} "
+                f"action={self_diagnostics['synthesis']['action']} "
+                f"weight={self_diagnostics['weight_trust']['status']} "
+                f"space={self_diagnostics['candidate_space']['status']} "
+                f"signal={self_diagnostics['signal_vs_noise']['status']}"
+            )
             if exploration_champion_info["active"]:
                 log(
                     f"round={round_index + 1} exploration_champion="

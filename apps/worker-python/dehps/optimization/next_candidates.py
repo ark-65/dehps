@@ -17,6 +17,7 @@ from dehps.models.frequency_ranker import (
     infer_next_ssq_draw_date,
 )
 from dehps.optimization.regime import select_history
+from dehps.optimization.self_diagnostics import build_prediction_self_diagnostics
 from dehps.optimization.weight_kdj import weight_kdj_advice_from_signals
 from dehps.optimization.walk_forward import (
     CONFIG_WEIGHT_FIELDS,
@@ -1000,6 +1001,11 @@ def build_training_next_candidate_snapshot(
         ranked_universe=matrix,
     )
     regression_summary = compact_static_regression_summary(best)
+    self_diagnostics = build_prediction_self_diagnostics(
+        regression_summary=regression_summary,
+        candidates=candidates,
+        legal_sample_space=TOTAL_SSQ_RED_COMBINATIONS,
+    )
     metadata = {
         "line_key": STATIC_100_LINE_KEY,
         "line_label": STATIC_100_LINE_LABEL,
@@ -1048,6 +1054,7 @@ def build_training_next_candidate_snapshot(
                 "shared_candidate_universe": True,
                 "structural_change": "none_static_best_config",
             },
+            "self_diagnostics": self_diagnostics,
             "fallback_static_base": False,
         },
         "generated_at": generated_at,
@@ -1237,6 +1244,12 @@ def build_dynamic_kdj_next_candidate_snapshot(
         ranked_universe=matrix,
     )
     dynamic_config_values = config_values(dynamic_config)
+    self_diagnostics = build_prediction_self_diagnostics(
+        regression_summary=regression_summary,
+        candidates=candidates,
+        legal_sample_space=TOTAL_SSQ_RED_COMBINATIONS,
+        dynamic_metadata=dynamic_metadata,
+    )
     regression_key = "regression_9" if resolved_regression_eval_window == NEAR_DYNAMIC_KDJ_EVAL_WINDOW else "regression_100"
     near_window = {
         "enabled": line_key == NEAR_DYNAMIC_KDJ_LINE_KEY,
@@ -1333,6 +1346,7 @@ def build_dynamic_kdj_next_candidate_snapshot(
                 "shared_candidate_universe": True,
                 "structural_change": "same base config plus per-issue KDJ offsets and KDJ-state adaptive offset-scale interval",
             },
+            "self_diagnostics": self_diagnostics,
         },
         "generated_at": generated_at,
         "candidate_count": len(candidates),

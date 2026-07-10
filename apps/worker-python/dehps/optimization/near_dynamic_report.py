@@ -112,10 +112,14 @@ def build_near_dynamic_line_report(conn: Connection) -> dict[str, Any]:
     top100_hits = sum(1 for row in evaluations if bool(row.get("hit_top_100")) and row.get("status") == "evaluated")
     completed_count = sum(1 for row in evaluations if row.get("status") == "evaluated")
     near_metadata = {}
+    self_diagnostics = {}
     if pending and isinstance(pending.get("prediction_metadata"), dict):
         near_metadata = pending["prediction_metadata"].get("near_window")
         if not isinstance(near_metadata, dict):
             near_metadata = {}
+        self_diagnostics = pending["prediction_metadata"].get("self_diagnostics")
+        if not isinstance(self_diagnostics, dict):
+            self_diagnostics = {}
     expected_random_hits = NEAR_DYNAMIC_KDJ_SUCCESS_WINDOW * 100 / TOTAL_SSQ_RED_COMBINATIONS
     return json_safe(
         {
@@ -133,6 +137,7 @@ def build_near_dynamic_line_report(conn: Connection) -> dict[str, Any]:
             "evaluations": evaluations,
             "pending_prediction": pending,
             "near_window": near_metadata,
+            "self_diagnostics": self_diagnostics,
             "guardrails": {
                 "legal_sample_space": TOTAL_SSQ_RED_COMBINATIONS,
                 "top100_random_probability_per_draw": round(100 / TOTAL_SSQ_RED_COMBINATIONS, 10),
@@ -169,6 +174,11 @@ def render_near_dynamic_line_report(payload: dict[str, Any]) -> str:
     pending = payload.get("pending_prediction") if isinstance(payload.get("pending_prediction"), dict) else {}
     near_window = payload.get("near_window") if isinstance(payload.get("near_window"), dict) else {}
     evaluations = payload.get("evaluations") if isinstance(payload.get("evaluations"), list) else []
+    self_diagnostics = payload.get("self_diagnostics") if isinstance(payload.get("self_diagnostics"), dict) else {}
+    synthesis = self_diagnostics.get("synthesis") if isinstance(self_diagnostics.get("synthesis"), dict) else {}
+    weight_trust = self_diagnostics.get("weight_trust") if isinstance(self_diagnostics.get("weight_trust"), dict) else {}
+    candidate_space = self_diagnostics.get("candidate_space") if isinstance(self_diagnostics.get("candidate_space"), dict) else {}
+    signal_vs_noise = self_diagnostics.get("signal_vs_noise") if isinstance(self_diagnostics.get("signal_vs_noise"), dict) else {}
     rows = []
     for row in evaluations:
         if not isinstance(row, dict):
@@ -212,4 +222,11 @@ def render_near_dynamic_line_report(payload: dict[str, Any]) -> str:
 - Blue ball is recorded elsewhere but not scored.
 - Random Top100 expected hits per 10 draws: `{(payload.get("guardrails") or {}).get("top100_random_expected_hits_per_10")}`
 - Evidence level: experimental forward monitoring, not a settled prediction claim.
+
+## Self Diagnostics
+
+- Synthesis: `{synthesis.get("status", "missing")}` action `{synthesis.get("action", "missing")}`.
+- Weight trust: `{weight_trust.get("status", "missing")}` score `{weight_trust.get("score", "missing")}` reasons `{", ".join(weight_trust.get("reasons", [])[:4]) if isinstance(weight_trust.get("reasons"), list) else "missing"}`.
+- Candidate space: `{candidate_space.get("status", "missing")}` unique reds `{candidate_space.get("unique_red_number_count", "missing")}` avg overlap `{candidate_space.get("average_pair_overlap", "missing")}`.
+- Signal vs noise: `{signal_vs_noise.get("status", "missing")}` strongest band `{(signal_vs_noise.get("strongest_band") or {}).get("label", "missing") if isinstance(signal_vs_noise.get("strongest_band"), dict) else "missing"}`.
 """

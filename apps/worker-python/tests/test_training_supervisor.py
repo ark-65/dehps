@@ -670,6 +670,37 @@ def test_candidate_budget_uses_search_intelligence_mix():
     assert sum(budget.values()) == 20
 
 
+def test_training_round_self_diagnostics_blocks_collapsed_noise_round():
+    config = FrequencyRankerConfig(frequency_weight=0.40)
+    round_best = supervisor_summary_for_config(
+        config,
+        top_100_hits=3,
+        top_1000_hits=3,
+        top_10000_hits=3,
+        target_ranks=[17, 55, 89, 500_000, 700_000],
+    )
+    diagnostics = supervisor.training_round_self_diagnostics(
+        round_best=round_best,
+        source_configs={"normal": (config,), "weight_kdj": ()},
+        refined_configs=(config,),
+        summaries=[round_best for _index in range(5)],
+        rank_homogeneity={"active": True, "unique_signature_count": 1},
+        promotion_gate={"passed": False, "primary_hit_passed": False},
+        eval_slice_overfit={"active": True},
+        target_weight_inversion_guardrail={"active": False},
+        advisor_info={"selected_count": 0, "downweighted_count": 0, "rejected_count": 0},
+        ridge_advisor_info={"selected_count": 0},
+        neural_advisor_info={"selected_count": 0},
+        universe_size=supervisor.DEFAULT_UNIVERSE_SIZE,
+    )
+
+    assert diagnostics["synthesis"]["status"] == "blocked"
+    assert diagnostics["synthesis"]["action"] == "freeze_promotion_and_force_diagnostics"
+    assert diagnostics["candidate_space"]["status"] == "collapsed"
+    assert diagnostics["signal_vs_noise"]["status"] == "noise_risk"
+    assert diagnostics["weight_trust"]["status"] in {"blocked", "caution"}
+
+
 def test_candidate_budget_reserves_explicit_weight_kdj_bucket():
     budget = candidate_budget(20, weight_kdj_budget_share=0.15)
 
