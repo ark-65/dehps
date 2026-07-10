@@ -66,6 +66,8 @@ def test_candidate_source_survival_waits_for_a_minimum_round_window():
     assert summary["status"] == "insufficient_window"
     assert summary["action"] == "observe_more_rounds"
     assert summary["evidence_ready"] is False
+    assert summary["budget_review_ready"] is False
+    assert summary["budget_review_sources"] == []
     assert summary["starved_sources"] == []
 
 
@@ -108,6 +110,11 @@ def test_candidate_source_survival_separates_productive_starved_and_zero_top5_so
 
     assert summary["status"] == "diverse"
     assert summary["action"] == "continue_current_run"
+    assert summary["evidence_ready"] is True
+    assert summary["budget_review_min_rounds"] == 8
+    assert summary["budget_review_ready"] is False
+    assert summary["budget_review_action"] == "observe_until_budget_review_window"
+    assert summary["budget_review_sources"] == []
     assert summary["productive_sources"] == ["neural_kdj", "normal"]
     assert summary["starved_sources"] == ["weight_kdj"]
     assert summary["zero_top5_sources"] == ["ridge_kdj"]
@@ -124,6 +131,7 @@ def test_candidate_source_survival_separates_productive_starved_and_zero_top5_so
         }
     )
     assert operator["candidate_source_survival"]["starved_sources"] == ["weight_kdj"]
+    assert operator["candidate_source_survival"]["budget_review_ready"] is False
 
 
 def test_candidate_source_survival_flags_mature_single_productive_source_window():
@@ -153,6 +161,64 @@ def test_candidate_source_survival_flags_mature_single_productive_source_window(
     assert summary["status"] == "narrow"
     assert summary["action"] == "inspect_candidate_diversity"
     assert summary["productive_sources"] == ["normal"]
+
+
+def test_candidate_source_survival_opens_budget_review_only_after_eight_same_run_rounds():
+    rows = [
+        source_survival_round(
+            index,
+            {
+                "normal": {
+                    "generated": 7,
+                    "prefilter_selected": 6,
+                    "full_eval_top5": 3,
+                    "round_best": index == 1,
+                },
+                "recency_canary": {
+                    "generated": 4,
+                    "prefilter_selected": 1,
+                    "full_eval_top5": 0,
+                    "round_best": False,
+                },
+                "weight_kdj": {
+                    "generated": 7,
+                    "prefilter_selected": 0,
+                    "full_eval_top5": 0,
+                    "round_best": False,
+                },
+            },
+        )
+        for index in range(1, 9)
+    ]
+
+    summary = summarize_candidate_source_survival(rows)
+
+    assert summary["evidence_ready"] is True
+    assert summary["budget_review_ready"] is True
+    assert summary["budget_review_action"] == "review_persistently_unproductive_source_budgets"
+    assert summary["budget_review_sources"] == ["recency_canary", "weight_kdj"]
+
+    markdown = render_candidate_source_survival_markdown(summary)
+    assert "observed=8/8 ready=True" in markdown
+    assert "review_persistently_unproductive_source_budgets" in markdown
+
+
+def test_gate_summary_distinguishes_missing_frozen_validation_bypass_from_navigation_gate():
+    gates = gate_summary(
+        {
+            "promotion_gate": {
+                "passed": True,
+                "reason": "missing_frozen_validation",
+            },
+            "decision_round_best": {
+                "frozen_primary_lift_required": False,
+            },
+        }
+    )
+
+    assert gates["promotion_gate"]["frozen_validation_evaluated"] is False
+    assert gates["promotion_gate"]["frozen_validation_bypassed"] is True
+    assert gates["decision_round_best"]["frozen_primary_lift_required"] is False
 
 
 def test_advisor_signal_freshness_flags_lagging_and_future_signals():
@@ -2154,6 +2220,7 @@ def test_evidence_context_surfaces_sample_space_baseline_and_leakage_guardrails(
     assert null_expectation["bands"]["top_1000"]["expected_eval_hits"] == 0.090288
     assert null_expectation["bands"]["top_10000"]["expected_eval_hits"] == 0.902879
     assert evidence["leakage_checks"]["eval_slice_overfit_guardrail_active"] is True
+    assert evidence["leakage_checks"]["decision_navigation_frozen_primary_lift_required"] is True
     assert evidence["leakage_checks"]["parser_sync_duplicate_checks"]["status"] == "checked"
     assert evidence["leakage_checks"]["parser_sync_duplicate_checks"]["history_draw_count"] == 1494
     assert "## Evidence Context" in markdown
@@ -2197,9 +2264,12 @@ def test_cli_summary_includes_evidence_context_guardrails(tmp_path):
             },
             "leakage_checks": {
                 "promotion_gate_reason": "frozen_validation_not_better",
+                "promotion_frozen_validation_evaluated": True,
+                "promotion_frozen_validation_passed": False,
+                "promotion_frozen_validation_bypassed": False,
                 "eval_slice_overfit_guardrail_active": True,
                 "suspicious_candidate_count": 8,
-                "frozen_primary_lift_required": True,
+                "decision_navigation_frozen_primary_lift_required": True,
                 "parser_sync_duplicate_checks": {"status": "checked", "ok": True},
             },
             "evidence_level": "operational_training_diagnostic_no_predictive_claim",
@@ -2233,9 +2303,12 @@ def test_cli_summary_includes_evidence_context_guardrails(tmp_path):
     }
     assert evidence["leakage_checks"] == {
         "promotion_gate_reason": "frozen_validation_not_better",
+        "promotion_frozen_validation_evaluated": True,
+        "promotion_frozen_validation_passed": False,
+        "promotion_frozen_validation_bypassed": False,
         "eval_slice_overfit_guardrail_active": True,
         "suspicious_candidate_count": 8,
-        "frozen_primary_lift_required": True,
+        "decision_navigation_frozen_primary_lift_required": True,
         "parser_sync_duplicate_status": "checked",
         "parser_sync_duplicate_ok": True,
     }

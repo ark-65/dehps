@@ -43,6 +43,7 @@ DEFAULT_STALE_MINUTES = 30
 DEFAULT_ADVISOR_SIGNAL_MAX_ISSUE_LAG = 1
 DEFAULT_SOURCE_SURVIVAL_MIN_ROUNDS = 4
 DEFAULT_SOURCE_SURVIVAL_MIN_GENERATED = 8
+DEFAULT_SOURCE_SURVIVAL_BUDGET_REVIEW_MIN_ROUNDS = 8
 SAFE_FILENAME_COMPONENT_PATTERN = re.compile(r"[^A-Za-z0-9_-]+")
 SAFE_INTEGER_TEXT_PATTERN = re.compile(r"[0-9]+")
 MAX_SAFE_FILENAME_COMPONENT_LENGTH = 96
@@ -345,9 +346,11 @@ def summarize_candidate_source_survival(
     *,
     min_rounds: int = DEFAULT_SOURCE_SURVIVAL_MIN_ROUNDS,
     min_generated: int = DEFAULT_SOURCE_SURVIVAL_MIN_GENERATED,
+    budget_review_min_rounds: int = DEFAULT_SOURCE_SURVIVAL_BUDGET_REVIEW_MIN_ROUNDS,
 ) -> dict[str, Any]:
     required_rounds = max(1, int(min_rounds))
     required_generated = max(1, int(min_generated))
+    budget_review_required_rounds = max(required_rounds, int(budget_review_min_rounds))
     aggregates: dict[str, dict[str, int]] = {}
     observed_rounds = 0
     for row in rows:
@@ -417,6 +420,20 @@ def summarize_candidate_source_survival(
         for source, values in sources.items()
         if values["state"] == "evaluated_without_top5"
     ]
+    budget_review_ready = bool(
+        evidence_ready and observed_rounds >= budget_review_required_rounds
+    )
+    budget_review_sources = (
+        sorted([*starved_sources, *zero_top5_sources])
+        if budget_review_ready
+        else []
+    )
+    if not budget_review_ready:
+        budget_review_action = "observe_until_budget_review_window"
+    elif budget_review_sources:
+        budget_review_action = "review_persistently_unproductive_source_budgets"
+    else:
+        budget_review_action = "keep_current_source_budgets"
     if observed_rounds == 0:
         status = "not_available"
         action = "wait_for_source_survival_data"
@@ -440,6 +457,10 @@ def summarize_candidate_source_survival(
         "min_rounds": required_rounds,
         "min_generated": required_generated,
         "evidence_ready": evidence_ready,
+        "budget_review_min_rounds": budget_review_required_rounds,
+        "budget_review_ready": budget_review_ready,
+        "budget_review_action": budget_review_action,
+        "budget_review_sources": budget_review_sources,
         "active_sources": active_sources,
         "productive_sources": productive_sources,
         "starved_sources": starved_sources,
@@ -447,7 +468,8 @@ def summarize_candidate_source_survival(
         "sources": sources,
         "interpretation": (
             "Current-run source conversion diagnostic only. Source memberships may overlap; "
-            "survival or Top5 presence is not predictive evidence and does not bypass frozen validation."
+            "survival or Top5 presence is not predictive evidence and does not bypass frozen validation. "
+            "Budget review requires the longer same-run window and never reserves promotion by source."
         ),
     }
 
@@ -1461,9 +1483,18 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
     result: dict[str, dict[str, Any]] = {}
     if promotion:
+        frozen_validation_evaluated = all(
+            key in promotion
+            for key in ("objective_passed", "tail_passed", "primary_hit_passed")
+        )
         result["promotion_gate"] = {
             "passed": bool(promotion.get("passed")),
             "reason": promotion.get("reason"),
+            "frozen_validation_evaluated": frozen_validation_evaluated,
+            "frozen_validation_bypassed": bool(
+                promotion.get("passed")
+                and promotion.get("reason") == "missing_frozen_validation"
+            ),
             "tail_passed": bool(promotion.get("tail_passed")),
             "objective_passed": bool(promotion.get("objective_passed")),
             "primary_hit_passed": bool(promotion.get("primary_hit_passed")),
@@ -2196,6 +2227,8 @@ def evidence_context_summary(
     failure_modes: list[str] = []
     if promotion and not promotion.get("passed"):
         failure_modes.append(f"promotion_gate:{promotion.get('reason')}")
+    if promotion.get("frozen_validation_bypassed"):
+        failure_modes.append("promotion_gate:frozen_validation_not_evaluated")
     if eval_guard.get("active"):
         failure_modes.append(f"eval_slice_overfit:{eval_guard.get('reason')}")
     if rank_homogeneity.get("active"):
@@ -2250,14 +2283,26 @@ def evidence_context_summary(
             "operational_baseline": "incumbent_config_frozen_primary_baseline",
             "random_null_model": "ranked_uniform_per_draw",
             "random_null_expectation": random_null_expectation_summary(supervisor_status),
-            "baseline_score": decision.get("frozen_primary_lift_baseline_score"),
+            "baseline_score": (
+                promotion.get("incumbent_primary_score")
+                or decision.get("frozen_primary_lift_baseline_score")
+            ),
         },
         "leakage_checks": {
             "promotion_gate_reason": promotion.get("reason"),
+            "promotion_frozen_validation_evaluated": promotion.get(
+                "frozen_validation_evaluated"
+            ),
+            "promotion_frozen_validation_passed": promotion.get("passed"),
+            "promotion_frozen_validation_bypassed": promotion.get(
+                "frozen_validation_bypassed"
+            ),
             "eval_slice_overfit_guardrail_active": bool(eval_guard.get("active")),
             "eval_slice_overfit_guardrail_reason": eval_guard.get("reason"),
             "suspicious_candidate_count": safe_int(eval_guard.get("suspicious_candidate_count")) or 0,
-            "frozen_primary_lift_required": bool(decision.get("frozen_primary_lift_required")),
+            "decision_navigation_frozen_primary_lift_required": bool(
+                decision.get("frozen_primary_lift_required")
+            ),
             "parser_sync_duplicate_checks": parser_sync_duplicate_checks,
         },
         "search_diagnostics": search_diagnostics,
@@ -2505,6 +2550,12 @@ def render_candidate_source_survival_markdown(summary: Any) -> str:
         f"required_rounds={summary.get('min_rounds')} "
         f"min_generated={summary.get('min_generated')} "
         f"ready={summary.get('evidence_ready')}\n"
+        "- Budget review: "
+        f"observed={summary.get('observed_round_count')}/"
+        f"{summary.get('budget_review_min_rounds')} "
+        f"ready={summary.get('budget_review_ready')} "
+        f"action={markdown_inline_text(summary.get('budget_review_action'))} "
+        f"sources={markdown_inline_text(compact_inline_list(summary.get('budget_review_sources')))}\n"
         "- Productive/starved/zero-Top5: "
         f"{markdown_inline_text(compact_inline_list(summary.get('productive_sources')))} / "
         f"{markdown_inline_text(compact_inline_list(summary.get('starved_sources')))} / "
@@ -2943,10 +2994,14 @@ def render_markdown(payload: dict[str, Any]) -> str:
             f"baseline_score={baseline.get('baseline_score')}\n"
             "- Leakage checks: "
             f"promotion_gate={markdown_inline_text(leakage.get('promotion_gate_reason'))} "
+            f"promotion_frozen_evaluated={leakage.get('promotion_frozen_validation_evaluated')} "
+            f"promotion_frozen_passed={leakage.get('promotion_frozen_validation_passed')} "
+            f"promotion_frozen_bypassed={leakage.get('promotion_frozen_validation_bypassed')} "
             f"eval_overfit_active={leakage.get('eval_slice_overfit_guardrail_active')} "
             f"eval_reason={markdown_inline_text(leakage.get('eval_slice_overfit_guardrail_reason'))} "
             f"suspicious={leakage.get('suspicious_candidate_count')} "
-            f"frozen_required={leakage.get('frozen_primary_lift_required')} "
+            "decision_navigation_frozen_required="
+            f"{leakage.get('decision_navigation_frozen_primary_lift_required')} "
             "parser_sync_duplicates="
             f"{markdown_inline_text(compact_parser_sync_duplicate_checks(leakage.get('parser_sync_duplicate_checks')))}\n"
             f"{search_line}"
@@ -3130,9 +3185,20 @@ def cli_evidence_context_summary(payload: dict[str, Any]) -> dict[str, Any]:
         },
         "leakage_checks": {
             "promotion_gate_reason": leakage.get("promotion_gate_reason"),
+            "promotion_frozen_validation_evaluated": leakage.get(
+                "promotion_frozen_validation_evaluated"
+            ),
+            "promotion_frozen_validation_passed": leakage.get(
+                "promotion_frozen_validation_passed"
+            ),
+            "promotion_frozen_validation_bypassed": leakage.get(
+                "promotion_frozen_validation_bypassed"
+            ),
             "eval_slice_overfit_guardrail_active": leakage.get("eval_slice_overfit_guardrail_active"),
             "suspicious_candidate_count": leakage.get("suspicious_candidate_count"),
-            "frozen_primary_lift_required": leakage.get("frozen_primary_lift_required"),
+            "decision_navigation_frozen_primary_lift_required": leakage.get(
+                "decision_navigation_frozen_primary_lift_required"
+            ),
             "parser_sync_duplicate_status": parser_checks.get("status"),
             "parser_sync_duplicate_ok": parser_checks.get("ok"),
         },
@@ -3259,6 +3325,14 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "min_rounds": candidate_source_survival.get("min_rounds"),
             "min_generated": candidate_source_survival.get("min_generated"),
             "evidence_ready": candidate_source_survival.get("evidence_ready"),
+            "budget_review_min_rounds": candidate_source_survival.get(
+                "budget_review_min_rounds"
+            ),
+            "budget_review_ready": candidate_source_survival.get("budget_review_ready"),
+            "budget_review_action": candidate_source_survival.get("budget_review_action"),
+            "budget_review_sources": candidate_source_survival.get(
+                "budget_review_sources"
+            ) or [],
             "productive_sources": candidate_source_survival.get("productive_sources") or [],
             "starved_sources": candidate_source_survival.get("starved_sources") or [],
             "zero_top5_sources": candidate_source_survival.get("zero_top5_sources") or [],
