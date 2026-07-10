@@ -31,6 +31,64 @@ print(row[0] or "")
 PY
 }
 
+latest_weight_kdj_signal_issue() {
+  .venv/bin/python - <<'PY'
+from dehps.db import get_connection
+from dehps.storage.postgres_store import CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID
+
+with get_connection() as conn:
+    table = conn.execute("SELECT to_regclass('public.training_weight_signals')").fetchone()
+    if not table or not table[0]:
+        print("")
+    else:
+        row = conn.execute(
+            "SELECT max(issue) FROM training_weight_signals WHERE signal_run_id = %s",
+            (CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID,),
+        ).fetchone()
+        print((row and row[0]) or "")
+PY
+}
+
+refresh_weight_kdj_signals() {
+  local latest_issue="$1"
+  local signal_issue
+  local stamp
+  local refresh_log
+  signal_issue="$(latest_weight_kdj_signal_issue)"
+  if [[ -n "$latest_issue" && "$signal_issue" == "$latest_issue" ]]; then
+    log "weight KDJ signals already current issue=$latest_issue"
+    return 0
+  fi
+  if [[ "$signal_issue" =~ ^[0-9]+$ && "$latest_issue" =~ ^[0-9]+$ && "$signal_issue" -gt "$latest_issue" ]]; then
+    log "weight KDJ signal issue is ahead of history signal_issue=$signal_issue latest_issue=$latest_issue; refusing refresh"
+    return 1
+  fi
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  refresh_log="$LOG_DIR/weight-kdj-incremental-$stamp.log"
+  log "refreshing weight KDJ signals signal_issue=${signal_issue:-none} latest_issue=${latest_issue:-none} log=$refresh_log"
+  if ! .venv/bin/python scripts/generate_weight_kdj_signals.py \
+    --mode incremental \
+    --signal-run-id weight-kdj-recent-1000-v1 \
+    --issues 1000 \
+    --allow-partial \
+    --chunk-size 25 \
+    --train-window 900 \
+    --top-n 10000 \
+    --heavy-job-lock-timeout-seconds 0 \
+    --cpu-threads 1 \
+    > "$refresh_log" 2>&1; then
+    log "weight KDJ signal refresh failed log=$refresh_log"
+    tail -n 40 "$refresh_log" >&2 || true
+    return 1
+  fi
+  signal_issue="$(latest_weight_kdj_signal_issue)"
+  if [[ -z "$latest_issue" || "$signal_issue" != "$latest_issue" ]]; then
+    log "weight KDJ signal refresh incomplete signal_issue=${signal_issue:-none} latest_issue=${latest_issue:-none} log=$refresh_log"
+    return 1
+  fi
+  log "weight KDJ signal refresh completed issue=$signal_issue log=$refresh_log"
+}
+
 capture_current_prediction_snapshots() {
   local output_path="$1"
   .venv/bin/python - "$output_path" <<'PY'
@@ -227,12 +285,18 @@ latest_issue="$(latest_db_issue)"
 evaluate_synced_predictions_if_needed "$sync_output_file" "$sync_from_issue" "$latest_issue" "$prediction_snapshot_file"
 rm -f "$sync_output_file"
 rm -f "$prediction_snapshot_file"
+signal_issue="$(latest_weight_kdj_signal_issue)"
+signal_refresh_needed=false
+if [[ -n "$latest_issue" && "$signal_issue" != "$latest_issue" ]]; then
+  signal_refresh_needed=true
+  log "weight KDJ signals stale signal_issue=${signal_issue:-none} latest_issue=$latest_issue"
+fi
 
 if [[ -s "$PID_FILE" ]]; then
   pid="$(tr -d '[:space:]' < "$PID_FILE")"
   if is_training_pid_active "$pid"; then
     running_as_of="$(training_pid_as_of_issue "$pid")"
-    if [[ "$running_as_of" == "$latest_issue" ]]; then
+    if [[ "$running_as_of" == "$latest_issue" && "$signal_refresh_needed" == false ]]; then
       if watch_recommends_supervisor_restart "$pid"; then
         stop_training_pid "$pid"
       else
@@ -240,10 +304,14 @@ if [[ -s "$PID_FILE" ]]; then
         exit 0
       fi
     else
-      log "training supervisor stale pid=$pid running_as_of=${running_as_of:-auto} latest_issue=${latest_issue:-none}"
+      log "training supervisor stale pid=$pid running_as_of=${running_as_of:-auto} latest_issue=${latest_issue:-none} signal_issue=${signal_issue:-none}"
       stop_training_pid "$pid"
     fi
   fi
+fi
+
+if [[ "$signal_refresh_needed" == true ]]; then
+  refresh_weight_kdj_signals "$latest_issue"
 fi
 
 stamp="$(date +%Y%m%d-%H%M%S)"

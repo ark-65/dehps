@@ -86,8 +86,10 @@ cat <<'PROMPT' | "$CODEX_BIN" exec \
 
 定位：这是一个私有的 DEHPS 彩票预测训练系统。可以把实验结果作为候选预测信号或训练中的预测能力来研究，但任何输出都必须保留证据等级、训练状态、风险、不确定性、失败案例、合法样本空间、历史窗口、baseline/null model 和泄漏检查；不要把未成熟结果写成保证命中、确定优势或无风险投注建议。
 
+长期目标：让训练循环持续变强且可审计。这里的“变强”必须表现为数据更新闭环、候选/排名结构产生可解释的新变化、冻结验证或前向证据改善、失败模式减少；单纯增加运行时长、轮数或 CPU 消耗不算进步。
+
 目标：每轮只完成一个小而可验证的改进，优先级如下：
-1. 先查看训练进度和运行状态：优先运行或读取 `apps/worker-python/.venv/bin/python apps/worker-python/scripts/watch_training_progress.py --limit 5`，并检查最新 `data/output/optimization/training-supervisor-*.json` 和对应 Markdown report。若训练监控、supervisor 状态、DB 读取或启动路径异常，先修这个运行问题。
+1. 先查看训练进度和运行状态：优先运行或读取 `apps/worker-python/.venv/bin/python apps/worker-python/scripts/watch_training_progress.py --limit 12`，并检查最新 `data/output/optimization/training-supervisor-*.json` 和对应 Markdown report。必须读取 `advisor_signal_freshness`、round repetition、rank homogeneity、source survival、promotion/frozen validation 和 parser/sync/duplicate 结果。若 action 是 `refresh_advisor_signals`、`inspect_advisor_signals` 或 `inspect_advisor_signal_leakage`，先检查 `runtime/logs/ssq_draw_sync.log`、canonical KDJ 最新 issue 与历史最新 issue，优先修复数据闭环。
 2. 修复当前测试失败、明显 bug、类型错误、启动错误、训练 watch / supervisor 运行错误。
 3. 如果训练出现停滞、发散、候选族塌缩、可疑跳变、重复评估相近配置、source/frontier 异常或 frozen validation 不一致，先做数学诊断，再决定最小修复。
 4. 只有没有训练或运行异常时，才寻找高价值 TODO/FIXME、边界条件缺陷、日志/状态可观测性问题或测试缺口，并完成最小修复。
@@ -105,6 +107,8 @@ cat <<'PROMPT' | "$CODEX_BIN" exec \
   - `$riemann`：检查搜索空间结构、候选多样性、共现几何、离散/连续转换、局部改进是否解释全局行为、latent state 是否被错误表征。
   - `$gauss-riemann-dialogue`：当一个训练修复看似合理但未被证明时，记录 Task Frame、Gauss pass、Riemann pass、分歧、最小共同结论和下一轮验证。
 - 自主度是诊断优先：允许修 bug、补诊断、改现有参数边界或现有策略的明显安全约束；不要新增模型、advisor、候选源或大策略，除非人类明确要求。
+- advisor 信号落后历史时，不要让旧 supervisor 静默继续训练，也不要在 heavy-job 锁仍由 supervisor 持有时并发刷新。使用受控生命周期：记录旧 run id，停止旧 supervisor，增量刷新 canonical 信号并核对 issue 对齐，再启动 fresh supervisor。
+- 不得把更多轮次、更多 CPU 或取消 frozen/null/leakage gate 当作停滞修复。若候选仍多样但 round-best 重复，先检查数据新鲜度与目标函数平台；连续指标只可用于搜索导航，不得替代晋级证据。
 - 如果改动触及 training、optimization、dynamic weights、advisor 或 supervisor 代码，验证通过后必须启动更新后的 fresh supervisor，并监控至少 1-2 个完成训练轮次；不要继续依赖旧 live training process。
 - 优先运行与改动相关的最小测试；必要时再跑 apps/worker-python/.venv/bin/python -m pytest、apps/api npm test、apps/web npm test。
 - 每轮结束必须留下清晰结果：若有代码改动且测试通过，创建一个 git commit，然后用 `apps/worker-python/.venv/bin/python apps/worker-python/scripts/self_iteration_publish_pr.py --title "$PR_TITLE" --body-file "$PR_BODY_FILE" --base main --remote origin` 创建 ready PR 并启用 auto-merge；若发布失败，明确写明失败原因并保留当前分支供人工恢复。

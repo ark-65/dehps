@@ -6,7 +6,7 @@
 
 ```cron
 CRON_TZ=Asia/Shanghai
-59 23 * * 2,4,0 cd /path/to/ark-dehps/apps/worker-python && /usr/bin/flock -n /path/to/ark-dehps/runtime/logs/ssq_draw_sync.lock /path/to/ark-dehps/apps/worker-python/.venv/bin/python scripts/daily_pipeline.py --strategy-key baseline_v1 --source zhcw --force >> /path/to/ark-dehps/runtime/logs/ssq_draw_sync.log 2>&1
+59 23 * * 2,4,0 cd /path/to/ark-dehps/apps/worker-python && /usr/bin/flock -n /path/to/ark-dehps/runtime/logs/ssq_draw_sync.lock /path/to/ark-dehps/apps/worker-python/.venv/bin/python -m scripts.daily_pipeline --strategy-key baseline_v1 --source zhcw --force >> /path/to/ark-dehps/runtime/logs/ssq_draw_sync.log 2>&1
 ```
 
 ## systemd
@@ -26,6 +26,8 @@ Crontab should append stdout and stderr to:
 ```text
 runtime/logs/ssq_draw_sync.log
 ```
+
+The training supervisor watchdog separately compares the latest history issue, canonical KDJ signal issue, and the live supervisor `--as-of-issue`. If signals lag, it stops the old supervisor, refreshes `weight-kdj-recent-1000-v1` incrementally under the heavy-job lock, verifies issue alignment, and only then starts a fresh supervisor.
 
 For systemd installs, inspect the timer and service with:
 
