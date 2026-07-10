@@ -4,6 +4,7 @@ import json
 import os
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from typing import Any
 
 import scripts.watch_training_progress as watch
 from scripts.watch_training_progress import (
@@ -38,6 +39,182 @@ def source_survival_round(round_index: int, source_survival: dict, **prefilter_f
         "round_index": round_index,
         "prefilter": {"source_survival": source_survival, **prefilter_fields},
     }
+
+
+def forward_evaluation_row(
+    line_key: str,
+    predicted_issue: str,
+    *,
+    as_of_issue: str,
+    leakage_passed: bool = True,
+    status: str = "evaluated",
+    exact_top_10000: bool = False,
+) -> dict[str, Any]:
+    return {
+        "evaluation_key": f"{line_key}:{predicted_issue}:snapshot",
+        "line_key": line_key,
+        "snapshot_key": f"{line_key}-{predicted_issue}",
+        "run_id": "forward-run",
+        "source_round_index": 1,
+        "as_of_issue": as_of_issue,
+        "predicted_issue": predicted_issue,
+        "status": status,
+        "summary": {"leakage_passed": leakage_passed},
+        "hit_top_100": False,
+        "hit_top_1000": False,
+        "hit_top_10000": exact_top_10000,
+        "hit_red5_top_100": False,
+        "hit_red5_top_1000": False,
+        "hit_red5_top_10000": False,
+    }
+
+
+def test_forward_evidence_excludes_pre_isolation_rows_and_surfaces_pending_pair():
+    old_rows = [
+        forward_evaluation_row(
+            line_key,
+            "2026078",
+            as_of_issue="2026077",
+        )
+        for line_key in watch.FORWARD_EVIDENCE_LINE_KEYS
+    ]
+    snapshots = [
+        {
+            "line_key": line_key,
+            "predicted_issue": "2026079",
+            "as_of_issue": "2026078",
+            "candidate_count": 10_000,
+        }
+        for line_key in watch.FORWARD_EVIDENCE_LINE_KEYS
+    ]
+
+    summary = watch.summarize_forward_evidence(
+        activation_after_issue="2026078",
+        activation_run_id="isolation-run",
+        activation_round_index=1,
+        evaluation_rows=old_rows,
+        snapshot_rows=snapshots,
+    )
+
+    assert summary["status"] == "not_started"
+    assert summary["pre_activation_evaluation_count"] == 3
+    assert summary["paired_issue_count"] == 0
+    assert summary["pending_snapshots"] == [
+        {
+            "predicted_issue": "2026079",
+            "line_keys": ["dynamic_kdj", "dynamic_kdj_near", "static_100"],
+            "complete_line_set": True,
+            "candidate_counts": {
+                "dynamic_kdj": 10_000,
+                "dynamic_kdj_near": 10_000,
+                "static_100": 10_000,
+            },
+        }
+    ]
+    assert summary["promotion_eligible"] is False
+    assert summary["automatic_quarantine_release"] is False
+
+
+def test_forward_evidence_threshold_only_enables_human_review():
+    rows = []
+    for offset in range(1, 21):
+        predicted_issue = str(2026078 + offset)
+        as_of_issue = str(2026077 + offset)
+        rows.extend(
+            forward_evaluation_row(
+                line_key,
+                predicted_issue,
+                as_of_issue=as_of_issue,
+                exact_top_10000=(line_key == "dynamic_kdj" and offset == 1),
+            )
+            for line_key in watch.FORWARD_EVIDENCE_LINE_KEYS
+        )
+
+    summary = watch.summarize_forward_evidence(
+        activation_after_issue="2026078",
+        evaluation_rows=rows,
+        snapshot_rows=[],
+        min_paired_issues=20,
+    )
+
+    assert summary["status"] == "review_ready"
+    assert summary["paired_issue_count"] == 20
+    assert summary["review_ready"] is True
+    assert summary["review_only"] is True
+    assert summary["promotion_eligible"] is False
+    assert summary["automatic_quarantine_release"] is False
+    assert summary["line_totals"]["dynamic_kdj"]["exact_top_100_1000_10000"] == [0, 0, 1]
+    assert summary["comparison"]["exact_delta_dynamic_minus_static"] == [0, 0, 1]
+    assert summary["exact_random_null"]["expected_hits"]["top_10000"] == 0.180576
+    assert summary["exact_random_null"]["red5_null_status"] == "not_estimated"
+
+
+def test_forward_evidence_fails_closed_for_leakage_duplicates_and_incomplete_pairs():
+    rows = [
+        forward_evaluation_row(
+            "static_100",
+            "2026079",
+            as_of_issue="2026078",
+            leakage_passed=False,
+        ),
+        forward_evaluation_row("dynamic_kdj", "2026079", as_of_issue="2026078"),
+    ]
+    rows.append({**rows[-1], "evaluation_key": "duplicate"})
+
+    summary = watch.summarize_forward_evidence(
+        activation_after_issue="2026078",
+        evaluation_rows=rows,
+        snapshot_rows=[],
+    )
+
+    assert summary["status"] == "invalid"
+    blockers = " ".join(summary["blockers"])
+    assert "invalid_evaluation_boundary:2026079:static_100" in blockers
+    assert "duplicate_line_issue_rows:2026079:dynamic_kdj" in blockers
+    assert "incomplete_paired_issue:2026079:dynamic_kdj_near" in blockers
+    assert summary["automatic_quarantine_release"] is False
+
+
+def test_forward_evidence_is_visible_in_recommendation_markdown_and_operator_summary():
+    forward_evidence = {
+        **watch.default_forward_evidence(),
+        "status": "invalid",
+        "activation_after_issue": "2026078",
+        "blockers": ["duplicate_line_issue_rows:2026079:dynamic_kdj"],
+    }
+    now = datetime.now(timezone.utc)
+    recommendation = recommendation_summary(
+        rows=[{"round_index": 1, "improved": False, "updated_at": now}],
+        lock={"active": True, "owner": "training-supervisor"},
+        advisors={"neural_kdj_advisor": {"candidate_count": 0}},
+        now=now,
+        stale_minutes=30,
+        forward_evidence=forward_evidence,
+    )
+    payload = {
+        "generated_at": "2026-07-11T00:00:00Z",
+        "run_id": "run-1",
+        "round_count": 1,
+        "latest_round": 1,
+        "last_improved_round": None,
+        "stagnation_rounds": 1,
+        "latest_metrics": {},
+        "advisor_summary": {},
+        "forward_evidence": forward_evidence,
+        "heavy_job_lock": {"active": True},
+        "recommendation": recommendation,
+        "guardrail": "No automatic promotion.",
+    }
+
+    markdown = render_markdown(payload)
+    operator = operator_summary(payload)
+
+    assert recommendation["severity"] == "alert"
+    assert recommendation["action"] == "inspect_forward_evidence"
+    assert "## Forward Evidence Ledger" in markdown
+    assert "automatic_quarantine_release=False" in markdown
+    assert operator["forward_evidence"]["status"] == "invalid"
+    assert operator["forward_evidence"]["promotion_eligible"] is False
 
 
 def test_guard_continuity_promotes_effective_stagnation_without_changing_round_count():

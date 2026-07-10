@@ -44,6 +44,14 @@ DEFAULT_ADVISOR_SIGNAL_MAX_ISSUE_LAG = 1
 DEFAULT_SOURCE_SURVIVAL_MIN_ROUNDS = 4
 DEFAULT_SOURCE_SURVIVAL_MIN_GENERATED = 8
 DEFAULT_SOURCE_SURVIVAL_BUDGET_REVIEW_MIN_ROUNDS = 8
+DEFAULT_FORWARD_EVIDENCE_MIN_PAIRED_ISSUES = 20
+DEFAULT_FORWARD_EVIDENCE_ROW_LIMIT = 5000
+HOLDOUT_ISOLATION_PROTOCOL = "search_slice_frozen_promotion_v1"
+FORWARD_EVIDENCE_LINE_KEYS = (
+    "static_100",
+    "dynamic_kdj",
+    "dynamic_kdj_near",
+)
 SAFE_FILENAME_COMPONENT_PATTERN = re.compile(r"[^A-Za-z0-9_-]+")
 SAFE_INTEGER_TEXT_PATTERN = re.compile(r"[0-9]+")
 MAX_SAFE_FILENAME_COMPONENT_LENGTH = 96
@@ -138,6 +146,16 @@ def safe_int(value: Any) -> int | None:
     except Exception:
         return None
     return parsed
+
+
+def issue_compare(left: Any, right: Any) -> int:
+    left_int = safe_int(left)
+    right_int = safe_int(right)
+    if left_int is not None and right_int is not None:
+        return (left_int > right_int) - (left_int < right_int)
+    left_text = "" if left is None else str(left)
+    right_text = "" if right is None else str(right)
+    return (left_text > right_text) - (left_text < right_text)
 
 
 def positive_int_or_default(value: Any, *, default: int) -> int:
@@ -1129,6 +1147,318 @@ def load_line_progress(run_id: str, *, limit: int) -> dict[str, Any]:
     return summarize_line_rounds(rows)
 
 
+def default_forward_evidence() -> dict[str, Any]:
+    return {
+        "status": "not_available",
+        "protocol": HOLDOUT_ISOLATION_PROTOCOL,
+        "activation_after_issue": None,
+        "expected_lines": list(FORWARD_EVIDENCE_LINE_KEYS),
+        "paired_issue_count": 0,
+        "min_paired_issues": DEFAULT_FORWARD_EVIDENCE_MIN_PAIRED_ISSUES,
+        "review_ready": False,
+        "review_only": True,
+        "promotion_eligible": False,
+        "automatic_quarantine_release": False,
+        "blockers": ["holdout_isolation_activation_not_found"],
+        "pre_activation_evaluation_count": 0,
+        "pending_snapshots": [],
+        "line_totals": {},
+        "paired_issues": [],
+    }
+
+
+def load_forward_evidence_rows(*, limit: int = DEFAULT_FORWARD_EVIDENCE_ROW_LIMIT) -> dict[str, Any]:
+    limit = positive_int_or_default(limit, default=DEFAULT_FORWARD_EVIDENCE_ROW_LIMIT)
+    with get_connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            activation = cur.execute(
+                """
+                SELECT run_id, round_index,
+                       best_summary->'evaluation_split'->'frozen_issues' AS frozen_issues
+                FROM training_round_results
+                WHERE best_summary->'evaluation_split'->>'protocol' = %s
+                ORDER BY created_at ASC, run_id ASC, round_index ASC
+                LIMIT 1
+                """,
+                (HOLDOUT_ISOLATION_PROTOCOL,),
+            ).fetchone()
+
+            evaluation_rows: list[dict[str, Any]] = []
+            evaluation_table = cur.execute(
+                "SELECT to_regclass('public.training_prediction_evaluations') AS table_name"
+            ).fetchone()
+            if evaluation_table and evaluation_table.get("table_name"):
+                evaluation_rows = list(
+                    cur.execute(
+                        """
+                        SELECT evaluation_key, line_key, snapshot_key, run_id, source_round_index,
+                               as_of_issue, predicted_issue, status, summary,
+                               hit_top_100, hit_top_1000, hit_top_10000,
+                               hit_red5_top_100, hit_red5_top_1000, hit_red5_top_10000,
+                               evaluated_at
+                        FROM training_prediction_evaluations
+                        ORDER BY evaluated_at ASC, id ASC
+                        LIMIT %s
+                        """,
+                        (limit,),
+                    ).fetchall()
+                )
+
+            snapshot_rows: list[dict[str, Any]] = []
+            snapshot_table = cur.execute(
+                "SELECT to_regclass('public.training_next_candidates_current') AS table_name"
+            ).fetchone()
+            if snapshot_table and snapshot_table.get("table_name"):
+                snapshot_rows = list(
+                    cur.execute(
+                        """
+                        SELECT line_key, next_issue AS predicted_issue, as_of_issue, run_id,
+                               source_round_index, snapshot_key, COUNT(*) AS candidate_count,
+                               MIN(generated_at) AS generated_at
+                        FROM training_next_candidates_current
+                        GROUP BY line_key, next_issue, as_of_issue, run_id,
+                                 source_round_index, snapshot_key
+                        ORDER BY next_issue ASC, line_key ASC
+                        """
+                    ).fetchall()
+                )
+
+    activation_row = dict(activation) if activation else {}
+    frozen_issues = (
+        activation_row.get("frozen_issues")
+        if isinstance(activation_row.get("frozen_issues"), list)
+        else []
+    )
+    return {
+        "activation_after_issue": str(frozen_issues[-1]) if frozen_issues else None,
+        "activation_run_id": activation_row.get("run_id"),
+        "activation_round_index": safe_int(activation_row.get("round_index")),
+        "evaluation_rows": evaluation_rows,
+        "snapshot_rows": snapshot_rows,
+    }
+
+
+def forward_metric_vector(rows: list[dict[str, Any]], *, prefix: str) -> list[int]:
+    return [
+        sum(bool(row.get(f"{prefix}_top_{threshold}")) for row in rows)
+        for threshold in (100, 1000, 10000)
+    ]
+
+
+def summarize_forward_evidence(
+    *,
+    activation_after_issue: Any,
+    evaluation_rows: list[dict[str, Any]],
+    snapshot_rows: list[dict[str, Any]],
+    activation_run_id: Any = None,
+    activation_round_index: Any = None,
+    min_paired_issues: int = DEFAULT_FORWARD_EVIDENCE_MIN_PAIRED_ISSUES,
+) -> dict[str, Any]:
+    min_paired_issues = positive_int_or_default(
+        min_paired_issues,
+        default=DEFAULT_FORWARD_EVIDENCE_MIN_PAIRED_ISSUES,
+    )
+    activation_issue = (
+        str(activation_after_issue).strip()
+        if activation_after_issue is not None and str(activation_after_issue).strip()
+        else None
+    )
+    if not activation_issue:
+        return {
+            **default_forward_evidence(),
+            "min_paired_issues": min_paired_issues,
+        }
+
+    expected_lines = set(FORWARD_EVIDENCE_LINE_KEYS)
+    pre_activation_count = 0
+    post_activation: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    invalid_reasons: list[str] = []
+    for raw_row in evaluation_rows:
+        if not isinstance(raw_row, dict):
+            continue
+        line_key = str(raw_row.get("line_key") or "")
+        predicted_issue = str(raw_row.get("predicted_issue") or "")
+        as_of_issue = str(raw_row.get("as_of_issue") or "")
+        if line_key not in expected_lines or not predicted_issue:
+            continue
+        if issue_compare(predicted_issue, activation_issue) <= 0:
+            pre_activation_count += 1
+            continue
+        post_activation.setdefault(predicted_issue, {}).setdefault(line_key, []).append(raw_row)
+        summary = raw_row.get("summary") if isinstance(raw_row.get("summary"), dict) else {}
+        leakage_passed = summary.get("leakage_passed") is True
+        if (
+            not as_of_issue
+            or issue_compare(as_of_issue, activation_issue) < 0
+            or issue_compare(as_of_issue, predicted_issue) >= 0
+            or not leakage_passed
+            or raw_row.get("status") != "evaluated"
+        ):
+            invalid_reasons.append(f"invalid_evaluation_boundary:{predicted_issue}:{line_key}")
+
+    paired_issues: list[dict[str, Any]] = []
+    paired_line_rows: dict[str, list[dict[str, Any]]] = {
+        line_key: [] for line_key in FORWARD_EVIDENCE_LINE_KEYS
+    }
+    for predicted_issue in sorted(post_activation, key=lambda value: (safe_int(value) is None, safe_int(value) or value)):
+        issue_rows = post_activation[predicted_issue]
+        duplicate_lines = sorted(
+            line_key for line_key, rows in issue_rows.items() if len(rows) != 1
+        )
+        if duplicate_lines:
+            invalid_reasons.append(
+                f"duplicate_line_issue_rows:{predicted_issue}:{','.join(duplicate_lines)}"
+            )
+        missing_lines = sorted(expected_lines - set(issue_rows))
+        if missing_lines:
+            invalid_reasons.append(
+                f"incomplete_paired_issue:{predicted_issue}:{','.join(missing_lines)}"
+            )
+        if duplicate_lines or missing_lines:
+            continue
+        selected = {line_key: issue_rows[line_key][0] for line_key in FORWARD_EVIDENCE_LINE_KEYS}
+        if any(
+            row.get("status") != "evaluated"
+            or not isinstance(row.get("summary"), dict)
+            or row["summary"].get("leakage_passed") is not True
+            for row in selected.values()
+        ):
+            continue
+        paired_issues.append(
+            {
+                "predicted_issue": predicted_issue,
+                "lines": {
+                    line_key: {
+                        "exact_top_100_1000_10000": forward_metric_vector(
+                            [row], prefix="hit"
+                        ),
+                        "red5_top_100_1000_10000": forward_metric_vector(
+                            [row], prefix="hit_red5"
+                        ),
+                        "snapshot_key": row.get("snapshot_key"),
+                        "run_id": row.get("run_id"),
+                    }
+                    for line_key, row in selected.items()
+                },
+            }
+        )
+        for line_key, row in selected.items():
+            paired_line_rows[line_key].append(row)
+
+    pending_by_issue: dict[str, dict[str, dict[str, Any]]] = {}
+    for raw_row in snapshot_rows:
+        if not isinstance(raw_row, dict):
+            continue
+        line_key = str(raw_row.get("line_key") or "")
+        predicted_issue = str(raw_row.get("predicted_issue") or "")
+        as_of_issue = str(raw_row.get("as_of_issue") or "")
+        if (
+            line_key not in expected_lines
+            or not predicted_issue
+            or issue_compare(predicted_issue, activation_issue) <= 0
+        ):
+            continue
+        if issue_compare(as_of_issue, activation_issue) < 0 or issue_compare(as_of_issue, predicted_issue) >= 0:
+            invalid_reasons.append(f"invalid_snapshot_boundary:{predicted_issue}:{line_key}")
+            continue
+        if predicted_issue in post_activation:
+            continue
+        pending_by_issue.setdefault(predicted_issue, {})[line_key] = raw_row
+
+    pending_snapshots = [
+        {
+            "predicted_issue": issue,
+            "line_keys": sorted(rows),
+            "complete_line_set": set(rows) == expected_lines,
+            "candidate_counts": {
+                line_key: safe_int(row.get("candidate_count")) or 0
+                for line_key, row in sorted(rows.items())
+            },
+        }
+        for issue, rows in sorted(
+            pending_by_issue.items(),
+            key=lambda item: (safe_int(item[0]) is None, safe_int(item[0]) or item[0]),
+        )
+    ]
+
+    line_totals = {
+        line_key: {
+            "paired_issue_count": len(rows),
+            "exact_top_100_1000_10000": forward_metric_vector(rows, prefix="hit"),
+            "red5_top_100_1000_10000": forward_metric_vector(rows, prefix="hit_red5"),
+        }
+        for line_key, rows in paired_line_rows.items()
+    }
+    static_totals = line_totals["static_100"]
+    dynamic_totals = line_totals["dynamic_kdj"]
+    comparison = {
+        "challenger_line_key": "dynamic_kdj",
+        "baseline_line_key": "static_100",
+        "exact_delta_dynamic_minus_static": vector_delta(
+            dynamic_totals["exact_top_100_1000_10000"],
+            static_totals["exact_top_100_1000_10000"],
+        ),
+        "red5_delta_dynamic_minus_static": vector_delta(
+            dynamic_totals["red5_top_100_1000_10000"],
+            static_totals["red5_top_100_1000_10000"],
+        ),
+    }
+    paired_issue_count = len(paired_issues)
+    blockers = list(dict.fromkeys(invalid_reasons))
+    if paired_issue_count < min_paired_issues:
+        blockers.append(
+            f"insufficient_paired_forward_issues:{paired_issue_count}/{min_paired_issues}"
+        )
+    if invalid_reasons:
+        status = "invalid"
+    elif paired_issue_count >= min_paired_issues:
+        status = "review_ready"
+    elif paired_issue_count:
+        status = "accumulating"
+    else:
+        status = "not_started"
+
+    return {
+        "status": status,
+        "protocol": HOLDOUT_ISOLATION_PROTOCOL,
+        "activation_after_issue": activation_issue,
+        "activation_run_id": activation_run_id,
+        "activation_round_index": safe_int(activation_round_index),
+        "expected_lines": list(FORWARD_EVIDENCE_LINE_KEYS),
+        "pre_activation_evaluation_count": pre_activation_count,
+        "post_activation_evaluation_count": sum(
+            len(rows) for issue_rows in post_activation.values() for rows in issue_rows.values()
+        ),
+        "paired_issue_count": paired_issue_count,
+        "min_paired_issues": min_paired_issues,
+        "review_ready": status == "review_ready",
+        "review_only": True,
+        "promotion_eligible": False,
+        "automatic_quarantine_release": False,
+        "blockers": blockers,
+        "pending_snapshots": pending_snapshots,
+        "line_totals": line_totals,
+        "comparison": comparison,
+        "exact_random_null": {
+            "model": "legal_uniform_per_draw",
+            "legal_universe_size": EXPECTED_SSQ_RED_COMBINATION_COUNT,
+            "paired_issue_count": paired_issue_count,
+            "expected_hits": {
+                f"top_{threshold}": round(
+                    paired_issue_count * threshold / EXPECTED_SSQ_RED_COMBINATION_COUNT,
+                    6,
+                )
+                for threshold in (100, 1000, 10000)
+            },
+            "red5_null_status": "not_estimated",
+        },
+        "paired_issues": paired_issues[-min(50, len(paired_issues)):],
+        "interpretation": (
+            "Twenty paired forward issues permit human review only; they never automatically release historical holdout quarantine."
+        ),
+    }
+
+
 def supervisor_progress_summary(progress: Any) -> dict[str, Any]:
     if not isinstance(progress, dict):
         return {}
@@ -1908,6 +2238,7 @@ def recommendation_summary(
     supervisor_status: dict[str, Any] | None = None,
     round_repetition: dict[str, Any] | None = None,
     advisor_signal_freshness: dict[str, Any] | None = None,
+    forward_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not rows:
         return {
@@ -2079,6 +2410,28 @@ def recommendation_summary(
             notes.append(
                 "Historical frozen results are quarantined from promotion; require genuinely forward unseen evidence before accepting model lift."
             )
+    forward_evidence = forward_evidence if isinstance(forward_evidence, dict) else {}
+    forward_status = forward_evidence.get("status")
+    if forward_status == "invalid":
+        severity = "alert"
+        actions.append("inspect_forward_evidence")
+        notes.append(
+            "Forward evidence ledger is invalid; keep quarantine closed and inspect: "
+            f"{compact_inline_list(forward_evidence.get('blockers'))}."
+        )
+    elif forward_status in {"not_started", "accumulating"}:
+        notes.append(
+            "Forward evidence is still accumulating: "
+            f"paired_issues={forward_evidence.get('paired_issue_count')}/"
+            f"{forward_evidence.get('min_paired_issues')} "
+            f"pending={len(forward_evidence.get('pending_snapshots') or [])}; "
+            "do not release historical holdout quarantine."
+        )
+    elif forward_status == "review_ready":
+        notes.append(
+            "Forward evidence reached its predeclared paired-issue review threshold; "
+            "human review is allowed, but automatic promotion and quarantine release remain disabled."
+        )
     eval_guard = (
         gates.get("eval_slice_overfit_guardrail")
         if isinstance(gates.get("eval_slice_overfit_guardrail"), dict)
@@ -2525,6 +2878,7 @@ def evidence_context_summary(
     gates: dict[str, dict[str, Any]],
     parser_sync_duplicate_checks: dict[str, Any] | None = None,
     round_repetition: dict[str, Any] | None = None,
+    forward_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     promotion = gates.get("promotion_gate") if isinstance(gates.get("promotion_gate"), dict) else {}
     eval_guard = (
@@ -2572,6 +2926,11 @@ def evidence_context_summary(
     }
     if parser_sync_duplicate_checks.get("status") != "checked" or not parser_sync_duplicate_checks.get("ok"):
         failure_modes.append(f"parser_sync_duplicates:{parser_sync_duplicate_checks.get('status')}")
+    forward_evidence = forward_evidence if isinstance(forward_evidence, dict) else {}
+    if forward_evidence.get("status") == "invalid":
+        failure_modes.append(
+            f"forward_evidence:{compact_inline_list(forward_evidence.get('blockers'))}"
+        )
 
     search_diagnostics: dict[str, Any] = {}
     if round_repetition.get("status") == "ready":
@@ -2653,6 +3012,19 @@ def evidence_context_summary(
             "run_id": supervisor_status.get("run_id"),
             "pid": supervisor_status.get("pid"),
         },
+        "forward_evidence": {
+            "status": forward_evidence.get("status"),
+            "activation_after_issue": forward_evidence.get("activation_after_issue"),
+            "paired_issue_count": forward_evidence.get("paired_issue_count"),
+            "min_paired_issues": forward_evidence.get("min_paired_issues"),
+            "review_ready": forward_evidence.get("review_ready"),
+            "review_only": forward_evidence.get("review_only"),
+            "promotion_eligible": forward_evidence.get("promotion_eligible"),
+            "automatic_quarantine_release": forward_evidence.get(
+                "automatic_quarantine_release"
+            ),
+            "pending_issue_count": len(forward_evidence.get("pending_snapshots") or []),
+        },
         "evidence_level": "operational_training_diagnostic_no_predictive_claim",
         "risk": "Historical response-surface behavior is hypothesis evidence only; this watch does not support guaranteed hits or low-risk betting.",
         "uncertainty": "Frozen validation can remain at baseline even when eval-slice metrics look strong.",
@@ -2711,6 +3083,16 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         history_latest_issue=parser_sync_duplicate_checks.get("history_latest_issue"),
         history_issues=history_issues,
     )
+    try:
+        forward_rows = load_forward_evidence_rows()
+        forward_evidence = summarize_forward_evidence(**forward_rows)
+    except Exception as exc:
+        db_read_errors.append(db_read_error_summary("load_forward_evidence", exc))
+        forward_evidence = {
+            **default_forward_evidence(),
+            "status": "invalid",
+            "blockers": ["forward_evidence_db_read_failed"],
+        }
     recommendation = recommendation_summary(
         rows=rows,
         lock=lock,
@@ -2722,6 +3104,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         supervisor_status=supervisor_status,
         round_repetition=round_repetition,
         advisor_signal_freshness=advisor_signal_freshness,
+        forward_evidence=forward_evidence,
     )
     if db_read_errors:
         actions = [
@@ -2778,6 +3161,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         "round_repetition": round_repetition,
         "candidate_source_survival": candidate_source_survival,
         "line_progress": line_progress,
+        "forward_evidence": forward_evidence,
         "advisor_summary": advisors,
         "advisor_signal_freshness": advisor_signal_freshness,
         "gate_summary": gates,
@@ -2792,6 +3176,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
             gates=gates,
             parser_sync_duplicate_checks=parser_sync_duplicate_checks,
             round_repetition=round_repetition,
+            forward_evidence=forward_evidence,
         ),
         "heavy_job_lock": lock,
         "recommendation": recommendation,
@@ -2847,6 +3232,68 @@ def render_line_progress_markdown(line_progress: Any) -> str:
 {rows}
 {comparison_line}
 """
+
+
+def render_forward_evidence_markdown(forward_evidence: Any) -> str:
+    if not isinstance(forward_evidence, dict):
+        return ""
+    line_rows = "\n".join(
+        "| "
+        f"{markdown_inline_code(line_key)} | "
+        f"{values.get('paired_issue_count')} | "
+        f"{markdown_inline_text(markdown_metric_vector(values.get('exact_top_100_1000_10000')))} | "
+        f"{markdown_inline_text(markdown_metric_vector(values.get('red5_top_100_1000_10000')))} |"
+        for line_key, values in sorted((forward_evidence.get("line_totals") or {}).items())
+        if isinstance(values, dict)
+    )
+    if not line_rows:
+        line_rows = "| none | 0 | 0 / 0 / 0 | 0 / 0 / 0 |"
+    pending_rows = ", ".join(
+        f"{item.get('predicted_issue')}:{'/'.join(item.get('line_keys') or [])}"
+        for item in forward_evidence.get("pending_snapshots") or []
+        if isinstance(item, dict)
+    ) or "none"
+    null_model = (
+        forward_evidence.get("exact_random_null")
+        if isinstance(forward_evidence.get("exact_random_null"), dict)
+        else {}
+    )
+    null_expected = null_model.get("expected_hits") if isinstance(null_model.get("expected_hits"), dict) else {}
+    comparison = (
+        forward_evidence.get("comparison")
+        if isinstance(forward_evidence.get("comparison"), dict)
+        else {}
+    )
+    return (
+        "## Forward Evidence Ledger\n\n"
+        f"- Status: {markdown_inline_code(forward_evidence.get('status'))}\n"
+        "- Isolation activation: "
+        f"protocol={markdown_inline_text(forward_evidence.get('protocol'))} "
+        f"after_issue={markdown_inline_text(forward_evidence.get('activation_after_issue'))} "
+        f"run={markdown_inline_text(forward_evidence.get('activation_run_id'))} "
+        f"round={forward_evidence.get('activation_round_index')}\n"
+        "- Paired forward issues: "
+        f"{forward_evidence.get('paired_issue_count')}/"
+        f"{forward_evidence.get('min_paired_issues')} "
+        f"review_ready={forward_evidence.get('review_ready')} "
+        f"pre_activation_evaluations={forward_evidence.get('pre_activation_evaluation_count')}\n"
+        "- Release policy: "
+        f"review_only={forward_evidence.get('review_only')} "
+        f"promotion_eligible={forward_evidence.get('promotion_eligible')} "
+        f"automatic_quarantine_release={forward_evidence.get('automatic_quarantine_release')}\n"
+        f"- Pending snapshots: {markdown_inline_text(pending_rows)}\n"
+        f"- Blockers: {markdown_inline_text(compact_inline_list(forward_evidence.get('blockers')))}\n"
+        "- Exact legal-uniform null (Top100/1000/10000 expected hits): "
+        f"{null_expected.get('top_100')} / {null_expected.get('top_1000')} / "
+        f"{null_expected.get('top_10000')}; red5={markdown_inline_text(null_model.get('red5_null_status'))}\n"
+        "- Dynamic minus static exact/red5: "
+        f"{markdown_inline_text(markdown_metric_vector(comparison.get('exact_delta_dynamic_minus_static')))} / "
+        f"{markdown_inline_text(markdown_metric_vector(comparison.get('red5_delta_dynamic_minus_static')))}\n\n"
+        "| Line | Paired issues | Exact Top100/1000/10000 | Red5 Top100/1000/10000 |\n"
+        "| --- | ---: | ---: | ---: |\n"
+        f"{line_rows}\n\n"
+        f"Interpretation: {markdown_inline_text(forward_evidence.get('interpretation'))}\n\n"
+    )
 
 
 def render_round_repetition_markdown(round_repetition: Any) -> str:
@@ -3238,6 +3685,9 @@ def render_markdown(payload: dict[str, Any]) -> str:
             f"{supervisor_progress_lines}\n"
         )
     line_progress_section = render_line_progress_markdown(payload.get("line_progress"))
+    forward_evidence_section = render_forward_evidence_markdown(
+        payload.get("forward_evidence")
+    )
     round_repetition_section = render_round_repetition_markdown(
         payload.get("round_repetition")
     )
@@ -3454,6 +3904,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
 {round_repetition_section}\
 {candidate_source_survival_section}\
 {line_progress_section}\
+{forward_evidence_section}\
 {restart_section}\
 {supervisor_section}\
 {evidence_section}\
@@ -3541,6 +3992,11 @@ def cli_evidence_context_summary(payload: dict[str, Any]) -> dict[str, Any]:
         if isinstance(baseline.get("random_null_expectation"), dict)
         else {}
     )
+    forward_evidence = (
+        evidence_context.get("forward_evidence")
+        if isinstance(evidence_context.get("forward_evidence"), dict)
+        else {}
+    )
     return {
         "evidence_level": evidence_context.get("evidence_level"),
         "risk": evidence_context.get("risk"),
@@ -3626,6 +4082,7 @@ def cli_evidence_context_summary(payload: dict[str, Any]) -> dict[str, Any]:
         }
         if repetition
         else {},
+        "forward_evidence": forward_evidence,
     }
 
 
@@ -3697,6 +4154,33 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "latest_round": line_progress.get("latest_round"),
             "lines": line_progress.get("lines") or {},
             "comparison": line_progress.get("comparison") or {},
+        }
+    forward_evidence = (
+        payload.get("forward_evidence")
+        if isinstance(payload.get("forward_evidence"), dict)
+        else {}
+    )
+    if forward_evidence:
+        summary["forward_evidence"] = {
+            "status": forward_evidence.get("status"),
+            "protocol": forward_evidence.get("protocol"),
+            "activation_after_issue": forward_evidence.get("activation_after_issue"),
+            "paired_issue_count": forward_evidence.get("paired_issue_count"),
+            "min_paired_issues": forward_evidence.get("min_paired_issues"),
+            "review_ready": forward_evidence.get("review_ready"),
+            "review_only": forward_evidence.get("review_only"),
+            "promotion_eligible": forward_evidence.get("promotion_eligible"),
+            "automatic_quarantine_release": forward_evidence.get(
+                "automatic_quarantine_release"
+            ),
+            "pre_activation_evaluation_count": forward_evidence.get(
+                "pre_activation_evaluation_count"
+            ),
+            "pending_snapshots": forward_evidence.get("pending_snapshots") or [],
+            "blockers": forward_evidence.get("blockers") or [],
+            "line_totals": forward_evidence.get("line_totals") or {},
+            "comparison": forward_evidence.get("comparison") or {},
+            "exact_random_null": forward_evidence.get("exact_random_null") or {},
         }
     round_repetition = (
         payload.get("round_repetition")
