@@ -1241,6 +1241,18 @@ def test_load_supervisor_status_reads_current_progress(tmp_path):
           "top_n": 10000,
           "regime_start_date": "2016-01-01",
           "regime_years": 10,
+          "continuity_seed": {
+            "mode": "same_history_validated_navigation_replay",
+            "eligible": true,
+            "reason": "strict_frozen_primary_lift_revalidated",
+            "record_count": 17,
+            "recovered_count": 1,
+            "evaluated_count": 1,
+            "eligible_count": 1,
+            "selected_config_hash": "continuity-hash",
+            "selected_frozen_primary_score": [0, 0, 1],
+            "baseline_frozen_primary_score": [0, 0, 0]
+          },
           "latest_progress": {
             "logged_at": "2026-07-01T00:03:00",
             "round": 9,
@@ -1269,6 +1281,18 @@ def test_load_supervisor_status_reads_current_progress(tmp_path):
     assert status["history_scope"] == "current_regime_default"
     assert status["train_window"] == 900
     assert status["eval_window"] == 100
+    assert status["continuity_seed"] == {
+        "mode": "same_history_validated_navigation_replay",
+        "eligible": True,
+        "reason": "strict_frozen_primary_lift_revalidated",
+        "record_count": 17,
+        "recovered_count": 1,
+        "evaluated_count": 1,
+        "eligible_count": 1,
+        "selected_config_hash": "continuity-hash",
+        "selected_frozen_primary_score": [0, 0, 1],
+        "baseline_frozen_primary_score": [0, 0, 0],
+    }
 
 
 def test_load_supervisor_status_infers_continuous_run_mode_from_null_deadline(tmp_path):

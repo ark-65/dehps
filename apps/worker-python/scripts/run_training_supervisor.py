@@ -81,6 +81,7 @@ from dehps.storage.postgres_store import (
     ensure_training_target_weight_inversions_schema,
     load_red_combination_universe,
     load_training_round_carryover_candidate_summaries,
+    load_training_round_navigation_records,
     load_training_supervisor_best_carryover_candidate_summaries,
     load_training_supervisor_best_candidate_summaries,
     upsert_training_round_result,
@@ -3934,6 +3935,141 @@ def load_db_supervisor_carryover_configs(
     )
 
 
+def _metadata_primary_score(value: object) -> tuple[int, int, int]:
+    if not isinstance(value, list | tuple):
+        return (0, 0, 0)
+    values = [int(item or 0) for item in value[:3]]
+    values.extend([0] * (3 - len(values)))
+    return tuple(values[:3])
+
+
+def recover_supervisor_continuity_configs(
+    records: list[dict],
+    *,
+    limit: int = 4,
+) -> tuple[tuple[FrequencyRankerConfig, ...], dict]:
+    """Recover validated navigation candidates without promoting them to incumbent."""
+    configs: list[FrequencyRankerConfig] = []
+    seen: set[str] = set()
+    recovered: list[dict] = []
+    for record in records:
+        prefilter = record.get("prefilter") if isinstance(record.get("prefilter"), dict) else {}
+        decision = (
+            prefilter.get("decision_round_best")
+            if isinstance(prefilter.get("decision_round_best"), dict)
+            else {}
+        )
+        candidate_hash = str(decision.get("config_hash") or "")
+        selected_score = _metadata_primary_score(decision.get("selected_frozen_primary_score"))
+        baseline_score = _metadata_primary_score(decision.get("frozen_primary_lift_baseline_score"))
+        if not candidate_hash or selected_score <= baseline_score:
+            continue
+
+        resolved: FrequencyRankerConfig | None = None
+        recovery_mode = "stored_summary"
+        raw_summaries = [record.get("best_summary"), *(record.get("top_results") or [])]
+        for raw_summary in raw_summaries:
+            if not isinstance(raw_summary, dict) or (summary_config_hash(raw_summary) or "") != candidate_hash:
+                continue
+            raw_config = raw_summary.get("config")
+            if isinstance(raw_config, dict):
+                try:
+                    resolved = FrequencyRankerConfig(**raw_config)
+                except TypeError:
+                    resolved = None
+            if resolved is not None:
+                break
+
+        restart_info = (
+            prefilter.get("rank_homogeneity_restart_champion")
+            if isinstance(prefilter.get("rank_homogeneity_restart_champion"), dict)
+            else {}
+        )
+        source_frontier = (
+            prefilter.get("source_frontier_champion")
+            if isinstance(prefilter.get("source_frontier_champion"), dict)
+            else {}
+        )
+        restart_candidate = (
+            candidate_hash == str(restart_info.get("config_hash") or "")
+            or (
+                source_frontier.get("source") == "stagnation_restart"
+                and candidate_hash == str(source_frontier.get("config_hash") or "")
+            )
+        )
+        if resolved is None and restart_candidate:
+            search_base_start = (
+                prefilter.get("search_base_start")
+                if isinstance(prefilter.get("search_base_start"), dict)
+                else {}
+            )
+            raw_base = search_base_start.get("config")
+            if not isinstance(raw_base, dict):
+                raw_base = record.get("best_config")
+            restart_budget = int((prefilter.get("candidate_budget") or {}).get("stagnation_restart") or 0)
+            if isinstance(raw_base, dict) and restart_budget > 0:
+                try:
+                    base = FrequencyRankerConfig(**raw_base)
+                except TypeError:
+                    base = None
+                if base is not None:
+                    regenerated = stagnation_restart_candidate_configs(
+                        base,
+                        max_configs=restart_budget,
+                        round_index=int(record.get("round_index") or 0),
+                        stagnation_rounds=int(prefilter.get("stagnation_rounds") or 0),
+                    )
+                    resolved = next(
+                        (config for config in regenerated if config_hash(config) == candidate_hash),
+                        None,
+                    )
+                    if resolved is not None:
+                        recovery_mode = "deterministic_restart_recovery"
+
+        if resolved is None or candidate_hash in seen:
+            continue
+        seen.add(candidate_hash)
+        configs.append(resolved)
+        recovered.append(
+            {
+                "run_id": str(record.get("run_id") or ""),
+                "round_index": int(record.get("round_index") or 0),
+                "config_hash": candidate_hash,
+                "source": str(decision.get("source") or ""),
+                "selected_frozen_primary_score": list(selected_score),
+                "baseline_frozen_primary_score": list(baseline_score),
+                "recovery_mode": recovery_mode,
+            }
+        )
+        if len(configs) >= max(0, limit):
+            break
+    return tuple(configs), {
+        "mode": "same_history_validated_navigation_replay",
+        "record_count": len(records),
+        "recovered_count": len(configs),
+        "candidates": recovered,
+    }
+
+
+def select_supervisor_continuity_seed(
+    candidates: list[dict],
+    *,
+    baseline: dict | None,
+) -> tuple[dict | None, dict]:
+    baseline_score = source_frontier_primary_score(baseline)
+    eligible = [candidate for candidate in candidates if source_frontier_primary_score(candidate) > baseline_score]
+    selected = max(eligible, key=source_frontier_score) if eligible else None
+    return selected, {
+        "eligible": selected is not None,
+        "reason": "strict_frozen_primary_lift_revalidated" if selected is not None else "no_revalidated_frozen_primary_lift",
+        "baseline_frozen_primary_score": list(baseline_score),
+        "evaluated_count": len(candidates),
+        "eligible_count": len(eligible),
+        "selected_config_hash": summary_config_hash(selected) or "",
+        "selected_frozen_primary_score": list(source_frontier_primary_score(selected)) if selected is not None else [],
+    }
+
+
 def stagnation_round_count(rounds: list[dict]) -> int:
     count = 0
     for round_info in reversed(rounds):
@@ -4661,6 +4797,20 @@ def should_checkpoint_supervisor_best(
     return isinstance(best_summary, dict) and (round_index == 0 or improved)
 
 
+def persisted_round_candidate_summaries(
+    summaries: list[dict],
+    *,
+    decision_round_best: dict | None,
+    limit: int = 5,
+) -> list[dict]:
+    persisted = list(summaries[: max(0, limit)])
+    persisted_hashes = {summary_config_hash(summary) for summary in persisted}
+    decision_hash = summary_config_hash(decision_round_best)
+    if isinstance(decision_round_best, dict) and decision_hash and decision_hash not in persisted_hashes:
+        persisted.append(strip_target_results(decision_round_best))
+    return persisted
+
+
 def compact_round_info(round_info: dict) -> dict:
     compact = dict(round_info)
     compact["best"] = strip_target_results(compact["best"]) if isinstance(compact.get("best"), dict) else compact.get("best")
@@ -5177,6 +5327,7 @@ def compact_status_payload(status: dict) -> dict:
         "near_miss_inversion_advisor": status.get("near_miss_inversion_advisor"),
         "probability_focus": status.get("probability_focus"),
         "carryover_seed": status.get("carryover_seed"),
+        "continuity_seed": status.get("continuity_seed"),
         "qian_kun": status.get("qian_kun"),
         "next_candidates": status.get("next_candidates"),
         "self_diagnostics": status.get("self_diagnostics"),
@@ -5476,6 +5627,20 @@ def run_supervisor(
         universe_size=len(ranked_universe),
     )
     carryover_configs = merge_config_candidates(db_carryover_configs, status_carryover_configs, limit=16)
+    with get_connection() as conn:
+        navigation_records = load_training_round_navigation_records(
+            conn,
+            as_of_issue=as_of_issue_value,
+            history_fingerprint=history_fingerprint_value,
+            train_window=train_window,
+            train_mode=train_mode,
+            eval_window=eval_window,
+            top_n=top_n,
+        )
+    continuity_configs, continuity_recovery_info = recover_supervisor_continuity_configs(
+        navigation_records,
+        limit=4,
+    )
     pool = create_worker_pool(worker_count, ranked_universe)
 
     carryover_summaries: list[dict] = []
@@ -5515,7 +5680,48 @@ def run_supervisor(
 
     best_summary: dict | None = prior_leaderboard[0] if prior_leaderboard else None
     best_config = FrequencyRankerConfig(**best_summary["config"]) if best_summary else FrequencyRankerConfig()
-    search_base_config = best_config
+    continuity_summaries: list[dict] = []
+    if continuity_configs:
+        log(
+            "seeded_supervisor_continuity_configs="
+            f"count={len(continuity_configs)} "
+            f"hashes={bounded_unique_config_hashes(continuity_configs, limit=len(continuity_configs))}"
+        )
+        continuity_summaries = evaluate_configs(
+            history=training_history,
+            ranked_universe=ranked_universe,
+            configs=continuity_configs,
+            train_window=train_window,
+            train_mode=train_mode,
+            eval_window=eval_window,
+            top_n=top_n,
+            workers=worker_count,
+            pool=pool,
+            progress_interval=0,
+            round_index=0,
+        )
+        attach_frozen_validation(
+            continuity_summaries,
+            validation_window=frozen_validation_window(eval_window),
+            universe_size=len(ranked_universe),
+        )
+    continuity_seed, continuity_seed_info = select_supervisor_continuity_seed(
+        continuity_summaries,
+        baseline=best_summary,
+    )
+    continuity_seed_info.update(continuity_recovery_info)
+    search_base_config = (
+        FrequencyRankerConfig(**continuity_seed["config"])
+        if continuity_seed is not None
+        else best_config
+    )
+    if continuity_seed is not None:
+        log(
+            "seeded_supervisor_continuity_search_base="
+            f"config_hash={config_hash(search_base_config)} "
+            f"frozen_primary={list(source_frontier_primary_score(continuity_seed))} "
+            f"baseline={list(source_frontier_primary_score(best_summary))}"
+        )
     dynamic_kdj_best_training_summary: dict | None = None
     dynamic_kdj_best_policy: dict | None = None
     near_dynamic_kdj_best_training_summary: dict | None = None
@@ -5524,7 +5730,7 @@ def run_supervisor(
     near_dynamic_kdj_stagnation_rounds = 0
     near_dynamic_kdj_sealed = False
     near_dynamic_kdj_seal_reason = ""
-    leaderboard: list[dict] = prior_leaderboard
+    leaderboard: list[dict] = merge_leaderboard(prior_leaderboard, continuity_summaries, limit=32)
     rounds: list[dict] = []
     target_weight_inversion_configs: tuple[FrequencyRankerConfig, ...] = ()
     target_weight_inversion_latest: dict | None = None
@@ -5659,6 +5865,14 @@ def run_supervisor(
             "evaluated_config_count": len(carryover_summaries),
             "best": strip_target_results(carryover_summaries[0]) if carryover_summaries else None,
         },
+        "continuity_seed": {
+            **continuity_seed_info,
+            "config_hashes": bounded_unique_config_hashes(
+                continuity_configs,
+                limit=len(continuity_configs) or 1,
+            ),
+            "selected": strip_target_results(continuity_seed) if continuity_seed is not None else None,
+        },
         "qian_kun": qian_kun_distribution(selection.history),
         "next_candidates": None,
         "self_diagnostics": None,
@@ -5666,9 +5880,9 @@ def run_supervisor(
         "rounds": rounds,
         "best": strip_target_results(best_summary) if best_summary else None,
         "search_base": {
-            "source": "initial_best",
-            "changed": False,
-            "previous_config_hash": "",
+            "source": "supervisor_continuity" if continuity_seed is not None else "initial_best",
+            "changed": continuity_seed is not None,
+            "previous_config_hash": config_hash(best_config) if continuity_seed is not None else "",
             "config_hash": config_hash(search_base_config),
             "config": config_dict(search_base_config),
         },
@@ -6749,7 +6963,10 @@ def run_supervisor(
                 "prefilter": prefilter_info,
                 "improved": improved,
                 "best": round_best,
-                "top_results": summaries[: min(5, len(summaries))],
+                "top_results": persisted_round_candidate_summaries(
+                    summaries,
+                    decision_round_best=decision_round_best,
+                ),
                 "control_experiments": control_summaries,
             }
             status["updated_at"] = datetime.now().isoformat(timespec="seconds")

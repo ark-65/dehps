@@ -1483,6 +1483,37 @@ def load_training_round_candidate_summaries(
     return candidates
 
 
+def load_training_round_navigation_records(
+    conn: Connection,
+    *,
+    as_of_issue: str,
+    history_fingerprint: str,
+    train_window: int,
+    train_mode: str,
+    eval_window: int,
+    top_n: int,
+    limit: int = 24,
+) -> list[dict[str, Any]]:
+    """Load recent same-history round state needed for safe supervisor continuity."""
+    with conn.cursor(row_factory=dict_row) as cur:
+        rows = cur.execute(
+            """
+            SELECT run_id, round_index, best_config, best_summary, top_results, prefilter
+            FROM training_round_results
+            WHERE as_of_issue = %s
+              AND history_fingerprint = %s
+              AND train_window = %s
+              AND train_mode = %s
+              AND eval_window = %s
+              AND top_n = %s
+            ORDER BY updated_at DESC, round_index DESC
+            LIMIT %s
+            """,
+            (as_of_issue, history_fingerprint, train_window, train_mode, eval_window, top_n, limit),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def load_training_round_carryover_candidate_summaries(
     conn: Connection,
     *,

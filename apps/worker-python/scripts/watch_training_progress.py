@@ -897,6 +897,7 @@ def supervisor_status_summary(status: dict[str, Any], *, path: Path) -> dict[str
     run_mode = status.get("run_mode")
     if run_mode is None and deadline_present and deadline is None:
         run_mode = "continuous"
+    continuity = status.get("continuity_seed") if isinstance(status.get("continuity_seed"), dict) else {}
     return {
         "available": True,
         "path": str(path),
@@ -918,6 +919,18 @@ def supervisor_status_summary(status: dict[str, Any], *, path: Path) -> dict[str
         "top_n": safe_int(status.get("top_n")),
         "regime_start_date": status.get("regime_start_date"),
         "regime_years": safe_float(status.get("regime_years")),
+        "continuity_seed": {
+            "mode": continuity.get("mode"),
+            "eligible": safe_bool(continuity.get("eligible")),
+            "reason": continuity.get("reason"),
+            "record_count": safe_int(continuity.get("record_count")),
+            "recovered_count": safe_int(continuity.get("recovered_count")),
+            "evaluated_count": safe_int(continuity.get("evaluated_count")),
+            "eligible_count": safe_int(continuity.get("eligible_count")),
+            "selected_config_hash": continuity.get("selected_config_hash"),
+            "selected_frozen_primary_score": safe_score(continuity.get("selected_frozen_primary_score")),
+            "baseline_frozen_primary_score": safe_score(continuity.get("baseline_frozen_primary_score")),
+        },
         "latest_progress": supervisor_progress_summary(status.get("latest_progress")),
     }
 

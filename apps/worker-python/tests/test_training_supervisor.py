@@ -38,6 +38,7 @@ from scripts.run_training_supervisor import (
     near_miss_inversion_advisor,
     near_miss_targets_for_cutoff,
     phase_for_round,
+    persisted_round_candidate_summaries,
     post_training_event,
     prefilter_configs,
     probability_calibration_diagnostics,
@@ -46,6 +47,7 @@ from scripts.run_training_supervisor import (
     reward_summary,
     resolve_training_deadline,
     rank_homogeneity_guardrail,
+    recover_supervisor_continuity_configs,
     search_base_min_distance_for_phase,
     ridge_kdj_advisor_metadata,
     should_checkpoint_supervisor_best,
@@ -61,6 +63,7 @@ from scripts.run_training_supervisor import (
     select_experimental_navigation_candidate,
     select_stagnation_exploration_champion,
     select_rank_homogeneity_restart_champion,
+    select_supervisor_continuity_seed,
     select_source_frontier_champion,
     select_next_search_base,
     should_refresh_probability_focus,
@@ -154,6 +157,83 @@ def test_should_checkpoint_supervisor_best_only_for_carryover_or_promoted_best()
     assert should_checkpoint_supervisor_best(summary, round_index=7, improved=False) is False
     assert should_checkpoint_supervisor_best(summary, round_index=7, improved=True) is True
     assert should_checkpoint_supervisor_best(None, round_index=0, improved=True) is False
+
+
+def test_persisted_round_candidates_keep_decision_candidate_outside_top_five():
+    summaries = [supervisor_summary_for_config(FrequencyRankerConfig(frequency_weight=0.1 + index * 0.01)) for index in range(6)]
+    decision = supervisor_summary_for_config(FrequencyRankerConfig(frequency_weight=1.15))
+
+    persisted = persisted_round_candidate_summaries(summaries, decision_round_best=decision)
+
+    assert len(persisted) == 6
+    assert [summary_config_hash(item) for item in persisted[:5]] == [
+        summary_config_hash(item) for item in summaries[:5]
+    ]
+    assert summary_config_hash(persisted[-1]) == summary_config_hash(decision)
+    assert "target_results" not in persisted[-1]
+
+
+def test_recover_supervisor_continuity_reconstructs_legacy_restart_candidate():
+    base = FrequencyRankerConfig(frequency_weight=0.7, omission_weight=0.05)
+    restart_candidates = stagnation_restart_candidate_configs(
+        base,
+        max_configs=5,
+        round_index=17,
+        stagnation_rounds=16,
+    )
+    selected = restart_candidates[3]
+    selected_hash = config_hash(selected)
+    records = [
+        {
+            "run_id": "legacy-run",
+            "round_index": 17,
+            "best_config": base.__dict__,
+            "best_summary": supervisor_summary_for_config(base),
+            "top_results": [],
+            "prefilter": {
+                "stagnation_rounds": 16,
+                "candidate_budget": {"stagnation_restart": 5},
+                "search_base_start": {"config": base.__dict__},
+                "rank_homogeneity_restart_champion": {"config_hash": selected_hash},
+                "decision_round_best": {
+                    "source": "source_frontier",
+                    "config_hash": selected_hash,
+                    "selected_frozen_primary_score": [0, 0, 1],
+                    "frozen_primary_lift_baseline_score": [0, 0, 0],
+                },
+            },
+        }
+    ]
+
+    configs, metadata = recover_supervisor_continuity_configs(records)
+
+    assert [config_hash(config) for config in configs] == [selected_hash]
+    assert metadata["recovered_count"] == 1
+    assert metadata["candidates"][0]["recovery_mode"] == "deterministic_restart_recovery"
+
+
+def test_supervisor_continuity_seed_requires_revalidated_frozen_primary_lift():
+    baseline = attach_test_frozen_validation(
+        supervisor_summary_for_config(FrequencyRankerConfig(frequency_weight=0.7)),
+        top_10000_hits=0,
+    )
+    flat = attach_test_frozen_validation(
+        supervisor_summary_for_config(FrequencyRankerConfig(frequency_weight=0.8)),
+        top_10000_hits=0,
+        objective_score=10.0,
+    )
+    lifted = attach_test_frozen_validation(
+        supervisor_summary_for_config(FrequencyRankerConfig(frequency_weight=1.15)),
+        top_10000_hits=1,
+        objective_score=-5.0,
+    )
+
+    selected, metadata = select_supervisor_continuity_seed([flat, lifted], baseline=baseline)
+
+    assert summary_config_hash(selected) == summary_config_hash(lifted)
+    assert metadata["reason"] == "strict_frozen_primary_lift_revalidated"
+    assert metadata["baseline_frozen_primary_score"] == [0, 0, 0]
+    assert metadata["selected_frozen_primary_score"] == [0, 0, 1]
 
 
 def test_duration_hours_zero_means_continuous_training():
@@ -3134,6 +3214,18 @@ def test_compact_status_payload_includes_probability_focus_diagnostics():
     assert payload["probability_focus"] == {"latest": {"active": True, "remaining_rounds": 3}}
     assert "rounds" not in payload
     assert "best" not in payload
+
+
+def test_compact_status_payload_includes_supervisor_continuity_seed():
+    continuity = {
+        "mode": "same_history_validated_navigation_replay",
+        "eligible": True,
+        "selected_config_hash": "continuity-hash",
+    }
+
+    payload = compact_status_payload({"continuity_seed": continuity})
+
+    assert payload["continuity_seed"] == continuity
 
 
 def test_compact_status_payload_includes_round_summary_without_full_rounds():
