@@ -4362,6 +4362,24 @@ def select_next_search_base(
     )
     round_best_hash = summary_config_hash(round_best) or ""
     round_best_signature_hash = rank_signature_hash(round_best)
+    exploration_navigation_hash = summary_config_hash(exploration_navigation_candidate) or ""
+    exploration_navigation_config = summary_config(exploration_navigation_candidate)
+    exploration_navigation_distance = (
+        config_distance(exploration_navigation_config, current_base)
+        if exploration_navigation_config is not None
+        else None
+    )
+    exploration_navigation_quality_info = experimental_navigation_quality(
+        exploration_navigation_candidate,
+        primary_lift_baseline,
+    )
+    quality_blocked_hashes = {
+        exploration_navigation_hash
+    } if (
+        not improved
+        and exploration_navigation_hash
+        and not exploration_navigation_quality_info["passed"]
+    ) else set()
     round_best_search_allowed = bool(improved or allow_unpromoted_round_best)
     round_best_search_blocked = bool(
         round_best is not None
@@ -4372,6 +4390,7 @@ def select_next_search_base(
     excluded_hashes = {hash_value for hash_value in recent_search_base_hashes if hash_value}
     excluded_hashes.add(current_base_hash)
     excluded_hashes.update(blocked_round_best_hashes)
+    excluded_hashes.update(quality_blocked_hashes)
     search_challenger = best_challenger_summary(
         summaries,
         current_base_hash,
@@ -4389,22 +4408,11 @@ def select_next_search_base(
             summaries,
             current_base_hash,
             incumbent_summary=current_base_summary,
-            excluded_config_hashes=blocked_round_best_hashes,
+            excluded_config_hashes=blocked_round_best_hashes | quality_blocked_hashes,
             excluded_rank_signature_hashes=set(excluded_rank_signature_hashes),
             require_frozen_primary_lift=require_frozen_primary_lift,
             frozen_primary_lift_baseline=primary_lift_baseline,
         )
-    exploration_navigation_hash = summary_config_hash(exploration_navigation_candidate) or ""
-    exploration_navigation_config = summary_config(exploration_navigation_candidate)
-    exploration_navigation_distance = (
-        config_distance(exploration_navigation_config, current_base)
-        if exploration_navigation_config is not None
-        else None
-    )
-    exploration_navigation_quality_info = experimental_navigation_quality(
-        exploration_navigation_candidate,
-        primary_lift_baseline,
-    )
     exploration_navigation_eligible = bool(
         require_frozen_primary_lift
         and exploration_navigation_candidate is not None
@@ -4416,8 +4424,10 @@ def select_next_search_base(
         and exploration_navigation_quality_info["passed"]
         and rank_vector_changed(current_base_summary, exploration_navigation_candidate)
     )
+    round_best_quality_blocked = bool(round_best_hash and round_best_hash in quality_blocked_hashes)
     round_best_eligible = (
         round_best is not None
+        and not round_best_quality_blocked
         and round_best_hash not in excluded_hashes
         and round_best_signature_hash not in set(excluded_rank_signature_hashes)
         and round_best_distance >= min_config_distance
@@ -4441,7 +4451,7 @@ def select_next_search_base(
     elif exploration_navigation_eligible:
         source = "experimental_navigation"
         selected_summary = exploration_navigation_candidate
-    elif round_best is not None and round_best_search_allowed:
+    elif round_best is not None and round_best_search_allowed and not round_best_quality_blocked:
         source = "current_base_replay"
         selected_summary = round_best
     else:
@@ -4474,6 +4484,11 @@ def select_next_search_base(
         "round_best_search_allowed": round_best_search_allowed,
         "round_best_search_blocked": round_best_search_blocked,
         "round_best_skip_reason": round_best_skip_reason if round_best_search_blocked else "",
+        "round_best_quality_blocked": round_best_quality_blocked,
+        "round_best_quality_reason": (
+            exploration_navigation_quality_info["reason"] if round_best_quality_blocked else ""
+        ),
+        "quality_blocked_config_hashes": sorted(quality_blocked_hashes),
         "frozen_primary_lift_required": require_frozen_primary_lift,
         "frozen_primary_lift_baseline_score": list(primary_lift_baseline_score),
         "selected_frozen_primary_score": list(source_frontier_primary_score(selected_summary)),
@@ -4484,6 +4499,9 @@ def select_next_search_base(
         "exploration_navigation_source": exploration_navigation_source if exploration_navigation_hash else "",
         "exploration_navigation_reason": exploration_navigation_reason if exploration_navigation_hash else "",
         "exploration_navigation_eligible": exploration_navigation_eligible,
+        "exploration_navigation_quality_blocked": bool(
+            exploration_navigation_hash and exploration_navigation_hash in quality_blocked_hashes
+        ),
         "exploration_navigation_frozen_primary_score": list(source_frontier_primary_score(exploration_navigation_candidate)),
         "exploration_navigation_baseline_frozen_primary_score": exploration_navigation_quality_info[
             "baseline_frozen_primary_score"

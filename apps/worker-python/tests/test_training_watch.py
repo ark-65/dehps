@@ -1185,6 +1185,63 @@ def test_gate_summary_surfaces_ineligible_navigation_distance():
     assert "config_distance=0.006042 min_config_distance=0.08" in markdown
 
 
+def test_gate_summary_surfaces_navigation_quality_block_from_standard_path():
+    now = datetime(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+    prefilter = {
+        "experimental_navigation_candidate": {
+            "source": "rank_homogeneity_restart_champion",
+            "reason": "rank_homogeneity_restart_changed_rank_vector",
+            "config_hash": "restart-hash",
+        },
+        "search_base": {
+            "exploration_navigation_config_hash": "restart-hash",
+            "exploration_navigation_eligible": False,
+            "exploration_navigation_quality_reason": "zero_frozen_primary_without_tail_or_frontier_lift",
+            "exploration_navigation_quality_blocked": True,
+            "round_best_quality_blocked": True,
+            "exploration_navigation_rank_vector_changed": True,
+            "exploration_navigation_frozen_primary_score": [0, 0, 0],
+            "exploration_navigation_baseline_frozen_primary_score": [0, 0, 0],
+            "exploration_navigation_tail_over_1000000_delta": 2,
+            "exploration_navigation_source_frontier_score_improved": False,
+        },
+    }
+
+    gates = gate_summary(prefilter)
+    navigation = gates["experimental_navigation_candidate"]
+
+    assert navigation["eligible"] is False
+    assert navigation["eligibility_reason"] == "zero_frozen_primary_without_tail_or_frontier_lift"
+    assert navigation["quality_blocked_from_search_base"] is True
+    assert navigation["round_best_quality_blocked"] is True
+
+    operator = operator_summary(
+        {
+            "run_id": "run-1",
+            "gate_summary": gates,
+            "recommendation": {"severity": "ok", "action": "continue_current_run"},
+        }
+    )
+    assert operator["experimental_navigation_candidate"]["quality_blocked_from_search_base"] is True
+    assert operator["experimental_navigation_candidate"]["round_best_quality_blocked"] is True
+
+    recommendation = recommendation_summary(
+        rows=[{"round_index": 7, "improved": False, "updated_at": now}],
+        lock={"active": True, "owner": "training-supervisor"},
+        advisors={"neural_kdj_advisor": {"candidate_count": 0}},
+        gates=gates,
+        now=now,
+        stale_minutes=30,
+        round_stats={"stagnation_rounds": 7},
+    )
+
+    assert any(
+        "quality_blocked=True" in note
+        and "reason=zero_frozen_primary_without_tail_or_frontier_lift" in note
+        for note in recommendation["notes"]
+    )
+
+
 def test_gate_summary_labels_primary_lift_navigation_as_standard_search_path():
     now = datetime(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
     prefilter = {

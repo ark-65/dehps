@@ -1616,6 +1616,12 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
                 navigation_summary["quality_reason"] = search_base.get(
                     "exploration_navigation_quality_reason"
                 )
+            quality_blocked = safe_bool(search_base.get("exploration_navigation_quality_blocked"))
+            if quality_blocked is not None:
+                navigation_summary["quality_blocked_from_search_base"] = quality_blocked
+            round_best_quality_blocked = safe_bool(search_base.get("round_best_quality_blocked"))
+            if round_best_quality_blocked is not None:
+                navigation_summary["round_best_quality_blocked"] = round_best_quality_blocked
             frozen_primary_score = safe_score(search_base.get("exploration_navigation_frozen_primary_score"))
             if frozen_primary_score:
                 navigation_summary["frozen_primary_score"] = frozen_primary_score
@@ -1892,6 +1898,7 @@ def recommendation_summary(
             ("source", navigation.get("source")),
             ("reason", navigation.get("eligibility_reason")),
             ("quality", navigation.get("quality_reason")),
+            ("quality_blocked", navigation.get("quality_blocked_from_search_base")),
             ("rank_vector_changed", navigation.get("rank_vector_changed")),
         ]
         if navigation.get("config_distance") is not None:
@@ -2040,6 +2047,8 @@ def restart_candidate_readiness_context(
             "eligible",
             "eligibility_reason",
             "quality_reason",
+            "quality_blocked_from_search_base",
+            "round_best_quality_blocked",
             "rank_vector_changed",
             "config_distance",
             "min_config_distance",
@@ -3451,6 +3460,8 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "eligible",
             "eligibility_reason",
             "quality_reason",
+            "quality_blocked_from_search_base",
+            "round_best_quality_blocked",
             "rank_vector_changed",
             "config_distance",
             "min_config_distance",

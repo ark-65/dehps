@@ -2074,6 +2074,161 @@ def test_next_search_base_blocks_experimental_navigation_without_tail_or_frontie
     assert metadata["exploration_navigation_source_frontier_score_improved"] is False
 
 
+def test_next_search_base_blocks_low_quality_restart_from_standard_round_best_path():
+    current_config = FrequencyRankerConfig()
+    restart_config = FrequencyRankerConfig(structural_weight=1.15, frequency_weight=0.05, omission_weight=0.05)
+    alternative_config = FrequencyRankerConfig(frequency_weight=0.60, omission_weight=0.20)
+    incumbent = attach_test_frozen_validation(
+        supervisor_summary_for_config(current_config, target_ranks=[100, 900, 50_000]),
+        top_10000_hits=0,
+        median_rank=700_000,
+        tail_over_1000000_count=0,
+    )
+    restart = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            restart_config,
+            target_ranks=[90, 800, 45_000],
+            objective_score=2300.0,
+        ),
+        top_10000_hits=0,
+        median_rank=800_000,
+        tail_over_1000000_count=1,
+    )
+    alternative = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            alternative_config,
+            target_ranks=[95, 850, 48_000],
+            objective_score=2100.0,
+        ),
+        top_10000_hits=0,
+        median_rank=690_000,
+        tail_over_1000000_count=0,
+    )
+
+    next_base, metadata = select_next_search_base(
+        current_base=current_config,
+        summaries=[incumbent, restart, alternative],
+        round_best=restart,
+        improved=False,
+        exploration_navigation_candidate=restart,
+        exploration_navigation_source="rank_homogeneity_restart_champion",
+        exploration_navigation_reason="rank_homogeneity_restart_changed_rank_vector",
+        allow_unpromoted_round_best=True,
+        frozen_primary_lift_baseline=incumbent,
+    )
+
+    assert config_hash(next_base) == config_hash(alternative_config)
+    assert metadata["source"] == "search_challenger"
+    assert metadata["round_best_quality_blocked"] is True
+    assert metadata["round_best_quality_reason"] == "zero_frozen_primary_without_tail_or_frontier_lift"
+    assert metadata["exploration_navigation_quality_blocked"] is True
+    assert metadata["quality_blocked_config_hashes"] == [config_hash(restart_config)]
+    assert metadata["search_challenger_config_hash"] == config_hash(alternative_config)
+
+
+def test_next_search_base_stays_put_when_low_quality_restart_is_only_option():
+    current_config = FrequencyRankerConfig()
+    restart_config = FrequencyRankerConfig(structural_weight=1.15, frequency_weight=0.05, omission_weight=0.05)
+    incumbent = attach_test_frozen_validation(
+        supervisor_summary_for_config(current_config, target_ranks=[100, 900, 50_000]),
+        top_10000_hits=0,
+        median_rank=700_000,
+    )
+    restart = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            restart_config,
+            target_ranks=[90, 800, 45_000],
+            objective_score=2300.0,
+        ),
+        top_10000_hits=0,
+        median_rank=800_000,
+        tail_over_1000000_count=1,
+    )
+
+    next_base, metadata = select_next_search_base(
+        current_base=current_config,
+        summaries=[incumbent, restart],
+        round_best=restart,
+        improved=False,
+        exploration_navigation_candidate=restart,
+        allow_unpromoted_round_best=True,
+        frozen_primary_lift_baseline=incumbent,
+    )
+
+    assert config_hash(next_base) == config_hash(current_config)
+    assert metadata["source"] == "unchanged"
+    assert metadata["round_best_quality_blocked"] is True
+    assert metadata["fallback_search_challenger_config_hash"] == ""
+
+
+def test_next_search_base_allows_quality_passed_restart_on_standard_round_best_path():
+    current_config = FrequencyRankerConfig()
+    restart_config = FrequencyRankerConfig(structural_weight=1.15, frequency_weight=0.05, omission_weight=0.05)
+    incumbent = attach_test_frozen_validation(
+        supervisor_summary_for_config(current_config, target_ranks=[100, 900, 50_000]),
+        top_10000_hits=0,
+        median_rank=700_000,
+    )
+    restart = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            restart_config,
+            target_ranks=[90, 800, 45_000],
+            objective_score=2300.0,
+        ),
+        top_10000_hits=1,
+        median_rank=650_000,
+    )
+
+    next_base, metadata = select_next_search_base(
+        current_base=current_config,
+        summaries=[incumbent, restart],
+        round_best=restart,
+        improved=False,
+        exploration_navigation_candidate=restart,
+        allow_unpromoted_round_best=True,
+        frozen_primary_lift_baseline=incumbent,
+    )
+
+    assert config_hash(next_base) == config_hash(restart_config)
+    assert metadata["source"] == "round_best"
+    assert metadata["round_best_quality_blocked"] is False
+    assert metadata["exploration_navigation_quality_blocked"] is False
+
+
+def test_next_search_base_does_not_quality_block_formally_improved_candidate():
+    current_config = FrequencyRankerConfig()
+    improved_config = FrequencyRankerConfig(structural_weight=1.15, frequency_weight=0.05, omission_weight=0.05)
+    incumbent = attach_test_frozen_validation(
+        supervisor_summary_for_config(current_config, target_ranks=[100, 900, 50_000]),
+        top_10000_hits=0,
+        median_rank=700_000,
+    )
+    improved = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            improved_config,
+            target_ranks=[90, 800, 45_000],
+            objective_score=2300.0,
+        ),
+        top_10000_hits=0,
+        median_rank=800_000,
+        tail_over_1000000_count=1,
+    )
+
+    next_base, metadata = select_next_search_base(
+        current_base=current_config,
+        summaries=[incumbent, improved],
+        round_best=improved,
+        improved=True,
+        exploration_navigation_candidate=improved,
+        frozen_primary_lift_baseline=incumbent,
+    )
+
+    assert config_hash(next_base) == config_hash(improved_config)
+    assert metadata["source"] == "new_best"
+    assert metadata["round_best_quality_blocked"] is False
+    assert metadata["quality_blocked_config_hashes"] == []
+
+
 def test_next_search_base_allows_experimental_navigation_with_source_frontier_lift():
     current_config = FrequencyRankerConfig()
     blocked_config = FrequencyRankerConfig(frequency_weight=0.40)
