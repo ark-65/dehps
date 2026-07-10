@@ -47,6 +47,7 @@ from dehps.optimization.next_candidates import (
 from dehps.optimization.near_dynamic_report import write_near_dynamic_line_report
 from dehps.optimization.self_diagnostics import (
     SELF_DIAGNOSTICS_PROTOCOL,
+    build_specialist_strategy_memory,
     signal_vs_noise_diagnostic,
 )
 from dehps.optimization.ridge_kdj_advisor import (
@@ -1555,6 +1556,20 @@ def training_round_self_diagnostics(
             },
         },
     }
+
+
+def recent_round_self_diagnostics(
+    rounds: list[dict],
+    *,
+    limit: int = 8,
+) -> list[dict]:
+    diagnostics: list[dict] = []
+    for round_info in rounds[-max(0, limit):]:
+        prefilter = round_info.get("prefilter") if isinstance(round_info.get("prefilter"), dict) else {}
+        diagnostic = prefilter.get("self_diagnostics")
+        if isinstance(diagnostic, dict):
+            diagnostics.append(diagnostic)
+    return diagnostics
 
 
 def _is_diagnostic_only_source(source: str) -> bool:
@@ -5165,6 +5180,7 @@ def compact_status_payload(status: dict) -> dict:
         "qian_kun": status.get("qian_kun"),
         "next_candidates": status.get("next_candidates"),
         "self_diagnostics": status.get("self_diagnostics"),
+        "strategy_memory": status.get("strategy_memory"),
         "search_base": status.get("search_base"),
         "latest_progress": status.get("latest_progress"),
         "status_path": status.get("status_path"),
@@ -5254,6 +5270,22 @@ def self_diagnostics_report_section(status: dict) -> str:
 """
 
 
+def strategy_memory_report_section(status: dict) -> str:
+    memory = status.get("strategy_memory")
+    if not isinstance(memory, dict):
+        return "## Strategy Memory\n\nNo strategy memory recorded yet.\n"
+    experiment = memory.get("selected_experiment") if isinstance(memory.get("selected_experiment"), dict) else {}
+    state = memory.get("state") if isinstance(memory.get("state"), dict) else {}
+    hypotheses = memory.get("failure_hypotheses") if isinstance(memory.get("failure_hypotheses"), list) else []
+    return f"""## Strategy Memory
+
+- Mode: `{memory.get("mode", "missing")}` window `{memory.get("memory_window", "missing")}`.
+- Current state: synthesis `{state.get("current_synthesis", "missing")}` weight `{state.get("current_weight", "missing")}` space `{state.get("current_candidate_space", "missing")}` signal `{state.get("current_signal", "missing")}`.
+- Failure hypotheses: `{", ".join(str(item) for item in hypotheses[:5]) if hypotheses else "none"}`.
+- Selected experiment: `{experiment.get("key", "missing")}` action `{experiment.get("action", "missing")}` promotion_allowed `{experiment.get("promotion_allowed", False)}`.
+"""
+
+
 def write_report(report_path: Path, status: dict) -> None:
     report_path.parent.mkdir(parents=True, exist_ok=True)
     rounds = "\n".join(
@@ -5272,6 +5304,7 @@ def write_report(report_path: Path, status: dict) -> None:
     best = status["best"]
     source_frontier = source_frontier_report_section(status)
     self_diagnostics = self_diagnostics_report_section(status)
+    strategy_memory = strategy_memory_report_section(status)
     report = f"""# DEHPS 24h Training Supervisor Report
 
 - Run id: `{status["run_id"]}`
@@ -5303,6 +5336,8 @@ def write_report(report_path: Path, status: dict) -> None:
 {source_frontier}
 
 {self_diagnostics}
+
+{strategy_memory}
 
 ## Rounds
 
@@ -5627,6 +5662,7 @@ def run_supervisor(
         "qian_kun": qian_kun_distribution(selection.history),
         "next_candidates": None,
         "self_diagnostics": None,
+        "strategy_memory": None,
         "rounds": rounds,
         "best": strip_target_results(best_summary) if best_summary else None,
         "search_base": {
@@ -6686,6 +6722,23 @@ def run_supervisor(
                 status["near_dynamic_kdj_training"]["latest"] = near_dynamic_training_payload
                 prefilter_info["near_dynamic_kdj_training"] = near_dynamic_training_payload
                 log(f"near_dynamic_kdj_training_warning round={round_index + 1} error={exc}")
+
+            strategy_memory = build_specialist_strategy_memory(
+                current_diagnostic=self_diagnostics,
+                recent_diagnostics=recent_round_self_diagnostics(rounds),
+                round_index=round_index + 1,
+                near_dynamic_training=status.get("near_dynamic_kdj_training"),
+                dynamic_training=status.get("dynamic_kdj_training"),
+            )
+            prefilter_info["strategy_memory"] = strategy_memory
+            status["strategy_memory"] = strategy_memory
+            selected_experiment = strategy_memory["selected_experiment"]
+            log(
+                f"round={round_index + 1} strategy_memory="
+                f"{selected_experiment['key']} "
+                f"action={selected_experiment['action']} "
+                f"failures={','.join(strategy_memory['failure_hypotheses'])}"
+            )
 
             round_record = {
                 "round": round_index + 1,

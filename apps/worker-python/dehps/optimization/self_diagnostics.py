@@ -7,6 +7,7 @@ from typing import Any
 
 
 SELF_DIAGNOSTICS_PROTOCOL = "dehps-self-diagnostics-v1"
+SPECIALIST_STRATEGY_PROTOCOL = "dehps-specialist-strategy-memory-v1"
 
 
 def _safe_int(value: object, default: int = 0) -> int:
@@ -336,4 +337,147 @@ def build_prediction_self_diagnostics(
                 "historical eval slice overfit without forward support",
             ],
         },
+    }
+
+
+def _status_from_diagnostic(diagnostic: dict[str, Any], path: tuple[str, ...]) -> str:
+    current: Any = diagnostic
+    for key in path:
+        if not isinstance(current, dict):
+            return ""
+        current = current.get(key)
+    return str(current or "")
+
+
+def _count_statuses(diagnostics: list[dict[str, Any]], path: tuple[str, ...]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for diagnostic in diagnostics:
+        status = _status_from_diagnostic(diagnostic, path)
+        if status:
+            counts[status] = counts.get(status, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def _near_dynamic_summary(near_dynamic_training: dict[str, Any] | None) -> dict[str, Any]:
+    training = near_dynamic_training if isinstance(near_dynamic_training, dict) else {}
+    latest = training.get("latest") if isinstance(training.get("latest"), dict) else {}
+    summary = latest.get("summary") if isinstance(latest.get("summary"), dict) else latest.get("selected_summary")
+    if not isinstance(summary, dict):
+        summary = {}
+    return {
+        "status": latest.get("status") or training.get("status"),
+        "stagnation_rounds": _safe_int(training.get("stagnation_rounds")),
+        "top_100_hits": _safe_int(summary.get("top_100_hits")),
+        "top_1000_hits": _safe_int(summary.get("top_1000_hits")),
+        "top_10000_hits": _safe_int(summary.get("top_10000_hits")),
+        "eval_window": _safe_int(summary.get("eval_window") or latest.get("eval_window")),
+    }
+
+
+def build_specialist_strategy_memory(
+    *,
+    current_diagnostic: dict[str, Any],
+    recent_diagnostics: list[dict[str, Any]] | None = None,
+    round_index: int,
+    near_dynamic_training: dict[str, Any] | None = None,
+    dynamic_training: dict[str, Any] | None = None,
+    window: int = 8,
+) -> dict[str, Any]:
+    recent = [item for item in (recent_diagnostics or []) if isinstance(item, dict)]
+    current = current_diagnostic if isinstance(current_diagnostic, dict) else {}
+    windowed = (recent + [current])[-max(1, window):]
+    synthesis_counts = _count_statuses(windowed, ("synthesis", "status"))
+    weight_counts = _count_statuses(windowed, ("weight_trust", "status"))
+    space_counts = _count_statuses(windowed, ("candidate_space", "status"))
+    signal_counts = _count_statuses(windowed, ("signal_vs_noise", "status"))
+    current_synthesis = _status_from_diagnostic(current, ("synthesis", "status"))
+    current_weight = _status_from_diagnostic(current, ("weight_trust", "status"))
+    current_space = _status_from_diagnostic(current, ("candidate_space", "status"))
+    current_signal = _status_from_diagnostic(current, ("signal_vs_noise", "status"))
+    near_summary = _near_dynamic_summary(near_dynamic_training)
+
+    unresolved: list[str] = []
+    if current_weight in {"blocked", "caution"} or weight_counts.get("caution", 0) + weight_counts.get("blocked", 0) >= 2:
+        unresolved.append("weight_trust_not_stable")
+    if current_space in {"collapsed", "narrow"} or space_counts.get("collapsed", 0) + space_counts.get("narrow", 0) >= 2:
+        unresolved.append("candidate_space_needs_reframe")
+    if current_signal == "noise_risk" or signal_counts.get("noise_risk", 0) >= 2:
+        unresolved.append("signal_may_be_noise")
+    if (
+        near_summary["status"] == "evaluated"
+        and near_summary["stagnation_rounds"] >= 2
+        and near_summary["top_10000_hits"] == 0
+    ):
+        unresolved.append("near_dynamic_window_not_lifting")
+
+    if "candidate_space_needs_reframe" in unresolved:
+        experiment_key = "candidate_space_reframe_audit"
+        experiment_action = "increase_diversity_pressure_before_trusting_round_best"
+        rationale = "Candidate-space geometry is narrow or collapsed across the diagnostic window."
+    elif "signal_may_be_noise" in unresolved:
+        experiment_key = "null_model_forward_audit"
+        experiment_action = "hold_promotion_until_forward_or_frozen_lift"
+        rationale = "Historical lift is not stable enough against null and forward evidence."
+    elif "weight_trust_not_stable" in unresolved:
+        experiment_key = "weight_trust_audit"
+        experiment_action = "observe_dynamic_offsets_without_promotion"
+        rationale = "Weight advice remains cautionary or blocked."
+    elif "near_dynamic_window_not_lifting" in unresolved:
+        experiment_key = "near_dynamic_freeze_review"
+        experiment_action = "keep_near_dynamic_as_monitor_only"
+        rationale = "Near-window dynamic line has repeated zero-lift evidence."
+    elif current_synthesis == "candidate_signal" or current_signal == "candidate_signal":
+        experiment_key = "controlled_forward_monitor"
+        experiment_action = "continue_monitoring_without_claiming_edge"
+        rationale = "Historical evidence is interesting, but forward evidence remains required."
+    else:
+        experiment_key = "continue_baseline_comparison"
+        experiment_action = "continue_monitoring"
+        rationale = "No persistent failure mode dominates the current diagnostic window."
+
+    return {
+        "protocol": SPECIALIST_STRATEGY_PROTOCOL,
+        "mode": "observe_only_strategy_memory",
+        "round_index": int(round_index),
+        "memory_window": len(windowed),
+        "historical_boundary": "Gauss/Riemann are diagnostic lenses; strategy memory is not proof of predictive ability.",
+        "task_frame": "Convert repeated diagnostics into a falsifiable next experiment for a narrow prediction specialist.",
+        "gauss_pass": {
+            "strongest_claim": "Only diagnostic state transitions are recorded; no new model is promoted.",
+            "weakest_assumption": "Repeated diagnostic labels are meaningful enough to guide the next audit.",
+            "next_test": "Check whether the recommended experiment improves frozen or forward evidence without leakage.",
+        },
+        "riemann_pass": {
+            "strongest_claim": "The search state can be viewed as a path through weight and candidate-space geometry.",
+            "weakest_assumption": "The current diagnostic coordinates expose the relevant structural obstruction.",
+            "next_test": "Verify whether candidate diversity and source frontier behavior change under the recommendation.",
+        },
+        "state": {
+            "current_synthesis": current_synthesis,
+            "current_weight": current_weight,
+            "current_candidate_space": current_space,
+            "current_signal": current_signal,
+            "synthesis_counts": synthesis_counts,
+            "weight_counts": weight_counts,
+            "candidate_space_counts": space_counts,
+            "signal_counts": signal_counts,
+            "near_dynamic": near_summary,
+            "dynamic_training_status": (dynamic_training or {}).get("latest", {}).get("status")
+            if isinstance((dynamic_training or {}).get("latest"), dict)
+            else None,
+        },
+        "failure_hypotheses": unresolved or ["no_dominant_failure_mode"],
+        "selected_experiment": {
+            "key": experiment_key,
+            "action": experiment_action,
+            "rationale": rationale,
+            "promotion_allowed": False,
+            "evidence_level": "strategy_memory_observation",
+        },
+        "next_verification": [
+            "keep legal sample space and as-of issue explicit",
+            "compare against null/default baselines before treating lift as signal",
+            "require frozen or forward evidence before promotion",
+            "check candidate diversity before trusting a narrowed candidate family",
+        ],
     }

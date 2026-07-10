@@ -701,6 +701,22 @@ def test_training_round_self_diagnostics_blocks_collapsed_noise_round():
     assert diagnostics["weight_trust"]["status"] in {"blocked", "caution"}
 
 
+def test_recent_round_self_diagnostics_reads_compact_round_memory():
+    diagnostic = {"synthesis": {"status": "caution"}}
+    rounds = [
+        {"prefilter": {"self_diagnostics": diagnostic}},
+        {"prefilter": {}},
+        {"prefilter": {"self_diagnostics": {"synthesis": {"status": "noise_risk"}}}},
+    ]
+
+    recent = supervisor.recent_round_self_diagnostics(rounds)
+
+    assert recent == [
+        diagnostic,
+        {"synthesis": {"status": "noise_risk"}},
+    ]
+
+
 def test_candidate_budget_reserves_explicit_weight_kdj_bucket():
     budget = candidate_budget(20, weight_kdj_budget_share=0.15)
 

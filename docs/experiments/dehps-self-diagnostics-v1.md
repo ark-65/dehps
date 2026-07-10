@@ -31,13 +31,15 @@ Add a conservative self-diagnostic layer that tells DEHPS when it should distrus
 - Weight trust: marks dynamic weight advice as blocked/caution/trusted based on leakage, regression window size, target coverage, current applied offsets, promotion gate, and advisor rejection/downweight patterns.
 - Candidate space: detects collapsed or narrow top-candidate windows and supervisor candidate-source/rank-signature collapse.
 - Signal vs noise: compares historical hits to a null binomial baseline, flags small windows, active overfit guardrails, and incomplete forward evidence.
+- Strategy memory: converts repeated diagnostics into an observe-only next-experiment recommendation for the narrow prediction specialist.
 
 ## Operational Effect
 
 - Prediction metadata now includes `self_diagnostics`.
 - Near-dynamic line reports render a Self Diagnostics section.
 - Supervisor status, compact status, round prefilter info, logs, and markdown reports include round-level self diagnostics.
-- The diagnostics are observe/report only in this round; they do not alter promotion, sorting, or search.
+- Supervisor status, compact status, round prefilter info, logs, and markdown reports include `strategy_memory`.
+- The diagnostics and strategy memory are observe/report only in this round; they do not alter promotion, sorting, or search.
 
 ## Validation
 
@@ -53,3 +55,4 @@ Acceptance expectation:
 - Collapsed top windows are detected.
 - Small regression windows are labeled noise risk.
 - Supervisor-level overfit and rank-homogeneity collapse synthesize into a blocked diagnostic.
+- Repeated caution/noise/collapse states map to explicit next-experiment recommendations without promoting a new strategy.

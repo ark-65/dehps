@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dehps.optimization.self_diagnostics import (
+    build_specialist_strategy_memory,
     build_prediction_self_diagnostics,
     candidate_space_diagnostic,
     signal_vs_noise_diagnostic,
@@ -72,3 +73,52 @@ def test_prediction_self_diagnostics_synthesizes_weakest_status():
     assert payload["synthesis"]["status"] == "collapsed"
     assert payload["candidate_space"]["status"] == "collapsed"
     assert payload["signal_vs_noise"]["status"] == "noise_risk"
+
+
+def test_specialist_strategy_memory_selects_weight_trust_audit():
+    current = {
+        "synthesis": {"status": "caution"},
+        "weight_trust": {"status": "caution"},
+        "candidate_space": {"status": "diverse"},
+        "signal_vs_noise": {"status": "candidate_signal"},
+    }
+
+    memory = build_specialist_strategy_memory(
+        current_diagnostic=current,
+        recent_diagnostics=[current],
+        round_index=3,
+    )
+
+    assert memory["selected_experiment"]["key"] == "weight_trust_audit"
+    assert memory["selected_experiment"]["promotion_allowed"] is False
+    assert "weight_trust_not_stable" in memory["failure_hypotheses"]
+
+
+def test_specialist_strategy_memory_selects_near_dynamic_freeze_review():
+    current = {
+        "synthesis": {"status": "monitor"},
+        "weight_trust": {"status": "trusted"},
+        "candidate_space": {"status": "diverse"},
+        "signal_vs_noise": {"status": "candidate_signal"},
+    }
+
+    memory = build_specialist_strategy_memory(
+        current_diagnostic=current,
+        recent_diagnostics=[],
+        round_index=4,
+        near_dynamic_training={
+            "stagnation_rounds": 2,
+            "latest": {
+                "status": "evaluated",
+                "summary": {
+                    "eval_window": 9,
+                    "top_100_hits": 0,
+                    "top_1000_hits": 0,
+                    "top_10000_hits": 0,
+                },
+            },
+        },
+    )
+
+    assert memory["selected_experiment"]["key"] == "near_dynamic_freeze_review"
+    assert "near_dynamic_window_not_lifting" in memory["failure_hypotheses"]
