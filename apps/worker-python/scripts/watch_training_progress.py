@@ -1651,6 +1651,36 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
             value = safe_int(rank_homogeneity.get(key))
             if value is not None:
                 normalized_rank_homogeneity[key] = value
+        restart_novelty = (
+            rank_homogeneity.get("restart_candidate_novelty")
+            if isinstance(rank_homogeneity.get("restart_candidate_novelty"), dict)
+            else {}
+        )
+        if restart_novelty:
+            normalized_rank_homogeneity["restart_candidate_novelty"] = {
+                "history_hash_count": safe_int(restart_novelty.get("history_hash_count")) or 0,
+                "baseline_candidate_count": safe_int(
+                    restart_novelty.get("baseline_candidate_count")
+                )
+                or 0,
+                "baseline_reused_count": safe_int(
+                    restart_novelty.get("baseline_reused_count")
+                )
+                or 0,
+                "baseline_reused_hashes": safe_string_list(
+                    restart_novelty.get("baseline_reused_hashes")
+                ),
+                "generated_candidate_count": safe_int(
+                    restart_novelty.get("generated_candidate_count")
+                )
+                or 0,
+                "generated_reused_count": safe_int(
+                    restart_novelty.get("generated_reused_count")
+                )
+                or 0,
+                "replacement_count": safe_int(restart_novelty.get("replacement_count")) or 0,
+                "novelty_enforced": bool(restart_novelty.get("novelty_enforced")),
+            }
         result["rank_homogeneity_guardrail"] = normalized_rank_homogeneity
     if restart_champion:
         result["rank_homogeneity_restart_champion"] = {
@@ -1996,6 +2026,19 @@ def recommendation_summary(
             f"{rank_homogeneity.get('stagnation_threshold')} "
             f"signature_hashes={signature_hashes}."
         )
+        restart_novelty = (
+            rank_homogeneity.get("restart_candidate_novelty")
+            if isinstance(rank_homogeneity.get("restart_candidate_novelty"), dict)
+            else {}
+        )
+        if restart_novelty.get("novelty_enforced"):
+            notes.append(
+                "Restart exact-repeat filter applied: "
+                f"historical_hashes={restart_novelty.get('history_hash_count')} "
+                f"filtered={restart_novelty.get('baseline_reused_count')} "
+                f"replacements={restart_novelty.get('replacement_count')} "
+                f"generated_reused={restart_novelty.get('generated_reused_count')}."
+            )
     restart_champion = (
         gates.get("rank_homogeneity_restart_champion")
         if isinstance(gates.get("rank_homogeneity_restart_champion"), dict)
@@ -2823,6 +2866,19 @@ def render_markdown(payload: dict[str, Any]) -> str:
             )
         if rank_homogeneity:
             signature_hashes = compact_inline_list(rank_homogeneity.get("signature_hashes"), limit=3)
+            restart_novelty = (
+                rank_homogeneity.get("restart_candidate_novelty")
+                if isinstance(rank_homogeneity.get("restart_candidate_novelty"), dict)
+                else {}
+            )
+            restart_novelty_text = ""
+            if restart_novelty:
+                restart_novelty_text = (
+                    " restart_novelty="
+                    f"{restart_novelty.get('baseline_reused_count')}filtered/"
+                    f"{restart_novelty.get('replacement_count')}replaced/"
+                    f"{restart_novelty.get('generated_reused_count')}reused"
+                )
             gate_lines.append(
                 "- Rank homogeneity: "
                 f"active={rank_homogeneity.get('active')} "
@@ -2834,6 +2890,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 f"stagnation={rank_homogeneity.get('stagnation_rounds')}/"
                 f"{rank_homogeneity.get('stagnation_threshold')} "
                 f"signature_hashes={markdown_inline_text(signature_hashes)}"
+                f"{restart_novelty_text}"
             )
         if restart_champion:
             gate_lines.append(
@@ -3571,6 +3628,10 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
         ):
             if rank_homogeneity.get(key) is not None:
                 rank_summary[key] = rank_homogeneity.get(key)
+        if isinstance(rank_homogeneity.get("restart_candidate_novelty"), dict):
+            rank_summary["restart_candidate_novelty"] = rank_homogeneity.get(
+                "restart_candidate_novelty"
+            )
         summary["rank_homogeneity"] = rank_summary
     restart_champion = (
         gates.get("rank_homogeneity_restart_champion")

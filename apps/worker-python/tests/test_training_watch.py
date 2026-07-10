@@ -2330,6 +2330,16 @@ def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_mar
             "fallback_observed": 12,
             "fallback_unique_signature_count": 1,
             "fallback_max_unique_signatures": 4,
+            "restart_candidate_novelty": {
+                "history_hash_count": 75,
+                "baseline_candidate_count": 5,
+                "baseline_reused_count": 2,
+                "baseline_reused_hashes": ["repeat-a", "repeat-b"],
+                "generated_candidate_count": 5,
+                "generated_reused_count": 0,
+                "replacement_count": 2,
+                "novelty_enforced": True,
+            },
             "signatures": [
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -2446,6 +2456,16 @@ def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_mar
     assert gates["rank_homogeneity_guardrail"]["restart_catalog_offset"] == 15
     assert gates["rank_homogeneity_guardrail"]["fallback_stagnation_threshold"] == 16
     assert gates["rank_homogeneity_guardrail"]["fallback_window"] == 12
+    assert gates["rank_homogeneity_guardrail"]["restart_candidate_novelty"] == {
+        "history_hash_count": 75,
+        "baseline_candidate_count": 5,
+        "baseline_reused_count": 2,
+        "baseline_reused_hashes": ["repeat-a", "repeat-b"],
+        "generated_candidate_count": 5,
+        "generated_reused_count": 0,
+        "replacement_count": 2,
+        "novelty_enforced": True,
+    }
     assert gates["rank_homogeneity_guardrail"]["signature_hashes"] == [
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -2456,6 +2476,11 @@ def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_mar
     assert gates["decision_round_best"]["blocked_candidate_count"] == 1
     assert any("Promotion gate blocked" in note for note in recommendation["notes"])
     assert any("restart_batch=3 catalog_offset=15" in note for note in recommendation["notes"])
+    assert any(
+        "Restart exact-repeat filter applied" in note
+        and "filtered=2 replacements=2 generated_reused=0" in note
+        for note in recommendation["notes"]
+    )
     assert any("Eval-slice overfit guardrail is active" in note for note in recommendation["notes"])
     assert any("sources=unknown=3, stagnation_restart=1" in note for note in recommendation["notes"])
     assert any("issues=2026025=4" in note for note in recommendation["notes"])
@@ -2472,6 +2497,7 @@ def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_mar
     )
     assert any("Rank-homogeneity restart champion observed" in note for note in recommendation["notes"])
     assert "## Gate Snapshot" in markdown
+    assert "restart_novelty=2filtered/2replaced/0reused" in markdown
     assert "frozen_primary=[0, 0, 0]" in markdown
     assert "sources=unknown=3, stagnation_restart=1" in markdown
     assert "issues=2026025=4" in markdown
@@ -2490,6 +2516,17 @@ def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_mar
     ) in markdown
     assert "Experimental navigation: source=exploration_champion reason=stagnation_top_eval_exploration" in markdown
     assert "blocked_sources=[rank_homogeneity_restart]" in markdown
+    operator = operator_summary(payload)
+    assert operator["rank_homogeneity"]["restart_candidate_novelty"] == {
+        "history_hash_count": 75,
+        "baseline_candidate_count": 5,
+        "baseline_reused_count": 2,
+        "baseline_reused_hashes": ["repeat-a", "repeat-b"],
+        "generated_candidate_count": 5,
+        "generated_reused_count": 0,
+        "replacement_count": 2,
+        "novelty_enforced": True,
+    }
 
 
 def test_evidence_context_surfaces_sample_space_baseline_and_leakage_guardrails():

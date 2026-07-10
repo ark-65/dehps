@@ -30,6 +30,7 @@ from scripts.run_training_supervisor import (
     evaluate_configs,
     frozen_validation_promotion_gate,
     frozen_validation_window,
+    historical_candidate_source_hashes,
     generate_configs,
     load_prior_supervisor_carryover_configs,
     low_coverage_fields_from_summaries,
@@ -1124,6 +1125,118 @@ def test_stagnation_restart_candidate_configs_rotate_disjoint_batches():
     assert [config_hash(config) for config in second] == [
         config_hash(config) for config in repeated_second
     ]
+
+
+def test_stagnation_restart_candidates_replace_same_history_exact_repeats():
+    base = FrequencyRankerConfig(
+        structural_weight=0.70,
+        frequency_weight=0.70,
+        omission_weight=0.14,
+    )
+    repeated = stagnation_restart_candidate_configs(
+        base,
+        max_configs=5,
+        round_index=5,
+        stagnation_rounds=4,
+        catalog_offset=0,
+    )
+    repeated_hashes = tuple(config_hash(config) for config in repeated)
+
+    replacements = stagnation_restart_candidate_configs(
+        base,
+        max_configs=5,
+        round_index=5,
+        stagnation_rounds=4,
+        catalog_offset=0,
+        excluded_config_hashes=repeated_hashes,
+    )
+    deterministic_replacements = stagnation_restart_candidate_configs(
+        base,
+        max_configs=5,
+        round_index=5,
+        stagnation_rounds=4,
+        catalog_offset=0,
+        excluded_config_hashes=repeated_hashes,
+    )
+
+    replacement_hashes = tuple(config_hash(config) for config in replacements)
+    assert len(replacement_hashes) == 5
+    assert set(replacement_hashes).isdisjoint(repeated_hashes)
+    assert replacement_hashes == tuple(
+        config_hash(config) for config in deterministic_replacements
+    )
+
+
+def test_stagnation_restart_candidates_use_deterministic_fallback_after_catalog_exhaustion():
+    base = FrequencyRankerConfig(
+        structural_weight=0.70,
+        frequency_weight=0.70,
+        omission_weight=0.14,
+    )
+    catalog = stagnation_restart_candidate_configs(
+        base,
+        max_configs=30,
+        round_index=12,
+        stagnation_rounds=11,
+        catalog_offset=0,
+    )
+    catalog_hashes = tuple(config_hash(config) for config in catalog)
+
+    fallback = stagnation_restart_candidate_configs(
+        base,
+        max_configs=5,
+        round_index=12,
+        stagnation_rounds=11,
+        catalog_offset=0,
+        excluded_config_hashes=catalog_hashes,
+    )
+    repeated_fallback = stagnation_restart_candidate_configs(
+        base,
+        max_configs=5,
+        round_index=12,
+        stagnation_rounds=11,
+        catalog_offset=0,
+        excluded_config_hashes=catalog_hashes,
+    )
+
+    fallback_hashes = tuple(config_hash(config) for config in fallback)
+    assert len(catalog_hashes) == 30
+    assert len(fallback_hashes) == 5
+    assert set(fallback_hashes).isdisjoint(catalog_hashes)
+    assert fallback_hashes == tuple(
+        config_hash(config) for config in repeated_fallback
+    )
+
+
+def test_historical_candidate_source_hashes_are_bounded_and_deduplicated():
+    records = [
+        {
+            "prefilter": {
+                "source_survival": {
+                    "stagnation_restart": {"hashes": ["hash-a", "hash-b"]}
+                }
+            }
+        },
+        {
+            "prefilter": {
+                "source_survival": {
+                    "stagnation_restart": {"hashes": ["hash-b", "hash-c"]}
+                }
+            }
+        },
+        {"prefilter": {"source_survival": {"stagnation_restart": None}}},
+    ]
+
+    assert historical_candidate_source_hashes(
+        records,
+        source="stagnation_restart",
+        limit=2,
+    ) == ("hash-a", "hash-b")
+    assert historical_candidate_source_hashes(
+        records,
+        source="stagnation_restart",
+        limit=0,
+    ) == ()
 
 
 def test_stagnation_restart_catalog_position_uses_active_trigger_threshold():

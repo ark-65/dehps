@@ -495,6 +495,7 @@ def stagnation_restart_candidate_configs(
     round_index: int,
     stagnation_rounds: int,
     catalog_offset: int = 0,
+    excluded_config_hashes: tuple[str, ...] = (),
 ) -> tuple[FrequencyRankerConfig, ...]:
     if max_configs <= 0:
         return ()
@@ -544,22 +545,28 @@ def stagnation_restart_candidate_configs(
             add_unique(configs, seen, FrequencyRankerConfig(**{**config_dict(base), **primary, **context}))
     for primary in primary_anchors:
         add_unique(configs, seen, FrequencyRankerConfig(**{**config_dict(base), **primary}))
+    excluded_hashes = {str(value) for value in excluded_config_hashes if value}
     if configs:
         normalized_offset = max(0, int(catalog_offset)) % len(configs)
         configs = configs[normalized_offset:] + configs[:normalized_offset]
+    if excluded_hashes:
+        configs = [config for config in configs if config_hash(config) not in excluded_hashes]
     configs = configs[:max_configs]
     if len(configs) >= max_configs:
         return tuple(configs)
     rng = random.Random(deterministic_seed("stagnation_restart", round_index, stagnation_rounds))
-    while len(configs) < max_configs:
+    attempts = 0
+    while len(configs) < max_configs and attempts < max_configs * 32:
+        attempts += 1
         values = config_dict(base)
         for field in PRIMARY_FIELDS:
             values[field] = rng.choice((0.05, 0.20, 0.85, 1.15))
         for field in rng.sample(RESTART_CONTEXT_FIELDS, k=min(5, len(RESTART_CONTEXT_FIELDS))):
             values[field] = rng.choice((-0.30, -0.20, 0.20, 0.30))
-        add_unique(configs, seen, FrequencyRankerConfig(**values))
-        if len(seen) > max_configs * 8:
-            break
+        candidate = clamp_config(FrequencyRankerConfig(**values))
+        if config_hash(candidate) in excluded_hashes:
+            continue
+        add_unique(configs, seen, candidate)
     return tuple(configs[:max_configs])
 
 
@@ -1429,6 +1436,36 @@ def candidate_source_survival(
             "hashes": hashes[:preview_limit],
         }
     return survival
+
+
+def historical_candidate_source_hashes(
+    records: list[dict],
+    *,
+    source: str,
+    limit: int = 512,
+) -> tuple[str, ...]:
+    effective_limit = max(0, int(limit))
+    if effective_limit == 0:
+        return ()
+    hashes: list[str] = []
+    seen: set[str] = set()
+    for record in records:
+        prefilter = record.get("prefilter") if isinstance(record.get("prefilter"), dict) else {}
+        source_survival = (
+            prefilter.get("source_survival")
+            if isinstance(prefilter.get("source_survival"), dict)
+            else {}
+        )
+        source_info = source_survival.get(source) if isinstance(source_survival.get(source), dict) else {}
+        for value in source_info.get("hashes") or ():
+            hash_value = str(value or "")
+            if not hash_value or hash_value in seen:
+                continue
+            seen.add(hash_value)
+            hashes.append(hash_value)
+            if len(hashes) >= effective_limit:
+                return tuple(hashes)
+    return tuple(hashes)
 
 
 def training_candidate_space_diagnostic(
@@ -6217,13 +6254,63 @@ def run_supervisor(
                 )
             )
             normal_configs = configs
-            stagnation_restart_configs = stagnation_restart_candidate_configs(
+            historical_restart_hashes = historical_candidate_source_hashes(
+                [*reversed(rounds), *navigation_records],
+                source="stagnation_restart",
+            )
+            historical_restart_hash_set = set(historical_restart_hashes)
+            baseline_stagnation_restart_configs = stagnation_restart_candidate_configs(
                 search_base_config,
                 max_configs=stagnation_restart_budget,
                 round_index=round_index + 1,
                 stagnation_rounds=stagnation_rounds,
                 catalog_offset=stagnation_restart_position["catalog_offset"],
             )
+            baseline_restart_hashes = bounded_unique_config_hashes(
+                baseline_stagnation_restart_configs,
+                limit=len(baseline_stagnation_restart_configs) or 1,
+            )
+            reused_restart_hashes = tuple(
+                hash_value
+                for hash_value in baseline_restart_hashes
+                if hash_value in historical_restart_hash_set
+            )
+            stagnation_restart_configs = (
+                stagnation_restart_candidate_configs(
+                    search_base_config,
+                    max_configs=stagnation_restart_budget,
+                    round_index=round_index + 1,
+                    stagnation_rounds=stagnation_rounds,
+                    catalog_offset=stagnation_restart_position["catalog_offset"],
+                    excluded_config_hashes=historical_restart_hashes,
+                )
+                if reused_restart_hashes
+                else baseline_stagnation_restart_configs
+            )
+            generated_restart_hashes = bounded_unique_config_hashes(
+                stagnation_restart_configs,
+                limit=len(stagnation_restart_configs) or 1,
+            )
+            generated_restart_hash_set = set(generated_restart_hashes)
+            restart_candidate_novelty = {
+                "history_hash_count": len(historical_restart_hashes),
+                "baseline_candidate_count": len(baseline_restart_hashes),
+                "baseline_reused_count": len(reused_restart_hashes),
+                "baseline_reused_hashes": list(reused_restart_hashes),
+                "generated_candidate_count": len(generated_restart_hashes),
+                "generated_reused_count": sum(
+                    hash_value in historical_restart_hash_set
+                    for hash_value in generated_restart_hashes
+                ),
+                "replacement_count": len(
+                    generated_restart_hash_set - set(baseline_restart_hashes)
+                ),
+                "novelty_enforced": bool(reused_restart_hashes),
+            }
+            rank_homogeneity = {
+                **rank_homogeneity,
+                "restart_candidate_novelty": restart_candidate_novelty,
+            }
             recency_canary_configs = recency_canary_candidate_configs(
                 search_base_config,
                 step=step,
@@ -6844,6 +6931,14 @@ def run_supervisor(
                     f"batch={stagnation_restart_position['batch_index']} "
                     f"catalog_offset={stagnation_restart_position['catalog_offset']}"
                 )
+                if restart_candidate_novelty["baseline_reused_count"]:
+                    log(
+                        f"round={round_index + 1} restart_candidate_novelty="
+                        f"filtered={restart_candidate_novelty['baseline_reused_count']} "
+                        f"replacements={restart_candidate_novelty['replacement_count']} "
+                        f"history_hashes={restart_candidate_novelty['history_hash_count']} "
+                        f"generated_reused={restart_candidate_novelty['generated_reused_count']}"
+                    )
             if eval_slice_overfit["active"]:
                 log(
                     f"round={round_index + 1} eval_slice_overfit_guardrail="
