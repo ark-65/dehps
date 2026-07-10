@@ -5,6 +5,7 @@ REPO_ROOT="/home/ark/workspace/dehps"
 WORKER_DIR="$REPO_ROOT/apps/worker-python"
 LOG_DIR="$REPO_ROOT/runtime/logs"
 PID_FILE="$LOG_DIR/training-supervisor-kdj-ridge-neural.pid"
+WEIGHT_KDJ_BUDGET_SHARE="${DEHPS_WEIGHT_KDJ_BUDGET_SHARE:-0.10}"
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
@@ -348,6 +349,7 @@ setsid bash -lc '
   set -euo pipefail
   pid_file="$0"
   as_of_issue="$1"
+  weight_kdj_budget_share="$2"
   printf "%s\n" "$$" > "$pid_file"
   args=(
     scripts/run_training_supervisor.py
@@ -364,6 +366,7 @@ setsid bash -lc '
     --memory-budget-gb 20
     --write-status-json
     --enable-weight-kdj-advisor
+    --weight-kdj-budget-share "$weight_kdj_budget_share"
     --enable-ridge-kdj-advisor
     --enable-neural-kdj-advisor
     --target-weight-inversion-max-candidates 4
@@ -375,7 +378,7 @@ setsid bash -lc '
     args+=(--as-of-issue "$as_of_issue")
   fi
   exec .venv/bin/python "${args[@]}"
-' "$PID_FILE" "$latest_issue" > "$run_log" 2>&1 < /dev/null &
+' "$PID_FILE" "$latest_issue" "$WEIGHT_KDJ_BUDGET_SHARE" > "$run_log" 2>&1 < /dev/null &
 
 launcher_pid="$!"
 sleep 1

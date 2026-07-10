@@ -79,12 +79,18 @@ Validation commands:
 - `bash -n scripts/hourly_self_iterate.sh` passed;
 - `git diff --check` passed.
 
+Mature-window update at eight completed rounds:
+
+- `budget_review_ready=true`, action `review_persistently_unproductive_source_budgets`;
+- Weight KDJ generated/selected/Top5 was `56/10/0` and recency canary was `32/4/0`;
+- productive sources remained Neural KDJ, normal, Ridge KDJ, and target-weight inversion, so the search was not globally collapsed;
+- four unique round-best configs were observed across eight rounds; the latest config/metric repeat streak was three and no repetition alert was active;
+- all eight rounds were rejected by `frozen_validation_not_better`; promotion frozen validation remained evaluated and not bypassed;
+- the smallest single-variable follow-up selected Weight KDJ only: reduce its operational share from 0.22 to 0.10 while preserving three candidates per round. Recency canary remains unchanged as a control.
+
 ## Next verification
 
-1. Observe the same run through at least eight completed rounds.
-2. Recheck source conversion, round/config repetition, rank homogeneity, frozen promotion, null expectation, and leakage checks together.
-3. If Weight KDJ or recency canary remains persistently zero-Top5, test one reversible budget reduction while preserving a non-zero canary path and leaving promotion gates unchanged.
-4. Start a fresh supervisor for that behavior-changing experiment and require one to two completed rounds without runtime error before acceptance.
+The eight-round boundary was reached and selected the Weight KDJ-only budget experiment described above. The next audit should let fresh run `20260710-174409` reach the same eight-round maturity window, then compare source conversion, distinct configs/rank signatures, repetition, frozen promotion, null expectation, and leakage checks against the 0.22-share baseline. No further source-budget change is justified before that comparison.
 
 ## Guardrail
 
