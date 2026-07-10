@@ -1498,7 +1498,7 @@ def load_training_round_navigation_records(
     with conn.cursor(row_factory=dict_row) as cur:
         rows = cur.execute(
             """
-            SELECT run_id, round_index, best_config, best_summary, top_results, prefilter
+            SELECT run_id, round_index, improved, best_config, best_summary, top_results, prefilter
             FROM training_round_results
             WHERE as_of_issue = %s
               AND history_fingerprint = %s

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import scripts.watch_training_progress as watch
 from scripts.watch_training_progress import (
     add_supervisor_status_observation_ages,
+    apply_guard_continuity_to_round_stats,
     advisor_signal_freshness_summary,
     advisor_summary,
     cli_evidence_context_summary,
@@ -37,6 +38,46 @@ def source_survival_round(round_index: int, source_survival: dict, **prefilter_f
         "round_index": round_index,
         "prefilter": {"source_survival": source_survival, **prefilter_fields},
     }
+
+
+def test_guard_continuity_promotes_effective_stagnation_without_changing_round_count():
+    round_stats, continuity = apply_guard_continuity_to_round_stats(
+        {
+            "round_count": 1,
+            "latest_round": 1,
+            "last_improved_round": None,
+            "stagnation_rounds": 1,
+            "improvement_count": 0,
+            "best_objective_seen": 10.0,
+        },
+        {
+            "stagnation_rounds": 20,
+            "guard_continuity": {
+                "active": True,
+                "source_run_ids": ["run-old"],
+                "effective_stagnation_rounds": 20,
+            },
+        },
+    )
+
+    assert round_stats["round_count"] == 1
+    assert round_stats["current_run_stagnation_rounds"] == 1
+    assert round_stats["stagnation_rounds"] == 20
+    assert continuity["applied"] is True
+    assert continuity["source_run_ids"] == ["run-old"]
+    assert continuity["current_run_stagnation_rounds"] == 1
+    assert continuity["effective_stagnation_rounds"] == 20
+
+
+def test_guard_continuity_never_reduces_current_run_stagnation():
+    round_stats, continuity = apply_guard_continuity_to_round_stats(
+        {"round_count": 5, "stagnation_rounds": 5},
+        {"guard_continuity": {"effective_stagnation_rounds": 2}},
+    )
+
+    assert round_stats["stagnation_rounds"] == 5
+    assert continuity["applied"] is False
+    assert continuity["effective_stagnation_rounds"] == 5
 
 
 def test_candidate_source_survival_waits_for_a_minimum_round_window():
@@ -504,6 +545,42 @@ def test_recommendation_flags_high_stagnation_for_restart_preparation():
     assert recommendation["action"] == "prepare_restart_with_more_exploration"
     assert "prepare_restart_with_more_exploration" in recommendation["actions"]
     assert any("not launch-ready" in note for note in recommendation["notes"])
+
+
+def test_recommendation_observes_guard_continuity_before_another_restart():
+    now = datetime(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+    rows = [
+        {
+            "round_index": 1,
+            "improved": False,
+            "updated_at": now - timedelta(minutes=1),
+        }
+    ]
+
+    recommendation = recommendation_summary(
+        rows=rows,
+        lock={"active": True, "owner": "training-supervisor"},
+        advisors={"neural_kdj_advisor": {"candidate_count": 0}},
+        now=now,
+        stale_minutes=30,
+        round_stats={
+            "round_count": 1,
+            "latest_round": 1,
+            "last_improved_round": None,
+            "stagnation_rounds": 80,
+            "current_run_stagnation_rounds": 1,
+            "improvement_count": 0,
+        },
+    )
+
+    assert recommendation["severity"] == "warn"
+    assert recommendation["action"] == "watch_stagnation_recovery"
+    assert "prepare_restart_with_more_exploration" not in recommendation["actions"]
+    assert any(
+        "Guard continuity restored high same-history stagnation" in note
+        and "current=1" in note
+        for note in recommendation["notes"]
+    )
 
 
 def test_round_repetition_diagnostic_surfaces_repeated_config_and_metrics(tmp_path):
@@ -1392,6 +1469,70 @@ def test_gate_summary_surfaces_navigation_quality_block_from_standard_path():
     assert any(
         "quality_blocked=True" in note
         and "reason=zero_frozen_primary_without_tail_or_frontier_lift" in note
+        for note in recommendation["notes"]
+    )
+
+
+def test_gate_summary_surfaces_strict_primary_navigation_block_despite_tail_lift():
+    now = datetime(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+    prefilter = {
+        "experimental_navigation_candidate": {
+            "source": "rank_homogeneity_restart_champion",
+            "reason": "rank_homogeneity_restart_changed_rank_vector",
+            "config_hash": "restart-hash",
+        },
+        "search_base": {
+            "frozen_primary_lift_required": True,
+            "exploration_navigation_config_hash": "restart-hash",
+            "exploration_navigation_eligible": False,
+            "exploration_navigation_primary_lift_passed": False,
+            "exploration_navigation_primary_lift_blocked": True,
+            "exploration_navigation_quality_reason": "passed",
+            "exploration_navigation_quality_blocked": False,
+            "exploration_navigation_rank_vector_changed": True,
+            "exploration_navigation_frozen_primary_score": [0, 0, 0],
+            "exploration_navigation_baseline_frozen_primary_score": [0, 0, 0],
+            "exploration_navigation_tail_over_1000000_delta": -2,
+            "exploration_navigation_source_frontier_score_improved": False,
+            "exploration_navigation_config_distance": 3.4,
+            "min_config_distance": 0.08,
+        },
+    }
+
+    gates = gate_summary(prefilter)
+    navigation = gates["experimental_navigation_candidate"]
+
+    assert navigation["eligible"] is False
+    assert navigation["eligibility_reason"] == "frozen_primary_lift_required"
+    assert navigation["quality_reason"] == "passed"
+    assert navigation["primary_lift_passed"] is False
+    assert navigation["primary_lift_blocked"] is True
+    assert navigation["tail_over_1000000_delta"] == -2
+
+    operator = operator_summary(
+        {
+            "run_id": "run-1",
+            "gate_summary": gates,
+            "recommendation": {"severity": "warn", "action": "watch_stagnation_recovery"},
+        }
+    )
+    assert operator["experimental_navigation_candidate"]["primary_lift_passed"] is False
+    assert operator["experimental_navigation_candidate"]["primary_lift_blocked"] is True
+
+    recommendation = recommendation_summary(
+        rows=[{"round_index": 17, "improved": False, "updated_at": now}],
+        lock={"active": True, "owner": "training-supervisor"},
+        advisors={"neural_kdj_advisor": {"candidate_count": 0}},
+        gates=gates,
+        now=now,
+        stale_minutes=30,
+        round_stats={"stagnation_rounds": 17},
+    )
+
+    assert any(
+        "reason=frozen_primary_lift_required" in note
+        and "quality=passed" in note
+        and "primary_lift_blocked=True" in note
         for note in recommendation["notes"]
     )
 

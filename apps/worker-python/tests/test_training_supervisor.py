@@ -11,6 +11,7 @@ from dehps.optimization.ridge_kdj_advisor import ridge_kdj_advice_to_frequency_r
 from dehps.optimization.walk_forward import TargetRank, build_ranked_universe
 import scripts.run_training_supervisor as supervisor
 from scripts.run_training_supervisor import (
+    active_supervisor_guard_rounds,
     best_challenger_summary,
     binomial_upper_tail_probability,
     bounded_unique_config_hashes,
@@ -48,6 +49,7 @@ from scripts.run_training_supervisor import (
     resolve_training_deadline,
     rank_homogeneity_guardrail,
     recover_supervisor_continuity_configs,
+    recover_supervisor_guard_history,
     search_base_min_distance_for_phase,
     ridge_kdj_advisor_metadata,
     should_checkpoint_supervisor_best,
@@ -1971,7 +1973,7 @@ def test_next_search_base_stays_put_when_gated_challengers_have_no_frozen_primar
     assert metadata["selected_frozen_primary_score"] == [0, 0, 0]
 
 
-def test_next_search_base_uses_bounded_experimental_navigation_when_frozen_gate_blocks():
+def test_next_search_base_blocks_tail_only_experimental_navigation_when_primary_gate_active():
     current_config = FrequencyRankerConfig()
     blocked_config = FrequencyRankerConfig(frequency_weight=0.40)
     exploration_config = FrequencyRankerConfig(frequency_weight=0.15, omission_weight=0.35)
@@ -2013,11 +2015,13 @@ def test_next_search_base_uses_bounded_experimental_navigation_when_frozen_gate_
         min_config_distance=0.08,
     )
 
-    assert config_hash(next_base) == config_hash(exploration_config)
-    assert metadata["source"] == "experimental_navigation"
-    assert metadata["changed"] is True
+    assert config_hash(next_base) == config_hash(current_config)
+    assert metadata["source"] == "unchanged"
+    assert metadata["changed"] is False
     assert metadata["round_best_search_blocked"] is True
-    assert metadata["exploration_navigation_eligible"] is True
+    assert metadata["exploration_navigation_eligible"] is False
+    assert metadata["exploration_navigation_primary_lift_passed"] is False
+    assert metadata["exploration_navigation_primary_lift_blocked"] is True
     assert metadata["exploration_navigation_frozen_primary_score"] == [0, 0, 0]
     assert metadata["exploration_navigation_tail_over_1000000_delta"] == -1
     assert metadata["exploration_navigation_quality_reason"] == "passed"
@@ -2229,7 +2233,7 @@ def test_next_search_base_does_not_quality_block_formally_improved_candidate():
     assert metadata["quality_blocked_config_hashes"] == []
 
 
-def test_next_search_base_allows_experimental_navigation_with_source_frontier_lift():
+def test_next_search_base_blocks_secondary_frontier_navigation_when_primary_gate_active():
     current_config = FrequencyRankerConfig()
     blocked_config = FrequencyRankerConfig(frequency_weight=0.40)
     exploration_config = FrequencyRankerConfig(frequency_weight=0.15, omission_weight=0.35)
@@ -2272,14 +2276,16 @@ def test_next_search_base_allows_experimental_navigation_with_source_frontier_li
         min_config_distance=0.08,
     )
 
-    assert config_hash(next_base) == config_hash(exploration_config)
-    assert metadata["source"] == "experimental_navigation"
-    assert metadata["exploration_navigation_eligible"] is True
+    assert config_hash(next_base) == config_hash(current_config)
+    assert metadata["source"] == "unchanged"
+    assert metadata["exploration_navigation_eligible"] is False
+    assert metadata["exploration_navigation_primary_lift_passed"] is False
+    assert metadata["exploration_navigation_primary_lift_blocked"] is True
     assert metadata["exploration_navigation_tail_over_1000000_delta"] == 0
     assert metadata["exploration_navigation_source_frontier_score_improved"] is True
 
 
-def test_restart_champion_can_feed_experimental_navigation_fallback():
+def test_restart_champion_cannot_bypass_strict_primary_gate_with_tail_lift_only():
     current_config = FrequencyRankerConfig()
     blocked_config = FrequencyRankerConfig(frequency_weight=0.40)
     restart_config = FrequencyRankerConfig(frequency_weight=1.05, omission_weight=0.0)
@@ -2335,13 +2341,66 @@ def test_restart_champion_can_feed_experimental_navigation_fallback():
     )
 
     assert navigation_candidate is restart
-    assert config_hash(next_base) == config_hash(restart_config)
-    assert metadata["source"] == "experimental_navigation"
+    assert config_hash(next_base) == config_hash(current_config)
+    assert metadata["source"] == "unchanged"
     assert metadata["exploration_navigation_source"] == "rank_homogeneity_restart_champion"
     assert metadata["exploration_navigation_reason"] == "rank_homogeneity_restart_changed_rank_vector"
-    assert metadata["exploration_navigation_eligible"] is True
+    assert metadata["exploration_navigation_eligible"] is False
+    assert metadata["exploration_navigation_primary_lift_passed"] is False
+    assert metadata["exploration_navigation_primary_lift_blocked"] is True
     assert metadata["exploration_navigation_tail_over_1000000_delta"] == -1
     assert metadata["selected_frozen_primary_score"] == [0, 0, 0]
+
+
+def test_external_experimental_navigation_requires_and_accepts_strict_primary_lift():
+    current_config = FrequencyRankerConfig()
+    blocked_config = FrequencyRankerConfig(frequency_weight=0.40)
+    exploration_config = FrequencyRankerConfig(frequency_weight=0.15, omission_weight=0.35)
+    incumbent = attach_test_frozen_validation(
+        supervisor_summary_for_config(current_config, target_ranks=[100, 900, 50_000]),
+        top_10000_hits=0,
+    )
+    blocked = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            blocked_config,
+            top_100_hits=3,
+            top_1000_hits=3,
+            top_10000_hits=3,
+            target_ranks=[17, 55, 89],
+            objective_score=2300.0,
+        ),
+        top_10000_hits=0,
+    )
+    exploration = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            exploration_config,
+            target_ranks=[900, 80, 40_000],
+            objective_score=1800.0,
+        ),
+        top_10000_hits=1,
+    )
+
+    next_base, metadata = select_next_search_base(
+        current_base=current_config,
+        summaries=[incumbent, blocked],
+        round_best=blocked,
+        improved=False,
+        exploration_navigation_candidate=exploration,
+        exploration_navigation_source="external_revalidated_navigation",
+        exploration_navigation_reason="strict_primary_lift_revalidated",
+        allow_unpromoted_round_best=False,
+        round_best_skip_reason="eval_slice_overfit_no_frozen_primary_lift",
+        require_frozen_primary_lift=True,
+        frozen_primary_lift_baseline=incumbent,
+        min_config_distance=0.08,
+    )
+
+    assert config_hash(next_base) == config_hash(exploration_config)
+    assert metadata["source"] == "experimental_navigation"
+    assert metadata["exploration_navigation_eligible"] is True
+    assert metadata["exploration_navigation_primary_lift_passed"] is True
+    assert metadata["exploration_navigation_primary_lift_blocked"] is False
+    assert metadata["selected_frozen_primary_score"] == [0, 0, 1]
 
 
 def test_rank_vector_restart_champion_preempts_exploration_navigation():
@@ -3134,6 +3193,98 @@ def test_stagnation_and_low_coverage_fields_are_deterministic():
 
     assert stagnation_round_count(rounds) == 2
     assert low_coverage_fields_from_summaries(summaries, limit=2) == ("tail_distribution_weight", "frequency_weight")
+
+
+def test_guard_history_recovers_same_history_unpromoted_streak_across_runs():
+    records = [
+        {
+            "run_id": "run-new",
+            "round_index": 2,
+            "improved": False,
+            "prefilter": {
+                "round_best_rank_signature_hash": "sig-a",
+                "eval_slice_overfit_guardrail": {"active": True},
+                "stale_round_best_search_base_gate": {"active": True},
+            },
+        },
+        {
+            "run_id": "run-new",
+            "round_index": 1,
+            "improved": False,
+            "prefilter": {"round_best_rank_signature_hash": "sig-a"},
+        },
+        {
+            "run_id": "run-old",
+            "round_index": 3,
+            "improved": False,
+            "prefilter": {"round_best_rank_signature_hash": "sig-a"},
+        },
+        {
+            "run_id": "run-old",
+            "round_index": 2,
+            "improved": True,
+            "prefilter": {"round_best_rank_signature_hash": "sig-b"},
+        },
+        {
+            "run_id": "run-old",
+            "round_index": 1,
+            "improved": False,
+            "prefilter": {"round_best_rank_signature_hash": "sig-b"},
+        },
+    ]
+
+    history, metadata = recover_supervisor_guard_history(records)
+
+    assert len(history) == 3
+    assert stagnation_round_count(history) == 3
+    assert metadata["active"] is True
+    assert metadata["stagnation_rounds"] == 3
+    assert metadata["source_run_ids"] == ["run-new", "run-old"]
+    assert metadata["rank_signature_count"] == 3
+    assert metadata["unique_rank_signature_count"] == 1
+    assert metadata["latest_eval_slice_overfit_active"] is True
+    assert metadata["latest_search_gate_active"] is True
+
+
+def test_guard_history_continues_until_current_run_formally_improves():
+    carryover = [
+        {"improved": False, "prefilter": {"round_best_rank_signature_hash": "sig-a"}}
+        for _ in range(4)
+    ]
+    current = [
+        {"improved": False, "prefilter": {"round_best_rank_signature_hash": "sig-a"}}
+    ]
+
+    active = active_supervisor_guard_rounds(carryover, current)
+
+    assert len(active) == 5
+    assert stagnation_round_count(active) == 5
+    guard = rank_homogeneity_guardrail(active, stagnation_rounds=5)
+    assert guard["active"] is True
+    assert guard["trigger_mode"] == "exact_repeat"
+
+    current.extend(
+        [
+            {"improved": True, "prefilter": {"round_best_rank_signature_hash": "sig-b"}},
+            {"improved": False, "prefilter": {"round_best_rank_signature_hash": "sig-c"}},
+        ]
+    )
+    reset = active_supervisor_guard_rounds(carryover, current)
+
+    assert len(reset) == 1
+    assert stagnation_round_count(reset) == 1
+    assert reset[0]["prefilter"]["round_best_rank_signature_hash"] == "sig-c"
+
+
+def test_guard_history_respects_zero_limit():
+    history, metadata = recover_supervisor_guard_history(
+        [{"run_id": "run-1", "round_index": 1, "improved": False, "prefilter": {}}],
+        limit=0,
+    )
+
+    assert history == []
+    assert metadata["active"] is False
+    assert metadata["stagnation_rounds"] == 0
 
 
 def test_control_experiments_and_frozen_validation_are_recorded():

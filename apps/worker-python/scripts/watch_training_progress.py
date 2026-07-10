@@ -824,6 +824,37 @@ def default_round_stats() -> dict[str, Any]:
     }
 
 
+def apply_guard_continuity_to_round_stats(
+    round_stats: dict[str, Any],
+    prefilter: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    current_stagnation = safe_int(round_stats.get("stagnation_rounds")) or 0
+    guard_continuity = (
+        prefilter.get("guard_continuity")
+        if isinstance(prefilter.get("guard_continuity"), dict)
+        else {}
+    )
+    effective_stagnation = safe_int(guard_continuity.get("effective_stagnation_rounds"))
+    if effective_stagnation is None:
+        effective_stagnation = safe_int(prefilter.get("stagnation_rounds"))
+    applied = bool(
+        effective_stagnation is not None
+        and effective_stagnation > current_stagnation
+    )
+    resolved_stagnation = max(current_stagnation, effective_stagnation or 0)
+    summary = {
+        **guard_continuity,
+        "applied": applied,
+        "current_run_stagnation_rounds": current_stagnation,
+        "effective_stagnation_rounds": resolved_stagnation,
+    }
+    return {
+        **round_stats,
+        "current_run_stagnation_rounds": current_stagnation,
+        "stagnation_rounds": resolved_stagnation,
+    }, summary
+
+
 def db_read_error_summary(stage: str, exc: Exception) -> dict[str, str]:
     return {
         "stage": stage,
@@ -1489,6 +1520,13 @@ def experimental_navigation_eligibility_reason(search_base: dict[str, Any]) -> s
     if not search_base.get("exploration_navigation_config_hash"):
         return "no_experimental_navigation_candidate"
 
+    primary_lift_required = safe_bool(search_base.get("frozen_primary_lift_required"))
+    primary_lift_passed = safe_bool(
+        search_base.get("exploration_navigation_primary_lift_passed")
+    )
+    if primary_lift_required is True and primary_lift_passed is False:
+        return "frozen_primary_lift_required"
+
     quality_reason = search_base.get("exploration_navigation_quality_reason")
     if quality_reason and quality_reason != "passed":
         return str(quality_reason)
@@ -1670,6 +1708,16 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
                     "source_frontier_score_improved",
                     safe_bool,
                 ),
+                (
+                    "exploration_navigation_primary_lift_passed",
+                    "primary_lift_passed",
+                    safe_bool,
+                ),
+                (
+                    "exploration_navigation_primary_lift_blocked",
+                    "primary_lift_blocked",
+                    safe_bool,
+                ),
             ):
                 parsed = parser(search_base.get(source_key))
                 if parsed is not None:
@@ -1835,7 +1883,24 @@ def recommendation_summary(
         )
 
     stagnation_rounds = int(improvement["stagnation_rounds"] or 0)
-    if stagnation_rounds >= 32:
+    current_run_stagnation_rounds = int(
+        improvement.get("current_run_stagnation_rounds")
+        if improvement.get("current_run_stagnation_rounds") is not None
+        else stagnation_rounds
+    )
+    guard_continuity_observation_pending = bool(
+        stagnation_rounds > current_run_stagnation_rounds
+        and current_run_stagnation_rounds < DEFAULT_SOURCE_SURVIVAL_MIN_ROUNDS
+    )
+    if stagnation_rounds >= 32 and guard_continuity_observation_pending:
+        severity = "warn" if severity == "ok" else severity
+        actions.append("watch_stagnation_recovery")
+        notes.append(
+            "Guard continuity restored high same-history stagnation; observe at least "
+            f"{DEFAULT_SOURCE_SURVIVAL_MIN_ROUNDS} completed current-run rounds before another restart "
+            f"decision (current={current_run_stagnation_rounds})."
+        )
+    elif stagnation_rounds >= 32:
         severity = "alert"
         actions.append("prepare_restart_with_more_exploration")
         notes.append("Stagnation is very high; prepare a new run with broader exploration and controls.")
@@ -1961,6 +2026,8 @@ def recommendation_summary(
             ("reason", navigation.get("eligibility_reason")),
             ("quality", navigation.get("quality_reason")),
             ("quality_blocked", navigation.get("quality_blocked_from_search_base")),
+            ("primary_lift_passed", navigation.get("primary_lift_passed")),
+            ("primary_lift_blocked", navigation.get("primary_lift_blocked")),
             ("rank_vector_changed", navigation.get("rank_vector_changed")),
         ]
         if navigation.get("config_distance") is not None:
@@ -2111,6 +2178,8 @@ def restart_candidate_readiness_context(
             "quality_reason",
             "quality_blocked_from_search_base",
             "round_best_quality_blocked",
+            "primary_lift_passed",
+            "primary_lift_blocked",
             "rank_vector_changed",
             "config_distance",
             "min_config_distance",
@@ -2444,6 +2513,10 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
     candidate_source_survival = summarize_candidate_source_survival(rows)
     latest = rows[-1] if rows else {}
     prefilter = latest.get("prefilter") if isinstance(latest.get("prefilter"), dict) else {}
+    round_stats, guard_continuity = apply_guard_continuity_to_round_stats(
+        round_stats,
+        prefilter,
+    )
     advisors = advisor_summary(prefilter)
     gates = gate_summary(prefilter)
     supervisor_status = add_supervisor_status_observation_ages(
@@ -2504,7 +2577,9 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         "latest_round": round_stats["latest_round"],
         "last_improved_round": round_stats["last_improved_round"],
         "stagnation_rounds": round_stats["stagnation_rounds"],
+        "current_run_stagnation_rounds": round_stats.get("current_run_stagnation_rounds"),
         "improvement_count": round_stats["improvement_count"],
+        "guard_continuity": guard_continuity,
         "latest_round_age_minutes": round_age_minutes(latest, now=generated_at) if latest else None,
         "latest_metrics": {
             "phase": latest.get("phase"),
@@ -3323,9 +3398,18 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
         "run_id": payload.get("run_id"),
         "round_count": payload.get("round_count"),
         "round_window_count": payload.get("round_window_count"),
+        "stagnation_rounds": payload.get("stagnation_rounds"),
+        "current_run_stagnation_rounds": payload.get("current_run_stagnation_rounds"),
         "severity": recommendation.get("severity"),
         "action": recommendation.get("action"),
     }
+    guard_continuity = (
+        payload.get("guard_continuity")
+        if isinstance(payload.get("guard_continuity"), dict)
+        else {}
+    )
+    if guard_continuity:
+        summary["guard_continuity"] = guard_continuity
     evidence_context = cli_evidence_context_summary(payload)
     if evidence_context:
         summary["evidence_context"] = evidence_context
@@ -3529,6 +3613,8 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "quality_reason",
             "quality_blocked_from_search_base",
             "round_best_quality_blocked",
+            "primary_lift_passed",
+            "primary_lift_blocked",
             "rank_vector_changed",
             "config_distance",
             "min_config_distance",
