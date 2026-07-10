@@ -21,6 +21,29 @@ is_training_pid_active() {
   ps -p "$pid" -o args= 2>/dev/null | grep -Fq "scripts/run_training_supervisor.py"
 }
 
+discover_training_pid() {
+  local pid
+  pid="$(tr -d '[:space:]' < "$PID_FILE" 2>/dev/null || true)"
+  if is_training_pid_active "$pid"; then
+    printf '%s\n' "$pid"
+    return 0
+  fi
+  pid="$(.venv/bin/python - <<'PY'
+from dehps.runtime.heavy_job import describe_heavy_job_owner
+
+status = describe_heavy_job_owner()
+metadata = status.metadata or {}
+if status.active and metadata.get("owner") == "training-supervisor":
+    print(metadata.get("pid") or "")
+PY
+)"
+  if is_training_pid_active "$pid"; then
+    printf '%s\n' "$pid"
+    return 0
+  fi
+  return 1
+}
+
 latest_db_issue() {
   .venv/bin/python - <<'PY'
 from dehps.db import get_connection
@@ -292,8 +315,12 @@ if [[ -n "$latest_issue" && "$signal_issue" != "$latest_issue" ]]; then
   log "weight KDJ signals stale signal_issue=${signal_issue:-none} latest_issue=$latest_issue"
 fi
 
-if [[ -s "$PID_FILE" ]]; then
-  pid="$(tr -d '[:space:]' < "$PID_FILE")"
+pid="$(discover_training_pid || true)"
+if [[ -n "$pid" ]]; then
+  if [[ "$(tr -d '[:space:]' < "$PID_FILE" 2>/dev/null || true)" != "$pid" ]]; then
+    printf '%s\n' "$pid" > "$PID_FILE"
+    log "recovered training supervisor pid=$pid from heavy-job metadata"
+  fi
   if is_training_pid_active "$pid"; then
     running_as_of="$(training_pid_as_of_issue "$pid")"
     if [[ "$running_as_of" == "$latest_issue" && "$signal_refresh_needed" == false ]]; then
