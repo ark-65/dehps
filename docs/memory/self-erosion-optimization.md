@@ -22,7 +22,7 @@
 - 每轮优先查看训练进度：运行或读取 `apps/worker-python/.venv/bin/python apps/worker-python/scripts/watch_training_progress.py --limit 12`，并检查最新 training supervisor status/report。
 - 每轮必须检查 `advisor_signal_freshness`。canonical advisor 信号落后历史时，优先检查同步流水线和 supervisor/heavy-job 锁交接；不得把旧信号下新增的轮数当作学习进步。
 - supervisor 交接后必须检查 `continuity_seed`。只允许重放同一历史指纹下、曾严格提高冻结主指标的 navigation candidate，并在新进程启动时重新完整评估；它只能续接 search base，不能直接替换 incumbent 或绕过 promotion gate。
-- 每轮检查 `candidate_source_survival` 的生成、预筛、Top5 和 round-best 转化。少于 4 个已落库轮次时只观察；成熟窗口出现 `inspect_candidate_diversity` 才进入预算/预筛诊断，来源存活本身不是预测证据，也不能据此保送候选。
+- 每轮检查 `candidate_source_survival` 的生成、预筛、Top5、round-best、冻结前沿和受护栏导航转化。少于 4 个已落库轮次时只观察，少于 8 个同 run 轮次时不得新开来源预算实验；已有严格冻结主分提升恢复证据的来源不得仅因 Top5 为零而被称为无产出或削减预算。恢复产出本身不是正式晋级或预测证据，也不能据此保送候选。
 - 优先修训练 watch / supervisor 运行错误、失败测试、明显 bug、类型错误和启动错误。
 - 当训练停滞、发散、候选族塌缩或出现可疑跳变时，先做 `$gauss` / `$riemann` / `$gauss-riemann-dialogue` 诊断，再改策略逻辑。
 - 诊断必须覆盖合法样本空间、历史窗口、baseline/null model、泄漏、重复组合、parser/sync 错误、后验阈值、候选多样性、共现结构和局部-全局一致性。

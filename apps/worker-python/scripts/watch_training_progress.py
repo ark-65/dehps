@@ -352,6 +352,21 @@ def summarize_candidate_source_survival(
     required_generated = max(1, int(min_generated))
     budget_review_required_rounds = max(required_rounds, int(budget_review_min_rounds))
     aggregates: dict[str, dict[str, int]] = {}
+
+    def aggregate_for_source(source: str) -> dict[str, int]:
+        return aggregates.setdefault(
+            source,
+            {
+                "rounds_generated": 0,
+                "generated": 0,
+                "prefilter_selected": 0,
+                "full_eval_top5": 0,
+                "round_best_rounds": 0,
+                "frozen_frontier_rounds": 0,
+                "guarded_navigation_rounds": 0,
+            },
+        )
+
     observed_rounds = 0
     for row in rows:
         prefilter = row.get("prefilter") if isinstance(row.get("prefilter"), dict) else {}
@@ -369,16 +384,7 @@ def summarize_candidate_source_survival(
             generated = safe_int(raw.get("generated")) or 0
             selected = safe_int(raw.get("prefilter_selected")) or 0
             top5 = safe_int(raw.get("full_eval_top5")) or 0
-            values = aggregates.setdefault(
-                str(source),
-                {
-                    "rounds_generated": 0,
-                    "generated": 0,
-                    "prefilter_selected": 0,
-                    "full_eval_top5": 0,
-                    "round_best_rounds": 0,
-                },
-            )
+            values = aggregate_for_source(str(source))
             if generated > 0:
                 values["rounds_generated"] += 1
             values["generated"] += max(0, generated)
@@ -387,6 +393,42 @@ def summarize_candidate_source_survival(
             if bool(raw.get("round_best")):
                 values["round_best_rounds"] += 1
 
+        source_frontier = (
+            prefilter.get("source_frontier_champion")
+            if isinstance(prefilter.get("source_frontier_champion"), dict)
+            else {}
+        )
+        frontier_source = str(source_frontier.get("source") or "")
+        frontier_hash = str(source_frontier.get("config_hash") or "")
+        frontier_primary_lift_verified = score_greater(
+            safe_score(source_frontier.get("candidate_primary_score")),
+            safe_score(source_frontier.get("baseline_primary_score")),
+        )
+        if (
+            bool(source_frontier.get("active"))
+            and frontier_source
+            and frontier_hash
+            and frontier_primary_lift_verified
+        ):
+            values = aggregate_for_source(frontier_source)
+            values["frozen_frontier_rounds"] += 1
+            decision = (
+                prefilter.get("decision_round_best")
+                if isinstance(prefilter.get("decision_round_best"), dict)
+                else {}
+            )
+            search_base = (
+                prefilter.get("search_base")
+                if isinstance(prefilter.get("search_base"), dict)
+                else {}
+            )
+            if (
+                decision.get("source") == "source_frontier"
+                and str(decision.get("config_hash") or "") == frontier_hash
+                and str(search_base.get("config_hash") or "") == frontier_hash
+            ):
+                values["guarded_navigation_rounds"] += 1
+
     evidence_ready = observed_rounds >= required_rounds
     sources: dict[str, dict[str, Any]] = {}
     for source, values in sorted(aggregates.items()):
@@ -394,10 +436,13 @@ def summarize_candidate_source_survival(
         selected = values["prefilter_selected"]
         top5 = values["full_eval_top5"]
         round_best_rounds = values["round_best_rounds"]
+        frozen_frontier_rounds = values["frozen_frontier_rounds"]
         if generated <= 0:
             state = "not_generated"
         elif top5 > 0 or round_best_rounds > 0:
             state = "productive"
+        elif frozen_frontier_rounds > 0:
+            state = "productive_recovery"
         elif evidence_ready and generated >= required_generated and selected == 0:
             state = "prefilter_starved"
         elif evidence_ready and generated >= required_generated:
@@ -409,11 +454,25 @@ def summarize_candidate_source_survival(
             "prefilter_selection_rate": round(selected / generated, 6) if generated else None,
             "top5_per_generated_rate": round(top5 / generated, 6) if generated else None,
             "top5_per_selected_rate": round(top5 / selected, 6) if selected else None,
+            "frozen_frontier_per_generated_round_rate": (
+                round(frozen_frontier_rounds / values["rounds_generated"], 6)
+                if values["rounds_generated"]
+                else None
+            ),
             "state": state,
         }
 
     active_sources = [source for source, values in sources.items() if values["generated"] > 0]
-    productive_sources = [source for source, values in sources.items() if values["state"] == "productive"]
+    productive_sources = [
+        source
+        for source, values in sources.items()
+        if values["state"] in {"productive", "productive_recovery"}
+    ]
+    recovery_productive_sources = [
+        source
+        for source, values in sources.items()
+        if values["frozen_frontier_rounds"] > 0
+    ]
     starved_sources = [source for source, values in sources.items() if values["state"] == "prefilter_starved"]
     zero_top5_sources = [
         source
@@ -463,13 +522,16 @@ def summarize_candidate_source_survival(
         "budget_review_sources": budget_review_sources,
         "active_sources": active_sources,
         "productive_sources": productive_sources,
+        "recovery_productive_sources": recovery_productive_sources,
         "starved_sources": starved_sources,
         "zero_top5_sources": zero_top5_sources,
         "sources": sources,
         "interpretation": (
             "Current-run source conversion diagnostic only. Source memberships may overlap; "
-            "survival or Top5 presence is not predictive evidence and does not bypass frozen validation. "
-            "Budget review requires the longer same-run window and never reserves promotion by source."
+            "Top5/round-best presence and frozen-frontier/guarded-navigation recovery are distinct evidence. "
+            "Recovery evidence prevents a source from being mislabeled unproductive but is not predictive "
+            "evidence and does not bypass frozen validation or reserve promotion. Budget review requires "
+            "the longer same-run window."
         ),
     }
 
@@ -2568,6 +2630,7 @@ def render_candidate_source_survival_markdown(summary: Any) -> str:
         f"{values.get('generated')} | {values.get('prefilter_selected')} | "
         f"{compact_decimal(values.get('prefilter_selection_rate'))} | "
         f"{values.get('full_eval_top5')} | {values.get('round_best_rounds')} | "
+        f"{values.get('frozen_frontier_rounds')} | {values.get('guarded_navigation_rounds')} | "
         f"{markdown_inline_text(values.get('state'))} |"
         for source, values in (summary.get("sources") or {}).items()
         if isinstance(values, dict)
@@ -2588,12 +2651,13 @@ def render_candidate_source_survival_markdown(summary: Any) -> str:
         f"ready={summary.get('budget_review_ready')} "
         f"action={markdown_inline_text(summary.get('budget_review_action'))} "
         f"sources={markdown_inline_text(compact_inline_list(summary.get('budget_review_sources')))}\n"
-        "- Productive/starved/zero-Top5: "
+        "- Productive/recovery/starved/zero-Top5: "
         f"{markdown_inline_text(compact_inline_list(summary.get('productive_sources')))} / "
+        f"{markdown_inline_text(compact_inline_list(summary.get('recovery_productive_sources')))} / "
         f"{markdown_inline_text(compact_inline_list(summary.get('starved_sources')))} / "
         f"{markdown_inline_text(compact_inline_list(summary.get('zero_top5_sources')))}\n\n"
-        "| Source | Generated rounds | Generated | Prefilter selected | Selection rate | Full-eval Top5 | Round best | State |\n"
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n"
+        "| Source | Generated rounds | Generated | Prefilter selected | Selection rate | Full-eval Top5 | Round best | Frozen frontier | Guarded navigation | State |\n"
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n"
         f"{rows}\n\n"
         f"- Interpretation: {markdown_inline_text(summary.get('interpretation'))}\n\n"
     )
@@ -3366,6 +3430,9 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
                 "budget_review_sources"
             ) or [],
             "productive_sources": candidate_source_survival.get("productive_sources") or [],
+            "recovery_productive_sources": candidate_source_survival.get(
+                "recovery_productive_sources"
+            ) or [],
             "starved_sources": candidate_source_survival.get("starved_sources") or [],
             "zero_top5_sources": candidate_source_survival.get("zero_top5_sources") or [],
             "sources": candidate_source_survival.get("sources") or {},

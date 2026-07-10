@@ -32,10 +32,10 @@ from scripts.watch_training_progress import (
 )
 
 
-def source_survival_round(round_index: int, source_survival: dict) -> dict:
+def source_survival_round(round_index: int, source_survival: dict, **prefilter_fields) -> dict:
     return {
         "round_index": round_index,
-        "prefilter": {"source_survival": source_survival},
+        "prefilter": {"source_survival": source_survival, **prefilter_fields},
     }
 
 
@@ -201,6 +201,160 @@ def test_candidate_source_survival_opens_budget_review_only_after_eight_same_run
     markdown = render_candidate_source_survival_markdown(summary)
     assert "observed=8/8 ready=True" in markdown
     assert "review_persistently_unproductive_source_budgets" in markdown
+
+
+def test_candidate_source_survival_preserves_guarded_recovery_source_budget():
+    rows = []
+    for index in range(1, 9):
+        prefilter_fields = {}
+        if index == 8:
+            prefilter_fields = {
+                "source_frontier_champion": {
+                    "active": True,
+                    "source": "stagnation_restart",
+                    "config_hash": "restart-frontier",
+                    "candidate_primary_score": [0, 0, 1],
+                    "baseline_primary_score": [0, 0, 0],
+                },
+                "decision_round_best": {
+                    "source": "source_frontier",
+                    "config_hash": "restart-frontier",
+                },
+                "search_base": {
+                    "source": "round_best",
+                    "config_hash": "restart-frontier",
+                },
+            }
+        rows.append(
+            source_survival_round(
+                index,
+                {
+                    "normal": {
+                        "generated": 7,
+                        "prefilter_selected": 6,
+                        "full_eval_top5": 3,
+                        "round_best": index == 1,
+                    },
+                    "stagnation_restart": {
+                        "generated": 5,
+                        "prefilter_selected": 1,
+                        "full_eval_top5": 0,
+                        "round_best": False,
+                    },
+                    "weight_kdj": {
+                        "generated": 7,
+                        "prefilter_selected": 1,
+                        "full_eval_top5": 0,
+                        "round_best": False,
+                    },
+                },
+                **prefilter_fields,
+            )
+        )
+
+    summary = summarize_candidate_source_survival(rows)
+
+    assert summary["budget_review_ready"] is True
+    assert summary["budget_review_sources"] == ["weight_kdj"]
+    assert summary["productive_sources"] == ["normal", "stagnation_restart"]
+    assert summary["recovery_productive_sources"] == ["stagnation_restart"]
+    assert summary["zero_top5_sources"] == ["weight_kdj"]
+    restart = summary["sources"]["stagnation_restart"]
+    assert restart["state"] == "productive_recovery"
+    assert restart["frozen_frontier_rounds"] == 1
+    assert restart["guarded_navigation_rounds"] == 1
+    assert restart["frozen_frontier_per_generated_round_rate"] == 0.125
+
+    markdown = render_candidate_source_survival_markdown(summary)
+    assert "Frozen frontier" in markdown
+    assert "Guarded navigation" in markdown
+    assert "productive_recovery" in markdown
+
+    operator = operator_summary(
+        {
+            "recommendation": {"severity": "ok", "action": "continue_current_run"},
+            "candidate_source_survival": summary,
+        }
+    )
+    assert operator["candidate_source_survival"]["recovery_productive_sources"] == [
+        "stagnation_restart"
+    ]
+
+
+def test_candidate_source_survival_requires_verified_primary_lift_for_recovery_value():
+    rows = [
+        source_survival_round(
+            1,
+            {
+                "stagnation_restart": {
+                    "generated": 5,
+                    "prefilter_selected": 1,
+                    "full_eval_top5": 0,
+                    "round_best": False,
+                }
+            },
+            source_frontier_champion={
+                "active": True,
+                "source": "stagnation_restart",
+                "config_hash": "no-primary-lift",
+                "candidate_primary_score": [0, 0, 0],
+                "baseline_primary_score": [0, 0, 0],
+            },
+            decision_round_best={
+                "source": "source_frontier",
+                "config_hash": "no-primary-lift",
+            },
+            search_base={"config_hash": "no-primary-lift"},
+        )
+    ]
+
+    summary = summarize_candidate_source_survival(
+        rows,
+        min_rounds=1,
+        min_generated=1,
+        budget_review_min_rounds=1,
+    )
+
+    restart = summary["sources"]["stagnation_restart"]
+    assert restart["frozen_frontier_rounds"] == 0
+    assert restart["guarded_navigation_rounds"] == 0
+    assert restart["state"] == "evaluated_without_top5"
+    assert summary["recovery_productive_sources"] == []
+    assert summary["budget_review_sources"] == ["stagnation_restart"]
+
+
+def test_candidate_source_survival_reports_recovery_for_top5_productive_source():
+    rows = [
+        source_survival_round(
+            1,
+            {
+                "normal": {
+                    "generated": 7,
+                    "prefilter_selected": 6,
+                    "full_eval_top5": 1,
+                    "round_best": True,
+                }
+            },
+            source_frontier_champion={
+                "active": True,
+                "source": "normal",
+                "config_hash": "normal-frontier",
+                "candidate_primary_score": [0, 0, 1],
+                "baseline_primary_score": [0, 0, 0],
+            },
+        )
+    ]
+
+    summary = summarize_candidate_source_survival(
+        rows,
+        min_rounds=1,
+        min_generated=1,
+        budget_review_min_rounds=1,
+    )
+
+    assert summary["sources"]["normal"]["state"] == "productive"
+    assert summary["sources"]["normal"]["frozen_frontier_rounds"] == 1
+    assert summary["recovery_productive_sources"] == ["normal"]
 
 
 def test_gate_summary_distinguishes_missing_frozen_validation_bypass_from_navigation_gate():
