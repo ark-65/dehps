@@ -1540,6 +1540,8 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
         if rank_homogeneity.get("trigger_mode"):
             normalized_rank_homogeneity["trigger_mode"] = rank_homogeneity.get("trigger_mode")
         for key in (
+            "restart_batch_index",
+            "restart_catalog_offset",
             "fallback_stagnation_threshold",
             "fallback_window",
             "fallback_observed",
@@ -1842,10 +1844,17 @@ def recommendation_summary(
     )
     if rank_homogeneity.get("active"):
         signature_hashes = compact_inline_list(rank_homogeneity.get("signature_hashes"), limit=3)
+        restart_rotation = ""
+        if rank_homogeneity.get("restart_batch_index") is not None:
+            restart_rotation = (
+                f"restart_batch={rank_homogeneity.get('restart_batch_index')} "
+                f"catalog_offset={rank_homogeneity.get('restart_catalog_offset')} "
+            )
         notes.append(
             "Rank homogeneity guardrail is active: "
             f"{rank_homogeneity.get('reason')} "
             f"trigger={rank_homogeneity.get('trigger_mode') or 'legacy'} "
+            f"{restart_rotation}"
             f"window={rank_homogeneity.get('window')} "
             f"observed={rank_homogeneity.get('observed')} "
             f"unique_signatures={rank_homogeneity.get('unique_signature_count')}/"
@@ -3392,6 +3401,8 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "window",
             "observed",
             "max_unique_signatures",
+            "restart_batch_index",
+            "restart_catalog_offset",
             "fallback_stagnation_threshold",
             "fallback_window",
             "fallback_observed",

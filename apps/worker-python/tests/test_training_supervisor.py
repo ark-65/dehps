@@ -69,6 +69,7 @@ from scripts.run_training_supervisor import (
     should_refresh_probability_focus,
     should_log_training_event_warning,
     source_frontier_diagnostics,
+    stagnation_restart_catalog_position,
     stagnation_restart_candidate_configs,
     summarize_target_ranks,
     summary_config_hash,
@@ -197,6 +198,47 @@ def test_recover_supervisor_continuity_reconstructs_legacy_restart_candidate():
                 "rank_homogeneity_restart_champion": {"config_hash": selected_hash},
                 "decision_round_best": {
                     "source": "source_frontier",
+                    "config_hash": selected_hash,
+                    "selected_frozen_primary_score": [0, 0, 1],
+                    "frozen_primary_lift_baseline_score": [0, 0, 0],
+                },
+            },
+        }
+    ]
+
+    configs, metadata = recover_supervisor_continuity_configs(records)
+
+    assert [config_hash(config) for config in configs] == [selected_hash]
+    assert metadata["recovered_count"] == 1
+    assert metadata["candidates"][0]["recovery_mode"] == "deterministic_restart_recovery"
+
+
+def test_recover_supervisor_continuity_reconstructs_rotated_restart_candidate():
+    base = FrequencyRankerConfig(frequency_weight=0.7, omission_weight=0.05)
+    restart_candidates = stagnation_restart_candidate_configs(
+        base,
+        max_configs=5,
+        round_index=18,
+        stagnation_rounds=17,
+        catalog_offset=5,
+    )
+    selected = restart_candidates[2]
+    selected_hash = config_hash(selected)
+    records = [
+        {
+            "run_id": "rotated-run",
+            "round_index": 18,
+            "best_config": base.__dict__,
+            "best_summary": supervisor_summary_for_config(base),
+            "top_results": [],
+            "prefilter": {
+                "stagnation_rounds": 17,
+                "stagnation_restart_catalog_offset": 5,
+                "candidate_budget": {"stagnation_restart": 5},
+                "search_base_start": {"config": base.__dict__},
+                "rank_homogeneity_restart_champion": {"config_hash": selected_hash},
+                "decision_round_best": {
+                    "source": "rank_homogeneity_restart",
                     "config_hash": selected_hash,
                     "selected_frozen_primary_score": [0, 0, 1],
                     "frozen_primary_lift_baseline_score": [0, 0, 0],
@@ -1041,6 +1083,71 @@ def test_stagnation_restart_candidate_configs_skip_current_extreme_base():
         any(getattr(config, field) != getattr(base, field) for field in supervisor.RESTART_CONTEXT_FIELDS)
         for config in configs
     )
+
+
+def test_stagnation_restart_candidate_configs_rotate_disjoint_batches():
+    base = FrequencyRankerConfig(
+        structural_weight=0.70,
+        frequency_weight=0.70,
+        omission_weight=0.14,
+    )
+
+    first = stagnation_restart_candidate_configs(
+        base,
+        max_configs=5,
+        round_index=5,
+        stagnation_rounds=4,
+        catalog_offset=0,
+    )
+    second = stagnation_restart_candidate_configs(
+        base,
+        max_configs=5,
+        round_index=6,
+        stagnation_rounds=5,
+        catalog_offset=5,
+    )
+    repeated_second = stagnation_restart_candidate_configs(
+        base,
+        max_configs=5,
+        round_index=6,
+        stagnation_rounds=5,
+        catalog_offset=5,
+    )
+
+    first_hashes = {config_hash(config) for config in first}
+    second_hashes = {config_hash(config) for config in second}
+    assert len(first_hashes) == len(second_hashes) == 5
+    assert first_hashes.isdisjoint(second_hashes)
+    assert [config_hash(config) for config in second] == [
+        config_hash(config) for config in repeated_second
+    ]
+
+
+def test_stagnation_restart_catalog_position_uses_active_trigger_threshold():
+    early = stagnation_restart_catalog_position(
+        {
+            "active": True,
+            "stagnation_rounds": 5,
+            "stagnation_threshold": 4,
+        },
+        budget=5,
+    )
+    fallback = stagnation_restart_catalog_position(
+        {
+            "active": True,
+            "stagnation_rounds": 16,
+            "stagnation_threshold": 16,
+        },
+        budget=5,
+    )
+    inactive = stagnation_restart_catalog_position(
+        {"active": False, "stagnation_rounds": 20, "stagnation_threshold": 4},
+        budget=5,
+    )
+
+    assert early == {"batch_index": 1, "catalog_offset": 5}
+    assert fallback == {"batch_index": 0, "catalog_offset": 0}
+    assert inactive == {"batch_index": 0, "catalog_offset": 0}
 
 
 def test_reserved_weight_kdj_candidates_survive_full_normal_round():

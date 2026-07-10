@@ -494,6 +494,7 @@ def stagnation_restart_candidate_configs(
     max_configs: int,
     round_index: int,
     stagnation_rounds: int,
+    catalog_offset: int = 0,
 ) -> tuple[FrequencyRankerConfig, ...]:
     if max_configs <= 0:
         return ()
@@ -541,12 +542,14 @@ def stagnation_restart_candidate_configs(
         for offset in range(len(context_bundles)):
             context = context_bundles[(index + offset) % len(context_bundles)]
             add_unique(configs, seen, FrequencyRankerConfig(**{**config_dict(base), **primary, **context}))
-            if len(configs) >= max_configs:
-                return tuple(configs[:max_configs])
     for primary in primary_anchors:
         add_unique(configs, seen, FrequencyRankerConfig(**{**config_dict(base), **primary}))
-        if len(configs) >= max_configs:
-            return tuple(configs[:max_configs])
+    if configs:
+        normalized_offset = max(0, int(catalog_offset)) % len(configs)
+        configs = configs[normalized_offset:] + configs[:normalized_offset]
+    configs = configs[:max_configs]
+    if len(configs) >= max_configs:
+        return tuple(configs)
     rng = random.Random(deterministic_seed("stagnation_restart", round_index, stagnation_rounds))
     while len(configs) < max_configs:
         values = config_dict(base)
@@ -558,6 +561,22 @@ def stagnation_restart_candidate_configs(
         if len(seen) > max_configs * 8:
             break
     return tuple(configs[:max_configs])
+
+
+def stagnation_restart_catalog_position(
+    rank_homogeneity: dict,
+    *,
+    budget: int,
+) -> dict:
+    if not rank_homogeneity.get("active") or budget <= 0:
+        return {"batch_index": 0, "catalog_offset": 0}
+    stagnation_rounds = int(rank_homogeneity.get("stagnation_rounds") or 0)
+    trigger_threshold = int(rank_homogeneity.get("stagnation_threshold") or stagnation_rounds)
+    batch_index = max(0, stagnation_rounds - trigger_threshold)
+    return {
+        "batch_index": batch_index,
+        "catalog_offset": batch_index * budget,
+    }
 
 
 def phase_for_round(round_index: int, *, stagnation_rounds: int = 0) -> tuple[str, float, str]:
@@ -4054,6 +4073,7 @@ def recover_supervisor_continuity_configs(
                         max_configs=restart_budget,
                         round_index=int(record.get("round_index") or 0),
                         stagnation_rounds=int(prefilter.get("stagnation_rounds") or 0),
+                        catalog_offset=int(prefilter.get("stagnation_restart_catalog_offset") or 0),
                     )
                     resolved = next(
                         (config for config in regenerated if config_hash(config) == candidate_hash),
@@ -5956,6 +5976,15 @@ def run_supervisor(
                 if rank_homogeneity["active"]
                 else 0
             )
+            stagnation_restart_position = stagnation_restart_catalog_position(
+                rank_homogeneity,
+                budget=stagnation_restart_budget,
+            )
+            rank_homogeneity = {
+                **rank_homogeneity,
+                "restart_batch_index": stagnation_restart_position["batch_index"],
+                "restart_catalog_offset": stagnation_restart_position["catalog_offset"],
+            }
             near_miss_inversion_budget = (
                 min(len(near_miss_inversion_configs), max(2, max_configs_per_round // 7))
                 if enable_target_weight_inversion_advisor and stagnation_rounds >= NEAR_MISS_INVERSION_STAGNATION_THRESHOLD
@@ -6024,6 +6053,7 @@ def run_supervisor(
                 max_configs=stagnation_restart_budget,
                 round_index=round_index + 1,
                 stagnation_rounds=stagnation_rounds,
+                catalog_offset=stagnation_restart_position["catalog_offset"],
             )
             recency_canary_configs = recency_canary_candidate_configs(
                 search_base_config,
@@ -6211,6 +6241,7 @@ def run_supervisor(
             prefilter_info["low_coverage_fields"] = list(low_coverage_fields)
             prefilter_info["candidate_budget"] = budgets
             prefilter_info["candidate_budget"]["stagnation_restart"] = stagnation_restart_budget
+            prefilter_info["stagnation_restart_catalog_offset"] = stagnation_restart_position["catalog_offset"]
             prefilter_info["rank_homogeneity_guardrail"] = rank_homogeneity
             prefilter_info["target_weight_inversion_budget_guardrail"] = target_weight_inversion_guardrail
             prefilter_info["source_survival"] = candidate_source_survival(
@@ -6635,7 +6666,9 @@ def run_supervisor(
                 log(
                     f"round={round_index + 1} rank_homogeneity_restart="
                     f"unique={rank_homogeneity['unique_signature_count']}/{rank_homogeneity['observed']} "
-                    f"budget={stagnation_restart_budget}"
+                    f"budget={stagnation_restart_budget} "
+                    f"batch={stagnation_restart_position['batch_index']} "
+                    f"catalog_offset={stagnation_restart_position['catalog_offset']}"
                 )
             if eval_slice_overfit["active"]:
                 log(

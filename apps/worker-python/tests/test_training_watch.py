@@ -815,6 +815,8 @@ def test_cli_summary_includes_restart_readiness_when_restart_is_requested(tmp_pa
                 "observed": 12,
                 "unique_signature_count": 1,
                 "max_unique_signatures": 4,
+                "restart_batch_index": 3,
+                "restart_catalog_offset": 15,
                 "fallback_stagnation_threshold": 16,
                 "fallback_window": 12,
                 "fallback_observed": 12,
@@ -851,6 +853,8 @@ def test_cli_summary_includes_restart_readiness_when_restart_is_requested(tmp_pa
         "observed": 12,
         "unique_signature_count": 1,
         "max_unique_signatures": 4,
+        "restart_batch_index": 3,
+        "restart_catalog_offset": 15,
         "fallback_stagnation_threshold": 16,
         "fallback_window": 12,
         "fallback_observed": 12,
@@ -1967,6 +1971,8 @@ def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_mar
             "observed": 12,
             "unique_signature_count": 1,
             "max_unique_signatures": 4,
+            "restart_batch_index": 3,
+            "restart_catalog_offset": 15,
             "fallback_stagnation_threshold": 16,
             "fallback_window": 12,
             "fallback_observed": 12,
@@ -2084,6 +2090,8 @@ def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_mar
     assert gates["rank_homogeneity_guardrail"]["window"] == 12
     assert gates["rank_homogeneity_guardrail"]["observed"] == 12
     assert gates["rank_homogeneity_guardrail"]["max_unique_signatures"] == 4
+    assert gates["rank_homogeneity_guardrail"]["restart_batch_index"] == 3
+    assert gates["rank_homogeneity_guardrail"]["restart_catalog_offset"] == 15
     assert gates["rank_homogeneity_guardrail"]["fallback_stagnation_threshold"] == 16
     assert gates["rank_homogeneity_guardrail"]["fallback_window"] == 12
     assert gates["rank_homogeneity_guardrail"]["signature_hashes"] == [
@@ -2095,6 +2103,7 @@ def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_mar
     assert gates["experimental_navigation_candidate"]["source"] == "exploration_champion"
     assert gates["decision_round_best"]["blocked_candidate_count"] == 1
     assert any("Promotion gate blocked" in note for note in recommendation["notes"])
+    assert any("restart_batch=3 catalog_offset=15" in note for note in recommendation["notes"])
     assert any("Eval-slice overfit guardrail is active" in note for note in recommendation["notes"])
     assert any("sources=unknown=3, stagnation_restart=1" in note for note in recommendation["notes"])
     assert any("issues=2026025=4" in note for note in recommendation["notes"])
