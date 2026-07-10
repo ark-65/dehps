@@ -22,7 +22,11 @@ from dehps.storage.postgres_store import (
     previous_experiment_metrics,
     save_experiment,
 )
-from scripts.generate_weight_kdj_signals import CANONICAL_SIGNAL_RUN_ID, generate_signals, parse_weights
+if __package__:
+    from scripts.generate_weight_kdj_signals import CANONICAL_SIGNAL_RUN_ID, generate_signals, parse_weights
+else:
+    # Direct script execution puts scripts/, not apps/worker-python, on sys.path.
+    from generate_weight_kdj_signals import CANONICAL_SIGNAL_RUN_ID, generate_signals, parse_weights
 
 
 def _latest_local_issue() -> str | None:
