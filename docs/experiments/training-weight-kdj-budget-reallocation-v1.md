@@ -61,7 +61,7 @@ Smallest shared conclusion: run one reversible operational experiment at Weight 
 
 ## Implementation
 
-`scripts/ensure_training_supervisor.sh` now defaults `DEHPS_WEIGHT_KDJ_BUDGET_SHARE` to `0.10` and passes it explicitly to the supervisor. The environment variable keeps the experiment reversible without changing model or promotion code.
+The experiment temporarily set the operational `DEHPS_WEIGHT_KDJ_BUDGET_SHARE` default to `0.10` and passed it explicitly to the supervisor. After the four-round observation and matched-control review below, the default was restored to baseline `0.22`. The environment variable keeps future controlled experiments reversible without changing model or promotion code.
 
 Fresh supervisor:
 
@@ -95,18 +95,39 @@ Round 2 also completed without runtime error:
 - frozen promotion was evaluated in both rounds, passed in neither, and was bypassed in neither;
 - static metrics remained `[3, 3, 3]`, Dynamic KDJ remained `[2, 3, 3]`, near-term Dynamic KDJ remained `[0, 0, 0]`, and the incumbent frozen-primary score remained `[0, 0, 0]`.
 
-The returned slots produced eight additional ordinary candidates, three additional prefilter survivors, and one additional overlapping Top5 attribution over the matched first two rounds. This supports continuing the experiment, but it does not yet establish a frozen-validation or predictive benefit.
+The returned slots produced eight additional ordinary candidates, three additional prefilter survivors, and one additional overlapping Top5 attribution over the first two rounds. This supported continuing to the four-round observation boundary, but did not establish a frozen-validation or predictive benefit.
+
+## Four-round result and matched-control correction
+
+An initial comparison against older baseline run `20260710-164004` suggested that repetition had worsened from three distinct round-best configurations to one. That comparison was causally confounded: the older run began before config `0169605b...` became the persisted incumbent, while the 0.10 experiment began after it.
+
+The operational share was conservatively restored to 0.22 in run `20260710-181537`, which started from the same persisted incumbent and historical issue. The matched four-round result was:
+
+- share 0.10: ordinary generated/selected/Top5 `48/40/20`; Weight KDJ `12/0/0`;
+- share 0.22: ordinary generated/selected/Top5 `32/31/16`; Weight KDJ `28/5/0`;
+- both runs produced one distinct round-best configuration in four rounds;
+- both repeated config `0169605b...`, identical metrics, and objective `5083.940308` in all four rounds;
+- both activated `round_repetition:same_config_and_metrics_repeated` with streak four;
+- both remained blocked by `frozen_validation_not_better`; static, Dynamic KDJ, and near-term Dynamic KDJ lines were identical.
+
+Gauss pass: changing the share changed pipeline counts but produced zero difference in round-best residuals, frozen-primary score, or promotion outcome. The earlier repetition attribution failed the same-incumbent control. Riemann pass: both sampling densities flowed to the same local attractor, so the current structural bottleneck is downstream of source budget allocation. Cross-review therefore classifies 0.10 as safe but inconclusive: it increased ordinary-source throughput, but did not demonstrate a distinct or frozen-valid search benefit and was not shown to cause repetition.
+
+Smallest shared conclusion: keep the conservative recorded baseline 0.22 because the experimental burden of proof was not met and it preserves broader Weight KDJ coverage. Do not try an unregistered midpoint. Treat the repeated incumbent as a separate search-geometry problem rather than a budget effect.
 
 Validation:
 
 - `bash -n scripts/ensure_training_supervisor.sh` passed;
+- `bash -n scripts/hourly_self_iterate.sh` passed;
 - `git diff --check` passed;
 - the supervisor launch command and both persisted round budgets independently confirmed share 0.10;
-- two complete live rounds finished, and PID `2345843` continued into round 3.
+- the rollback launch command and four persisted round budgets independently confirmed share 0.22;
+- experiment run `20260710-174409` completed four rounds;
+- rollback run `20260710-181537`, PID `2382857`, restored share 0.22 and completed four matched-control rounds without runtime errors;
+- both runs kept advisor freshness, parser/sync/duplicate checks, null context, and frozen promotion gates intact.
 
-## Falsification and next verification
+## Outcome and next verification
 
-The operational hypothesis is falsified if the persisted candidate budget is not 3 for Weight KDJ, the total budget changes from 28, Weight KDJ disappears, or the fresh supervisor cannot complete rounds cleanly. A search-efficiency benefit remains unproven unless a mature same-run window shows that the returned slots increase distinct/full-eval useful candidates without worse repetition or frozen-validation behavior.
+The allocation and runtime checks passed. The experiment showed higher ordinary-source throughput but no change at the round-best or frozen-validation boundary; its predictive/search benefit therefore remains unproven. Repetition was reproduced under the same-incumbent 0.22 control and cannot be attributed to the budget change. The operational default remains rolled back to 0.22. A future experiment must start from new mature evidence, register its falsification criteria before launch, and compare against the same historical state and incumbent before making causal claims.
 
 ## Guardrail
 

@@ -90,7 +90,7 @@ Mature-window update at eight completed rounds:
 
 ## Next verification
 
-The eight-round boundary was reached and selected the Weight KDJ-only budget experiment described above. The next audit should let fresh run `20260710-174409` reach the same eight-round maturity window, then compare source conversion, distinct configs/rank signatures, repetition, frozen promotion, null expectation, and leakage checks against the 0.22-share baseline. No further source-budget change is justified before that comparison.
+The eight-round boundary selected the Weight KDJ-only budget experiment described above. Fresh run `20260710-174409` repeated one round-best configuration and metric signature across its four-round observation window without frozen lift, so the operational share was conservatively restored to recorded baseline 0.22. A same-incumbent control run, `20260710-181537`, reproduced the same four-round repetition at share 0.22. The budget experiment therefore changed source throughput but neither improved round-best/frozen outcomes nor proved that share 0.10 caused repetition. No third budget value or new source-budget experiment is justified before new mature evidence accumulates; the repeated incumbent is now a separate search-geometry hypothesis.
 
 ## Guardrail
 
