@@ -1,4 +1,22 @@
+import subprocess
+import sys
+from pathlib import Path
+
 from scripts.daily_pipeline import run_pipeline
+
+
+def test_daily_pipeline_direct_script_help_starts_without_import_error():
+    worker_root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [sys.executable, "scripts/daily_pipeline.py", "--help"],
+        cwd=worker_root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "--skip-weight-kdj-signals" in result.stdout
 
 
 def test_daily_pipeline_no_new_data_finishes(monkeypatch, tmp_path):

@@ -40,6 +40,7 @@ DEFAULT_SUPERVISOR_OUTPUT_DIR = ROOT_DIR / "data/output/optimization"
 DEFAULT_OUTPUT_DIR = DEFAULT_SUPERVISOR_OUTPUT_DIR / "training-watch"
 DEFAULT_ROUND_LIMIT = 5000
 DEFAULT_STALE_MINUTES = 30
+DEFAULT_ADVISOR_SIGNAL_MAX_ISSUE_LAG = 1
 SAFE_FILENAME_COMPONENT_PATTERN = re.compile(r"[^A-Za-z0-9_-]+")
 SAFE_INTEGER_TEXT_PATTERN = re.compile(r"[0-9]+")
 MAX_SAFE_FILENAME_COMPONENT_LENGTH = 96
@@ -462,6 +463,13 @@ def load_parser_sync_duplicate_checks() -> dict[str, Any]:
                     FROM checked
                     """
                 ).fetchone() or {}
+                history_issues = [
+                    str(row["issue"])
+                    for row in cur.execute(
+                        "SELECT issue FROM ssq_history ORDER BY issue"
+                    ).fetchall()
+                    if row.get("issue")
+                ]
                 universe = cur.execute(
                     """
                     SELECT
@@ -550,6 +558,7 @@ def load_parser_sync_duplicate_checks() -> dict[str, Any]:
         "history_latest_issue": history.get("latest_issue"),
         "history_first_draw_date": isoformat_date(history.get("first_draw_date")),
         "history_latest_draw_date": isoformat_date(history.get("latest_draw_date")),
+        "_history_issues": history_issues,
         "history_duplicate_issue_count": duplicate_issue_count,
         "history_invalid_red_length_count": invalid_red_length_count,
         "history_red_out_of_range_count": red_out_of_range_count,
@@ -1135,6 +1144,98 @@ def advisor_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return result
 
 
+def advisor_signal_freshness_summary(
+    advisors: dict[str, dict[str, Any]],
+    *,
+    history_latest_issue: Any,
+    history_issues: list[Any] | None = None,
+    max_issue_lag: int = DEFAULT_ADVISOR_SIGNAL_MAX_ISSUE_LAG,
+) -> dict[str, Any]:
+    latest_issue = str(history_latest_issue or "").strip()
+    allowed_lag = max(0, int(max_issue_lag))
+    rows: dict[str, dict[str, Any]] = {}
+    stale_advisors: list[str] = []
+    missing_advisors: list[str] = []
+    future_advisors: list[str] = []
+    latest_number = safe_int(latest_issue)
+    issue_positions = {
+        str(issue): index
+        for index, issue in enumerate(history_issues or [])
+        if str(issue or "").strip()
+    }
+
+    for key, advisor in advisors.items():
+        if not isinstance(advisor, dict) or not advisor.get("enabled"):
+            rows[key] = {
+                "status": "disabled",
+                "latest_signal_issue": (
+                    advisor.get("latest_signal_issue")
+                    if isinstance(advisor, dict)
+                    else None
+                ),
+                "history_latest_issue": latest_issue or None,
+                "issue_lag": None,
+            }
+            continue
+        signal_issue = str(advisor.get("latest_signal_issue") or "").strip()
+        signal_number = safe_int(signal_issue)
+        if signal_issue in issue_positions and latest_issue in issue_positions:
+            issue_lag = issue_positions[latest_issue] - issue_positions[signal_issue]
+        elif (
+            latest_number is not None
+            and signal_number is not None
+            and latest_issue[:4] == signal_issue[:4]
+        ):
+            issue_lag = latest_number - signal_number
+        else:
+            issue_lag = None
+        if not latest_issue:
+            status = "history_latest_issue_missing"
+        elif not signal_issue:
+            status = "signal_issue_missing"
+            missing_advisors.append(key)
+        elif issue_lag is not None and issue_lag < 0:
+            status = "signal_issue_ahead_of_history"
+            future_advisors.append(key)
+        elif issue_lag is not None and issue_lag > allowed_lag:
+            status = "stale"
+            stale_advisors.append(key)
+        elif issue_lag is None and signal_issue > latest_issue:
+            status = "signal_issue_ahead_of_history"
+            future_advisors.append(key)
+        elif issue_lag is None and signal_issue < latest_issue:
+            status = "stale_unknown_lag"
+            stale_advisors.append(key)
+        else:
+            status = "current"
+        rows[key] = {
+            "status": status,
+            "latest_signal_issue": signal_issue or None,
+            "history_latest_issue": latest_issue or None,
+            "issue_lag": issue_lag,
+        }
+
+    if future_advisors:
+        status = "signal_issue_ahead_of_history"
+    elif stale_advisors:
+        status = "stale"
+    elif missing_advisors:
+        status = "signal_issue_missing"
+    elif not latest_issue:
+        status = "history_latest_issue_missing"
+    else:
+        status = "current"
+    return {
+        "status": status,
+        "history_latest_issue": latest_issue or None,
+        "max_allowed_issue_lag": allowed_lag,
+        "stale_advisors": stale_advisors,
+        "missing_advisors": missing_advisors,
+        "future_advisors": future_advisors,
+        "advisors": rows,
+    }
+
+
 def safe_score(value: Any) -> list[Any]:
     if isinstance(value, list):
         return value
@@ -1401,6 +1502,7 @@ def recommendation_summary(
     gates: dict[str, dict[str, Any]] | None = None,
     supervisor_status: dict[str, Any] | None = None,
     round_repetition: dict[str, Any] | None = None,
+    advisor_signal_freshness: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not rows:
         return {
@@ -1460,6 +1562,36 @@ def recommendation_summary(
         severity = "warn"
         actions.append("inspect_training_log")
         notes.append(f"Latest round is stale: {latest_age:.1f} minutes since update.")
+
+    advisor_freshness = (
+        advisor_signal_freshness
+        if isinstance(advisor_signal_freshness, dict)
+        else {}
+    )
+    freshness_status = advisor_freshness.get("status")
+    if freshness_status == "signal_issue_ahead_of_history":
+        severity = "alert"
+        actions.append("inspect_advisor_signal_leakage")
+        notes.append(
+            "Advisor signal issue is ahead of the latest history issue; stop promotion and inspect the leakage boundary: "
+            f"advisors={advisor_freshness.get('future_advisors')}."
+        )
+    elif freshness_status == "stale":
+        severity = "warn" if severity == "ok" else severity
+        actions.append("refresh_advisor_signals")
+        notes.append(
+            "Advisor signals lag the latest history beyond the allowed boundary: "
+            f"history_latest={advisor_freshness.get('history_latest_issue')} "
+            f"max_lag={advisor_freshness.get('max_allowed_issue_lag')} "
+            f"advisors={advisor_freshness.get('stale_advisors')}."
+        )
+    elif freshness_status == "signal_issue_missing":
+        severity = "warn" if severity == "ok" else severity
+        actions.append("inspect_advisor_signals")
+        notes.append(
+            "Enabled advisor signal issue metadata is missing: "
+            f"advisors={advisor_freshness.get('missing_advisors')}."
+        )
 
     stagnation_rounds = int(improvement["stagnation_rounds"] or 0)
     if stagnation_rounds >= 32:
@@ -2054,6 +2186,12 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
     )
     lock = add_heavy_lock_observation_ages(heavy_lock_summary(), now=generated_at)
     parser_sync_duplicate_checks = load_parser_sync_duplicate_checks()
+    history_issues = parser_sync_duplicate_checks.pop("_history_issues", [])
+    advisor_signal_freshness = advisor_signal_freshness_summary(
+        advisors,
+        history_latest_issue=parser_sync_duplicate_checks.get("history_latest_issue"),
+        history_issues=history_issues,
+    )
     recommendation = recommendation_summary(
         rows=rows,
         lock=lock,
@@ -2064,6 +2202,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         round_stats=round_stats,
         supervisor_status=supervisor_status,
         round_repetition=round_repetition,
+        advisor_signal_freshness=advisor_signal_freshness,
     )
     if db_read_errors:
         actions = [
@@ -2118,6 +2257,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         "round_repetition": round_repetition,
         "line_progress": line_progress,
         "advisor_summary": advisors,
+        "advisor_signal_freshness": advisor_signal_freshness,
         "gate_summary": gates,
         "db_read_errors": db_read_errors,
         "supervisor_status": supervisor_status,
@@ -2225,6 +2365,17 @@ def render_markdown(payload: dict[str, Any]) -> str:
         f"{value.get('rejected_count', 0)} | "
         f"{markdown_inline_text(', '.join(str(item) for item in value.get('selected_fields', [])[:6]))} |"
         for key, value in payload["advisor_summary"].items()
+    )
+    advisor_freshness = (
+        payload.get("advisor_signal_freshness")
+        if isinstance(payload.get("advisor_signal_freshness"), dict)
+        else {}
+    )
+    advisor_freshness_rows = "\n".join(
+        f"| {markdown_inline_text(key)} | {markdown_inline_text(value.get('status'))} | "
+        f"{markdown_inline_text(value.get('latest_signal_issue'))} | {value.get('issue_lag')} |"
+        for key, value in (advisor_freshness.get("advisors") or {}).items()
+        if isinstance(value, dict)
     )
     note_rows = "\n".join(f"- {markdown_inline_text(note)}" for note in rec.get("notes", []))
     gates = payload.get("gate_summary") if isinstance(payload.get("gate_summary"), dict) else {}
@@ -2682,6 +2833,16 @@ def render_markdown(payload: dict[str, Any]) -> str:
 | --- | ---: | ---: | ---: | --- |
 {advisor_rows}
 
+## Advisor Signal Freshness
+
+- Status: `{advisor_freshness.get("status")}`
+- History latest issue: `{advisor_freshness.get("history_latest_issue")}`
+- Max allowed issue lag: `{advisor_freshness.get("max_allowed_issue_lag")}`
+
+| Advisor | Status | Latest signal issue | Issue lag |
+| --- | --- | --- | ---: |
+{advisor_freshness_rows}
+
 {gate_section}\
 {round_repetition_section}\
 {line_progress_section}\
@@ -2917,6 +3078,21 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
                 "dominant_metric_signature_hash"
             ),
             "interpretation": round_repetition.get("interpretation"),
+        }
+    advisor_freshness = (
+        payload.get("advisor_signal_freshness")
+        if isinstance(payload.get("advisor_signal_freshness"), dict)
+        else {}
+    )
+    if advisor_freshness:
+        summary["advisor_signal_freshness"] = {
+            "status": advisor_freshness.get("status"),
+            "history_latest_issue": advisor_freshness.get("history_latest_issue"),
+            "max_allowed_issue_lag": advisor_freshness.get("max_allowed_issue_lag"),
+            "stale_advisors": advisor_freshness.get("stale_advisors") or [],
+            "missing_advisors": advisor_freshness.get("missing_advisors") or [],
+            "future_advisors": advisor_freshness.get("future_advisors") or [],
+            "advisors": advisor_freshness.get("advisors") or {},
         }
     gates = (
         payload.get("gate_summary")

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import scripts.watch_training_progress as watch
 from scripts.watch_training_progress import (
     add_supervisor_status_observation_ages,
+    advisor_signal_freshness_summary,
     advisor_summary,
     cli_evidence_context_summary,
     cli_summary,
@@ -27,6 +28,75 @@ from scripts.watch_training_progress import (
     supervisor_round_boundary_summary,
     summarize_watch,
 )
+
+
+def test_advisor_signal_freshness_flags_lagging_and_future_signals():
+    freshness = advisor_signal_freshness_summary(
+        {
+            "weight_kdj_advisor": {
+                "enabled": True,
+                "latest_signal_issue": "2026068",
+            },
+            "ridge_kdj_advisor": {
+                "enabled": True,
+                "latest_signal_issue": "2026078",
+            },
+            "neural_kdj_advisor": {
+                "enabled": True,
+                "latest_signal_issue": "2026079",
+            },
+        },
+        history_latest_issue="2026078",
+    )
+
+    assert freshness["status"] == "signal_issue_ahead_of_history"
+    assert freshness["stale_advisors"] == ["weight_kdj_advisor"]
+    assert freshness["future_advisors"] == ["neural_kdj_advisor"]
+    assert freshness["advisors"]["weight_kdj_advisor"]["issue_lag"] == 10
+    assert freshness["advisors"]["ridge_kdj_advisor"]["status"] == "current"
+
+
+def test_advisor_signal_freshness_uses_history_order_across_year_boundary():
+    freshness = advisor_signal_freshness_summary(
+        {
+            "weight_kdj_advisor": {
+                "enabled": True,
+                "latest_signal_issue": "2025151",
+            }
+        },
+        history_latest_issue="2026001",
+        history_issues=["2025150", "2025151", "2026001"],
+    )
+
+    assert freshness["status"] == "current"
+    assert freshness["advisors"]["weight_kdj_advisor"]["issue_lag"] == 1
+
+
+def test_recommendation_warns_when_advisor_signals_are_stale():
+    now = datetime(2026, 7, 10, 8, 0, tzinfo=timezone.utc)
+    recommendation = recommendation_summary(
+        rows=[
+            {
+                "round_index": 1,
+                "updated_at": now - timedelta(minutes=1),
+                "improved": False,
+            }
+        ],
+        lock={"active": True, "owner": "training-supervisor"},
+        advisors={},
+        now=now,
+        stale_minutes=30,
+        advisor_signal_freshness={
+            "status": "stale",
+            "history_latest_issue": "2026078",
+            "max_allowed_issue_lag": 1,
+            "stale_advisors": ["weight_kdj_advisor"],
+        },
+    )
+
+    assert recommendation["severity"] == "warn"
+    assert recommendation["action"] == "refresh_advisor_signals"
+    assert any("lag the latest history" in note for note in recommendation["notes"])
 
 
 def test_recommendation_continues_healthy_active_training_run():
