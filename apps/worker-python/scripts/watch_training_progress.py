@@ -2157,6 +2157,15 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
                 navigation_summary["selection_uses_frozen_validation"] = (
                     selection_uses_frozen
                 )
+            selected = safe_bool(
+                search_base.get("exploration_navigation_selected")
+            )
+            if selected is not None:
+                navigation_summary["selected"] = selected
+            if search_base.get("exploration_navigation_preempted_by"):
+                navigation_summary["preempted_by"] = search_base.get(
+                    "exploration_navigation_preempted_by"
+                )
             for source_key, output_key, parser in (
                 ("exploration_navigation_config_distance", "config_distance", safe_float),
                 ("min_config_distance", "min_config_distance", safe_float),
@@ -2556,6 +2565,14 @@ def recommendation_summary(
                 ]
             )
         notes.append(f"{note_prefix} {compact_observed_fields(fields)}.")
+    elif navigation.get("eligible") is True and navigation.get("selected") is False:
+        notes.append(
+            "Experimental navigation candidate was search-slice eligible but not selected: "
+            f"preempted_by={navigation.get('preempted_by') or 'unknown'} "
+            f"source={navigation.get('source')} "
+            f"basis={navigation.get('eligibility_basis')} "
+            f"uses_frozen={navigation.get('selection_uses_frozen_validation')}."
+        )
 
     decision = (
         gates.get("decision_round_best")
@@ -3538,6 +3555,8 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 ("eligibility_reason", "eligibility_reason"),
                 ("eligibility_basis", "eligibility_basis"),
                 ("uses_frozen", "selection_uses_frozen_validation"),
+                ("selected", "selected"),
+                ("preempted_by", "preempted_by"),
                 ("quality", "quality_reason"),
                 ("rank_vector_changed", "rank_vector_changed"),
             ]
@@ -4359,6 +4378,8 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "eligibility_reason",
             "eligibility_basis",
             "selection_uses_frozen_validation",
+            "selected",
+            "preempted_by",
             "quality_reason",
             "quality_blocked_from_search_base",
             "round_best_quality_blocked",

@@ -4915,6 +4915,12 @@ def select_next_search_base(
         "exploration_navigation_selection_uses_frozen_validation": bool(
             exploration_navigation_frozen_eligible
         ),
+        "exploration_navigation_selected": source == "experimental_navigation",
+        "exploration_navigation_preempted_by": (
+            source
+            if exploration_navigation_eligible and source != "experimental_navigation"
+            else ""
+        ),
         "exploration_navigation_primary_lift_passed": exploration_navigation_primary_lift_passed,
         "exploration_navigation_primary_lift_blocked": exploration_navigation_primary_lift_blocked,
         "exploration_navigation_quality_blocked": bool(
@@ -4954,6 +4960,23 @@ def select_next_search_base(
         **_target_weight_anchor_metrics(selected_summary),
     }
     return next_base, metadata
+
+
+def merge_experimental_navigation_arbitration(
+    selected_metadata: dict,
+    navigation_audit: dict,
+) -> dict:
+    merged = dict(selected_metadata)
+    for key, value in navigation_audit.items():
+        if key.startswith("exploration_navigation_"):
+            merged[key] = value
+    eligible = bool(merged.get("exploration_navigation_eligible"))
+    selected = merged.get("source") == "experimental_navigation"
+    merged["exploration_navigation_selected"] = selected
+    merged["exploration_navigation_preempted_by"] = (
+        str(merged.get("source") or "") if eligible and not selected else ""
+    )
+    return merged
 
 
 def stale_round_best_search_base_gate(
@@ -7157,13 +7180,32 @@ def run_supervisor(
             prefilter_info["near_miss_inversion_advisor"] = near_miss_inversion_latest
             status["near_miss_inversion_advisor"]["latest"] = near_miss_inversion_latest
             leaderboard = merge_leaderboard(leaderboard, summaries[: min(8, len(summaries))])
+            fallback_search_base_config, fallback_search_base_info = select_next_search_base(
+                current_base=search_base_config,
+                summaries=summaries,
+                round_best=decision_round_best,
+                improved=improved,
+                exploration_navigation_candidate=experimental_navigation_candidate,
+                exploration_navigation_source=str(experimental_navigation_info.get("source") or ""),
+                exploration_navigation_reason=str(experimental_navigation_info.get("reason") or ""),
+                recent_search_base_hashes=recent_search_base_hashes(rounds, search_base_config),
+                excluded_rank_signature_hashes=rank_signature_cooldown_hashes,
+                min_config_distance=min_search_base_distance,
+                allow_unpromoted_round_best=bool(round_best_search_gate["allow_unpromoted_round_best"]),
+                round_best_skip_reason=str(round_best_search_gate["reason"]),
+                require_frozen_primary_lift=require_frozen_primary_navigation,
+                frozen_primary_lift_baseline=prior_best_summary,
+                frozen_promotion_only=True,
+            )
+            next_search_base_config = fallback_search_base_config
+            search_base_info = fallback_search_base_info
             if probability_focus_info["active"] and probability_focus_decision_summary is not None:
                 focus_recent_search_base_hashes = (
                     recent_search_base_hashes(rounds, search_base_config)
                     if rank_homogeneity["active"]
                     else ()
                 )
-                next_search_base_config, search_base_info = select_probability_focus_search_base(
+                focus_search_base_config, focus_search_base_info = select_probability_focus_search_base(
                     current_base=search_base_config,
                     focus_summary=probability_focus_decision_summary,
                     focus_info=probability_focus_info,
@@ -7173,44 +7215,12 @@ def run_supervisor(
                     require_frozen_primary_lift=require_frozen_primary_navigation,
                     frozen_primary_lift_baseline=prior_best_summary,
                 )
-                if next_search_base_config is None:
-                    next_search_base_config, search_base_info = select_next_search_base(
-                        current_base=search_base_config,
-                        summaries=summaries,
-                        round_best=decision_round_best,
-                        improved=improved,
-                        exploration_navigation_candidate=experimental_navigation_candidate,
-                        exploration_navigation_source=str(experimental_navigation_info.get("source") or ""),
-                        exploration_navigation_reason=str(experimental_navigation_info.get("reason") or ""),
-                        recent_search_base_hashes=recent_search_base_hashes(rounds, search_base_config),
-                        excluded_rank_signature_hashes=rank_signature_cooldown_hashes,
-                        min_config_distance=min_search_base_distance,
-                        allow_unpromoted_round_best=bool(
-                            round_best_search_gate["allow_unpromoted_round_best"]
-                        ),
-                        round_best_skip_reason=str(round_best_search_gate["reason"]),
-                        require_frozen_primary_lift=require_frozen_primary_navigation,
-                        frozen_primary_lift_baseline=prior_best_summary,
-                        frozen_promotion_only=True,
+                if focus_search_base_config is not None:
+                    next_search_base_config = focus_search_base_config
+                    search_base_info = merge_experimental_navigation_arbitration(
+                        focus_search_base_info,
+                        fallback_search_base_info,
                     )
-            else:
-                next_search_base_config, search_base_info = select_next_search_base(
-                    current_base=search_base_config,
-                    summaries=summaries,
-                    round_best=decision_round_best,
-                    improved=improved,
-                    exploration_navigation_candidate=experimental_navigation_candidate,
-                    exploration_navigation_source=str(experimental_navigation_info.get("source") or ""),
-                    exploration_navigation_reason=str(experimental_navigation_info.get("reason") or ""),
-                    recent_search_base_hashes=recent_search_base_hashes(rounds, search_base_config),
-                    excluded_rank_signature_hashes=rank_signature_cooldown_hashes,
-                    min_config_distance=min_search_base_distance,
-                    allow_unpromoted_round_best=bool(round_best_search_gate["allow_unpromoted_round_best"]),
-                    round_best_skip_reason=str(round_best_search_gate["reason"]),
-                    require_frozen_primary_lift=require_frozen_primary_navigation,
-                    frozen_primary_lift_baseline=prior_best_summary,
-                    frozen_promotion_only=True,
-                )
             search_base_info["phase"] = phase
             search_base_info["phase_stage"] = phase_stage
             search_base_info["step"] = step

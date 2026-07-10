@@ -1589,6 +1589,65 @@ def test_recommendation_surfaces_recovery_decision_note():
     assert "- Recovery decision:" in markdown
 
 
+def test_gate_summary_surfaces_eligible_navigation_preempted_by_probability_focus():
+    now = datetime(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
+    prefilter = {
+        "experimental_navigation_candidate": {
+            "source": "rank_homogeneity_restart_champion",
+            "reason": "rank_homogeneity_restart_changed_rank_vector",
+            "config_hash": "restart-hash",
+        },
+        "search_base": {
+            "source": "probability_focus",
+            "config_hash": "focus-hash",
+            "exploration_navigation_config_hash": "restart-hash",
+            "exploration_navigation_eligible": True,
+            "exploration_navigation_eligibility_basis": "search_slice_rank_geometry",
+            "exploration_navigation_selection_uses_frozen_validation": False,
+            "exploration_navigation_selected": False,
+            "exploration_navigation_preempted_by": "probability_focus",
+            "exploration_navigation_quality_reason": "zero_frozen_primary_without_tail_or_frontier_lift",
+            "exploration_navigation_rank_vector_changed": True,
+            "exploration_navigation_config_distance": 1.25,
+            "min_config_distance": 0.08,
+        },
+    }
+
+    gates = gate_summary(prefilter)
+    navigation = gates["experimental_navigation_candidate"]
+    recommendation = recommendation_summary(
+        rows=[{"round_index": 40, "improved": False, "updated_at": now}],
+        lock={"active": True, "owner": "training-supervisor"},
+        advisors={"neural_kdj_advisor": {"candidate_count": 0}},
+        gates=gates,
+        now=now,
+        stale_minutes=30,
+        round_stats={"stagnation_rounds": 40},
+    )
+    operator = operator_summary(
+        {
+            "run_id": "run-1",
+            "gate_summary": gates,
+            "recommendation": recommendation,
+        }
+    )
+
+    assert navigation["eligible"] is True
+    assert navigation["eligibility_reason"] == "eligible"
+    assert navigation["eligibility_basis"] == "search_slice_rank_geometry"
+    assert navigation["selection_uses_frozen_validation"] is False
+    assert navigation["selected"] is False
+    assert navigation["preempted_by"] == "probability_focus"
+    assert operator["experimental_navigation_candidate"]["selected"] is False
+    assert operator["experimental_navigation_candidate"]["preempted_by"] == "probability_focus"
+    assert any(
+        "search-slice eligible but not selected" in note
+        and "preempted_by=probability_focus" in note
+        and "uses_frozen=False" in note
+        for note in recommendation["notes"]
+    )
+
+
 def test_gate_summary_surfaces_ineligible_navigation_distance():
     now = datetime(2026, 6, 18, 10, 0, tzinfo=timezone.utc)
     prefilter = {

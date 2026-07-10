@@ -775,6 +775,8 @@ def test_promotion_only_search_navigation_prefers_changed_restart_geometry_witho
     assert metadata["exploration_navigation_eligible"] is True
     assert metadata["exploration_navigation_eligibility_basis"] == "search_slice_rank_geometry"
     assert metadata["exploration_navigation_selection_uses_frozen_validation"] is False
+    assert metadata["exploration_navigation_selected"] is True
+    assert metadata["exploration_navigation_preempted_by"] == ""
     assert metadata["exploration_navigation_primary_lift_passed"] is False
     assert metadata["selected_frozen_primary_score"] == [0, 0, 0]
 
@@ -819,6 +821,40 @@ def test_promotion_only_search_navigation_does_not_prioritize_unchanged_rank_geo
     assert metadata["exploration_navigation_eligible"] is False
     assert metadata["exploration_navigation_eligibility_basis"] == "ineligible"
     assert metadata["exploration_navigation_selection_uses_frozen_validation"] is False
+
+
+def test_probability_focus_arbitration_preserves_eligible_navigation_audit():
+    focus_metadata = {
+        "source": "probability_focus",
+        "config_hash": "focus-hash",
+        "candidate_config_hash": "focus-hash",
+        "reason": "selected_focus",
+    }
+    navigation_audit = {
+        "source": "experimental_navigation",
+        "config_hash": "restart-hash",
+        "exploration_navigation_config_hash": "restart-hash",
+        "exploration_navigation_eligible": True,
+        "exploration_navigation_eligibility_basis": "search_slice_rank_geometry",
+        "exploration_navigation_selection_uses_frozen_validation": False,
+        "exploration_navigation_selected": True,
+        "exploration_navigation_preempted_by": "",
+        "exploration_navigation_rank_vector_changed": True,
+    }
+
+    merged = supervisor.merge_experimental_navigation_arbitration(
+        focus_metadata,
+        navigation_audit,
+    )
+
+    assert merged["source"] == "probability_focus"
+    assert merged["config_hash"] == "focus-hash"
+    assert merged["exploration_navigation_config_hash"] == "restart-hash"
+    assert merged["exploration_navigation_eligible"] is True
+    assert merged["exploration_navigation_eligibility_basis"] == "search_slice_rank_geometry"
+    assert merged["exploration_navigation_selection_uses_frozen_validation"] is False
+    assert merged["exploration_navigation_selected"] is False
+    assert merged["exploration_navigation_preempted_by"] == "probability_focus"
 
 
 def test_eval_slice_overfit_guardrail_blocks_unpromoted_round_best():
