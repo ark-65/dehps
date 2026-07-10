@@ -23,6 +23,7 @@ from scripts.watch_training_progress import (
     safe_float,
     safe_filename_component,
     safe_int,
+    summarize_round_repetition,
     supervisor_round_boundary_summary,
     summarize_watch,
 )
@@ -88,6 +89,64 @@ def test_recommendation_flags_high_stagnation_for_restart_preparation():
     assert recommendation["action"] == "prepare_restart_with_more_exploration"
     assert "prepare_restart_with_more_exploration" in recommendation["actions"]
     assert any("not launch-ready" in note for note in recommendation["notes"])
+
+
+def test_round_repetition_diagnostic_surfaces_repeated_config_and_metrics(tmp_path):
+    rows = [
+        {
+            "round_index": index,
+            "best_config": {"frequency_weight": 0.7, "structural_weight": 0.7},
+            "top_100_hits": 3,
+            "top_1000_hits": 3,
+            "top_10000_hits": 3,
+            "red5_top_100_hits": 3,
+            "red5_top_1000_hits": 13,
+            "red5_top_10000_hits": 29,
+            "median_rank": 556718.5,
+            "best_rank": 39,
+            "worst_rank": 1091300,
+            "objective_score": 5083.928984,
+        }
+        for index in range(1, 5)
+    ]
+
+    diagnostic = summarize_round_repetition(rows)
+    payload = {
+        "generated_at": "2026-07-10T02:00:00Z",
+        "run_id": "run-1",
+        "round_count": 4,
+        "latest_round": 4,
+        "last_improved_round": 1,
+        "stagnation_rounds": 3,
+        "latest_metrics": {},
+        "advisor_summary": {},
+        "round_repetition": diagnostic,
+        "heavy_job_lock": {},
+        "recommendation": {"severity": "ok", "action": "continue_current_run", "notes": []},
+        "guardrail": "Historical response-surface monitoring only.",
+    }
+
+    summary = cli_summary(payload, tmp_path / "watch.json", tmp_path / "watch.md")
+    markdown = render_markdown(payload)
+
+    assert diagnostic["status"] == "ready"
+    assert diagnostic["active"] is True
+    assert diagnostic["reason"] == "same_config_and_metrics_repeated"
+    assert diagnostic["window_count"] == 4
+    assert diagnostic["unique_config_count"] == 1
+    assert diagnostic["observed_config_count"] == 4
+    assert diagnostic["dominant_config_repeat_count"] == 4
+    assert diagnostic["latest_config_repeat_streak"] == 4
+    assert diagnostic["unique_metric_signature_count"] == 1
+    assert diagnostic["dominant_metric_repeat_count"] == 4
+    assert diagnostic["latest_metric_repeat_streak"] == 4
+    assert summary["round_repetition"]["reason"] == "same_config_and_metrics_repeated"
+    assert summary["round_repetition"]["latest_config_repeat_streak"] == 4
+    assert "## Round Repetition Diagnostic" in markdown
+    assert "reason=same_config_and_metrics_repeated" in markdown
+    assert "Config repeats: unique=1/4" in markdown
+    assert "Metric repeats: unique=1/4" in markdown
+    assert "not predictive evidence or a restart decision" in markdown
 
 
 def test_restart_readiness_blocks_parallel_supervisor_while_lock_is_active():

@@ -24,6 +24,18 @@ ADVISOR_KEYS = (
     "neural_kdj_advisor",
     "target_weight_inversion_advisor",
 )
+ROUND_REPETITION_METRIC_FIELDS = (
+    "top_100_hits",
+    "top_1000_hits",
+    "top_10000_hits",
+    "red5_top_100_hits",
+    "red5_top_1000_hits",
+    "red5_top_10000_hits",
+    "median_rank",
+    "best_rank",
+    "worst_rank",
+    "objective_score",
+)
 DEFAULT_SUPERVISOR_OUTPUT_DIR = ROOT_DIR / "data/output/optimization"
 DEFAULT_OUTPUT_DIR = DEFAULT_SUPERVISOR_OUTPUT_DIR / "training-watch"
 DEFAULT_ROUND_LIMIT = 5000
@@ -218,6 +230,111 @@ def compact_decimal(value: Any) -> str:
     if parsed is None:
         return "" if value is None else str(value)
     return f"{parsed:.8f}".rstrip("0").rstrip(".")
+
+
+def canonical_round_signature(value: Any) -> str | None:
+    if value is None:
+        return None
+    try:
+        text = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+    except (TypeError, ValueError):
+        text = str(value)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def latest_repeat_streak(values: list[str | None]) -> int:
+    if not values or values[-1] is None:
+        return 0
+    latest = values[-1]
+    streak = 0
+    for value in reversed(values):
+        if value != latest:
+            break
+        streak += 1
+    return streak
+
+
+def summarize_round_repetition(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    if not rows:
+        return {
+            "status": "not_available",
+            "reason": "no_recent_rounds",
+            "window_count": 0,
+        }
+
+    config_hashes = [canonical_round_signature(row.get("best_config")) for row in rows]
+    metric_hashes = [
+        canonical_round_signature(
+            {field: row.get(field) for field in ROUND_REPETITION_METRIC_FIELDS}
+        )
+        for row in rows
+    ]
+    config_counts: dict[str, int] = {}
+    for config_hash in config_hashes:
+        if config_hash:
+            config_counts[config_hash] = config_counts.get(config_hash, 0) + 1
+    metric_counts: dict[str, int] = {}
+    for metric_hash in metric_hashes:
+        if metric_hash:
+            metric_counts[metric_hash] = metric_counts.get(metric_hash, 0) + 1
+
+    dominant_config_hash, dominant_config_count = max(
+        config_counts.items(),
+        key=lambda item: (item[1], item[0]),
+        default=(None, 0),
+    )
+    dominant_metric_hash, dominant_metric_count = max(
+        metric_counts.items(),
+        key=lambda item: (item[1], item[0]),
+        default=(None, 0),
+    )
+    window_count = len(rows)
+    latest_config_streak = latest_repeat_streak(config_hashes)
+    latest_metric_streak = latest_repeat_streak(metric_hashes)
+    unique_config_count = len(config_counts)
+    unique_metric_signature_count = len(metric_counts)
+    same_config_repeated = (
+        window_count >= 3
+        and unique_config_count == 1
+        and latest_config_streak == window_count
+    )
+    same_metrics_repeated = (
+        window_count >= 3
+        and unique_metric_signature_count == 1
+        and latest_metric_streak == window_count
+    )
+    if same_config_repeated and same_metrics_repeated:
+        reason = "same_config_and_metrics_repeated"
+    elif same_config_repeated:
+        reason = "same_config_repeated"
+    elif same_metrics_repeated:
+        reason = "same_metrics_repeated"
+    else:
+        reason = "recent_rounds_vary"
+
+    return {
+        "status": "ready",
+        "reason": reason,
+        "active": reason != "recent_rounds_vary",
+        "window_count": window_count,
+        "latest_round": safe_int(rows[-1].get("round_index")),
+        "observed_config_count": sum(1 for item in config_hashes if item),
+        "unique_config_count": unique_config_count,
+        "dominant_config_hash": dominant_config_hash,
+        "dominant_config_repeat_count": dominant_config_count,
+        "latest_config_hash": config_hashes[-1],
+        "latest_config_repeat_streak": latest_config_streak,
+        "unique_metric_signature_count": unique_metric_signature_count,
+        "dominant_metric_signature_hash": dominant_metric_hash,
+        "dominant_metric_repeat_count": dominant_metric_count,
+        "latest_metric_signature_hash": metric_hashes[-1],
+        "latest_metric_repeat_streak": latest_metric_streak,
+        "metric_fields": list(ROUND_REPETITION_METRIC_FIELDS),
+        "interpretation": (
+            "Diagnostic only: repeated historical round outputs are a search-observability "
+            "signal, not predictive evidence or a restart decision."
+        ),
+    }
 
 
 def random_null_expectation_summary(supervisor_status: dict[str, Any]) -> dict[str, Any]:
@@ -1893,6 +2010,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
             line_progress = load_line_progress(resolved_run_id, limit=limit)
         except Exception as exc:
             db_read_errors.append(db_read_error_summary("load_line_progress", exc))
+    round_repetition = summarize_round_repetition(rows)
     latest = rows[-1] if rows else {}
     prefilter = latest.get("prefilter") if isinstance(latest.get("prefilter"), dict) else {}
     advisors = advisor_summary(prefilter)
@@ -1964,6 +2082,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
             "best_objective_seen": round_stats["best_objective_seen"],
         },
         "candidate_budget": prefilter.get("candidate_budget") if isinstance(prefilter.get("candidate_budget"), dict) else {},
+        "round_repetition": round_repetition,
         "line_progress": line_progress,
         "advisor_summary": advisors,
         "gate_summary": gates,
@@ -2032,6 +2151,33 @@ def render_line_progress_markdown(line_progress: Any) -> str:
 {rows}
 {comparison_line}
 """
+
+
+def render_round_repetition_markdown(round_repetition: Any) -> str:
+    if not isinstance(round_repetition, dict) or round_repetition.get("status") != "ready":
+        return ""
+    return (
+        "## Round Repetition Diagnostic\n\n"
+        "- Status: "
+        f"active={round_repetition.get('active')} "
+        f"reason={markdown_inline_text(round_repetition.get('reason'))} "
+        f"window={round_repetition.get('window_count')} "
+        f"latest_round={round_repetition.get('latest_round')}\n"
+        "- Config repeats: "
+        f"unique={round_repetition.get('unique_config_count')}/"
+        f"{round_repetition.get('observed_config_count')} "
+        f"dominant={markdown_inline_text(round_repetition.get('dominant_config_hash'))} "
+        f"dominant_count={round_repetition.get('dominant_config_repeat_count')} "
+        f"latest_streak={round_repetition.get('latest_config_repeat_streak')}\n"
+        "- Metric repeats: "
+        f"unique={round_repetition.get('unique_metric_signature_count')}/"
+        f"{round_repetition.get('window_count')} "
+        f"dominant={markdown_inline_text(round_repetition.get('dominant_metric_signature_hash'))} "
+        f"dominant_count={round_repetition.get('dominant_metric_repeat_count')} "
+        f"latest_streak={round_repetition.get('latest_metric_repeat_streak')}\n"
+        "- Interpretation: "
+        f"{markdown_inline_text(round_repetition.get('interpretation'))}\n\n"
+    )
 
 
 def render_markdown(payload: dict[str, Any]) -> str:
@@ -2310,6 +2456,9 @@ def render_markdown(payload: dict[str, Any]) -> str:
             f"{supervisor_progress_lines}\n"
         )
     line_progress_section = render_line_progress_markdown(payload.get("line_progress"))
+    round_repetition_section = render_round_repetition_markdown(
+        payload.get("round_repetition")
+    )
     supervisor_status = (
         payload.get("supervisor_status")
         if isinstance(payload.get("supervisor_status"), dict)
@@ -2478,6 +2627,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
 {advisor_rows}
 
 {gate_section}\
+{round_repetition_section}\
 {line_progress_section}\
 {restart_section}\
 {supervisor_section}\
@@ -2655,6 +2805,35 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "latest_round": line_progress.get("latest_round"),
             "lines": line_progress.get("lines") or {},
             "comparison": line_progress.get("comparison") or {},
+        }
+    round_repetition = (
+        payload.get("round_repetition")
+        if isinstance(payload.get("round_repetition"), dict)
+        else {}
+    )
+    if round_repetition and round_repetition.get("status") == "ready":
+        summary["round_repetition"] = {
+            "active": round_repetition.get("active"),
+            "reason": round_repetition.get("reason"),
+            "window_count": round_repetition.get("window_count"),
+            "latest_round": round_repetition.get("latest_round"),
+            "unique_config_count": round_repetition.get("unique_config_count"),
+            "observed_config_count": round_repetition.get("observed_config_count"),
+            "dominant_config_repeat_count": round_repetition.get(
+                "dominant_config_repeat_count"
+            ),
+            "latest_config_repeat_streak": round_repetition.get(
+                "latest_config_repeat_streak"
+            ),
+            "unique_metric_signature_count": round_repetition.get(
+                "unique_metric_signature_count"
+            ),
+            "dominant_metric_repeat_count": round_repetition.get(
+                "dominant_metric_repeat_count"
+            ),
+            "latest_metric_repeat_streak": round_repetition.get(
+                "latest_metric_repeat_streak"
+            ),
         }
     gates = (
         payload.get("gate_summary")
