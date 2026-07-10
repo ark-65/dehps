@@ -19,15 +19,140 @@ from scripts.watch_training_progress import (
     operator_summary,
     parse_iso_datetime,
     recommendation_summary,
+    render_candidate_source_survival_markdown,
     render_markdown,
     restart_readiness_summary,
     safe_float,
     safe_filename_component,
     safe_int,
+    summarize_candidate_source_survival,
     summarize_round_repetition,
     supervisor_round_boundary_summary,
     summarize_watch,
 )
+
+
+def source_survival_round(round_index: int, source_survival: dict) -> dict:
+    return {
+        "round_index": round_index,
+        "prefilter": {"source_survival": source_survival},
+    }
+
+
+def test_candidate_source_survival_waits_for_a_minimum_round_window():
+    rows = [
+        source_survival_round(
+            index,
+            {
+                "normal": {
+                    "generated": 7,
+                    "prefilter_selected": 7,
+                    "full_eval_top5": 5,
+                    "round_best": True,
+                },
+                "weight_kdj": {
+                    "generated": 7,
+                    "prefilter_selected": 0,
+                    "full_eval_top5": 0,
+                    "round_best": False,
+                },
+            },
+        )
+        for index in range(1, 3)
+    ]
+
+    summary = summarize_candidate_source_survival(rows)
+
+    assert summary["status"] == "insufficient_window"
+    assert summary["action"] == "observe_more_rounds"
+    assert summary["evidence_ready"] is False
+    assert summary["starved_sources"] == []
+
+
+def test_candidate_source_survival_separates_productive_starved_and_zero_top5_sources():
+    rows = []
+    for index in range(1, 5):
+        rows.append(
+            source_survival_round(
+                index,
+                {
+                    "normal": {
+                        "generated": 7,
+                        "prefilter_selected": 6,
+                        "full_eval_top5": 3,
+                        "round_best": index == 1,
+                    },
+                    "neural_kdj": {
+                        "generated": 3,
+                        "prefilter_selected": 1 if index >= 2 else 0,
+                        "full_eval_top5": 1 if index == 4 else 0,
+                        "round_best": index == 4,
+                    },
+                    "ridge_kdj": {
+                        "generated": 3,
+                        "prefilter_selected": 1,
+                        "full_eval_top5": 0,
+                        "round_best": False,
+                    },
+                    "weight_kdj": {
+                        "generated": 7,
+                        "prefilter_selected": 0,
+                        "full_eval_top5": 0,
+                        "round_best": False,
+                    },
+                },
+            )
+        )
+
+    summary = summarize_candidate_source_survival(rows)
+
+    assert summary["status"] == "diverse"
+    assert summary["action"] == "continue_current_run"
+    assert summary["productive_sources"] == ["neural_kdj", "normal"]
+    assert summary["starved_sources"] == ["weight_kdj"]
+    assert summary["zero_top5_sources"] == ["ridge_kdj"]
+    assert summary["sources"]["weight_kdj"]["prefilter_selection_rate"] == 0.0
+    assert summary["sources"]["neural_kdj"]["round_best_rounds"] == 1
+
+    markdown = render_candidate_source_survival_markdown(summary)
+    assert "Candidate Source Survival Window" in markdown
+    assert "weight_kdj" in markdown
+    operator = operator_summary(
+        {
+            "recommendation": {"severity": "ok", "action": "continue_current_run"},
+            "candidate_source_survival": summary,
+        }
+    )
+    assert operator["candidate_source_survival"]["starved_sources"] == ["weight_kdj"]
+
+
+def test_candidate_source_survival_flags_mature_single_productive_source_window():
+    rows = [
+        source_survival_round(
+            index,
+            {
+                "normal": {
+                    "generated": 7,
+                    "prefilter_selected": 7,
+                    "full_eval_top5": 5,
+                    "round_best": True,
+                },
+                "neural_kdj": {
+                    "generated": 3,
+                    "prefilter_selected": 1,
+                    "full_eval_top5": 0,
+                    "round_best": False,
+                },
+            },
+        )
+        for index in range(1, 5)
+    ]
+
+    summary = summarize_candidate_source_survival(rows)
+
+    assert summary["status"] == "narrow"
+    assert summary["action"] == "inspect_candidate_diversity"
+    assert summary["productive_sources"] == ["normal"]
 
 
 def test_advisor_signal_freshness_flags_lagging_and_future_signals():

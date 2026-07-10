@@ -6,7 +6,7 @@
 
 把 DEHPS 持续推进为一个可审计的预测训练平台: 以透明特征、冻结规则、历史回测、null model 对照、训练/仪表盘可读、风险可追踪为基础，逐步验证是否具备未来预测价值。
 
-长期训练增强目标：保持历史、canonical advisor 信号和 live supervisor `as_of_issue` 对齐；每 2 小时自我迭代检查训练进度、跨 supervisor continuity seed、停滞恢复、候选/排名多样性、source survival、冻结验证、null baseline、泄漏和 parser/sync/duplicate 状态。同历史、曾严格提高冻结主指标的 navigation candidate 必须在交接后重评，仍通过才续接 search base，且不得冒充 incumbent。只有可复现的新结构、冻结/前向证据改善或失败模式减少才算“变强”，持续计算本身不算。
+长期训练增强目标：保持历史、canonical advisor 信号和 live supervisor `as_of_issue` 对齐；每 2 小时自我迭代检查训练进度、跨 supervisor continuity seed、停滞恢复、候选/排名多样性、`candidate_source_survival`、冻结验证、null baseline、泄漏和 parser/sync/duplicate 状态。来源转化窗口未达到最小轮数时只观察；成熟窗口只用于定位预筛/预算瓶颈，不按来源保送候选。同历史、曾严格提高冻结主指标的 navigation candidate 必须在交接后重评，仍通过才续接 search base，且不得冒充 incumbent。只有可复现的新结构、冻结/前向证据改善或失败模式减少才算“变强”，持续计算本身不算。
 
 ## 工作流模板
 

@@ -41,6 +41,8 @@ DEFAULT_OUTPUT_DIR = DEFAULT_SUPERVISOR_OUTPUT_DIR / "training-watch"
 DEFAULT_ROUND_LIMIT = 5000
 DEFAULT_STALE_MINUTES = 30
 DEFAULT_ADVISOR_SIGNAL_MAX_ISSUE_LAG = 1
+DEFAULT_SOURCE_SURVIVAL_MIN_ROUNDS = 4
+DEFAULT_SOURCE_SURVIVAL_MIN_GENERATED = 8
 SAFE_FILENAME_COMPONENT_PATTERN = re.compile(r"[^A-Za-z0-9_-]+")
 SAFE_INTEGER_TEXT_PATTERN = re.compile(r"[0-9]+")
 MAX_SAFE_FILENAME_COMPONENT_LENGTH = 96
@@ -334,6 +336,118 @@ def summarize_round_repetition(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "interpretation": (
             "Diagnostic only: repeated historical round outputs are a search-observability "
             "signal, not predictive evidence or a restart decision."
+        ),
+    }
+
+
+def summarize_candidate_source_survival(
+    rows: list[dict[str, Any]],
+    *,
+    min_rounds: int = DEFAULT_SOURCE_SURVIVAL_MIN_ROUNDS,
+    min_generated: int = DEFAULT_SOURCE_SURVIVAL_MIN_GENERATED,
+) -> dict[str, Any]:
+    required_rounds = max(1, int(min_rounds))
+    required_generated = max(1, int(min_generated))
+    aggregates: dict[str, dict[str, int]] = {}
+    observed_rounds = 0
+    for row in rows:
+        prefilter = row.get("prefilter") if isinstance(row.get("prefilter"), dict) else {}
+        source_survival = (
+            prefilter.get("source_survival")
+            if isinstance(prefilter.get("source_survival"), dict)
+            else {}
+        )
+        if not source_survival:
+            continue
+        observed_rounds += 1
+        for source, raw in source_survival.items():
+            if not isinstance(raw, dict):
+                continue
+            generated = safe_int(raw.get("generated")) or 0
+            selected = safe_int(raw.get("prefilter_selected")) or 0
+            top5 = safe_int(raw.get("full_eval_top5")) or 0
+            values = aggregates.setdefault(
+                str(source),
+                {
+                    "rounds_generated": 0,
+                    "generated": 0,
+                    "prefilter_selected": 0,
+                    "full_eval_top5": 0,
+                    "round_best_rounds": 0,
+                },
+            )
+            if generated > 0:
+                values["rounds_generated"] += 1
+            values["generated"] += max(0, generated)
+            values["prefilter_selected"] += max(0, selected)
+            values["full_eval_top5"] += max(0, top5)
+            if bool(raw.get("round_best")):
+                values["round_best_rounds"] += 1
+
+    evidence_ready = observed_rounds >= required_rounds
+    sources: dict[str, dict[str, Any]] = {}
+    for source, values in sorted(aggregates.items()):
+        generated = values["generated"]
+        selected = values["prefilter_selected"]
+        top5 = values["full_eval_top5"]
+        round_best_rounds = values["round_best_rounds"]
+        if generated <= 0:
+            state = "not_generated"
+        elif top5 > 0 or round_best_rounds > 0:
+            state = "productive"
+        elif evidence_ready and generated >= required_generated and selected == 0:
+            state = "prefilter_starved"
+        elif evidence_ready and generated >= required_generated:
+            state = "evaluated_without_top5"
+        else:
+            state = "observing"
+        sources[source] = {
+            **values,
+            "prefilter_selection_rate": round(selected / generated, 6) if generated else None,
+            "top5_per_generated_rate": round(top5 / generated, 6) if generated else None,
+            "top5_per_selected_rate": round(top5 / selected, 6) if selected else None,
+            "state": state,
+        }
+
+    active_sources = [source for source, values in sources.items() if values["generated"] > 0]
+    productive_sources = [source for source, values in sources.items() if values["state"] == "productive"]
+    starved_sources = [source for source, values in sources.items() if values["state"] == "prefilter_starved"]
+    zero_top5_sources = [
+        source
+        for source, values in sources.items()
+        if values["state"] == "evaluated_without_top5"
+    ]
+    if observed_rounds == 0:
+        status = "not_available"
+        action = "wait_for_source_survival_data"
+    elif not evidence_ready:
+        status = "insufficient_window"
+        action = "observe_more_rounds"
+    elif len(active_sources) > 1 and len(productive_sources) <= 1:
+        status = "narrow"
+        action = "inspect_candidate_diversity"
+    elif len(productive_sources) >= 2:
+        status = "diverse"
+        action = "continue_current_run"
+    else:
+        status = "mixed"
+        action = "inspect_candidate_sources"
+    return {
+        "status": status,
+        "action": action,
+        "window_count": len(rows),
+        "observed_round_count": observed_rounds,
+        "min_rounds": required_rounds,
+        "min_generated": required_generated,
+        "evidence_ready": evidence_ready,
+        "active_sources": active_sources,
+        "productive_sources": productive_sources,
+        "starved_sources": starved_sources,
+        "zero_top5_sources": zero_top5_sources,
+        "sources": sources,
+        "interpretation": (
+            "Current-run source conversion diagnostic only. Source memberships may overlap; "
+            "survival or Top5 presence is not predictive evidence and does not bypass frozen validation."
         ),
     }
 
@@ -2188,6 +2302,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         except Exception as exc:
             db_read_errors.append(db_read_error_summary("load_line_progress", exc))
     round_repetition = summarize_round_repetition(rows)
+    candidate_source_survival = summarize_candidate_source_survival(rows)
     latest = rows[-1] if rows else {}
     prefilter = latest.get("prefilter") if isinstance(latest.get("prefilter"), dict) else {}
     advisors = advisor_summary(prefilter)
@@ -2268,6 +2383,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         },
         "candidate_budget": prefilter.get("candidate_budget") if isinstance(prefilter.get("candidate_budget"), dict) else {},
         "round_repetition": round_repetition,
+        "candidate_source_survival": candidate_source_survival,
         "line_progress": line_progress,
         "advisor_summary": advisors,
         "advisor_signal_freshness": advisor_signal_freshness,
@@ -2364,6 +2480,39 @@ def render_round_repetition_markdown(round_repetition: Any) -> str:
         f"latest_streak={round_repetition.get('latest_metric_repeat_streak')}\n"
         "- Interpretation: "
         f"{markdown_inline_text(round_repetition.get('interpretation'))}\n\n"
+    )
+
+
+def render_candidate_source_survival_markdown(summary: Any) -> str:
+    if not isinstance(summary, dict) or summary.get("status") == "not_available":
+        return ""
+    rows = "\n".join(
+        f"| {markdown_inline_text(source)} | {values.get('rounds_generated')} | "
+        f"{values.get('generated')} | {values.get('prefilter_selected')} | "
+        f"{compact_decimal(values.get('prefilter_selection_rate'))} | "
+        f"{values.get('full_eval_top5')} | {values.get('round_best_rounds')} | "
+        f"{markdown_inline_text(values.get('state'))} |"
+        for source, values in (summary.get("sources") or {}).items()
+        if isinstance(values, dict)
+    )
+    return (
+        "## Candidate Source Survival Window\n\n"
+        "- Status/action: "
+        f"{markdown_inline_text(summary.get('status'))} / "
+        f"{markdown_inline_text(summary.get('action'))}\n"
+        "- Evidence window: "
+        f"observed={summary.get('observed_round_count')}/{summary.get('window_count')} "
+        f"required_rounds={summary.get('min_rounds')} "
+        f"min_generated={summary.get('min_generated')} "
+        f"ready={summary.get('evidence_ready')}\n"
+        "- Productive/starved/zero-Top5: "
+        f"{markdown_inline_text(compact_inline_list(summary.get('productive_sources')))} / "
+        f"{markdown_inline_text(compact_inline_list(summary.get('starved_sources')))} / "
+        f"{markdown_inline_text(compact_inline_list(summary.get('zero_top5_sources')))}\n\n"
+        "| Source | Generated rounds | Generated | Prefilter selected | Selection rate | Full-eval Top5 | Round best | State |\n"
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n"
+        f"{rows}\n\n"
+        f"- Interpretation: {markdown_inline_text(summary.get('interpretation'))}\n\n"
     )
 
 
@@ -2657,6 +2806,9 @@ def render_markdown(payload: dict[str, Any]) -> str:
     round_repetition_section = render_round_repetition_markdown(
         payload.get("round_repetition")
     )
+    candidate_source_survival_section = render_candidate_source_survival_markdown(
+        payload.get("candidate_source_survival")
+    )
     supervisor_status = (
         payload.get("supervisor_status")
         if isinstance(payload.get("supervisor_status"), dict)
@@ -2858,6 +3010,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
 
 {gate_section}\
 {round_repetition_section}\
+{candidate_source_survival_section}\
 {line_progress_section}\
 {restart_section}\
 {supervisor_section}\
@@ -3091,6 +3244,26 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
                 "dominant_metric_signature_hash"
             ),
             "interpretation": round_repetition.get("interpretation"),
+        }
+    candidate_source_survival = (
+        payload.get("candidate_source_survival")
+        if isinstance(payload.get("candidate_source_survival"), dict)
+        else {}
+    )
+    if candidate_source_survival:
+        summary["candidate_source_survival"] = {
+            "status": candidate_source_survival.get("status"),
+            "action": candidate_source_survival.get("action"),
+            "window_count": candidate_source_survival.get("window_count"),
+            "observed_round_count": candidate_source_survival.get("observed_round_count"),
+            "min_rounds": candidate_source_survival.get("min_rounds"),
+            "min_generated": candidate_source_survival.get("min_generated"),
+            "evidence_ready": candidate_source_survival.get("evidence_ready"),
+            "productive_sources": candidate_source_survival.get("productive_sources") or [],
+            "starved_sources": candidate_source_survival.get("starved_sources") or [],
+            "zero_top5_sources": candidate_source_survival.get("zero_top5_sources") or [],
+            "sources": candidate_source_survival.get("sources") or {},
+            "interpretation": candidate_source_survival.get("interpretation"),
         }
     advisor_freshness = (
         payload.get("advisor_signal_freshness")
