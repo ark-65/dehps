@@ -19,13 +19,5 @@ apps/worker-python/dehps/runtime/*
 !apps/worker-python/dehps/runtime/heavy_job.py
 *.log
 
-# Local optimization analysis artifacts
-data/output/optimization/*.json
-data/output/optimization/*.md
-data/output/optimization/**
-data/output/cache/
-data/output/audits/*.json
-data/output/audits/*.md
-data/output/candidates/**
-data/output/daily/**
-data/output/experiments/**
+# Local generated data artifacts. Source evidence belongs under docs/experiments/.
+data/output/
