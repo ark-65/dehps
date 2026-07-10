@@ -3213,6 +3213,43 @@ def test_compact_status_payload_includes_round_summary_without_full_rounds():
     assert "best" not in payload
 
 
+def test_compact_status_payload_keeps_latest_progress_separate_from_completed_rounds():
+    latest_progress = {
+        "logged_at": "2026-07-10T14:01:33",
+        "round": 3,
+        "target_index": 60,
+        "target_total": 100,
+        "issue": "2026037",
+        "train_draws": 1456,
+        "elapsed_seconds": 33.5,
+    }
+
+    payload = compact_status_payload(
+        {
+            "run_id": "run-1",
+            "latest_progress": latest_progress,
+            "rounds": [
+                {
+                    "round": 1,
+                    "improved": False,
+                    "best": {"top_10000_hits": 2},
+                },
+                {
+                    "round": 2,
+                    "improved": False,
+                    "best": {"top_10000_hits": 3},
+                },
+            ],
+        }
+    )
+
+    assert payload["latest_progress"] == latest_progress
+    assert payload["round_summary"]["round_count"] == 2
+    assert payload["round_summary"]["latest_round"] == 2
+    assert payload["round_summary"]["stagnation_rounds"] == 2
+    assert "target_index" not in payload["round_summary"]
+
+
 def test_training_progress_payload_is_json_status_compatible():
     payload = training_progress_payload(
         round_index=2,
