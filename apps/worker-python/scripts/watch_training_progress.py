@@ -1526,7 +1526,7 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "threshold": safe_int(stale_gate.get("threshold")),
         }
     if rank_homogeneity:
-        result["rank_homogeneity_guardrail"] = {
+        normalized_rank_homogeneity = {
             "active": bool(rank_homogeneity.get("active")),
             "reason": rank_homogeneity.get("reason"),
             "stagnation_rounds": safe_int(rank_homogeneity.get("stagnation_rounds")),
@@ -1537,6 +1537,19 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "max_unique_signatures": safe_int(rank_homogeneity.get("max_unique_signatures")),
             "signature_hashes": safe_string_list(rank_homogeneity.get("signatures")),
         }
+        if rank_homogeneity.get("trigger_mode"):
+            normalized_rank_homogeneity["trigger_mode"] = rank_homogeneity.get("trigger_mode")
+        for key in (
+            "fallback_stagnation_threshold",
+            "fallback_window",
+            "fallback_observed",
+            "fallback_unique_signature_count",
+            "fallback_max_unique_signatures",
+        ):
+            value = safe_int(rank_homogeneity.get(key))
+            if value is not None:
+                normalized_rank_homogeneity[key] = value
+        result["rank_homogeneity_guardrail"] = normalized_rank_homogeneity
     if restart_champion:
         result["rank_homogeneity_restart_champion"] = {
             "active": bool(restart_champion.get("active")),
@@ -1832,6 +1845,7 @@ def recommendation_summary(
         notes.append(
             "Rank homogeneity guardrail is active: "
             f"{rank_homogeneity.get('reason')} "
+            f"trigger={rank_homogeneity.get('trigger_mode') or 'legacy'} "
             f"window={rank_homogeneity.get('window')} "
             f"observed={rank_homogeneity.get('observed')} "
             f"unique_signatures={rank_homogeneity.get('unique_signature_count')}/"
@@ -3370,12 +3384,19 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "unique_signature_count": rank_homogeneity.get("unique_signature_count"),
             "signature_hashes": rank_homogeneity.get("signature_hashes") or [],
         }
+        if rank_homogeneity.get("trigger_mode"):
+            rank_summary["trigger_mode"] = rank_homogeneity.get("trigger_mode")
         for key in (
             "stagnation_rounds",
             "stagnation_threshold",
             "window",
             "observed",
             "max_unique_signatures",
+            "fallback_stagnation_threshold",
+            "fallback_window",
+            "fallback_observed",
+            "fallback_unique_signature_count",
+            "fallback_max_unique_signatures",
         ):
             if rank_homogeneity.get(key) is not None:
                 rank_summary[key] = rank_homogeneity.get(key)

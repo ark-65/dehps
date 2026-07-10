@@ -808,12 +808,18 @@ def test_cli_summary_includes_restart_readiness_when_restart_is_requested(tmp_pa
             "rank_homogeneity_guardrail": {
                 "active": True,
                 "reason": "stale_rank_signature_cycle",
+                "trigger_mode": "low_diversity_cycle",
                 "stagnation_rounds": 34,
                 "stagnation_threshold": 16,
                 "window": 12,
                 "observed": 12,
                 "unique_signature_count": 1,
                 "max_unique_signatures": 4,
+                "fallback_stagnation_threshold": 16,
+                "fallback_window": 12,
+                "fallback_observed": 12,
+                "fallback_unique_signature_count": 1,
+                "fallback_max_unique_signatures": 4,
                 "signature_hashes": ["sig-a", "sig-b"],
             },
         },
@@ -838,12 +844,18 @@ def test_cli_summary_includes_restart_readiness_when_restart_is_requested(tmp_pa
     assert summary["action"] == "prepare_restart_with_more_exploration"
     assert summary["rank_homogeneity"] == {
         "reason": "stale_rank_signature_cycle",
+        "trigger_mode": "low_diversity_cycle",
         "stagnation_rounds": 34,
         "stagnation_threshold": 16,
         "window": 12,
         "observed": 12,
         "unique_signature_count": 1,
         "max_unique_signatures": 4,
+        "fallback_stagnation_threshold": 16,
+        "fallback_window": 12,
+        "fallback_observed": 12,
+        "fallback_unique_signature_count": 1,
+        "fallback_max_unique_signatures": 4,
         "signature_hashes": ["sig-a", "sig-b"],
     }
     assert summary["restart_readiness"] == {
@@ -1948,12 +1960,18 @@ def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_mar
         "rank_homogeneity_guardrail": {
             "active": True,
             "reason": "stale_rank_signature_cycle",
+            "trigger_mode": "low_diversity_cycle",
             "stagnation_rounds": 34,
             "stagnation_threshold": 16,
             "window": 12,
             "observed": 12,
             "unique_signature_count": 1,
             "max_unique_signatures": 4,
+            "fallback_stagnation_threshold": 16,
+            "fallback_window": 12,
+            "fallback_observed": 12,
+            "fallback_unique_signature_count": 1,
+            "fallback_max_unique_signatures": 4,
             "signatures": [
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -2061,10 +2079,13 @@ def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_mar
     assert gates["rank_homogeneity_restart_champion"]["source_frontier_improvement_basis"] == "secondary"
     assert gates["rank_homogeneity_restart_champion"]["unique_rank_signature_count"] == 3
     assert gates["rank_homogeneity_guardrail"]["stagnation_rounds"] == 34
+    assert gates["rank_homogeneity_guardrail"]["trigger_mode"] == "low_diversity_cycle"
     assert gates["rank_homogeneity_guardrail"]["stagnation_threshold"] == 16
     assert gates["rank_homogeneity_guardrail"]["window"] == 12
     assert gates["rank_homogeneity_guardrail"]["observed"] == 12
     assert gates["rank_homogeneity_guardrail"]["max_unique_signatures"] == 4
+    assert gates["rank_homogeneity_guardrail"]["fallback_stagnation_threshold"] == 16
+    assert gates["rank_homogeneity_guardrail"]["fallback_window"] == 12
     assert gates["rank_homogeneity_guardrail"]["signature_hashes"] == [
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",

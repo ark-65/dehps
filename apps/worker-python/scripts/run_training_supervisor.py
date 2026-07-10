@@ -234,6 +234,9 @@ STAGNATION_THRESHOLD = 16
 RANK_HOMOGENEITY_STAGNATION_THRESHOLD = STAGNATION_THRESHOLD
 RANK_HOMOGENEITY_WINDOW = 12
 RANK_HOMOGENEITY_MAX_UNIQUE_SIGNATURES = 4
+EARLY_RANK_HOMOGENEITY_STAGNATION_THRESHOLD = 4
+EARLY_RANK_HOMOGENEITY_WINDOW = 4
+EARLY_RANK_HOMOGENEITY_MAX_UNIQUE_SIGNATURES = 1
 CANDIDATE_BUDGET_SHARES = {
     "exploitation": 0.40,
     "exploration": 0.30,
@@ -425,30 +428,63 @@ def rank_homogeneity_guardrail(
         if isinstance(signature, str) and signature:
             signatures.append(signature)
     unique_signatures = sorted(set(signatures))
-    active = (
+    early_signatures: list[str] = []
+    for round_info in rounds[-EARLY_RANK_HOMOGENEITY_WINDOW:]:
+        prefilter = round_info.get("prefilter") if isinstance(round_info.get("prefilter"), dict) else {}
+        signature = prefilter.get("round_best_rank_signature_hash")
+        if isinstance(signature, str) and signature:
+            early_signatures.append(signature)
+    early_unique_signatures = sorted(set(early_signatures))
+    early_active = (
+        stagnation_rounds >= EARLY_RANK_HOMOGENEITY_STAGNATION_THRESHOLD
+        and len(early_signatures) >= EARLY_RANK_HOMOGENEITY_WINDOW
+        and len(early_unique_signatures) <= EARLY_RANK_HOMOGENEITY_MAX_UNIQUE_SIGNATURES
+    )
+    fallback_active = (
         stagnation_rounds >= RANK_HOMOGENEITY_STAGNATION_THRESHOLD
         and len(signatures) >= window
         and len(unique_signatures) <= max_unique_signatures
     )
+    active = early_active or fallback_active
     reason = None
-    if active:
+    if early_active:
         reason = "stale_rank_signature_cycle"
-    elif stagnation_rounds < RANK_HOMOGENEITY_STAGNATION_THRESHOLD:
+    elif fallback_active:
+        reason = "stale_rank_signature_cycle"
+    elif stagnation_rounds < EARLY_RANK_HOMOGENEITY_STAGNATION_THRESHOLD:
         reason = "below_stagnation_threshold"
-    elif len(signatures) < window:
+    elif len(early_signatures) < EARLY_RANK_HOMOGENEITY_WINDOW:
         reason = "insufficient_signature_window"
     else:
         reason = "rank_signatures_still_diverse"
+    if fallback_active and not early_active:
+        effective_threshold = RANK_HOMOGENEITY_STAGNATION_THRESHOLD
+        effective_window = window
+        effective_observed = len(signatures)
+        effective_unique_signatures = unique_signatures
+        effective_max_unique_signatures = max_unique_signatures
+    else:
+        effective_threshold = EARLY_RANK_HOMOGENEITY_STAGNATION_THRESHOLD
+        effective_window = EARLY_RANK_HOMOGENEITY_WINDOW
+        effective_observed = len(early_signatures)
+        effective_unique_signatures = early_unique_signatures
+        effective_max_unique_signatures = EARLY_RANK_HOMOGENEITY_MAX_UNIQUE_SIGNATURES
     return {
         "active": active,
         "reason": reason,
+        "trigger_mode": "exact_repeat" if early_active else "low_diversity_cycle" if fallback_active else "",
         "stagnation_rounds": stagnation_rounds,
-        "stagnation_threshold": RANK_HOMOGENEITY_STAGNATION_THRESHOLD,
-        "window": window,
-        "observed": len(signatures),
-        "unique_signature_count": len(unique_signatures),
-        "max_unique_signatures": max_unique_signatures,
-        "signatures": unique_signatures[:8],
+        "stagnation_threshold": effective_threshold,
+        "window": effective_window,
+        "observed": effective_observed,
+        "unique_signature_count": len(effective_unique_signatures),
+        "max_unique_signatures": effective_max_unique_signatures,
+        "fallback_stagnation_threshold": RANK_HOMOGENEITY_STAGNATION_THRESHOLD,
+        "fallback_window": window,
+        "fallback_observed": len(signatures),
+        "fallback_unique_signature_count": len(unique_signatures),
+        "fallback_max_unique_signatures": max_unique_signatures,
+        "signatures": effective_unique_signatures[:8],
     }
 
 

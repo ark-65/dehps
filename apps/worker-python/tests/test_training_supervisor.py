@@ -919,23 +919,73 @@ def test_rank_homogeneity_guardrail_detects_repeated_rank_signatures():
 
     assert guardrail["active"] is True
     assert guardrail["reason"] == "stale_rank_signature_cycle"
+    assert guardrail["trigger_mode"] == "low_diversity_cycle"
+    assert guardrail["stagnation_threshold"] == 16
+    assert guardrail["window"] == 12
     assert guardrail["unique_signature_count"] == 3
+    assert guardrail["max_unique_signatures"] == 4
+    assert guardrail["fallback_unique_signature_count"] == 3
+
+
+def test_rank_homogeneity_guardrail_detects_four_exact_repeats_early():
+    rounds = [
+        {"prefilter": {"round_best_rank_signature_hash": "same-signature"}}
+        for _ in range(4)
+    ]
+
+    guardrail = rank_homogeneity_guardrail(rounds, stagnation_rounds=4)
+
+    assert guardrail["active"] is True
+    assert guardrail["reason"] == "stale_rank_signature_cycle"
+    assert guardrail["trigger_mode"] == "exact_repeat"
+    assert guardrail["stagnation_threshold"] == 4
+    assert guardrail["window"] == 4
+    assert guardrail["unique_signature_count"] == 1
 
 
 def test_rank_homogeneity_guardrail_waits_for_enough_stagnation_and_window():
     early = rank_homogeneity_guardrail(
-        [{"prefilter": {"round_best_rank_signature_hash": "sig"}} for _ in range(12)],
-        stagnation_rounds=15,
+        [{"prefilter": {"round_best_rank_signature_hash": "sig"}} for _ in range(4)],
+        stagnation_rounds=3,
     )
     short = rank_homogeneity_guardrail(
-        [{"prefilter": {"round_best_rank_signature_hash": "sig"}} for _ in range(4)],
-        stagnation_rounds=16,
+        [{"prefilter": {"round_best_rank_signature_hash": "sig"}} for _ in range(3)],
+        stagnation_rounds=4,
     )
 
     assert early["active"] is False
     assert early["reason"] == "below_stagnation_threshold"
     assert short["active"] is False
     assert short["reason"] == "insufficient_signature_window"
+
+
+def test_rank_homogeneity_guardrail_keeps_searching_when_recent_signatures_vary():
+    rounds = [
+        {"prefilter": {"round_best_rank_signature_hash": signature}}
+        for signature in ("sig-a", "sig-a", "sig-b", "sig-a")
+    ]
+
+    guardrail = rank_homogeneity_guardrail(rounds, stagnation_rounds=4)
+
+    assert guardrail["active"] is False
+    assert guardrail["reason"] == "rank_signatures_still_diverse"
+    assert guardrail["unique_signature_count"] == 2
+
+
+def test_rank_homogeneity_guardrail_requires_four_consecutive_observed_signatures():
+    rounds = [
+        {"prefilter": {"round_best_rank_signature_hash": "same-signature"}},
+        {"prefilter": {"round_best_rank_signature_hash": "same-signature"}},
+        {"prefilter": {"round_best_rank_signature_hash": "same-signature"}},
+        {"prefilter": {}},
+        {"prefilter": {"round_best_rank_signature_hash": "same-signature"}},
+    ]
+
+    guardrail = rank_homogeneity_guardrail(rounds, stagnation_rounds=5)
+
+    assert guardrail["active"] is False
+    assert guardrail["reason"] == "insufficient_signature_window"
+    assert guardrail["observed"] == 3
 
 
 def test_stagnation_restart_candidate_configs_are_bounded_and_distant():
