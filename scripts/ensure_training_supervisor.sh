@@ -6,6 +6,7 @@ WORKER_DIR="$REPO_ROOT/apps/worker-python"
 LOG_DIR="$REPO_ROOT/runtime/logs"
 PID_FILE="$LOG_DIR/training-supervisor-kdj-ridge-neural.pid"
 WEIGHT_KDJ_BUDGET_SHARE="${DEHPS_WEIGHT_KDJ_BUDGET_SHARE:-0.22}"
+NEURAL_KDJ_BUDGET_SHARE="${DEHPS_NEURAL_KDJ_BUDGET_SHARE:-0.07}"
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
@@ -254,15 +255,21 @@ training_pid_as_of_issue() {
 
 stop_training_pid() {
   local pid="$1"
+  local pgid
+  pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d '[:space:]' || true)"
   log "stopping stale training supervisor pid=$pid"
-  kill "$pid" 2>/dev/null || true
+  if [[ "$pgid" == "$pid" ]]; then
+    kill -TERM -- "-$pgid" 2>/dev/null || true
+  else
+    kill "$pid" 2>/dev/null || true
+  fi
   for _ in $(seq 1 60); do
-    if ! is_training_pid_active "$pid"; then
+    if ! is_training_pid_active "$pid" && { [[ -z "$pgid" ]] || ! pgrep -g "$pgid" >/dev/null 2>&1; }; then
       return 0
     fi
     sleep 1
   done
-  log "training supervisor pid=$pid did not stop after SIGTERM"
+  log "training supervisor pid=$pid pgid=${pgid:-unknown} did not stop after SIGTERM"
   return 1
 }
 
@@ -350,6 +357,7 @@ setsid bash -lc '
   pid_file="$0"
   as_of_issue="$1"
   weight_kdj_budget_share="$2"
+  neural_kdj_budget_share="$3"
   printf "%s\n" "$$" > "$pid_file"
   args=(
     scripts/run_training_supervisor.py
@@ -369,6 +377,7 @@ setsid bash -lc '
     --weight-kdj-budget-share "$weight_kdj_budget_share"
     --enable-ridge-kdj-advisor
     --enable-neural-kdj-advisor
+    --neural-kdj-budget-share "$neural_kdj_budget_share"
     --target-weight-inversion-max-candidates 4
     --target-weight-inversion-max-targets 100
     --target-weight-inversion-max-deltas-per-target 8
@@ -378,7 +387,7 @@ setsid bash -lc '
     args+=(--as-of-issue "$as_of_issue")
   fi
   exec .venv/bin/python "${args[@]}"
-' "$PID_FILE" "$latest_issue" "$WEIGHT_KDJ_BUDGET_SHARE" > "$run_log" 2>&1 < /dev/null &
+' "$PID_FILE" "$latest_issue" "$WEIGHT_KDJ_BUDGET_SHARE" "$NEURAL_KDJ_BUDGET_SHARE" > "$run_log" 2>&1 < /dev/null &
 
 launcher_pid="$!"
 sleep 1

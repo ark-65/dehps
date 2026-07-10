@@ -37,6 +37,7 @@ from scripts.run_training_supervisor import (
     load_prior_supervisor_candidates,
     merge_config_candidates,
     merge_reserved_candidate_configs,
+    refill_candidate_configs,
     neural_kdj_advisor_metadata,
     near_miss_inversion_advisor,
     near_miss_targets_for_cutoff,
@@ -1153,6 +1154,39 @@ def test_candidate_budget_reserves_neural_without_squeezing_other_advisors():
     assert budget["neural_kdj"] == 1
     assert sum(value for name, value in budget.items() if name not in {"weight_kdj", "ridge_kdj", "neural_kdj"}) == 14
     assert sum(budget.values()) == 20
+
+
+def test_candidate_budget_neural_density_experiment_returns_one_slot_to_normal_search():
+    common = {
+        "recency_canary_budget_share": 0.12,
+        "weight_kdj_budget_share": 0.22,
+        "ridge_kdj_budget_share": 0.08,
+    }
+    baseline = candidate_budget(28, neural_kdj_budget_share=0.10, **common)
+    alternative = candidate_budget(28, neural_kdj_budget_share=0.07, **common)
+    advisor_names = {"recency_canary", "weight_kdj", "ridge_kdj", "neural_kdj"}
+
+    assert baseline["neural_kdj"] == 3
+    assert alternative["neural_kdj"] == 2
+    assert sum(baseline.values()) == 28
+    assert sum(alternative.values()) == 28
+    assert sum(value for name, value in alternative.items() if name not in advisor_names) == (
+        sum(value for name, value in baseline.items() if name not in advisor_names) + 1
+    )
+
+
+def test_refill_candidate_configs_fills_reserved_source_deduplication_gap():
+    first = FrequencyRankerConfig(frequency_weight=0.31)
+    second = FrequencyRankerConfig(frequency_weight=0.32)
+    fallback = FrequencyRankerConfig(frequency_weight=0.33)
+
+    filled = refill_candidate_configs(
+        (first, second),
+        (second, fallback),
+        max_configs=3,
+    )
+
+    assert filled == (first, second, fallback)
 
 
 def test_candidate_budget_reserves_bounded_target_weight_inversion_bucket():

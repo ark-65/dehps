@@ -1445,6 +1445,22 @@ def merge_reserved_candidate_configs(
     return tuple(configs[:max_configs])
 
 
+def refill_candidate_configs(
+    configs: tuple[FrequencyRankerConfig, ...],
+    fallback_configs: tuple[FrequencyRankerConfig, ...],
+    *,
+    max_configs: int,
+) -> tuple[FrequencyRankerConfig, ...]:
+    """Fill deduplication gaps without changing reserved-source ordering."""
+    filled: list[FrequencyRankerConfig] = []
+    seen: set[str] = set()
+    for config in (*configs, *fallback_configs):
+        add_unique_until(filled, seen, config, limit=max(0, max_configs))
+        if len(filled) >= max(0, max_configs):
+            break
+    return tuple(filled)
+
+
 def candidate_source_survival(
     source_configs: dict[str, tuple[FrequencyRankerConfig, ...]],
     *,
@@ -6530,12 +6546,12 @@ def run_supervisor(
                 - probability_focus_budget
             )
             normal_config_budget = max(1, normal_config_budget)
-            configs = tuple(
+            normal_candidate_pool = tuple(
                 generate_configs(
                     search_base_config,
                     phase=phase,
                     step=step,
-                    max_configs=normal_config_budget,
+                    max_configs=max_configs_per_round,
                     elite_configs=elite_configs,
                     historical_summaries=historical_summaries,
                     low_coverage_fields=low_coverage_fields,
@@ -6543,6 +6559,7 @@ def run_supervisor(
                     round_index=round_index + 1,
                 )
             )
+            configs = normal_candidate_pool[:normal_config_budget]
             normal_configs = configs
             historical_restart_hashes = historical_candidate_source_hashes(
                 [*reversed(rounds), *navigation_records],
@@ -6747,6 +6764,18 @@ def run_supervisor(
                     max_configs=max_configs_per_round,
                     reserved_budget=probability_focus_budget,
                 )
+            configs = refill_candidate_configs(
+                configs,
+                normal_candidate_pool,
+                max_configs=max_configs_per_round,
+            )
+            generated_hashes = {config_hash(config) for config in configs}
+            normal_configs = tuple(
+                config
+                for config in normal_candidate_pool
+                if config_hash(config) in generated_hashes
+            )
+            source_configs["normal"] = normal_configs
             generated_config_count = len(configs)
             keep_configs = (
                 search_base_config,
