@@ -160,10 +160,50 @@ Its first two durable rounds both generated 28 candidates:
 
 For reference, the first two `0.07` rounds were Neural `4/0/0` and normal `14/13/10`. The one-candidate/one-Top5 difference is path-dependent, source memberships overlap, and neither side changed the static or frozen boundary. It is not evidence that either share is better.
 
+The control then completed the same eight-round maturity window. Every round generated exactly 28 candidates:
+
+- Neural KDJ generated/prefilter/Top5/round-best/navigation: `24/6/2/0/0`;
+- normal-source generated/prefilter/Top5/round-best rounds: `47/44/35/8`;
+- stagnation restart generated/prefilter/Top5/search-navigation: `40/19/0/3`;
+- the eight round-best configs and full metric signatures each collapsed to one value, repeated for all eight rounds;
+- rank homogeneity remained active with one recent rank signature and `stagnation_rounds=140`;
+- Neural KDJ and Ridge KDJ reached Top5, but neither supplied round best, selected navigation, or an eligible frozen frontier;
+- recency canary remained prefilter-starved, while Weight KDJ and target inversion were evaluated without Top5 survival.
+
+At round 8, static exact metrics were `[3,3,3]`, Dynamic KDJ `[2,3,3]`, and near Dynamic KDJ `[0,0,0]`, exactly matching the `0.07` maturity boundary. Candidate and incumbent frozen-primary scores remained `[0,0,0]`; promotion remained blocked and was not bypassed. Search/frozen remained 80/20 with zero overlap, frozen validation was not used by search, advisors were current, parser/sync/duplicate checks passed, and forward evidence remained `0/20`.
+
+## Final Density Cross-Review
+
+### Gauss Pass
+
+The repaired-allocator comparison satisfies the fixed-budget proof obligation: both runs completed eight rounds at 28 generated candidates per round with the same legal universe, canonical issue, history window, isolation protocol, and registered source budgets except for the one Neural/ordinary slot under test. The observed differences are real diagnostics: `0.07` produced two round-best configs and two metric signatures versus one and one at `0.10`; `0.10` produced two Neural Top5 survivals versus zero at `0.07`. Neither difference changed any line-level exact score, frozen-primary residual, promotion result, or forward evidence.
+
+The remaining proof failure is causal pairing. The runs were sequential and inherited different search-continuity states. Source memberships also overlap. A difference in source attribution, repetition, or navigation therefore cannot identify the Neural budget share as its cause.
+
+### Riemann Pass
+
+The `0.07` path covered more local search states, while the `0.10` path retained denser nonlinear-advisor coverage. Neither path crossed into a new outcome geometry: both ended on the same static, dynamic, near-term, frozen, and forward boundaries. The search is moving among candidate coordinates without producing a distinct validated function value.
+
+The structural bottleneck is therefore not established as Neural sampling density. It is the mapping from candidate diversity to distinguishable ranked outputs: normal search remains round best in every observed round, restart proposals navigate without Top5 survival, and the final score surface remains homogeneous.
+
+### Disagreement
+
+Gauss would require a paired or reset-state A/B run before attributing the diversity difference to `0.07`. Riemann considers that additional density testing low-value because both mature paths already collapse at the same validation boundary. The shared minimum is to stop tuning this coordinate and preserve the reversible registered default.
+
+### Synthesis
+
+The Neural-density hypothesis is closed as inconclusive, not promoted:
+
+- keep the operational default at `0.10`;
+- retain the fixed-budget deduplication refill and process-group shutdown fixes;
+- do not claim predictive lift from either run;
+- move the next bounded experiment to candidate-space reframing and output distinguishability, with the same null, leakage, frozen-holdout, and forward-evidence gates;
+- treat Neural/Ridge Top5 survival only as source-health evidence until it produces round-best, navigation, frozen, or forward value.
+
 Validation:
 
 ```text
-candidate-budget/refill focused tests: 10 passed
+candidate-budget/refill focused tests: 9 passed
 full worker suite: 492 passed
 bash -n scripts/ensure_training_supervisor.sh: passed
 git diff --check: passed
@@ -171,4 +211,4 @@ git diff --check: passed
 
 ## Next Verification
 
-Continue repaired-allocator control run `20260711-063645` to eight durable rounds, then compare source survival, navigation, repetition, signatures, line totals, and frozen diagnostics against the registered `0.07` window. Keep `0.10` as the operational default unless a same-code comparison supplies a distinct search benefit; even then, no predictive or promotion claim is allowed without forward evidence.
+The next optimization round should predeclare one small candidate-space-reframing change and leave source shares unchanged. Its falsification target is output distinguishability, not compute activity: require more than one recent rank/metric signature without losing fixed-budget completion, and require any claimed benefit to survive the static/null comparison and frozen/forward gates. If the change only increases proposal novelty while line, frozen, and forward outcomes remain unchanged, reject it as another form of soft stagnation.
