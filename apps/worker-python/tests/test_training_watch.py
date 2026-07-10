@@ -111,6 +111,20 @@ def test_round_repetition_diagnostic_surfaces_repeated_config_and_metrics(tmp_pa
     ]
 
     diagnostic = summarize_round_repetition(rows)
+    recommendation = recommendation_summary(
+        rows=rows,
+        lock={"active": True, "owner": "training-supervisor"},
+        advisors={},
+        now=datetime(2026, 7, 10, 2, 0, tzinfo=timezone.utc),
+        stale_minutes=30,
+        round_repetition=diagnostic,
+    )
+    evidence = evidence_context_summary(
+        supervisor_status={"status": "running", "run_id": "run-1", "pid": 12345},
+        gates={},
+        parser_sync_duplicate_checks={"status": "checked", "ok": True},
+        round_repetition=diagnostic,
+    )
     payload = {
         "generated_at": "2026-07-10T02:00:00Z",
         "run_id": "run-1",
@@ -122,7 +136,7 @@ def test_round_repetition_diagnostic_surfaces_repeated_config_and_metrics(tmp_pa
         "advisor_summary": {},
         "round_repetition": diagnostic,
         "heavy_job_lock": {},
-        "recommendation": {"severity": "ok", "action": "continue_current_run", "notes": []},
+        "recommendation": recommendation,
         "guardrail": "Historical response-surface monitoring only.",
     }
 
@@ -142,6 +156,17 @@ def test_round_repetition_diagnostic_surfaces_repeated_config_and_metrics(tmp_pa
     assert diagnostic["latest_metric_repeat_streak"] == 4
     assert summary["round_repetition"]["reason"] == "same_config_and_metrics_repeated"
     assert summary["round_repetition"]["latest_config_repeat_streak"] == 4
+    assert summary["round_repetition"]["dominant_config_hash"]
+    assert summary["round_repetition"]["dominant_metric_signature_hash"]
+    assert "not predictive evidence" in summary["round_repetition"]["interpretation"]
+    assert recommendation["severity"] == "ok"
+    assert any("Round repetition diagnostic is active" in note for note in recommendation["notes"])
+    assert any("not predictive evidence or a restart decision" in note for note in recommendation["notes"])
+    assert (
+        "round_repetition:same_config_and_metrics_repeated:window=4"
+        in evidence["failure_modes"]
+    )
+    assert evidence["search_diagnostics"]["round_repetition"]["latest_metric_repeat_streak"] == 4
     assert "## Round Repetition Diagnostic" in markdown
     assert "reason=same_config_and_metrics_repeated" in markdown
     assert "Config repeats: unique=1/4" in markdown
