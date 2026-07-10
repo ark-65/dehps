@@ -2097,6 +2097,110 @@ def test_restart_readiness_includes_restart_candidate_evidence():
     assert readiness["experimental_navigation_min_config_distance"] == 0.08
 
 
+def test_restart_readiness_keeps_selected_navigation_in_current_supervisor():
+    recommendation = {
+        "action": "prepare_restart_with_more_exploration",
+        "actions": ["prepare_restart_with_more_exploration"],
+    }
+    lock = {
+        "active": True,
+        "owner": "training-supervisor",
+        "pid": 12345,
+        "pid_active": True,
+    }
+    supervisor_status = {
+        "available": True,
+        "status": "running",
+        "run_mode": "continuous",
+        "latest_progress": {
+            "round": 5,
+            "target_index": 10,
+            "target_total": 100,
+            "target_complete": False,
+            "age_minutes": 0.1,
+            "fresh": True,
+            "freshness_threshold_minutes": 30,
+        },
+    }
+    gates = {
+        "rank_homogeneity_restart_champion": {
+            "active": True,
+            "rank_vector_changed": True,
+            "changed_target_count": 80,
+            "full_eval_rank": 6,
+            "source_frontier_primary_score_improved": True,
+            "source_frontier_secondary_score_improved": False,
+            "source_frontier_improvement_basis": "primary",
+        },
+        "experimental_navigation_candidate": {
+            "eligible": True,
+            "eligibility_reason": "eligible",
+            "eligibility_basis": "search_slice_rank_geometry",
+            "selection_uses_frozen_validation": False,
+            "selected": True,
+            "quality_reason": "passed",
+            "rank_vector_changed": True,
+            "config_distance": 1.45,
+            "min_config_distance": 0.08,
+        },
+    }
+
+    readiness = restart_readiness_summary(
+        recommendation=recommendation,
+        lock=lock,
+        supervisor_status=supervisor_status,
+        gates=gates,
+        round_boundary={"status": "target_in_progress"},
+    )
+
+    assert readiness["status"] == "blocked_by_current_run_navigation_arbitration"
+    assert readiness["blockers"] == [
+        "active_training_supervisor_lock",
+        "current_run_navigation_arbitration",
+        "durable_round_boundary",
+    ]
+    assert readiness["blocker_stage"] == "current_run_navigation_arbitration_active"
+    assert (
+        readiness["operator_action"]
+        == "continue_current_training_supervisor_through_navigation_arbitration"
+    )
+    assert readiness["current_run_navigation_arbitration_active"] is True
+    assert readiness["durable_round_boundary_status"] == "target_in_progress"
+    assert readiness["experimental_navigation_selected"] is True
+    assert readiness["restart_candidate_evidence_ready"] is True
+
+
+def test_restart_readiness_requires_durable_round_record_before_stop_review():
+    readiness = restart_readiness_summary(
+        recommendation={
+            "action": "prepare_restart_with_more_exploration",
+            "actions": ["prepare_restart_with_more_exploration"],
+        },
+        lock={"active": True, "owner": "training-supervisor", "pid": 12345},
+        supervisor_status={
+            "available": True,
+            "status": "running",
+            "run_mode": "continuous",
+            "latest_progress": {
+                "round": 10,
+                "target_index": 100,
+                "target_total": 100,
+                "target_complete": True,
+                "fresh": True,
+            },
+        },
+        round_boundary={"status": "target_complete_waiting_round_result"},
+    )
+
+    assert readiness["status"] == "blocked_by_durable_round_boundary"
+    assert readiness["blockers"] == [
+        "active_training_supervisor_lock",
+        "durable_round_boundary",
+    ]
+    assert readiness["blocker_stage"] == "durable_round_boundary_not_recorded"
+    assert readiness["operator_action"] == "wait_for_durable_round_record_before_restart_review"
+
+
 def test_load_supervisor_status_reads_current_progress(tmp_path):
     status_path = tmp_path / "training-supervisor-run-1.json"
     status_path.write_text(

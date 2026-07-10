@@ -82,6 +82,11 @@ def restart_decision_from_watch_summary(
     navigation_rank_changed = (
         readiness.get("experimental_navigation_rank_vector_changed") is True
     )
+    round_boundary = (
+        summary.get("supervisor_round_boundary")
+        if isinstance(summary.get("supervisor_round_boundary"), dict)
+        else {}
+    )
     checks = {
         "action": summary.get("action") == RESTART_ACTION,
         "status": readiness.get("status") == "blocked_by_active_training_supervisor_lock",
@@ -94,6 +99,12 @@ def restart_decision_from_watch_summary(
         "run_mode": readiness.get("supervisor_run_mode") == "continuous",
         "progress_fresh": readiness.get("supervisor_progress_fresh") is True,
         "target_complete": readiness.get("supervisor_target_complete") is True,
+        "durable_round_boundary": (
+            round_boundary.get("status") == "target_complete_round_recorded"
+        ),
+        "navigation_arbitration_inactive": (
+            readiness.get("current_run_navigation_arbitration_active") is not True
+        ),
         "restart_candidate": readiness.get("restart_candidate_active") is True,
         "restart_rank_vector_changed": restart_rank_changed,
         "restart_changed_targets": _positive_int(

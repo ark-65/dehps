@@ -2565,6 +2565,14 @@ def recommendation_summary(
                 ]
             )
         notes.append(f"{note_prefix} {compact_observed_fields(fields)}.")
+    elif navigation.get("eligible") is True and navigation.get("selected") is True:
+        notes.append(
+            "Experimental navigation candidate is selected into the current supervisor path: "
+            f"source={navigation.get('source')} "
+            f"basis={navigation.get('eligibility_basis')} "
+            f"uses_frozen={navigation.get('selection_uses_frozen_validation')}; "
+            "continue through the next durable round instead of restarting the in-flight navigation."
+        )
     elif navigation.get("eligible") is True and navigation.get("selected") is False:
         notes.append(
             "Experimental navigation candidate was search-slice eligible but not selected: "
@@ -2710,6 +2718,10 @@ def restart_candidate_readiness_context(
         for key in (
             "eligible",
             "eligibility_reason",
+            "eligibility_basis",
+            "selection_uses_frozen_validation",
+            "selected",
+            "preempted_by",
             "quality_reason",
             "quality_blocked_from_search_base",
             "round_best_quality_blocked",
@@ -2771,12 +2783,28 @@ def restart_candidate_evidence_blockers(candidate_context: dict[str, Any]) -> li
     return [name for name, passed in checks.items() if not passed]
 
 
+def current_run_navigation_arbitration_active(
+    candidate_context: dict[str, Any],
+) -> bool:
+    return bool(
+        candidate_context.get("experimental_navigation_eligible") is True
+        and (
+            candidate_context.get("experimental_navigation_selected") is True
+            or bool(candidate_context.get("experimental_navigation_preempted_by"))
+        )
+    )
+
+
 def restart_blocker_stage(
     blockers: list[str],
     progress_context: dict[str, Any],
 ) -> str:
     if not blockers:
         return "clear"
+    if "current_run_navigation_arbitration" in blockers:
+        return "current_run_navigation_arbitration_active"
+    if "durable_round_boundary" in blockers:
+        return "durable_round_boundary_not_recorded"
     if "active_training_supervisor_lock" not in blockers:
         return "active_heavy_job_lock"
 
@@ -2803,6 +2831,7 @@ def restart_readiness_summary(
     lock: dict[str, Any],
     supervisor_status: dict[str, Any] | None = None,
     gates: dict[str, dict[str, Any]] | None = None,
+    round_boundary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     raw_actions = recommendation.get("actions")
     actions = [str(item) for item in raw_actions] if isinstance(raw_actions, list) else []
@@ -2824,21 +2853,38 @@ def restart_readiness_summary(
     progress_context = supervisor_progress_readiness_context(supervisor_status)
     candidate_context = restart_candidate_readiness_context(gates)
     evidence_blockers = restart_candidate_evidence_blockers(candidate_context)
+    round_boundary = round_boundary if isinstance(round_boundary, dict) else {}
+    boundary_status = round_boundary.get("status")
+    navigation_arbitration_active = current_run_navigation_arbitration_active(
+        candidate_context
+    )
 
     blockers: list[str] = []
     lock_active = bool(lock.get("active"))
     owner = lock.get("owner")
     if lock_active and owner == "training-supervisor":
         blockers.append("active_training_supervisor_lock")
+        if navigation_arbitration_active:
+            blockers.append("current_run_navigation_arbitration")
     elif lock_active:
         blockers.append("active_heavy_job_lock")
+    if round_boundary and boundary_status != "target_complete_round_recorded":
+        blockers.append("durable_round_boundary")
     if evidence_blockers:
         blockers.append("restart_candidate_evidence")
     blocker_stage = restart_blocker_stage(blockers, progress_context)
     if not blockers:
         operator_action = "operator_review_then_start_fresh_supervisor"
     elif "active_training_supervisor_lock" in blockers:
-        if (
+        if "current_run_navigation_arbitration" in blockers:
+            operator_action = (
+                "continue_current_training_supervisor_through_navigation_arbitration"
+            )
+        elif "durable_round_boundary" in blockers:
+            operator_action = (
+                "wait_for_durable_round_record_before_restart_review"
+            )
+        elif (
             progress_context.get("supervisor_progress_fresh") is True
             and progress_context.get("supervisor_run_mode") == "continuous"
             and progress_context.get("supervisor_target_complete") is False
@@ -2870,6 +2916,10 @@ def restart_readiness_summary(
 
     if not blockers:
         status = "ready_for_fresh_supervisor_after_operator_review"
+    elif "current_run_navigation_arbitration" in blockers:
+        status = "blocked_by_current_run_navigation_arbitration"
+    elif "durable_round_boundary" in blockers:
+        status = "blocked_by_durable_round_boundary"
     elif blocker_stage == "restart_candidate_evidence_incomplete":
         status = "blocked_by_restart_candidate_evidence"
     elif "restart_candidate_evidence" in blockers and "active_heavy_job_lock" not in blockers:
@@ -2893,6 +2943,8 @@ def restart_readiness_summary(
         "lock_age_minutes": lock.get("lock_age_minutes"),
         "lock_age_hours": lock.get("lock_age_hours"),
         "heartbeat_age_minutes": lock.get("heartbeat_age_minutes"),
+        "current_run_navigation_arbitration_active": navigation_arbitration_active,
+        "durable_round_boundary_status": boundary_status,
     }
     if candidate_context:
         result["restart_candidate_evidence_ready"] = not evidence_blockers
@@ -3159,6 +3211,10 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
                 *recommendation.get("notes", []),
             ],
         }
+    round_boundary = supervisor_round_boundary_summary(
+        supervisor_status=supervisor_status,
+        round_stats=round_stats,
+    )
     payload = {
         "generated_at": isoformat(generated_at),
         "run_id": resolved_run_id,
@@ -3197,10 +3253,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         "gate_summary": gates,
         "db_read_errors": db_read_errors,
         "supervisor_status": supervisor_status,
-        "supervisor_round_boundary": supervisor_round_boundary_summary(
-            supervisor_status=supervisor_status,
-            round_stats=round_stats,
-        ),
+        "supervisor_round_boundary": round_boundary,
         "evidence_context": evidence_context_summary(
             supervisor_status=supervisor_status,
             gates=gates,
@@ -3215,6 +3268,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
             lock=lock,
             supervisor_status=supervisor_status,
             gates=gates,
+            round_boundary=round_boundary,
         ),
         "guardrail": "Historical response-surface monitoring only; no predictive claim and no automatic promotion without controls.",
     }
@@ -3645,11 +3699,23 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 f"blockers={markdown_inline_text(evidence_blockers)}\n"
             )
         if restart_readiness.get("experimental_navigation_eligible") is not None:
+            arbitration_text = ""
+            if restart_readiness.get("experimental_navigation_selected") is not None:
+                arbitration_text += (
+                    "selected="
+                    f"{restart_readiness.get('experimental_navigation_selected')} "
+                )
+            if restart_readiness.get("experimental_navigation_preempted_by"):
+                arbitration_text += (
+                    "preempted_by="
+                    f"{markdown_inline_text(restart_readiness.get('experimental_navigation_preempted_by'))} "
+                )
             restart_candidate_lines += (
                 "- Experimental navigation readiness: "
                 f"eligible={restart_readiness.get('experimental_navigation_eligible')} "
                 f"reason={markdown_inline_text(restart_readiness.get('experimental_navigation_eligibility_reason'))} "
                 f"quality={markdown_inline_text(restart_readiness.get('experimental_navigation_quality_reason'))} "
+                f"{arbitration_text}"
                 f"rank_vector_changed={restart_readiness.get('experimental_navigation_rank_vector_changed')} "
                 f"config_distance={restart_readiness.get('experimental_navigation_config_distance')} "
                 f"min_config_distance={restart_readiness.get('experimental_navigation_min_config_distance')}\n"
@@ -4446,9 +4512,15 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "restart_candidate_tail_over_1000000_delta",
             "restart_candidate_evidence_ready",
             "restart_candidate_evidence_blockers",
+            "current_run_navigation_arbitration_active",
+            "durable_round_boundary_status",
             "experimental_navigation_candidate_present",
             "experimental_navigation_eligible",
             "experimental_navigation_eligibility_reason",
+            "experimental_navigation_eligibility_basis",
+            "experimental_navigation_selection_uses_frozen_validation",
+            "experimental_navigation_selected",
+            "experimental_navigation_preempted_by",
             "experimental_navigation_quality_reason",
             "experimental_navigation_rank_vector_changed",
             "experimental_navigation_config_distance",
