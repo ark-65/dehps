@@ -3064,9 +3064,12 @@ def test_training_line_round_payload_prefers_line_eval_window():
             "leakage_passed": True,
         },
         status={"train_mode": "expanding", "train_window": 900, "eval_window": 100, "top_n": 10000},
+        train_mode_override="rolling",
     )
 
     assert payload["eval_window"] == 9
+    assert payload["train_mode"] == "rolling"
+    assert payload["train_window"] == 900
 
 
 def test_compact_status_payload_includes_probability_focus_diagnostics():

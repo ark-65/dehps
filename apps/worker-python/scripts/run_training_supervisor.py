@@ -34,6 +34,7 @@ from dehps.optimization.next_candidates import (
     NEAR_DYNAMIC_KDJ_EVAL_WINDOW,
     NEAR_DYNAMIC_KDJ_LINE_KEY,
     NEAR_DYNAMIC_KDJ_LINE_LABEL,
+    NEAR_DYNAMIC_KDJ_TRAIN_MODE,
     NEAR_DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
     STATIC_100_LINE_KEY,
     STATIC_100_LINE_LABEL,
@@ -4480,6 +4481,8 @@ def training_line_round_payload(
     summary: dict,
     status: dict,
     training_payload: dict | None = None,
+    train_mode_override: str | None = None,
+    train_window_override: int | None = None,
 ) -> dict:
     line_summary = dict(summary)
     if "leakage_passed" not in line_summary:
@@ -4494,8 +4497,8 @@ def training_line_round_payload(
         "policy_params": policy_params,
         "as_of_issue": str(line_summary.get("as_of_issue") or ""),
         "history_fingerprint": str(line_summary.get("history_fingerprint") or ""),
-        "train_mode": status["train_mode"],
-        "train_window": int(status["train_window"]),
+        "train_mode": train_mode_override or status["train_mode"],
+        "train_window": int(train_window_override or status["train_window"]),
         "eval_window": int(line_summary.get("evaluated_draws") or line_summary.get("eval_window") or status["eval_window"]),
         "top_n": int(status["top_n"]),
         "base_config_hash": line_summary.get("config_hash") or policy_params.get("base_config_hash"),
@@ -5382,6 +5385,7 @@ def run_supervisor(
             "protocol": NEAR_DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
             "line_key": NEAR_DYNAMIC_KDJ_LINE_KEY,
             "eval_window": NEAR_DYNAMIC_KDJ_EVAL_WINDOW,
+            "train_mode": NEAR_DYNAMIC_KDJ_TRAIN_MODE,
             "continuous_training": True,
             "latest": None,
             "best": None,
@@ -6330,7 +6334,7 @@ def run_supervisor(
                     base_config=FrequencyRankerConfig(**dynamic_training_base_summary["config"]),
                     signals=near_dynamic_training_signals,
                     ranked_universe=ranked_universe,
-                    train_mode=train_mode,
+                    train_mode=NEAR_DYNAMIC_KDJ_TRAIN_MODE,
                     train_window=train_window,
                     eval_window=NEAR_DYNAMIC_KDJ_EVAL_WINDOW,
                     top_n=top_n,
@@ -6383,6 +6387,8 @@ def run_supervisor(
                             "selection_method": near_dynamic_policy.get("selection_method"),
                             "base_config_hash": near_dynamic_policy.get("base_config_hash"),
                             "near_eval_window": NEAR_DYNAMIC_KDJ_EVAL_WINDOW,
+                            "train_mode": NEAR_DYNAMIC_KDJ_TRAIN_MODE,
+                            "train_window": train_window,
                             "sealed": near_dynamic_kdj_sealed,
                             "seal_reason": near_dynamic_kdj_seal_reason,
                             "stagnation_rounds": near_dynamic_kdj_stagnation_rounds,
@@ -6390,6 +6396,7 @@ def run_supervisor(
                         summary=near_dynamic_training_selected,
                         status=status,
                         training_payload=near_dynamic_training_payload,
+                        train_mode_override=NEAR_DYNAMIC_KDJ_TRAIN_MODE,
                     )
                 status["near_dynamic_kdj_training"]["latest"] = (
                     strip_target_results(near_dynamic_line_payload)
@@ -6420,6 +6427,7 @@ def run_supervisor(
                     "rows": near_dynamic_training_payload.get("rows"),
                     "sealed": near_dynamic_kdj_sealed,
                     "stagnation_rounds": near_dynamic_kdj_stagnation_rounds,
+                    "train_mode": NEAR_DYNAMIC_KDJ_TRAIN_MODE,
                     "best_policy_key": near_dynamic_kdj_best_policy.get("policy_key")
                     if near_dynamic_kdj_best_policy
                     else None,
@@ -6428,6 +6436,7 @@ def run_supervisor(
                     f"round={round_index + 1} near_dynamic_kdj_training="
                     f"status={near_dynamic_training_payload.get('status')} "
                     f"strength={near_dynamic_training_payload.get('selected_strength')} "
+                    f"train_mode={NEAR_DYNAMIC_KDJ_TRAIN_MODE} "
                     f"sealed={near_dynamic_kdj_sealed} "
                     f"stagnation={near_dynamic_kdj_stagnation_rounds} "
                     f"top100={near_dynamic_training_selected.get('top_100_hits')} "

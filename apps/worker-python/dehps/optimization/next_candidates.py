@@ -47,6 +47,7 @@ REGRESSION_PROTOCOL_VERSION = "dual-line-regression-100-v1"
 DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION = "dynamic-kdj-line-training-v1"
 NEAR_DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION = "near-dynamic-kdj-line-training-v1"
 NEAR_DYNAMIC_KDJ_EVAL_WINDOW = 9
+NEAR_DYNAMIC_KDJ_TRAIN_MODE = "rolling"
 NEAR_DYNAMIC_KDJ_SUCCESS_WINDOW = 10
 NEAR_DYNAMIC_KDJ_SUCCESS_TOP100_GOAL = 3
 DEFAULT_DYNAMIC_KDJ_STRENGTH_SWEEP = (0.25, 0.5, 1.0)
@@ -385,6 +386,8 @@ def regression_summary_from_ranks(
     leakage_passed: bool,
     target_issues: list[str] | None = None,
     target_results: list[dict[str, Any]] | None = None,
+    train_mode: str | None = None,
+    train_window: int | None = None,
     latest_signal_issue: str | None = None,
     offset_scale: float | None = None,
     effective_offset_scales: list[float] | None = None,
@@ -397,6 +400,8 @@ def regression_summary_from_ranks(
         "protocol": REGRESSION_PROTOCOL_VERSION,
         "source": source,
         "line_key": line_key,
+        "train_mode": train_mode,
+        "train_window": int(train_window) if train_window is not None else None,
         "eval_window": eval_window,
         "configured_eval_window": configured_eval_window,
         "top_100_hits": sum(rank <= 100 for rank in exact_ranks),
@@ -531,6 +536,8 @@ def dynamic_kdj_regression_summary(
             "protocol": REGRESSION_PROTOCOL_VERSION,
             "source": source,
             "line_key": line_key,
+            "train_mode": train_mode,
+            "train_window": train_window,
             "eval_window": 0,
             "configured_eval_window": eval_window,
             "top_100_hits": 0,
@@ -618,6 +625,8 @@ def dynamic_kdj_regression_summary(
         leakage_passed=leakage_passed,
         target_issues=target_issues,
         target_results=target_results,
+        train_mode=train_mode,
+        train_window=train_window,
         latest_signal_issue=latest_signal_issue,
         offset_scale=offset_scale,
         effective_offset_scales=effective_offset_scales,
@@ -664,6 +673,8 @@ def dynamic_kdj_strength_sweep_training_summary(
                 changed_target_count=0,
                 leakage_passed=True,
                 target_results=[],
+                train_mode=train_mode,
+                train_window=train_window,
                 offset_scale=default_anchor,
                 strength_policy=default_policy,
                 top_n=top_n,
@@ -755,6 +766,8 @@ def dynamic_kdj_strength_sweep_training_summary(
             leakage_passed=leakage_by_strength[strength],
             target_issues=target_issues,
             target_results=target_results_by_strength[strength],
+            train_mode=train_mode,
+            train_window=train_window,
             latest_signal_issue=latest_signal_by_strength[strength],
             offset_scale=strength,
             effective_offset_scales=effective_scales_by_strength[strength],
@@ -1143,6 +1156,7 @@ def build_dynamic_kdj_next_candidate_snapshot(
     training_protocol: str = DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
     prediction_protocol: str = "dynamic_kdj_next_issue",
     regression_eval_window: int | None = None,
+    train_mode_override: str | None = None,
     sealed: bool = False,
 ) -> dict[str, Any]:
     if top_n < 1:
@@ -1154,6 +1168,7 @@ def build_dynamic_kdj_next_candidate_snapshot(
     history, history_context = load_current_history_for_training_scope(conn, best)
     if not history:
         raise RuntimeError("ssq_history is empty")
+    effective_train_mode = train_mode_override or best["train_mode"]
     latest_issue = str(history[-1][0])
     next_issue = next_issue_hint(latest_issue)
     target_draw_date = infer_next_ssq_draw_date(history)
@@ -1202,7 +1217,7 @@ def build_dynamic_kdj_next_candidate_snapshot(
         base_config=base_config,
         signals=signals,
         ranked_universe=matrix,
-        train_mode=best["train_mode"],
+        train_mode=effective_train_mode,
         train_window=best["train_window"],
         eval_window=resolved_regression_eval_window,
         top_n=best["top_n"],
@@ -1213,8 +1228,9 @@ def build_dynamic_kdj_next_candidate_snapshot(
     if not dynamic_regression_is_fully_dynamic(regression_summary):
         raise RuntimeError("dynamic KDJ regression is not fully dynamic")
     resolved_top_n = min(top_n, len(matrix))
+    candidate_history = history if effective_train_mode == "expanding" else history[-best["train_window"] :]
     candidates = top_candidates_for_next(
-        history=history if best["train_mode"] == "expanding" else history[-best["train_window"] :],
+        history=candidate_history,
         top_n=resolved_top_n,
         config=dynamic_config,
         target_draw_date=target_draw_date,
@@ -1232,6 +1248,8 @@ def build_dynamic_kdj_next_candidate_snapshot(
         "window_end_issue": regression_summary.get("window_end_issue"),
         "as_of_issue": latest_issue,
         "next_issue": next_issue,
+        "train_mode": effective_train_mode,
+        "train_window": best["train_window"],
         "sealed": bool(sealed or policy.get("sealed")),
         "seal_reason": policy.get("seal_reason"),
         "sealed_round_index": policy.get("sealed_round_index"),
@@ -1247,7 +1265,7 @@ def build_dynamic_kdj_next_candidate_snapshot(
         "as_of_issue": latest_issue,
         "next_issue": next_issue,
         "next_draw_date": target_draw_date.isoformat() if target_draw_date else None,
-        "train_mode": best["train_mode"],
+        "train_mode": effective_train_mode,
         "train_window": best["train_window"],
         "eval_window": resolved_regression_eval_window,
         "top_n": resolved_top_n,
@@ -1287,6 +1305,8 @@ def build_dynamic_kdj_next_candidate_snapshot(
                 "strength_policy": strength_policy,
             },
             "signal_run_id": signal_run_id or CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID,
+            "signal_train_mode": best["train_mode"],
+            "effective_train_mode": effective_train_mode,
             "target_issue": next_issue,
             "legal_sample_space": TOTAL_SSQ_RED_COMBINATIONS,
             "regression": regression_summary,
@@ -1388,6 +1408,7 @@ def build_near_dynamic_kdj_next_candidate_snapshot(
         training_protocol=NEAR_DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
         prediction_protocol="near_dynamic_kdj_next_issue",
         regression_eval_window=NEAR_DYNAMIC_KDJ_EVAL_WINDOW,
+        train_mode_override=NEAR_DYNAMIC_KDJ_TRAIN_MODE,
         sealed=False,
     )
 

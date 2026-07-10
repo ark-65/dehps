@@ -555,12 +555,19 @@ def test_near_dynamic_kdj_next_candidate_snapshot_marks_window(monkeypatch):
             }
         ],
     )
-    monkeypatch.setattr(next_candidates, "rank_target_grid_with_red5", lambda **_kwargs: [(80, 0.5, SimpleNamespace(rank=90))])
-    monkeypatch.setattr(
-        next_candidates,
-        "top_candidates_for_next",
-        lambda **_kwargs: [(1, (1, 2, 3, 4, 5, 6), 0.75)],
-    )
+    regression_train_lengths: list[int] = []
+    candidate_history_lengths: list[int] = []
+
+    def fake_rank_target_grid_with_red5(**kwargs):
+        regression_train_lengths.append(len(kwargs["train_history"]))
+        return [(80, 0.5, SimpleNamespace(rank=90))]
+
+    def fake_top_candidates_for_next(**kwargs):
+        candidate_history_lengths.append(len(kwargs["history"]))
+        return [(1, (1, 2, 3, 4, 5, 6), 0.75)]
+
+    monkeypatch.setattr(next_candidates, "rank_target_grid_with_red5", fake_rank_target_grid_with_red5)
+    monkeypatch.setattr(next_candidates, "top_candidates_for_next", fake_top_candidates_for_next)
 
     snapshot = build_near_dynamic_kdj_next_candidate_snapshot(
         object(),
@@ -574,12 +581,22 @@ def test_near_dynamic_kdj_next_candidate_snapshot_marks_window(monkeypatch):
     near_window = metadata["prediction_metadata"]["near_window"]
     assert metadata["line_key"] == NEAR_DYNAMIC_KDJ_LINE_KEY
     assert metadata["line_kind"] == "dynamic_kdj_near"
+    assert metadata["train_mode"] == "rolling"
     assert metadata["eval_window"] == 9
     assert metadata["prediction_metadata"]["regression"]["eval_window"] == 9
     assert metadata["prediction_metadata"]["regression_9"]["target_issues"] == [f"2026{i:03d}" for i in range(103, 112)]
+    assert metadata["prediction_metadata"]["regression_9"]["train_mode"] == "rolling"
+    assert metadata["prediction_metadata"]["regression_9"]["train_window"] == 100
+    assert metadata["prediction_metadata"]["effective_train_mode"] == "rolling"
+    assert metadata["prediction_metadata"]["signal_train_mode"] == "expanding"
+    assert metadata["prediction_metadata"]["regression_9"]["changed_target_count"] == 9
     assert near_window["window_key"] == "2026103-2026111->2026112"
+    assert near_window["train_mode"] == "rolling"
+    assert near_window["train_window"] == 100
     assert near_window["sealed"] is False
     assert near_window["seal_reason"] is None
+    assert regression_train_lengths == [100] * 9
+    assert candidate_history_lengths == [100]
 
 
 def test_refresh_training_prediction_lines_builds_both_snapshots_before_writes(monkeypatch):
