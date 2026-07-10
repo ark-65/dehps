@@ -384,8 +384,54 @@ def summarize_candidate_source_survival(
                 "frozen_frontier_diagnostic_only_rounds": 0,
                 "budget_eligible_frozen_frontier_rounds": 0,
                 "guarded_navigation_rounds": 0,
+                "search_navigation_rounds": 0,
             },
         )
+
+    def selected_search_navigation_source(prefilter: dict[str, Any]) -> str:
+        isolation = (
+            prefilter.get("holdout_isolation")
+            if isinstance(prefilter.get("holdout_isolation"), dict)
+            else {}
+        )
+        search_base = (
+            prefilter.get("search_base")
+            if isinstance(prefilter.get("search_base"), dict)
+            else {}
+        )
+        selected_hash = str(search_base.get("config_hash") or "")
+        navigation_hash = str(
+            search_base.get("exploration_navigation_config_hash") or ""
+        )
+        if not (
+            isolation.get("protocol") == HOLDOUT_ISOLATION_PROTOCOL
+            and isolation.get("frozen_validation_role") == "promotion_only"
+            and isolation.get("search_uses_frozen_validation") is False
+            and search_base.get("source") == "experimental_navigation"
+            and search_base.get("exploration_navigation_selected") is True
+            and search_base.get("selection_uses_frozen_validation") is False
+            and selected_hash
+            and selected_hash == navigation_hash
+        ):
+            return ""
+        navigation_source = str(
+            search_base.get("exploration_navigation_source") or ""
+        )
+        diagnostic_key = {
+            "rank_homogeneity_restart_champion": "rank_homogeneity_restart_champion",
+            "exploration_champion": "exploration_champion",
+        }.get(navigation_source)
+        diagnostic = (
+            prefilter.get(diagnostic_key)
+            if diagnostic_key and isinstance(prefilter.get(diagnostic_key), dict)
+            else {}
+        )
+        if not (
+            diagnostic.get("active") is True
+            and str(diagnostic.get("config_hash") or "") == selected_hash
+        ):
+            return ""
+        return str(diagnostic.get("source") or "")
 
     observed_rounds = 0
     for row in rows:
@@ -412,6 +458,12 @@ def summarize_candidate_source_survival(
             values["full_eval_top5"] += max(0, top5)
             if bool(raw.get("round_best")):
                 values["round_best_rounds"] += 1
+
+        search_navigation_source = selected_search_navigation_source(prefilter)
+        if search_navigation_source:
+            aggregate_for_source(search_navigation_source)[
+                "search_navigation_rounds"
+            ] += 1
 
         source_frontier = (
             prefilter.get("source_frontier_champion")
@@ -472,6 +524,7 @@ def summarize_candidate_source_survival(
         top5 = values["full_eval_top5"]
         round_best_rounds = values["round_best_rounds"]
         frozen_frontier_rounds = values["frozen_frontier_rounds"]
+        search_navigation_rounds = values["search_navigation_rounds"]
         budget_eligible_frozen_frontier_rounds = values[
             "budget_eligible_frozen_frontier_rounds"
         ]
@@ -481,6 +534,8 @@ def summarize_candidate_source_survival(
             state = "productive"
         elif budget_eligible_frozen_frontier_rounds > 0:
             state = "productive_recovery"
+        elif search_navigation_rounds > 0:
+            state = "productive_search_navigation"
         elif evidence_ready and generated >= required_generated and selected == 0:
             state = "prefilter_starved"
         elif evidence_ready and generated >= required_generated:
@@ -504,7 +559,8 @@ def summarize_candidate_source_survival(
     productive_sources = [
         source
         for source, values in sources.items()
-        if values["state"] in {"productive", "productive_recovery"}
+        if values["state"]
+        in {"productive", "productive_recovery", "productive_search_navigation"}
     ]
     recovery_productive_sources = [
         source
@@ -515,6 +571,11 @@ def summarize_candidate_source_survival(
         source
         for source, values in sources.items()
         if values["frozen_frontier_diagnostic_only_rounds"] > 0
+    ]
+    search_navigation_sources = [
+        source
+        for source, values in sources.items()
+        if values["search_navigation_rounds"] > 0
     ]
     starved_sources = [source for source, values in sources.items() if values["state"] == "prefilter_starved"]
     zero_top5_sources = [
@@ -567,12 +628,14 @@ def summarize_candidate_source_survival(
         "productive_sources": productive_sources,
         "recovery_productive_sources": recovery_productive_sources,
         "frozen_diagnostic_sources": frozen_diagnostic_sources,
+        "search_navigation_sources": search_navigation_sources,
         "starved_sources": starved_sources,
         "zero_top5_sources": zero_top5_sources,
         "sources": sources,
         "interpretation": (
             "Current-run source conversion diagnostic only. Source memberships may overlap; "
             "Top5/round-best presence and legacy frozen-frontier/guarded-navigation recovery are distinct evidence. "
+            "Selected promotion-only search navigation is operational search-path evidence, not predictive lift. "
             "Under promotion-only holdout isolation, frozen-frontier rows remain diagnostic and do not change "
             "source productivity or budget review. Recovery evidence is not predictive evidence and does not "
             "bypass frozen validation or reserve promotion. Budget review requires the longer same-run window."
@@ -3418,6 +3481,7 @@ def render_candidate_source_survival_markdown(summary: Any) -> str:
         f"{values.get('frozen_frontier_rounds')} | "
         f"{values.get('frozen_frontier_diagnostic_only_rounds')} | "
         f"{values.get('guarded_navigation_rounds')} | "
+        f"{values.get('search_navigation_rounds')} | "
         f"{markdown_inline_text(values.get('state'))} |"
         for source, values in (summary.get("sources") or {}).items()
         if isinstance(values, dict)
@@ -3445,8 +3509,10 @@ def render_candidate_source_survival_markdown(summary: Any) -> str:
         f"{markdown_inline_text(compact_inline_list(summary.get('zero_top5_sources')))}\n\n"
         "- Promotion-only frozen diagnostics: "
         f"{markdown_inline_text(compact_inline_list(summary.get('frozen_diagnostic_sources')))}\n\n"
-        "| Source | Generated rounds | Generated | Prefilter selected | Selection rate | Full-eval Top5 | Round best | Frozen frontier | Diagnostic-only frozen | Guarded navigation | State |\n"
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n"
+        "- Promotion-only selected search navigation: "
+        f"{markdown_inline_text(compact_inline_list(summary.get('search_navigation_sources')))}\n\n"
+        "| Source | Generated rounds | Generated | Prefilter selected | Selection rate | Full-eval Top5 | Round best | Frozen frontier | Diagnostic-only frozen | Guarded navigation | Search navigation | State |\n"
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n"
         f"{rows}\n\n"
         f"- Interpretation: {markdown_inline_text(summary.get('interpretation'))}\n\n"
     )
@@ -4344,6 +4410,9 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             ) or [],
             "frozen_diagnostic_sources": candidate_source_survival.get(
                 "frozen_diagnostic_sources"
+            ) or [],
+            "search_navigation_sources": candidate_source_survival.get(
+                "search_navigation_sources"
             ) or [],
             "starved_sources": candidate_source_survival.get("starved_sources") or [],
             "zero_top5_sources": candidate_source_survival.get("zero_top5_sources") or [],

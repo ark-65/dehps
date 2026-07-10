@@ -541,6 +541,163 @@ def test_candidate_source_survival_requires_verified_primary_lift_for_recovery_v
     assert summary["budget_review_sources"] == ["stagnation_restart"]
 
 
+def test_candidate_source_survival_preserves_selected_search_navigation_source_budget():
+    rows = []
+    for index in range(1, 9):
+        selected_hash = f"restart-{index}"
+        rows.append(
+            source_survival_round(
+                index,
+                {
+                    "normal": {
+                        "generated": 5,
+                        "prefilter_selected": 4,
+                        "full_eval_top5": 2,
+                        "round_best": index == 1,
+                    },
+                    "stagnation_restart": {
+                        "generated": 5,
+                        "prefilter_selected": 1,
+                        "full_eval_top5": 0,
+                        "round_best": False,
+                    },
+                },
+                holdout_isolation={
+                    "protocol": "search_slice_frozen_promotion_v1",
+                    "frozen_validation_role": "promotion_only",
+                    "search_uses_frozen_validation": False,
+                },
+                search_base={
+                    "source": "experimental_navigation",
+                    "config_hash": selected_hash,
+                    "selection_uses_frozen_validation": False,
+                    "exploration_navigation_source": "rank_homogeneity_restart_champion",
+                    "exploration_navigation_config_hash": selected_hash,
+                    "exploration_navigation_selected": True,
+                },
+                rank_homogeneity_restart_champion={
+                    "active": True,
+                    "source": "stagnation_restart",
+                    "config_hash": selected_hash,
+                },
+            )
+        )
+
+    summary = summarize_candidate_source_survival(rows)
+
+    assert summary["budget_review_ready"] is True
+    assert summary["budget_review_sources"] == []
+    assert summary["search_navigation_sources"] == ["stagnation_restart"]
+    assert summary["productive_sources"] == ["normal", "stagnation_restart"]
+    restart = summary["sources"]["stagnation_restart"]
+    assert restart["search_navigation_rounds"] == 8
+    assert restart["state"] == "productive_search_navigation"
+
+    markdown = render_candidate_source_survival_markdown(summary)
+    assert "Promotion-only selected search navigation: [stagnation_restart]" in markdown
+    assert "productive_search_navigation" in markdown
+
+    operator = operator_summary(
+        {
+            "recommendation": {"severity": "ok", "action": "continue_current_run"},
+            "candidate_source_survival": summary,
+        }
+    )
+    assert operator["candidate_source_survival"]["search_navigation_sources"] == [
+        "stagnation_restart"
+    ]
+
+
+def test_candidate_source_survival_rejects_preempted_navigation_credit():
+    unsafe_rows = []
+    for index in range(1, 9):
+        unsafe_rows.append(
+            source_survival_round(
+                index,
+                {
+                    "stagnation_restart": {
+                        "generated": 5,
+                        "prefilter_selected": 1,
+                        "full_eval_top5": 0,
+                        "round_best": False,
+                    }
+                },
+                holdout_isolation={
+                    "protocol": "search_slice_frozen_promotion_v1",
+                    "frozen_validation_role": "promotion_only",
+                    "search_uses_frozen_validation": False,
+                },
+                search_base={
+                    "source": "probability_focus",
+                    "config_hash": f"focus-{index}",
+                    "selection_uses_frozen_validation": False,
+                    "exploration_navigation_source": "rank_homogeneity_restart_champion",
+                    "exploration_navigation_config_hash": f"restart-{index}",
+                    "exploration_navigation_selected": False,
+                    "exploration_navigation_preempted_by": "probability_focus",
+                },
+                rank_homogeneity_restart_champion={
+                    "active": True,
+                    "source": "stagnation_restart",
+                    "config_hash": f"restart-{index}",
+                },
+            )
+        )
+
+    summary = summarize_candidate_source_survival(unsafe_rows)
+
+    assert summary["search_navigation_sources"] == []
+    assert summary["sources"]["stagnation_restart"]["search_navigation_rounds"] == 0
+    assert summary["sources"]["stagnation_restart"]["state"] == "evaluated_without_top5"
+    assert summary["budget_review_sources"] == ["stagnation_restart"]
+
+
+def test_candidate_source_survival_rejects_frozen_or_mismatched_navigation_credit():
+    rows = []
+    for index in range(1, 9):
+        selected_hash = f"restart-{index}"
+        rows.append(
+            source_survival_round(
+                index,
+                {
+                    "stagnation_restart": {
+                        "generated": 5,
+                        "prefilter_selected": 1,
+                        "full_eval_top5": 0,
+                        "round_best": False,
+                    }
+                },
+                holdout_isolation={
+                    "protocol": "search_slice_frozen_promotion_v1",
+                    "frozen_validation_role": "promotion_only",
+                    "search_uses_frozen_validation": False,
+                },
+                search_base={
+                    "source": "experimental_navigation",
+                    "config_hash": selected_hash,
+                    "selection_uses_frozen_validation": index % 2 == 1,
+                    "exploration_navigation_source": "rank_homogeneity_restart_champion",
+                    "exploration_navigation_config_hash": (
+                        selected_hash if index % 2 == 1 else f"mismatch-{index}"
+                    ),
+                    "exploration_navigation_selected": True,
+                },
+                rank_homogeneity_restart_champion={
+                    "active": True,
+                    "source": "stagnation_restart",
+                    "config_hash": selected_hash,
+                },
+            )
+        )
+
+    summary = summarize_candidate_source_survival(rows)
+
+    assert summary["search_navigation_sources"] == []
+    assert summary["sources"]["stagnation_restart"]["search_navigation_rounds"] == 0
+    assert summary["sources"]["stagnation_restart"]["state"] == "evaluated_without_top5"
+    assert summary["budget_review_sources"] == ["stagnation_restart"]
+
+
 def test_candidate_source_survival_reports_recovery_for_top5_productive_source():
     rows = [
         source_survival_round(
