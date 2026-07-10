@@ -4140,7 +4140,7 @@ def recover_supervisor_guard_history(
     *,
     limit: int = 80,
 ) -> tuple[list[dict], dict]:
-    """Recover the same-history unpromoted streak without polluting current-run reporting."""
+    """Recover bounded rank history plus the monotonic same-history stagnation position."""
     recovered_newest_first: list[dict] = []
     source_run_ids: list[str] = []
     seen_run_ids: set[str] = set()
@@ -4148,6 +4148,11 @@ def recover_supervisor_guard_history(
     latest_prefilter = (
         records[0].get("prefilter")
         if records and isinstance(records[0].get("prefilter"), dict)
+        else {}
+    )
+    latest_guard_continuity = (
+        latest_prefilter.get("guard_continuity")
+        if isinstance(latest_prefilter.get("guard_continuity"), dict)
         else {}
     )
     record_iterable = records if effective_limit > 0 else []
@@ -4172,6 +4177,24 @@ def recover_supervisor_guard_history(
             break
 
     history = list(reversed(recovered_newest_first))
+    persisted_effective_stagnation = latest_guard_continuity.get(
+        "effective_stagnation_rounds"
+    )
+    if (
+        isinstance(persisted_effective_stagnation, bool)
+        or not isinstance(persisted_effective_stagnation, int)
+        or persisted_effective_stagnation < 0
+    ):
+        persisted_effective_stagnation = None
+    persisted_next_stagnation = (
+        persisted_effective_stagnation + 1
+        if history and persisted_effective_stagnation is not None
+        else None
+    )
+    recovered_stagnation = max(
+        len(history),
+        persisted_next_stagnation or 0,
+    )
     signatures = [
         str((row.get("prefilter") or {}).get("round_best_rank_signature_hash") or "")
         for row in history
@@ -4193,7 +4216,13 @@ def recover_supervisor_guard_history(
         "reason": "same_history_unpromoted_rounds" if history else "no_unpromoted_guard_history",
         "record_count": len(records),
         "recovered_round_count": len(history),
-        "stagnation_rounds": len(history),
+        "stagnation_rounds": recovered_stagnation,
+        "persisted_effective_stagnation_rounds": persisted_effective_stagnation,
+        "persisted_next_stagnation_rounds": persisted_next_stagnation,
+        "continuity_floor_applied": recovered_stagnation > len(history),
+        "record_window_saturated": bool(
+            effective_limit > 0 and len(records) >= effective_limit
+        ),
         "source_run_ids": source_run_ids,
         "rank_signature_count": len(signatures),
         "unique_rank_signature_count": len(set(signatures)),
@@ -4210,6 +4239,16 @@ def active_supervisor_guard_rounds(
         if current_rounds[index].get("improved"):
             return current_rounds[index + 1 :]
     return [*carryover_rounds, *current_rounds]
+
+
+def active_supervisor_stagnation_round_count(
+    carryover_stagnation_rounds: int,
+    current_rounds: list[dict],
+) -> int:
+    current_stagnation = stagnation_round_count(current_rounds)
+    if any(bool(round_info.get("improved")) for round_info in current_rounds):
+        return current_stagnation
+    return max(0, int(carryover_stagnation_rounds)) + current_stagnation
 
 
 def strip_target_results(summary: dict) -> dict:
@@ -6090,7 +6129,10 @@ def run_supervisor(
         round_index = 0
         while should_continue_training(round_index, deadline):
             guard_rounds = active_supervisor_guard_rounds(guard_history, rounds)
-            stagnation_rounds = stagnation_round_count(guard_rounds)
+            stagnation_rounds = active_supervisor_stagnation_round_count(
+                int(guard_continuity_info.get("stagnation_rounds") or 0),
+                rounds,
+            )
             phase, step, phase_stage = phase_for_round(round_index, stagnation_rounds=stagnation_rounds)
             min_search_base_distance = search_base_min_distance_for_phase(phase_stage)
             rank_homogeneity = rank_homogeneity_guardrail(

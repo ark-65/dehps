@@ -12,6 +12,7 @@ from dehps.optimization.walk_forward import TargetRank, build_ranked_universe
 import scripts.run_training_supervisor as supervisor
 from scripts.run_training_supervisor import (
     active_supervisor_guard_rounds,
+    active_supervisor_stagnation_round_count,
     best_challenger_summary,
     binomial_upper_tail_probability,
     bounded_unique_config_hashes,
@@ -3285,6 +3286,90 @@ def test_guard_history_respects_zero_limit():
     assert history == []
     assert metadata["active"] is False
     assert metadata["stagnation_rounds"] == 0
+
+
+def test_guard_history_preserves_monotonic_stagnation_beyond_record_window():
+    records = [
+        {
+            "run_id": "run-new",
+            "round_index": 3 - index,
+            "improved": False,
+            "prefilter": {
+                "round_best_rank_signature_hash": "sig-a",
+                **(
+                    {
+                        "guard_continuity": {
+                            "effective_stagnation_rounds": 82,
+                        }
+                    }
+                    if index == 0
+                    else {}
+                ),
+            },
+        }
+        for index in range(3)
+    ]
+
+    history, metadata = recover_supervisor_guard_history(records, limit=3)
+
+    assert len(history) == 3
+    assert metadata["recovered_round_count"] == 3
+    assert metadata["persisted_effective_stagnation_rounds"] == 82
+    assert metadata["persisted_next_stagnation_rounds"] == 83
+    assert metadata["stagnation_rounds"] == 83
+    assert metadata["continuity_floor_applied"] is True
+    assert metadata["record_window_saturated"] is True
+    assert active_supervisor_stagnation_round_count(83, []) == 83
+    assert active_supervisor_stagnation_round_count(
+        83,
+        [{"improved": False}],
+    ) == 84
+    assert stagnation_restart_catalog_position(
+        {
+            "active": True,
+            "stagnation_rounds": 83,
+            "stagnation_threshold": 4,
+        },
+        budget=5,
+    ) == {"batch_index": 79, "catalog_offset": 395}
+
+
+def test_active_supervisor_stagnation_resets_only_after_formal_improvement():
+    current_rounds = [
+        {"improved": False},
+        {"improved": True},
+        {"improved": False},
+    ]
+
+    assert active_supervisor_stagnation_round_count(83, current_rounds) == 1
+
+
+def test_guard_history_latest_formal_improvement_clears_persisted_floor():
+    history, metadata = recover_supervisor_guard_history(
+        [
+            {
+                "run_id": "run-new",
+                "round_index": 1,
+                "improved": True,
+                "prefilter": {
+                    "guard_continuity": {
+                        "effective_stagnation_rounds": 82,
+                    }
+                },
+            },
+            {
+                "run_id": "run-old",
+                "round_index": 80,
+                "improved": False,
+                "prefilter": {"round_best_rank_signature_hash": "sig-a"},
+            },
+        ]
+    )
+
+    assert history == []
+    assert metadata["stagnation_rounds"] == 0
+    assert metadata["persisted_next_stagnation_rounds"] is None
+    assert metadata["continuity_floor_applied"] is False
 
 
 def test_control_experiments_and_frozen_validation_are_recorded():

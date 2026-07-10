@@ -21,7 +21,7 @@
 - 每轮只做一个小而可验证的改进。
 - 每轮优先查看训练进度：运行或读取 `apps/worker-python/.venv/bin/python apps/worker-python/scripts/watch_training_progress.py --limit 12`，并检查最新 training supervisor status/report。
 - 每轮必须检查 `advisor_signal_freshness`。canonical advisor 信号落后历史时，优先检查同步流水线和 supervisor/heavy-job 锁交接；不得把旧信号下新增的轮数当作学习进步。
-- supervisor 交接后必须检查 `continuity_seed` 和 `guard_continuity`。只允许重放同一历史指纹下、曾严格提高冻结主指标的 navigation candidate，并在新进程启动时重新完整评估；它只能续接 search base，不能直接替换 incumbent 或绕过 promotion gate。同历史且没有正式晋级时，effective stagnation、rank homogeneity 和 eval-slice overfit primary gate 必须跨 run 延续，不能因进程重启从 0 计数。
+- supervisor 交接后必须检查 `continuity_seed` 和 `guard_continuity`。只允许重放同一历史指纹下、曾严格提高冻结主指标的 navigation candidate，并在新进程启动时重新完整评估；它只能续接 search base，不能直接替换 incumbent 或绕过 promotion gate。同历史且没有正式晋级时，effective stagnation、rank homogeneity 和 eval-slice overfit primary gate 必须跨 run 延续，不能因进程重启从 0 计数。有限 navigation 查询窗口只能提供最近的 rank-signature 几何，不能充当全局停滞计数；窗口饱和时必须沿用持久化的 effective stagnation 单调位置，使 restart batch/catalog offset 不回退。轮次完成以 watcher 的 `target_complete_round_recorded` 和数据库记录为准，不能只凭 `strategy_memory` 日志；未提交的部分轮次不得推进连续计数。
 - 每轮检查 `candidate_source_survival` 的生成、预筛、Top5、round-best、冻结前沿和受护栏导航转化。少于 4 个已落库轮次时只观察，少于 8 个同 run 轮次时不得新开来源预算实验；已有严格冻结主分提升恢复证据的来源不得仅因 Top5 为零而被称为无产出或削减预算。恢复产出本身不是正式晋级或预测证据，也不能据此保送候选。
 - 优先修训练 watch / supervisor 运行错误、失败测试、明显 bug、类型错误和启动错误。
 - 当训练停滞、发散、候选族塌缩或出现可疑跳变时，先做 `$gauss` / `$riemann` / `$gauss-riemann-dialogue` 诊断，再改策略逻辑。
