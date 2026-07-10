@@ -279,6 +279,7 @@ NEAR_MISS_INVERSION_CUTOFF_BANDS = (
     {"cutoff": 10000, "upper": 50000, "max_targets": 4},
 )
 MAX_FROZEN_VALIDATION_WINDOW = 20
+HOLDOUT_ISOLATION_PROTOCOL = "search_slice_frozen_promotion_v1"
 
 
 def _target_pool_context():
@@ -815,6 +816,20 @@ def frozen_validation_window(eval_window: int) -> int:
     return min(MAX_FROZEN_VALIDATION_WINDOW, max(1, eval_window // 5))
 
 
+def split_search_and_frozen_targets(
+    target_ranks: list[TargetRank],
+    *,
+    validation_window: int,
+) -> tuple[list[TargetRank], list[TargetRank]]:
+    """Keep at least one search target and reserve only the trailing targets for promotion."""
+    if len(target_ranks) <= 1 or validation_window <= 0:
+        return list(target_ranks), []
+    frozen_count = min(max(0, int(validation_window)), len(target_ranks) - 1)
+    if frozen_count <= 0:
+        return list(target_ranks), []
+    return list(target_ranks[:-frozen_count]), list(target_ranks[-frozen_count:])
+
+
 def frozen_validation_summary(summary: dict, *, validation_window: int, universe_size: int) -> dict | None:
     target_results = summary.get("target_results")
     if validation_window <= 0 or not isinstance(target_results, list):
@@ -918,6 +933,30 @@ def frozen_validation_promotion_gate(candidate: dict, incumbent: dict | None) ->
         "candidate_config_hash": candidate.get("config_hash"),
         "incumbent_config_hash": incumbent.get("config_hash"),
     }
+
+
+def quarantine_historical_frozen_promotion(gate: dict) -> dict:
+    """Fail closed until promotion can use a genuinely forward, previously unseen holdout."""
+    result = dict(gate)
+    result["pre_quarantine_passed"] = bool(gate.get("passed"))
+    result["pre_quarantine_reason"] = gate.get("reason")
+    if gate.get("reason") == "no_incumbent":
+        result.update(
+            {
+                "historical_holdout_quarantined": False,
+                "promotion_holdout_status": "initial_baseline_only",
+            }
+        )
+        return result
+    result.update(
+        {
+            "passed": False,
+            "reason": "historical_frozen_holdout_quarantined",
+            "historical_holdout_quarantined": True,
+            "promotion_holdout_status": "requires_forward_unseen_evidence",
+        }
+    )
+    return result
 
 
 def target_hit_issues(summary: dict | None, *, cutoff: int) -> set[str]:
@@ -2289,6 +2328,7 @@ def select_probability_calibration_champion(
     stagnation_rounds: int,
     top_limit: int = 8,
     force_primary_gate: bool = False,
+    frozen_promotion_only: bool = False,
 ) -> tuple[dict | None, dict]:
     round_best_hash = summary_config_hash(round_best) or ""
     source_by_hash: dict[str, str] = {}
@@ -2301,12 +2341,20 @@ def select_probability_calibration_champion(
     baseline_score = probability_calibration_score(baseline)
     primary_baseline = prior_best_summary if isinstance(prior_best_summary, dict) else baseline
     baseline_primary_score = source_frontier_primary_score(primary_baseline)
-    primary_gate_active = force_primary_gate or stagnation_rounds >= PROBABILITY_PRIMARY_GATE_STAGNATION_THRESHOLD
+    primary_gate_active = bool(
+        not frozen_promotion_only
+        and (
+            force_primary_gate
+            or stagnation_rounds >= PROBABILITY_PRIMARY_GATE_STAGNATION_THRESHOLD
+        )
+    )
     metadata = {
         "active": False,
         "threshold": PROBABILITY_CALIBRATION_STAGNATION_THRESHOLD,
         "primary_gate_active": primary_gate_active,
         "primary_gate_forced": force_primary_gate,
+        "frozen_promotion_only": frozen_promotion_only,
+        "selection_uses_frozen_validation": primary_gate_active,
         "primary_gate_threshold": PROBABILITY_PRIMARY_GATE_STAGNATION_THRESHOLD,
         "stagnation_rounds": stagnation_rounds,
         "source": "",
@@ -3636,6 +3684,7 @@ def summarize_target_ranks(
     train_mode: str,
     top_n: int,
     universe_size: int,
+    run_key_eval_window: int | None = None,
 ) -> dict:
     ranks = [target.rank for target in target_ranks]
     summary = {
@@ -3661,11 +3710,77 @@ def summarize_target_ranks(
         as_of_issue=as_of_issue,
         train_window=train_window,
         train_mode=train_mode,
-        eval_window=len(target_ranks),
+        eval_window=(
+            int(run_key_eval_window)
+            if run_key_eval_window is not None
+            else len(target_ranks)
+        ),
         top_n=top_n,
         history_fingerprint_value=history_fingerprint_value,
         config_hash_value=summary["config_hash"],
     )
+    return summary
+
+
+def summarize_partitioned_target_ranks(
+    *,
+    target_ranks: list[TargetRank],
+    config: FrequencyRankerConfig,
+    as_of_issue: str,
+    history_fingerprint_value: str,
+    train_window: int,
+    train_mode: str,
+    top_n: int,
+    universe_size: int,
+    validation_window: int,
+) -> dict:
+    search_targets, frozen_targets = split_search_and_frozen_targets(
+        target_ranks,
+        validation_window=validation_window,
+    )
+    summary = summarize_target_ranks(
+        target_ranks=search_targets,
+        config=config,
+        as_of_issue=as_of_issue,
+        history_fingerprint_value=history_fingerprint_value,
+        train_window=train_window,
+        train_mode=train_mode,
+        top_n=top_n,
+        universe_size=universe_size,
+        run_key_eval_window=len(target_ranks),
+    )
+    if frozen_targets:
+        frozen_summary = summarize_target_ranks(
+            target_ranks=frozen_targets,
+            config=config,
+            as_of_issue=as_of_issue,
+            history_fingerprint_value=history_fingerprint_value,
+            train_window=train_window,
+            train_mode=train_mode,
+            top_n=top_n,
+            universe_size=universe_size,
+            run_key_eval_window=len(target_ranks),
+        )
+        validation = frozen_validation_summary(
+            frozen_summary,
+            validation_window=len(frozen_targets),
+            universe_size=universe_size,
+        )
+        if validation is not None:
+            summary["frozen_validation"] = validation
+    search_issues = [target.issue for target in search_targets]
+    frozen_issues = [target.issue for target in frozen_targets]
+    summary["evaluation_split"] = {
+        "protocol": HOLDOUT_ISOLATION_PROTOCOL,
+        "total_window": len(target_ranks),
+        "search_window": len(search_targets),
+        "frozen_window": len(frozen_targets),
+        "search_issues": search_issues,
+        "frozen_issues": frozen_issues,
+        "issue_overlap_count": len(set(search_issues) & set(frozen_issues)),
+        "search_uses_frozen_validation": False,
+        "frozen_validation_role": "promotion_only",
+    }
     return summary
 
 
@@ -3940,6 +4055,27 @@ def merge_config_candidates(
     return tuple(configs)
 
 
+def config_candidates_from_summaries(
+    summaries: list[dict],
+    *,
+    limit: int = 16,
+) -> tuple[FrequencyRankerConfig, ...]:
+    configs: list[FrequencyRankerConfig] = []
+    seen: set[str] = set()
+    for summary in summaries:
+        config = summary_config(summary)
+        if config is None:
+            continue
+        key = config_hash(config)
+        if key in seen:
+            continue
+        seen.add(key)
+        configs.append(config)
+        if len(configs) >= max(0, limit):
+            break
+    return tuple(configs)
+
+
 def load_prior_supervisor_carryover_configs(
     *,
     output_dir: Path,
@@ -4141,6 +4277,93 @@ def recover_supervisor_continuity_configs(
         "record_count": len(records),
         "recovered_count": len(configs),
         "candidates": recovered,
+    }
+
+
+def recover_holdout_isolated_continuity_configs(
+    records: list[dict],
+    *,
+    limit: int = 4,
+) -> tuple[tuple[FrequencyRankerConfig, ...], dict]:
+    """Recover only search bases whose selection explicitly excluded frozen validation."""
+    configs: list[FrequencyRankerConfig] = []
+    seen: set[str] = set()
+    recovered: list[dict] = []
+    rejected_legacy_count = 0
+    for record in records:
+        prefilter = record.get("prefilter") if isinstance(record.get("prefilter"), dict) else {}
+        isolation = (
+            prefilter.get("holdout_isolation")
+            if isinstance(prefilter.get("holdout_isolation"), dict)
+            else {}
+        )
+        if (
+            isolation.get("protocol") != HOLDOUT_ISOLATION_PROTOCOL
+            or isolation.get("search_uses_frozen_validation") is not False
+        ):
+            rejected_legacy_count += 1
+            continue
+        search_base = (
+            prefilter.get("search_base")
+            if isinstance(prefilter.get("search_base"), dict)
+            else {}
+        )
+        raw_config = search_base.get("config")
+        if not isinstance(raw_config, dict):
+            continue
+        try:
+            config = FrequencyRankerConfig(**raw_config)
+        except TypeError:
+            continue
+        key = config_hash(config)
+        if key in seen:
+            continue
+        seen.add(key)
+        configs.append(config)
+        recovered.append(
+            {
+                "run_id": str(record.get("run_id") or ""),
+                "round_index": int(record.get("round_index") or 0),
+                "config_hash": key,
+                "source": str(search_base.get("source") or ""),
+            }
+        )
+        if len(configs) >= max(0, limit):
+            break
+    return tuple(configs), {
+        "mode": "holdout_isolated_search_replay",
+        "protocol": HOLDOUT_ISOLATION_PROTOCOL,
+        "record_count": len(records),
+        "recovered_count": len(configs),
+        "rejected_legacy_count": rejected_legacy_count,
+        "candidates": recovered,
+    }
+
+
+def select_holdout_isolated_continuity_seed(
+    candidates: list[dict],
+    *,
+    baseline: dict | None,
+) -> tuple[dict | None, dict]:
+    baseline_hash = summary_config_hash(baseline) or ""
+    eligible = [
+        candidate
+        for candidate in candidates
+        if (summary_config_hash(candidate) or "") != baseline_hash
+    ]
+    selected = max(eligible, key=sort_key) if eligible else None
+    return selected, {
+        "eligible": selected is not None,
+        "reason": (
+            "search_slice_revalidated"
+            if selected is not None
+            else "no_distinct_holdout_isolated_candidate"
+        ),
+        "protocol": HOLDOUT_ISOLATION_PROTOCOL,
+        "evaluated_count": len(candidates),
+        "eligible_count": len(eligible),
+        "selected_config_hash": summary_config_hash(selected) or "",
+        "selection_uses_frozen_validation": False,
     }
 
 
@@ -4494,6 +4717,7 @@ def select_next_search_base(
     round_best_skip_reason: str = "",
     require_frozen_primary_lift: bool = False,
     frozen_primary_lift_baseline: dict | None = None,
+    frozen_promotion_only: bool = False,
 ) -> tuple[FrequencyRankerConfig, dict]:
     current_base_hash = config_hash(current_base)
     current_base_summary = None
@@ -4541,6 +4765,8 @@ def select_next_search_base(
     quality_blocked_hashes = {
         exploration_navigation_hash
     } if (
+        not frozen_promotion_only
+        and
         not improved
         and exploration_navigation_hash
         and not exploration_navigation_quality_info["passed"]
@@ -4655,6 +4881,7 @@ def select_next_search_base(
         ),
         "quality_blocked_config_hashes": sorted(quality_blocked_hashes),
         "frozen_primary_lift_required": require_frozen_primary_lift,
+        "frozen_promotion_only": frozen_promotion_only,
         "frozen_primary_lift_baseline_score": list(primary_lift_baseline_score),
         "selected_frozen_primary_score": list(source_frontier_primary_score(selected_summary)),
         "round_best_frozen_primary_score": list(source_frontier_primary_score(round_best)),
@@ -4711,28 +4938,33 @@ def stale_round_best_search_base_gate(
     rank_homogeneity: dict,
     promotion_gate: dict,
     eval_slice_overfit: dict | None = None,
+    frozen_promotion_only: bool = False,
 ) -> dict:
     threshold = PROBABILITY_PRIMARY_GATE_STAGNATION_THRESHOLD
     rank_homogeneity_active = bool(rank_homogeneity.get("active"))
     promotion_passed = bool(promotion_gate.get("passed")) if isinstance(promotion_gate, dict) else False
     primary_hit_passed = bool(promotion_gate.get("primary_hit_passed")) if isinstance(promotion_gate, dict) else False
+    navigation_primary_hit_passed = bool(primary_hit_passed and not frozen_promotion_only)
     eval_slice_overfit_active = bool(eval_slice_overfit.get("active")) if isinstance(eval_slice_overfit, dict) else False
+    navigation_eval_slice_overfit_active = bool(
+        eval_slice_overfit_active and not frozen_promotion_only
+    )
     active = bool(
-        eval_slice_overfit_active
+        navigation_eval_slice_overfit_active
         or (
             rank_homogeneity_active
             and stagnation_rounds >= threshold
             and not promotion_passed
-            and not primary_hit_passed
+            and not navigation_primary_hit_passed
         )
     )
-    if eval_slice_overfit_active:
+    if navigation_eval_slice_overfit_active:
         reason = str(eval_slice_overfit.get("reason") or "eval_slice_overfit_no_frozen_primary_lift")
     elif active:
         reason = "stale_unpromoted_round_best_primary_gate"
     elif promotion_passed:
         reason = "promotion_passed"
-    elif primary_hit_passed:
+    elif navigation_primary_hit_passed:
         reason = "primary_hit_passed"
     elif stagnation_rounds < threshold:
         reason = "below_threshold"
@@ -4748,9 +4980,17 @@ def stale_round_best_search_base_gate(
         "rank_homogeneity_active": rank_homogeneity_active,
         "promotion_passed": promotion_passed,
         "primary_hit_passed": primary_hit_passed,
+        "navigation_primary_hit_passed": navigation_primary_hit_passed,
         "eval_slice_overfit_active": eval_slice_overfit_active,
+        "navigation_eval_slice_overfit_active": navigation_eval_slice_overfit_active,
         "allow_unpromoted_round_best": not active,
-        "require_frozen_primary_challenger": active,
+        "require_frozen_primary_challenger": bool(active and not frozen_promotion_only),
+        "navigation_evidence": (
+            "search_slice_only" if frozen_promotion_only else "legacy_frozen_primary_gate"
+        ),
+        "frozen_validation_role": (
+            "promotion_only" if frozen_promotion_only else "legacy_navigation_and_promotion"
+        ),
     }
 
 
@@ -5399,6 +5639,7 @@ def evaluate_configs(
     progress_interval: int,
     round_index: int,
     progress_callback: Callable[[dict], None] | None = None,
+    frozen_validation_window_value: int = 0,
 ) -> list[dict]:
     start_index = max(train_window, len(history) - eval_window)
     total_targets = len(history) - start_index
@@ -5510,7 +5751,7 @@ def evaluate_configs(
     as_of_issue = history_issue(history[-1])
     history_fingerprint_value = fingerprint_history(history)
     summaries = [
-        summarize_target_ranks(
+        summarize_partitioned_target_ranks(
             target_ranks=target_ranks,
             config=config,
             as_of_issue=as_of_issue,
@@ -5519,6 +5760,7 @@ def evaluate_configs(
             train_mode=train_mode,
             top_n=top_n,
             universe_size=len(ranked_universe),
+            validation_window=frozen_validation_window_value,
         )
         for config, target_ranks in zip(configs, target_rank_lists, strict=True)
     ]
@@ -5867,7 +6109,16 @@ def run_supervisor(
         top_n=top_n,
         universe_size=len(ranked_universe),
     )
-    carryover_configs = merge_config_candidates(db_carryover_configs, status_carryover_configs, limit=16)
+    same_history_seed_configs = config_candidates_from_summaries(prior_leaderboard, limit=16)
+    carryover_configs = merge_config_candidates(
+        same_history_seed_configs,
+        db_carryover_configs,
+        status_carryover_configs,
+        limit=16,
+    )
+    # Historical summaries predate the disjoint search/frozen split. Keep their configs,
+    # but never compare their full-window metrics against the new search-only metrics.
+    prior_leaderboard = []
     with get_connection() as conn:
         navigation_records = load_training_round_navigation_records(
             conn,
@@ -5883,7 +6134,7 @@ def run_supervisor(
         navigation_records,
         limit=80,
     )
-    continuity_configs, continuity_recovery_info = recover_supervisor_continuity_configs(
+    continuity_configs, continuity_recovery_info = recover_holdout_isolated_continuity_configs(
         navigation_records,
         limit=4,
     )
@@ -5908,13 +6159,9 @@ def run_supervisor(
             pool=pool,
             progress_interval=0,
             round_index=0,
+            frozen_validation_window_value=frozen_validation_window(eval_window),
         )
-        attach_frozen_validation(
-            carryover_summaries,
-            validation_window=frozen_validation_window(eval_window),
-            universe_size=len(ranked_universe),
-        )
-        prior_leaderboard = merge_leaderboard(prior_leaderboard, carryover_summaries, limit=32)
+        prior_leaderboard = merge_leaderboard([], carryover_summaries, limit=32)
         if carryover_summaries:
             log(
                 "seeded_carryover_best="
@@ -5945,13 +6192,9 @@ def run_supervisor(
             pool=pool,
             progress_interval=0,
             round_index=0,
+            frozen_validation_window_value=frozen_validation_window(eval_window),
         )
-        attach_frozen_validation(
-            continuity_summaries,
-            validation_window=frozen_validation_window(eval_window),
-            universe_size=len(ranked_universe),
-        )
-    continuity_seed, continuity_seed_info = select_supervisor_continuity_seed(
+    continuity_seed, continuity_seed_info = select_holdout_isolated_continuity_seed(
         continuity_summaries,
         baseline=best_summary,
     )
@@ -5965,8 +6208,8 @@ def run_supervisor(
         log(
             "seeded_supervisor_continuity_search_base="
             f"config_hash={config_hash(search_base_config)} "
-            f"frozen_primary={list(source_frontier_primary_score(continuity_seed))} "
-            f"baseline={list(source_frontier_primary_score(best_summary))}"
+            "selection_basis=search_slice_revalidated "
+            "frozen_validation_used=False"
         )
     dynamic_kdj_best_training_summary: dict | None = None
     dynamic_kdj_best_policy: dict | None = None
@@ -6571,13 +6814,9 @@ def run_supervisor(
                 progress_interval=progress_interval,
                 round_index=round_index + 1,
                 progress_callback=publish_progress,
+                frozen_validation_window_value=frozen_validation_window(eval_window),
             )
             validation_window = frozen_validation_window(eval_window)
-            attach_frozen_validation(
-                summaries,
-                validation_window=validation_window,
-                universe_size=len(ranked_universe),
-            )
             attach_baseline_overlap(
                 summaries,
                 control_configs,
@@ -6588,7 +6827,9 @@ def run_supervisor(
             round_best = summaries[0]
             prior_best_summary = best_summary
             raw_improved = prior_best_summary is None or sort_key(round_best) > sort_key(prior_best_summary)
-            promotion_gate = frozen_validation_promotion_gate(round_best, prior_best_summary)
+            promotion_gate = quarantine_historical_frozen_promotion(
+                frozen_validation_promotion_gate(round_best, prior_best_summary)
+            )
             improved = bool(raw_improved and promotion_gate["passed"])
             eval_slice_overfit = eval_slice_overfit_guardrail(
                 summaries=summaries,
@@ -6604,6 +6845,7 @@ def run_supervisor(
                 rank_homogeneity=rank_homogeneity,
                 promotion_gate=promotion_gate,
                 eval_slice_overfit=eval_slice_overfit,
+                frozen_promotion_only=True,
             )
             require_frozen_primary_navigation = bool(
                 round_best_search_gate.get("require_frozen_primary_challenger")
@@ -6634,6 +6876,7 @@ def run_supervisor(
                 prior_best_summary=prior_best_summary,
                 stagnation_rounds=stagnation_rounds,
                 force_primary_gate=bool(eval_slice_overfit["force_primary_gate"]),
+                frozen_promotion_only=True,
             )
             source_frontier_champion, source_frontier_champion_info = select_source_frontier_champion(
                 summaries=summaries,
@@ -6750,11 +6993,13 @@ def run_supervisor(
                 improved=improved,
                 probability_focus_decision_summary=probability_focus_decision_summary,
                 probability_champion=probability_champion,
-                source_frontier_champion=source_frontier_champion,
+                source_frontier_champion=None,
                 restart_champion=restart_champion,
                 exploration_champion=exploration_champion,
                 require_frozen_primary_lift=require_frozen_primary_navigation,
             )
+            decision_round_best_info["selection_uses_frozen_validation"] = False
+            decision_round_best_info["selection_basis"] = "search_slice_only"
             inversion_anchor, challenger_summary, inversion_anchor_info = select_target_weight_inversion_anchor(
                 summaries=summaries,
                 prior_best_summary=prior_best_summary,
@@ -6764,6 +7009,26 @@ def run_supervisor(
                 frozen_primary_lift_baseline=prior_best_summary,
             )
             prefilter_info["frozen_validation_window"] = validation_window
+            evaluation_split = (
+                round_best.get("evaluation_split")
+                if isinstance(round_best.get("evaluation_split"), dict)
+                else {}
+            )
+            prefilter_info["holdout_isolation"] = {
+                "protocol": HOLDOUT_ISOLATION_PROTOCOL,
+                "total_window": evaluation_split.get("total_window"),
+                "search_window": evaluation_split.get("search_window"),
+                "frozen_window": evaluation_split.get("frozen_window"),
+                "issue_overlap_count": evaluation_split.get("issue_overlap_count"),
+                "search_uses_frozen_validation": False,
+                "frozen_validation_role": "promotion_only",
+                "source_frontier_used_for_navigation": False,
+                "historical_holdout_quarantined": bool(
+                    promotion_gate.get("historical_holdout_quarantined")
+                ),
+                "promotion_holdout_status": promotion_gate.get("promotion_holdout_status"),
+                "forward_unseen_evidence_required": True,
+            }
             prefilter_info["control_experiments"] = control_summaries
             prefilter_info["promotion_gate"] = promotion_gate
             prefilter_info["eval_slice_overfit_guardrail"] = eval_slice_overfit
@@ -6844,6 +7109,13 @@ def run_supervisor(
             target_weight_inversion_latest = {
                 **target_weight_inversion_latest,
                 "anchor": inversion_anchor_info,
+                "signal_scope": "search_slice",
+                "expected_cutoff_issue": (
+                    ((round_best.get("evaluation_split") or {}).get("search_issues") or [""])[-1]
+                    if isinstance(round_best.get("evaluation_split"), dict)
+                    else ""
+                ),
+                "history_latest_issue": as_of_issue_value,
             }
             prefilter_info["target_weight_inversion_advisor"] = target_weight_inversion_latest
             status["target_weight_inversion_advisor"]["latest"] = target_weight_inversion_latest
@@ -6895,6 +7167,7 @@ def run_supervisor(
                         round_best_skip_reason=str(round_best_search_gate["reason"]),
                         require_frozen_primary_lift=require_frozen_primary_navigation,
                         frozen_primary_lift_baseline=prior_best_summary,
+                        frozen_promotion_only=True,
                     )
             else:
                 next_search_base_config, search_base_info = select_next_search_base(
@@ -6912,10 +7185,13 @@ def run_supervisor(
                     round_best_skip_reason=str(round_best_search_gate["reason"]),
                     require_frozen_primary_lift=require_frozen_primary_navigation,
                     frozen_primary_lift_baseline=prior_best_summary,
+                    frozen_promotion_only=True,
                 )
             search_base_info["phase"] = phase
             search_base_info["phase_stage"] = phase_stage
             search_base_info["step"] = step
+            search_base_info["selection_uses_frozen_validation"] = False
+            search_base_info["selection_basis"] = "search_slice_only"
             prefilter_info["search_base"] = search_base_info
             log(
                 f"round={round_index + 1} target_weight_inversion_anchor="
@@ -7016,6 +7292,12 @@ def run_supervisor(
             else:
                 log(f"round={round_index + 1} no_improvement best_top10000={best_summary['top_10000_hits'] if best_summary else 'n/a'}")
             search_base_config = next_search_base_config
+            search_training_history = (
+                training_history[:-validation_window]
+                if validation_window > 0
+                else training_history
+            )
+            search_eval_window = max(1, eval_window - validation_window)
             dynamic_training_payload: dict = {
                 "status": "skipped",
                 "reason": "not_started",
@@ -7042,13 +7324,13 @@ def run_supervisor(
                             limit=weight_kdj_limit,
                         )
                 dynamic_training_payload = dynamic_kdj_strength_sweep_training_summary(
-                    history=training_history,
+                    history=search_training_history,
                     base_config=FrequencyRankerConfig(**dynamic_training_base_summary["config"]),
                     signals=dynamic_training_signals,
                     ranked_universe=ranked_universe,
                     train_mode=train_mode,
                     train_window=train_window,
-                    eval_window=eval_window,
+                    eval_window=search_eval_window,
                     top_n=top_n,
                 )
                 dynamic_training_selected = (
@@ -7108,6 +7390,12 @@ def run_supervisor(
                     "selected_summary": dynamic_training_selected,
                     "rows": dynamic_training_payload.get("rows"),
                     "best_policy_key": dynamic_kdj_best_policy.get("policy_key") if dynamic_kdj_best_policy else None,
+                    "evaluation_split": {
+                        "protocol": HOLDOUT_ISOLATION_PROTOCOL,
+                        "search_window": search_eval_window,
+                        "frozen_window": validation_window,
+                        "frozen_validation_used": False,
+                    },
                 }
                 log(
                     f"round={round_index + 1} dynamic_kdj_training="

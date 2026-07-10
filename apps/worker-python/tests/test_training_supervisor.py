@@ -155,6 +155,83 @@ def attach_test_frozen_validation(
     return summary
 
 
+def make_target_rank(issue: str, rank: int) -> TargetRank:
+    return TargetRank(
+        issue=issue,
+        rank=rank,
+        score=float(-rank),
+        hit_top_100=rank <= 100,
+        hit_top_1000=rank <= 1000,
+        hit_top_10000=rank <= 10_000,
+    )
+
+
+def test_partitioned_summary_keeps_frozen_targets_out_of_search_metrics():
+    targets = [
+        make_target_rank("issue-1", 50),
+        make_target_rank("issue-2", 500),
+        make_target_rank("issue-3", 5_000),
+        make_target_rank("issue-4", 75),
+        make_target_rank("issue-5", 750),
+    ]
+
+    summary = supervisor.summarize_partitioned_target_ranks(
+        target_ranks=targets,
+        config=FrequencyRankerConfig(),
+        as_of_issue="issue-5",
+        history_fingerprint_value="history",
+        train_window=3,
+        train_mode="expanding",
+        top_n=10_000,
+        universe_size=1_107_568,
+        validation_window=2,
+    )
+
+    assert summary["evaluated_draws"] == 3
+    assert summary["top_100_hits"] == 1
+    assert summary["top_1000_hits"] == 2
+    assert summary["top_10000_hits"] == 3
+    assert [row["issue"] for row in summary["target_results"]] == [
+        "issue-1",
+        "issue-2",
+        "issue-3",
+    ]
+    assert summary["frozen_validation"]["issues"] == ["issue-4", "issue-5"]
+    assert summary["frozen_validation"]["top_100_hits"] == 1
+    assert summary["evaluation_split"] == {
+        "protocol": supervisor.HOLDOUT_ISOLATION_PROTOCOL,
+        "total_window": 5,
+        "search_window": 3,
+        "frozen_window": 2,
+        "search_issues": ["issue-1", "issue-2", "issue-3"],
+        "frozen_issues": ["issue-4", "issue-5"],
+        "issue_overlap_count": 0,
+        "search_uses_frozen_validation": False,
+        "frozen_validation_role": "promotion_only",
+    }
+
+
+def test_historical_frozen_promotion_is_quarantined_fail_closed():
+    candidate = attach_test_frozen_validation(
+        supervisor_summary_for_config(FrequencyRankerConfig(structural_weight=0.8)),
+        top_100_hits=1,
+        objective_score=10.0,
+    )
+    incumbent = attach_test_frozen_validation(
+        supervisor_summary_for_config(FrequencyRankerConfig(structural_weight=0.7)),
+        objective_score=0.0,
+    )
+
+    base_gate = frozen_validation_promotion_gate(candidate, incumbent)
+    quarantined = supervisor.quarantine_historical_frozen_promotion(base_gate)
+
+    assert base_gate["passed"] is True
+    assert quarantined["passed"] is False
+    assert quarantined["reason"] == "historical_frozen_holdout_quarantined"
+    assert quarantined["pre_quarantine_passed"] is True
+    assert quarantined["promotion_holdout_status"] == "requires_forward_unseen_evidence"
+
+
 def test_should_checkpoint_supervisor_best_only_for_carryover_or_promoted_best():
     summary = {"config_hash": "best"}
 
@@ -256,6 +333,44 @@ def test_recover_supervisor_continuity_reconstructs_rotated_restart_candidate():
     assert [config_hash(config) for config in configs] == [selected_hash]
     assert metadata["recovered_count"] == 1
     assert metadata["candidates"][0]["recovery_mode"] == "deterministic_restart_recovery"
+
+
+def test_holdout_isolated_continuity_rejects_legacy_frozen_selected_search_base():
+    legacy = FrequencyRankerConfig(structural_weight=0.6)
+    isolated = FrequencyRankerConfig(structural_weight=0.8)
+    records = [
+        {
+            "run_id": "new-run",
+            "round_index": 2,
+            "prefilter": {
+                "holdout_isolation": {
+                    "protocol": supervisor.HOLDOUT_ISOLATION_PROTOCOL,
+                    "search_uses_frozen_validation": False,
+                },
+                "search_base": {
+                    "config": isolated.__dict__,
+                    "source": "search_challenger",
+                },
+            },
+        },
+        {
+            "run_id": "legacy-run",
+            "round_index": 9,
+            "prefilter": {
+                "search_base": {
+                    "config": legacy.__dict__,
+                    "source": "source_frontier",
+                },
+            },
+        },
+    ]
+
+    configs, metadata = supervisor.recover_holdout_isolated_continuity_configs(records)
+
+    assert [config_hash(config) for config in configs] == [config_hash(isolated)]
+    assert metadata["recovered_count"] == 1
+    assert metadata["rejected_legacy_count"] == 1
+    assert metadata["candidates"][0]["source"] == "search_challenger"
 
 
 def test_supervisor_continuity_seed_requires_revalidated_frozen_primary_lift():
@@ -575,6 +690,34 @@ def test_stale_round_best_search_base_gate_blocks_collapsed_unpromoted_round_bes
     assert gate["active"] is True
     assert gate["allow_unpromoted_round_best"] is False
     assert gate["reason"] == "stale_unpromoted_round_best_primary_gate"
+
+
+def test_promotion_only_frozen_validation_blocks_round_best_without_guiding_navigation():
+    gate = supervisor.stale_round_best_search_base_gate(
+        stagnation_rounds=supervisor.PROBABILITY_PRIMARY_GATE_STAGNATION_THRESHOLD,
+        rank_homogeneity={"active": True},
+        promotion_gate={"passed": False, "primary_hit_passed": True},
+        frozen_promotion_only=True,
+    )
+
+    assert gate["active"] is True
+    assert gate["allow_unpromoted_round_best"] is False
+    assert gate["require_frozen_primary_challenger"] is False
+    assert gate["primary_hit_passed"] is True
+    assert gate["navigation_primary_hit_passed"] is False
+    assert gate["navigation_evidence"] == "search_slice_only"
+    assert gate["frozen_validation_role"] == "promotion_only"
+
+    below_search_threshold = supervisor.stale_round_best_search_base_gate(
+        stagnation_rounds=supervisor.STAGNATION_THRESHOLD,
+        rank_homogeneity={"active": True},
+        promotion_gate={"passed": False, "primary_hit_passed": False},
+        eval_slice_overfit={"active": True},
+        frozen_promotion_only=True,
+    )
+    assert below_search_threshold["eval_slice_overfit_active"] is True
+    assert below_search_threshold["navigation_eval_slice_overfit_active"] is False
+    assert below_search_threshold["active"] is False
 
 
 def test_eval_slice_overfit_guardrail_blocks_unpromoted_round_best():

@@ -363,6 +363,8 @@ def summarize_candidate_source_survival(
                 "full_eval_top5": 0,
                 "round_best_rounds": 0,
                 "frozen_frontier_rounds": 0,
+                "frozen_frontier_diagnostic_only_rounds": 0,
+                "budget_eligible_frozen_frontier_rounds": 0,
                 "guarded_navigation_rounds": 0,
             },
         )
@@ -412,6 +414,19 @@ def summarize_candidate_source_survival(
         ):
             values = aggregate_for_source(frontier_source)
             values["frozen_frontier_rounds"] += 1
+            holdout_isolation = (
+                prefilter.get("holdout_isolation")
+                if isinstance(prefilter.get("holdout_isolation"), dict)
+                else {}
+            )
+            frozen_recovery_diagnostic_only = bool(
+                holdout_isolation.get("frozen_validation_role") == "promotion_only"
+                and holdout_isolation.get("search_uses_frozen_validation") is False
+            )
+            if frozen_recovery_diagnostic_only:
+                values["frozen_frontier_diagnostic_only_rounds"] += 1
+            else:
+                values["budget_eligible_frozen_frontier_rounds"] += 1
             decision = (
                 prefilter.get("decision_round_best")
                 if isinstance(prefilter.get("decision_round_best"), dict)
@@ -423,6 +438,8 @@ def summarize_candidate_source_survival(
                 else {}
             )
             if (
+                not frozen_recovery_diagnostic_only
+                and
                 decision.get("source") == "source_frontier"
                 and str(decision.get("config_hash") or "") == frontier_hash
                 and str(search_base.get("config_hash") or "") == frontier_hash
@@ -437,11 +454,14 @@ def summarize_candidate_source_survival(
         top5 = values["full_eval_top5"]
         round_best_rounds = values["round_best_rounds"]
         frozen_frontier_rounds = values["frozen_frontier_rounds"]
+        budget_eligible_frozen_frontier_rounds = values[
+            "budget_eligible_frozen_frontier_rounds"
+        ]
         if generated <= 0:
             state = "not_generated"
         elif top5 > 0 or round_best_rounds > 0:
             state = "productive"
-        elif frozen_frontier_rounds > 0:
+        elif budget_eligible_frozen_frontier_rounds > 0:
             state = "productive_recovery"
         elif evidence_ready and generated >= required_generated and selected == 0:
             state = "prefilter_starved"
@@ -471,7 +491,12 @@ def summarize_candidate_source_survival(
     recovery_productive_sources = [
         source
         for source, values in sources.items()
-        if values["frozen_frontier_rounds"] > 0
+        if values["budget_eligible_frozen_frontier_rounds"] > 0
+    ]
+    frozen_diagnostic_sources = [
+        source
+        for source, values in sources.items()
+        if values["frozen_frontier_diagnostic_only_rounds"] > 0
     ]
     starved_sources = [source for source, values in sources.items() if values["state"] == "prefilter_starved"]
     zero_top5_sources = [
@@ -523,22 +548,29 @@ def summarize_candidate_source_survival(
         "active_sources": active_sources,
         "productive_sources": productive_sources,
         "recovery_productive_sources": recovery_productive_sources,
+        "frozen_diagnostic_sources": frozen_diagnostic_sources,
         "starved_sources": starved_sources,
         "zero_top5_sources": zero_top5_sources,
         "sources": sources,
         "interpretation": (
             "Current-run source conversion diagnostic only. Source memberships may overlap; "
-            "Top5/round-best presence and frozen-frontier/guarded-navigation recovery are distinct evidence. "
-            "Recovery evidence prevents a source from being mislabeled unproductive but is not predictive "
-            "evidence and does not bypass frozen validation or reserve promotion. Budget review requires "
-            "the longer same-run window."
+            "Top5/round-best presence and legacy frozen-frontier/guarded-navigation recovery are distinct evidence. "
+            "Under promotion-only holdout isolation, frozen-frontier rows remain diagnostic and do not change "
+            "source productivity or budget review. Recovery evidence is not predictive evidence and does not "
+            "bypass frozen validation or reserve promotion. Budget review requires the longer same-run window."
         ),
     }
 
 
-def random_null_expectation_summary(supervisor_status: dict[str, Any]) -> dict[str, Any]:
+def random_null_expectation_summary(
+    supervisor_status: dict[str, Any],
+    *,
+    eval_window_override: Any = None,
+) -> dict[str, Any]:
     ranked_universe_size = safe_int(supervisor_status.get("ranked_universe_size"))
-    eval_window = safe_int(supervisor_status.get("eval_window"))
+    eval_window = safe_int(eval_window_override)
+    if eval_window is None:
+        eval_window = safe_int(supervisor_status.get("eval_window"))
     top_n = safe_int(supervisor_status.get("top_n"))
     result: dict[str, Any] = {
         "model": "ranked_uniform_per_draw",
@@ -1380,6 +1412,8 @@ def advisor_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "downweighted_count": safe_int(row.get("downweighted_count")) or 0,
             "rejected_count": safe_int(row.get("rejected_count")) or 0,
             "latest_signal_issue": row.get("latest_signal_issue") or row.get("latest_issue"),
+            "signal_scope": row.get("signal_scope"),
+            "expected_cutoff_issue": row.get("expected_cutoff_issue"),
             "selected_fields": row.get("selected_fields") if isinstance(row.get("selected_fields"), list) else [],
             "top_advice": top_advice,
         }
@@ -1420,6 +1454,8 @@ def advisor_signal_freshness_summary(
             }
             continue
         signal_issue = str(advisor.get("latest_signal_issue") or "").strip()
+        signal_scope = str(advisor.get("signal_scope") or "").strip()
+        expected_cutoff_issue = str(advisor.get("expected_cutoff_issue") or "").strip()
         signal_number = safe_int(signal_issue)
         if signal_issue in issue_positions and latest_issue in issue_positions:
             issue_lag = issue_positions[latest_issue] - issue_positions[signal_issue]
@@ -1431,11 +1467,18 @@ def advisor_signal_freshness_summary(
             issue_lag = latest_number - signal_number
         else:
             issue_lag = None
+        scoped_search_signal_current = bool(
+            signal_scope == "search_slice"
+            and expected_cutoff_issue
+            and signal_issue == expected_cutoff_issue
+        )
         if not latest_issue:
             status = "history_latest_issue_missing"
         elif not signal_issue:
             status = "signal_issue_missing"
             missing_advisors.append(key)
+        elif scoped_search_signal_current:
+            status = "current_search_slice"
         elif issue_lag is not None and issue_lag < 0:
             status = "signal_issue_ahead_of_history"
             future_advisors.append(key)
@@ -1455,6 +1498,8 @@ def advisor_signal_freshness_summary(
             "latest_signal_issue": signal_issue or None,
             "history_latest_issue": latest_issue or None,
             "issue_lag": issue_lag,
+            "signal_scope": signal_scope or None,
+            "expected_cutoff_issue": expected_cutoff_issue or None,
         }
 
     if future_advisors:
@@ -1579,6 +1624,11 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
     )
     search_base = prefilter.get("search_base") if isinstance(prefilter.get("search_base"), dict) else {}
     decision = prefilter.get("decision_round_best") if isinstance(prefilter.get("decision_round_best"), dict) else {}
+    holdout_isolation = (
+        prefilter.get("holdout_isolation")
+        if isinstance(prefilter.get("holdout_isolation"), dict)
+        else {}
+    )
     blocked_candidates = decision.get("blocked_candidates") if isinstance(decision.get("blocked_candidates"), list) else []
 
     result: dict[str, dict[str, Any]] = {}
@@ -1600,6 +1650,34 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "primary_hit_passed": bool(promotion.get("primary_hit_passed")),
             "candidate_primary_score": safe_score(promotion.get("candidate_primary_score")),
             "incumbent_primary_score": safe_score(promotion.get("incumbent_primary_score")),
+            "pre_quarantine_passed": safe_bool(promotion.get("pre_quarantine_passed")),
+            "pre_quarantine_reason": promotion.get("pre_quarantine_reason"),
+            "historical_holdout_quarantined": bool(
+                promotion.get("historical_holdout_quarantined")
+            ),
+            "promotion_holdout_status": promotion.get("promotion_holdout_status"),
+        }
+    if holdout_isolation:
+        result["holdout_isolation"] = {
+            "protocol": holdout_isolation.get("protocol"),
+            "total_window": safe_int(holdout_isolation.get("total_window")),
+            "search_window": safe_int(holdout_isolation.get("search_window")),
+            "frozen_window": safe_int(holdout_isolation.get("frozen_window")),
+            "issue_overlap_count": safe_int(holdout_isolation.get("issue_overlap_count")),
+            "search_uses_frozen_validation": safe_bool(
+                holdout_isolation.get("search_uses_frozen_validation")
+            ),
+            "frozen_validation_role": holdout_isolation.get("frozen_validation_role"),
+            "source_frontier_used_for_navigation": safe_bool(
+                holdout_isolation.get("source_frontier_used_for_navigation")
+            ),
+            "historical_holdout_quarantined": bool(
+                holdout_isolation.get("historical_holdout_quarantined")
+            ),
+            "promotion_holdout_status": holdout_isolation.get("promotion_holdout_status"),
+            "forward_unseen_evidence_required": bool(
+                holdout_isolation.get("forward_unseen_evidence_required")
+            ),
         }
     if eval_guard:
         result["eval_slice_overfit_guardrail"] = {
@@ -1624,6 +1702,14 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "require_frozen_primary_challenger": bool(stale_gate.get("require_frozen_primary_challenger")),
             "allow_unpromoted_round_best": bool(stale_gate.get("allow_unpromoted_round_best")),
             "threshold": safe_int(stale_gate.get("threshold")),
+            "navigation_evidence": stale_gate.get("navigation_evidence"),
+            "frozen_validation_role": stale_gate.get("frozen_validation_role"),
+            "navigation_primary_hit_passed": safe_bool(
+                stale_gate.get("navigation_primary_hit_passed")
+            ),
+            "navigation_eval_slice_overfit_active": safe_bool(
+                stale_gate.get("navigation_eval_slice_overfit_active")
+            ),
         }
     if rank_homogeneity:
         normalized_rank_homogeneity = {
@@ -1975,6 +2061,24 @@ def recommendation_summary(
             f"candidate_primary={promotion.get('candidate_primary_score')} "
             f"incumbent_primary={promotion.get('incumbent_primary_score')}."
         )
+    holdout_isolation = (
+        gates.get("holdout_isolation")
+        if isinstance(gates.get("holdout_isolation"), dict)
+        else {}
+    )
+    if holdout_isolation:
+        notes.append(
+            "Holdout isolation is active: "
+            f"protocol={holdout_isolation.get('protocol')} "
+            f"search/frozen={holdout_isolation.get('search_window')}/"
+            f"{holdout_isolation.get('frozen_window')} "
+            f"overlap={holdout_isolation.get('issue_overlap_count')} "
+            f"search_uses_frozen={holdout_isolation.get('search_uses_frozen_validation')}."
+        )
+        if holdout_isolation.get("historical_holdout_quarantined"):
+            notes.append(
+                "Historical frozen results are quarantined from promotion; require genuinely forward unseen evidence before accepting model lift."
+            )
     eval_guard = (
         gates.get("eval_slice_overfit_guardrail")
         if isinstance(gates.get("eval_slice_overfit_guardrail"), dict)
@@ -1997,9 +2101,14 @@ def recommendation_summary(
         else {}
     )
     if stale_gate.get("active"):
-        notes.append(
-            "Search-base gate requires a frozen-primary challenger before leaving the incumbent search base."
-        )
+        if stale_gate.get("navigation_evidence") == "search_slice_only":
+            notes.append(
+                "Search-base recovery uses search-slice evidence only; frozen validation remains promotion-only."
+            )
+        else:
+            notes.append(
+                "Search-base gate requires a frozen-primary challenger before leaving the incumbent search base."
+            )
     rank_homogeneity = (
         gates.get("rank_homogeneity_guardrail")
         if isinstance(gates.get("rank_homogeneity_guardrail"), dict)
@@ -2429,12 +2538,19 @@ def evidence_context_summary(
         if isinstance(gates.get("rank_homogeneity_guardrail"), dict)
         else {}
     )
+    holdout_isolation = (
+        gates.get("holdout_isolation")
+        if isinstance(gates.get("holdout_isolation"), dict)
+        else {}
+    )
 
     failure_modes: list[str] = []
     if promotion and not promotion.get("passed"):
         failure_modes.append(f"promotion_gate:{promotion.get('reason')}")
     if promotion.get("frozen_validation_bypassed"):
         failure_modes.append("promotion_gate:frozen_validation_not_evaluated")
+    if holdout_isolation.get("search_uses_frozen_validation") is True:
+        failure_modes.append("leakage_boundary:search_uses_frozen_validation")
     if eval_guard.get("active"):
         failure_modes.append(f"eval_slice_overfit:{eval_guard.get('reason')}")
     if rank_homogeneity.get("active"):
@@ -2484,11 +2600,19 @@ def evidence_context_summary(
             "regime_start_date": supervisor_status.get("regime_start_date"),
             "regime_years": supervisor_status.get("regime_years"),
             "top_n": supervisor_status.get("top_n"),
+            "search_window": holdout_isolation.get("search_window"),
+            "frozen_window": holdout_isolation.get("frozen_window"),
         },
         "baseline_or_null_model": {
             "operational_baseline": "incumbent_config_frozen_primary_baseline",
             "random_null_model": "ranked_uniform_per_draw",
-            "random_null_expectation": random_null_expectation_summary(supervisor_status),
+            "random_null_expectation": random_null_expectation_summary(
+                supervisor_status,
+                eval_window_override=holdout_isolation.get("search_window"),
+            ),
+            "random_null_scope": (
+                "search_slice" if holdout_isolation.get("search_window") else "full_eval_window"
+            ),
             "baseline_score": (
                 promotion.get("incumbent_primary_score")
                 or decision.get("frozen_primary_lift_baseline_score")
@@ -2508,6 +2632,18 @@ def evidence_context_summary(
             "suspicious_candidate_count": safe_int(eval_guard.get("suspicious_candidate_count")) or 0,
             "decision_navigation_frozen_primary_lift_required": bool(
                 decision.get("frozen_primary_lift_required")
+            ),
+            "holdout_isolation_protocol": holdout_isolation.get("protocol"),
+            "holdout_issue_overlap_count": holdout_isolation.get("issue_overlap_count"),
+            "search_uses_frozen_validation": holdout_isolation.get(
+                "search_uses_frozen_validation"
+            ),
+            "frozen_validation_role": holdout_isolation.get("frozen_validation_role"),
+            "historical_holdout_quarantined": holdout_isolation.get(
+                "historical_holdout_quarantined"
+            ),
+            "forward_unseen_evidence_required": holdout_isolation.get(
+                "forward_unseen_evidence_required"
             ),
             "parser_sync_duplicate_checks": parser_sync_duplicate_checks,
         },
@@ -2748,7 +2884,9 @@ def render_candidate_source_survival_markdown(summary: Any) -> str:
         f"{values.get('generated')} | {values.get('prefilter_selected')} | "
         f"{compact_decimal(values.get('prefilter_selection_rate'))} | "
         f"{values.get('full_eval_top5')} | {values.get('round_best_rounds')} | "
-        f"{values.get('frozen_frontier_rounds')} | {values.get('guarded_navigation_rounds')} | "
+        f"{values.get('frozen_frontier_rounds')} | "
+        f"{values.get('frozen_frontier_diagnostic_only_rounds')} | "
+        f"{values.get('guarded_navigation_rounds')} | "
         f"{markdown_inline_text(values.get('state'))} |"
         for source, values in (summary.get("sources") or {}).items()
         if isinstance(values, dict)
@@ -2774,8 +2912,10 @@ def render_candidate_source_survival_markdown(summary: Any) -> str:
         f"{markdown_inline_text(compact_inline_list(summary.get('recovery_productive_sources')))} / "
         f"{markdown_inline_text(compact_inline_list(summary.get('starved_sources')))} / "
         f"{markdown_inline_text(compact_inline_list(summary.get('zero_top5_sources')))}\n\n"
-        "| Source | Generated rounds | Generated | Prefilter selected | Selection rate | Full-eval Top5 | Round best | Frozen frontier | Guarded navigation | State |\n"
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n"
+        "- Promotion-only frozen diagnostics: "
+        f"{markdown_inline_text(compact_inline_list(summary.get('frozen_diagnostic_sources')))}\n\n"
+        "| Source | Generated rounds | Generated | Prefilter selected | Selection rate | Full-eval Top5 | Round best | Frozen frontier | Diagnostic-only frozen | Guarded navigation | State |\n"
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n"
         f"{rows}\n\n"
         f"- Interpretation: {markdown_inline_text(summary.get('interpretation'))}\n\n"
     )
@@ -2835,7 +2975,22 @@ def render_markdown(payload: dict[str, Any]) -> str:
             else {}
         )
         decision = gates.get("decision_round_best") if isinstance(gates.get("decision_round_best"), dict) else {}
+        holdout_isolation = (
+            gates.get("holdout_isolation")
+            if isinstance(gates.get("holdout_isolation"), dict)
+            else {}
+        )
         gate_lines = ["## Gate Snapshot", ""]
+        if holdout_isolation:
+            gate_lines.append(
+                "- Holdout isolation: "
+                f"protocol={markdown_inline_text(holdout_isolation.get('protocol'))} "
+                f"search/frozen={holdout_isolation.get('search_window')}/"
+                f"{holdout_isolation.get('frozen_window')} "
+                f"overlap={holdout_isolation.get('issue_overlap_count')} "
+                f"search_uses_frozen={holdout_isolation.get('search_uses_frozen_validation')} "
+                f"promotion_status={markdown_inline_text(holdout_isolation.get('promotion_holdout_status'))}"
+            )
         if promotion:
             gate_lines.append(
                 "- Promotion gate: "
@@ -2862,7 +3017,8 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 "- Search-base gate: "
                 f"active={stale_gate.get('active')} "
                 f"reason={markdown_inline_text(stale_gate.get('reason'))} "
-                f"require_frozen_primary_challenger={stale_gate.get('require_frozen_primary_challenger')}"
+                f"require_frozen_primary_challenger={stale_gate.get('require_frozen_primary_challenger')} "
+                f"navigation_evidence={markdown_inline_text(stale_gate.get('navigation_evidence'))}"
             )
         if rank_homogeneity:
             signature_hashes = compact_inline_list(rank_homogeneity.get("signature_hashes"), limit=3)
@@ -3212,12 +3368,15 @@ def render_markdown(payload: dict[str, Any]) -> str:
             f"mode={markdown_inline_text(historical.get('train_mode'))} "
             f"train_window={historical.get('train_window')} "
             f"eval_window={historical.get('eval_window')} "
+            f"search_window={historical.get('search_window')} "
+            f"frozen_window={historical.get('frozen_window')} "
             f"regime_start={markdown_inline_text(historical.get('regime_start_date'))} "
             f"regime_years={historical.get('regime_years')} "
             f"top_n={historical.get('top_n')}\n"
             "- Baseline/null model: "
             f"operational={markdown_inline_text(baseline.get('operational_baseline'))} "
             f"random_null={markdown_inline_text(baseline.get('random_null_model'))} "
+            f"random_null_scope={markdown_inline_text(baseline.get('random_null_scope'))} "
             f"random_null_eval={markdown_inline_text(random_null_expectation)} "
             f"baseline_score={baseline.get('baseline_score')}\n"
             "- Leakage checks: "
@@ -3404,12 +3563,25 @@ def cli_evidence_context_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "eval_window": historical.get("eval_window"),
             "regime_start_date": historical.get("regime_start_date"),
             "top_n": historical.get("top_n"),
+            **(
+                {
+                    "search_window": historical.get("search_window"),
+                    "frozen_window": historical.get("frozen_window"),
+                }
+                if "search_window" in historical or "frozen_window" in historical
+                else {}
+            ),
         },
         "baseline_or_null_model": {
             "operational_baseline": baseline.get("operational_baseline"),
             "random_null_model": baseline.get("random_null_model"),
             "random_null_expectation_status": random_null_expectation.get("status"),
             "baseline_score": baseline.get("baseline_score"),
+            **(
+                {"random_null_scope": baseline.get("random_null_scope")}
+                if "random_null_scope" in baseline
+                else {}
+            ),
         },
         "leakage_checks": {
             "promotion_gate_reason": leakage.get("promotion_gate_reason"),
@@ -3427,6 +3599,18 @@ def cli_evidence_context_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "decision_navigation_frozen_primary_lift_required": leakage.get(
                 "decision_navigation_frozen_primary_lift_required"
             ),
+            **{
+                key: leakage.get(key)
+                for key in (
+                    "holdout_isolation_protocol",
+                    "holdout_issue_overlap_count",
+                    "search_uses_frozen_validation",
+                    "frozen_validation_role",
+                    "historical_holdout_quarantined",
+                    "forward_unseen_evidence_required",
+                )
+                if key in leakage
+            },
             "parser_sync_duplicate_status": parser_checks.get("status"),
             "parser_sync_duplicate_ok": parser_checks.get("ok"),
         },
@@ -3573,6 +3757,9 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "productive_sources": candidate_source_survival.get("productive_sources") or [],
             "recovery_productive_sources": candidate_source_survival.get(
                 "recovery_productive_sources"
+            ) or [],
+            "frozen_diagnostic_sources": candidate_source_survival.get(
+                "frozen_diagnostic_sources"
             ) or [],
             "starved_sources": candidate_source_survival.get("starved_sources") or [],
             "zero_top5_sources": candidate_source_survival.get("zero_top5_sources") or [],

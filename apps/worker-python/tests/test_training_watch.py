@@ -398,6 +398,55 @@ def test_candidate_source_survival_reports_recovery_for_top5_productive_source()
     assert summary["recovery_productive_sources"] == ["normal"]
 
 
+def test_promotion_only_frozen_frontier_is_diagnostic_not_budget_evidence():
+    rows = [
+        source_survival_round(
+            1,
+            {
+                "stagnation_restart": {
+                    "generated": 5,
+                    "prefilter_selected": 1,
+                    "full_eval_top5": 0,
+                    "round_best": False,
+                }
+            },
+            holdout_isolation={
+                "frozen_validation_role": "promotion_only",
+                "search_uses_frozen_validation": False,
+            },
+            source_frontier_champion={
+                "active": True,
+                "source": "stagnation_restart",
+                "config_hash": "diagnostic-frontier",
+                "candidate_primary_score": [0, 0, 1],
+                "baseline_primary_score": [0, 0, 0],
+            },
+            decision_round_best={
+                "source": "source_frontier",
+                "config_hash": "diagnostic-frontier",
+            },
+            search_base={"config_hash": "diagnostic-frontier"},
+        )
+    ]
+
+    summary = summarize_candidate_source_survival(
+        rows,
+        min_rounds=1,
+        min_generated=1,
+        budget_review_min_rounds=1,
+    )
+
+    restart = summary["sources"]["stagnation_restart"]
+    assert restart["frozen_frontier_rounds"] == 1
+    assert restart["frozen_frontier_diagnostic_only_rounds"] == 1
+    assert restart["budget_eligible_frozen_frontier_rounds"] == 0
+    assert restart["guarded_navigation_rounds"] == 0
+    assert restart["state"] == "evaluated_without_top5"
+    assert summary["recovery_productive_sources"] == []
+    assert summary["frozen_diagnostic_sources"] == ["stagnation_restart"]
+    assert summary["budget_review_sources"] == ["stagnation_restart"]
+
+
 def test_gate_summary_distinguishes_missing_frozen_validation_bypass_from_navigation_gate():
     gates = gate_summary(
         {
@@ -456,6 +505,27 @@ def test_advisor_signal_freshness_uses_history_order_across_year_boundary():
 
     assert freshness["status"] == "current"
     assert freshness["advisors"]["weight_kdj_advisor"]["issue_lag"] == 1
+
+
+def test_advisor_signal_freshness_accepts_declared_search_slice_cutoff():
+    freshness = advisor_signal_freshness_summary(
+        {
+            "target_weight_inversion_advisor": {
+                "enabled": True,
+                "latest_signal_issue": "2026058",
+                "signal_scope": "search_slice",
+                "expected_cutoff_issue": "2026058",
+            }
+        },
+        history_latest_issue="2026078",
+    )
+
+    advisor = freshness["advisors"]["target_weight_inversion_advisor"]
+    assert freshness["status"] == "current"
+    assert freshness["stale_advisors"] == []
+    assert advisor["status"] == "current_search_slice"
+    assert advisor["issue_lag"] == 20
+    assert advisor["signal_scope"] == "search_slice"
 
 
 def test_recommendation_warns_when_advisor_signals_are_stale():
@@ -2527,6 +2597,100 @@ def test_gate_summary_surfaces_frozen_primary_blockers_in_recommendation_and_mar
         "replacement_count": 2,
         "novelty_enforced": True,
     }
+
+
+def test_holdout_isolation_is_visible_in_gate_recommendation_markdown_and_evidence():
+    now = datetime(2026, 7, 11, 1, 30, tzinfo=timezone.utc)
+    prefilter = {
+        "promotion_gate": {
+            "passed": False,
+            "reason": "historical_frozen_holdout_quarantined",
+            "pre_quarantine_passed": True,
+            "pre_quarantine_reason": "passed",
+            "historical_holdout_quarantined": True,
+            "promotion_holdout_status": "requires_forward_unseen_evidence",
+            "objective_passed": True,
+            "tail_passed": True,
+            "primary_hit_passed": True,
+            "candidate_primary_score": [0, 0, 1],
+            "incumbent_primary_score": [0, 0, 0],
+        },
+        "holdout_isolation": {
+            "protocol": "search_slice_frozen_promotion_v1",
+            "total_window": 100,
+            "search_window": 80,
+            "frozen_window": 20,
+            "issue_overlap_count": 0,
+            "search_uses_frozen_validation": False,
+            "frozen_validation_role": "promotion_only",
+            "source_frontier_used_for_navigation": False,
+            "historical_holdout_quarantined": True,
+            "promotion_holdout_status": "requires_forward_unseen_evidence",
+            "forward_unseen_evidence_required": True,
+        },
+        "stale_round_best_search_base_gate": {
+            "active": True,
+            "reason": "eval_slice_overfit_no_frozen_primary_lift",
+            "require_frozen_primary_challenger": False,
+            "allow_unpromoted_round_best": False,
+            "threshold": 64,
+            "navigation_evidence": "search_slice_only",
+            "frozen_validation_role": "promotion_only",
+        },
+    }
+
+    gates = gate_summary(prefilter)
+    recommendation = recommendation_summary(
+        rows=[{"round_index": 1, "improved": False, "updated_at": now}],
+        lock={"active": True, "owner": "training-supervisor"},
+        advisors={"neural_kdj_advisor": {"candidate_count": 0}},
+        gates=gates,
+        now=now,
+        stale_minutes=30,
+    )
+    evidence = evidence_context_summary(
+        supervisor_status={
+            "run_id": "isolated-run",
+            "status": "running",
+            "eval_window": 100,
+            "ranked_universe_size": 1_105_506,
+            "top_n": 10_000,
+        },
+        gates=gates,
+        parser_sync_duplicate_checks={"status": "checked", "ok": True},
+    )
+    markdown = render_markdown(
+        {
+            "generated_at": "2026-07-11T01:30:00Z",
+            "run_id": "isolated-run",
+            "round_count": 1,
+            "latest_round": 1,
+            "last_improved_round": None,
+            "stagnation_rounds": 1,
+            "latest_metrics": {},
+            "advisor_summary": {},
+            "gate_summary": gates,
+            "heavy_job_lock": {"active": True},
+            "recommendation": recommendation,
+            "guardrail": "No predictive claim.",
+        }
+    )
+
+    assert gates["holdout_isolation"]["search_window"] == 80
+    assert gates["holdout_isolation"]["search_uses_frozen_validation"] is False
+    assert gates["promotion_gate"]["historical_holdout_quarantined"] is True
+    assert gates["stale_round_best_search_base_gate"]["navigation_evidence"] == "search_slice_only"
+    assert any("Holdout isolation is active" in note for note in recommendation["notes"])
+    assert any("forward unseen evidence" in note for note in recommendation["notes"])
+    assert any("search-slice evidence only" in note for note in recommendation["notes"])
+    assert evidence["historical_window"]["search_window"] == 80
+    assert evidence["baseline_or_null_model"]["random_null_scope"] == "search_slice"
+    assert evidence["baseline_or_null_model"]["random_null_expectation"]["eval_window"] == 80
+    assert evidence["leakage_checks"]["search_uses_frozen_validation"] is False
+    assert evidence["leakage_checks"]["historical_holdout_quarantined"] is True
+    assert "Holdout isolation:" in markdown
+    assert "search/frozen=80/20" in markdown
+    assert "navigation_evidence=search_slice_only" in markdown
 
 
 def test_evidence_context_surfaces_sample_space_baseline_and_leakage_guardrails():
