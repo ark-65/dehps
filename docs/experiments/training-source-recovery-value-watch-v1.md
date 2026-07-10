@@ -87,6 +87,21 @@ Modified watcher over run `20260710-205704`:
 
 No supervisor restart was performed because this round changes watcher interpretation and the self-iteration prompt only; the already-running training algorithm and process were not modified. The current supervisor supplied live round-8/9 database evidence for the new watcher.
 
+## Post-implementation continuation
+
+At 16 completed rounds, the latest 12-round watcher window provided a broader out-of-example check:
+
+- `recency_canary`: frozen-frontier/guarded-navigation rounds `1/1`;
+- `ridge_kdj`: frozen-frontier/guarded-navigation rounds `2/0`;
+- `stagnation_restart`: frozen-frontier/guarded-navigation rounds `3/3`;
+- `target_weight_inversion`: frozen-frontier/guarded-navigation rounds `2/2`;
+- `weight_kdj`: frozen-frontier/guarded-navigation rounds `1/0`;
+- every active source had either Top5/round-best or strict recovery evidence, so mature `budget_review_sources` became empty;
+- advisor freshness remained current at issue `2026078`, with no watcher database-read error;
+- the latest 12 static best configs and metric signatures still repeated exactly, watcher action became `watch_stagnation_recovery`, and formal promotion remained blocked without bypass.
+
+This continuation supports the generic source-accounting fix across multiple candidate families. It still does not show formal model improvement; recovery-frontier diversity and incumbent improvement remain separate states.
+
 ## Validation
 
 - watcher suite: `57 passed`;
