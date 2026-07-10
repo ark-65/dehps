@@ -1400,6 +1400,7 @@ def recommendation_summary(
     round_stats: dict[str, Any] | None = None,
     gates: dict[str, dict[str, Any]] | None = None,
     supervisor_status: dict[str, Any] | None = None,
+    round_repetition: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not rows:
         return {
@@ -1471,6 +1472,16 @@ def recommendation_summary(
         notes.append("Stagnation crossed the supervisor recovery threshold; check if diversity injection improves the next rounds.")
     else:
         notes.append("Stagnation is below the intervention threshold.")
+
+    if isinstance(round_repetition, dict) and round_repetition.get("active"):
+        notes.append(
+            "Round repetition diagnostic is active: "
+            f"{round_repetition.get('reason')} "
+            f"window={round_repetition.get('window_count')} "
+            f"config_streak={round_repetition.get('latest_config_repeat_streak')} "
+            f"metric_streak={round_repetition.get('latest_metric_repeat_streak')}; "
+            "treat as search observability, not predictive evidence or a restart decision."
+        )
 
     neural = advisors.get("neural_kdj_advisor", {})
     neural_candidates = int(neural.get("candidate_count") or 0)
@@ -1908,6 +1919,7 @@ def evidence_context_summary(
     supervisor_status: dict[str, Any],
     gates: dict[str, dict[str, Any]],
     parser_sync_duplicate_checks: dict[str, Any] | None = None,
+    round_repetition: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     promotion = gates.get("promotion_gate") if isinstance(gates.get("promotion_gate"), dict) else {}
     eval_guard = (
@@ -1929,6 +1941,13 @@ def evidence_context_summary(
         failure_modes.append(f"eval_slice_overfit:{eval_guard.get('reason')}")
     if rank_homogeneity.get("active"):
         failure_modes.append(f"rank_homogeneity:{rank_homogeneity.get('reason')}")
+    round_repetition = round_repetition if isinstance(round_repetition, dict) else {}
+    if round_repetition.get("active"):
+        failure_modes.append(
+            "round_repetition:"
+            f"{round_repetition.get('reason')}:"
+            f"window={round_repetition.get('window_count')}"
+        )
     blocked_count = safe_int(decision.get("blocked_candidate_count")) or 0
     if blocked_count > 0:
         blocked_sources = compact_inline_list(decision.get("blocked_candidate_sources"))
@@ -1939,6 +1958,18 @@ def evidence_context_summary(
     }
     if parser_sync_duplicate_checks.get("status") != "checked" or not parser_sync_duplicate_checks.get("ok"):
         failure_modes.append(f"parser_sync_duplicates:{parser_sync_duplicate_checks.get('status')}")
+
+    search_diagnostics: dict[str, Any] = {}
+    if round_repetition.get("status") == "ready":
+        search_diagnostics["round_repetition"] = {
+            "active": round_repetition.get("active"),
+            "reason": round_repetition.get("reason"),
+            "window_count": round_repetition.get("window_count"),
+            "latest_round": round_repetition.get("latest_round"),
+            "latest_config_repeat_streak": round_repetition.get("latest_config_repeat_streak"),
+            "latest_metric_repeat_streak": round_repetition.get("latest_metric_repeat_streak"),
+            "interpretation": round_repetition.get("interpretation"),
+        }
 
     return {
         "legal_sample_space": {
@@ -1970,6 +2001,7 @@ def evidence_context_summary(
             "frozen_primary_lift_required": bool(decision.get("frozen_primary_lift_required")),
             "parser_sync_duplicate_checks": parser_sync_duplicate_checks,
         },
+        "search_diagnostics": search_diagnostics,
         "training_status": {
             "status": supervisor_status.get("status"),
             "run_id": supervisor_status.get("run_id"),
@@ -2031,6 +2063,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         stale_minutes=stale_minutes,
         round_stats=round_stats,
         supervisor_status=supervisor_status,
+        round_repetition=round_repetition,
     )
     if db_read_errors:
         actions = [
@@ -2096,6 +2129,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
             supervisor_status=supervisor_status,
             gates=gates,
             parser_sync_duplicate_checks=parser_sync_duplicate_checks,
+            round_repetition=round_repetition,
         ),
         "heavy_job_lock": lock,
         "recommendation": recommendation,
@@ -2546,6 +2580,27 @@ def render_markdown(payload: dict[str, Any]) -> str:
             if isinstance(evidence_context.get("leakage_checks"), dict)
             else {}
         )
+        search_diagnostics = (
+            evidence_context.get("search_diagnostics")
+            if isinstance(evidence_context.get("search_diagnostics"), dict)
+            else {}
+        )
+        repetition = (
+            search_diagnostics.get("round_repetition")
+            if isinstance(search_diagnostics.get("round_repetition"), dict)
+            else {}
+        )
+        search_line = ""
+        if repetition:
+            search_line = (
+                "- Search diagnostics: "
+                f"round_repetition_active={repetition.get('active')} "
+                f"reason={markdown_inline_text(repetition.get('reason'))} "
+                f"window={repetition.get('window_count')} "
+                f"config_streak={repetition.get('latest_config_repeat_streak')} "
+                f"metric_streak={repetition.get('latest_metric_repeat_streak')} "
+                f"interpretation={markdown_inline_text(repetition.get('interpretation'))}\n"
+            )
         failure_modes = compact_inline_list(evidence_context.get("failure_modes"))
         random_null_expectation = compact_random_null_expectation(
             baseline.get("random_null_expectation")
@@ -2578,6 +2633,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
             f"frozen_required={leakage.get('frozen_primary_lift_required')} "
             "parser_sync_duplicates="
             f"{markdown_inline_text(compact_parser_sync_duplicate_checks(leakage.get('parser_sync_duplicate_checks')))}\n"
+            f"{search_line}"
             "- Evidence/risk: "
             f"{markdown_inline_text(evidence_context.get('evidence_level'))}; "
             f"{markdown_inline_text(evidence_context.get('risk'))}\n"
@@ -2696,6 +2752,16 @@ def cli_evidence_context_summary(payload: dict[str, Any]) -> dict[str, Any]:
         if isinstance(evidence_context.get("leakage_checks"), dict)
         else {}
     )
+    search_diagnostics = (
+        evidence_context.get("search_diagnostics")
+        if isinstance(evidence_context.get("search_diagnostics"), dict)
+        else {}
+    )
+    repetition = (
+        search_diagnostics.get("round_repetition")
+        if isinstance(search_diagnostics.get("round_repetition"), dict)
+        else {}
+    )
     parser_checks = (
         leakage.get("parser_sync_duplicate_checks")
         if isinstance(leakage.get("parser_sync_duplicate_checks"), dict)
@@ -2743,6 +2809,18 @@ def cli_evidence_context_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "parser_sync_duplicate_status": parser_checks.get("status"),
             "parser_sync_duplicate_ok": parser_checks.get("ok"),
         },
+        "search_diagnostics": {
+            "round_repetition": {
+                "active": repetition.get("active"),
+                "reason": repetition.get("reason"),
+                "window_count": repetition.get("window_count"),
+                "latest_config_repeat_streak": repetition.get("latest_config_repeat_streak"),
+                "latest_metric_repeat_streak": repetition.get("latest_metric_repeat_streak"),
+                "interpretation": repetition.get("interpretation"),
+            }
+        }
+        if repetition
+        else {},
     }
 
 
@@ -2825,6 +2903,7 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "latest_config_repeat_streak": round_repetition.get(
                 "latest_config_repeat_streak"
             ),
+            "dominant_config_hash": round_repetition.get("dominant_config_hash"),
             "unique_metric_signature_count": round_repetition.get(
                 "unique_metric_signature_count"
             ),
@@ -2834,6 +2913,10 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "latest_metric_repeat_streak": round_repetition.get(
                 "latest_metric_repeat_streak"
             ),
+            "dominant_metric_signature_hash": round_repetition.get(
+                "dominant_metric_signature_hash"
+            ),
+            "interpretation": round_repetition.get("interpretation"),
         }
     gates = (
         payload.get("gate_summary")
