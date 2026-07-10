@@ -4804,8 +4804,18 @@ def select_next_search_base(
             require_frozen_primary_lift=require_frozen_primary_lift,
             frozen_primary_lift_baseline=primary_lift_baseline,
         )
-    exploration_navigation_eligible = bool(
-        require_frozen_primary_lift
+    exploration_navigation_search_slice_eligible = bool(
+        frozen_promotion_only
+        and exploration_navigation_candidate is not None
+        and exploration_navigation_hash not in excluded_hashes
+        and rank_signature_hash(exploration_navigation_candidate) not in set(excluded_rank_signature_hashes)
+        and exploration_navigation_config is not None
+        and (exploration_navigation_distance or 0.0) >= min_config_distance
+        and rank_vector_changed(current_base_summary, exploration_navigation_candidate)
+    )
+    exploration_navigation_frozen_eligible = bool(
+        not frozen_promotion_only
+        and require_frozen_primary_lift
         and exploration_navigation_candidate is not None
         and exploration_navigation_hash not in excluded_hashes
         and rank_signature_hash(exploration_navigation_candidate) not in set(excluded_rank_signature_hashes)
@@ -4814,6 +4824,10 @@ def select_next_search_base(
         and exploration_navigation_primary_lift_passed
         and exploration_navigation_quality_info["passed"]
         and rank_vector_changed(current_base_summary, exploration_navigation_candidate)
+    )
+    exploration_navigation_eligible = bool(
+        exploration_navigation_search_slice_eligible
+        or exploration_navigation_frozen_eligible
     )
     round_best_quality_blocked = bool(round_best_hash and round_best_hash in quality_blocked_hashes)
     round_best_eligible = (
@@ -4830,6 +4844,9 @@ def select_next_search_base(
     if improved:
         source = "new_best"
         selected_summary = round_best
+    elif exploration_navigation_eligible:
+        source = "experimental_navigation"
+        selected_summary = exploration_navigation_candidate
     elif round_best_eligible and round_best_search_allowed:
         source = "round_best"
         selected_summary = round_best
@@ -4839,9 +4856,6 @@ def select_next_search_base(
     elif fallback_search_challenger is not None:
         source = "search_challenger_revisit"
         selected_summary = fallback_search_challenger
-    elif exploration_navigation_eligible:
-        source = "experimental_navigation"
-        selected_summary = exploration_navigation_candidate
     elif round_best is not None and round_best_search_allowed and not round_best_quality_blocked:
         source = "current_base_replay"
         selected_summary = round_best
@@ -4891,6 +4905,16 @@ def select_next_search_base(
         "exploration_navigation_source": exploration_navigation_source if exploration_navigation_hash else "",
         "exploration_navigation_reason": exploration_navigation_reason if exploration_navigation_hash else "",
         "exploration_navigation_eligible": exploration_navigation_eligible,
+        "exploration_navigation_eligibility_basis": (
+            "search_slice_rank_geometry"
+            if exploration_navigation_search_slice_eligible
+            else "frozen_primary_and_quality"
+            if exploration_navigation_frozen_eligible
+            else "ineligible"
+        ),
+        "exploration_navigation_selection_uses_frozen_validation": bool(
+            exploration_navigation_frozen_eligible
+        ),
         "exploration_navigation_primary_lift_passed": exploration_navigation_primary_lift_passed,
         "exploration_navigation_primary_lift_blocked": exploration_navigation_primary_lift_blocked,
         "exploration_navigation_quality_blocked": bool(

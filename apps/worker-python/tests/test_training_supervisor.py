@@ -720,6 +720,107 @@ def test_promotion_only_frozen_validation_blocks_round_best_without_guiding_navi
     assert below_search_threshold["active"] is False
 
 
+def test_promotion_only_search_navigation_prefers_changed_restart_geometry_without_frozen_lift():
+    current_config = FrequencyRankerConfig()
+    challenger_config = FrequencyRankerConfig(frequency_weight=0.60)
+    restart_config = FrequencyRankerConfig(
+        structural_weight=0.85,
+        frequency_weight=1.15,
+        omission_weight=1.15,
+    )
+    current = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            current_config,
+            target_ranks=[100, 900, 50_000],
+            objective_score=2200.0,
+        ),
+        top_10000_hits=0,
+    )
+    challenger = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            challenger_config,
+            target_ranks=[90, 850, 49_000],
+            objective_score=2190.0,
+        ),
+        top_10000_hits=0,
+    )
+    restart = attach_test_frozen_validation(
+        supervisor_summary_for_config(
+            restart_config,
+            target_ranks=[500, 10_000, 900_000],
+            objective_score=1800.0,
+        ),
+        top_10000_hits=0,
+    )
+
+    next_base, metadata = select_next_search_base(
+        current_base=current_config,
+        summaries=[current, challenger, restart],
+        round_best=challenger,
+        improved=False,
+        exploration_navigation_candidate=restart,
+        exploration_navigation_source="rank_homogeneity_restart_champion",
+        exploration_navigation_reason="rank_homogeneity_restart_changed_rank_vector",
+        excluded_rank_signature_hashes=(rank_signature_hash(challenger),),
+        min_config_distance=0.08,
+        allow_unpromoted_round_best=False,
+        round_best_skip_reason="stale_unpromoted_round_best_primary_gate",
+        require_frozen_primary_lift=False,
+        frozen_primary_lift_baseline=current,
+        frozen_promotion_only=True,
+    )
+
+    assert config_hash(next_base) == config_hash(restart_config)
+    assert metadata["source"] == "experimental_navigation"
+    assert metadata["exploration_navigation_eligible"] is True
+    assert metadata["exploration_navigation_eligibility_basis"] == "search_slice_rank_geometry"
+    assert metadata["exploration_navigation_selection_uses_frozen_validation"] is False
+    assert metadata["exploration_navigation_primary_lift_passed"] is False
+    assert metadata["selected_frozen_primary_score"] == [0, 0, 0]
+
+
+def test_promotion_only_search_navigation_does_not_prioritize_unchanged_rank_geometry():
+    current_config = FrequencyRankerConfig()
+    challenger_config = FrequencyRankerConfig(frequency_weight=0.60)
+    restart_config = FrequencyRankerConfig(
+        structural_weight=0.85,
+        frequency_weight=1.15,
+        omission_weight=1.15,
+    )
+    current = supervisor_summary_for_config(
+        current_config,
+        target_ranks=[100, 900, 50_000],
+        objective_score=2200.0,
+    )
+    challenger = supervisor_summary_for_config(
+        challenger_config,
+        target_ranks=[90, 850, 49_000],
+        objective_score=2190.0,
+    )
+    unchanged_restart = supervisor_summary_for_config(
+        restart_config,
+        target_ranks=[100, 900, 50_000],
+        objective_score=1800.0,
+    )
+
+    next_base, metadata = select_next_search_base(
+        current_base=current_config,
+        summaries=[current, challenger, unchanged_restart],
+        round_best=challenger,
+        improved=False,
+        exploration_navigation_candidate=unchanged_restart,
+        min_config_distance=0.08,
+        allow_unpromoted_round_best=False,
+        frozen_promotion_only=True,
+    )
+
+    assert config_hash(next_base) != config_hash(current_config)
+    assert metadata["source"] == "search_challenger"
+    assert metadata["exploration_navigation_eligible"] is False
+    assert metadata["exploration_navigation_eligibility_basis"] == "ineligible"
+    assert metadata["exploration_navigation_selection_uses_frozen_validation"] is False
+
+
 def test_eval_slice_overfit_guardrail_blocks_unpromoted_round_best():
     round_best_config = FrequencyRankerConfig(frequency_weight=0.40)
     challenger_config = FrequencyRankerConfig(frequency_weight=0.60)

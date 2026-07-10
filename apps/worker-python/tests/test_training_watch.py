@@ -1473,6 +1473,8 @@ def test_cli_summary_surfaces_recovery_gate_decision(tmp_path):
                 "config_hash": "nav-hash",
                 "eligible": False,
                 "eligibility_reason": "below_min_config_distance",
+                "eligibility_basis": "ineligible",
+                "selection_uses_frozen_validation": False,
                 "quality_reason": "passed",
                 "rank_vector_changed": True,
                 "config_distance": 0.006,
@@ -1507,6 +1509,8 @@ def test_cli_summary_surfaces_recovery_gate_decision(tmp_path):
         "candidate_present": True,
         "eligible": False,
         "eligibility_reason": "below_min_config_distance",
+        "eligibility_basis": "ineligible",
+        "selection_uses_frozen_validation": False,
         "quality_reason": "passed",
         "rank_vector_changed": True,
         "config_distance": 0.006,
@@ -1596,6 +1600,8 @@ def test_gate_summary_surfaces_ineligible_navigation_distance():
         "search_base": {
             "exploration_navigation_config_hash": "restart-hash",
             "exploration_navigation_eligible": False,
+            "exploration_navigation_eligibility_basis": "ineligible",
+            "exploration_navigation_selection_uses_frozen_validation": False,
             "exploration_navigation_quality_reason": "passed",
             "exploration_navigation_config_distance": 0.006042,
             "min_config_distance": 0.08,
@@ -1617,6 +1623,8 @@ def test_gate_summary_surfaces_ineligible_navigation_distance():
         "candidate_present": True,
         "eligible": False,
         "eligibility_reason": "below_min_config_distance",
+        "eligibility_basis": "ineligible",
+        "selection_uses_frozen_validation": False,
         "config_distance": 0.006042,
         "min_config_distance": 0.08,
         "rank_vector_changed": True,
@@ -1674,6 +1682,8 @@ def test_gate_summary_surfaces_navigation_quality_block_from_standard_path():
         "search_base": {
             "exploration_navigation_config_hash": "restart-hash",
             "exploration_navigation_eligible": False,
+            "exploration_navigation_eligibility_basis": "ineligible",
+            "exploration_navigation_selection_uses_frozen_validation": False,
             "exploration_navigation_quality_reason": "zero_frozen_primary_without_tail_or_frontier_lift",
             "exploration_navigation_quality_blocked": True,
             "round_best_quality_blocked": True,
@@ -1690,6 +1700,8 @@ def test_gate_summary_surfaces_navigation_quality_block_from_standard_path():
 
     assert navigation["eligible"] is False
     assert navigation["eligibility_reason"] == "zero_frozen_primary_without_tail_or_frontier_lift"
+    assert navigation["eligibility_basis"] == "ineligible"
+    assert navigation["selection_uses_frozen_validation"] is False
     assert navigation["quality_blocked_from_search_base"] is True
     assert navigation["round_best_quality_blocked"] is True
 
@@ -1702,6 +1714,8 @@ def test_gate_summary_surfaces_navigation_quality_block_from_standard_path():
     )
     assert operator["experimental_navigation_candidate"]["quality_blocked_from_search_base"] is True
     assert operator["experimental_navigation_candidate"]["round_best_quality_blocked"] is True
+    assert operator["experimental_navigation_candidate"]["eligibility_basis"] == "ineligible"
+    assert operator["experimental_navigation_candidate"]["selection_uses_frozen_validation"] is False
 
     recommendation = recommendation_summary(
         rows=[{"round_index": 7, "improved": False, "updated_at": now}],

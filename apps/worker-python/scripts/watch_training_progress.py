@@ -2144,6 +2144,19 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
             eligibility_reason = experimental_navigation_eligibility_reason(search_base)
             if eligibility_reason:
                 navigation_summary["eligibility_reason"] = eligibility_reason
+            if search_base.get("exploration_navigation_eligibility_basis") is not None:
+                navigation_summary["eligibility_basis"] = search_base.get(
+                    "exploration_navigation_eligibility_basis"
+                )
+            selection_uses_frozen = safe_bool(
+                search_base.get(
+                    "exploration_navigation_selection_uses_frozen_validation"
+                )
+            )
+            if selection_uses_frozen is not None:
+                navigation_summary["selection_uses_frozen_validation"] = (
+                    selection_uses_frozen
+                )
             for source_key, output_key, parser in (
                 ("exploration_navigation_config_distance", "config_distance", safe_float),
                 ("min_config_distance", "min_config_distance", safe_float),
@@ -3523,6 +3536,8 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 ("reason", "reason"),
                 ("eligible", "eligible"),
                 ("eligibility_reason", "eligibility_reason"),
+                ("eligibility_basis", "eligibility_basis"),
+                ("uses_frozen", "selection_uses_frozen_validation"),
                 ("quality", "quality_reason"),
                 ("rank_vector_changed", "rank_vector_changed"),
             ]
@@ -4342,6 +4357,8 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
         for key in (
             "eligible",
             "eligibility_reason",
+            "eligibility_basis",
+            "selection_uses_frozen_validation",
             "quality_reason",
             "quality_blocked_from_search_base",
             "round_best_quality_blocked",
