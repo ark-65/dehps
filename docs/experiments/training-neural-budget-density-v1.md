@@ -69,7 +69,7 @@ ordinary budget slots:   +1
 total configured budget: 28 unchanged
 ```
 
-`scripts/ensure_training_supervisor.sh` exposes the value through `DEHPS_NEURAL_KDJ_BUDGET_SHARE` and uses `0.07` as the experimental operational default. The supervisor already records both configured share and persisted candidate budgets. No model weights or ranking rules change; the candidate merge pipeline additionally enforces the predeclared fixed-budget invariant after deduplication.
+`scripts/ensure_training_supervisor.sh` exposes the value through `DEHPS_NEURAL_KDJ_BUDGET_SHARE`; `0.07` was used only for the registered experimental run. The supervisor already records both configured share and persisted candidate budgets. No model weights or ranking rules change; the candidate merge pipeline additionally enforces the predeclared fixed-budget invariant after deduplication.
 
 ## Predeclared Verification And Falsification
 
@@ -120,7 +120,45 @@ Round 2 persisted:
 
 Across both rounds, the selected next search base came from holdout-isolated experimental navigation with `selection_uses_frozen_validation=false`. Search/frozen remained 80/20 with zero overlap, promotion was evaluated and not bypassed, historical quarantine stayed active, advisors were current, parser/sync/duplicate checks passed, and forward evidence remained `0/20`.
 
-This verifies runtime, allocation, fixed-budget refill, and safety correctness only. Two rounds do not establish Neural-density efficacy or predictive lift. The run remains active to reach the eight-round maturity boundary.
+This verified runtime, allocation, fixed-budget refill, and safety correctness only. Two rounds did not establish Neural-density efficacy or predictive lift, so the run continued to the registered eight-round maturity boundary.
+
+## Eight-Round Result
+
+Run `20260711-053216` completed the predeclared eight-round window with all rounds generating exactly 28 candidates:
+
+- Neural KDJ generated/prefilter/Top5/round-best/navigation: `16/2/0/0/0`;
+- normal-source generated/prefilter/Top5/round-best rounds: `52/50/39/8`;
+- stagnation restart generated/prefilter/search-navigation: `40/21/6`;
+- candidate-source status remained diverse, but Neural KDJ, recency, Ridge KDJ, target inversion, and Weight KDJ all remained zero-Top5 in this path;
+- round-best configs and full metric signatures each had two unique values; the dominant value occurred five times and the latest repeat streak was three;
+- the old unrepaired `0.10` run had only one repeated config/signature, but it used an underfilling allocator and a different continuity path, so that contrast is not causal evidence for `0.07`.
+
+At round 8, static exact metrics were `[3,3,3]`, Dynamic KDJ `[2,3,3]`, and near Dynamic KDJ `[0,0,0]`. The candidate and incumbent frozen-primary scores remained `[0,0,0]`; promotion remained blocked by historical quarantine and was not bypassed. Search/frozen remained 80/20 with zero overlap, all advisor signals were current for their declared scopes, parser/sync/duplicate checks passed, and forward evidence remained `0/20`.
+
+### Maturity Cross-Review
+
+Gauss pass: allocation correctness and increased normal-source throughput are verified, but there is zero frozen-primary residual and no promotion outcome difference. The repaired allocator and continuity start changed simultaneously with the share, so the old baseline fails the same-code proof obligation.
+
+Riemann pass: the path visited two round-best/signature states instead of one, but this may be the geometry of full-budget refill or the revalidated continuity seed rather than Neural density. The local trajectory does not identify the responsible coordinate.
+
+Shared conclusion: `0.07` is operationally safe but not proven superior. Restore the conservative registered `0.10` default, retain the allocator/process-group fixes, and run a repaired-allocator control before any density claim.
+
+The `0.07` process completed round 9 before the handoff and was then stopped as a full process group; the already-started partial round 10 was not persisted. No worker processes remained.
+
+## Repaired 0.10 Control
+
+The operational default was restored to `0.10`. Control run `20260711-063645`, PID `3153509`, uses the same repaired allocator and explicitly records `--neural-kdj-budget-share 0.10`.
+
+Its first two durable rounds both generated 28 candidates:
+
+- Neural KDJ generated/prefilter/Top5: `6/1/0`;
+- normal-source generated/prefilter/Top5/round-best rounds: `13/11/9/2`;
+- configured ordinary buckets remained 11, Neural budget remained three, and Weight/Ridge/recency budgets remained `7/3/4`;
+- one selected navigation round and one probability-focus round were both search-slice-only;
+- static exact metrics remained `[3,3,3]`, frozen-primary remained `[0,0,0]`, and promotion remained blocked without bypass;
+- 80/20 isolation, advisor freshness, parser/sync/duplicate checks, and forward `0/20` status remained intact.
+
+For reference, the first two `0.07` rounds were Neural `4/0/0` and normal `14/13/10`. The one-candidate/one-Top5 difference is path-dependent, source memberships overlap, and neither side changed the static or frozen boundary. It is not evidence that either share is better.
 
 Validation:
 
@@ -133,4 +171,4 @@ git diff --check: passed
 
 ## Next Verification
 
-Continue run `20260711-053216` to at least eight durable rounds. Then compare source survival, ordinary conversion, selected navigation, signature diversity, repetition, and frozen diagnostics. Because the allocator repair affects both shares and the new run began from a revalidated continuity seed rather than an identical start, any efficacy claim still requires a repaired share-`0.10` rollback/control; otherwise restore `0.10` and retain only the fixed-budget and process-group fixes.
+Continue repaired-allocator control run `20260711-063645` to eight durable rounds, then compare source survival, navigation, repetition, signatures, line totals, and frozen diagnostics against the registered `0.07` window. Keep `0.10` as the operational default unless a same-code comparison supplies a distinct search benefit; even then, no predictive or promotion claim is allowed without forward evidence.
