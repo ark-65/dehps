@@ -5907,6 +5907,56 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
     evidence_context = cli_evidence_context_summary(payload)
     if evidence_context:
         summary["evidence_context"] = evidence_context
+    leakage_checks = (
+        payload.get("evidence_context", {}).get("leakage_checks")
+        if isinstance(payload.get("evidence_context"), dict)
+        else {}
+    )
+    parser_checks = (
+        leakage_checks.get("parser_sync_duplicate_checks")
+        if isinstance(leakage_checks, dict)
+        and isinstance(leakage_checks.get("parser_sync_duplicate_checks"), dict)
+        else {}
+    )
+    if parser_checks:
+        latest_sync = (
+            parser_checks.get("latest_sync")
+            if isinstance(parser_checks.get("latest_sync"), dict)
+            else {}
+        )
+        summary["parser_sync"] = {
+            "status": parser_checks.get("status"),
+            "ok": parser_checks.get("ok"),
+            "history_latest_issue": parser_checks.get("history_latest_issue"),
+            "history_draw_count": safe_int(parser_checks.get("history_draw_count")),
+            "history_duplicate_issue_count": safe_int(
+                parser_checks.get("history_duplicate_issue_count")
+            ),
+            "history_invalid_red_length_count": safe_int(
+                parser_checks.get("history_invalid_red_length_count")
+            ),
+            "history_red_out_of_range_count": safe_int(
+                parser_checks.get("history_red_out_of_range_count")
+            ),
+            "history_duplicate_red_numbers_count": safe_int(
+                parser_checks.get("history_duplicate_red_numbers_count")
+            ),
+            "history_blue_out_of_range_count": safe_int(
+                parser_checks.get("history_blue_out_of_range_count")
+            ),
+            "universe_ok": parser_checks.get("universe_ok"),
+            "red_combination_universe_count": safe_int(
+                parser_checks.get("red_combination_universe_count")
+            ),
+            "recorded_data_conflict_count": safe_int(
+                parser_checks.get("recorded_data_conflict_count")
+            ),
+            "unresolved_data_conflict_count": safe_int(
+                parser_checks.get("unresolved_data_conflict_count")
+            ),
+            "latest_sync_status": latest_sync.get("status"),
+            "latest_sync_conflict_count": safe_int(latest_sync.get("conflict_count")),
+        }
     db_read_errors = (
         payload.get("db_read_errors")
         if isinstance(payload.get("db_read_errors"), list)
