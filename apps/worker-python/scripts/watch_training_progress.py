@@ -2148,6 +2148,68 @@ def add_heavy_lock_observation_ages(lock: dict[str, Any], *, now: datetime) -> d
     return enriched
 
 
+def heavy_job_supervisor_relation_summary(
+    *,
+    supervisor_status: dict[str, Any],
+    lock: dict[str, Any],
+) -> dict[str, Any]:
+    supervisor_available = supervisor_status.get("available") is True
+    supervisor_pid = safe_int(supervisor_status.get("pid"))
+    heavy_job_pid = safe_int(lock.get("pid"))
+    heavy_job_active = lock.get("active") is True
+    same_pid = (
+        supervisor_pid == heavy_job_pid
+        if supervisor_pid is not None and heavy_job_pid is not None
+        else None
+    )
+
+    if not supervisor_available or supervisor_pid is None:
+        status = "supervisor_unavailable"
+        interpretation = (
+            "The current supervisor PID is unavailable, so heavy-job ownership cannot be "
+            "related to the supervisor status file."
+        )
+    elif heavy_job_pid is None:
+        status = "heavy_job_pid_missing"
+        interpretation = (
+            "Heavy-job metadata has no PID, so ownership cannot be related to the current "
+            "supervisor."
+        )
+    elif same_pid:
+        status = "same_supervisor_pid"
+        interpretation = (
+            "The heavy-job metadata belongs to the supervisor PID shown by this watch."
+        )
+    elif heavy_job_active:
+        status = "different_active_pid"
+        interpretation = (
+            "A different live PID owns the heavy-job lock; do not overwrite its metadata or "
+            "start a competing heavy job."
+        )
+    else:
+        status = "different_inactive_pid"
+        interpretation = (
+            "Heavy-job metadata belongs to a different inactive PID. Preserve it as audit "
+            "history; it does not describe the current supervisor process."
+        )
+
+    return {
+        "protocol": "dehps-heavy-job-supervisor-owner-relation-v1",
+        "status": status,
+        "supervisor_available": supervisor_available,
+        "supervisor_pid": supervisor_pid,
+        "heavy_job_pid": heavy_job_pid,
+        "heavy_job_owner": lock.get("owner"),
+        "heavy_job_status": lock.get("status"),
+        "heavy_job_active": heavy_job_active,
+        "same_pid": same_pid,
+        "different_active_owner": status == "different_active_pid",
+        "selection_changed": False,
+        "promotion_allowed": False,
+        "interpretation": interpretation,
+    }
+
+
 def advisor_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
     result: dict[str, dict[str, Any]] = {}
     for key in ADVISOR_KEYS:
@@ -3848,6 +3910,10 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
     )
     compute_capability = compute_capability_summary(supervisor_status)
     lock = add_heavy_lock_observation_ages(heavy_lock_summary(), now=generated_at)
+    heavy_job_supervisor_relation = heavy_job_supervisor_relation_summary(
+        supervisor_status=supervisor_status,
+        lock=lock,
+    )
     parser_sync_duplicate_checks = load_parser_sync_duplicate_checks()
     history_issues = parser_sync_duplicate_checks.pop("_history_issues", [])
     advisor_signal_freshness = advisor_signal_freshness_summary(
@@ -3969,6 +4035,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
             prediction_input_boundary=prediction_input_boundary,
         ),
         "heavy_job_lock": lock,
+        "heavy_job_supervisor_relation": heavy_job_supervisor_relation,
         "recommendation": recommendation,
         "restart_readiness": restart_readiness_summary(
             recommendation=recommendation,
@@ -4918,6 +4985,12 @@ def render_markdown(payload: dict[str, Any]) -> str:
 {json.dumps(payload.get("heavy_job_lock", {}), ensure_ascii=False, indent=2)}
 ```
 
+## Heavy Job / Supervisor Relation
+
+```json
+{json.dumps(payload.get("heavy_job_supervisor_relation", {}), ensure_ascii=False, indent=2)}
+```
+
 ## Judgement
 
 {note_rows}
@@ -5307,6 +5380,35 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "owner": heavy_job_lock.get("owner"),
             "pid": heavy_job_lock.get("pid"),
             "heartbeat_age_minutes": heavy_job_lock.get("heartbeat_age_minutes"),
+        }
+    heavy_job_supervisor_relation = (
+        payload.get("heavy_job_supervisor_relation")
+        if isinstance(payload.get("heavy_job_supervisor_relation"), dict)
+        else {}
+    )
+    if heavy_job_supervisor_relation:
+        summary["heavy_job_supervisor_relation"] = {
+            "protocol": heavy_job_supervisor_relation.get("protocol"),
+            "status": heavy_job_supervisor_relation.get("status"),
+            "supervisor_available": heavy_job_supervisor_relation.get(
+                "supervisor_available"
+            ),
+            "supervisor_pid": heavy_job_supervisor_relation.get("supervisor_pid"),
+            "heavy_job_pid": heavy_job_supervisor_relation.get("heavy_job_pid"),
+            "heavy_job_owner": heavy_job_supervisor_relation.get("heavy_job_owner"),
+            "heavy_job_status": heavy_job_supervisor_relation.get("heavy_job_status"),
+            "heavy_job_active": heavy_job_supervisor_relation.get("heavy_job_active"),
+            "same_pid": heavy_job_supervisor_relation.get("same_pid"),
+            "different_active_owner": heavy_job_supervisor_relation.get(
+                "different_active_owner"
+            ),
+            "selection_changed": heavy_job_supervisor_relation.get(
+                "selection_changed"
+            ),
+            "promotion_allowed": heavy_job_supervisor_relation.get(
+                "promotion_allowed"
+            ),
+            "interpretation": heavy_job_supervisor_relation.get("interpretation"),
         }
     compute_capability = (
         payload.get("compute_capability")
