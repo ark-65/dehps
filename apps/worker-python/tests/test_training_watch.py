@@ -229,6 +229,61 @@ def test_recommendation_waits_for_forward_issue_instead_of_restarting():
     assert operator_summary(payload)["forward_wait"]["ready"] is True
 
 
+def test_compute_capability_is_visible_in_operator_and_markdown():
+    compute_capability = {
+        "status": "cpu_parallel_gpu_backend_unvalidated",
+        "action": "keep_cpu_parallel_require_pinned_gpu_equivalence_probe",
+        "cpu": {
+            "logical_count": 22,
+            "configured_workers": 16,
+            "matrix_backend": "NumPy feature matrix",
+            "numpy_version": "2.4.6",
+            "parallel_protocol": "ordered_target_parallel_v1",
+            "equivalence_requirement": "serial_parallel_exact_summary_match",
+        },
+        "accelerator": {
+            "gpu_device_visible": True,
+            "dri_render_node_visible": True,
+            "intel_arc_visible": True,
+            "nvidia_tool_visible": False,
+            "installed_accelerator_modules": [],
+            "validated_gpu_backend": None,
+            "gpu_backend_validated": False,
+            "gpu_training_enabled": False,
+        },
+        "selection_changed": False,
+        "promotion_allowed": False,
+        "interpretation": "GPU remains disabled pending an equivalence probe.",
+    }
+    payload = {
+        "run_id": "run-1",
+        "round_count": 8,
+        "round_window_count": 5,
+        "round_limit": 5,
+        "latest_round": 8,
+        "last_improved_round": None,
+        "stagnation_rounds": 8,
+        "latest_metrics": {},
+        "advisor_summary": {},
+        "advisor_signal_freshness": {},
+        "compute_capability": compute_capability,
+        "heavy_job_lock": {"active": False},
+        "recommendation": {"severity": "warn", "action": "continue_current_run"},
+        "guardrail": "No automatic promotion.",
+    }
+
+    markdown = render_markdown(payload)
+    operator = operator_summary(payload)
+
+    assert "## Compute Capability" in markdown
+    assert "gpu_training=False" in markdown
+    assert operator["compute_capability"]["cpu"]["configured_workers"] == 16
+    assert (
+        operator["compute_capability"]["accelerator"]["gpu_backend_validated"]
+        is False
+    )
+
+
 def test_forward_evidence_threshold_only_enables_human_review():
     rows = []
     for offset in range(1, 21):
