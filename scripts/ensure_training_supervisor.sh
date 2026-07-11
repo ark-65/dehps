@@ -5,6 +5,9 @@ REPO_ROOT="/home/ark/workspace/dehps"
 WORKER_DIR="$REPO_ROOT/apps/worker-python"
 LOG_DIR="$REPO_ROOT/runtime/logs"
 PID_FILE="$LOG_DIR/training-supervisor-kdj-ridge-neural.pid"
+WEIGHT_KDJ_BUDGET_SHARE="${DEHPS_WEIGHT_KDJ_BUDGET_SHARE:-0.22}"
+NEURAL_KDJ_BUDGET_SHARE="${DEHPS_NEURAL_KDJ_BUDGET_SHARE:-0.10}"
+TRAINING_WORKERS="${DEHPS_TRAINING_WORKERS:-16}"
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
@@ -21,6 +24,29 @@ is_training_pid_active() {
   ps -p "$pid" -o args= 2>/dev/null | grep -Fq "scripts/run_training_supervisor.py"
 }
 
+discover_training_pid() {
+  local pid
+  pid="$(tr -d '[:space:]' < "$PID_FILE" 2>/dev/null || true)"
+  if is_training_pid_active "$pid"; then
+    printf '%s\n' "$pid"
+    return 0
+  fi
+  pid="$(.venv/bin/python - <<'PY'
+from dehps.runtime.heavy_job import describe_heavy_job_owner
+
+status = describe_heavy_job_owner()
+metadata = status.metadata or {}
+if status.active and metadata.get("owner") == "training-supervisor":
+    print(metadata.get("pid") or "")
+PY
+)"
+  if is_training_pid_active "$pid"; then
+    printf '%s\n' "$pid"
+    return 0
+  fi
+  return 1
+}
+
 latest_db_issue() {
   .venv/bin/python - <<'PY'
 from dehps.db import get_connection
@@ -29,6 +55,64 @@ with get_connection() as conn:
     row = conn.execute("SELECT max(issue) FROM ssq_history").fetchone()
 print(row[0] or "")
 PY
+}
+
+latest_weight_kdj_signal_issue() {
+  .venv/bin/python - <<'PY'
+from dehps.db import get_connection
+from dehps.storage.postgres_store import CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID
+
+with get_connection() as conn:
+    table = conn.execute("SELECT to_regclass('public.training_weight_signals')").fetchone()
+    if not table or not table[0]:
+        print("")
+    else:
+        row = conn.execute(
+            "SELECT max(issue) FROM training_weight_signals WHERE signal_run_id = %s",
+            (CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID,),
+        ).fetchone()
+        print((row and row[0]) or "")
+PY
+}
+
+refresh_weight_kdj_signals() {
+  local latest_issue="$1"
+  local signal_issue
+  local stamp
+  local refresh_log
+  signal_issue="$(latest_weight_kdj_signal_issue)"
+  if [[ -n "$latest_issue" && "$signal_issue" == "$latest_issue" ]]; then
+    log "weight KDJ signals already current issue=$latest_issue"
+    return 0
+  fi
+  if [[ "$signal_issue" =~ ^[0-9]+$ && "$latest_issue" =~ ^[0-9]+$ && "$signal_issue" -gt "$latest_issue" ]]; then
+    log "weight KDJ signal issue is ahead of history signal_issue=$signal_issue latest_issue=$latest_issue; refusing refresh"
+    return 1
+  fi
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  refresh_log="$LOG_DIR/weight-kdj-incremental-$stamp.log"
+  log "refreshing weight KDJ signals signal_issue=${signal_issue:-none} latest_issue=${latest_issue:-none} log=$refresh_log"
+  if ! .venv/bin/python scripts/generate_weight_kdj_signals.py \
+    --mode incremental \
+    --signal-run-id weight-kdj-recent-1000-v1 \
+    --issues 1000 \
+    --allow-partial \
+    --chunk-size 25 \
+    --train-window 900 \
+    --top-n 10000 \
+    --heavy-job-lock-timeout-seconds 0 \
+    --cpu-threads 1 \
+    > "$refresh_log" 2>&1; then
+    log "weight KDJ signal refresh failed log=$refresh_log"
+    tail -n 40 "$refresh_log" >&2 || true
+    return 1
+  fi
+  signal_issue="$(latest_weight_kdj_signal_issue)"
+  if [[ -z "$latest_issue" || "$signal_issue" != "$latest_issue" ]]; then
+    log "weight KDJ signal refresh incomplete signal_issue=${signal_issue:-none} latest_issue=${latest_issue:-none} log=$refresh_log"
+    return 1
+  fi
+  log "weight KDJ signal refresh completed issue=$signal_issue log=$refresh_log"
 }
 
 capture_current_prediction_snapshots() {
@@ -172,15 +256,21 @@ training_pid_as_of_issue() {
 
 stop_training_pid() {
   local pid="$1"
+  local pgid
+  pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d '[:space:]' || true)"
   log "stopping stale training supervisor pid=$pid"
-  kill "$pid" 2>/dev/null || true
+  if [[ "$pgid" == "$pid" ]]; then
+    kill -TERM -- "-$pgid" 2>/dev/null || true
+  else
+    kill "$pid" 2>/dev/null || true
+  fi
   for _ in $(seq 1 60); do
-    if ! is_training_pid_active "$pid"; then
+    if ! is_training_pid_active "$pid" && { [[ -z "$pgid" ]] || ! pgrep -g "$pgid" >/dev/null 2>&1; }; then
       return 0
     fi
     sleep 1
   done
-  log "training supervisor pid=$pid did not stop after SIGTERM"
+  log "training supervisor pid=$pid pgid=${pgid:-unknown} did not stop after SIGTERM"
   return 1
 }
 
@@ -227,12 +317,22 @@ latest_issue="$(latest_db_issue)"
 evaluate_synced_predictions_if_needed "$sync_output_file" "$sync_from_issue" "$latest_issue" "$prediction_snapshot_file"
 rm -f "$sync_output_file"
 rm -f "$prediction_snapshot_file"
+signal_issue="$(latest_weight_kdj_signal_issue)"
+signal_refresh_needed=false
+if [[ -n "$latest_issue" && "$signal_issue" != "$latest_issue" ]]; then
+  signal_refresh_needed=true
+  log "weight KDJ signals stale signal_issue=${signal_issue:-none} latest_issue=$latest_issue"
+fi
 
-if [[ -s "$PID_FILE" ]]; then
-  pid="$(tr -d '[:space:]' < "$PID_FILE")"
+pid="$(discover_training_pid || true)"
+if [[ -n "$pid" ]]; then
+  if [[ "$(tr -d '[:space:]' < "$PID_FILE" 2>/dev/null || true)" != "$pid" ]]; then
+    printf '%s\n' "$pid" > "$PID_FILE"
+    log "recovered training supervisor pid=$pid from heavy-job metadata"
+  fi
   if is_training_pid_active "$pid"; then
     running_as_of="$(training_pid_as_of_issue "$pid")"
-    if [[ "$running_as_of" == "$latest_issue" ]]; then
+    if [[ "$running_as_of" == "$latest_issue" && "$signal_refresh_needed" == false ]]; then
       if watch_recommends_supervisor_restart "$pid"; then
         stop_training_pid "$pid"
       else
@@ -240,10 +340,14 @@ if [[ -s "$PID_FILE" ]]; then
         exit 0
       fi
     else
-      log "training supervisor stale pid=$pid running_as_of=${running_as_of:-auto} latest_issue=${latest_issue:-none}"
+      log "training supervisor stale pid=$pid running_as_of=${running_as_of:-auto} latest_issue=${latest_issue:-none} signal_issue=${signal_issue:-none}"
       stop_training_pid "$pid"
     fi
   fi
+fi
+
+if [[ "$signal_refresh_needed" == true ]]; then
+  refresh_weight_kdj_signals "$latest_issue"
 fi
 
 stamp="$(date +%Y%m%d-%H%M%S)"
@@ -253,6 +357,9 @@ setsid bash -lc '
   set -euo pipefail
   pid_file="$0"
   as_of_issue="$1"
+  weight_kdj_budget_share="$2"
+  neural_kdj_budget_share="$3"
+  training_workers="$4"
   printf "%s\n" "$$" > "$pid_file"
   args=(
     scripts/run_training_supervisor.py
@@ -260,7 +367,7 @@ setsid bash -lc '
     --train-window 900
     --eval-window 100
     --top-n 10000
-    --workers 10
+    --workers "$training_workers"
     --train-mode expanding
     --history-scope current_regime_default
     --regime-years 10
@@ -269,8 +376,10 @@ setsid bash -lc '
     --memory-budget-gb 20
     --write-status-json
     --enable-weight-kdj-advisor
+    --weight-kdj-budget-share "$weight_kdj_budget_share"
     --enable-ridge-kdj-advisor
     --enable-neural-kdj-advisor
+    --neural-kdj-budget-share "$neural_kdj_budget_share"
     --target-weight-inversion-max-candidates 4
     --target-weight-inversion-max-targets 100
     --target-weight-inversion-max-deltas-per-target 8
@@ -280,7 +389,7 @@ setsid bash -lc '
     args+=(--as-of-issue "$as_of_issue")
   fi
   exec .venv/bin/python "${args[@]}"
-' "$PID_FILE" "$latest_issue" > "$run_log" 2>&1 < /dev/null &
+' "$PID_FILE" "$latest_issue" "$WEIGHT_KDJ_BUDGET_SHARE" "$NEURAL_KDJ_BUDGET_SHARE" "$TRAINING_WORKERS" > "$run_log" 2>&1 < /dev/null &
 
 launcher_pid="$!"
 sleep 1

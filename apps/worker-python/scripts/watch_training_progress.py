@@ -40,6 +40,18 @@ DEFAULT_SUPERVISOR_OUTPUT_DIR = ROOT_DIR / "data/output/optimization"
 DEFAULT_OUTPUT_DIR = DEFAULT_SUPERVISOR_OUTPUT_DIR / "training-watch"
 DEFAULT_ROUND_LIMIT = 5000
 DEFAULT_STALE_MINUTES = 30
+DEFAULT_ADVISOR_SIGNAL_MAX_ISSUE_LAG = 1
+DEFAULT_SOURCE_SURVIVAL_MIN_ROUNDS = 4
+DEFAULT_SOURCE_SURVIVAL_MIN_GENERATED = 8
+DEFAULT_SOURCE_SURVIVAL_BUDGET_REVIEW_MIN_ROUNDS = 8
+DEFAULT_FORWARD_EVIDENCE_MIN_PAIRED_ISSUES = 20
+DEFAULT_FORWARD_EVIDENCE_ROW_LIMIT = 5000
+HOLDOUT_ISOLATION_PROTOCOL = "search_slice_frozen_promotion_v1"
+FORWARD_EVIDENCE_LINE_KEYS = (
+    "static_100",
+    "dynamic_kdj",
+    "dynamic_kdj_near",
+)
 SAFE_FILENAME_COMPONENT_PATTERN = re.compile(r"[^A-Za-z0-9_-]+")
 SAFE_INTEGER_TEXT_PATTERN = re.compile(r"[0-9]+")
 MAX_SAFE_FILENAME_COMPONENT_LENGTH = 96
@@ -134,6 +146,16 @@ def safe_int(value: Any) -> int | None:
     except Exception:
         return None
     return parsed
+
+
+def issue_compare(left: Any, right: Any) -> int:
+    left_int = safe_int(left)
+    right_int = safe_int(right)
+    if left_int is not None and right_int is not None:
+        return (left_int > right_int) - (left_int < right_int)
+    left_text = "" if left is None else str(left)
+    right_text = "" if right is None else str(right)
+    return (left_text > right_text) - (left_text < right_text)
 
 
 def positive_int_or_default(value: Any, *, default: int) -> int:
@@ -337,9 +359,320 @@ def summarize_round_repetition(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def random_null_expectation_summary(supervisor_status: dict[str, Any]) -> dict[str, Any]:
+def summarize_candidate_source_survival(
+    rows: list[dict[str, Any]],
+    *,
+    min_rounds: int = DEFAULT_SOURCE_SURVIVAL_MIN_ROUNDS,
+    min_generated: int = DEFAULT_SOURCE_SURVIVAL_MIN_GENERATED,
+    budget_review_min_rounds: int = DEFAULT_SOURCE_SURVIVAL_BUDGET_REVIEW_MIN_ROUNDS,
+) -> dict[str, Any]:
+    required_rounds = max(1, int(min_rounds))
+    required_generated = max(1, int(min_generated))
+    budget_review_required_rounds = max(required_rounds, int(budget_review_min_rounds))
+    aggregates: dict[str, dict[str, int]] = {}
+
+    def aggregate_for_source(source: str) -> dict[str, int]:
+        return aggregates.setdefault(
+            source,
+            {
+                "rounds_generated": 0,
+                "generated": 0,
+                "prefilter_selected": 0,
+                "full_eval_top5": 0,
+                "round_best_rounds": 0,
+                "frozen_frontier_rounds": 0,
+                "frozen_frontier_diagnostic_only_rounds": 0,
+                "budget_eligible_frozen_frontier_rounds": 0,
+                "guarded_navigation_rounds": 0,
+                "search_navigation_rounds": 0,
+            },
+        )
+
+    def selected_search_navigation_source(prefilter: dict[str, Any]) -> str:
+        isolation = (
+            prefilter.get("holdout_isolation")
+            if isinstance(prefilter.get("holdout_isolation"), dict)
+            else {}
+        )
+        search_base = (
+            prefilter.get("search_base")
+            if isinstance(prefilter.get("search_base"), dict)
+            else {}
+        )
+        selected_hash = str(search_base.get("config_hash") or "")
+        navigation_hash = str(
+            search_base.get("exploration_navigation_config_hash") or ""
+        )
+        if not (
+            isolation.get("protocol") == HOLDOUT_ISOLATION_PROTOCOL
+            and isolation.get("frozen_validation_role") == "promotion_only"
+            and isolation.get("search_uses_frozen_validation") is False
+            and isolation.get("prefilter_isolation_status") == "passed"
+            and isolation.get("prefilter_uses_frozen_validation") is False
+            and safe_int(isolation.get("prefilter_frozen_issue_overlap_count")) == 0
+            and search_base.get("source") == "experimental_navigation"
+            and search_base.get("exploration_navigation_selected") is True
+            and search_base.get("selection_uses_frozen_validation") is False
+            and selected_hash
+            and selected_hash == navigation_hash
+        ):
+            return ""
+        navigation_source = str(
+            search_base.get("exploration_navigation_source") or ""
+        )
+        diagnostic_key = {
+            "rank_homogeneity_restart_champion": "rank_homogeneity_restart_champion",
+            "exploration_champion": "exploration_champion",
+        }.get(navigation_source)
+        diagnostic = (
+            prefilter.get(diagnostic_key)
+            if diagnostic_key and isinstance(prefilter.get(diagnostic_key), dict)
+            else {}
+        )
+        if not (
+            diagnostic.get("active") is True
+            and str(diagnostic.get("config_hash") or "") == selected_hash
+        ):
+            return ""
+        return str(diagnostic.get("source") or "")
+
+    observed_rounds = 0
+    unverified_prefilter_round_count = 0
+    for row in rows:
+        prefilter = row.get("prefilter") if isinstance(row.get("prefilter"), dict) else {}
+        isolation = (
+            prefilter.get("holdout_isolation")
+            if isinstance(prefilter.get("holdout_isolation"), dict)
+            else {}
+        )
+        if isolation.get("protocol") == HOLDOUT_ISOLATION_PROTOCOL and not (
+            isolation.get("prefilter_isolation_status") == "passed"
+            and isolation.get("prefilter_uses_frozen_validation") is False
+            and safe_int(isolation.get("prefilter_frozen_issue_overlap_count")) == 0
+        ):
+            unverified_prefilter_round_count += 1
+            continue
+        source_survival = (
+            prefilter.get("source_survival")
+            if isinstance(prefilter.get("source_survival"), dict)
+            else {}
+        )
+        if not source_survival:
+            continue
+        observed_rounds += 1
+        for source, raw in source_survival.items():
+            if not isinstance(raw, dict):
+                continue
+            generated = safe_int(raw.get("generated")) or 0
+            selected = safe_int(raw.get("prefilter_selected")) or 0
+            top5 = safe_int(raw.get("full_eval_top5")) or 0
+            values = aggregate_for_source(str(source))
+            if generated > 0:
+                values["rounds_generated"] += 1
+            values["generated"] += max(0, generated)
+            values["prefilter_selected"] += max(0, selected)
+            values["full_eval_top5"] += max(0, top5)
+            if bool(raw.get("round_best")):
+                values["round_best_rounds"] += 1
+
+        search_navigation_source = selected_search_navigation_source(prefilter)
+        if search_navigation_source:
+            aggregate_for_source(search_navigation_source)[
+                "search_navigation_rounds"
+            ] += 1
+
+        source_frontier = (
+            prefilter.get("source_frontier_champion")
+            if isinstance(prefilter.get("source_frontier_champion"), dict)
+            else {}
+        )
+        frontier_source = str(source_frontier.get("source") or "")
+        frontier_hash = str(source_frontier.get("config_hash") or "")
+        frontier_primary_lift_verified = score_greater(
+            safe_score(source_frontier.get("candidate_primary_score")),
+            safe_score(source_frontier.get("baseline_primary_score")),
+        )
+        if (
+            bool(source_frontier.get("active"))
+            and frontier_source
+            and frontier_hash
+            and frontier_primary_lift_verified
+        ):
+            values = aggregate_for_source(frontier_source)
+            values["frozen_frontier_rounds"] += 1
+            holdout_isolation = (
+                prefilter.get("holdout_isolation")
+                if isinstance(prefilter.get("holdout_isolation"), dict)
+                else {}
+            )
+            frozen_recovery_diagnostic_only = bool(
+                holdout_isolation.get("frozen_validation_role") == "promotion_only"
+                and holdout_isolation.get("search_uses_frozen_validation") is False
+            )
+            if frozen_recovery_diagnostic_only:
+                values["frozen_frontier_diagnostic_only_rounds"] += 1
+            else:
+                values["budget_eligible_frozen_frontier_rounds"] += 1
+            decision = (
+                prefilter.get("decision_round_best")
+                if isinstance(prefilter.get("decision_round_best"), dict)
+                else {}
+            )
+            search_base = (
+                prefilter.get("search_base")
+                if isinstance(prefilter.get("search_base"), dict)
+                else {}
+            )
+            if (
+                not frozen_recovery_diagnostic_only
+                and
+                decision.get("source") == "source_frontier"
+                and str(decision.get("config_hash") or "") == frontier_hash
+                and str(search_base.get("config_hash") or "") == frontier_hash
+            ):
+                values["guarded_navigation_rounds"] += 1
+
+    evidence_ready = observed_rounds >= required_rounds
+    sources: dict[str, dict[str, Any]] = {}
+    for source, values in sorted(aggregates.items()):
+        generated = values["generated"]
+        selected = values["prefilter_selected"]
+        top5 = values["full_eval_top5"]
+        round_best_rounds = values["round_best_rounds"]
+        frozen_frontier_rounds = values["frozen_frontier_rounds"]
+        search_navigation_rounds = values["search_navigation_rounds"]
+        budget_eligible_frozen_frontier_rounds = values[
+            "budget_eligible_frozen_frontier_rounds"
+        ]
+        if generated <= 0:
+            state = "not_generated"
+        elif top5 > 0 or round_best_rounds > 0:
+            state = "productive"
+        elif budget_eligible_frozen_frontier_rounds > 0:
+            state = "productive_recovery"
+        elif search_navigation_rounds > 0:
+            state = "productive_search_navigation"
+        elif evidence_ready and generated >= required_generated and selected == 0:
+            state = "prefilter_starved"
+        elif evidence_ready and generated >= required_generated:
+            state = "evaluated_without_top5"
+        else:
+            state = "observing"
+        sources[source] = {
+            **values,
+            "prefilter_selection_rate": round(selected / generated, 6) if generated else None,
+            "top5_per_generated_rate": round(top5 / generated, 6) if generated else None,
+            "top5_per_selected_rate": round(top5 / selected, 6) if selected else None,
+            "frozen_frontier_per_generated_round_rate": (
+                round(frozen_frontier_rounds / values["rounds_generated"], 6)
+                if values["rounds_generated"]
+                else None
+            ),
+            "state": state,
+        }
+
+    active_sources = [source for source, values in sources.items() if values["generated"] > 0]
+    productive_sources = [
+        source
+        for source, values in sources.items()
+        if values["state"]
+        in {"productive", "productive_recovery", "productive_search_navigation"}
+    ]
+    recovery_productive_sources = [
+        source
+        for source, values in sources.items()
+        if values["budget_eligible_frozen_frontier_rounds"] > 0
+    ]
+    frozen_diagnostic_sources = [
+        source
+        for source, values in sources.items()
+        if values["frozen_frontier_diagnostic_only_rounds"] > 0
+    ]
+    search_navigation_sources = [
+        source
+        for source, values in sources.items()
+        if values["search_navigation_rounds"] > 0
+    ]
+    starved_sources = [source for source, values in sources.items() if values["state"] == "prefilter_starved"]
+    zero_top5_sources = [
+        source
+        for source, values in sources.items()
+        if values["state"] == "evaluated_without_top5"
+    ]
+    budget_review_ready = bool(
+        evidence_ready and observed_rounds >= budget_review_required_rounds
+    )
+    budget_review_sources = (
+        sorted([*starved_sources, *zero_top5_sources])
+        if budget_review_ready
+        else []
+    )
+    if not budget_review_ready:
+        budget_review_action = "observe_until_budget_review_window"
+    elif budget_review_sources:
+        budget_review_action = "review_persistently_unproductive_source_budgets"
+    else:
+        budget_review_action = "keep_current_source_budgets"
+    if observed_rounds == 0 and unverified_prefilter_round_count > 0:
+        status = "invalidated"
+        action = "restart_with_verified_prefilter_isolation"
+    elif observed_rounds == 0:
+        status = "not_available"
+        action = "wait_for_source_survival_data"
+    elif not evidence_ready:
+        status = "insufficient_window"
+        action = "observe_more_rounds"
+    elif len(active_sources) > 1 and len(productive_sources) <= 1:
+        status = "narrow"
+        action = "inspect_candidate_diversity"
+    elif len(productive_sources) >= 2:
+        status = "diverse"
+        action = "continue_current_run"
+    else:
+        status = "mixed"
+        action = "inspect_candidate_sources"
+    return {
+        "status": status,
+        "action": action,
+        "window_count": len(rows),
+        "observed_round_count": observed_rounds,
+        "unverified_prefilter_round_count": unverified_prefilter_round_count,
+        "min_rounds": required_rounds,
+        "min_generated": required_generated,
+        "evidence_ready": evidence_ready,
+        "budget_review_min_rounds": budget_review_required_rounds,
+        "budget_review_ready": budget_review_ready,
+        "budget_review_action": budget_review_action,
+        "budget_review_sources": budget_review_sources,
+        "active_sources": active_sources,
+        "productive_sources": productive_sources,
+        "recovery_productive_sources": recovery_productive_sources,
+        "frozen_diagnostic_sources": frozen_diagnostic_sources,
+        "search_navigation_sources": search_navigation_sources,
+        "starved_sources": starved_sources,
+        "zero_top5_sources": zero_top5_sources,
+        "sources": sources,
+        "interpretation": (
+            "Current-run source conversion diagnostic only. Source memberships may overlap; "
+            "Top5/round-best presence and legacy frozen-frontier/guarded-navigation recovery are distinct evidence. "
+            "Selected promotion-only search navigation is operational search-path evidence, not predictive lift. "
+            "Under promotion-only holdout isolation, frozen-frontier rows remain diagnostic and do not change "
+            "source productivity or budget review. Recovery evidence is not predictive evidence and does not "
+            "bypass frozen validation or reserve promotion. Budget review requires the longer same-run window."
+            " Isolated-protocol rounds without a passed prefilter issue audit are excluded from all source evidence."
+        ),
+    }
+
+
+def random_null_expectation_summary(
+    supervisor_status: dict[str, Any],
+    *,
+    eval_window_override: Any = None,
+) -> dict[str, Any]:
     ranked_universe_size = safe_int(supervisor_status.get("ranked_universe_size"))
-    eval_window = safe_int(supervisor_status.get("eval_window"))
+    eval_window = safe_int(eval_window_override)
+    if eval_window is None:
+        eval_window = safe_int(supervisor_status.get("eval_window"))
     top_n = safe_int(supervisor_status.get("top_n"))
     result: dict[str, Any] = {
         "model": "ranked_uniform_per_draw",
@@ -462,6 +795,13 @@ def load_parser_sync_duplicate_checks() -> dict[str, Any]:
                     FROM checked
                     """
                 ).fetchone() or {}
+                history_issues = [
+                    str(row["issue"])
+                    for row in cur.execute(
+                        "SELECT issue FROM ssq_history ORDER BY issue"
+                    ).fetchall()
+                    if row.get("issue")
+                ]
                 universe = cur.execute(
                     """
                     SELECT
@@ -550,6 +890,7 @@ def load_parser_sync_duplicate_checks() -> dict[str, Any]:
         "history_latest_issue": history.get("latest_issue"),
         "history_first_draw_date": isoformat_date(history.get("first_draw_date")),
         "history_latest_draw_date": isoformat_date(history.get("latest_draw_date")),
+        "_history_issues": history_issues,
         "history_duplicate_issue_count": duplicate_issue_count,
         "history_invalid_red_length_count": invalid_red_length_count,
         "history_red_out_of_range_count": red_out_of_range_count,
@@ -615,6 +956,37 @@ def default_round_stats() -> dict[str, Any]:
         "improvement_count": 0,
         "best_objective_seen": None,
     }
+
+
+def apply_guard_continuity_to_round_stats(
+    round_stats: dict[str, Any],
+    prefilter: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    current_stagnation = safe_int(round_stats.get("stagnation_rounds")) or 0
+    guard_continuity = (
+        prefilter.get("guard_continuity")
+        if isinstance(prefilter.get("guard_continuity"), dict)
+        else {}
+    )
+    effective_stagnation = safe_int(guard_continuity.get("effective_stagnation_rounds"))
+    if effective_stagnation is None:
+        effective_stagnation = safe_int(prefilter.get("stagnation_rounds"))
+    applied = bool(
+        effective_stagnation is not None
+        and effective_stagnation > current_stagnation
+    )
+    resolved_stagnation = max(current_stagnation, effective_stagnation or 0)
+    summary = {
+        **guard_continuity,
+        "applied": applied,
+        "current_run_stagnation_rounds": current_stagnation,
+        "effective_stagnation_rounds": resolved_stagnation,
+    }
+    return {
+        **round_stats,
+        "current_run_stagnation_rounds": current_stagnation,
+        "stagnation_rounds": resolved_stagnation,
+    }, summary
 
 
 def db_read_error_summary(stage: str, exc: Exception) -> dict[str, str]:
@@ -859,6 +1231,318 @@ def load_line_progress(run_id: str, *, limit: int) -> dict[str, Any]:
     return summarize_line_rounds(rows)
 
 
+def default_forward_evidence() -> dict[str, Any]:
+    return {
+        "status": "not_available",
+        "protocol": HOLDOUT_ISOLATION_PROTOCOL,
+        "activation_after_issue": None,
+        "expected_lines": list(FORWARD_EVIDENCE_LINE_KEYS),
+        "paired_issue_count": 0,
+        "min_paired_issues": DEFAULT_FORWARD_EVIDENCE_MIN_PAIRED_ISSUES,
+        "review_ready": False,
+        "review_only": True,
+        "promotion_eligible": False,
+        "automatic_quarantine_release": False,
+        "blockers": ["holdout_isolation_activation_not_found"],
+        "pre_activation_evaluation_count": 0,
+        "pending_snapshots": [],
+        "line_totals": {},
+        "paired_issues": [],
+    }
+
+
+def load_forward_evidence_rows(*, limit: int = DEFAULT_FORWARD_EVIDENCE_ROW_LIMIT) -> dict[str, Any]:
+    limit = positive_int_or_default(limit, default=DEFAULT_FORWARD_EVIDENCE_ROW_LIMIT)
+    with get_connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            activation = cur.execute(
+                """
+                SELECT run_id, round_index,
+                       best_summary->'evaluation_split'->'frozen_issues' AS frozen_issues
+                FROM training_round_results
+                WHERE best_summary->'evaluation_split'->>'protocol' = %s
+                ORDER BY created_at ASC, run_id ASC, round_index ASC
+                LIMIT 1
+                """,
+                (HOLDOUT_ISOLATION_PROTOCOL,),
+            ).fetchone()
+
+            evaluation_rows: list[dict[str, Any]] = []
+            evaluation_table = cur.execute(
+                "SELECT to_regclass('public.training_prediction_evaluations') AS table_name"
+            ).fetchone()
+            if evaluation_table and evaluation_table.get("table_name"):
+                evaluation_rows = list(
+                    cur.execute(
+                        """
+                        SELECT evaluation_key, line_key, snapshot_key, run_id, source_round_index,
+                               as_of_issue, predicted_issue, status, summary,
+                               hit_top_100, hit_top_1000, hit_top_10000,
+                               hit_red5_top_100, hit_red5_top_1000, hit_red5_top_10000,
+                               evaluated_at
+                        FROM training_prediction_evaluations
+                        ORDER BY evaluated_at ASC, id ASC
+                        LIMIT %s
+                        """,
+                        (limit,),
+                    ).fetchall()
+                )
+
+            snapshot_rows: list[dict[str, Any]] = []
+            snapshot_table = cur.execute(
+                "SELECT to_regclass('public.training_next_candidates_current') AS table_name"
+            ).fetchone()
+            if snapshot_table and snapshot_table.get("table_name"):
+                snapshot_rows = list(
+                    cur.execute(
+                        """
+                        SELECT line_key, next_issue AS predicted_issue, as_of_issue, run_id,
+                               source_round_index, snapshot_key, COUNT(*) AS candidate_count,
+                               MIN(generated_at) AS generated_at
+                        FROM training_next_candidates_current
+                        GROUP BY line_key, next_issue, as_of_issue, run_id,
+                                 source_round_index, snapshot_key
+                        ORDER BY next_issue ASC, line_key ASC
+                        """
+                    ).fetchall()
+                )
+
+    activation_row = dict(activation) if activation else {}
+    frozen_issues = (
+        activation_row.get("frozen_issues")
+        if isinstance(activation_row.get("frozen_issues"), list)
+        else []
+    )
+    return {
+        "activation_after_issue": str(frozen_issues[-1]) if frozen_issues else None,
+        "activation_run_id": activation_row.get("run_id"),
+        "activation_round_index": safe_int(activation_row.get("round_index")),
+        "evaluation_rows": evaluation_rows,
+        "snapshot_rows": snapshot_rows,
+    }
+
+
+def forward_metric_vector(rows: list[dict[str, Any]], *, prefix: str) -> list[int]:
+    return [
+        sum(bool(row.get(f"{prefix}_top_{threshold}")) for row in rows)
+        for threshold in (100, 1000, 10000)
+    ]
+
+
+def summarize_forward_evidence(
+    *,
+    activation_after_issue: Any,
+    evaluation_rows: list[dict[str, Any]],
+    snapshot_rows: list[dict[str, Any]],
+    activation_run_id: Any = None,
+    activation_round_index: Any = None,
+    min_paired_issues: int = DEFAULT_FORWARD_EVIDENCE_MIN_PAIRED_ISSUES,
+) -> dict[str, Any]:
+    min_paired_issues = positive_int_or_default(
+        min_paired_issues,
+        default=DEFAULT_FORWARD_EVIDENCE_MIN_PAIRED_ISSUES,
+    )
+    activation_issue = (
+        str(activation_after_issue).strip()
+        if activation_after_issue is not None and str(activation_after_issue).strip()
+        else None
+    )
+    if not activation_issue:
+        return {
+            **default_forward_evidence(),
+            "min_paired_issues": min_paired_issues,
+        }
+
+    expected_lines = set(FORWARD_EVIDENCE_LINE_KEYS)
+    pre_activation_count = 0
+    post_activation: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    invalid_reasons: list[str] = []
+    for raw_row in evaluation_rows:
+        if not isinstance(raw_row, dict):
+            continue
+        line_key = str(raw_row.get("line_key") or "")
+        predicted_issue = str(raw_row.get("predicted_issue") or "")
+        as_of_issue = str(raw_row.get("as_of_issue") or "")
+        if line_key not in expected_lines or not predicted_issue:
+            continue
+        if issue_compare(predicted_issue, activation_issue) <= 0:
+            pre_activation_count += 1
+            continue
+        post_activation.setdefault(predicted_issue, {}).setdefault(line_key, []).append(raw_row)
+        summary = raw_row.get("summary") if isinstance(raw_row.get("summary"), dict) else {}
+        leakage_passed = summary.get("leakage_passed") is True
+        if (
+            not as_of_issue
+            or issue_compare(as_of_issue, activation_issue) < 0
+            or issue_compare(as_of_issue, predicted_issue) >= 0
+            or not leakage_passed
+            or raw_row.get("status") != "evaluated"
+        ):
+            invalid_reasons.append(f"invalid_evaluation_boundary:{predicted_issue}:{line_key}")
+
+    paired_issues: list[dict[str, Any]] = []
+    paired_line_rows: dict[str, list[dict[str, Any]]] = {
+        line_key: [] for line_key in FORWARD_EVIDENCE_LINE_KEYS
+    }
+    for predicted_issue in sorted(post_activation, key=lambda value: (safe_int(value) is None, safe_int(value) or value)):
+        issue_rows = post_activation[predicted_issue]
+        duplicate_lines = sorted(
+            line_key for line_key, rows in issue_rows.items() if len(rows) != 1
+        )
+        if duplicate_lines:
+            invalid_reasons.append(
+                f"duplicate_line_issue_rows:{predicted_issue}:{','.join(duplicate_lines)}"
+            )
+        missing_lines = sorted(expected_lines - set(issue_rows))
+        if missing_lines:
+            invalid_reasons.append(
+                f"incomplete_paired_issue:{predicted_issue}:{','.join(missing_lines)}"
+            )
+        if duplicate_lines or missing_lines:
+            continue
+        selected = {line_key: issue_rows[line_key][0] for line_key in FORWARD_EVIDENCE_LINE_KEYS}
+        if any(
+            row.get("status") != "evaluated"
+            or not isinstance(row.get("summary"), dict)
+            or row["summary"].get("leakage_passed") is not True
+            for row in selected.values()
+        ):
+            continue
+        paired_issues.append(
+            {
+                "predicted_issue": predicted_issue,
+                "lines": {
+                    line_key: {
+                        "exact_top_100_1000_10000": forward_metric_vector(
+                            [row], prefix="hit"
+                        ),
+                        "red5_top_100_1000_10000": forward_metric_vector(
+                            [row], prefix="hit_red5"
+                        ),
+                        "snapshot_key": row.get("snapshot_key"),
+                        "run_id": row.get("run_id"),
+                    }
+                    for line_key, row in selected.items()
+                },
+            }
+        )
+        for line_key, row in selected.items():
+            paired_line_rows[line_key].append(row)
+
+    pending_by_issue: dict[str, dict[str, dict[str, Any]]] = {}
+    for raw_row in snapshot_rows:
+        if not isinstance(raw_row, dict):
+            continue
+        line_key = str(raw_row.get("line_key") or "")
+        predicted_issue = str(raw_row.get("predicted_issue") or "")
+        as_of_issue = str(raw_row.get("as_of_issue") or "")
+        if (
+            line_key not in expected_lines
+            or not predicted_issue
+            or issue_compare(predicted_issue, activation_issue) <= 0
+        ):
+            continue
+        if issue_compare(as_of_issue, activation_issue) < 0 or issue_compare(as_of_issue, predicted_issue) >= 0:
+            invalid_reasons.append(f"invalid_snapshot_boundary:{predicted_issue}:{line_key}")
+            continue
+        if predicted_issue in post_activation:
+            continue
+        pending_by_issue.setdefault(predicted_issue, {})[line_key] = raw_row
+
+    pending_snapshots = [
+        {
+            "predicted_issue": issue,
+            "line_keys": sorted(rows),
+            "complete_line_set": set(rows) == expected_lines,
+            "candidate_counts": {
+                line_key: safe_int(row.get("candidate_count")) or 0
+                for line_key, row in sorted(rows.items())
+            },
+        }
+        for issue, rows in sorted(
+            pending_by_issue.items(),
+            key=lambda item: (safe_int(item[0]) is None, safe_int(item[0]) or item[0]),
+        )
+    ]
+
+    line_totals = {
+        line_key: {
+            "paired_issue_count": len(rows),
+            "exact_top_100_1000_10000": forward_metric_vector(rows, prefix="hit"),
+            "red5_top_100_1000_10000": forward_metric_vector(rows, prefix="hit_red5"),
+        }
+        for line_key, rows in paired_line_rows.items()
+    }
+    static_totals = line_totals["static_100"]
+    dynamic_totals = line_totals["dynamic_kdj"]
+    comparison = {
+        "challenger_line_key": "dynamic_kdj",
+        "baseline_line_key": "static_100",
+        "exact_delta_dynamic_minus_static": vector_delta(
+            dynamic_totals["exact_top_100_1000_10000"],
+            static_totals["exact_top_100_1000_10000"],
+        ),
+        "red5_delta_dynamic_minus_static": vector_delta(
+            dynamic_totals["red5_top_100_1000_10000"],
+            static_totals["red5_top_100_1000_10000"],
+        ),
+    }
+    paired_issue_count = len(paired_issues)
+    blockers = list(dict.fromkeys(invalid_reasons))
+    if paired_issue_count < min_paired_issues:
+        blockers.append(
+            f"insufficient_paired_forward_issues:{paired_issue_count}/{min_paired_issues}"
+        )
+    if invalid_reasons:
+        status = "invalid"
+    elif paired_issue_count >= min_paired_issues:
+        status = "review_ready"
+    elif paired_issue_count:
+        status = "accumulating"
+    else:
+        status = "not_started"
+
+    return {
+        "status": status,
+        "protocol": HOLDOUT_ISOLATION_PROTOCOL,
+        "activation_after_issue": activation_issue,
+        "activation_run_id": activation_run_id,
+        "activation_round_index": safe_int(activation_round_index),
+        "expected_lines": list(FORWARD_EVIDENCE_LINE_KEYS),
+        "pre_activation_evaluation_count": pre_activation_count,
+        "post_activation_evaluation_count": sum(
+            len(rows) for issue_rows in post_activation.values() for rows in issue_rows.values()
+        ),
+        "paired_issue_count": paired_issue_count,
+        "min_paired_issues": min_paired_issues,
+        "review_ready": status == "review_ready",
+        "review_only": True,
+        "promotion_eligible": False,
+        "automatic_quarantine_release": False,
+        "blockers": blockers,
+        "pending_snapshots": pending_snapshots,
+        "line_totals": line_totals,
+        "comparison": comparison,
+        "exact_random_null": {
+            "model": "legal_uniform_per_draw",
+            "legal_universe_size": EXPECTED_SSQ_RED_COMBINATION_COUNT,
+            "paired_issue_count": paired_issue_count,
+            "expected_hits": {
+                f"top_{threshold}": round(
+                    paired_issue_count * threshold / EXPECTED_SSQ_RED_COMBINATION_COUNT,
+                    6,
+                )
+                for threshold in (100, 1000, 10000)
+            },
+            "red5_null_status": "not_estimated",
+        },
+        "paired_issues": paired_issues[-min(50, len(paired_issues)):],
+        "interpretation": (
+            "Twenty paired forward issues permit human review only; they never automatically release historical holdout quarantine."
+        ),
+    }
+
+
 def supervisor_progress_summary(progress: Any) -> dict[str, Any]:
     if not isinstance(progress, dict):
         return {}
@@ -888,6 +1572,7 @@ def supervisor_status_summary(status: dict[str, Any], *, path: Path) -> dict[str
     run_mode = status.get("run_mode")
     if run_mode is None and deadline_present and deadline is None:
         run_mode = "continuous"
+    continuity = status.get("continuity_seed") if isinstance(status.get("continuity_seed"), dict) else {}
     return {
         "available": True,
         "path": str(path),
@@ -909,6 +1594,18 @@ def supervisor_status_summary(status: dict[str, Any], *, path: Path) -> dict[str
         "top_n": safe_int(status.get("top_n")),
         "regime_start_date": status.get("regime_start_date"),
         "regime_years": safe_float(status.get("regime_years")),
+        "continuity_seed": {
+            "mode": continuity.get("mode"),
+            "eligible": safe_bool(continuity.get("eligible")),
+            "reason": continuity.get("reason"),
+            "record_count": safe_int(continuity.get("record_count")),
+            "recovered_count": safe_int(continuity.get("recovered_count")),
+            "evaluated_count": safe_int(continuity.get("evaluated_count")),
+            "eligible_count": safe_int(continuity.get("eligible_count")),
+            "selected_config_hash": continuity.get("selected_config_hash"),
+            "selected_frozen_primary_score": safe_score(continuity.get("selected_frozen_primary_score")),
+            "baseline_frozen_primary_score": safe_score(continuity.get("baseline_frozen_primary_score")),
+        },
         "latest_progress": supervisor_progress_summary(status.get("latest_progress")),
     }
 
@@ -1129,10 +1826,115 @@ def advisor_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "downweighted_count": safe_int(row.get("downweighted_count")) or 0,
             "rejected_count": safe_int(row.get("rejected_count")) or 0,
             "latest_signal_issue": row.get("latest_signal_issue") or row.get("latest_issue"),
+            "signal_scope": row.get("signal_scope"),
+            "expected_cutoff_issue": row.get("expected_cutoff_issue"),
             "selected_fields": row.get("selected_fields") if isinstance(row.get("selected_fields"), list) else [],
             "top_advice": top_advice,
         }
     return result
+
+
+def advisor_signal_freshness_summary(
+    advisors: dict[str, dict[str, Any]],
+    *,
+    history_latest_issue: Any,
+    history_issues: list[Any] | None = None,
+    max_issue_lag: int = DEFAULT_ADVISOR_SIGNAL_MAX_ISSUE_LAG,
+) -> dict[str, Any]:
+    latest_issue = str(history_latest_issue or "").strip()
+    allowed_lag = max(0, int(max_issue_lag))
+    rows: dict[str, dict[str, Any]] = {}
+    stale_advisors: list[str] = []
+    missing_advisors: list[str] = []
+    future_advisors: list[str] = []
+    latest_number = safe_int(latest_issue)
+    issue_positions = {
+        str(issue): index
+        for index, issue in enumerate(history_issues or [])
+        if str(issue or "").strip()
+    }
+
+    for key, advisor in advisors.items():
+        if not isinstance(advisor, dict) or not advisor.get("enabled"):
+            rows[key] = {
+                "status": "disabled",
+                "latest_signal_issue": (
+                    advisor.get("latest_signal_issue")
+                    if isinstance(advisor, dict)
+                    else None
+                ),
+                "history_latest_issue": latest_issue or None,
+                "issue_lag": None,
+            }
+            continue
+        signal_issue = str(advisor.get("latest_signal_issue") or "").strip()
+        signal_scope = str(advisor.get("signal_scope") or "").strip()
+        expected_cutoff_issue = str(advisor.get("expected_cutoff_issue") or "").strip()
+        signal_number = safe_int(signal_issue)
+        if signal_issue in issue_positions and latest_issue in issue_positions:
+            issue_lag = issue_positions[latest_issue] - issue_positions[signal_issue]
+        elif (
+            latest_number is not None
+            and signal_number is not None
+            and latest_issue[:4] == signal_issue[:4]
+        ):
+            issue_lag = latest_number - signal_number
+        else:
+            issue_lag = None
+        scoped_search_signal_current = bool(
+            signal_scope == "search_slice"
+            and expected_cutoff_issue
+            and signal_issue == expected_cutoff_issue
+        )
+        if not latest_issue:
+            status = "history_latest_issue_missing"
+        elif not signal_issue:
+            status = "signal_issue_missing"
+            missing_advisors.append(key)
+        elif scoped_search_signal_current:
+            status = "current_search_slice"
+        elif issue_lag is not None and issue_lag < 0:
+            status = "signal_issue_ahead_of_history"
+            future_advisors.append(key)
+        elif issue_lag is not None and issue_lag > allowed_lag:
+            status = "stale"
+            stale_advisors.append(key)
+        elif issue_lag is None and signal_issue > latest_issue:
+            status = "signal_issue_ahead_of_history"
+            future_advisors.append(key)
+        elif issue_lag is None and signal_issue < latest_issue:
+            status = "stale_unknown_lag"
+            stale_advisors.append(key)
+        else:
+            status = "current"
+        rows[key] = {
+            "status": status,
+            "latest_signal_issue": signal_issue or None,
+            "history_latest_issue": latest_issue or None,
+            "issue_lag": issue_lag,
+            "signal_scope": signal_scope or None,
+            "expected_cutoff_issue": expected_cutoff_issue or None,
+        }
+
+    if future_advisors:
+        status = "signal_issue_ahead_of_history"
+    elif stale_advisors:
+        status = "stale"
+    elif missing_advisors:
+        status = "signal_issue_missing"
+    elif not latest_issue:
+        status = "history_latest_issue_missing"
+    else:
+        status = "current"
+    return {
+        "status": status,
+        "history_latest_issue": latest_issue or None,
+        "max_allowed_issue_lag": allowed_lag,
+        "stale_advisors": stale_advisors,
+        "missing_advisors": missing_advisors,
+        "future_advisors": future_advisors,
+        "advisors": rows,
+    }
 
 
 def safe_score(value: Any) -> list[Any]:
@@ -1176,6 +1978,13 @@ def experimental_navigation_eligibility_reason(search_base: dict[str, Any]) -> s
         return "eligible"
     if not search_base.get("exploration_navigation_config_hash"):
         return "no_experimental_navigation_candidate"
+
+    primary_lift_required = safe_bool(search_base.get("frozen_primary_lift_required"))
+    primary_lift_passed = safe_bool(
+        search_base.get("exploration_navigation_primary_lift_passed")
+    )
+    if primary_lift_required is True and primary_lift_passed is False:
+        return "frozen_primary_lift_required"
 
     quality_reason = search_base.get("exploration_navigation_quality_reason")
     if quality_reason and quality_reason != "passed":
@@ -1229,18 +2038,78 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
     )
     search_base = prefilter.get("search_base") if isinstance(prefilter.get("search_base"), dict) else {}
     decision = prefilter.get("decision_round_best") if isinstance(prefilter.get("decision_round_best"), dict) else {}
+    holdout_isolation = (
+        prefilter.get("holdout_isolation")
+        if isinstance(prefilter.get("holdout_isolation"), dict)
+        else {}
+    )
     blocked_candidates = decision.get("blocked_candidates") if isinstance(decision.get("blocked_candidates"), list) else []
 
     result: dict[str, dict[str, Any]] = {}
     if promotion:
+        frozen_validation_evaluated = all(
+            key in promotion
+            for key in ("objective_passed", "tail_passed", "primary_hit_passed")
+        )
         result["promotion_gate"] = {
             "passed": bool(promotion.get("passed")),
             "reason": promotion.get("reason"),
+            "frozen_validation_evaluated": frozen_validation_evaluated,
+            "frozen_validation_bypassed": bool(
+                promotion.get("passed")
+                and promotion.get("reason") == "missing_frozen_validation"
+            ),
             "tail_passed": bool(promotion.get("tail_passed")),
             "objective_passed": bool(promotion.get("objective_passed")),
             "primary_hit_passed": bool(promotion.get("primary_hit_passed")),
             "candidate_primary_score": safe_score(promotion.get("candidate_primary_score")),
             "incumbent_primary_score": safe_score(promotion.get("incumbent_primary_score")),
+            "pre_quarantine_passed": safe_bool(promotion.get("pre_quarantine_passed")),
+            "pre_quarantine_reason": promotion.get("pre_quarantine_reason"),
+            "historical_holdout_quarantined": bool(
+                promotion.get("historical_holdout_quarantined")
+            ),
+            "promotion_holdout_status": promotion.get("promotion_holdout_status"),
+        }
+    if holdout_isolation:
+        result["holdout_isolation"] = {
+            "protocol": holdout_isolation.get("protocol"),
+            "total_window": safe_int(holdout_isolation.get("total_window")),
+            "search_window": safe_int(holdout_isolation.get("search_window")),
+            "frozen_window": safe_int(holdout_isolation.get("frozen_window")),
+            "issue_overlap_count": safe_int(holdout_isolation.get("issue_overlap_count")),
+            "search_uses_frozen_validation": safe_bool(
+                holdout_isolation.get("search_uses_frozen_validation")
+            ),
+            "prefilter_isolation_status": holdout_isolation.get(
+                "prefilter_isolation_status"
+            ),
+            "prefilter_target_count": safe_int(
+                holdout_isolation.get("prefilter_target_count")
+            ),
+            "prefilter_search_issue_overlap_count": safe_int(
+                holdout_isolation.get("prefilter_search_issue_overlap_count")
+            ),
+            "prefilter_frozen_issue_overlap_count": safe_int(
+                holdout_isolation.get("prefilter_frozen_issue_overlap_count")
+            ),
+            "prefilter_outside_split_issue_count": safe_int(
+                holdout_isolation.get("prefilter_outside_split_issue_count")
+            ),
+            "prefilter_uses_frozen_validation": safe_bool(
+                holdout_isolation.get("prefilter_uses_frozen_validation")
+            ),
+            "frozen_validation_role": holdout_isolation.get("frozen_validation_role"),
+            "source_frontier_used_for_navigation": safe_bool(
+                holdout_isolation.get("source_frontier_used_for_navigation")
+            ),
+            "historical_holdout_quarantined": bool(
+                holdout_isolation.get("historical_holdout_quarantined")
+            ),
+            "promotion_holdout_status": holdout_isolation.get("promotion_holdout_status"),
+            "forward_unseen_evidence_required": bool(
+                holdout_isolation.get("forward_unseen_evidence_required")
+            ),
         }
     if eval_guard:
         result["eval_slice_overfit_guardrail"] = {
@@ -1265,9 +2134,17 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "require_frozen_primary_challenger": bool(stale_gate.get("require_frozen_primary_challenger")),
             "allow_unpromoted_round_best": bool(stale_gate.get("allow_unpromoted_round_best")),
             "threshold": safe_int(stale_gate.get("threshold")),
+            "navigation_evidence": stale_gate.get("navigation_evidence"),
+            "frozen_validation_role": stale_gate.get("frozen_validation_role"),
+            "navigation_primary_hit_passed": safe_bool(
+                stale_gate.get("navigation_primary_hit_passed")
+            ),
+            "navigation_eval_slice_overfit_active": safe_bool(
+                stale_gate.get("navigation_eval_slice_overfit_active")
+            ),
         }
     if rank_homogeneity:
-        result["rank_homogeneity_guardrail"] = {
+        normalized_rank_homogeneity = {
             "active": bool(rank_homogeneity.get("active")),
             "reason": rank_homogeneity.get("reason"),
             "stagnation_rounds": safe_int(rank_homogeneity.get("stagnation_rounds")),
@@ -1278,6 +2155,51 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "max_unique_signatures": safe_int(rank_homogeneity.get("max_unique_signatures")),
             "signature_hashes": safe_string_list(rank_homogeneity.get("signatures")),
         }
+        if rank_homogeneity.get("trigger_mode"):
+            normalized_rank_homogeneity["trigger_mode"] = rank_homogeneity.get("trigger_mode")
+        for key in (
+            "restart_batch_index",
+            "restart_catalog_offset",
+            "fallback_stagnation_threshold",
+            "fallback_window",
+            "fallback_observed",
+            "fallback_unique_signature_count",
+            "fallback_max_unique_signatures",
+        ):
+            value = safe_int(rank_homogeneity.get(key))
+            if value is not None:
+                normalized_rank_homogeneity[key] = value
+        restart_novelty = (
+            rank_homogeneity.get("restart_candidate_novelty")
+            if isinstance(rank_homogeneity.get("restart_candidate_novelty"), dict)
+            else {}
+        )
+        if restart_novelty:
+            normalized_rank_homogeneity["restart_candidate_novelty"] = {
+                "history_hash_count": safe_int(restart_novelty.get("history_hash_count")) or 0,
+                "baseline_candidate_count": safe_int(
+                    restart_novelty.get("baseline_candidate_count")
+                )
+                or 0,
+                "baseline_reused_count": safe_int(
+                    restart_novelty.get("baseline_reused_count")
+                )
+                or 0,
+                "baseline_reused_hashes": safe_string_list(
+                    restart_novelty.get("baseline_reused_hashes")
+                ),
+                "generated_candidate_count": safe_int(
+                    restart_novelty.get("generated_candidate_count")
+                )
+                or 0,
+                "generated_reused_count": safe_int(
+                    restart_novelty.get("generated_reused_count")
+                )
+                or 0,
+                "replacement_count": safe_int(restart_novelty.get("replacement_count")) or 0,
+                "novelty_enforced": bool(restart_novelty.get("novelty_enforced")),
+            }
+        result["rank_homogeneity_guardrail"] = normalized_rank_homogeneity
     if restart_champion:
         result["rank_homogeneity_restart_champion"] = {
             "active": bool(restart_champion.get("active")),
@@ -1324,6 +2246,28 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
             eligibility_reason = experimental_navigation_eligibility_reason(search_base)
             if eligibility_reason:
                 navigation_summary["eligibility_reason"] = eligibility_reason
+            if search_base.get("exploration_navigation_eligibility_basis") is not None:
+                navigation_summary["eligibility_basis"] = search_base.get(
+                    "exploration_navigation_eligibility_basis"
+                )
+            selection_uses_frozen = safe_bool(
+                search_base.get(
+                    "exploration_navigation_selection_uses_frozen_validation"
+                )
+            )
+            if selection_uses_frozen is not None:
+                navigation_summary["selection_uses_frozen_validation"] = (
+                    selection_uses_frozen
+                )
+            selected = safe_bool(
+                search_base.get("exploration_navigation_selected")
+            )
+            if selected is not None:
+                navigation_summary["selected"] = selected
+            if search_base.get("exploration_navigation_preempted_by"):
+                navigation_summary["preempted_by"] = search_base.get(
+                    "exploration_navigation_preempted_by"
+                )
             for source_key, output_key, parser in (
                 ("exploration_navigation_config_distance", "config_distance", safe_float),
                 ("min_config_distance", "min_config_distance", safe_float),
@@ -1334,6 +2278,16 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
                     "source_frontier_score_improved",
                     safe_bool,
                 ),
+                (
+                    "exploration_navigation_primary_lift_passed",
+                    "primary_lift_passed",
+                    safe_bool,
+                ),
+                (
+                    "exploration_navigation_primary_lift_blocked",
+                    "primary_lift_blocked",
+                    safe_bool,
+                ),
             ):
                 parsed = parser(search_base.get(source_key))
                 if parsed is not None:
@@ -1342,6 +2296,12 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
                 navigation_summary["quality_reason"] = search_base.get(
                     "exploration_navigation_quality_reason"
                 )
+            quality_blocked = safe_bool(search_base.get("exploration_navigation_quality_blocked"))
+            if quality_blocked is not None:
+                navigation_summary["quality_blocked_from_search_base"] = quality_blocked
+            round_best_quality_blocked = safe_bool(search_base.get("round_best_quality_blocked"))
+            if round_best_quality_blocked is not None:
+                navigation_summary["round_best_quality_blocked"] = round_best_quality_blocked
             frozen_primary_score = safe_score(search_base.get("exploration_navigation_frozen_primary_score"))
             if frozen_primary_score:
                 navigation_summary["frozen_primary_score"] = frozen_primary_score
@@ -1401,6 +2361,8 @@ def recommendation_summary(
     gates: dict[str, dict[str, Any]] | None = None,
     supervisor_status: dict[str, Any] | None = None,
     round_repetition: dict[str, Any] | None = None,
+    advisor_signal_freshness: dict[str, Any] | None = None,
+    forward_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not rows:
         return {
@@ -1461,8 +2423,55 @@ def recommendation_summary(
         actions.append("inspect_training_log")
         notes.append(f"Latest round is stale: {latest_age:.1f} minutes since update.")
 
+    advisor_freshness = (
+        advisor_signal_freshness
+        if isinstance(advisor_signal_freshness, dict)
+        else {}
+    )
+    freshness_status = advisor_freshness.get("status")
+    if freshness_status == "signal_issue_ahead_of_history":
+        severity = "alert"
+        actions.append("inspect_advisor_signal_leakage")
+        notes.append(
+            "Advisor signal issue is ahead of the latest history issue; stop promotion and inspect the leakage boundary: "
+            f"advisors={advisor_freshness.get('future_advisors')}."
+        )
+    elif freshness_status == "stale":
+        severity = "warn" if severity == "ok" else severity
+        actions.append("refresh_advisor_signals")
+        notes.append(
+            "Advisor signals lag the latest history beyond the allowed boundary: "
+            f"history_latest={advisor_freshness.get('history_latest_issue')} "
+            f"max_lag={advisor_freshness.get('max_allowed_issue_lag')} "
+            f"advisors={advisor_freshness.get('stale_advisors')}."
+        )
+    elif freshness_status == "signal_issue_missing":
+        severity = "warn" if severity == "ok" else severity
+        actions.append("inspect_advisor_signals")
+        notes.append(
+            "Enabled advisor signal issue metadata is missing: "
+            f"advisors={advisor_freshness.get('missing_advisors')}."
+        )
+
     stagnation_rounds = int(improvement["stagnation_rounds"] or 0)
-    if stagnation_rounds >= 32:
+    current_run_stagnation_rounds = int(
+        improvement.get("current_run_stagnation_rounds")
+        if improvement.get("current_run_stagnation_rounds") is not None
+        else stagnation_rounds
+    )
+    guard_continuity_observation_pending = bool(
+        stagnation_rounds > current_run_stagnation_rounds
+        and current_run_stagnation_rounds < DEFAULT_SOURCE_SURVIVAL_MIN_ROUNDS
+    )
+    if stagnation_rounds >= 32 and guard_continuity_observation_pending:
+        severity = "warn" if severity == "ok" else severity
+        actions.append("watch_stagnation_recovery")
+        notes.append(
+            "Guard continuity restored high same-history stagnation; observe at least "
+            f"{DEFAULT_SOURCE_SURVIVAL_MIN_ROUNDS} completed current-run rounds before another restart "
+            f"decision (current={current_run_stagnation_rounds})."
+        )
+    elif stagnation_rounds >= 32:
         severity = "alert"
         actions.append("prepare_restart_with_more_exploration")
         notes.append("Stagnation is very high; prepare a new run with broader exploration and controls.")
@@ -1507,6 +2516,49 @@ def recommendation_summary(
             f"candidate_primary={promotion.get('candidate_primary_score')} "
             f"incumbent_primary={promotion.get('incumbent_primary_score')}."
         )
+    holdout_isolation = (
+        gates.get("holdout_isolation")
+        if isinstance(gates.get("holdout_isolation"), dict)
+        else {}
+    )
+    if holdout_isolation:
+        notes.append(
+            "Holdout isolation is active: "
+            f"protocol={holdout_isolation.get('protocol')} "
+            f"search/frozen={holdout_isolation.get('search_window')}/"
+            f"{holdout_isolation.get('frozen_window')} "
+            f"overlap={holdout_isolation.get('issue_overlap_count')} "
+            f"search_uses_frozen={holdout_isolation.get('search_uses_frozen_validation')} "
+            f"prefilter={holdout_isolation.get('prefilter_isolation_status')} "
+            f"prefilter_frozen_overlap="
+            f"{holdout_isolation.get('prefilter_frozen_issue_overlap_count')}."
+        )
+        if holdout_isolation.get("historical_holdout_quarantined"):
+            notes.append(
+                "Historical frozen results are quarantined from promotion; require genuinely forward unseen evidence before accepting model lift."
+            )
+    forward_evidence = forward_evidence if isinstance(forward_evidence, dict) else {}
+    forward_status = forward_evidence.get("status")
+    if forward_status == "invalid":
+        severity = "alert"
+        actions.append("inspect_forward_evidence")
+        notes.append(
+            "Forward evidence ledger is invalid; keep quarantine closed and inspect: "
+            f"{compact_inline_list(forward_evidence.get('blockers'))}."
+        )
+    elif forward_status in {"not_started", "accumulating"}:
+        notes.append(
+            "Forward evidence is still accumulating: "
+            f"paired_issues={forward_evidence.get('paired_issue_count')}/"
+            f"{forward_evidence.get('min_paired_issues')} "
+            f"pending={len(forward_evidence.get('pending_snapshots') or [])}; "
+            "do not release historical holdout quarantine."
+        )
+    elif forward_status == "review_ready":
+        notes.append(
+            "Forward evidence reached its predeclared paired-issue review threshold; "
+            "human review is allowed, but automatic promotion and quarantine release remain disabled."
+        )
     eval_guard = (
         gates.get("eval_slice_overfit_guardrail")
         if isinstance(gates.get("eval_slice_overfit_guardrail"), dict)
@@ -1529,9 +2581,14 @@ def recommendation_summary(
         else {}
     )
     if stale_gate.get("active"):
-        notes.append(
-            "Search-base gate requires a frozen-primary challenger before leaving the incumbent search base."
-        )
+        if stale_gate.get("navigation_evidence") == "search_slice_only":
+            notes.append(
+                "Search-base recovery uses search-slice evidence only; frozen validation remains promotion-only."
+            )
+        else:
+            notes.append(
+                "Search-base gate requires a frozen-primary challenger before leaving the incumbent search base."
+            )
     rank_homogeneity = (
         gates.get("rank_homogeneity_guardrail")
         if isinstance(gates.get("rank_homogeneity_guardrail"), dict)
@@ -1539,9 +2596,17 @@ def recommendation_summary(
     )
     if rank_homogeneity.get("active"):
         signature_hashes = compact_inline_list(rank_homogeneity.get("signature_hashes"), limit=3)
+        restart_rotation = ""
+        if rank_homogeneity.get("restart_batch_index") is not None:
+            restart_rotation = (
+                f"restart_batch={rank_homogeneity.get('restart_batch_index')} "
+                f"catalog_offset={rank_homogeneity.get('restart_catalog_offset')} "
+            )
         notes.append(
             "Rank homogeneity guardrail is active: "
             f"{rank_homogeneity.get('reason')} "
+            f"trigger={rank_homogeneity.get('trigger_mode') or 'legacy'} "
+            f"{restart_rotation}"
             f"window={rank_homogeneity.get('window')} "
             f"observed={rank_homogeneity.get('observed')} "
             f"unique_signatures={rank_homogeneity.get('unique_signature_count')}/"
@@ -1550,6 +2615,19 @@ def recommendation_summary(
             f"{rank_homogeneity.get('stagnation_threshold')} "
             f"signature_hashes={signature_hashes}."
         )
+        restart_novelty = (
+            rank_homogeneity.get("restart_candidate_novelty")
+            if isinstance(rank_homogeneity.get("restart_candidate_novelty"), dict)
+            else {}
+        )
+        if restart_novelty.get("novelty_enforced"):
+            notes.append(
+                "Restart exact-repeat filter applied: "
+                f"historical_hashes={restart_novelty.get('history_hash_count')} "
+                f"filtered={restart_novelty.get('baseline_reused_count')} "
+                f"replacements={restart_novelty.get('replacement_count')} "
+                f"generated_reused={restart_novelty.get('generated_reused_count')}."
+            )
     restart_champion = (
         gates.get("rank_homogeneity_restart_champion")
         if isinstance(gates.get("rank_homogeneity_restart_champion"), dict)
@@ -1579,6 +2657,9 @@ def recommendation_summary(
             ("source", navigation.get("source")),
             ("reason", navigation.get("eligibility_reason")),
             ("quality", navigation.get("quality_reason")),
+            ("quality_blocked", navigation.get("quality_blocked_from_search_base")),
+            ("primary_lift_passed", navigation.get("primary_lift_passed")),
+            ("primary_lift_blocked", navigation.get("primary_lift_blocked")),
             ("rank_vector_changed", navigation.get("rank_vector_changed")),
         ]
         if navigation.get("config_distance") is not None:
@@ -1589,6 +2670,22 @@ def recommendation_summary(
                 ]
             )
         notes.append(f"{note_prefix} {compact_observed_fields(fields)}.")
+    elif navigation.get("eligible") is True and navigation.get("selected") is True:
+        notes.append(
+            "Experimental navigation candidate is selected into the current supervisor path: "
+            f"source={navigation.get('source')} "
+            f"basis={navigation.get('eligibility_basis')} "
+            f"uses_frozen={navigation.get('selection_uses_frozen_validation')}; "
+            "continue through the next durable round instead of restarting the in-flight navigation."
+        )
+    elif navigation.get("eligible") is True and navigation.get("selected") is False:
+        notes.append(
+            "Experimental navigation candidate was search-slice eligible but not selected: "
+            f"preempted_by={navigation.get('preempted_by') or 'unknown'} "
+            f"source={navigation.get('source')} "
+            f"basis={navigation.get('eligibility_basis')} "
+            f"uses_frozen={navigation.get('selection_uses_frozen_validation')}."
+        )
 
     decision = (
         gates.get("decision_round_best")
@@ -1726,7 +2823,15 @@ def restart_candidate_readiness_context(
         for key in (
             "eligible",
             "eligibility_reason",
+            "eligibility_basis",
+            "selection_uses_frozen_validation",
+            "selected",
+            "preempted_by",
             "quality_reason",
+            "quality_blocked_from_search_base",
+            "round_best_quality_blocked",
+            "primary_lift_passed",
+            "primary_lift_blocked",
             "rank_vector_changed",
             "config_distance",
             "min_config_distance",
@@ -1783,12 +2888,28 @@ def restart_candidate_evidence_blockers(candidate_context: dict[str, Any]) -> li
     return [name for name, passed in checks.items() if not passed]
 
 
+def current_run_navigation_arbitration_active(
+    candidate_context: dict[str, Any],
+) -> bool:
+    return bool(
+        candidate_context.get("experimental_navigation_eligible") is True
+        and (
+            candidate_context.get("experimental_navigation_selected") is True
+            or bool(candidate_context.get("experimental_navigation_preempted_by"))
+        )
+    )
+
+
 def restart_blocker_stage(
     blockers: list[str],
     progress_context: dict[str, Any],
 ) -> str:
     if not blockers:
         return "clear"
+    if "current_run_navigation_arbitration" in blockers:
+        return "current_run_navigation_arbitration_active"
+    if "durable_round_boundary" in blockers:
+        return "durable_round_boundary_not_recorded"
     if "active_training_supervisor_lock" not in blockers:
         return "active_heavy_job_lock"
 
@@ -1815,6 +2936,7 @@ def restart_readiness_summary(
     lock: dict[str, Any],
     supervisor_status: dict[str, Any] | None = None,
     gates: dict[str, dict[str, Any]] | None = None,
+    round_boundary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     raw_actions = recommendation.get("actions")
     actions = [str(item) for item in raw_actions] if isinstance(raw_actions, list) else []
@@ -1836,21 +2958,38 @@ def restart_readiness_summary(
     progress_context = supervisor_progress_readiness_context(supervisor_status)
     candidate_context = restart_candidate_readiness_context(gates)
     evidence_blockers = restart_candidate_evidence_blockers(candidate_context)
+    round_boundary = round_boundary if isinstance(round_boundary, dict) else {}
+    boundary_status = round_boundary.get("status")
+    navigation_arbitration_active = current_run_navigation_arbitration_active(
+        candidate_context
+    )
 
     blockers: list[str] = []
     lock_active = bool(lock.get("active"))
     owner = lock.get("owner")
     if lock_active and owner == "training-supervisor":
         blockers.append("active_training_supervisor_lock")
+        if navigation_arbitration_active:
+            blockers.append("current_run_navigation_arbitration")
     elif lock_active:
         blockers.append("active_heavy_job_lock")
+    if round_boundary and boundary_status != "target_complete_round_recorded":
+        blockers.append("durable_round_boundary")
     if evidence_blockers:
         blockers.append("restart_candidate_evidence")
     blocker_stage = restart_blocker_stage(blockers, progress_context)
     if not blockers:
         operator_action = "operator_review_then_start_fresh_supervisor"
     elif "active_training_supervisor_lock" in blockers:
-        if (
+        if "current_run_navigation_arbitration" in blockers:
+            operator_action = (
+                "continue_current_training_supervisor_through_navigation_arbitration"
+            )
+        elif "durable_round_boundary" in blockers:
+            operator_action = (
+                "wait_for_durable_round_record_before_restart_review"
+            )
+        elif (
             progress_context.get("supervisor_progress_fresh") is True
             and progress_context.get("supervisor_run_mode") == "continuous"
             and progress_context.get("supervisor_target_complete") is False
@@ -1882,6 +3021,10 @@ def restart_readiness_summary(
 
     if not blockers:
         status = "ready_for_fresh_supervisor_after_operator_review"
+    elif "current_run_navigation_arbitration" in blockers:
+        status = "blocked_by_current_run_navigation_arbitration"
+    elif "durable_round_boundary" in blockers:
+        status = "blocked_by_durable_round_boundary"
     elif blocker_stage == "restart_candidate_evidence_incomplete":
         status = "blocked_by_restart_candidate_evidence"
     elif "restart_candidate_evidence" in blockers and "active_heavy_job_lock" not in blockers:
@@ -1905,6 +3048,8 @@ def restart_readiness_summary(
         "lock_age_minutes": lock.get("lock_age_minutes"),
         "lock_age_hours": lock.get("lock_age_hours"),
         "heartbeat_age_minutes": lock.get("heartbeat_age_minutes"),
+        "current_run_navigation_arbitration_active": navigation_arbitration_active,
+        "durable_round_boundary_status": boundary_status,
     }
     if candidate_context:
         result["restart_candidate_evidence_ready"] = not evidence_blockers
@@ -1920,6 +3065,7 @@ def evidence_context_summary(
     gates: dict[str, dict[str, Any]],
     parser_sync_duplicate_checks: dict[str, Any] | None = None,
     round_repetition: dict[str, Any] | None = None,
+    forward_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     promotion = gates.get("promotion_gate") if isinstance(gates.get("promotion_gate"), dict) else {}
     eval_guard = (
@@ -1933,10 +3079,25 @@ def evidence_context_summary(
         if isinstance(gates.get("rank_homogeneity_guardrail"), dict)
         else {}
     )
+    holdout_isolation = (
+        gates.get("holdout_isolation")
+        if isinstance(gates.get("holdout_isolation"), dict)
+        else {}
+    )
 
     failure_modes: list[str] = []
     if promotion and not promotion.get("passed"):
         failure_modes.append(f"promotion_gate:{promotion.get('reason')}")
+    if promotion.get("frozen_validation_bypassed"):
+        failure_modes.append("promotion_gate:frozen_validation_not_evaluated")
+    if holdout_isolation.get("search_uses_frozen_validation") is True:
+        failure_modes.append("leakage_boundary:search_uses_frozen_validation")
+    if holdout_isolation and holdout_isolation.get("prefilter_isolation_status") != "passed":
+        failure_modes.append("leakage_boundary:prefilter_isolation_unverified")
+    if holdout_isolation.get("prefilter_uses_frozen_validation") is True:
+        failure_modes.append("leakage_boundary:prefilter_uses_frozen_validation")
+    if (safe_int(holdout_isolation.get("prefilter_frozen_issue_overlap_count")) or 0) > 0:
+        failure_modes.append("leakage_boundary:prefilter_frozen_issue_overlap")
     if eval_guard.get("active"):
         failure_modes.append(f"eval_slice_overfit:{eval_guard.get('reason')}")
     if rank_homogeneity.get("active"):
@@ -1958,6 +3119,11 @@ def evidence_context_summary(
     }
     if parser_sync_duplicate_checks.get("status") != "checked" or not parser_sync_duplicate_checks.get("ok"):
         failure_modes.append(f"parser_sync_duplicates:{parser_sync_duplicate_checks.get('status')}")
+    forward_evidence = forward_evidence if isinstance(forward_evidence, dict) else {}
+    if forward_evidence.get("status") == "invalid":
+        failure_modes.append(
+            f"forward_evidence:{compact_inline_list(forward_evidence.get('blockers'))}"
+        )
 
     search_diagnostics: dict[str, Any] = {}
     if round_repetition.get("status") == "ready":
@@ -1986,19 +3152,67 @@ def evidence_context_summary(
             "regime_start_date": supervisor_status.get("regime_start_date"),
             "regime_years": supervisor_status.get("regime_years"),
             "top_n": supervisor_status.get("top_n"),
+            "search_window": holdout_isolation.get("search_window"),
+            "frozen_window": holdout_isolation.get("frozen_window"),
         },
         "baseline_or_null_model": {
             "operational_baseline": "incumbent_config_frozen_primary_baseline",
             "random_null_model": "ranked_uniform_per_draw",
-            "random_null_expectation": random_null_expectation_summary(supervisor_status),
-            "baseline_score": decision.get("frozen_primary_lift_baseline_score"),
+            "random_null_expectation": random_null_expectation_summary(
+                supervisor_status,
+                eval_window_override=holdout_isolation.get("search_window"),
+            ),
+            "random_null_scope": (
+                "search_slice" if holdout_isolation.get("search_window") else "full_eval_window"
+            ),
+            "baseline_score": (
+                promotion.get("incumbent_primary_score")
+                or decision.get("frozen_primary_lift_baseline_score")
+            ),
         },
         "leakage_checks": {
             "promotion_gate_reason": promotion.get("reason"),
+            "promotion_frozen_validation_evaluated": promotion.get(
+                "frozen_validation_evaluated"
+            ),
+            "promotion_frozen_validation_passed": promotion.get("passed"),
+            "promotion_frozen_validation_bypassed": promotion.get(
+                "frozen_validation_bypassed"
+            ),
             "eval_slice_overfit_guardrail_active": bool(eval_guard.get("active")),
             "eval_slice_overfit_guardrail_reason": eval_guard.get("reason"),
             "suspicious_candidate_count": safe_int(eval_guard.get("suspicious_candidate_count")) or 0,
-            "frozen_primary_lift_required": bool(decision.get("frozen_primary_lift_required")),
+            "decision_navigation_frozen_primary_lift_required": bool(
+                decision.get("frozen_primary_lift_required")
+            ),
+            "holdout_isolation_protocol": holdout_isolation.get("protocol"),
+            "holdout_issue_overlap_count": holdout_isolation.get("issue_overlap_count"),
+            "search_uses_frozen_validation": holdout_isolation.get(
+                "search_uses_frozen_validation"
+            ),
+            "prefilter_isolation_status": holdout_isolation.get(
+                "prefilter_isolation_status"
+            ),
+            "prefilter_target_count": holdout_isolation.get("prefilter_target_count"),
+            "prefilter_search_issue_overlap_count": holdout_isolation.get(
+                "prefilter_search_issue_overlap_count"
+            ),
+            "prefilter_frozen_issue_overlap_count": holdout_isolation.get(
+                "prefilter_frozen_issue_overlap_count"
+            ),
+            "prefilter_outside_split_issue_count": holdout_isolation.get(
+                "prefilter_outside_split_issue_count"
+            ),
+            "prefilter_uses_frozen_validation": holdout_isolation.get(
+                "prefilter_uses_frozen_validation"
+            ),
+            "frozen_validation_role": holdout_isolation.get("frozen_validation_role"),
+            "historical_holdout_quarantined": holdout_isolation.get(
+                "historical_holdout_quarantined"
+            ),
+            "forward_unseen_evidence_required": holdout_isolation.get(
+                "forward_unseen_evidence_required"
+            ),
             "parser_sync_duplicate_checks": parser_sync_duplicate_checks,
         },
         "search_diagnostics": search_diagnostics,
@@ -2006,6 +3220,19 @@ def evidence_context_summary(
             "status": supervisor_status.get("status"),
             "run_id": supervisor_status.get("run_id"),
             "pid": supervisor_status.get("pid"),
+        },
+        "forward_evidence": {
+            "status": forward_evidence.get("status"),
+            "activation_after_issue": forward_evidence.get("activation_after_issue"),
+            "paired_issue_count": forward_evidence.get("paired_issue_count"),
+            "min_paired_issues": forward_evidence.get("min_paired_issues"),
+            "review_ready": forward_evidence.get("review_ready"),
+            "review_only": forward_evidence.get("review_only"),
+            "promotion_eligible": forward_evidence.get("promotion_eligible"),
+            "automatic_quarantine_release": forward_evidence.get(
+                "automatic_quarantine_release"
+            ),
+            "pending_issue_count": len(forward_evidence.get("pending_snapshots") or []),
         },
         "evidence_level": "operational_training_diagnostic_no_predictive_claim",
         "risk": "Historical response-surface behavior is hypothesis evidence only; this watch does not support guaranteed hits or low-risk betting.",
@@ -2043,8 +3270,13 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         except Exception as exc:
             db_read_errors.append(db_read_error_summary("load_line_progress", exc))
     round_repetition = summarize_round_repetition(rows)
+    candidate_source_survival = summarize_candidate_source_survival(rows)
     latest = rows[-1] if rows else {}
     prefilter = latest.get("prefilter") if isinstance(latest.get("prefilter"), dict) else {}
+    round_stats, guard_continuity = apply_guard_continuity_to_round_stats(
+        round_stats,
+        prefilter,
+    )
     advisors = advisor_summary(prefilter)
     gates = gate_summary(prefilter)
     supervisor_status = add_supervisor_status_observation_ages(
@@ -2054,6 +3286,22 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
     )
     lock = add_heavy_lock_observation_ages(heavy_lock_summary(), now=generated_at)
     parser_sync_duplicate_checks = load_parser_sync_duplicate_checks()
+    history_issues = parser_sync_duplicate_checks.pop("_history_issues", [])
+    advisor_signal_freshness = advisor_signal_freshness_summary(
+        advisors,
+        history_latest_issue=parser_sync_duplicate_checks.get("history_latest_issue"),
+        history_issues=history_issues,
+    )
+    try:
+        forward_rows = load_forward_evidence_rows()
+        forward_evidence = summarize_forward_evidence(**forward_rows)
+    except Exception as exc:
+        db_read_errors.append(db_read_error_summary("load_forward_evidence", exc))
+        forward_evidence = {
+            **default_forward_evidence(),
+            "status": "invalid",
+            "blockers": ["forward_evidence_db_read_failed"],
+        }
     recommendation = recommendation_summary(
         rows=rows,
         lock=lock,
@@ -2064,6 +3312,8 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         round_stats=round_stats,
         supervisor_status=supervisor_status,
         round_repetition=round_repetition,
+        advisor_signal_freshness=advisor_signal_freshness,
+        forward_evidence=forward_evidence,
     )
     if db_read_errors:
         actions = [
@@ -2088,6 +3338,10 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
                 *recommendation.get("notes", []),
             ],
         }
+    round_boundary = supervisor_round_boundary_summary(
+        supervisor_status=supervisor_status,
+        round_stats=round_stats,
+    )
     payload = {
         "generated_at": isoformat(generated_at),
         "run_id": resolved_run_id,
@@ -2098,7 +3352,9 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         "latest_round": round_stats["latest_round"],
         "last_improved_round": round_stats["last_improved_round"],
         "stagnation_rounds": round_stats["stagnation_rounds"],
+        "current_run_stagnation_rounds": round_stats.get("current_run_stagnation_rounds"),
         "improvement_count": round_stats["improvement_count"],
+        "guard_continuity": guard_continuity,
         "latest_round_age_minutes": round_age_minutes(latest, now=generated_at) if latest else None,
         "latest_metrics": {
             "phase": latest.get("phase"),
@@ -2116,20 +3372,21 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         },
         "candidate_budget": prefilter.get("candidate_budget") if isinstance(prefilter.get("candidate_budget"), dict) else {},
         "round_repetition": round_repetition,
+        "candidate_source_survival": candidate_source_survival,
         "line_progress": line_progress,
+        "forward_evidence": forward_evidence,
         "advisor_summary": advisors,
+        "advisor_signal_freshness": advisor_signal_freshness,
         "gate_summary": gates,
         "db_read_errors": db_read_errors,
         "supervisor_status": supervisor_status,
-        "supervisor_round_boundary": supervisor_round_boundary_summary(
-            supervisor_status=supervisor_status,
-            round_stats=round_stats,
-        ),
+        "supervisor_round_boundary": round_boundary,
         "evidence_context": evidence_context_summary(
             supervisor_status=supervisor_status,
             gates=gates,
             parser_sync_duplicate_checks=parser_sync_duplicate_checks,
             round_repetition=round_repetition,
+            forward_evidence=forward_evidence,
         ),
         "heavy_job_lock": lock,
         "recommendation": recommendation,
@@ -2138,6 +3395,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
             lock=lock,
             supervisor_status=supervisor_status,
             gates=gates,
+            round_boundary=round_boundary,
         ),
         "guardrail": "Historical response-surface monitoring only; no predictive claim and no automatic promotion without controls.",
     }
@@ -2187,6 +3445,68 @@ def render_line_progress_markdown(line_progress: Any) -> str:
 """
 
 
+def render_forward_evidence_markdown(forward_evidence: Any) -> str:
+    if not isinstance(forward_evidence, dict):
+        return ""
+    line_rows = "\n".join(
+        "| "
+        f"{markdown_inline_code(line_key)} | "
+        f"{values.get('paired_issue_count')} | "
+        f"{markdown_inline_text(markdown_metric_vector(values.get('exact_top_100_1000_10000')))} | "
+        f"{markdown_inline_text(markdown_metric_vector(values.get('red5_top_100_1000_10000')))} |"
+        for line_key, values in sorted((forward_evidence.get("line_totals") or {}).items())
+        if isinstance(values, dict)
+    )
+    if not line_rows:
+        line_rows = "| none | 0 | 0 / 0 / 0 | 0 / 0 / 0 |"
+    pending_rows = ", ".join(
+        f"{item.get('predicted_issue')}:{'/'.join(item.get('line_keys') or [])}"
+        for item in forward_evidence.get("pending_snapshots") or []
+        if isinstance(item, dict)
+    ) or "none"
+    null_model = (
+        forward_evidence.get("exact_random_null")
+        if isinstance(forward_evidence.get("exact_random_null"), dict)
+        else {}
+    )
+    null_expected = null_model.get("expected_hits") if isinstance(null_model.get("expected_hits"), dict) else {}
+    comparison = (
+        forward_evidence.get("comparison")
+        if isinstance(forward_evidence.get("comparison"), dict)
+        else {}
+    )
+    return (
+        "## Forward Evidence Ledger\n\n"
+        f"- Status: {markdown_inline_code(forward_evidence.get('status'))}\n"
+        "- Isolation activation: "
+        f"protocol={markdown_inline_text(forward_evidence.get('protocol'))} "
+        f"after_issue={markdown_inline_text(forward_evidence.get('activation_after_issue'))} "
+        f"run={markdown_inline_text(forward_evidence.get('activation_run_id'))} "
+        f"round={forward_evidence.get('activation_round_index')}\n"
+        "- Paired forward issues: "
+        f"{forward_evidence.get('paired_issue_count')}/"
+        f"{forward_evidence.get('min_paired_issues')} "
+        f"review_ready={forward_evidence.get('review_ready')} "
+        f"pre_activation_evaluations={forward_evidence.get('pre_activation_evaluation_count')}\n"
+        "- Release policy: "
+        f"review_only={forward_evidence.get('review_only')} "
+        f"promotion_eligible={forward_evidence.get('promotion_eligible')} "
+        f"automatic_quarantine_release={forward_evidence.get('automatic_quarantine_release')}\n"
+        f"- Pending snapshots: {markdown_inline_text(pending_rows)}\n"
+        f"- Blockers: {markdown_inline_text(compact_inline_list(forward_evidence.get('blockers')))}\n"
+        "- Exact legal-uniform null (Top100/1000/10000 expected hits): "
+        f"{null_expected.get('top_100')} / {null_expected.get('top_1000')} / "
+        f"{null_expected.get('top_10000')}; red5={markdown_inline_text(null_model.get('red5_null_status'))}\n"
+        "- Dynamic minus static exact/red5: "
+        f"{markdown_inline_text(markdown_metric_vector(comparison.get('exact_delta_dynamic_minus_static')))} / "
+        f"{markdown_inline_text(markdown_metric_vector(comparison.get('red5_delta_dynamic_minus_static')))}\n\n"
+        "| Line | Paired issues | Exact Top100/1000/10000 | Red5 Top100/1000/10000 |\n"
+        "| --- | ---: | ---: | ---: |\n"
+        f"{line_rows}\n\n"
+        f"Interpretation: {markdown_inline_text(forward_evidence.get('interpretation'))}\n\n"
+    )
+
+
 def render_round_repetition_markdown(round_repetition: Any) -> str:
     if not isinstance(round_repetition, dict) or round_repetition.get("status") != "ready":
         return ""
@@ -2214,6 +3534,55 @@ def render_round_repetition_markdown(round_repetition: Any) -> str:
     )
 
 
+def render_candidate_source_survival_markdown(summary: Any) -> str:
+    if not isinstance(summary, dict) or summary.get("status") == "not_available":
+        return ""
+    rows = "\n".join(
+        f"| {markdown_inline_text(source)} | {values.get('rounds_generated')} | "
+        f"{values.get('generated')} | {values.get('prefilter_selected')} | "
+        f"{compact_decimal(values.get('prefilter_selection_rate'))} | "
+        f"{values.get('full_eval_top5')} | {values.get('round_best_rounds')} | "
+        f"{values.get('frozen_frontier_rounds')} | "
+        f"{values.get('frozen_frontier_diagnostic_only_rounds')} | "
+        f"{values.get('guarded_navigation_rounds')} | "
+        f"{values.get('search_navigation_rounds')} | "
+        f"{markdown_inline_text(values.get('state'))} |"
+        for source, values in (summary.get("sources") or {}).items()
+        if isinstance(values, dict)
+    )
+    return (
+        "## Candidate Source Survival Window\n\n"
+        "- Status/action: "
+        f"{markdown_inline_text(summary.get('status'))} / "
+        f"{markdown_inline_text(summary.get('action'))}\n"
+        "- Evidence window: "
+        f"observed={summary.get('observed_round_count')}/{summary.get('window_count')} "
+        f"unverified_prefilter={summary.get('unverified_prefilter_round_count', 0)} "
+        f"required_rounds={summary.get('min_rounds')} "
+        f"min_generated={summary.get('min_generated')} "
+        f"ready={summary.get('evidence_ready')}\n"
+        "- Budget review: "
+        f"observed={summary.get('observed_round_count')}/"
+        f"{summary.get('budget_review_min_rounds')} "
+        f"ready={summary.get('budget_review_ready')} "
+        f"action={markdown_inline_text(summary.get('budget_review_action'))} "
+        f"sources={markdown_inline_text(compact_inline_list(summary.get('budget_review_sources')))}\n"
+        "- Productive/recovery/starved/zero-Top5: "
+        f"{markdown_inline_text(compact_inline_list(summary.get('productive_sources')))} / "
+        f"{markdown_inline_text(compact_inline_list(summary.get('recovery_productive_sources')))} / "
+        f"{markdown_inline_text(compact_inline_list(summary.get('starved_sources')))} / "
+        f"{markdown_inline_text(compact_inline_list(summary.get('zero_top5_sources')))}\n\n"
+        "- Promotion-only frozen diagnostics: "
+        f"{markdown_inline_text(compact_inline_list(summary.get('frozen_diagnostic_sources')))}\n\n"
+        "- Promotion-only selected search navigation: "
+        f"{markdown_inline_text(compact_inline_list(summary.get('search_navigation_sources')))}\n\n"
+        "| Source | Generated rounds | Generated | Prefilter selected | Selection rate | Full-eval Top5 | Round best | Frozen frontier | Diagnostic-only frozen | Guarded navigation | Search navigation | State |\n"
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n"
+        f"{rows}\n\n"
+        f"- Interpretation: {markdown_inline_text(summary.get('interpretation'))}\n\n"
+    )
+
+
 def render_markdown(payload: dict[str, Any]) -> str:
     latest = payload["latest_metrics"]
     rec = payload["recommendation"]
@@ -2225,6 +3594,17 @@ def render_markdown(payload: dict[str, Any]) -> str:
         f"{value.get('rejected_count', 0)} | "
         f"{markdown_inline_text(', '.join(str(item) for item in value.get('selected_fields', [])[:6]))} |"
         for key, value in payload["advisor_summary"].items()
+    )
+    advisor_freshness = (
+        payload.get("advisor_signal_freshness")
+        if isinstance(payload.get("advisor_signal_freshness"), dict)
+        else {}
+    )
+    advisor_freshness_rows = "\n".join(
+        f"| {markdown_inline_text(key)} | {markdown_inline_text(value.get('status'))} | "
+        f"{markdown_inline_text(value.get('latest_signal_issue'))} | {value.get('issue_lag')} |"
+        for key, value in (advisor_freshness.get("advisors") or {}).items()
+        if isinstance(value, dict)
     )
     note_rows = "\n".join(f"- {markdown_inline_text(note)}" for note in rec.get("notes", []))
     gates = payload.get("gate_summary") if isinstance(payload.get("gate_summary"), dict) else {}
@@ -2257,7 +3637,25 @@ def render_markdown(payload: dict[str, Any]) -> str:
             else {}
         )
         decision = gates.get("decision_round_best") if isinstance(gates.get("decision_round_best"), dict) else {}
+        holdout_isolation = (
+            gates.get("holdout_isolation")
+            if isinstance(gates.get("holdout_isolation"), dict)
+            else {}
+        )
         gate_lines = ["## Gate Snapshot", ""]
+        if holdout_isolation:
+            gate_lines.append(
+                "- Holdout isolation: "
+                f"protocol={markdown_inline_text(holdout_isolation.get('protocol'))} "
+                f"search/frozen={holdout_isolation.get('search_window')}/"
+                f"{holdout_isolation.get('frozen_window')} "
+                f"overlap={holdout_isolation.get('issue_overlap_count')} "
+                f"search_uses_frozen={holdout_isolation.get('search_uses_frozen_validation')} "
+                f"prefilter={markdown_inline_text(holdout_isolation.get('prefilter_isolation_status'))} "
+                f"prefilter_frozen_overlap="
+                f"{holdout_isolation.get('prefilter_frozen_issue_overlap_count')} "
+                f"promotion_status={markdown_inline_text(holdout_isolation.get('promotion_holdout_status'))}"
+            )
         if promotion:
             gate_lines.append(
                 "- Promotion gate: "
@@ -2284,10 +3682,24 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 "- Search-base gate: "
                 f"active={stale_gate.get('active')} "
                 f"reason={markdown_inline_text(stale_gate.get('reason'))} "
-                f"require_frozen_primary_challenger={stale_gate.get('require_frozen_primary_challenger')}"
+                f"require_frozen_primary_challenger={stale_gate.get('require_frozen_primary_challenger')} "
+                f"navigation_evidence={markdown_inline_text(stale_gate.get('navigation_evidence'))}"
             )
         if rank_homogeneity:
             signature_hashes = compact_inline_list(rank_homogeneity.get("signature_hashes"), limit=3)
+            restart_novelty = (
+                rank_homogeneity.get("restart_candidate_novelty")
+                if isinstance(rank_homogeneity.get("restart_candidate_novelty"), dict)
+                else {}
+            )
+            restart_novelty_text = ""
+            if restart_novelty:
+                restart_novelty_text = (
+                    " restart_novelty="
+                    f"{restart_novelty.get('baseline_reused_count')}filtered/"
+                    f"{restart_novelty.get('replacement_count')}replaced/"
+                    f"{restart_novelty.get('generated_reused_count')}reused"
+                )
             gate_lines.append(
                 "- Rank homogeneity: "
                 f"active={rank_homogeneity.get('active')} "
@@ -2299,6 +3711,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 f"stagnation={rank_homogeneity.get('stagnation_rounds')}/"
                 f"{rank_homogeneity.get('stagnation_threshold')} "
                 f"signature_hashes={markdown_inline_text(signature_hashes)}"
+                f"{restart_novelty_text}"
             )
         if restart_champion:
             gate_lines.append(
@@ -2328,6 +3741,10 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 ("reason", "reason"),
                 ("eligible", "eligible"),
                 ("eligibility_reason", "eligibility_reason"),
+                ("eligibility_basis", "eligibility_basis"),
+                ("uses_frozen", "selection_uses_frozen_validation"),
+                ("selected", "selected"),
+                ("preempted_by", "preempted_by"),
                 ("quality", "quality_reason"),
                 ("rank_vector_changed", "rank_vector_changed"),
             ]
@@ -2416,11 +3833,23 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 f"blockers={markdown_inline_text(evidence_blockers)}\n"
             )
         if restart_readiness.get("experimental_navigation_eligible") is not None:
+            arbitration_text = ""
+            if restart_readiness.get("experimental_navigation_selected") is not None:
+                arbitration_text += (
+                    "selected="
+                    f"{restart_readiness.get('experimental_navigation_selected')} "
+                )
+            if restart_readiness.get("experimental_navigation_preempted_by"):
+                arbitration_text += (
+                    "preempted_by="
+                    f"{markdown_inline_text(restart_readiness.get('experimental_navigation_preempted_by'))} "
+                )
             restart_candidate_lines += (
                 "- Experimental navigation readiness: "
                 f"eligible={restart_readiness.get('experimental_navigation_eligible')} "
                 f"reason={markdown_inline_text(restart_readiness.get('experimental_navigation_eligibility_reason'))} "
                 f"quality={markdown_inline_text(restart_readiness.get('experimental_navigation_quality_reason'))} "
+                f"{arbitration_text}"
                 f"rank_vector_changed={restart_readiness.get('experimental_navigation_rank_vector_changed')} "
                 f"config_distance={restart_readiness.get('experimental_navigation_config_distance')} "
                 f"min_config_distance={restart_readiness.get('experimental_navigation_min_config_distance')}\n"
@@ -2490,8 +3919,14 @@ def render_markdown(payload: dict[str, Any]) -> str:
             f"{supervisor_progress_lines}\n"
         )
     line_progress_section = render_line_progress_markdown(payload.get("line_progress"))
+    forward_evidence_section = render_forward_evidence_markdown(
+        payload.get("forward_evidence")
+    )
     round_repetition_section = render_round_repetition_markdown(
         payload.get("round_repetition")
+    )
+    candidate_source_survival_section = render_candidate_source_survival_markdown(
+        payload.get("candidate_source_survival")
     )
     supervisor_status = (
         payload.get("supervisor_status")
@@ -2617,20 +4052,27 @@ def render_markdown(payload: dict[str, Any]) -> str:
             f"mode={markdown_inline_text(historical.get('train_mode'))} "
             f"train_window={historical.get('train_window')} "
             f"eval_window={historical.get('eval_window')} "
+            f"search_window={historical.get('search_window')} "
+            f"frozen_window={historical.get('frozen_window')} "
             f"regime_start={markdown_inline_text(historical.get('regime_start_date'))} "
             f"regime_years={historical.get('regime_years')} "
             f"top_n={historical.get('top_n')}\n"
             "- Baseline/null model: "
             f"operational={markdown_inline_text(baseline.get('operational_baseline'))} "
             f"random_null={markdown_inline_text(baseline.get('random_null_model'))} "
+            f"random_null_scope={markdown_inline_text(baseline.get('random_null_scope'))} "
             f"random_null_eval={markdown_inline_text(random_null_expectation)} "
             f"baseline_score={baseline.get('baseline_score')}\n"
             "- Leakage checks: "
             f"promotion_gate={markdown_inline_text(leakage.get('promotion_gate_reason'))} "
+            f"promotion_frozen_evaluated={leakage.get('promotion_frozen_validation_evaluated')} "
+            f"promotion_frozen_passed={leakage.get('promotion_frozen_validation_passed')} "
+            f"promotion_frozen_bypassed={leakage.get('promotion_frozen_validation_bypassed')} "
             f"eval_overfit_active={leakage.get('eval_slice_overfit_guardrail_active')} "
             f"eval_reason={markdown_inline_text(leakage.get('eval_slice_overfit_guardrail_reason'))} "
             f"suspicious={leakage.get('suspicious_candidate_count')} "
-            f"frozen_required={leakage.get('frozen_primary_lift_required')} "
+            "decision_navigation_frozen_required="
+            f"{leakage.get('decision_navigation_frozen_primary_lift_required')} "
             "parser_sync_duplicates="
             f"{markdown_inline_text(compact_parser_sync_duplicate_checks(leakage.get('parser_sync_duplicate_checks')))}\n"
             f"{search_line}"
@@ -2682,9 +4124,21 @@ def render_markdown(payload: dict[str, Any]) -> str:
 | --- | ---: | ---: | ---: | --- |
 {advisor_rows}
 
+## Advisor Signal Freshness
+
+- Status: `{advisor_freshness.get("status")}`
+- History latest issue: `{advisor_freshness.get("history_latest_issue")}`
+- Max allowed issue lag: `{advisor_freshness.get("max_allowed_issue_lag")}`
+
+| Advisor | Status | Latest signal issue | Issue lag |
+| --- | --- | --- | ---: |
+{advisor_freshness_rows}
+
 {gate_section}\
 {round_repetition_section}\
+{candidate_source_survival_section}\
 {line_progress_section}\
+{forward_evidence_section}\
 {restart_section}\
 {supervisor_section}\
 {evidence_section}\
@@ -2772,6 +4226,11 @@ def cli_evidence_context_summary(payload: dict[str, Any]) -> dict[str, Any]:
         if isinstance(baseline.get("random_null_expectation"), dict)
         else {}
     )
+    forward_evidence = (
+        evidence_context.get("forward_evidence")
+        if isinstance(evidence_context.get("forward_evidence"), dict)
+        else {}
+    )
     return {
         "evidence_level": evidence_context.get("evidence_level"),
         "risk": evidence_context.get("risk"),
@@ -2794,18 +4253,60 @@ def cli_evidence_context_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "eval_window": historical.get("eval_window"),
             "regime_start_date": historical.get("regime_start_date"),
             "top_n": historical.get("top_n"),
+            **(
+                {
+                    "search_window": historical.get("search_window"),
+                    "frozen_window": historical.get("frozen_window"),
+                }
+                if "search_window" in historical or "frozen_window" in historical
+                else {}
+            ),
         },
         "baseline_or_null_model": {
             "operational_baseline": baseline.get("operational_baseline"),
             "random_null_model": baseline.get("random_null_model"),
             "random_null_expectation_status": random_null_expectation.get("status"),
             "baseline_score": baseline.get("baseline_score"),
+            **(
+                {"random_null_scope": baseline.get("random_null_scope")}
+                if "random_null_scope" in baseline
+                else {}
+            ),
         },
         "leakage_checks": {
             "promotion_gate_reason": leakage.get("promotion_gate_reason"),
+            "promotion_frozen_validation_evaluated": leakage.get(
+                "promotion_frozen_validation_evaluated"
+            ),
+            "promotion_frozen_validation_passed": leakage.get(
+                "promotion_frozen_validation_passed"
+            ),
+            "promotion_frozen_validation_bypassed": leakage.get(
+                "promotion_frozen_validation_bypassed"
+            ),
             "eval_slice_overfit_guardrail_active": leakage.get("eval_slice_overfit_guardrail_active"),
             "suspicious_candidate_count": leakage.get("suspicious_candidate_count"),
-            "frozen_primary_lift_required": leakage.get("frozen_primary_lift_required"),
+            "decision_navigation_frozen_primary_lift_required": leakage.get(
+                "decision_navigation_frozen_primary_lift_required"
+            ),
+            **{
+                key: leakage.get(key)
+                for key in (
+                    "holdout_isolation_protocol",
+                    "holdout_issue_overlap_count",
+                    "search_uses_frozen_validation",
+                    "prefilter_isolation_status",
+                    "prefilter_target_count",
+                    "prefilter_search_issue_overlap_count",
+                    "prefilter_frozen_issue_overlap_count",
+                    "prefilter_outside_split_issue_count",
+                    "prefilter_uses_frozen_validation",
+                    "frozen_validation_role",
+                    "historical_holdout_quarantined",
+                    "forward_unseen_evidence_required",
+                )
+                if key in leakage
+            },
             "parser_sync_duplicate_status": parser_checks.get("status"),
             "parser_sync_duplicate_ok": parser_checks.get("ok"),
         },
@@ -2821,6 +4322,7 @@ def cli_evidence_context_summary(payload: dict[str, Any]) -> dict[str, Any]:
         }
         if repetition
         else {},
+        "forward_evidence": forward_evidence,
     }
 
 
@@ -2834,9 +4336,18 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
         "run_id": payload.get("run_id"),
         "round_count": payload.get("round_count"),
         "round_window_count": payload.get("round_window_count"),
+        "stagnation_rounds": payload.get("stagnation_rounds"),
+        "current_run_stagnation_rounds": payload.get("current_run_stagnation_rounds"),
         "severity": recommendation.get("severity"),
         "action": recommendation.get("action"),
     }
+    guard_continuity = (
+        payload.get("guard_continuity")
+        if isinstance(payload.get("guard_continuity"), dict)
+        else {}
+    )
+    if guard_continuity:
+        summary["guard_continuity"] = guard_continuity
     evidence_context = cli_evidence_context_summary(payload)
     if evidence_context:
         summary["evidence_context"] = evidence_context
@@ -2884,6 +4395,33 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "lines": line_progress.get("lines") or {},
             "comparison": line_progress.get("comparison") or {},
         }
+    forward_evidence = (
+        payload.get("forward_evidence")
+        if isinstance(payload.get("forward_evidence"), dict)
+        else {}
+    )
+    if forward_evidence:
+        summary["forward_evidence"] = {
+            "status": forward_evidence.get("status"),
+            "protocol": forward_evidence.get("protocol"),
+            "activation_after_issue": forward_evidence.get("activation_after_issue"),
+            "paired_issue_count": forward_evidence.get("paired_issue_count"),
+            "min_paired_issues": forward_evidence.get("min_paired_issues"),
+            "review_ready": forward_evidence.get("review_ready"),
+            "review_only": forward_evidence.get("review_only"),
+            "promotion_eligible": forward_evidence.get("promotion_eligible"),
+            "automatic_quarantine_release": forward_evidence.get(
+                "automatic_quarantine_release"
+            ),
+            "pre_activation_evaluation_count": forward_evidence.get(
+                "pre_activation_evaluation_count"
+            ),
+            "pending_snapshots": forward_evidence.get("pending_snapshots") or [],
+            "blockers": forward_evidence.get("blockers") or [],
+            "line_totals": forward_evidence.get("line_totals") or {},
+            "comparison": forward_evidence.get("comparison") or {},
+            "exact_random_null": forward_evidence.get("exact_random_null") or {},
+        }
     round_repetition = (
         payload.get("round_repetition")
         if isinstance(payload.get("round_repetition"), dict)
@@ -2918,6 +4456,58 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             ),
             "interpretation": round_repetition.get("interpretation"),
         }
+    candidate_source_survival = (
+        payload.get("candidate_source_survival")
+        if isinstance(payload.get("candidate_source_survival"), dict)
+        else {}
+    )
+    if candidate_source_survival:
+        summary["candidate_source_survival"] = {
+            "status": candidate_source_survival.get("status"),
+            "action": candidate_source_survival.get("action"),
+            "window_count": candidate_source_survival.get("window_count"),
+            "observed_round_count": candidate_source_survival.get("observed_round_count"),
+            "min_rounds": candidate_source_survival.get("min_rounds"),
+            "min_generated": candidate_source_survival.get("min_generated"),
+            "evidence_ready": candidate_source_survival.get("evidence_ready"),
+            "budget_review_min_rounds": candidate_source_survival.get(
+                "budget_review_min_rounds"
+            ),
+            "budget_review_ready": candidate_source_survival.get("budget_review_ready"),
+            "budget_review_action": candidate_source_survival.get("budget_review_action"),
+            "budget_review_sources": candidate_source_survival.get(
+                "budget_review_sources"
+            ) or [],
+            "productive_sources": candidate_source_survival.get("productive_sources") or [],
+            "recovery_productive_sources": candidate_source_survival.get(
+                "recovery_productive_sources"
+            ) or [],
+            "frozen_diagnostic_sources": candidate_source_survival.get(
+                "frozen_diagnostic_sources"
+            ) or [],
+            "search_navigation_sources": candidate_source_survival.get(
+                "search_navigation_sources"
+            ) or [],
+            "starved_sources": candidate_source_survival.get("starved_sources") or [],
+            "zero_top5_sources": candidate_source_survival.get("zero_top5_sources") or [],
+            "sources": candidate_source_survival.get("sources") or {},
+            "interpretation": candidate_source_survival.get("interpretation"),
+        }
+    advisor_freshness = (
+        payload.get("advisor_signal_freshness")
+        if isinstance(payload.get("advisor_signal_freshness"), dict)
+        else {}
+    )
+    if advisor_freshness:
+        summary["advisor_signal_freshness"] = {
+            "status": advisor_freshness.get("status"),
+            "history_latest_issue": advisor_freshness.get("history_latest_issue"),
+            "max_allowed_issue_lag": advisor_freshness.get("max_allowed_issue_lag"),
+            "stale_advisors": advisor_freshness.get("stale_advisors") or [],
+            "missing_advisors": advisor_freshness.get("missing_advisors") or [],
+            "future_advisors": advisor_freshness.get("future_advisors") or [],
+            "advisors": advisor_freshness.get("advisors") or {},
+        }
     gates = (
         payload.get("gate_summary")
         if isinstance(payload.get("gate_summary"), dict)
@@ -2934,15 +4524,28 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "unique_signature_count": rank_homogeneity.get("unique_signature_count"),
             "signature_hashes": rank_homogeneity.get("signature_hashes") or [],
         }
+        if rank_homogeneity.get("trigger_mode"):
+            rank_summary["trigger_mode"] = rank_homogeneity.get("trigger_mode")
         for key in (
             "stagnation_rounds",
             "stagnation_threshold",
             "window",
             "observed",
             "max_unique_signatures",
+            "restart_batch_index",
+            "restart_catalog_offset",
+            "fallback_stagnation_threshold",
+            "fallback_window",
+            "fallback_observed",
+            "fallback_unique_signature_count",
+            "fallback_max_unique_signatures",
         ):
             if rank_homogeneity.get(key) is not None:
                 rank_summary[key] = rank_homogeneity.get(key)
+        if isinstance(rank_homogeneity.get("restart_candidate_novelty"), dict):
+            rank_summary["restart_candidate_novelty"] = rank_homogeneity.get(
+                "restart_candidate_novelty"
+            )
         summary["rank_homogeneity"] = rank_summary
     restart_champion = (
         gates.get("rank_homogeneity_restart_champion")
@@ -2982,7 +4585,15 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
         for key in (
             "eligible",
             "eligibility_reason",
+            "eligibility_basis",
+            "selection_uses_frozen_validation",
+            "selected",
+            "preempted_by",
             "quality_reason",
+            "quality_blocked_from_search_base",
+            "round_best_quality_blocked",
+            "primary_lift_passed",
+            "primary_lift_blocked",
             "rank_vector_changed",
             "config_distance",
             "min_config_distance",
@@ -3044,9 +4655,15 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "restart_candidate_tail_over_1000000_delta",
             "restart_candidate_evidence_ready",
             "restart_candidate_evidence_blockers",
+            "current_run_navigation_arbitration_active",
+            "durable_round_boundary_status",
             "experimental_navigation_candidate_present",
             "experimental_navigation_eligible",
             "experimental_navigation_eligibility_reason",
+            "experimental_navigation_eligibility_basis",
+            "experimental_navigation_selection_uses_frozen_validation",
+            "experimental_navigation_selected",
+            "experimental_navigation_preempted_by",
             "experimental_navigation_quality_reason",
             "experimental_navigation_rank_vector_changed",
             "experimental_navigation_config_distance",

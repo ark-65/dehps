@@ -25,7 +25,8 @@ from dehps.storage.postgres_store import (
 if __package__:
     from scripts.generate_weight_kdj_signals import CANONICAL_SIGNAL_RUN_ID, generate_signals, parse_weights
 else:
-    # Direct script execution puts scripts/, not apps/worker-python, on sys.path.
+    # Cron and the runbook execute this file directly from apps/worker-python.
+    # In that mode the scripts directory, not its parent, is on sys.path.
     from generate_weight_kdj_signals import CANONICAL_SIGNAL_RUN_ID, generate_signals, parse_weights
 
 

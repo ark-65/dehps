@@ -81,6 +81,7 @@ from dehps.storage.postgres_store import (
     ensure_training_target_weight_inversions_schema,
     load_red_combination_universe,
     load_training_round_carryover_candidate_summaries,
+    load_training_round_navigation_records,
     load_training_supervisor_best_carryover_candidate_summaries,
     load_training_supervisor_best_candidate_summaries,
     upsert_training_round_result,
@@ -233,6 +234,9 @@ STAGNATION_THRESHOLD = 16
 RANK_HOMOGENEITY_STAGNATION_THRESHOLD = STAGNATION_THRESHOLD
 RANK_HOMOGENEITY_WINDOW = 12
 RANK_HOMOGENEITY_MAX_UNIQUE_SIGNATURES = 4
+EARLY_RANK_HOMOGENEITY_STAGNATION_THRESHOLD = 4
+EARLY_RANK_HOMOGENEITY_WINDOW = 4
+EARLY_RANK_HOMOGENEITY_MAX_UNIQUE_SIGNATURES = 1
 CANDIDATE_BUDGET_SHARES = {
     "exploitation": 0.40,
     "exploration": 0.30,
@@ -275,6 +279,7 @@ NEAR_MISS_INVERSION_CUTOFF_BANDS = (
     {"cutoff": 10000, "upper": 50000, "max_targets": 4},
 )
 MAX_FROZEN_VALIDATION_WINDOW = 20
+HOLDOUT_ISOLATION_PROTOCOL = "search_slice_frozen_promotion_v1"
 
 
 def _target_pool_context():
@@ -424,30 +429,63 @@ def rank_homogeneity_guardrail(
         if isinstance(signature, str) and signature:
             signatures.append(signature)
     unique_signatures = sorted(set(signatures))
-    active = (
+    early_signatures: list[str] = []
+    for round_info in rounds[-EARLY_RANK_HOMOGENEITY_WINDOW:]:
+        prefilter = round_info.get("prefilter") if isinstance(round_info.get("prefilter"), dict) else {}
+        signature = prefilter.get("round_best_rank_signature_hash")
+        if isinstance(signature, str) and signature:
+            early_signatures.append(signature)
+    early_unique_signatures = sorted(set(early_signatures))
+    early_active = (
+        stagnation_rounds >= EARLY_RANK_HOMOGENEITY_STAGNATION_THRESHOLD
+        and len(early_signatures) >= EARLY_RANK_HOMOGENEITY_WINDOW
+        and len(early_unique_signatures) <= EARLY_RANK_HOMOGENEITY_MAX_UNIQUE_SIGNATURES
+    )
+    fallback_active = (
         stagnation_rounds >= RANK_HOMOGENEITY_STAGNATION_THRESHOLD
         and len(signatures) >= window
         and len(unique_signatures) <= max_unique_signatures
     )
+    active = early_active or fallback_active
     reason = None
-    if active:
+    if early_active:
         reason = "stale_rank_signature_cycle"
-    elif stagnation_rounds < RANK_HOMOGENEITY_STAGNATION_THRESHOLD:
+    elif fallback_active:
+        reason = "stale_rank_signature_cycle"
+    elif stagnation_rounds < EARLY_RANK_HOMOGENEITY_STAGNATION_THRESHOLD:
         reason = "below_stagnation_threshold"
-    elif len(signatures) < window:
+    elif len(early_signatures) < EARLY_RANK_HOMOGENEITY_WINDOW:
         reason = "insufficient_signature_window"
     else:
         reason = "rank_signatures_still_diverse"
+    if fallback_active and not early_active:
+        effective_threshold = RANK_HOMOGENEITY_STAGNATION_THRESHOLD
+        effective_window = window
+        effective_observed = len(signatures)
+        effective_unique_signatures = unique_signatures
+        effective_max_unique_signatures = max_unique_signatures
+    else:
+        effective_threshold = EARLY_RANK_HOMOGENEITY_STAGNATION_THRESHOLD
+        effective_window = EARLY_RANK_HOMOGENEITY_WINDOW
+        effective_observed = len(early_signatures)
+        effective_unique_signatures = early_unique_signatures
+        effective_max_unique_signatures = EARLY_RANK_HOMOGENEITY_MAX_UNIQUE_SIGNATURES
     return {
         "active": active,
         "reason": reason,
+        "trigger_mode": "exact_repeat" if early_active else "low_diversity_cycle" if fallback_active else "",
         "stagnation_rounds": stagnation_rounds,
-        "stagnation_threshold": RANK_HOMOGENEITY_STAGNATION_THRESHOLD,
-        "window": window,
-        "observed": len(signatures),
-        "unique_signature_count": len(unique_signatures),
-        "max_unique_signatures": max_unique_signatures,
-        "signatures": unique_signatures[:8],
+        "stagnation_threshold": effective_threshold,
+        "window": effective_window,
+        "observed": effective_observed,
+        "unique_signature_count": len(effective_unique_signatures),
+        "max_unique_signatures": effective_max_unique_signatures,
+        "fallback_stagnation_threshold": RANK_HOMOGENEITY_STAGNATION_THRESHOLD,
+        "fallback_window": window,
+        "fallback_observed": len(signatures),
+        "fallback_unique_signature_count": len(unique_signatures),
+        "fallback_max_unique_signatures": max_unique_signatures,
+        "signatures": effective_unique_signatures[:8],
     }
 
 
@@ -457,6 +495,8 @@ def stagnation_restart_candidate_configs(
     max_configs: int,
     round_index: int,
     stagnation_rounds: int,
+    catalog_offset: int = 0,
+    excluded_config_hashes: tuple[str, ...] = (),
 ) -> tuple[FrequencyRankerConfig, ...]:
     if max_configs <= 0:
         return ()
@@ -504,23 +544,47 @@ def stagnation_restart_candidate_configs(
         for offset in range(len(context_bundles)):
             context = context_bundles[(index + offset) % len(context_bundles)]
             add_unique(configs, seen, FrequencyRankerConfig(**{**config_dict(base), **primary, **context}))
-            if len(configs) >= max_configs:
-                return tuple(configs[:max_configs])
     for primary in primary_anchors:
         add_unique(configs, seen, FrequencyRankerConfig(**{**config_dict(base), **primary}))
-        if len(configs) >= max_configs:
-            return tuple(configs[:max_configs])
+    excluded_hashes = {str(value) for value in excluded_config_hashes if value}
+    if configs:
+        normalized_offset = max(0, int(catalog_offset)) % len(configs)
+        configs = configs[normalized_offset:] + configs[:normalized_offset]
+    if excluded_hashes:
+        configs = [config for config in configs if config_hash(config) not in excluded_hashes]
+    configs = configs[:max_configs]
+    if len(configs) >= max_configs:
+        return tuple(configs)
     rng = random.Random(deterministic_seed("stagnation_restart", round_index, stagnation_rounds))
-    while len(configs) < max_configs:
+    attempts = 0
+    while len(configs) < max_configs and attempts < max_configs * 32:
+        attempts += 1
         values = config_dict(base)
         for field in PRIMARY_FIELDS:
             values[field] = rng.choice((0.05, 0.20, 0.85, 1.15))
         for field in rng.sample(RESTART_CONTEXT_FIELDS, k=min(5, len(RESTART_CONTEXT_FIELDS))):
             values[field] = rng.choice((-0.30, -0.20, 0.20, 0.30))
-        add_unique(configs, seen, FrequencyRankerConfig(**values))
-        if len(seen) > max_configs * 8:
-            break
+        candidate = clamp_config(FrequencyRankerConfig(**values))
+        if config_hash(candidate) in excluded_hashes:
+            continue
+        add_unique(configs, seen, candidate)
     return tuple(configs[:max_configs])
+
+
+def stagnation_restart_catalog_position(
+    rank_homogeneity: dict,
+    *,
+    budget: int,
+) -> dict:
+    if not rank_homogeneity.get("active") or budget <= 0:
+        return {"batch_index": 0, "catalog_offset": 0}
+    stagnation_rounds = int(rank_homogeneity.get("stagnation_rounds") or 0)
+    trigger_threshold = int(rank_homogeneity.get("stagnation_threshold") or stagnation_rounds)
+    batch_index = max(0, stagnation_rounds - trigger_threshold)
+    return {
+        "batch_index": batch_index,
+        "catalog_offset": batch_index * budget,
+    }
 
 
 def phase_for_round(round_index: int, *, stagnation_rounds: int = 0) -> tuple[str, float, str]:
@@ -752,6 +816,20 @@ def frozen_validation_window(eval_window: int) -> int:
     return min(MAX_FROZEN_VALIDATION_WINDOW, max(1, eval_window // 5))
 
 
+def split_search_and_frozen_targets(
+    target_ranks: list[TargetRank],
+    *,
+    validation_window: int,
+) -> tuple[list[TargetRank], list[TargetRank]]:
+    """Keep at least one search target and reserve only the trailing targets for promotion."""
+    if len(target_ranks) <= 1 or validation_window <= 0:
+        return list(target_ranks), []
+    frozen_count = min(max(0, int(validation_window)), len(target_ranks) - 1)
+    if frozen_count <= 0:
+        return list(target_ranks), []
+    return list(target_ranks[:-frozen_count]), list(target_ranks[-frozen_count:])
+
+
 def frozen_validation_summary(summary: dict, *, validation_window: int, universe_size: int) -> dict | None:
     target_results = summary.get("target_results")
     if validation_window <= 0 or not isinstance(target_results, list):
@@ -855,6 +933,30 @@ def frozen_validation_promotion_gate(candidate: dict, incumbent: dict | None) ->
         "candidate_config_hash": candidate.get("config_hash"),
         "incumbent_config_hash": incumbent.get("config_hash"),
     }
+
+
+def quarantine_historical_frozen_promotion(gate: dict) -> dict:
+    """Fail closed until promotion can use a genuinely forward, previously unseen holdout."""
+    result = dict(gate)
+    result["pre_quarantine_passed"] = bool(gate.get("passed"))
+    result["pre_quarantine_reason"] = gate.get("reason")
+    if gate.get("reason") == "no_incumbent":
+        result.update(
+            {
+                "historical_holdout_quarantined": False,
+                "promotion_holdout_status": "initial_baseline_only",
+            }
+        )
+        return result
+    result.update(
+        {
+            "passed": False,
+            "reason": "historical_frozen_holdout_quarantined",
+            "historical_holdout_quarantined": True,
+            "promotion_holdout_status": "requires_forward_unseen_evidence",
+        }
+    )
+    return result
 
 
 def target_hit_issues(summary: dict | None, *, cutoff: int) -> set[str]:
@@ -1343,6 +1445,22 @@ def merge_reserved_candidate_configs(
     return tuple(configs[:max_configs])
 
 
+def refill_candidate_configs(
+    configs: tuple[FrequencyRankerConfig, ...],
+    fallback_configs: tuple[FrequencyRankerConfig, ...],
+    *,
+    max_configs: int,
+) -> tuple[FrequencyRankerConfig, ...]:
+    """Fill deduplication gaps without changing reserved-source ordering."""
+    filled: list[FrequencyRankerConfig] = []
+    seen: set[str] = set()
+    for config in (*configs, *fallback_configs):
+        add_unique_until(filled, seen, config, limit=max(0, max_configs))
+        if len(filled) >= max(0, max_configs):
+            break
+    return tuple(filled)
+
+
 def candidate_source_survival(
     source_configs: dict[str, tuple[FrequencyRankerConfig, ...]],
     *,
@@ -1375,6 +1493,36 @@ def candidate_source_survival(
     return survival
 
 
+def historical_candidate_source_hashes(
+    records: list[dict],
+    *,
+    source: str,
+    limit: int = 512,
+) -> tuple[str, ...]:
+    effective_limit = max(0, int(limit))
+    if effective_limit == 0:
+        return ()
+    hashes: list[str] = []
+    seen: set[str] = set()
+    for record in records:
+        prefilter = record.get("prefilter") if isinstance(record.get("prefilter"), dict) else {}
+        source_survival = (
+            prefilter.get("source_survival")
+            if isinstance(prefilter.get("source_survival"), dict)
+            else {}
+        )
+        source_info = source_survival.get(source) if isinstance(source_survival.get(source), dict) else {}
+        for value in source_info.get("hashes") or ():
+            hash_value = str(value or "")
+            if not hash_value or hash_value in seen:
+                continue
+            seen.add(hash_value)
+            hashes.append(hash_value)
+            if len(hashes) >= effective_limit:
+                return tuple(hashes)
+    return tuple(hashes)
+
+
 def training_candidate_space_diagnostic(
     *,
     source_configs: dict[str, tuple[FrequencyRankerConfig, ...]],
@@ -1402,9 +1550,6 @@ def training_candidate_space_diagnostic(
     unique_top_signatures = sorted(set(top_signatures))
     reasons: list[str] = []
     status_value = "diverse"
-    if bool(rank_homogeneity.get("active")):
-        status_value = "collapsed"
-        reasons.append("rank_homogeneity_guardrail_active")
     if len(summaries) >= 5 and len(unique_top_signatures) <= 2:
         status_value = "collapsed"
         reasons.append("top_results_share_too_few_rank_signatures")
@@ -1414,6 +1559,12 @@ def training_candidate_space_diagnostic(
     if status_value == "diverse" and len(summaries) >= 5 and len(unique_top_signatures) <= 4:
         status_value = "narrow"
         reasons.append("top_results_are_rank-signature_narrow")
+    rank_homogeneity_active = bool(rank_homogeneity.get("active"))
+    if rank_homogeneity_active:
+        reasons.append(
+            "round_best_path_homogeneous_current_candidates_"
+            + ("collapsed" if status_value == "collapsed" else "still_diverse")
+        )
     if not reasons:
         reasons.append("configuration_space_has_no_collapse_flag")
     return {
@@ -1426,8 +1577,9 @@ def training_candidate_space_diagnostic(
         "top_limit": top_limit,
         "top_rank_signature_count": len(top_signatures),
         "unique_top_rank_signature_count": len(unique_top_signatures),
-        "rank_homogeneity_active": bool(rank_homogeneity.get("active")),
+        "rank_homogeneity_active": rank_homogeneity_active,
         "rank_homogeneity_unique_signature_count": rank_homogeneity.get("unique_signature_count"),
+        "round_best_path_status": "stale" if rank_homogeneity_active else "variable",
         "reasons": reasons,
     }
 
@@ -1520,6 +1672,7 @@ def training_round_self_diagnostics(
         summaries=summaries,
         rank_homogeneity=rank_homogeneity,
     )
+    decision_surface = decision_surface_dominance_diagnostic(summaries)
     signal = signal_vs_noise_diagnostic(
         round_best,
         legal_sample_space=universe_size,
@@ -1544,6 +1697,7 @@ def training_round_self_diagnostics(
         "historical_boundary": "Gauss/Riemann lenses are verification discipline, not authority.",
         "weight_trust": weight,
         "candidate_space": candidate_space,
+        "decision_surface": decision_surface,
         "signal_vs_noise": signal,
         "synthesis": {
             "status": synthesis_status,
@@ -2196,6 +2350,7 @@ def select_probability_calibration_champion(
     stagnation_rounds: int,
     top_limit: int = 8,
     force_primary_gate: bool = False,
+    frozen_promotion_only: bool = False,
 ) -> tuple[dict | None, dict]:
     round_best_hash = summary_config_hash(round_best) or ""
     source_by_hash: dict[str, str] = {}
@@ -2208,12 +2363,20 @@ def select_probability_calibration_champion(
     baseline_score = probability_calibration_score(baseline)
     primary_baseline = prior_best_summary if isinstance(prior_best_summary, dict) else baseline
     baseline_primary_score = source_frontier_primary_score(primary_baseline)
-    primary_gate_active = force_primary_gate or stagnation_rounds >= PROBABILITY_PRIMARY_GATE_STAGNATION_THRESHOLD
+    primary_gate_active = bool(
+        not frozen_promotion_only
+        and (
+            force_primary_gate
+            or stagnation_rounds >= PROBABILITY_PRIMARY_GATE_STAGNATION_THRESHOLD
+        )
+    )
     metadata = {
         "active": False,
         "threshold": PROBABILITY_CALIBRATION_STAGNATION_THRESHOLD,
         "primary_gate_active": primary_gate_active,
         "primary_gate_forced": force_primary_gate,
+        "frozen_promotion_only": frozen_promotion_only,
+        "selection_uses_frozen_validation": primary_gate_active,
         "primary_gate_threshold": PROBABILITY_PRIMARY_GATE_STAGNATION_THRESHOLD,
         "stagnation_rounds": stagnation_rounds,
         "source": "",
@@ -3543,6 +3706,7 @@ def summarize_target_ranks(
     train_mode: str,
     top_n: int,
     universe_size: int,
+    run_key_eval_window: int | None = None,
 ) -> dict:
     ranks = [target.rank for target in target_ranks]
     summary = {
@@ -3568,11 +3732,77 @@ def summarize_target_ranks(
         as_of_issue=as_of_issue,
         train_window=train_window,
         train_mode=train_mode,
-        eval_window=len(target_ranks),
+        eval_window=(
+            int(run_key_eval_window)
+            if run_key_eval_window is not None
+            else len(target_ranks)
+        ),
         top_n=top_n,
         history_fingerprint_value=history_fingerprint_value,
         config_hash_value=summary["config_hash"],
     )
+    return summary
+
+
+def summarize_partitioned_target_ranks(
+    *,
+    target_ranks: list[TargetRank],
+    config: FrequencyRankerConfig,
+    as_of_issue: str,
+    history_fingerprint_value: str,
+    train_window: int,
+    train_mode: str,
+    top_n: int,
+    universe_size: int,
+    validation_window: int,
+) -> dict:
+    search_targets, frozen_targets = split_search_and_frozen_targets(
+        target_ranks,
+        validation_window=validation_window,
+    )
+    summary = summarize_target_ranks(
+        target_ranks=search_targets,
+        config=config,
+        as_of_issue=as_of_issue,
+        history_fingerprint_value=history_fingerprint_value,
+        train_window=train_window,
+        train_mode=train_mode,
+        top_n=top_n,
+        universe_size=universe_size,
+        run_key_eval_window=len(target_ranks),
+    )
+    if frozen_targets:
+        frozen_summary = summarize_target_ranks(
+            target_ranks=frozen_targets,
+            config=config,
+            as_of_issue=as_of_issue,
+            history_fingerprint_value=history_fingerprint_value,
+            train_window=train_window,
+            train_mode=train_mode,
+            top_n=top_n,
+            universe_size=universe_size,
+            run_key_eval_window=len(target_ranks),
+        )
+        validation = frozen_validation_summary(
+            frozen_summary,
+            validation_window=len(frozen_targets),
+            universe_size=universe_size,
+        )
+        if validation is not None:
+            summary["frozen_validation"] = validation
+    search_issues = [target.issue for target in search_targets]
+    frozen_issues = [target.issue for target in frozen_targets]
+    summary["evaluation_split"] = {
+        "protocol": HOLDOUT_ISOLATION_PROTOCOL,
+        "total_window": len(target_ranks),
+        "search_window": len(search_targets),
+        "frozen_window": len(frozen_targets),
+        "search_issues": search_issues,
+        "frozen_issues": frozen_issues,
+        "issue_overlap_count": len(set(search_issues) & set(frozen_issues)),
+        "search_uses_frozen_validation": False,
+        "frozen_validation_role": "promotion_only",
+    }
     return summary
 
 
@@ -3606,6 +3836,200 @@ def sort_key(summary: dict) -> tuple:
         -(summary.get("median_rank") or 0),
         -(summary.get("best_rank") or 0),
     )
+
+
+TRAINING_SORT_KEY_FIELDS = (
+    "top_100_hits",
+    "top_1000_hits",
+    "top_1000_unique_hits",
+    "objective_score",
+    "neg_tail_over_1000000",
+    "neg_tail_over_900000",
+    "neg_tail_over_750000",
+    "top_10000_unique_hits",
+    "neg_top_10000_overlap_hits",
+    "top_10000_hits",
+    "top_50000_hits",
+    "top_100000_hits",
+    "top_250000_hits",
+    "top_500000_hits",
+    "red5_top_100_hits",
+    "red5_top_1000_hits",
+    "red5_top_10000_hits",
+    "neg_worst_rank",
+    "neg_median_rank",
+    "neg_best_rank",
+)
+
+
+DECISION_PARETO_FIELDS = (
+    "top_100_hits",
+    "top_1000_hits",
+    "top_10000_hits",
+    "top_50000_hits",
+    "top_100000_hits",
+    "top_250000_hits",
+    "top_500000_hits",
+    "red5_top_100_hits",
+    "red5_top_1000_hits",
+    "red5_top_10000_hits",
+    "neg_tail_over_750000",
+    "neg_tail_over_900000",
+    "neg_tail_over_1000000",
+    "neg_worst_rank",
+    "neg_median_rank",
+    "neg_best_rank",
+)
+
+
+def decision_pareto_vector(summary: dict) -> tuple[float, ...]:
+    red5 = summary.get("red5") if isinstance(summary.get("red5"), dict) else {}
+    rank_quality = summary.get("rank_quality") if isinstance(summary.get("rank_quality"), dict) else {}
+    return (
+        float(summary.get("top_100_hits") or 0),
+        float(summary.get("top_1000_hits") or 0),
+        float(summary.get("top_10000_hits") or 0),
+        float(rank_quality.get("top_50000_hits") or 0),
+        float(rank_quality.get("top_100000_hits") or 0),
+        float(rank_quality.get("top_250000_hits") or 0),
+        float(rank_quality.get("top_500000_hits") or 0),
+        float(red5.get("top_100_hits") or 0),
+        float(red5.get("top_1000_hits") or 0),
+        float(red5.get("top_10000_hits") or 0),
+        -float(rank_quality.get("tail_over_750000_count") or 0),
+        -float(rank_quality.get("tail_over_900000_count") or 0),
+        -float(rank_quality.get("tail_over_1000000_count") or 0),
+        -float(summary.get("worst_rank") or 0),
+        -float(summary.get("median_rank") or 0),
+        -float(summary.get("best_rank") or 0),
+    )
+
+
+def decision_surface_dominance_diagnostic(
+    summaries: list[dict],
+    *,
+    top_limit: int = 5,
+) -> dict:
+    selected = [summary for summary in summaries[: max(1, top_limit)] if isinstance(summary, dict)]
+    if len(selected) < 2:
+        return {
+            "status": "insufficient_candidates",
+            "top_limit": top_limit,
+            "candidate_count": len(selected),
+            "selection_scope": "search_slice_only",
+            "selection_uses_frozen_validation": False,
+        }
+    baseline = selected[0]
+    baseline_sort_key = sort_key(baseline)
+    baseline_pareto = decision_pareto_vector(baseline)
+    first_difference_counts: Counter[str] = Counter()
+    baseline_better_counts: Counter[str] = Counter()
+    challenger_better_counts: Counter[str] = Counter()
+    baseline_dominates_count = 0
+    challenger_dominates_count = 0
+    tradeoff_count = 0
+    objective_gaps: list[float] = []
+    comparisons: list[dict] = []
+    for challenger in selected[1:]:
+        challenger_sort_key = sort_key(challenger)
+        first_difference_index = next(
+            (
+                index
+                for index, (baseline_value, challenger_value) in enumerate(
+                    zip(baseline_sort_key, challenger_sort_key, strict=True)
+                )
+                if baseline_value != challenger_value
+            ),
+            None,
+        )
+        first_difference = (
+            TRAINING_SORT_KEY_FIELDS[first_difference_index]
+            if first_difference_index is not None
+            else "identical_sort_key"
+        )
+        first_difference_counts[first_difference] += 1
+        if first_difference == "objective_score":
+            objective_gaps.append(
+                float(baseline_sort_key[first_difference_index])
+                - float(challenger_sort_key[first_difference_index])
+            )
+        challenger_pareto = decision_pareto_vector(challenger)
+        baseline_better = [
+            DECISION_PARETO_FIELDS[index]
+            for index, (baseline_value, challenger_value) in enumerate(
+                zip(baseline_pareto, challenger_pareto, strict=True)
+            )
+            if baseline_value > challenger_value
+        ]
+        challenger_better = [
+            DECISION_PARETO_FIELDS[index]
+            for index, (baseline_value, challenger_value) in enumerate(
+                zip(baseline_pareto, challenger_pareto, strict=True)
+            )
+            if challenger_value > baseline_value
+        ]
+        baseline_better_counts.update(baseline_better)
+        challenger_better_counts.update(challenger_better)
+        if baseline_better and not challenger_better:
+            relation = "baseline_dominates"
+            baseline_dominates_count += 1
+        elif challenger_better and not baseline_better:
+            relation = "challenger_dominates"
+            challenger_dominates_count += 1
+        else:
+            relation = "tradeoff"
+            tradeoff_count += 1
+        comparisons.append(
+            {
+                "config_hash": summary_config_hash(challenger) or "",
+                "rank_signature_hash": rank_signature_hash(challenger),
+                "first_difference": first_difference,
+                "pareto_relation": relation,
+                "baseline_better_fields": baseline_better,
+                "challenger_better_fields": challenger_better,
+            }
+        )
+    challenger_count = len(comparisons)
+    objective_tiebreak_count = first_difference_counts.get("objective_score", 0)
+    if objective_tiebreak_count == challenger_count and tradeoff_count == challenger_count:
+        status = "objective_tiebreak_tradeoff"
+    elif baseline_dominates_count == challenger_count:
+        status = "baseline_pareto_dominant"
+    elif challenger_dominates_count > 0:
+        status = "challenger_pareto_dominant_present"
+    else:
+        status = "mixed_decision_surface"
+    baseline_objective = float((baseline.get("reward") or {}).get("objectiveScore") or 0.0)
+    return {
+        "status": status,
+        "top_limit": top_limit,
+        "candidate_count": len(selected),
+        "challenger_count": challenger_count,
+        "baseline_config_hash": summary_config_hash(baseline) or "",
+        "baseline_rank_signature_hash": rank_signature_hash(baseline),
+        "baseline_objective_score": baseline_objective,
+        "first_difference_counts": dict(sorted(first_difference_counts.items())),
+        "objective_tiebreak_count": objective_tiebreak_count,
+        "objective_gap_min": round(min(objective_gaps), 6) if objective_gaps else None,
+        "objective_gap_max": round(max(objective_gaps), 6) if objective_gaps else None,
+        "objective_gap_max_relative": (
+            round(max(objective_gaps) / abs(baseline_objective), 10)
+            if objective_gaps and baseline_objective
+            else None
+        ),
+        "baseline_pareto_dominates_count": baseline_dominates_count,
+        "challenger_pareto_dominates_count": challenger_dominates_count,
+        "pareto_tradeoff_count": tradeoff_count,
+        "baseline_better_field_counts": dict(sorted(baseline_better_counts.items())),
+        "challenger_better_field_counts": dict(sorted(challenger_better_counts.items())),
+        "comparisons": comparisons,
+        "selection_scope": "search_slice_only",
+        "selection_uses_frozen_validation": False,
+        "interpretation": (
+            "Diagnostic only: objective tie-breaking and Pareto tradeoffs do not justify a sort change, "
+            "promotion, or predictive claim."
+        ),
+    }
 
 
 def merge_leaderboard(existing: list[dict], candidates: list[dict], *, limit: int = 12) -> list[dict]:
@@ -3847,6 +4271,27 @@ def merge_config_candidates(
     return tuple(configs)
 
 
+def config_candidates_from_summaries(
+    summaries: list[dict],
+    *,
+    limit: int = 16,
+) -> tuple[FrequencyRankerConfig, ...]:
+    configs: list[FrequencyRankerConfig] = []
+    seen: set[str] = set()
+    for summary in summaries:
+        config = summary_config(summary)
+        if config is None:
+            continue
+        key = config_hash(config)
+        if key in seen:
+            continue
+        seen.add(key)
+        configs.append(config)
+        if len(configs) >= max(0, limit):
+            break
+    return tuple(configs)
+
+
 def load_prior_supervisor_carryover_configs(
     *,
     output_dir: Path,
@@ -3934,6 +4379,229 @@ def load_db_supervisor_carryover_configs(
     )
 
 
+def _metadata_primary_score(value: object) -> tuple[int, int, int]:
+    if not isinstance(value, list | tuple):
+        return (0, 0, 0)
+    values = [int(item or 0) for item in value[:3]]
+    values.extend([0] * (3 - len(values)))
+    return tuple(values[:3])
+
+
+def recover_supervisor_continuity_configs(
+    records: list[dict],
+    *,
+    limit: int = 4,
+) -> tuple[tuple[FrequencyRankerConfig, ...], dict]:
+    """Recover validated navigation candidates without promoting them to incumbent."""
+    configs: list[FrequencyRankerConfig] = []
+    seen: set[str] = set()
+    recovered: list[dict] = []
+    for record in records:
+        prefilter = record.get("prefilter") if isinstance(record.get("prefilter"), dict) else {}
+        decision = (
+            prefilter.get("decision_round_best")
+            if isinstance(prefilter.get("decision_round_best"), dict)
+            else {}
+        )
+        candidate_hash = str(decision.get("config_hash") or "")
+        selected_score = _metadata_primary_score(decision.get("selected_frozen_primary_score"))
+        baseline_score = _metadata_primary_score(decision.get("frozen_primary_lift_baseline_score"))
+        if not candidate_hash or selected_score <= baseline_score:
+            continue
+
+        resolved: FrequencyRankerConfig | None = None
+        recovery_mode = "stored_summary"
+        raw_summaries = [record.get("best_summary"), *(record.get("top_results") or [])]
+        for raw_summary in raw_summaries:
+            if not isinstance(raw_summary, dict) or (summary_config_hash(raw_summary) or "") != candidate_hash:
+                continue
+            raw_config = raw_summary.get("config")
+            if isinstance(raw_config, dict):
+                try:
+                    resolved = FrequencyRankerConfig(**raw_config)
+                except TypeError:
+                    resolved = None
+            if resolved is not None:
+                break
+
+        restart_info = (
+            prefilter.get("rank_homogeneity_restart_champion")
+            if isinstance(prefilter.get("rank_homogeneity_restart_champion"), dict)
+            else {}
+        )
+        source_frontier = (
+            prefilter.get("source_frontier_champion")
+            if isinstance(prefilter.get("source_frontier_champion"), dict)
+            else {}
+        )
+        restart_candidate = (
+            candidate_hash == str(restart_info.get("config_hash") or "")
+            or (
+                source_frontier.get("source") == "stagnation_restart"
+                and candidate_hash == str(source_frontier.get("config_hash") or "")
+            )
+        )
+        if resolved is None and restart_candidate:
+            search_base_start = (
+                prefilter.get("search_base_start")
+                if isinstance(prefilter.get("search_base_start"), dict)
+                else {}
+            )
+            raw_base = search_base_start.get("config")
+            if not isinstance(raw_base, dict):
+                raw_base = record.get("best_config")
+            restart_budget = int((prefilter.get("candidate_budget") or {}).get("stagnation_restart") or 0)
+            if isinstance(raw_base, dict) and restart_budget > 0:
+                try:
+                    base = FrequencyRankerConfig(**raw_base)
+                except TypeError:
+                    base = None
+                if base is not None:
+                    regenerated = stagnation_restart_candidate_configs(
+                        base,
+                        max_configs=restart_budget,
+                        round_index=int(record.get("round_index") or 0),
+                        stagnation_rounds=int(prefilter.get("stagnation_rounds") or 0),
+                        catalog_offset=int(prefilter.get("stagnation_restart_catalog_offset") or 0),
+                    )
+                    resolved = next(
+                        (config for config in regenerated if config_hash(config) == candidate_hash),
+                        None,
+                    )
+                    if resolved is not None:
+                        recovery_mode = "deterministic_restart_recovery"
+
+        if resolved is None or candidate_hash in seen:
+            continue
+        seen.add(candidate_hash)
+        configs.append(resolved)
+        recovered.append(
+            {
+                "run_id": str(record.get("run_id") or ""),
+                "round_index": int(record.get("round_index") or 0),
+                "config_hash": candidate_hash,
+                "source": str(decision.get("source") or ""),
+                "selected_frozen_primary_score": list(selected_score),
+                "baseline_frozen_primary_score": list(baseline_score),
+                "recovery_mode": recovery_mode,
+            }
+        )
+        if len(configs) >= max(0, limit):
+            break
+    return tuple(configs), {
+        "mode": "same_history_validated_navigation_replay",
+        "record_count": len(records),
+        "recovered_count": len(configs),
+        "candidates": recovered,
+    }
+
+
+def recover_holdout_isolated_continuity_configs(
+    records: list[dict],
+    *,
+    limit: int = 4,
+) -> tuple[tuple[FrequencyRankerConfig, ...], dict]:
+    """Recover only search bases whose selection explicitly excluded frozen validation."""
+    configs: list[FrequencyRankerConfig] = []
+    seen: set[str] = set()
+    recovered: list[dict] = []
+    rejected_legacy_count = 0
+    for record in records:
+        prefilter = record.get("prefilter") if isinstance(record.get("prefilter"), dict) else {}
+        isolation = (
+            prefilter.get("holdout_isolation")
+            if isinstance(prefilter.get("holdout_isolation"), dict)
+            else {}
+        )
+        if (
+            isolation.get("protocol") != HOLDOUT_ISOLATION_PROTOCOL
+            or isolation.get("search_uses_frozen_validation") is not False
+        ):
+            rejected_legacy_count += 1
+            continue
+        search_base = (
+            prefilter.get("search_base")
+            if isinstance(prefilter.get("search_base"), dict)
+            else {}
+        )
+        raw_config = search_base.get("config")
+        if not isinstance(raw_config, dict):
+            continue
+        try:
+            config = FrequencyRankerConfig(**raw_config)
+        except TypeError:
+            continue
+        key = config_hash(config)
+        if key in seen:
+            continue
+        seen.add(key)
+        configs.append(config)
+        recovered.append(
+            {
+                "run_id": str(record.get("run_id") or ""),
+                "round_index": int(record.get("round_index") or 0),
+                "config_hash": key,
+                "source": str(search_base.get("source") or ""),
+            }
+        )
+        if len(configs) >= max(0, limit):
+            break
+    return tuple(configs), {
+        "mode": "holdout_isolated_search_replay",
+        "protocol": HOLDOUT_ISOLATION_PROTOCOL,
+        "record_count": len(records),
+        "recovered_count": len(configs),
+        "rejected_legacy_count": rejected_legacy_count,
+        "candidates": recovered,
+    }
+
+
+def select_holdout_isolated_continuity_seed(
+    candidates: list[dict],
+    *,
+    baseline: dict | None,
+) -> tuple[dict | None, dict]:
+    baseline_hash = summary_config_hash(baseline) or ""
+    eligible = [
+        candidate
+        for candidate in candidates
+        if (summary_config_hash(candidate) or "") != baseline_hash
+    ]
+    selected = max(eligible, key=sort_key) if eligible else None
+    return selected, {
+        "eligible": selected is not None,
+        "reason": (
+            "search_slice_revalidated"
+            if selected is not None
+            else "no_distinct_holdout_isolated_candidate"
+        ),
+        "protocol": HOLDOUT_ISOLATION_PROTOCOL,
+        "evaluated_count": len(candidates),
+        "eligible_count": len(eligible),
+        "selected_config_hash": summary_config_hash(selected) or "",
+        "selection_uses_frozen_validation": False,
+    }
+
+
+def select_supervisor_continuity_seed(
+    candidates: list[dict],
+    *,
+    baseline: dict | None,
+) -> tuple[dict | None, dict]:
+    baseline_score = source_frontier_primary_score(baseline)
+    eligible = [candidate for candidate in candidates if source_frontier_primary_score(candidate) > baseline_score]
+    selected = max(eligible, key=source_frontier_score) if eligible else None
+    return selected, {
+        "eligible": selected is not None,
+        "reason": "strict_frozen_primary_lift_revalidated" if selected is not None else "no_revalidated_frozen_primary_lift",
+        "baseline_frozen_primary_score": list(baseline_score),
+        "evaluated_count": len(candidates),
+        "eligible_count": len(eligible),
+        "selected_config_hash": summary_config_hash(selected) or "",
+        "selected_frozen_primary_score": list(source_frontier_primary_score(selected)) if selected is not None else [],
+    }
+
+
 def stagnation_round_count(rounds: list[dict]) -> int:
     count = 0
     for round_info in reversed(rounds):
@@ -3941,6 +4609,122 @@ def stagnation_round_count(rounds: list[dict]) -> int:
             break
         count += 1
     return count
+
+
+def recover_supervisor_guard_history(
+    records: list[dict],
+    *,
+    limit: int = 80,
+) -> tuple[list[dict], dict]:
+    """Recover bounded rank history plus the monotonic same-history stagnation position."""
+    recovered_newest_first: list[dict] = []
+    source_run_ids: list[str] = []
+    seen_run_ids: set[str] = set()
+    effective_limit = max(0, int(limit))
+    latest_prefilter = (
+        records[0].get("prefilter")
+        if records and isinstance(records[0].get("prefilter"), dict)
+        else {}
+    )
+    latest_guard_continuity = (
+        latest_prefilter.get("guard_continuity")
+        if isinstance(latest_prefilter.get("guard_continuity"), dict)
+        else {}
+    )
+    record_iterable = records if effective_limit > 0 else []
+    for record in record_iterable:
+        if bool(record.get("improved")):
+            break
+        prefilter = record.get("prefilter") if isinstance(record.get("prefilter"), dict) else {}
+        signature = prefilter.get("round_best_rank_signature_hash")
+        recovered_newest_first.append(
+            {
+                "improved": False,
+                "prefilter": {
+                    "round_best_rank_signature_hash": signature if isinstance(signature, str) else "",
+                },
+            }
+        )
+        run_id = str(record.get("run_id") or "")
+        if run_id and run_id not in seen_run_ids:
+            seen_run_ids.add(run_id)
+            source_run_ids.append(run_id)
+        if len(recovered_newest_first) >= effective_limit:
+            break
+
+    history = list(reversed(recovered_newest_first))
+    persisted_effective_stagnation = latest_guard_continuity.get(
+        "effective_stagnation_rounds"
+    )
+    if (
+        isinstance(persisted_effective_stagnation, bool)
+        or not isinstance(persisted_effective_stagnation, int)
+        or persisted_effective_stagnation < 0
+    ):
+        persisted_effective_stagnation = None
+    persisted_next_stagnation = (
+        persisted_effective_stagnation + 1
+        if history and persisted_effective_stagnation is not None
+        else None
+    )
+    recovered_stagnation = max(
+        len(history),
+        persisted_next_stagnation or 0,
+    )
+    signatures = [
+        str((row.get("prefilter") or {}).get("round_best_rank_signature_hash") or "")
+        for row in history
+        if isinstance(row.get("prefilter"), dict)
+        and (row.get("prefilter") or {}).get("round_best_rank_signature_hash")
+    ]
+    latest_eval_guard = (
+        latest_prefilter.get("eval_slice_overfit_guardrail")
+        if isinstance(latest_prefilter.get("eval_slice_overfit_guardrail"), dict)
+        else {}
+    )
+    latest_search_gate = (
+        latest_prefilter.get("stale_round_best_search_base_gate")
+        if isinstance(latest_prefilter.get("stale_round_best_search_base_gate"), dict)
+        else {}
+    )
+    return history, {
+        "active": bool(history),
+        "reason": "same_history_unpromoted_rounds" if history else "no_unpromoted_guard_history",
+        "record_count": len(records),
+        "recovered_round_count": len(history),
+        "stagnation_rounds": recovered_stagnation,
+        "persisted_effective_stagnation_rounds": persisted_effective_stagnation,
+        "persisted_next_stagnation_rounds": persisted_next_stagnation,
+        "continuity_floor_applied": recovered_stagnation > len(history),
+        "record_window_saturated": bool(
+            effective_limit > 0 and len(records) >= effective_limit
+        ),
+        "source_run_ids": source_run_ids,
+        "rank_signature_count": len(signatures),
+        "unique_rank_signature_count": len(set(signatures)),
+        "latest_eval_slice_overfit_active": bool(latest_eval_guard.get("active")),
+        "latest_search_gate_active": bool(latest_search_gate.get("active")),
+    }
+
+
+def active_supervisor_guard_rounds(
+    carryover_rounds: list[dict],
+    current_rounds: list[dict],
+) -> list[dict]:
+    for index in range(len(current_rounds) - 1, -1, -1):
+        if current_rounds[index].get("improved"):
+            return current_rounds[index + 1 :]
+    return [*carryover_rounds, *current_rounds]
+
+
+def active_supervisor_stagnation_round_count(
+    carryover_stagnation_rounds: int,
+    current_rounds: list[dict],
+) -> int:
+    current_stagnation = stagnation_round_count(current_rounds)
+    if any(bool(round_info.get("improved")) for round_info in current_rounds):
+        return current_stagnation
+    return max(0, int(carryover_stagnation_rounds)) + current_stagnation
 
 
 def strip_target_results(summary: dict) -> dict:
@@ -4149,6 +4933,7 @@ def select_next_search_base(
     round_best_skip_reason: str = "",
     require_frozen_primary_lift: bool = False,
     frozen_primary_lift_baseline: dict | None = None,
+    frozen_promotion_only: bool = False,
 ) -> tuple[FrequencyRankerConfig, dict]:
     current_base_hash = config_hash(current_base)
     current_base_summary = None
@@ -4170,6 +4955,38 @@ def select_next_search_base(
     )
     round_best_hash = summary_config_hash(round_best) or ""
     round_best_signature_hash = rank_signature_hash(round_best)
+    exploration_navigation_hash = summary_config_hash(exploration_navigation_candidate) or ""
+    exploration_navigation_config = summary_config(exploration_navigation_candidate)
+    exploration_navigation_distance = (
+        config_distance(exploration_navigation_config, current_base)
+        if exploration_navigation_config is not None
+        else None
+    )
+    exploration_navigation_quality_info = experimental_navigation_quality(
+        exploration_navigation_candidate,
+        primary_lift_baseline,
+    )
+    exploration_navigation_primary_score = source_frontier_primary_score(
+        exploration_navigation_candidate
+    )
+    exploration_navigation_primary_lift_passed = bool(
+        exploration_navigation_candidate is not None
+        and exploration_navigation_primary_score > primary_lift_baseline_score
+    )
+    exploration_navigation_primary_lift_blocked = bool(
+        require_frozen_primary_lift
+        and exploration_navigation_candidate is not None
+        and not exploration_navigation_primary_lift_passed
+    )
+    quality_blocked_hashes = {
+        exploration_navigation_hash
+    } if (
+        not frozen_promotion_only
+        and
+        not improved
+        and exploration_navigation_hash
+        and not exploration_navigation_quality_info["passed"]
+    ) else set()
     round_best_search_allowed = bool(improved or allow_unpromoted_round_best)
     round_best_search_blocked = bool(
         round_best is not None
@@ -4180,6 +4997,7 @@ def select_next_search_base(
     excluded_hashes = {hash_value for hash_value in recent_search_base_hashes if hash_value}
     excluded_hashes.add(current_base_hash)
     excluded_hashes.update(blocked_round_best_hashes)
+    excluded_hashes.update(quality_blocked_hashes)
     search_challenger = best_challenger_summary(
         summaries,
         current_base_hash,
@@ -4197,35 +5015,40 @@ def select_next_search_base(
             summaries,
             current_base_hash,
             incumbent_summary=current_base_summary,
-            excluded_config_hashes=blocked_round_best_hashes,
+            excluded_config_hashes=blocked_round_best_hashes | quality_blocked_hashes,
             excluded_rank_signature_hashes=set(excluded_rank_signature_hashes),
             require_frozen_primary_lift=require_frozen_primary_lift,
             frozen_primary_lift_baseline=primary_lift_baseline,
         )
-    exploration_navigation_hash = summary_config_hash(exploration_navigation_candidate) or ""
-    exploration_navigation_config = summary_config(exploration_navigation_candidate)
-    exploration_navigation_distance = (
-        config_distance(exploration_navigation_config, current_base)
-        if exploration_navigation_config is not None
-        else None
-    )
-    exploration_navigation_quality_info = experimental_navigation_quality(
-        exploration_navigation_candidate,
-        primary_lift_baseline,
-    )
-    exploration_navigation_eligible = bool(
-        require_frozen_primary_lift
+    exploration_navigation_search_slice_eligible = bool(
+        frozen_promotion_only
         and exploration_navigation_candidate is not None
         and exploration_navigation_hash not in excluded_hashes
         and rank_signature_hash(exploration_navigation_candidate) not in set(excluded_rank_signature_hashes)
         and exploration_navigation_config is not None
         and (exploration_navigation_distance or 0.0) >= min_config_distance
-        and source_frontier_primary_score(exploration_navigation_candidate) <= primary_lift_baseline_score
+        and rank_vector_changed(current_base_summary, exploration_navigation_candidate)
+    )
+    exploration_navigation_frozen_eligible = bool(
+        not frozen_promotion_only
+        and require_frozen_primary_lift
+        and exploration_navigation_candidate is not None
+        and exploration_navigation_hash not in excluded_hashes
+        and rank_signature_hash(exploration_navigation_candidate) not in set(excluded_rank_signature_hashes)
+        and exploration_navigation_config is not None
+        and (exploration_navigation_distance or 0.0) >= min_config_distance
+        and exploration_navigation_primary_lift_passed
         and exploration_navigation_quality_info["passed"]
         and rank_vector_changed(current_base_summary, exploration_navigation_candidate)
     )
+    exploration_navigation_eligible = bool(
+        exploration_navigation_search_slice_eligible
+        or exploration_navigation_frozen_eligible
+    )
+    round_best_quality_blocked = bool(round_best_hash and round_best_hash in quality_blocked_hashes)
     round_best_eligible = (
         round_best is not None
+        and not round_best_quality_blocked
         and round_best_hash not in excluded_hashes
         and round_best_signature_hash not in set(excluded_rank_signature_hashes)
         and round_best_distance >= min_config_distance
@@ -4237,6 +5060,9 @@ def select_next_search_base(
     if improved:
         source = "new_best"
         selected_summary = round_best
+    elif exploration_navigation_eligible:
+        source = "experimental_navigation"
+        selected_summary = exploration_navigation_candidate
     elif round_best_eligible and round_best_search_allowed:
         source = "round_best"
         selected_summary = round_best
@@ -4246,10 +5072,7 @@ def select_next_search_base(
     elif fallback_search_challenger is not None:
         source = "search_challenger_revisit"
         selected_summary = fallback_search_challenger
-    elif exploration_navigation_eligible:
-        source = "experimental_navigation"
-        selected_summary = exploration_navigation_candidate
-    elif round_best is not None and round_best_search_allowed:
+    elif round_best is not None and round_best_search_allowed and not round_best_quality_blocked:
         source = "current_base_replay"
         selected_summary = round_best
     else:
@@ -4282,7 +5105,13 @@ def select_next_search_base(
         "round_best_search_allowed": round_best_search_allowed,
         "round_best_search_blocked": round_best_search_blocked,
         "round_best_skip_reason": round_best_skip_reason if round_best_search_blocked else "",
+        "round_best_quality_blocked": round_best_quality_blocked,
+        "round_best_quality_reason": (
+            exploration_navigation_quality_info["reason"] if round_best_quality_blocked else ""
+        ),
+        "quality_blocked_config_hashes": sorted(quality_blocked_hashes),
         "frozen_primary_lift_required": require_frozen_primary_lift,
+        "frozen_promotion_only": frozen_promotion_only,
         "frozen_primary_lift_baseline_score": list(primary_lift_baseline_score),
         "selected_frozen_primary_score": list(source_frontier_primary_score(selected_summary)),
         "round_best_frozen_primary_score": list(source_frontier_primary_score(round_best)),
@@ -4292,7 +5121,28 @@ def select_next_search_base(
         "exploration_navigation_source": exploration_navigation_source if exploration_navigation_hash else "",
         "exploration_navigation_reason": exploration_navigation_reason if exploration_navigation_hash else "",
         "exploration_navigation_eligible": exploration_navigation_eligible,
-        "exploration_navigation_frozen_primary_score": list(source_frontier_primary_score(exploration_navigation_candidate)),
+        "exploration_navigation_eligibility_basis": (
+            "search_slice_rank_geometry"
+            if exploration_navigation_search_slice_eligible
+            else "frozen_primary_and_quality"
+            if exploration_navigation_frozen_eligible
+            else "ineligible"
+        ),
+        "exploration_navigation_selection_uses_frozen_validation": bool(
+            exploration_navigation_frozen_eligible
+        ),
+        "exploration_navigation_selected": source == "experimental_navigation",
+        "exploration_navigation_preempted_by": (
+            source
+            if exploration_navigation_eligible and source != "experimental_navigation"
+            else ""
+        ),
+        "exploration_navigation_primary_lift_passed": exploration_navigation_primary_lift_passed,
+        "exploration_navigation_primary_lift_blocked": exploration_navigation_primary_lift_blocked,
+        "exploration_navigation_quality_blocked": bool(
+            exploration_navigation_hash and exploration_navigation_hash in quality_blocked_hashes
+        ),
+        "exploration_navigation_frozen_primary_score": list(exploration_navigation_primary_score),
         "exploration_navigation_baseline_frozen_primary_score": exploration_navigation_quality_info[
             "baseline_frozen_primary_score"
         ],
@@ -4328,34 +5178,56 @@ def select_next_search_base(
     return next_base, metadata
 
 
+def merge_experimental_navigation_arbitration(
+    selected_metadata: dict,
+    navigation_audit: dict,
+) -> dict:
+    merged = dict(selected_metadata)
+    for key, value in navigation_audit.items():
+        if key.startswith("exploration_navigation_"):
+            merged[key] = value
+    eligible = bool(merged.get("exploration_navigation_eligible"))
+    selected = merged.get("source") == "experimental_navigation"
+    merged["exploration_navigation_selected"] = selected
+    merged["exploration_navigation_preempted_by"] = (
+        str(merged.get("source") or "") if eligible and not selected else ""
+    )
+    return merged
+
+
 def stale_round_best_search_base_gate(
     *,
     stagnation_rounds: int,
     rank_homogeneity: dict,
     promotion_gate: dict,
     eval_slice_overfit: dict | None = None,
+    frozen_promotion_only: bool = False,
 ) -> dict:
     threshold = PROBABILITY_PRIMARY_GATE_STAGNATION_THRESHOLD
     rank_homogeneity_active = bool(rank_homogeneity.get("active"))
     promotion_passed = bool(promotion_gate.get("passed")) if isinstance(promotion_gate, dict) else False
     primary_hit_passed = bool(promotion_gate.get("primary_hit_passed")) if isinstance(promotion_gate, dict) else False
+    navigation_primary_hit_passed = bool(primary_hit_passed and not frozen_promotion_only)
     eval_slice_overfit_active = bool(eval_slice_overfit.get("active")) if isinstance(eval_slice_overfit, dict) else False
+    navigation_eval_slice_overfit_active = bool(
+        eval_slice_overfit_active and not frozen_promotion_only
+    )
     active = bool(
-        eval_slice_overfit_active
+        navigation_eval_slice_overfit_active
         or (
             rank_homogeneity_active
             and stagnation_rounds >= threshold
             and not promotion_passed
-            and not primary_hit_passed
+            and not navigation_primary_hit_passed
         )
     )
-    if eval_slice_overfit_active:
+    if navigation_eval_slice_overfit_active:
         reason = str(eval_slice_overfit.get("reason") or "eval_slice_overfit_no_frozen_primary_lift")
     elif active:
         reason = "stale_unpromoted_round_best_primary_gate"
     elif promotion_passed:
         reason = "promotion_passed"
-    elif primary_hit_passed:
+    elif navigation_primary_hit_passed:
         reason = "primary_hit_passed"
     elif stagnation_rounds < threshold:
         reason = "below_threshold"
@@ -4371,9 +5243,17 @@ def stale_round_best_search_base_gate(
         "rank_homogeneity_active": rank_homogeneity_active,
         "promotion_passed": promotion_passed,
         "primary_hit_passed": primary_hit_passed,
+        "navigation_primary_hit_passed": navigation_primary_hit_passed,
         "eval_slice_overfit_active": eval_slice_overfit_active,
+        "navigation_eval_slice_overfit_active": navigation_eval_slice_overfit_active,
         "allow_unpromoted_round_best": not active,
-        "require_frozen_primary_challenger": active,
+        "require_frozen_primary_challenger": bool(active and not frozen_promotion_only),
+        "navigation_evidence": (
+            "search_slice_only" if frozen_promotion_only else "legacy_frozen_primary_gate"
+        ),
+        "frozen_validation_role": (
+            "promotion_only" if frozen_promotion_only else "legacy_navigation_and_promotion"
+        ),
     }
 
 
@@ -4661,6 +5541,20 @@ def should_checkpoint_supervisor_best(
     return isinstance(best_summary, dict) and (round_index == 0 or improved)
 
 
+def persisted_round_candidate_summaries(
+    summaries: list[dict],
+    *,
+    decision_round_best: dict | None,
+    limit: int = 5,
+) -> list[dict]:
+    persisted = list(summaries[: max(0, limit)])
+    persisted_hashes = {summary_config_hash(summary) for summary in persisted}
+    decision_hash = summary_config_hash(decision_round_best)
+    if isinstance(decision_round_best, dict) and decision_hash and decision_hash not in persisted_hashes:
+        persisted.append(strip_target_results(decision_round_best))
+    return persisted
+
+
 def compact_round_info(round_info: dict) -> dict:
     compact = dict(round_info)
     compact["best"] = strip_target_results(compact["best"]) if isinstance(compact.get("best"), dict) else compact.get("best")
@@ -4814,10 +5708,17 @@ def prefilter_configs(
     stride: int = 4,
     promote_limit: int = 8,
     diversity_quota: int = 2,
+    frozen_validation_window_value: int = 0,
 ) -> tuple[tuple[FrequencyRankerConfig, ...], dict]:
     started = time.time()
     start_index = max(train_window, len(history) - eval_window)
-    target_indices = list(range(start_index, len(history), max(1, stride)))
+    total_target_count = max(0, len(history) - start_index)
+    frozen_target_count = min(
+        max(0, int(frozen_validation_window_value)),
+        max(0, total_target_count - 1),
+    )
+    search_end_index = len(history) - frozen_target_count
+    target_indices = list(range(start_index, search_end_index, max(1, stride)))
     if not configs or not target_indices:
         return configs, {
             "mode": "light_prefilter",
@@ -4830,6 +5731,10 @@ def prefilter_configs(
             "promote_limit": promote_limit,
             "diversity_quota": diversity_quota,
             "diversity_added_count": 0,
+            "search_target_count": max(0, total_target_count - frozen_target_count),
+            "frozen_target_count": frozen_target_count,
+            "frozen_validation_window": max(0, int(frozen_validation_window_value)),
+            "target_issues": [],
             "refined_config_count": len(configs),
             "elapsed_seconds": 0.0,
             "note": "预筛跳过：没有配置或目标期",
@@ -4924,12 +5829,45 @@ def prefilter_configs(
         "promote_limit": promote_limit,
         "diversity_quota": diversity_quota,
         "diversity_added_count": diversity_added,
+        "search_target_count": max(0, total_target_count - frozen_target_count),
+        "frozen_target_count": frozen_target_count,
+        "frozen_validation_window": max(0, int(frozen_validation_window_value)),
         "refined_config_count": len(selected),
         "elapsed_seconds": round(time.time() - started, 3),
         "top_preview": summaries[: min(5, len(summaries))],
         "note": "预筛仅用于选择进入完整精排的配置，正式指标来自完整 100 期精排",
     }
     return tuple(selected), metadata
+
+
+def prefilter_holdout_isolation_audit(
+    *,
+    prefilter_target_issues: list[str] | tuple[str, ...],
+    evaluation_split: dict,
+) -> dict:
+    target_issues = tuple(str(issue) for issue in prefilter_target_issues if issue)
+    search_issues = tuple(str(issue) for issue in evaluation_split.get("search_issues") or () if issue)
+    frozen_issues = tuple(str(issue) for issue in evaluation_split.get("frozen_issues") or () if issue)
+    search_set = set(search_issues)
+    frozen_set = set(frozen_issues)
+    frozen_overlap = tuple(issue for issue in target_issues if issue in frozen_set)
+    outside_split = tuple(
+        issue
+        for issue in target_issues
+        if issue not in search_set and issue not in frozen_set
+    )
+    passed = bool(search_issues) and not frozen_overlap and not outside_split
+    return {
+        "status": "passed" if passed else "failed",
+        "passed": passed,
+        "prefilter_target_count": len(target_issues),
+        "prefilter_search_issue_overlap_count": sum(issue in search_set for issue in target_issues),
+        "prefilter_frozen_issue_overlap_count": len(frozen_overlap),
+        "prefilter_frozen_issue_overlap": list(frozen_overlap),
+        "prefilter_outside_split_issue_count": len(outside_split),
+        "prefilter_outside_split_issues": list(outside_split),
+        "prefilter_uses_frozen_validation": bool(frozen_overlap),
+    }
 
 
 def _init_target_worker(ranked_universe) -> None:
@@ -5008,6 +5946,7 @@ def evaluate_configs(
     progress_interval: int,
     round_index: int,
     progress_callback: Callable[[dict], None] | None = None,
+    frozen_validation_window_value: int = 0,
 ) -> list[dict]:
     start_index = max(train_window, len(history) - eval_window)
     total_targets = len(history) - start_index
@@ -5119,7 +6058,7 @@ def evaluate_configs(
     as_of_issue = history_issue(history[-1])
     history_fingerprint_value = fingerprint_history(history)
     summaries = [
-        summarize_target_ranks(
+        summarize_partitioned_target_ranks(
             target_ranks=target_ranks,
             config=config,
             as_of_issue=as_of_issue,
@@ -5128,6 +6067,7 @@ def evaluate_configs(
             train_mode=train_mode,
             top_n=top_n,
             universe_size=len(ranked_universe),
+            validation_window=frozen_validation_window_value,
         )
         for config, target_ranks in zip(configs, target_rank_lists, strict=True)
     ]
@@ -5177,6 +6117,7 @@ def compact_status_payload(status: dict) -> dict:
         "near_miss_inversion_advisor": status.get("near_miss_inversion_advisor"),
         "probability_focus": status.get("probability_focus"),
         "carryover_seed": status.get("carryover_seed"),
+        "continuity_seed": status.get("continuity_seed"),
         "qian_kun": status.get("qian_kun"),
         "next_candidates": status.get("next_candidates"),
         "self_diagnostics": status.get("self_diagnostics"),
@@ -5475,7 +6416,35 @@ def run_supervisor(
         top_n=top_n,
         universe_size=len(ranked_universe),
     )
-    carryover_configs = merge_config_candidates(db_carryover_configs, status_carryover_configs, limit=16)
+    same_history_seed_configs = config_candidates_from_summaries(prior_leaderboard, limit=16)
+    carryover_configs = merge_config_candidates(
+        same_history_seed_configs,
+        db_carryover_configs,
+        status_carryover_configs,
+        limit=16,
+    )
+    # Historical summaries predate the disjoint search/frozen split. Keep their configs,
+    # but never compare their full-window metrics against the new search-only metrics.
+    prior_leaderboard = []
+    with get_connection() as conn:
+        navigation_records = load_training_round_navigation_records(
+            conn,
+            as_of_issue=as_of_issue_value,
+            history_fingerprint=history_fingerprint_value,
+            train_window=train_window,
+            train_mode=train_mode,
+            eval_window=eval_window,
+            top_n=top_n,
+            limit=80,
+        )
+    guard_history, guard_continuity_info = recover_supervisor_guard_history(
+        navigation_records,
+        limit=80,
+    )
+    continuity_configs, continuity_recovery_info = recover_holdout_isolated_continuity_configs(
+        navigation_records,
+        limit=4,
+    )
     pool = create_worker_pool(worker_count, ranked_universe)
 
     carryover_summaries: list[dict] = []
@@ -5497,13 +6466,9 @@ def run_supervisor(
             pool=pool,
             progress_interval=0,
             round_index=0,
+            frozen_validation_window_value=frozen_validation_window(eval_window),
         )
-        attach_frozen_validation(
-            carryover_summaries,
-            validation_window=frozen_validation_window(eval_window),
-            universe_size=len(ranked_universe),
-        )
-        prior_leaderboard = merge_leaderboard(prior_leaderboard, carryover_summaries, limit=32)
+        prior_leaderboard = merge_leaderboard([], carryover_summaries, limit=32)
         if carryover_summaries:
             log(
                 "seeded_carryover_best="
@@ -5515,7 +6480,44 @@ def run_supervisor(
 
     best_summary: dict | None = prior_leaderboard[0] if prior_leaderboard else None
     best_config = FrequencyRankerConfig(**best_summary["config"]) if best_summary else FrequencyRankerConfig()
-    search_base_config = best_config
+    continuity_summaries: list[dict] = []
+    if continuity_configs:
+        log(
+            "seeded_supervisor_continuity_configs="
+            f"count={len(continuity_configs)} "
+            f"hashes={bounded_unique_config_hashes(continuity_configs, limit=len(continuity_configs))}"
+        )
+        continuity_summaries = evaluate_configs(
+            history=training_history,
+            ranked_universe=ranked_universe,
+            configs=continuity_configs,
+            train_window=train_window,
+            train_mode=train_mode,
+            eval_window=eval_window,
+            top_n=top_n,
+            workers=worker_count,
+            pool=pool,
+            progress_interval=0,
+            round_index=0,
+            frozen_validation_window_value=frozen_validation_window(eval_window),
+        )
+    continuity_seed, continuity_seed_info = select_holdout_isolated_continuity_seed(
+        continuity_summaries,
+        baseline=best_summary,
+    )
+    continuity_seed_info.update(continuity_recovery_info)
+    search_base_config = (
+        FrequencyRankerConfig(**continuity_seed["config"])
+        if continuity_seed is not None
+        else best_config
+    )
+    if continuity_seed is not None:
+        log(
+            "seeded_supervisor_continuity_search_base="
+            f"config_hash={config_hash(search_base_config)} "
+            "selection_basis=search_slice_revalidated "
+            "frozen_validation_used=False"
+        )
     dynamic_kdj_best_training_summary: dict | None = None
     dynamic_kdj_best_policy: dict | None = None
     near_dynamic_kdj_best_training_summary: dict | None = None
@@ -5524,8 +6526,16 @@ def run_supervisor(
     near_dynamic_kdj_stagnation_rounds = 0
     near_dynamic_kdj_sealed = False
     near_dynamic_kdj_seal_reason = ""
-    leaderboard: list[dict] = prior_leaderboard
+    leaderboard: list[dict] = merge_leaderboard(prior_leaderboard, continuity_summaries, limit=32)
     rounds: list[dict] = []
+    if guard_history:
+        log(
+            "seeded_guard_continuity="
+            f"stagnation={guard_continuity_info['stagnation_rounds']} "
+            f"signatures={guard_continuity_info['unique_rank_signature_count']}/"
+            f"{guard_continuity_info['rank_signature_count']} "
+            f"source_runs={guard_continuity_info['source_run_ids']}"
+        )
     target_weight_inversion_configs: tuple[FrequencyRankerConfig, ...] = ()
     target_weight_inversion_latest: dict | None = None
     near_miss_inversion_configs: tuple[FrequencyRankerConfig, ...] = ()
@@ -5659,6 +6669,15 @@ def run_supervisor(
             "evaluated_config_count": len(carryover_summaries),
             "best": strip_target_results(carryover_summaries[0]) if carryover_summaries else None,
         },
+        "continuity_seed": {
+            **continuity_seed_info,
+            "config_hashes": bounded_unique_config_hashes(
+                continuity_configs,
+                limit=len(continuity_configs) or 1,
+            ),
+            "selected": strip_target_results(continuity_seed) if continuity_seed is not None else None,
+        },
+        "guard_continuity": guard_continuity_info,
         "qian_kun": qian_kun_distribution(selection.history),
         "next_candidates": None,
         "self_diagnostics": None,
@@ -5666,9 +6685,9 @@ def run_supervisor(
         "rounds": rounds,
         "best": strip_target_results(best_summary) if best_summary else None,
         "search_base": {
-            "source": "initial_best",
-            "changed": False,
-            "previous_config_hash": "",
+            "source": "supervisor_continuity" if continuity_seed is not None else "initial_best",
+            "changed": continuity_seed is not None,
+            "previous_config_hash": config_hash(best_config) if continuity_seed is not None else "",
             "config_hash": config_hash(search_base_config),
             "config": config_dict(search_base_config),
         },
@@ -5696,16 +6715,32 @@ def run_supervisor(
     try:
         round_index = 0
         while should_continue_training(round_index, deadline):
-            stagnation_rounds = stagnation_round_count(rounds)
+            guard_rounds = active_supervisor_guard_rounds(guard_history, rounds)
+            stagnation_rounds = active_supervisor_stagnation_round_count(
+                int(guard_continuity_info.get("stagnation_rounds") or 0),
+                rounds,
+            )
             phase, step, phase_stage = phase_for_round(round_index, stagnation_rounds=stagnation_rounds)
             min_search_base_distance = search_base_min_distance_for_phase(phase_stage)
-            rank_homogeneity = rank_homogeneity_guardrail(rounds, stagnation_rounds=stagnation_rounds)
+            rank_homogeneity = rank_homogeneity_guardrail(
+                guard_rounds,
+                stagnation_rounds=stagnation_rounds,
+            )
             rank_signature_cooldown_hashes = tuple(rank_homogeneity.get("signatures") or ()) if rank_homogeneity["active"] else ()
             stagnation_restart_budget = (
                 min(max_configs_per_round, max(3, max_configs_per_round // 5))
                 if rank_homogeneity["active"]
                 else 0
             )
+            stagnation_restart_position = stagnation_restart_catalog_position(
+                rank_homogeneity,
+                budget=stagnation_restart_budget,
+            )
+            rank_homogeneity = {
+                **rank_homogeneity,
+                "restart_batch_index": stagnation_restart_position["batch_index"],
+                "restart_catalog_offset": stagnation_restart_position["catalog_offset"],
+            }
             near_miss_inversion_budget = (
                 min(len(near_miss_inversion_configs), max(2, max_configs_per_round // 7))
                 if enable_target_weight_inversion_advisor and stagnation_rounds >= NEAR_MISS_INVERSION_STAGNATION_THRESHOLD
@@ -5755,12 +6790,12 @@ def run_supervisor(
                 - probability_focus_budget
             )
             normal_config_budget = max(1, normal_config_budget)
-            configs = tuple(
+            normal_candidate_pool = tuple(
                 generate_configs(
                     search_base_config,
                     phase=phase,
                     step=step,
-                    max_configs=normal_config_budget,
+                    max_configs=max_configs_per_round,
                     elite_configs=elite_configs,
                     historical_summaries=historical_summaries,
                     low_coverage_fields=low_coverage_fields,
@@ -5768,13 +6803,65 @@ def run_supervisor(
                     round_index=round_index + 1,
                 )
             )
+            configs = normal_candidate_pool[:normal_config_budget]
             normal_configs = configs
-            stagnation_restart_configs = stagnation_restart_candidate_configs(
+            historical_restart_hashes = historical_candidate_source_hashes(
+                [*reversed(rounds), *navigation_records],
+                source="stagnation_restart",
+            )
+            historical_restart_hash_set = set(historical_restart_hashes)
+            baseline_stagnation_restart_configs = stagnation_restart_candidate_configs(
                 search_base_config,
                 max_configs=stagnation_restart_budget,
                 round_index=round_index + 1,
                 stagnation_rounds=stagnation_rounds,
+                catalog_offset=stagnation_restart_position["catalog_offset"],
             )
+            baseline_restart_hashes = bounded_unique_config_hashes(
+                baseline_stagnation_restart_configs,
+                limit=len(baseline_stagnation_restart_configs) or 1,
+            )
+            reused_restart_hashes = tuple(
+                hash_value
+                for hash_value in baseline_restart_hashes
+                if hash_value in historical_restart_hash_set
+            )
+            stagnation_restart_configs = (
+                stagnation_restart_candidate_configs(
+                    search_base_config,
+                    max_configs=stagnation_restart_budget,
+                    round_index=round_index + 1,
+                    stagnation_rounds=stagnation_rounds,
+                    catalog_offset=stagnation_restart_position["catalog_offset"],
+                    excluded_config_hashes=historical_restart_hashes,
+                )
+                if reused_restart_hashes
+                else baseline_stagnation_restart_configs
+            )
+            generated_restart_hashes = bounded_unique_config_hashes(
+                stagnation_restart_configs,
+                limit=len(stagnation_restart_configs) or 1,
+            )
+            generated_restart_hash_set = set(generated_restart_hashes)
+            restart_candidate_novelty = {
+                "history_hash_count": len(historical_restart_hashes),
+                "baseline_candidate_count": len(baseline_restart_hashes),
+                "baseline_reused_count": len(reused_restart_hashes),
+                "baseline_reused_hashes": list(reused_restart_hashes),
+                "generated_candidate_count": len(generated_restart_hashes),
+                "generated_reused_count": sum(
+                    hash_value in historical_restart_hash_set
+                    for hash_value in generated_restart_hashes
+                ),
+                "replacement_count": len(
+                    generated_restart_hash_set - set(baseline_restart_hashes)
+                ),
+                "novelty_enforced": bool(reused_restart_hashes),
+            }
+            rank_homogeneity = {
+                **rank_homogeneity,
+                "restart_candidate_novelty": restart_candidate_novelty,
+            }
             recency_canary_configs = recency_canary_candidate_configs(
                 search_base_config,
                 step=step,
@@ -5921,6 +7008,18 @@ def run_supervisor(
                     max_configs=max_configs_per_round,
                     reserved_budget=probability_focus_budget,
                 )
+            configs = refill_candidate_configs(
+                configs,
+                normal_candidate_pool,
+                max_configs=max_configs_per_round,
+            )
+            generated_hashes = {config_hash(config) for config in configs}
+            normal_configs = tuple(
+                config
+                for config in normal_candidate_pool
+                if config_hash(config) in generated_hashes
+            )
+            source_configs["normal"] = normal_configs
             generated_config_count = len(configs)
             keep_configs = (
                 search_base_config,
@@ -5937,6 +7036,7 @@ def run_supervisor(
                 probability_focus_configs=probability_focus_configs,
                 control_configs=control_configs,
             )
+            validation_window = frozen_validation_window(eval_window)
             refined_configs, prefilter_info = prefilter_configs(
                 history=training_history,
                 ranked_universe=ranked_universe,
@@ -5950,8 +7050,14 @@ def run_supervisor(
                 pool=pool,
                 round_index=round_index + 1,
                 diversity_quota=max(2, max_configs_per_round // 10),
+                frozen_validation_window_value=validation_window,
             )
             prefilter_info["stagnation_rounds"] = stagnation_rounds
+            prefilter_info["guard_continuity"] = {
+                **guard_continuity_info,
+                "effective_stagnation_rounds": stagnation_rounds,
+                "current_run_round_count": len(rounds),
+            }
             prefilter_info["phase_stage"] = phase_stage
             prefilter_info["search_base_min_distance"] = min_search_base_distance
             prefilter_info["search_base_start"] = {
@@ -5961,6 +7067,7 @@ def run_supervisor(
             prefilter_info["low_coverage_fields"] = list(low_coverage_fields)
             prefilter_info["candidate_budget"] = budgets
             prefilter_info["candidate_budget"]["stagnation_restart"] = stagnation_restart_budget
+            prefilter_info["stagnation_restart_catalog_offset"] = stagnation_restart_position["catalog_offset"]
             prefilter_info["rank_homogeneity_guardrail"] = rank_homogeneity
             prefilter_info["target_weight_inversion_budget_guardrail"] = target_weight_inversion_guardrail
             prefilter_info["source_survival"] = candidate_source_survival(
@@ -6029,12 +7136,7 @@ def run_supervisor(
                 progress_interval=progress_interval,
                 round_index=round_index + 1,
                 progress_callback=publish_progress,
-            )
-            validation_window = frozen_validation_window(eval_window)
-            attach_frozen_validation(
-                summaries,
-                validation_window=validation_window,
-                universe_size=len(ranked_universe),
+                frozen_validation_window_value=validation_window,
             )
             attach_baseline_overlap(
                 summaries,
@@ -6044,9 +7146,26 @@ def run_supervisor(
             summaries.sort(key=sort_key, reverse=True)
             control_summaries = control_experiment_summaries(summaries, control_configs)
             round_best = summaries[0]
+            evaluation_split = (
+                round_best.get("evaluation_split")
+                if isinstance(round_best.get("evaluation_split"), dict)
+                else {}
+            )
+            prefilter_isolation = prefilter_holdout_isolation_audit(
+                prefilter_target_issues=prefilter_info.get("target_issues") or (),
+                evaluation_split=evaluation_split,
+            )
+            if not prefilter_isolation["passed"]:
+                raise RuntimeError(
+                    "prefilter holdout isolation failed: "
+                    f"frozen_overlap={prefilter_isolation['prefilter_frozen_issue_overlap']} "
+                    f"outside_split={prefilter_isolation['prefilter_outside_split_issues']}"
+                )
             prior_best_summary = best_summary
             raw_improved = prior_best_summary is None or sort_key(round_best) > sort_key(prior_best_summary)
-            promotion_gate = frozen_validation_promotion_gate(round_best, prior_best_summary)
+            promotion_gate = quarantine_historical_frozen_promotion(
+                frozen_validation_promotion_gate(round_best, prior_best_summary)
+            )
             improved = bool(raw_improved and promotion_gate["passed"])
             eval_slice_overfit = eval_slice_overfit_guardrail(
                 summaries=summaries,
@@ -6062,6 +7181,7 @@ def run_supervisor(
                 rank_homogeneity=rank_homogeneity,
                 promotion_gate=promotion_gate,
                 eval_slice_overfit=eval_slice_overfit,
+                frozen_promotion_only=True,
             )
             require_frozen_primary_navigation = bool(
                 round_best_search_gate.get("require_frozen_primary_challenger")
@@ -6092,6 +7212,7 @@ def run_supervisor(
                 prior_best_summary=prior_best_summary,
                 stagnation_rounds=stagnation_rounds,
                 force_primary_gate=bool(eval_slice_overfit["force_primary_gate"]),
+                frozen_promotion_only=True,
             )
             source_frontier_champion, source_frontier_champion_info = select_source_frontier_champion(
                 summaries=summaries,
@@ -6208,11 +7329,13 @@ def run_supervisor(
                 improved=improved,
                 probability_focus_decision_summary=probability_focus_decision_summary,
                 probability_champion=probability_champion,
-                source_frontier_champion=source_frontier_champion,
+                source_frontier_champion=None,
                 restart_champion=restart_champion,
                 exploration_champion=exploration_champion,
                 require_frozen_primary_lift=require_frozen_primary_navigation,
             )
+            decision_round_best_info["selection_uses_frozen_validation"] = False
+            decision_round_best_info["selection_basis"] = "search_slice_only"
             inversion_anchor, challenger_summary, inversion_anchor_info = select_target_weight_inversion_anchor(
                 summaries=summaries,
                 prior_best_summary=prior_best_summary,
@@ -6222,6 +7345,40 @@ def run_supervisor(
                 frozen_primary_lift_baseline=prior_best_summary,
             )
             prefilter_info["frozen_validation_window"] = validation_window
+            prefilter_info["holdout_isolation"] = {
+                "protocol": HOLDOUT_ISOLATION_PROTOCOL,
+                "total_window": evaluation_split.get("total_window"),
+                "search_window": evaluation_split.get("search_window"),
+                "frozen_window": evaluation_split.get("frozen_window"),
+                "issue_overlap_count": evaluation_split.get("issue_overlap_count"),
+                "search_uses_frozen_validation": bool(
+                    prefilter_isolation["prefilter_uses_frozen_validation"]
+                ),
+                "prefilter_isolation_status": prefilter_isolation["status"],
+                "prefilter_target_count": prefilter_isolation["prefilter_target_count"],
+                "prefilter_search_issue_overlap_count": prefilter_isolation[
+                    "prefilter_search_issue_overlap_count"
+                ],
+                "prefilter_frozen_issue_overlap_count": prefilter_isolation[
+                    "prefilter_frozen_issue_overlap_count"
+                ],
+                "prefilter_frozen_issue_overlap": prefilter_isolation[
+                    "prefilter_frozen_issue_overlap"
+                ],
+                "prefilter_outside_split_issue_count": prefilter_isolation[
+                    "prefilter_outside_split_issue_count"
+                ],
+                "prefilter_uses_frozen_validation": prefilter_isolation[
+                    "prefilter_uses_frozen_validation"
+                ],
+                "frozen_validation_role": "promotion_only",
+                "source_frontier_used_for_navigation": False,
+                "historical_holdout_quarantined": bool(
+                    promotion_gate.get("historical_holdout_quarantined")
+                ),
+                "promotion_holdout_status": promotion_gate.get("promotion_holdout_status"),
+                "forward_unseen_evidence_required": True,
+            }
             prefilter_info["control_experiments"] = control_summaries
             prefilter_info["promotion_gate"] = promotion_gate
             prefilter_info["eval_slice_overfit_guardrail"] = eval_slice_overfit
@@ -6302,6 +7459,13 @@ def run_supervisor(
             target_weight_inversion_latest = {
                 **target_weight_inversion_latest,
                 "anchor": inversion_anchor_info,
+                "signal_scope": "search_slice",
+                "expected_cutoff_issue": (
+                    ((round_best.get("evaluation_split") or {}).get("search_issues") or [""])[-1]
+                    if isinstance(round_best.get("evaluation_split"), dict)
+                    else ""
+                ),
+                "history_latest_issue": as_of_issue_value,
             }
             prefilter_info["target_weight_inversion_advisor"] = target_weight_inversion_latest
             status["target_weight_inversion_advisor"]["latest"] = target_weight_inversion_latest
@@ -6319,13 +7483,32 @@ def run_supervisor(
             prefilter_info["near_miss_inversion_advisor"] = near_miss_inversion_latest
             status["near_miss_inversion_advisor"]["latest"] = near_miss_inversion_latest
             leaderboard = merge_leaderboard(leaderboard, summaries[: min(8, len(summaries))])
+            fallback_search_base_config, fallback_search_base_info = select_next_search_base(
+                current_base=search_base_config,
+                summaries=summaries,
+                round_best=decision_round_best,
+                improved=improved,
+                exploration_navigation_candidate=experimental_navigation_candidate,
+                exploration_navigation_source=str(experimental_navigation_info.get("source") or ""),
+                exploration_navigation_reason=str(experimental_navigation_info.get("reason") or ""),
+                recent_search_base_hashes=recent_search_base_hashes(rounds, search_base_config),
+                excluded_rank_signature_hashes=rank_signature_cooldown_hashes,
+                min_config_distance=min_search_base_distance,
+                allow_unpromoted_round_best=bool(round_best_search_gate["allow_unpromoted_round_best"]),
+                round_best_skip_reason=str(round_best_search_gate["reason"]),
+                require_frozen_primary_lift=require_frozen_primary_navigation,
+                frozen_primary_lift_baseline=prior_best_summary,
+                frozen_promotion_only=True,
+            )
+            next_search_base_config = fallback_search_base_config
+            search_base_info = fallback_search_base_info
             if probability_focus_info["active"] and probability_focus_decision_summary is not None:
                 focus_recent_search_base_hashes = (
                     recent_search_base_hashes(rounds, search_base_config)
                     if rank_homogeneity["active"]
                     else ()
                 )
-                next_search_base_config, search_base_info = select_probability_focus_search_base(
+                focus_search_base_config, focus_search_base_info = select_probability_focus_search_base(
                     current_base=search_base_config,
                     focus_summary=probability_focus_decision_summary,
                     focus_info=probability_focus_info,
@@ -6335,45 +7518,17 @@ def run_supervisor(
                     require_frozen_primary_lift=require_frozen_primary_navigation,
                     frozen_primary_lift_baseline=prior_best_summary,
                 )
-                if next_search_base_config is None:
-                    next_search_base_config, search_base_info = select_next_search_base(
-                        current_base=search_base_config,
-                        summaries=summaries,
-                        round_best=decision_round_best,
-                        improved=improved,
-                        exploration_navigation_candidate=experimental_navigation_candidate,
-                        exploration_navigation_source=str(experimental_navigation_info.get("source") or ""),
-                        exploration_navigation_reason=str(experimental_navigation_info.get("reason") or ""),
-                        recent_search_base_hashes=recent_search_base_hashes(rounds, search_base_config),
-                        excluded_rank_signature_hashes=rank_signature_cooldown_hashes,
-                        min_config_distance=min_search_base_distance,
-                        allow_unpromoted_round_best=bool(
-                            round_best_search_gate["allow_unpromoted_round_best"]
-                        ),
-                        round_best_skip_reason=str(round_best_search_gate["reason"]),
-                        require_frozen_primary_lift=require_frozen_primary_navigation,
-                        frozen_primary_lift_baseline=prior_best_summary,
+                if focus_search_base_config is not None:
+                    next_search_base_config = focus_search_base_config
+                    search_base_info = merge_experimental_navigation_arbitration(
+                        focus_search_base_info,
+                        fallback_search_base_info,
                     )
-            else:
-                next_search_base_config, search_base_info = select_next_search_base(
-                    current_base=search_base_config,
-                    summaries=summaries,
-                    round_best=decision_round_best,
-                    improved=improved,
-                    exploration_navigation_candidate=experimental_navigation_candidate,
-                    exploration_navigation_source=str(experimental_navigation_info.get("source") or ""),
-                    exploration_navigation_reason=str(experimental_navigation_info.get("reason") or ""),
-                    recent_search_base_hashes=recent_search_base_hashes(rounds, search_base_config),
-                    excluded_rank_signature_hashes=rank_signature_cooldown_hashes,
-                    min_config_distance=min_search_base_distance,
-                    allow_unpromoted_round_best=bool(round_best_search_gate["allow_unpromoted_round_best"]),
-                    round_best_skip_reason=str(round_best_search_gate["reason"]),
-                    require_frozen_primary_lift=require_frozen_primary_navigation,
-                    frozen_primary_lift_baseline=prior_best_summary,
-                )
             search_base_info["phase"] = phase
             search_base_info["phase_stage"] = phase_stage
             search_base_info["step"] = step
+            search_base_info["selection_uses_frozen_validation"] = False
+            search_base_info["selection_basis"] = "search_slice_only"
             prefilter_info["search_base"] = search_base_info
             log(
                 f"round={round_index + 1} target_weight_inversion_anchor="
@@ -6385,8 +7540,18 @@ def run_supervisor(
                 log(
                     f"round={round_index + 1} rank_homogeneity_restart="
                     f"unique={rank_homogeneity['unique_signature_count']}/{rank_homogeneity['observed']} "
-                    f"budget={stagnation_restart_budget}"
+                    f"budget={stagnation_restart_budget} "
+                    f"batch={stagnation_restart_position['batch_index']} "
+                    f"catalog_offset={stagnation_restart_position['catalog_offset']}"
                 )
+                if restart_candidate_novelty["baseline_reused_count"]:
+                    log(
+                        f"round={round_index + 1} restart_candidate_novelty="
+                        f"filtered={restart_candidate_novelty['baseline_reused_count']} "
+                        f"replacements={restart_candidate_novelty['replacement_count']} "
+                        f"history_hashes={restart_candidate_novelty['history_hash_count']} "
+                        f"generated_reused={restart_candidate_novelty['generated_reused_count']}"
+                    )
             if eval_slice_overfit["active"]:
                 log(
                     f"round={round_index + 1} eval_slice_overfit_guardrail="
@@ -6464,6 +7629,12 @@ def run_supervisor(
             else:
                 log(f"round={round_index + 1} no_improvement best_top10000={best_summary['top_10000_hits'] if best_summary else 'n/a'}")
             search_base_config = next_search_base_config
+            search_training_history = (
+                training_history[:-validation_window]
+                if validation_window > 0
+                else training_history
+            )
+            search_eval_window = max(1, eval_window - validation_window)
             dynamic_training_payload: dict = {
                 "status": "skipped",
                 "reason": "not_started",
@@ -6490,14 +7661,15 @@ def run_supervisor(
                             limit=weight_kdj_limit,
                         )
                 dynamic_training_payload = dynamic_kdj_strength_sweep_training_summary(
-                    history=training_history,
+                    history=search_training_history,
                     base_config=FrequencyRankerConfig(**dynamic_training_base_summary["config"]),
                     signals=dynamic_training_signals,
                     ranked_universe=ranked_universe,
                     train_mode=train_mode,
                     train_window=train_window,
-                    eval_window=eval_window,
+                    eval_window=search_eval_window,
                     top_n=top_n,
+                    workers=worker_count,
                 )
                 dynamic_training_selected = (
                     dynamic_training_payload.get("selected_summary")
@@ -6556,6 +7728,12 @@ def run_supervisor(
                     "selected_summary": dynamic_training_selected,
                     "rows": dynamic_training_payload.get("rows"),
                     "best_policy_key": dynamic_kdj_best_policy.get("policy_key") if dynamic_kdj_best_policy else None,
+                    "evaluation_split": {
+                        "protocol": HOLDOUT_ISOLATION_PROTOCOL,
+                        "search_window": search_eval_window,
+                        "frozen_window": validation_window,
+                        "frozen_validation_used": False,
+                    },
                 }
                 log(
                     f"round={round_index + 1} dynamic_kdj_training="
@@ -6566,6 +7744,8 @@ def run_supervisor(
                     f"top1000={dynamic_training_selected.get('top_1000_hits')} "
                     f"top10000={dynamic_training_selected.get('top_10000_hits')} "
                     f"red5_top10000={(dynamic_training_selected.get('red5') or {}).get('top_10000_hits') if isinstance(dynamic_training_selected.get('red5'), dict) else None}"
+                    f" workers={dynamic_training_payload.get('target_worker_count')}"
+                    f" elapsed={dynamic_training_payload.get('elapsed_seconds')}s"
                 )
             except Exception as exc:  # pragma: no cover - dynamic line training must not stop static training.
                 dynamic_training_payload = {
@@ -6607,6 +7787,7 @@ def run_supervisor(
                     train_window=train_window,
                     eval_window=NEAR_DYNAMIC_KDJ_EVAL_WINDOW,
                     top_n=top_n,
+                    workers=worker_count,
                     line_key=NEAR_DYNAMIC_KDJ_LINE_KEY,
                     protocol=NEAR_DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
                     source="near_dynamic_kdj_strength_sweep",
@@ -6710,7 +7891,9 @@ def run_supervisor(
                     f"stagnation={near_dynamic_kdj_stagnation_rounds} "
                     f"top100={near_dynamic_training_selected.get('top_100_hits')} "
                     f"top1000={near_dynamic_training_selected.get('top_1000_hits')} "
-                    f"top10000={near_dynamic_training_selected.get('top_10000_hits')}"
+                    f"top10000={near_dynamic_training_selected.get('top_10000_hits')} "
+                    f"workers={near_dynamic_training_payload.get('target_worker_count')} "
+                    f"elapsed={near_dynamic_training_payload.get('elapsed_seconds')}s"
                 )
             except Exception as exc:  # pragma: no cover - near line training must not stop static training.
                 near_dynamic_training_payload = {
@@ -6749,7 +7932,10 @@ def run_supervisor(
                 "prefilter": prefilter_info,
                 "improved": improved,
                 "best": round_best,
-                "top_results": summaries[: min(5, len(summaries))],
+                "top_results": persisted_round_candidate_summaries(
+                    summaries,
+                    decision_round_best=decision_round_best,
+                ),
                 "control_experiments": control_summaries,
             }
             status["updated_at"] = datetime.now().isoformat(timespec="seconds")

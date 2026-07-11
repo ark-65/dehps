@@ -6,6 +6,8 @@
 
 把 DEHPS 持续推进为一个可审计的预测训练平台: 以透明特征、冻结规则、历史回测、null model 对照、训练/仪表盘可读、风险可追踪为基础，逐步验证是否具备未来预测价值。
 
+长期训练增强目标：保持历史、canonical advisor 信号和 live supervisor `as_of_issue` 对齐；每 2 小时自我迭代检查训练进度、跨 supervisor continuity seed、停滞恢复、候选/排名多样性、`candidate_source_survival`、冻结验证、null baseline、泄漏和 parser/sync/duplicate 状态。来源转化窗口未达到最小轮数时只观察；成熟窗口只用于定位预筛/预算瓶颈，不按来源保送候选。同历史、曾严格提高冻结主指标的 navigation candidate 必须在交接后重评，仍通过才续接 search base，且不得冒充 incumbent。只有可复现的新结构、冻结/前向证据改善或失败模式减少才算“变强”，持续计算本身不算。
+
 ## 工作流模板
 
 每轮按以下顺序执行:
@@ -31,6 +33,14 @@
 - 基线: 当前训练 supervisor、target weight inversion 家族、已有 archive 表。
 - 产物: 诊断报告或 round report，包含候选族分布、score 变化、失败样例。
 - 验收: 相关 worker 测试通过，并能说明是否需要继续扩大搜索空间。
+
+### P1 - Advisor 数据新鲜度闭环
+
+- 问题: canonical KDJ/Ridge/Neural 信号是否与最新历史 issue 对齐，watchdog 是否会在信号落后时安全交接 supervisor？
+- 基线: `weight-kdj-recent-1000-v1`、最新 `ssq_history` issue、当前 supervisor `--as-of-issue`。
+- 非目标: 不新增 advisor，不放宽 frozen validation、null model 或 leakage gate。
+- 产物: watcher 新鲜度状态、增量刷新日志、新 supervisor run id 和至少 1-2 个完整轮次。
+- 验收: advisor 信号不超前且最多落后 1 个实际历史 issue；新 run 无运行错误，证据报告保留失败模式与不确定性。
 
 ### P1 - 动态 KDJ 回测闭环
 

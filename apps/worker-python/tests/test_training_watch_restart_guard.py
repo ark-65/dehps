@@ -10,6 +10,13 @@ def restart_ready_summary(**overrides):
     summary = {
         "run_id": "run-1",
         "action": "prepare_restart_with_more_exploration",
+        "supervisor_round_boundary": {
+            "status": "target_complete_round_recorded",
+            "supervisor_progress_round": 28,
+            "latest_db_round": 28,
+            "round_lag": 0,
+            "target_complete": True,
+        },
         "restart_readiness": {
             "supervisor_run_id": "run-1",
             "status": "blocked_by_active_training_supervisor_lock",
@@ -108,6 +115,39 @@ def test_restart_decision_rejects_incomplete_target_boundary():
     assert decision.should_restart is False
     assert "operator_action" in decision.reason
     assert "target_complete" in decision.reason
+
+
+def test_restart_decision_rejects_target_complete_before_durable_round_record():
+    decision = restart_decision_from_watch_summary(
+        restart_ready_summary(
+            supervisor_round_boundary={
+                "status": "target_complete_waiting_round_result",
+                "supervisor_progress_round": 29,
+                "latest_db_round": 28,
+                "round_lag": 1,
+                "target_complete": True,
+            },
+        ),
+        expected_pid=12345,
+    )
+
+    assert decision.should_restart is False
+    assert "durable_round_boundary" in decision.reason
+
+
+def test_restart_decision_rejects_current_run_navigation_arbitration():
+    decision = restart_decision_from_watch_summary(
+        restart_ready_summary(
+            restart_readiness={
+                "current_run_navigation_arbitration_active": True,
+                "experimental_navigation_selected": True,
+            },
+        ),
+        expected_pid=12345,
+    )
+
+    assert decision.should_restart is False
+    assert "navigation_arbitration_inactive" in decision.reason
 
 
 def test_restart_decision_rejects_mismatched_pid():
