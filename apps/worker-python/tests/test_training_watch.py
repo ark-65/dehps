@@ -3415,6 +3415,39 @@ def test_runtime_storage_capacity_is_visible_to_operator_and_markdown():
     assert "hourly_self_iterate.log=18" in markdown
 
 
+def test_remote_sync_cadence_is_visible_to_operator_and_markdown():
+    cadence = {
+        "protocol": "dehps-ssq-remote-sync-cadence-v1",
+        "due": False,
+        "reason": "cold_poll_interval_not_elapsed",
+        "local_now": "2026-07-11T18:20:00+08:00",
+        "draw_hot_window": False,
+        "recovery_window": False,
+        "cold_poll_minutes": 60,
+        "running_grace_minutes": 30,
+        "last_attempt_at": "2026-07-11T18:10:00+08:00",
+        "last_status": "success",
+        "elapsed_minutes": 10.0,
+        "retry_after_minutes": 50.0,
+        "local_health_check_cadence_minutes": 10,
+        "selection_changed": False,
+        "promotion_allowed": False,
+        "interpretation": "Remote cadence only.",
+    }
+    payload = {
+        "remote_sync_cadence": cadence,
+        "recommendation": {"severity": "ok", "action": "continue_current_run"},
+    }
+
+    operator = watch.operator_summary(payload)
+    markdown = watch.render_remote_sync_cadence_markdown(cadence)
+
+    assert operator["remote_sync_cadence"]["due"] is False
+    assert operator["remote_sync_cadence"]["local_health_check_cadence_minutes"] == 10
+    assert "## Remote Sync Cadence" in markdown
+    assert "cold_poll_interval_not_elapsed" in markdown
+
+
 def test_recommendation_and_markdown_include_supervisor_progress():
     now = datetime(2026, 7, 1, 0, 5, tzinfo=timezone.utc)
     supervisor_status = {

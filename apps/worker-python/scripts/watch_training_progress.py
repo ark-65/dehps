@@ -21,6 +21,7 @@ from dehps.models.prediction_input_boundary import (
 )
 from dehps.runtime.compute_capability import compute_capability_summary
 from dehps.runtime.heavy_job import describe_heavy_job_owner, is_pid_active
+from dehps.runtime.remote_sync_schedule import ssq_remote_sync_poll_plan
 from dehps.runtime.storage_capacity import runtime_storage_capacity_summary
 from dehps.storage.postgres_store import ensure_ssq_data_conflicts_resolution_schema
 
@@ -4117,6 +4118,16 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
     )
     parser_sync_duplicate_checks = load_parser_sync_duplicate_checks()
     history_issues = parser_sync_duplicate_checks.pop("_history_issues", [])
+    latest_sync = (
+        parser_sync_duplicate_checks.get("latest_sync")
+        if isinstance(parser_sync_duplicate_checks.get("latest_sync"), dict)
+        else {}
+    )
+    remote_sync_cadence = ssq_remote_sync_poll_plan(
+        now=generated_at,
+        last_attempt_at=parse_iso_datetime(latest_sync.get("started_at")),
+        last_status=latest_sync.get("status"),
+    )
     advisor_signal_freshness = advisor_signal_freshness_summary(
         advisors,
         history_latest_issue=parser_sync_duplicate_checks.get("history_latest_issue"),
@@ -4230,6 +4241,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         "prediction_input_boundary": prediction_input_boundary,
         "compute_capability": compute_capability,
         "runtime_storage_capacity": storage_capacity,
+        "remote_sync_cadence": remote_sync_cadence,
         "supervisor_round_boundary": round_boundary,
         "evidence_context": evidence_context_summary(
             supervisor_status=supervisor_status,
@@ -4467,6 +4479,31 @@ def render_runtime_storage_capacity_markdown(storage: Any) -> str:
         f"selection_changed={storage.get('selection_changed')} "
         f"promotion_allowed={storage.get('promotion_allowed')}\n"
         f"- Interpretation: {markdown_inline_text(storage.get('interpretation'))}\n\n"
+    )
+
+
+def render_remote_sync_cadence_markdown(cadence: Any) -> str:
+    if not isinstance(cadence, dict):
+        return ""
+    return (
+        "## Remote Sync Cadence\n\n"
+        f"- Due/reason: {cadence.get('due')} / "
+        f"{markdown_inline_code(cadence.get('reason'))}\n"
+        f"- Local time: {markdown_inline_text(cadence.get('local_now'))}\n"
+        "- Draw/recovery window: "
+        f"{cadence.get('draw_hot_window')} / {cadence.get('recovery_window')}\n"
+        "- Last sync: "
+        f"{markdown_inline_text(cadence.get('last_attempt_at'))} "
+        f"status={markdown_inline_text(cadence.get('last_status'))}\n"
+        "- Cadence: "
+        f"local_health={cadence.get('local_health_check_cadence_minutes')}m "
+        f"cold_remote={cadence.get('cold_poll_minutes')}m "
+        f"running_grace={cadence.get('running_grace_minutes')}m "
+        f"retry_after={cadence.get('retry_after_minutes')}m\n"
+        "- Safety: "
+        f"selection_changed={cadence.get('selection_changed')} "
+        f"promotion_allowed={cadence.get('promotion_allowed')}\n"
+        f"- Interpretation: {markdown_inline_text(cadence.get('interpretation'))}\n\n"
     )
 
 
@@ -4975,6 +5012,9 @@ def render_markdown(payload: dict[str, Any]) -> str:
     runtime_storage_capacity_section = render_runtime_storage_capacity_markdown(
         payload.get("runtime_storage_capacity")
     )
+    remote_sync_cadence_section = render_remote_sync_cadence_markdown(
+        payload.get("remote_sync_cadence")
+    )
     prediction_input_boundary_section = render_prediction_input_boundary_markdown(
         payload.get("prediction_input_boundary")
     )
@@ -5241,6 +5281,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
 {prediction_input_boundary_section}\
 {compute_capability_section}\
 {runtime_storage_capacity_section}\
+{remote_sync_cadence_section}\
 {restart_section}\
 {supervisor_section}\
 {supervisor_lifecycle_section}\
@@ -5323,6 +5364,11 @@ def artifact_snapshot_state(payload: dict[str, Any]) -> dict[str, Any]:
     storage_capacity = (
         payload.get("runtime_storage_capacity")
         if isinstance(payload.get("runtime_storage_capacity"), dict)
+        else {}
+    )
+    remote_sync_cadence = (
+        payload.get("remote_sync_cadence")
+        if isinstance(payload.get("remote_sync_cadence"), dict)
         else {}
     )
     accelerator = (
@@ -5518,6 +5564,14 @@ def artifact_snapshot_state(payload: dict[str, Any]) -> dict[str, Any]:
             "blockers": sorted(
                 str(item) for item in (storage_capacity.get("blockers") or [])
             ),
+        },
+        "remote_sync_cadence": {
+            "due": remote_sync_cadence.get("due"),
+            "reason": remote_sync_cadence.get("reason"),
+            "draw_hot_window": remote_sync_cadence.get("draw_hot_window"),
+            "recovery_window": remote_sync_cadence.get("recovery_window"),
+            "last_attempt_at": remote_sync_cadence.get("last_attempt_at"),
+            "last_status": remote_sync_cadence.get("last_status"),
         },
     }
 
@@ -6199,6 +6253,33 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             ),
             "selection_changed": storage_capacity.get("selection_changed"),
             "promotion_allowed": storage_capacity.get("promotion_allowed"),
+        }
+    remote_sync_cadence = (
+        payload.get("remote_sync_cadence")
+        if isinstance(payload.get("remote_sync_cadence"), dict)
+        else {}
+    )
+    if remote_sync_cadence:
+        summary["remote_sync_cadence"] = {
+            "protocol": remote_sync_cadence.get("protocol"),
+            "due": remote_sync_cadence.get("due"),
+            "reason": remote_sync_cadence.get("reason"),
+            "local_now": remote_sync_cadence.get("local_now"),
+            "draw_hot_window": remote_sync_cadence.get("draw_hot_window"),
+            "recovery_window": remote_sync_cadence.get("recovery_window"),
+            "cold_poll_minutes": remote_sync_cadence.get("cold_poll_minutes"),
+            "running_grace_minutes": remote_sync_cadence.get(
+                "running_grace_minutes"
+            ),
+            "last_attempt_at": remote_sync_cadence.get("last_attempt_at"),
+            "last_status": remote_sync_cadence.get("last_status"),
+            "elapsed_minutes": remote_sync_cadence.get("elapsed_minutes"),
+            "retry_after_minutes": remote_sync_cadence.get("retry_after_minutes"),
+            "local_health_check_cadence_minutes": remote_sync_cadence.get(
+                "local_health_check_cadence_minutes"
+            ),
+            "selection_changed": remote_sync_cadence.get("selection_changed"),
+            "promotion_allowed": remote_sync_cadence.get("promotion_allowed"),
         }
     round_repetition = (
         payload.get("round_repetition")

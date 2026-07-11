@@ -441,11 +441,28 @@ storage_capacity_output="$(.venv/bin/python scripts/check_runtime_storage_capaci
 }
 log "runtime storage capacity accepted payload=$storage_capacity_output"
 
+set +e
+remote_sync_plan="$(.venv/bin/python scripts/plan_ssq_remote_sync_poll.py)"
+remote_sync_plan_status=$?
+set -e
+if [[ "$remote_sync_plan_status" -eq 0 ]]; then
+  remote_sync_due=true
+elif [[ "$remote_sync_plan_status" -eq 3 ]]; then
+  remote_sync_due=false
+else
+  log "remote sync cadence plan failed status=$remote_sync_plan_status; watchdog stopping fail closed"
+  exit 1
+fi
+log "remote sync cadence plan payload=$remote_sync_plan"
+
 sync_from_issue="$(latest_db_issue)"
 prediction_snapshot_file="$(mktemp "$LOG_DIR/training-prediction-snapshots.XXXXXX.json")"
 capture_current_prediction_snapshots "$prediction_snapshot_file"
 sync_output_file="$(mktemp "$LOG_DIR/ssq-sync.XXXXXX.json")"
-if [[ -n "$sync_from_issue" ]]; then
+if [[ "$remote_sync_due" == false ]]; then
+  log "remote SSQ sync skipped by cold cadence; continuing local evaluation, advisor, and supervisor checks"
+  printf '%s\n' '{"status":"skipped_remote_cold_cadence","fetched_count":0,"inserted_count":0,"updated_count":0,"skipped_count":0,"conflict_count":0}' > "$sync_output_file"
+elif [[ -n "$sync_from_issue" ]]; then
   log "syncing ssq history from issue=$sync_from_issue"
   .venv/bin/python scripts/sync_latest_ssq.py --source zhcw --history --from-issue "$sync_from_issue" | tee "$sync_output_file"
 else

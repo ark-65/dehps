@@ -1,6 +1,6 @@
 # Scheduler
 
-双色球通常每周二、四、日开奖。为了避免页面延迟，项目固定在北京时间 23:59 执行同步。
+双色球在[中国福彩网官方开奖页](https://www.cwl.gov.cn/ygkj/wqkjgg/)标注为每周二、四、日 21:15 开奖。为了避免页面延迟，项目固定在北京时间 23:59 执行正式同步。
 
 ## Crontab
 
@@ -30,6 +30,8 @@ runtime/logs/ssq_draw_sync.log
 The training supervisor watchdog separately compares the latest history issue, canonical KDJ signal issue, and the live supervisor `--as-of-issue`. If signals lag, it stops the old supervisor, refreshes `weight-kdj-recent-1000-v1` incrementally under the heavy-job lock, verifies issue alignment, and only then starts a fresh supervisor.
 
 Before synchronization or any heavy work, the watchdog also runs the read-only runtime storage capacity gate. It warns below `max(5%, 20 GiB)` free and fails closed below `max(1%, 5 GiB)` free (or when capacity cannot be read). The gate never authorizes automatic deletion, compression, rotation, or rewriting of evidence.
+
+The watchdog itself still runs every ten minutes, but remote requests use a separate cadence. Draw days from 20:00–23:59 and the following recovery mornings from 00:00–01:59 poll every ten minutes. Other successful cold periods poll at most hourly; failed/error syncs retry immediately. A recent running sync gets a 30-minute competition guard, then becomes retryable if still stale. Skipping a cold remote request does not skip local capacity, forward-ledger, advisor, lifecycle, or supervisor checks.
 
 For systemd installs, inspect the timer and service with:
 
