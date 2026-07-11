@@ -4547,6 +4547,46 @@ def test_compact_status_payload_includes_strategy_memory_continuity():
     assert payload["strategy_memory_continuity"] == continuity
 
 
+def test_compact_status_payload_includes_prediction_input_boundary():
+    boundary = {
+        "protocol": "dehps-draw-outcome-input-boundary-v1",
+        "status": "passed",
+        "training_fields": ["issue", "draw_date", "red_numbers"],
+        "selected_market_aggregate_fields": [],
+        "ticket_distribution_observed": False,
+    }
+
+    payload = compact_status_payload({"prediction_input_boundary": boundary})
+
+    assert payload["prediction_input_boundary"] == boundary
+
+
+def test_prediction_input_boundary_report_states_non_identifiability_and_no_promotion():
+    section = supervisor.prediction_input_boundary_report_section(
+        {
+            "prediction_input_boundary": {
+                "protocol": "dehps-draw-outcome-input-boundary-v1",
+                "status": "passed",
+                "training_fields": ["issue", "draw_date", "red_numbers"],
+                "selected_market_aggregate_fields": [],
+                "ticket_distribution_observed": False,
+                "ticket_distribution_identifiability": (
+                    "aggregate_prize_counts_do_not_identify_ticket_level_number_selection"
+                ),
+                "market_data_role": "separate_observation_only_not_draw_probability",
+                "draw_probability_effect": "none",
+                "selection_changed": False,
+                "promotion_allowed": False,
+            }
+        }
+    )
+
+    assert "status `passed`" in section
+    assert "aggregate_prize_counts_do_not_identify_ticket_level_number_selection" in section
+    assert "draw-probability effect `none`" in section
+    assert "promotion allowed: `False`" in section
+
+
 def test_compact_status_payload_includes_round_summary_without_full_rounds():
     payload = compact_status_payload(
         {

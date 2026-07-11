@@ -13,6 +13,8 @@ from dehps.storage.postgres_store import ensure_training_target_weight_inversion
 from dehps.storage.postgres_store import ensure_training_supervisor_best_schema
 from dehps.storage.postgres_store import ensure_training_weight_signals_schema
 from dehps.storage.postgres_store import load_training_supervisor_best_candidate_summaries
+from dehps.storage.postgres_store import load_history_until_with_dates
+from dehps.storage.postgres_store import load_ssq_history_column_names
 from dehps.storage.postgres_store import load_recent_training_weight_signals
 from dehps.storage.postgres_store import load_training_target_weight_inversion_context
 from dehps.storage.postgres_store import load_training_weight_signal_coverage
@@ -90,6 +92,32 @@ class FakeExistingCursorConn(FakeCursorConn):
 def test_load_red_combination_universe_rejects_incomplete_table():
     with pytest.raises(ValueError, match="full C\\(33,6\\) universe"):
         load_red_combination_universe(FakeConn([([1, 2, 3, 4, 5, 6],)]))
+
+
+def test_dated_history_loader_projects_only_draw_prediction_fields():
+    conn = FakeConn([("2026078", None, [7, 11, 14, 16, 27, 28])])
+
+    history = load_history_until_with_dates(conn, "2026078")
+
+    sql, params = conn.executed[-1]
+    assert "SELECT issue, draw_date, red_numbers" in sql
+    assert "sales_amount" not in sql
+    assert "prize_tier_counts" not in sql
+    assert "winner_counts" not in sql
+    assert params == ("2026078",)
+    assert history == [("2026078", None, (7, 11, 14, 16, 27, 28))]
+
+
+def test_load_ssq_history_column_names_preserves_catalog_order():
+    conn = FakeConn([("id",), ("issue",), ("sales_amount",)])
+
+    columns = load_ssq_history_column_names(conn)
+
+    sql, params = conn.executed[-1]
+    assert "FROM information_schema.columns" in sql
+    assert "table_name = 'ssq_history'" in sql
+    assert params is None
+    assert columns == ("id", "issue", "sales_amount")
 
 
 def test_default_ssq_draw_site_is_sourced_approximate_wgs84_coordinate():
