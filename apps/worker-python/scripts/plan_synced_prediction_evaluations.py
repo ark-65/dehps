@@ -53,6 +53,47 @@ def load_available_history_issues(snapshots: list[dict]) -> set[str]:
     return available
 
 
+def load_accepted_evaluations(snapshots: list[dict]) -> list[dict]:
+    candidate_issues = sorted(
+        {
+            str(row.get("next_issue") or "").strip()
+            for row in snapshots
+            if str(row.get("line_key") or "").strip()
+            in FORWARD_EVALUATION_LINE_KEYS
+            and str(row.get("next_issue") or "").strip()
+        }
+    )
+    accepted: list[dict] = []
+    with get_connection() as conn:
+        table = conn.execute(
+            "SELECT to_regclass('public.training_prediction_evaluations')"
+        ).fetchone()
+        if not table or not table[0]:
+            return accepted
+        for issue in candidate_issues:
+            rows = conn.execute(
+                """
+                SELECT line_key, predicted_issue, snapshot_key, status,
+                       candidate_count, summary
+                FROM training_prediction_evaluations
+                WHERE predicted_issue = %s
+                """,
+                (issue,),
+            ).fetchall()
+            accepted.extend(
+                {
+                    "line_key": str(row[0]),
+                    "predicted_issue": str(row[1]),
+                    "snapshot_key": str(row[2] or ""),
+                    "status": str(row[3]),
+                    "candidate_count": int(row[4] or 0),
+                    "summary": row[5] if isinstance(row[5], dict) else {},
+                }
+                for row in rows
+            )
+    return accepted
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -71,6 +112,7 @@ def main(argv: list[str] | None = None) -> int:
             history_issues=load_available_history_issues(snapshots),
             previous_issue=args.previous_issue,
             current_issue=args.current_issue,
+            accepted_evaluations=load_accepted_evaluations(snapshots),
         )
     except ForwardEvaluationPlanError as exc:
         print(f"forward_evaluation_plan_invalid:{exc}", file=sys.stderr)

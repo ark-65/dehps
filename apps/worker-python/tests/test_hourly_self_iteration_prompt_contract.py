@@ -102,5 +102,8 @@ def test_hourly_self_iteration_prompt_requires_forward_release_fail_closed():
         "as_of_issue>=predicted_issue",
         "任一评估返回 missing/mismatch/leakage/empty/partial-ranked-set 或非零退出",
         "禁止刷新 advisor 或启动 supervisor",
+        "history 未再次变化也必须重试尚未接受的到期快照",
+        "evaluated + leakage_passed + candidate_count==top_n",
+        "不能因 changed_count=0 跳过失败重试",
     ):
         assert requirement in prompt

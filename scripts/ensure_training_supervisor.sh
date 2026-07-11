@@ -211,23 +211,6 @@ with open(output_path, "w", encoding="utf-8") as handle:
 PY
 }
 
-sync_latest_draw_issue() {
-  local path="$1"
-  .venv/bin/python - "$path" <<'PY'
-import json
-import sys
-
-try:
-    with open(sys.argv[1], encoding="utf-8") as handle:
-        payload = json.load(handle)
-except Exception:
-    print("")
-    raise SystemExit(0)
-latest = payload.get("latest_draw") if isinstance(payload, dict) else None
-print(str((latest or {}).get("issue") or ""))
-PY
-}
-
 sync_changed_draw_count() {
   local path="$1"
   .venv/bin/python - "$path" <<'PY'
@@ -250,16 +233,10 @@ evaluate_synced_predictions_if_needed() {
   local current_issue="$3"
   local prediction_snapshot_file="$4"
   local changed_count
-  local sync_latest_issue
   local evaluation_plan_file
   local evaluation_count=0
   local evaluation_failed=false
   changed_count="$(sync_changed_draw_count "$sync_output_file")"
-  sync_latest_issue="$(sync_latest_draw_issue "$sync_output_file")"
-  if [[ "$changed_count" == "0" && "${previous_issue:-}" == "${current_issue:-}" ]]; then
-    log "prediction evaluation skipped changed_count=$changed_count sync_latest_issue=${sync_latest_issue:-none}"
-    return 0
-  fi
   evaluation_plan_file="$(mktemp "$LOG_DIR/training-forward-evaluation-plan.XXXXXX.tsv")"
   if ! .venv/bin/python scripts/plan_synced_prediction_evaluations.py \
     --snapshot-file "$prediction_snapshot_file" \

@@ -36,6 +36,7 @@ def build_forward_evaluation_plan(
     history_issues: Iterable[object],
     previous_issue: object,
     current_issue: object,
+    accepted_evaluations: Sequence[Mapping[str, Any]] = (),
 ) -> list[dict[str, str]]:
     previous_number = parse_issue(
         previous_issue,
@@ -49,6 +50,24 @@ def build_forward_evaluation_plan(
         )
     history_advanced = previous_number is not None and current_number > previous_number
     available_history = {str(issue).strip() for issue in history_issues}
+    accepted_candidate_counts: dict[tuple[str, str, str], int] = {}
+    for evaluation in accepted_evaluations:
+        if not isinstance(evaluation, Mapping) or evaluation.get("status") != "evaluated":
+            continue
+        summary = evaluation.get("summary")
+        if not isinstance(summary, Mapping) or summary.get("leakage_passed") is not True:
+            continue
+        try:
+            candidate_count = int(evaluation.get("candidate_count") or 0)
+        except (TypeError, ValueError):
+            continue
+        key = (
+            str(evaluation.get("line_key") or "").strip(),
+            str(evaluation.get("predicted_issue") or "").strip(),
+            str(evaluation.get("snapshot_key") or "").strip(),
+        )
+        if all(key) and candidate_count > 0:
+            accepted_candidate_counts[key] = candidate_count
     grouped: dict[str, dict[str, dict[str, str]]] = {}
 
     for index, snapshot in enumerate(snapshots):
@@ -102,6 +121,7 @@ def build_forward_evaluation_plan(
             "next_issue": next_issue,
             "snapshot_key": snapshot_key,
             "as_of_issue": as_of_issue,
+            "top_n": str(top_n),
         }
 
     plan: list[dict[str, str]] = []
@@ -116,9 +136,16 @@ def build_forward_evaluation_plan(
             raise ForwardEvaluationPlanError(
                 f"incomplete_forward_line_set:{next_issue}:{','.join(missing_lines)}"
             )
-        plan.extend(issue_lines[line_key] for line_key in FORWARD_EVALUATION_LINE_KEYS)
+        for line_key in FORWARD_EVALUATION_LINE_KEYS:
+            snapshot = issue_lines[line_key]
+            accepted_count = accepted_candidate_counts.get(
+                (line_key, next_issue, snapshot["snapshot_key"])
+            )
+            if accepted_count == int(snapshot["top_n"]):
+                continue
+            plan.append(snapshot)
 
-    if history_advanced and not plan:
+    if history_advanced and not grouped:
         raise ForwardEvaluationPlanError(
             f"missing_complete_forward_snapshot_after_history_advance:"
             f"{previous_number}->{current_number}"

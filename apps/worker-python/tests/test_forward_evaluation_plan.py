@@ -27,6 +27,23 @@ def snapshots(
     ]
 
 
+def accepted_evaluation(
+    line_key: str,
+    *,
+    status: str = "evaluated",
+    leakage_passed: bool = True,
+    candidate_count: int = 10000,
+) -> dict:
+    return {
+        "line_key": line_key,
+        "predicted_issue": "2026079",
+        "snapshot_key": f"snapshot-{line_key}",
+        "status": status,
+        "candidate_count": candidate_count,
+        "summary": {"leakage_passed": leakage_passed},
+    }
+
+
 def test_plan_requires_complete_pre_sync_three_line_snapshot():
     plan = build_forward_evaluation_plan(
         snapshots(),
@@ -129,3 +146,64 @@ def test_plan_allows_empty_work_when_history_did_not_advance():
     )
 
     assert plan == []
+
+
+def test_plan_retries_due_snapshot_when_history_is_unchanged_after_failure():
+    plan = build_forward_evaluation_plan(
+        snapshots(),
+        history_issues={"2026079"},
+        previous_issue="2026079",
+        current_issue="2026079",
+    )
+
+    assert [row["line_key"] for row in plan] == list(FORWARD_EVALUATION_LINE_KEYS)
+
+
+def test_plan_skips_only_fully_accepted_snapshot_rows():
+    accepted = [accepted_evaluation(line_key) for line_key in FORWARD_EVALUATION_LINE_KEYS]
+
+    plan = build_forward_evaluation_plan(
+        snapshots(),
+        history_issues={"2026079"},
+        previous_issue="2026078",
+        current_issue="2026079",
+        accepted_evaluations=accepted,
+    )
+
+    assert plan == []
+
+
+def test_plan_retries_only_unaccepted_line_after_partial_batch_failure():
+    accepted = [
+        accepted_evaluation("static_100"),
+        accepted_evaluation("dynamic_kdj"),
+        accepted_evaluation("dynamic_kdj_near", status="leakage_guard_failed"),
+    ]
+
+    plan = build_forward_evaluation_plan(
+        snapshots(),
+        history_issues={"2026079"},
+        previous_issue="2026079",
+        current_issue="2026079",
+        accepted_evaluations=accepted,
+    )
+
+    assert [row["line_key"] for row in plan] == ["dynamic_kdj_near"]
+
+
+def test_plan_does_not_accept_partial_ranked_evaluation():
+    accepted = [
+        accepted_evaluation("static_100", candidate_count=9999),
+        accepted_evaluation("dynamic_kdj"),
+        accepted_evaluation("dynamic_kdj_near"),
+    ]
+
+    plan = build_forward_evaluation_plan(
+        snapshots(),
+        history_issues={"2026079"},
+        previous_issue="2026079",
+        current_issue="2026079",
+        accepted_evaluations=accepted,
+    )
+
+    assert [row["line_key"] for row in plan] == ["static_100"]
