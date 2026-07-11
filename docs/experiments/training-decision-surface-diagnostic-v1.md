@@ -115,4 +115,4 @@ git diff --check: passed
 
 ## Next Verification
 
-The next bounded round should audit the scalar sort-key components and Pareto relationships among the stable baseline and diverse Top challengers. Predeclare the comparison before changing any sort coordinate. A future change is justified only if it exposes a distinct search-slice decision without using frozen data and is still rejected unless frozen or forward evidence improves. Do not expand candidate budgets merely because the champion path remains stale.
+Completed by [Training Objective Tiebreak Pareto Audit v1](training-objective-tiebreak-pareto-v1.md). The audit found that objective score was the first differing sort coordinate for every inspected challenger while every comparison remained a Pareto tradeoff. No sort coordinate, budget, weight, or promotion rule was changed.

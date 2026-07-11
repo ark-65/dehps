@@ -1135,6 +1135,65 @@ def test_training_candidate_space_diagnostic_separates_stale_champion_from_diver
     assert "round_best_path_homogeneous_current_candidates_still_diverse" in diagnostic["reasons"]
 
 
+def test_decision_surface_diagnostic_detects_objective_tiebreak_pareto_tradeoffs():
+    baseline = supervisor_summary_for_config(
+        FrequencyRankerConfig(frequency_weight=0.30),
+        top_100_hits=3,
+        top_1000_hits=3,
+        top_10000_hits=3,
+        median_rank=600_000,
+        best_rank=50,
+        worst_rank=900_000,
+        objective_score=100.0,
+        target_ranks=[50, 1_000, 10_000],
+    )
+    baseline["rank_quality"].update(
+        {
+            "top_50000_hits": 3,
+            "top_100000_hits": 5,
+            "top_250000_hits": 17,
+            "top_500000_hits": 36,
+        }
+    )
+    challengers = []
+    for index, objective_score in enumerate((99.999, 99.5), start=1):
+        challenger = supervisor_summary_for_config(
+            FrequencyRankerConfig(frequency_weight=round(0.30 + index * 0.05, 2)),
+            top_100_hits=3,
+            top_1000_hits=3,
+            top_10000_hits=3,
+            median_rank=500_000 - index,
+            best_rank=45 - index,
+            worst_rank=950_000 + index,
+            objective_score=objective_score,
+            target_ranks=[45 - index, 900, 9_000],
+        )
+        challenger["rank_quality"].update(
+            {
+                "top_50000_hits": 3,
+                "top_100000_hits": 5,
+                "top_250000_hits": 17,
+                "top_500000_hits": 35,
+            }
+        )
+        challengers.append(challenger)
+
+    diagnostic = supervisor.decision_surface_dominance_diagnostic(
+        [baseline, *challengers]
+    )
+
+    assert diagnostic["status"] == "objective_tiebreak_tradeoff"
+    assert diagnostic["first_difference_counts"] == {"objective_score": 2}
+    assert diagnostic["objective_gap_min"] == 0.001
+    assert diagnostic["objective_gap_max"] == 0.5
+    assert diagnostic["baseline_pareto_dominates_count"] == 0
+    assert diagnostic["challenger_pareto_dominates_count"] == 0
+    assert diagnostic["pareto_tradeoff_count"] == 2
+    assert diagnostic["challenger_better_field_counts"]["neg_median_rank"] == 2
+    assert diagnostic["baseline_better_field_counts"]["top_500000_hits"] == 2
+    assert diagnostic["selection_uses_frozen_validation"] is False
+
+
 def test_recent_round_self_diagnostics_reads_compact_round_memory():
     diagnostic = {"synthesis": {"status": "caution"}}
     rounds = [

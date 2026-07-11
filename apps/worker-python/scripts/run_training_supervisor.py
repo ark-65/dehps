@@ -1672,6 +1672,7 @@ def training_round_self_diagnostics(
         summaries=summaries,
         rank_homogeneity=rank_homogeneity,
     )
+    decision_surface = decision_surface_dominance_diagnostic(summaries)
     signal = signal_vs_noise_diagnostic(
         round_best,
         legal_sample_space=universe_size,
@@ -1696,6 +1697,7 @@ def training_round_self_diagnostics(
         "historical_boundary": "Gauss/Riemann lenses are verification discipline, not authority.",
         "weight_trust": weight,
         "candidate_space": candidate_space,
+        "decision_surface": decision_surface,
         "signal_vs_noise": signal,
         "synthesis": {
             "status": synthesis_status,
@@ -3834,6 +3836,200 @@ def sort_key(summary: dict) -> tuple:
         -(summary.get("median_rank") or 0),
         -(summary.get("best_rank") or 0),
     )
+
+
+TRAINING_SORT_KEY_FIELDS = (
+    "top_100_hits",
+    "top_1000_hits",
+    "top_1000_unique_hits",
+    "objective_score",
+    "neg_tail_over_1000000",
+    "neg_tail_over_900000",
+    "neg_tail_over_750000",
+    "top_10000_unique_hits",
+    "neg_top_10000_overlap_hits",
+    "top_10000_hits",
+    "top_50000_hits",
+    "top_100000_hits",
+    "top_250000_hits",
+    "top_500000_hits",
+    "red5_top_100_hits",
+    "red5_top_1000_hits",
+    "red5_top_10000_hits",
+    "neg_worst_rank",
+    "neg_median_rank",
+    "neg_best_rank",
+)
+
+
+DECISION_PARETO_FIELDS = (
+    "top_100_hits",
+    "top_1000_hits",
+    "top_10000_hits",
+    "top_50000_hits",
+    "top_100000_hits",
+    "top_250000_hits",
+    "top_500000_hits",
+    "red5_top_100_hits",
+    "red5_top_1000_hits",
+    "red5_top_10000_hits",
+    "neg_tail_over_750000",
+    "neg_tail_over_900000",
+    "neg_tail_over_1000000",
+    "neg_worst_rank",
+    "neg_median_rank",
+    "neg_best_rank",
+)
+
+
+def decision_pareto_vector(summary: dict) -> tuple[float, ...]:
+    red5 = summary.get("red5") if isinstance(summary.get("red5"), dict) else {}
+    rank_quality = summary.get("rank_quality") if isinstance(summary.get("rank_quality"), dict) else {}
+    return (
+        float(summary.get("top_100_hits") or 0),
+        float(summary.get("top_1000_hits") or 0),
+        float(summary.get("top_10000_hits") or 0),
+        float(rank_quality.get("top_50000_hits") or 0),
+        float(rank_quality.get("top_100000_hits") or 0),
+        float(rank_quality.get("top_250000_hits") or 0),
+        float(rank_quality.get("top_500000_hits") or 0),
+        float(red5.get("top_100_hits") or 0),
+        float(red5.get("top_1000_hits") or 0),
+        float(red5.get("top_10000_hits") or 0),
+        -float(rank_quality.get("tail_over_750000_count") or 0),
+        -float(rank_quality.get("tail_over_900000_count") or 0),
+        -float(rank_quality.get("tail_over_1000000_count") or 0),
+        -float(summary.get("worst_rank") or 0),
+        -float(summary.get("median_rank") or 0),
+        -float(summary.get("best_rank") or 0),
+    )
+
+
+def decision_surface_dominance_diagnostic(
+    summaries: list[dict],
+    *,
+    top_limit: int = 5,
+) -> dict:
+    selected = [summary for summary in summaries[: max(1, top_limit)] if isinstance(summary, dict)]
+    if len(selected) < 2:
+        return {
+            "status": "insufficient_candidates",
+            "top_limit": top_limit,
+            "candidate_count": len(selected),
+            "selection_scope": "search_slice_only",
+            "selection_uses_frozen_validation": False,
+        }
+    baseline = selected[0]
+    baseline_sort_key = sort_key(baseline)
+    baseline_pareto = decision_pareto_vector(baseline)
+    first_difference_counts: Counter[str] = Counter()
+    baseline_better_counts: Counter[str] = Counter()
+    challenger_better_counts: Counter[str] = Counter()
+    baseline_dominates_count = 0
+    challenger_dominates_count = 0
+    tradeoff_count = 0
+    objective_gaps: list[float] = []
+    comparisons: list[dict] = []
+    for challenger in selected[1:]:
+        challenger_sort_key = sort_key(challenger)
+        first_difference_index = next(
+            (
+                index
+                for index, (baseline_value, challenger_value) in enumerate(
+                    zip(baseline_sort_key, challenger_sort_key, strict=True)
+                )
+                if baseline_value != challenger_value
+            ),
+            None,
+        )
+        first_difference = (
+            TRAINING_SORT_KEY_FIELDS[first_difference_index]
+            if first_difference_index is not None
+            else "identical_sort_key"
+        )
+        first_difference_counts[first_difference] += 1
+        if first_difference == "objective_score":
+            objective_gaps.append(
+                float(baseline_sort_key[first_difference_index])
+                - float(challenger_sort_key[first_difference_index])
+            )
+        challenger_pareto = decision_pareto_vector(challenger)
+        baseline_better = [
+            DECISION_PARETO_FIELDS[index]
+            for index, (baseline_value, challenger_value) in enumerate(
+                zip(baseline_pareto, challenger_pareto, strict=True)
+            )
+            if baseline_value > challenger_value
+        ]
+        challenger_better = [
+            DECISION_PARETO_FIELDS[index]
+            for index, (baseline_value, challenger_value) in enumerate(
+                zip(baseline_pareto, challenger_pareto, strict=True)
+            )
+            if challenger_value > baseline_value
+        ]
+        baseline_better_counts.update(baseline_better)
+        challenger_better_counts.update(challenger_better)
+        if baseline_better and not challenger_better:
+            relation = "baseline_dominates"
+            baseline_dominates_count += 1
+        elif challenger_better and not baseline_better:
+            relation = "challenger_dominates"
+            challenger_dominates_count += 1
+        else:
+            relation = "tradeoff"
+            tradeoff_count += 1
+        comparisons.append(
+            {
+                "config_hash": summary_config_hash(challenger) or "",
+                "rank_signature_hash": rank_signature_hash(challenger),
+                "first_difference": first_difference,
+                "pareto_relation": relation,
+                "baseline_better_fields": baseline_better,
+                "challenger_better_fields": challenger_better,
+            }
+        )
+    challenger_count = len(comparisons)
+    objective_tiebreak_count = first_difference_counts.get("objective_score", 0)
+    if objective_tiebreak_count == challenger_count and tradeoff_count == challenger_count:
+        status = "objective_tiebreak_tradeoff"
+    elif baseline_dominates_count == challenger_count:
+        status = "baseline_pareto_dominant"
+    elif challenger_dominates_count > 0:
+        status = "challenger_pareto_dominant_present"
+    else:
+        status = "mixed_decision_surface"
+    baseline_objective = float((baseline.get("reward") or {}).get("objectiveScore") or 0.0)
+    return {
+        "status": status,
+        "top_limit": top_limit,
+        "candidate_count": len(selected),
+        "challenger_count": challenger_count,
+        "baseline_config_hash": summary_config_hash(baseline) or "",
+        "baseline_rank_signature_hash": rank_signature_hash(baseline),
+        "baseline_objective_score": baseline_objective,
+        "first_difference_counts": dict(sorted(first_difference_counts.items())),
+        "objective_tiebreak_count": objective_tiebreak_count,
+        "objective_gap_min": round(min(objective_gaps), 6) if objective_gaps else None,
+        "objective_gap_max": round(max(objective_gaps), 6) if objective_gaps else None,
+        "objective_gap_max_relative": (
+            round(max(objective_gaps) / abs(baseline_objective), 10)
+            if objective_gaps and baseline_objective
+            else None
+        ),
+        "baseline_pareto_dominates_count": baseline_dominates_count,
+        "challenger_pareto_dominates_count": challenger_dominates_count,
+        "pareto_tradeoff_count": tradeoff_count,
+        "baseline_better_field_counts": dict(sorted(baseline_better_counts.items())),
+        "challenger_better_field_counts": dict(sorted(challenger_better_counts.items())),
+        "comparisons": comparisons,
+        "selection_scope": "search_slice_only",
+        "selection_uses_frozen_validation": False,
+        "interpretation": (
+            "Diagnostic only: objective tie-breaking and Pareto tradeoffs do not justify a sort change, "
+            "promotion, or predictive claim."
+        ),
+    }
 
 
 def merge_leaderboard(existing: list[dict], candidates: list[dict], *, limit: int = 12) -> list[dict]:

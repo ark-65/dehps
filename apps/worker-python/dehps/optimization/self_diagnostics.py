@@ -391,13 +391,17 @@ def build_specialist_strategy_memory(
     space_counts = _count_statuses(windowed, ("candidate_space", "status"))
     decision_surface_counts = _count_statuses(
         windowed,
-        ("candidate_space", "round_best_path_status"),
+        ("decision_surface", "status"),
     )
     signal_counts = _count_statuses(windowed, ("signal_vs_noise", "status"))
     current_synthesis = _status_from_diagnostic(current, ("synthesis", "status"))
     current_weight = _status_from_diagnostic(current, ("weight_trust", "status"))
     current_space = _status_from_diagnostic(current, ("candidate_space", "status"))
     current_decision_surface = _status_from_diagnostic(
+        current,
+        ("decision_surface", "status"),
+    )
+    current_round_best_path = _status_from_diagnostic(
         current,
         ("candidate_space", "round_best_path_status"),
     )
@@ -413,10 +417,15 @@ def build_specialist_strategy_memory(
         current_space == "diverse"
         and (
             current_decision_surface == "stale"
-            or decision_surface_counts.get("stale", 0) >= 2
+            or current_round_best_path == "stale"
         )
     ):
         unresolved.append("decision_surface_stale_champion")
+    if (
+        current_decision_surface == "objective_tiebreak_tradeoff"
+        or decision_surface_counts.get("objective_tiebreak_tradeoff", 0) >= 2
+    ):
+        unresolved.append("objective_tiebreak_hides_pareto_tradeoffs")
     if current_signal == "noise_risk" or signal_counts.get("noise_risk", 0) >= 2:
         unresolved.append("signal_may_be_noise")
     if (
@@ -430,6 +439,13 @@ def build_specialist_strategy_memory(
         experiment_key = "candidate_space_reframe_audit"
         experiment_action = "increase_diversity_pressure_before_trusting_round_best"
         rationale = "Candidate-space geometry is narrow or collapsed across the diagnostic window."
+    elif "objective_tiebreak_hides_pareto_tradeoffs" in unresolved:
+        experiment_key = "objective_tiebreak_pareto_audit"
+        experiment_action = "predeclare_objective_component_control_without_sort_change"
+        rationale = (
+            "Objective score is the first tie-break across non-dominated Top challengers; "
+            "record component residuals before any sort experiment."
+        )
     elif "decision_surface_stale_champion" in unresolved:
         experiment_key = "decision_surface_dominance_audit"
         experiment_action = "audit_objective_dominance_before_expanding_candidate_space"
@@ -479,6 +495,7 @@ def build_specialist_strategy_memory(
             "current_weight": current_weight,
             "current_candidate_space": current_space,
             "current_decision_surface": current_decision_surface,
+            "current_round_best_path": current_round_best_path,
             "current_signal": current_signal,
             "synthesis_counts": synthesis_counts,
             "weight_counts": weight_counts,

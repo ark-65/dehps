@@ -94,6 +94,7 @@ cat <<'PROMPT' | "$CODEX_BIN" exec \
 1b. 100 期回看必须明确拆分为互不重叠的 search/frozen 窗口；搜索排序、advisor 锚点、continuity 与 search base 不得读取 frozen 结果。固定历史冻结集被多轮查看后的提升只算污染后的诊断，不是预测能力或晋级证据。
 1c. 必须读取 `forward_evidence`：只统计 holdout-isolation 协议固定生效期之后、开奖前已冻结、且 static/dynamic/near 三条线同一期完整配对的前向评估。协议生效前评估不得计入。未满 20 个独立配对期次只能积累观察；满 20 期也只进入人工复核，不得自动解除历史冻结集 quarantine、自动晋级或更改预算。账本 `invalid` 时优先修复泄漏、重复快照、缺线或 DB 读取失败。
 1d. 必须区分当前候选几何与历史冠军路径：读取 `self_diagnostics.candidate_space.unique_top_rank_signature_count`、`status` 和 `round_best_path_status`。当前 Top 至少 5 个不同 rank signature 且 `status=diverse` 时，即使 `round_best_path_status=stale` 也不得称为 candidate collapse、不得据此扩候选或调来源预算；应进入 `decision_surface_dominance_audit`，先审计目标函数/排序支配。只有当前 Top rank signature 明确收缩到 collapse 门槛时才允许候选空间重构假设。
+1e. 必须读取 `self_diagnostics.decision_surface` 的 `status`、`first_difference_counts`、Pareto 关系计数和 objective gap。若 `status=objective_tiebreak_tradeoff`，不得临时改 sort key、权重、来源预算或晋级门槛；先预声明单变量 objective-component control，记录组件残差，并继续要求 frozen/forward 证据。Pareto 权衡本身不是预测提升。
 2. 修复当前测试失败、明显 bug、类型错误、启动错误、训练 watch / supervisor 运行错误。
 3. 如果训练出现停滞、发散、候选族塌缩、可疑跳变、重复评估相近配置、source/frontier 异常或 frozen validation 不一致，先做数学诊断，再决定最小修复。
 4. 只有没有训练或运行异常时，才寻找高价值 TODO/FIXME、边界条件缺陷、日志/状态可观测性问题或测试缺口，并完成最小修复。
