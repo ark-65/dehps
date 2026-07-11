@@ -105,5 +105,8 @@ def test_hourly_self_iteration_prompt_requires_forward_release_fail_closed():
         "history 未再次变化也必须重试尚未接受的到期快照",
         "evaluated + leakage_passed + candidate_count==top_n",
         "不能因 changed_count=0 跳过失败重试",
+        "inserted/updated count 大于零",
+        "当前期次必须强制重评",
+        "不能沿用可能基于 CSV 或旧开奖记录的接受结果",
     ):
         assert requirement in prompt

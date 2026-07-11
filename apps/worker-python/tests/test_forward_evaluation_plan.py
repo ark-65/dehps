@@ -207,3 +207,33 @@ def test_plan_does_not_accept_partial_ranked_evaluation():
     )
 
     assert [row["line_key"] for row in plan] == ["static_100"]
+
+
+def test_plan_forces_re_evaluation_after_current_issue_sync_change():
+    accepted = [accepted_evaluation(line_key) for line_key in FORWARD_EVALUATION_LINE_KEYS]
+
+    plan = build_forward_evaluation_plan(
+        snapshots(),
+        history_issues={"2026079"},
+        previous_issue="2026079",
+        current_issue="2026079",
+        accepted_evaluations=accepted,
+        force_evaluation_issues={"2026079"},
+    )
+
+    assert [row["line_key"] for row in plan] == list(FORWARD_EVALUATION_LINE_KEYS)
+
+
+def test_plan_does_not_force_unrelated_issue():
+    accepted = [accepted_evaluation(line_key) for line_key in FORWARD_EVALUATION_LINE_KEYS]
+
+    plan = build_forward_evaluation_plan(
+        snapshots(),
+        history_issues={"2026079"},
+        previous_issue="2026079",
+        current_issue="2026079",
+        accepted_evaluations=accepted,
+        force_evaluation_issues={"2026080"},
+    )
+
+    assert plan == []

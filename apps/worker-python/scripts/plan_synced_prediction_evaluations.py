@@ -103,6 +103,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--snapshot-file", type=Path, required=True)
     parser.add_argument("--previous-issue", default="")
     parser.add_argument("--current-issue", required=True)
+    parser.add_argument(
+        "--force-issue",
+        action="append",
+        default=[],
+        help="Due issue whose accepted evaluation must be recomputed after a sync change.",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -113,6 +119,7 @@ def main(argv: list[str] | None = None) -> int:
             previous_issue=args.previous_issue,
             current_issue=args.current_issue,
             accepted_evaluations=load_accepted_evaluations(snapshots),
+            force_evaluation_issues=args.force_issue,
         )
     except ForwardEvaluationPlanError as exc:
         print(f"forward_evaluation_plan_invalid:{exc}", file=sys.stderr)
