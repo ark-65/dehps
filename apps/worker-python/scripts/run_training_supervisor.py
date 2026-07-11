@@ -23,6 +23,11 @@ from dehps.db import get_connection
 from dehps.features.qian_kun import qian_kun_distribution
 from dehps.models.frequency_ranker import FrequencyRankerConfig
 from dehps.models.frequency_ranker import history_draw_date, history_issue, history_numbers
+from dehps.models.prediction_input_boundary import (
+    DRAW_PREDICTION_HISTORY_FIELDS,
+    build_prediction_input_boundary,
+    enforce_prediction_input_boundary,
+)
 from dehps.optimization.neural_kdj_advisor import (
     NeuralKdjOffsetAdvice,
     neural_kdj_advice_to_frequency_ranker_config_candidates,
@@ -80,6 +85,7 @@ from dehps.storage.postgres_store import (
     ensure_training_supervisor_best_schema,
     ensure_training_target_weight_inversions_schema,
     load_red_combination_universe,
+    load_ssq_history_column_names,
     load_training_round_carryover_candidate_summaries,
     load_training_round_navigation_records,
     load_training_supervisor_best_carryover_candidate_summaries,
@@ -6442,6 +6448,7 @@ def compact_status_payload(status: dict) -> dict:
         "history_scope": status.get("history_scope"),
         "regime_years": status.get("regime_years"),
         "regime_start_date": status.get("regime_start_date"),
+        "prediction_input_boundary": status.get("prediction_input_boundary"),
         "train_mode": status.get("train_mode"),
         "train_window": status.get("train_window"),
         "eval_window": status.get("eval_window"),
@@ -6544,6 +6551,21 @@ def source_frontier_report_section(status: dict) -> str:
 """
 
 
+def prediction_input_boundary_report_section(status: dict) -> str:
+    boundary = status.get("prediction_input_boundary")
+    if not isinstance(boundary, dict):
+        return "## Prediction Input Boundary\n\nNo prediction-input boundary audit recorded.\n"
+    return f"""## Prediction Input Boundary
+
+- Protocol: `{boundary.get("protocol", "missing")}` status `{boundary.get("status", "missing")}`.
+- Training fields: `{", ".join(str(field) for field in boundary.get("training_fields", [])) or "none"}`.
+- Selected market aggregates: `{", ".join(str(field) for field in boundary.get("selected_market_aggregate_fields", [])) or "none"}`.
+- Ticket-level selections observed: `{boundary.get("ticket_distribution_observed", False)}`; identifiability `{boundary.get("ticket_distribution_identifiability", "missing")}`.
+- Market-data role: `{boundary.get("market_data_role", "missing")}`; draw-probability effect `{boundary.get("draw_probability_effect", "missing")}`.
+- Selection changed: `{boundary.get("selection_changed", False)}`; promotion allowed: `{boundary.get("promotion_allowed", False)}`.
+"""
+
+
 def self_diagnostics_report_section(status: dict) -> str:
     diagnostics = status.get("self_diagnostics")
     if not isinstance(diagnostics, dict):
@@ -6605,6 +6627,7 @@ def write_report(report_path: Path, status: dict) -> None:
         for round_info in status["rounds"]
     )
     best = status["best"]
+    prediction_input_boundary = prediction_input_boundary_report_section(status)
     source_frontier = source_frontier_report_section(status)
     self_diagnostics = self_diagnostics_report_section(status)
     strategy_memory = strategy_memory_report_section(status)
@@ -6629,6 +6652,8 @@ def write_report(report_path: Path, status: dict) -> None:
 - Matrix cache: hit={status.get("feature_matrix_cache", {}).get("cache_hit")} build_seconds={status.get("feature_matrix_cache", {}).get("build_seconds")} path=`{status.get("feature_matrix_cache", {}).get("cache_path", "")}`
 - Red5 rank mode: {status.get("red5_rank_mode", "")}
 - Latest qian-kun pattern: {status["qian_kun"]["latest_issue"]} {status["qian_kun"]["latest_label"]} `{status["qian_kun"]["latest_pattern"]}`
+
+{prediction_input_boundary}
 
 ## Current Best
 
@@ -6710,10 +6735,24 @@ def run_supervisor(
         ensure_training_round_results_schema(conn)
         ensure_training_supervisor_best_schema(conn)
         selection = select_history(conn, scope=history_scope, as_of_issue=as_of_issue, regime_years=regime_years)
+        history_table_fields = load_ssq_history_column_names(conn)
+        training_history = selection.dated_history
+        prediction_input_boundary = build_prediction_input_boundary(
+            history=training_history,
+            training_fields=DRAW_PREDICTION_HISTORY_FIELDS,
+            available_history_fields=history_table_fields,
+        )
+        enforce_prediction_input_boundary(prediction_input_boundary)
+        log(
+            "prediction_input_boundary="
+            f"{prediction_input_boundary['status']} "
+            f"fields={prediction_input_boundary['training_fields']} "
+            f"market_selected={prediction_input_boundary['selected_market_aggregate_fields']} "
+            f"ticket_distribution_observed={prediction_input_boundary['ticket_distribution_observed']}"
+        )
         universe = load_red_combination_universe(conn)
 
     worker_count = normalize_worker_count(workers)
-    training_history = selection.dated_history
     as_of_issue_value = history_issue(training_history[-1])
     history_fingerprint_value = fingerprint_history(training_history)
     log(
@@ -6950,6 +6989,7 @@ def run_supervisor(
         "history_scope": selection.scope,
         "regime_years": selection.regime_years,
         "regime_start_date": selection.start_date.isoformat() if selection.start_date else "",
+        "prediction_input_boundary": prediction_input_boundary,
         "train_mode": train_mode,
         "train_window": train_window,
         "eval_window": eval_window,

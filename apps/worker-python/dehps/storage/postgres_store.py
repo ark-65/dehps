@@ -11,6 +11,7 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 
 from dehps.crawler.ssq_parser import ValidatedSsqDraw
+from dehps.models.prediction_input_boundary import DRAW_PREDICTION_HISTORY_FIELDS
 
 
 TOTAL_SSQ_RED_COMBINATIONS = comb(33, 6)
@@ -1769,7 +1770,7 @@ def load_history(conn: Connection) -> list[tuple[str, tuple[int, ...]]]:
 
 def load_history_with_dates(conn: Connection) -> list[tuple[str, date | None, tuple[int, ...]]]:
     rows = conn.execute(
-        "SELECT issue, draw_date, red_numbers FROM ssq_history ORDER BY issue",
+        f"SELECT {', '.join(DRAW_PREDICTION_HISTORY_FIELDS)} FROM ssq_history ORDER BY issue",
     ).fetchall()
     return [(row[0], row[1], tuple(row[2])) for row in rows]
 
@@ -1791,7 +1792,8 @@ def load_history_until_with_dates(
     if not as_of_issue:
         return load_history_with_dates(conn)
     rows = conn.execute(
-        "SELECT issue, draw_date, red_numbers FROM ssq_history WHERE issue <= %s ORDER BY issue",
+        f"SELECT {', '.join(DRAW_PREDICTION_HISTORY_FIELDS)} "
+        "FROM ssq_history WHERE issue <= %s ORDER BY issue",
         (as_of_issue,),
     ).fetchall()
     return [(row[0], row[1], tuple(row[2])) for row in rows]
@@ -1834,8 +1836,8 @@ def load_history_since_date_with_dates(
 ) -> list[tuple[str, date | None, tuple[int, ...]]]:
     if as_of_issue:
         rows = conn.execute(
-            """
-            SELECT issue, draw_date, red_numbers
+            f"""
+            SELECT {', '.join(DRAW_PREDICTION_HISTORY_FIELDS)}
             FROM ssq_history
             WHERE draw_date >= %s AND issue <= %s
             ORDER BY issue
@@ -1844,8 +1846,8 @@ def load_history_since_date_with_dates(
         ).fetchall()
     else:
         rows = conn.execute(
-            """
-            SELECT issue, draw_date, red_numbers
+            f"""
+            SELECT {', '.join(DRAW_PREDICTION_HISTORY_FIELDS)}
             FROM ssq_history
             WHERE draw_date >= %s
             ORDER BY issue
@@ -1853,6 +1855,18 @@ def load_history_since_date_with_dates(
             (start_date,),
         ).fetchall()
     return [(row[0], row[1], tuple(row[2])) for row in rows]
+
+
+def load_ssq_history_column_names(conn: Connection) -> tuple[str, ...]:
+    rows = conn.execute(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'ssq_history'
+        ORDER BY ordinal_position
+        """
+    ).fetchall()
+    return tuple(str(row[0]) for row in rows)
 
 
 def latest_draw_date_until(conn: Connection, as_of_issue: str | None = None) -> date | None:
