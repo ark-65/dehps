@@ -38,7 +38,7 @@ The expected upper bound falls from 1,008 watchdog remote requests per week to a
 - Cold live plan at Saturday 18:22: `due=false`, reason `cold_poll_interval_not_elapsed`, next remote retry in about 58 minutes.
 - Cold live watchdog: remote request skipped; forward evaluation batch accepted 0 due rows; supervisor remained parked for `2026079`.
 - Full worker suite: 630 passed.
-- Post-merge validation: pending.
+- Post-merge `main` commit `991d5c2` at Saturday 18:31: capacity healthy; cadence `due=false`, reason `cold_poll_interval_not_elapsed`; remote sync skipped, forward retry planner accepted 0 due rows, and the supervisor remained parked for `2026079`.
 
 ## Failure modes
 
