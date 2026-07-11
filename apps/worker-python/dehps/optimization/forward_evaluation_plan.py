@@ -37,6 +37,7 @@ def build_forward_evaluation_plan(
     previous_issue: object,
     current_issue: object,
     accepted_evaluations: Sequence[Mapping[str, Any]] = (),
+    force_evaluation_issues: Iterable[object] = (),
 ) -> list[dict[str, str]]:
     previous_number = parse_issue(
         previous_issue,
@@ -50,6 +51,7 @@ def build_forward_evaluation_plan(
         )
     history_advanced = previous_number is not None and current_number > previous_number
     available_history = {str(issue).strip() for issue in history_issues}
+    forced_issues = {str(issue).strip() for issue in force_evaluation_issues}
     accepted_candidate_counts: dict[tuple[str, str, str], int] = {}
     for evaluation in accepted_evaluations:
         if not isinstance(evaluation, Mapping) or evaluation.get("status") != "evaluated":
@@ -141,7 +143,10 @@ def build_forward_evaluation_plan(
             accepted_count = accepted_candidate_counts.get(
                 (line_key, next_issue, snapshot["snapshot_key"])
             )
-            if accepted_count == int(snapshot["top_n"]):
+            if (
+                next_issue not in forced_issues
+                and accepted_count == int(snapshot["top_n"])
+            ):
                 continue
             plan.append(snapshot)
 

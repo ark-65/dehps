@@ -236,12 +236,20 @@ evaluate_synced_predictions_if_needed() {
   local evaluation_plan_file
   local evaluation_count=0
   local evaluation_failed=false
+  local -a planner_args
   changed_count="$(sync_changed_draw_count "$sync_output_file")"
   evaluation_plan_file="$(mktemp "$LOG_DIR/training-forward-evaluation-plan.XXXXXX.tsv")"
-  if ! .venv/bin/python scripts/plan_synced_prediction_evaluations.py \
+  planner_args=(
     --snapshot-file "$prediction_snapshot_file" \
     --previous-issue "$previous_issue" \
-    --current-issue "$current_issue" \
+    --current-issue "$current_issue"
+  )
+  if [[ "$changed_count" =~ ^[1-9][0-9]*$ && -n "$current_issue" ]]; then
+    planner_args+=(--force-issue "$current_issue")
+    log "sync changed current issue; forcing forward re-evaluation issue=$current_issue changed_count=$changed_count"
+  fi
+  if ! .venv/bin/python scripts/plan_synced_prediction_evaluations.py \
+    "${planner_args[@]}" \
     > "$evaluation_plan_file"; then
     log "forward prediction evaluation plan rejected; refusing advisor refresh or supervisor start"
     rm -f "$evaluation_plan_file"
