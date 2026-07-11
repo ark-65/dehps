@@ -3312,14 +3312,36 @@ def test_recommendation_fails_closed_on_sync_conflicts():
             "ok": False,
             "latest_sync": {"conflict_count": 1},
             "recorded_data_conflict_count": 2,
+            "unresolved_data_conflict_count": 2,
         },
     )
 
     assert recommendation["severity"] == "alert"
     assert recommendation["action"] == "inspect_parser_sync_conflicts"
-    assert "latest_sync_conflicts=1 recorded_conflicts=2" in " ".join(
+    assert "latest_sync_conflicts=1 unresolved_conflicts=2 recorded_conflicts=2" in " ".join(
         recommendation["notes"]
     )
+
+
+def test_recommendation_allows_preserved_resolved_conflict_evidence():
+    now = datetime(2026, 7, 11, 9, 10, tzinfo=timezone.utc)
+    recommendation = recommendation_summary(
+        rows=[],
+        lock={"active": False},
+        advisors={},
+        now=now,
+        stale_minutes=30,
+        supervisor_status={"status": "waiting_for_forward_issue"},
+        parser_sync_duplicate_checks={
+            "status": "checked",
+            "ok": True,
+            "latest_sync": {"conflict_count": 0},
+            "recorded_data_conflict_count": 3,
+            "unresolved_data_conflict_count": 0,
+        },
+    )
+
+    assert recommendation["action"] != "inspect_parser_sync_conflicts"
 
 
 def test_recommendation_and_markdown_include_supervisor_progress():
@@ -4076,6 +4098,7 @@ def test_evidence_context_surfaces_sample_space_baseline_and_leakage_guardrails(
         "latest_sync_ok": True,
         "latest_sync": {"status": "success", "conflict_count": 0},
         "recorded_data_conflict_count": 0,
+        "unresolved_data_conflict_count": 0,
     }
 
     evidence = evidence_context_summary(

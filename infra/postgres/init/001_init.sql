@@ -104,6 +104,12 @@ CREATE TABLE IF NOT EXISTS ssq_data_conflicts (
   source TEXT,
   conflict_reason TEXT,
   raw_payload JSONB,
+  resolution_action TEXT,
+  resolution_note TEXT,
+  resolved_by TEXT,
+  resolved_red_numbers SMALLINT[],
+  resolved_blue_number SMALLINT,
+  resolved_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

@@ -48,3 +48,16 @@ CSV is intentionally explicit so repository checkouts do not carry stale sample 
 ## Conflict Policy
 
 The same issue with the same numbers is treated as idempotent. The same issue with different red or blue numbers is written to `ssq_data_conflicts` and the existing canonical row is not overwritten.
+
+Unresolved conflicts stop forward evaluation, advisor refresh, and supervisor startup. After an operator verifies the authoritative draw, resolve one conflict group without deleting evidence:
+
+```bash
+cd apps/worker-python
+.venv/bin/python scripts/resolve_ssq_data_conflict.py \
+  --conflict-id 123 \
+  --accept existing \
+  --resolution-note "verified against official draw notice" \
+  --resolved-by "operator-name"
+```
+
+Use `--accept incoming` only when the incoming side was independently verified. The command locks both the conflict and canonical draw, rejects stale third-state data, updates the canonical draw only when required, and marks matching duplicate conflict evidence resolved. It never deletes conflict records. Autonomous self-iteration must not run this command.

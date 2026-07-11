@@ -356,6 +356,20 @@ def ensure_training_prediction_evaluations_schema(conn: Connection) -> None:
     )
 
 
+def ensure_ssq_data_conflicts_resolution_schema(conn: Connection) -> None:
+    conn.execute(
+        """
+        ALTER TABLE ssq_data_conflicts
+          ADD COLUMN IF NOT EXISTS resolution_action TEXT,
+          ADD COLUMN IF NOT EXISTS resolution_note TEXT,
+          ADD COLUMN IF NOT EXISTS resolved_by TEXT,
+          ADD COLUMN IF NOT EXISTS resolved_red_numbers SMALLINT[],
+          ADD COLUMN IF NOT EXISTS resolved_blue_number SMALLINT,
+          ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMPTZ
+        """
+    )
+
+
 def ensure_training_prediction_line_regressions_schema(conn: Connection) -> None:
     conn.execute(
         """
@@ -1788,6 +1802,7 @@ def record_conflict(
     reason: str,
     raw_payload: dict[str, Any] | None,
 ) -> None:
+    ensure_ssq_data_conflicts_resolution_schema(conn)
     conn.execute(
         """
         INSERT INTO ssq_data_conflicts (

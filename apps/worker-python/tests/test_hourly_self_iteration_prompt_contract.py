@@ -116,12 +116,27 @@ def test_hourly_self_iteration_prompt_requires_sync_conflict_fail_closed():
     prompt = (REPO_ROOT / "scripts/hourly_self_iterate.sh").read_text(encoding="utf-8")
 
     for requirement in (
-        "最新 `conflict_count`",
-        "累计 `recorded_data_conflict_count`",
+        "当前 watchdog 同步输出的 `conflict_count`",
+        "`unresolved_data_conflict_count`",
         "冲突计数无法解析",
         "前向评估、advisor 刷新和 supervisor 启动前 fail closed",
         "inspect_parser_sync_conflicts",
+        "只由未解决冲突触发",
         "不得把 status=success 误当作号码一致",
         "不得自动删除冲突证据",
+    ):
+        assert requirement in prompt
+
+
+def test_hourly_self_iteration_prompt_forbids_autonomous_conflict_resolution():
+    prompt = (REPO_ROOT / "scripts/hourly_self_iterate.sh").read_text(encoding="utf-8")
+
+    for requirement in (
+        "冲突只能由人类显式运行 `resolve_ssq_data_conflict.py`",
+        "选择 existing/incoming",
+        "resolution note",
+        "resolved-by",
+        "canonical stale-check",
+        "自主迭代不得调用该命令",
     ):
         assert requirement in prompt

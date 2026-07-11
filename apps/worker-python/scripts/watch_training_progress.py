@@ -21,6 +21,7 @@ from dehps.models.prediction_input_boundary import (
 )
 from dehps.runtime.compute_capability import compute_capability_summary
 from dehps.runtime.heavy_job import describe_heavy_job_owner, is_pid_active
+from dehps.storage.postgres_store import ensure_ssq_data_conflicts_resolution_schema
 
 
 ADVISOR_KEYS = (
@@ -1008,6 +1009,7 @@ def isoformat_date(value: Any) -> str | None:
 def load_parser_sync_duplicate_checks() -> dict[str, Any]:
     try:
         with get_connection() as conn:
+            ensure_ssq_data_conflicts_resolution_schema(conn)
             with conn.cursor(row_factory=dict_row) as cur:
                 history = cur.execute(
                     """
@@ -1092,7 +1094,12 @@ def load_parser_sync_duplicate_checks() -> dict[str, Any]:
                     """
                 ).fetchone()
                 conflict_row = cur.execute(
-                    "SELECT count(*) AS recorded_data_conflict_count FROM ssq_data_conflicts"
+                    """
+                    SELECT
+                      count(*) AS recorded_data_conflict_count,
+                      count(*) FILTER (WHERE resolved_at IS NULL) AS unresolved_data_conflict_count
+                    FROM ssq_data_conflicts
+                    """
                 ).fetchone() or {}
     except Exception as exc:
         return {
@@ -1119,6 +1126,9 @@ def load_parser_sync_duplicate_checks() -> dict[str, Any]:
     recorded_data_conflict_count = (
         safe_int(conflict_row.get("recorded_data_conflict_count")) or 0
     )
+    unresolved_data_conflict_count = (
+        safe_int(conflict_row.get("unresolved_data_conflict_count")) or 0
+    )
 
     history_ok = (
         duplicate_issue_count == 0
@@ -1133,11 +1143,11 @@ def load_parser_sync_duplicate_checks() -> dict[str, Any]:
         and duplicate_combination_count == 0
         and invalid_combination_shape_count == 0
     )
-    latest_sync_ok = (
-        latest_sync_status not in {"failed", "error"}
-        and (latest_sync_conflict_count or 0) == 0
-    )
-    data_conflicts_ok = recorded_data_conflict_count == 0
+    # Historical conflict_count remains immutable sync-run evidence. A manually
+    # resolved conflict is released by unresolved_data_conflict_count, not by
+    # rewriting the original sync result.
+    latest_sync_ok = latest_sync_status not in {"failed", "error"}
+    data_conflicts_ok = unresolved_data_conflict_count == 0
     latest_sync_summary = (
         {
             "run_key": latest_sync.get("run_key"),
@@ -1181,6 +1191,7 @@ def load_parser_sync_duplicate_checks() -> dict[str, Any]:
         "data_conflicts_ok": data_conflicts_ok,
         "latest_sync": latest_sync_summary,
         "recorded_data_conflict_count": recorded_data_conflict_count,
+        "unresolved_data_conflict_count": unresolved_data_conflict_count,
     }
 
 
@@ -1217,6 +1228,7 @@ def compact_parser_sync_duplicate_checks(value: Any) -> str:
         f"universe_invalid={value.get('red_combination_invalid_shape_count')} "
         f"latest_sync_status={latest_sync.get('status')} "
         f"latest_sync_conflicts={latest_sync.get('conflict_count')} "
+        f"unresolved_conflicts={value.get('unresolved_data_conflict_count')} "
         f"recorded_conflicts={value.get('recorded_data_conflict_count')}"
     )
 
@@ -3108,6 +3120,7 @@ def recommendation_summary(
             "Parser/sync integrity is not safe for training release: "
             f"status={parser_checks.get('status')} "
             f"latest_sync_conflicts={latest_sync.get('conflict_count')} "
+            f"unresolved_conflicts={parser_checks.get('unresolved_data_conflict_count')} "
             f"recorded_conflicts={parser_checks.get('recorded_data_conflict_count')}."
         )
     progress_note = supervisor_progress_note(supervisor_status or {})
