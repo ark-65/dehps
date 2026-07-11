@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,24 @@ from dehps.runtime.heavy_job import DEFAULT_LOCK_PATH, mark_inactive_heavy_job_o
 
 
 DEFAULT_OUTPUT_DIR = ROOT_DIR / "data/output/optimization"
+
+
+def update_waiting_report(status: dict[str, Any]) -> Path | None:
+    report_value = status.get("report_path")
+    if not isinstance(report_value, str) or not report_value.strip():
+        return None
+    report_path = Path(report_value)
+    report = report_path.read_text(encoding="utf-8")
+    replacements = {
+        r"^- Updated at: .*?$": f"- Updated at: {status['updated_at']}",
+        r"^- Status: .*?$": f"- Status: {status['status']}",
+    }
+    for pattern, replacement in replacements.items():
+        report, count = re.subn(pattern, replacement, report, count=1, flags=re.MULTILINE)
+        if count != 1:
+            raise ValueError(f"supervisor_report_field_missing:{pattern}")
+    atomic_write_text(report_path, report)
+    return report_path
 
 
 def _issue_int(value: Any) -> int | None:
@@ -105,6 +124,7 @@ def main() -> None:
         missing_ok=True,
     )
     atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2))
+    report_path = update_waiting_report(payload)
     print(
         json.dumps(
             {
@@ -113,6 +133,7 @@ def main() -> None:
                 "path": str(path),
                 "history_issue": args.history_issue,
                 "pending_issue": args.pending_issue,
+                "report_path": str(report_path) if report_path is not None else None,
                 "heavy_job_metadata_status": (
                     heavy_job_metadata.get("status")
                     if heavy_job_metadata is not None

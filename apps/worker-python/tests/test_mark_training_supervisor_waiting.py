@@ -8,6 +8,7 @@ import pytest
 from scripts.mark_training_supervisor_waiting import (
     find_status_path,
     main,
+    update_waiting_report,
     waiting_status_payload,
 )
 
@@ -75,12 +76,48 @@ def test_find_status_path_uses_matching_pid(tmp_path):
     assert find_status_path(output_dir=tmp_path, expected_pid=12345) == right
 
 
+def test_update_waiting_report_syncs_lifecycle_fields(tmp_path):
+    report_path = tmp_path / "training-supervisor-run-1.md"
+    report_path.write_text(
+        "# DEHPS 24h Training Supervisor Report\n\n"
+        "- Updated at: 2026-07-11T13:58:50\n"
+        "- Status: running\n"
+        "- Train mode: `expanding`\n",
+        encoding="utf-8",
+    )
+
+    updated_path = update_waiting_report(
+        {
+            "report_path": str(report_path),
+            "updated_at": "2026-07-11T14:26:35",
+            "status": "waiting_for_forward_issue",
+        }
+    )
+
+    assert updated_path == report_path
+    assert report_path.read_text(encoding="utf-8") == (
+        "# DEHPS 24h Training Supervisor Report\n\n"
+        "- Updated at: 2026-07-11T14:26:35\n"
+        "- Status: waiting_for_forward_issue\n"
+        "- Train mode: `expanding`\n"
+    )
+
+
 def test_main_marks_supervisor_and_stopped_heavy_job_waiting(tmp_path, monkeypatch, capsys):
     dead_pid = 999_999_999
     output_dir = tmp_path / "optimization"
     output_dir.mkdir()
     status_path = output_dir / "training-supervisor-run-1.json"
-    status_path.write_text(json.dumps(running_status(dead_pid)), encoding="utf-8")
+    report_path = output_dir / "training-supervisor-run-1.md"
+    report_path.write_text(
+        "# DEHPS 24h Training Supervisor Report\n\n"
+        "- Updated at: 2026-07-11T13:58:50\n"
+        "- Status: running\n",
+        encoding="utf-8",
+    )
+    initial_status = running_status(dead_pid)
+    initial_status["report_path"] = str(report_path)
+    status_path.write_text(json.dumps(initial_status), encoding="utf-8")
     lock_path = tmp_path / "dehps-heavy-job.lock"
     metadata_path = lock_path.with_name(f"{lock_path.name}.json")
     metadata_path.write_text(
@@ -121,3 +158,7 @@ def test_main_marks_supervisor_and_stopped_heavy_job_waiting(tmp_path, monkeypat
     assert metadata["status"] == "waiting_for_forward_issue"
     assert metadata["context"]["forward_wait"]["next_pending_issue"] == "2026079"
     assert emitted["heavy_job_metadata_status"] == "waiting_for_forward_issue"
+    assert emitted["report_path"] == str(report_path)
+    report = report_path.read_text(encoding="utf-8")
+    assert "- Updated at: " + supervisor["updated_at"] in report
+    assert "- Status: waiting_for_forward_issue" in report
