@@ -53,6 +53,7 @@ from dehps.optimization.near_dynamic_report import write_near_dynamic_line_repor
 from dehps.optimization.self_diagnostics import (
     SELF_DIAGNOSTICS_PROTOCOL,
     build_specialist_strategy_memory,
+    extend_sequential_null_ledger,
     signal_vs_noise_diagnostic,
 )
 from dehps.optimization.ridge_kdj_advisor import (
@@ -86,6 +87,7 @@ from dehps.storage.postgres_store import (
     ensure_training_target_weight_inversions_schema,
     load_red_combination_universe,
     load_ssq_history_column_names,
+    load_training_sequential_null_ledger,
     load_training_round_carryover_candidate_summaries,
     load_training_round_navigation_records,
     load_training_supervisor_best_carryover_candidate_summaries,
@@ -1664,6 +1666,9 @@ def training_round_self_diagnostics(
     ridge_advisor_info: dict,
     neural_advisor_info: dict,
     universe_size: int,
+    sequential_null_ledger: dict | None = None,
+    completed_round_diagnostics: list[dict] | None = None,
+    completed_round_count: int = 0,
 ) -> dict:
     weight = training_weight_trust_diagnostic(
         advisor_info=advisor_info,
@@ -1684,11 +1689,18 @@ def training_round_self_diagnostics(
         for index, summary in enumerate(summaries)
         if isinstance(summary, dict)
     }
+    sequential_family = extend_sequential_null_ledger(
+        sequential_null_ledger,
+        completed_round_diagnostics=completed_round_diagnostics or [],
+        completed_round_count=completed_round_count,
+        current_candidate_hypothesis_count=max(1, len(evaluated_config_hashes)),
+    )
     signal = signal_vs_noise_diagnostic(
         round_best,
         legal_sample_space=universe_size,
         overfit_guard_active=bool(eval_slice_overfit.get("active")),
         candidate_hypothesis_count=max(1, len(evaluated_config_hashes)),
+        sequential_family=sequential_family,
     )
     statuses = (weight["status"], candidate_space["status"], signal["status"])
     if "blocked" in statuses or "collapsed" in statuses:
@@ -6475,6 +6487,7 @@ def compact_status_payload(status: dict) -> dict:
         "carryover_seed": status.get("carryover_seed"),
         "continuity_seed": status.get("continuity_seed"),
         "strategy_memory_continuity": status.get("strategy_memory_continuity"),
+        "sequential_null_ledger": status.get("sequential_null_ledger"),
         "qian_kun": status.get("qian_kun"),
         "next_candidates": status.get("next_candidates"),
         "self_diagnostics": status.get("self_diagnostics"),
@@ -6574,12 +6587,18 @@ def self_diagnostics_report_section(status: dict) -> str:
     weight = diagnostics.get("weight_trust") if isinstance(diagnostics.get("weight_trust"), dict) else {}
     candidate_space = diagnostics.get("candidate_space") if isinstance(diagnostics.get("candidate_space"), dict) else {}
     signal = diagnostics.get("signal_vs_noise") if isinstance(diagnostics.get("signal_vs_noise"), dict) else {}
+    sequential_family = (
+        signal.get("sequential_family")
+        if isinstance(signal.get("sequential_family"), dict)
+        else {}
+    )
     return f"""## Self Diagnostics
 
 - Synthesis: `{synthesis.get("status", "missing")}` action `{synthesis.get("action", "missing")}`.
 - Weight trust: `{weight.get("status", "missing")}` score `{weight.get("score", "missing")}` action `{weight.get("action", "missing")}`.
 - Candidate space: `{candidate_space.get("status", "missing")}` active sources `{candidate_space.get("active_refined_source_count", "missing")}` unique top signatures `{candidate_space.get("unique_top_rank_signature_count", "missing")}`.
 - Signal vs noise: `{signal.get("status", "missing")}` eval window `{signal.get("eval_window", "missing")}` overfit active `{signal.get("overfit_guard_active", "missing")}`.
+- Sequential null ledger: observed rounds `{sequential_family.get("observed_diagnostic_round_count", 0)}/{sequential_family.get("total_round_count", 0)}` candidate tests `{sequential_family.get("observed_candidate_hypothesis_count", 0)}` family `{sequential_family.get("observed_familywise_hypothesis_count", 0)}` legacy uncounted `{sequential_family.get("legacy_uncounted_round_count", 0)}` adaptive counted `{sequential_family.get("adaptive_hypothesis_generation_counted", False)}`.
 """
 
 
@@ -6838,6 +6857,24 @@ def run_supervisor(
             top_n=top_n,
             limit=80,
         )
+        sequential_null_ledger = load_training_sequential_null_ledger(
+            conn,
+            as_of_issue=as_of_issue_value,
+            history_fingerprint=history_fingerprint_value,
+            train_window=train_window,
+            train_mode=train_mode,
+            eval_window=eval_window,
+            top_n=top_n,
+            current_run_id=run_id,
+        )
+    log(
+        "sequential_null_ledger="
+        f"rounds={sequential_null_ledger['observed_diagnostic_round_count']}/"
+        f"{sequential_null_ledger['total_round_count']} "
+        f"candidate_tests={sequential_null_ledger['observed_candidate_hypothesis_count']} "
+        f"family={sequential_null_ledger['observed_familywise_hypothesis_count']} "
+        f"legacy_uncounted={sequential_null_ledger['legacy_uncounted_round_count']}"
+    )
     strategy_memory_prior_diagnostics, strategy_memory_continuity_info = (
         recover_strategy_memory_diagnostics(
             navigation_records,
@@ -7087,6 +7124,7 @@ def run_supervisor(
             "selected": strip_target_results(continuity_seed) if continuity_seed is not None else None,
         },
         "strategy_memory_continuity": strategy_memory_continuity_info,
+        "sequential_null_ledger": sequential_null_ledger,
         "guard_continuity": guard_continuity_info,
         "qian_kun": qian_kun_distribution(selection.history),
         "next_candidates": None,
@@ -7830,8 +7868,19 @@ def run_supervisor(
                 ridge_advisor_info=ridge_advisor_info,
                 neural_advisor_info=neural_advisor_info,
                 universe_size=len(ranked_universe),
+                sequential_null_ledger=sequential_null_ledger,
+                completed_round_diagnostics=recent_round_self_diagnostics(
+                    rounds,
+                    limit=len(rounds),
+                ),
+                completed_round_count=len(rounds),
             )
             prefilter_info["self_diagnostics"] = self_diagnostics
+            round_sequential_null_ledger = self_diagnostics["signal_vs_noise"].get(
+                "sequential_family"
+            )
+            prefilter_info["sequential_null_ledger"] = round_sequential_null_ledger
+            status["sequential_null_ledger"] = round_sequential_null_ledger
             status["self_diagnostics"] = self_diagnostics
             prefilter_info["round_best_replays_incumbent"] = inversion_anchor_info["round_best_replays_incumbent"]
             prefilter_info["challenger_best"] = strip_target_results(challenger_summary) if challenger_summary else None
