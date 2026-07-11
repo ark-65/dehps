@@ -20,7 +20,7 @@ from dehps.models.prediction_input_boundary import (
     PREDICTION_INPUT_BOUNDARY_PROTOCOL,
 )
 from dehps.runtime.compute_capability import compute_capability_summary
-from dehps.runtime.heavy_job import describe_heavy_job_owner
+from dehps.runtime.heavy_job import describe_heavy_job_owner, is_pid_active
 
 
 ADVISOR_KEYS = (
@@ -1915,6 +1915,7 @@ def supervisor_status_summary(status: dict[str, Any], *, path: Path) -> dict[str
     if run_mode is None and deadline_present and deadline is None:
         run_mode = "continuous"
     continuity = status.get("continuity_seed") if isinstance(status.get("continuity_seed"), dict) else {}
+    forward_wait = status.get("forward_wait") if isinstance(status.get("forward_wait"), dict) else {}
     return {
         "available": True,
         "path": str(path),
@@ -1938,6 +1939,7 @@ def supervisor_status_summary(status: dict[str, Any], *, path: Path) -> dict[str
         "matrix_backend": status.get("matrix_backend"),
         "regime_start_date": status.get("regime_start_date"),
         "regime_years": safe_float(status.get("regime_years")),
+        "status_reported_process_active": safe_bool(forward_wait.get("process_active")),
         "continuity_seed": {
             "mode": continuity.get("mode"),
             "eligible": safe_bool(continuity.get("eligible")),
@@ -2038,6 +2040,131 @@ def add_supervisor_status_observation_ages(
         progress["freshness_threshold_minutes"] = stale_minutes
         enriched["latest_progress"] = progress
     return enriched
+
+
+def supervisor_lifecycle_summary(supervisor_status: dict[str, Any]) -> dict[str, Any]:
+    available = supervisor_status.get("available") is True
+    pid = safe_int(supervisor_status.get("pid"))
+    status_file_state = str(supervisor_status.get("status") or "").strip().lower()
+    reported_process_active = safe_bool(
+        supervisor_status.get("status_reported_process_active")
+    )
+
+    if not available:
+        return {
+            "protocol": "dehps-supervisor-lifecycle-observation-v1",
+            "status": "status_file_unavailable",
+            "status_file_available": False,
+            "status_file_state": status_file_state or None,
+            "pid": pid,
+            "status_reported_process_active": reported_process_active,
+            "expected_process_active": None,
+            "observed_pid_active": None,
+            "pid_activity_scope": "os_pid_exists_not_command_identity",
+            "lifecycle_consistent": None,
+            "requires_attention": True,
+            "selection_changed": False,
+            "promotion_allowed": False,
+            "interpretation": (
+                "The supervisor status artifact is unavailable, so process lifecycle cannot be "
+                "classified from this watch."
+            ),
+        }
+
+    observed_pid_active = is_pid_active(pid)
+    if status_file_state == "waiting_for_forward_issue":
+        expected_process_active = False
+    elif status_file_state in {"running", "starting"}:
+        expected_process_active = True
+    elif status_file_state in {
+        "cancelled",
+        "completed",
+        "error",
+        "failed",
+        "finished",
+        "interrupted",
+        "released",
+        "success",
+    }:
+        expected_process_active = False
+    else:
+        expected_process_active = None
+
+    lifecycle_consistent = (
+        expected_process_active == observed_pid_active
+        if expected_process_active is not None and observed_pid_active is not None
+        else None
+    )
+    if observed_pid_active is None:
+        status = "pid_activity_unknown"
+        requires_attention = status_file_state in {"running", "starting"}
+        interpretation = (
+            "The OS PID-existence check is inconclusive; do not infer that the supervisor is "
+            "running or parked from status-file availability alone."
+        )
+    elif status_file_state == "waiting_for_forward_issue" and not observed_pid_active:
+        status = "parked_waiting_for_forward_issue"
+        requires_attention = False
+        interpretation = (
+            "The status artifact is available while its supervisor PID is inactive, matching "
+            "the intentional forward-evidence parked state."
+        )
+    elif status_file_state == "waiting_for_forward_issue":
+        status = "waiting_status_pid_active"
+        requires_attention = reported_process_active is False
+        interpretation = (
+            "The waiting status still references an existing OS PID. This may be a transition "
+            "or PID reuse; command identity is not verified by this observation."
+        )
+    elif status_file_state in {"running", "starting"} and observed_pid_active:
+        status = "running_pid_active"
+        requires_attention = False
+        interpretation = (
+            "The running status references an existing OS PID. This check does not verify that "
+            "the PID command is the expected supervisor."
+        )
+    elif status_file_state in {"running", "starting"}:
+        status = "running_pid_inactive"
+        requires_attention = True
+        interpretation = (
+            "The status artifact says the supervisor is running, but its PID no longer exists; "
+            "inspect the supervisor log before any restart decision."
+        )
+    elif expected_process_active is False and not observed_pid_active:
+        status = "inactive_status_pid_inactive"
+        requires_attention = False
+        interpretation = "The inactive status and OS PID-existence observation agree."
+    elif expected_process_active is False:
+        status = "inactive_status_pid_active"
+        requires_attention = True
+        interpretation = (
+            "An inactive status references an existing OS PID. This may be PID reuse; command "
+            "identity is not verified by this observation."
+        )
+    else:
+        status = "unclassified_status"
+        requires_attention = False
+        interpretation = (
+            "The status-file state has no declared process-lifecycle expectation; OS PID "
+            "existence is reported without changing restart behavior."
+        )
+
+    return {
+        "protocol": "dehps-supervisor-lifecycle-observation-v1",
+        "status": status,
+        "status_file_available": True,
+        "status_file_state": status_file_state or None,
+        "pid": pid,
+        "status_reported_process_active": reported_process_active,
+        "expected_process_active": expected_process_active,
+        "observed_pid_active": observed_pid_active,
+        "pid_activity_scope": "os_pid_exists_not_command_identity",
+        "lifecycle_consistent": lifecycle_consistent,
+        "requires_attention": requires_attention,
+        "selection_changed": False,
+        "promotion_allowed": False,
+        "interpretation": interpretation,
+    }
 
 
 def supervisor_progress_note(supervisor_status: dict[str, Any]) -> str | None:
@@ -3903,6 +4030,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         now=generated_at,
         stale_minutes=stale_minutes,
     )
+    supervisor_lifecycle = supervisor_lifecycle_summary(supervisor_status)
     prediction_input_boundary = (
         dict(supervisor_status.get("prediction_input_boundary"))
         if isinstance(supervisor_status.get("prediction_input_boundary"), dict)
@@ -4023,6 +4151,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         "gate_summary": gates,
         "db_read_errors": db_read_errors,
         "supervisor_status": supervisor_status,
+        "supervisor_lifecycle": supervisor_lifecycle,
         "prediction_input_boundary": prediction_input_boundary,
         "compute_capability": compute_capability,
         "supervisor_round_boundary": round_boundary,
@@ -4801,6 +4930,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
         supervisor_section = (
             "## Supervisor Progress\n\n"
             f"- Status/PID: {markdown_inline_text(supervisor_status.get('status'))} / {supervisor_status.get('pid')}\n"
+            f"- Status-reported process active: {supervisor_status.get('status_reported_process_active')}\n"
             f"- Run mode: {markdown_inline_text(supervisor_status.get('run_mode'))}\n"
             f"- Deadline: {markdown_inline_text(supervisor_status.get('deadline'))}\n"
             f"- Updated at: {markdown_inline_text(supervisor_status.get('updated_at'))}\n"
@@ -4808,6 +4938,32 @@ def render_markdown(payload: dict[str, Any]) -> str:
             f"- Status file: {markdown_inline_code(supervisor_status.get('path'))}\n"
             f"{progress_lines}\n"
             f"{round_boundary_line}"
+        )
+    supervisor_lifecycle = (
+        payload.get("supervisor_lifecycle")
+        if isinstance(payload.get("supervisor_lifecycle"), dict)
+        else {}
+    )
+    supervisor_lifecycle_section = ""
+    if supervisor_lifecycle:
+        supervisor_lifecycle_section = (
+            "## Supervisor Lifecycle\n\n"
+            f"- Status: {markdown_inline_code(supervisor_lifecycle.get('status'))}\n"
+            f"- Status file available/state: {supervisor_lifecycle.get('status_file_available')} / "
+            f"{markdown_inline_text(supervisor_lifecycle.get('status_file_state'))}\n"
+            f"- PID: {supervisor_lifecycle.get('pid')}\n"
+            "- Process active (reported/expected/observed): "
+            f"{supervisor_lifecycle.get('status_reported_process_active')} / "
+            f"{supervisor_lifecycle.get('expected_process_active')} / "
+            f"{supervisor_lifecycle.get('observed_pid_active')}\n"
+            f"- PID activity scope: {markdown_inline_text(supervisor_lifecycle.get('pid_activity_scope'))}\n"
+            f"- Lifecycle consistent / requires attention: "
+            f"{supervisor_lifecycle.get('lifecycle_consistent')} / "
+            f"{supervisor_lifecycle.get('requires_attention')}\n"
+            f"- Selection changed / promotion allowed: "
+            f"{supervisor_lifecycle.get('selection_changed')} / "
+            f"{supervisor_lifecycle.get('promotion_allowed')}\n"
+            f"- Interpretation: {markdown_inline_text(supervisor_lifecycle.get('interpretation'))}\n\n"
         )
     evidence_context = (
         payload.get("evidence_context")
@@ -4977,6 +5133,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
 {compute_capability_section}\
 {restart_section}\
 {supervisor_section}\
+{supervisor_lifecycle_section}\
 {evidence_section}\
 {db_error_section}\
 ## Heavy Job Lock
@@ -5368,6 +5525,36 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
                 "target_complete": progress.get("target_complete"),
                 "fresh": progress.get("fresh"),
             },
+        }
+    supervisor_lifecycle = (
+        payload.get("supervisor_lifecycle")
+        if isinstance(payload.get("supervisor_lifecycle"), dict)
+        else {}
+    )
+    if supervisor_lifecycle:
+        summary["supervisor_lifecycle"] = {
+            "protocol": supervisor_lifecycle.get("protocol"),
+            "status": supervisor_lifecycle.get("status"),
+            "status_file_available": supervisor_lifecycle.get(
+                "status_file_available"
+            ),
+            "status_file_state": supervisor_lifecycle.get("status_file_state"),
+            "pid": supervisor_lifecycle.get("pid"),
+            "status_reported_process_active": supervisor_lifecycle.get(
+                "status_reported_process_active"
+            ),
+            "expected_process_active": supervisor_lifecycle.get(
+                "expected_process_active"
+            ),
+            "observed_pid_active": supervisor_lifecycle.get("observed_pid_active"),
+            "pid_activity_scope": supervisor_lifecycle.get("pid_activity_scope"),
+            "lifecycle_consistent": supervisor_lifecycle.get(
+                "lifecycle_consistent"
+            ),
+            "requires_attention": supervisor_lifecycle.get("requires_attention"),
+            "selection_changed": supervisor_lifecycle.get("selection_changed"),
+            "promotion_allowed": supervisor_lifecycle.get("promotion_allowed"),
+            "interpretation": supervisor_lifecycle.get("interpretation"),
         }
     heavy_job_lock = (
         payload.get("heavy_job_lock")

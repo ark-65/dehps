@@ -32,6 +32,7 @@ from scripts.watch_training_progress import (
     summarize_candidate_source_survival,
     summarize_round_repetition,
     supervisor_round_boundary_summary,
+    supervisor_lifecycle_summary,
     summarize_watch,
 )
 
@@ -2904,6 +2905,9 @@ def test_load_supervisor_status_reads_current_progress(tmp_path):
             "promotion_allowed": false,
             "reasons": []
           },
+          "forward_wait": {
+            "process_active": true
+          },
           "continuity_seed": {
             "mode": "same_history_validated_navigation_replay",
             "eligible": true,
@@ -2936,6 +2940,7 @@ def test_load_supervisor_status_reads_current_progress(tmp_path):
     assert status["status"] == "running"
     assert status["pid"] == 12345
     assert status["run_mode"] == "timed"
+    assert status["status_reported_process_active"] is True
     assert status["deadline"] == "2026-07-01T06:00:00"
     assert status["latest_progress"]["round"] == 9
     assert status["latest_progress"]["target_complete"] is True
@@ -3110,6 +3115,145 @@ def test_supervisor_status_progress_age_uses_local_timezone_for_naive_timestamps
     assert enriched["latest_progress"]["age_minutes"] == 1.5
     assert enriched["latest_progress"]["fresh"] is True
     assert enriched["latest_progress"]["freshness_threshold_minutes"] == 30
+
+
+def test_supervisor_lifecycle_identifies_intentionally_parked_status(monkeypatch):
+    monkeypatch.setattr(watch, "is_pid_active", lambda pid: False)
+
+    lifecycle = supervisor_lifecycle_summary(
+        {
+            "available": True,
+            "status": "waiting_for_forward_issue",
+            "pid": 3579268,
+            "status_reported_process_active": False,
+        }
+    )
+
+    assert lifecycle == {
+        "protocol": "dehps-supervisor-lifecycle-observation-v1",
+        "status": "parked_waiting_for_forward_issue",
+        "status_file_available": True,
+        "status_file_state": "waiting_for_forward_issue",
+        "pid": 3579268,
+        "status_reported_process_active": False,
+        "expected_process_active": False,
+        "observed_pid_active": False,
+        "pid_activity_scope": "os_pid_exists_not_command_identity",
+        "lifecycle_consistent": True,
+        "requires_attention": False,
+        "selection_changed": False,
+        "promotion_allowed": False,
+        "interpretation": (
+            "The status artifact is available while its supervisor PID is inactive, matching "
+            "the intentional forward-evidence parked state."
+        ),
+    }
+
+
+def test_supervisor_lifecycle_flags_running_status_with_inactive_pid(monkeypatch):
+    monkeypatch.setattr(watch, "is_pid_active", lambda pid: False)
+
+    lifecycle = supervisor_lifecycle_summary(
+        {"available": True, "status": "running", "pid": 12345}
+    )
+
+    assert lifecycle["status"] == "running_pid_inactive"
+    assert lifecycle["expected_process_active"] is True
+    assert lifecycle["observed_pid_active"] is False
+    assert lifecycle["lifecycle_consistent"] is False
+    assert lifecycle["requires_attention"] is True
+    assert "inspect the supervisor log" in lifecycle["interpretation"]
+
+
+def test_supervisor_lifecycle_reports_pid_scope_for_active_process(monkeypatch):
+    monkeypatch.setattr(watch, "is_pid_active", lambda pid: True)
+
+    lifecycle = supervisor_lifecycle_summary(
+        {"available": True, "status": "running", "pid": 12345}
+    )
+
+    assert lifecycle["status"] == "running_pid_active"
+    assert lifecycle["lifecycle_consistent"] is True
+    assert lifecycle["requires_attention"] is False
+    assert "does not verify" in lifecycle["interpretation"]
+
+
+def test_supervisor_lifecycle_flags_waiting_status_with_unexpected_pid(monkeypatch):
+    monkeypatch.setattr(watch, "is_pid_active", lambda pid: True)
+
+    lifecycle = supervisor_lifecycle_summary(
+        {
+            "available": True,
+            "status": "waiting_for_forward_issue",
+            "pid": 12345,
+            "status_reported_process_active": False,
+        }
+    )
+
+    assert lifecycle["status"] == "waiting_status_pid_active"
+    assert lifecycle["lifecycle_consistent"] is False
+    assert lifecycle["requires_attention"] is True
+    assert "PID reuse" in lifecycle["interpretation"]
+
+
+def test_supervisor_lifecycle_does_not_probe_without_status_artifact(monkeypatch):
+    def unexpected_probe(pid):
+        raise AssertionError(f"unexpected PID probe: {pid}")
+
+    monkeypatch.setattr(watch, "is_pid_active", unexpected_probe)
+
+    lifecycle = supervisor_lifecycle_summary(
+        {"available": False, "reason": "status_file_missing"}
+    )
+
+    assert lifecycle["status"] == "status_file_unavailable"
+    assert lifecycle["observed_pid_active"] is None
+    assert lifecycle["lifecycle_consistent"] is None
+    assert lifecycle["requires_attention"] is True
+
+
+def test_supervisor_lifecycle_is_visible_to_operator_and_markdown():
+    lifecycle = {
+        "protocol": "dehps-supervisor-lifecycle-observation-v1",
+        "status": "parked_waiting_for_forward_issue",
+        "status_file_available": True,
+        "status_file_state": "waiting_for_forward_issue",
+        "pid": 3579268,
+        "status_reported_process_active": False,
+        "expected_process_active": False,
+        "observed_pid_active": False,
+        "pid_activity_scope": "os_pid_exists_not_command_identity",
+        "lifecycle_consistent": True,
+        "requires_attention": False,
+        "selection_changed": False,
+        "promotion_allowed": False,
+        "interpretation": "The supervisor is intentionally parked.",
+    }
+    payload = {
+        "generated_at": "2026-07-11T08:30:00Z",
+        "run_id": "run-1",
+        "round_count": 8,
+        "latest_metrics": {},
+        "advisor_summary": {},
+        "supervisor_lifecycle": lifecycle,
+        "heavy_job_lock": {},
+        "recommendation": {
+            "severity": "warn",
+            "action": "await_new_forward_issue",
+            "notes": [],
+        },
+        "guardrail": "Historical response-surface monitoring only.",
+    }
+
+    summary = operator_summary(payload)
+    markdown = render_markdown(payload)
+
+    assert summary["supervisor_lifecycle"]["status"] == (
+        "parked_waiting_for_forward_issue"
+    )
+    assert summary["supervisor_lifecycle"]["observed_pid_active"] is False
+    assert "## Supervisor Lifecycle" in markdown
+    assert "parked_waiting_for_forward_issue" in markdown
 
 
 def test_recommendation_flags_stale_supervisor_progress():
