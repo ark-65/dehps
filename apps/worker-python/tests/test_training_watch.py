@@ -273,6 +273,130 @@ def test_recommendation_keeps_stale_parked_supervisor_waiting():
     assert any("intentionally inactive" in note for note in recommendation["notes"])
 
 
+def test_sequential_null_audit_exposes_coverage_and_incomplete_family_boundaries():
+    prefilter = {
+        "sequential_null_ledger": {
+            "protocol": "dehps-sequential-null-ledger-v1",
+            "mode": "same_history_durable_round_observed_family",
+            "total_round_count": 317,
+            "observed_diagnostic_round_count": 23,
+            "legacy_uncounted_round_count": 294,
+            "observed_candidate_hypothesis_count": 418,
+            "tested_band_count": 3,
+            "observed_familywise_hypothesis_count": 1254,
+            "observed_round_family_complete": False,
+            "adaptive_hypothesis_generation_counted": False,
+            "sequential_search_multiplicity_counted": False,
+        },
+        "self_diagnostics": {
+            "signal_vs_noise": {
+                "status": "noise_risk",
+                "familywise_method": "bonferroni_minimum_observed_family",
+                "sequential_family_method": "bonferroni_observed_durable_round_lower_bound",
+                "familywise_alpha": 0.01,
+                "overfit_guard_active": True,
+                "forward_evaluated_count": 0,
+                "strongest_band": {
+                    "label": "top_100",
+                    "hits": 3,
+                    "trials": 80,
+                    "binomial_tail_p_value": 0.0000000605,
+                    "bonferroni_adjusted_p_value": 0.0000029037,
+                    "sequential_observed_bonferroni_adjusted_p_value": 0.0000758589,
+                },
+            }
+        },
+    }
+
+    summary = watch.sequential_null_audit_summary(prefilter)
+
+    assert summary["status"] == "incomplete_observed_lower_bound"
+    assert summary["observed_round_coverage_ratio"] == 0.072555
+    assert summary["legacy_round_gap_ratio"] == 0.927445
+    assert summary["round_partition_consistent"] is True
+    assert summary["observed_family_consistent"] is True
+    assert summary["invariants_passed"] is True
+    assert summary["full_family_complete"] is False
+    assert summary["candidate_signal_interpretable"] is False
+    assert summary["automatic_promotion_allowed"] is False
+    assert "legacy_rounds_unaccounted" in summary["blockers"]
+    assert "adaptive_hypothesis_generation_unaccounted" in summary["blockers"]
+    assert "sequential_search_multiplicity_incomplete" in summary["blockers"]
+    assert "no_forward_evaluation" in summary["blockers"]
+    assert (
+        summary["strongest_band"][
+            "sequential_observed_bonferroni_adjusted_p_value"
+        ]
+        == 0.0000758589
+    )
+
+    operator = operator_summary(
+        {
+            "recommendation": {"severity": "warn", "action": "await_new_forward_issue"},
+            "sequential_null_audit": summary,
+        }
+    )
+    assert operator["sequential_null_audit"]["observed_round_coverage_ratio"] == 0.072555
+    markdown = watch.render_sequential_null_audit_markdown(summary)
+    assert "Sequential Null Ledger Audit" in markdown
+    assert "observed=23/317" in markdown
+    assert "automatic_promotion=False" in markdown
+
+
+def test_sequential_null_audit_rejects_inconsistent_family_arithmetic():
+    summary = watch.sequential_null_audit_summary(
+        {
+            "sequential_null_ledger": {
+                "total_round_count": 10,
+                "observed_diagnostic_round_count": 4,
+                "legacy_uncounted_round_count": 5,
+                "observed_candidate_hypothesis_count": 12,
+                "tested_band_count": 3,
+                "observed_familywise_hypothesis_count": 35,
+                "observed_round_family_complete": False,
+                "adaptive_hypothesis_generation_counted": False,
+                "sequential_search_multiplicity_counted": False,
+            }
+        }
+    )
+
+    assert summary["status"] == "invalid"
+    assert summary["invariants_passed"] is False
+    assert "round_partition_inconsistent" in summary["blockers"]
+    assert "observed_family_product_inconsistent" in summary["blockers"]
+    assert summary["candidate_signal_interpretable"] is False
+
+
+def test_sequential_null_audit_never_turns_complete_family_into_automatic_promotion():
+    summary = watch.sequential_null_audit_summary(
+        {
+            "sequential_null_ledger": {
+                "total_round_count": 2,
+                "observed_diagnostic_round_count": 2,
+                "legacy_uncounted_round_count": 0,
+                "observed_candidate_hypothesis_count": 10,
+                "tested_band_count": 3,
+                "observed_familywise_hypothesis_count": 30,
+                "observed_round_family_complete": True,
+                "adaptive_hypothesis_generation_counted": True,
+                "sequential_search_multiplicity_counted": True,
+            },
+            "self_diagnostics": {
+                "signal_vs_noise": {
+                    "status": "candidate_signal",
+                    "overfit_guard_active": False,
+                    "forward_evaluated_count": 20,
+                }
+            },
+        }
+    )
+
+    assert summary["status"] == "complete_registered_family"
+    assert summary["full_family_complete"] is True
+    assert summary["candidate_signal_interpretable"] is True
+    assert summary["automatic_promotion_allowed"] is False
+
+
 def test_compute_capability_is_visible_in_operator_and_markdown():
     compute_capability = {
         "status": "cpu_parallel_gpu_backend_unvalidated",
