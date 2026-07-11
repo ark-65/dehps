@@ -222,3 +222,41 @@ def test_specialist_strategy_memory_advances_to_component_residual_stability_aud
         "promotion_allowed": False,
         "evidence_level": "strategy_memory_observation",
     }
+
+
+def test_specialist_strategy_memory_advances_to_tail_risk_counterfactual_audit():
+    current = {
+        "synthesis": {"status": "blocked"},
+        "weight_trust": {"status": "blocked"},
+        "candidate_space": {
+            "status": "diverse",
+            "round_best_path_status": "stale",
+        },
+        "decision_surface": {
+            "status": "objective_tiebreak_tradeoff",
+            "objective_component_control": {"status": "measured"},
+            "objective_component_counterfactual": {"status": "measured"},
+        },
+        "signal_vs_noise": {"status": "noise_risk"},
+    }
+
+    memory = build_specialist_strategy_memory(
+        current_diagnostic=current,
+        recent_diagnostics=[current],
+        round_index=6,
+    )
+
+    assert "tail_risk_counterfactual_needs_stability" in memory["failure_hypotheses"]
+    assert "objective_component_residuals_need_stability" not in memory["failure_hypotheses"]
+    assert memory["state"]["current_objective_component_counterfactual"] == "measured"
+    assert memory["state"]["objective_component_counterfactual_counts"] == {"measured": 2}
+    assert memory["selected_experiment"] == {
+        "key": "tail_risk_counterfactual_audit",
+        "action": "observe_tail_risk_counterfactual_without_selection_change",
+        "rationale": (
+            "The mature residual window predeclared a tail-risk-only counterfactual; observe whether "
+            "its local Top choice changes while production sorting and promotion remain unchanged."
+        ),
+        "promotion_allowed": False,
+        "evidence_level": "strategy_memory_observation",
+    }

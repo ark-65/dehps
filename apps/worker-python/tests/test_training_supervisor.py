@@ -1220,6 +1220,12 @@ def test_decision_surface_diagnostic_detects_objective_tiebreak_pareto_tradeoffs
     }
     assert component_control["max_abs_reconstruction_residual"] == 0.0
     assert component_control["selection_changed"] is False
+    counterfactual = diagnostic["objective_component_counterfactual"]
+    assert counterfactual["status"] == "measured"
+    assert counterfactual["component"] == "tail_risk_penalty"
+    assert counterfactual["counterfactual_top_changed"] is False
+    assert counterfactual["selection_changed"] is False
+    assert counterfactual["selection_uses_frozen_validation"] is False
     assert all(
         comparison["objective_component_residual"]["status"] == "measured"
         for comparison in diagnostic["comparisons"]
@@ -1274,6 +1280,61 @@ def test_objective_component_residual_direction_normalizes_penalties():
 
     assert mismatch["status"] == "reconstruction_mismatch"
     assert mismatch["reconstruction_residual"] == 1.0
+
+
+def test_objective_component_counterfactual_observes_tail_risk_flip_without_mutation():
+    baseline = supervisor_summary_for_config(
+        FrequencyRankerConfig(frequency_weight=0.30),
+        objective_score=100.0,
+    )
+    baseline["reward"] = {
+        "hitReward": 0.0,
+        "baselineUniqueReward": 110.0,
+        "baselineOverlapPenalty": 0.0,
+        "red5Reward": 0.0,
+        "rankQualityReward": 0.0,
+        "rankPenalty": 0.0,
+        "tailRiskPenalty": 10.0,
+        "objectiveScore": 100.0,
+    }
+    challenger = supervisor_summary_for_config(
+        FrequencyRankerConfig(frequency_weight=0.35),
+        objective_score=99.0,
+    )
+    challenger["reward"] = {
+        "hitReward": 0.0,
+        "baselineUniqueReward": 111.0,
+        "baselineOverlapPenalty": 0.0,
+        "red5Reward": 0.0,
+        "rankQualityReward": 0.0,
+        "rankPenalty": 0.0,
+        "tailRiskPenalty": 12.0,
+        "objectiveScore": 99.0,
+    }
+
+    diagnostic = supervisor.objective_component_counterfactual([challenger, baseline])
+
+    assert supervisor.sort_key(baseline) > supervisor.sort_key(challenger)
+    assert diagnostic["status"] == "measured"
+    assert diagnostic["component"] == "tail_risk_penalty"
+    assert diagnostic["production_top_config_hash"] == supervisor.summary_config_hash(baseline)
+    assert diagnostic["counterfactual_top_config_hash"] == supervisor.summary_config_hash(challenger)
+    assert diagnostic["counterfactual_top_changed"] is True
+    assert diagnostic["challenger_flip_count"] == 1
+    assert diagnostic["baseline_retained_count"] == 0
+    assert diagnostic["comparisons"] == [
+        {
+            "config_hash": supervisor.summary_config_hash(challenger),
+            "production_objective_gap": 1.0,
+            "component_delta": 2.0,
+            "counterfactual_objective_gap": -1.0,
+            "counterfactual_relation": "challenger_wins",
+        }
+    ]
+    assert diagnostic["selection_changed"] is False
+    assert diagnostic["selection_uses_frozen_validation"] is False
+    assert baseline["reward"]["objectiveScore"] == 100.0
+    assert challenger["reward"]["objectiveScore"] == 99.0
 
 
 def test_recent_round_self_diagnostics_reads_compact_round_memory():

@@ -3905,6 +3905,8 @@ OBJECTIVE_COMPONENT_REWARD_FIELDS = {
 
 
 OBJECTIVE_COMPONENT_RECONSTRUCTION_TOLERANCE = 0.00001
+OBJECTIVE_COUNTERFACTUAL_COMPONENT = "tail_risk_penalty"
+OBJECTIVE_SORT_KEY_INDEX = TRAINING_SORT_KEY_FIELDS.index("objective_score")
 
 
 def objective_component_contributions(summary: dict) -> tuple[dict[str, float], list[str]]:
@@ -3963,6 +3965,136 @@ def objective_component_residual(
         "challenger_advantage_components": [
             component for component in OBJECTIVE_COMPONENT_FIELDS if component_deltas[component] < 0
         ],
+    }
+
+
+def objective_component_counterfactual(
+    summaries: list[dict],
+    *,
+    component: str = OBJECTIVE_COUNTERFACTUAL_COMPONENT,
+) -> dict:
+    selected = sorted(
+        [summary for summary in summaries if isinstance(summary, dict)],
+        key=sort_key,
+        reverse=True,
+    )
+    if len(selected) < 2:
+        return {
+            "status": "insufficient_candidates",
+            "component": component,
+            "candidate_count": len(selected),
+            "selection_changed": False,
+            "selection_scope": "search_slice_only",
+            "selection_uses_frozen_validation": False,
+        }
+    if component not in OBJECTIVE_COMPONENT_REWARD_FIELDS:
+        return {
+            "status": "unknown_component",
+            "component": component,
+            "candidate_count": len(selected),
+            "selection_changed": False,
+            "selection_scope": "search_slice_only",
+            "selection_uses_frozen_validation": False,
+        }
+
+    counterfactual_rows: list[dict] = []
+    missing_reward_fields: set[str] = set()
+    for summary in selected:
+        contributions, missing = objective_component_contributions(summary)
+        missing_reward_fields.update(missing)
+        reward = summary.get("reward") if isinstance(summary.get("reward"), dict) else {}
+        objective_score = reward.get("objectiveScore")
+        if missing or not isinstance(objective_score, int | float) or isinstance(objective_score, bool):
+            if not isinstance(objective_score, int | float) or isinstance(objective_score, bool):
+                missing_reward_fields.add("objectiveScore")
+            continue
+        production_key = list(sort_key(summary))
+        counterfactual_objective = round(float(objective_score) - contributions[component], 6)
+        production_key[OBJECTIVE_SORT_KEY_INDEX] = counterfactual_objective
+        counterfactual_rows.append(
+            {
+                "summary": summary,
+                "config_hash": summary_config_hash(summary) or "",
+                "component_contribution": contributions[component],
+                "production_objective_score": round(float(objective_score), 6),
+                "counterfactual_objective_score": counterfactual_objective,
+                "counterfactual_sort_key": tuple(production_key),
+            }
+        )
+    if missing_reward_fields or len(counterfactual_rows) != len(selected):
+        return {
+            "status": "missing_reward_components",
+            "component": component,
+            "candidate_count": len(selected),
+            "measured_candidate_count": len(counterfactual_rows),
+            "missing_reward_fields": sorted(missing_reward_fields),
+            "selection_changed": False,
+            "selection_scope": "search_slice_only",
+            "selection_uses_frozen_validation": False,
+        }
+
+    production_top = counterfactual_rows[0]
+    counterfactual_order = sorted(
+        counterfactual_rows,
+        key=lambda row: row["counterfactual_sort_key"],
+        reverse=True,
+    )
+    counterfactual_top = counterfactual_order[0]
+    comparisons: list[dict] = []
+    challenger_flip_count = 0
+    baseline_retained_count = 0
+    counterfactual_tie_count = 0
+    baseline_key = production_top["counterfactual_sort_key"]
+    for challenger in counterfactual_rows[1:]:
+        challenger_key = challenger["counterfactual_sort_key"]
+        if challenger_key > baseline_key:
+            relation = "challenger_wins"
+            challenger_flip_count += 1
+        elif challenger_key < baseline_key:
+            relation = "baseline_retained"
+            baseline_retained_count += 1
+        else:
+            relation = "counterfactual_tie"
+            counterfactual_tie_count += 1
+        production_gap = round(
+            production_top["production_objective_score"]
+            - challenger["production_objective_score"],
+            6,
+        )
+        component_delta = round(
+            production_top["component_contribution"] - challenger["component_contribution"],
+            6,
+        )
+        comparisons.append(
+            {
+                "config_hash": challenger["config_hash"],
+                "production_objective_gap": production_gap,
+                "component_delta": component_delta,
+                "counterfactual_objective_gap": round(production_gap - component_delta, 6),
+                "counterfactual_relation": relation,
+            }
+        )
+    return {
+        "status": "measured",
+        "component": component,
+        "mode": "remove_single_component_observation_only",
+        "candidate_count": len(counterfactual_rows),
+        "production_top_config_hash": production_top["config_hash"],
+        "counterfactual_top_config_hash": counterfactual_top["config_hash"],
+        "counterfactual_top_changed": (
+            counterfactual_top["config_hash"] != production_top["config_hash"]
+        ),
+        "challenger_flip_count": challenger_flip_count,
+        "baseline_retained_count": baseline_retained_count,
+        "counterfactual_tie_count": counterfactual_tie_count,
+        "comparisons": comparisons,
+        "selection_changed": False,
+        "selection_scope": "search_slice_only",
+        "selection_uses_frozen_validation": False,
+        "interpretation": (
+            "Observation-only single-component counterfactual; production sorting, search-base "
+            "selection, and promotion remain unchanged."
+        ),
     }
 
 
@@ -4117,6 +4249,18 @@ def decision_surface_dominance_diagnostic(
         component_control_status = "measured"
     else:
         component_control_status = "incomplete"
+    component_counterfactual = (
+        objective_component_counterfactual(selected)
+        if status == "objective_tiebreak_tradeoff" and component_control_status == "measured"
+        else {
+            "status": "not_applicable",
+            "component": OBJECTIVE_COUNTERFACTUAL_COMPONENT,
+            "candidate_count": len(selected),
+            "selection_changed": False,
+            "selection_scope": "search_slice_only",
+            "selection_uses_frozen_validation": False,
+        }
+    )
     return {
         "status": status,
         "top_limit": top_limit,
@@ -4170,6 +4314,7 @@ def decision_surface_dominance_diagnostic(
                 "they do not change the production sort key or justify promotion."
             ),
         },
+        "objective_component_counterfactual": component_counterfactual,
         "comparisons": comparisons,
         "selection_scope": "search_slice_only",
         "selection_uses_frozen_validation": False,
