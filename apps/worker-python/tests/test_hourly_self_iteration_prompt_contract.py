@@ -140,3 +140,19 @@ def test_hourly_self_iteration_prompt_forbids_autonomous_conflict_resolution():
         "自主迭代不得调用该命令",
     ):
         assert requirement in prompt
+
+
+def test_hourly_self_iteration_prompt_requires_runtime_storage_fail_closed():
+    prompt = (REPO_ROOT / "scripts/hourly_self_iterate.sh").read_text(encoding="utf-8")
+
+    for requirement in (
+        "`runtime_storage_capacity`",
+        "`status=critical|unavailable`",
+        "同步、前向评估、advisor 刷新和 supervisor 启动前 fail closed",
+        "不能自动删除、压缩、轮转或覆盖 runtime/历史证据",
+        "`automatic_cleanup_allowed`",
+        "`selection_changed`",
+        "`promotion_allowed`",
+        "不是模型进步",
+    ):
+        assert requirement in prompt

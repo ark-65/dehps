@@ -435,6 +435,12 @@ watch_forward_evidence_wait_requested() {
   return 1
 }
 
+storage_capacity_output="$(.venv/bin/python scripts/check_runtime_storage_capacity.py)" || {
+  log "runtime storage capacity blocked sync, evaluation, advisor refresh, and supervisor start payload=$storage_capacity_output"
+  exit 1
+}
+log "runtime storage capacity accepted payload=$storage_capacity_output"
+
 sync_from_issue="$(latest_db_issue)"
 prediction_snapshot_file="$(mktemp "$LOG_DIR/training-prediction-snapshots.XXXXXX.json")"
 capture_current_prediction_snapshots "$prediction_snapshot_file"

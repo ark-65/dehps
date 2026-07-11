@@ -66,3 +66,15 @@ def test_watchdog_blocks_sync_conflicts_before_forward_release():
     assert script.index(conflict_gate) < script.index(evaluation_call)
     assert script.index(conflict_gate) < script.index('if [[ "$signal_refresh_needed" == true ]]')
     assert script.index(conflict_gate) < script.index("setsid bash -lc")
+
+
+def test_watchdog_checks_runtime_storage_before_sync_or_heavy_work():
+    script = (REPO_ROOT / "scripts/ensure_training_supervisor.sh").read_text(
+        encoding="utf-8"
+    )
+
+    storage_gate = "runtime storage capacity blocked sync, evaluation, advisor refresh, and supervisor start"
+    assert "scripts/check_runtime_storage_capacity.py" in script
+    assert storage_gate in script
+    assert script.index(storage_gate) < script.index('sync_from_issue="$(latest_db_issue)"')
+    assert script.index(storage_gate) < script.index("setsid bash -lc")

@@ -29,6 +29,8 @@ runtime/logs/ssq_draw_sync.log
 
 The training supervisor watchdog separately compares the latest history issue, canonical KDJ signal issue, and the live supervisor `--as-of-issue`. If signals lag, it stops the old supervisor, refreshes `weight-kdj-recent-1000-v1` incrementally under the heavy-job lock, verifies issue alignment, and only then starts a fresh supervisor.
 
+Before synchronization or any heavy work, the watchdog also runs the read-only runtime storage capacity gate. It warns below `max(5%, 20 GiB)` free and fails closed below `max(1%, 5 GiB)` free (or when capacity cannot be read). The gate never authorizes automatic deletion, compression, rotation, or rewriting of evidence.
+
 For systemd installs, inspect the timer and service with:
 
 ```bash
