@@ -72,3 +72,19 @@ def test_hourly_self_iteration_prompt_distinguishes_heavy_job_owner_pids():
     assert "以 PID 关系而不是 `owner` 字符串" in prompt
     assert "不得覆盖锁元数据或启动竞争重任务" in prompt
     assert "不得把它误报成当前 parked supervisor 的异常" in prompt
+
+
+def test_hourly_self_iteration_prompt_distinguishes_status_file_from_process():
+    prompt = (REPO_ROOT / "scripts/hourly_self_iterate.sh").read_text(encoding="utf-8")
+
+    for required_field in (
+        "supervisor_lifecycle",
+        "parked_waiting_for_forward_issue",
+        "lifecycle_consistent",
+        "running_pid_inactive",
+        "pid_activity_scope=os_pid_exists_not_command_identity",
+    ):
+        assert required_field in prompt
+    assert "只代表状态文件存在，不代表进程仍运行" in prompt
+    assert "不得误报为 supervisor 崩溃或据此重启" in prompt
+    assert "不能把它当作命令身份验证" in prompt
