@@ -21,6 +21,7 @@ from dehps.models.prediction_input_boundary import (
 )
 from dehps.runtime.compute_capability import compute_capability_summary
 from dehps.runtime.heavy_job import describe_heavy_job_owner, is_pid_active
+from dehps.runtime.storage_capacity import runtime_storage_capacity_summary
 from dehps.storage.postgres_store import ensure_ssq_data_conflicts_resolution_schema
 
 
@@ -3071,6 +3072,7 @@ def recommendation_summary(
     forward_evidence: dict[str, Any] | None = None,
     forward_wait: dict[str, Any] | None = None,
     parser_sync_duplicate_checks: dict[str, Any] | None = None,
+    runtime_storage_capacity: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not rows:
         return {
@@ -3085,6 +3087,29 @@ def recommendation_summary(
     notes: list[str] = []
     actions: list[str] = []
     severity = "ok"
+    storage = (
+        runtime_storage_capacity
+        if isinstance(runtime_storage_capacity, dict)
+        else {}
+    )
+    if storage.get("status") in {"critical", "unavailable"}:
+        severity = "alert"
+        actions.append(str(storage.get("action") or "inspect_runtime_storage"))
+        notes.append(
+            "Runtime storage is not safe for new heavy work: "
+            f"status={storage.get('status')} free_bytes={storage.get('free_bytes')} "
+            f"critical_threshold={storage.get('critical_threshold_bytes')} "
+            f"blockers={compact_inline_list(storage.get('blockers'))}."
+        )
+    elif storage.get("status") == "warning":
+        severity = "warn"
+        actions.append("review_runtime_evidence_retention")
+        notes.append(
+            "Runtime storage crossed the warning threshold: "
+            f"free_bytes={storage.get('free_bytes')} "
+            f"warning_threshold={storage.get('warning_threshold_bytes')}; "
+            "review evidence retention without automatic deletion."
+        )
     forward_wait = forward_wait if isinstance(forward_wait, dict) else {}
     supervisor_waiting_for_forward_issue = bool(
         isinstance(supervisor_status, dict)
@@ -4084,6 +4109,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         else prediction_input_boundary_summary(None)
     )
     compute_capability = compute_capability_summary(supervisor_status)
+    storage_capacity = runtime_storage_capacity_summary()
     lock = add_heavy_lock_observation_ages(heavy_lock_summary(), now=generated_at)
     heavy_job_supervisor_relation = heavy_job_supervisor_relation_summary(
         supervisor_status=supervisor_status,
@@ -4131,6 +4157,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         forward_evidence=forward_evidence,
         forward_wait=forward_wait,
         parser_sync_duplicate_checks=parser_sync_duplicate_checks,
+        runtime_storage_capacity=storage_capacity,
     )
     if db_read_errors:
         actions = [
@@ -4202,6 +4229,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         "supervisor_lifecycle": supervisor_lifecycle,
         "prediction_input_boundary": prediction_input_boundary,
         "compute_capability": compute_capability,
+        "runtime_storage_capacity": storage_capacity,
         "supervisor_round_boundary": round_boundary,
         "evidence_context": evidence_context_summary(
             supervisor_status=supervisor_status,
@@ -4409,6 +4437,36 @@ def render_compute_capability_markdown(compute_capability: Any) -> str:
         f"selection_changed={compute_capability.get('selection_changed')} "
         f"promotion_allowed={compute_capability.get('promotion_allowed')}\n"
         f"- Interpretation: {markdown_inline_text(compute_capability.get('interpretation'))}\n\n"
+    )
+
+
+def render_runtime_storage_capacity_markdown(storage: Any) -> str:
+    if not isinstance(storage, dict):
+        return ""
+    observed_logs = storage.get("observed_append_logs") or []
+    log_rows = "; ".join(
+        f"{Path(str(row.get('path') or '')).name}={row.get('size_bytes')}"
+        for row in observed_logs
+        if isinstance(row, dict)
+    )
+    return (
+        "## Runtime Storage Capacity\n\n"
+        f"- Status/action: {markdown_inline_code(storage.get('status'))} / "
+        f"{markdown_inline_code(storage.get('action'))}\n"
+        "- Disk bytes total/used/free: "
+        f"{storage.get('total_bytes')} / {storage.get('used_bytes')} / "
+        f"{storage.get('free_bytes')} (free_ratio={storage.get('free_ratio')})\n"
+        "- Warning/critical free thresholds: "
+        f"{storage.get('warning_threshold_bytes')} / "
+        f"{storage.get('critical_threshold_bytes')}\n"
+        f"- Observed append logs: {markdown_inline_text(log_rows)} "
+        f"total={storage.get('observed_append_log_bytes')}\n"
+        f"- Blockers: {markdown_inline_text(compact_inline_list(storage.get('blockers')))}\n"
+        "- Safety: "
+        f"automatic_cleanup_allowed={storage.get('automatic_cleanup_allowed')} "
+        f"selection_changed={storage.get('selection_changed')} "
+        f"promotion_allowed={storage.get('promotion_allowed')}\n"
+        f"- Interpretation: {markdown_inline_text(storage.get('interpretation'))}\n\n"
     )
 
 
@@ -4914,6 +4972,9 @@ def render_markdown(payload: dict[str, Any]) -> str:
     compute_capability_section = render_compute_capability_markdown(
         payload.get("compute_capability")
     )
+    runtime_storage_capacity_section = render_runtime_storage_capacity_markdown(
+        payload.get("runtime_storage_capacity")
+    )
     prediction_input_boundary_section = render_prediction_input_boundary_markdown(
         payload.get("prediction_input_boundary")
     )
@@ -5179,6 +5240,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
 {forward_wait_section}\
 {prediction_input_boundary_section}\
 {compute_capability_section}\
+{runtime_storage_capacity_section}\
 {restart_section}\
 {supervisor_section}\
 {supervisor_lifecycle_section}\
@@ -5256,6 +5318,11 @@ def artifact_snapshot_state(payload: dict[str, Any]) -> dict[str, Any]:
     compute_capability = (
         payload.get("compute_capability")
         if isinstance(payload.get("compute_capability"), dict)
+        else {}
+    )
+    storage_capacity = (
+        payload.get("runtime_storage_capacity")
+        if isinstance(payload.get("runtime_storage_capacity"), dict)
         else {}
     )
     accelerator = (
@@ -5443,6 +5510,13 @@ def artifact_snapshot_state(payload: dict[str, Any]) -> dict[str, Any]:
             ),
             "probe_blockers": sorted(
                 str(item) for item in (accelerator.get("probe_blockers") or [])
+            ),
+        },
+        "runtime_storage_capacity": {
+            "status": storage_capacity.get("status"),
+            "action": storage_capacity.get("action"),
+            "blockers": sorted(
+                str(item) for item in (storage_capacity.get("blockers") or [])
             ),
         },
     }
@@ -6092,6 +6166,39 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             },
             "selection_changed": compute_capability.get("selection_changed"),
             "promotion_allowed": compute_capability.get("promotion_allowed"),
+        }
+    storage_capacity = (
+        payload.get("runtime_storage_capacity")
+        if isinstance(payload.get("runtime_storage_capacity"), dict)
+        else {}
+    )
+    if storage_capacity:
+        summary["runtime_storage_capacity"] = {
+            "protocol": storage_capacity.get("protocol"),
+            "status": storage_capacity.get("status"),
+            "action": storage_capacity.get("action"),
+            "root_path": storage_capacity.get("root_path"),
+            "total_bytes": storage_capacity.get("total_bytes"),
+            "used_bytes": storage_capacity.get("used_bytes"),
+            "free_bytes": storage_capacity.get("free_bytes"),
+            "free_ratio": storage_capacity.get("free_ratio"),
+            "warning_threshold_bytes": storage_capacity.get(
+                "warning_threshold_bytes"
+            ),
+            "critical_threshold_bytes": storage_capacity.get(
+                "critical_threshold_bytes"
+            ),
+            "observed_append_log_bytes": storage_capacity.get(
+                "observed_append_log_bytes"
+            ),
+            "observed_append_logs": storage_capacity.get("observed_append_logs")
+            or [],
+            "blockers": storage_capacity.get("blockers") or [],
+            "automatic_cleanup_allowed": storage_capacity.get(
+                "automatic_cleanup_allowed"
+            ),
+            "selection_changed": storage_capacity.get("selection_changed"),
+            "promotion_allowed": storage_capacity.get("promotion_allowed"),
         }
     round_repetition = (
         payload.get("round_repetition")

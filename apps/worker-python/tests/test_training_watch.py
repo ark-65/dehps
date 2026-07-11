@@ -3344,6 +3344,77 @@ def test_recommendation_allows_preserved_resolved_conflict_evidence():
     assert recommendation["action"] != "inspect_parser_sync_conflicts"
 
 
+def test_recommendation_prioritizes_critical_runtime_storage():
+    now = datetime(2026, 7, 11, 10, 10, tzinfo=timezone.utc)
+    recommendation = recommendation_summary(
+        rows=[
+            {
+                "round_index": 1,
+                "improved": False,
+                "updated_at": now,
+                "prefilter": {},
+            }
+        ],
+        lock={"active": False},
+        advisors={},
+        now=now,
+        stale_minutes=30,
+        supervisor_status={"status": "waiting_for_forward_issue"},
+        forward_wait={"ready": True},
+        runtime_storage_capacity={
+            "status": "critical",
+            "action": "stop_new_heavy_jobs_and_recover_storage",
+            "free_bytes": 4,
+            "critical_threshold_bytes": 5,
+            "blockers": ["disk_free_below_critical_threshold"],
+        },
+    )
+
+    assert recommendation["severity"] == "alert"
+    assert recommendation["action"] == "stop_new_heavy_jobs_and_recover_storage"
+    assert recommendation["actions"][:2] == [
+        "stop_new_heavy_jobs_and_recover_storage",
+        watch.FORWARD_WAIT_ACTION,
+    ]
+    assert any("Runtime storage is not safe" in note for note in recommendation["notes"])
+
+
+def test_runtime_storage_capacity_is_visible_to_operator_and_markdown():
+    storage = {
+        "protocol": "dehps-runtime-storage-capacity-v1",
+        "status": "healthy",
+        "action": "continue_storage_monitoring",
+        "root_path": "/repo",
+        "total_bytes": 1000,
+        "used_bytes": 100,
+        "free_bytes": 900,
+        "free_ratio": 0.9,
+        "warning_threshold_bytes": 50,
+        "critical_threshold_bytes": 10,
+        "observed_append_log_bytes": 18,
+        "observed_append_logs": [
+            {"path": "/repo/runtime/logs/hourly_self_iterate.log", "size_bytes": 18}
+        ],
+        "blockers": [],
+        "automatic_cleanup_allowed": False,
+        "selection_changed": False,
+        "promotion_allowed": False,
+        "interpretation": "Read-only capacity evidence.",
+    }
+    payload = {
+        "runtime_storage_capacity": storage,
+        "recommendation": {"severity": "ok", "action": "continue_current_run"},
+    }
+
+    operator = watch.operator_summary(payload)
+    markdown = watch.render_runtime_storage_capacity_markdown(storage)
+
+    assert operator["runtime_storage_capacity"]["status"] == "healthy"
+    assert operator["runtime_storage_capacity"]["automatic_cleanup_allowed"] is False
+    assert "## Runtime Storage Capacity" in markdown
+    assert "hourly_self_iterate.log=18" in markdown
+
+
 def test_recommendation_and_markdown_include_supervisor_progress():
     now = datetime(2026, 7, 1, 0, 5, tzinfo=timezone.utc)
     supervisor_status = {
