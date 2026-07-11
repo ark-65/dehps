@@ -212,3 +212,7 @@ git diff --check: passed
 ## Next Verification
 
 The next optimization round should predeclare one small candidate-space-reframing change and leave source shares unchanged. Its falsification target is output distinguishability, not compute activity: require more than one recent rank/metric signature without losing fixed-budget completion, and require any claimed benefit to survive the static/null comparison and frozen/forward gates. If the change only increases proposal novelty while line, frozen, and forward outcomes remain unchanged, reject it as another form of soft stagnation.
+
+## Post-Audit Boundary Correction
+
+A later issue-level audit found that the light prefilter sampled every fourth target from the complete 100-period evaluation window before the formal 80/20 split. Five of its 25 targets belonged to the frozen suffix. The density runs therefore remain valid evidence for fixed-budget allocation, runtime completion, and process-group shutdown, but their source conversion, navigation, repetition, diversity, and budget-efficacy comparisons are contaminated and must not support model-strength or source-budget decisions. The `0.10` default remains the conservative registered value, not a demonstrated winner. Corrected evidence begins with run `20260711-075003`; see `docs/experiments/training-prefilter-holdout-isolation-v1.md`.

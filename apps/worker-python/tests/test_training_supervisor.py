@@ -45,6 +45,7 @@ from scripts.run_training_supervisor import (
     persisted_round_candidate_summaries,
     post_training_event,
     prefilter_configs,
+    prefilter_holdout_isolation_audit,
     probability_calibration_diagnostics,
     probability_calibration_score,
     rank_signature_hash,
@@ -3610,6 +3611,65 @@ def test_prefilter_configs_keeps_diversity_quota():
 
     assert far in refined
     assert metadata["diversity_added_count"] == 1
+
+
+def test_prefilter_configs_excludes_frozen_validation_targets():
+    universe = [
+        (1, 8, 13, 18, 23, 31),
+        (2, 9, 14, 19, 24, 32),
+        (3, 10, 15, 20, 25, 33),
+        (4, 11, 16, 21, 26, 30),
+    ]
+    history = [
+        (f"{index:03d}", universe[(index - 1) % len(universe)])
+        for index in range(1, 13)
+    ]
+    base = FrequencyRankerConfig()
+
+    _refined, metadata = prefilter_configs(
+        history=history,
+        ranked_universe=build_ranked_universe(universe),
+        configs=(base,),
+        keep_configs=(base,),
+        train_window=2,
+        train_mode="expanding",
+        eval_window=8,
+        top_n=10000,
+        workers=1,
+        pool=None,
+        round_index=1,
+        stride=1,
+        frozen_validation_window_value=2,
+    )
+
+    assert metadata["search_target_count"] == 6
+    assert metadata["frozen_target_count"] == 2
+    assert metadata["target_issues"] == ["005", "006", "007", "008", "009", "010"]
+    assert set(metadata["target_issues"]).isdisjoint({"011", "012"})
+
+
+def test_prefilter_holdout_isolation_audit_fails_on_frozen_or_unknown_issue():
+    evaluation_split = {
+        "search_issues": ["001", "002", "003"],
+        "frozen_issues": ["004", "005"],
+    }
+
+    passed = prefilter_holdout_isolation_audit(
+        prefilter_target_issues=["001", "003"],
+        evaluation_split=evaluation_split,
+    )
+    contaminated = prefilter_holdout_isolation_audit(
+        prefilter_target_issues=["001", "004", "999"],
+        evaluation_split=evaluation_split,
+    )
+
+    assert passed["passed"] is True
+    assert passed["prefilter_frozen_issue_overlap_count"] == 0
+    assert passed["prefilter_uses_frozen_validation"] is False
+    assert contaminated["passed"] is False
+    assert contaminated["prefilter_frozen_issue_overlap"] == ["004"]
+    assert contaminated["prefilter_outside_split_issues"] == ["999"]
+    assert contaminated["prefilter_uses_frozen_validation"] is True
 
 
 def test_stagnation_and_low_coverage_fields_are_deterministic():

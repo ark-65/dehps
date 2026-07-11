@@ -407,6 +407,9 @@ def summarize_candidate_source_survival(
             isolation.get("protocol") == HOLDOUT_ISOLATION_PROTOCOL
             and isolation.get("frozen_validation_role") == "promotion_only"
             and isolation.get("search_uses_frozen_validation") is False
+            and isolation.get("prefilter_isolation_status") == "passed"
+            and isolation.get("prefilter_uses_frozen_validation") is False
+            and safe_int(isolation.get("prefilter_frozen_issue_overlap_count")) == 0
             and search_base.get("source") == "experimental_navigation"
             and search_base.get("exploration_navigation_selected") is True
             and search_base.get("selection_uses_frozen_validation") is False
@@ -434,8 +437,21 @@ def summarize_candidate_source_survival(
         return str(diagnostic.get("source") or "")
 
     observed_rounds = 0
+    unverified_prefilter_round_count = 0
     for row in rows:
         prefilter = row.get("prefilter") if isinstance(row.get("prefilter"), dict) else {}
+        isolation = (
+            prefilter.get("holdout_isolation")
+            if isinstance(prefilter.get("holdout_isolation"), dict)
+            else {}
+        )
+        if isolation.get("protocol") == HOLDOUT_ISOLATION_PROTOCOL and not (
+            isolation.get("prefilter_isolation_status") == "passed"
+            and isolation.get("prefilter_uses_frozen_validation") is False
+            and safe_int(isolation.get("prefilter_frozen_issue_overlap_count")) == 0
+        ):
+            unverified_prefilter_round_count += 1
+            continue
         source_survival = (
             prefilter.get("source_survival")
             if isinstance(prefilter.get("source_survival"), dict)
@@ -597,7 +613,10 @@ def summarize_candidate_source_survival(
         budget_review_action = "review_persistently_unproductive_source_budgets"
     else:
         budget_review_action = "keep_current_source_budgets"
-    if observed_rounds == 0:
+    if observed_rounds == 0 and unverified_prefilter_round_count > 0:
+        status = "invalidated"
+        action = "restart_with_verified_prefilter_isolation"
+    elif observed_rounds == 0:
         status = "not_available"
         action = "wait_for_source_survival_data"
     elif not evidence_ready:
@@ -617,6 +636,7 @@ def summarize_candidate_source_survival(
         "action": action,
         "window_count": len(rows),
         "observed_round_count": observed_rounds,
+        "unverified_prefilter_round_count": unverified_prefilter_round_count,
         "min_rounds": required_rounds,
         "min_generated": required_generated,
         "evidence_ready": evidence_ready,
@@ -639,6 +659,7 @@ def summarize_candidate_source_survival(
             "Under promotion-only holdout isolation, frozen-frontier rows remain diagnostic and do not change "
             "source productivity or budget review. Recovery evidence is not predictive evidence and does not "
             "bypass frozen validation or reserve promotion. Budget review requires the longer same-run window."
+            " Isolated-protocol rounds without a passed prefilter issue audit are excluded from all source evidence."
         ),
     }
 
@@ -2060,6 +2081,24 @@ def gate_summary(prefilter: dict[str, Any]) -> dict[str, dict[str, Any]]:
             "search_uses_frozen_validation": safe_bool(
                 holdout_isolation.get("search_uses_frozen_validation")
             ),
+            "prefilter_isolation_status": holdout_isolation.get(
+                "prefilter_isolation_status"
+            ),
+            "prefilter_target_count": safe_int(
+                holdout_isolation.get("prefilter_target_count")
+            ),
+            "prefilter_search_issue_overlap_count": safe_int(
+                holdout_isolation.get("prefilter_search_issue_overlap_count")
+            ),
+            "prefilter_frozen_issue_overlap_count": safe_int(
+                holdout_isolation.get("prefilter_frozen_issue_overlap_count")
+            ),
+            "prefilter_outside_split_issue_count": safe_int(
+                holdout_isolation.get("prefilter_outside_split_issue_count")
+            ),
+            "prefilter_uses_frozen_validation": safe_bool(
+                holdout_isolation.get("prefilter_uses_frozen_validation")
+            ),
             "frozen_validation_role": holdout_isolation.get("frozen_validation_role"),
             "source_frontier_used_for_navigation": safe_bool(
                 holdout_isolation.get("source_frontier_used_for_navigation")
@@ -2489,7 +2528,10 @@ def recommendation_summary(
             f"search/frozen={holdout_isolation.get('search_window')}/"
             f"{holdout_isolation.get('frozen_window')} "
             f"overlap={holdout_isolation.get('issue_overlap_count')} "
-            f"search_uses_frozen={holdout_isolation.get('search_uses_frozen_validation')}."
+            f"search_uses_frozen={holdout_isolation.get('search_uses_frozen_validation')} "
+            f"prefilter={holdout_isolation.get('prefilter_isolation_status')} "
+            f"prefilter_frozen_overlap="
+            f"{holdout_isolation.get('prefilter_frozen_issue_overlap_count')}."
         )
         if holdout_isolation.get("historical_holdout_quarantined"):
             notes.append(
@@ -3050,6 +3092,12 @@ def evidence_context_summary(
         failure_modes.append("promotion_gate:frozen_validation_not_evaluated")
     if holdout_isolation.get("search_uses_frozen_validation") is True:
         failure_modes.append("leakage_boundary:search_uses_frozen_validation")
+    if holdout_isolation and holdout_isolation.get("prefilter_isolation_status") != "passed":
+        failure_modes.append("leakage_boundary:prefilter_isolation_unverified")
+    if holdout_isolation.get("prefilter_uses_frozen_validation") is True:
+        failure_modes.append("leakage_boundary:prefilter_uses_frozen_validation")
+    if (safe_int(holdout_isolation.get("prefilter_frozen_issue_overlap_count")) or 0) > 0:
+        failure_modes.append("leakage_boundary:prefilter_frozen_issue_overlap")
     if eval_guard.get("active"):
         failure_modes.append(f"eval_slice_overfit:{eval_guard.get('reason')}")
     if rank_homogeneity.get("active"):
@@ -3141,6 +3189,22 @@ def evidence_context_summary(
             "holdout_issue_overlap_count": holdout_isolation.get("issue_overlap_count"),
             "search_uses_frozen_validation": holdout_isolation.get(
                 "search_uses_frozen_validation"
+            ),
+            "prefilter_isolation_status": holdout_isolation.get(
+                "prefilter_isolation_status"
+            ),
+            "prefilter_target_count": holdout_isolation.get("prefilter_target_count"),
+            "prefilter_search_issue_overlap_count": holdout_isolation.get(
+                "prefilter_search_issue_overlap_count"
+            ),
+            "prefilter_frozen_issue_overlap_count": holdout_isolation.get(
+                "prefilter_frozen_issue_overlap_count"
+            ),
+            "prefilter_outside_split_issue_count": holdout_isolation.get(
+                "prefilter_outside_split_issue_count"
+            ),
+            "prefilter_uses_frozen_validation": holdout_isolation.get(
+                "prefilter_uses_frozen_validation"
             ),
             "frozen_validation_role": holdout_isolation.get("frozen_validation_role"),
             "historical_holdout_quarantined": holdout_isolation.get(
@@ -3493,6 +3557,7 @@ def render_candidate_source_survival_markdown(summary: Any) -> str:
         f"{markdown_inline_text(summary.get('action'))}\n"
         "- Evidence window: "
         f"observed={summary.get('observed_round_count')}/{summary.get('window_count')} "
+        f"unverified_prefilter={summary.get('unverified_prefilter_round_count', 0)} "
         f"required_rounds={summary.get('min_rounds')} "
         f"min_generated={summary.get('min_generated')} "
         f"ready={summary.get('evidence_ready')}\n"
@@ -3586,6 +3651,9 @@ def render_markdown(payload: dict[str, Any]) -> str:
                 f"{holdout_isolation.get('frozen_window')} "
                 f"overlap={holdout_isolation.get('issue_overlap_count')} "
                 f"search_uses_frozen={holdout_isolation.get('search_uses_frozen_validation')} "
+                f"prefilter={markdown_inline_text(holdout_isolation.get('prefilter_isolation_status'))} "
+                f"prefilter_frozen_overlap="
+                f"{holdout_isolation.get('prefilter_frozen_issue_overlap_count')} "
                 f"promotion_status={markdown_inline_text(holdout_isolation.get('promotion_holdout_status'))}"
             )
         if promotion:
@@ -4227,6 +4295,12 @@ def cli_evidence_context_summary(payload: dict[str, Any]) -> dict[str, Any]:
                     "holdout_isolation_protocol",
                     "holdout_issue_overlap_count",
                     "search_uses_frozen_validation",
+                    "prefilter_isolation_status",
+                    "prefilter_target_count",
+                    "prefilter_search_issue_overlap_count",
+                    "prefilter_frozen_issue_overlap_count",
+                    "prefilter_outside_split_issue_count",
+                    "prefilter_uses_frozen_validation",
                     "frozen_validation_role",
                     "historical_holdout_quarantined",
                     "forward_unseen_evidence_required",

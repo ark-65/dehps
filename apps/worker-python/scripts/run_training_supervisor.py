@@ -5508,10 +5508,17 @@ def prefilter_configs(
     stride: int = 4,
     promote_limit: int = 8,
     diversity_quota: int = 2,
+    frozen_validation_window_value: int = 0,
 ) -> tuple[tuple[FrequencyRankerConfig, ...], dict]:
     started = time.time()
     start_index = max(train_window, len(history) - eval_window)
-    target_indices = list(range(start_index, len(history), max(1, stride)))
+    total_target_count = max(0, len(history) - start_index)
+    frozen_target_count = min(
+        max(0, int(frozen_validation_window_value)),
+        max(0, total_target_count - 1),
+    )
+    search_end_index = len(history) - frozen_target_count
+    target_indices = list(range(start_index, search_end_index, max(1, stride)))
     if not configs or not target_indices:
         return configs, {
             "mode": "light_prefilter",
@@ -5524,6 +5531,10 @@ def prefilter_configs(
             "promote_limit": promote_limit,
             "diversity_quota": diversity_quota,
             "diversity_added_count": 0,
+            "search_target_count": max(0, total_target_count - frozen_target_count),
+            "frozen_target_count": frozen_target_count,
+            "frozen_validation_window": max(0, int(frozen_validation_window_value)),
+            "target_issues": [],
             "refined_config_count": len(configs),
             "elapsed_seconds": 0.0,
             "note": "预筛跳过：没有配置或目标期",
@@ -5618,12 +5629,45 @@ def prefilter_configs(
         "promote_limit": promote_limit,
         "diversity_quota": diversity_quota,
         "diversity_added_count": diversity_added,
+        "search_target_count": max(0, total_target_count - frozen_target_count),
+        "frozen_target_count": frozen_target_count,
+        "frozen_validation_window": max(0, int(frozen_validation_window_value)),
         "refined_config_count": len(selected),
         "elapsed_seconds": round(time.time() - started, 3),
         "top_preview": summaries[: min(5, len(summaries))],
         "note": "预筛仅用于选择进入完整精排的配置，正式指标来自完整 100 期精排",
     }
     return tuple(selected), metadata
+
+
+def prefilter_holdout_isolation_audit(
+    *,
+    prefilter_target_issues: list[str] | tuple[str, ...],
+    evaluation_split: dict,
+) -> dict:
+    target_issues = tuple(str(issue) for issue in prefilter_target_issues if issue)
+    search_issues = tuple(str(issue) for issue in evaluation_split.get("search_issues") or () if issue)
+    frozen_issues = tuple(str(issue) for issue in evaluation_split.get("frozen_issues") or () if issue)
+    search_set = set(search_issues)
+    frozen_set = set(frozen_issues)
+    frozen_overlap = tuple(issue for issue in target_issues if issue in frozen_set)
+    outside_split = tuple(
+        issue
+        for issue in target_issues
+        if issue not in search_set and issue not in frozen_set
+    )
+    passed = bool(search_issues) and not frozen_overlap and not outside_split
+    return {
+        "status": "passed" if passed else "failed",
+        "passed": passed,
+        "prefilter_target_count": len(target_issues),
+        "prefilter_search_issue_overlap_count": sum(issue in search_set for issue in target_issues),
+        "prefilter_frozen_issue_overlap_count": len(frozen_overlap),
+        "prefilter_frozen_issue_overlap": list(frozen_overlap),
+        "prefilter_outside_split_issue_count": len(outside_split),
+        "prefilter_outside_split_issues": list(outside_split),
+        "prefilter_uses_frozen_validation": bool(frozen_overlap),
+    }
 
 
 def _init_target_worker(ranked_universe) -> None:
@@ -6792,6 +6836,7 @@ def run_supervisor(
                 probability_focus_configs=probability_focus_configs,
                 control_configs=control_configs,
             )
+            validation_window = frozen_validation_window(eval_window)
             refined_configs, prefilter_info = prefilter_configs(
                 history=training_history,
                 ranked_universe=ranked_universe,
@@ -6805,6 +6850,7 @@ def run_supervisor(
                 pool=pool,
                 round_index=round_index + 1,
                 diversity_quota=max(2, max_configs_per_round // 10),
+                frozen_validation_window_value=validation_window,
             )
             prefilter_info["stagnation_rounds"] = stagnation_rounds
             prefilter_info["guard_continuity"] = {
@@ -6890,9 +6936,8 @@ def run_supervisor(
                 progress_interval=progress_interval,
                 round_index=round_index + 1,
                 progress_callback=publish_progress,
-                frozen_validation_window_value=frozen_validation_window(eval_window),
+                frozen_validation_window_value=validation_window,
             )
-            validation_window = frozen_validation_window(eval_window)
             attach_baseline_overlap(
                 summaries,
                 control_configs,
@@ -6901,6 +6946,21 @@ def run_supervisor(
             summaries.sort(key=sort_key, reverse=True)
             control_summaries = control_experiment_summaries(summaries, control_configs)
             round_best = summaries[0]
+            evaluation_split = (
+                round_best.get("evaluation_split")
+                if isinstance(round_best.get("evaluation_split"), dict)
+                else {}
+            )
+            prefilter_isolation = prefilter_holdout_isolation_audit(
+                prefilter_target_issues=prefilter_info.get("target_issues") or (),
+                evaluation_split=evaluation_split,
+            )
+            if not prefilter_isolation["passed"]:
+                raise RuntimeError(
+                    "prefilter holdout isolation failed: "
+                    f"frozen_overlap={prefilter_isolation['prefilter_frozen_issue_overlap']} "
+                    f"outside_split={prefilter_isolation['prefilter_outside_split_issues']}"
+                )
             prior_best_summary = best_summary
             raw_improved = prior_best_summary is None or sort_key(round_best) > sort_key(prior_best_summary)
             promotion_gate = quarantine_historical_frozen_promotion(
@@ -7085,18 +7145,32 @@ def run_supervisor(
                 frozen_primary_lift_baseline=prior_best_summary,
             )
             prefilter_info["frozen_validation_window"] = validation_window
-            evaluation_split = (
-                round_best.get("evaluation_split")
-                if isinstance(round_best.get("evaluation_split"), dict)
-                else {}
-            )
             prefilter_info["holdout_isolation"] = {
                 "protocol": HOLDOUT_ISOLATION_PROTOCOL,
                 "total_window": evaluation_split.get("total_window"),
                 "search_window": evaluation_split.get("search_window"),
                 "frozen_window": evaluation_split.get("frozen_window"),
                 "issue_overlap_count": evaluation_split.get("issue_overlap_count"),
-                "search_uses_frozen_validation": False,
+                "search_uses_frozen_validation": bool(
+                    prefilter_isolation["prefilter_uses_frozen_validation"]
+                ),
+                "prefilter_isolation_status": prefilter_isolation["status"],
+                "prefilter_target_count": prefilter_isolation["prefilter_target_count"],
+                "prefilter_search_issue_overlap_count": prefilter_isolation[
+                    "prefilter_search_issue_overlap_count"
+                ],
+                "prefilter_frozen_issue_overlap_count": prefilter_isolation[
+                    "prefilter_frozen_issue_overlap_count"
+                ],
+                "prefilter_frozen_issue_overlap": prefilter_isolation[
+                    "prefilter_frozen_issue_overlap"
+                ],
+                "prefilter_outside_split_issue_count": prefilter_isolation[
+                    "prefilter_outside_split_issue_count"
+                ],
+                "prefilter_uses_frozen_validation": prefilter_isolation[
+                    "prefilter_uses_frozen_validation"
+                ],
                 "frozen_validation_role": "promotion_only",
                 "source_frontier_used_for_navigation": False,
                 "historical_holdout_quarantined": bool(

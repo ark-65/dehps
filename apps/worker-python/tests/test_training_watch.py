@@ -35,6 +35,16 @@ from scripts.watch_training_progress import (
 
 
 def source_survival_round(round_index: int, source_survival: dict, **prefilter_fields) -> dict:
+    holdout_isolation = prefilter_fields.get("holdout_isolation")
+    if isinstance(holdout_isolation, dict) and (
+        holdout_isolation.get("protocol") == watch.HOLDOUT_ISOLATION_PROTOCOL
+    ):
+        prefilter_fields["holdout_isolation"] = {
+            "prefilter_isolation_status": "passed",
+            "prefilter_frozen_issue_overlap_count": 0,
+            "prefilter_uses_frozen_validation": False,
+            **holdout_isolation,
+        }
     return {
         "round_index": round_index,
         "prefilter": {"source_survival": source_survival, **prefilter_fields},
@@ -606,6 +616,44 @@ def test_candidate_source_survival_preserves_selected_search_navigation_source_b
     assert operator["candidate_source_survival"]["search_navigation_sources"] == [
         "stagnation_restart"
     ]
+
+
+def test_candidate_source_survival_excludes_unverified_prefilter_isolation_rounds():
+    rows = [
+        source_survival_round(
+            1,
+            {
+                "normal": {
+                    "generated": 7,
+                    "prefilter_selected": 6,
+                    "full_eval_top5": 5,
+                    "round_best": True,
+                }
+            },
+            holdout_isolation={
+                "protocol": "search_slice_frozen_promotion_v1",
+                "frozen_validation_role": "promotion_only",
+                "search_uses_frozen_validation": False,
+                "prefilter_isolation_status": "failed",
+                "prefilter_frozen_issue_overlap_count": 1,
+                "prefilter_uses_frozen_validation": True,
+            },
+        )
+    ]
+
+    summary = summarize_candidate_source_survival(
+        rows,
+        min_rounds=1,
+        min_generated=1,
+        budget_review_min_rounds=1,
+    )
+
+    assert summary["observed_round_count"] == 0
+    assert summary["unverified_prefilter_round_count"] == 1
+    assert summary["evidence_ready"] is False
+    assert summary["status"] == "invalidated"
+    assert summary["action"] == "restart_with_verified_prefilter_isolation"
+    assert summary["sources"] == {}
 
 
 def test_candidate_source_survival_rejects_preempted_navigation_credit():
@@ -3133,6 +3181,12 @@ def test_holdout_isolation_is_visible_in_gate_recommendation_markdown_and_eviden
             "frozen_window": 20,
             "issue_overlap_count": 0,
             "search_uses_frozen_validation": False,
+            "prefilter_isolation_status": "passed",
+            "prefilter_target_count": 20,
+            "prefilter_search_issue_overlap_count": 20,
+            "prefilter_frozen_issue_overlap_count": 0,
+            "prefilter_outside_split_issue_count": 0,
+            "prefilter_uses_frozen_validation": False,
             "frozen_validation_role": "promotion_only",
             "source_frontier_used_for_navigation": False,
             "historical_holdout_quarantined": True,
@@ -3189,6 +3243,8 @@ def test_holdout_isolation_is_visible_in_gate_recommendation_markdown_and_eviden
 
     assert gates["holdout_isolation"]["search_window"] == 80
     assert gates["holdout_isolation"]["search_uses_frozen_validation"] is False
+    assert gates["holdout_isolation"]["prefilter_isolation_status"] == "passed"
+    assert gates["holdout_isolation"]["prefilter_frozen_issue_overlap_count"] == 0
     assert gates["promotion_gate"]["historical_holdout_quarantined"] is True
     assert gates["stale_round_best_search_base_gate"]["navigation_evidence"] == "search_slice_only"
     assert any("Holdout isolation is active" in note for note in recommendation["notes"])
@@ -3198,9 +3254,12 @@ def test_holdout_isolation_is_visible_in_gate_recommendation_markdown_and_eviden
     assert evidence["baseline_or_null_model"]["random_null_scope"] == "search_slice"
     assert evidence["baseline_or_null_model"]["random_null_expectation"]["eval_window"] == 80
     assert evidence["leakage_checks"]["search_uses_frozen_validation"] is False
+    assert evidence["leakage_checks"]["prefilter_isolation_status"] == "passed"
+    assert evidence["leakage_checks"]["prefilter_frozen_issue_overlap_count"] == 0
     assert evidence["leakage_checks"]["historical_holdout_quarantined"] is True
     assert "Holdout isolation:" in markdown
     assert "search/frozen=80/20" in markdown
+    assert "prefilter=passed" in markdown
     assert "navigation_evidence=search_slice_only" in markdown
 
 
