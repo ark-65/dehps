@@ -27,6 +27,7 @@
 - 每轮检查 `candidate_source_survival` 的生成、预筛、Top5、round-best 与冻结前沿。少于 4 个已落库轮次时只观察，少于 8 个同 run 轮次时不得新开来源预算实验；冻结前沿可以保留为诊断，但不得直接影响预算、候选选择、search base 或正式晋级。
 - 来源预算复核必须同时读取 source-conversion、history-surface 和 final-performance 签名数及 `evidence_geometry`。八个原始轮次不自动等于八份独立性能证据；`automatic_budget_change_allowed` 必须保持 false，后续每次最多预声明一个来源预算变量。
 - 每轮必须读取 `sequential_null_audit` 的覆盖率、legacy gap、candidate×band 算术不变量、最强 band 三层 p 值和 completeness blocker。账本无效时先修算术；账本只是 observed lower bound 时保持 noise risk，不能解释为预测能力或自动晋级。
+- GPU 能力必须区分设备可见、运行时可用、真实评分探针完成和训练可接受四层。`cpu_parallel_gpu_probe_rejected` 是否决证据：若 exact-output 或端到端加速未通过，不得启用 GPU，也不得在瓶颈没有预声明变化时重复同一探针。后续实验只允许单独改变组件构造、传输或内核之一，并继续保持 selection/promotion 不变。
 - 优先修训练 watch / supervisor 运行错误、失败测试、明显 bug、类型错误和启动错误。
 - 当训练停滞、发散、候选族塌缩或出现可疑跳变时，先做 `$gauss` / `$riemann` / `$gauss-riemann-dialogue` 诊断，再改策略逻辑。
 - 诊断必须覆盖合法样本空间、历史窗口、baseline/null model、泄漏、重复组合、parser/sync 错误、后验阈值、候选多样性、共现结构和局部-全局一致性。
@@ -55,6 +56,7 @@
 | 2026-07-11 | 区分 restart batch 编号与真实候选新颖度：30 项目录会循环，必须以同历史候选哈希去重和 `restart_candidate_novelty` 证明新增覆盖，不能把重复确定性评估当作探索。 |
 | 2026-07-11 | 审计发现同一组 20 个冻结期次在同历史下被 17 个 run、202 个轮次反复查看，已不再是未见 holdout；后续强制 search/frozen 隔离，冻结结果仅用于被隔离的晋级诊断，并在真正前向证据到来前保持 quarantine。 |
 | 2026-07-11 | 自我迭代配置开始强制消费来源预算证据几何与 sequential-null 覆盖审计：区分转化路径变化和重复性能面，显式检查 legacy/adaptive/sequential 缺口，并禁止自动预算变更或自动晋级。 |
+| 2026-07-11 | Intel Arc OpenCL 真实评分探针完成：28/28 Top10000 与目标排名一致，但 8 位舍入矩阵仍有 9 个单元不同，完整端到端仅 `0.851318x`；GPU 训练保持禁用，后续不得在组件/传输/内核瓶颈未改变时重复同一实验。 |
 | 2026-07-10 | 增加跨 supervisor 搜索连续性：持久化轮内 decision candidate，恢复同历史且冻结主指标严格提升的 navigation candidate；新进程必须重评后才能用作 search base，incumbent 与 promotion gate 不变。 |
 | 2026-07-10 | 增加当前 run 的候选来源转化窗口：累计 generated → prefilter → Top5 → round-best，至少 4 轮后才判断 narrow/diverse；避免用单轮或混入旧信号的跨 run 统计贸然改预算。 |
 | 2026-06-22 | 修复训练 supervisor 的 target inversion 锚点：若本轮 best 只是历史 best 重放，改用本轮 challenger 做反推锚点。验证：`apps/worker-python/.venv/bin/python -m pytest apps/worker-python/tests -q` 通过 `164 passed`；live run `20260622-103001` round 1 写入 `anchor.source=challenger_best`，round 2 status 显示 `candidate_budget.target_weight_inversion=4`。 |

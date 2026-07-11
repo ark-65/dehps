@@ -37,3 +37,22 @@ def test_hourly_self_iteration_prompt_requires_sequential_null_coverage_audit():
         assert required_field in prompt
     assert "保持 noise risk" in prompt
     assert "不得把历史信号解释为预测能力" in prompt
+
+
+def test_hourly_self_iteration_prompt_consumes_rejected_gpu_probe_evidence():
+    prompt = (REPO_ROOT / "scripts/hourly_self_iterate.sh").read_text(encoding="utf-8")
+
+    for required_field in (
+        "probe_status",
+        "probe_accepted_for_training",
+        "probe_blockers",
+        "probe_full_end_to_end_speedup",
+        "probe_rounded_score_matrix_exact",
+        "probe_rounded_changed_cell_count",
+        "probe_target_ranks_equal",
+        "cpu_parallel_gpu_probe_rejected",
+    ):
+        assert required_field in prompt
+    assert "不是尚未尝试" in prompt
+    assert "不得在内核、传输或组件构造瓶颈没有预声明变化时重复同一探针" in prompt
+    assert "禁止自动启用训练或更改 selection/promotion" in prompt

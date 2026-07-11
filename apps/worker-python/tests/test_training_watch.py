@@ -415,6 +415,24 @@ def test_compute_capability_is_visible_in_operator_and_markdown():
             "intel_arc_visible": True,
             "nvidia_tool_visible": False,
             "installed_accelerator_modules": [],
+            "opencl_runtime_visible": True,
+            "probe_status": "completed",
+            "probe_protocol": "dehps-opencl-score-equivalence-v1",
+            "probe_generated_at": "2026-07-11T08:00:00Z",
+            "probe_accepted_for_training": False,
+            "probe_blockers": [
+                "rounded_score_matrix_not_exact",
+                "insufficient_full_end_to_end_speedup",
+            ],
+            "probe_full_end_to_end_speedup": 0.851,
+            "probe_rounded_score_matrix_exact": False,
+            "probe_rounded_changed_cell_count": 9,
+            "probe_top_set_match_count": 28,
+            "probe_top_set_config_count": 28,
+            "probe_target_ranks_equal": True,
+            "probed_gpu_backend": "pyopencl",
+            "probed_gpu_device": "Intel(R) Arc(TM) Graphics",
+            "probed_gpu_driver": "26.05.037020",
             "validated_gpu_backend": None,
             "gpu_backend_validated": False,
             "gpu_training_enabled": False,
@@ -445,7 +463,17 @@ def test_compute_capability_is_visible_in_operator_and_markdown():
 
     assert "## Compute Capability" in markdown
     assert "gpu_training=False" in markdown
+    assert "accepted=False speedup=0.851 rounded_exact=False changed_cells=9" in markdown
+    assert "top_sets=28/28 target_ranks_equal=True" in markdown
     assert operator["compute_capability"]["cpu"]["configured_workers"] == 16
+    assert (
+        operator["compute_capability"]["accelerator"]["probe_accepted_for_training"]
+        is False
+    )
+    assert operator["compute_capability"]["accelerator"]["probe_blockers"] == [
+        "rounded_score_matrix_not_exact",
+        "insufficient_full_end_to_end_speedup",
+    ]
     assert (
         operator["compute_capability"]["accelerator"]["gpu_backend_validated"]
         is False
