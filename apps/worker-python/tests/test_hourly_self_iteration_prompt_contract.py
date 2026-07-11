@@ -88,3 +88,19 @@ def test_hourly_self_iteration_prompt_distinguishes_status_file_from_process():
     assert "只代表状态文件存在，不代表进程仍运行" in prompt
     assert "不得误报为 supervisor 崩溃或据此重启" in prompt
     assert "不能把它当作命令身份验证" in prompt
+
+
+def test_hourly_self_iteration_prompt_requires_forward_release_fail_closed():
+    prompt = (REPO_ROOT / "scripts/hourly_self_iterate.sh").read_text(encoding="utf-8")
+
+    for requirement in (
+        "先完成开奖前冻结的 static/dynamic/near 三线评估",
+        "再刷新 advisor",
+        "最后才允许启动 fresh supervisor",
+        "拒绝空快照、缺线、重复 line",
+        "candidate_count!=top_n",
+        "as_of_issue>=predicted_issue",
+        "任一评估返回 missing/mismatch/leakage/empty/partial-ranked-set 或非零退出",
+        "禁止刷新 advisor 或启动 supervisor",
+    ):
+        assert requirement in prompt
