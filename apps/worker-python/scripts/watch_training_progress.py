@@ -15,6 +15,7 @@ from psycopg.rows import dict_row
 from dehps.artifacts import atomic_write_text
 from dehps.config import ROOT_DIR
 from dehps.db import get_connection
+from dehps.runtime.compute_capability import compute_capability_summary
 from dehps.runtime.heavy_job import describe_heavy_job_owner
 
 
@@ -1594,6 +1595,8 @@ def supervisor_status_summary(status: dict[str, Any], *, path: Path) -> dict[str
         "train_window": safe_int(status.get("train_window")),
         "eval_window": safe_int(status.get("eval_window")),
         "top_n": safe_int(status.get("top_n")),
+        "workers": safe_int(status.get("workers")),
+        "matrix_backend": status.get("matrix_backend"),
         "regime_start_date": status.get("regime_start_date"),
         "regime_years": safe_float(status.get("regime_years")),
         "continuity_seed": {
@@ -3447,6 +3450,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         now=generated_at,
         stale_minutes=stale_minutes,
     )
+    compute_capability = compute_capability_summary(supervisor_status)
     lock = add_heavy_lock_observation_ages(heavy_lock_summary(), now=generated_at)
     parser_sync_duplicate_checks = load_parser_sync_duplicate_checks()
     history_issues = parser_sync_duplicate_checks.pop("_history_issues", [])
@@ -3556,6 +3560,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         "gate_summary": gates,
         "db_read_errors": db_read_errors,
         "supervisor_status": supervisor_status,
+        "compute_capability": compute_capability,
         "supervisor_round_boundary": round_boundary,
         "evidence_context": evidence_context_summary(
             supervisor_status=supervisor_status,
@@ -3709,6 +3714,46 @@ def render_forward_wait_markdown(forward_wait: Any) -> str:
         f"- Resume condition: {markdown_inline_text(forward_wait.get('resume_condition'))}\n"
         f"- Blockers: {markdown_inline_text(compact_inline_list(forward_wait.get('blockers')))}\n"
         f"- Interpretation: {markdown_inline_text(forward_wait.get('interpretation'))}\n\n"
+    )
+
+
+def render_compute_capability_markdown(compute_capability: Any) -> str:
+    if not isinstance(compute_capability, dict):
+        return ""
+    cpu = (
+        compute_capability.get("cpu")
+        if isinstance(compute_capability.get("cpu"), dict)
+        else {}
+    )
+    accelerator = (
+        compute_capability.get("accelerator")
+        if isinstance(compute_capability.get("accelerator"), dict)
+        else {}
+    )
+    return (
+        "## Compute Capability\n\n"
+        f"- Status/action: {markdown_inline_code(compute_capability.get('status'))} / "
+        f"{markdown_inline_code(compute_capability.get('action'))}\n"
+        "- CPU: "
+        f"logical={cpu.get('logical_count')} workers={cpu.get('configured_workers')} "
+        f"matrix={markdown_inline_text(cpu.get('matrix_backend'))} "
+        f"NumPy={markdown_inline_text(cpu.get('numpy_version'))}\n"
+        "- CPU protocol: "
+        f"{markdown_inline_text(cpu.get('parallel_protocol'))}; "
+        f"equivalence={markdown_inline_text(cpu.get('equivalence_requirement'))}\n"
+        "- Accelerator: "
+        f"device_visible={accelerator.get('gpu_device_visible')} "
+        f"intel_arc={accelerator.get('intel_arc_visible')} "
+        f"dri_render={accelerator.get('dri_render_node_visible')} "
+        f"nvidia_tool={accelerator.get('nvidia_tool_visible')}\n"
+        "- Accelerator backend: "
+        f"installed={markdown_inline_text(compact_inline_list(accelerator.get('installed_accelerator_modules')))} "
+        f"validated={markdown_inline_text(accelerator.get('validated_gpu_backend'))} "
+        f"gpu_training={accelerator.get('gpu_training_enabled')}\n"
+        "- Safety: "
+        f"selection_changed={compute_capability.get('selection_changed')} "
+        f"promotion_allowed={compute_capability.get('promotion_allowed')}\n"
+        f"- Interpretation: {markdown_inline_text(compute_capability.get('interpretation'))}\n\n"
     )
 
 
@@ -4128,6 +4173,9 @@ def render_markdown(payload: dict[str, Any]) -> str:
         payload.get("forward_evidence")
     )
     forward_wait_section = render_forward_wait_markdown(payload.get("forward_wait"))
+    compute_capability_section = render_compute_capability_markdown(
+        payload.get("compute_capability")
+    )
     round_repetition_section = render_round_repetition_markdown(
         payload.get("round_repetition")
     )
@@ -4346,6 +4394,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
 {line_progress_section}\
 {forward_evidence_section}\
 {forward_wait_section}\
+{compute_capability_section}\
 {restart_section}\
 {supervisor_section}\
 {evidence_section}\
@@ -4699,6 +4748,53 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "owner": heavy_job_lock.get("owner"),
             "pid": heavy_job_lock.get("pid"),
             "heartbeat_age_minutes": heavy_job_lock.get("heartbeat_age_minutes"),
+        }
+    compute_capability = (
+        payload.get("compute_capability")
+        if isinstance(payload.get("compute_capability"), dict)
+        else {}
+    )
+    if compute_capability:
+        cpu = (
+            compute_capability.get("cpu")
+            if isinstance(compute_capability.get("cpu"), dict)
+            else {}
+        )
+        accelerator = (
+            compute_capability.get("accelerator")
+            if isinstance(compute_capability.get("accelerator"), dict)
+            else {}
+        )
+        summary["compute_capability"] = {
+            "status": compute_capability.get("status"),
+            "action": compute_capability.get("action"),
+            "cpu": {
+                "logical_count": cpu.get("logical_count"),
+                "configured_workers": cpu.get("configured_workers"),
+                "matrix_backend": cpu.get("matrix_backend"),
+                "numpy_version": cpu.get("numpy_version"),
+                "parallel_protocol": cpu.get("parallel_protocol"),
+                "equivalence_requirement": cpu.get("equivalence_requirement"),
+            },
+            "accelerator": {
+                "gpu_device_visible": accelerator.get("gpu_device_visible"),
+                "dri_render_node_visible": accelerator.get(
+                    "dri_render_node_visible"
+                ),
+                "intel_arc_visible": accelerator.get("intel_arc_visible"),
+                "nvidia_tool_visible": accelerator.get("nvidia_tool_visible"),
+                "installed_accelerator_modules": accelerator.get(
+                    "installed_accelerator_modules"
+                )
+                or [],
+                "validated_gpu_backend": accelerator.get(
+                    "validated_gpu_backend"
+                ),
+                "gpu_backend_validated": accelerator.get("gpu_backend_validated"),
+                "gpu_training_enabled": accelerator.get("gpu_training_enabled"),
+            },
+            "selection_changed": compute_capability.get("selection_changed"),
+            "promotion_allowed": compute_capability.get("promotion_allowed"),
         }
     round_repetition = (
         payload.get("round_repetition")
