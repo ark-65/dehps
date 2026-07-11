@@ -8,6 +8,7 @@ from typing import Any
 
 from dehps.artifacts import atomic_write_text
 from dehps.config import ROOT_DIR
+from dehps.runtime.heavy_job import DEFAULT_LOCK_PATH, mark_inactive_heavy_job_owner
 
 
 DEFAULT_OUTPUT_DIR = ROOT_DIR / "data/output/optimization"
@@ -84,6 +85,7 @@ def main() -> None:
     parser.add_argument("--history-issue", required=True)
     parser.add_argument("--pending-issue", required=True)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--heavy-job-lock-path", type=Path, default=DEFAULT_LOCK_PATH)
     args = parser.parse_args()
 
     path = find_status_path(output_dir=args.output_dir, expected_pid=args.expected_pid)
@@ -94,6 +96,14 @@ def main() -> None:
         history_issue=args.history_issue,
         pending_issue=args.pending_issue,
     )
+    heavy_job_metadata = mark_inactive_heavy_job_owner(
+        expected_pid=args.expected_pid,
+        expected_owner="training-supervisor",
+        status="waiting_for_forward_issue",
+        lock_path=args.heavy_job_lock_path,
+        context={"forward_wait": payload["forward_wait"]},
+        missing_ok=True,
+    )
     atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2))
     print(
         json.dumps(
@@ -103,6 +113,11 @@ def main() -> None:
                 "path": str(path),
                 "history_issue": args.history_issue,
                 "pending_issue": args.pending_issue,
+                "heavy_job_metadata_status": (
+                    heavy_job_metadata.get("status")
+                    if heavy_job_metadata is not None
+                    else "missing"
+                ),
             },
             ensure_ascii=False,
         )

@@ -37,6 +37,7 @@ INACTIVE_STATUSES = {
     "error",
     "cancelled",
     "interrupted",
+    "waiting_for_forward_issue",
 }
 
 _HELD_LOCKS: set[Path] = set()
@@ -164,6 +165,95 @@ def describe_heavy_job_owner(
         pid_active=pid_active,
         reason=_pid_reason(pid_active),
     )
+
+
+def mark_inactive_heavy_job_owner(
+    *,
+    expected_pid: int,
+    status: str,
+    expected_owner: str | None = None,
+    lock_path: str | os.PathLike[str] | None = None,
+    metadata_path: str | os.PathLike[str] | None = None,
+    context: Mapping[str, Any] | None = None,
+    missing_ok: bool = False,
+) -> dict[str, Any] | None:
+    """Atomically preserve a stopped heavy job as inactive audit metadata.
+
+    The lock file is acquired non-blocking before inspecting metadata so a
+    delayed supervisor marker cannot overwrite a newer heavy job.  The
+    expected owner and PID must still match, and the old PID must be known to
+    have stopped.
+    """
+
+    if fcntl is None:
+        raise HeavyJobLockError("Heavy-job metadata transitions require fcntl on this platform")
+
+    normalized_status = str(status).strip().lower()
+    if normalized_status not in INACTIVE_STATUSES:
+        raise HeavyJobLockError(f"Refusing non-inactive heavy-job status transition: {status!r}")
+    parsed_expected_pid = _parse_pid(expected_pid)
+    if parsed_expected_pid is None or parsed_expected_pid <= 0:
+        raise HeavyJobLockError(f"Invalid expected heavy-job pid: {expected_pid!r}")
+
+    resolved_lock_path = Path(lock_path) if lock_path is not None else DEFAULT_LOCK_PATH
+    resolved_metadata_path = (
+        Path(metadata_path) if metadata_path is not None else metadata_path_for(resolved_lock_path)
+    )
+    resolved_lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_file = resolved_lock_path.open("a+", encoding="utf-8")
+    locked = False
+    try:
+        try:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            locked = True
+        except (BlockingIOError, PermissionError) as exc:
+            raise HeavyJobLockError(
+                f"Refusing to update heavy-job metadata while lock is held: {resolved_lock_path}"
+            ) from exc
+
+        metadata = read_owner_metadata(resolved_metadata_path)
+        if metadata is None:
+            if missing_ok:
+                return None
+            raise HeavyJobLockError(f"Heavy-job metadata is missing: {resolved_metadata_path}")
+
+        metadata_pid = _parse_pid(metadata.get("pid"))
+        if metadata_pid != parsed_expected_pid:
+            raise HeavyJobLockError(
+                "Refusing to update heavy-job metadata owned by "
+                f"pid={metadata.get('pid')!r}; expected pid={parsed_expected_pid}"
+            )
+        if expected_owner is not None and metadata.get("owner") != expected_owner:
+            raise HeavyJobLockError(
+                "Refusing to update heavy-job metadata owned by "
+                f"owner={metadata.get('owner')!r}; expected owner={expected_owner!r}"
+            )
+
+        pid_active = is_pid_active(metadata_pid)
+        if pid_active is not False:
+            raise HeavyJobLockError(
+                f"Refusing to mark heavy-job pid={metadata_pid} inactive; pid_active={pid_active!r}"
+            )
+
+        finished_at = _utc_now_iso()
+        updated = dict(metadata)
+        updated.update(
+            {
+                "status": normalized_status,
+                "heartbeat_at": finished_at,
+                "finished_at": finished_at,
+            }
+        )
+        if context is not None:
+            merged_context = dict(updated.get("context") or {})
+            merged_context.update(dict(context))
+            updated["context"] = _json_safe(merged_context)
+        _atomic_write_json(resolved_metadata_path, updated)
+        return updated
+    finally:
+        if locked:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        lock_file.close()
 
 
 def is_pid_active(pid: Any) -> bool | None:

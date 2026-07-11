@@ -7,12 +7,14 @@ import time
 import pytest
 
 from dehps.runtime.heavy_job import (
+    HeavyJobLockError,
     HeavyJobLockTimeout,
     apply_cpu_thread_env_defaults,
     cpu_thread_env_overrides,
     describe_heavy_job_owner,
     heavy_job_lock,
     is_pid_active,
+    mark_inactive_heavy_job_owner,
     metadata_path_for,
     read_owner_metadata,
 )
@@ -155,6 +157,107 @@ def test_dead_pid_metadata_is_reported_inactive(tmp_path):
     assert owner_status.active is False
     assert owner_status.pid_active is False
     assert owner_status.reason == "pid_not_running"
+
+
+def test_stopped_owner_metadata_can_be_marked_waiting_without_losing_audit_context(tmp_path):
+    lock_path = tmp_path / "dehps-heavy-job.lock"
+    metadata_path = metadata_path_for(lock_path)
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "owner": "training-supervisor",
+                "pid": 999_999_999,
+                "started_at": "2026-07-11T00:00:00Z",
+                "heartbeat_at": "2026-07-11T00:01:00Z",
+                "status": "running",
+                "command": ["scripts/run_training_supervisor.py"],
+                "context": {"train_window": 900},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    updated = mark_inactive_heavy_job_owner(
+        expected_pid=999_999_999,
+        expected_owner="training-supervisor",
+        status="waiting_for_forward_issue",
+        lock_path=lock_path,
+        context={"forward_wait": {"next_pending_issue": "2026079"}},
+    )
+
+    assert updated is not None
+    assert updated["status"] == "waiting_for_forward_issue"
+    assert updated["finished_at"] == updated["heartbeat_at"]
+    assert updated["command"] == ["scripts/run_training_supervisor.py"]
+    assert updated["context"] == {
+        "train_window": 900,
+        "forward_wait": {"next_pending_issue": "2026079"},
+    }
+    owner_status = describe_heavy_job_owner(lock_path=lock_path)
+    assert owner_status.active is False
+    assert owner_status.pid_active is False
+    assert owner_status.reason == "status_waiting_for_forward_issue"
+
+
+def test_inactive_metadata_transition_refuses_pid_or_owner_mismatch(tmp_path):
+    lock_path = tmp_path / "dehps-heavy-job.lock"
+    metadata_path = metadata_path_for(lock_path)
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "owner": "new-job",
+                "pid": 999_999_998,
+                "status": "running",
+                "context": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(HeavyJobLockError, match="expected pid"):
+        mark_inactive_heavy_job_owner(
+            expected_pid=999_999_999,
+            status="waiting_for_forward_issue",
+            lock_path=lock_path,
+        )
+    with pytest.raises(HeavyJobLockError, match="expected owner"):
+        mark_inactive_heavy_job_owner(
+            expected_pid=999_999_998,
+            expected_owner="training-supervisor",
+            status="waiting_for_forward_issue",
+            lock_path=lock_path,
+        )
+
+
+def test_inactive_metadata_transition_refuses_live_pid_and_held_lock(tmp_path):
+    lock_path = tmp_path / "dehps-heavy-job.lock"
+    metadata_path = metadata_path_for(lock_path)
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "owner": "live-job",
+                "pid": os.getpid(),
+                "status": "running",
+                "context": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(HeavyJobLockError, match="pid_active=True"):
+        mark_inactive_heavy_job_owner(
+            expected_pid=os.getpid(),
+            status="waiting_for_forward_issue",
+            lock_path=lock_path,
+        )
+
+    with heavy_job_lock(owner="held-job", lock_path=lock_path):
+        with pytest.raises(HeavyJobLockError, match="while lock is held"):
+            mark_inactive_heavy_job_owner(
+                expected_pid=os.getpid(),
+                status="waiting_for_forward_issue",
+                lock_path=lock_path,
+            )
 
 
 def test_fractional_pid_metadata_is_reported_unknown(tmp_path):

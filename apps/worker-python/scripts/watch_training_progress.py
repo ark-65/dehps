@@ -2529,9 +2529,20 @@ def recommendation_summary(
     notes: list[str] = []
     actions: list[str] = []
     severity = "ok"
+    forward_wait = forward_wait if isinstance(forward_wait, dict) else {}
+    supervisor_waiting_for_forward_issue = bool(
+        isinstance(supervisor_status, dict)
+        and supervisor_status.get("status") == "waiting_for_forward_issue"
+        and forward_wait.get("ready") is True
+    )
 
     if lock.get("active") and lock.get("owner") == "training-supervisor":
         notes.append("Training process is active under the heavy-job lock.")
+    elif supervisor_waiting_for_forward_issue:
+        notes.append(
+            "Training process is intentionally inactive while the supervisor waits for a new "
+            "forward issue."
+        )
     else:
         severity = "warn"
         notes.append("Training heavy-job lock is not active; verify whether the supervisor stopped.")
@@ -2557,7 +2568,7 @@ def recommendation_summary(
         else {}
     )
     supervisor_progress_age = safe_float(supervisor_progress.get("age_minutes"))
-    if supervisor_progress.get("fresh") is False:
+    if supervisor_progress.get("fresh") is False and not supervisor_waiting_for_forward_issue:
         severity = "warn" if severity == "ok" else severity
         actions.append("inspect_training_log")
         age_text = (
@@ -2570,7 +2581,11 @@ def recommendation_summary(
             f"{age_text} minutes since latest_progress.logged_at."
         )
 
-    if latest_age is not None and latest_age > stale_minutes:
+    if (
+        latest_age is not None
+        and latest_age > stale_minutes
+        and not supervisor_waiting_for_forward_issue
+    ):
         severity = "warn"
         actions.append("inspect_training_log")
         notes.append(f"Latest round is stale: {latest_age:.1f} minutes since update.")
@@ -2615,7 +2630,6 @@ def recommendation_summary(
         stagnation_rounds > current_run_stagnation_rounds
         and current_run_stagnation_rounds < DEFAULT_SOURCE_SURVIVAL_MIN_ROUNDS
     )
-    forward_wait = forward_wait if isinstance(forward_wait, dict) else {}
     if forward_wait.get("ready") is True:
         severity = "warn" if severity == "ok" else severity
         actions.append(FORWARD_WAIT_ACTION)

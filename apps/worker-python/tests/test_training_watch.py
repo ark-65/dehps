@@ -229,6 +229,50 @@ def test_recommendation_waits_for_forward_issue_instead_of_restarting():
     assert operator_summary(payload)["forward_wait"]["ready"] is True
 
 
+def test_recommendation_keeps_stale_parked_supervisor_waiting():
+    now = datetime(2026, 7, 11, 6, 40, tzinfo=timezone.utc)
+    forward_wait = forward_wait_ready_payload()
+    recommendation = recommendation_summary(
+        rows=[
+            {
+                "round_index": index,
+                "improved": False,
+                "updated_at": now - timedelta(minutes=40),
+            }
+            for index in range(1, 9)
+        ],
+        lock={
+            "active": False,
+            "owner": "training-supervisor",
+            "pid": 12345,
+            "status": "waiting_for_forward_issue",
+        },
+        advisors={"neural_kdj_advisor": {"candidate_count": 0}},
+        now=now,
+        stale_minutes=30,
+        supervisor_status={
+            "available": True,
+            "status": "waiting_for_forward_issue",
+            "pid": 12345,
+            "latest_progress": {
+                "round": 8,
+                "age_minutes": 40.0,
+                "fresh": False,
+            },
+        },
+        round_repetition={
+            "active": True,
+            "latest_config_repeat_streak": 5,
+            "latest_metric_repeat_streak": 5,
+        },
+        forward_wait=forward_wait,
+    )
+
+    assert recommendation["action"] == "await_new_forward_issue"
+    assert "inspect_training_log" not in recommendation["actions"]
+    assert any("intentionally inactive" in note for note in recommendation["notes"])
+
+
 def test_compute_capability_is_visible_in_operator_and_markdown():
     compute_capability = {
         "status": "cpu_parallel_gpu_backend_unvalidated",
