@@ -46,7 +46,7 @@ Warning is observation-only and requests an evidence-retention review. Critical 
 - Live observed append logs: `73499853` bytes.
 - Live watchdog `sync-20260711-181159`: capacity accepted, fetched 1, skipped 1, conflicts 0; no forward rows were due and the supervisor remained parked for `2026079`.
 - Full worker suite: 620 passed.
-- Post-merge validation: pending.
+- Post-merge `main` commit `6201330`, watchdog `sync-20260711-181532`: capacity gate ran before sync and accepted `healthy`; fetched 1, skipped 1, conflicts 0; no forward rows were due and the supervisor remained parked for `2026079`.
 
 ## Remaining limitation
 
