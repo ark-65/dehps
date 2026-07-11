@@ -219,12 +219,16 @@ def signal_vs_noise_diagnostic(
     min_eval_draws: int = 20,
     forward_evaluations: list[dict[str, Any]] | None = None,
     overfit_guard_active: bool = False,
+    candidate_hypothesis_count: int = 1,
 ) -> dict[str, Any]:
     summary = summary if isinstance(summary, dict) else {}
     trials = _safe_int(summary.get("eval_window") or summary.get("evaluated_draws"))
     safe_space = max(1, int(legal_sample_space))
+    safe_candidate_hypothesis_count = max(1, _safe_int(candidate_hypothesis_count, 1))
+    tested_cutoffs = (100, 1000, 10000)
+    minimum_familywise_hypothesis_count = safe_candidate_hypothesis_count * len(tested_cutoffs)
     bands = []
-    for cutoff in (100, 1000, 10000):
+    for cutoff in tested_cutoffs:
         hits = _safe_int(summary.get(f"top_{cutoff}_hits"))
         probability = min(1.0, cutoff / safe_space)
         expected_hits = trials * probability
@@ -239,9 +243,13 @@ def signal_vs_noise_diagnostic(
                 "expected_hits": _rounded(expected_hits),
                 "lift_vs_null": _rounded(hits / expected_hits) if expected_hits > 0 else None,
                 "binomial_tail_p_value": round(p_value, 10),
+                "bonferroni_adjusted_p_value": round(
+                    min(1.0, p_value * minimum_familywise_hypothesis_count),
+                    10,
+                ),
             }
         )
-    strongest = min(bands, key=lambda item: item["binomial_tail_p_value"]) if bands else {}
+    strongest = min(bands, key=lambda item: item["bonferroni_adjusted_p_value"]) if bands else {}
 
     evaluated_forward = [
         row for row in (forward_evaluations or [])
@@ -249,7 +257,10 @@ def signal_vs_noise_diagnostic(
     ]
     forward_top100_hits = sum(1 for row in evaluated_forward if bool(row.get("hit_top_100")))
 
-    reasons: list[str] = ["multiple_testing_unadjusted"]
+    reasons: list[str] = [
+        "multiple_testing_bonferroni_minimum_family",
+        "sequential_search_multiplicity_not_fully_counted",
+    ]
     if trials <= 0:
         status = "blocked"
         reasons.append("missing_backtest_trials")
@@ -259,12 +270,12 @@ def signal_vs_noise_diagnostic(
     elif trials < min_eval_draws:
         status = "noise_risk"
         reasons.append("small_regression_window")
-    elif float(strongest.get("binomial_tail_p_value", 1.0)) <= 0.01:
+    elif float(strongest.get("bonferroni_adjusted_p_value", 1.0)) <= 0.01:
         status = "candidate_signal"
-        reasons.append("historical_rank_lift_exceeds_null_tail_threshold")
+        reasons.append("historical_rank_lift_exceeds_minimum_familywise_null_threshold")
     else:
         status = "noise_risk"
-        reasons.append("historical_lift_not_strong_against_null")
+        reasons.append("historical_lift_not_strong_against_minimum_familywise_null")
     if not evaluated_forward:
         reasons.append("no_forward_evaluation_yet")
     elif len(evaluated_forward) < 10:
@@ -274,6 +285,13 @@ def signal_vs_noise_diagnostic(
         "eval_window": trials,
         "min_eval_draws": min_eval_draws,
         "legal_sample_space": safe_space,
+        "candidate_hypothesis_count": safe_candidate_hypothesis_count,
+        "tested_band_count": len(tested_cutoffs),
+        "minimum_familywise_hypothesis_count": minimum_familywise_hypothesis_count,
+        "familywise_method": "bonferroni_minimum_observed_family",
+        "familywise_alpha": 0.01,
+        "per_test_alpha": round(0.01 / minimum_familywise_hypothesis_count, 10),
+        "sequential_search_multiplicity_counted": False,
         "bands": bands,
         "strongest_band": strongest,
         "forward_evaluated_count": len(evaluated_forward),

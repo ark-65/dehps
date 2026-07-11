@@ -48,6 +48,40 @@ def test_signal_vs_noise_marks_small_window_as_noise_risk():
     assert diagnostic["status"] == "noise_risk"
     assert "small_regression_window" in diagnostic["reasons"]
     assert diagnostic["strongest_band"]["label"] in {"top_100", "top_1000", "top_10000"}
+    assert diagnostic["minimum_familywise_hypothesis_count"] == 3
+    assert diagnostic["sequential_search_multiplicity_counted"] is False
+
+
+def test_signal_vs_noise_uses_minimum_familywise_adjustment_for_candidate_selection():
+    summary = {
+        "eval_window": 80,
+        "top_100_hits": 0,
+        "top_1000_hits": 2,
+        "top_10000_hits": 2,
+    }
+
+    single_candidate = signal_vs_noise_diagnostic(
+        summary,
+        legal_sample_space=1_105_506,
+        candidate_hypothesis_count=1,
+    )
+    selected_from_two = signal_vs_noise_diagnostic(
+        summary,
+        legal_sample_space=1_105_506,
+        candidate_hypothesis_count=2,
+    )
+
+    assert single_candidate["status"] == "candidate_signal"
+    assert selected_from_two["status"] == "noise_risk"
+    assert selected_from_two["minimum_familywise_hypothesis_count"] == 6
+    assert selected_from_two["strongest_band"]["label"] == "top_1000"
+    assert selected_from_two["strongest_band"]["binomial_tail_p_value"] < 0.01
+    assert selected_from_two["strongest_band"]["bonferroni_adjusted_p_value"] > 0.01
+    assert all(
+        0.0 <= band["bonferroni_adjusted_p_value"] <= 1.0
+        for band in selected_from_two["bands"]
+    )
+    assert "historical_lift_not_strong_against_minimum_familywise_null" in selected_from_two["reasons"]
 
 
 def test_prediction_self_diagnostics_synthesizes_weakest_status():
