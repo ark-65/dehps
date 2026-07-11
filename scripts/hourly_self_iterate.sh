@@ -98,7 +98,8 @@ cat <<'PROMPT' | "$CODEX_BIN" exec \
 1f. 当 `decision_surface.objective_component_control.status=measured` 时，必须核对 reward 组件方向已标准化、`max_abs_reconstruction_residual` 接近 0、`selection_changed=false`、`selection_uses_frozen_validation=false`。在同预算、同历史的多个完整轮次里观察主导组件是否稳定前，不得移除组件、改 objective 或把反事实排序用于 search base。
 1g. 当 `decision_surface.objective_component_counterfactual.status=measured` 时，只把 `counterfactual_top_changed`、flip/retain/tie 计数当作局部敏感性诊断。必须保持 `selection_changed=false`、`selection_uses_frozen_validation=false`；不得把移除 tail-risk 的反事实 Top 用作生产排序、search base、promotion 或预测输出。
 1h. 读取 `self_diagnostics.signal_vs_noise` 时，显著性判断必须使用 `bonferroni_adjusted_p_value` 和 `minimum_familywise_hypothesis_count`，不得用原始 `binomial_tail_p_value` 宣称候选信号。该 family 只覆盖本轮唯一配置与已报告 Top 档位，是保守下界；`sequential_search_multiplicity_counted=false` 时仍须保留跨轮自适应搜索风险并要求 frozen/forward 证据。
-1i. 定期检查训练阶段耗时、worker 数、CPU 利用率和可用加速后端。加速必须有串/并行结果等价测试和同工作量 live 基线；单纯缩短耗时不算模型进步。GPU 设备可见但缺少已验证 Python 计算后端时，只能记录为待验证能力，不得声称 GPU 已参与训练或为此临时安装未经锁定的依赖。
+1i. 必须读取 `strategy_memory_continuity` 与 `strategy_memory.state.objective_component_counterfactual_observation_window`。同一 `as_of_issue`、history fingerprint、窗口和 top-N 的持久诊断可用于只读审计进度；不得用于 search、rank 或 promotion。只有累计至少 8 个 `measured` 轮次且 component/scope/selection/frozen 护栏零违规时，tail-risk counterfactual 才可标记 `mature` 并让诊断队列前进；成熟不代表预测有效或允许改 objective。
+1j. 定期检查训练阶段耗时、worker 数、CPU 利用率和可用加速后端。加速必须有串/并行结果等价测试和同工作量 live 基线；单纯缩短耗时不算模型进步。GPU 设备可见但缺少已验证 Python 计算后端时，只能记录为待验证能力，不得声称 GPU 已参与训练或为此临时安装未经锁定的依赖。
 2. 修复当前测试失败、明显 bug、类型错误、启动错误、训练 watch / supervisor 运行错误。
 3. 如果训练出现停滞、发散、候选族塌缩、可疑跳变、重复评估相近配置、source/frontier 异常或 frozen validation 不一致，先做数学诊断，再决定最小修复。
 4. 只有没有训练或运行异常时，才寻找高价值 TODO/FIXME、边界条件缺陷、日志/状态可观测性问题或测试缺口，并完成最小修复。

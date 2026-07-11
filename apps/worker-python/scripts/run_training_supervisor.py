@@ -1732,6 +1732,56 @@ def recent_round_self_diagnostics(
     return diagnostics
 
 
+def recover_strategy_memory_diagnostics(
+    navigation_records: list[dict],
+    *,
+    current_run_id: str,
+    limit: int = 8,
+) -> tuple[list[dict], dict]:
+    recovered_newest_first: list[tuple[str, int, dict]] = []
+    for record in navigation_records:
+        run_id = str(record.get("run_id") or "")
+        if not run_id or run_id == current_run_id:
+            continue
+        prefilter = record.get("prefilter") if isinstance(record.get("prefilter"), dict) else {}
+        diagnostic = prefilter.get("self_diagnostics")
+        if not isinstance(diagnostic, dict) or diagnostic.get("protocol") != SELF_DIAGNOSTICS_PROTOCOL:
+            continue
+        recovered_newest_first.append(
+            (run_id, int(record.get("round_index") or 0), diagnostic)
+        )
+        if len(recovered_newest_first) >= max(0, limit):
+            break
+    recovered = list(reversed(recovered_newest_first))
+    source_run_ids: list[str] = []
+    for run_id, _round_index, _diagnostic in recovered:
+        if run_id not in source_run_ids:
+            source_run_ids.append(run_id)
+    return [diagnostic for _run_id, _round_index, diagnostic in recovered], {
+        "mode": "same_history_persisted_self_diagnostics",
+        "record_count": len(recovered),
+        "limit": max(0, limit),
+        "source_run_ids": source_run_ids,
+        "oldest_round": (
+            {"run_id": recovered[0][0], "round_index": recovered[0][1]}
+            if recovered
+            else None
+        ),
+        "latest_round": (
+            {"run_id": recovered[-1][0], "round_index": recovered[-1][1]}
+            if recovered
+            else None
+        ),
+        "current_run_excluded": current_run_id,
+        "selection_changed": False,
+        "selection_uses_frozen_validation": False,
+        "interpretation": (
+            "Read-only same-history diagnostic continuity; recovered observations affect only "
+            "strategy-memory audit progress, never search, ranking, or promotion."
+        ),
+    }
+
+
 def _is_diagnostic_only_source(source: str) -> bool:
     return source.startswith("keep_") or source.startswith("control_")
 
@@ -6417,6 +6467,7 @@ def compact_status_payload(status: dict) -> dict:
         "probability_focus": status.get("probability_focus"),
         "carryover_seed": status.get("carryover_seed"),
         "continuity_seed": status.get("continuity_seed"),
+        "strategy_memory_continuity": status.get("strategy_memory_continuity"),
         "qian_kun": status.get("qian_kun"),
         "next_candidates": status.get("next_candidates"),
         "self_diagnostics": status.get("self_diagnostics"),
@@ -6516,11 +6567,23 @@ def strategy_memory_report_section(status: dict) -> str:
         return "## Strategy Memory\n\nNo strategy memory recorded yet.\n"
     experiment = memory.get("selected_experiment") if isinstance(memory.get("selected_experiment"), dict) else {}
     state = memory.get("state") if isinstance(memory.get("state"), dict) else {}
+    continuity = (
+        status.get("strategy_memory_continuity")
+        if isinstance(status.get("strategy_memory_continuity"), dict)
+        else {}
+    )
+    counterfactual_window = (
+        state.get("objective_component_counterfactual_observation_window")
+        if isinstance(state.get("objective_component_counterfactual_observation_window"), dict)
+        else {}
+    )
     hypotheses = memory.get("failure_hypotheses") if isinstance(memory.get("failure_hypotheses"), list) else []
     return f"""## Strategy Memory
 
 - Mode: `{memory.get("mode", "missing")}` window `{memory.get("memory_window", "missing")}`.
+- Persisted continuity: `{continuity.get("record_count", 0)}` records from `{", ".join(str(item) for item in continuity.get("source_run_ids", [])) or "none"}`.
 - Current state: synthesis `{state.get("current_synthesis", "missing")}` weight `{state.get("current_weight", "missing")}` space `{state.get("current_candidate_space", "missing")}` signal `{state.get("current_signal", "missing")}`.
+- Tail-risk observation window: `{counterfactual_window.get("status", "missing")}` measured `{counterfactual_window.get("measured_round_count", 0)}/{counterfactual_window.get("required_rounds", 8)}` guard violations `{counterfactual_window.get("guard_violation_count", 0)}`.
 - Failure hypotheses: `{", ".join(str(item) for item in hypotheses[:5]) if hypotheses else "none"}`.
 - Selected experiment: `{experiment.get("key", "missing")}` action `{experiment.get("action", "missing")}` promotion_allowed `{experiment.get("promotion_allowed", False)}`.
 """
@@ -6736,6 +6799,13 @@ def run_supervisor(
             top_n=top_n,
             limit=80,
         )
+    strategy_memory_prior_diagnostics, strategy_memory_continuity_info = (
+        recover_strategy_memory_diagnostics(
+            navigation_records,
+            current_run_id=run_id,
+            limit=8,
+        )
+    )
     guard_history, guard_continuity_info = recover_supervisor_guard_history(
         navigation_records,
         limit=80,
@@ -6976,6 +7046,7 @@ def run_supervisor(
             ),
             "selected": strip_target_results(continuity_seed) if continuity_seed is not None else None,
         },
+        "strategy_memory_continuity": strategy_memory_continuity_info,
         "guard_continuity": guard_continuity_info,
         "qian_kun": qian_kun_distribution(selection.history),
         "next_candidates": None,
@@ -8207,7 +8278,10 @@ def run_supervisor(
 
             strategy_memory = build_specialist_strategy_memory(
                 current_diagnostic=self_diagnostics,
-                recent_diagnostics=recent_round_self_diagnostics(rounds),
+                recent_diagnostics=(
+                    strategy_memory_prior_diagnostics
+                    + recent_round_self_diagnostics(rounds)
+                ),
                 round_index=round_index + 1,
                 near_dynamic_training=status.get("near_dynamic_kdj_training"),
                 dynamic_training=status.get("dynamic_kdj_training"),

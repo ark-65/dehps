@@ -269,7 +269,13 @@ def test_specialist_strategy_memory_advances_to_tail_risk_counterfactual_audit()
         "decision_surface": {
             "status": "objective_tiebreak_tradeoff",
             "objective_component_control": {"status": "measured"},
-            "objective_component_counterfactual": {"status": "measured"},
+            "objective_component_counterfactual": {
+                "status": "measured",
+                "component": "tail_risk_penalty",
+                "selection_changed": False,
+                "selection_scope": "search_slice_only",
+                "selection_uses_frozen_validation": False,
+            },
         },
         "signal_vs_noise": {"status": "noise_risk"},
     }
@@ -284,12 +290,106 @@ def test_specialist_strategy_memory_advances_to_tail_risk_counterfactual_audit()
     assert "objective_component_residuals_need_stability" not in memory["failure_hypotheses"]
     assert memory["state"]["current_objective_component_counterfactual"] == "measured"
     assert memory["state"]["objective_component_counterfactual_counts"] == {"measured": 2}
+    assert memory["state"]["objective_component_counterfactual_observation_window"]["status"] == "accumulating"
+    assert memory["state"]["objective_component_counterfactual_observation_window"]["measured_round_count"] == 2
     assert memory["selected_experiment"] == {
         "key": "tail_risk_counterfactual_audit",
         "action": "observe_tail_risk_counterfactual_without_selection_change",
         "rationale": (
             "The mature residual window predeclared a tail-risk-only counterfactual; observe whether "
             "its local Top choice changes while production sorting and promotion remain unchanged."
+        ),
+        "promotion_allowed": False,
+        "evidence_level": "strategy_memory_observation",
+    }
+
+
+def test_specialist_strategy_memory_advances_after_safe_cross_run_counterfactual_window():
+    def diagnostic(index: int) -> dict:
+        return {
+            "synthesis": {"status": "blocked"},
+            "weight_trust": {"status": "blocked"},
+            "candidate_space": {
+                "status": "diverse",
+                "round_best_path_status": "stale",
+            },
+            "decision_surface": {
+                "status": "objective_tiebreak_tradeoff",
+                "objective_component_control": {"status": "measured"},
+                "objective_component_counterfactual": {
+                    "status": "measured",
+                    "component": "tail_risk_penalty",
+                    "production_top_config_hash": "production",
+                    "counterfactual_top_config_hash": f"counterfactual-{index}",
+                    "counterfactual_top_changed": True,
+                    "selection_changed": False,
+                    "selection_scope": "search_slice_only",
+                    "selection_uses_frozen_validation": False,
+                },
+            },
+            "signal_vs_noise": {"status": "noise_risk"},
+        }
+
+    current = diagnostic(8)
+    memory = build_specialist_strategy_memory(
+        current_diagnostic=current,
+        recent_diagnostics=[diagnostic(index) for index in range(1, 8)],
+        round_index=1,
+    )
+
+    observation = memory["state"]["objective_component_counterfactual_observation_window"]
+    assert observation["status"] == "mature"
+    assert observation["measured_round_count"] == 8
+    assert observation["counterfactual_top_changed_count"] == 8
+    assert observation["guard_violation_count"] == 0
+    assert "decision_surface_stale_champion" not in memory["failure_hypotheses"]
+    assert "tail_risk_counterfactual_needs_stability" not in memory["failure_hypotheses"]
+    assert memory["selected_experiment"] == {
+        "key": "null_model_forward_audit",
+        "action": "hold_promotion_until_forward_or_frozen_lift",
+        "rationale": "Historical lift is not stable enough against null and forward evidence.",
+        "promotion_allowed": False,
+        "evidence_level": "strategy_memory_observation",
+    }
+
+
+def test_specialist_strategy_memory_blocks_counterfactual_guard_violation():
+    current = {
+        "synthesis": {"status": "blocked"},
+        "weight_trust": {"status": "blocked"},
+        "candidate_space": {
+            "status": "diverse",
+            "round_best_path_status": "stale",
+        },
+        "decision_surface": {
+            "status": "objective_tiebreak_tradeoff",
+            "objective_component_control": {"status": "measured"},
+            "objective_component_counterfactual": {
+                "status": "measured",
+                "component": "tail_risk_penalty",
+                "selection_changed": True,
+                "selection_scope": "search_slice_only",
+                "selection_uses_frozen_validation": False,
+            },
+        },
+        "signal_vs_noise": {"status": "noise_risk"},
+    }
+
+    memory = build_specialist_strategy_memory(
+        current_diagnostic=current,
+        recent_diagnostics=[],
+        round_index=1,
+    )
+
+    observation = memory["state"]["objective_component_counterfactual_observation_window"]
+    assert observation["status"] == "guard_violation"
+    assert observation["selection_changed_count"] == 1
+    assert memory["selected_experiment"] == {
+        "key": "tail_risk_counterfactual_guard_audit",
+        "action": "freeze_counterfactual_progress_and_repair_guard",
+        "rationale": (
+            "A persisted tail-risk counterfactual observation changed selection, used frozen data, "
+            "used the wrong scope, or measured a different component."
         ),
         "promotion_allowed": False,
         "evidence_level": "strategy_memory_observation",
