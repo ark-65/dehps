@@ -389,10 +389,18 @@ def build_specialist_strategy_memory(
     synthesis_counts = _count_statuses(windowed, ("synthesis", "status"))
     weight_counts = _count_statuses(windowed, ("weight_trust", "status"))
     space_counts = _count_statuses(windowed, ("candidate_space", "status"))
+    decision_surface_counts = _count_statuses(
+        windowed,
+        ("candidate_space", "round_best_path_status"),
+    )
     signal_counts = _count_statuses(windowed, ("signal_vs_noise", "status"))
     current_synthesis = _status_from_diagnostic(current, ("synthesis", "status"))
     current_weight = _status_from_diagnostic(current, ("weight_trust", "status"))
     current_space = _status_from_diagnostic(current, ("candidate_space", "status"))
+    current_decision_surface = _status_from_diagnostic(
+        current,
+        ("candidate_space", "round_best_path_status"),
+    )
     current_signal = _status_from_diagnostic(current, ("signal_vs_noise", "status"))
     near_summary = _near_dynamic_summary(near_dynamic_training)
 
@@ -401,6 +409,14 @@ def build_specialist_strategy_memory(
         unresolved.append("weight_trust_not_stable")
     if current_space in {"collapsed", "narrow"} or space_counts.get("collapsed", 0) + space_counts.get("narrow", 0) >= 2:
         unresolved.append("candidate_space_needs_reframe")
+    if (
+        current_space == "diverse"
+        and (
+            current_decision_surface == "stale"
+            or decision_surface_counts.get("stale", 0) >= 2
+        )
+    ):
+        unresolved.append("decision_surface_stale_champion")
     if current_signal == "noise_risk" or signal_counts.get("noise_risk", 0) >= 2:
         unresolved.append("signal_may_be_noise")
     if (
@@ -414,6 +430,12 @@ def build_specialist_strategy_memory(
         experiment_key = "candidate_space_reframe_audit"
         experiment_action = "increase_diversity_pressure_before_trusting_round_best"
         rationale = "Candidate-space geometry is narrow or collapsed across the diagnostic window."
+    elif "decision_surface_stale_champion" in unresolved:
+        experiment_key = "decision_surface_dominance_audit"
+        experiment_action = "audit_objective_dominance_before_expanding_candidate_space"
+        rationale = (
+            "Current Top candidates have distinct rank vectors, but the same champion path remains dominant."
+        )
     elif "signal_may_be_noise" in unresolved:
         experiment_key = "null_model_forward_audit"
         experiment_action = "hold_promotion_until_forward_or_frozen_lift"
@@ -456,10 +478,12 @@ def build_specialist_strategy_memory(
             "current_synthesis": current_synthesis,
             "current_weight": current_weight,
             "current_candidate_space": current_space,
+            "current_decision_surface": current_decision_surface,
             "current_signal": current_signal,
             "synthesis_counts": synthesis_counts,
             "weight_counts": weight_counts,
             "candidate_space_counts": space_counts,
+            "decision_surface_counts": decision_surface_counts,
             "signal_counts": signal_counts,
             "near_dynamic": near_summary,
             "dynamic_training_status": (dynamic_training or {}).get("latest", {}).get("status")
@@ -479,5 +503,6 @@ def build_specialist_strategy_memory(
             "compare against null/default baselines before treating lift as signal",
             "require frozen or forward evidence before promotion",
             "check candidate diversity before trusting a narrowed candidate family",
+            "separate diverse current candidates from a stale round-best decision surface",
         ],
     }

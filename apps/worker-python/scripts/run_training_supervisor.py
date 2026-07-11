@@ -1550,9 +1550,6 @@ def training_candidate_space_diagnostic(
     unique_top_signatures = sorted(set(top_signatures))
     reasons: list[str] = []
     status_value = "diverse"
-    if bool(rank_homogeneity.get("active")):
-        status_value = "collapsed"
-        reasons.append("rank_homogeneity_guardrail_active")
     if len(summaries) >= 5 and len(unique_top_signatures) <= 2:
         status_value = "collapsed"
         reasons.append("top_results_share_too_few_rank_signatures")
@@ -1562,6 +1559,12 @@ def training_candidate_space_diagnostic(
     if status_value == "diverse" and len(summaries) >= 5 and len(unique_top_signatures) <= 4:
         status_value = "narrow"
         reasons.append("top_results_are_rank-signature_narrow")
+    rank_homogeneity_active = bool(rank_homogeneity.get("active"))
+    if rank_homogeneity_active:
+        reasons.append(
+            "round_best_path_homogeneous_current_candidates_"
+            + ("collapsed" if status_value == "collapsed" else "still_diverse")
+        )
     if not reasons:
         reasons.append("configuration_space_has_no_collapse_flag")
     return {
@@ -1574,8 +1577,9 @@ def training_candidate_space_diagnostic(
         "top_limit": top_limit,
         "top_rank_signature_count": len(top_signatures),
         "unique_top_rank_signature_count": len(unique_top_signatures),
-        "rank_homogeneity_active": bool(rank_homogeneity.get("active")),
+        "rank_homogeneity_active": rank_homogeneity_active,
         "rank_homogeneity_unique_signature_count": rank_homogeneity.get("unique_signature_count"),
+        "round_best_path_status": "stale" if rank_homogeneity_active else "variable",
         "reasons": reasons,
     }
 

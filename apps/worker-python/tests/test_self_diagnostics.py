@@ -122,3 +122,33 @@ def test_specialist_strategy_memory_selects_near_dynamic_freeze_review():
 
     assert memory["selected_experiment"]["key"] == "near_dynamic_freeze_review"
     assert "near_dynamic_window_not_lifting" in memory["failure_hypotheses"]
+
+
+def test_specialist_strategy_memory_separates_stale_champion_from_candidate_collapse():
+    current = {
+        "synthesis": {"status": "blocked"},
+        "weight_trust": {"status": "blocked"},
+        "candidate_space": {
+            "status": "diverse",
+            "round_best_path_status": "stale",
+        },
+        "signal_vs_noise": {"status": "noise_risk"},
+    }
+
+    memory = build_specialist_strategy_memory(
+        current_diagnostic=current,
+        recent_diagnostics=[current],
+        round_index=8,
+    )
+
+    assert "candidate_space_needs_reframe" not in memory["failure_hypotheses"]
+    assert "decision_surface_stale_champion" in memory["failure_hypotheses"]
+    assert memory["state"]["current_candidate_space"] == "diverse"
+    assert memory["state"]["current_decision_surface"] == "stale"
+    assert memory["selected_experiment"] == {
+        "key": "decision_surface_dominance_audit",
+        "action": "audit_objective_dominance_before_expanding_candidate_space",
+        "rationale": "Current Top candidates have distinct rank vectors, but the same champion path remains dominant.",
+        "promotion_allowed": False,
+        "evidence_level": "strategy_memory_observation",
+    }

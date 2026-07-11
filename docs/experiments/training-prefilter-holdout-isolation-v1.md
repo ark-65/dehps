@@ -124,4 +124,4 @@ git diff --check: passed
 
 ## Next Verification
 
-Allow run `20260711-075003` to accumulate at least eight same-run clean rounds before making any source-budget claim. Re-establish candidate-source and repetition baselines only from rows with `prefilter_isolation_status=passed`. After that maturity boundary, resume the postponed output-distinguishability experiment as a separate single-variable round; do not compare its causal efficacy against contaminated historical source statistics.
+Run `20260711-075003` reached eight same-run clean rounds with every prefilter audit passed. Its source and repetition baseline is therefore mature. A follow-up rank-signature audit showed five distinct persisted Top signatures per round despite one repeated champion, so the next correction separates candidate-space diversity from decision-surface stagnation; see `docs/experiments/training-decision-surface-diagnostic-v1.md`. Do not compare causal efficacy against contaminated historical source statistics.

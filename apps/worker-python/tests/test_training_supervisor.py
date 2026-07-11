@@ -1109,6 +1109,32 @@ def test_training_round_self_diagnostics_blocks_collapsed_noise_round():
     assert diagnostics["weight_trust"]["status"] in {"blocked", "caution"}
 
 
+def test_training_candidate_space_diagnostic_separates_stale_champion_from_diverse_top_results():
+    configs = tuple(
+        FrequencyRankerConfig(frequency_weight=round(0.30 + index * 0.05, 2))
+        for index in range(5)
+    )
+    summaries = [
+        supervisor_summary_for_config(
+            config,
+            target_ranks=[100 + index, 1_000 + index * 10, 10_000 + index * 100],
+        )
+        for index, config in enumerate(configs)
+    ]
+
+    diagnostic = supervisor.training_candidate_space_diagnostic(
+        source_configs={"normal": configs},
+        refined_configs=configs,
+        summaries=summaries,
+        rank_homogeneity={"active": True, "unique_signature_count": 1},
+    )
+
+    assert diagnostic["status"] == "diverse"
+    assert diagnostic["unique_top_rank_signature_count"] == 5
+    assert diagnostic["round_best_path_status"] == "stale"
+    assert "round_best_path_homogeneous_current_candidates_still_diverse" in diagnostic["reasons"]
+
+
 def test_recent_round_self_diagnostics_reads_compact_round_memory():
     diagnostic = {"synthesis": {"status": "caution"}}
     rounds = [
