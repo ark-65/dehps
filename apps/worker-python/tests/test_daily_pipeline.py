@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -17,6 +18,38 @@ def test_daily_pipeline_direct_script_help_starts_without_import_error():
 
     assert result.returncode == 0, result.stderr
     assert "--skip-weight-kdj-signals" in result.stdout
+
+
+def test_daily_pipeline_direct_script_resolves_sibling_import(tmp_path):
+    worker_root = Path(__file__).resolve().parents[1]
+    (tmp_path / "dehps").symlink_to(worker_root / "dehps", target_is_directory=True)
+    runner = """
+import os
+import runpy
+import sys
+from pathlib import Path
+
+root = Path(os.environ["DEHPS_TEST_WORKER_ROOT"]).resolve()
+sys.path = [path for path in sys.path if Path(path or ".").resolve() != root]
+sys.path[:0] = [str(root / "scripts"), os.environ["DEHPS_TEST_PACKAGE_ROOT"]]
+sys.argv = [str(root / "scripts/daily_pipeline.py"), "--help"]
+runpy.run_path(sys.argv[0], run_name="__main__")
+"""
+    env = os.environ.copy()
+    env["DEHPS_TEST_WORKER_ROOT"] = str(worker_root)
+    env["DEHPS_TEST_PACKAGE_ROOT"] = str(tmp_path)
+
+    result = subprocess.run(
+        [sys.executable, "-c", runner],
+        cwd=worker_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "usage: daily_pipeline.py" in result.stdout
 
 
 def test_daily_pipeline_no_new_data_finishes(monkeypatch, tmp_path):
