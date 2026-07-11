@@ -15,6 +15,7 @@ from dehps.storage.postgres_store import ensure_training_weight_signals_schema
 from dehps.storage.postgres_store import load_training_supervisor_best_candidate_summaries
 from dehps.storage.postgres_store import load_history_until_with_dates
 from dehps.storage.postgres_store import load_ssq_history_column_names
+from dehps.storage.postgres_store import load_training_sequential_null_ledger
 from dehps.storage.postgres_store import load_recent_training_weight_signals
 from dehps.storage.postgres_store import load_training_target_weight_inversion_context
 from dehps.storage.postgres_store import load_training_weight_signal_coverage
@@ -118,6 +119,54 @@ def test_load_ssq_history_column_names_preserves_catalog_order():
     assert "table_name = 'ssq_history'" in sql
     assert params is None
     assert columns == ("id", "issue", "sales_amount")
+
+
+def test_load_training_sequential_null_ledger_counts_observed_and_legacy_rounds():
+    conn = FakeCursorConn(
+        [
+            {
+                "total_round_count": 306,
+                "source_run_count": 33,
+                "observed_diagnostic_round_count": 12,
+                "observed_candidate_hypothesis_count": 217,
+            }
+        ]
+    )
+
+    ledger = load_training_sequential_null_ledger(
+        conn,
+        as_of_issue="2026078",
+        history_fingerprint="history-1",
+        train_window=900,
+        train_mode="expanding",
+        eval_window=100,
+        top_n=10000,
+        current_run_id="run-current",
+    )
+
+    sql, params = conn.executed[-1]
+    assert "FROM training_round_results" in sql
+    assert "run_id <> %s" in sql
+    assert "dehps-self-diagnostics-v1" in sql
+    assert params == (
+        "2026078",
+        "history-1",
+        900,
+        "expanding",
+        100,
+        10000,
+        "run-current",
+    )
+    assert ledger["total_round_count"] == 306
+    assert ledger["observed_diagnostic_round_count"] == 12
+    assert ledger["legacy_uncounted_round_count"] == 294
+    assert ledger["observed_candidate_hypothesis_count"] == 217
+    assert ledger["observed_familywise_hypothesis_count"] == 651
+    assert ledger["observed_round_family_complete"] is False
+    assert ledger["adaptive_hypothesis_generation_counted"] is False
+    assert ledger["sequential_search_multiplicity_counted"] is False
+    assert ledger["selection_changed"] is False
+    assert ledger["promotion_allowed"] is False
 
 
 def test_default_ssq_draw_site_is_sourced_approximate_wgs84_coordinate():

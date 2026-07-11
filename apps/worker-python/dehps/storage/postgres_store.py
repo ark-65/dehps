@@ -1515,6 +1515,94 @@ def load_training_round_navigation_records(
     return [dict(row) for row in rows]
 
 
+def load_training_sequential_null_ledger(
+    conn: Connection,
+    *,
+    as_of_issue: str,
+    history_fingerprint: str,
+    train_window: int,
+    train_mode: str,
+    eval_window: int,
+    top_n: int,
+    current_run_id: str,
+    tested_band_count: int = 3,
+) -> dict[str, Any]:
+    with conn.cursor(row_factory=dict_row) as cur:
+        row = cur.execute(
+            """
+            WITH surface_rounds AS (
+              SELECT
+                run_id,
+                prefilter #>> '{self_diagnostics,protocol}' AS diagnostic_protocol,
+                prefilter #>> '{self_diagnostics,signal_vs_noise,candidate_hypothesis_count}'
+                  AS raw_candidate_hypothesis_count
+              FROM training_round_results
+              WHERE as_of_issue = %s
+                AND history_fingerprint = %s
+                AND train_window = %s
+                AND train_mode = %s
+                AND eval_window = %s
+                AND top_n = %s
+                AND run_id <> %s
+            ), normalized AS (
+              SELECT
+                run_id,
+                CASE
+                  WHEN diagnostic_protocol = 'dehps-self-diagnostics-v1'
+                    AND raw_candidate_hypothesis_count ~ '^[1-9][0-9]*$'
+                  THEN raw_candidate_hypothesis_count::BIGINT
+                  ELSE NULL
+                END AS candidate_hypothesis_count
+              FROM surface_rounds
+            )
+            SELECT
+              count(*)::BIGINT AS total_round_count,
+              count(DISTINCT run_id)::BIGINT AS source_run_count,
+              count(candidate_hypothesis_count)::BIGINT AS observed_diagnostic_round_count,
+              coalesce(sum(candidate_hypothesis_count), 0)::BIGINT
+                AS observed_candidate_hypothesis_count
+            FROM normalized
+            """,
+            (
+                as_of_issue,
+                history_fingerprint,
+                train_window,
+                train_mode,
+                eval_window,
+                top_n,
+                current_run_id,
+            ),
+        ).fetchone()
+    payload = dict(row or {})
+    total_round_count = int(payload.get("total_round_count") or 0)
+    diagnostic_round_count = int(payload.get("observed_diagnostic_round_count") or 0)
+    candidate_count = int(payload.get("observed_candidate_hypothesis_count") or 0)
+    safe_band_count = max(1, int(tested_band_count))
+    legacy_round_count = max(0, total_round_count - diagnostic_round_count)
+    return {
+        "protocol": "dehps-sequential-null-ledger-v1",
+        "mode": "same_history_durable_round_observed_family",
+        "total_round_count": total_round_count,
+        "source_run_count": int(payload.get("source_run_count") or 0),
+        "observed_diagnostic_round_count": diagnostic_round_count,
+        "legacy_uncounted_round_count": legacy_round_count,
+        "observed_candidate_hypothesis_count": candidate_count,
+        "tested_band_count": safe_band_count,
+        "observed_familywise_hypothesis_count": candidate_count * safe_band_count,
+        "observed_round_family_complete": legacy_round_count == 0,
+        "adaptive_hypothesis_generation_counted": False,
+        "sequential_search_multiplicity_counted": False,
+        "current_run_excluded": current_run_id,
+        "selection_changed": False,
+        "promotion_allowed": False,
+        "interpretation": (
+            "Counts the exact candidate-by-band family exposed by persisted same-history diagnostics. "
+            "Legacy rounds and adaptive hypothesis generation remain uncounted, so this is a "
+            "conservative observed-family lower bound, not a complete sequential correction."
+        ),
+    }
+
+
 def load_training_round_carryover_candidate_summaries(
     conn: Connection,
     *,

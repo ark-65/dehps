@@ -1108,6 +1108,9 @@ def test_training_round_self_diagnostics_blocks_collapsed_noise_round():
     assert diagnostics["signal_vs_noise"]["status"] == "noise_risk"
     assert diagnostics["signal_vs_noise"]["candidate_hypothesis_count"] == 1
     assert diagnostics["signal_vs_noise"]["minimum_familywise_hypothesis_count"] == 3
+    assert diagnostics["signal_vs_noise"]["sequential_observed_familywise_hypothesis_count"] == 3
+    assert diagnostics["signal_vs_noise"]["sequential_family"]["total_round_count"] == 1
+    assert diagnostics["signal_vs_noise"]["sequential_family"]["promotion_allowed"] is False
     assert diagnostics["weight_trust"]["status"] in {"blocked", "caution"}
 
 
@@ -4545,6 +4548,56 @@ def test_compact_status_payload_includes_strategy_memory_continuity():
     payload = compact_status_payload({"strategy_memory_continuity": continuity})
 
     assert payload["strategy_memory_continuity"] == continuity
+
+
+def test_compact_status_payload_includes_sequential_null_ledger():
+    ledger = {
+        "protocol": "dehps-sequential-null-ledger-v1",
+        "total_round_count": 307,
+        "observed_diagnostic_round_count": 13,
+        "legacy_uncounted_round_count": 294,
+        "observed_candidate_hypothesis_count": 233,
+        "observed_familywise_hypothesis_count": 699,
+        "sequential_search_multiplicity_counted": False,
+    }
+
+    payload = compact_status_payload({"sequential_null_ledger": ledger})
+
+    assert payload["sequential_null_ledger"] == ledger
+
+
+def test_self_diagnostics_report_exposes_sequential_null_lower_bound():
+    section = supervisor.self_diagnostics_report_section(
+        {
+            "self_diagnostics": {
+                "synthesis": {"status": "noise_risk", "action": "require_forward"},
+                "weight_trust": {"status": "caution", "score": 0.5, "action": "observe"},
+                "candidate_space": {
+                    "status": "diverse",
+                    "active_refined_source_count": 5,
+                    "unique_top_rank_signature_count": 10,
+                },
+                "signal_vs_noise": {
+                    "status": "noise_risk",
+                    "eval_window": 80,
+                    "overfit_guard_active": True,
+                    "sequential_family": {
+                        "observed_diagnostic_round_count": 13,
+                        "total_round_count": 307,
+                        "observed_candidate_hypothesis_count": 233,
+                        "observed_familywise_hypothesis_count": 699,
+                        "legacy_uncounted_round_count": 294,
+                        "adaptive_hypothesis_generation_counted": False,
+                    },
+                },
+            }
+        }
+    )
+
+    assert "observed rounds `13/307`" in section
+    assert "candidate tests `233`" in section
+    assert "family `699`" in section
+    assert "legacy uncounted `294`" in section
 
 
 def test_compact_status_payload_includes_prediction_input_boundary():

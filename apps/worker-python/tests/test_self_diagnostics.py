@@ -4,6 +4,7 @@ from dehps.optimization.self_diagnostics import (
     build_specialist_strategy_memory,
     build_prediction_self_diagnostics,
     candidate_space_diagnostic,
+    extend_sequential_null_ledger,
     signal_vs_noise_diagnostic,
     weight_trust_diagnostic,
 )
@@ -82,6 +83,73 @@ def test_signal_vs_noise_uses_minimum_familywise_adjustment_for_candidate_select
         for band in selected_from_two["bands"]
     )
     assert "historical_lift_not_strong_against_minimum_familywise_null" in selected_from_two["reasons"]
+
+
+def test_sequential_null_ledger_extends_persisted_and_current_round_counts():
+    prior = {
+        "total_round_count": 306,
+        "observed_diagnostic_round_count": 12,
+        "legacy_uncounted_round_count": 294,
+        "observed_candidate_hypothesis_count": 217,
+    }
+    completed = [
+        {"signal_vs_noise": {"candidate_hypothesis_count": 16}},
+        {"signal_vs_noise": {"candidate_hypothesis_count": 19}},
+    ]
+
+    ledger = extend_sequential_null_ledger(
+        prior,
+        completed_round_diagnostics=completed,
+        completed_round_count=2,
+        current_candidate_hypothesis_count=21,
+    )
+
+    assert ledger["total_round_count"] == 309
+    assert ledger["observed_diagnostic_round_count"] == 15
+    assert ledger["legacy_uncounted_round_count"] == 294
+    assert ledger["observed_candidate_hypothesis_count"] == 273
+    assert ledger["observed_familywise_hypothesis_count"] == 819
+    assert ledger["observed_round_family_complete"] is False
+    assert ledger["adaptive_hypothesis_generation_counted"] is False
+    assert ledger["sequential_search_multiplicity_counted"] is False
+    assert ledger["selection_changed"] is False
+    assert ledger["promotion_allowed"] is False
+
+
+def test_signal_vs_noise_uses_observed_sequential_family_as_incomplete_lower_bound():
+    ledger = extend_sequential_null_ledger(
+        {
+            "total_round_count": 306,
+            "observed_diagnostic_round_count": 12,
+            "legacy_uncounted_round_count": 294,
+            "observed_candidate_hypothesis_count": 217,
+        },
+        completed_round_diagnostics=[],
+        completed_round_count=0,
+        current_candidate_hypothesis_count=16,
+    )
+
+    diagnostic = signal_vs_noise_diagnostic(
+        {
+            "eval_window": 80,
+            "top_100_hits": 3,
+            "top_1000_hits": 3,
+            "top_10000_hits": 3,
+        },
+        legal_sample_space=1_105_506,
+        candidate_hypothesis_count=16,
+        sequential_family=ledger,
+    )
+
+    strongest = diagnostic["strongest_band"]
+    assert diagnostic["status"] == "noise_risk"
+    assert diagnostic["minimum_familywise_hypothesis_count"] == 48
+    assert diagnostic["sequential_observed_familywise_hypothesis_count"] == 699
+    assert strongest["bonferroni_adjusted_p_value"] < 0.01
+    assert strongest["sequential_observed_bonferroni_adjusted_p_value"] < 0.01
+    assert "sequential_family_incomplete_for_candidate_signal" in diagnostic["reasons"]
+    assert "legacy_sequential_rounds_unaccounted" in diagnostic["reasons"]
+    assert "adaptive_hypothesis_generation_not_counted" in diagnostic["reasons"]
 
 
 def test_prediction_self_diagnostics_synthesizes_weakest_status():

@@ -214,6 +214,75 @@ def weight_trust_diagnostic(
     }
 
 
+def extend_sequential_null_ledger(
+    prior_ledger: dict[str, Any] | None,
+    *,
+    completed_round_diagnostics: list[dict[str, Any]],
+    completed_round_count: int,
+    current_candidate_hypothesis_count: int,
+    tested_band_count: int = 3,
+) -> dict[str, Any]:
+    prior = prior_ledger if isinstance(prior_ledger, dict) else {}
+    observed_completed_candidate_count = 0
+    observed_completed_round_count = 0
+    for diagnostic in completed_round_diagnostics:
+        signal = diagnostic.get("signal_vs_noise") if isinstance(diagnostic.get("signal_vs_noise"), dict) else {}
+        candidate_count = _safe_int(signal.get("candidate_hypothesis_count"))
+        if candidate_count > 0:
+            observed_completed_candidate_count += candidate_count
+            observed_completed_round_count += 1
+
+    safe_completed_round_count = max(0, _safe_int(completed_round_count))
+    current_candidate_count = max(1, _safe_int(current_candidate_hypothesis_count, 1))
+    safe_band_count = max(1, _safe_int(tested_band_count, 3))
+    prior_total_round_count = max(0, _safe_int(prior.get("total_round_count")))
+    prior_diagnostic_round_count = max(
+        0,
+        _safe_int(prior.get("observed_diagnostic_round_count")),
+    )
+    prior_legacy_round_count = max(
+        0,
+        _safe_int(prior.get("legacy_uncounted_round_count")),
+    )
+    prior_candidate_count = max(
+        0,
+        _safe_int(prior.get("observed_candidate_hypothesis_count")),
+    )
+    current_missing_diagnostic_count = max(
+        0,
+        safe_completed_round_count - observed_completed_round_count,
+    )
+    total_round_count = prior_total_round_count + safe_completed_round_count + 1
+    diagnostic_round_count = (
+        prior_diagnostic_round_count + observed_completed_round_count + 1
+    )
+    legacy_round_count = prior_legacy_round_count + current_missing_diagnostic_count
+    candidate_count = (
+        prior_candidate_count
+        + observed_completed_candidate_count
+        + current_candidate_count
+    )
+    return {
+        "protocol": "dehps-sequential-null-ledger-v1",
+        "mode": "same_history_durable_round_observed_family",
+        "total_round_count": total_round_count,
+        "observed_diagnostic_round_count": diagnostic_round_count,
+        "legacy_uncounted_round_count": legacy_round_count,
+        "observed_candidate_hypothesis_count": candidate_count,
+        "tested_band_count": safe_band_count,
+        "observed_familywise_hypothesis_count": candidate_count * safe_band_count,
+        "observed_round_family_complete": legacy_round_count == 0,
+        "adaptive_hypothesis_generation_counted": False,
+        "sequential_search_multiplicity_counted": False,
+        "selection_changed": False,
+        "promotion_allowed": False,
+        "interpretation": (
+            "Observed durable-round candidate-by-band lower bound only; legacy rounds and "
+            "data-adaptive hypothesis generation remain outside the counted family."
+        ),
+    }
+
+
 def signal_vs_noise_diagnostic(
     summary: dict[str, Any] | None,
     *,
@@ -222,6 +291,7 @@ def signal_vs_noise_diagnostic(
     forward_evaluations: list[dict[str, Any]] | None = None,
     overfit_guard_active: bool = False,
     candidate_hypothesis_count: int = 1,
+    sequential_family: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     summary = summary if isinstance(summary, dict) else {}
     trials = _safe_int(summary.get("eval_window") or summary.get("evaluated_draws"))
@@ -229,6 +299,15 @@ def signal_vs_noise_diagnostic(
     safe_candidate_hypothesis_count = max(1, _safe_int(candidate_hypothesis_count, 1))
     tested_cutoffs = (100, 1000, 10000)
     minimum_familywise_hypothesis_count = safe_candidate_hypothesis_count * len(tested_cutoffs)
+    sequential_family_supplied = isinstance(sequential_family, dict)
+    sequential_payload = dict(sequential_family or {})
+    sequential_familywise_hypothesis_count = max(
+        minimum_familywise_hypothesis_count,
+        _safe_int(
+            sequential_payload.get("observed_familywise_hypothesis_count"),
+            minimum_familywise_hypothesis_count,
+        ),
+    )
     bands = []
     for cutoff in tested_cutoffs:
         hits = _safe_int(summary.get(f"top_{cutoff}_hits"))
@@ -249,9 +328,22 @@ def signal_vs_noise_diagnostic(
                     min(1.0, p_value * minimum_familywise_hypothesis_count),
                     10,
                 ),
+                "sequential_observed_bonferroni_adjusted_p_value": round(
+                    min(1.0, p_value * sequential_familywise_hypothesis_count),
+                    10,
+                ),
             }
         )
-    strongest = min(bands, key=lambda item: item["bonferroni_adjusted_p_value"]) if bands else {}
+    strongest = (
+        min(
+            bands,
+            key=lambda item: item[
+                "sequential_observed_bonferroni_adjusted_p_value"
+            ],
+        )
+        if bands
+        else {}
+    )
 
     evaluated_forward = [
         row for row in (forward_evaluations or [])
@@ -263,6 +355,12 @@ def signal_vs_noise_diagnostic(
         "multiple_testing_bonferroni_minimum_family",
         "sequential_search_multiplicity_not_fully_counted",
     ]
+    if sequential_family_supplied:
+        reasons.append("observed_durable_round_family_bonferroni_lower_bound")
+        if _safe_int(sequential_payload.get("legacy_uncounted_round_count")) > 0:
+            reasons.append("legacy_sequential_rounds_unaccounted")
+        if not bool(sequential_payload.get("adaptive_hypothesis_generation_counted")):
+            reasons.append("adaptive_hypothesis_generation_not_counted")
     if trials <= 0:
         status = "blocked"
         reasons.append("missing_backtest_trials")
@@ -272,7 +370,14 @@ def signal_vs_noise_diagnostic(
     elif trials < min_eval_draws:
         status = "noise_risk"
         reasons.append("small_regression_window")
-    elif float(strongest.get("bonferroni_adjusted_p_value", 1.0)) <= 0.01:
+    elif sequential_family_supplied and not bool(
+        sequential_payload.get("sequential_search_multiplicity_counted")
+    ):
+        status = "noise_risk"
+        reasons.append("sequential_family_incomplete_for_candidate_signal")
+    elif float(
+        strongest.get("sequential_observed_bonferroni_adjusted_p_value", 1.0)
+    ) <= 0.01:
         status = "candidate_signal"
         reasons.append("historical_rank_lift_exceeds_minimum_familywise_null_threshold")
     else:
@@ -294,6 +399,13 @@ def signal_vs_noise_diagnostic(
         "familywise_alpha": 0.01,
         "per_test_alpha": round(0.01 / minimum_familywise_hypothesis_count, 10),
         "sequential_search_multiplicity_counted": False,
+        "sequential_family_method": "bonferroni_observed_durable_round_lower_bound",
+        "sequential_observed_familywise_hypothesis_count": sequential_familywise_hypothesis_count,
+        "sequential_observed_per_test_alpha": round(
+            0.01 / sequential_familywise_hypothesis_count,
+            10,
+        ),
+        "sequential_family": sequential_payload if sequential_family_supplied else None,
         "bands": bands,
         "strongest_band": strongest,
         "forward_evaluated_count": len(evaluated_forward),
