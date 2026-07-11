@@ -628,10 +628,113 @@ def test_candidate_source_survival_opens_budget_review_only_after_eight_same_run
     assert summary["budget_review_ready"] is True
     assert summary["budget_review_action"] == "review_persistently_unproductive_source_budgets"
     assert summary["budget_review_sources"] == ["recency_canary", "weight_kdj"]
+    assert summary["budget_experiment_candidate_ready"] is True
+    assert summary["automatic_budget_change_allowed"] is False
+    assert summary["history_surface_signature_count"] == 1
+    assert summary["performance_signature_count"] == 1
+    assert summary["same_history_performance_repetition"] is True
+    assert "same_history_performance_repetition" in summary["budget_review_limitations"]
 
     markdown = render_candidate_source_survival_markdown(summary)
     assert "observed=8/8 ready=True" in markdown
     assert "review_persistently_unproductive_source_budgets" in markdown
+    assert "automatic_change=False" in markdown
+
+
+def test_candidate_source_survival_separates_conversion_variety_from_repeated_performance():
+    rows = []
+    for index, selected in ((1, 0), (2, 2), (3, 1)):
+        row = source_survival_round(
+            index,
+            {
+                "normal": {
+                    "generated": 7,
+                    "prefilter_selected": 6,
+                    "full_eval_top5": 3,
+                    "round_best": True,
+                },
+                "weight_kdj": {
+                    "generated": 7,
+                    "prefilter_selected": selected,
+                    "full_eval_top5": 0,
+                    "round_best": False,
+                },
+            },
+        )
+        row.update(
+            {
+                "best_config": {"frequency": 1.0},
+                "top_100_hits": 3,
+                "top_1000_hits": 3,
+                "top_10000_hits": 3,
+                "objective_score": 1.0,
+            }
+        )
+        rows.append(row)
+
+    summary = summarize_candidate_source_survival(
+        rows,
+        min_rounds=3,
+        min_generated=1,
+        budget_review_min_rounds=3,
+    )
+
+    assert summary["source_conversion_signature_count"] == 3
+    assert summary["history_surface_signature_count"] == 1
+    assert summary["performance_signature_count"] == 1
+    assert summary["evidence_geometry"] == "distinct_source_conversion_same_performance"
+    assert summary["budget_experiment_candidate_ready"] is True
+    assert summary["automatic_budget_change_allowed"] is False
+
+    operator = operator_summary(
+        {
+            "recommendation": {"severity": "warn", "action": "await_new_forward_issue"},
+            "candidate_source_survival": summary,
+        }
+    )
+    candidate = operator["candidate_source_survival"]
+    assert candidate["source_conversion_signature_count"] == 3
+    assert candidate["history_surface_signature_count"] == 1
+    assert candidate["performance_signature_count"] == 1
+    assert candidate["automatic_budget_change_allowed"] is False
+
+
+def test_candidate_source_survival_does_not_call_different_histories_same_surface():
+    rows = []
+    for index, issue in enumerate(("2026077", "2026078", "2026079"), start=1):
+        row = source_survival_round(
+            index,
+            {
+                "weight_kdj": {
+                    "generated": 7,
+                    "prefilter_selected": 1,
+                    "full_eval_top5": 0,
+                    "round_best": False,
+                }
+            },
+        )
+        row.update(
+            {
+                "as_of_issue": issue,
+                "history_fingerprint": f"history-{issue}",
+                "best_config": {"frequency": 1.0},
+                "top_100_hits": 0,
+                "objective_score": 0.0,
+            }
+        )
+        rows.append(row)
+
+    summary = summarize_candidate_source_survival(
+        rows,
+        min_rounds=3,
+        min_generated=1,
+        budget_review_min_rounds=3,
+    )
+
+    assert summary["history_surface_signature_count"] == 3
+    assert summary["performance_signature_count"] == 3
+    assert summary["same_history_performance_repetition"] is False
+    assert "same_history_performance_repetition" not in summary["budget_review_limitations"]
 
 
 def test_candidate_source_survival_preserves_guarded_recovery_source_budget():

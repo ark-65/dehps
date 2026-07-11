@@ -373,6 +373,9 @@ def summarize_candidate_source_survival(
     required_generated = max(1, int(min_generated))
     budget_review_required_rounds = max(required_rounds, int(budget_review_min_rounds))
     aggregates: dict[str, dict[str, int]] = {}
+    source_conversion_signatures: list[str] = []
+    performance_signatures: list[str] = []
+    history_surface_signatures: list[str] = []
 
     def aggregate_for_source(source: str) -> dict[str, int]:
         return aggregates.setdefault(
@@ -462,6 +465,47 @@ def summarize_candidate_source_survival(
         )
         if not source_survival:
             continue
+        source_signature = canonical_round_signature(
+            {
+                str(source): {
+                    "generated": max(0, safe_int(raw.get("generated")) or 0),
+                    "prefilter_selected": max(
+                        0,
+                        safe_int(raw.get("prefilter_selected")) or 0,
+                    ),
+                    "full_eval_top5": max(
+                        0,
+                        safe_int(raw.get("full_eval_top5")) or 0,
+                    ),
+                    "round_best": bool(raw.get("round_best")),
+                }
+                for source, raw in sorted(source_survival.items())
+                if isinstance(raw, dict)
+            }
+        )
+        performance_signature = canonical_round_signature(
+            {
+                "history_fingerprint": row.get("history_fingerprint"),
+                "as_of_issue": row.get("as_of_issue"),
+                "best_config": row.get("best_config"),
+                "metrics": {
+                    field: row.get(field)
+                    for field in ROUND_REPETITION_METRIC_FIELDS
+                },
+            }
+        )
+        history_surface_signature = canonical_round_signature(
+            {
+                "history_fingerprint": row.get("history_fingerprint"),
+                "as_of_issue": row.get("as_of_issue"),
+            }
+        )
+        if source_signature:
+            source_conversion_signatures.append(source_signature)
+        if performance_signature:
+            performance_signatures.append(performance_signature)
+        if history_surface_signature:
+            history_surface_signatures.append(history_surface_signature)
         observed_rounds += 1
         for source, raw in source_survival.items():
             if not isinstance(raw, dict):
@@ -610,6 +654,31 @@ def summarize_candidate_source_survival(
         if budget_review_ready
         else []
     )
+    source_conversion_signature_count = len(set(source_conversion_signatures))
+    performance_signature_count = len(set(performance_signatures))
+    history_surface_signature_count = len(set(history_surface_signatures))
+    same_history_performance_repetition = bool(
+        observed_rounds >= 3
+        and history_surface_signature_count == 1
+        and performance_signature_count == 1
+    )
+    if observed_rounds == 0:
+        evidence_geometry = "not_available"
+    elif performance_signature_count == 1 and source_conversion_signature_count == 1:
+        evidence_geometry = "fully_repeated"
+    elif performance_signature_count == 1 and source_conversion_signature_count > 1:
+        evidence_geometry = "distinct_source_conversion_same_performance"
+    else:
+        evidence_geometry = "diversified_performance_and_conversion"
+    budget_review_limitations = [
+        "operational_conversion_not_predictive_evidence",
+        "source_memberships_may_overlap",
+    ]
+    if same_history_performance_repetition:
+        budget_review_limitations.insert(0, "same_history_performance_repetition")
+    budget_experiment_candidate_ready = bool(
+        budget_review_ready and budget_review_sources
+    )
     if not budget_review_ready:
         budget_review_action = "observe_until_budget_review_window"
     elif budget_review_sources:
@@ -647,6 +716,14 @@ def summarize_candidate_source_survival(
         "budget_review_ready": budget_review_ready,
         "budget_review_action": budget_review_action,
         "budget_review_sources": budget_review_sources,
+        "budget_experiment_candidate_ready": budget_experiment_candidate_ready,
+        "automatic_budget_change_allowed": False,
+        "source_conversion_signature_count": source_conversion_signature_count,
+        "performance_signature_count": performance_signature_count,
+        "history_surface_signature_count": history_surface_signature_count,
+        "same_history_performance_repetition": same_history_performance_repetition,
+        "evidence_geometry": evidence_geometry,
+        "budget_review_limitations": budget_review_limitations,
         "active_sources": active_sources,
         "productive_sources": productive_sources,
         "recovery_productive_sources": recovery_productive_sources,
@@ -661,7 +738,9 @@ def summarize_candidate_source_survival(
             "Selected promotion-only search navigation is operational search-path evidence, not predictive lift. "
             "Under promotion-only holdout isolation, frozen-frontier rows remain diagnostic and do not change "
             "source productivity or budget review. Recovery evidence is not predictive evidence and does not "
-            "bypass frozen validation or reserve promotion. Budget review requires the longer same-run window."
+            "bypass frozen validation or reserve promotion. Raw rounds are not independent performance evidence; "
+            "source-conversion and final-performance signatures expose that distinction. Budget review only names "
+            "a predeclared experiment candidate and never permits an automatic budget change or predictive claim."
             " Isolated-protocol rounds without a passed prefilter issue audit are excluded from all source evidence."
         ),
     }
@@ -3831,6 +3910,14 @@ def render_candidate_source_survival_markdown(summary: Any) -> str:
         f"ready={summary.get('budget_review_ready')} "
         f"action={markdown_inline_text(summary.get('budget_review_action'))} "
         f"sources={markdown_inline_text(compact_inline_list(summary.get('budget_review_sources')))}\n"
+        "- Budget evidence geometry: "
+        f"conversion_signatures={summary.get('source_conversion_signature_count')} "
+        f"history_signatures={summary.get('history_surface_signature_count')} "
+        f"performance_signatures={summary.get('performance_signature_count')} "
+        f"geometry={markdown_inline_text(summary.get('evidence_geometry'))} "
+        f"experiment_candidate={summary.get('budget_experiment_candidate_ready')} "
+        f"automatic_change={summary.get('automatic_budget_change_allowed')} "
+        f"limitations={markdown_inline_text(compact_inline_list(summary.get('budget_review_limitations')))}\n"
         "- Productive/recovery/starved/zero-Top5: "
         f"{markdown_inline_text(compact_inline_list(summary.get('productive_sources')))} / "
         f"{markdown_inline_text(compact_inline_list(summary.get('recovery_productive_sources')))} / "
@@ -4865,6 +4952,28 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "budget_review_action": candidate_source_survival.get("budget_review_action"),
             "budget_review_sources": candidate_source_survival.get(
                 "budget_review_sources"
+            ) or [],
+            "budget_experiment_candidate_ready": candidate_source_survival.get(
+                "budget_experiment_candidate_ready"
+            ),
+            "automatic_budget_change_allowed": candidate_source_survival.get(
+                "automatic_budget_change_allowed"
+            ),
+            "source_conversion_signature_count": candidate_source_survival.get(
+                "source_conversion_signature_count"
+            ),
+            "performance_signature_count": candidate_source_survival.get(
+                "performance_signature_count"
+            ),
+            "history_surface_signature_count": candidate_source_survival.get(
+                "history_surface_signature_count"
+            ),
+            "same_history_performance_repetition": candidate_source_survival.get(
+                "same_history_performance_repetition"
+            ),
+            "evidence_geometry": candidate_source_survival.get("evidence_geometry"),
+            "budget_review_limitations": candidate_source_survival.get(
+                "budget_review_limitations"
             ) or [],
             "productive_sources": candidate_source_survival.get("productive_sources") or [],
             "recovery_productive_sources": candidate_source_survival.get(
