@@ -397,6 +397,10 @@ def build_specialist_strategy_memory(
         windowed,
         ("decision_surface", "objective_component_control", "status"),
     )
+    objective_component_counterfactual_counts = _count_statuses(
+        windowed,
+        ("decision_surface", "objective_component_counterfactual", "status"),
+    )
     signal_counts = _count_statuses(windowed, ("signal_vs_noise", "status"))
     current_synthesis = _status_from_diagnostic(current, ("synthesis", "status"))
     current_weight = _status_from_diagnostic(current, ("weight_trust", "status"))
@@ -408,6 +412,10 @@ def build_specialist_strategy_memory(
     current_objective_component_control = _status_from_diagnostic(
         current,
         ("decision_surface", "objective_component_control", "status"),
+    )
+    current_objective_component_counterfactual = _status_from_diagnostic(
+        current,
+        ("decision_surface", "objective_component_counterfactual", "status"),
     )
     current_round_best_path = _status_from_diagnostic(
         current,
@@ -434,6 +442,11 @@ def build_specialist_strategy_memory(
         or decision_surface_counts.get("objective_tiebreak_tradeoff", 0) >= 2
     ):
         if (
+            current_objective_component_counterfactual == "measured"
+            or objective_component_counterfactual_counts.get("measured", 0) >= 2
+        ):
+            unresolved.append("tail_risk_counterfactual_needs_stability")
+        elif (
             current_objective_component_control == "measured"
             or objective_component_control_counts.get("measured", 0) >= 2
         ):
@@ -453,6 +466,13 @@ def build_specialist_strategy_memory(
         experiment_key = "candidate_space_reframe_audit"
         experiment_action = "increase_diversity_pressure_before_trusting_round_best"
         rationale = "Candidate-space geometry is narrow or collapsed across the diagnostic window."
+    elif "tail_risk_counterfactual_needs_stability" in unresolved:
+        experiment_key = "tail_risk_counterfactual_audit"
+        experiment_action = "observe_tail_risk_counterfactual_without_selection_change"
+        rationale = (
+            "The mature residual window predeclared a tail-risk-only counterfactual; observe whether "
+            "its local Top choice changes while production sorting and promotion remain unchanged."
+        )
     elif "objective_component_residuals_need_stability" in unresolved:
         experiment_key = "objective_component_residual_audit"
         experiment_action = "observe_component_residual_stability_without_sort_change"
@@ -517,6 +537,7 @@ def build_specialist_strategy_memory(
             "current_candidate_space": current_space,
             "current_decision_surface": current_decision_surface,
             "current_objective_component_control": current_objective_component_control,
+            "current_objective_component_counterfactual": current_objective_component_counterfactual,
             "current_round_best_path": current_round_best_path,
             "current_signal": current_signal,
             "synthesis_counts": synthesis_counts,
@@ -524,6 +545,7 @@ def build_specialist_strategy_memory(
             "candidate_space_counts": space_counts,
             "decision_surface_counts": decision_surface_counts,
             "objective_component_control_counts": objective_component_control_counts,
+            "objective_component_counterfactual_counts": objective_component_counterfactual_counts,
             "signal_counts": signal_counts,
             "near_dynamic": near_summary,
             "dynamic_training_status": (dynamic_training or {}).get("latest", {}).get("status")

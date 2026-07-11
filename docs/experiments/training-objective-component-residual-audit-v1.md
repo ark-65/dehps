@@ -106,3 +106,7 @@ The prior vague statement that the scalar objective was the tie-break is now an 
 ## Next Verification
 
 Accumulate at least eight same-run durable rounds with fixed budgets and unchanged objective. If reconstruction remains exact and one component remains dominant across candidate branches, predeclare one observation-only counterfactual control for that component. Do not feed the counterfactual ranking into search, promotion, or betting output until frozen or genuinely forward evidence exists.
+
+## Maturity Completion
+
+Run `20260711-103801` completed the predeclared eight-round window with 32/32 measured comparisons, zero missing or reconstruction mismatches, maximum residual `0.0`, and `tail_risk_penalty` as the largest absolute component in 26/32 comparisons. The resulting observation-only control is documented in [Training Tail-Risk Counterfactual Audit v1](training-tail-risk-counterfactual-audit-v1.md).
