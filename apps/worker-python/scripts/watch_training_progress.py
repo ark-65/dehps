@@ -1111,6 +1111,14 @@ def load_parser_sync_duplicate_checks() -> dict[str, Any]:
     invalid_combination_shape_count = safe_int(universe.get("invalid_combination_shape_count")) or 0
     duplicate_combination_count = max(0, combination_count - distinct_combination_count)
     latest_sync_status = latest_sync.get("status") if isinstance(latest_sync, dict) else None
+    latest_sync_conflict_count = (
+        safe_int(latest_sync.get("conflict_count"))
+        if isinstance(latest_sync, dict)
+        else None
+    )
+    recorded_data_conflict_count = (
+        safe_int(conflict_row.get("recorded_data_conflict_count")) or 0
+    )
 
     history_ok = (
         duplicate_issue_count == 0
@@ -1125,7 +1133,11 @@ def load_parser_sync_duplicate_checks() -> dict[str, Any]:
         and duplicate_combination_count == 0
         and invalid_combination_shape_count == 0
     )
-    latest_sync_ok = latest_sync_status not in {"failed", "error"}
+    latest_sync_ok = (
+        latest_sync_status not in {"failed", "error"}
+        and (latest_sync_conflict_count or 0) == 0
+    )
+    data_conflicts_ok = recorded_data_conflict_count == 0
     latest_sync_summary = (
         {
             "run_key": latest_sync.get("run_key"),
@@ -1146,7 +1158,7 @@ def load_parser_sync_duplicate_checks() -> dict[str, Any]:
 
     return {
         "status": "checked",
-        "ok": history_ok and universe_ok and latest_sync_ok,
+        "ok": history_ok and universe_ok and latest_sync_ok and data_conflicts_ok,
         "history_ok": history_ok,
         "history_draw_count": safe_int(history.get("draw_count")) or 0,
         "history_first_issue": history.get("first_issue"),
@@ -1166,10 +1178,9 @@ def load_parser_sync_duplicate_checks() -> dict[str, Any]:
         "red_combination_duplicate_count": duplicate_combination_count,
         "red_combination_invalid_shape_count": invalid_combination_shape_count,
         "latest_sync_ok": latest_sync_ok,
+        "data_conflicts_ok": data_conflicts_ok,
         "latest_sync": latest_sync_summary,
-        "recorded_data_conflict_count": (
-            safe_int(conflict_row.get("recorded_data_conflict_count")) or 0
-        ),
+        "recorded_data_conflict_count": recorded_data_conflict_count,
     }
 
 
@@ -3046,6 +3057,7 @@ def recommendation_summary(
     advisor_signal_freshness: dict[str, Any] | None = None,
     forward_evidence: dict[str, Any] | None = None,
     forward_wait: dict[str, Any] | None = None,
+    parser_sync_duplicate_checks: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not rows:
         return {
@@ -3077,6 +3089,27 @@ def recommendation_summary(
     else:
         severity = "warn"
         notes.append("Training heavy-job lock is not active; verify whether the supervisor stopped.")
+    parser_checks = (
+        parser_sync_duplicate_checks
+        if isinstance(parser_sync_duplicate_checks, dict)
+        else {}
+    )
+    if parser_checks and (
+        parser_checks.get("status") != "checked" or parser_checks.get("ok") is not True
+    ):
+        severity = "alert"
+        actions.append("inspect_parser_sync_conflicts")
+        latest_sync = (
+            parser_checks.get("latest_sync")
+            if isinstance(parser_checks.get("latest_sync"), dict)
+            else {}
+        )
+        notes.append(
+            "Parser/sync integrity is not safe for training release: "
+            f"status={parser_checks.get('status')} "
+            f"latest_sync_conflicts={latest_sync.get('conflict_count')} "
+            f"recorded_conflicts={parser_checks.get('recorded_data_conflict_count')}."
+        )
     progress_note = supervisor_progress_note(supervisor_status or {})
     if progress_note:
         notes.append(progress_note)
@@ -4083,6 +4116,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         advisor_signal_freshness=advisor_signal_freshness,
         forward_evidence=forward_evidence,
         forward_wait=forward_wait,
+        parser_sync_duplicate_checks=parser_sync_duplicate_checks,
     )
     if db_read_errors:
         actions = [

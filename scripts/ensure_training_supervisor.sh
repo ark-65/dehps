@@ -227,6 +227,37 @@ print(int(payload.get("inserted_count") or 0) + int(payload.get("updated_count")
 PY
 }
 
+sync_conflict_draw_count() {
+  local path="$1"
+  .venv/bin/python - "$path" <<'PY'
+import json
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as handle:
+        payload = json.load(handle)
+except Exception:
+    print("invalid")
+    raise SystemExit(0)
+value = payload.get("conflict_count") if isinstance(payload, dict) else None
+print(value if isinstance(value, int) and value >= 0 else "invalid")
+PY
+}
+
+recorded_data_conflict_count() {
+  .venv/bin/python - <<'PY'
+from dehps.db import get_connection
+
+with get_connection() as conn:
+    table = conn.execute("SELECT to_regclass('public.ssq_data_conflicts')").fetchone()
+    if not table or not table[0]:
+        print(0)
+    else:
+        row = conn.execute("SELECT count(*) FROM ssq_data_conflicts").fetchone()
+        print(int((row and row[0]) or 0))
+PY
+}
+
 evaluate_synced_predictions_if_needed() {
   local sync_output_file="$1"
   local previous_issue="$2"
@@ -413,6 +444,20 @@ else
 fi
 
 latest_issue="$(latest_db_issue)"
+sync_conflict_count="$(sync_conflict_draw_count "$sync_output_file")"
+recorded_conflict_count="$(recorded_data_conflict_count)"
+if [[ ! "$sync_conflict_count" =~ ^[0-9]+$ || ! "$recorded_conflict_count" =~ ^[0-9]+$ ]]; then
+  rm -f "$sync_output_file"
+  rm -f "$prediction_snapshot_file"
+  log "sync conflict audit invalid sync_conflict_count=$sync_conflict_count recorded_conflict_count=$recorded_conflict_count; watchdog stopping fail closed"
+  exit 1
+fi
+if (( sync_conflict_count > 0 || recorded_conflict_count > 0 )); then
+  rm -f "$sync_output_file"
+  rm -f "$prediction_snapshot_file"
+  log "sync conflict audit blocked release sync_conflict_count=$sync_conflict_count recorded_conflict_count=$recorded_conflict_count; refusing evaluation, advisor refresh, or supervisor start"
+  exit 1
+fi
 if ! evaluate_synced_predictions_if_needed "$sync_output_file" "$sync_from_issue" "$latest_issue" "$prediction_snapshot_file"; then
   rm -f "$sync_output_file"
   rm -f "$prediction_snapshot_file"

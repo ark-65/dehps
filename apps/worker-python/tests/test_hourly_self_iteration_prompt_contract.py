@@ -110,3 +110,18 @@ def test_hourly_self_iteration_prompt_requires_forward_release_fail_closed():
         "不能沿用可能基于 CSV 或旧开奖记录的接受结果",
     ):
         assert requirement in prompt
+
+
+def test_hourly_self_iteration_prompt_requires_sync_conflict_fail_closed():
+    prompt = (REPO_ROOT / "scripts/hourly_self_iterate.sh").read_text(encoding="utf-8")
+
+    for requirement in (
+        "最新 `conflict_count`",
+        "累计 `recorded_data_conflict_count`",
+        "冲突计数无法解析",
+        "前向评估、advisor 刷新和 supervisor 启动前 fail closed",
+        "inspect_parser_sync_conflicts",
+        "不得把 status=success 误当作号码一致",
+        "不得自动删除冲突证据",
+    ):
+        assert requirement in prompt
