@@ -56,3 +56,19 @@ def test_hourly_self_iteration_prompt_consumes_rejected_gpu_probe_evidence():
     assert "不是尚未尝试" in prompt
     assert "不得在内核、传输或组件构造瓶颈没有预声明变化时重复同一探针" in prompt
     assert "禁止自动启用训练或更改 selection/promotion" in prompt
+
+
+def test_hourly_self_iteration_prompt_distinguishes_heavy_job_owner_pids():
+    prompt = (REPO_ROOT / "scripts/hourly_self_iterate.sh").read_text(encoding="utf-8")
+
+    for required_field in (
+        "heavy_job_supervisor_relation",
+        "different_active_pid",
+        "different_inactive_pid",
+        "selection_changed",
+        "promotion_allowed",
+    ):
+        assert required_field in prompt
+    assert "以 PID 关系而不是 `owner` 字符串" in prompt
+    assert "不得覆盖锁元数据或启动竞争重任务" in prompt
+    assert "不得把它误报成当前 parked supervisor 的异常" in prompt

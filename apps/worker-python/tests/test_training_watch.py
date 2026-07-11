@@ -17,6 +17,7 @@ from scripts.watch_training_progress import (
     evidence_context_summary,
     forward_evidence_wait_summary,
     gate_summary,
+    heavy_job_supervisor_relation_summary,
     load_supervisor_status,
     observed_age_minutes,
     operator_summary,
@@ -4225,6 +4226,122 @@ def test_heavy_lock_summary_reports_unreadable_metadata_error(monkeypatch):
     assert summary["active"] is False
     assert summary["reason"] == "metadata_unreadable"
     assert summary["error"] == "Unable to read heavy-job metadata"
+
+
+def test_heavy_job_supervisor_relation_distinguishes_inactive_other_pid():
+    relation = heavy_job_supervisor_relation_summary(
+        supervisor_status={
+            "available": True,
+            "pid": 3579268,
+            "status": "waiting_for_forward_issue",
+        },
+        lock={
+            "active": False,
+            "owner": "training-supervisor",
+            "pid": 3647004,
+            "status": "interrupted",
+        },
+    )
+
+    assert relation == {
+        "protocol": "dehps-heavy-job-supervisor-owner-relation-v1",
+        "status": "different_inactive_pid",
+        "supervisor_available": True,
+        "supervisor_pid": 3579268,
+        "heavy_job_pid": 3647004,
+        "heavy_job_owner": "training-supervisor",
+        "heavy_job_status": "interrupted",
+        "heavy_job_active": False,
+        "same_pid": False,
+        "different_active_owner": False,
+        "selection_changed": False,
+        "promotion_allowed": False,
+        "interpretation": (
+            "Heavy-job metadata belongs to a different inactive PID. Preserve it as audit "
+            "history; it does not describe the current supervisor process."
+        ),
+    }
+
+
+def test_heavy_job_supervisor_relation_flags_different_active_pid():
+    relation = heavy_job_supervisor_relation_summary(
+        supervisor_status={"available": True, "pid": 101},
+        lock={"active": True, "owner": "training-supervisor", "pid": 202},
+    )
+
+    assert relation["status"] == "different_active_pid"
+    assert relation["same_pid"] is False
+    assert relation["different_active_owner"] is True
+    assert "do not overwrite" in relation["interpretation"]
+
+
+def test_heavy_job_supervisor_relation_covers_same_and_unknown_pid_states():
+    cases = [
+        (
+            {"available": True, "pid": 101},
+            {"active": True, "pid": 101},
+            "same_supervisor_pid",
+            True,
+        ),
+        (
+            {"available": True, "pid": 101},
+            {"active": False},
+            "heavy_job_pid_missing",
+            None,
+        ),
+        (
+            {"available": False, "pid": 101},
+            {"active": False, "pid": 202},
+            "supervisor_unavailable",
+            False,
+        ),
+    ]
+
+    for supervisor_status, lock, expected_status, expected_same_pid in cases:
+        relation = heavy_job_supervisor_relation_summary(
+            supervisor_status=supervisor_status,
+            lock=lock,
+        )
+
+        assert relation["status"] == expected_status
+        assert relation["same_pid"] is expected_same_pid
+
+
+def test_heavy_job_supervisor_relation_is_visible_to_operator_and_markdown():
+    relation = heavy_job_supervisor_relation_summary(
+        supervisor_status={"available": True, "pid": 101},
+        lock={
+            "active": False,
+            "owner": "training-supervisor",
+            "pid": 202,
+            "status": "interrupted",
+        },
+    )
+    payload = {
+        "generated_at": "2026-07-11T08:20:00Z",
+        "run_id": "run-1",
+        "round_count": 8,
+        "latest_metrics": {},
+        "advisor_summary": {},
+        "heavy_job_lock": {"active": False, "pid": 202},
+        "heavy_job_supervisor_relation": relation,
+        "recommendation": {
+            "severity": "warn",
+            "action": "await_new_forward_issue",
+            "notes": [],
+        },
+        "guardrail": "Historical response-surface monitoring only.",
+    }
+
+    summary = operator_summary(payload)
+    markdown = render_markdown(payload)
+
+    assert summary["heavy_job_supervisor_relation"]["status"] == (
+        "different_inactive_pid"
+    )
+    assert summary["heavy_job_supervisor_relation"]["same_pid"] is False
+    assert "## Heavy Job / Supervisor Relation" in markdown
+    assert '"status": "different_inactive_pid"' in markdown
 
 
 def test_summarize_watch_normalizes_non_positive_windows(monkeypatch):
