@@ -7669,6 +7669,7 @@ def run_supervisor(
                     train_window=train_window,
                     eval_window=search_eval_window,
                     top_n=top_n,
+                    workers=worker_count,
                 )
                 dynamic_training_selected = (
                     dynamic_training_payload.get("selected_summary")
@@ -7743,6 +7744,8 @@ def run_supervisor(
                     f"top1000={dynamic_training_selected.get('top_1000_hits')} "
                     f"top10000={dynamic_training_selected.get('top_10000_hits')} "
                     f"red5_top10000={(dynamic_training_selected.get('red5') or {}).get('top_10000_hits') if isinstance(dynamic_training_selected.get('red5'), dict) else None}"
+                    f" workers={dynamic_training_payload.get('target_worker_count')}"
+                    f" elapsed={dynamic_training_payload.get('elapsed_seconds')}s"
                 )
             except Exception as exc:  # pragma: no cover - dynamic line training must not stop static training.
                 dynamic_training_payload = {
@@ -7784,6 +7787,7 @@ def run_supervisor(
                     train_window=train_window,
                     eval_window=NEAR_DYNAMIC_KDJ_EVAL_WINDOW,
                     top_n=top_n,
+                    workers=worker_count,
                     line_key=NEAR_DYNAMIC_KDJ_LINE_KEY,
                     protocol=NEAR_DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
                     source="near_dynamic_kdj_strength_sweep",
@@ -7887,7 +7891,9 @@ def run_supervisor(
                     f"stagnation={near_dynamic_kdj_stagnation_rounds} "
                     f"top100={near_dynamic_training_selected.get('top_100_hits')} "
                     f"top1000={near_dynamic_training_selected.get('top_1000_hits')} "
-                    f"top10000={near_dynamic_training_selected.get('top_10000_hits')}"
+                    f"top10000={near_dynamic_training_selected.get('top_10000_hits')} "
+                    f"workers={near_dynamic_training_payload.get('target_worker_count')} "
+                    f"elapsed={near_dynamic_training_payload.get('elapsed_seconds')}s"
                 )
             except Exception as exc:  # pragma: no cover - near line training must not stop static training.
                 near_dynamic_training_payload = {

@@ -100,4 +100,4 @@ Targeted supervisor and self-diagnostics tests cover objective-first tradeoffs a
 
 ## Next Verification
 
-Predeclare one objective-component residual control without changing the production sort key. Separately, profile and parallelize independent Dynamic KDJ target evaluations with result-equivalence tests; compute acceleration must not be counted as model progress. Intel Arc is visible to the host, but the current Python environment has no GPU compute backend, so GPU enablement requires a separate measured feasibility round rather than an unverified dependency change.
+The compute part was completed by [Training Compute Parallelization v1](training-compute-parallel-v1.md). The modeling next step remains: predeclare one objective-component residual control without changing the production sort key.

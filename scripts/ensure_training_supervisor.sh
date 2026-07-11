@@ -7,6 +7,7 @@ LOG_DIR="$REPO_ROOT/runtime/logs"
 PID_FILE="$LOG_DIR/training-supervisor-kdj-ridge-neural.pid"
 WEIGHT_KDJ_BUDGET_SHARE="${DEHPS_WEIGHT_KDJ_BUDGET_SHARE:-0.22}"
 NEURAL_KDJ_BUDGET_SHARE="${DEHPS_NEURAL_KDJ_BUDGET_SHARE:-0.10}"
+TRAINING_WORKERS="${DEHPS_TRAINING_WORKERS:-16}"
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
@@ -358,6 +359,7 @@ setsid bash -lc '
   as_of_issue="$1"
   weight_kdj_budget_share="$2"
   neural_kdj_budget_share="$3"
+  training_workers="$4"
   printf "%s\n" "$$" > "$pid_file"
   args=(
     scripts/run_training_supervisor.py
@@ -365,7 +367,7 @@ setsid bash -lc '
     --train-window 900
     --eval-window 100
     --top-n 10000
-    --workers 10
+    --workers "$training_workers"
     --train-mode expanding
     --history-scope current_regime_default
     --regime-years 10
@@ -387,7 +389,7 @@ setsid bash -lc '
     args+=(--as-of-issue "$as_of_issue")
   fi
   exec .venv/bin/python "${args[@]}"
-' "$PID_FILE" "$latest_issue" "$WEIGHT_KDJ_BUDGET_SHARE" "$NEURAL_KDJ_BUDGET_SHARE" > "$run_log" 2>&1 < /dev/null &
+' "$PID_FILE" "$latest_issue" "$WEIGHT_KDJ_BUDGET_SHARE" "$NEURAL_KDJ_BUDGET_SHARE" "$TRAINING_WORKERS" > "$run_log" 2>&1 < /dev/null &
 
 launcher_pid="$!"
 sleep 1

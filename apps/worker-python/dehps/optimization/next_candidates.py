@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from math import isfinite
 from statistics import median
+from time import perf_counter
 from typing import Any
 
 from psycopg import Connection
@@ -646,13 +648,16 @@ def dynamic_kdj_strength_sweep_training_summary(
     train_window: int,
     eval_window: int,
     top_n: int,
+    workers: int = 1,
     strength_values: tuple[float, ...] | list[float] | None = None,
     line_key: str = DYNAMIC_KDJ_LINE_KEY,
     protocol: str = DYNAMIC_KDJ_TRAINING_PROTOCOL_VERSION,
     source: str = "dynamic_kdj_strength_sweep",
 ) -> dict[str, Any]:
+    started = perf_counter()
     strengths = normalize_strength_sweep(strength_values)
     indexes = list(regression_target_indexes(history_len=len(history), train_window=train_window, eval_window=eval_window))
+    target_worker_count = max(1, min(int(workers), len(indexes))) if indexes else 1
     if not indexes:
         default_anchor = strengths[0] if strengths else 1.0
         default_policy = dynamic_strength_policy_from_anchor(default_anchor, strength_values=strengths)
@@ -683,6 +688,8 @@ def dynamic_kdj_strength_sweep_training_summary(
             "rows": [],
             "base_config_hash": config_hash(base_config),
             "base_config": config_values(base_config),
+            "target_worker_count": target_worker_count,
+            "elapsed_seconds": round(perf_counter() - started, 3),
         }
 
     exact_ranks_by_strength: dict[float, list[int]] = {strength: [] for strength in strengths}
@@ -701,12 +708,11 @@ def dynamic_kdj_strength_sweep_training_summary(
     as_of_issue = history_issue(history[-1])
     history_fingerprint_value = fingerprint_history(history)
 
-    for target_index in indexes:
+    def evaluate_target(target_index: int) -> tuple[HistoryDraw, str, list[tuple[float, dict[str, Any], tuple]]]:
         target_draw = history[target_index]
         target_issue = history_issue(target_draw)
-        target_issues.append(str(target_issue))
         configs: list[FrequencyRankerConfig] = []
-        target_strengths: list[float] = []
+        metadata_by_strength: list[tuple[float, dict[str, Any]]] = []
         for strength in strengths:
             dynamic_config, dynamic_metadata = dynamic_kdj_config_for_next(
                 base_config=base_config,
@@ -715,6 +721,41 @@ def dynamic_kdj_strength_sweep_training_summary(
                 offset_scale=strength,
                 strength_policy=strength_policies[strength],
             )
+            configs.append(dynamic_config)
+            metadata_by_strength.append((strength, dynamic_metadata))
+
+        train_start = 0 if train_mode == "expanding" else max(0, target_index - train_window)
+        ranked_targets = rank_target_grid_with_red5(
+            target_numbers=history_numbers(target_draw),
+            train_history=history[train_start:target_index],
+            configs=tuple(configs),
+            ranked_universe=ranked_universe,
+            target_draw_date=history_draw_date(target_draw),
+            workers=1,
+            pool=None,
+        )
+        return (
+            target_draw,
+            str(target_issue),
+            [
+                (strength, dynamic_metadata, ranked_target)
+                for (strength, dynamic_metadata), ranked_target in zip(
+                    metadata_by_strength,
+                    ranked_targets,
+                    strict=True,
+                )
+            ],
+        )
+
+    if target_worker_count > 1:
+        with ThreadPoolExecutor(max_workers=target_worker_count, thread_name_prefix="dynamic-kdj") as executor:
+            target_evaluations = list(executor.map(evaluate_target, indexes))
+    else:
+        target_evaluations = list(map(evaluate_target, indexes))
+
+    for target_draw, target_issue, target_rows in target_evaluations:
+        target_issues.append(target_issue)
+        for strength, dynamic_metadata, ranked_target in target_rows:
             if dynamic_metadata["fallback_static_base"]:
                 fallback_counts[strength] += 1
             else:
@@ -727,20 +768,6 @@ def dynamic_kdj_strength_sweep_training_summary(
             ):
                 latest_signal_by_strength[strength] = str(signal_issue)
             effective_scales_by_strength[strength].append(float(dynamic_metadata.get("effective_offset_scale") or strength))
-            configs.append(dynamic_config)
-            target_strengths.append(strength)
-
-        train_start = 0 if train_mode == "expanding" else max(0, target_index - train_window)
-        ranked_targets = rank_target_grid_with_red5(
-            target_numbers=history_numbers(target_draw),
-            train_history=history[train_start:target_index],
-            configs=tuple(configs),
-            ranked_universe=ranked_universe,
-            target_draw_date=history_draw_date(target_draw),
-            workers=1,
-            pool=None,
-        )
-        for strength, ranked_target in zip(target_strengths, ranked_targets, strict=True):
             rank, score, red5_match = ranked_target
             exact_ranks_by_strength[strength].append(int(rank))
             if red5_match is not None:
@@ -831,6 +858,8 @@ def dynamic_kdj_strength_sweep_training_summary(
             "legal_sample_space": TOTAL_SSQ_RED_COMBINATIONS,
             "as_of_issue": as_of_issue,
             "history_fingerprint": history_fingerprint_value,
+            "target_worker_count": target_worker_count,
+            "elapsed_seconds": round(perf_counter() - started, 3),
         }
     selected_summary = max(fully_dynamic_summaries, key=regression_training_sort_key)
     selected_strength = float(selected_summary.get("offset_scale") or 0.0)
@@ -850,6 +879,8 @@ def dynamic_kdj_strength_sweep_training_summary(
         "eval_window": len(indexes),
         "configured_eval_window": eval_window,
         "legal_sample_space": TOTAL_SSQ_RED_COMBINATIONS,
+        "target_worker_count": target_worker_count,
+        "elapsed_seconds": round(perf_counter() - started, 3),
     }
 
 

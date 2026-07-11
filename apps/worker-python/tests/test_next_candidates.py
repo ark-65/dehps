@@ -464,6 +464,54 @@ def test_dynamic_kdj_strength_sweep_training_summary_selects_best_strength(monke
     assert [target["red5_rank"] for target in payload["selected_summary"]["target_results"]] == [90, 90]
 
 
+def test_dynamic_kdj_strength_sweep_parallel_matches_serial(monkeypatch):
+    history = [
+        (f"20260{index}", date(2026, 6, index), tuple(range(index, index + 6)))
+        for index in range(1, 9)
+    ]
+
+    def fake_rank_target_grid_with_red5(**kwargs):
+        target_seed = int(kwargs["target_numbers"][0])
+        return [
+            (
+                target_seed * 100 + config_index,
+                float(target_seed) + config_index / 10,
+                SimpleNamespace(rank=target_seed * 90 + config_index),
+            )
+            for config_index, _config in enumerate(kwargs["configs"], start=1)
+        ]
+
+    monkeypatch.setattr(next_candidates, "rank_target_grid_with_red5", fake_rank_target_grid_with_red5)
+    common = {
+        "history": history,
+        "base_config": next_candidates.FrequencyRankerConfig(frequency_weight=0.30),
+        "signals": [
+            {
+                "issue": "202604",
+                "weight_name": "frequency_weight",
+                "recommended_offset": 0.02,
+                "j_value": 65.0,
+                "objective_delta": 1.0,
+            }
+        ],
+        "ranked_universe": [object()],
+        "train_mode": "expanding",
+        "train_window": 4,
+        "eval_window": 4,
+        "top_n": 10000,
+        "strength_values": (0.25, 0.5, 1.0),
+    }
+
+    serial = dynamic_kdj_strength_sweep_training_summary(**common, workers=1)
+    parallel = dynamic_kdj_strength_sweep_training_summary(**common, workers=3)
+
+    assert serial["target_worker_count"] == 1
+    assert parallel["target_worker_count"] == 3
+    assert parallel["selected_strength"] == serial["selected_strength"]
+    assert parallel["selected_summary"] == serial["selected_summary"]
+    assert parallel["rows"] == serial["rows"]
+
+
 def test_dynamic_kdj_next_candidate_snapshot_includes_regression_summary(monkeypatch):
     history = [
         ("2026061", date(2026, 6, 1), (1, 2, 3, 4, 5, 6)),
