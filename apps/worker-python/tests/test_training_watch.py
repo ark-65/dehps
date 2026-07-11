@@ -4380,6 +4380,30 @@ def test_cli_summary_includes_evidence_context_guardrails(tmp_path):
     }
 
 
+def test_operator_summary_preserves_unknown_parser_conflict_counts():
+    payload = {
+        "evidence_context": {
+            "leakage_checks": {
+                "parser_sync_duplicate_checks": {
+                    "status": "unavailable",
+                    "ok": False,
+                    "recorded_data_conflict_count": "not-an-integer",
+                    "latest_sync": {
+                        "status": "error",
+                        "conflict_count": "unknown",
+                    },
+                }
+            }
+        }
+    }
+
+    parser_sync = operator_summary(payload)["parser_sync"]
+
+    assert parser_sync["recorded_data_conflict_count"] is None
+    assert parser_sync["unresolved_data_conflict_count"] is None
+    assert parser_sync["latest_sync_conflict_count"] is None
+
+
 def test_render_markdown_escapes_untrusted_inline_text():
     payload = {
         "generated_at": "2026-06-18T10:00:00Z",
