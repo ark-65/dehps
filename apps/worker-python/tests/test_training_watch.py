@@ -15,6 +15,7 @@ from scripts.watch_training_progress import (
     cli_evidence_context_summary,
     cli_summary,
     evidence_context_summary,
+    forward_evidence_wait_summary,
     gate_summary,
     load_supervisor_status,
     observed_age_minutes,
@@ -123,6 +124,109 @@ def test_forward_evidence_excludes_pre_isolation_rows_and_surfaces_pending_pair(
     ]
     assert summary["promotion_eligible"] is False
     assert summary["automatic_quarantine_release"] is False
+
+
+def forward_wait_ready_payload(*, history_latest_issue: str = "2026078") -> dict:
+    return forward_evidence_wait_summary(
+        prefilter={
+            "strategy_memory": {
+                "selected_experiment": {"key": "null_model_forward_audit"},
+            },
+            "sequential_null_ledger": {
+                "observed_familywise_hypothesis_count": 1038,
+                "legacy_uncounted_round_count": 294,
+                "adaptive_hypothesis_generation_counted": False,
+                "sequential_search_multiplicity_counted": False,
+                "selection_changed": False,
+                "promotion_allowed": False,
+            },
+        },
+        forward_evidence={
+            "status": "not_started",
+            "paired_issue_count": 0,
+            "min_paired_issues": 20,
+            "pending_snapshots": [
+                {
+                    "predicted_issue": "2026079",
+                    "complete_line_set": True,
+                    "line_keys": list(watch.FORWARD_EVIDENCE_LINE_KEYS),
+                }
+            ],
+        },
+        round_repetition={
+            "active": True,
+            "latest_config_repeat_streak": 5,
+            "latest_metric_repeat_streak": 5,
+        },
+        current_run_stagnation_rounds=5,
+        history_latest_issue=history_latest_issue,
+    )
+
+
+def test_forward_wait_parks_repeated_same_history_with_future_snapshot():
+    summary = forward_wait_ready_payload()
+
+    assert summary["ready"] is True
+    assert summary["status"] == "awaiting_new_forward_issue"
+    assert summary["next_pending_issue"] == "2026079"
+    assert summary["observed_familywise_hypothesis_count"] == 1038
+    assert summary["selection_changed"] is False
+    assert summary["promotion_allowed"] is False
+    assert summary["blockers"] == []
+
+
+def test_forward_wait_releases_when_pending_issue_has_been_synced():
+    summary = forward_wait_ready_payload(history_latest_issue="2026079")
+
+    assert summary["ready"] is False
+    assert summary["status"] == "continue_training"
+    assert "no_complete_future_prediction_snapshot" in summary["blockers"]
+
+
+def test_recommendation_waits_for_forward_issue_instead_of_restarting():
+    now = datetime(2026, 7, 11, 6, 0, tzinfo=timezone.utc)
+    forward_wait = forward_wait_ready_payload()
+    recommendation = recommendation_summary(
+        rows=[
+            {
+                "round_index": index,
+                "improved": False,
+                "updated_at": now - timedelta(minutes=1),
+            }
+            for index in range(1, 35)
+        ],
+        lock={"active": True, "owner": "training-supervisor"},
+        advisors={"neural_kdj_advisor": {"candidate_count": 0}},
+        now=now,
+        stale_minutes=30,
+        round_repetition={
+            "active": True,
+            "latest_config_repeat_streak": 5,
+            "latest_metric_repeat_streak": 5,
+        },
+        forward_wait=forward_wait,
+    )
+    payload = {
+        "run_id": "run-1",
+        "round_count": 34,
+        "round_window_count": 5,
+        "round_limit": 5,
+        "latest_round": 34,
+        "last_improved_round": None,
+        "stagnation_rounds": 34,
+        "latest_metrics": {},
+        "advisor_summary": {},
+        "advisor_signal_freshness": {},
+        "forward_wait": forward_wait,
+        "heavy_job_lock": {"active": True},
+        "recommendation": recommendation,
+        "guardrail": "No automatic promotion.",
+    }
+
+    assert recommendation["action"] == "await_new_forward_issue"
+    assert "prepare_restart_with_more_exploration" not in recommendation["actions"]
+    assert "Forward Evidence Wait Gate" in render_markdown(payload)
+    assert operator_summary(payload)["forward_wait"]["ready"] is True
 
 
 def test_forward_evidence_threshold_only_enables_human_review():
