@@ -8,6 +8,8 @@ from typing import Any
 
 SELF_DIAGNOSTICS_PROTOCOL = "dehps-self-diagnostics-v1"
 SPECIALIST_STRATEGY_PROTOCOL = "dehps-specialist-strategy-memory-v1"
+COUNTERFACTUAL_OBSERVATION_REQUIRED_ROUNDS = 8
+TAIL_RISK_COUNTERFACTUAL_COMPONENT = "tail_risk_penalty"
 
 
 def _safe_int(value: object, default: int = 0) -> int:
@@ -392,6 +394,97 @@ def _near_dynamic_summary(near_dynamic_training: dict[str, Any] | None) -> dict[
     }
 
 
+def counterfactual_observation_window(
+    diagnostics: list[dict[str, Any]],
+    *,
+    required_rounds: int = COUNTERFACTUAL_OBSERVATION_REQUIRED_ROUNDS,
+) -> dict[str, Any]:
+    required = max(1, int(required_rounds))
+    measurements: list[dict[str, Any]] = []
+    status_counts: dict[str, int] = {}
+    for diagnostic in diagnostics:
+        decision_surface = (
+            diagnostic.get("decision_surface")
+            if isinstance(diagnostic.get("decision_surface"), dict)
+            else {}
+        )
+        counterfactual = decision_surface.get("objective_component_counterfactual")
+        if not isinstance(counterfactual, dict):
+            continue
+        status = str(counterfactual.get("status") or "")
+        if status:
+            status_counts[status] = status_counts.get(status, 0) + 1
+        if status == "measured":
+            measurements.append(counterfactual)
+
+    component_mismatch_count = sum(
+        str(measurement.get("component") or "") != TAIL_RISK_COUNTERFACTUAL_COMPONENT
+        for measurement in measurements
+    )
+    selection_changed_count = sum(bool(measurement.get("selection_changed")) for measurement in measurements)
+    frozen_selection_count = sum(
+        bool(measurement.get("selection_uses_frozen_validation"))
+        for measurement in measurements
+    )
+    invalid_scope_count = sum(
+        str(measurement.get("selection_scope") or "") != "search_slice_only"
+        for measurement in measurements
+    )
+    guard_violation_count = (
+        component_mismatch_count
+        + selection_changed_count
+        + frozen_selection_count
+        + invalid_scope_count
+    )
+    measured_count = len(measurements)
+    if guard_violation_count:
+        status = "guard_violation"
+    elif measured_count >= required:
+        status = "mature"
+    elif measured_count:
+        status = "accumulating"
+    else:
+        status = "not_started"
+
+    return {
+        "status": status,
+        "required_rounds": required,
+        "observed_diagnostic_count": len(diagnostics),
+        "measured_round_count": measured_count,
+        "remaining_round_count": max(0, required - measured_count),
+        "status_counts": dict(sorted(status_counts.items())),
+        "component": TAIL_RISK_COUNTERFACTUAL_COMPONENT,
+        "component_mismatch_count": component_mismatch_count,
+        "counterfactual_top_changed_count": sum(
+            bool(measurement.get("counterfactual_top_changed"))
+            for measurement in measurements
+        ),
+        "unique_production_top_count": len(
+            {
+                str(measurement.get("production_top_config_hash") or "")
+                for measurement in measurements
+                if measurement.get("production_top_config_hash")
+            }
+        ),
+        "unique_counterfactual_top_count": len(
+            {
+                str(measurement.get("counterfactual_top_config_hash") or "")
+                for measurement in measurements
+                if measurement.get("counterfactual_top_config_hash")
+            }
+        ),
+        "selection_changed_count": selection_changed_count,
+        "frozen_selection_count": frozen_selection_count,
+        "invalid_selection_scope_count": invalid_scope_count,
+        "guard_violation_count": guard_violation_count,
+        "promotion_allowed": False,
+        "interpretation": (
+            "Cross-run observation-window progress only; maturity advances the diagnostic queue "
+            "but does not change production selection or permit promotion."
+        ),
+    }
+
+
 def build_specialist_strategy_memory(
     *,
     current_diagnostic: dict[str, Any],
@@ -441,6 +534,8 @@ def build_specialist_strategy_memory(
     )
     current_signal = _status_from_diagnostic(current, ("signal_vs_noise", "status"))
     near_summary = _near_dynamic_summary(near_dynamic_training)
+    counterfactual_window = counterfactual_observation_window(windowed)
+    counterfactual_mature = counterfactual_window["status"] == "mature"
 
     unresolved: list[str] = []
     if current_weight in {"blocked", "caution"} or weight_counts.get("caution", 0) + weight_counts.get("blocked", 0) >= 2:
@@ -453,23 +548,32 @@ def build_specialist_strategy_memory(
             current_decision_surface == "stale"
             or current_round_best_path == "stale"
         )
+        and not counterfactual_mature
     ):
         unresolved.append("decision_surface_stale_champion")
     if (
         current_decision_surface == "objective_tiebreak_tradeoff"
         or decision_surface_counts.get("objective_tiebreak_tradeoff", 0) >= 2
     ):
-        if (
-            current_objective_component_counterfactual == "measured"
-            or objective_component_counterfactual_counts.get("measured", 0) >= 2
+        if counterfactual_window["status"] == "guard_violation":
+            unresolved.append("tail_risk_counterfactual_guard_violation")
+        elif (
+            not counterfactual_mature
+            and (
+                current_objective_component_counterfactual == "measured"
+                or objective_component_counterfactual_counts.get("measured", 0) >= 2
+            )
         ):
             unresolved.append("tail_risk_counterfactual_needs_stability")
         elif (
-            current_objective_component_control == "measured"
-            or objective_component_control_counts.get("measured", 0) >= 2
+            not counterfactual_mature
+            and (
+                current_objective_component_control == "measured"
+                or objective_component_control_counts.get("measured", 0) >= 2
+            )
         ):
             unresolved.append("objective_component_residuals_need_stability")
-        else:
+        elif not counterfactual_mature:
             unresolved.append("objective_tiebreak_hides_pareto_tradeoffs")
     if current_signal == "noise_risk" or signal_counts.get("noise_risk", 0) >= 2:
         unresolved.append("signal_may_be_noise")
@@ -480,7 +584,14 @@ def build_specialist_strategy_memory(
     ):
         unresolved.append("near_dynamic_window_not_lifting")
 
-    if "candidate_space_needs_reframe" in unresolved:
+    if "tail_risk_counterfactual_guard_violation" in unresolved:
+        experiment_key = "tail_risk_counterfactual_guard_audit"
+        experiment_action = "freeze_counterfactual_progress_and_repair_guard"
+        rationale = (
+            "A persisted tail-risk counterfactual observation changed selection, used frozen data, "
+            "used the wrong scope, or measured a different component."
+        )
+    elif "candidate_space_needs_reframe" in unresolved:
         experiment_key = "candidate_space_reframe_audit"
         experiment_action = "increase_diversity_pressure_before_trusting_round_best"
         rationale = "Candidate-space geometry is narrow or collapsed across the diagnostic window."
@@ -556,6 +667,7 @@ def build_specialist_strategy_memory(
             "current_decision_surface": current_decision_surface,
             "current_objective_component_control": current_objective_component_control,
             "current_objective_component_counterfactual": current_objective_component_counterfactual,
+            "objective_component_counterfactual_observation_window": counterfactual_window,
             "current_round_best_path": current_round_best_path,
             "current_signal": current_signal,
             "synthesis_counts": synthesis_counts,

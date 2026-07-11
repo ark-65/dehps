@@ -1355,6 +1355,47 @@ def test_recent_round_self_diagnostics_reads_compact_round_memory():
     ]
 
 
+def test_recover_strategy_memory_diagnostics_keeps_cross_run_chronology_and_scope():
+    oldest = {"protocol": supervisor.SELF_DIAGNOSTICS_PROTOCOL, "marker": "oldest"}
+    newest = {"protocol": supervisor.SELF_DIAGNOSTICS_PROTOCOL, "marker": "newest"}
+    records = [
+        {
+            "run_id": "current-run",
+            "round_index": 2,
+            "prefilter": {"self_diagnostics": newest},
+        },
+        {
+            "run_id": "prior-b",
+            "round_index": 3,
+            "prefilter": {"self_diagnostics": newest},
+        },
+        {
+            "run_id": "prior-b",
+            "round_index": 2,
+            "prefilter": {"self_diagnostics": {"protocol": "legacy"}},
+        },
+        {
+            "run_id": "prior-a",
+            "round_index": 8,
+            "prefilter": {"self_diagnostics": oldest},
+        },
+    ]
+
+    diagnostics, metadata = supervisor.recover_strategy_memory_diagnostics(
+        records,
+        current_run_id="current-run",
+        limit=2,
+    )
+
+    assert diagnostics == [oldest, newest]
+    assert metadata["record_count"] == 2
+    assert metadata["source_run_ids"] == ["prior-a", "prior-b"]
+    assert metadata["oldest_round"] == {"run_id": "prior-a", "round_index": 8}
+    assert metadata["latest_round"] == {"run_id": "prior-b", "round_index": 3}
+    assert metadata["selection_changed"] is False
+    assert metadata["selection_uses_frozen_validation"] is False
+
+
 def test_candidate_budget_reserves_explicit_weight_kdj_bucket():
     budget = candidate_budget(20, weight_kdj_budget_share=0.15)
 
@@ -4491,6 +4532,19 @@ def test_compact_status_payload_includes_supervisor_continuity_seed():
     payload = compact_status_payload({"continuity_seed": continuity})
 
     assert payload["continuity_seed"] == continuity
+
+
+def test_compact_status_payload_includes_strategy_memory_continuity():
+    continuity = {
+        "mode": "same_history_persisted_self_diagnostics",
+        "record_count": 7,
+        "selection_changed": False,
+        "selection_uses_frozen_validation": False,
+    }
+
+    payload = compact_status_payload({"strategy_memory_continuity": continuity})
+
+    assert payload["strategy_memory_continuity"] == continuity
 
 
 def test_compact_status_payload_includes_round_summary_without_full_rounds():
