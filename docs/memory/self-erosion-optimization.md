@@ -37,6 +37,7 @@
 - 若代码改动通过验证，从干净 `main` 切出 `<type>/self-iterate-YYYYMMDD-HHMM-<slug>` 分支，提交信息和 PR 标题使用同一个 Conventional Commit 前缀，然后创建 ready PR 并启用 squash auto-merge；不要直推 `main`。
 - 自主提交由调度脚本设置 Git 身份：author/committer 使用 `ark-65 <25193106+ark-65@users.noreply.github.com>`，并通过 commit-msg hook 自动追加 `Co-authored-by: give me a 98K <240642031+inhuman-0@users.noreply.github.com>`。
 - 若没有安全可做的改动，记录阻塞原因，不强行为了变化而变化。
+- watcher 必须始终刷新 canonical latest JSON/Markdown；稳定状态只按 120 分钟心跳写版本化证据，run/round、forward、advisor、parser/sync、冻结/泄漏边界、null 账本或生命周期等实质状态变化必须立即写版本快照。不得用节流删除既有证据。
 
 ## 历史记忆
 
@@ -57,6 +58,7 @@
 | 2026-07-11 | 审计发现同一组 20 个冻结期次在同历史下被 17 个 run、202 个轮次反复查看，已不再是未见 holdout；后续强制 search/frozen 隔离，冻结结果仅用于被隔离的晋级诊断，并在真正前向证据到来前保持 quarantine。 |
 | 2026-07-11 | 自我迭代配置开始强制消费来源预算证据几何与 sequential-null 覆盖审计：区分转化路径变化和重复性能面，显式检查 legacy/adaptive/sequential 缺口，并禁止自动预算变更或自动晋级。 |
 | 2026-07-11 | Intel Arc OpenCL 真实评分探针完成：28/28 Top10000 与目标排名一致，但 8 位舍入矩阵仍有 9 个单元不同，完整端到端仅 `0.851318x`；GPU 训练保持禁用，后续不得在组件/传输/内核瓶颈未改变时重复同一实验。 |
+| 2026-07-11 | watcher 版本化证据改为“实质状态变化立即快照 + 稳定期 120 分钟心跳”，latest 仍每次原子刷新且不删除已有证据；避免 forward wait 期间每次轮询生成约 112 KB 的重复 JSON/Markdown。验证见 `training-watch-artifact-persistence-v1.md`。 |
 | 2026-07-10 | 增加跨 supervisor 搜索连续性：持久化轮内 decision candidate，恢复同历史且冻结主指标严格提升的 navigation candidate；新进程必须重评后才能用作 search base，incumbent 与 promotion gate 不变。 |
 | 2026-07-10 | 增加当前 run 的候选来源转化窗口：累计 generated → prefilter → Top5 → round-best，至少 4 轮后才判断 narrow/diverse；避免用单轮或混入旧信号的跨 run 统计贸然改预算。 |
 | 2026-06-22 | 修复训练 supervisor 的 target inversion 锚点：若本轮 best 只是历史 best 重放，改用本轮 challenger 做反推锚点。验证：`apps/worker-python/.venv/bin/python -m pytest apps/worker-python/tests -q` 通过 `164 passed`；live run `20260622-103001` round 1 写入 `anchor.source=challenger_best`，round 2 status 显示 `candidate_budget.target_weight_inversion=4`。 |
