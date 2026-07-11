@@ -4395,6 +4395,215 @@ def test_write_outputs_uses_atomic_writer(monkeypatch, tmp_path):
     ]
 
 
+def artifact_persistence_payload(*, severity="ok", action="await_new_forward_issue"):
+    return {
+        "generated_at": "2026-07-11T09:30:00Z",
+        "run_id": "run-1",
+        "round_count": 8,
+        "latest_round": 8,
+        "last_improved_round": None,
+        "stagnation_rounds": 204,
+        "latest_metrics": {},
+        "advisor_summary": {},
+        "advisor_signal_freshness": {
+            "status": "current",
+            "history_latest_issue": "2026078",
+            "stale_advisors": [],
+            "missing_advisors": [],
+            "future_advisors": [],
+        },
+        "forward_evidence": {
+            "status": "not_started",
+            "paired_issue_count": 0,
+            "review_ready": False,
+            "pending_snapshots": [{"predicted_issue": "2026079"}],
+        },
+        "forward_wait": {
+            "status": "awaiting_new_forward_issue",
+            "history_latest_issue": "2026078",
+            "next_pending_issue": "2026079",
+            "ready": True,
+        },
+        "supervisor_lifecycle": {
+            "status": "parked_waiting_for_forward_issue",
+            "lifecycle_consistent": True,
+            "requires_attention": False,
+        },
+        "heavy_job_lock": {},
+        "recommendation": {"severity": severity, "action": action, "notes": []},
+        "guardrail": "Historical response-surface monitoring only.",
+    }
+
+
+def test_write_outputs_skips_stable_versioned_snapshot_inside_interval(
+    monkeypatch, tmp_path
+):
+    stamps = iter(("20260711-093000", "20260711-094000"))
+    monkeypatch.setattr(watch, "utc_stamp", lambda: next(stamps))
+    now = datetime(2026, 7, 11, 9, 30, tzinfo=timezone.utc)
+
+    first_json, _ = watch.write_outputs(
+        artifact_persistence_payload(),
+        tmp_path,
+        min_snapshot_interval_minutes=120,
+        now=now,
+    )
+    os.utime(first_json, (now.timestamp(), now.timestamp()))
+
+    def fail_unbounded_snapshot_scan(*_args, **_kwargs):
+        raise AssertionError("stable marker path must not scan all versioned artifacts")
+
+    second_payload = artifact_persistence_payload()
+    second_payload["generated_at"] = "2026-07-11T09:40:00Z"
+    with monkeypatch.context() as marker_context:
+        marker_context.setattr(
+            type(tmp_path), "glob", fail_unbounded_snapshot_scan
+        )
+        second_json, second_md = watch.write_outputs(
+            second_payload,
+            tmp_path,
+            min_snapshot_interval_minutes=120,
+            now=now + timedelta(minutes=10),
+        )
+
+    versioned_json = [
+        path for path in tmp_path.glob("training-watch-*.json")
+        if path.name != "training-watch-latest.json"
+    ]
+    assert versioned_json == [first_json]
+    assert second_json == tmp_path / "training-watch-latest.json"
+    assert second_md == tmp_path / "training-watch-latest.md"
+    latest = json.loads(second_json.read_text())
+    assert "material_change_or_heartbeat_v1" in second_md.read_text()
+    assert latest["generated_at"] == "2026-07-11T09:40:00Z"
+    assert latest["artifact_persistence"] == {
+        "protocol": "material_change_or_heartbeat_v1",
+        "versioned_snapshot_created": False,
+        "reason": "stable_within_interval",
+        "min_snapshot_interval_minutes": 120,
+        "previous_versioned_snapshot_age_seconds": 600.0,
+        "latest_artifacts_updated": True,
+        "existing_versioned_artifacts_deleted": False,
+        "last_versioned_snapshot_at": now.isoformat(),
+        "last_versioned_json_path": str(first_json),
+        "last_versioned_report_path": str(first_json.with_suffix(".md")),
+    }
+
+
+def test_write_outputs_snapshots_material_state_change_inside_interval(
+    monkeypatch, tmp_path
+):
+    stamps = iter(("20260711-093000", "20260711-094000"))
+    monkeypatch.setattr(watch, "utc_stamp", lambda: next(stamps))
+    now = datetime(2026, 7, 11, 9, 30, tzinfo=timezone.utc)
+    first_json, _ = watch.write_outputs(
+        artifact_persistence_payload(),
+        tmp_path,
+        min_snapshot_interval_minutes=120,
+        now=now,
+    )
+    os.utime(first_json, (now.timestamp(), now.timestamp()))
+
+    changed_json, _ = watch.write_outputs(
+        artifact_persistence_payload(
+            severity="alert",
+            action="inspect_parser_sync_conflicts",
+        ),
+        tmp_path,
+        min_snapshot_interval_minutes=120,
+        now=now + timedelta(minutes=10),
+    )
+
+    assert changed_json.name == "training-watch-run-1-20260711-094000.json"
+    changed = json.loads(changed_json.read_text())
+    assert changed["artifact_persistence"]["versioned_snapshot_created"] is True
+    assert changed["artifact_persistence"]["reason"] == "material_state_changed"
+
+
+def test_write_outputs_snapshots_integrity_count_change_without_action_change(
+    monkeypatch, tmp_path
+):
+    stamps = iter(("20260711-093000", "20260711-094000"))
+    monkeypatch.setattr(watch, "utc_stamp", lambda: next(stamps))
+    now = datetime(2026, 7, 11, 9, 30, tzinfo=timezone.utc)
+    first = artifact_persistence_payload(
+        severity="alert",
+        action="inspect_parser_sync_conflicts",
+    )
+    first["evidence_context"] = {
+        "leakage_checks": {
+            "parser_sync_duplicate_checks": {
+                "status": "checked",
+                "ok": False,
+                "unresolved_data_conflict_count": 1,
+                "latest_sync": {"status": "success", "conflict_count": 1},
+            }
+        }
+    }
+    first_json, _ = watch.write_outputs(
+        first,
+        tmp_path,
+        min_snapshot_interval_minutes=120,
+        now=now,
+    )
+    os.utime(first_json, (now.timestamp(), now.timestamp()))
+    changed = artifact_persistence_payload(
+        severity="alert",
+        action="inspect_parser_sync_conflicts",
+    )
+    changed["evidence_context"] = {
+        "leakage_checks": {
+            "parser_sync_duplicate_checks": {
+                "status": "checked",
+                "ok": False,
+                "unresolved_data_conflict_count": 2,
+                "latest_sync": {"status": "success", "conflict_count": 1},
+            }
+        }
+    }
+
+    changed_json, _ = watch.write_outputs(
+        changed,
+        tmp_path,
+        min_snapshot_interval_minutes=120,
+        now=now + timedelta(minutes=10),
+    )
+
+    assert changed_json.name == "training-watch-run-1-20260711-094000.json"
+    artifact = json.loads(changed_json.read_text())
+    assert artifact["artifact_persistence"]["reason"] == "material_state_changed"
+
+
+def test_write_outputs_creates_stable_heartbeat_after_interval(
+    monkeypatch, tmp_path
+):
+    stamps = iter(("20260711-093000", "20260711-113100"))
+    monkeypatch.setattr(watch, "utc_stamp", lambda: next(stamps))
+    now = datetime(2026, 7, 11, 9, 30, tzinfo=timezone.utc)
+    first_json, _ = watch.write_outputs(
+        artifact_persistence_payload(),
+        tmp_path,
+        min_snapshot_interval_minutes=120,
+        now=now,
+    )
+    os.utime(first_json, (now.timestamp(), now.timestamp()))
+
+    heartbeat_json, _ = watch.write_outputs(
+        artifact_persistence_payload(),
+        tmp_path,
+        min_snapshot_interval_minutes=120,
+        now=now + timedelta(minutes=121),
+    )
+
+    assert heartbeat_json.name == "training-watch-run-1-20260711-113100.json"
+    heartbeat = json.loads(heartbeat_json.read_text())
+    assert heartbeat["artifact_persistence"]["versioned_snapshot_created"] is True
+    assert heartbeat["artifact_persistence"]["reason"] == "heartbeat_due"
+    assert heartbeat["artifact_persistence"][
+        "previous_versioned_snapshot_age_seconds"
+    ] == 7260.0
+
+
 def test_safe_filename_component_bounds_long_run_ids():
     first = safe_filename_component("run-" + ("a" * 240), max_length=48)
     second = safe_filename_component("run-" + ("b" * 240), max_length=48)

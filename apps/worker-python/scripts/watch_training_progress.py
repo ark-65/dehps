@@ -53,6 +53,7 @@ DEFAULT_SOURCE_SURVIVAL_BUDGET_REVIEW_MIN_ROUNDS = 8
 DEFAULT_FORWARD_EVIDENCE_MIN_PAIRED_ISSUES = 20
 DEFAULT_FORWARD_EVIDENCE_ROW_LIMIT = 5000
 DEFAULT_FORWARD_WAIT_REPEAT_STREAK = 4
+DEFAULT_VERSIONED_SNAPSHOT_INTERVAL_MINUTES = 120
 FORWARD_WAIT_ACTION = "await_new_forward_issue"
 HOLDOUT_ISOLATION_PROTOCOL = "search_slice_frozen_promotion_v1"
 FORWARD_EVIDENCE_LINE_KEYS = (
@@ -5195,6 +5196,12 @@ def render_markdown(payload: dict[str, Any]) -> str:
 {json.dumps(payload.get("heavy_job_supervisor_relation", {}), ensure_ascii=False, indent=2)}
 ```
 
+## Artifact Persistence
+
+```json
+{json.dumps(payload.get("artifact_persistence", {}), ensure_ascii=False, indent=2)}
+```
+
 ## Judgement
 
 {note_rows}
@@ -5205,19 +5212,385 @@ def render_markdown(payload: dict[str, Any]) -> str:
 """
 
 
-def write_outputs(payload: dict[str, Any], output_dir: Path) -> tuple[Path, Path]:
+def artifact_snapshot_state(payload: dict[str, Any]) -> dict[str, Any]:
+    forward_evidence = (
+        payload.get("forward_evidence")
+        if isinstance(payload.get("forward_evidence"), dict)
+        else {}
+    )
+    forward_wait = (
+        payload.get("forward_wait")
+        if isinstance(payload.get("forward_wait"), dict)
+        else {}
+    )
+    supervisor_lifecycle = (
+        payload.get("supervisor_lifecycle")
+        if isinstance(payload.get("supervisor_lifecycle"), dict)
+        else {}
+    )
+    advisor_freshness = (
+        payload.get("advisor_signal_freshness")
+        if isinstance(payload.get("advisor_signal_freshness"), dict)
+        else {}
+    )
+    candidate_survival = (
+        payload.get("candidate_source_survival")
+        if isinstance(payload.get("candidate_source_survival"), dict)
+        else {}
+    )
+    sequential_null = (
+        payload.get("sequential_null_audit")
+        if isinstance(payload.get("sequential_null_audit"), dict)
+        else {}
+    )
+    heavy_relation = (
+        payload.get("heavy_job_supervisor_relation")
+        if isinstance(payload.get("heavy_job_supervisor_relation"), dict)
+        else {}
+    )
+    supervisor_round_boundary = (
+        payload.get("supervisor_round_boundary")
+        if isinstance(payload.get("supervisor_round_boundary"), dict)
+        else {}
+    )
+    compute_capability = (
+        payload.get("compute_capability")
+        if isinstance(payload.get("compute_capability"), dict)
+        else {}
+    )
+    accelerator = (
+        compute_capability.get("accelerator")
+        if isinstance(compute_capability.get("accelerator"), dict)
+        else {}
+    )
+    evidence_context = (
+        payload.get("evidence_context")
+        if isinstance(payload.get("evidence_context"), dict)
+        else {}
+    )
+    leakage = (
+        evidence_context.get("leakage_checks")
+        if isinstance(evidence_context.get("leakage_checks"), dict)
+        else {}
+    )
+    parser_checks = (
+        leakage.get("parser_sync_duplicate_checks")
+        if isinstance(leakage.get("parser_sync_duplicate_checks"), dict)
+        else {}
+    )
+    latest_sync = (
+        parser_checks.get("latest_sync")
+        if isinstance(parser_checks.get("latest_sync"), dict)
+        else {}
+    )
+    pending_issues = sorted(
+        str(row.get("predicted_issue"))
+        for row in (forward_evidence.get("pending_snapshots") or [])
+        if isinstance(row, dict) and row.get("predicted_issue")
+    )
+    return {
+        "run_id": payload.get("run_id"),
+        "round_count": safe_int(payload.get("round_count")),
+        "round_window_count": safe_int(payload.get("round_window_count")),
+        "latest_round": safe_int(payload.get("latest_round")),
+        "stagnation_rounds": safe_int(payload.get("stagnation_rounds")),
+        "severity": payload.get("severity"),
+        "action": payload.get("action"),
+        "db_error": payload.get("db_error"),
+        "forward_evidence": {
+            "status": forward_evidence.get("status"),
+            "paired_issue_count": safe_int(forward_evidence.get("paired_issue_count")),
+            "review_ready": forward_evidence.get("review_ready"),
+            "pending_issues": pending_issues,
+        },
+        "forward_wait": {
+            "status": forward_wait.get("status"),
+            "history_latest_issue": forward_wait.get("history_latest_issue"),
+            "next_pending_issue": forward_wait.get("next_pending_issue"),
+            "ready": forward_wait.get("ready"),
+        },
+        "supervisor_lifecycle": {
+            "status": supervisor_lifecycle.get("status"),
+            "lifecycle_consistent": supervisor_lifecycle.get("lifecycle_consistent"),
+            "requires_attention": supervisor_lifecycle.get("requires_attention"),
+        },
+        "supervisor_round_boundary": {
+            "status": supervisor_round_boundary.get("status"),
+            "supervisor_progress_round": safe_int(
+                supervisor_round_boundary.get("supervisor_progress_round")
+            ),
+            "latest_db_round": safe_int(
+                supervisor_round_boundary.get("latest_db_round")
+            ),
+            "target_complete": supervisor_round_boundary.get("target_complete"),
+        },
+        "advisor_freshness": {
+            "status": advisor_freshness.get("status"),
+            "history_latest_issue": advisor_freshness.get("history_latest_issue"),
+            "stale_advisors": sorted(
+                str(item) for item in (advisor_freshness.get("stale_advisors") or [])
+            ),
+            "missing_advisors": sorted(
+                str(item) for item in (advisor_freshness.get("missing_advisors") or [])
+            ),
+            "future_advisors": sorted(
+                str(item) for item in (advisor_freshness.get("future_advisors") or [])
+            ),
+        },
+        "parser_sync": {
+            "status": parser_checks.get("status"),
+            "ok": parser_checks.get("ok"),
+            "history_latest_issue": parser_checks.get("history_latest_issue"),
+            "history_draw_count": safe_int(parser_checks.get("history_draw_count")),
+            "history_duplicate_issue_count": safe_int(
+                parser_checks.get("history_duplicate_issue_count")
+            ),
+            "history_invalid_red_length_count": safe_int(
+                parser_checks.get("history_invalid_red_length_count")
+            ),
+            "history_red_out_of_range_count": safe_int(
+                parser_checks.get("history_red_out_of_range_count")
+            ),
+            "history_duplicate_red_numbers_count": safe_int(
+                parser_checks.get("history_duplicate_red_numbers_count")
+            ),
+            "history_blue_out_of_range_count": safe_int(
+                parser_checks.get("history_blue_out_of_range_count")
+            ),
+            "universe_ok": parser_checks.get("universe_ok"),
+            "red_combination_universe_count": safe_int(
+                parser_checks.get("red_combination_universe_count")
+            ),
+            "recorded_data_conflict_count": safe_int(
+                parser_checks.get("recorded_data_conflict_count")
+            ),
+            "unresolved_data_conflict_count": safe_int(
+                parser_checks.get("unresolved_data_conflict_count")
+            ),
+            "latest_sync_status": latest_sync.get("status"),
+            "latest_sync_conflict_count": safe_int(latest_sync.get("conflict_count")),
+        },
+        "scientific_boundaries": {
+            "promotion_gate_reason": leakage.get("promotion_gate_reason"),
+            "promotion_frozen_validation_evaluated": leakage.get(
+                "promotion_frozen_validation_evaluated"
+            ),
+            "promotion_frozen_validation_passed": leakage.get(
+                "promotion_frozen_validation_passed"
+            ),
+            "promotion_frozen_validation_bypassed": leakage.get(
+                "promotion_frozen_validation_bypassed"
+            ),
+            "historical_holdout_quarantined": leakage.get(
+                "historical_holdout_quarantined"
+            ),
+            "holdout_isolation_protocol": leakage.get("holdout_isolation_protocol"),
+            "holdout_issue_overlap_count": safe_int(
+                leakage.get("holdout_issue_overlap_count")
+            ),
+            "search_uses_frozen_validation": leakage.get(
+                "search_uses_frozen_validation"
+            ),
+            "prefilter_isolation_status": leakage.get(
+                "prefilter_isolation_status"
+            ),
+            "prefilter_frozen_issue_overlap_count": safe_int(
+                leakage.get("prefilter_frozen_issue_overlap_count")
+            ),
+            "prefilter_uses_frozen_validation": leakage.get(
+                "prefilter_uses_frozen_validation"
+            ),
+            "prediction_input_boundary_status": leakage.get(
+                "prediction_input_boundary_status"
+            ),
+        },
+        "candidate_source_survival": {
+            "status": candidate_survival.get("status"),
+            "performance_signature_count": safe_int(
+                candidate_survival.get("performance_signature_count")
+            ),
+            "source_conversion_signature_count": safe_int(
+                candidate_survival.get("source_conversion_signature_count")
+            ),
+        },
+        "sequential_null": {
+            "status": sequential_null.get("status"),
+            "observed_diagnostic_round_count": safe_int(
+                sequential_null.get("observed_diagnostic_round_count")
+            ),
+            "observed_familywise_hypothesis_count": safe_int(
+                sequential_null.get("observed_familywise_hypothesis_count")
+            ),
+            "candidate_signal_interpretable": sequential_null.get(
+                "candidate_signal_interpretable"
+            ),
+        },
+        "heavy_job_supervisor_relation": heavy_relation.get("status"),
+        "heavy_job_identity": {
+            "supervisor_pid": safe_int(heavy_relation.get("supervisor_pid")),
+            "heavy_job_pid": safe_int(heavy_relation.get("heavy_job_pid")),
+            "heavy_job_status": heavy_relation.get("heavy_job_status"),
+            "heavy_job_active": heavy_relation.get("heavy_job_active"),
+        },
+        "compute_capability": {
+            "status": compute_capability.get("status"),
+            "gpu_backend_validated": accelerator.get("gpu_backend_validated"),
+            "gpu_training_enabled": accelerator.get("gpu_training_enabled"),
+            "probe_status": accelerator.get("probe_status"),
+            "probe_generated_at": accelerator.get("probe_generated_at"),
+            "probe_accepted_for_training": accelerator.get(
+                "probe_accepted_for_training"
+            ),
+            "probe_blockers": sorted(
+                str(item) for item in (accelerator.get("probe_blockers") or [])
+            ),
+        },
+    }
+
+
+def versioned_snapshot_decision(
+    payload: dict[str, Any],
+    output_dir: Path,
+    *,
+    min_interval_minutes: int,
+    now: datetime | None = None,
+) -> tuple[bool, str, float | None, dict[str, str | None]]:
+    if min_interval_minutes <= 0:
+        return True, "interval_disabled", None, {}
+
+    latest_json = output_dir / "training-watch-latest.json"
+    if not latest_json.exists():
+        return True, "first_snapshot", None, {}
+    try:
+        previous = json.loads(latest_json.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return True, "latest_snapshot_unreadable", None, {}
+    if not isinstance(previous, dict):
+        return True, "latest_snapshot_invalid", None, {}
+    if artifact_snapshot_state(previous) != artifact_snapshot_state(payload):
+        return True, "material_state_changed", None, {}
+
+    previous_persistence = (
+        previous.get("artifact_persistence")
+        if isinstance(previous.get("artifact_persistence"), dict)
+        else {}
+    )
+    previous_snapshot_at = parse_iso_datetime(
+        previous_persistence.get("last_versioned_snapshot_at")
+    )
+    previous_snapshot_path_value = previous_persistence.get(
+        "last_versioned_json_path"
+    )
+    previous_snapshot_path = (
+        Path(str(previous_snapshot_path_value))
+        if previous_snapshot_path_value
+        else None
+    )
+    if (
+        previous_snapshot_at is not None
+        and previous_snapshot_path is not None
+        and previous_snapshot_path.is_file()
+    ):
+        snapshot_age_seconds = max(
+            0.0,
+            ((now or utc_now()) - previous_snapshot_at).total_seconds(),
+        )
+        marker = {
+            "last_versioned_snapshot_at": previous_snapshot_at.isoformat(),
+            "last_versioned_json_path": previous_persistence.get(
+                "last_versioned_json_path"
+            ),
+            "last_versioned_report_path": previous_persistence.get(
+                "last_versioned_report_path"
+            ),
+        }
+        if snapshot_age_seconds >= min_interval_minutes * 60:
+            return True, "heartbeat_due", snapshot_age_seconds, marker
+        return False, "stable_within_interval", snapshot_age_seconds, marker
+
+    snapshots = [
+        path
+        for path in output_dir.glob("training-watch-*.json")
+        if path.name != "training-watch-latest.json"
+    ]
+    if not snapshots:
+        return True, "versioned_snapshot_missing", None, {}
+    try:
+        latest_snapshot = max(snapshots, key=lambda path: path.stat().st_mtime)
+        snapshot_at = datetime.fromtimestamp(
+            latest_snapshot.stat().st_mtime,
+            tz=timezone.utc,
+        )
+        snapshot_age_seconds = max(
+            0.0,
+            ((now or utc_now()) - snapshot_at).total_seconds(),
+        )
+    except OSError:
+        return True, "versioned_snapshot_stat_failed", None, {}
+    marker = {
+        "last_versioned_snapshot_at": snapshot_at.isoformat(),
+        "last_versioned_json_path": str(latest_snapshot),
+        "last_versioned_report_path": str(latest_snapshot.with_suffix(".md")),
+    }
+    if snapshot_age_seconds >= min_interval_minutes * 60:
+        return True, "heartbeat_due", snapshot_age_seconds, marker
+    return False, "stable_within_interval", snapshot_age_seconds, marker
+
+
+def write_outputs(
+    payload: dict[str, Any],
+    output_dir: Path,
+    *,
+    min_snapshot_interval_minutes: int = 0,
+    now: datetime | None = None,
+) -> tuple[Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
     payload = attach_operator_summary(payload)
+    write_moment = now or utc_now()
+    snapshot_created, snapshot_reason, snapshot_age_seconds, snapshot_marker = (
+        versioned_snapshot_decision(
+            payload,
+            output_dir,
+            min_interval_minutes=max(0, int(min_snapshot_interval_minutes)),
+            now=write_moment,
+        )
+    )
     stamp = utc_stamp()
     run_id = safe_filename_component(payload.get("run_id"))
     json_path = output_dir / f"training-watch-{run_id}-{stamp}.json"
     md_path = output_dir / f"training-watch-{run_id}-{stamp}.md"
     latest_json = output_dir / "training-watch-latest.json"
     latest_md = output_dir / "training-watch-latest.md"
+    if snapshot_created:
+        snapshot_marker = {
+            "last_versioned_snapshot_at": write_moment.isoformat(),
+            "last_versioned_json_path": str(json_path),
+            "last_versioned_report_path": str(md_path),
+        }
+    payload["artifact_persistence"] = {
+        "protocol": "material_change_or_heartbeat_v1",
+        "versioned_snapshot_created": snapshot_created,
+        "reason": snapshot_reason,
+        "min_snapshot_interval_minutes": max(
+            0, int(min_snapshot_interval_minutes)
+        ),
+        "previous_versioned_snapshot_age_seconds": (
+            round(snapshot_age_seconds, 3)
+            if snapshot_age_seconds is not None
+            else None
+        ),
+        "latest_artifacts_updated": True,
+        "existing_versioned_artifacts_deleted": False,
+        **snapshot_marker,
+    }
     json_text = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
     md_text = render_markdown(payload)
-    atomic_write_text(json_path, json_text)
-    atomic_write_text(md_path, md_text)
+    if snapshot_created:
+        atomic_write_text(json_path, json_text)
+        atomic_write_text(md_path, md_text)
+    else:
+        json_path = latest_json
+        md_path = latest_md
     atomic_write_text(latest_json, json_text)
     atomic_write_text(latest_md, md_text)
     return json_path, md_path
@@ -6059,6 +6432,8 @@ def attach_operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
 
 def cli_summary(payload: dict[str, Any], json_path: Path, md_path: Path) -> dict[str, Any]:
     summary = operator_summary(payload)
+    if isinstance(payload.get("artifact_persistence"), dict):
+        summary["artifact_persistence"] = payload.get("artifact_persistence")
     summary["json_path"] = str(json_path)
     summary["report_path"] = str(md_path)
     return summary
@@ -6070,10 +6445,23 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=DEFAULT_ROUND_LIMIT)
     parser.add_argument("--stale-minutes", type=int, default=DEFAULT_STALE_MINUTES)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument(
+        "--snapshot-minutes",
+        type=int,
+        default=DEFAULT_VERSIONED_SNAPSHOT_INTERVAL_MINUTES,
+        help=(
+            "Minimum heartbeat interval for versioned artifacts; material state "
+            "changes still snapshot immediately and latest artifacts always update."
+        ),
+    )
     args = parser.parse_args()
 
     payload = summarize_watch(args.run_id, limit=args.limit, stale_minutes=args.stale_minutes)
-    json_path, md_path = write_outputs(payload, args.output_dir)
+    json_path, md_path = write_outputs(
+        payload,
+        args.output_dir,
+        min_snapshot_interval_minutes=max(0, args.snapshot_minutes),
+    )
     print(json.dumps(cli_summary(payload, json_path, md_path), ensure_ascii=False))
 
 
