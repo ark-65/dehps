@@ -66,8 +66,9 @@ The latest artifact also carries the last versioned snapshot timestamp and paths
   - exactly one versioned JSON/Markdown pair remained, while latest JSON/Markdown were refreshed.
 - Real output directory at the same `--limit 5` scope: versioned JSON count remained 987 across two calls; both reported `stable_within_interval`, while latest artifacts received the durable last-snapshot marker.
 - Live watchdog sync `sync-20260711-173639`: fetched 1, skipped 1, conflicts 0; evaluation batch accepted 0 due rows and the supervisor remained parked for `2026079`. Its different query-window scope produced one explicit scope snapshot; repeated calls at that scope were then throttled.
-- Post-merge validation: pending.
+- Post-merge `main` commit `fbdfeb3`: watchdog sync `sync-20260711-174505` fetched 1, skipped 1, conflicts 0; no forward rows were due and the supervisor remained parked for `2026079`.
+- Post-merge same-scope artifact count stayed 987 before and after the watchdog plus a direct watcher call. Latest reported `stable_within_interval`, parser/sync passed, unresolved conflicts were 0, historical holdout quarantine remained active, and promotion remained disabled.
 
-## Next verification
+## Acceptance result
 
-After merge, run the real watcher twice inside the interval and verify that the first invocation either records a material transition/heartbeat or safely updates latest, while the second stable invocation does not add a new versioned pair. Then run the watchdog and confirm the supervisor remains parked for `2026079` with all scientific gates unchanged.
+The persistence protocol is accepted for continued operation. The next scientific verification remains the unchanged forward boundary: sync issue `2026079`, evaluate its pre-draw three-line snapshots, and continue accumulating paired unseen issues toward the 20-issue manual-review threshold.
