@@ -75,6 +75,58 @@ with get_connection() as conn:
 PY
 }
 
+next_complete_prediction_issue() {
+  local history_issue="$1"
+  .venv/bin/python - "$history_issue" <<'PY'
+import sys
+from dehps.db import get_connection
+
+history_issue = str(sys.argv[1] or "")
+with get_connection() as conn:
+    table = conn.execute(
+        "SELECT to_regclass('public.training_next_candidates_current')"
+    ).fetchone()
+    if not table or not table[0]:
+        print("")
+        raise SystemExit(0)
+    row = conn.execute(
+        """
+        SELECT next_issue
+        FROM training_next_candidates_current
+        WHERE line_key IN ('static_100', 'dynamic_kdj', 'dynamic_kdj_near')
+          AND next_issue ~ '^[0-9]+$'
+          AND next_issue::BIGINT > %s::BIGINT
+        GROUP BY next_issue
+        HAVING count(DISTINCT line_key) = 3
+        ORDER BY next_issue::BIGINT
+        LIMIT 1
+        """,
+        (history_issue,),
+    ).fetchone()
+print((row and row[0]) or "")
+PY
+}
+
+mark_training_supervisor_waiting() {
+  local pid="$1"
+  local history_issue="$2"
+  local pending_issue
+  pending_issue="$(next_complete_prediction_issue "$history_issue")"
+  if [[ -z "$pending_issue" ]]; then
+    log "cannot mark supervisor waiting: no complete future prediction issue history_issue=${history_issue:-none}"
+    return 1
+  fi
+  if .venv/bin/python scripts/mark_training_supervisor_waiting.py \
+    --expected-pid "$pid" \
+    --history-issue "$history_issue" \
+    --pending-issue "$pending_issue"; then
+    log "marked supervisor waiting pid=$pid history_issue=$history_issue pending_issue=$pending_issue"
+    return 0
+  fi
+  log "failed to mark supervisor waiting pid=$pid history_issue=$history_issue pending_issue=$pending_issue"
+  return 1
+}
+
 refresh_weight_kdj_signals() {
   local latest_issue="$1"
   local signal_issue
@@ -301,6 +353,65 @@ watch_recommends_supervisor_restart() {
   return 1
 }
 
+watch_requests_forward_evidence_wait() {
+  local pid="${1:-}"
+  local watch_file
+  local reason_file
+  local reason
+  local -a guard_args=()
+  watch_file="$(mktemp "$LOG_DIR/training-watch-forward-wait.XXXXXX.json")"
+  reason_file="$(mktemp "$LOG_DIR/training-watch-forward-wait-guard.XXXXXX.txt")"
+  if ! .venv/bin/python scripts/watch_training_progress.py --limit 5 > "$watch_file"; then
+    log "training forward-wait check failed; continuing normal supervisor handling"
+    rm -f "$watch_file" "$reason_file"
+    return 1
+  fi
+  if [[ -n "$pid" ]]; then
+    guard_args+=(--expected-pid "$pid")
+  fi
+  if .venv/bin/python scripts/training_watch_forward_wait_guard.py \
+    "${guard_args[@]}" \
+    < "$watch_file" \
+    > "$reason_file"; then
+    reason="$(tr -d '\n' < "$reason_file")"
+    log "training watch requested forward-evidence wait pid=${pid:-none} reason=${reason:-unknown}"
+    rm -f "$watch_file" "$reason_file"
+    return 0
+  fi
+  reason="$(tr -d '\n' < "$reason_file" 2>/dev/null || true)"
+  log "training watch did not request forward-evidence wait pid=${pid:-none} reason=${reason:-unknown}"
+  rm -f "$watch_file" "$reason_file"
+  return 1
+}
+
+watch_forward_evidence_wait_requested() {
+  local pid="$1"
+  local watch_file
+  local reason_file
+  local reason
+  watch_file="$(mktemp "$LOG_DIR/training-watch-forward-wait-request.XXXXXX.json")"
+  reason_file="$(mktemp "$LOG_DIR/training-watch-forward-wait-request-guard.XXXXXX.txt")"
+  if ! .venv/bin/python scripts/watch_training_progress.py --limit 5 > "$watch_file"; then
+    log "training forward-wait request check failed"
+    rm -f "$watch_file" "$reason_file"
+    return 1
+  fi
+  if .venv/bin/python scripts/training_watch_forward_wait_guard.py \
+    --expected-pid "$pid" \
+    --request-only \
+    < "$watch_file" \
+    > "$reason_file"; then
+    reason="$(tr -d '\n' < "$reason_file")"
+    log "training watch confirmed forward-evidence wait request pid=$pid reason=${reason:-unknown}"
+    rm -f "$watch_file" "$reason_file"
+    return 0
+  fi
+  reason="$(tr -d '\n' < "$reason_file" 2>/dev/null || true)"
+  log "training watch did not confirm forward-evidence wait request pid=$pid reason=${reason:-unknown}"
+  rm -f "$watch_file" "$reason_file"
+  return 1
+}
+
 sync_from_issue="$(latest_db_issue)"
 prediction_snapshot_file="$(mktemp "$LOG_DIR/training-prediction-snapshots.XXXXXX.json")"
 capture_current_prediction_snapshots "$prediction_snapshot_file"
@@ -333,6 +444,23 @@ if [[ -n "$pid" ]]; then
   if is_training_pid_active "$pid"; then
     running_as_of="$(training_pid_as_of_issue "$pid")"
     if [[ "$running_as_of" == "$latest_issue" && "$signal_refresh_needed" == false ]]; then
+      if watch_forward_evidence_wait_requested "$pid"; then
+        log "waiting for the next durable round boundary before parking supervisor pid=$pid"
+        for _ in $(seq 1 90); do
+          if watch_requests_forward_evidence_wait "$pid"; then
+            stop_training_pid "$pid"
+            mark_training_supervisor_waiting "$pid" "$latest_issue"
+            log "training supervisor parked until a new forward issue is synced latest_issue=${latest_issue:-none}"
+            exit 0
+          fi
+          if ! is_training_pid_active "$pid"; then
+            log "training supervisor stopped before forward-wait boundary pid=$pid"
+            break
+          fi
+          sleep 5
+        done
+        log "forward-evidence wait boundary was not reached in time; keeping supervisor pid=$pid"
+      fi
       if watch_recommends_supervisor_restart "$pid"; then
         stop_training_pid "$pid"
       else
@@ -348,6 +476,11 @@ fi
 
 if [[ "$signal_refresh_needed" == true ]]; then
   refresh_weight_kdj_signals "$latest_issue"
+fi
+
+if watch_requests_forward_evidence_wait ""; then
+  log "training supervisor remains parked until a new forward issue is synced latest_issue=${latest_issue:-none}"
+  exit 0
 fi
 
 stamp="$(date +%Y%m%d-%H%M%S)"

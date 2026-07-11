@@ -46,6 +46,8 @@ DEFAULT_SOURCE_SURVIVAL_MIN_GENERATED = 8
 DEFAULT_SOURCE_SURVIVAL_BUDGET_REVIEW_MIN_ROUNDS = 8
 DEFAULT_FORWARD_EVIDENCE_MIN_PAIRED_ISSUES = 20
 DEFAULT_FORWARD_EVIDENCE_ROW_LIMIT = 5000
+DEFAULT_FORWARD_WAIT_REPEAT_STREAK = 4
+FORWARD_WAIT_ACTION = "await_new_forward_issue"
 HOLDOUT_ISOLATION_PROTOCOL = "search_slice_frozen_promotion_v1"
 FORWARD_EVIDENCE_LINE_KEYS = (
     "static_100",
@@ -2350,6 +2352,152 @@ def improvement_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def forward_evidence_wait_summary(
+    *,
+    prefilter: dict[str, Any] | None,
+    forward_evidence: dict[str, Any] | None,
+    round_repetition: dict[str, Any] | None,
+    current_run_stagnation_rounds: int,
+    history_latest_issue: Any,
+    min_repeat_streak: int = DEFAULT_FORWARD_WAIT_REPEAT_STREAK,
+) -> dict[str, Any]:
+    prefilter = prefilter if isinstance(prefilter, dict) else {}
+    forward = forward_evidence if isinstance(forward_evidence, dict) else {}
+    repetition = round_repetition if isinstance(round_repetition, dict) else {}
+    strategy_memory = (
+        prefilter.get("strategy_memory")
+        if isinstance(prefilter.get("strategy_memory"), dict)
+        else {}
+    )
+    selected_experiment = (
+        strategy_memory.get("selected_experiment")
+        if isinstance(strategy_memory.get("selected_experiment"), dict)
+        else {}
+    )
+    sequential_ledger = (
+        prefilter.get("sequential_null_ledger")
+        if isinstance(prefilter.get("sequential_null_ledger"), dict)
+        else {}
+    )
+    if not sequential_ledger:
+        self_diagnostics = (
+            prefilter.get("self_diagnostics")
+            if isinstance(prefilter.get("self_diagnostics"), dict)
+            else {}
+        )
+        signal = (
+            self_diagnostics.get("signal_vs_noise")
+            if isinstance(self_diagnostics.get("signal_vs_noise"), dict)
+            else {}
+        )
+        sequential_ledger = (
+            signal.get("sequential_family")
+            if isinstance(signal.get("sequential_family"), dict)
+            else {}
+        )
+
+    current_issue = str(history_latest_issue or "")
+    pending_snapshots = [
+        item
+        for item in (forward.get("pending_snapshots") or [])
+        if isinstance(item, dict)
+    ]
+    future_complete_snapshots = [
+        item
+        for item in pending_snapshots
+        if item.get("complete_line_set") is True
+        and issue_compare(item.get("predicted_issue"), current_issue) > 0
+    ]
+    next_pending_issue = (
+        min(
+            (str(item.get("predicted_issue")) for item in future_complete_snapshots),
+            key=lambda issue: (safe_int(issue) is None, safe_int(issue) or 0, issue),
+        )
+        if future_complete_snapshots
+        else None
+    )
+    safe_min_repeat_streak = max(1, safe_int(min_repeat_streak) or 1)
+    config_repeat_streak = safe_int(repetition.get("latest_config_repeat_streak")) or 0
+    metric_repeat_streak = safe_int(repetition.get("latest_metric_repeat_streak")) or 0
+    safe_current_stagnation = max(0, safe_int(current_run_stagnation_rounds) or 0)
+    paired_issue_count = max(0, safe_int(forward.get("paired_issue_count")) or 0)
+    min_paired_issues = positive_int_or_default(
+        forward.get("min_paired_issues"),
+        default=DEFAULT_FORWARD_EVIDENCE_MIN_PAIRED_ISSUES,
+    )
+
+    blockers: list[str] = []
+    if selected_experiment.get("key") != "null_model_forward_audit":
+        blockers.append("strategy_not_waiting_for_forward_null_audit")
+    if forward.get("status") not in {"not_started", "accumulating"}:
+        blockers.append("forward_evidence_not_waiting")
+    if paired_issue_count >= min_paired_issues:
+        blockers.append("forward_review_window_complete")
+    if not future_complete_snapshots:
+        blockers.append("no_complete_future_prediction_snapshot")
+    if repetition.get("active") is not True:
+        blockers.append("round_repetition_not_active")
+    if config_repeat_streak < safe_min_repeat_streak:
+        blockers.append("config_repeat_streak_below_wait_threshold")
+    if metric_repeat_streak < safe_min_repeat_streak:
+        blockers.append("metric_repeat_streak_below_wait_threshold")
+    if safe_current_stagnation < safe_min_repeat_streak:
+        blockers.append("current_run_stagnation_below_wait_threshold")
+    if not sequential_ledger:
+        blockers.append("sequential_null_ledger_missing")
+    elif sequential_ledger.get("adaptive_hypothesis_generation_counted") is not False:
+        blockers.append("adaptive_search_risk_not_explicit")
+    elif sequential_ledger.get("sequential_search_multiplicity_counted") is not False:
+        blockers.append("sequential_search_risk_not_explicit")
+    if sequential_ledger.get("selection_changed") is not False:
+        blockers.append("sequential_ledger_selection_state_not_safe")
+    if sequential_ledger.get("promotion_allowed") is not False:
+        blockers.append("sequential_ledger_promotion_state_not_safe")
+
+    ready = not blockers
+    return {
+        "protocol": "dehps-forward-evidence-wait-v1",
+        "status": "awaiting_new_forward_issue" if ready else "continue_training",
+        "ready": ready,
+        "action": "park_same_history_training" if ready else "continue_current_training",
+        "reason": (
+            "same_history_repetition_with_complete_future_snapshot"
+            if ready
+            else "forward_wait_preconditions_incomplete"
+        ),
+        "history_latest_issue": current_issue or None,
+        "next_pending_issue": next_pending_issue,
+        "paired_issue_count": paired_issue_count,
+        "min_paired_issues": min_paired_issues,
+        "selected_experiment": selected_experiment.get("key"),
+        "config_repeat_streak": config_repeat_streak,
+        "metric_repeat_streak": metric_repeat_streak,
+        "current_run_stagnation_rounds": safe_current_stagnation,
+        "min_repeat_streak": safe_min_repeat_streak,
+        "observed_familywise_hypothesis_count": safe_int(
+            sequential_ledger.get("observed_familywise_hypothesis_count")
+        ),
+        "legacy_uncounted_round_count": safe_int(
+            sequential_ledger.get("legacy_uncounted_round_count")
+        ),
+        "adaptive_hypothesis_generation_counted": sequential_ledger.get(
+            "adaptive_hypothesis_generation_counted"
+        ),
+        "sequential_search_multiplicity_counted": sequential_ledger.get(
+            "sequential_search_multiplicity_counted"
+        ),
+        "selection_changed": sequential_ledger.get("selection_changed"),
+        "promotion_allowed": sequential_ledger.get("promotion_allowed"),
+        "resume_condition": "history_latest_issue_reaches_pending_issue",
+        "blockers": blockers,
+        "interpretation": (
+            "A completed future prediction snapshot already exists. Repeating the same historical "
+            "surface adds adaptive tests but no forward observation, so the supervisor may park at "
+            "a durable round boundary and resume after the pending issue is synced."
+        ),
+    }
+
+
 def recommendation_summary(
     *,
     rows: list[dict[str, Any]],
@@ -2363,6 +2511,7 @@ def recommendation_summary(
     round_repetition: dict[str, Any] | None = None,
     advisor_signal_freshness: dict[str, Any] | None = None,
     forward_evidence: dict[str, Any] | None = None,
+    forward_wait: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not rows:
         return {
@@ -2463,7 +2612,21 @@ def recommendation_summary(
         stagnation_rounds > current_run_stagnation_rounds
         and current_run_stagnation_rounds < DEFAULT_SOURCE_SURVIVAL_MIN_ROUNDS
     )
-    if stagnation_rounds >= 32 and guard_continuity_observation_pending:
+    forward_wait = forward_wait if isinstance(forward_wait, dict) else {}
+    if forward_wait.get("ready") is True:
+        severity = "warn" if severity == "ok" else severity
+        actions.append(FORWARD_WAIT_ACTION)
+        notes.append(
+            "Same-history search is evidence-limited: "
+            f"experiment={forward_wait.get('selected_experiment')} "
+            f"repeat={forward_wait.get('config_repeat_streak')}/"
+            f"{forward_wait.get('metric_repeat_streak')} "
+            f"observed_family={forward_wait.get('observed_familywise_hypothesis_count')} "
+            f"history={forward_wait.get('history_latest_issue')} "
+            f"pending={forward_wait.get('next_pending_issue')}. "
+            "Park at a durable round boundary and resume only after the pending issue is synced."
+        )
+    elif stagnation_rounds >= 32 and guard_continuity_observation_pending:
         severity = "warn" if severity == "ok" else severity
         actions.append("watch_stagnation_recovery")
         notes.append(
@@ -3302,6 +3465,17 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
             "status": "invalid",
             "blockers": ["forward_evidence_db_read_failed"],
         }
+    forward_wait = forward_evidence_wait_summary(
+        prefilter=prefilter,
+        forward_evidence=forward_evidence,
+        round_repetition=round_repetition,
+        current_run_stagnation_rounds=(
+            safe_int(round_stats.get("current_run_stagnation_rounds"))
+            or safe_int(round_stats.get("stagnation_rounds"))
+            or 0
+        ),
+        history_latest_issue=parser_sync_duplicate_checks.get("history_latest_issue"),
+    )
     recommendation = recommendation_summary(
         rows=rows,
         lock=lock,
@@ -3314,6 +3488,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         round_repetition=round_repetition,
         advisor_signal_freshness=advisor_signal_freshness,
         forward_evidence=forward_evidence,
+        forward_wait=forward_wait,
     )
     if db_read_errors:
         actions = [
@@ -3375,6 +3550,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         "candidate_source_survival": candidate_source_survival,
         "line_progress": line_progress,
         "forward_evidence": forward_evidence,
+        "forward_wait": forward_wait,
         "advisor_summary": advisors,
         "advisor_signal_freshness": advisor_signal_freshness,
         "gate_summary": gates,
@@ -3504,6 +3680,35 @@ def render_forward_evidence_markdown(forward_evidence: Any) -> str:
         "| --- | ---: | ---: | ---: |\n"
         f"{line_rows}\n\n"
         f"Interpretation: {markdown_inline_text(forward_evidence.get('interpretation'))}\n\n"
+    )
+
+
+def render_forward_wait_markdown(forward_wait: Any) -> str:
+    if not isinstance(forward_wait, dict):
+        return ""
+    return (
+        "## Forward Evidence Wait Gate\n\n"
+        f"- Status/action: {markdown_inline_code(forward_wait.get('status'))} / "
+        f"{markdown_inline_code(forward_wait.get('action'))}\n"
+        "- History/pending issue: "
+        f"{markdown_inline_text(forward_wait.get('history_latest_issue'))} / "
+        f"{markdown_inline_text(forward_wait.get('next_pending_issue'))}\n"
+        "- Repetition/stagnation: "
+        f"config={forward_wait.get('config_repeat_streak')} "
+        f"metrics={forward_wait.get('metric_repeat_streak')} "
+        f"current_run={forward_wait.get('current_run_stagnation_rounds')} "
+        f"threshold={forward_wait.get('min_repeat_streak')}\n"
+        "- Sequential observed family/legacy: "
+        f"{forward_wait.get('observed_familywise_hypothesis_count')} / "
+        f"{forward_wait.get('legacy_uncounted_round_count')}\n"
+        "- Safety: "
+        f"selection_changed={forward_wait.get('selection_changed')} "
+        f"promotion_allowed={forward_wait.get('promotion_allowed')} "
+        f"adaptive_counted={forward_wait.get('adaptive_hypothesis_generation_counted')} "
+        f"sequential_counted={forward_wait.get('sequential_search_multiplicity_counted')}\n"
+        f"- Resume condition: {markdown_inline_text(forward_wait.get('resume_condition'))}\n"
+        f"- Blockers: {markdown_inline_text(compact_inline_list(forward_wait.get('blockers')))}\n"
+        f"- Interpretation: {markdown_inline_text(forward_wait.get('interpretation'))}\n\n"
     )
 
 
@@ -3922,6 +4127,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
     forward_evidence_section = render_forward_evidence_markdown(
         payload.get("forward_evidence")
     )
+    forward_wait_section = render_forward_wait_markdown(payload.get("forward_wait"))
     round_repetition_section = render_round_repetition_markdown(
         payload.get("round_repetition")
     )
@@ -4139,6 +4345,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
 {candidate_source_survival_section}\
 {line_progress_section}\
 {forward_evidence_section}\
+{forward_wait_section}\
 {restart_section}\
 {supervisor_section}\
 {evidence_section}\
@@ -4421,6 +4628,77 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "line_totals": forward_evidence.get("line_totals") or {},
             "comparison": forward_evidence.get("comparison") or {},
             "exact_random_null": forward_evidence.get("exact_random_null") or {},
+        }
+    forward_wait = (
+        payload.get("forward_wait")
+        if isinstance(payload.get("forward_wait"), dict)
+        else {}
+    )
+    if forward_wait:
+        summary["forward_wait"] = {
+            "status": forward_wait.get("status"),
+            "ready": forward_wait.get("ready"),
+            "action": forward_wait.get("action"),
+            "history_latest_issue": forward_wait.get("history_latest_issue"),
+            "next_pending_issue": forward_wait.get("next_pending_issue"),
+            "config_repeat_streak": forward_wait.get("config_repeat_streak"),
+            "metric_repeat_streak": forward_wait.get("metric_repeat_streak"),
+            "current_run_stagnation_rounds": forward_wait.get(
+                "current_run_stagnation_rounds"
+            ),
+            "observed_familywise_hypothesis_count": forward_wait.get(
+                "observed_familywise_hypothesis_count"
+            ),
+            "legacy_uncounted_round_count": forward_wait.get(
+                "legacy_uncounted_round_count"
+            ),
+            "adaptive_hypothesis_generation_counted": forward_wait.get(
+                "adaptive_hypothesis_generation_counted"
+            ),
+            "sequential_search_multiplicity_counted": forward_wait.get(
+                "sequential_search_multiplicity_counted"
+            ),
+            "selection_changed": forward_wait.get("selection_changed"),
+            "promotion_allowed": forward_wait.get("promotion_allowed"),
+            "resume_condition": forward_wait.get("resume_condition"),
+            "blockers": forward_wait.get("blockers") or [],
+        }
+    supervisor_status = (
+        payload.get("supervisor_status")
+        if isinstance(payload.get("supervisor_status"), dict)
+        else {}
+    )
+    if supervisor_status:
+        progress = (
+            supervisor_status.get("latest_progress")
+            if isinstance(supervisor_status.get("latest_progress"), dict)
+            else {}
+        )
+        summary["supervisor_status"] = {
+            "available": supervisor_status.get("available"),
+            "run_id": supervisor_status.get("run_id"),
+            "status": supervisor_status.get("status"),
+            "pid": supervisor_status.get("pid"),
+            "run_mode": supervisor_status.get("run_mode"),
+            "latest_progress": {
+                "round": progress.get("round"),
+                "target_index": progress.get("target_index"),
+                "target_total": progress.get("target_total"),
+                "target_complete": progress.get("target_complete"),
+                "fresh": progress.get("fresh"),
+            },
+        }
+    heavy_job_lock = (
+        payload.get("heavy_job_lock")
+        if isinstance(payload.get("heavy_job_lock"), dict)
+        else {}
+    )
+    if heavy_job_lock:
+        summary["heavy_job_lock"] = {
+            "active": heavy_job_lock.get("active"),
+            "owner": heavy_job_lock.get("owner"),
+            "pid": heavy_job_lock.get("pid"),
+            "heartbeat_age_minutes": heavy_job_lock.get("heartbeat_age_minutes"),
         }
     round_repetition = (
         payload.get("round_repetition")
