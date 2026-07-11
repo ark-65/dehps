@@ -22,7 +22,21 @@ from dehps.optimization.prediction_evaluation import (
 )
 
 
-def main() -> None:
+def prediction_evaluation_succeeded(payload: object) -> bool:
+    if not isinstance(payload, dict) or payload.get("status") != "evaluated":
+        return False
+    summary = payload.get("summary")
+    candidate_count = int(payload.get("candidate_count") or 0)
+    top_n = int(payload.get("top_n") or 0)
+    return (
+        isinstance(summary, dict)
+        and summary.get("leakage_passed") is True
+        and top_n > 0
+        and candidate_count == top_n
+    )
+
+
+def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluate a current training prediction snapshot after SSQ sync.")
     parser.add_argument("--issue", required=True, help="Actual issue to evaluate after it exists in ssq_history.")
     parser.add_argument(
@@ -49,7 +63,16 @@ def main() -> None:
         if args.line_key == NEAR_DYNAMIC_KDJ_LINE_KEY and not args.no_write_report:
             payload["near_dynamic_report"] = write_near_dynamic_line_report(conn)
     print(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+    if not prediction_evaluation_succeeded(payload):
+        print(
+            "prediction_evaluation_not_accepted:"
+            f"status={payload.get('status')}:"
+            f"leakage_passed={(payload.get('summary') or {}).get('leakage_passed')}",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

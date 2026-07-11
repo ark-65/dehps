@@ -183,7 +183,10 @@ try:
             with conn.cursor() as cur:
                 rows = cur.execute(
                     """
-                    SELECT line_key, next_issue, snapshot_key, as_of_issue
+                    SELECT line_key, next_issue, snapshot_key, as_of_issue,
+                           min(top_n) AS min_top_n,
+                           max(top_n) AS max_top_n,
+                           count(*) AS candidate_count
                     FROM training_next_candidates_current
                     WHERE line_key IN ('static_100', 'dynamic_kdj', 'dynamic_kdj_near')
                     GROUP BY line_key, next_issue, snapshot_key, as_of_issue
@@ -198,6 +201,8 @@ payload = [
         "next_issue": str(row[1]),
         "snapshot_key": str(row[2]),
         "as_of_issue": str(row[3]),
+        "top_n": int(row[4]) if row[4] == row[5] else None,
+        "candidate_count": int(row[6]),
     }
     for row in rows
 ]
@@ -246,45 +251,43 @@ evaluate_synced_predictions_if_needed() {
   local prediction_snapshot_file="$4"
   local changed_count
   local sync_latest_issue
+  local evaluation_plan_file
+  local evaluation_count=0
+  local evaluation_failed=false
   changed_count="$(sync_changed_draw_count "$sync_output_file")"
   sync_latest_issue="$(sync_latest_draw_issue "$sync_output_file")"
   if [[ "$changed_count" == "0" && "${previous_issue:-}" == "${current_issue:-}" ]]; then
     log "prediction evaluation skipped changed_count=$changed_count sync_latest_issue=${sync_latest_issue:-none}"
     return 0
   fi
-  while IFS=$'\t' read -r line_key next_issue snapshot_key; do
+  evaluation_plan_file="$(mktemp "$LOG_DIR/training-forward-evaluation-plan.XXXXXX.tsv")"
+  if ! .venv/bin/python scripts/plan_synced_prediction_evaluations.py \
+    --snapshot-file "$prediction_snapshot_file" \
+    --previous-issue "$previous_issue" \
+    --current-issue "$current_issue" \
+    > "$evaluation_plan_file"; then
+    log "forward prediction evaluation plan rejected; refusing advisor refresh or supervisor start"
+    rm -f "$evaluation_plan_file"
+    return 1
+  fi
+  while IFS=$'\t' read -r line_key next_issue snapshot_key as_of_issue; do
     [[ -n "${line_key:-}" && -n "${next_issue:-}" && -n "${snapshot_key:-}" ]] || continue
-    if [[ "$next_issue" =~ ^[0-9]+$ && "$current_issue" =~ ^[0-9]+$ && "$next_issue" -gt "$current_issue" ]]; then
-      continue
-    fi
-    log "evaluating prediction line=$line_key issue=$next_issue snapshot=$snapshot_key changed_count=$changed_count previous_issue=${previous_issue:-none} current_issue=${current_issue:-none}"
+    evaluation_count=$((evaluation_count + 1))
+    log "evaluating prediction line=$line_key issue=$next_issue snapshot=$snapshot_key as_of_issue=$as_of_issue changed_count=$changed_count previous_issue=${previous_issue:-none} current_issue=${current_issue:-none}"
     if .venv/bin/python scripts/evaluate_training_prediction.py --line-key "$line_key" --issue "$next_issue" --snapshot-key "$snapshot_key"; then
       log "prediction evaluation completed line=$line_key issue=$next_issue"
     else
       log "prediction evaluation failed line=$line_key issue=$next_issue"
+      evaluation_failed=true
     fi
-  done < <(
-    .venv/bin/python - "$prediction_snapshot_file" <<'PY'
-import json
-import sys
-from dehps.db import get_connection
-
-try:
-    snapshots = json.load(open(sys.argv[1], encoding="utf-8"))
-except Exception:
-    snapshots = []
-with get_connection() as conn:
-    for snapshot in snapshots:
-        line_key = str(snapshot.get("line_key") or "")
-        next_issue = str(snapshot.get("next_issue") or "")
-        snapshot_key = str(snapshot.get("snapshot_key") or "")
-        if line_key not in {"static_100", "dynamic_kdj", "dynamic_kdj_near"} or not next_issue or not snapshot_key:
-            continue
-        row = conn.execute("SELECT 1 FROM ssq_history WHERE issue = %s LIMIT 1", (next_issue,)).fetchone()
-        if row:
-            print("\t".join((line_key, next_issue, snapshot_key)))
-PY
-  )
+  done < "$evaluation_plan_file"
+  rm -f "$evaluation_plan_file"
+  if [[ "$evaluation_failed" == true ]]; then
+    log "forward prediction evaluation batch failed count=$evaluation_count; refusing advisor refresh or supervisor start"
+    return 1
+  fi
+  log "forward prediction evaluation batch accepted count=$evaluation_count"
+  return 0
 }
 
 training_pid_as_of_issue() {
@@ -425,7 +428,12 @@ else
 fi
 
 latest_issue="$(latest_db_issue)"
-evaluate_synced_predictions_if_needed "$sync_output_file" "$sync_from_issue" "$latest_issue" "$prediction_snapshot_file"
+if ! evaluate_synced_predictions_if_needed "$sync_output_file" "$sync_from_issue" "$latest_issue" "$prediction_snapshot_file"; then
+  rm -f "$sync_output_file"
+  rm -f "$prediction_snapshot_file"
+  log "forward prediction evaluation did not complete safely; watchdog stopping fail closed"
+  exit 1
+fi
 rm -f "$sync_output_file"
 rm -f "$prediction_snapshot_file"
 signal_issue="$(latest_weight_kdj_signal_issue)"

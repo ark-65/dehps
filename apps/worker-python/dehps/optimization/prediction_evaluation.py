@@ -172,6 +172,7 @@ def _base_payload(
         "hit_red5_top_1000": False,
         "hit_red5_top_10000": False,
         "candidate_count": 0,
+        "top_n": None,
         "snapshot_generated_at": None,
         "status": status,
         "summary": {},
@@ -219,6 +220,7 @@ def evaluate_prediction_snapshot(
                     "source_round_index": first.get("source_round_index"),
                     "as_of_issue": first.get("as_of_issue"),
                     "candidate_count": len(rows),
+                    "top_n": first.get("top_n"),
                     "snapshot_generated_at": first.get("generated_at"),
                     "prediction_metadata": first.get("prediction_metadata")
                     if isinstance(first.get("prediction_metadata"), dict)
@@ -260,6 +262,7 @@ def evaluate_prediction_snapshot(
             "actual_red_numbers": list(actual.get("red_numbers") or []),
             "actual_blue_number": actual.get("blue_number"),
             "candidate_count": len(rows),
+            "top_n": first.get("top_n"),
             "snapshot_generated_at": first.get("generated_at"),
             "prediction_metadata": first.get("prediction_metadata") if isinstance(first.get("prediction_metadata"), dict) else {},
         }
