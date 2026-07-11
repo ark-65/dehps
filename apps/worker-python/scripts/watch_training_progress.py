@@ -746,6 +746,183 @@ def summarize_candidate_source_survival(
     }
 
 
+def sequential_null_audit_summary(prefilter: dict[str, Any] | None) -> dict[str, Any]:
+    prefilter = prefilter if isinstance(prefilter, dict) else {}
+    self_diagnostics = (
+        prefilter.get("self_diagnostics")
+        if isinstance(prefilter.get("self_diagnostics"), dict)
+        else {}
+    )
+    signal = (
+        self_diagnostics.get("signal_vs_noise")
+        if isinstance(self_diagnostics.get("signal_vs_noise"), dict)
+        else {}
+    )
+    ledger = (
+        prefilter.get("sequential_null_ledger")
+        if isinstance(prefilter.get("sequential_null_ledger"), dict)
+        else {}
+    )
+    if not ledger and isinstance(signal.get("sequential_family"), dict):
+        ledger = signal.get("sequential_family") or {}
+    if not ledger:
+        return {
+            "status": "not_available",
+            "action": "wait_for_sequential_null_ledger",
+            "candidate_signal_interpretable": False,
+            "automatic_promotion_allowed": False,
+            "blockers": ["sequential_null_ledger_missing"],
+        }
+
+    total_rounds = max(0, safe_int(ledger.get("total_round_count")) or 0)
+    observed_rounds = max(
+        0,
+        safe_int(ledger.get("observed_diagnostic_round_count")) or 0,
+    )
+    legacy_rounds = max(
+        0,
+        safe_int(ledger.get("legacy_uncounted_round_count")) or 0,
+    )
+    candidate_tests = max(
+        0,
+        safe_int(ledger.get("observed_candidate_hypothesis_count")) or 0,
+    )
+    tested_bands = max(0, safe_int(ledger.get("tested_band_count")) or 0)
+    observed_family = max(
+        0,
+        safe_int(ledger.get("observed_familywise_hypothesis_count")) or 0,
+    )
+    round_partition_consistent = observed_rounds + legacy_rounds == total_rounds
+    observed_family_consistent = (
+        candidate_tests > 0
+        and tested_bands > 0
+        and candidate_tests * tested_bands == observed_family
+    )
+    count_bounds_valid = bool(
+        total_rounds > 0
+        and observed_rounds <= total_rounds
+        and legacy_rounds <= total_rounds
+    )
+    invariants_passed = bool(
+        round_partition_consistent
+        and observed_family_consistent
+        and count_bounds_valid
+    )
+    observed_round_coverage_ratio = (
+        round(observed_rounds / total_rounds, 6) if total_rounds else None
+    )
+    legacy_round_gap_ratio = (
+        round(legacy_rounds / total_rounds, 6) if total_rounds else None
+    )
+
+    adaptive_counted = ledger.get("adaptive_hypothesis_generation_counted") is True
+    sequential_counted = ledger.get("sequential_search_multiplicity_counted") is True
+    observed_round_family_complete = (
+        ledger.get("observed_round_family_complete") is True and legacy_rounds == 0
+    )
+    full_family_complete = bool(
+        invariants_passed
+        and observed_round_family_complete
+        and adaptive_counted
+        and sequential_counted
+    )
+    strongest_band = (
+        signal.get("strongest_band")
+        if isinstance(signal.get("strongest_band"), dict)
+        else {}
+    )
+    strongest_band_summary = {
+        key: strongest_band.get(key)
+        for key in (
+            "label",
+            "cutoff",
+            "hits",
+            "trials",
+            "expected_hits",
+            "lift_vs_null",
+            "binomial_tail_p_value",
+            "bonferroni_adjusted_p_value",
+            "sequential_observed_bonferroni_adjusted_p_value",
+        )
+        if strongest_band.get(key) is not None
+    }
+
+    blockers: list[str] = []
+    if not count_bounds_valid:
+        blockers.append("ledger_count_bounds_invalid")
+    if not round_partition_consistent:
+        blockers.append("round_partition_inconsistent")
+    if not observed_family_consistent:
+        blockers.append("observed_family_product_inconsistent")
+    if legacy_rounds > 0:
+        blockers.append("legacy_rounds_unaccounted")
+    if not adaptive_counted:
+        blockers.append("adaptive_hypothesis_generation_unaccounted")
+    if not sequential_counted:
+        blockers.append("sequential_search_multiplicity_incomplete")
+    if signal.get("overfit_guard_active") is True:
+        blockers.append("eval_slice_overfit_guard_active")
+    forward_evaluated_count = max(
+        0,
+        safe_int(signal.get("forward_evaluated_count")) or 0,
+    )
+    if forward_evaluated_count <= 0:
+        blockers.append("no_forward_evaluation")
+
+    if not invariants_passed:
+        status = "invalid"
+        action = "inspect_sequential_null_ledger"
+    elif not full_family_complete:
+        status = "incomplete_observed_lower_bound"
+        action = "keep_noise_risk_and_wait_forward_evidence"
+    else:
+        status = "complete_registered_family"
+        action = "review_registered_family_without_automatic_promotion"
+    candidate_signal_interpretable = bool(
+        full_family_complete
+        and signal.get("status") == "candidate_signal"
+        and signal.get("overfit_guard_active") is not True
+    )
+    return {
+        "protocol": "dehps-sequential-null-audit-v1",
+        "status": status,
+        "action": action,
+        "ledger_protocol": ledger.get("protocol"),
+        "ledger_mode": ledger.get("mode"),
+        "total_round_count": total_rounds,
+        "observed_diagnostic_round_count": observed_rounds,
+        "legacy_uncounted_round_count": legacy_rounds,
+        "observed_round_coverage_ratio": observed_round_coverage_ratio,
+        "legacy_round_gap_ratio": legacy_round_gap_ratio,
+        "observed_candidate_hypothesis_count": candidate_tests,
+        "tested_band_count": tested_bands,
+        "observed_familywise_hypothesis_count": observed_family,
+        "round_partition_consistent": round_partition_consistent,
+        "observed_family_consistent": observed_family_consistent,
+        "count_bounds_valid": count_bounds_valid,
+        "invariants_passed": invariants_passed,
+        "observed_round_family_complete": observed_round_family_complete,
+        "adaptive_hypothesis_generation_counted": adaptive_counted,
+        "sequential_search_multiplicity_counted": sequential_counted,
+        "full_family_complete": full_family_complete,
+        "signal_status": signal.get("status"),
+        "familywise_method": signal.get("familywise_method"),
+        "sequential_family_method": signal.get("sequential_family_method"),
+        "familywise_alpha": signal.get("familywise_alpha"),
+        "strongest_band": strongest_band_summary,
+        "forward_evaluated_count": forward_evaluated_count,
+        "candidate_signal_interpretable": candidate_signal_interpretable,
+        "selection_changed": False,
+        "automatic_promotion_allowed": False,
+        "blockers": blockers,
+        "interpretation": (
+            "The candidate-by-band count is an observed same-history lower bound only. "
+            "Coverage, legacy gaps, and arithmetic invariants are explicit; uncounted adaptive "
+            "generation or sequential reuse keeps historical signal interpretation disabled."
+        ),
+    }
+
+
 def random_null_expectation_summary(
     supervisor_status: dict[str, Any],
     *,
@@ -3532,6 +3709,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
     candidate_source_survival = summarize_candidate_source_survival(rows)
     latest = rows[-1] if rows else {}
     prefilter = latest.get("prefilter") if isinstance(latest.get("prefilter"), dict) else {}
+    sequential_null_audit = sequential_null_audit_summary(prefilter)
     round_stats, guard_continuity = apply_guard_continuity_to_round_stats(
         round_stats,
         prefilter,
@@ -3645,6 +3823,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         "candidate_budget": prefilter.get("candidate_budget") if isinstance(prefilter.get("candidate_budget"), dict) else {},
         "round_repetition": round_repetition,
         "candidate_source_survival": candidate_source_survival,
+        "sequential_null_audit": sequential_null_audit,
         "line_progress": line_progress,
         "forward_evidence": forward_evidence,
         "forward_wait": forward_wait,
@@ -3930,6 +4109,53 @@ def render_candidate_source_survival_markdown(summary: Any) -> str:
         "| Source | Generated rounds | Generated | Prefilter selected | Selection rate | Full-eval Top5 | Round best | Frozen frontier | Diagnostic-only frozen | Guarded navigation | Search navigation | State |\n"
         "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n"
         f"{rows}\n\n"
+        f"- Interpretation: {markdown_inline_text(summary.get('interpretation'))}\n\n"
+    )
+
+
+def render_sequential_null_audit_markdown(summary: Any) -> str:
+    if not isinstance(summary, dict) or summary.get("status") == "not_available":
+        return ""
+    strongest = (
+        summary.get("strongest_band")
+        if isinstance(summary.get("strongest_band"), dict)
+        else {}
+    )
+    return (
+        "## Sequential Null Ledger Audit\n\n"
+        "- Status/action: "
+        f"{markdown_inline_text(summary.get('status'))} / "
+        f"{markdown_inline_text(summary.get('action'))}\n"
+        "- Round coverage: "
+        f"observed={summary.get('observed_diagnostic_round_count')}/"
+        f"{summary.get('total_round_count')} "
+        f"coverage={summary.get('observed_round_coverage_ratio')} "
+        f"legacy={summary.get('legacy_uncounted_round_count')} "
+        f"legacy_gap={summary.get('legacy_round_gap_ratio')}\n"
+        "- Observed family: "
+        f"candidates={summary.get('observed_candidate_hypothesis_count')} "
+        f"bands={summary.get('tested_band_count')} "
+        f"family={summary.get('observed_familywise_hypothesis_count')} "
+        f"partition_ok={summary.get('round_partition_consistent')} "
+        f"family_product_ok={summary.get('observed_family_consistent')}\n"
+        "- Completeness: "
+        f"observed_rounds={summary.get('observed_round_family_complete')} "
+        f"adaptive={summary.get('adaptive_hypothesis_generation_counted')} "
+        f"sequential={summary.get('sequential_search_multiplicity_counted')} "
+        f"full={summary.get('full_family_complete')}\n"
+        "- Strongest observed band: "
+        f"label={markdown_inline_text(strongest.get('label'))} "
+        f"hits/trials={strongest.get('hits')}/{strongest.get('trials')} "
+        f"raw_p={strongest.get('binomial_tail_p_value')} "
+        f"round_family_p={strongest.get('bonferroni_adjusted_p_value')} "
+        f"observed_sequential_p="
+        f"{strongest.get('sequential_observed_bonferroni_adjusted_p_value')}\n"
+        "- Safety: "
+        f"signal_status={markdown_inline_text(summary.get('signal_status'))} "
+        f"signal_interpretable={summary.get('candidate_signal_interpretable')} "
+        f"selection_changed={summary.get('selection_changed')} "
+        f"automatic_promotion={summary.get('automatic_promotion_allowed')}\n"
+        f"- Blockers: {markdown_inline_text(compact_inline_list(summary.get('blockers')))}\n"
         f"- Interpretation: {markdown_inline_text(summary.get('interpretation'))}\n\n"
     )
 
@@ -4283,6 +4509,9 @@ def render_markdown(payload: dict[str, Any]) -> str:
     candidate_source_survival_section = render_candidate_source_survival_markdown(
         payload.get("candidate_source_survival")
     )
+    sequential_null_audit_section = render_sequential_null_audit_markdown(
+        payload.get("sequential_null_audit")
+    )
     supervisor_status = (
         payload.get("supervisor_status")
         if isinstance(payload.get("supervisor_status"), dict)
@@ -4492,6 +4721,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
 {gate_section}\
 {round_repetition_section}\
 {candidate_source_survival_section}\
+{sequential_null_audit_section}\
 {line_progress_section}\
 {forward_evidence_section}\
 {forward_wait_section}\
@@ -4989,6 +5219,60 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "zero_top5_sources": candidate_source_survival.get("zero_top5_sources") or [],
             "sources": candidate_source_survival.get("sources") or {},
             "interpretation": candidate_source_survival.get("interpretation"),
+        }
+    sequential_null_audit = (
+        payload.get("sequential_null_audit")
+        if isinstance(payload.get("sequential_null_audit"), dict)
+        else {}
+    )
+    if sequential_null_audit:
+        summary["sequential_null_audit"] = {
+            "status": sequential_null_audit.get("status"),
+            "action": sequential_null_audit.get("action"),
+            "total_round_count": sequential_null_audit.get("total_round_count"),
+            "observed_diagnostic_round_count": sequential_null_audit.get(
+                "observed_diagnostic_round_count"
+            ),
+            "legacy_uncounted_round_count": sequential_null_audit.get(
+                "legacy_uncounted_round_count"
+            ),
+            "observed_round_coverage_ratio": sequential_null_audit.get(
+                "observed_round_coverage_ratio"
+            ),
+            "legacy_round_gap_ratio": sequential_null_audit.get(
+                "legacy_round_gap_ratio"
+            ),
+            "observed_candidate_hypothesis_count": sequential_null_audit.get(
+                "observed_candidate_hypothesis_count"
+            ),
+            "tested_band_count": sequential_null_audit.get("tested_band_count"),
+            "observed_familywise_hypothesis_count": sequential_null_audit.get(
+                "observed_familywise_hypothesis_count"
+            ),
+            "invariants_passed": sequential_null_audit.get("invariants_passed"),
+            "full_family_complete": sequential_null_audit.get(
+                "full_family_complete"
+            ),
+            "adaptive_hypothesis_generation_counted": sequential_null_audit.get(
+                "adaptive_hypothesis_generation_counted"
+            ),
+            "sequential_search_multiplicity_counted": sequential_null_audit.get(
+                "sequential_search_multiplicity_counted"
+            ),
+            "signal_status": sequential_null_audit.get("signal_status"),
+            "strongest_band": sequential_null_audit.get("strongest_band") or {},
+            "forward_evaluated_count": sequential_null_audit.get(
+                "forward_evaluated_count"
+            ),
+            "candidate_signal_interpretable": sequential_null_audit.get(
+                "candidate_signal_interpretable"
+            ),
+            "selection_changed": sequential_null_audit.get("selection_changed"),
+            "automatic_promotion_allowed": sequential_null_audit.get(
+                "automatic_promotion_allowed"
+            ),
+            "blockers": sequential_null_audit.get("blockers") or [],
+            "interpretation": sequential_null_audit.get("interpretation"),
         }
     advisor_freshness = (
         payload.get("advisor_signal_freshness")
