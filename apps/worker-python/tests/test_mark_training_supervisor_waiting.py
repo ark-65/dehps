@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 
 import pytest
 
+from dehps.runtime.heavy_job import HeavyJobLockError
 from scripts.mark_training_supervisor_waiting import (
     find_status_path,
     main,
+    sync_waiting_heavy_job_metadata,
     update_waiting_report,
     waiting_status_payload,
 )
@@ -162,3 +165,88 @@ def test_main_marks_supervisor_and_stopped_heavy_job_waiting(tmp_path, monkeypat
     report = report_path.read_text(encoding="utf-8")
     assert "- Updated at: " + supervisor["updated_at"] in report
     assert "- Status: waiting_for_forward_issue" in report
+
+
+def test_main_preserves_other_inactive_heavy_job_and_updates_parked_report(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    parked_pid = 999_999_999
+    later_inactive_pid = 888_888_888
+    output_dir = tmp_path / "optimization"
+    output_dir.mkdir()
+    status_path = output_dir / "training-supervisor-run-1.json"
+    report_path = output_dir / "training-supervisor-run-1.md"
+    report_path.write_text(
+        "# DEHPS 24h Training Supervisor Report\n\n"
+        "- Updated at: 2026-07-11T13:58:50\n"
+        "- Status: running\n",
+        encoding="utf-8",
+    )
+    initial_status = running_status(parked_pid)
+    initial_status["report_path"] = str(report_path)
+    status_path.write_text(json.dumps(initial_status), encoding="utf-8")
+    lock_path = tmp_path / "dehps-heavy-job.lock"
+    metadata_path = lock_path.with_name(f"{lock_path.name}.json")
+    later_metadata = {
+        "owner": "training-supervisor",
+        "pid": later_inactive_pid,
+        "status": "interrupted",
+        "context": {"interruption_reason": "later_same_history_probe"},
+    }
+    metadata_path.write_text(json.dumps(later_metadata), encoding="utf-8")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "mark_training_supervisor_waiting.py",
+            "--expected-pid",
+            str(parked_pid),
+            "--history-issue",
+            "2026078",
+            "--pending-issue",
+            "2026079",
+            "--output-dir",
+            str(output_dir),
+            "--heavy-job-lock-path",
+            str(lock_path),
+        ],
+    )
+
+    main()
+
+    supervisor = json.loads(status_path.read_text(encoding="utf-8"))
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    emitted = json.loads(capsys.readouterr().out)
+    assert supervisor["status"] == "waiting_for_forward_issue"
+    assert metadata == later_metadata
+    assert emitted["heavy_job_metadata_status"] == "preserved_other_inactive_owner"
+    assert emitted["heavy_job_metadata_updated"] is False
+    assert emitted["heavy_job_metadata_owner_pid"] == later_inactive_pid
+    assert emitted["heavy_job_metadata_owner_status"] == "interrupted"
+    report = report_path.read_text(encoding="utf-8")
+    assert "- Updated at: " + supervisor["updated_at"] in report
+    assert "- Status: waiting_for_forward_issue" in report
+
+
+def test_sync_waiting_heavy_job_metadata_rejects_other_active_owner(tmp_path):
+    lock_path = tmp_path / "dehps-heavy-job.lock"
+    metadata_path = lock_path.with_name(f"{lock_path.name}.json")
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "owner": "training-supervisor",
+                "pid": os.getpid(),
+                "status": "running",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(HeavyJobLockError, match="another heavy job is active"):
+        sync_waiting_heavy_job_metadata(
+            expected_pid=999_999_999,
+            lock_path=lock_path,
+            forward_wait={"next_pending_issue": "2026079"},
+        )

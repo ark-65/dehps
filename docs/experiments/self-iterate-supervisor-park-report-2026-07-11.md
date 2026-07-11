@@ -47,3 +47,26 @@ Run `20260711-132111` reached database-backed round 8 with `supervisor_round_bou
 ```
 
 Evidence level: operational observability fix. This round provides no new prediction signal, performance lift, promotion evidence, or betting recommendation.
+
+## Post-Merge Live Follow-Up
+
+The first live replay exposed an additional ownership boundary not covered by the original test. The parked run status belonged to PID `3579268`, while heavy-job audit metadata had already been preserved for a later, inactive interrupted run with PID `3647004`. The original marker correctly refused to overwrite the later PID, but aborted before updating the target supervisor JSON and Markdown.
+
+The follow-up keeps that safety property while separating the two state surfaces:
+
+- a different active heavy-job owner still aborts the parking transition;
+- a different inactive heavy-job owner is preserved byte-for-byte;
+- the target supervisor JSON and Markdown are still synchronized to `waiting_for_forward_issue`;
+- the CLI reports `preserved_other_inactive_owner` with the preserved PID, status, and reason.
+
+Live replay after the follow-up produced:
+
+```text
+heavy_job_metadata_status=preserved_other_inactive_owner
+heavy_job_metadata_updated=false
+report_status=waiting_for_forward_issue
+supervisor_updated_age_minutes=0.00743
+watch_action=await_new_forward_issue
+```
+
+The later heavy-job record remained `pid=3647004`, `status=interrupted`, and retained its original interruption reason. Focused regression validation passed `13` tests before the live replay.

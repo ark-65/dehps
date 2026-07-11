@@ -9,7 +9,12 @@ from typing import Any
 
 from dehps.artifacts import atomic_write_text
 from dehps.config import ROOT_DIR
-from dehps.runtime.heavy_job import DEFAULT_LOCK_PATH, mark_inactive_heavy_job_owner
+from dehps.runtime.heavy_job import (
+    DEFAULT_LOCK_PATH,
+    HeavyJobLockError,
+    describe_heavy_job_owner,
+    mark_inactive_heavy_job_owner,
+)
 
 
 DEFAULT_OUTPUT_DIR = ROOT_DIR / "data/output/optimization"
@@ -96,6 +101,49 @@ def find_status_path(*, output_dir: Path, expected_pid: int) -> Path:
     return max(matches, key=lambda path: path.stat().st_mtime_ns)
 
 
+def sync_waiting_heavy_job_metadata(
+    *,
+    expected_pid: int,
+    lock_path: Path,
+    forward_wait: dict[str, Any],
+) -> dict[str, Any]:
+    owner_status = describe_heavy_job_owner(lock_path=lock_path)
+    metadata = owner_status.metadata
+    if isinstance(metadata, dict) and metadata.get("pid") != expected_pid:
+        if owner_status.active:
+            raise HeavyJobLockError(
+                "Refusing to preserve parked supervisor state while another heavy job is active: "
+                f"pid={metadata.get('pid')!r} reason={owner_status.reason}"
+            )
+        return {
+            "status": "preserved_other_inactive_owner",
+            "updated": False,
+            "owner_pid": metadata.get("pid"),
+            "owner_status": metadata.get("status"),
+            "owner_reason": owner_status.reason,
+        }
+
+    updated = mark_inactive_heavy_job_owner(
+        expected_pid=expected_pid,
+        expected_owner="training-supervisor",
+        status="waiting_for_forward_issue",
+        lock_path=lock_path,
+        context={"forward_wait": forward_wait},
+        missing_ok=True,
+    )
+    return {
+        "status": (
+            updated.get("status")
+            if isinstance(updated, dict)
+            else "missing"
+        ),
+        "updated": isinstance(updated, dict),
+        "owner_pid": updated.get("pid") if isinstance(updated, dict) else None,
+        "owner_status": updated.get("status") if isinstance(updated, dict) else None,
+        "owner_reason": owner_status.reason,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Mark a stopped training supervisor as waiting for a future issue."
@@ -115,13 +163,10 @@ def main() -> None:
         history_issue=args.history_issue,
         pending_issue=args.pending_issue,
     )
-    heavy_job_metadata = mark_inactive_heavy_job_owner(
+    heavy_job_result = sync_waiting_heavy_job_metadata(
         expected_pid=args.expected_pid,
-        expected_owner="training-supervisor",
-        status="waiting_for_forward_issue",
         lock_path=args.heavy_job_lock_path,
-        context={"forward_wait": payload["forward_wait"]},
-        missing_ok=True,
+        forward_wait=payload["forward_wait"],
     )
     atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2))
     report_path = update_waiting_report(payload)
@@ -134,11 +179,11 @@ def main() -> None:
                 "history_issue": args.history_issue,
                 "pending_issue": args.pending_issue,
                 "report_path": str(report_path) if report_path is not None else None,
-                "heavy_job_metadata_status": (
-                    heavy_job_metadata.get("status")
-                    if heavy_job_metadata is not None
-                    else "missing"
-                ),
+                "heavy_job_metadata_status": heavy_job_result["status"],
+                "heavy_job_metadata_updated": heavy_job_result["updated"],
+                "heavy_job_metadata_owner_pid": heavy_job_result["owner_pid"],
+                "heavy_job_metadata_owner_status": heavy_job_result["owner_status"],
+                "heavy_job_metadata_owner_reason": heavy_job_result["owner_reason"],
             },
             ensure_ascii=False,
         )
