@@ -1673,10 +1673,16 @@ def training_round_self_diagnostics(
         rank_homogeneity=rank_homogeneity,
     )
     decision_surface = decision_surface_dominance_diagnostic(summaries)
+    evaluated_config_hashes = {
+        summary_config_hash(summary) or f"missing-config:{index}"
+        for index, summary in enumerate(summaries)
+        if isinstance(summary, dict)
+    }
     signal = signal_vs_noise_diagnostic(
         round_best,
         legal_sample_space=universe_size,
         overfit_guard_active=bool(eval_slice_overfit.get("active")),
+        candidate_hypothesis_count=max(1, len(evaluated_config_hashes)),
     )
     statuses = (weight["status"], candidate_space["status"], signal["status"])
     if "blocked" in statuses or "collapsed" in statuses:

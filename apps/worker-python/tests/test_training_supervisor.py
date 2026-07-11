@@ -1106,6 +1106,8 @@ def test_training_round_self_diagnostics_blocks_collapsed_noise_round():
     assert diagnostics["synthesis"]["action"] == "freeze_promotion_and_force_diagnostics"
     assert diagnostics["candidate_space"]["status"] == "collapsed"
     assert diagnostics["signal_vs_noise"]["status"] == "noise_risk"
+    assert diagnostics["signal_vs_noise"]["candidate_hypothesis_count"] == 1
+    assert diagnostics["signal_vs_noise"]["minimum_familywise_hypothesis_count"] == 3
     assert diagnostics["weight_trust"]["status"] in {"blocked", "caution"}
 
 
