@@ -60,7 +60,7 @@ def test_watchdog_blocks_sync_conflicts_before_forward_release():
         '"$sync_from_issue" "$latest_issue" "$prediction_snapshot_file"; then'
     )
     assert "sync_conflict_draw_count" in script
-    assert "recorded_data_conflict_count" in script
+    assert "unresolved_data_conflict_count" in script
     assert conflict_gate in script
     assert "refusing evaluation, advisor refresh, or supervisor start" in script
     assert script.index(conflict_gate) < script.index(evaluation_call)

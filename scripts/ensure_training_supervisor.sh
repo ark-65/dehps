@@ -244,16 +244,20 @@ print(value if isinstance(value, int) and value >= 0 else "invalid")
 PY
 }
 
-recorded_data_conflict_count() {
+unresolved_data_conflict_count() {
   .venv/bin/python - <<'PY'
 from dehps.db import get_connection
+from dehps.storage.postgres_store import ensure_ssq_data_conflicts_resolution_schema
 
 with get_connection() as conn:
     table = conn.execute("SELECT to_regclass('public.ssq_data_conflicts')").fetchone()
     if not table or not table[0]:
         print(0)
     else:
-        row = conn.execute("SELECT count(*) FROM ssq_data_conflicts").fetchone()
+        ensure_ssq_data_conflicts_resolution_schema(conn)
+        row = conn.execute(
+            "SELECT count(*) FROM ssq_data_conflicts WHERE resolved_at IS NULL"
+        ).fetchone()
         print(int((row and row[0]) or 0))
 PY
 }
@@ -445,17 +449,17 @@ fi
 
 latest_issue="$(latest_db_issue)"
 sync_conflict_count="$(sync_conflict_draw_count "$sync_output_file")"
-recorded_conflict_count="$(recorded_data_conflict_count)"
-if [[ ! "$sync_conflict_count" =~ ^[0-9]+$ || ! "$recorded_conflict_count" =~ ^[0-9]+$ ]]; then
+unresolved_conflict_count="$(unresolved_data_conflict_count)"
+if [[ ! "$sync_conflict_count" =~ ^[0-9]+$ || ! "$unresolved_conflict_count" =~ ^[0-9]+$ ]]; then
   rm -f "$sync_output_file"
   rm -f "$prediction_snapshot_file"
-  log "sync conflict audit invalid sync_conflict_count=$sync_conflict_count recorded_conflict_count=$recorded_conflict_count; watchdog stopping fail closed"
+  log "sync conflict audit invalid sync_conflict_count=$sync_conflict_count unresolved_conflict_count=$unresolved_conflict_count; watchdog stopping fail closed"
   exit 1
 fi
-if (( sync_conflict_count > 0 || recorded_conflict_count > 0 )); then
+if (( sync_conflict_count > 0 || unresolved_conflict_count > 0 )); then
   rm -f "$sync_output_file"
   rm -f "$prediction_snapshot_file"
-  log "sync conflict audit blocked release sync_conflict_count=$sync_conflict_count recorded_conflict_count=$recorded_conflict_count; refusing evaluation, advisor refresh, or supervisor start"
+  log "sync conflict audit blocked release sync_conflict_count=$sync_conflict_count unresolved_conflict_count=$unresolved_conflict_count; refusing evaluation, advisor refresh, or supervisor start"
   exit 1
 fi
 if ! evaluate_synced_predictions_if_needed "$sync_output_file" "$sync_from_issue" "$latest_issue" "$prediction_snapshot_file"; then
