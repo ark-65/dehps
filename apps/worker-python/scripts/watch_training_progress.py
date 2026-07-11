@@ -15,6 +15,10 @@ from psycopg.rows import dict_row
 from dehps.artifacts import atomic_write_text
 from dehps.config import ROOT_DIR
 from dehps.db import get_connection
+from dehps.models.prediction_input_boundary import (
+    DRAW_PREDICTION_HISTORY_FIELDS,
+    PREDICTION_INPUT_BOUNDARY_PROTOCOL,
+)
 from dehps.runtime.compute_capability import compute_capability_summary
 from dehps.runtime.heavy_job import describe_heavy_job_owner
 
@@ -1825,6 +1829,85 @@ def supervisor_progress_summary(progress: Any) -> dict[str, Any]:
     }
 
 
+def prediction_input_boundary_summary(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {
+            "protocol": None,
+            "source_status": None,
+            "status": "missing",
+            "action": "inspect_supervisor_prediction_input_boundary",
+            "training_fields": [],
+            "required_draw_fields": [],
+            "selected_market_aggregate_fields": [],
+            "available_market_aggregate_fields_excluded": [],
+            "ticket_distribution_observed": False,
+            "ticket_distribution_identifiability": "unverified_without_boundary_record",
+            "market_data_role": "unverified",
+            "draw_probability_effect": "unverified",
+            "selection_changed": False,
+            "promotion_allowed": False,
+            "watcher_invariants_passed": False,
+            "reasons": ["supervisor_status_missing_prediction_input_boundary"],
+        }
+    source_status = value.get("status")
+    training_fields = list(value.get("training_fields") or [])
+    required_draw_fields = list(value.get("required_draw_fields") or [])
+    selected_market_fields = list(value.get("selected_market_aggregate_fields") or [])
+    ticket_distribution_observed = safe_bool(value.get("ticket_distribution_observed"))
+    selection_changed = safe_bool(value.get("selection_changed"))
+    promotion_allowed = safe_bool(value.get("promotion_allowed"))
+    reasons = list(value.get("reasons") or [])
+    invariant_failures: list[str] = []
+    if value.get("protocol") != PREDICTION_INPUT_BOUNDARY_PROTOCOL:
+        invariant_failures.append("unexpected_prediction_input_boundary_protocol")
+    if source_status != "passed":
+        invariant_failures.append("supervisor_prediction_input_boundary_not_passed")
+    if tuple(training_fields) != DRAW_PREDICTION_HISTORY_FIELDS:
+        invariant_failures.append("unexpected_prediction_training_fields")
+    if tuple(required_draw_fields) != DRAW_PREDICTION_HISTORY_FIELDS:
+        invariant_failures.append("unexpected_required_draw_fields")
+    if selected_market_fields:
+        invariant_failures.append("market_aggregate_selected_for_draw_prediction")
+    if ticket_distribution_observed is not False:
+        invariant_failures.append("ticket_distribution_observation_claimed_or_unknown")
+    if value.get("market_data_role") != "separate_observation_only_not_draw_probability":
+        invariant_failures.append("unexpected_market_data_role")
+    if value.get("draw_probability_effect") != "none":
+        invariant_failures.append("market_data_draw_probability_effect_not_none")
+    if selection_changed is not False:
+        invariant_failures.append("prediction_boundary_changed_selection_or_unknown")
+    if promotion_allowed is not False:
+        invariant_failures.append("prediction_boundary_promotion_not_disabled")
+    reasons.extend(reason for reason in invariant_failures if reason not in reasons)
+    watcher_invariants_passed = not invariant_failures
+    return {
+        "protocol": value.get("protocol"),
+        "source_status": source_status,
+        "status": "passed" if watcher_invariants_passed else "invalid",
+        "action": (
+            value.get("action")
+            if watcher_invariants_passed
+            else "stop_supervisor_and_fix_prediction_input_boundary"
+        ),
+        "training_fields": training_fields,
+        "required_draw_fields": required_draw_fields,
+        "selected_market_aggregate_fields": selected_market_fields,
+        "available_market_aggregate_fields_excluded": list(
+            value.get("available_market_aggregate_fields_excluded") or []
+        ),
+        "ticket_distribution_observed": ticket_distribution_observed,
+        "ticket_distribution_identifiability": value.get(
+            "ticket_distribution_identifiability"
+        ),
+        "market_data_role": value.get("market_data_role"),
+        "draw_probability_effect": value.get("draw_probability_effect"),
+        "selection_changed": selection_changed,
+        "promotion_allowed": promotion_allowed,
+        "watcher_invariants_passed": watcher_invariants_passed,
+        "reasons": reasons,
+    }
+
+
 def supervisor_status_summary(status: dict[str, Any], *, path: Path) -> dict[str, Any]:
     deadline_present = "deadline" in status
     deadline = status.get("deadline") if deadline_present else None
@@ -1867,6 +1950,9 @@ def supervisor_status_summary(status: dict[str, Any], *, path: Path) -> dict[str
             "selected_frozen_primary_score": safe_score(continuity.get("selected_frozen_primary_score")),
             "baseline_frozen_primary_score": safe_score(continuity.get("baseline_frozen_primary_score")),
         },
+        "prediction_input_boundary": prediction_input_boundary_summary(
+            status.get("prediction_input_boundary")
+        ),
         "latest_progress": supervisor_progress_summary(status.get("latest_progress")),
     }
 
@@ -3502,6 +3588,7 @@ def evidence_context_summary(
     parser_sync_duplicate_checks: dict[str, Any] | None = None,
     round_repetition: dict[str, Any] | None = None,
     forward_evidence: dict[str, Any] | None = None,
+    prediction_input_boundary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     promotion = gates.get("promotion_gate") if isinstance(gates.get("promotion_gate"), dict) else {}
     eval_guard = (
@@ -3559,6 +3646,17 @@ def evidence_context_summary(
     if forward_evidence.get("status") == "invalid":
         failure_modes.append(
             f"forward_evidence:{compact_inline_list(forward_evidence.get('blockers'))}"
+        )
+    prediction_input_boundary = (
+        prediction_input_boundary
+        if isinstance(prediction_input_boundary, dict)
+        else {}
+    )
+    if prediction_input_boundary and prediction_input_boundary.get("status") != "passed":
+        failure_modes.append(
+            "prediction_input_boundary:"
+            f"{prediction_input_boundary.get('status')}:"
+            f"{compact_inline_list(prediction_input_boundary.get('reasons'))}"
         )
 
     search_diagnostics: dict[str, Any] = {}
@@ -3649,6 +3747,28 @@ def evidence_context_summary(
             "forward_unseen_evidence_required": holdout_isolation.get(
                 "forward_unseen_evidence_required"
             ),
+            "prediction_input_boundary_status": prediction_input_boundary.get("status"),
+            "prediction_input_boundary_invariants_passed": prediction_input_boundary.get(
+                "watcher_invariants_passed"
+            ),
+            "prediction_training_fields": prediction_input_boundary.get("training_fields") or [],
+            "prediction_selected_market_aggregate_fields": prediction_input_boundary.get(
+                "selected_market_aggregate_fields"
+            )
+            or [],
+            "ticket_distribution_observed": prediction_input_boundary.get(
+                "ticket_distribution_observed"
+            ),
+            "ticket_distribution_identifiability": prediction_input_boundary.get(
+                "ticket_distribution_identifiability"
+            ),
+            "market_data_role": prediction_input_boundary.get("market_data_role"),
+            "draw_probability_effect": prediction_input_boundary.get(
+                "draw_probability_effect"
+            ),
+            "prediction_boundary_promotion_allowed": prediction_input_boundary.get(
+                "promotion_allowed"
+            ),
             "parser_sync_duplicate_checks": parser_sync_duplicate_checks,
         },
         "search_diagnostics": search_diagnostics,
@@ -3720,6 +3840,11 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         load_supervisor_status(resolved_run_id),
         now=generated_at,
         stale_minutes=stale_minutes,
+    )
+    prediction_input_boundary = (
+        dict(supervisor_status.get("prediction_input_boundary"))
+        if isinstance(supervisor_status.get("prediction_input_boundary"), dict)
+        else prediction_input_boundary_summary(None)
     )
     compute_capability = compute_capability_summary(supervisor_status)
     lock = add_heavy_lock_observation_ages(heavy_lock_summary(), now=generated_at)
@@ -3832,6 +3957,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         "gate_summary": gates,
         "db_read_errors": db_read_errors,
         "supervisor_status": supervisor_status,
+        "prediction_input_boundary": prediction_input_boundary,
         "compute_capability": compute_capability,
         "supervisor_round_boundary": round_boundary,
         "evidence_context": evidence_context_summary(
@@ -3840,6 +3966,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
             parser_sync_duplicate_checks=parser_sync_duplicate_checks,
             round_repetition=round_repetition,
             forward_evidence=forward_evidence,
+            prediction_input_boundary=prediction_input_boundary,
         ),
         "heavy_job_lock": lock,
         "recommendation": recommendation,
@@ -4157,6 +4284,34 @@ def render_sequential_null_audit_markdown(summary: Any) -> str:
         f"automatic_promotion={summary.get('automatic_promotion_allowed')}\n"
         f"- Blockers: {markdown_inline_text(compact_inline_list(summary.get('blockers')))}\n"
         f"- Interpretation: {markdown_inline_text(summary.get('interpretation'))}\n\n"
+    )
+
+
+def render_prediction_input_boundary_markdown(boundary: Any) -> str:
+    if not isinstance(boundary, dict):
+        return ""
+    return (
+        "## Prediction Input Boundary\n\n"
+        f"- Status/action: {markdown_inline_code(boundary.get('status'))} / "
+        f"{markdown_inline_code(boundary.get('action'))}\n"
+        f"- Source status / watcher invariants: {markdown_inline_code(boundary.get('source_status'))} / "
+        f"{boundary.get('watcher_invariants_passed')}\n"
+        f"- Protocol: {markdown_inline_text(boundary.get('protocol'))}\n"
+        "- Draw training fields: "
+        f"{markdown_inline_text(compact_inline_list(boundary.get('training_fields')))}\n"
+        "- Selected market aggregates: "
+        f"{markdown_inline_text(compact_inline_list(boundary.get('selected_market_aggregate_fields')))}\n"
+        "- Available market aggregates excluded: "
+        f"{markdown_inline_text(compact_inline_list(boundary.get('available_market_aggregate_fields_excluded')))}\n"
+        "- Ticket distribution observed/identifiable: "
+        f"{boundary.get('ticket_distribution_observed')} / "
+        f"{markdown_inline_text(boundary.get('ticket_distribution_identifiability'))}\n"
+        "- Market role / draw probability effect: "
+        f"{markdown_inline_text(boundary.get('market_data_role'))} / "
+        f"{markdown_inline_text(boundary.get('draw_probability_effect'))}\n"
+        "- Selection changed / promotion allowed: "
+        f"{boundary.get('selection_changed')} / {boundary.get('promotion_allowed')}\n"
+        f"- Reasons: {markdown_inline_text(compact_inline_list(boundary.get('reasons')))}\n\n"
     )
 
 
@@ -4503,6 +4658,9 @@ def render_markdown(payload: dict[str, Any]) -> str:
     compute_capability_section = render_compute_capability_markdown(
         payload.get("compute_capability")
     )
+    prediction_input_boundary_section = render_prediction_input_boundary_markdown(
+        payload.get("prediction_input_boundary")
+    )
     round_repetition_section = render_round_repetition_markdown(
         payload.get("round_repetition")
     )
@@ -4657,6 +4815,17 @@ def render_markdown(payload: dict[str, Any]) -> str:
             f"suspicious={leakage.get('suspicious_candidate_count')} "
             "decision_navigation_frozen_required="
             f"{leakage.get('decision_navigation_frozen_primary_lift_required')} "
+            "prediction_input_boundary="
+            f"{markdown_inline_text(leakage.get('prediction_input_boundary_status'))} "
+            "prediction_input_invariants="
+            f"{leakage.get('prediction_input_boundary_invariants_passed')} "
+            "prediction_fields="
+            f"{markdown_inline_text(compact_inline_list(leakage.get('prediction_training_fields')))} "
+            "market_selected="
+            f"{markdown_inline_text(compact_inline_list(leakage.get('prediction_selected_market_aggregate_fields')))} "
+            f"ticket_distribution_observed={leakage.get('ticket_distribution_observed')} "
+            "draw_probability_effect="
+            f"{markdown_inline_text(leakage.get('draw_probability_effect'))} "
             "parser_sync_duplicates="
             f"{markdown_inline_text(compact_parser_sync_duplicate_checks(leakage.get('parser_sync_duplicate_checks')))}\n"
             f"{search_line}"
@@ -4725,6 +4894,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
 {line_progress_section}\
 {forward_evidence_section}\
 {forward_wait_section}\
+{prediction_input_boundary_section}\
 {compute_capability_section}\
 {restart_section}\
 {supervisor_section}\
@@ -4891,6 +5061,15 @@ def cli_evidence_context_summary(payload: dict[str, Any]) -> dict[str, Any]:
                     "frozen_validation_role",
                     "historical_holdout_quarantined",
                     "forward_unseen_evidence_required",
+                    "prediction_input_boundary_status",
+                    "prediction_input_boundary_invariants_passed",
+                    "prediction_training_fields",
+                    "prediction_selected_market_aggregate_fields",
+                    "ticket_distribution_observed",
+                    "ticket_distribution_identifiability",
+                    "market_data_role",
+                    "draw_probability_effect",
+                    "prediction_boundary_promotion_allowed",
                 )
                 if key in leakage
             },
@@ -5042,6 +5221,43 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "promotion_allowed": forward_wait.get("promotion_allowed"),
             "resume_condition": forward_wait.get("resume_condition"),
             "blockers": forward_wait.get("blockers") or [],
+        }
+    prediction_input_boundary = (
+        payload.get("prediction_input_boundary")
+        if isinstance(payload.get("prediction_input_boundary"), dict)
+        else {}
+    )
+    if prediction_input_boundary:
+        summary["prediction_input_boundary"] = {
+            "protocol": prediction_input_boundary.get("protocol"),
+            "source_status": prediction_input_boundary.get("source_status"),
+            "status": prediction_input_boundary.get("status"),
+            "action": prediction_input_boundary.get("action"),
+            "training_fields": prediction_input_boundary.get("training_fields") or [],
+            "selected_market_aggregate_fields": prediction_input_boundary.get(
+                "selected_market_aggregate_fields"
+            )
+            or [],
+            "available_market_aggregate_fields_excluded": prediction_input_boundary.get(
+                "available_market_aggregate_fields_excluded"
+            )
+            or [],
+            "ticket_distribution_observed": prediction_input_boundary.get(
+                "ticket_distribution_observed"
+            ),
+            "ticket_distribution_identifiability": prediction_input_boundary.get(
+                "ticket_distribution_identifiability"
+            ),
+            "market_data_role": prediction_input_boundary.get("market_data_role"),
+            "draw_probability_effect": prediction_input_boundary.get(
+                "draw_probability_effect"
+            ),
+            "selection_changed": prediction_input_boundary.get("selection_changed"),
+            "promotion_allowed": prediction_input_boundary.get("promotion_allowed"),
+            "watcher_invariants_passed": prediction_input_boundary.get(
+                "watcher_invariants_passed"
+            ),
+            "reasons": prediction_input_boundary.get("reasons") or [],
         }
     supervisor_status = (
         payload.get("supervisor_status")

@@ -2859,6 +2859,22 @@ def test_load_supervisor_status_reads_current_progress(tmp_path):
           "top_n": 10000,
           "regime_start_date": "2016-01-01",
           "regime_years": 10,
+          "prediction_input_boundary": {
+            "protocol": "dehps-draw-outcome-input-boundary-v1",
+            "status": "passed",
+            "action": "continue_draw_outcome_training",
+            "training_fields": ["issue", "draw_date", "red_numbers"],
+            "required_draw_fields": ["issue", "draw_date", "red_numbers"],
+            "selected_market_aggregate_fields": [],
+            "available_market_aggregate_fields_excluded": ["prize_tier_counts"],
+            "ticket_distribution_observed": false,
+            "ticket_distribution_identifiability": "aggregate_prize_counts_do_not_identify_ticket_level_number_selection",
+            "market_data_role": "separate_observation_only_not_draw_probability",
+            "draw_probability_effect": "none",
+            "selection_changed": false,
+            "promotion_allowed": false,
+            "reasons": []
+          },
           "continuity_seed": {
             "mode": "same_history_validated_navigation_replay",
             "eligible": true,
@@ -2899,6 +2915,26 @@ def test_load_supervisor_status_reads_current_progress(tmp_path):
     assert status["history_scope"] == "current_regime_default"
     assert status["train_window"] == 900
     assert status["eval_window"] == 100
+    assert status["prediction_input_boundary"] == {
+        "protocol": "dehps-draw-outcome-input-boundary-v1",
+        "source_status": "passed",
+        "status": "passed",
+        "action": "continue_draw_outcome_training",
+        "training_fields": ["issue", "draw_date", "red_numbers"],
+        "required_draw_fields": ["issue", "draw_date", "red_numbers"],
+        "selected_market_aggregate_fields": [],
+        "available_market_aggregate_fields_excluded": ["prize_tier_counts"],
+        "ticket_distribution_observed": False,
+        "ticket_distribution_identifiability": (
+            "aggregate_prize_counts_do_not_identify_ticket_level_number_selection"
+        ),
+        "market_data_role": "separate_observation_only_not_draw_probability",
+        "draw_probability_effect": "none",
+        "selection_changed": False,
+        "promotion_allowed": False,
+        "watcher_invariants_passed": True,
+        "reasons": [],
+    }
     assert status["continuity_seed"] == {
         "mode": "same_history_validated_navigation_replay",
         "eligible": True,
@@ -2911,6 +2947,90 @@ def test_load_supervisor_status_reads_current_progress(tmp_path):
         "selected_frozen_primary_score": [0, 0, 1],
         "baseline_frozen_primary_score": [0, 0, 0],
     }
+
+
+def test_prediction_input_boundary_is_fail_closed_and_visible_to_operator():
+    missing = watch.prediction_input_boundary_summary(None)
+    assert missing["status"] == "missing"
+    assert missing["promotion_allowed"] is False
+    assert missing["draw_probability_effect"] == "unverified"
+
+    boundary = watch.prediction_input_boundary_summary(
+        {
+            "protocol": "dehps-draw-outcome-input-boundary-v1",
+            "status": "passed",
+            "action": "continue_draw_outcome_training",
+            "training_fields": ["issue", "draw_date", "red_numbers"],
+            "required_draw_fields": ["issue", "draw_date", "red_numbers"],
+            "selected_market_aggregate_fields": [],
+            "available_market_aggregate_fields_excluded": [
+                "prize_tier_counts",
+                "sales_amount",
+            ],
+            "ticket_distribution_observed": False,
+            "ticket_distribution_identifiability": (
+                "aggregate_prize_counts_do_not_identify_ticket_level_number_selection"
+            ),
+            "market_data_role": "separate_observation_only_not_draw_probability",
+            "draw_probability_effect": "none",
+            "selection_changed": False,
+            "promotion_allowed": False,
+            "reasons": [],
+        }
+    )
+    evidence = evidence_context_summary(
+        supervisor_status={"status": "waiting_for_forward_issue", "run_id": "run-1"},
+        gates={},
+        parser_sync_duplicate_checks={"status": "checked", "ok": True},
+        prediction_input_boundary=boundary,
+    )
+    payload = {
+        "generated_at": "2026-07-11T07:00:00Z",
+        "run_id": "run-1",
+        "latest_metrics": {},
+        "advisor_summary": {},
+        "prediction_input_boundary": boundary,
+        "evidence_context": evidence,
+        "recommendation": {"severity": "warn", "action": "await_new_forward_issue"},
+        "guardrail": "Historical response-surface monitoring only.",
+    }
+
+    operator = operator_summary(payload)
+    markdown = render_markdown(payload)
+
+    assert operator["prediction_input_boundary"]["status"] == "passed"
+    assert operator["prediction_input_boundary"]["training_fields"] == [
+        "issue",
+        "draw_date",
+        "red_numbers",
+    ]
+    assert operator["prediction_input_boundary"]["selected_market_aggregate_fields"] == []
+    assert operator["prediction_input_boundary"]["ticket_distribution_observed"] is False
+    assert operator["prediction_input_boundary"]["promotion_allowed"] is False
+    assert operator["prediction_input_boundary"]["watcher_invariants_passed"] is True
+    leakage = operator["evidence_context"]["leakage_checks"]
+    assert leakage["prediction_input_boundary_status"] == "passed"
+    assert leakage["prediction_input_boundary_invariants_passed"] is True
+    assert leakage["draw_probability_effect"] == "none"
+    assert "## Prediction Input Boundary" in markdown
+    assert "aggregate_prize_counts_do_not_identify_ticket_level_number_selection" in markdown
+
+    contradictory = watch.prediction_input_boundary_summary(
+        {
+            **boundary,
+            "status": "passed",
+            "selected_market_aggregate_fields": ["prize_tier_counts"],
+            "draw_probability_effect": "candidate_score",
+            "promotion_allowed": True,
+        }
+    )
+    assert contradictory["status"] == "invalid"
+    assert contradictory["action"] == "stop_supervisor_and_fix_prediction_input_boundary"
+    assert contradictory["watcher_invariants_passed"] is False
+    assert contradictory["promotion_allowed"] is True
+    assert "market_aggregate_selected_for_draw_prediction" in contradictory["reasons"]
+    assert "market_data_draw_probability_effect_not_none" in contradictory["reasons"]
+    assert "prediction_boundary_promotion_not_disabled" in contradictory["reasons"]
 
 
 def test_load_supervisor_status_infers_continuous_run_mode_from_null_deadline(tmp_path):
