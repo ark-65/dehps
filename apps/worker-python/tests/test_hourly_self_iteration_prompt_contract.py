@@ -156,3 +156,20 @@ def test_hourly_self_iteration_prompt_requires_runtime_storage_fail_closed():
         "不是模型进步",
     ):
         assert requirement in prompt
+
+
+def test_hourly_self_iteration_prompt_requires_decoupled_remote_sync_cadence():
+    prompt = (REPO_ROOT / "scripts/hourly_self_iterate.sh").read_text(encoding="utf-8")
+
+    for requirement in (
+        "`remote_sync_cadence`",
+        "健康检查仍每 10 分钟执行",
+        "周二/四/日 21:15 开奖热窗口",
+        "其余时段最多每 60 分钟",
+        "上次 sync failed/error",
+        "最近 running sync 只允许 30 分钟竞争保护",
+        "不得用 backoff 隐藏失败",
+        "仍必须继续本地评估、advisor 和 supervisor 检查",
+        "不改变 selection/promotion",
+    ):
+        assert requirement in prompt

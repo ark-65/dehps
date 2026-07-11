@@ -78,3 +78,19 @@ def test_watchdog_checks_runtime_storage_before_sync_or_heavy_work():
     assert storage_gate in script
     assert script.index(storage_gate) < script.index('sync_from_issue="$(latest_db_issue)"')
     assert script.index(storage_gate) < script.index("setsid bash -lc")
+
+
+def test_watchdog_decouples_remote_sync_from_ten_minute_local_checks():
+    script = (REPO_ROOT / "scripts/ensure_training_supervisor.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "scripts/plan_ssq_remote_sync_poll.py" in script
+    assert "remote_sync_plan_status" in script
+    assert '[[ "$remote_sync_plan_status" -eq 3 ]]' in script
+    assert "remote SSQ sync skipped by cold cadence" in script
+    assert "continuing local evaluation, advisor, and supervisor checks" in script
+    assert "skipped_remote_cold_cadence" in script
+    assert script.index("remote sync cadence plan") < script.index(
+        'sync_from_issue="$(latest_db_issue)"'
+    )
