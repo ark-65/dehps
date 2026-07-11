@@ -4147,8 +4147,20 @@ def render_compute_capability_markdown(compute_capability: Any) -> str:
         f"nvidia_tool={accelerator.get('nvidia_tool_visible')}\n"
         "- Accelerator backend: "
         f"installed={markdown_inline_text(compact_inline_list(accelerator.get('installed_accelerator_modules')))} "
+        f"opencl_runtime={accelerator.get('opencl_runtime_visible')} "
+        f"probed={markdown_inline_text(accelerator.get('probed_gpu_backend'))} "
         f"validated={markdown_inline_text(accelerator.get('validated_gpu_backend'))} "
         f"gpu_training={accelerator.get('gpu_training_enabled')}\n"
+        "- Real-score probe: "
+        f"status={markdown_inline_text(accelerator.get('probe_status'))} "
+        f"accepted={accelerator.get('probe_accepted_for_training')} "
+        f"speedup={accelerator.get('probe_full_end_to_end_speedup')} "
+        f"rounded_exact={accelerator.get('probe_rounded_score_matrix_exact')} "
+        f"changed_cells={accelerator.get('probe_rounded_changed_cell_count')} "
+        f"top_sets={accelerator.get('probe_top_set_match_count')}/"
+        f"{accelerator.get('probe_top_set_config_count')} "
+        f"target_ranks_equal={accelerator.get('probe_target_ranks_equal')}\n"
+        f"- Probe blockers: {markdown_inline_text(compact_inline_list(accelerator.get('probe_blockers')))}\n"
         "- Safety: "
         f"selection_changed={compute_capability.get('selection_changed')} "
         f"promotion_allowed={compute_capability.get('promotion_allowed')}\n"
@@ -5334,6 +5346,35 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
                     "installed_accelerator_modules"
                 )
                 or [],
+                "opencl_runtime_visible": accelerator.get("opencl_runtime_visible"),
+                "probe_status": accelerator.get("probe_status"),
+                "probe_protocol": accelerator.get("probe_protocol"),
+                "probe_generated_at": accelerator.get("probe_generated_at"),
+                "probe_accepted_for_training": accelerator.get(
+                    "probe_accepted_for_training"
+                ),
+                "probe_blockers": accelerator.get("probe_blockers") or [],
+                "probe_full_end_to_end_speedup": accelerator.get(
+                    "probe_full_end_to_end_speedup"
+                ),
+                "probe_rounded_score_matrix_exact": accelerator.get(
+                    "probe_rounded_score_matrix_exact"
+                ),
+                "probe_rounded_changed_cell_count": accelerator.get(
+                    "probe_rounded_changed_cell_count"
+                ),
+                "probe_top_set_match_count": accelerator.get(
+                    "probe_top_set_match_count"
+                ),
+                "probe_top_set_config_count": accelerator.get(
+                    "probe_top_set_config_count"
+                ),
+                "probe_target_ranks_equal": accelerator.get(
+                    "probe_target_ranks_equal"
+                ),
+                "probed_gpu_backend": accelerator.get("probed_gpu_backend"),
+                "probed_gpu_device": accelerator.get("probed_gpu_device"),
+                "probed_gpu_driver": accelerator.get("probed_gpu_driver"),
                 "validated_gpu_backend": accelerator.get(
                     "validated_gpu_backend"
                 ),
