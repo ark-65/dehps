@@ -1155,6 +1155,16 @@ def test_decision_surface_diagnostic_detects_objective_tiebreak_pareto_tradeoffs
             "top_500000_hits": 36,
         }
     )
+    baseline["reward"] = {
+        "hitReward": 0.0,
+        "baselineUniqueReward": 100.0,
+        "baselineOverlapPenalty": 0.0,
+        "red5Reward": 0.0,
+        "rankQualityReward": 0.0,
+        "rankPenalty": 0.0,
+        "tailRiskPenalty": 0.0,
+        "objectiveScore": 100.0,
+    }
     challengers = []
     for index, objective_score in enumerate((99.999, 99.5), start=1):
         challenger = supervisor_summary_for_config(
@@ -1176,6 +1186,16 @@ def test_decision_surface_diagnostic_detects_objective_tiebreak_pareto_tradeoffs
                 "top_500000_hits": 35,
             }
         )
+        challenger["reward"] = {
+            "hitReward": 0.0,
+            "baselineUniqueReward": objective_score,
+            "baselineOverlapPenalty": 0.0,
+            "red5Reward": 0.0,
+            "rankQualityReward": 0.0,
+            "rankPenalty": 0.0,
+            "tailRiskPenalty": 0.0,
+            "objectiveScore": objective_score,
+        }
         challengers.append(challenger)
 
     diagnostic = supervisor.decision_surface_dominance_diagnostic(
@@ -1192,6 +1212,68 @@ def test_decision_surface_diagnostic_detects_objective_tiebreak_pareto_tradeoffs
     assert diagnostic["challenger_better_field_counts"]["neg_median_rank"] == 2
     assert diagnostic["baseline_better_field_counts"]["top_500000_hits"] == 2
     assert diagnostic["selection_uses_frozen_validation"] is False
+    component_control = diagnostic["objective_component_control"]
+    assert component_control["status"] == "measured"
+    assert component_control["measured_comparison_count"] == 2
+    assert component_control["largest_absolute_component_delta_counts"] == {
+        "baseline_unique_reward": 2
+    }
+    assert component_control["max_abs_reconstruction_residual"] == 0.0
+    assert component_control["selection_changed"] is False
+    assert all(
+        comparison["objective_component_residual"]["status"] == "measured"
+        for comparison in diagnostic["comparisons"]
+    )
+
+
+def test_objective_component_residual_direction_normalizes_penalties():
+    baseline = {
+        "reward": {
+            "hitReward": 0.0,
+            "baselineUniqueReward": 110.0,
+            "baselineOverlapPenalty": 0.0,
+            "red5Reward": 0.0,
+            "rankQualityReward": 0.0,
+            "rankPenalty": 0.0,
+            "tailRiskPenalty": 10.0,
+            "objectiveScore": 100.0,
+        }
+    }
+    challenger = {
+        "reward": {
+            "hitReward": 0.0,
+            "baselineUniqueReward": 105.0,
+            "baselineOverlapPenalty": 0.0,
+            "red5Reward": 0.0,
+            "rankQualityReward": 0.0,
+            "rankPenalty": 0.0,
+            "tailRiskPenalty": 6.0,
+            "objectiveScore": 99.0,
+        }
+    }
+
+    residual = supervisor.objective_component_residual(
+        baseline,
+        challenger,
+        objective_gap=1.0,
+    )
+
+    assert residual["status"] == "measured"
+    assert residual["component_deltas"]["baseline_unique_reward"] == 5.0
+    assert residual["component_deltas"]["tail_risk_penalty"] == -4.0
+    assert residual["component_delta_sum"] == 1.0
+    assert residual["reconstruction_residual"] == 0.0
+    assert residual["baseline_advantage_components"] == ["baseline_unique_reward"]
+    assert residual["challenger_advantage_components"] == ["tail_risk_penalty"]
+
+    mismatch = supervisor.objective_component_residual(
+        baseline,
+        challenger,
+        objective_gap=2.0,
+    )
+
+    assert mismatch["status"] == "reconstruction_mismatch"
+    assert mismatch["reconstruction_residual"] == 1.0
 
 
 def test_recent_round_self_diagnostics_reads_compact_round_memory():

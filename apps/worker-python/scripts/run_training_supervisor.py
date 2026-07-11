@@ -3882,6 +3882,90 @@ DECISION_PARETO_FIELDS = (
 )
 
 
+OBJECTIVE_COMPONENT_FIELDS = (
+    "hit_reward",
+    "baseline_unique_reward",
+    "baseline_overlap_penalty",
+    "red5_reward",
+    "rank_quality_reward",
+    "rank_penalty",
+    "tail_risk_penalty",
+)
+
+
+OBJECTIVE_COMPONENT_REWARD_FIELDS = {
+    "hit_reward": ("hitReward", 1.0),
+    "baseline_unique_reward": ("baselineUniqueReward", 1.0),
+    "baseline_overlap_penalty": ("baselineOverlapPenalty", -1.0),
+    "red5_reward": ("red5Reward", 1.0),
+    "rank_quality_reward": ("rankQualityReward", 1.0),
+    "rank_penalty": ("rankPenalty", -1.0),
+    "tail_risk_penalty": ("tailRiskPenalty", -1.0),
+}
+
+
+OBJECTIVE_COMPONENT_RECONSTRUCTION_TOLERANCE = 0.00001
+
+
+def objective_component_contributions(summary: dict) -> tuple[dict[str, float], list[str]]:
+    reward = summary.get("reward") if isinstance(summary.get("reward"), dict) else {}
+    contributions: dict[str, float] = {}
+    missing: list[str] = []
+    for component in OBJECTIVE_COMPONENT_FIELDS:
+        reward_field, direction = OBJECTIVE_COMPONENT_REWARD_FIELDS[component]
+        value = reward.get(reward_field)
+        if not isinstance(value, int | float) or isinstance(value, bool):
+            missing.append(reward_field)
+            continue
+        contributions[component] = round(float(value) * direction, 6)
+    return contributions, missing
+
+
+def objective_component_residual(
+    baseline: dict,
+    challenger: dict,
+    *,
+    objective_gap: float,
+) -> dict:
+    baseline_components, baseline_missing = objective_component_contributions(baseline)
+    challenger_components, challenger_missing = objective_component_contributions(challenger)
+    missing = sorted(set(baseline_missing + challenger_missing))
+    if missing:
+        return {
+            "status": "missing_reward_components",
+            "missing_reward_fields": missing,
+        }
+    component_deltas = {
+        component: round(baseline_components[component] - challenger_components[component], 6)
+        for component in OBJECTIVE_COMPONENT_FIELDS
+    }
+    reconstructed_gap = round(sum(component_deltas.values()), 6)
+    reconstruction_residual = round(float(objective_gap) - reconstructed_gap, 6)
+    largest_component = max(
+        OBJECTIVE_COMPONENT_FIELDS,
+        key=lambda component: abs(component_deltas[component]),
+    )
+    return {
+        "status": (
+            "measured"
+            if abs(reconstruction_residual) <= OBJECTIVE_COMPONENT_RECONSTRUCTION_TOLERANCE
+            else "reconstruction_mismatch"
+        ),
+        "objective_gap": round(float(objective_gap), 6),
+        "component_deltas": component_deltas,
+        "component_delta_sum": reconstructed_gap,
+        "reconstruction_residual": reconstruction_residual,
+        "reconstruction_tolerance": OBJECTIVE_COMPONENT_RECONSTRUCTION_TOLERANCE,
+        "largest_absolute_component_delta": largest_component,
+        "baseline_advantage_components": [
+            component for component in OBJECTIVE_COMPONENT_FIELDS if component_deltas[component] > 0
+        ],
+        "challenger_advantage_components": [
+            component for component in OBJECTIVE_COMPONENT_FIELDS if component_deltas[component] < 0
+        ],
+    }
+
+
 def decision_pareto_vector(summary: dict) -> tuple[float, ...]:
     red5 = summary.get("red5") if isinstance(summary.get("red5"), dict) else {}
     rank_quality = summary.get("rank_quality") if isinstance(summary.get("rank_quality"), dict) else {}
@@ -3929,6 +4013,11 @@ def decision_surface_dominance_diagnostic(
     challenger_dominates_count = 0
     tradeoff_count = 0
     objective_gaps: list[float] = []
+    component_control_statuses: Counter[str] = Counter()
+    component_largest_counts: Counter[str] = Counter()
+    component_baseline_advantage_counts: Counter[str] = Counter()
+    component_challenger_advantage_counts: Counter[str] = Counter()
+    component_reconstruction_residuals: list[float] = []
     comparisons: list[dict] = []
     for challenger in selected[1:]:
         challenger_sort_key = sort_key(challenger)
@@ -3948,11 +4037,32 @@ def decision_surface_dominance_diagnostic(
             else "identical_sort_key"
         )
         first_difference_counts[first_difference] += 1
+        objective_component_control = None
         if first_difference == "objective_score":
-            objective_gaps.append(
+            objective_gap = (
                 float(baseline_sort_key[first_difference_index])
                 - float(challenger_sort_key[first_difference_index])
             )
+            objective_gaps.append(objective_gap)
+            objective_component_control = objective_component_residual(
+                baseline,
+                challenger,
+                objective_gap=objective_gap,
+            )
+            component_control_statuses.update([objective_component_control["status"]])
+            if objective_component_control["status"] == "measured":
+                component_largest_counts.update(
+                    [objective_component_control["largest_absolute_component_delta"]]
+                )
+                component_baseline_advantage_counts.update(
+                    objective_component_control["baseline_advantage_components"]
+                )
+                component_challenger_advantage_counts.update(
+                    objective_component_control["challenger_advantage_components"]
+                )
+                component_reconstruction_residuals.append(
+                    abs(float(objective_component_control["reconstruction_residual"]))
+                )
         challenger_pareto = decision_pareto_vector(challenger)
         baseline_better = [
             DECISION_PARETO_FIELDS[index]
@@ -3979,16 +4089,17 @@ def decision_surface_dominance_diagnostic(
         else:
             relation = "tradeoff"
             tradeoff_count += 1
-        comparisons.append(
-            {
-                "config_hash": summary_config_hash(challenger) or "",
-                "rank_signature_hash": rank_signature_hash(challenger),
-                "first_difference": first_difference,
-                "pareto_relation": relation,
-                "baseline_better_fields": baseline_better,
-                "challenger_better_fields": challenger_better,
-            }
-        )
+        comparison = {
+            "config_hash": summary_config_hash(challenger) or "",
+            "rank_signature_hash": rank_signature_hash(challenger),
+            "first_difference": first_difference,
+            "pareto_relation": relation,
+            "baseline_better_fields": baseline_better,
+            "challenger_better_fields": challenger_better,
+        }
+        if objective_component_control is not None:
+            comparison["objective_component_residual"] = objective_component_control
+        comparisons.append(comparison)
     challenger_count = len(comparisons)
     objective_tiebreak_count = first_difference_counts.get("objective_score", 0)
     if objective_tiebreak_count == challenger_count and tradeoff_count == challenger_count:
@@ -4000,6 +4111,12 @@ def decision_surface_dominance_diagnostic(
     else:
         status = "mixed_decision_surface"
     baseline_objective = float((baseline.get("reward") or {}).get("objectiveScore") or 0.0)
+    if objective_tiebreak_count <= 0:
+        component_control_status = "not_applicable"
+    elif component_control_statuses.get("measured", 0) == objective_tiebreak_count:
+        component_control_status = "measured"
+    else:
+        component_control_status = "incomplete"
     return {
         "status": status,
         "top_limit": top_limit,
@@ -4022,6 +4139,37 @@ def decision_surface_dominance_diagnostic(
         "pareto_tradeoff_count": tradeoff_count,
         "baseline_better_field_counts": dict(sorted(baseline_better_counts.items())),
         "challenger_better_field_counts": dict(sorted(challenger_better_counts.items())),
+        "objective_component_control": {
+            "status": component_control_status,
+            "component_fields": list(OBJECTIVE_COMPONENT_FIELDS),
+            "objective_comparison_count": objective_tiebreak_count,
+            "measured_comparison_count": component_control_statuses.get("measured", 0),
+            "missing_component_comparison_count": component_control_statuses.get(
+                "missing_reward_components", 0
+            ),
+            "reconstruction_mismatch_comparison_count": component_control_statuses.get(
+                "reconstruction_mismatch", 0
+            ),
+            "largest_absolute_component_delta_counts": dict(sorted(component_largest_counts.items())),
+            "baseline_advantage_component_counts": dict(
+                sorted(component_baseline_advantage_counts.items())
+            ),
+            "challenger_advantage_component_counts": dict(
+                sorted(component_challenger_advantage_counts.items())
+            ),
+            "max_abs_reconstruction_residual": (
+                round(max(component_reconstruction_residuals), 6)
+                if component_reconstruction_residuals
+                else None
+            ),
+            "selection_changed": False,
+            "selection_scope": "search_slice_only",
+            "selection_uses_frozen_validation": False,
+            "interpretation": (
+                "Direction-normalized reward-component residuals are diagnostic only; "
+                "they do not change the production sort key or justify promotion."
+            ),
+        },
         "comparisons": comparisons,
         "selection_scope": "search_slice_only",
         "selection_uses_frozen_validation": False,
