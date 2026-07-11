@@ -47,3 +47,22 @@ def test_watchdog_invalidates_accepted_evaluation_when_sync_changes_issue():
     assert function_body.index("--force-issue") < function_body.index(
         "plan_synced_prediction_evaluations.py"
     )
+
+
+def test_watchdog_blocks_sync_conflicts_before_forward_release():
+    script = (REPO_ROOT / "scripts/ensure_training_supervisor.sh").read_text(
+        encoding="utf-8"
+    )
+
+    conflict_gate = "sync conflict audit blocked release"
+    evaluation_call = (
+        'if ! evaluate_synced_predictions_if_needed "$sync_output_file" '
+        '"$sync_from_issue" "$latest_issue" "$prediction_snapshot_file"; then'
+    )
+    assert "sync_conflict_draw_count" in script
+    assert "recorded_data_conflict_count" in script
+    assert conflict_gate in script
+    assert "refusing evaluation, advisor refresh, or supervisor start" in script
+    assert script.index(conflict_gate) < script.index(evaluation_call)
+    assert script.index(conflict_gate) < script.index('if [[ "$signal_refresh_needed" == true ]]')
+    assert script.index(conflict_gate) < script.index("setsid bash -lc")

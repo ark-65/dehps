@@ -3291,6 +3291,37 @@ def test_recommendation_flags_stale_supervisor_progress():
     assert any("Supervisor progress is stale" in note for note in recommendation["notes"])
 
 
+def test_recommendation_fails_closed_on_sync_conflicts():
+    now = datetime(2026, 7, 11, 9, 10, tzinfo=timezone.utc)
+    recommendation = recommendation_summary(
+        rows=[
+            {
+                "round_index": 1,
+                "improved": False,
+                "updated_at": now,
+                "prefilter": {},
+            }
+        ],
+        lock={"active": False},
+        advisors={},
+        now=now,
+        stale_minutes=30,
+        supervisor_status={"status": "waiting_for_forward_issue"},
+        parser_sync_duplicate_checks={
+            "status": "checked",
+            "ok": False,
+            "latest_sync": {"conflict_count": 1},
+            "recorded_data_conflict_count": 2,
+        },
+    )
+
+    assert recommendation["severity"] == "alert"
+    assert recommendation["action"] == "inspect_parser_sync_conflicts"
+    assert "latest_sync_conflicts=1 recorded_conflicts=2" in " ".join(
+        recommendation["notes"]
+    )
+
+
 def test_recommendation_and_markdown_include_supervisor_progress():
     now = datetime(2026, 7, 1, 0, 5, tzinfo=timezone.utc)
     supervisor_status = {
