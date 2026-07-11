@@ -393,6 +393,10 @@ def build_specialist_strategy_memory(
         windowed,
         ("decision_surface", "status"),
     )
+    objective_component_control_counts = _count_statuses(
+        windowed,
+        ("decision_surface", "objective_component_control", "status"),
+    )
     signal_counts = _count_statuses(windowed, ("signal_vs_noise", "status"))
     current_synthesis = _status_from_diagnostic(current, ("synthesis", "status"))
     current_weight = _status_from_diagnostic(current, ("weight_trust", "status"))
@@ -400,6 +404,10 @@ def build_specialist_strategy_memory(
     current_decision_surface = _status_from_diagnostic(
         current,
         ("decision_surface", "status"),
+    )
+    current_objective_component_control = _status_from_diagnostic(
+        current,
+        ("decision_surface", "objective_component_control", "status"),
     )
     current_round_best_path = _status_from_diagnostic(
         current,
@@ -425,7 +433,13 @@ def build_specialist_strategy_memory(
         current_decision_surface == "objective_tiebreak_tradeoff"
         or decision_surface_counts.get("objective_tiebreak_tradeoff", 0) >= 2
     ):
-        unresolved.append("objective_tiebreak_hides_pareto_tradeoffs")
+        if (
+            current_objective_component_control == "measured"
+            or objective_component_control_counts.get("measured", 0) >= 2
+        ):
+            unresolved.append("objective_component_residuals_need_stability")
+        else:
+            unresolved.append("objective_tiebreak_hides_pareto_tradeoffs")
     if current_signal == "noise_risk" or signal_counts.get("noise_risk", 0) >= 2:
         unresolved.append("signal_may_be_noise")
     if (
@@ -439,6 +453,13 @@ def build_specialist_strategy_memory(
         experiment_key = "candidate_space_reframe_audit"
         experiment_action = "increase_diversity_pressure_before_trusting_round_best"
         rationale = "Candidate-space geometry is narrow or collapsed across the diagnostic window."
+    elif "objective_component_residuals_need_stability" in unresolved:
+        experiment_key = "objective_component_residual_audit"
+        experiment_action = "observe_component_residual_stability_without_sort_change"
+        rationale = (
+            "Objective components are now reconstructed on the search slice; observe which component "
+            "repeatedly controls the local gap before predeclaring any counterfactual sort control."
+        )
     elif "objective_tiebreak_hides_pareto_tradeoffs" in unresolved:
         experiment_key = "objective_tiebreak_pareto_audit"
         experiment_action = "predeclare_objective_component_control_without_sort_change"
@@ -495,12 +516,14 @@ def build_specialist_strategy_memory(
             "current_weight": current_weight,
             "current_candidate_space": current_space,
             "current_decision_surface": current_decision_surface,
+            "current_objective_component_control": current_objective_component_control,
             "current_round_best_path": current_round_best_path,
             "current_signal": current_signal,
             "synthesis_counts": synthesis_counts,
             "weight_counts": weight_counts,
             "candidate_space_counts": space_counts,
             "decision_surface_counts": decision_surface_counts,
+            "objective_component_control_counts": objective_component_control_counts,
             "signal_counts": signal_counts,
             "near_dynamic": near_summary,
             "dynamic_training_status": (dynamic_training or {}).get("latest", {}).get("status")

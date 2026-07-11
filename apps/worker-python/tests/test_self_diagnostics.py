@@ -185,3 +185,40 @@ def test_specialist_strategy_memory_routes_objective_tiebreak_tradeoff_audit():
         "promotion_allowed": False,
         "evidence_level": "strategy_memory_observation",
     }
+
+
+def test_specialist_strategy_memory_advances_to_component_residual_stability_audit():
+    current = {
+        "synthesis": {"status": "blocked"},
+        "weight_trust": {"status": "blocked"},
+        "candidate_space": {
+            "status": "diverse",
+            "round_best_path_status": "stale",
+        },
+        "decision_surface": {
+            "status": "objective_tiebreak_tradeoff",
+            "objective_component_control": {"status": "measured"},
+        },
+        "signal_vs_noise": {"status": "noise_risk"},
+    }
+
+    memory = build_specialist_strategy_memory(
+        current_diagnostic=current,
+        recent_diagnostics=[current],
+        round_index=5,
+    )
+
+    assert "objective_component_residuals_need_stability" in memory["failure_hypotheses"]
+    assert "objective_tiebreak_hides_pareto_tradeoffs" not in memory["failure_hypotheses"]
+    assert memory["state"]["current_objective_component_control"] == "measured"
+    assert memory["state"]["objective_component_control_counts"] == {"measured": 2}
+    assert memory["selected_experiment"] == {
+        "key": "objective_component_residual_audit",
+        "action": "observe_component_residual_stability_without_sort_change",
+        "rationale": (
+            "Objective components are now reconstructed on the search slice; observe which component "
+            "repeatedly controls the local gap before predeclaring any counterfactual sort control."
+        ),
+        "promotion_allowed": False,
+        "evidence_level": "strategy_memory_observation",
+    }
