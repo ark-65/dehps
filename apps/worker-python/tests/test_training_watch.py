@@ -2096,6 +2096,48 @@ def test_cli_summary_includes_restart_candidate_readiness_context(tmp_path):
     assert readiness["experimental_navigation_config_distance"] == 3.62905
 
 
+def test_cli_summary_uses_safe_action_during_navigation_arbitration(tmp_path):
+    payload = {
+        "run_id": "run-1",
+        "round_count": 74,
+        "round_window_count": 12,
+        "recommendation": {
+            "severity": "alert",
+            "action": "prepare_restart_with_more_exploration",
+        },
+        "restart_readiness": {
+            "requested": True,
+            "ready": False,
+            "status": "blocked_by_current_run_navigation_arbitration",
+            "blockers": [
+                "active_training_supervisor_lock",
+                "current_run_navigation_arbitration",
+                "durable_round_boundary",
+            ],
+            "operator_action": (
+                "continue_current_training_supervisor_through_navigation_arbitration"
+            ),
+            "current_run_navigation_arbitration_active": True,
+            "experimental_navigation_selected": True,
+            "durable_round_boundary_status": "target_complete_waiting_round_result",
+        },
+    }
+
+    summary = cli_summary(payload, tmp_path / "watch.json", tmp_path / "watch.md")
+
+    assert summary["action"] == (
+        "continue_current_training_supervisor_through_navigation_arbitration"
+    )
+    assert summary["recommendation_action"] == (
+        "prepare_restart_with_more_exploration"
+    )
+    assert summary["restart_readiness"]["ready"] is False
+    assert (
+        summary["restart_readiness"]["durable_round_boundary_status"]
+        == "target_complete_waiting_round_result"
+    )
+
+
 def test_operator_summary_matches_cli_summary_without_paths(tmp_path):
     payload = {
         "run_id": "run-1",
