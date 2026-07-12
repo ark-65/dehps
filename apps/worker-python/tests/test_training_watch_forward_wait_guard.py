@@ -30,10 +30,13 @@ def wait_ready_summary() -> dict:
             "pid": 12345,
             "latest_progress": {"fresh": True},
         },
-        "heavy_job_lock": {
-            "active": True,
-            "owner": "training-supervisor",
-            "pid": 12345,
+        "heavy_job_supervisor_relation": {
+            "status": "same_supervisor_pid",
+            "supervisor_pid": 12345,
+            "heavy_job_pid": 12345,
+            "heavy_job_owner": "training-supervisor",
+            "heavy_job_active": True,
+            "same_pid": True,
         },
     }
 
@@ -53,11 +56,61 @@ def test_forward_wait_guard_accepts_future_issue_at_durable_boundary():
 def test_forward_wait_guard_accepts_parked_process_without_pid_check():
     summary = wait_ready_summary()
     summary["supervisor_status"] = {"available": True, "pid": 99999}
-    summary["heavy_job_lock"] = {"active": False}
+    summary["heavy_job_supervisor_relation"] = {
+        "status": "different_inactive_pid",
+        "heavy_job_active": False,
+    }
 
     decision = forward_wait_decision_from_watch_summary(summary)
 
     assert decision.should_wait is True
+
+
+def test_forward_wait_guard_uses_pid_relation_not_owner_label():
+    summary = wait_ready_summary()
+    summary["heavy_job_supervisor_relation"]["heavy_job_owner"] = "legacy-label"
+
+    decision = forward_wait_decision_from_watch_summary(
+        summary,
+        expected_pid=12345,
+    )
+
+    assert decision.should_wait is True
+
+
+def test_forward_wait_guard_rejects_different_active_pid_relation():
+    summary = wait_ready_summary()
+    summary["heavy_job_supervisor_relation"].update(
+        {
+            "status": "different_active_pid",
+            "heavy_job_pid": 54321,
+            "same_pid": False,
+        }
+    )
+
+    decision = forward_wait_decision_from_watch_summary(
+        summary,
+        expected_pid=12345,
+    )
+
+    assert decision.should_wait is False
+    assert "heavy_job_relation" in decision.reason
+    assert "heavy_job_same_pid" in decision.reason
+    assert "heavy_job_pid" in decision.reason
+
+
+def test_forward_wait_guard_rejects_missing_pid_relation():
+    summary = wait_ready_summary()
+    summary.pop("heavy_job_supervisor_relation")
+
+    decision = forward_wait_decision_from_watch_summary(
+        summary,
+        expected_pid=12345,
+    )
+
+    assert decision.should_wait is False
+    assert "heavy_job_relation" in decision.reason
+    assert "heavy_job_active" in decision.reason
 
 
 def test_forward_wait_guard_rejects_pending_issue_already_synced():

@@ -76,9 +76,9 @@ def forward_wait_decision_from_watch_summary(
             if isinstance(summary.get("supervisor_status"), dict)
             else {}
         )
-        lock = (
-            summary.get("heavy_job_lock")
-            if isinstance(summary.get("heavy_job_lock"), dict)
+        heavy_job_relation = (
+            summary.get("heavy_job_supervisor_relation")
+            if isinstance(summary.get("heavy_job_supervisor_relation"), dict)
             else {}
         )
         progress = (
@@ -91,8 +91,17 @@ def forward_wait_decision_from_watch_summary(
                 "supervisor_available": supervisor.get("available") is True,
                 "supervisor_pid": _as_int(supervisor.get("pid")) == expected_pid,
                 "supervisor_progress_fresh": progress.get("fresh") is True,
-                "lock_owner": lock.get("owner") == "training-supervisor",
-                "lock_pid": _as_int(lock.get("pid")) == expected_pid,
+                "heavy_job_relation": (
+                    heavy_job_relation.get("status") == "same_supervisor_pid"
+                ),
+                "heavy_job_active": heavy_job_relation.get("heavy_job_active") is True,
+                "heavy_job_same_pid": heavy_job_relation.get("same_pid") is True,
+                "heavy_job_supervisor_pid": (
+                    _as_int(heavy_job_relation.get("supervisor_pid")) == expected_pid
+                ),
+                "heavy_job_pid": (
+                    _as_int(heavy_job_relation.get("heavy_job_pid")) == expected_pid
+                ),
             }
         )
 
