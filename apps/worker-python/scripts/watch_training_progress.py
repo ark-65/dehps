@@ -4525,6 +4525,7 @@ def render_remote_sync_cadence_markdown(cadence: Any) -> str:
         "- Cadence: "
         f"local_health={cadence.get('local_health_check_cadence_minutes')}m "
         f"cold_remote={cadence.get('cold_poll_minutes')}m "
+        f"boundary_tolerance={cadence.get('cold_poll_boundary_tolerance_seconds')}s "
         f"running_grace={cadence.get('running_grace_minutes')}m "
         f"retry_after={cadence.get('retry_after_minutes')}m\n"
         "- Safety: "
@@ -5599,6 +5600,9 @@ def artifact_snapshot_state(payload: dict[str, Any]) -> dict[str, Any]:
             "recovery_window": remote_sync_cadence.get("recovery_window"),
             "last_attempt_at": remote_sync_cadence.get("last_attempt_at"),
             "last_status": remote_sync_cadence.get("last_status"),
+            "cold_poll_boundary_tolerance_seconds": remote_sync_cadence.get(
+                "cold_poll_boundary_tolerance_seconds"
+            ),
         },
     }
 
@@ -6475,6 +6479,9 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             "draw_hot_window": remote_sync_cadence.get("draw_hot_window"),
             "recovery_window": remote_sync_cadence.get("recovery_window"),
             "cold_poll_minutes": remote_sync_cadence.get("cold_poll_minutes"),
+            "cold_poll_boundary_tolerance_seconds": remote_sync_cadence.get(
+                "cold_poll_boundary_tolerance_seconds"
+            ),
             "running_grace_minutes": remote_sync_cadence.get(
                 "running_grace_minutes"
             ),
