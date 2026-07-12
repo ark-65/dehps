@@ -558,6 +558,14 @@ setsid bash -lc '
   weight_kdj_budget_share="$2"
   neural_kdj_budget_share="$3"
   training_workers="$4"
+  watchdog_lock="$5"
+  for fd_path in /proc/$$/fd/*; do
+    fd="${fd_path##*/}"
+    if [[ "$fd" =~ ^[0-9]+$ ]] && (( fd > 2 )) \
+      && [[ "$(readlink "$fd_path" 2>/dev/null || true)" == "$watchdog_lock" ]]; then
+      eval "exec ${fd}>&-"
+    fi
+  done
   printf "%s\n" "$$" > "$pid_file"
   args=(
     scripts/run_training_supervisor.py
@@ -587,7 +595,7 @@ setsid bash -lc '
     args+=(--as-of-issue "$as_of_issue")
   fi
   exec .venv/bin/python "${args[@]}"
-' "$PID_FILE" "$latest_issue" "$WEIGHT_KDJ_BUDGET_SHARE" "$NEURAL_KDJ_BUDGET_SHARE" "$TRAINING_WORKERS" > "$run_log" 2>&1 < /dev/null &
+' "$PID_FILE" "$latest_issue" "$WEIGHT_KDJ_BUDGET_SHARE" "$NEURAL_KDJ_BUDGET_SHARE" "$TRAINING_WORKERS" "$LOG_DIR/training-supervisor-watchdog.lock" > "$run_log" 2>&1 < /dev/null &
 
 launcher_pid="$!"
 sleep 1
