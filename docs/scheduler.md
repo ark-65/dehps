@@ -33,6 +33,14 @@ Before synchronization or any heavy work, the watchdog also runs the read-only r
 
 The watchdog itself still runs every ten minutes, but remote requests use a separate cadence. Draw days from 20:00–23:59 and the following recovery mornings from 00:00–01:59 poll every ten minutes. Other successful cold periods poll at most hourly; failed/error syncs retry immediately. A recent running sync gets a 30-minute competition guard, then becomes retryable if still stale. Skipping a cold remote request does not skip local capacity, forward-ledger, advisor, lifecycle, or supervisor checks.
 
+Run the watchdog with `flock --close` so a newly launched long-lived supervisor
+cannot inherit the scheduler lock. The launcher also closes any inherited file
+descriptor that resolves to this lock before executing the supervisor.
+
+```cron
+*/10 * * * * /usr/bin/flock --close --nonblock /path/to/ark-dehps/runtime/logs/training-supervisor-watchdog.lock /path/to/ark-dehps/scripts/ensure_training_supervisor.sh >> /path/to/ark-dehps/runtime/logs/training-supervisor-watchdog.log 2>&1
+```
+
 For systemd installs, inspect the timer and service with:
 
 ```bash

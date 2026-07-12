@@ -94,3 +94,18 @@ def test_watchdog_decouples_remote_sync_from_ten_minute_local_checks():
     assert script.index("remote sync cadence plan") < script.index(
         'sync_from_issue="$(latest_db_issue)"'
     )
+
+
+def test_watchdog_closes_inherited_cron_lock_before_supervisor_exec():
+    script = (REPO_ROOT / "scripts/ensure_training_supervisor.sh").read_text(
+        encoding="utf-8"
+    )
+
+    close_guard = '[[ "$(readlink "$fd_path" 2>/dev/null || true)" == "$watchdog_lock" ]]'
+    supervisor_exec = 'exec .venv/bin/python "${args[@]}"'
+    assert 'watchdog_lock="$5"' in script
+    assert 'for fd_path in /proc/$$/fd/*; do' in script
+    assert close_guard in script
+    assert 'eval "exec ${fd}>&-"' in script
+    assert script.index(close_guard) < script.index(supervisor_exec)
+    assert '"$LOG_DIR/training-supervisor-watchdog.lock"' in script
