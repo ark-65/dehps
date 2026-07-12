@@ -891,6 +891,19 @@ def sequential_null_audit_summary(prefilter: dict[str, Any] | None) -> dict[str,
         and signal.get("status") == "candidate_signal"
         and signal.get("overfit_guard_active") is not True
     )
+    sequential_family = {
+        "protocol": ledger.get("protocol"),
+        "mode": ledger.get("mode"),
+        "total_round_count": total_rounds,
+        "observed_diagnostic_round_count": observed_rounds,
+        "legacy_uncounted_round_count": legacy_rounds,
+        "observed_candidate_hypothesis_count": candidate_tests,
+        "tested_band_count": tested_bands,
+        "observed_familywise_hypothesis_count": observed_family,
+        "observed_round_family_complete": observed_round_family_complete,
+        "adaptive_hypothesis_generation_counted": adaptive_counted,
+        "sequential_search_multiplicity_counted": sequential_counted,
+    }
     return {
         "protocol": "dehps-sequential-null-audit-v1",
         "status": status,
@@ -916,6 +929,7 @@ def sequential_null_audit_summary(prefilter: dict[str, Any] | None) -> dict[str,
         "signal_status": signal.get("status"),
         "familywise_method": signal.get("familywise_method"),
         "sequential_family_method": signal.get("sequential_family_method"),
+        "sequential_family": sequential_family,
         "familywise_alpha": signal.get("familywise_alpha"),
         "strongest_band": strongest_band_summary,
         "forward_evaluated_count": forward_evaluated_count,
@@ -4627,6 +4641,11 @@ def render_sequential_null_audit_markdown(summary: Any) -> str:
         if isinstance(summary.get("strongest_band"), dict)
         else {}
     )
+    sequential_family = (
+        summary.get("sequential_family")
+        if isinstance(summary.get("sequential_family"), dict)
+        else {}
+    )
     return (
         "## Sequential Null Ledger Audit\n\n"
         "- Status/action: "
@@ -4644,6 +4663,14 @@ def render_sequential_null_audit_markdown(summary: Any) -> str:
         f"family={summary.get('observed_familywise_hypothesis_count')} "
         f"partition_ok={summary.get('round_partition_consistent')} "
         f"family_product_ok={summary.get('observed_family_consistent')}\n"
+        "- Sequential family: "
+        f"protocol={markdown_inline_text(sequential_family.get('protocol'))} "
+        f"mode={markdown_inline_text(sequential_family.get('mode'))} "
+        f"observed={sequential_family.get('observed_diagnostic_round_count')}/"
+        f"{sequential_family.get('total_round_count')} "
+        f"candidates={sequential_family.get('observed_candidate_hypothesis_count')} "
+        f"bands={sequential_family.get('tested_band_count')} "
+        f"family={sequential_family.get('observed_familywise_hypothesis_count')}\n"
         "- Completeness: "
         f"observed_rounds={summary.get('observed_round_family_complete')} "
         f"adaptive={summary.get('adaptive_hypothesis_generation_counted')} "
@@ -6628,6 +6655,7 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
                 "sequential_search_multiplicity_counted"
             ),
             "signal_status": sequential_null_audit.get("signal_status"),
+            "sequential_family": sequential_null_audit.get("sequential_family") or {},
             "strongest_band": sequential_null_audit.get("strongest_band") or {},
             "forward_evaluated_count": sequential_null_audit.get(
                 "forward_evaluated_count"
