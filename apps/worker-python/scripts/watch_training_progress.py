@@ -6849,6 +6849,13 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             if restart_readiness.get(key) is not None:
                 readiness[key] = restart_readiness.get(key)
         summary["restart_readiness"] = readiness
+        if (
+            readiness.get("status")
+            == "blocked_by_current_run_navigation_arbitration"
+            and readiness.get("operator_action")
+        ):
+            summary["recommendation_action"] = summary.get("action")
+            summary["action"] = readiness.get("operator_action")
     return summary
 
 
