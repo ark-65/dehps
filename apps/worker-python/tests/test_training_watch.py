@@ -299,6 +299,10 @@ def test_sequential_null_audit_exposes_coverage_and_incomplete_family_boundaries
                 "familywise_alpha": 0.01,
                 "overfit_guard_active": True,
                 "forward_evaluated_count": 0,
+                "sequential_family": {
+                    "protocol": "dehps-sequential-null-ledger-v1",
+                    "mode": "same_history_durable_round_observed_family",
+                },
                 "strongest_band": {
                     "label": "top_100",
                     "hits": 3,
@@ -322,6 +326,19 @@ def test_sequential_null_audit_exposes_coverage_and_incomplete_family_boundaries
     assert summary["full_family_complete"] is False
     assert summary["candidate_signal_interpretable"] is False
     assert summary["automatic_promotion_allowed"] is False
+    assert summary["sequential_family"] == {
+        "protocol": "dehps-sequential-null-ledger-v1",
+        "mode": "same_history_durable_round_observed_family",
+        "total_round_count": 317,
+        "observed_diagnostic_round_count": 23,
+        "legacy_uncounted_round_count": 294,
+        "observed_candidate_hypothesis_count": 418,
+        "tested_band_count": 3,
+        "observed_familywise_hypothesis_count": 1254,
+        "observed_round_family_complete": False,
+        "adaptive_hypothesis_generation_counted": False,
+        "sequential_search_multiplicity_counted": False,
+    }
     assert "legacy_rounds_unaccounted" in summary["blockers"]
     assert "adaptive_hypothesis_generation_unaccounted" in summary["blockers"]
     assert "sequential_search_multiplicity_incomplete" in summary["blockers"]
@@ -340,9 +357,13 @@ def test_sequential_null_audit_exposes_coverage_and_incomplete_family_boundaries
         }
     )
     assert operator["sequential_null_audit"]["observed_round_coverage_ratio"] == 0.072555
+    assert operator["sequential_null_audit"]["sequential_family"] == summary[
+        "sequential_family"
+    ]
     markdown = watch.render_sequential_null_audit_markdown(summary)
     assert "Sequential Null Ledger Audit" in markdown
     assert "observed=23/317" in markdown
+    assert "family=1254" in markdown
     assert "automatic_promotion=False" in markdown
 
 
