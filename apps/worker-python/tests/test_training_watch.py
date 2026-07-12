@@ -3425,6 +3425,7 @@ def test_remote_sync_cadence_is_visible_to_operator_and_markdown():
         "draw_hot_window": False,
         "recovery_window": False,
         "cold_poll_minutes": 60,
+        "cold_poll_boundary_tolerance_seconds": 60,
         "running_grace_minutes": 30,
         "last_attempt_at": "2026-07-11T18:10:00+08:00",
         "last_status": "success",
@@ -3445,8 +3446,10 @@ def test_remote_sync_cadence_is_visible_to_operator_and_markdown():
 
     assert operator["remote_sync_cadence"]["due"] is False
     assert operator["remote_sync_cadence"]["local_health_check_cadence_minutes"] == 10
+    assert operator["remote_sync_cadence"]["cold_poll_boundary_tolerance_seconds"] == 60
     assert "## Remote Sync Cadence" in markdown
     assert "cold_poll_interval_not_elapsed" in markdown
+    assert "boundary_tolerance=60s" in markdown
 
 
 def test_recommendation_and_markdown_include_supervisor_progress():

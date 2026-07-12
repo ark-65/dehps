@@ -10,6 +10,7 @@ SSQ_DRAW_WEEKDAYS = frozenset({1, 3, 6})  # Tuesday, Thursday, Sunday
 SSQ_RECOVERY_WEEKDAYS = frozenset({0, 2, 4})  # Monday, Wednesday, Friday
 DEFAULT_COLD_POLL_MINUTES = 60
 DEFAULT_RUNNING_GRACE_MINUTES = 30
+COLD_POLL_BOUNDARY_TOLERANCE_SECONDS = 60
 
 
 def ssq_remote_sync_poll_plan(
@@ -57,7 +58,10 @@ def ssq_remote_sync_poll_plan(
     elif elapsed_minutes is None or elapsed_minutes < 0:
         due = True
         reason = "sync_clock_invariant_failed"
-    elif elapsed_minutes >= safe_cold_minutes:
+    elif (
+        elapsed_minutes * 60 + COLD_POLL_BOUNDARY_TOLERANCE_SECONDS
+        >= safe_cold_minutes * 60
+    ):
         due = True
         reason = "cold_poll_interval_elapsed"
     else:
@@ -78,6 +82,7 @@ def ssq_remote_sync_poll_plan(
         "draw_hot_window": in_draw_hot_window,
         "recovery_window": in_recovery_window,
         "cold_poll_minutes": safe_cold_minutes,
+        "cold_poll_boundary_tolerance_seconds": COLD_POLL_BOUNDARY_TOLERANCE_SECONDS,
         "running_grace_minutes": safe_running_grace_minutes,
         "last_attempt_at": last_attempt_at.isoformat() if last_attempt_at else None,
         "last_status": normalized_status,
@@ -90,6 +95,6 @@ def ssq_remote_sync_poll_plan(
             "Remote polling cadence only. The watchdog still runs local capacity, forward-ledger, "
             "advisor, lifecycle, and supervisor checks every ten minutes. A non-successful prior "
             "sync retries immediately after a short running grace period; cold windows retain an "
-            "hourly fallback for schedule changes."
+            "hourly fallback for schedule changes with a small scheduler-boundary tolerance."
         ),
     }

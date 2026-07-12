@@ -58,6 +58,33 @@ def test_remote_sync_poll_keeps_hourly_cold_fallback():
     assert plan["reason"] == "cold_poll_interval_elapsed"
 
 
+def test_remote_sync_poll_accepts_subsecond_hourly_scheduler_drift():
+    now = local_time(2026, 7, 12, 8).replace(second=1)  # Sunday, outside hot window
+    plan = ssq_remote_sync_poll_plan(
+        now=now,
+        last_attempt_at=local_time(2026, 7, 12, 7).replace(second=2),
+        last_status="success",
+    )
+
+    assert plan["elapsed_minutes"] == 59.983
+    assert plan["due"] is True
+    assert plan["reason"] == "cold_poll_interval_elapsed"
+    assert plan["cold_poll_boundary_tolerance_seconds"] == 60
+
+
+def test_remote_sync_poll_does_not_apply_boundary_tolerance_too_early():
+    now = local_time(2026, 7, 11, 18, 20)
+    plan = ssq_remote_sync_poll_plan(
+        now=now,
+        last_attempt_at=now - timedelta(minutes=58, seconds=59),
+        last_status="success",
+    )
+
+    assert plan["due"] is False
+    assert plan["reason"] == "cold_poll_interval_not_elapsed"
+    assert plan["retry_after_minutes"] == 1.017
+
+
 def test_remote_sync_poll_retries_failed_attempt_without_backoff():
     now = local_time(2026, 7, 11, 18, 20)
     plan = ssq_remote_sync_poll_plan(
