@@ -20,6 +20,25 @@ def test_daily_pipeline_direct_script_help_starts_without_import_error():
     assert "--skip-weight-kdj-signals" in result.stdout
 
 
+def test_daily_pipeline_direct_script_help_starts_from_repository_root():
+    worker_root = Path(__file__).resolve().parents[1]
+    repository_root = worker_root.parents[1]
+    result = subprocess.run(
+        [
+            sys.executable,
+            "apps/worker-python/scripts/daily_pipeline.py",
+            "--help",
+        ],
+        cwd=repository_root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "--skip-weight-kdj-signals" in result.stdout
+
+
 def test_daily_pipeline_direct_script_resolves_sibling_import(tmp_path):
     worker_root = Path(__file__).resolve().parents[1]
     (tmp_path / "dehps").symlink_to(worker_root / "dehps", target_is_directory=True)
