@@ -33,6 +33,28 @@ def test_remote_sync_poll_is_due_in_post_draw_recovery_window():
     assert plan["recovery_window"] is True
 
 
+def test_remote_sync_poll_respects_exact_hot_window_boundaries():
+    cases = [
+        (local_time(2026, 7, 12, 19, 59), False, False, False),
+        (local_time(2026, 7, 12, 20, 0), True, True, False),
+        (local_time(2026, 7, 12, 23, 59), True, True, False),
+        (local_time(2026, 7, 13, 0, 0), True, False, True),
+        (local_time(2026, 7, 13, 1, 59), True, False, True),
+        (local_time(2026, 7, 13, 2, 0), False, False, False),
+    ]
+
+    for now, due, draw_hot_window, recovery_window in cases:
+        plan = ssq_remote_sync_poll_plan(
+            now=now,
+            last_attempt_at=now - timedelta(minutes=5),
+            last_status="success",
+        )
+
+        assert plan["due"] is due, now.isoformat()
+        assert plan["draw_hot_window"] is draw_hot_window, now.isoformat()
+        assert plan["recovery_window"] is recovery_window, now.isoformat()
+
+
 def test_remote_sync_poll_skips_recent_success_in_cold_window():
     now = local_time(2026, 7, 11, 18, 20)  # Saturday
     plan = ssq_remote_sync_poll_plan(
