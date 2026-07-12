@@ -33,6 +33,7 @@ from scripts.watch_training_progress import (
     summarize_round_repetition,
     supervisor_round_boundary_summary,
     supervisor_lifecycle_summary,
+    supervisor_status_summary,
     summarize_watch,
 )
 
@@ -5089,6 +5090,119 @@ def test_safe_numeric_helpers_reject_bool_and_non_finite_values():
     assert safe_int(3.5) is None
     assert safe_int(False) is None
     assert safe_int(float("inf")) is None
+
+
+def test_operator_summary_exposes_self_diagnostics_and_strategy_memory_boundaries():
+    payload = {
+        "run_id": "run-1",
+        "self_diagnostics": {
+            "candidate_space": {
+                "status": "diverse",
+                "unique_top_rank_signature_count": 10,
+                "round_best_path_status": "stale",
+            },
+            "decision_surface": {
+                "status": "objective_tiebreak_tradeoff",
+                "first_difference_counts": {"objective_score": 4},
+                "pareto_tradeoff_count": 4,
+                "objective_gap_min": 0.001,
+                "objective_gap_max": 0.68,
+                "selection_scope": "search_slice_only",
+                "selection_uses_frozen_validation": False,
+                "objective_component_control": {
+                    "status": "measured",
+                    "max_abs_reconstruction_residual": 0.0,
+                    "selection_changed": False,
+                    "selection_uses_frozen_validation": False,
+                },
+                "objective_component_counterfactual": {
+                    "status": "measured",
+                    "component": "tail_risk_penalty",
+                    "counterfactual_top_changed": True,
+                    "selection_changed": False,
+                    "selection_uses_frozen_validation": False,
+                },
+            },
+        },
+        "strategy_memory": {
+            "mode": "observe_only_strategy_memory",
+            "memory_window": 8,
+            "state": {
+                "current_candidate_space": "diverse",
+                "current_round_best_path": "stale",
+                "objective_component_counterfactual_observation_window": {
+                    "status": "mature",
+                    "measured_round_count": 8,
+                    "guard_violation_count": 0,
+                    "promotion_allowed": False,
+                },
+            },
+            "selected_experiment": {
+                "key": "null_model_forward_audit",
+                "promotion_allowed": False,
+            },
+        },
+        "supervisor_status": {
+            "available": True,
+            "continuity_seed": {
+                "mode": "holdout_isolated_search_replay",
+                "eligible": True,
+                "selected_config_hash": "seed-hash",
+            },
+            "strategy_memory_continuity": {
+                "mode": "same_history_persisted_self_diagnostics",
+                "record_count": 8,
+                "selection_changed": False,
+                "selection_uses_frozen_validation": False,
+            },
+        },
+        "recommendation": {"severity": "warn", "action": "await_new_forward_issue"},
+    }
+
+    summary = operator_summary(payload)
+
+    candidate_space = summary["self_diagnostics"]["candidate_space"]
+    assert candidate_space["status"] == "diverse"
+    assert candidate_space["unique_top_rank_signature_count"] == 10
+    assert candidate_space["round_best_path_status"] == "stale"
+    decision_surface = summary["self_diagnostics"]["decision_surface"]
+    assert decision_surface["status"] == "objective_tiebreak_tradeoff"
+    assert decision_surface["objective_component_control"]["selection_changed"] is False
+    assert decision_surface["objective_component_counterfactual"]["selection_uses_frozen_validation"] is False
+    observation = summary["strategy_memory"]["state"][
+        "objective_component_counterfactual_observation_window"
+    ]
+    assert observation["status"] == "mature"
+    assert observation["promotion_allowed"] is False
+    assert summary["continuity_seed"]["selected_config_hash"] == "seed-hash"
+    assert summary["strategy_memory_continuity"]["record_count"] == 8
+
+
+def test_supervisor_status_summary_preserves_strategy_memory_continuity(tmp_path):
+    status = supervisor_status_summary(
+        {
+            "run_id": "run-1",
+            "strategy_memory_continuity": {
+                "mode": "same_history_persisted_self_diagnostics",
+                "record_count": 8,
+                "limit": 8,
+                "source_run_ids": ["run-a", "run-b"],
+                "oldest_round": {"run_id": "run-a", "round_index": 1},
+                "latest_round": {"run_id": "run-b", "round_index": 8},
+                "current_run_excluded": "run-1",
+                "selection_changed": False,
+                "selection_uses_frozen_validation": False,
+                "interpretation": "Read-only continuity.",
+            },
+        },
+        path=tmp_path / "training-supervisor-run-1.json",
+    )
+
+    continuity = status["strategy_memory_continuity"]
+    assert continuity["record_count"] == 8
+    assert continuity["source_run_ids"] == ["run-a", "run-b"]
+    assert continuity["selection_changed"] is False
+    assert continuity["selection_uses_frozen_validation"] is False
 
 
 def test_observed_age_minutes_parses_utc_lock_timestamps():

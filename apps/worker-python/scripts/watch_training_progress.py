@@ -1941,6 +1941,11 @@ def supervisor_status_summary(status: dict[str, Any], *, path: Path) -> dict[str
     if run_mode is None and deadline_present and deadline is None:
         run_mode = "continuous"
     continuity = status.get("continuity_seed") if isinstance(status.get("continuity_seed"), dict) else {}
+    strategy_memory_continuity = (
+        status.get("strategy_memory_continuity")
+        if isinstance(status.get("strategy_memory_continuity"), dict)
+        else {}
+    )
     forward_wait = status.get("forward_wait") if isinstance(status.get("forward_wait"), dict) else {}
     return {
         "available": True,
@@ -1977,6 +1982,26 @@ def supervisor_status_summary(status: dict[str, Any], *, path: Path) -> dict[str
             "selected_config_hash": continuity.get("selected_config_hash"),
             "selected_frozen_primary_score": safe_score(continuity.get("selected_frozen_primary_score")),
             "baseline_frozen_primary_score": safe_score(continuity.get("baseline_frozen_primary_score")),
+        },
+        "strategy_memory_continuity": {
+            "mode": strategy_memory_continuity.get("mode"),
+            "record_count": safe_int(strategy_memory_continuity.get("record_count")),
+            "limit": safe_int(strategy_memory_continuity.get("limit")),
+            "source_run_ids": safe_string_list(
+                strategy_memory_continuity.get("source_run_ids")
+            ),
+            "oldest_round": strategy_memory_continuity.get("oldest_round") or {},
+            "latest_round": strategy_memory_continuity.get("latest_round") or {},
+            "current_run_excluded": strategy_memory_continuity.get(
+                "current_run_excluded"
+            ),
+            "selection_changed": safe_bool(
+                strategy_memory_continuity.get("selection_changed")
+            ),
+            "selection_uses_frozen_validation": safe_bool(
+                strategy_memory_continuity.get("selection_uses_frozen_validation")
+            ),
+            "interpretation": strategy_memory_continuity.get("interpretation"),
         },
         "prediction_input_boundary": prediction_input_boundary_summary(
             status.get("prediction_input_boundary")
@@ -4226,6 +4251,8 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
             "best_objective_seen": round_stats["best_objective_seen"],
         },
         "candidate_budget": prefilter.get("candidate_budget") if isinstance(prefilter.get("candidate_budget"), dict) else {},
+        "self_diagnostics": prefilter.get("self_diagnostics") if isinstance(prefilter.get("self_diagnostics"), dict) else {},
+        "strategy_memory": prefilter.get("strategy_memory") if isinstance(prefilter.get("strategy_memory"), dict) else {},
         "round_repetition": round_repetition,
         "candidate_source_survival": candidate_source_survival,
         "sequential_null_audit": sequential_null_audit,
@@ -5904,6 +5931,123 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
     )
     if guard_continuity:
         summary["guard_continuity"] = guard_continuity
+    self_diagnostics = (
+        payload.get("self_diagnostics")
+        if isinstance(payload.get("self_diagnostics"), dict)
+        else {}
+    )
+    if self_diagnostics:
+        candidate_space = (
+            self_diagnostics.get("candidate_space")
+            if isinstance(self_diagnostics.get("candidate_space"), dict)
+            else {}
+        )
+        decision_surface = (
+            self_diagnostics.get("decision_surface")
+            if isinstance(self_diagnostics.get("decision_surface"), dict)
+            else {}
+        )
+        summary["self_diagnostics"] = {
+            "candidate_space": {
+                key: candidate_space.get(key)
+                for key in (
+                    "status",
+                    "generated_source_count",
+                    "active_refined_source_count",
+                    "generated_config_count",
+                    "refined_config_count",
+                    "top_limit",
+                    "top_rank_signature_count",
+                    "unique_top_rank_signature_count",
+                    "round_best_path_status",
+                    "rank_homogeneity_active",
+                    "rank_homogeneity_unique_signature_count",
+                    "reasons",
+                )
+            },
+            "decision_surface": {
+                key: decision_surface.get(key)
+                for key in (
+                    "status",
+                    "candidate_count",
+                    "challenger_count",
+                    "first_difference_counts",
+                    "objective_tiebreak_count",
+                    "baseline_pareto_dominates_count",
+                    "challenger_pareto_dominates_count",
+                    "pareto_tradeoff_count",
+                    "objective_gap_min",
+                    "objective_gap_max",
+                    "objective_gap_max_relative",
+                    "selection_scope",
+                    "selection_uses_frozen_validation",
+                    "interpretation",
+                )
+            },
+        }
+        objective_component_control = decision_surface.get(
+            "objective_component_control"
+        )
+        if isinstance(objective_component_control, dict):
+            summary["self_diagnostics"]["decision_surface"][
+                "objective_component_control"
+            ] = objective_component_control
+        objective_component_counterfactual = decision_surface.get(
+            "objective_component_counterfactual"
+        )
+        if isinstance(objective_component_counterfactual, dict):
+            summary["self_diagnostics"]["decision_surface"][
+                "objective_component_counterfactual"
+            ] = {
+                key: objective_component_counterfactual.get(key)
+                for key in (
+                    "mode",
+                    "status",
+                    "component",
+                    "candidate_count",
+                    "challenger_flip_count",
+                    "baseline_retained_count",
+                    "counterfactual_tie_count",
+                    "counterfactual_top_changed",
+                    "production_top_config_hash",
+                    "counterfactual_top_config_hash",
+                    "selection_scope",
+                    "selection_changed",
+                    "selection_uses_frozen_validation",
+                    "interpretation",
+                )
+            }
+    strategy_memory = (
+        payload.get("strategy_memory")
+        if isinstance(payload.get("strategy_memory"), dict)
+        else {}
+    )
+    if strategy_memory:
+        state = (
+            strategy_memory.get("state")
+            if isinstance(strategy_memory.get("state"), dict)
+            else {}
+        )
+        summary["strategy_memory"] = {
+            "mode": strategy_memory.get("mode"),
+            "protocol": strategy_memory.get("protocol"),
+            "memory_window": strategy_memory.get("memory_window"),
+            "round_index": strategy_memory.get("round_index"),
+            "state": {
+                key: state.get(key)
+                for key in (
+                    "current_candidate_space",
+                    "current_decision_surface",
+                    "current_objective_component_control",
+                    "current_objective_component_counterfactual",
+                    "current_round_best_path",
+                    "current_signal",
+                    "objective_component_counterfactual_observation_window",
+                )
+            },
+            "selected_experiment": strategy_memory.get("selected_experiment") or {},
+            "historical_boundary": strategy_memory.get("historical_boundary"),
+        }
     evidence_context = cli_evidence_context_summary(payload)
     if evidence_context:
         summary["evidence_context"] = evidence_context
@@ -6124,6 +6268,19 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
                 "fresh": progress.get("fresh"),
             },
         }
+        continuity_seed = supervisor_status.get("continuity_seed")
+        if isinstance(continuity_seed, dict) and any(
+            value is not None for value in continuity_seed.values()
+        ):
+            summary["continuity_seed"] = continuity_seed
+        strategy_memory_continuity = supervisor_status.get(
+            "strategy_memory_continuity"
+        )
+        if isinstance(strategy_memory_continuity, dict) and any(
+            value not in (None, {}, [])
+            for value in strategy_memory_continuity.values()
+        ):
+            summary["strategy_memory_continuity"] = strategy_memory_continuity
     supervisor_lifecycle = (
         payload.get("supervisor_lifecycle")
         if isinstance(payload.get("supervisor_lifecycle"), dict)
