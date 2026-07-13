@@ -112,6 +112,9 @@ cat <<'PROMPT' | "$CODEX_BIN" exec \
 1t. 必须读取 watcher 的 `remote_sync_cadence`。本地容量、前向账本、advisor、生命周期和 supervisor 健康检查仍每 10 分钟执行；远端同步在官方周二/四/日 21:15 开奖热窗口及次日恢复窗口每 10 分钟，其余时段最多每 60 分钟。上次 sync failed/error、无历史或时钟不变量失败时必须立即重试/执行，不得用 backoff 隐藏失败；最近 running sync 只允许 30 分钟竞争保护，超时必须重试。冷时段跳过远端请求后仍必须继续本地评估、advisor 和 supervisor 检查。该节奏不改变 selection/promotion。
 2. 修复当前测试失败、明显 bug、类型错误、启动错误、训练 watch / supervisor 运行错误。
 3. 如果训练出现停滞、发散、候选族塌缩、可疑跳变、重复评估相近配置、source/frontier 异常或 frozen validation 不一致，先做数学诊断，再决定最小修复。
+3a. 当 `data/output/optimization/stall-diagnosis/stall-diagnosis-latest.json` 存在时必须读取它。若 `critical_dimensions` 非空，不得只复述 `await_new_forward_issue`；必须分别处理 search geometry、model-source quality、compute equivalence、data/leakage 和 forward evidence。已经被同历史 frozen/static/null/tail-risk 审计拒绝的模型来源，不得通过增加轮数、种子、网络深度或相邻参数继续包装成“训练进步”。
+3b. 停滞期间允许在隔离研究空间提出且只提出一个新假设。实施前必须登记：核心问题、合法样本空间不变量、null、最小非-null、相同预算 baseline、测量指标、失败条件、最容易欺骗自己的方式，以及下一步最小实验。实验必须使用预声明配置和独立输出目录，保持 `selection_changed=false`、`promotion_allowed=false`，不得写 `training_next_candidates_current`。失败结果必须被明确记录为 rejected，并在下一轮转向不同机制的问题；不得为了保持 CPU 忙碌而重复已拒绝的假设族。
+3c. “独立思考”在本系统中意味着生成可证伪问题并主动反驳，不意味着把随机摇奖包装成确定性系统。天气和混沌系统具有可观测物理状态；当前开奖数据没有球重、气流、初始位置等状态变量。若实验只有历史号码输入，必须把目标限定为结构可分性、人类合理性、过程偏差检测或候选决策支持，并允许结论为“未发现稳定信号”。
 4. 只有没有训练或运行异常时，才寻找高价值 TODO/FIXME、边界条件缺陷、日志/状态可观测性问题或测试缺口，并完成最小修复。
 
 约束：
