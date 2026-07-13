@@ -46,6 +46,7 @@ Gauss requires the future snapshot, repetition, risk ledger, selection, promotio
 ## Validation
 
 - Focused watcher, forward-wait guard, and parking tests: `129 passed`.
+- Full Python worker regression: `646 passed in 22.30s`.
 - Added regression: `decision_surface_dominance_audit` now parks when all independent forward-wait conditions are true.
 - Live run: the updated watcher returned `watch_forward_wait_ready:2026079->2026080` while run `20260712-220448` was active.
 - At the durable record for round 137, the watchdog stopped PID `563172` and atomically marked the supervisor `waiting_for_forward_issue`.
