@@ -488,6 +488,135 @@ CREATE TRIGGER research_hypothesis_families_status_guard
 BEFORE UPDATE OF status ON research_hypothesis_families
 FOR EACH ROW EXECUTE FUNCTION guard_research_status_transition();
 
+CREATE TABLE IF NOT EXISTS agent_requests (
+  id BIGSERIAL PRIMARY KEY,
+  request_key TEXT NOT NULL UNIQUE,
+  request_type TEXT NOT NULL CHECK (request_type IN (
+    'research_hypothesis_proposal', 'research_preregistration',
+    'research_experiment_plan', 'research_evidence_submission',
+    'research_decision_submission', 'engineering_implementation',
+    'engineering_bug_fix', 'engineering_test_addition',
+    'engineering_runtime_fix', 'engineering_experiment_tool',
+    'operator_isolated_run', 'operator_database_migration',
+    'operator_supervisor_restart', 'operator_release'
+  )),
+  requested_by_role TEXT NOT NULL
+    CHECK (requested_by_role IN ('research', 'engineering', 'reviewer', 'operator')),
+  requested_by TEXT NOT NULL,
+  hypothesis_id BIGINT REFERENCES research_hypotheses(id) ON DELETE RESTRICT,
+  experiment_id BIGINT REFERENCES research_hypothesis_experiments(id) ON DELETE RESTRICT,
+  parent_request_id BIGINT REFERENCES agent_requests(id) ON DELETE RESTRICT,
+  title TEXT NOT NULL,
+  summary TEXT NOT NULL DEFAULT '',
+  payload_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(payload_json) = 'object'),
+  status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN (
+    'draft', 'submitted', 'under_review', 'approved', 'rejected',
+    'cancelled', 'executing', 'completed', 'failed', 'invalidated'
+  )),
+  risk_level TEXT NOT NULL CHECK (risk_level IN ('low', 'medium', 'high', 'critical')),
+  requires_review BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  submitted_at TIMESTAMPTZ,
+  resolved_at TIMESTAMPTZ,
+  metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(metadata_json) = 'object'),
+  CHECK (parent_request_id IS NULL OR parent_request_id <> id)
+);
+
+CREATE TABLE IF NOT EXISTS agent_request_decisions (
+  id BIGSERIAL PRIMARY KEY,
+  request_id BIGINT NOT NULL REFERENCES agent_requests(id) ON DELETE RESTRICT,
+  previous_status TEXT NOT NULL,
+  new_status TEXT NOT NULL,
+  decision_code TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  reason_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(reason_json) = 'object'),
+  decided_by_role TEXT NOT NULL
+    CHECK (decided_by_role IN ('research', 'engineering', 'reviewer', 'operator')),
+  decided_by TEXT NOT NULL,
+  decided_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS agent_request_executions (
+  id BIGSERIAL PRIMARY KEY,
+  request_id BIGINT NOT NULL REFERENCES agent_requests(id) ON DELETE RESTRICT,
+  executor_role TEXT NOT NULL
+    CHECK (executor_role IN ('research', 'engineering', 'reviewer', 'operator')),
+  executor_id TEXT NOT NULL,
+  execution_type TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'running'
+    CHECK (status IN ('running', 'completed', 'failed', 'cancelled')),
+  environment TEXT NOT NULL DEFAULT 'isolated'
+    CHECK (environment IN ('isolated', 'development', 'production')),
+  run_id TEXT,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at TIMESTAMPTZ,
+  result_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(result_json) = 'object'),
+  artifact_paths_json JSONB NOT NULL DEFAULT '[]'::jsonb
+    CHECK (jsonb_typeof(artifact_paths_json) = 'array'),
+  error_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(error_json) = 'object'),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_requests_status_type
+  ON agent_requests (status, request_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_requests_role_risk
+  ON agent_requests (requested_by_role, risk_level, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_request_decisions_request
+  ON agent_request_decisions (request_id, decided_at, id);
+CREATE INDEX IF NOT EXISTS idx_agent_request_executions_request
+  ON agent_request_executions (request_id, started_at, id);
+
+CREATE OR REPLACE FUNCTION reject_agent_request_decision_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'agent request decisions are immutable';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS agent_request_decisions_immutable ON agent_request_decisions;
+CREATE TRIGGER agent_request_decisions_immutable
+BEFORE UPDATE OR DELETE ON agent_request_decisions
+FOR EACH ROW EXECUTE FUNCTION reject_agent_request_decision_mutation();
+
+CREATE OR REPLACE FUNCTION guard_agent_request_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    IF OLD.submitted_at IS NOT NULL THEN
+      RAISE EXCEPTION 'submitted agent requests cannot be deleted';
+    END IF;
+    RETURN OLD;
+  END IF;
+  IF NEW.status IS DISTINCT FROM OLD.status
+     AND current_setting('dehps.agent_request_status_transition', true) IS DISTINCT FROM 'allowed' THEN
+    RAISE EXCEPTION 'agent request status changes must use the Agent Request repository';
+  END IF;
+  IF NEW.payload_json IS DISTINCT FROM OLD.payload_json
+     AND (
+       OLD.status IN ('approved', 'executing', 'completed', 'failed')
+       OR EXISTS (
+         SELECT 1 FROM agent_request_decisions d
+         WHERE d.request_id = OLD.id AND d.new_status = 'approved'
+       )
+     ) THEN
+    RAISE EXCEPTION 'approved agent request payload is frozen';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS agent_requests_mutation_guard ON agent_requests;
+CREATE TRIGGER agent_requests_mutation_guard
+BEFORE UPDATE OR DELETE ON agent_requests
+FOR EACH ROW EXECUTE FUNCTION guard_agent_request_mutation();
+
 INSERT INTO dehps_strategies (strategy_key, name, description, config)
 VALUES (
   'baseline_v1',

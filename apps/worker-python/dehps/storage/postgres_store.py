@@ -564,6 +564,17 @@ def ensure_hypothesis_registry_schema(conn: Connection) -> None:
     conn.execute(sql[start:end])
 
 
+def ensure_agent_authority_schema(conn: Connection) -> None:
+    """Apply the additive Round 21 Agent Authority schema to an existing database."""
+    ensure_hypothesis_registry_schema(conn)
+    schema_path = Path(__file__).resolve().parents[4] / "infra/postgres/init/001_init.sql"
+    sql = schema_path.read_text()
+    marker = "CREATE TABLE IF NOT EXISTS agent_requests"
+    start = sql.index(marker)
+    end = sql.index("INSERT INTO dehps_strategies", start)
+    conn.execute(sql[start:end])
+
+
 def upsert_training_target_weight_inversion(conn: Connection, inversion: dict[str, Any]) -> None:
     conn.execute(
         """

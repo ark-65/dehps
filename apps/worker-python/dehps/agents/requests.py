@@ -269,3 +269,42 @@ class AgentRequestExecution:
     artifact_paths: list[str]
     error: dict[str, Any]
     created_at: datetime
+
+
+REQUEST_TRANSITIONS: dict[AgentRequestStatus, frozenset[AgentRequestStatus]] = {
+    AgentRequestStatus.DRAFT: frozenset(
+        {AgentRequestStatus.SUBMITTED, AgentRequestStatus.CANCELLED, AgentRequestStatus.INVALIDATED}
+    ),
+    AgentRequestStatus.SUBMITTED: frozenset(
+        {
+            AgentRequestStatus.UNDER_REVIEW,
+            AgentRequestStatus.REJECTED,
+            AgentRequestStatus.CANCELLED,
+            AgentRequestStatus.INVALIDATED,
+        }
+    ),
+    AgentRequestStatus.UNDER_REVIEW: frozenset(
+        {
+            AgentRequestStatus.APPROVED,
+            AgentRequestStatus.REJECTED,
+            AgentRequestStatus.CANCELLED,
+            AgentRequestStatus.INVALIDATED,
+        }
+    ),
+    AgentRequestStatus.APPROVED: frozenset(
+        {AgentRequestStatus.EXECUTING, AgentRequestStatus.CANCELLED, AgentRequestStatus.INVALIDATED}
+    ),
+    AgentRequestStatus.EXECUTING: frozenset(
+        {
+            AgentRequestStatus.COMPLETED,
+            AgentRequestStatus.FAILED,
+            AgentRequestStatus.CANCELLED,
+            AgentRequestStatus.INVALIDATED,
+        }
+    ),
+    AgentRequestStatus.REJECTED: frozenset(),
+    AgentRequestStatus.CANCELLED: frozenset(),
+    AgentRequestStatus.COMPLETED: frozenset(),
+    AgentRequestStatus.FAILED: frozenset(),
+    AgentRequestStatus.INVALIDATED: frozenset(),
+}
