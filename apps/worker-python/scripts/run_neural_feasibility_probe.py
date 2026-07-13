@@ -38,6 +38,7 @@ class ProbeDataset:
     negative_count: int
     feature_count: int
     sampled_rows: int
+    split_mode: str = "random"
 
 
 @dataclass(frozen=True)
@@ -144,7 +145,10 @@ def build_probe_dataset(
     max_sample_rows: int,
     negative_ratio: int,
     seed: int,
+    split_mode: str = "random",
 ) -> ProbeDataset:
+    if split_mode not in {"random", "temporal-positive"}:
+        raise ValueError("split_mode must be random or temporal-positive")
     matrix_keys = combination_keys(matrix.numbers)
     index_by_key = {int(key): index for index, key in enumerate(matrix_keys.tolist())}
     positive_indices = []
@@ -172,33 +176,73 @@ def build_probe_dataset(
                 if len(negative_indices) >= max_negatives:
                     break
 
-    selected_indices = np.array(positive_indices + negative_indices, dtype=np.int64)
-    labels = np.concatenate(
-        [
-            np.ones(len(positive_indices), dtype=np.float32),
-            np.zeros(len(negative_indices), dtype=np.float32),
-        ]
-    )
-    permutation = rng.permutation(selected_indices.shape[0])
-    selected_indices = selected_indices[permutation]
-    labels = labels[permutation]
+    feature_frame = matrix_feature_frame(matrix)
+    if split_mode == "temporal-positive":
+        positive_split = max(1, min(len(positive_indices) - 1, int(len(positive_indices) * 0.8)))
+        negative_split = max(1, min(len(negative_indices) - 1, int(len(negative_indices) * 0.8)))
+        train_indices = np.array(
+            positive_indices[:positive_split] + negative_indices[:negative_split],
+            dtype=np.int64,
+        )
+        train_labels = np.concatenate(
+            [
+                np.ones(positive_split, dtype=np.float32),
+                np.zeros(negative_split, dtype=np.float32),
+            ]
+        )
+        validation_positive_count = len(positive_indices) - positive_split
+        validation_negative_count = len(negative_indices) - negative_split
+        validation_indices = np.array(
+            positive_indices[positive_split:] + negative_indices[negative_split:],
+            dtype=np.int64,
+        )
+        validation_labels = np.concatenate(
+            [
+                np.ones(validation_positive_count, dtype=np.float32),
+                np.zeros(validation_negative_count, dtype=np.float32),
+            ]
+        )
+        train_order = rng.permutation(train_indices.shape[0])
+        validation_order = rng.permutation(validation_indices.shape[0])
+        train_indices = train_indices[train_order]
+        train_labels = train_labels[train_order]
+        validation_indices = validation_indices[validation_order]
+        validation_labels = validation_labels[validation_order]
+        train_features = feature_frame[train_indices]
+        validation_features = feature_frame[validation_indices]
+    else:
+        selected_indices = np.array(positive_indices + negative_indices, dtype=np.int64)
+        labels = np.concatenate(
+            [
+                np.ones(len(positive_indices), dtype=np.float32),
+                np.zeros(len(negative_indices), dtype=np.float32),
+            ]
+        )
+        permutation = rng.permutation(selected_indices.shape[0])
+        selected_indices = selected_indices[permutation]
+        labels = labels[permutation]
+        features = feature_frame[selected_indices]
+        split = max(1, min(features.shape[0] - 1, int(features.shape[0] * 0.8)))
+        train_features = features[:split]
+        validation_features = features[split:]
+        train_labels = labels[:split]
+        validation_labels = labels[split:]
 
-    features = matrix_feature_frame(matrix)[selected_indices]
-    split = max(1, min(features.shape[0] - 1, int(features.shape[0] * 0.8)))
-    feature_mean, feature_std = standardization_stats(features[:split])
-    x_train = standardize_features(features[:split], feature_mean, feature_std)
-    x_val = standardize_features(features[split:], feature_mean, feature_std)
+    feature_mean, feature_std = standardization_stats(train_features)
+    x_train = standardize_features(train_features, feature_mean, feature_std)
+    x_val = standardize_features(validation_features, feature_mean, feature_std)
     return ProbeDataset(
         x_train=x_train,
-        y_train=labels[:split],
+        y_train=train_labels,
         x_val=x_val,
-        y_val=labels[split:],
+        y_val=validation_labels,
         feature_mean=feature_mean,
         feature_std=feature_std,
         positive_count=len(positive_indices),
         negative_count=len(negative_indices),
-        feature_count=features.shape[1],
-        sampled_rows=features.shape[0],
+        feature_count=feature_frame.shape[1],
+        sampled_rows=x_train.shape[0] + x_val.shape[0],
+        split_mode=split_mode,
     )
 
 
@@ -436,6 +480,7 @@ def run_probe(
     batch_size: int,
     learning_rate: float,
     seed: int,
+    split_mode: str,
     score_top_k: int,
     output_dir: Path,
 ) -> dict[str, Any]:
@@ -456,6 +501,7 @@ def run_probe(
         max_sample_rows=max_sample_rows,
         negative_ratio=negative_ratio,
         seed=seed,
+        split_mode=split_mode,
     )
     model, training = fit_numpy_mlp(
         dataset,
@@ -491,6 +537,7 @@ def run_probe(
             "feature_count": dataset.feature_count,
             "train_rows": int(dataset.x_train.shape[0]),
             "validation_rows": int(dataset.x_val.shape[0]),
+            "split_mode": dataset.split_mode,
         },
         "training": training,
     }
@@ -524,6 +571,7 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=4096)
     parser.add_argument("--learning-rate", type=float, default=0.03)
     parser.add_argument("--seed", type=int, default=20260618)
+    parser.add_argument("--split-mode", choices=["random", "temporal-positive"], default="random")
     parser.add_argument("--score-top-k", type=int, default=0, help="Explicitly score the full universe and emit top-K neural candidates.")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     args = parser.parse_args()
@@ -538,6 +586,7 @@ def main() -> None:
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
         seed=args.seed,
+        split_mode=args.split_mode,
         score_top_k=args.score_top_k,
         output_dir=args.output_dir,
     )

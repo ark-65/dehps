@@ -100,6 +100,29 @@ def test_probe_dataset_samples_history_positives_and_negatives():
     assert dataset.x_train.shape[0] == 8
 
 
+def test_temporal_positive_split_keeps_late_draws_in_validation():
+    matrix = fake_matrix()
+    history = [
+        (f"{index:03d}", tuple(int(value) for value in row))
+        for index, row in enumerate(matrix.numbers[:8], start=1)
+    ]
+
+    dataset = build_probe_dataset(
+        matrix=matrix,
+        history=history,
+        max_sample_rows=10,
+        negative_ratio=1,
+        seed=7,
+        split_mode="temporal-positive",
+    )
+
+    assert dataset.split_mode == "temporal-positive"
+    assert int(dataset.y_train.sum()) == 6
+    assert int(dataset.y_val.sum()) == 2
+    assert dataset.x_train.shape[0] == 7
+    assert dataset.x_val.shape[0] == 3
+
+
 def test_numpy_mlp_probe_runs_on_toy_data():
     rng = np.random.default_rng(11)
     x_train = rng.normal(size=(24, 5)).astype(np.float32)

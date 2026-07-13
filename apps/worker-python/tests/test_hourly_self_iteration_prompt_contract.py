@@ -173,3 +173,19 @@ def test_hourly_self_iteration_prompt_requires_decoupled_remote_sync_cadence():
         "不改变 selection/promotion",
     ):
         assert requirement in prompt
+
+
+def test_hourly_self_iteration_prompt_requires_falsifiable_stall_hypotheses():
+    prompt = (REPO_ROOT / "scripts/hourly_self_iterate.sh").read_text(encoding="utf-8")
+
+    for requirement in (
+        "stall-diagnosis-latest.json",
+        "不得只复述 `await_new_forward_issue`",
+        "同历史 frozen/static/null/tail-risk 审计拒绝",
+        "核心问题、合法样本空间不变量、null、最小非-null",
+        "相同预算 baseline、测量指标、失败条件",
+        "不得为了保持 CPU 忙碌而重复已拒绝的假设族",
+        "当前开奖数据没有球重、气流、初始位置等状态变量",
+        "允许结论为“未发现稳定信号”",
+    ):
+        assert requirement in prompt
