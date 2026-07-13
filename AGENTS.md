@@ -70,6 +70,15 @@ When model training or optimization appears to diverge, stall, collapse into one
 ## Codex Self-Iteration Rules
 
 - Self-iteration must be conservative and auditable.
+- Every self-iteration must declare exactly one current role. The default is Engineering Agent.
+- A single self-iteration may not combine Research, Engineering, Reviewer, or Operator authority. A role change ends the current execution and requires a new typed Agent Request.
+- Non-read Engineering work requires an approved `engineering_*` request and execution-time reauthorization. An unapproved request is not permission to act.
+- Research Agent may define research contracts and submit research requests, but may not modify files, run Shell, create commits or PRs, operate infrastructure, or directly change Hypothesis status.
+- Engineering Agent may implement an approved contract, but may not create hypotheses, change null/failure conditions, add Evidence, or decide research outcomes.
+- Reviewer may approve or reject requests and append audit Decisions, but may not execute or modify the reviewed work.
+- Operator may execute an approved isolated or production operation, but may not change its research definition, algorithm, or conclusion.
+- Any production operation requires an approved Operator Request. No Agent receives production strategy promotion authority; the existing Promotion Gate remains authoritative.
+- When no legal approved request exists, stop and record `no_authorized_agent_request` rather than broadening the task or role.
 - Automated runs must check for a clean working tree before changing files.
 - Prefer fixing test failures, obvious bugs, broken docs, startup errors, and observability gaps before broader cleanup.
 - Do not create speculative algorithms or promote experimental outputs during self-iteration.
