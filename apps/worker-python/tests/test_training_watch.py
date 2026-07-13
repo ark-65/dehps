@@ -203,11 +203,15 @@ def test_forward_evidence_excludes_pre_isolation_rows_and_surfaces_pending_pair(
     assert summary["automatic_quarantine_release"] is False
 
 
-def forward_wait_ready_payload(*, history_latest_issue: str = "2026078") -> dict:
+def forward_wait_ready_payload(
+    *,
+    history_latest_issue: str = "2026078",
+    selected_experiment_key: str = "null_model_forward_audit",
+) -> dict:
     return forward_evidence_wait_summary(
         prefilter={
             "strategy_memory": {
-                "selected_experiment": {"key": "null_model_forward_audit"},
+                "selected_experiment": {"key": selected_experiment_key},
             },
             "sequential_null_ledger": {
                 "observed_familywise_hypothesis_count": 1038,
@@ -249,6 +253,16 @@ def test_forward_wait_parks_repeated_same_history_with_future_snapshot():
     assert summary["observed_familywise_hypothesis_count"] == 1038
     assert summary["selection_changed"] is False
     assert summary["promotion_allowed"] is False
+    assert summary["blockers"] == []
+
+
+def test_forward_wait_does_not_depend_on_strategy_memory_experiment_label():
+    summary = forward_wait_ready_payload(
+        selected_experiment_key="decision_surface_dominance_audit"
+    )
+
+    assert summary["ready"] is True
+    assert summary["selected_experiment"] == "decision_surface_dominance_audit"
     assert summary["blockers"] == []
 
 

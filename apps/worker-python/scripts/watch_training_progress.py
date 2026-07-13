@@ -3130,8 +3130,11 @@ def forward_evidence_wait_summary(
     )
 
     blockers: list[str] = []
-    if selected_experiment.get("key") != "null_model_forward_audit":
-        blockers.append("strategy_not_waiting_for_forward_null_audit")
+    # Strategy memory chooses the next diagnostic to observe, but it does not
+    # create a new independent outcome.  Once a complete future snapshot
+    # exists, repeated same-history rounds must park regardless of that
+    # diagnostic's label; otherwise a renamed observation-only experiment can
+    # keep an adaptive search running indefinitely.
     if forward.get("status") not in {"not_started", "accumulating"}:
         blockers.append("forward_evidence_not_waiting")
     if paired_issue_count >= min_paired_issues:
