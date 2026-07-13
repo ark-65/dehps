@@ -74,6 +74,7 @@ class AgentRequestService:
             payload,
             hypothesis_key=hypothesis_key,
             experiment_key=experiment_key,
+            draft=True,
         )
         self._validate_links(
             request_type,
@@ -125,6 +126,7 @@ class AgentRequestService:
             payload,
             hypothesis_key=str(request.payload.get("hypothesis_key") or "") or None,
             experiment_key=str(request.payload.get("experiment_key") or "") or None,
+            draft=True,
         )
         self._authorize_request(request, actor_role, REQUEST_TYPE_SPECS[request.request_type].creation_action, environment)
         return self.repository.update_payload(request_key=request_key, payload=payload)
@@ -139,6 +141,13 @@ class AgentRequestService:
     ) -> AgentRequest:
         request = self.repository.get_request(request_key)
         self._require_request_owner(request, actor_role, actor_id)
+        self._validate_handoff_payload(
+            request.request_type,
+            request.payload,
+            hypothesis_key=str(request.payload.get("hypothesis_key") or "") or None,
+            experiment_key=str(request.payload.get("experiment_key") or "") or None,
+            draft=False,
+        )
         self._authorize_request(request, actor_role, REQUEST_TYPE_SPECS[request.request_type].creation_action, environment)
         return self._transition(
             request,
@@ -424,6 +433,7 @@ class AgentRequestService:
         *,
         hypothesis_key: str | None,
         experiment_key: str | None,
+        draft: bool,
     ) -> None:
         if request_type == AgentRequestType.ENGINEERING_EXPERIMENT_TOOL:
             validate_research_to_engineering_payload(payload)
@@ -433,13 +443,16 @@ class AgentRequestService:
                 raise AgentRequestValidationError("handoff experiment_key must match the linked experiment")
         elif request_type == AgentRequestType.OPERATOR_ISOLATED_RUN:
             tool_key = str(payload.get("approved_tool_request_key") or "")
-            self._require_completed_request(
-                tool_key,
-                expected_type=AgentRequestType.ENGINEERING_EXPERIMENT_TOOL,
-                label="approved experiment tool",
-            )
+            if not draft or tool_key:
+                self._require_completed_request(
+                    tool_key,
+                    expected_type=AgentRequestType.ENGINEERING_EXPERIMENT_TOOL,
+                    label="approved experiment tool",
+                )
             if payload.get("environment") != "isolated":
                 raise AgentRequestValidationError("operator_isolated_run environment must be isolated")
+            if payload.get("production_access") is not False:
+                raise AgentRequestValidationError("operator_isolated_run production_access must be false")
         elif request_type == AgentRequestType.RESEARCH_EVIDENCE_SUBMISSION:
             execution_key = str(payload.get("execution_request_key") or "")
             execution_request = self._require_completed_request(

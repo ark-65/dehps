@@ -37,6 +37,7 @@ from dehps.research_autonomy.proposal_engine import (
 from dehps.research_autonomy.repository import ResearchAutonomyArtifactRepository
 from dehps.research_autonomy.submission import ResearchProposalSubmissionService
 from dehps.research_autonomy.validation import HypothesisProposalValidator
+from dehps.research_planning.service import ExperimentPlanningService
 
 app = typer.Typer(help="DEHPS worker commands")
 agent_app = typer.Typer(
@@ -46,6 +47,9 @@ research_context_app = typer.Typer(help="Build deterministic ResearchContext fro
 research_proposal_app = typer.Typer(
     help="Dry-run autonomous hypothesis proposals or submit one Research Agent Request."
 )
+experiment_plan_app = typer.Typer(
+    help="Build and materialize preregistered autonomous experiment plans."
+)
 hypothesis_app = typer.Typer(
     help="Human-operated hypothesis registry. It does not execute experiments or promote strategies."
 )
@@ -53,6 +57,7 @@ app.add_typer(hypothesis_app, name="hypothesis")
 app.add_typer(agent_app, name="agent")
 app.add_typer(research_context_app, name="research-context")
 app.add_typer(research_proposal_app, name="research-proposal")
+app.add_typer(experiment_plan_app, name="experiment-plan")
 
 
 @app.command()
@@ -80,6 +85,10 @@ def _research_context_builder() -> ResearchContextBuilder:
 
 def _proposal_engine(engine_version: str) -> AutonomousHypothesisProposalEngine:
     return AutonomousHypothesisProposalEngine(engine_version=engine_version)
+
+
+def _experiment_planning_service() -> ExperimentPlanningService:
+    return ExperimentPlanningService()
 
 
 def _load_object(path: Path) -> dict[str, Any]:
@@ -270,6 +279,121 @@ def research_proposal_validate(
         if not report.valid:
             raise typer.Exit(code=2)
     except (ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@experiment_plan_app.command("build")
+def experiment_plan_build(
+    proposal_request_key: str | None = typer.Option(None, "--proposal-request-key"),
+) -> None:
+    """Dry-run plan build; this command creates no Hypothesis, Experiment, Request, or Evidence."""
+    try:
+        plan, approved, context = _experiment_planning_service().build(
+            proposal_request_key=proposal_request_key
+        )
+        _emit({
+            "dry_run": True,
+            "proposal_request_key": approved.request.request_key,
+            "context_fingerprint": context.fingerprint,
+            "plan": plan,
+            "writes": [],
+        })
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@experiment_plan_app.command("validate")
+def experiment_plan_validate(
+    proposal_request_key: str | None = typer.Option(None, "--proposal-request-key"),
+) -> None:
+    """Validate a dry-run plan; this command writes nothing."""
+    try:
+        plan, report = _experiment_planning_service().validate(
+            proposal_request_key=proposal_request_key
+        )
+        _emit({"plan_key": plan.plan_key, "validation": report, "writes": []})
+        if not report.valid:
+            raise typer.Exit(code=2)
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@experiment_plan_app.command("show")
+def experiment_plan_show(plan_key: str) -> None:
+    try:
+        _emit({"plan": _experiment_planning_service().show_plan(plan_key)})
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, TypeError) as exc:
+        _fail(exc)
+
+
+@experiment_plan_app.command("list")
+def experiment_plan_list(
+    limit: int = typer.Option(100, min=1, max=500),
+    offset: int = typer.Option(0, min=0),
+) -> None:
+    try:
+        _emit({
+            "plans": _experiment_planning_service().list_plans(limit=limit, offset=offset),
+            "limit": limit,
+            "offset": offset,
+        })
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, TypeError) as exc:
+        _fail(exc)
+
+
+@experiment_plan_app.command("materialize")
+def experiment_plan_materialize(
+    proposal_request_key: str = typer.Option(..., "--proposal-request-key"),
+) -> None:
+    """Create the Hypothesis and planned Experiments from an approved proposal request."""
+    try:
+        plan, report, result = _experiment_planning_service().materialize(
+            proposal_request_key=proposal_request_key
+        )
+        _emit({
+            "plan_key": plan.plan_key,
+            "validation": report,
+            "materialization": result,
+            "experiment_execution_started": False,
+            "evidence_created": False,
+        })
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@experiment_plan_app.command("engineering-request")
+def experiment_plan_engineering_request(
+    plan_key: str = typer.Option(..., "--plan-key"),
+    requested_by: str = typer.Option("research:planner", "--requested-by"),
+) -> None:
+    """Submit an Engineering request for an already materialized plan."""
+    try:
+        request = _experiment_planning_service().create_engineering_request(
+            plan_key=plan_key,
+            requested_by=requested_by,
+        )
+        _emit({"request": request, "submitted": request.status == AgentRequestStatus.SUBMITTED})
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, TypeError) as exc:
+        _fail(exc)
+
+
+@experiment_plan_app.command("operator-request")
+def experiment_plan_operator_request(
+    plan_key: str = typer.Option(..., "--plan-key"),
+    requested_by: str = typer.Option("research:planner", "--requested-by"),
+) -> None:
+    """Create a draft Operator isolated-run request; this command does not submit or execute it."""
+    try:
+        request = _experiment_planning_service().create_operator_request(
+            plan_key=plan_key,
+            requested_by=requested_by,
+        )
+        _emit({
+            "request": request,
+            "draft": request.status == AgentRequestStatus.DRAFT,
+            "executed": False,
+        })
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, TypeError) as exc:
         _fail(exc)
 
 
