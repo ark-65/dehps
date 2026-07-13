@@ -14,6 +14,8 @@ from dehps.config import ROOT_DIR
 from dehps.optimization.next_candidates import (
     NEAR_DYNAMIC_KDJ_LINE_KEY,
     NEAR_DYNAMIC_KDJ_LINE_LABEL,
+    NEAR_DYNAMIC_KDJ_PRIMARY_METRIC,
+    NEAR_DYNAMIC_KDJ_PRIMARY_OBJECTIVE,
     NEAR_DYNAMIC_KDJ_SUCCESS_TOP100_GOAL,
     NEAR_DYNAMIC_KDJ_SUCCESS_WINDOW,
 )
@@ -132,6 +134,8 @@ def build_near_dynamic_line_report(conn: Connection) -> dict[str, Any]:
             "pending_count": 1 if pending else 0,
             "success_window": NEAR_DYNAMIC_KDJ_SUCCESS_WINDOW,
             "success_top100_goal": NEAR_DYNAMIC_KDJ_SUCCESS_TOP100_GOAL,
+            "primary_objective": NEAR_DYNAMIC_KDJ_PRIMARY_OBJECTIVE,
+            "primary_metric": NEAR_DYNAMIC_KDJ_PRIMARY_METRIC,
             "exact_top100_hits": top100_hits,
             "goal_reached": top100_hits >= NEAR_DYNAMIC_KDJ_SUCCESS_TOP100_GOAL,
             "evaluations": evaluations,
@@ -143,6 +147,7 @@ def build_near_dynamic_line_report(conn: Connection) -> dict[str, Any]:
                 "top100_random_probability_per_draw": round(100 / TOTAL_SSQ_RED_COMBINATIONS, 10),
                 "top100_random_expected_hits_per_10": round(expected_random_hits, 8),
                 "hit_definition": "exact red6 rank <= 100",
+                "diagnostic_only": ["red5_rank", "red4_plus_top100"],
                 "blue_scored": False,
                 "evidence_level": "experimental_forward_monitoring",
             },

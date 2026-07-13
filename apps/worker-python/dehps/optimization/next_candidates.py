@@ -53,6 +53,8 @@ NEAR_DYNAMIC_KDJ_EVAL_WINDOW = 9
 NEAR_DYNAMIC_KDJ_TRAIN_MODE = "rolling"
 NEAR_DYNAMIC_KDJ_SUCCESS_WINDOW = 10
 NEAR_DYNAMIC_KDJ_SUCCESS_TOP100_GOAL = 3
+NEAR_DYNAMIC_KDJ_PRIMARY_OBJECTIVE = "exact_red6_top100"
+NEAR_DYNAMIC_KDJ_PRIMARY_METRIC = "top_100_hits"
 DEFAULT_DYNAMIC_KDJ_STRENGTH_SWEEP = (0.25, 0.5, 1.0)
 DEFAULT_DYNAMIC_KDJ_MIN_EFFECTIVE_STRENGTH = 0.05
 DEFAULT_DYNAMIC_KDJ_MAX_EFFECTIVE_STRENGTH = 1.0
@@ -1284,6 +1286,10 @@ def build_dynamic_kdj_next_candidate_snapshot(
     regression_key = "regression_9" if resolved_regression_eval_window == NEAR_DYNAMIC_KDJ_EVAL_WINDOW else "regression_100"
     near_window = {
         "enabled": line_key == NEAR_DYNAMIC_KDJ_LINE_KEY,
+        "primary_objective": NEAR_DYNAMIC_KDJ_PRIMARY_OBJECTIVE,
+        "primary_metric": NEAR_DYNAMIC_KDJ_PRIMARY_METRIC,
+        "hit_definition": "exact red6 rank <= 100",
+        "diagnostic_metrics": ["red5_rank", "red4_plus_top100"],
         "known_eval_window": resolved_regression_eval_window,
         "success_window": NEAR_DYNAMIC_KDJ_SUCCESS_WINDOW,
         "success_top100_goal": NEAR_DYNAMIC_KDJ_SUCCESS_TOP100_GOAL,

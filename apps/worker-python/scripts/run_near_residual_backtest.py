@@ -186,20 +186,23 @@ def main() -> None:
 
     summaries = {key: _summary(rows, key) for key in ("static", "dynamic", "residual", "shuffled_residual")}
     blocks = _block_summaries(rows, args.block_size)
-    residual_red4 = summaries["residual"]["red4_plus_top100_count"]
-    random_red4_rate = random_top_n_overlap_baseline(top_n=args.top_n, minimum_overlap=4)
+    residual_exact = summaries["residual"]["exact_top100_count"]
+    random_exact_rate = random_top_n_overlap_baseline(top_n=args.top_n, minimum_overlap=6)
     acceptance = {
         "passed": (
-            residual_red4 > summaries["static"]["red4_plus_top100_count"]
-            and residual_red4 > summaries["shuffled_residual"]["red4_plus_top100_count"]
-            and summaries["residual"]["red4_plus_top100_rate"] > random_red4_rate
+            residual_exact > summaries["static"]["exact_top100_count"]
+            and residual_exact > summaries["shuffled_residual"]["exact_top100_count"]
+            and summaries["residual"]["exact_top100_rate"] > random_exact_rate
             and all(
-                block["residual"]["red4_plus_top100_count"] >= block["static"]["red4_plus_top100_count"]
+                block["residual"]["exact_top100_count"] >= block["static"]["exact_top100_count"]
                 for block in blocks
             )
             and all(row["leakage_passed"] for row in rows)
         ),
-        "rule": "residual red4+ Top100 must beat static, shuffled control, and the same-budget random rate overall; never lose to static in a block; and pass leakage",
+        "primary_objective": "exact_red6_top100",
+        "primary_metric": "exact_top100_count",
+        "diagnostic_only": ["red4_plus_top100", "red5_plus_top100", "median_exact_rank"],
+        "rule": "residual exact-red6 Top100 must beat static, shuffled control, and the same-budget random rate overall; never lose to static in a block; and pass leakage",
         "production_changed": False,
     }
     payload = {
@@ -214,9 +217,9 @@ def main() -> None:
         "residual_strength": args.residual_strength,
         "base_config": base_metadata,
         "random_same_budget_baseline": {
-            "red4_plus_top100": random_red4_rate,
+            "red4_plus_top100": random_top_n_overlap_baseline(top_n=args.top_n, minimum_overlap=4),
             "red5_plus_top100": random_top_n_overlap_baseline(top_n=args.top_n, minimum_overlap=5),
-            "exact_top100": random_top_n_overlap_baseline(top_n=args.top_n, minimum_overlap=6),
+            "exact_top100": random_exact_rate,
         },
         "summaries": summaries,
         "blocks": blocks,
