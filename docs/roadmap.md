@@ -56,7 +56,7 @@ At the end of each round:
 | 15 | Neural readiness probe | Done | `docs/experiments/round-15-neural-readiness-report.md` |
 | 16 | Explicit neural CPU MLP scorer v0 | Done | `docs/experiments/round-16-neural-scorer-v0-report.md` |
 | 17 | Project consolidation and local acceptance | Done | `docs/experiments/round-17-project-consolidation-report.md` |
-| 18 | Training runtime architecture refactor | In progress | `docs/experiments/round-18-training-architecture-refactor.md` |
+| 18 | Training runtime architecture refactor | Done | `docs/experiments/round-18-training-architecture-refactor.md` |
 | 19 | Structured Hypothesis Registry | Planned | `docs/architecture/hypothesis-registry.md` |
 | 20 | Research/Engineering Agent authority separation | Planned | `docs/architecture/hypothesis-registry.md` |
 

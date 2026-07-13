@@ -23,7 +23,7 @@ Mechanically separate training runtime responsibilities without changing feature
 - Evaluation facts and promotion decisions use different types.
 - Weight, Ridge, and Neural KDJ proposals enter a common Advisor Registry with source/protocol metadata.
 - `TrainingRoundRunner` has injected repository, search, advisor, evaluator, promotion, artifact, and event boundaries.
-- The established algorithm implementation lives in `dehps.training.runtime` while its final production-loop connection to `TrainingRoundRunner` remains an acceptance item.
+- The established algorithm implementation lives in `dehps.training.runtime`; its persistent round generator is advanced by `TrainingSupervisor` through `TrainingRoundRunner`, preserving one run id and in-memory lifecycle across rounds.
 
 ## Behavior Locked
 
@@ -40,6 +40,8 @@ c1fd21d refactor: add advisor registry adapters
 5578b33 refactor: introduce training round runner
 a49e33e refactor: reduce training supervisor entry to orchestration
 0b1367f refactor: add bounded supervisor smoke lifecycle
+1292103 refactor: drive production rounds through round runner
+0e3c4e1 refactor: persist advisor candidate provenance
 ```
 
 ## Validation
@@ -58,11 +60,11 @@ Latest full run before documentation:
 685 passed in 20.91s
 ```
 
-Final full suite after the bounded smoke lifecycle and structured promotion report:
+Final full suite after production runner wiring and per-candidate provenance:
 
 ```text
 .venv/bin/python -m pytest -q
-685 passed in 21.59s
+688 passed in 20.74s
 ```
 
 Isolated Supervisor validation used database `dehps_round18_smoke`, copied only the 3,476 history rows and 1,107,568 legal combinations, and wrote ignored output under `data/output/round18-smoke`:
@@ -86,14 +88,16 @@ Evidence:
 - Search/frozen issue overlap was zero; the report contained no new leakage warning.
 - `source_survival` recorded every configured source and `advisor_registry` recorded its protocol and candidate count.
 - Event publication produced no `training_event_warning`; the local API endpoint was live and accepted POST with HTTP 201.
-- Production database queries returned zero rows for both smoke run ids in `training_round_results` and `training_next_candidates_current`, so the frozen production line was unchanged.
+- Production database queries returned zero rows for all smoke run ids in `training_round_results` and `training_next_candidates_current`, so the frozen production line was unchanged.
 - Tiny two-target validation cannot train the dynamic/near-dynamic KDJ lines; those paths emitted bounded warning payloads and refused static fallback as designed. The completed static round and promotion evidence remained valid.
 
-## Known Risks And Remaining Acceptance Work
+Post-wiring smoke run `20260713-120003` also completed exactly one round through the Supervisor → RoundRunner production path. Its selected summary stored `candidate_source.key=keep_incumbent` and `protocol_version=candidate_source_v1`; the promotion decision remained fail-closed with `missing_forward_evidence`, and event publication emitted no warning.
 
-- The production loop in `dehps.training.runtime` still needs to invoke `TrainingRoundRunner`; existence and unit coverage alone do not prove the requested runtime boundary.
-- Ready PR, auto-merge, post-merge restart, new run id, and 1-2 observed live rounds remain pending.
+## Known Risks And Remaining Operational Work
+
+- Ready PR, auto-merge, post-merge restart, new run id, and 1-2 observed live rounds remain operational release steps.
+- The compatibility runtime remains intentionally large because this round moved stable boundaries mechanically instead of redesigning ranking and backtest internals.
 
 ## Next Work
 
-Finish the production runner connection, run the full suite, execute an isolated one-round smoke, then publish the reviewable branch. Round 19 should implement the Hypothesis Registry data model; the following round should enforce Research/Engineering Agent authority separation.
+Publish and merge the reviewable branch, then restart and observe the updated production supervisor. Round 19 should implement the Hypothesis Registry data model; the following round should enforce Research/Engineering Agent authority separation.
