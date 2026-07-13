@@ -20,6 +20,9 @@ from typing import Callable
 
 from dehps.config import ROOT_DIR
 from dehps.db import get_connection
+from dehps.evaluation.objective import TrainingMetrics, evaluate_objective
+from dehps.evaluation.objective_policy import DEFAULT_OBJECTIVE_POLICY
+from dehps.evaluation.tail_risk import calculate_tail_risk_penalty as _calculate_policy_tail_risk_penalty
 from dehps.features.qian_kun import qian_kun_distribution
 from dehps.models.frequency_ranker import FrequencyRankerConfig
 from dehps.models.frequency_ranker import history_draw_date, history_issue, history_numbers
@@ -191,31 +194,31 @@ DEFAULT_TRAINING_EVENT_URL = "http://127.0.0.1:3000/training-events/status"
 TRAINING_EVENT_TIMEOUT_SECONDS = 3.0
 TRAINING_EVENT_WARNING_INTERVAL_SECONDS = 60.0
 _TARGET_WORKER_UNIVERSE = None
-TOP_100_REWARD = 1200
-TOP_1000_REWARD = 180
-TOP_10000_REWARD = 3
-BASELINE_UNIQUE_TOP_100_REWARD = 250
-BASELINE_UNIQUE_TOP_1000_REWARD = 60
-BASELINE_UNIQUE_TOP_10000_REWARD = 4
-BASELINE_OVERLAP_TOP_100_PENALTY = 80
-BASELINE_OVERLAP_TOP_1000_PENALTY = 20
-BASELINE_OVERLAP_TOP_10000_PENALTY = 3
+TOP_100_REWARD = DEFAULT_OBJECTIVE_POLICY.top_100_reward
+TOP_1000_REWARD = DEFAULT_OBJECTIVE_POLICY.top_1000_reward
+TOP_10000_REWARD = DEFAULT_OBJECTIVE_POLICY.top_10000_reward
+BASELINE_UNIQUE_TOP_100_REWARD = DEFAULT_OBJECTIVE_POLICY.baseline_unique_top_100_reward
+BASELINE_UNIQUE_TOP_1000_REWARD = DEFAULT_OBJECTIVE_POLICY.baseline_unique_top_1000_reward
+BASELINE_UNIQUE_TOP_10000_REWARD = DEFAULT_OBJECTIVE_POLICY.baseline_unique_top_10000_reward
+BASELINE_OVERLAP_TOP_100_PENALTY = DEFAULT_OBJECTIVE_POLICY.baseline_overlap_top_100_penalty
+BASELINE_OVERLAP_TOP_1000_PENALTY = DEFAULT_OBJECTIVE_POLICY.baseline_overlap_top_1000_penalty
+BASELINE_OVERLAP_TOP_10000_PENALTY = DEFAULT_OBJECTIVE_POLICY.baseline_overlap_top_10000_penalty
 BASELINE_OVERLAP_LABELS = ("null_baseline", "default_baseline")
-RED5_TOP_100_REWARD = 5
-RED5_TOP_1000_REWARD = 1
-RED5_TOP_10000_REWARD = 0.2
-RANK_TOP_50000_REWARD = 0.10
-RANK_TOP_100000_REWARD = 0.05
-RANK_TOP_250000_REWARD = 0.02
-RANK_TOP_500000_REWARD = 0.01
-WORST_RANK_REWARD = 6.0
-MEDIAN_RANK_REWARD = 8.0
-TAIL_OVER_750000_PENALTY = 0.15
-TAIL_OVER_900000_PENALTY = 0.50
-TAIL_OVER_1000000_PENALTY = 1.25
-WORST_RANK_PENALTY_WEIGHT = 12.0
-P95_RANK_PENALTY_WEIGHT = 6.0
-MEDIAN_RANK_PENALTY_WEIGHT = 2.0
+RED5_TOP_100_REWARD = DEFAULT_OBJECTIVE_POLICY.red5_top_100_reward
+RED5_TOP_1000_REWARD = DEFAULT_OBJECTIVE_POLICY.red5_top_1000_reward
+RED5_TOP_10000_REWARD = DEFAULT_OBJECTIVE_POLICY.red5_top_10000_reward
+RANK_TOP_50000_REWARD = DEFAULT_OBJECTIVE_POLICY.rank_top_50000_reward
+RANK_TOP_100000_REWARD = DEFAULT_OBJECTIVE_POLICY.rank_top_100000_reward
+RANK_TOP_250000_REWARD = DEFAULT_OBJECTIVE_POLICY.rank_top_250000_reward
+RANK_TOP_500000_REWARD = DEFAULT_OBJECTIVE_POLICY.rank_top_500000_reward
+WORST_RANK_REWARD = DEFAULT_OBJECTIVE_POLICY.worst_rank_reward
+MEDIAN_RANK_REWARD = DEFAULT_OBJECTIVE_POLICY.median_rank_reward
+TAIL_OVER_750000_PENALTY = DEFAULT_OBJECTIVE_POLICY.tail_over_750000_penalty
+TAIL_OVER_900000_PENALTY = DEFAULT_OBJECTIVE_POLICY.tail_over_900000_penalty
+TAIL_OVER_1000000_PENALTY = DEFAULT_OBJECTIVE_POLICY.tail_over_1000000_penalty
+WORST_RANK_PENALTY_WEIGHT = DEFAULT_OBJECTIVE_POLICY.worst_rank_penalty_weight
+P95_RANK_PENALTY_WEIGHT = DEFAULT_OBJECTIVE_POLICY.p95_rank_penalty_weight
+MEDIAN_RANK_PENALTY_WEIGHT = DEFAULT_OBJECTIVE_POLICY.median_rank_penalty_weight
 EARLY_BROAD_ROUNDS = 24
 MID_SEARCH_ROUNDS = 72
 PHASES = (
@@ -3335,50 +3338,34 @@ def extrapolate_config(best: FrequencyRankerConfig, other: FrequencyRankerConfig
 
 def reward_summary(summary: dict, *, universe_size: int = DEFAULT_UNIVERSE_SIZE) -> dict[str, float]:
     safe_universe = max(1, universe_size)
-    hit_reward = (
-        summary["top_100_hits"] * TOP_100_REWARD
-        + summary["top_1000_hits"] * TOP_1000_REWARD
-        + summary["top_10000_hits"] * TOP_10000_REWARD
-    )
     baseline_overlap = summary.get("baseline_overlap") if isinstance(summary.get("baseline_overlap"), dict) else {}
-    baseline_unique_reward = float(baseline_overlap.get("unique_reward") or 0.0)
-    baseline_overlap_penalty = float(baseline_overlap.get("overlap_penalty") or 0.0)
     red5 = summary.get("red5") if isinstance(summary.get("red5"), dict) else {}
-    red5_reward = (
-        float(red5.get("top_100_hits") or 0) * RED5_TOP_100_REWARD
-        + float(red5.get("top_1000_hits") or 0) * RED5_TOP_1000_REWARD
-        + float(red5.get("top_10000_hits") or 0) * RED5_TOP_10000_REWARD
-    )
     rank_quality = summary.get("rank_quality") if isinstance(summary.get("rank_quality"), dict) else {}
-    rank_quality_reward = float(rank_quality.get("reward") or 0)
     median_rank = summary.get("median_rank") or safe_universe
     worst_rank = summary.get("worst_rank") or safe_universe
-    rank_penalty = median_rank / safe_universe + worst_rank / safe_universe / 4
-    tail_risk_penalty = float(
-        rank_quality.get("tail_risk_penalty")
-        or calculate_tail_risk_penalty(
-            median_rank=median_rank,
-            worst_rank=worst_rank,
+    result = evaluate_objective(
+        TrainingMetrics(
+            top_100_hits=int(summary["top_100_hits"]),
+            top_1000_hits=int(summary["top_1000_hits"]),
+            top_10000_hits=int(summary["top_10000_hits"]),
+            median_rank=float(median_rank),
+            worst_rank=int(worst_rank),
             p95_rank=rank_quality.get("p95_rank"),
             tail_over_750000_count=int(rank_quality.get("tail_over_750000_count") or 0),
             tail_over_900000_count=int(rank_quality.get("tail_over_900000_count") or 0),
             tail_over_1000000_count=int(rank_quality.get("tail_over_1000000_count") or 0),
+            baseline_unique_reward=float(baseline_overlap.get("unique_reward") or 0.0),
+            baseline_overlap_penalty=float(baseline_overlap.get("overlap_penalty") or 0.0),
+            red5_top_100_hits=int(red5.get("top_100_hits") or 0),
+            red5_top_1000_hits=int(red5.get("top_1000_hits") or 0),
+            red5_top_10000_hits=int(red5.get("top_10000_hits") or 0),
+            rank_quality_reward=float(rank_quality.get("reward") or 0),
             universe_size=safe_universe,
-        )
-    )
-    return {
-        "hitReward": round(hit_reward, 6),
-        "baselineUniqueReward": round(baseline_unique_reward, 6),
-        "baselineOverlapPenalty": round(baseline_overlap_penalty, 6),
-        "red5Reward": round(red5_reward, 6),
-        "rankQualityReward": round(rank_quality_reward, 6),
-        "rankPenalty": round(rank_penalty, 6),
-        "tailRiskPenalty": round(tail_risk_penalty, 6),
-        "objectiveScore": round(
-            hit_reward + baseline_unique_reward + red5_reward + rank_quality_reward - rank_penalty - tail_risk_penalty - baseline_overlap_penalty,
-            6,
+            tail_risk_penalty=rank_quality.get("tail_risk_penalty"),
         ),
-    }
+        DEFAULT_OBJECTIVE_POLICY,
+    )
+    return result.as_legacy_dict()
 
 
 def binomial_upper_tail_probability(trials: int, hits: int, probability: float) -> float:
@@ -3623,21 +3610,16 @@ def calculate_tail_risk_penalty(
     tail_over_1000000_count: int,
     universe_size: int,
 ) -> float:
-    safe_universe = max(1, universe_size)
-    normalized_median = min(1.0, max(0.0, float(median_rank) / safe_universe))
-    normalized_worst = min(1.0, max(0.0, float(worst_rank) / safe_universe))
-    normalized_p95 = min(1.0, max(0.0, float(p95_rank if p95_rank is not None else worst_rank) / safe_universe))
-    count_penalty = (
-        tail_over_750000_count * TAIL_OVER_750000_PENALTY
-        + tail_over_900000_count * TAIL_OVER_900000_PENALTY
-        + tail_over_1000000_count * TAIL_OVER_1000000_PENALTY
+    return _calculate_policy_tail_risk_penalty(
+        median_rank=median_rank,
+        worst_rank=worst_rank,
+        p95_rank=p95_rank,
+        tail_over_750000_count=tail_over_750000_count,
+        tail_over_900000_count=tail_over_900000_count,
+        tail_over_1000000_count=tail_over_1000000_count,
+        universe_size=universe_size,
+        policy=DEFAULT_OBJECTIVE_POLICY,
     )
-    shape_penalty = (
-        normalized_worst**2 * WORST_RANK_PENALTY_WEIGHT
-        + normalized_p95**2 * P95_RANK_PENALTY_WEIGHT
-        + normalized_median**2 * MEDIAN_RANK_PENALTY_WEIGHT
-    )
-    return round(count_penalty + shape_penalty, 6)
 
 
 def summarize_rank_quality(ranks: list[int], *, universe_size: int) -> dict:
@@ -3800,6 +3782,8 @@ def summarize_target_ranks(
         "target_results": [target_result_payload(target) for target in target_ranks],
     }
     summary["reward"] = reward_summary(summary, universe_size=universe_size)
+    summary["objective_policy_version"] = DEFAULT_OBJECTIVE_POLICY.version
+    summary["objective_policy_hash"] = DEFAULT_OBJECTIVE_POLICY.policy_hash
     summary["probability_calibration"] = probability_calibration_diagnostics(summary, universe_size=universe_size)
     summary["run_key"] = deterministic_run_key(
         strategy_key="frequency_v1",
@@ -6653,6 +6637,7 @@ def write_report(report_path: Path, status: dict) -> None:
     report = f"""# DEHPS 24h Training Supervisor Report
 
 - Run id: `{status["run_id"]}`
+- Objective policy: `{status.get("objective_policy_version", "legacy_unversioned")}` (`{status.get("objective_policy_hash", "")}`)
 - Started at: {status["started_at"]}
 - Updated at: {status["updated_at"]}
 - Deadline: {status["deadline"]}
@@ -7017,6 +7002,8 @@ def run_supervisor(
     }
     status = {
         "run_id": run_id,
+        "objective_policy_version": DEFAULT_OBJECTIVE_POLICY.version,
+        "objective_policy_hash": DEFAULT_OBJECTIVE_POLICY.policy_hash,
         "started_at": started_at.isoformat(timespec="seconds"),
         "updated_at": started_at.isoformat(timespec="seconds"),
         "deadline": deadline.isoformat(timespec="seconds") if deadline else None,
