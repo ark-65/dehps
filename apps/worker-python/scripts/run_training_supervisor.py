@@ -74,6 +74,11 @@ from dehps.optimization.weight_kdj import (
     weight_kdj_advice_scenario_counts,
 )
 from dehps.artifacts import atomic_write_text
+from dehps.advisors.neural_kdj_adapter import NeuralKdjAdvisorAdapter
+from dehps.advisors.protocol import AdvisorContext
+from dehps.advisors.registry import AdvisorRegistry
+from dehps.advisors.ridge_kdj_adapter import RidgeKdjAdvisorAdapter
+from dehps.advisors.weight_kdj_adapter import WeightKdjAdvisorAdapter
 from dehps.runtime.heavy_job import apply_cpu_thread_env_defaults, heavy_job_lock
 from dehps.search.budget import (
     CANDIDATE_BUDGET_SHARES,
@@ -7091,15 +7096,6 @@ def run_supervisor(
                     slope_window=weight_kdj_slope_window,
                     neutral_band=weight_kdj_neutral_band,
                 )
-                weight_kdj_configs = weight_kdj_advisor_candidate_configs(
-                    search_base_config,
-                    weight_kdj_signals,
-                    max_configs=weight_kdj_budget,
-                    min_objective_delta=weight_kdj_min_objective_delta,
-                    min_abs_offset=weight_kdj_min_abs_offset,
-                    slope_window=weight_kdj_slope_window,
-                    neutral_band=weight_kdj_neutral_band,
-                )
             if enable_ridge_kdj_advisor:
                 ridge_kdj_signals = kdj_signals
                 ridge_kdj_advice = numpy_ridge_kdj_offset_v0(
@@ -7108,12 +7104,6 @@ def run_supervisor(
                     ridge_alpha=ridge_kdj_alpha,
                     min_train_rows=ridge_kdj_min_train_rows,
                     min_validation_rows=ridge_kdj_min_validation_rows,
-                )
-                ridge_kdj_configs = ridge_kdj_advice_to_frequency_ranker_config_candidates(
-                    search_base_config,
-                    ridge_kdj_advice,
-                    max_configs=ridge_kdj_budget,
-                    min_confidence=ridge_kdj_min_confidence,
                 )
             if enable_neural_kdj_advisor:
                 neural_kdj_signals = kdj_signals
@@ -7124,12 +7114,55 @@ def run_supervisor(
                     hidden_units=neural_kdj_hidden_units,
                     epochs=neural_kdj_epochs,
                 )
-                neural_kdj_configs = neural_kdj_advice_to_frequency_ranker_config_candidates(
-                    search_base_config,
-                    neural_kdj_advice,
-                    max_configs=neural_kdj_budget,
-                    min_confidence=neural_kdj_min_confidence,
+            advisors = []
+            if enable_weight_kdj_advisor:
+                advisors.append(
+                    WeightKdjAdvisorAdapter(
+                        lambda context, budget: weight_kdj_advisor_candidate_configs(
+                            context.base_config,
+                            list(context.signals),
+                            max_configs=budget,
+                            min_objective_delta=weight_kdj_min_objective_delta,
+                            min_abs_offset=weight_kdj_min_abs_offset,
+                            slope_window=weight_kdj_slope_window,
+                            neutral_band=weight_kdj_neutral_band,
+                        )
+                    )
                 )
+            if enable_ridge_kdj_advisor:
+                advisors.append(
+                    RidgeKdjAdvisorAdapter(
+                        lambda context, budget: ridge_kdj_advice_to_frequency_ranker_config_candidates(
+                            context.base_config,
+                            ridge_kdj_advice,
+                            max_configs=budget,
+                            min_confidence=ridge_kdj_min_confidence,
+                        )
+                    )
+                )
+            if enable_neural_kdj_advisor:
+                advisors.append(
+                    NeuralKdjAdvisorAdapter(
+                        lambda context, budget: neural_kdj_advice_to_frequency_ranker_config_candidates(
+                            context.base_config,
+                            neural_kdj_advice,
+                            max_configs=budget,
+                            min_confidence=neural_kdj_min_confidence,
+                        )
+                    )
+                )
+            advisor_registry = AdvisorRegistry.build(advisors)
+            advisor_candidates = advisor_registry.propose(
+                AdvisorContext(base_config=search_base_config, signals=tuple(kdj_signals)),
+                budgets=budgets,
+            )
+            advisor_configs_by_source = {
+                key: tuple(candidate.config for candidate in advisor_candidates if candidate.source_key == key)
+                for key in ("weight_kdj", "ridge_kdj", "neural_kdj")
+            }
+            weight_kdj_configs = advisor_configs_by_source["weight_kdj"]
+            ridge_kdj_configs = advisor_configs_by_source["ridge_kdj"]
+            neural_kdj_configs = advisor_configs_by_source["neural_kdj"]
             source_configs = {
                 "normal": normal_configs,
                 "recency_canary": recency_canary_configs,
@@ -7259,6 +7292,26 @@ def run_supervisor(
             }
             prefilter_info["low_coverage_fields"] = list(low_coverage_fields)
             prefilter_info["candidate_budget"] = budgets
+            prefilter_info["advisor_registry"] = {
+                "protocol": "training_advisor_registry_v1",
+                "candidate_count": len(advisor_candidates),
+                "sources": {
+                    key: {
+                        "protocol_version": next(
+                            (
+                                candidate.protocol_version
+                                for candidate in advisor_candidates
+                                if candidate.source_key == key
+                            ),
+                            "",
+                        ),
+                        "candidate_count": len(configs_for_source),
+                        "candidate_hashes": [config_hash(config) for config in configs_for_source],
+                    }
+                    for key, configs_for_source in advisor_configs_by_source.items()
+                    if configs_for_source
+                },
+            }
             prefilter_info["candidate_budget"]["stagnation_restart"] = stagnation_restart_budget
             prefilter_info["stagnation_restart_catalog_offset"] = stagnation_restart_position["catalog_offset"]
             prefilter_info["rank_homogeneity_guardrail"] = rank_homogeneity
