@@ -440,12 +440,54 @@ isolated_research_lane_active() {
   pgrep -f "scripts/run_isolated_research_lane.py" >/dev/null 2>&1
 }
 
+isolated_research_lane_completed() {
+  local as_of_issue="$1"
+  .venv/bin/python - "$as_of_issue" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+from dehps.config import ROOT_DIR
+from dehps.db import get_connection
+from dehps.optimization.regime import select_history
+from dehps.optimization.walk_forward import fingerprint_history
+
+as_of_issue = str(sys.argv[1] or "")
+path = ROOT_DIR / "data/output/optimization/research-lane/isolated-research-lane-latest.json"
+try:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError):
+    raise SystemExit(1)
+if not isinstance(payload, dict) or payload.get("status") != "completed":
+    raise SystemExit(1)
+with get_connection() as conn:
+    selection = select_history(
+        conn,
+        scope="current_regime_default",
+        as_of_issue=as_of_issue,
+        regime_years=10,
+    )
+if not selection.dated_history:
+    raise SystemExit(1)
+if str(selection.dated_history[-1][0]) != as_of_issue:
+    raise SystemExit(1)
+if payload.get("as_of_issue") != as_of_issue:
+    raise SystemExit(1)
+if payload.get("history_fingerprint") != fingerprint_history(selection.dated_history):
+    raise SystemExit(1)
+PY
+}
+
 start_isolated_research_lane() {
   local as_of_issue="$1"
   local stamp
   local research_log
   if isolated_research_lane_active; then
     log "isolated research lane already running as_of_issue=${as_of_issue:-none}"
+    return 0
+  fi
+  if isolated_research_lane_completed "$as_of_issue"; then
+    log "isolated research lane already completed for unchanged history as_of_issue=${as_of_issue:-none}"
     return 0
   fi
   stamp="$(date +%Y%m%d-%H%M%S)"
@@ -458,6 +500,16 @@ start_isolated_research_lane() {
       --as-of-issue "$1" \
       --workers "$2"
   ' "$WORKER_DIR" "$as_of_issue" "$RESEARCH_LANE_WORKERS" > "$research_log" 2>&1 < /dev/null &
+}
+
+write_training_stall_diagnosis() {
+  local diagnosis_output
+  if diagnosis_output="$(.venv/bin/python scripts/diagnose_training_stall.py)"; then
+    log "training stall diagnosis payload=$diagnosis_output"
+    return 0
+  fi
+  log "training stall diagnosis failed payload=${diagnosis_output:-none}"
+  return 1
 }
 
 storage_capacity_output="$(.venv/bin/python scripts/check_runtime_storage_capacity.py)" || {
@@ -569,6 +621,7 @@ if [[ "$signal_refresh_needed" == true ]]; then
 fi
 
 if watch_requests_forward_evidence_wait ""; then
+  write_training_stall_diagnosis || true
   start_isolated_research_lane "$latest_issue"
   log "training supervisor remains parked until a new forward issue is synced latest_issue=${latest_issue:-none}"
   exit 0
