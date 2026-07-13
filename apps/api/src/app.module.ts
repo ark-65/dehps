@@ -5,9 +5,10 @@ import { ResearchService } from './research.service';
 import { TrainingStatusHub } from './training-status.hub';
 import { ResearchHypothesisModule } from './research-hypotheses/research-hypothesis.module';
 import { AgentAuthorityModule } from './agent-authority/agent-authority.module';
+import { ResearchAutonomyModule } from './research-autonomy/research-autonomy.module';
 
 @Module({
-  imports: [ResearchHypothesisModule, AgentAuthorityModule],
+  imports: [ResearchHypothesisModule, AgentAuthorityModule, ResearchAutonomyModule],
   controllers: [ResearchController],
   providers: [
     ResearchService,
