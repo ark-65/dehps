@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from math import comb
+from pathlib import Path
 from typing import Any
 
 from psycopg import Connection
@@ -551,6 +552,16 @@ def ensure_training_target_weight_inversions_schema(conn: Connection) -> None:
           ON training_target_weight_inversions (run_id, round_index, target_issue, base_config_hash)
         """
     )
+
+
+def ensure_hypothesis_registry_schema(conn: Connection) -> None:
+    """Apply the additive Round 20 registry schema to an existing database."""
+    schema_path = Path(__file__).resolve().parents[4] / "infra/postgres/init/001_init.sql"
+    sql = schema_path.read_text()
+    marker = "CREATE TABLE IF NOT EXISTS research_hypothesis_families"
+    start = sql.index(marker)
+    end = sql.index("INSERT INTO dehps_strategies", start)
+    conn.execute(sql[start:end])
 
 
 def upsert_training_target_weight_inversion(conn: Connection, inversion: dict[str, Any]) -> None:

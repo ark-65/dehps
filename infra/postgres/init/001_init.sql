@@ -330,6 +330,164 @@ CREATE TABLE IF NOT EXISTS training_prediction_evaluations (
 CREATE INDEX IF NOT EXISTS idx_training_prediction_evaluations_line_issue
   ON training_prediction_evaluations (line_key, predicted_issue, evaluated_at DESC);
 
+CREATE TABLE IF NOT EXISTS research_hypothesis_families (
+  id BIGSERIAL PRIMARY KEY,
+  family_key TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  mechanism TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active'
+    CHECK (status IN ('active', 'partially_rejected', 'rejected', 'exhausted', 'reopened')),
+  rejection_scope TEXT NOT NULL DEFAULT 'none'
+    CHECK (rejection_scope IN ('none', 'parameter_region', 'mechanism_family')),
+  rejection_reason TEXT,
+  reopen_condition TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  resolved_at TIMESTAMPTZ,
+  metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(metadata_json) = 'object')
+);
+
+CREATE TABLE IF NOT EXISTS research_hypotheses (
+  id BIGSERIAL PRIMARY KEY,
+  hypothesis_key TEXT NOT NULL UNIQUE,
+  family_id BIGINT NOT NULL REFERENCES research_hypothesis_families(id) ON DELETE RESTRICT,
+  parent_hypothesis_id BIGINT REFERENCES research_hypotheses(id) ON DELETE RESTRICT,
+  title TEXT NOT NULL,
+  statement TEXT NOT NULL DEFAULT '',
+  mechanism TEXT NOT NULL,
+  null_hypothesis TEXT NOT NULL DEFAULT '',
+  minimal_non_null TEXT NOT NULL DEFAULT '',
+  invariants_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  baseline_definition_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  metric_definition_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  failure_condition_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  self_deception_risk_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+  status TEXT NOT NULL DEFAULT 'proposed'
+    CHECK (status IN ('proposed', 'preregistered', 'running', 'accepted_for_followup', 'rejected', 'inconclusive', 'invalidated')),
+  rejection_scope TEXT NOT NULL DEFAULT 'none'
+    CHECK (rejection_scope IN ('none', 'parameter_region', 'mechanism_family')),
+  rejection_reason TEXT,
+  reopen_condition TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  preregistered_at TIMESTAMPTZ,
+  started_at TIMESTAMPTZ,
+  resolved_at TIMESTAMPTZ,
+  metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(metadata_json) = 'object'),
+  CHECK (parent_hypothesis_id IS NULL OR parent_hypothesis_id <> id)
+);
+
+CREATE TABLE IF NOT EXISTS research_hypothesis_experiments (
+  id BIGSERIAL PRIMARY KEY,
+  hypothesis_id BIGINT NOT NULL REFERENCES research_hypotheses(id) ON DELETE RESTRICT,
+  experiment_key TEXT NOT NULL UNIQUE,
+  experiment_type TEXT NOT NULL,
+  external_run_id TEXT,
+  training_run_id TEXT,
+  training_round_index INTEGER,
+  report_path TEXT,
+  artifact_paths_json JSONB NOT NULL DEFAULT '[]'::jsonb
+    CHECK (jsonb_typeof(artifact_paths_json) = 'array'),
+  config_snapshot_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(config_snapshot_json) = 'object'),
+  status TEXT NOT NULL DEFAULT 'planned'
+    CHECK (status IN ('planned', 'running', 'completed', 'failed', 'invalidated', 'cancelled')),
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(metadata_json) = 'object'),
+  CHECK (training_round_index IS NULL OR training_round_index > 0),
+  CHECK (training_round_index IS NULL OR training_run_id IS NOT NULL)
+);
+
+CREATE TABLE IF NOT EXISTS research_hypothesis_evidence (
+  id BIGSERIAL PRIMARY KEY,
+  hypothesis_id BIGINT NOT NULL REFERENCES research_hypotheses(id) ON DELETE RESTRICT,
+  experiment_id BIGINT REFERENCES research_hypothesis_experiments(id) ON DELETE RESTRICT,
+  evidence_type TEXT NOT NULL,
+  direction TEXT NOT NULL
+    CHECK (direction IN ('supporting', 'contradicting', 'neutral', 'invalidating')),
+  summary TEXT NOT NULL,
+  metrics_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(metrics_json) = 'object'),
+  artifact_path TEXT,
+  content_hash TEXT,
+  observed_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(metadata_json) = 'object')
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_research_hypothesis_evidence_content
+  ON research_hypothesis_evidence (hypothesis_id, evidence_type, content_hash)
+  WHERE content_hash IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS research_hypothesis_decisions (
+  id BIGSERIAL PRIMARY KEY,
+  hypothesis_id BIGINT REFERENCES research_hypotheses(id) ON DELETE RESTRICT,
+  family_id BIGINT REFERENCES research_hypothesis_families(id) ON DELETE RESTRICT,
+  previous_status TEXT NOT NULL,
+  new_status TEXT NOT NULL,
+  decision_code TEXT NOT NULL,
+  summary TEXT NOT NULL,
+  reason_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(reason_json) = 'object'),
+  evidence_ids_json JSONB NOT NULL DEFAULT '[]'::jsonb
+    CHECK (jsonb_typeof(evidence_ids_json) = 'array'),
+  decided_by TEXT NOT NULL,
+  decided_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CHECK ((hypothesis_id IS NOT NULL)::integer + (family_id IS NOT NULL)::integer = 1)
+);
+
+CREATE INDEX IF NOT EXISTS idx_research_hypotheses_family_status
+  ON research_hypotheses (family_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_research_hypothesis_experiments_hypothesis
+  ON research_hypothesis_experiments (hypothesis_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_research_hypothesis_evidence_hypothesis
+  ON research_hypothesis_evidence (hypothesis_id, observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_research_hypothesis_decisions_hypothesis
+  ON research_hypothesis_decisions (hypothesis_id, decided_at, id);
+
+CREATE OR REPLACE FUNCTION reject_research_decision_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'research hypothesis decisions are immutable';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS research_hypothesis_decisions_immutable
+  ON research_hypothesis_decisions;
+CREATE TRIGGER research_hypothesis_decisions_immutable
+BEFORE UPDATE OR DELETE ON research_hypothesis_decisions
+FOR EACH ROW EXECUTE FUNCTION reject_research_decision_mutation();
+
+CREATE OR REPLACE FUNCTION guard_research_status_transition()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW.status IS DISTINCT FROM OLD.status
+     AND current_setting('dehps.registry_status_transition', true) IS DISTINCT FROM 'allowed' THEN
+    RAISE EXCEPTION 'research status changes must use the hypothesis registry repository';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS research_hypotheses_status_guard ON research_hypotheses;
+CREATE TRIGGER research_hypotheses_status_guard
+BEFORE UPDATE OF status ON research_hypotheses
+FOR EACH ROW EXECUTE FUNCTION guard_research_status_transition();
+
+DROP TRIGGER IF EXISTS research_hypothesis_families_status_guard
+  ON research_hypothesis_families;
+CREATE TRIGGER research_hypothesis_families_status_guard
+BEFORE UPDATE OF status ON research_hypothesis_families
+FOR EACH ROW EXECUTE FUNCTION guard_research_status_transition();
+
 INSERT INTO dehps_strategies (strategy_key, name, description, config)
 VALUES (
   'baseline_v1',
