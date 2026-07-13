@@ -1559,6 +1559,18 @@ def _score_matrix(
     return np.round(components @ _config_weight_matrix(configs).T, 8)
 
 
+def score_config_grid(
+    *,
+    train_history: list[HistoryDraw],
+    configs: tuple[FrequencyRankerConfig, ...],
+    ranked_universe: RankedUniverseMatrix,
+    target_draw_date: date | None = None,
+) -> np.ndarray:
+    """Score one fixed universe for several configs under the same history boundary."""
+    stats = train_frequency_stats(train_history, target_draw_date=target_draw_date)
+    return _score_matrix(ranked_universe, stats, configs)
+
+
 def _target_scores(target_numbers: tuple[int, ...], stats: FrequencyStats, configs: tuple[FrequencyRankerConfig, ...]) -> tuple[float, ...]:
     components = score_components_for_numbers(target_numbers, stats)
     return tuple(score_from_components(components, config) for config in configs)
@@ -1723,6 +1735,20 @@ def _top_indices(scores: np.ndarray, matrix: RankedUniverseMatrix, top_n: int) -
         )
     )
     return candidate_indices[order]
+
+
+def top_indices_for_scores(
+    *,
+    scores: np.ndarray,
+    ranked_universe: RankedUniverseMatrix,
+    top_n: int,
+) -> np.ndarray:
+    """Return deterministic score-ranked row indexes for an already scored universe."""
+    if scores.ndim != 1 or len(scores) != len(ranked_universe):
+        raise ValueError("scores must be a one-dimensional array matching ranked_universe")
+    if not np.isfinite(scores).all():
+        raise ValueError("scores must contain only finite values")
+    return _top_indices(scores, ranked_universe, top_n)
 
 
 def top_candidates_for_next(
