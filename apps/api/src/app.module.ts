@@ -4,9 +4,10 @@ import { PostgresResearchRepository } from './research.repository';
 import { ResearchService } from './research.service';
 import { TrainingStatusHub } from './training-status.hub';
 import { ResearchHypothesisModule } from './research-hypotheses/research-hypothesis.module';
+import { AgentAuthorityModule } from './agent-authority/agent-authority.module';
 
 @Module({
-  imports: [ResearchHypothesisModule],
+  imports: [ResearchHypothesisModule, AgentAuthorityModule],
   controllers: [ResearchController],
   providers: [
     ResearchService,
