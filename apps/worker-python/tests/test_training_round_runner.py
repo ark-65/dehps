@@ -17,6 +17,11 @@ from dehps.training.models import (
     TrainingRoundRequest,
 )
 from dehps.training.round_runner import TrainingRoundRunner
+from dehps.training.runtime_round_executor import (
+    RuntimeRoundOutcome,
+    RuntimeRoundRequest,
+    RuntimeTrainingState,
+)
 
 
 def _evaluation(objective: float, top_10000_hits: int) -> EvaluationResult:
@@ -148,19 +153,47 @@ def test_training_round_runner_is_independently_testable_and_dependency_injected
     assert repository.saved_result is result
 
 
-def test_runtime_round_runner_advances_exactly_one_persistent_session_round_per_call() -> None:
-    def runtime_rounds():
-        yield {"run_id": "run-1", "rounds": [{"round": 1}], "status": "running"}
-        yield {"run_id": "run-1", "rounds": [{"round": 1}, {"round": 2}], "status": "running"}
-        return {"run_id": "run-1", "rounds": [{"round": 1}, {"round": 2}], "status": "completed"}
+def test_production_round_runner_executes_explicit_requests_without_generator_adapter() -> None:
+    request = RuntimeRoundRequest(
+        TrainingRoundRequest(
+            run_id="run-1",
+            round_index=1,
+            as_of_issue="2026067",
+            history_fingerprint="history",
+            objective_policy_version="rank_objective_v1",
+            objective_policy_hash="policy-hash",
+            candidate_budget=2,
+            random_seed=17,
+        )
+    )
 
-    runner = TrainingRoundRunner.for_runtime(runtime_rounds())
+    class Executor:
+        def execute(self, actual_request, state):
+            assert actual_request is request
+            state.completed_rounds += 1
+            return RuntimeRoundOutcome(
+                request=actual_request,
+                result={"run_id": "run-1", "rounds": [{"round": 1}], "status": "running"},
+            )
 
-    assert len(runner.run_runtime_round()["rounds"]) == 1
-    assert len(runner.run_runtime_round()["rounds"]) == 2
-    assert runner.run_runtime_round() is None
-    assert runner.final_status == {
-        "run_id": "run-1",
-        "rounds": [{"round": 1}, {"round": 2}],
-        "status": "completed",
-    }
+    class Session:
+        state = RuntimeTrainingState()
+        executor = Executor()
+
+        def __init__(self):
+            self.pending = [request]
+
+        def next_request(self):
+            return self.pending.pop(0) if self.pending else None
+
+        def finish(self, *, status="completed", error=None):
+            return {"run_id": "run-1", "rounds": [{"round": 1}], "status": status}
+
+    runner = TrainingRoundRunner.for_production(Session())
+
+    actual_request = runner.next_request()
+    assert actual_request is request
+    assert runner.run(actual_request)["rounds"] == [{"round": 1}]
+    assert runner.next_request() is None
+    assert runner.finish()["status"] == "completed"
+    assert not hasattr(runner, "run_runtime_round")

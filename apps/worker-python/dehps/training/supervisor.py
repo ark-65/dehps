@@ -34,19 +34,26 @@ class TrainingSupervisor:
         ) as lock:
             round_runner = self.dependencies.build_round_runner(arguments)
             result: dict = {}
-            while True:
-                round_status = round_runner.run_runtime_round()
-                if round_status is None:
-                    break
-                result = round_status
-                lock.heartbeat(
-                    status="running",
-                    context={
-                        "run_id": result.get("run_id"),
-                        "completed_rounds": len(result.get("rounds") or ()),
-                    },
+            try:
+                while request := round_runner.next_request():
+                    round_status = round_runner.run(request)
+                    if not isinstance(round_status, dict):
+                        raise RuntimeError("production round must return a status mapping")
+                    result = round_status
+                    lock.heartbeat(
+                        status="running",
+                        context={
+                            "run_id": result.get("run_id"),
+                            "completed_rounds": len(result.get("rounds") or ()),
+                        },
+                    )
+                result = round_runner.finish()
+            except (KeyboardInterrupt, Exception) as exc:
+                round_runner.finish(
+                    status="interrupted" if isinstance(exc, KeyboardInterrupt) else "failed",
+                    error=exc,
                 )
-            result = round_runner.final_status or result
+                raise
             lock.heartbeat(
                 status="completed",
                 context={"run_id": result.get("run_id"), "rounds": result.get("rounds")},

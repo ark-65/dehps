@@ -4,6 +4,12 @@ from contextlib import contextmanager
 
 import dehps.training.supervisor as application
 from dehps.training.round_runner import TrainingRoundRunner
+from dehps.training.models import TrainingRoundRequest
+from dehps.training.runtime_round_executor import (
+    RuntimeRoundOutcome,
+    RuntimeRoundRequest,
+    RuntimeTrainingState,
+)
 from dehps.training.supervisor import (
     SupervisorDependencies,
     TrainingSupervisor,
@@ -29,15 +35,49 @@ def test_training_supervisor_owns_lifecycle_and_loops_through_round_runner(monke
     monkeypatch.setattr(application, "heavy_job_lock", fake_heavy_job_lock)
     monkeypatch.setattr(application, "apply_cpu_thread_env_defaults", lambda _threads: None)
 
-    def runtime_rounds():
-        yield {"run_id": "run-1", "rounds": [{"round": 1}], "status": "running"}
-        yield {"run_id": "run-1", "rounds": [{"round": 1}, {"round": 2}], "status": "running"}
-        return {"run_id": "run-1", "rounds": [{"round": 1}, {"round": 2}], "status": "completed"}
+    requests = [
+        RuntimeRoundRequest(
+            TrainingRoundRequest(
+                run_id="run-1",
+                round_index=index,
+                as_of_issue="2026067",
+                history_fingerprint="history",
+                objective_policy_version="rank_objective_v1",
+                objective_policy_hash="policy-hash",
+                candidate_budget=2,
+                random_seed=index,
+            )
+        )
+        for index in (1, 2)
+    ]
+
+    class Executor:
+        def execute(self, request, state):
+            state.completed_rounds += 1
+            rounds = [{"round": index} for index in range(1, request.round_index + 1)]
+            return RuntimeRoundOutcome(
+                request=request,
+                result={"run_id": "run-1", "rounds": rounds, "status": "running"},
+            )
+
+    class Session:
+        state = RuntimeTrainingState()
+        executor = Executor()
+
+        def next_request(self):
+            return requests.pop(0) if requests else None
+
+        def finish(self, *, status="completed", error=None):
+            return {
+                "run_id": "run-1",
+                "rounds": [{"round": 1}, {"round": 2}],
+                "status": status,
+            }
 
     supervisor = TrainingSupervisor(
         settings=TrainingSupervisorSettings(run_arguments={"max_rounds": 2}),
         dependencies=SupervisorDependencies(
-            build_round_runner=lambda _arguments: TrainingRoundRunner.for_runtime(runtime_rounds())
+            build_round_runner=lambda _arguments: TrainingRoundRunner.for_production(Session())
         ),
     )
 
