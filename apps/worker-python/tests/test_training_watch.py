@@ -5098,6 +5098,17 @@ def test_summarize_watch_normalizes_non_positive_windows(monkeypatch):
     monkeypatch.setattr(watch, "resolve_run_id", lambda run_id: "run-1")
     monkeypatch.setattr(watch, "load_rounds", fake_load_rounds)
     monkeypatch.setattr(watch, "load_round_stats", fake_load_round_stats)
+    monkeypatch.setattr(watch, "load_line_progress", lambda *_args, **_kwargs: watch.default_line_progress())
+    monkeypatch.setattr(
+        watch,
+        "load_forward_evidence_rows",
+        lambda: {"activation_after_issue": None, "evaluation_rows": [], "snapshot_rows": []},
+    )
+    monkeypatch.setattr(
+        watch,
+        "load_parser_sync_duplicate_checks",
+        lambda: {"status": "checked", "ok": True},
+    )
     monkeypatch.setattr(watch, "heavy_lock_summary", lambda: {"active": True, "owner": "training-supervisor"})
 
     payload = summarize_watch(None, limit=0, stale_minutes=-10)
@@ -5150,6 +5161,17 @@ def test_summarize_watch_uses_full_stats_beyond_recent_limit(monkeypatch):
     monkeypatch.setattr(watch, "resolve_run_id", lambda run_id: "run-1")
     monkeypatch.setattr(watch, "load_rounds", fake_load_rounds)
     monkeypatch.setattr(watch, "load_round_stats", fake_load_round_stats)
+    monkeypatch.setattr(watch, "load_line_progress", lambda *_args, **_kwargs: watch.default_line_progress())
+    monkeypatch.setattr(
+        watch,
+        "load_forward_evidence_rows",
+        lambda: {"activation_after_issue": None, "evaluation_rows": [], "snapshot_rows": []},
+    )
+    monkeypatch.setattr(
+        watch,
+        "load_parser_sync_duplicate_checks",
+        lambda: {"status": "checked", "ok": True},
+    )
     monkeypatch.setattr(watch, "heavy_lock_summary", lambda: {"active": True, "owner": "training-supervisor"})
 
     payload = summarize_watch("input-run", limit=2, stale_minutes=30)
@@ -5174,6 +5196,12 @@ def test_summarize_watch_reports_db_read_errors_with_status_fallback(monkeypatch
     monkeypatch.setattr(watch, "latest_supervisor_run_id_from_status_file", lambda: "run-1")
     monkeypatch.setattr(watch, "load_rounds", raise_db_unavailable)
     monkeypatch.setattr(watch, "load_round_stats", raise_db_unavailable)
+    monkeypatch.setattr(watch, "load_line_progress", lambda *_args, **_kwargs: watch.default_line_progress())
+    monkeypatch.setattr(
+        watch,
+        "load_forward_evidence_rows",
+        lambda: {"activation_after_issue": None, "evaluation_rows": [], "snapshot_rows": []},
+    )
     monkeypatch.setattr(
         watch,
         "load_supervisor_status",

@@ -52,6 +52,13 @@ Final local suite after live-smoke regressions, session continuity coverage, doc
 693 passed in 22.86s
 ```
 
+The first GitHub Actions run exposed three `training_watch` tests that still reached local PostgreSQL for line-progress and forward-evidence reads. Their missing mocks were fixed without changing production code. A forced no-database local run now passes the complete suite:
+
+```text
+DB_PORT=1 .venv/bin/python -m pytest -q
+693 passed in 44.85s
+```
+
 Isolated database smoke used `dehps_round19_smoke`, cloned from the prior isolated fixture database and truncated of training result state. It did not use the production database.
 
 ```text
