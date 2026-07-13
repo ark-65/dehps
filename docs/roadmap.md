@@ -48,6 +48,17 @@ At the end of each round:
 | 7 | Comparison and distribution review | Done | `docs/experiments/round-7-report.md` |
 | 8 | Candidate generation audit foundation | Done | `docs/experiments/round-8-report.md` |
 | 9 | Walk-forward algorithm ranking skeleton | Done | `docs/experiments/round-9-report.md` |
+| 10 | Sorted history, constant universe, regime window, first weight search | Done | `docs/experiments/round-10-report.md` |
+| 11 | Expanding walk-forward and previous-draw micro weights | Done | `docs/experiments/round-11-report.md` |
+| 12 | Progress output and feature-matrix cache | Done | `docs/experiments/round-12-report.md` |
+| 13 | Adaptive training supervisor and draw schedule | Done | `docs/experiments/round-13-report.md` |
+| 14 | DB-first training intelligence | Done | `docs/experiments/round-14-report.md` |
+| 15 | Neural readiness probe | Done | `docs/experiments/round-15-neural-readiness-report.md` |
+| 16 | Explicit neural CPU MLP scorer v0 | Done | `docs/experiments/round-16-neural-scorer-v0-report.md` |
+| 17 | Project consolidation and local acceptance | Done | `docs/experiments/round-17-project-consolidation-report.md` |
+| 18 | Training runtime architecture refactor | Done | `docs/experiments/round-18-training-architecture-refactor.md` |
+| 19 | Structured Hypothesis Registry | Planned | `docs/architecture/hypothesis-registry.md` |
+| 20 | Research/Engineering Agent authority separation | Planned | `docs/architecture/hypothesis-registry.md` |
 
 ## Round 1: Basic Computation And Backtest Loop
 

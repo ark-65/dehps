@@ -156,6 +156,8 @@ CREATE TABLE IF NOT EXISTS training_round_results (
   top_n INTEGER NOT NULL,
   as_of_issue TEXT NOT NULL,
   history_fingerprint TEXT NOT NULL,
+  objective_policy_version TEXT NOT NULL DEFAULT 'legacy_unversioned',
+  objective_policy_hash TEXT NOT NULL DEFAULT '',
   improved BOOLEAN NOT NULL DEFAULT false,
   top_100_hits INTEGER NOT NULL DEFAULT 0,
   top_1000_hits INTEGER NOT NULL DEFAULT 0,
