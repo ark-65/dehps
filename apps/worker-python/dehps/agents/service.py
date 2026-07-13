@@ -8,6 +8,11 @@ from dehps.agents.errors import (
     AgentRequestTransitionError,
     AgentRequestValidationError,
 )
+from dehps.agents.handoffs import (
+    request_uses_engineering_result_contract,
+    validate_engineering_result,
+    validate_research_to_engineering_payload,
+)
 from dehps.agents.policy import AgentAuthorityPolicy, AuthorizationContext
 from dehps.agents.repository import AgentRequestRepository
 from dehps.agents.requests import (
@@ -64,6 +69,12 @@ class AgentRequestService:
                 f"risk level cannot be lower than {spec.risk_level.value} for {request_type.value}"
             )
         self._validate_payload(request_type, payload)
+        self._validate_handoff_payload(
+            request_type,
+            payload,
+            hypothesis_key=hypothesis_key,
+            experiment_key=experiment_key,
+        )
         self._validate_links(
             request_type,
             hypothesis_key=hypothesis_key,
@@ -109,6 +120,12 @@ class AgentRequestService:
             raise AgentRequestTransitionError("only draft request payloads may be edited")
         self._require_request_owner(request, actor_role, actor_id)
         self._validate_payload(request.request_type, payload)
+        self._validate_handoff_payload(
+            request.request_type,
+            payload,
+            hypothesis_key=str(request.payload.get("hypothesis_key") or "") or None,
+            experiment_key=str(request.payload.get("experiment_key") or "") or None,
+        )
         self._authorize_request(request, actor_role, REQUEST_TYPE_SPECS[request.request_type].creation_action, environment)
         return self.repository.update_payload(request_key=request_key, payload=payload)
 
@@ -265,6 +282,8 @@ class AgentRequestService:
         request, execution = self._execution_context(request_key, execution_id)
         self._authorize_request(request, executor_role, REQUEST_TYPE_SPECS[request.request_type].execution_action, execution.environment)
         self._ensure_transition(request.status, AgentRequestStatus.COMPLETED)
+        if request_uses_engineering_result_contract(request.request_type):
+            validate_engineering_result(result)
         return self.repository.finish_execution(
             request_key=request_key,
             execution_id=execution_id,
@@ -397,6 +416,57 @@ class AgentRequestService:
             raise AgentRequestValidationError(f"{request_type.value} requires a hypothesis link")
         if spec.requires_experiment and not experiment_key:
             raise AgentRequestValidationError(f"{request_type.value} requires an experiment link")
+
+    def _validate_handoff_payload(
+        self,
+        request_type: AgentRequestType,
+        payload: Mapping[str, Any],
+        *,
+        hypothesis_key: str | None,
+        experiment_key: str | None,
+    ) -> None:
+        if request_type == AgentRequestType.ENGINEERING_EXPERIMENT_TOOL:
+            validate_research_to_engineering_payload(payload)
+            if payload.get("hypothesis_key") != hypothesis_key:
+                raise AgentRequestValidationError("handoff hypothesis_key must match the linked hypothesis")
+            if payload.get("experiment_key") != experiment_key:
+                raise AgentRequestValidationError("handoff experiment_key must match the linked experiment")
+        elif request_type == AgentRequestType.OPERATOR_ISOLATED_RUN:
+            tool_key = str(payload.get("approved_tool_request_key") or "")
+            self._require_completed_request(
+                tool_key,
+                expected_type=AgentRequestType.ENGINEERING_EXPERIMENT_TOOL,
+                label="approved experiment tool",
+            )
+            if payload.get("environment") != "isolated":
+                raise AgentRequestValidationError("operator_isolated_run environment must be isolated")
+        elif request_type == AgentRequestType.RESEARCH_EVIDENCE_SUBMISSION:
+            execution_key = str(payload.get("execution_request_key") or "")
+            execution_request = self._require_completed_request(
+                execution_key,
+                expected_type=AgentRequestType.OPERATOR_ISOLATED_RUN,
+                label="isolated execution",
+            )
+            if not self.repository.list_executions(execution_request.request_key):
+                raise AgentRequestValidationError(
+                    "Evidence Proposal requires an audited isolated execution record"
+                )
+
+    def _require_completed_request(
+        self,
+        request_key: str,
+        *,
+        expected_type: AgentRequestType,
+        label: str,
+    ) -> AgentRequest:
+        if not request_key:
+            raise AgentRequestValidationError(f"{label} request key is required")
+        request = self.repository.get_request(request_key)
+        if request.request_type != expected_type or request.status != AgentRequestStatus.COMPLETED:
+            raise AgentRequestValidationError(
+                f"{label} must reference a completed {expected_type.value} request"
+            )
+        return request
 
     @staticmethod
     def _require_request_owner(
