@@ -641,6 +641,10 @@ def test_near_dynamic_kdj_next_candidate_snapshot_marks_window(monkeypatch):
     assert near_window["window_key"] == "2026103-2026111->2026112"
     assert near_window["train_mode"] == "rolling"
     assert near_window["train_window"] == 100
+    assert near_window["primary_objective"] == "exact_red6_top100"
+    assert near_window["primary_metric"] == "top_100_hits"
+    assert near_window["hit_definition"] == "exact red6 rank <= 100"
+    assert near_window["diagnostic_metrics"] == ["red5_rank", "red4_plus_top100"]
     assert near_window["sealed"] is False
     assert near_window["seal_reason"] is None
     assert regression_train_lengths == [100] * 9
