@@ -1,42 +1,163 @@
-# Hypothesis Registry Design
+# Hypothesis Registry Architecture
 
-This document defines the next-round registry contract only. Round 18 does not add a database migration or alter training strategy.
+Round 20 makes research governance durable without coupling it to training or promotion. The registry records human-created families, hypotheses, experiments, evidence, decisions, and reopen conditions. It does not run experiments, change candidates, or promote strategies.
 
-## Records
+## Data model
 
-- `Hypothesis`: a falsifiable claim with invariant, null, minimal non-null, metric, failure condition, evidence boundary, author role, and timestamps.
-- `HypothesisFamily`: a mechanism-level grouping used to prevent parameter retuning from disguising a rejected mechanism.
-- `Experiment`: a preregistered execution of one hypothesis against a frozen history/as-of boundary, config, code revision, objective policy, and baseline.
-- `Evidence`: immutable measured output, including metrics, artifacts, leakage report, failures, and uncertainty.
-- `Rejection`: structured reason codes, scope (`parameter` or `family`), rejected configuration region, and evidence references.
-- `ReopenCondition`: a preregistered condition whose satisfaction permits a rejected hypothesis or family to return for review.
+| Table | Responsibility | Important constraints |
+| --- | --- | --- |
+| `research_hypothesis_families` | Mechanism-level boundary and rejection scope | unique `family_key`; checked status/scope; object metadata |
+| `research_hypotheses` | Falsifiable claim and preregistration contract | unique `hypothesis_key`; restricted family/parent FKs; no self-parent; checked status/scope |
+| `research_hypothesis_experiments` | Explicit run/report/artifact association | unique `experiment_key`; restricted hypothesis FK; optional external/training identifiers |
+| `research_hypothesis_evidence` | Immutable-by-service observed facts | restricted hypothesis/experiment FKs; checked direction; `(hypothesis, type, content_hash)` dedupe |
+| `research_hypothesis_decisions` | Append-only lifecycle audit | exactly one hypothesis/family subject; update/delete trigger rejects mutation |
 
-## States
+All timestamps use `TIMESTAMPTZ`. JSON objects and arrays have database type checks and safe defaults. Historical rows use `ON DELETE RESTRICT`; the registry never cascades away experiments, evidence, decisions, parents, or children.
+
+Status changes are protected twice:
+
+1. Python transition functions reject illegal edges.
+2. PostgreSQL status triggers reject direct updates unless the Repository enables the transaction-local registry transition guard.
+
+The Repository changes status and inserts its Decision in the same transaction. A Decision insertion failure rolls back the status update.
+
+## State machines
+
+Hypothesis:
 
 ```text
-proposed -> preregistered -> running
-running -> accepted_for_followup | rejected | inconclusive | invalidated
+proposed -------> preregistered -------> running
+    |                   |                  |  |  |  |
+    +-> invalidated     +-> invalidated   |  |  |  +-> invalidated
+                                           |  |  +----> inconclusive
+                                           |  +-------> rejected
+                                           +----------> accepted_for_followup
+
+accepted_for_followup -> running | rejected | inconclusive
 ```
 
-`invalidated` means the experiment cannot judge the claim because of leakage, parser failure, corrupted history, protocol violation, or another validity defect. It is not positive or negative model evidence.
+`rejected`, `inconclusive`, and `invalidated` are not changed back in place. A rejected hypothesis can only use the explicit reopen operation, which preserves the old row and creates a new `proposed` child/version.
 
-## Parameter Failure Versus Family Failure
+Family:
 
-A parameter failure rejects the exact frozen configuration or preregistered bounded region. It does not reject the mechanism unless the experiment was designed with sufficient representative coverage and family-level failure criteria.
+```text
+active -> partially_rejected | rejected | exhausted
+partially_rejected -> active | rejected | exhausted
+rejected/exhausted -- explicit reopen only --> reopened
+reopened -> active | partially_rejected | rejected | exhausted
+```
 
-A family failure rejects the mechanism and forbids new experiments that only vary seed, nearby weights, epochs, thresholds, or equivalent parameterizations. The registry must compare normalized mechanism signatures before allowing a new experiment.
+Experiment:
 
-## Rejection And Reopen Rules
+```text
+planned -> running | cancelled | invalidated
+running -> completed | failed | invalidated | cancelled
+```
 
-A rejected family cannot be rerun merely to consume compute or because time passed. Reopen requires a stored `ReopenCondition` and new evidence that satisfies it, such as a genuinely new causal input, a corrected validity boundary, a new untouched temporal block, or a materially different mechanism representation. Reopen approval records who approved it and which evidence satisfied the condition; the old rejection remains immutable.
+Experiment terminal states are immutable.
 
-## Markdown And Database Correspondence
+## Preregistration and completion gates
 
-Markdown reports are human-readable evidence views, not the source of lifecycle truth. Each report carries stable registry IDs and links to its experiment/evidence records. Database records keep the canonical status, objective policy identity, history fingerprint, config hash, commit, artifacts, and reason codes. Re-rendering Markdown must not create a new hypothesis or alter status.
+`preregister()` requires non-empty:
 
-## Agent Authority
+- statement;
+- null hypothesis;
+- minimal non-null;
+- invariants;
+- baseline definition;
+- metric definition;
+- failure condition;
+- self-deception risk.
 
-- Research Agent may propose and preregister hypotheses and interpret evidence. It cannot promote a production strategy.
-- Engineering Agent may implement a preregistered experiment, validity check, or runtime boundary. It cannot invent a hypothesis or weaken its failure rule.
-- Training runtime may execute frozen experiments and emit facts. It cannot change hypothesis state beyond recording execution outcomes.
-- Promotion requires the separate frozen gate and the project review policy. No agent can bypass invalid/leakage/forward-evidence failures.
+`start()` requires a preregistered hypothesis, at least one planned experiment, and a family that is neither rejected nor exhausted.
+
+`complete_with_decision()` requires a running hypothesis, at least one Evidence record, explicit cited Evidence IDs, no associated running experiment, and a non-empty decision code.
+
+## Parameter rejection versus mechanism rejection
+
+`parameter_region` rejects a bounded configuration/representation region. Its Decision must record:
+
+- rejected parameter region;
+- failed metrics;
+- data boundary;
+- prohibited parameter-only retries.
+
+The family becomes `partially_rejected` but remains open to genuinely different hypotheses.
+
+`mechanism_family` rejects the normalized input/target/validation mechanism. Its Decision must additionally record a mechanism signature. The family becomes `rejected`, and the Repository refuses new active hypotheses under it.
+
+Both scopes explicitly prohibit presenting these as a new mechanism:
+
+- a new random seed;
+- more epochs;
+- more depth;
+- nearby weights;
+- more search rounds on the same history;
+- renaming without changing inputs, target, and validation protocol.
+
+## Reopen semantics
+
+Reopen never edits or deletes the rejection. It requires:
+
+- a stored non-empty `reopen_condition`;
+- a non-empty `reopen_reason`;
+- a new unique hypothesis key;
+- a recorded change in new data, feature family, causal variable, or validation protocol.
+
+The new hypothesis uses `parent_hypothesis_id` to reference the rejected row and starts as `proposed`. The old hypothesis remains `rejected`; a new append-only Decision records the created version. A mechanism-rejected family must itself be explicitly reopened before a new hypothesis version can be created.
+
+## Human CLI
+
+The CLI accepts complex data through `--input JSON_FILE` and emits stable sorted JSON:
+
+```text
+dehps hypothesis family-create
+dehps hypothesis family-list
+dehps hypothesis create
+dehps hypothesis list
+dehps hypothesis show
+dehps hypothesis preregister
+dehps hypothesis start
+dehps hypothesis reject
+dehps hypothesis inconclusive
+dehps hypothesis invalidate
+dehps hypothesis reopen
+dehps hypothesis experiment-add
+dehps hypothesis evidence-add
+dehps hypothesis decisions
+```
+
+Registry errors go to stderr and return exit code 2. There is no command for automatic experiment execution, Agent research, production promotion, or strategy mutation.
+
+Report and artifact paths are normalized to repository-relative paths under `docs/experiments/` or `data/output/`. Missing files fail closed unless the input explicitly marks an external reference. Content SHA-256 calculation is optional.
+
+## Read-only API
+
+The NestJS `ResearchHypothesisModule` exposes only GET endpoints:
+
+```text
+GET /research/hypothesis-families
+GET /research/hypothesis-families/:key
+GET /research/hypotheses
+GET /research/hypotheses/:key
+GET /research/hypotheses/:key/experiments
+GET /research/hypotheses/:key/evidence
+GET /research/hypotheses/:key/decisions
+```
+
+Lists accept `status`, `family_key`, `created_after`, `created_before`, `limit`, and `offset` where meaningful. Responses identify their entity type. PostgreSQL JSON strings are normalized into objects/arrays, and missing detail or child subjects return 404. The module exposes no POST, PUT, PATCH, or DELETE route.
+
+## Authority boundary
+
+- Humans may use the CLI to register and decide hypotheses.
+- Repository and Service enforce lifecycle and audit constraints; they do not judge statistical significance.
+- Training, Objective Policy, Candidate Source, Advisor Registry, Evaluation, and Promotion do not import or consult the registry.
+- The read-only API cannot trigger state transitions.
+- Round 20 does not add LLM, prompt, Agent, scheduler, vector search, or automatic Markdown inference.
+
+## Known limitations
+
+- Reopen-condition satisfaction is recorded and structurally constrained, but semantic truth still requires human review.
+- Evidence IDs in Decisions are an immutable JSON citation list rather than individual foreign-key rows.
+- Existing Markdown reports are not migrated automatically; only explicit human registration is supported.
+- Registry DDL is additive and available through PostgreSQL initialization and Worker compatibility setup, but Round 20 deliberately does not apply it to the production database.

@@ -57,8 +57,8 @@ At the end of each round:
 | 16 | Explicit neural CPU MLP scorer v0 | Done | `docs/experiments/round-16-neural-scorer-v0-report.md` |
 | 17 | Project consolidation and local acceptance | Done | `docs/experiments/round-17-project-consolidation-report.md` |
 | 18 | Training runtime architecture refactor | Done | `docs/experiments/round-18-training-architecture-refactor.md` |
-| 19 | Production runtime decomposition phase 1 | Done locally; release pending | `docs/experiments/round-19-production-runtime-decomposition-phase-1.md` |
-| 20 | Structured Hypothesis Registry | Planned | `docs/architecture/hypothesis-registry.md` |
+| 19 | Production runtime decomposition phase 1 | Done | `docs/experiments/round-19-production-runtime-decomposition-phase-1.md` |
+| 20 | Structured Hypothesis Registry | Done | `docs/experiments/round-20-hypothesis-registry-foundation.md` |
 | 21 | Research/Engineering Agent authority separation | Planned | `docs/architecture/hypothesis-registry.md` |
 
 ## Round 1: Basic Computation And Backtest Loop
