@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, ContextManager
+from dataclasses import asdict
+import json
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, ContextManager
 
 from psycopg import Connection
 from psycopg.rows import dict_row
 
 from dehps.db import get_connection
+
+if TYPE_CHECKING:
+    from dehps.research_autonomy.context import ResearchContext
 
 
 ConnectionFactory = Callable[[], ContextManager[Connection[Any]]]
@@ -109,3 +115,35 @@ class ResearchContextRepository:
         row["evidence_id"] = int(row["evidence_id"])
         row["metrics"] = dict(row.pop("metrics_json") or {})
         return row
+
+
+class ResearchAutonomyArtifactRepository:
+    """Explicit JSON artifact I/O; generation remains dry-run unless a path is supplied."""
+
+    def __init__(self, repository_root: Path | None = None) -> None:
+        self.root = (repository_root or Path(__file__).resolve().parents[4]).resolve()
+        self.default_context_path = self.root / "data/output/research-autonomy/context-latest.json"
+
+    def write_context(self, context: ResearchContext, path: Path | None = None) -> Path:
+        target = (path or self.default_context_path).resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            json.dumps(
+                {"context_fingerprint": context.fingerprint, "context": asdict(context)},
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        )
+        return target
+
+    def read_context(self, path: Path | None = None) -> dict[str, Any]:
+        target = (path or self.default_context_path).resolve()
+        try:
+            value = json.loads(target.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"cannot read ResearchContext artifact {target}: {exc}") from exc
+        if not isinstance(value, dict) or not isinstance(value.get("context"), dict):
+            raise ValueError(f"invalid ResearchContext artifact: {target}")
+        return value

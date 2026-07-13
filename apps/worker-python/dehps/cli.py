@@ -29,16 +29,30 @@ from dehps.research.status import (
     HypothesisStatus,
     RejectionScope,
 )
+from dehps.research_autonomy.context import ResearchContextBuilder
+from dehps.research_autonomy.proposal_engine import (
+    DEFAULT_ENGINE_VERSION,
+    AutonomousHypothesisProposalEngine,
+)
+from dehps.research_autonomy.repository import ResearchAutonomyArtifactRepository
+from dehps.research_autonomy.submission import ResearchProposalSubmissionService
+from dehps.research_autonomy.validation import HypothesisProposalValidator
 
 app = typer.Typer(help="DEHPS worker commands")
 agent_app = typer.Typer(
     help="Audited Agent Request lifecycle. It does not execute Shell, Git, or Supervisor operations."
+)
+research_context_app = typer.Typer(help="Build deterministic ResearchContext from formal sources.")
+research_proposal_app = typer.Typer(
+    help="Dry-run autonomous hypothesis proposals or submit one Research Agent Request."
 )
 hypothesis_app = typer.Typer(
     help="Human-operated hypothesis registry. It does not execute experiments or promote strategies."
 )
 app.add_typer(hypothesis_app, name="hypothesis")
 app.add_typer(agent_app, name="agent")
+app.add_typer(research_context_app, name="research-context")
+app.add_typer(research_proposal_app, name="research-proposal")
 
 
 @app.command()
@@ -58,6 +72,14 @@ def _agent_context() -> tuple[AgentRequestRepository, AgentRequestService]:
     repository = AgentRequestRepository()
     repository.ensure_schema()
     return repository, AgentRequestService(repository)
+
+
+def _research_context_builder() -> ResearchContextBuilder:
+    return ResearchContextBuilder()
+
+
+def _proposal_engine(engine_version: str) -> AutonomousHypothesisProposalEngine:
+    return AutonomousHypothesisProposalEngine(engine_version=engine_version)
 
 
 def _load_object(path: Path) -> dict[str, Any]:
@@ -103,6 +125,150 @@ def _enum(enum_type, value: str):
 
 def _agent_role(value: str) -> AgentRole:
     return _enum(AgentRole, value)
+
+
+@research_context_app.command("build")
+def research_context_build(
+    context_output: Path | None = typer.Option(None, "--context-output"),
+) -> None:
+    try:
+        context = _research_context_builder().build()
+        output = None
+        if context_output is not None:
+            output = ResearchAutonomyArtifactRepository().write_context(context, context_output)
+        _emit({"context_fingerprint": context.fingerprint, "context": context, "context_output": output})
+    except (ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@research_context_app.command("show")
+def research_context_show(
+    input_file: Path | None = typer.Option(None, "--input"),
+) -> None:
+    try:
+        _emit(ResearchAutonomyArtifactRepository().read_context(input_file))
+    except (ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+def _generate_research_proposals(
+    *,
+    max_candidates: int,
+    engine_version: str,
+    context_output: Path | None,
+):
+    context = _research_context_builder().build()
+    if context_output is not None:
+        ResearchAutonomyArtifactRepository().write_context(context, context_output)
+    result = _proposal_engine(engine_version).propose(context, max_candidates=max_candidates)
+    return context, result
+
+
+@research_proposal_app.command("generate")
+def research_proposal_generate(
+    max_candidates: int = typer.Option(20, "--max-candidates", min=1, max=20),
+    engine_version: str = typer.Option(DEFAULT_ENGINE_VERSION, "--engine-version"),
+    context_output: Path | None = typer.Option(None, "--context-output"),
+) -> None:
+    """Dry-run proposal generation; this command creates no Request or Hypothesis."""
+    try:
+        context, result = _generate_research_proposals(
+            max_candidates=max_candidates,
+            engine_version=engine_version,
+            context_output=context_output,
+        )
+        _emit({"dry_run": True, "context_fingerprint": context.fingerprint, "result": result})
+    except (ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@research_proposal_app.command("list")
+def research_proposal_list(
+    limit: int = typer.Option(100, min=1, max=500),
+    offset: int = typer.Option(0, min=0),
+) -> None:
+    try:
+        repository, _ = _agent_context()
+        requests = repository.list_requests(
+            request_type=AgentRequestType.RESEARCH_HYPOTHESIS_PROPOSAL,
+            limit=limit,
+            offset=offset,
+        )
+        _emit({"proposals": requests, "limit": limit, "offset": offset})
+    except (AgentAuthorityError, ValueError, TypeError) as exc:
+        _fail(exc)
+
+
+@research_proposal_app.command("show")
+def research_proposal_show(proposal_key: str) -> None:
+    try:
+        repository, _ = _agent_context()
+        requests = repository.list_requests(
+            request_type=AgentRequestType.RESEARCH_HYPOTHESIS_PROPOSAL,
+            limit=500,
+        )
+        request = next(
+            (
+                item
+                for item in requests
+                if item.request_key == proposal_key
+                or item.payload.get("proposal", {}).get("proposal_key") == proposal_key
+            ),
+            None,
+        )
+        if request is None:
+            raise AgentAuthorityError(f"research proposal not found: {proposal_key}")
+        _emit({"proposal": request})
+    except (AgentAuthorityError, ValueError, TypeError) as exc:
+        _fail(exc)
+
+
+@research_proposal_app.command("submit")
+def research_proposal_submit(
+    requested_by: str = typer.Option(..., "--requested-by"),
+    request_key: str | None = typer.Option(None, "--request-key"),
+    max_candidates: int = typer.Option(20, "--max-candidates", min=1, max=20),
+    engine_version: str = typer.Option(DEFAULT_ENGINE_VERSION, "--engine-version"),
+    context_output: Path | None = typer.Option(None, "--context-output"),
+) -> None:
+    try:
+        context, result = _generate_research_proposals(
+            max_candidates=max_candidates,
+            engine_version=engine_version,
+            context_output=context_output,
+        )
+        repository, agent_service = _agent_context()
+        request = ResearchProposalSubmissionService(repository, agent_service).submit(
+            result,
+            context,
+            requested_by=requested_by,
+            request_key=request_key,
+        )
+        _emit({"request": request, "selected": result.selected, "executed": False})
+    except (AgentAuthorityError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@research_proposal_app.command("validate")
+def research_proposal_validate(
+    max_candidates: int = typer.Option(20, "--max-candidates", min=1, max=20),
+    engine_version: str = typer.Option(DEFAULT_ENGINE_VERSION, "--engine-version"),
+    context_output: Path | None = typer.Option(None, "--context-output"),
+) -> None:
+    try:
+        context, result = _generate_research_proposals(
+            max_candidates=max_candidates,
+            engine_version=engine_version,
+            context_output=context_output,
+        )
+        if result.selected is None:
+            raise ValueError("no valid proposal is available")
+        report = HypothesisProposalValidator().validate(result.selected, context)
+        _emit({"proposal_key": result.selected.proposal_key, "validation": report})
+        if not report.valid:
+            raise typer.Exit(code=2)
+    except (ValueError, OSError, TypeError) as exc:
+        _fail(exc)
 
 
 @agent_app.command("request-create")
