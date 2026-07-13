@@ -99,6 +99,8 @@ def _normalized(value: Any) -> Any:
         return value.value
     if isinstance(value, datetime):
         return value.isoformat()
+    if isinstance(value, Path):
+        return value.as_posix()
     if isinstance(value, dict):
         return {str(key): _normalized(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):

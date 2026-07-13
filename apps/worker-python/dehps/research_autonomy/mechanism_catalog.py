@@ -35,11 +35,11 @@ class MechanismCatalog:
         records = tuple(rejected_hypotheses) + tuple(rejected_families)
         result: list[MechanismDescriptor] = []
         for key, title, description in MECHANISMS:
-            related = tuple(
-                item for item in records
-                if key in f"{item.family_key} {item.title} {item.mechanism}".lower()
-                or self._semantic_alias(key, f"{item.family_key} {item.title} {item.mechanism}".lower())
-            )
+            related = []
+            for item in records:
+                text = f"{item.family_key} {item.title} {item.mechanism}".lower().replace("_", " ")
+                if key.replace("_", " ") in text or self._semantic_alias(key, text):
+                    related.append(item)
             result.append(
                 MechanismDescriptor(
                     key=key,
@@ -59,7 +59,7 @@ class MechanismCatalog:
     def _semantic_alias(key: str, text: str) -> bool:
         aliases = {
             "feature_interaction_nonlinearity": (
-                "neural", "interaction", "nonlinear", "structural mlp"
+                "neural", "interaction", "nonlinear", "structural mlp", "kdj", "random split"
             ),
             "multi_scale_frequency_residual": ("frequency", "temporal residual"),
             "univariate_temporal_residual": ("temporal residual",),

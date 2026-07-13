@@ -179,8 +179,17 @@ class ResearchContextBuilder:
         features = self.feature_catalog.build(rejected, rejected_families)
         # Catalog association is evaluated during context construction so a rejected
         # mechanism cannot silently lose its Registry link.
-        if rejected_families and not any(item.rejected_variations for item in mechanisms):
-            raise ValueError("rejected Registry families are not associated with the mechanism catalog")
+        associated_families = {
+            family_key for mechanism in mechanisms for family_key in mechanism.known_hypothesis_families
+        }
+        missing_families = {
+            item.family_key for item in rejected_families
+        } - associated_families
+        if missing_families:
+            raise ValueError(
+                "rejected Registry families are not associated with the mechanism catalog: "
+                + ", ".join(sorted(missing_families))
+            )
         context = ResearchContext(
             active_hypotheses=active,
             rejected_hypotheses=rejected,
