@@ -671,15 +671,27 @@ def attach_frozen_validation(summaries: list[dict], *, validation_window: int, u
 
 def frozen_validation_promotion_gate(candidate: dict, incumbent: dict | None) -> dict:
     if not isinstance(candidate, dict):
-        return {"passed": False, "reason": "missing_candidate"}
+        return {
+            "passed": False,
+            "reason": "missing_candidate",
+            "reason_codes": ["missing_candidate"],
+            "human_summary": "promotion rejected: missing_candidate",
+        }
     if not isinstance(incumbent, dict):
-        return {"passed": True, "reason": "no_incumbent"}
+        return {
+            "passed": True,
+            "reason": "no_incumbent",
+            "reason_codes": ["no_incumbent"],
+            "human_summary": "promotion accepted: no incumbent",
+        }
     candidate_validation = candidate.get("frozen_validation")
     incumbent_validation = incumbent.get("frozen_validation")
     if not isinstance(candidate_validation, dict) or not isinstance(incumbent_validation, dict):
         return {
             "passed": True,
             "reason": "missing_frozen_validation",
+            "reason_codes": ["missing_frozen_validation"],
+            "human_summary": "promotion accepted under legacy missing-frozen-validation behavior",
             "candidate_config_hash": candidate.get("config_hash"),
             "incumbent_config_hash": incumbent.get("config_hash"),
         }
@@ -706,6 +718,8 @@ def frozen_validation_promotion_gate(candidate: dict, incumbent: dict | None) ->
         "incumbent_objective": incumbent_objective,
         "candidate_config_hash": candidate.get("config_hash"),
         "incumbent_config_hash": incumbent.get("config_hash"),
+        "reason_codes": list(decision.reason_codes),
+        "human_summary": decision.human_summary,
     }
 
 
@@ -726,6 +740,11 @@ def quarantine_historical_frozen_promotion(gate: dict) -> dict:
         {
             "passed": False,
             "reason": "historical_frozen_holdout_quarantined",
+            "reason_codes": [
+                *[str(value) for value in gate.get("reason_codes") or ()],
+                "missing_forward_evidence",
+            ],
+            "human_summary": "promotion rejected: historical holdout requires forward unseen evidence",
             "historical_holdout_quarantined": True,
             "promotion_holdout_status": "requires_forward_unseen_evidence",
         }
@@ -6377,6 +6396,22 @@ def strategy_memory_report_section(status: dict) -> str:
 """
 
 
+def promotion_report_section(status: dict) -> str:
+    prefilter = status.get("prefilter") if isinstance(status.get("prefilter"), dict) else {}
+    completed = prefilter.get("completed_latest") if isinstance(prefilter.get("completed_latest"), dict) else {}
+    decision = completed.get("promotion_gate") if isinstance(completed.get("promotion_gate"), dict) else {}
+    best = status.get("best") if isinstance(status.get("best"), dict) else {}
+    reward = best.get("reward") if isinstance(best.get("reward"), dict) else {}
+    return f"""## Latest Evaluation And Promotion
+
+- Objective: `{reward.get("objectiveScore", "missing")}`.
+- Top100/Top1000/Top10000: `{best.get("top_100_hits", 0)}/{best.get("top_1000_hits", 0)}/{best.get("top_10000_hits", 0)}`.
+- Promotion accepted: `{decision.get("passed", False)}`.
+- Reason codes: `{", ".join(str(value) for value in decision.get("reason_codes", [])) or decision.get("reason", "missing")}`.
+- Decision summary: {decision.get("human_summary", "missing")}.
+"""
+
+
 def write_report(report_path: Path, status: dict) -> None:
     report_path.parent.mkdir(parents=True, exist_ok=True)
     rounds = "\n".join(
@@ -6397,6 +6432,7 @@ def write_report(report_path: Path, status: dict) -> None:
     source_frontier = source_frontier_report_section(status)
     self_diagnostics = self_diagnostics_report_section(status)
     strategy_memory = strategy_memory_report_section(status)
+    promotion = promotion_report_section(status)
     report = f"""# DEHPS 24h Training Supervisor Report
 
 - Run id: `{status["run_id"]}`
@@ -6433,6 +6469,8 @@ def write_report(report_path: Path, status: dict) -> None:
 {self_diagnostics}
 
 {strategy_memory}
+
+{promotion}
 
 ## Rounds
 
@@ -6489,6 +6527,7 @@ def run_supervisor(
     target_weight_inversion_max_candidates: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES,
     target_weight_inversion_max_targets: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_TARGETS,
     target_weight_inversion_max_deltas_per_target: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_DELTAS_PER_TARGET,
+    max_rounds: int | None = None,
 ) -> dict:
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
     started_at = datetime.now()
@@ -6912,7 +6951,9 @@ def run_supervisor(
 
     try:
         round_index = 0
-        while should_continue_training(round_index, deadline):
+        while should_continue_training(round_index, deadline) and (
+            max_rounds is None or round_index < max(0, max_rounds)
+        ):
             guard_rounds = active_supervisor_guard_rounds(guard_history, rounds)
             stagnation_rounds = active_supervisor_stagnation_round_count(
                 int(guard_continuity_info.get("stagnation_rounds") or 0),

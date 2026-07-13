@@ -178,10 +178,9 @@ def test_characterizes_legacy_promotion_and_forward_quarantine() -> None:
     assert legacy.frozen_validation_promotion_gate(secondary_only, incumbent)["passed"] is False
     assert legacy.frozen_validation_promotion_gate(worse_tail, incumbent)["passed"] is False
     assert legacy.frozen_validation_promotion_gate(worse_objective, incumbent)["passed"] is False
-    assert legacy.frozen_validation_promotion_gate(None, incumbent) == {
-        "passed": False,
-        "reason": "missing_candidate",
-    }
+    missing = legacy.frozen_validation_promotion_gate(None, incumbent)
+    assert (missing["passed"], missing["reason"]) == (False, "missing_candidate")
+    assert missing["reason_codes"] == ["missing_candidate"]
 
     quarantined = legacy.quarantine_historical_frozen_promotion(
         legacy.frozen_validation_promotion_gate(clear_promotion, incumbent)

@@ -24,6 +24,8 @@ def test_legacy_supervisor_command_remains_cli_compatible() -> None:
             "10",
             "--max-configs-per-round",
             "20",
+            "--max-rounds",
+            "1",
             "--memory-budget-gb",
             "20",
         ]
@@ -40,4 +42,5 @@ def test_legacy_supervisor_command_remains_cli_compatible() -> None:
     assert settings.run_arguments["workers"] == 16
     assert settings.run_arguments["progress_interval"] == 10
     assert settings.run_arguments["max_configs_per_round"] == 20
+    assert settings.run_arguments["max_rounds"] == 1
     assert settings.run_arguments["memory_budget_gb"] == 20
