@@ -75,7 +75,7 @@ from dehps.optimization.weight_kdj import (
 )
 from dehps.artifacts import atomic_write_text
 from dehps.advisors.neural_kdj_adapter import NeuralKdjAdvisorAdapter
-from dehps.advisors.protocol import AdvisorContext
+from dehps.advisors.protocol import AdvisorCandidate, AdvisorContext
 from dehps.advisors.registry import AdvisorRegistry
 from dehps.advisors.ridge_kdj_adapter import RidgeKdjAdvisorAdapter
 from dehps.advisors.weight_kdj_adapter import WeightKdjAdvisorAdapter
@@ -1625,6 +1625,38 @@ def _source_by_config_hash(source_configs: dict[str, tuple[FrequencyRankerConfig
             ):
                 source_by_hash[key] = source
     return source_by_hash
+
+
+def attach_candidate_source_metadata(
+    summaries: list[dict],
+    source_configs: dict[str, tuple[FrequencyRankerConfig, ...]],
+    *,
+    advisor_candidates: tuple[AdvisorCandidate, ...] = (),
+) -> None:
+    source_by_hash = _source_by_config_hash(source_configs)
+    advisor_by_hash = {
+        config_hash(candidate.config): candidate
+        for candidate in advisor_candidates
+    }
+    for summary in summaries:
+        key = summary_config_hash(summary) or ""
+        advisor_candidate = advisor_by_hash.get(key)
+        source_key = (
+            advisor_candidate.source_key
+            if advisor_candidate is not None
+            else source_by_hash.get(key, "unknown")
+        )
+        protocol_version = (
+            advisor_candidate.protocol_version
+            if advisor_candidate is not None
+            else "candidate_source_v1"
+        )
+        summary["source_key"] = source_key
+        summary["source_protocol_version"] = protocol_version
+        summary["candidate_source"] = {
+            "key": source_key,
+            "protocol_version": protocol_version,
+        }
 
 
 def _metric_int(container: dict, key: str, default: int = 0) -> int:
@@ -7424,6 +7456,11 @@ def iter_supervisor_rounds(
                 round_index=round_index + 1,
                 progress_callback=publish_progress,
                 frozen_validation_window_value=validation_window,
+            )
+            attach_candidate_source_metadata(
+                summaries,
+                diagnostic_sources,
+                advisor_candidates=advisor_candidates,
             )
             attach_baseline_overlap(
                 summaries,
