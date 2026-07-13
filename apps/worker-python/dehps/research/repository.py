@@ -646,6 +646,29 @@ class HypothesisRepository:
                         rejection_reason=rejection_reason,
                         reopen_condition=reopen_condition,
                     )
+            elif new_status == HypothesisStatus.REJECTED and rejection_scope == RejectionScope.PARAMETER_REGION:
+                family_row = cursor.execute(
+                    "SELECT * FROM research_hypothesis_families WHERE id = %s FOR UPDATE",
+                    (row["family_id"],),
+                ).fetchone()
+                assert family_row is not None
+                family_current = HypothesisFamilyStatus(family_row["status"])
+                if family_current in {
+                    HypothesisFamilyStatus.ACTIVE,
+                    HypothesisFamilyStatus.REOPENED,
+                }:
+                    self._update_family_and_decide(
+                        cursor,
+                        row=family_row,
+                        new_status=HypothesisFamilyStatus.PARTIALLY_REJECTED,
+                        decision_code="parameter_region_rejected",
+                        summary=summary,
+                        decided_by=decided_by,
+                        reason=reason,
+                        rejection_scope=RejectionScope.PARAMETER_REGION,
+                        rejection_reason=rejection_reason,
+                        reopen_condition=reopen_condition,
+                    )
         assert updated is not None
         return _hypothesis(updated)
 
