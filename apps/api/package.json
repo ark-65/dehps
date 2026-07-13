@@ -7,7 +7,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/main.js",
     "start:dev": "tsx watch src/main.ts",
-    "test": "node --import tsx --test test/*.test.ts"
+    "test": "node --import tsx --test test/*.test.ts test/*.spec.ts"
   },
   "dependencies": {
     "@nestjs/common": "11.1.27",
