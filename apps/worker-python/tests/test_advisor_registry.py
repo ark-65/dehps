@@ -4,6 +4,7 @@ from dehps.advisors.neural_kdj_adapter import NeuralKdjAdvisorAdapter
 from dehps.advisors.protocol import AdvisorCandidate, AdvisorContext
 from dehps.advisors.registry import AdvisorRegistry
 from dehps.advisors.ridge_kdj_adapter import RidgeKdjAdvisorAdapter
+from dehps.advisors.target_weight_inversion_adapter import TargetWeightInversionAdvisorAdapter
 from dehps.advisors.weight_kdj_adapter import WeightKdjAdvisorAdapter
 from dehps.models.frequency_ranker import FrequencyRankerConfig
 import scripts.run_training_supervisor as supervisor
@@ -17,19 +18,28 @@ def test_registry_preserves_source_and_protocol_metadata_without_mutating_base()
             WeightKdjAdvisorAdapter(lambda ctx, budget: (FrequencyRankerConfig(frequency_weight=0.4),)[:budget]),
             RidgeKdjAdvisorAdapter(lambda ctx, budget: (FrequencyRankerConfig(frequency_weight=0.5),)[:budget]),
             NeuralKdjAdvisorAdapter(lambda ctx, budget: (FrequencyRankerConfig(frequency_weight=0.6),)[:budget]),
+            TargetWeightInversionAdvisorAdapter(
+                lambda ctx, budget: (FrequencyRankerConfig(frequency_weight=0.7),)[:budget]
+            ),
         )
     )
 
     candidates = registry.propose(
         context,
-        budgets={"weight_kdj": 1, "ridge_kdj": 1, "neural_kdj": 0},
+        budgets={
+            "weight_kdj": 1,
+            "ridge_kdj": 1,
+            "neural_kdj": 0,
+            "target_weight_inversion": 1,
+        },
     )
 
     assert [(candidate.source_key, candidate.protocol_version) for candidate in candidates] == [
         ("weight_kdj", "weight_kdj_advisor_v1"),
         ("ridge_kdj", "ridge_kdj_advisor_v1"),
+        ("target_weight_inversion", "target_weight_inversion_advisor_v1"),
     ]
-    assert [candidate.config.frequency_weight for candidate in candidates] == [0.4, 0.5]
+    assert [candidate.config.frequency_weight for candidate in candidates] == [0.4, 0.5, 0.7]
     assert base.frequency_weight == 0.3
 
 

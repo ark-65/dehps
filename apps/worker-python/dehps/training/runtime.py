@@ -78,6 +78,7 @@ from dehps.advisors.neural_kdj_adapter import NeuralKdjAdvisorAdapter
 from dehps.advisors.protocol import AdvisorCandidate, AdvisorContext
 from dehps.advisors.registry import AdvisorRegistry
 from dehps.advisors.ridge_kdj_adapter import RidgeKdjAdvisorAdapter
+from dehps.advisors.target_weight_inversion_adapter import TargetWeightInversionAdvisorAdapter
 from dehps.advisors.weight_kdj_adapter import WeightKdjAdvisorAdapter
 from dehps.runtime.heavy_job import apply_cpu_thread_env_defaults, heavy_job_lock
 from dehps.search.budget import (
@@ -107,6 +108,7 @@ from dehps.search.phases import (
     search_base_min_distance_for_stage,
     select_search_phase,
 )
+from dehps.training.candidate_composition import CandidateSourceComposer, ReservedCandidateSource
 from dehps.search.stagnation import (
     EARLY_RANK_HOMOGENEITY_MAX_UNIQUE_SIGNATURES,
     EARLY_RANK_HOMOGENEITY_STAGNATION_THRESHOLD,
@@ -7224,6 +7226,12 @@ def iter_supervisor_rounds(
                         )
                     )
                 )
+            if enable_target_weight_inversion_advisor:
+                advisors.append(
+                    TargetWeightInversionAdvisorAdapter(
+                        lambda _context, budget: target_weight_inversion_configs[:budget]
+                    )
+                )
             advisor_registry = AdvisorRegistry.build(advisors)
             advisor_candidates = advisor_registry.propose(
                 AdvisorContext(base_config=search_base_config, signals=tuple(kdj_signals)),
@@ -7231,94 +7239,93 @@ def iter_supervisor_rounds(
             )
             advisor_configs_by_source = {
                 key: tuple(candidate.config for candidate in advisor_candidates if candidate.source_key == key)
-                for key in ("weight_kdj", "ridge_kdj", "neural_kdj")
+                for key in (
+                    "weight_kdj",
+                    "ridge_kdj",
+                    "neural_kdj",
+                    "target_weight_inversion",
+                )
             }
             weight_kdj_configs = advisor_configs_by_source["weight_kdj"]
             ridge_kdj_configs = advisor_configs_by_source["ridge_kdj"]
             neural_kdj_configs = advisor_configs_by_source["neural_kdj"]
-            source_configs = {
-                "normal": normal_configs,
-                "recency_canary": recency_canary_configs,
-                "weight_kdj": weight_kdj_configs,
-                "ridge_kdj": ridge_kdj_configs,
-                "neural_kdj": neural_kdj_configs,
-                "target_weight_inversion": target_weight_inversion_configs,
-                "near_miss_inversion": near_miss_inversion_configs,
-                "stagnation_restart": stagnation_restart_configs,
-                "probability_focus": probability_focus_configs,
-            }
-            if recency_canary_budget > 0:
-                configs = merge_reserved_candidate_configs(
-                    configs,
-                    recency_canary_configs,
-                    max_configs=max_configs_per_round
-                    - weight_kdj_budget
-                    - ridge_kdj_budget
-                    - neural_kdj_budget
-                    - target_weight_inversion_budget,
-                    reserved_budget=recency_canary_budget,
-                )
-            if enable_weight_kdj_advisor:
-                configs = merge_reserved_candidate_configs(
-                    configs,
-                    weight_kdj_configs,
-                    max_configs=max_configs_per_round - ridge_kdj_budget - neural_kdj_budget - target_weight_inversion_budget,
-                    reserved_budget=weight_kdj_budget,
-                )
-            if enable_ridge_kdj_advisor:
-                configs = merge_reserved_candidate_configs(
-                    configs,
-                    ridge_kdj_configs,
-                    max_configs=max_configs_per_round - neural_kdj_budget - target_weight_inversion_budget,
-                    reserved_budget=ridge_kdj_budget,
-                )
-            if enable_neural_kdj_advisor:
-                configs = merge_reserved_candidate_configs(
-                    configs,
-                    neural_kdj_configs,
-                    max_configs=max_configs_per_round - target_weight_inversion_budget,
-                    reserved_budget=neural_kdj_budget,
-                )
-            if enable_target_weight_inversion_advisor:
-                configs = merge_reserved_candidate_configs(
-                    configs,
-                    target_weight_inversion_configs,
-                    max_configs=max_configs_per_round - near_miss_inversion_budget - stagnation_restart_budget,
-                    reserved_budget=target_weight_inversion_budget,
-                )
-            if near_miss_inversion_budget > 0:
-                configs = merge_reserved_candidate_configs(
-                    configs,
-                    near_miss_inversion_configs,
-                    max_configs=max_configs_per_round - stagnation_restart_budget,
-                    reserved_budget=near_miss_inversion_budget,
-                )
-            if stagnation_restart_budget > 0:
-                configs = merge_reserved_candidate_configs(
-                    configs,
-                    stagnation_restart_configs,
-                    max_configs=max_configs_per_round,
-                    reserved_budget=stagnation_restart_budget,
-                )
-            if probability_focus_budget > 0:
-                configs = merge_reserved_candidate_configs(
-                    configs,
-                    probability_focus_configs,
-                    max_configs=max_configs_per_round,
-                    reserved_budget=probability_focus_budget,
-                )
-            configs = refill_candidate_configs(
-                configs,
-                normal_candidate_pool,
+            target_weight_inversion_configs = advisor_configs_by_source[
+                "target_weight_inversion"
+            ]
+            composition = CandidateSourceComposer(
+                merge_reserved=merge_reserved_candidate_configs,
+                refill=refill_candidate_configs,
+                config_hash=config_hash,
+            ).compose(
+                normal_pool=normal_candidate_pool,
+                normal_budget=normal_config_budget,
+                reserved_sources=(
+                    ReservedCandidateSource(
+                        "recency_canary",
+                        recency_canary_configs,
+                        recency_canary_budget,
+                        max_configs_per_round
+                        - weight_kdj_budget
+                        - ridge_kdj_budget
+                        - neural_kdj_budget
+                        - target_weight_inversion_budget,
+                    ),
+                    ReservedCandidateSource(
+                        "weight_kdj",
+                        weight_kdj_configs,
+                        weight_kdj_budget,
+                        max_configs_per_round
+                        - ridge_kdj_budget
+                        - neural_kdj_budget
+                        - target_weight_inversion_budget,
+                    ),
+                    ReservedCandidateSource(
+                        "ridge_kdj",
+                        ridge_kdj_configs,
+                        ridge_kdj_budget,
+                        max_configs_per_round
+                        - neural_kdj_budget
+                        - target_weight_inversion_budget,
+                    ),
+                    ReservedCandidateSource(
+                        "neural_kdj",
+                        neural_kdj_configs,
+                        neural_kdj_budget,
+                        max_configs_per_round - target_weight_inversion_budget,
+                    ),
+                    ReservedCandidateSource(
+                        "target_weight_inversion",
+                        target_weight_inversion_configs,
+                        target_weight_inversion_budget,
+                        max_configs_per_round
+                        - near_miss_inversion_budget
+                        - stagnation_restart_budget,
+                        include_when_zero_budget=enable_target_weight_inversion_advisor,
+                    ),
+                    ReservedCandidateSource(
+                        "near_miss_inversion",
+                        near_miss_inversion_configs,
+                        near_miss_inversion_budget,
+                        max_configs_per_round - stagnation_restart_budget,
+                    ),
+                    ReservedCandidateSource(
+                        "stagnation_restart",
+                        stagnation_restart_configs,
+                        stagnation_restart_budget,
+                        max_configs_per_round,
+                    ),
+                    ReservedCandidateSource(
+                        "probability_focus",
+                        probability_focus_configs,
+                        probability_focus_budget,
+                        max_configs_per_round,
+                    ),
+                ),
                 max_configs=max_configs_per_round,
             )
-            generated_hashes = {config_hash(config) for config in configs}
-            normal_configs = tuple(
-                config
-                for config in normal_candidate_pool
-                if config_hash(config) in generated_hashes
-            )
-            source_configs["normal"] = normal_configs
+            configs = composition.configs
+            source_configs = dict(composition.source_configs)
+            normal_configs = source_configs["normal"]
             generated_config_count = len(configs)
             keep_configs = (
                 search_base_config,
