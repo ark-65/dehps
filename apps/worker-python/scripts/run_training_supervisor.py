@@ -22,6 +22,8 @@ from dehps.config import ROOT_DIR
 from dehps.db import get_connection
 from dehps.evaluation.objective import TrainingMetrics, evaluate_objective
 from dehps.evaluation.objective_policy import DEFAULT_OBJECTIVE_POLICY
+from dehps.evaluation.pipeline import EvaluationPipeline
+from dehps.evaluation.promotion import PromotionGate
 from dehps.evaluation.tail_risk import calculate_tail_risk_penalty as _calculate_policy_tail_risk_penalty
 from dehps.features.qian_kun import qian_kun_distribution
 from dehps.models.frequency_ranker import FrequencyRankerConfig
@@ -662,30 +664,6 @@ def attach_frozen_validation(summaries: list[dict], *, validation_window: int, u
             summary["frozen_validation"] = validation
 
 
-def _frozen_objective(summary: dict) -> float:
-    validation = summary.get("frozen_validation") if isinstance(summary.get("frozen_validation"), dict) else {}
-    reward = validation.get("reward") if isinstance(validation.get("reward"), dict) else {}
-    return float(reward.get("objectiveScore") or 0.0)
-
-
-def _frozen_tail_not_worse(candidate: dict, incumbent: dict) -> bool:
-    candidate_validation = candidate.get("frozen_validation") if isinstance(candidate.get("frozen_validation"), dict) else {}
-    incumbent_validation = incumbent.get("frozen_validation") if isinstance(incumbent.get("frozen_validation"), dict) else {}
-    candidate_quality = candidate_validation.get("rank_quality") if isinstance(candidate_validation.get("rank_quality"), dict) else {}
-    incumbent_quality = incumbent_validation.get("rank_quality") if isinstance(incumbent_validation.get("rank_quality"), dict) else {}
-    if (candidate_validation.get("worst_rank") or 0) > (incumbent_validation.get("worst_rank") or 0):
-        return False
-    for field in ("p95_rank", "tail_risk_penalty"):
-        candidate_value = candidate_quality.get(field)
-        incumbent_value = incumbent_quality.get(field)
-        if candidate_value is not None and incumbent_value is not None and float(candidate_value) > float(incumbent_value):
-            return False
-    for field in ("tail_over_750000_count", "tail_over_900000_count", "tail_over_1000000_count"):
-        if int(candidate_quality.get(field) or 0) > int(incumbent_quality.get(field) or 0):
-            return False
-    return True
-
-
 def frozen_validation_promotion_gate(candidate: dict, incumbent: dict | None) -> dict:
     if not isinstance(candidate, dict):
         return {"passed": False, "reason": "missing_candidate"}
@@ -700,15 +678,19 @@ def frozen_validation_promotion_gate(candidate: dict, incumbent: dict | None) ->
             "candidate_config_hash": candidate.get("config_hash"),
             "incumbent_config_hash": incumbent.get("config_hash"),
         }
-    candidate_objective = _frozen_objective(candidate)
-    incumbent_objective = _frozen_objective(incumbent)
+    pipeline = EvaluationPipeline()
+    candidate_evaluation = pipeline.from_frozen_summary(candidate)
+    incumbent_evaluation = pipeline.from_frozen_summary(incumbent)
+    decision = PromotionGate().decide(candidate_evaluation, incumbent_evaluation)
+    candidate_objective = candidate_evaluation.objective
+    incumbent_objective = incumbent_evaluation.objective
     objective_passed = candidate_objective > incumbent_objective
-    tail_passed = _frozen_tail_not_worse(candidate, incumbent)
-    candidate_primary_score = source_frontier_primary_score(candidate)
-    incumbent_primary_score = source_frontier_primary_score(incumbent)
+    tail_passed = "tail_risk_worse" not in decision.reason_codes
+    candidate_primary_score = candidate_evaluation.primary_score
+    incumbent_primary_score = incumbent_evaluation.primary_score
     primary_hit_passed = candidate_primary_score > incumbent_primary_score
     return {
-        "passed": bool(objective_passed and tail_passed and primary_hit_passed),
+        "passed": decision.accepted,
         "reason": "passed" if objective_passed and tail_passed and primary_hit_passed else "frozen_validation_not_better",
         "objective_passed": objective_passed,
         "tail_passed": tail_passed,
