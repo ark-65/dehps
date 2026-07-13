@@ -60,6 +60,7 @@ At the end of each round:
 | 19 | Production runtime decomposition phase 1 | Done | `docs/experiments/round-19-production-runtime-decomposition-phase-1.md` |
 | 20 | Structured Hypothesis Registry | Done | `docs/experiments/round-20-hypothesis-registry-foundation.md` |
 | 21 | Research/Engineering Agent authority separation | Done | `docs/experiments/round-21-agent-authority-separation.md` |
+| 22 | Autonomous Hypothesis Proposal Engine | Done | `docs/experiments/round-22-autonomous-hypothesis-proposal-engine.md` |
 
 ## Round 1: Basic Computation And Backtest Loop
 
