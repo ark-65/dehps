@@ -61,6 +61,8 @@ def test_runtime_evaluation_normalizes_before_promotion() -> None:
 
     assert outcome.round_best["score"] == 2
     assert outcome.improved is True
+    assert outcome.raw_improved is True
+    assert outcome.evaluation_split == {}
     assert calls == [
         "source",
         "baseline",

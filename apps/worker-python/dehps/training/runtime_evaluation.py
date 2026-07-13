@@ -15,7 +15,9 @@ class RuntimeEvaluationOutcome:
     prior_best_summary: dict | None
     promotion_gate: dict
     improved: bool
+    raw_improved: bool
     prefilter_isolation: dict
+    evaluation_split: dict
 
 
 @dataclass(frozen=True)
@@ -84,5 +86,7 @@ class RuntimeEvaluationNormalizer:
             prior_best_summary=prior_best_summary,
             promotion_gate=promotion_gate,
             improved=bool(raw_improved and promotion_gate["passed"]),
+            raw_improved=raw_improved,
             prefilter_isolation=prefilter_isolation,
+            evaluation_split=evaluation_split,
         )

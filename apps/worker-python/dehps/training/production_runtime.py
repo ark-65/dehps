@@ -550,7 +550,9 @@ class ProductionRuntimeRoundExecutor:
         prior_best_summary = normalized.prior_best_summary
         promotion_gate = normalized.promotion_gate
         improved = normalized.improved
+        raw_improved = normalized.raw_improved
         prefilter_isolation = normalized.prefilter_isolation
+        evaluation_split = normalized.evaluation_split
         eval_slice_overfit = eval_slice_overfit_guardrail(
             summaries=summaries,
             source_configs=diagnostic_sources,
