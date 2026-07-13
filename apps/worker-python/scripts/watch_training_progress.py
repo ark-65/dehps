@@ -370,6 +370,110 @@ def summarize_round_repetition(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def summarize_navigation_search_base_consumption(
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    selected: list[dict[str, Any]] = []
+    by_round = {
+        safe_int(row.get("round_index")): row
+        for row in rows
+        if safe_int(row.get("round_index")) is not None
+    }
+    for row in rows:
+        round_index = safe_int(row.get("round_index"))
+        prefilter = row.get("prefilter") if isinstance(row.get("prefilter"), dict) else {}
+        search_base = (
+            prefilter.get("search_base")
+            if isinstance(prefilter.get("search_base"), dict)
+            else {}
+        )
+        selected_hash = str(search_base.get("exploration_navigation_config_hash") or "")
+        if not (
+            round_index is not None
+            and search_base.get("exploration_navigation_selected") is True
+            and search_base.get("exploration_navigation_eligibility_basis")
+            == "search_slice_rank_geometry"
+            and search_base.get(
+                "exploration_navigation_selection_uses_frozen_validation"
+            )
+            is False
+            and selected_hash
+            and str(search_base.get("config_hash") or "") == selected_hash
+        ):
+            continue
+        next_round_index = round_index + 1
+        next_row = by_round.get(next_round_index)
+        next_prefilter = (
+            next_row.get("prefilter")
+            if isinstance(next_row, dict)
+            and isinstance(next_row.get("prefilter"), dict)
+            else {}
+        )
+        search_base_start = (
+            next_prefilter.get("search_base_start")
+            if isinstance(next_prefilter.get("search_base_start"), dict)
+            else {}
+        )
+        observed_hash = str(search_base_start.get("config_hash") or "")
+        if next_row is None:
+            consumption_status = "pending_next_durable_round"
+            matched = None
+        elif not observed_hash:
+            consumption_status = "missing_search_base_start"
+            matched = False
+        elif observed_hash != selected_hash:
+            consumption_status = "config_hash_mismatch"
+            matched = False
+        else:
+            consumption_status = "verified"
+            matched = True
+        selected.append(
+            {
+                "selection_round": round_index,
+                "selected_config_hash": selected_hash,
+                "next_round": next_round_index,
+                "search_base_start_config_hash": observed_hash or None,
+                "status": consumption_status,
+                "matched": matched,
+            }
+        )
+
+    if not selected:
+        status = "not_available"
+        action = "continue_observation"
+    elif any(item["matched"] is False for item in selected):
+        status = "invalid"
+        action = "inspect_navigation_search_base_consumption"
+    elif any(item["matched"] is None for item in selected):
+        status = "pending_next_durable_round"
+        action = "observe_next_durable_round"
+    else:
+        status = "passed"
+        action = "continue_observation"
+    return {
+        "protocol": "dehps-navigation-search-base-consumption-v1",
+        "status": status,
+        "action": action,
+        "selected_count": len(selected),
+        "verified_count": sum(item["matched"] is True for item in selected),
+        "pending_count": sum(item["matched"] is None for item in selected),
+        "violation_count": sum(item["matched"] is False for item in selected),
+        "invariants_passed": not any(item["matched"] is False for item in selected),
+        "latest": selected[-1] if selected else {},
+        "latest_verified": next(
+            (item for item in reversed(selected) if item["matched"] is True),
+            {},
+        ),
+        "selection_changed": False,
+        "promotion_allowed": False,
+        "interpretation": (
+            "Read-only durable-round audit: a selected search-slice navigation hash is "
+            "credited as consumed only when the following database round records the "
+            "same search_base_start.config_hash."
+        ),
+    }
+
+
 def summarize_candidate_source_survival(
     rows: list[dict[str, Any]],
     *,
@@ -4127,6 +4231,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         except Exception as exc:
             db_read_errors.append(db_read_error_summary("load_line_progress", exc))
     round_repetition = summarize_round_repetition(rows)
+    navigation_search_base_consumption = summarize_navigation_search_base_consumption(rows)
     candidate_source_survival = summarize_candidate_source_survival(rows)
     latest = rows[-1] if rows else {}
     prefilter = latest.get("prefilter") if isinstance(latest.get("prefilter"), dict) else {}
@@ -4268,6 +4373,7 @@ def summarize_watch(run_id: str | None, *, limit: int, stale_minutes: int) -> di
         "self_diagnostics": prefilter.get("self_diagnostics") if isinstance(prefilter.get("self_diagnostics"), dict) else {},
         "strategy_memory": prefilter.get("strategy_memory") if isinstance(prefilter.get("strategy_memory"), dict) else {},
         "round_repetition": round_repetition,
+        "navigation_search_base_consumption": navigation_search_base_consumption,
         "candidate_source_survival": candidate_source_survival,
         "sequential_null_audit": sequential_null_audit,
         "line_progress": line_progress,
@@ -4573,6 +4679,43 @@ def render_round_repetition_markdown(round_repetition: Any) -> str:
         f"latest_streak={round_repetition.get('latest_metric_repeat_streak')}\n"
         "- Interpretation: "
         f"{markdown_inline_text(round_repetition.get('interpretation'))}\n\n"
+    )
+
+
+def render_navigation_search_base_consumption_markdown(summary: Any) -> str:
+    if not isinstance(summary, dict) or summary.get("status") == "not_available":
+        return ""
+    latest = summary.get("latest") if isinstance(summary.get("latest"), dict) else {}
+    latest_verified = (
+        summary.get("latest_verified")
+        if isinstance(summary.get("latest_verified"), dict)
+        else {}
+    )
+    return (
+        "## Navigation Search-Base Consumption\n\n"
+        f"- Status/action: {markdown_inline_code(summary.get('status'))} / "
+        f"{markdown_inline_code(summary.get('action'))}\n"
+        "- Selected/verified/pending/violations: "
+        f"{summary.get('selected_count')} / {summary.get('verified_count')} / "
+        f"{summary.get('pending_count')} / {summary.get('violation_count')}\n"
+        "- Latest selection: "
+        f"round={latest.get('selection_round')} "
+        f"hash={markdown_inline_text(latest.get('selected_config_hash'))} "
+        f"next_round={latest.get('next_round')} "
+        "search_base_start="
+        f"{markdown_inline_text(latest.get('search_base_start_config_hash'))} "
+        f"status={markdown_inline_text(latest.get('status'))}\n"
+        "- Latest verified consumption: "
+        f"selection_round={latest_verified.get('selection_round')} "
+        f"selected={markdown_inline_text(latest_verified.get('selected_config_hash'))} "
+        f"next_round={latest_verified.get('next_round')} "
+        "search_base_start="
+        f"{markdown_inline_text(latest_verified.get('search_base_start_config_hash'))}\n"
+        "- Safety: "
+        f"invariants_passed={summary.get('invariants_passed')} "
+        f"selection_changed={summary.get('selection_changed')} "
+        f"promotion_allowed={summary.get('promotion_allowed')}\n"
+        f"- Interpretation: {markdown_inline_text(summary.get('interpretation'))}\n\n"
     )
 
 
@@ -5076,6 +5219,11 @@ def render_markdown(payload: dict[str, Any]) -> str:
     round_repetition_section = render_round_repetition_markdown(
         payload.get("round_repetition")
     )
+    navigation_search_base_consumption_section = (
+        render_navigation_search_base_consumption_markdown(
+            payload.get("navigation_search_base_consumption")
+        )
+    )
     candidate_source_survival_section = render_candidate_source_survival_markdown(
         payload.get("candidate_source_survival")
     )
@@ -5328,6 +5476,7 @@ def render_markdown(payload: dict[str, Any]) -> str:
 
 {gate_section}\
 {round_repetition_section}\
+{navigation_search_base_consumption_section}\
 {candidate_source_survival_section}\
 {sequential_null_audit_section}\
 {line_progress_section}\
@@ -5394,6 +5543,11 @@ def artifact_snapshot_state(payload: dict[str, Any]) -> dict[str, Any]:
     candidate_survival = (
         payload.get("candidate_source_survival")
         if isinstance(payload.get("candidate_source_survival"), dict)
+        else {}
+    )
+    navigation_consumption = (
+        payload.get("navigation_search_base_consumption")
+        if isinstance(payload.get("navigation_search_base_consumption"), dict)
         else {}
     )
     sequential_null = (
@@ -5580,6 +5734,15 @@ def artifact_snapshot_state(payload: dict[str, Any]) -> dict[str, Any]:
             "source_conversion_signature_count": safe_int(
                 candidate_survival.get("source_conversion_signature_count")
             ),
+        },
+        "navigation_search_base_consumption": {
+            "status": navigation_consumption.get("status"),
+            "selected_count": safe_int(navigation_consumption.get("selected_count")),
+            "verified_count": safe_int(navigation_consumption.get("verified_count")),
+            "pending_count": safe_int(navigation_consumption.get("pending_count")),
+            "violation_count": safe_int(navigation_consumption.get("violation_count")),
+            "latest": navigation_consumption.get("latest") or {},
+            "latest_verified": navigation_consumption.get("latest_verified") or {},
         },
         "sequential_null": {
             "status": sequential_null.get("status"),
@@ -6556,6 +6719,13 @@ def operator_summary(payload: dict[str, Any]) -> dict[str, Any]:
             ),
             "interpretation": round_repetition.get("interpretation"),
         }
+    navigation_consumption = (
+        payload.get("navigation_search_base_consumption")
+        if isinstance(payload.get("navigation_search_base_consumption"), dict)
+        else {}
+    )
+    if navigation_consumption:
+        summary["navigation_search_base_consumption"] = navigation_consumption
     candidate_source_survival = (
         payload.get("candidate_source_survival")
         if isinstance(payload.get("candidate_source_survival"), dict)

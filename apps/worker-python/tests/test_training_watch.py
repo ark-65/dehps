@@ -24,12 +24,14 @@ from scripts.watch_training_progress import (
     parse_iso_datetime,
     recommendation_summary,
     render_candidate_source_survival_markdown,
+    render_navigation_search_base_consumption_markdown,
     render_markdown,
     restart_readiness_summary,
     safe_float,
     safe_filename_component,
     safe_int,
     summarize_candidate_source_survival,
+    summarize_navigation_search_base_consumption,
     summarize_round_repetition,
     supervisor_round_boundary_summary,
     supervisor_lifecycle_summary,
@@ -81,6 +83,78 @@ def forward_evaluation_row(
         "hit_red5_top_1000": False,
         "hit_red5_top_10000": False,
     }
+
+
+def navigation_round(
+    round_index: int,
+    *,
+    selected_hash: str | None = None,
+    search_base_start_hash: str | None = None,
+) -> dict[str, Any]:
+    prefilter: dict[str, Any] = {}
+    if search_base_start_hash is not None:
+        prefilter["search_base_start"] = {"config_hash": search_base_start_hash}
+    if selected_hash is not None:
+        prefilter["search_base"] = {
+            "source": "experimental_navigation",
+            "config_hash": selected_hash,
+            "exploration_navigation_config_hash": selected_hash,
+            "exploration_navigation_selected": True,
+            "exploration_navigation_eligibility_basis": "search_slice_rank_geometry",
+            "exploration_navigation_selection_uses_frozen_validation": False,
+        }
+    return {"round_index": round_index, "prefilter": prefilter}
+
+
+def test_navigation_search_base_consumption_verifies_next_durable_round():
+    summary = summarize_navigation_search_base_consumption(
+        [
+            navigation_round(7, selected_hash="selected-hash"),
+            navigation_round(8, search_base_start_hash="selected-hash"),
+        ]
+    )
+
+    assert summary["status"] == "passed"
+    assert summary["selected_count"] == 1
+    assert summary["verified_count"] == 1
+    assert summary["violation_count"] == 0
+    assert summary["latest"]["matched"] is True
+    assert summary["latest_verified"]["selection_round"] == 7
+    assert (
+        summary["latest_verified"]["selected_config_hash"]
+        == summary["latest_verified"]["search_base_start_config_hash"]
+    )
+    assert summary["selection_changed"] is False
+    assert summary["promotion_allowed"] is False
+
+
+def test_navigation_search_base_consumption_waits_for_next_durable_round():
+    summary = summarize_navigation_search_base_consumption(
+        [navigation_round(7, selected_hash="selected-hash")]
+    )
+
+    assert summary["status"] == "pending_next_durable_round"
+    assert summary["action"] == "observe_next_durable_round"
+    assert summary["pending_count"] == 1
+    assert summary["invariants_passed"] is True
+
+
+def test_navigation_search_base_consumption_flags_hash_mismatch_in_markdown():
+    summary = summarize_navigation_search_base_consumption(
+        [
+            navigation_round(7, selected_hash="selected-hash"),
+            navigation_round(8, search_base_start_hash="different-hash"),
+        ]
+    )
+
+    assert summary["status"] == "invalid"
+    assert summary["action"] == "inspect_navigation_search_base_consumption"
+    assert summary["violation_count"] == 1
+    assert summary["invariants_passed"] is False
+    markdown = render_navigation_search_base_consumption_markdown(summary)
+    assert "Navigation Search-Base Consumption" in markdown
+    assert "different-hash" in markdown
+    assert "config_hash_mismatch" in markdown
 
 
 def test_forward_evidence_excludes_pre_isolation_rows_and_surfaces_pending_pair():
