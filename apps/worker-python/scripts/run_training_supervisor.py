@@ -73,6 +73,42 @@ from dehps.optimization.weight_kdj import (
 )
 from dehps.artifacts import atomic_write_text
 from dehps.runtime.heavy_job import apply_cpu_thread_env_defaults, heavy_job_lock
+from dehps.search.budget import (
+    CANDIDATE_BUDGET_SHARES,
+    DEFAULT_CANDIDATE_BUDGET_POLICY,
+    ReservedCandidateBudget,
+    allocate_candidate_budget,
+)
+from dehps.search.fields import (
+    ALL_FIELDS,
+    CONTEXT_FIELDS,
+    PHASE_SEARCH_FIELDS,
+    PRIMARY_FIELDS,
+    RESTART_CONTEXT_FIELDS,
+)
+from dehps.search.phases import (
+    EARLY_BROAD_ROUNDS,
+    EARLY_SEARCH_BASE_MIN_DISTANCE,
+    LATE_PHASES,
+    LATE_SEARCH_BASE_MIN_DISTANCE,
+    MID_PHASES,
+    MID_SEARCH_ROUNDS,
+    MID_SEARCH_BASE_MIN_DISTANCE,
+    PHASES,
+    STAGNATION_THRESHOLD,
+    SearchState,
+    search_base_min_distance_for_stage,
+    select_search_phase,
+)
+from dehps.search.stagnation import (
+    EARLY_RANK_HOMOGENEITY_MAX_UNIQUE_SIGNATURES,
+    EARLY_RANK_HOMOGENEITY_STAGNATION_THRESHOLD,
+    EARLY_RANK_HOMOGENEITY_WINDOW,
+    RANK_HOMOGENEITY_MAX_UNIQUE_SIGNATURES,
+    RANK_HOMOGENEITY_STAGNATION_THRESHOLD,
+    RANK_HOMOGENEITY_WINDOW,
+    rank_homogeneity_guardrail,
+)
 from dehps.optimization.walk_forward import (
     TargetRank,
     build_ranked_universe,
@@ -104,91 +140,6 @@ from dehps.storage.postgres_store import load_training_round_candidate_summaries
 from dehps.storage.postgres_store import load_recent_training_weight_signals
 
 
-PRIMARY_FIELDS = ("structural_weight", "frequency_weight", "omission_weight")
-RESTART_CONTEXT_FIELDS = (
-    "tail_distribution_weight",
-    "red_omission_shape_weight",
-    "sum_span_omission_weight",
-    "previous_zone_shape_weight",
-    "lagged_consecutive_weight",
-)
-CONTEXT_FIELDS = (
-    "short_hot_frequency_weight",
-    "long_omission_cooldown_weight",
-    "previous_consecutive_weight",
-    "previous_overlap_weight",
-    "previous_parity_shape_weight",
-    "dynamic_parity_transition_weight",
-    "previous_zone_shape_weight",
-    "recent_neighbor_weight",
-    "lagged_consecutive_weight",
-    "recent_gap_shape_weight",
-    "recent_sum_span_weight",
-    "qian_kun_pattern_weight",
-    "first_last_sum_weight",
-    "span_trend_weight",
-    "sum_trend_weight",
-    "ac_trend_weight",
-    "zone_ratio_weight",
-    "big_small_ratio_weight",
-    "parity_ratio_weight",
-    "prime_composite_weight",
-    "mod012_weight",
-    "tail_distribution_weight",
-    "sum_tail_weight",
-    "red_omission_shape_weight",
-    "sum_span_omission_weight",
-    "consecutive_trend_weight",
-    "repeat_trend_weight",
-    "stable_range_weight",
-    "weekday_trend_weight",
-)
-ALL_FIELDS = PRIMARY_FIELDS + CONTEXT_FIELDS
-PHASE_SEARCH_FIELDS = {
-    "micro": (
-        "short_hot_frequency_weight",
-        "long_omission_cooldown_weight",
-        "weekday_trend_weight",
-        "stable_range_weight",
-        "parity_ratio_weight",
-        "zone_ratio_weight",
-        "dynamic_parity_transition_weight",
-        "red_omission_shape_weight",
-        "sum_span_omission_weight",
-        "tail_distribution_weight",
-        "repeat_trend_weight",
-        "consecutive_trend_weight",
-    ),
-    "small": (
-        "short_hot_frequency_weight",
-        "long_omission_cooldown_weight",
-        "tail_distribution_weight",
-        "sum_tail_weight",
-        "mod012_weight",
-        "prime_composite_weight",
-        "big_small_ratio_weight",
-        "first_last_sum_weight",
-        "span_trend_weight",
-        "sum_trend_weight",
-        "ac_trend_weight",
-        "weekday_trend_weight",
-    ),
-    "medium": (
-        "short_hot_frequency_weight",
-        "long_omission_cooldown_weight",
-        "recent_neighbor_weight",
-        "lagged_consecutive_weight",
-        "recent_gap_shape_weight",
-        "recent_sum_span_weight",
-        "previous_overlap_weight",
-        "previous_consecutive_weight",
-        "previous_zone_shape_weight",
-        "qian_kun_pattern_weight",
-        "stable_range_weight",
-        "red_omission_shape_weight",
-    ),
-    "large": CONTEXT_FIELDS,
-}
 DEFAULT_UNIVERSE_SIZE = 1_107_568
 DEFAULT_TRAINING_EVENT_URL = "http://127.0.0.1:3000/training-events/status"
 TRAINING_EVENT_TIMEOUT_SECONDS = 3.0
@@ -219,41 +170,6 @@ TAIL_OVER_1000000_PENALTY = DEFAULT_OBJECTIVE_POLICY.tail_over_1000000_penalty
 WORST_RANK_PENALTY_WEIGHT = DEFAULT_OBJECTIVE_POLICY.worst_rank_penalty_weight
 P95_RANK_PENALTY_WEIGHT = DEFAULT_OBJECTIVE_POLICY.p95_rank_penalty_weight
 MEDIAN_RANK_PENALTY_WEIGHT = DEFAULT_OBJECTIVE_POLICY.median_rank_penalty_weight
-EARLY_BROAD_ROUNDS = 24
-MID_SEARCH_ROUNDS = 72
-PHASES = (
-    ("large", 0.20),
-    ("large", 0.15),
-    ("medium", 0.10),
-    ("large", 0.12),
-)
-MID_PHASES = (
-    ("medium", 0.08),
-    ("medium", 0.06),
-    ("small", 0.04),
-)
-LATE_PHASES = (
-    ("small", 0.03),
-    ("micro", 0.015),
-    ("micro", 0.01),
-    ("small", 0.02),
-)
-EARLY_SEARCH_BASE_MIN_DISTANCE = 0.08
-MID_SEARCH_BASE_MIN_DISTANCE = 0.04
-LATE_SEARCH_BASE_MIN_DISTANCE = 0.015
-STAGNATION_THRESHOLD = 16
-RANK_HOMOGENEITY_STAGNATION_THRESHOLD = STAGNATION_THRESHOLD
-RANK_HOMOGENEITY_WINDOW = 12
-RANK_HOMOGENEITY_MAX_UNIQUE_SIGNATURES = 4
-EARLY_RANK_HOMOGENEITY_STAGNATION_THRESHOLD = 4
-EARLY_RANK_HOMOGENEITY_WINDOW = 4
-EARLY_RANK_HOMOGENEITY_MAX_UNIQUE_SIGNATURES = 1
-CANDIDATE_BUDGET_SHARES = {
-    "exploitation": 0.40,
-    "exploration": 0.30,
-    "replay": 0.20,
-    "baseline": 0.10,
-}
 DEFAULT_RECENCY_CANARY_BUDGET_SHARE = 0.12
 RECENCY_CANARY_FIELDS = ("short_hot_frequency_weight", "long_omission_cooldown_weight")
 DEFAULT_WEIGHT_KDJ_BUDGET_SHARE = 0.22
@@ -426,80 +342,6 @@ def rank_signature_hash(summary: dict | None) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def rank_homogeneity_guardrail(
-    rounds: list[dict],
-    *,
-    stagnation_rounds: int,
-    window: int = RANK_HOMOGENEITY_WINDOW,
-    max_unique_signatures: int = RANK_HOMOGENEITY_MAX_UNIQUE_SIGNATURES,
-) -> dict:
-    signatures: list[str] = []
-    for round_info in rounds[-max(0, window):]:
-        prefilter = round_info.get("prefilter") if isinstance(round_info.get("prefilter"), dict) else {}
-        signature = prefilter.get("round_best_rank_signature_hash")
-        if isinstance(signature, str) and signature:
-            signatures.append(signature)
-    unique_signatures = sorted(set(signatures))
-    early_signatures: list[str] = []
-    for round_info in rounds[-EARLY_RANK_HOMOGENEITY_WINDOW:]:
-        prefilter = round_info.get("prefilter") if isinstance(round_info.get("prefilter"), dict) else {}
-        signature = prefilter.get("round_best_rank_signature_hash")
-        if isinstance(signature, str) and signature:
-            early_signatures.append(signature)
-    early_unique_signatures = sorted(set(early_signatures))
-    early_active = (
-        stagnation_rounds >= EARLY_RANK_HOMOGENEITY_STAGNATION_THRESHOLD
-        and len(early_signatures) >= EARLY_RANK_HOMOGENEITY_WINDOW
-        and len(early_unique_signatures) <= EARLY_RANK_HOMOGENEITY_MAX_UNIQUE_SIGNATURES
-    )
-    fallback_active = (
-        stagnation_rounds >= RANK_HOMOGENEITY_STAGNATION_THRESHOLD
-        and len(signatures) >= window
-        and len(unique_signatures) <= max_unique_signatures
-    )
-    active = early_active or fallback_active
-    reason = None
-    if early_active:
-        reason = "stale_rank_signature_cycle"
-    elif fallback_active:
-        reason = "stale_rank_signature_cycle"
-    elif stagnation_rounds < EARLY_RANK_HOMOGENEITY_STAGNATION_THRESHOLD:
-        reason = "below_stagnation_threshold"
-    elif len(early_signatures) < EARLY_RANK_HOMOGENEITY_WINDOW:
-        reason = "insufficient_signature_window"
-    else:
-        reason = "rank_signatures_still_diverse"
-    if fallback_active and not early_active:
-        effective_threshold = RANK_HOMOGENEITY_STAGNATION_THRESHOLD
-        effective_window = window
-        effective_observed = len(signatures)
-        effective_unique_signatures = unique_signatures
-        effective_max_unique_signatures = max_unique_signatures
-    else:
-        effective_threshold = EARLY_RANK_HOMOGENEITY_STAGNATION_THRESHOLD
-        effective_window = EARLY_RANK_HOMOGENEITY_WINDOW
-        effective_observed = len(early_signatures)
-        effective_unique_signatures = early_unique_signatures
-        effective_max_unique_signatures = EARLY_RANK_HOMOGENEITY_MAX_UNIQUE_SIGNATURES
-    return {
-        "active": active,
-        "reason": reason,
-        "trigger_mode": "exact_repeat" if early_active else "low_diversity_cycle" if fallback_active else "",
-        "stagnation_rounds": stagnation_rounds,
-        "stagnation_threshold": effective_threshold,
-        "window": effective_window,
-        "observed": effective_observed,
-        "unique_signature_count": len(effective_unique_signatures),
-        "max_unique_signatures": effective_max_unique_signatures,
-        "fallback_stagnation_threshold": RANK_HOMOGENEITY_STAGNATION_THRESHOLD,
-        "fallback_window": window,
-        "fallback_observed": len(signatures),
-        "fallback_unique_signature_count": len(unique_signatures),
-        "fallback_max_unique_signatures": max_unique_signatures,
-        "signatures": effective_unique_signatures[:8],
-    }
-
-
 def stagnation_restart_candidate_configs(
     base: FrequencyRankerConfig,
     *,
@@ -599,32 +441,12 @@ def stagnation_restart_catalog_position(
 
 
 def phase_for_round(round_index: int, *, stagnation_rounds: int = 0) -> tuple[str, float, str]:
-    if stagnation_rounds >= STAGNATION_THRESHOLD:
-        phase, step = PHASES[round_index % len(PHASES)]
-        return "large", max(step, 0.15), "stagnation_broad"
-    if round_index < EARLY_BROAD_ROUNDS:
-        phase, step = PHASES[round_index % len(PHASES)]
-        return phase, step, "early_broad"
-    if round_index < MID_SEARCH_ROUNDS:
-        phase, step = MID_PHASES[(round_index - EARLY_BROAD_ROUNDS) % len(MID_PHASES)]
-        return phase, step, "mid_search"
-    phase, step = LATE_PHASES[(round_index - MID_SEARCH_ROUNDS) % len(LATE_PHASES)]
-    return phase, step, "late_refine"
+    phase = select_search_phase(SearchState(round_index=round_index, stagnation_rounds=stagnation_rounds))
+    return phase.name, phase.distance, phase.stage
 
 
 def search_base_min_distance_for_phase(phase_stage: str) -> float:
-    if phase_stage in {"early_broad", "stagnation_broad"}:
-        return EARLY_SEARCH_BASE_MIN_DISTANCE
-    if phase_stage == "mid_search":
-        return MID_SEARCH_BASE_MIN_DISTANCE
-    return LATE_SEARCH_BASE_MIN_DISTANCE
-
-
-def _reserved_candidate_count(max_configs: int, budget_share: float, *, available: int) -> int:
-    if max_configs <= 0 or available <= 0 or budget_share <= 0:
-        return 0
-    share = min(1.0, max(0.0, budget_share))
-    return min(available, max(1, int(ceil(max_configs * share))))
+    return search_base_min_distance_for_stage(phase_stage)
 
 
 def _target_weight_inversion_has_validation_lift(latest: dict | None) -> bool:
@@ -682,79 +504,33 @@ def candidate_budget(
     target_weight_inversion_available: int = 0,
     target_weight_inversion_max_candidates: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES,
 ) -> dict[str, int]:
-    if max_configs <= 0:
-        counts = {name: 0 for name in CANDIDATE_BUDGET_SHARES}
-        if recency_canary_budget_share > 0:
-            counts["recency_canary"] = 0
-        if weight_kdj_budget_share > 0:
-            counts["weight_kdj"] = 0
-        if ridge_kdj_budget_share > 0:
-            counts["ridge_kdj"] = 0
-        if neural_kdj_budget_share > 0:
-            counts["neural_kdj"] = 0
-        if target_weight_inversion_budget_share > 0:
-            counts["target_weight_inversion"] = 0
-        return counts
-    weight_kdj_count = _reserved_candidate_count(max_configs, weight_kdj_budget_share, available=max_configs)
-    ridge_kdj_count = _reserved_candidate_count(
-        max_configs,
-        ridge_kdj_budget_share,
-        available=max_configs - weight_kdj_count,
+    reserved: list[ReservedCandidateBudget] = []
+    available = max(0, max_configs)
+    for name, share in (
+        ("weight_kdj", weight_kdj_budget_share),
+        ("ridge_kdj", ridge_kdj_budget_share),
+        ("neural_kdj", neural_kdj_budget_share),
+        ("recency_canary", recency_canary_budget_share),
+    ):
+        reserved.append(ReservedCandidateBudget(name=name, share=share, available=available))
+        if share > 0 and available > 0:
+            available -= min(available, max(1, int(ceil(max_configs * min(1.0, max(0.0, share))))))
+    reserved.append(
+        ReservedCandidateBudget(
+            name="target_weight_inversion",
+            share=target_weight_inversion_budget_share,
+            available=min(
+                available,
+                max(0, target_weight_inversion_max_candidates),
+                max(0, target_weight_inversion_available),
+            ),
+        )
     )
-    neural_kdj_count = _reserved_candidate_count(
+    return allocate_candidate_budget(
         max_configs,
-        neural_kdj_budget_share,
-        available=max_configs - weight_kdj_count - ridge_kdj_count,
-    )
-    recency_canary_count = _reserved_candidate_count(
-        max_configs,
-        recency_canary_budget_share,
-        available=max_configs - weight_kdj_count - ridge_kdj_count - neural_kdj_count,
-    )
-    target_weight_inversion_count = _reserved_candidate_count(
-        max_configs,
-        target_weight_inversion_budget_share,
-        available=min(
-            max(0, target_weight_inversion_max_candidates),
-            max(0, target_weight_inversion_available),
-            max_configs - weight_kdj_count - ridge_kdj_count - neural_kdj_count - recency_canary_count,
-        ),
-    )
-    normal_budget = max_configs - weight_kdj_count - ridge_kdj_count - neural_kdj_count - recency_canary_count - target_weight_inversion_count
-    names = tuple(CANDIDATE_BUDGET_SHARES)
-    counts = {name: 0 for name in names}
-    remaining = normal_budget
-    for name in names:
-        if remaining > 0:
-            counts[name] = 1
-            remaining -= 1
-    raw = {
-        name: normal_budget * share - counts[name]
-        for name, share in CANDIDATE_BUDGET_SHARES.items()
-    }
-    for name in sorted(names, key=lambda item: raw[item], reverse=True):
-        if remaining <= 0:
-            break
-        add = max(0, int(raw[name]))
-        add = min(add, remaining)
-        counts[name] += add
-        remaining -= add
-    for name in sorted(names, key=lambda item: raw[item] - int(raw[item]), reverse=True):
-        if remaining <= 0:
-            break
-        counts[name] += 1
-        remaining -= 1
-    if weight_kdj_budget_share > 0:
-        counts["weight_kdj"] = weight_kdj_count
-    if ridge_kdj_budget_share > 0:
-        counts["ridge_kdj"] = ridge_kdj_count
-    if neural_kdj_budget_share > 0:
-        counts["neural_kdj"] = neural_kdj_count
-    if recency_canary_budget_share > 0:
-        counts["recency_canary"] = recency_canary_count
-    if target_weight_inversion_budget_share > 0:
-        counts["target_weight_inversion"] = target_weight_inversion_count
-    return counts
+        DEFAULT_CANDIDATE_BUDGET_POLICY,
+        reserved=tuple(reserved),
+    ).as_dict()
 
 
 def config_distance(left: FrequencyRankerConfig, right: FrequencyRankerConfig) -> float:
