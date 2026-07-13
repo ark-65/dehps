@@ -5109,6 +5109,11 @@ def test_summarize_watch_normalizes_non_positive_windows(monkeypatch):
         "load_parser_sync_duplicate_checks",
         lambda: {"status": "checked", "ok": True},
     )
+    monkeypatch.setattr(
+        watch,
+        "runtime_storage_capacity_summary",
+        lambda: {"status": "ok"},
+    )
     monkeypatch.setattr(watch, "heavy_lock_summary", lambda: {"active": True, "owner": "training-supervisor"})
 
     payload = summarize_watch(None, limit=0, stale_minutes=-10)
@@ -5171,6 +5176,11 @@ def test_summarize_watch_uses_full_stats_beyond_recent_limit(monkeypatch):
         watch,
         "load_parser_sync_duplicate_checks",
         lambda: {"status": "checked", "ok": True},
+    )
+    monkeypatch.setattr(
+        watch,
+        "runtime_storage_capacity_summary",
+        lambda: {"status": "ok"},
     )
     monkeypatch.setattr(watch, "heavy_lock_summary", lambda: {"active": True, "owner": "training-supervisor"})
 

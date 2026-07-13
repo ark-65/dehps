@@ -52,7 +52,7 @@ Final local suite after live-smoke regressions, session continuity coverage, doc
 693 passed in 22.86s
 ```
 
-The first GitHub Actions run exposed three `training_watch` tests that still reached local PostgreSQL for line-progress and forward-evidence reads. Their missing mocks were fixed without changing production code. A forced no-database local run now passes the complete suite:
+The first GitHub Actions runs exposed three `training_watch` tests that still depended on local PostgreSQL reads and host disk-capacity state. Their missing mocks were fixed without changing production code. A forced no-database local run now passes the complete suite:
 
 ```text
 DB_PORT=1 .venv/bin/python -m pytest -q
