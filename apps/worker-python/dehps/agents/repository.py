@@ -227,13 +227,19 @@ class AgentRequestRepository:
                 """
                 UPDATE agent_requests
                 SET payload_json = %s::jsonb, updated_at = now()
-                WHERE request_key = %s
+                WHERE request_key = %s AND status = 'draft'
                 RETURNING *
                 """,
                 (_json(dict(payload)), request_key),
             ).fetchone()
         if row is None:
-            raise AgentRequestNotFoundError(f"agent request not found: {request_key}")
+            try:
+                existing = self.get_request(request_key)
+            except AgentRequestNotFoundError:
+                raise
+            raise AgentRequestConflictError(
+                f"request payload is frozen in status {existing.status.value}"
+            )
         return _request(row)
 
     def transition(
