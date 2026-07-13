@@ -100,4 +100,4 @@ Post-wiring smoke run `20260713-120003` also completed exactly one round through
 
 ## Next Work
 
-Publish and merge the reviewable branch, then restart and observe the updated production supervisor. Round 19 should implement the Hypothesis Registry data model; the following round should enforce Research/Engineering Agent authority separation.
+Round 19 should decompose the production round implementation and replace the production generator adapter with explicit request/state/outcome execution before adding a Hypothesis Registry.

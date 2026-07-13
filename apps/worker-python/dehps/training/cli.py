@@ -8,6 +8,7 @@ from typing import Sequence
 
 from dehps.config import ROOT_DIR
 from dehps.training import runtime
+from dehps.training.production_runtime import build_production_training_session
 from dehps.training.supervisor import (
     SupervisorDependencies,
     TrainingSupervisor,
@@ -70,8 +71,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def build_training_dependencies(_args: argparse.Namespace) -> SupervisorDependencies:
     return SupervisorDependencies(
-        build_round_runner=lambda arguments: TrainingRoundRunner.for_runtime(
-            runtime.iter_supervisor_rounds(**arguments)
+        build_round_runner=lambda arguments: TrainingRoundRunner.for_production(
+            build_production_training_session(**arguments)
         )
     )
 

@@ -1,86 +1,72 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Iterator
+from typing import Protocol
 
 from dehps.training.dependencies import TrainingDependencies
-from dehps.training.models import CandidateProposal, TrainingRoundRequest, TrainingRoundResult
+from dehps.training.models import TrainingRoundRequest, TrainingRoundResult
+from dehps.training.runtime_round_executor import (
+    RuntimeRoundExecutor,
+    RuntimeRoundRequest,
+    RuntimeTrainingState,
+)
+
+
+class ProductionTrainingSession(Protocol):
+    state: RuntimeTrainingState
+    executor: object
+
+    def next_request(self) -> RuntimeRoundRequest | None: ...
+
+    def finish(self, *, status: str = "completed", error: Exception | None = None) -> dict: ...
 
 
 @dataclass
 class TrainingRoundRunner:
     dependencies: TrainingDependencies | None = None
-    runtime_rounds: Iterator[dict] | None = None
+    production_session: ProductionTrainingSession | None = None
     final_status: dict | None = field(default=None, init=False)
+    runtime_executor: object = field(default_factory=RuntimeRoundExecutor)
+    runtime_state: RuntimeTrainingState | None = field(default=None, init=False)
 
     @classmethod
-    def for_runtime(cls, runtime_rounds: Iterator[dict]) -> TrainingRoundRunner:
-        return cls(runtime_rounds=runtime_rounds)
+    def for_production(cls, session: ProductionTrainingSession) -> TrainingRoundRunner:
+        runner = cls(production_session=session, runtime_executor=session.executor)
+        runner.runtime_state = session.state
+        return runner
 
-    def run(self, request: TrainingRoundRequest) -> TrainingRoundResult:
-        dependencies = self._application_dependencies()
-        context = dependencies.repository.load_context(request)
-        search_candidates = tuple(dependencies.candidate_search.propose(request, context))
-        remaining_budget = max(0, request.candidate_budget - len(search_candidates))
-        configured_advisor_budgets = (
-            context.values.get("advisor_budgets", {})
-            if context.values is not None
-            else {}
-        )
-        advisor_budgets = self._advisor_budgets(
-            remaining_budget,
-            configured_advisor_budgets if isinstance(configured_advisor_budgets, dict) else {},
-        )
-        advisor_candidates = dependencies.advisor_registry.propose(
-            context.advisor_context,
-            advisor_budgets,
-        )
-        candidates = search_candidates + tuple(
-            CandidateProposal(
-                config=candidate.config,
-                source_key=candidate.source_key,
-                protocol_version=candidate.protocol_version,
-            )
-            for candidate in advisor_candidates
-        )
-        evaluated = dependencies.evaluator.evaluate(request, context, candidates)
-        decision = dependencies.promotion_gate.decide(
-            evaluated.selected_evaluation,
-            context.current_best,
-        )
-        artifacts = tuple(dependencies.artifact_writer.write(request, evaluated, decision))
-        warnings: list[str] = []
-        if len(candidates) > request.candidate_budget:
-            warnings.append("candidate_budget_exceeded")
-        result = TrainingRoundResult(
-            candidate_summaries=evaluated.candidate_summaries,
-            evaluation=evaluated.selected_evaluation,
-            promotion_decision=decision,
-            artifacts=artifacts,
-            warnings=tuple(warnings),
-        )
-        dependencies.repository.save_round(request, result)
-        dependencies.event_publisher.publish(request, result)
-        return result
+    def next_request(self) -> RuntimeRoundRequest | None:
+        if self.production_session is None:
+            raise RuntimeError("production training session is not configured")
+        return self.production_session.next_request()
 
-    def run_runtime_round(self) -> dict | None:
-        if self.runtime_rounds is None:
-            raise RuntimeError("runtime round iterator is not configured")
-        try:
-            return next(self.runtime_rounds)
-        except StopIteration as completed:
-            self.final_status = completed.value or self.final_status or {}
-            return None
+    def run(
+        self,
+        request: TrainingRoundRequest | RuntimeRoundRequest,
+    ) -> TrainingRoundResult | dict:
+        if isinstance(request, RuntimeRoundRequest):
+            if self.runtime_state is None:
+                raise RuntimeError("runtime training state is not configured")
+            outcome = self.runtime_executor.execute(request, self.runtime_state)
+            return outcome.result
+        if self.runtime_state is None:
+            self.runtime_state = RuntimeTrainingState(self._application_dependencies())
+        outcome = self.runtime_executor.execute(
+            RuntimeRoundRequest(request),
+            self.runtime_state,
+        )
+        return outcome.result
 
-    def _advisor_budgets(self, remaining_budget: int, configured: dict) -> dict[str, int]:
-        budgets: dict[str, int] = {}
-        remaining = remaining_budget
-        dependencies = self._application_dependencies()
-        for advisor in dependencies.advisor_registry.advisors:
-            count = min(remaining, max(0, int(configured.get(advisor.key, 0))))
-            budgets[advisor.key] = count
-            remaining -= count
-        return budgets
+    def finish(
+        self,
+        *,
+        status: str = "completed",
+        error: Exception | None = None,
+    ) -> dict:
+        if self.production_session is None:
+            return self.final_status or {}
+        self.final_status = self.production_session.finish(status=status, error=error)
+        return self.final_status
 
     def _application_dependencies(self) -> TrainingDependencies:
         if self.dependencies is None:
