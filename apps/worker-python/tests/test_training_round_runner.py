@@ -146,3 +146,21 @@ def test_training_round_runner_is_independently_testable_and_dependency_injected
     assert result.warnings == ()
     assert calls == ["load", "search", "evaluate", "artifact", "save", "event"]
     assert repository.saved_result is result
+
+
+def test_runtime_round_runner_advances_exactly_one_persistent_session_round_per_call() -> None:
+    def runtime_rounds():
+        yield {"run_id": "run-1", "rounds": [{"round": 1}], "status": "running"}
+        yield {"run_id": "run-1", "rounds": [{"round": 1}, {"round": 2}], "status": "running"}
+        return {"run_id": "run-1", "rounds": [{"round": 1}, {"round": 2}], "status": "completed"}
+
+    runner = TrainingRoundRunner.for_runtime(runtime_rounds())
+
+    assert len(runner.run_runtime_round()["rounds"]) == 1
+    assert len(runner.run_runtime_round()["rounds"]) == 2
+    assert runner.run_runtime_round() is None
+    assert runner.final_status == {
+        "run_id": "run-1",
+        "rounds": [{"round": 1}, {"round": 2}],
+        "status": "completed",
+    }

@@ -13,6 +13,7 @@ from dehps.training.supervisor import (
     TrainingSupervisor,
     TrainingSupervisorSettings,
 )
+from dehps.training.round_runner import TrainingRoundRunner
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -68,7 +69,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def build_training_dependencies(_args: argparse.Namespace) -> SupervisorDependencies:
-    return SupervisorDependencies(run_training=runtime.run_supervisor)
+    return SupervisorDependencies(
+        build_round_runner=lambda arguments: TrainingRoundRunner.for_runtime(
+            runtime.iter_supervisor_rounds(**arguments)
+        )
+    )
 
 
 def build_settings(args: argparse.Namespace) -> TrainingSupervisorSettings:

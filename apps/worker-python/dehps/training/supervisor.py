@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Callable, Mapping
 
 from dehps.runtime.heavy_job import apply_cpu_thread_env_defaults, heavy_job_lock
+from dehps.training.round_runner import TrainingRoundRunner
 
 
 @dataclass(frozen=True)
@@ -15,7 +16,7 @@ class TrainingSupervisorSettings:
 
 @dataclass(frozen=True)
 class SupervisorDependencies:
-    run_training: Callable[..., dict]
+    build_round_runner: Callable[[dict[str, object]], TrainingRoundRunner]
 
 
 @dataclass(frozen=True)
@@ -31,7 +32,21 @@ class TrainingSupervisor:
             timeout_seconds=self.settings.heavy_job_lock_timeout_seconds,
             context=self._lock_context(arguments),
         ) as lock:
-            result = self.dependencies.run_training(**arguments)
+            round_runner = self.dependencies.build_round_runner(arguments)
+            result: dict = {}
+            while True:
+                round_status = round_runner.run_runtime_round()
+                if round_status is None:
+                    break
+                result = round_status
+                lock.heartbeat(
+                    status="running",
+                    context={
+                        "run_id": result.get("run_id"),
+                        "completed_rounds": len(result.get("rounds") or ()),
+                    },
+                )
+            result = round_runner.final_status or result
             lock.heartbeat(
                 status="completed",
                 context={"run_id": result.get("run_id"), "rounds": result.get("rounds")},

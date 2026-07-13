@@ -16,7 +16,7 @@ from pathlib import Path
 import sys
 import time
 from statistics import median
-from typing import Callable
+from typing import Callable, Iterator
 
 from dehps.config import ROOT_DIR
 from dehps.db import get_connection
@@ -6485,7 +6485,7 @@ The supervisor optimizes historical expanding walk-forward rank coverage. Any la
     atomic_write_text(report_path, report)
 
 
-def run_supervisor(
+def iter_supervisor_rounds(
     *,
     duration_hours: float,
     train_window: int,
@@ -6528,7 +6528,7 @@ def run_supervisor(
     target_weight_inversion_max_targets: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_TARGETS,
     target_weight_inversion_max_deltas_per_target: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_DELTAS_PER_TARGET,
     max_rounds: int | None = None,
-) -> dict:
+) -> Iterator[dict]:
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
     started_at = datetime.now()
     deadline = resolve_training_deadline(started_at, duration_hours)
@@ -8316,6 +8316,7 @@ def run_supervisor(
             publish_status_snapshot(status_path, status, event_url=resolved_event_url, write_json=write_status_json)
             write_report(report_path, status)
             round_index += 1
+            yield status
 
         status["status"] = "completed"
     except KeyboardInterrupt:
@@ -8336,6 +8337,17 @@ def run_supervisor(
         log(f"finished status={status['status']} status_path={status_path} report_path={report_path}")
 
     return status
+
+
+def run_supervisor(**kwargs) -> dict:
+    """Compatibility facade that consumes the round iterator to completion."""
+    iterator = iter_supervisor_rounds(**kwargs)
+    latest: dict | None = None
+    while True:
+        try:
+            latest = next(iterator)
+        except StopIteration as completed:
+            return completed.value or latest or {}
 
 
 def main() -> None:
