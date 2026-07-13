@@ -9,6 +9,17 @@ from typing import Any
 
 import typer
 
+from dehps.agents.actions import AgentAction
+from dehps.agents.errors import AgentAuthorityError
+from dehps.agents.policy import AgentAuthorityPolicy, AuthorizationContext
+from dehps.agents.repository import AgentRequestRepository
+from dehps.agents.requests import (
+    AgentRequestStatus,
+    AgentRequestType,
+    AgentRiskLevel,
+)
+from dehps.agents.roles import AgentRole
+from dehps.agents.service import AgentRequestService
 from dehps.research.errors import HypothesisRegistryError
 from dehps.research.repository import HypothesisRepository
 from dehps.research.service import ResearchHypothesisService
@@ -20,10 +31,14 @@ from dehps.research.status import (
 )
 
 app = typer.Typer(help="DEHPS worker commands")
+agent_app = typer.Typer(
+    help="Audited Agent Request lifecycle. It does not execute Shell, Git, or Supervisor operations."
+)
 hypothesis_app = typer.Typer(
     help="Human-operated hypothesis registry. It does not execute experiments or promote strategies."
 )
 app.add_typer(hypothesis_app, name="hypothesis")
+app.add_typer(agent_app, name="agent")
 
 
 @app.command()
@@ -37,6 +52,12 @@ def _registry_context() -> tuple[HypothesisRepository, ResearchHypothesisService
     repository = HypothesisRepository()
     repository.ensure_schema()
     return repository, ResearchHypothesisService(repository)
+
+
+def _agent_context() -> tuple[AgentRequestRepository, AgentRequestService]:
+    repository = AgentRequestRepository()
+    repository.ensure_schema()
+    return repository, AgentRequestService(repository)
 
 
 def _load_object(path: Path) -> dict[str, Any]:
@@ -78,6 +99,281 @@ def _enum(enum_type, value: str):
     except ValueError as exc:
         allowed = ", ".join(item.value for item in enum_type)
         raise HypothesisRegistryError(f"invalid {enum_type.__name__} {value!r}; allowed: {allowed}") from exc
+
+
+def _agent_role(value: str) -> AgentRole:
+    return _enum(AgentRole, value)
+
+
+@agent_app.command("request-create")
+def agent_request_create(input_file: Path = typer.Option(..., "--input")) -> None:
+    try:
+        data = _load_object(input_file)
+        _, service = _agent_context()
+        result = service.create_draft(
+            request_key=data["request_key"],
+            request_type=_enum(AgentRequestType, data["request_type"]),
+            requested_by_role=_agent_role(data["requested_by_role"]),
+            requested_by=data["requested_by"],
+            title=data["title"],
+            summary=data.get("summary", ""),
+            payload=data["payload"],
+            environment=data.get("environment", "isolated"),
+            risk_level=(
+                None
+                if data.get("risk_level") is None
+                else _enum(AgentRiskLevel, data["risk_level"])
+            ),
+            hypothesis_key=data.get("hypothesis_key"),
+            experiment_key=data.get("experiment_key"),
+            parent_request_key=data.get("parent_request_key"),
+            metadata=data.get("metadata", {}),
+        )
+        _emit({"request": result})
+    except (AgentAuthorityError, HypothesisRegistryError, KeyError, TypeError) as exc:
+        _fail(exc)
+
+
+@agent_app.command("request-list")
+def agent_request_list(
+    status: str | None = typer.Option(None),
+    request_type: str | None = typer.Option(None),
+    requested_by_role: str | None = typer.Option(None),
+    risk_level: str | None = typer.Option(None),
+    created_after: str | None = typer.Option(None),
+    created_before: str | None = typer.Option(None),
+    limit: int = typer.Option(100, min=1, max=1000),
+    offset: int = typer.Option(0, min=0),
+) -> None:
+    try:
+        repository, _ = _agent_context()
+        requests = repository.list_requests(
+            status=None if status is None else _enum(AgentRequestStatus, status),
+            request_type=None if request_type is None else _enum(AgentRequestType, request_type),
+            requested_by_role=(
+                None if requested_by_role is None else _agent_role(requested_by_role)
+            ),
+            risk_level=None if risk_level is None else _enum(AgentRiskLevel, risk_level),
+            created_after=None if created_after is None else datetime.fromisoformat(created_after),
+            created_before=None if created_before is None else datetime.fromisoformat(created_before),
+            limit=limit,
+            offset=offset,
+        )
+        _emit({"requests": requests, "limit": limit, "offset": offset})
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError) as exc:
+        _fail(exc)
+
+
+@agent_app.command("request-show")
+def agent_request_show(request_key: str) -> None:
+    try:
+        repository, _ = _agent_context()
+        _emit({"request": repository.get_request(request_key)})
+    except AgentAuthorityError as exc:
+        _fail(exc)
+
+
+def _agent_actor_options(
+    actor_role: str,
+    actor_id: str,
+) -> tuple[AgentRole, str]:
+    return _agent_role(actor_role), actor_id
+
+
+@agent_app.command("request-submit")
+def agent_request_submit(
+    request_key: str,
+    actor_role: str = typer.Option(...),
+    actor_id: str = typer.Option(...),
+    environment: str = typer.Option("isolated"),
+) -> None:
+    try:
+        _, service = _agent_context()
+        role, actor = _agent_actor_options(actor_role, actor_id)
+        _emit({"request": service.submit(request_key, actor_role=role, actor_id=actor, environment=environment)})
+    except (AgentAuthorityError, HypothesisRegistryError) as exc:
+        _fail(exc)
+
+
+@agent_app.command("request-review")
+def agent_request_review(
+    request_key: str,
+    reviewer_role: str = typer.Option(...),
+    reviewer_id: str = typer.Option(...),
+    environment: str = typer.Option("isolated"),
+) -> None:
+    try:
+        _, service = _agent_context()
+        _emit(
+            {
+                "request": service.begin_review(
+                    request_key,
+                    reviewer_role=_agent_role(reviewer_role),
+                    reviewer_id=reviewer_id,
+                    environment=environment,
+                )
+            }
+        )
+    except (AgentAuthorityError, HypothesisRegistryError) as exc:
+        _fail(exc)
+
+
+def _review_decision(
+    request_key: str,
+    input_file: Path,
+    *,
+    approve: bool,
+) -> None:
+    try:
+        data = _load_object(input_file)
+        _, service = _agent_context()
+        method = service.approve if approve else service.reject
+        result = method(
+            request_key,
+            reviewer_role=_agent_role(data["reviewer_role"]),
+            reviewer_id=data["reviewer_id"],
+            reason=data.get("reason", {}),
+            environment=data.get("environment", "isolated"),
+        )
+        _emit({"request": result})
+    except (AgentAuthorityError, HypothesisRegistryError, KeyError, TypeError) as exc:
+        _fail(exc)
+
+
+@agent_app.command("request-approve")
+def agent_request_approve(
+    request_key: str,
+    input_file: Path = typer.Option(..., "--input"),
+) -> None:
+    _review_decision(request_key, input_file, approve=True)
+
+
+@agent_app.command("request-reject")
+def agent_request_reject(
+    request_key: str,
+    input_file: Path = typer.Option(..., "--input"),
+) -> None:
+    _review_decision(request_key, input_file, approve=False)
+
+
+@agent_app.command("request-cancel")
+def agent_request_cancel(
+    request_key: str,
+    input_file: Path = typer.Option(..., "--input"),
+) -> None:
+    try:
+        data = _load_object(input_file)
+        _, service = _agent_context()
+        result = service.cancel(
+            request_key,
+            actor_role=_agent_role(data["actor_role"]),
+            actor_id=data["actor_id"],
+            reason=data.get("reason", {}),
+            environment=data.get("environment", "isolated"),
+        )
+        _emit({"request": result})
+    except (AgentAuthorityError, HypothesisRegistryError, KeyError, TypeError) as exc:
+        _fail(exc)
+
+
+@agent_app.command("execution-start")
+def agent_execution_start(
+    request_key: str,
+    input_file: Path = typer.Option(..., "--input"),
+) -> None:
+    try:
+        data = _load_object(input_file)
+        _, service = _agent_context()
+        request, execution = service.begin_execution(
+            request_key,
+            executor_role=_agent_role(data["executor_role"]),
+            executor_id=data["executor_id"],
+            environment=data.get("environment", "isolated"),
+            run_id=data.get("run_id"),
+        )
+        _emit({"request": request, "execution": execution})
+    except (AgentAuthorityError, HypothesisRegistryError, KeyError, TypeError) as exc:
+        _fail(exc)
+
+
+@agent_app.command("execution-complete")
+def agent_execution_complete(
+    request_key: str,
+    execution_id: int,
+    input_file: Path = typer.Option(..., "--input"),
+) -> None:
+    try:
+        data = _load_object(input_file)
+        _, service = _agent_context()
+        request, execution = service.complete_execution(
+            request_key,
+            execution_id=execution_id,
+            executor_role=_agent_role(data["executor_role"]),
+            executor_id=data["executor_id"],
+            result=data.get("result", {}),
+            artifact_paths=data.get("artifact_paths", []),
+        )
+        _emit({"request": request, "execution": execution})
+    except (AgentAuthorityError, HypothesisRegistryError, KeyError, TypeError) as exc:
+        _fail(exc)
+
+
+@agent_app.command("execution-fail")
+def agent_execution_fail(
+    request_key: str,
+    execution_id: int,
+    input_file: Path = typer.Option(..., "--input"),
+) -> None:
+    try:
+        data = _load_object(input_file)
+        _, service = _agent_context()
+        request, execution = service.fail_execution(
+            request_key,
+            execution_id=execution_id,
+            executor_role=_agent_role(data["executor_role"]),
+            executor_id=data["executor_id"],
+            error=data.get("error", {}),
+        )
+        _emit({"request": request, "execution": execution})
+    except (AgentAuthorityError, HypothesisRegistryError, KeyError, TypeError) as exc:
+        _fail(exc)
+
+
+@agent_app.command("decisions")
+def agent_decisions(request_key: str) -> None:
+    try:
+        repository, _ = _agent_context()
+        _emit({"decisions": repository.list_decisions(request_key)})
+    except AgentAuthorityError as exc:
+        _fail(exc)
+
+
+@agent_app.command("authorize")
+def agent_authorize(
+    role: str = typer.Option(...),
+    action: str = typer.Option(...),
+    request_type: str | None = typer.Option(None),
+    request_status: str | None = typer.Option(None),
+    environment: str = typer.Option("isolated"),
+    risk_level: str | None = typer.Option(None),
+) -> None:
+    """Dry-run the policy engine without reading or writing the database."""
+    try:
+        decision = AgentAuthorityPolicy().authorize(
+            AuthorizationContext(
+                role=_agent_role(role),
+                action=_enum(AgentAction, action),
+                request_type=request_type,
+                request_status=request_status,
+                environment=environment,
+                risk_level=risk_level,
+            )
+        )
+        _emit({"authorization": decision})
+        if not decision.allowed:
+            raise typer.Exit(code=2)
+    except (AgentAuthorityError, HypothesisRegistryError) as exc:
+        _fail(exc)
 
 
 @hypothesis_app.command("family-create")
