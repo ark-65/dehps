@@ -8,6 +8,7 @@ PID_FILE="$LOG_DIR/training-supervisor-kdj-ridge-neural.pid"
 WEIGHT_KDJ_BUDGET_SHARE="${DEHPS_WEIGHT_KDJ_BUDGET_SHARE:-0.22}"
 NEURAL_KDJ_BUDGET_SHARE="${DEHPS_NEURAL_KDJ_BUDGET_SHARE:-0.10}"
 TRAINING_WORKERS="${DEHPS_TRAINING_WORKERS:-16}"
+RESEARCH_LANE_WORKERS="${DEHPS_RESEARCH_LANE_WORKERS:-$TRAINING_WORKERS}"
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
@@ -435,6 +436,30 @@ watch_forward_evidence_wait_requested() {
   return 1
 }
 
+isolated_research_lane_active() {
+  pgrep -f "scripts/run_isolated_research_lane.py" >/dev/null 2>&1
+}
+
+start_isolated_research_lane() {
+  local as_of_issue="$1"
+  local stamp
+  local research_log
+  if isolated_research_lane_active; then
+    log "isolated research lane already running as_of_issue=${as_of_issue:-none}"
+    return 0
+  fi
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  research_log="$LOG_DIR/isolated-research-lane-$stamp.log"
+  log "starting isolated research lane as_of_issue=${as_of_issue:-none} workers=$RESEARCH_LANE_WORKERS log=$research_log"
+  nohup bash -lc '
+    set -euo pipefail
+    cd "$0"
+    exec .venv/bin/python scripts/run_isolated_research_lane.py \
+      --as-of-issue "$1" \
+      --workers "$2"
+  ' "$WORKER_DIR" "$as_of_issue" "$RESEARCH_LANE_WORKERS" > "$research_log" 2>&1 < /dev/null &
+}
+
 storage_capacity_output="$(.venv/bin/python scripts/check_runtime_storage_capacity.py)" || {
   log "runtime storage capacity blocked sync, evaluation, advisor refresh, and supervisor start payload=$storage_capacity_output"
   exit 1
@@ -544,6 +569,7 @@ if [[ "$signal_refresh_needed" == true ]]; then
 fi
 
 if watch_requests_forward_evidence_wait ""; then
+  start_isolated_research_lane "$latest_issue"
   log "training supervisor remains parked until a new forward issue is synced latest_issue=${latest_issue:-none}"
   exit 0
 fi
