@@ -41,6 +41,7 @@ from dehps.research_planning.service import ExperimentPlanningService
 from dehps.experiments.ranking_disagreement.cli import app as ranking_disagreement_app
 from dehps.research_evidence.service import EvidenceEvaluationService
 from dehps.research_scheduler.scheduler import AutonomousResearchScheduler
+from dehps.engineering.service import AutonomousEngineeringService
 
 app = typer.Typer(help="DEHPS worker commands")
 agent_app = typer.Typer(
@@ -59,6 +60,7 @@ hypothesis_app = typer.Typer(
 evidence_app = typer.Typer(help="Build and inspect formal autonomous research Evidence.")
 decision_app = typer.Typer(help="Draft and review autonomous hypothesis decisions.")
 scheduler_app = typer.Typer(help="Autonomous research scheduler. It only creates audited Research Requests.")
+engineering_app = typer.Typer(help="Dry-run autonomous engineering implementation contracts.")
 app.add_typer(hypothesis_app, name="hypothesis")
 app.add_typer(agent_app, name="agent")
 app.add_typer(research_context_app, name="research-context")
@@ -68,6 +70,7 @@ app.add_typer(ranking_disagreement_app, name="ranking-disagreement")
 app.add_typer(evidence_app, name="evidence")
 app.add_typer(decision_app, name="decision")
 app.add_typer(scheduler_app, name="scheduler")
+app.add_typer(engineering_app, name="engineering")
 
 
 @app.command()
@@ -111,6 +114,10 @@ def _scheduler_service() -> AutonomousResearchScheduler:
     service = AutonomousResearchScheduler()
     service.ensure_schema()
     return service
+
+
+def _engineering_service() -> AutonomousEngineeringService:
+    return AutonomousEngineeringService()
 
 
 def _load_object(path: Path) -> dict[str, Any]:
@@ -579,6 +586,59 @@ def scheduler_queue(
 ) -> None:
     try:
         _emit(_scheduler_service().queue(limit=limit, offset=offset))
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@engineering_app.command("graph")
+def engineering_graph(
+    plan_key: str | None = typer.Option(None, "--plan-key"),
+) -> None:
+    try:
+        _emit(_engineering_service().graph(plan_key=plan_key))
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@engineering_app.command("locate")
+def engineering_locate(
+    plan_key: str | None = typer.Option(None, "--plan-key"),
+) -> None:
+    try:
+        _emit(_engineering_service().locate(plan_key=plan_key))
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@engineering_app.command("contract")
+def engineering_contract(
+    plan_key: str | None = typer.Option(None, "--plan-key"),
+) -> None:
+    try:
+        _emit(_engineering_service().contract(plan_key=plan_key))
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@engineering_app.command("plan")
+def engineering_plan(
+    plan_key: str | None = typer.Option(None, "--plan-key"),
+) -> None:
+    try:
+        _emit(_engineering_service().plan(plan_key=plan_key))
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@engineering_app.command("validate")
+def engineering_validate(
+    plan_key: str | None = typer.Option(None, "--plan-key"),
+) -> None:
+    try:
+        result = _engineering_service().validate(plan_key=plan_key)
+        _emit(result)
+        if not result["validation"].valid:
+            raise typer.Exit(code=2)
     except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
         _fail(exc)
 
