@@ -12,5 +12,6 @@ def test_training_watchdog_no_longer_invokes_remote_draw_sync() -> None:
 
 
 def test_draw_sync_has_independent_watch_entrypoint() -> None:
+    assert Path(ROOT_DIR / "scripts/run_draw_sync_watch.py").exists()
     assert Path(ROOT_DIR / "apps/worker-python/scripts/run_draw_sync_watch.py").exists()
     assert Path(ROOT_DIR / "scripts/ensure_draw_sync_watch.sh").exists()
