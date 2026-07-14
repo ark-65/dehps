@@ -13,6 +13,9 @@ import { ResearchDecisionModule } from './research-decision/research-decision.mo
 import { ResearchSchedulerModule } from './research-scheduler/research-scheduler.module';
 import { EngineeringModule } from './engineering/engineering.module';
 import { PatternDiscoveryModule } from './pattern-discovery/pattern-discovery.module';
+import { DrawSyncModule } from './draw-sync/draw-sync.module';
+import { ForwardStateModule } from './forward-state/forward-state.module';
+import { TrainingResumeModule } from './training-resume/training-resume.module';
 
 @Module({
   imports: [
@@ -26,6 +29,9 @@ import { PatternDiscoveryModule } from './pattern-discovery/pattern-discovery.mo
     ResearchSchedulerModule,
     EngineeringModule,
     PatternDiscoveryModule,
+    DrawSyncModule,
+    ForwardStateModule,
+    TrainingResumeModule,
   ],
   controllers: [ResearchController],
   providers: [

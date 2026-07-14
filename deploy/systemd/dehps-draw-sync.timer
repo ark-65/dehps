@@ -1,0 +1,13 @@
+[Unit]
+Description=Run DEHPS draw synchronization every 15 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+RandomizedDelaySec=30s
+AccuracySec=30s
+Persistent=true
+Unit=dehps-draw-sync.service
+
+[Install]
+WantedBy=timers.target

@@ -793,6 +793,80 @@ CREATE TABLE IF NOT EXISTS pattern_search_cycles (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS draw_sync_runs (
+  id BIGSERIAL PRIMARY KEY,
+  run_key TEXT NOT NULL UNIQUE,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at TIMESTAMPTZ,
+  status TEXT NOT NULL CHECK (status IN (
+    'no_change', 'new_issue', 'corrected_issue', 'source_unavailable',
+    'audit_failed', 'invalid_response', 'locked'
+  )),
+  previous_latest_issue TEXT,
+  current_latest_issue TEXT,
+  inserted_issues_json JSONB NOT NULL DEFAULT '[]'::jsonb
+    CHECK (jsonb_typeof(inserted_issues_json) = 'array'),
+  updated_issues_json JSONB NOT NULL DEFAULT '[]'::jsonb
+    CHECK (jsonb_typeof(updated_issues_json) = 'array'),
+  audit_passed BOOLEAN NOT NULL DEFAULT false,
+  fingerprint_before TEXT,
+  fingerprint_after TEXT,
+  event_key TEXT,
+  warnings_json JSONB NOT NULL DEFAULT '[]'::jsonb
+    CHECK (jsonb_typeof(warnings_json) = 'array'),
+  error_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(error_json) = 'object'),
+  metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(metadata_json) = 'object')
+);
+
+CREATE INDEX IF NOT EXISTS idx_draw_sync_runs_started
+  ON draw_sync_runs (started_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_draw_sync_runs_status
+  ON draw_sync_runs (status, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS draw_issue_events (
+  id BIGSERIAL PRIMARY KEY,
+  event_key TEXT NOT NULL UNIQUE,
+  previous_issue TEXT NOT NULL,
+  new_issue TEXT NOT NULL,
+  history_fingerprint TEXT NOT NULL,
+  audit_report_hash TEXT NOT NULL,
+  source TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'consuming', 'consumed', 'failed', 'invalidated')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  synced_at TIMESTAMPTZ NOT NULL,
+  consumed_at TIMESTAMPTZ,
+  consumer_run_id TEXT,
+  metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(metadata_json) = 'object')
+);
+
+CREATE INDEX IF NOT EXISTS idx_draw_issue_events_status
+  ON draw_issue_events (status, created_at DESC, id DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_draw_issue_events_pending_new_issue
+  ON draw_issue_events (new_issue)
+  WHERE status IN ('pending', 'consuming', 'consumed');
+
+CREATE TABLE IF NOT EXISTS training_resume_attempts (
+  id BIGSERIAL PRIMARY KEY,
+  attempt_key TEXT NOT NULL UNIQUE,
+  event_key TEXT REFERENCES draw_issue_events(event_key) ON DELETE RESTRICT,
+  decision TEXT NOT NULL,
+  reason_code TEXT NOT NULL,
+  old_run_id TEXT,
+  new_run_id TEXT,
+  started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at TIMESTAMPTZ,
+  result_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(result_json) = 'object')
+);
+
+CREATE INDEX IF NOT EXISTS idx_training_resume_attempts_event
+  ON training_resume_attempts (event_key, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_training_resume_attempts_started
+  ON training_resume_attempts (started_at DESC, id DESC);
+
 INSERT INTO dehps_strategies (strategy_key, name, description, config)
 VALUES (
   'baseline_v1',
