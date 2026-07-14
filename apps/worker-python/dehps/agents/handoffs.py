@@ -7,7 +7,7 @@ from dehps.agents.errors import AgentRequestValidationError
 from dehps.agents.requests import AgentRequestType, RESEARCH_HANDOFF_FIELDS
 
 
-ENGINEERING_RESULT_FIELDS = frozenset(
+ENGINEERING_RESULT_REQUIRED_FIELDS = frozenset(
     {
         "implementation_commit",
         "test_commands",
@@ -15,6 +15,14 @@ ENGINEERING_RESULT_FIELDS = frozenset(
         "artifact_paths",
         "interface_contract",
         "known_limitations",
+    }
+)
+ENGINEERING_RESULT_ALLOWED_FIELDS = ENGINEERING_RESULT_REQUIRED_FIELDS | frozenset(
+    {
+        "implemented_plan_fingerprint",
+        "interfaces",
+        "artifact_contract",
+        "production_impact",
     }
 )
 FORBIDDEN_ENGINEERING_CONCLUSIONS = frozenset(
@@ -52,8 +60,8 @@ def validate_research_to_engineering_payload(payload: Mapping[str, Any]) -> None
 
 def validate_engineering_result(result: Mapping[str, Any]) -> None:
     fields = frozenset(result)
-    missing = sorted(ENGINEERING_RESULT_FIELDS.difference(fields))
-    unexpected = sorted(fields.difference(ENGINEERING_RESULT_FIELDS))
+    missing = sorted(ENGINEERING_RESULT_REQUIRED_FIELDS.difference(fields))
+    unexpected = sorted(fields.difference(ENGINEERING_RESULT_ALLOWED_FIELDS))
     if missing or unexpected:
         details: list[str] = []
         if missing:
@@ -69,6 +77,11 @@ def validate_engineering_result(result: Mapping[str, Any]) -> None:
     for object_field in ("test_results", "interface_contract"):
         if not isinstance(result.get(object_field), dict):
             raise AgentRequestValidationError(f"{object_field} must be a JSON object")
+    for optional_object_field in ("interfaces", "artifact_contract"):
+        if optional_object_field in result and not isinstance(result.get(optional_object_field), dict):
+            raise AgentRequestValidationError(f"{optional_object_field} must be a JSON object")
+    if "production_impact" in result and result.get("production_impact") != "none":
+        raise AgentRequestValidationError("engineering result production_impact must be 'none'")
     conclusion = _find_forbidden_conclusion(result)
     if conclusion:
         raise AgentRequestValidationError(

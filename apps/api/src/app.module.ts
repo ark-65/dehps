@@ -7,9 +7,16 @@ import { ResearchHypothesisModule } from './research-hypotheses/research-hypothe
 import { AgentAuthorityModule } from './agent-authority/agent-authority.module';
 import { ResearchAutonomyModule } from './research-autonomy/research-autonomy.module';
 import { ResearchPlanningModule } from './research-planning/research-planning.module';
+import { ResearchExecutionModule } from './research-execution/research-execution.module';
 
 @Module({
-  imports: [ResearchHypothesisModule, AgentAuthorityModule, ResearchAutonomyModule, ResearchPlanningModule],
+  imports: [
+    ResearchHypothesisModule,
+    AgentAuthorityModule,
+    ResearchAutonomyModule,
+    ResearchPlanningModule,
+    ResearchExecutionModule,
+  ],
   controllers: [ResearchController],
   providers: [
     ResearchService,
