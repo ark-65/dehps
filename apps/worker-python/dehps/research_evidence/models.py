@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from dehps.research.status import EvidenceDirection, HypothesisStatus, RejectionScope
+from dehps.research_runtime.models import EvidenceSource
 
 
 JsonObject = dict[str, Any]
@@ -93,6 +94,7 @@ class EvidenceRecord:
     summary: str
     metadata: JsonObject = field(default_factory=dict)
     registry_id: int | None = None
+    evidence_source: EvidenceSource = EvidenceSource.RESEARCH
 
     def to_metrics(self) -> JsonObject:
         return {
@@ -108,6 +110,7 @@ class EvidenceRecord:
             "supports_alternative": self.supports_alternative,
             "stage": self.stage,
             "stratum": self.stratum,
+            "evidence_source": self.evidence_source.value,
         }
 
 

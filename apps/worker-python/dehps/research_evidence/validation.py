@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dehps.research_evidence.models import DecisionDraft, EvidenceRecord
+from dehps.research_runtime.models import EvidenceSource
 
 
 def validate_evidence_records(records: tuple[EvidenceRecord, ...]) -> dict[str, object]:
@@ -36,4 +37,13 @@ def validate_decision_draft(draft: DecisionDraft) -> dict[str, object]:
         failures.append(f"unsupported proposed status: {draft.proposed_status.value}")
     if draft.proposed_status.value == "rejected" and draft.rejection_scope.value == "none":
         failures.append("rejected decision drafts require a rejection scope")
+    return {"valid": not failures, "failure_reasons": failures}
+
+
+def validate_promotion_evidence_sources(records: tuple[EvidenceRecord, ...]) -> dict[str, object]:
+    failures = [
+        f"{record.evidence_key}:promotion_requires_forward_evidence"
+        for record in records
+        if record.evidence_source != EvidenceSource.FORWARD
+    ]
     return {"valid": not failures, "failure_reasons": failures}
