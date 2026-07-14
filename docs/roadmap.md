@@ -65,6 +65,7 @@ At the end of each round:
 | 24 | Ranking-disagreement isolated execution tool | Done | `docs/experiments/round-24-ranking-disagreement-execution.md` |
 | 25 | Autonomous Evidence Evaluation and Hypothesis Decision | Done | `docs/experiments/round-25-autonomous-evidence-evaluation.md` |
 | 26 | Autonomous Research Scheduler | Done | `docs/experiments/round-26-autonomous-research-scheduler.md` |
+| 27 | Autonomous Experiment Implementation Contracts | Done | `docs/experiments/round-27-autonomous-engineering.md` |
 
 ## Round 1: Basic Computation And Backtest Loop
 
