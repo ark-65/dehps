@@ -83,6 +83,8 @@ class PatternDiscoveryActionExecutor:
                 "snapshot_key": snapshot.snapshot_key,
             }
 
+        repository_before = (self.service.status().get("repository") or {}).copy()
+        durable_cycle_index = int(repository_before.get("cycle_count") or budget.cycles_used)
         history = tuple(self.service.repository.load_history())
         max_workers = min(max(1, int(budget.research_cpu)), len(history) or 1, 16)
         lanes = _build_pattern_lanes(
@@ -90,8 +92,8 @@ class PatternDiscoveryActionExecutor:
             action=item.action,
             max_lanes=max_workers,
             budget=budget,
+            cycle_index=durable_cycle_index,
         )
-        repository_before = (self.service.status().get("repository") or {}).copy()
         lane_results = self._execute_lanes(lanes, max_workers=max_workers)
         persisted = self._persist_lanes(lanes=lanes, action=item.action)
         status = self.service.status()
@@ -219,10 +221,11 @@ def _build_pattern_lanes(
     action: str,
     max_lanes: int,
     budget: ResearchRuntimeBudget,
+    cycle_index: int | None = None,
 ) -> tuple[dict[str, Any], ...]:
     if not history:
         return ()
-    cycle_index = max(0, int(budget.cycles_used))
+    cycle_index = max(0, int(budget.cycles_used if cycle_index is None else cycle_index))
     window_sizes = (
         3200,
         2800,

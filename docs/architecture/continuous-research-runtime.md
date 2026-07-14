@@ -138,6 +138,11 @@ must be judged by both CPU/cycle liveness and `repository_delta` growth
 `--research-cpu 12`, `--interval-seconds 1`, and a bounded
 `--daily-cycle-limit 5760`.
 
+The pattern-discovery lane cursor is durable. Resident restarts must resume from
+the repository `cycle_count`, not from the process-local `cycles_used` counter.
+This prevents a freshly restarted worker from replaying old history windows and
+appearing active while producing `repository_delta=0`.
+
 Resident forward writes:
 
 - `runtime/logs/forward-runtime.pid`
