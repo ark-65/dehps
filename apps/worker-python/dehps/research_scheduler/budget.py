@@ -41,7 +41,7 @@ class BudgetManager:
             return self._deny("cpu_exhausted", "no CPU slot is available")
         if self.budget.memory_gb < 1:
             return self._deny("memory_exhausted", "no memory budget is available")
-        if action == ResearchAction.CREATE_PROPOSAL_REQUEST:
+        if action in {ResearchAction.CREATE_PROPOSAL_REQUEST, ResearchAction.SUBMIT_PATTERN_HYPOTHESIS}:
             if self.budget.proposal_used >= self.budget.proposal_quota:
                 return self._deny("proposal_quota_exhausted", "daily proposal quota is exhausted")
         if action in {

@@ -66,6 +66,7 @@ At the end of each round:
 | 25 | Autonomous Evidence Evaluation and Hypothesis Decision | Done | `docs/experiments/round-25-autonomous-evidence-evaluation.md` |
 | 26 | Autonomous Research Scheduler | Done | `docs/experiments/round-26-autonomous-research-scheduler.md` |
 | 27 | Autonomous Experiment Implementation Contracts | Done | `docs/experiments/round-27-autonomous-engineering.md` |
+| 28 | Autonomous Pattern Discovery and Strategy Synthesis | In review | `docs/experiments/round-28-autonomous-pattern-discovery.md` |
 
 ## Round 1: Basic Computation And Backtest Loop
 

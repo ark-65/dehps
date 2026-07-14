@@ -12,6 +12,7 @@ import { ResearchEvidenceModule } from './research-evidence/research-evidence.mo
 import { ResearchDecisionModule } from './research-decision/research-decision.module';
 import { ResearchSchedulerModule } from './research-scheduler/research-scheduler.module';
 import { EngineeringModule } from './engineering/engineering.module';
+import { PatternDiscoveryModule } from './pattern-discovery/pattern-discovery.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { EngineeringModule } from './engineering/engineering.module';
     ResearchDecisionModule,
     ResearchSchedulerModule,
     EngineeringModule,
+    PatternDiscoveryModule,
   ],
   controllers: [ResearchController],
   providers: [
