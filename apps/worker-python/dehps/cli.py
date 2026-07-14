@@ -1447,6 +1447,7 @@ def draw_sync_watch(
     hot_interval_seconds: int = typer.Option(300, "--hot-interval-seconds", min=300),
     cold_interval_seconds: int = typer.Option(3600, "--cold-interval-seconds", min=900),
     timezone: str = typer.Option("Asia/Shanghai", "--timezone"),
+    resume_on_event: bool = typer.Option(True, "--resume-on-event/--no-resume-on-event"),
     once: bool = typer.Option(False, "--once"),
 ) -> None:
     try:
@@ -1456,7 +1457,8 @@ def draw_sync_watch(
                 hot_interval_seconds=hot_interval_seconds,
                 cold_interval_seconds=cold_interval_seconds,
                 timezone=timezone,
-            )
+            ),
+            resume_on_event=resume_on_event,
         ).run(once=once)
     except (ValueError, OSError, TypeError) as exc:
         _fail(exc)

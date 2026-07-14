@@ -48,11 +48,13 @@ class DrawSyncWatch:
         *,
         service: DrawSyncService | None = None,
         policy: DrawSyncSchedulePolicy | None = None,
+        resume_on_event: bool = True,
         state_path: Path = DEFAULT_STATE_PATH,
         pid_path: Path = DEFAULT_PID_PATH,
     ) -> None:
         self.service = service or DrawSyncService()
         self.policy = policy or DrawSyncSchedulePolicy()
+        self.resume_on_event = resume_on_event
         self.state_path = state_path
         self.pid_path = pid_path
         self._stopping = False
@@ -66,11 +68,14 @@ class DrawSyncWatch:
             started = datetime.now(ZoneInfo(self.policy.timezone))
             try:
                 result = self.service.once()
+                resume_result = self._resume_if_event(result.event_key)
                 payload = {
                     "status": "ok",
                     "pid": os.getpid(),
                     "heartbeat_at": datetime.now(ZoneInfo(self.policy.timezone)).isoformat(),
                     "last_result": result,
+                    "resume_on_event": self.resume_on_event,
+                    "resume_result": resume_result,
                     "next_interval_seconds": self.policy.next_interval(),
                 }
             except Exception as exc:  # fail closed: record but keep the watch process alive.
@@ -96,6 +101,13 @@ class DrawSyncWatch:
         while not self._stopping and time.monotonic() < deadline:
             time.sleep(min(1.0, deadline - time.monotonic()))
 
+    def _resume_if_event(self, event_key: str | None) -> dict[str, object] | None:
+        if not self.resume_on_event or not event_key:
+            return None
+        from dehps.training_resume.service import TrainingResumeService
+
+        return TrainingResumeService().execute(event_key=event_key)
+
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Run the independent DEHPS draw-sync watch.")
@@ -104,6 +116,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--cold-interval-seconds", type=int, default=3600)
     parser.add_argument("--timezone", default="Asia/Shanghai")
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--resume-on-event", action=argparse.BooleanOptionalAction, default=True)
     args = parser.parse_args(argv)
     DrawSyncWatch(
         policy=DrawSyncSchedulePolicy(
@@ -111,5 +124,6 @@ def main(argv: list[str] | None = None) -> None:
             hot_interval_seconds=args.hot_interval_seconds,
             cold_interval_seconds=args.cold_interval_seconds,
             timezone=args.timezone,
-        )
+        ),
+        resume_on_event=bool(args.resume_on_event),
     ).run(once=args.once)

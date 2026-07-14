@@ -9,6 +9,7 @@ Decouple official draw synchronization from the training forward-wait gate, then
 - Added `dehps.draw_sync` with formal sync run records, draw audits, issue detection, idempotent new-issue events, a scheduler policy, and a watch process.
 - Added `dehps.forward_state` to reconcile audited draw events with the supervisor's pending forward issue.
 - Added `dehps.training_resume` to claim one event, launch one supervisor, persist the attempt, and mark events consumed only after launch succeeds.
+- Wired `draw-sync watch` to call training resume only when the sync run emits an audited event key. `draw-sync once` remains sync-only.
 - Added the root `scripts/run_draw_sync_watch.py` wrapper expected by deployment docs.
 - Added CLI commands:
   - `dehps draw-sync once|watch|status|events`
@@ -74,8 +75,8 @@ npm run build
 
 Results:
 
-- Worker: `918 passed in 23.37s`
-- Worker with `DB_PORT=1`: `918 passed in 23.58s`
+- Worker: `920 passed in 23.73s`
+- Worker with `DB_PORT=1`: `920 passed in 23.24s`
 - API: `109 passed`
 - API build: passed
 
