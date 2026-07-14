@@ -61,10 +61,10 @@ Implementation validation completed:
 ```text
 cd apps/worker-python
 .venv/bin/python -m pytest -q
-848 passed in 20.84s
+848 passed in 22.42s
 
 DB_PORT=1 .venv/bin/python -m pytest -q
-848 passed in 20.47s
+848 passed in 22.57s
 
 cd apps/api
 npm test
@@ -76,9 +76,63 @@ passed
 
 ## Isolated Smoke
 
-The isolated smoke target is `dehps_round24_smoke`. It must approve the Engineering request, complete Engineering execution, accept the implementation, approve the Operator request, run the three non-forward stages, validate artifacts, and complete Operator execution.
+Isolated smoke target: `dehps_round24_smoke`.
 
-Smoke result will be recorded in this report after the isolated execution command completes.
+The smoke cloned the Round 23 frozen state from `dehps_round23_smoke`, inserted 145 synthetic legal historical issues with source `round24_smoke_synthetic`, completed the Engineering request, recorded Reviewer implementation acceptance in the Operator approval, approved the Operator isolated run, and executed the full legal-universe default path.
+
+```text
+implementation commit: 506e45dc3a414bd7c5f96f3158aecefe819f2e94
+operator request: operator-isolated-run-ab9c47ce344691fd
+operator execution: completed
+elapsed: 901.582 seconds
+cpu limit: 16
+memory limit: 20GB
+violations: []
+skipped: forward_validation
+```
+
+Stage status:
+
+```text
+ranking_disagreement_feasibility_v1: completed
+ranking_disagreement_historical_search_v1: completed
+ranking_disagreement_frozen_validation_v1: completed
+ranking_disagreement_forward_validation_v1: planned
+```
+
+Artifact validation:
+
+```text
+manifest valid: true
+artifact count: 10
+search issue count: 100
+frozen issue count: 20
+statistics comparisons: 12
+validation report valid: true
+```
+
+Registry checks:
+
+```text
+hypothesis status: preregistered
+evidence count: 0
+engineering request: completed
+operator request: completed
+```
+
+Production isolation checks against database `dehps`:
+
+```text
+round24 synthetic history records: 0
+round24 smoke requests: 0
+round24 hypothesis records: 0
+```
+
+Artifacts were written under:
+
+```text
+data/output/research/ranking_model_disagreement/ab9c47ce344691fd73767d903dcd181898937b9297fd2d2b9ea61c823432a356/
+```
 
 ## Known Limits
 
