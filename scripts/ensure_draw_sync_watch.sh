@@ -10,7 +10,10 @@ LOG_FILE="$LOG_DIR/draw-sync-watch.log"
 mkdir -p "$LOG_DIR"
 cd "$WORKER_DIR"
 
-pid="$(tr -d '[:space:]' < "$PID_FILE" 2>/dev/null || true)"
+pid=""
+if [[ -f "$PID_FILE" ]]; then
+  pid="$(tr -d '[:space:]' < "$PID_FILE" 2>/dev/null || true)"
+fi
 if [[ "$pid" =~ ^[0-9]+$ ]] && ps -p "$pid" -o args= 2>/dev/null | grep -Fq "scripts/run_draw_sync_watch.py"; then
   printf '%s draw sync watch already running pid=%s\n' "$(date -Is)" "$pid"
   exit 0
@@ -23,7 +26,10 @@ nohup .venv/bin/python "$REPO_ROOT/scripts/run_draw_sync_watch.py" \
   >> "$LOG_FILE" 2>&1 < /dev/null &
 
 sleep 1
-pid="$(tr -d '[:space:]' < "$PID_FILE" 2>/dev/null || true)"
+pid=""
+if [[ -f "$PID_FILE" ]]; then
+  pid="$(tr -d '[:space:]' < "$PID_FILE" 2>/dev/null || true)"
+fi
 if [[ "$pid" =~ ^[0-9]+$ ]] && ps -p "$pid" -o args= 2>/dev/null | grep -Fq "scripts/run_draw_sync_watch.py"; then
   printf '%s started draw sync watch pid=%s log=%s\n' "$(date -Is)" "$pid" "$LOG_FILE"
   exit 0
