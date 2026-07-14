@@ -583,6 +583,33 @@ def ensure_research_scheduler_schema(conn: Connection) -> None:
     sql = schema_path.read_text()
     marker = "CREATE TABLE IF NOT EXISTS research_scheduler_queue"
     start = sql.index(marker)
+    pattern_marker = "CREATE TABLE IF NOT EXISTS discovered_patterns"
+    end = sql.index(pattern_marker, start)
+    conn.execute(sql[start:end])
+    conn.execute("ALTER TABLE research_scheduler_queue DROP CONSTRAINT IF EXISTS research_scheduler_queue_action_check")
+    conn.execute(
+        """
+        ALTER TABLE research_scheduler_queue
+        ADD CONSTRAINT research_scheduler_queue_action_check
+        CHECK (action IN (
+          'create_proposal_request', 'create_planning_request',
+          'create_engineering_request', 'create_operator_request',
+          'create_review_request', 'wait_forward', 'block', 'stop',
+          'continue_existing', 'discover_patterns', 'screen_patterns',
+          'synthesize_features', 'synthesize_strategies',
+          'submit_pattern_hypothesis', 'wait_forward_pattern'
+        ))
+        """
+    )
+
+
+def ensure_pattern_discovery_schema(conn: Connection) -> None:
+    """Apply the additive Round 28 autonomous pattern discovery schema."""
+    ensure_research_scheduler_schema(conn)
+    schema_path = Path(__file__).resolve().parents[4] / "infra/postgres/init/001_init.sql"
+    sql = schema_path.read_text()
+    marker = "CREATE TABLE IF NOT EXISTS discovered_patterns"
+    start = sql.index(marker)
     end = sql.index("INSERT INTO dehps_strategies", start)
     conn.execute(sql[start:end])
 

@@ -28,6 +28,12 @@ class ResearchAction(str, Enum):
     CREATE_ENGINEERING_REQUEST = "create_engineering_request"
     CREATE_OPERATOR_REQUEST = "create_operator_request"
     CREATE_REVIEW_REQUEST = "create_review_request"
+    DISCOVER_PATTERNS = "discover_patterns"
+    SCREEN_PATTERNS = "screen_patterns"
+    SYNTHESIZE_FEATURES = "synthesize_features"
+    SYNTHESIZE_STRATEGIES = "synthesize_strategies"
+    SUBMIT_PATTERN_HYPOTHESIS = "submit_pattern_hypothesis"
+    WAIT_FORWARD_PATTERN = "wait_forward_pattern"
     WAIT_FORWARD = "wait_forward"
     BLOCK = "block"
     STOP = "stop"
@@ -41,6 +47,11 @@ REQUEST_ACTIONS = frozenset(
         ResearchAction.CREATE_ENGINEERING_REQUEST,
         ResearchAction.CREATE_OPERATOR_REQUEST,
         ResearchAction.CREATE_REVIEW_REQUEST,
+        ResearchAction.DISCOVER_PATTERNS,
+        ResearchAction.SCREEN_PATTERNS,
+        ResearchAction.SYNTHESIZE_FEATURES,
+        ResearchAction.SYNTHESIZE_STRATEGIES,
+        ResearchAction.SUBMIT_PATTERN_HYPOTHESIS,
     }
 )
 
@@ -118,6 +129,7 @@ class SchedulerState:
     open_queue: tuple[SchedulerQueueItem, ...]
     open_agent_requests: tuple[OpenAgentRequest, ...]
     training_status: TrainingStatusSnapshot
+    pattern_discovery: dict[str, Any] = field(default_factory=dict)
     generated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     @property
@@ -211,6 +223,7 @@ class NextResearchAction:
                 "do_not_modify_registry",
                 "do_not_modify_training",
                 "do_not_promote_production",
+                "do_not_execute_pattern_strategy_in_production",
             ],
         }
 

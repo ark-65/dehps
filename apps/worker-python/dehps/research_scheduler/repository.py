@@ -136,6 +136,31 @@ class ResearchSchedulerRepository:
             ).fetchone()
         return int(row["count"] if row else 0)
 
+    def pattern_discovery_summary(self) -> dict[str, Any]:
+        with self.connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
+            exists = cursor.execute("SELECT to_regclass('public.discovered_patterns') AS table_name").fetchone()
+            if not exists or not exists["table_name"]:
+                return {"enabled": False}
+            pattern_counts = cursor.execute(
+                """
+                SELECT
+                  count(*)::int AS pattern_count,
+                  count(*) FILTER (WHERE lifecycle_status = 'discovered')::int AS discovered_count,
+                  count(*) FILTER (WHERE lifecycle_status = 'screened')::int AS screened_count,
+                  count(*) FILTER (WHERE lifecycle_status = 'frozen_supported')::int AS frozen_supported_count,
+                  count(*) FILTER (WHERE lifecycle_status = 'forward_pending')::int AS forward_pending_count
+                FROM discovered_patterns
+                """
+            ).fetchone()
+            feature_count = cursor.execute("SELECT count(*)::int AS count FROM synthesized_features").fetchone()
+            strategy_count = cursor.execute("SELECT count(*)::int AS count FROM synthesized_strategies").fetchone()
+        return {
+            "enabled": True,
+            **dict(pattern_counts or {}),
+            "feature_count": int(feature_count["count"] if feature_count else 0),
+            "strategy_count": int(strategy_count["count"] if strategy_count else 0),
+        }
+
     def upsert_queue_item(self, item: SchedulerQueueItem) -> SchedulerQueueItem:
         try:
             with self.connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:

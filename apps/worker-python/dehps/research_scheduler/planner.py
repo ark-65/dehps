@@ -66,6 +66,7 @@ class ResearchSchedulePlanner:
                     "blockers": tuple(context.forward_evidence_status.blockers),
                 },
             ),
+            pattern_discovery=self.repository.pattern_discovery_summary(),
         )
 
     def budget_manager(self, *, overrides: dict[str, Any] | None = None) -> BudgetManager:
@@ -93,6 +94,7 @@ def summarize_state(state: SchedulerState) -> dict[str, Any]:
         "recent_evidence": len(state.recent_evidence),
         "open_queue": len(state.open_queue),
         "open_agent_requests": len(state.open_agent_requests),
+        "pattern_discovery": dict(state.pattern_discovery),
         "training": {
             "latest_run_id": state.training_status.latest_run_id,
             "latest_round_index": state.training_status.latest_round_index,

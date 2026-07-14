@@ -644,7 +644,9 @@ CREATE TABLE IF NOT EXISTS research_scheduler_queue (
     'create_proposal_request', 'create_planning_request',
     'create_engineering_request', 'create_operator_request',
     'create_review_request', 'wait_forward', 'block', 'stop',
-    'continue_existing'
+    'continue_existing', 'discover_patterns', 'screen_patterns',
+    'synthesize_features', 'synthesize_strategies',
+    'submit_pattern_hypothesis', 'wait_forward_pattern'
   )),
   priority_score NUMERIC(10,6) NOT NULL DEFAULT 0,
   target_hypothesis_key TEXT,
@@ -679,6 +681,117 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_research_scheduler_open_action
     COALESCE(target_experiment_key, '')
   )
   WHERE queue_status NOT IN ('completed', 'blocked');
+
+CREATE TABLE IF NOT EXISTS discovered_patterns (
+  id BIGSERIAL PRIMARY KEY,
+  pattern_key TEXT NOT NULL UNIQUE,
+  pattern_family TEXT NOT NULL,
+  pattern_type TEXT NOT NULL,
+  formula_hash TEXT NOT NULL UNIQUE,
+  lifecycle_status TEXT NOT NULL CHECK (lifecycle_status IN (
+    'discovered', 'screened', 'frozen_pending', 'frozen_supported',
+    'frozen_rejected', 'forward_pending', 'forward_supported',
+    'forward_rejected', 'inconclusive', 'invalidated'
+  )),
+  history_fingerprint TEXT NOT NULL,
+  legal_universe_fingerprint TEXT NOT NULL,
+  search_issue_range_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(search_issue_range_json) = 'object'),
+  formula_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(formula_json) = 'object'),
+  parameters_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(parameters_json) = 'object'),
+  pattern_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(pattern_json) = 'object'),
+  parent_pattern_key TEXT REFERENCES discovered_patterns(pattern_key) ON DELETE RESTRICT,
+  multiplicity_family TEXT,
+  generator_version TEXT NOT NULL,
+  code_commit TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(metadata_json) = 'object')
+);
+
+CREATE INDEX IF NOT EXISTS idx_discovered_patterns_family_status
+  ON discovered_patterns (pattern_family, lifecycle_status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_discovered_patterns_formula_hash
+  ON discovered_patterns (formula_hash);
+
+CREATE TABLE IF NOT EXISTS pattern_observations (
+  id BIGSERIAL PRIMARY KEY,
+  observation_key TEXT NOT NULL UNIQUE,
+  pattern_key TEXT NOT NULL REFERENCES discovered_patterns(pattern_key) ON DELETE RESTRICT,
+  issue TEXT,
+  observed_support NUMERIC(16,8) NOT NULL,
+  expected_support NUMERIC(16,8) NOT NULL,
+  observation_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(observation_json) = 'object'),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pattern_observations_pattern
+  ON pattern_observations (pattern_key, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS pattern_validations (
+  id BIGSERIAL PRIMARY KEY,
+  validation_key TEXT NOT NULL UNIQUE,
+  pattern_key TEXT NOT NULL REFERENCES discovered_patterns(pattern_key) ON DELETE RESTRICT,
+  window_type TEXT NOT NULL CHECK (window_type IN ('search', 'frozen', 'forward')),
+  decision TEXT NOT NULL CHECK (decision IN ('supported', 'rejected', 'inconclusive', 'invalidated')),
+  issue_range_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(issue_range_json) = 'object'),
+  frozen_threshold_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(frozen_threshold_json) = 'object'),
+  significance_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(significance_json) = 'object'),
+  immutable BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pattern_validations_pattern_window
+  ON pattern_validations (pattern_key, window_type, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS synthesized_features (
+  id BIGSERIAL PRIMARY KEY,
+  feature_key TEXT NOT NULL UNIQUE,
+  pattern_key TEXT NOT NULL REFERENCES discovered_patterns(pattern_key) ON DELETE RESTRICT,
+  formula_hash TEXT NOT NULL,
+  feature_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(feature_json) = 'object'),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_synthesized_features_pattern
+  ON synthesized_features (pattern_key, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS synthesized_strategies (
+  id BIGSERIAL PRIMARY KEY,
+  strategy_key TEXT NOT NULL UNIQUE,
+  feature_key TEXT NOT NULL REFERENCES synthesized_features(feature_key) ON DELETE RESTRICT,
+  strategy_type TEXT NOT NULL,
+  strategy_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(strategy_json) = 'object'),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_synthesized_strategies_feature
+  ON synthesized_strategies (feature_key, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS pattern_search_cycles (
+  id BIGSERIAL PRIMARY KEY,
+  cycle_key TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL,
+  search_issue_range_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(search_issue_range_json) = 'object'),
+  budget_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(budget_json) = 'object'),
+  discovered_count INTEGER NOT NULL DEFAULT 0,
+  accepted_count INTEGER NOT NULL DEFAULT 0,
+  result_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(result_json) = 'object'),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 INSERT INTO dehps_strategies (strategy_key, name, description, config)
 VALUES (

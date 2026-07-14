@@ -42,6 +42,8 @@ from dehps.experiments.ranking_disagreement.cli import app as ranking_disagreeme
 from dehps.research_evidence.service import EvidenceEvaluationService
 from dehps.research_scheduler.scheduler import AutonomousResearchScheduler
 from dehps.engineering.service import AutonomousEngineeringService
+from dehps.pattern_discovery.models import PatternSearchBudget
+from dehps.pattern_discovery.service import PatternDiscoveryService
 
 app = typer.Typer(help="DEHPS worker commands")
 agent_app = typer.Typer(
@@ -61,6 +63,7 @@ evidence_app = typer.Typer(help="Build and inspect formal autonomous research Ev
 decision_app = typer.Typer(help="Draft and review autonomous hypothesis decisions.")
 scheduler_app = typer.Typer(help="Autonomous research scheduler. It only creates audited Research Requests.")
 engineering_app = typer.Typer(help="Dry-run autonomous engineering implementation contracts.")
+pattern_app = typer.Typer(help="Autonomous pattern discovery and declarative strategy synthesis.")
 app.add_typer(hypothesis_app, name="hypothesis")
 app.add_typer(agent_app, name="agent")
 app.add_typer(research_context_app, name="research-context")
@@ -71,6 +74,7 @@ app.add_typer(evidence_app, name="evidence")
 app.add_typer(decision_app, name="decision")
 app.add_typer(scheduler_app, name="scheduler")
 app.add_typer(engineering_app, name="engineering")
+app.add_typer(pattern_app, name="pattern")
 
 
 @app.command()
@@ -120,6 +124,10 @@ def _engineering_service() -> AutonomousEngineeringService:
     return AutonomousEngineeringService()
 
 
+def _pattern_service() -> PatternDiscoveryService:
+    return PatternDiscoveryService()
+
+
 def _load_object(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text())
@@ -128,6 +136,46 @@ def _load_object(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise HypothesisRegistryError(f"JSON input must be an object: {path}")
     return value
+
+
+def _load_draw_records(path: Path | None) -> list[tuple[str, tuple[int, ...]]] | None:
+    if path is None:
+        return None
+    value = json.loads(path.read_text())
+    draws = value.get("draws", value) if isinstance(value, dict) else value
+    if not isinstance(draws, list):
+        raise HypothesisRegistryError("draw input must be a list or an object with draws")
+    records: list[tuple[str, tuple[int, ...]]] = []
+    for index, item in enumerate(draws, start=1):
+        if isinstance(item, dict):
+            issue = str(item.get("issue") or f"input-{index:04d}")
+            numbers = item.get("red_numbers") or item.get("numbers")
+        elif isinstance(item, (list, tuple)) and len(item) == 2:
+            issue = str(item[0])
+            numbers = item[1]
+        else:
+            issue = f"input-{index:04d}"
+            numbers = item
+        if not isinstance(numbers, (list, tuple)):
+            raise HypothesisRegistryError(f"draw {issue} must provide red_numbers")
+        records.append((issue, tuple(int(n) for n in numbers)))
+    return records
+
+
+def _pattern_budget(
+    families: int,
+    patterns_per_family: int,
+    feature_candidates: int = 50,
+    strategy_candidates: int = 30,
+    weight_candidates: int = 200,
+) -> PatternSearchBudget:
+    return PatternSearchBudget(
+        families=families,
+        patterns_per_family=patterns_per_family,
+        feature_candidates=feature_candidates,
+        strategy_candidates=strategy_candidates,
+        weight_candidates=weight_candidates,
+    )
 
 
 def _normalized(value: Any) -> Any:
@@ -639,6 +687,180 @@ def engineering_validate(
         _emit(result)
         if not result["validation"].valid:
             raise typer.Exit(code=2)
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@pattern_app.command("discover")
+def pattern_discover(
+    input_file: Path | None = typer.Option(None, "--input"),
+    persist: bool = typer.Option(False, "--persist/--dry-run"),
+    families: int = typer.Option(10, "--families", min=1, max=10),
+    patterns_per_family: int = typer.Option(20, "--patterns-per-family", min=1, max=20),
+) -> None:
+    """Discover patterns. Dry-run by default; no Request, Registry, training, or code writes."""
+    try:
+        result = _pattern_service().discover(
+            draws=_load_draw_records(input_file),
+            budget=_pattern_budget(families, patterns_per_family),
+            persist=persist,
+        )
+        _emit(result)
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@pattern_app.command("list")
+def pattern_list(
+    limit: int = typer.Option(100, min=1, max=500),
+    offset: int = typer.Option(0, min=0),
+) -> None:
+    try:
+        _emit(_pattern_service().list_patterns(limit=limit, offset=offset))
+    except (AgentAuthorityError, HypothesisRegistryError, KeyError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@pattern_app.command("show")
+def pattern_show(pattern_key: str) -> None:
+    try:
+        _emit(_pattern_service().show_pattern(pattern_key))
+    except (AgentAuthorityError, HypothesisRegistryError, KeyError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@pattern_app.command("validate")
+def pattern_validate(
+    input_file: Path | None = typer.Option(None, "--input"),
+) -> None:
+    try:
+        service = _pattern_service()
+        result = service.discover(draws=_load_draw_records(input_file), persist=False)
+        reports = [service.validator.validate_candidate(pattern) for pattern in result["patterns"]]
+        _emit({"valid": all(report.valid for report in reports), "reports": reports, "writes": []})
+        if not all(report.valid for report in reports):
+            raise typer.Exit(code=2)
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@pattern_app.command("compare-null")
+def pattern_compare_null(
+    length: int = typer.Option(..., "--length", min=3, max=6),
+    start: int = typer.Option(..., "--start", min=1, max=33),
+    difference: int = typer.Option(..., "--difference", min=1, max=32),
+    input_file: Path | None = typer.Option(None, "--input"),
+) -> None:
+    try:
+        service = _pattern_service()
+        draws = _load_draw_records(input_file)
+        if draws is None:
+            draws = list(service.repository.load_history())
+        _emit({
+            "signature": {"length": length, "start": start, "difference": difference},
+            "nulls": service.compare_null(signature=(length, start, difference), draws=draws),
+            "writes": [],
+        })
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@pattern_app.command("arithmetic")
+def pattern_arithmetic(
+    input_file: Path | None = typer.Option(None, "--input"),
+) -> None:
+    try:
+        service = _pattern_service()
+        draws = _load_draw_records(input_file)
+        if draws is None:
+            draws = list(service.repository.load_history())
+        _emit({"patterns": service.arithmetic(draws=draws), "writes": []})
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@pattern_app.command("screen")
+def pattern_screen(
+    input_file: Path | None = typer.Option(None, "--input"),
+    persist: bool = typer.Option(False, "--persist/--dry-run"),
+) -> None:
+    try:
+        service = _pattern_service()
+        discovered = service.discover(draws=_load_draw_records(input_file), persist=persist)
+        _emit(service.screen(discovered["patterns"], persist=persist))
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@pattern_app.command("feature-synthesize")
+def pattern_feature_synthesize(
+    input_file: Path | None = typer.Option(None, "--input"),
+    persist: bool = typer.Option(False, "--persist/--dry-run"),
+) -> None:
+    try:
+        service = _pattern_service()
+        discovered = service.discover(draws=_load_draw_records(input_file), persist=persist)
+        screened = service.screen(discovered["patterns"], persist=persist)
+        accepted = [result.pattern for result in screened["results"] if result.accepted]
+        _emit(service.synthesize_features(accepted, persist=persist))
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@pattern_app.command("strategy-synthesize")
+def pattern_strategy_synthesize(
+    input_file: Path | None = typer.Option(None, "--input"),
+    persist: bool = typer.Option(False, "--persist/--dry-run"),
+) -> None:
+    try:
+        service = _pattern_service()
+        discovered = service.discover(draws=_load_draw_records(input_file), persist=persist)
+        screened = service.screen(discovered["patterns"], persist=persist)
+        accepted = [result.pattern for result in screened["results"] if result.accepted]
+        features = service.synthesize_features(accepted)["features"]
+        _emit(service.synthesize_strategies(features, patterns=accepted, persist=persist))
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@pattern_app.command("submit")
+def pattern_submit(
+    input_file: Path | None = typer.Option(None, "--input"),
+    requested_by: str = typer.Option("research:pattern-discovery", "--requested-by"),
+) -> None:
+    """Submit one pattern-derived Research Proposal Request; does not change Registry."""
+    try:
+        service = _pattern_service()
+        cycle = service.cycle(draws=_load_draw_records(input_file), persist=False, submit=True, requested_by=requested_by)
+        _emit({"submitted_request_key": cycle.submitted_request_key, "cycle": cycle, "registry_updated": False})
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@pattern_app.command("cycle")
+def pattern_cycle(
+    input_file: Path | None = typer.Option(None, "--input"),
+    persist: bool = typer.Option(False, "--persist/--dry-run"),
+    submit: bool = typer.Option(False, "--submit/--no-submit"),
+    requested_by: str = typer.Option("research:pattern-discovery", "--requested-by"),
+) -> None:
+    try:
+        _emit(
+            _pattern_service().cycle(
+                draws=_load_draw_records(input_file),
+                persist=persist,
+                submit=submit,
+                requested_by=requested_by,
+            )
+        )
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@pattern_app.command("status")
+def pattern_status() -> None:
+    try:
+        _emit(_pattern_service().status())
     except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
         _fail(exc)
 

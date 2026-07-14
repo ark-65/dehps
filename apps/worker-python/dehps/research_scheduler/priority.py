@@ -80,7 +80,7 @@ class ResearchPriorityEngine:
         if not wait.allowed:
             return self._action(
                 state,
-                ResearchAction.WAIT_FORWARD,
+                ResearchAction.WAIT_FORWARD_PATTERN if state.pattern_discovery.get("enabled") else ResearchAction.WAIT_FORWARD,
                 QueueStatus.WAITING_FORWARD,
                 wait.summary,
                 {"reason_code": wait.reason_code, **wait.details},
@@ -120,6 +120,29 @@ class ResearchPriorityEngine:
                 target_family_key=self._field(candidate, "family_key"),
             )
 
+        pattern_action = self._pattern_action(state, wait_reason=wait.reason_code)
+        if pattern_action is not None:
+            budget = self.budget_manager.authorize(pattern_action[0])
+            if not budget.allowed:
+                return self._action(
+                    state,
+                    ResearchAction.STOP,
+                    QueueStatus.BLOCKED,
+                    budget.summary,
+                    {"reason_code": budget.reason_code, "blocked_action": pattern_action[0].value},
+                    priority=0.0,
+                    target_family_key="pattern_discovery",
+                )
+            return self._action(
+                state,
+                pattern_action[0],
+                pattern_action[1],
+                pattern_action[2],
+                pattern_action[3],
+                priority=pattern_action[4],
+                target_family_key="pattern_discovery",
+            )
+
         proposal_budget = self.budget_manager.authorize(ResearchAction.CREATE_PROPOSAL_REQUEST)
         if not proposal_budget.allowed:
             return self._action(
@@ -144,6 +167,84 @@ class ResearchPriorityEngine:
                 "duplicate_risk": 0.0,
             },
             priority=0.65,
+        )
+
+    def _pattern_action(
+        self,
+        state: SchedulerState,
+        *,
+        wait_reason: str,
+    ) -> tuple[ResearchAction, QueueStatus, str, dict[str, Any], float] | None:
+        summary = dict(state.pattern_discovery or {})
+        if not summary.get("enabled"):
+            return None
+        pattern_count = int(summary.get("pattern_count") or 0)
+        discovered = int(summary.get("discovered_count") or 0)
+        screened = int(summary.get("screened_count") or 0)
+        frozen_supported = int(summary.get("frozen_supported_count") or 0)
+        forward_pending = int(summary.get("forward_pending_count") or 0)
+        features = int(summary.get("feature_count") or 0)
+        strategies = int(summary.get("strategy_count") or 0)
+        reason = {
+            "reason_code": "pattern_discovery_sequence",
+            "pattern_summary": summary,
+            "forward_gate": wait_reason,
+            "production_impact": "none",
+        }
+        if pattern_count == 0:
+            return (
+                ResearchAction.DISCOVER_PATTERNS,
+                QueueStatus.PROPOSAL,
+                "no pending pattern exists; discover bounded historical patterns",
+                {**reason, "next_stage": "discover_patterns"},
+                0.7,
+            )
+        if discovered > 0:
+            return (
+                ResearchAction.SCREEN_PATTERNS,
+                QueueStatus.PLANNING,
+                "discovered patterns need significance and novelty screening",
+                {**reason, "next_stage": "screen_patterns"},
+                0.74,
+            )
+        if screened > 0 and features == 0:
+            return (
+                ResearchAction.SYNTHESIZE_FEATURES,
+                QueueStatus.PLANNING,
+                "screened patterns need declarative feature synthesis",
+                {**reason, "next_stage": "synthesize_features"},
+                0.72,
+            )
+        if features > 0 and strategies == 0:
+            return (
+                ResearchAction.SYNTHESIZE_STRATEGIES,
+                QueueStatus.PLANNING,
+                "synthesized features need allow-listed strategy synthesis",
+                {**reason, "next_stage": "synthesize_strategies"},
+                0.71,
+            )
+        if strategies > 0:
+            return (
+                ResearchAction.SUBMIT_PATTERN_HYPOTHESIS,
+                QueueStatus.PROPOSAL,
+                "valid pattern strategy exists; submit a Research Proposal Request",
+                {**reason, "next_stage": "submit_pattern_hypothesis"},
+                0.76,
+            )
+        if frozen_supported > 0 and forward_pending > 0:
+            return (
+                ResearchAction.WAIT_FORWARD_PATTERN,
+                QueueStatus.WAITING_FORWARD,
+                "pattern evidence is waiting for forward coverage",
+                {**reason, "next_stage": "wait_forward_pattern"},
+                0.1,
+            )
+        return (
+            ResearchAction.WAIT_FORWARD_PATTERN,
+            QueueStatus.WAITING_FORWARD,
+            "no valid pattern action is available; wait instead of creating speculative work",
+            {**reason, "next_stage": "wait_forward_pattern", "reason_code": "no_valid_pattern_action"},
+            0.05,
         )
 
     def _action_for_hypothesis(
