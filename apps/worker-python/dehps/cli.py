@@ -38,6 +38,7 @@ from dehps.research_autonomy.repository import ResearchAutonomyArtifactRepositor
 from dehps.research_autonomy.submission import ResearchProposalSubmissionService
 from dehps.research_autonomy.validation import HypothesisProposalValidator
 from dehps.research_planning.service import ExperimentPlanningService
+from dehps.experiments.ranking_disagreement.cli import app as ranking_disagreement_app
 
 app = typer.Typer(help="DEHPS worker commands")
 agent_app = typer.Typer(
@@ -58,6 +59,7 @@ app.add_typer(agent_app, name="agent")
 app.add_typer(research_context_app, name="research-context")
 app.add_typer(research_proposal_app, name="research-proposal")
 app.add_typer(experiment_plan_app, name="experiment-plan")
+app.add_typer(ranking_disagreement_app, name="ranking-disagreement")
 
 
 @app.command()

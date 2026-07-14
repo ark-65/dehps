@@ -62,6 +62,7 @@ At the end of each round:
 | 21 | Research/Engineering Agent authority separation | Done | `docs/experiments/round-21-agent-authority-separation.md` |
 | 22 | Autonomous Hypothesis Proposal Engine | Done | `docs/experiments/round-22-autonomous-hypothesis-proposal-engine.md` |
 | 23 | Autonomous Experiment Planning and Preregistration | Done | `docs/experiments/round-23-autonomous-experiment-planning.md` |
+| 24 | Ranking-disagreement isolated execution tool | In progress | `docs/experiments/round-24-ranking-disagreement-execution.md` |
 
 ## Round 1: Basic Computation And Backtest Loop
 
