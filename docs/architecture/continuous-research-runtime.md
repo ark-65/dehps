@@ -43,6 +43,8 @@ The snapshot is immutable for the cycle. If draw sync adds a later issue during 
 - `runtime.py`: research runtime state and one-cycle execution.
 - `scheduler.py`: selects research work without consulting forward readiness.
 - `worker.py`: runs bounded batches of research cycles.
+- `resident.py`: runs the continuous research runtime as a long-lived worker with
+  PID, heartbeat, cycle log, snapshot, and budget audit.
 - `queue.py`: allows only research actions.
 - `snapshot.py`: creates immutable history snapshots and rotation decisions.
 - `budget.py`: separates research CPU/memory from forward CPU/memory.
@@ -73,6 +75,8 @@ There is no `waiting_for_forward_issue` state in the continuous research runtime
 - `runtime.py`: maps forward reconciliation into forward runtime state.
 - `queue.py`: allows only forward actions.
 - `service.py`: read/status facade.
+- `resident.py`: keeps the forward runtime alive as a heartbeat worker while it
+  waits for new draw events.
 
 Forward statuses:
 
@@ -88,6 +92,41 @@ Forward queue actions:
 - `promotion`
 
 Forward may wait. That wait never blocks research scheduling.
+
+## Resident deployment
+
+Round 31 makes the continuous research runtime the resident worker. The legacy
+training supervisor is no longer the owner of continuous research.
+
+Expected resident units:
+
+- `dehps-research-runtime.service`
+- `dehps-forward-runtime.service`
+- `dehps-draw-sync.timer`
+
+Legacy unit:
+
+- `dehps-training-supervisor.service` must stay disabled.
+
+Resident research writes:
+
+- `runtime/logs/research-runtime.pid`
+- `runtime/logs/research-runtime-state.json`
+- `runtime/logs/research-runtime-cycles.jsonl`
+
+Resident forward writes:
+
+- `runtime/logs/forward-runtime.pid`
+- `runtime/logs/forward-runtime-state.json`
+
+The research resident fails closed if a legacy process matching
+`run_training_supervisor|training_supervisor` is active. This prevents the legacy
+supervisor and research runtime from consuming the same research queue.
+
+Draw sync no longer starts the legacy training resume path by default. The
+packaged draw-sync unit runs a resident `draw-sync watch --no-resume-on-event`
+process. The forward runtime remains resident while research observes history
+changes only at cycle boundaries through snapshot rotation.
 
 ## Evidence source boundary
 

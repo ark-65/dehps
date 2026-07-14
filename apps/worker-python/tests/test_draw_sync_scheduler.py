@@ -53,6 +53,7 @@ def test_draw_sync_watch_resumes_once_when_new_event_is_seen(monkeypatch, tmp_pa
     watch = DrawSyncWatch(
         service=Service("event-2026080"),  # type: ignore[arg-type]
         policy=DrawSyncSchedulePolicy(),
+        resume_on_event=True,
         state_path=tmp_path / "state.json",
         pid_path=tmp_path / "pid",
     )
@@ -62,6 +63,30 @@ def test_draw_sync_watch_resumes_once_when_new_event_is_seen(monkeypatch, tmp_pa
     state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
     assert calls == ["event-2026080"]
     assert state["resume_result"]["executed"] is True
+
+
+def test_draw_sync_watch_defaults_to_no_legacy_training_resume(monkeypatch, tmp_path) -> None:
+    calls = []
+
+    class ResumeService:
+        def execute(self, *, event_key=None):
+            calls.append(event_key)
+            return {"executed": True}
+
+    monkeypatch.setattr("dehps.training_resume.service.TrainingResumeService", ResumeService)
+    watch = DrawSyncWatch(
+        service=Service("event-2026080"),  # type: ignore[arg-type]
+        policy=DrawSyncSchedulePolicy(),
+        state_path=tmp_path / "state.json",
+        pid_path=tmp_path / "pid",
+    )
+
+    watch.run(once=True)
+
+    state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+    assert calls == []
+    assert state["resume_on_event"] is False
+    assert state["resume_result"] is None
 
 
 def test_draw_sync_watch_can_disable_resume_on_event(monkeypatch, tmp_path) -> None:

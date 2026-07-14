@@ -1,0 +1,18 @@
+[Unit]
+Description=DEHPS forward validation runtime
+Documentation=file:/home/ark/workspace/dehps/docs/architecture/continuous-research-runtime.md
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=15min
+StartLimitBurst=3
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ark/workspace/dehps/apps/worker-python
+EnvironmentFile=-/home/ark/workspace/dehps/.env
+ExecStart=/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python scripts/run_forward_runtime.py --interval-seconds 15
+Restart=always
+RestartSec=10s
+
+[Install]
+WantedBy=default.target
