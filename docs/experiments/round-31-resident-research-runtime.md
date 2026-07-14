@@ -38,6 +38,13 @@ The intended operating state is:
     Strategy Synthesis / Proposal Generation with research-only persistence;
   - duplicate pattern proposal submission is idempotent, so repeated resident
     cycles reuse the existing Research Proposal Request instead of crashing.
+- Follow-up utilization fix:
+  - `research_cpu` now controls real parallel pattern-discovery lanes;
+  - lanes perform CPU-heavy dry-run searches across different history windows;
+  - the parent process persists one primary lane serially to avoid Postgres
+    deadlocks and foreign-key races;
+  - the packaged resident unit now uses `--interval-seconds 1` and
+    `--daily-cycle-limit 5760`.
 
 ## Operational boundary
 
@@ -97,6 +104,10 @@ Runtime state after service start:
 - Research execution: Pattern Discovery wrote `83` patterns, `50` features,
   `30` strategies, and submitted
   `research-proposal-pattern-440767addb399de1`.
+- Resource utilization smoke: the 12-lane resident service reached 17 tasks,
+  ~423 MB peak memory, and more than 100 CPU seconds in the first 42 seconds.
+  Cycle audit showed `parallel_lanes=12`, `max_workers=12`,
+  `discovered_count=996`, `feature_count=600`, and `strategy_count=360`.
 - Forward runtime: `active=true`, `status=forward_waiting`.
 - Draw sync watch: `status=ok`, `resume_on_event=false`.
 - Legacy supervisor process: none.
