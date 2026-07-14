@@ -39,6 +39,7 @@ from dehps.research_autonomy.submission import ResearchProposalSubmissionService
 from dehps.research_autonomy.validation import HypothesisProposalValidator
 from dehps.research_planning.service import ExperimentPlanningService
 from dehps.experiments.ranking_disagreement.cli import app as ranking_disagreement_app
+from dehps.research_evidence.service import EvidenceEvaluationService
 
 app = typer.Typer(help="DEHPS worker commands")
 agent_app = typer.Typer(
@@ -54,12 +55,16 @@ experiment_plan_app = typer.Typer(
 hypothesis_app = typer.Typer(
     help="Human-operated hypothesis registry. It does not execute experiments or promote strategies."
 )
+evidence_app = typer.Typer(help="Build and inspect formal autonomous research Evidence.")
+decision_app = typer.Typer(help="Draft and review autonomous hypothesis decisions.")
 app.add_typer(hypothesis_app, name="hypothesis")
 app.add_typer(agent_app, name="agent")
 app.add_typer(research_context_app, name="research-context")
 app.add_typer(research_proposal_app, name="research-proposal")
 app.add_typer(experiment_plan_app, name="experiment-plan")
 app.add_typer(ranking_disagreement_app, name="ranking-disagreement")
+app.add_typer(evidence_app, name="evidence")
+app.add_typer(decision_app, name="decision")
 
 
 @app.command()
@@ -91,6 +96,12 @@ def _proposal_engine(engine_version: str) -> AutonomousHypothesisProposalEngine:
 
 def _experiment_planning_service() -> ExperimentPlanningService:
     return ExperimentPlanningService()
+
+
+def _evidence_service() -> EvidenceEvaluationService:
+    service = EvidenceEvaluationService()
+    service.ensure_schema()
+    return service
 
 
 def _load_object(path: Path) -> dict[str, Any]:
@@ -396,6 +407,99 @@ def experiment_plan_operator_request(
             "executed": False,
         })
     except (AgentAuthorityError, HypothesisRegistryError, ValueError, TypeError) as exc:
+        _fail(exc)
+
+
+@evidence_app.command("build")
+def evidence_build(
+    artifact_dir: Path = typer.Option(..., "--artifact-dir"),
+    hypothesis_key: str | None = typer.Option(None, "--hypothesis-key"),
+    plan_key: str | None = typer.Option(None, "--plan-key"),
+    plan_fingerprint: str | None = typer.Option(None, "--plan-fingerprint"),
+    append: bool = typer.Option(True, "--append/--dry-run"),
+) -> None:
+    try:
+        _emit(
+            _evidence_service().build_evidence(
+                artifact_directory=artifact_dir,
+                hypothesis_key=hypothesis_key,
+                plan_key=plan_key,
+                plan_fingerprint=plan_fingerprint,
+                append=append,
+            )
+        )
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@evidence_app.command("show")
+def evidence_show(key: str) -> None:
+    try:
+        _emit(_evidence_service().show_evidence(key))
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError) as exc:
+        _fail(exc)
+
+
+@evidence_app.command("aggregate")
+def evidence_aggregate(
+    hypothesis_key: str = typer.Option(..., "--hypothesis-key"),
+) -> None:
+    try:
+        _emit(_evidence_service().aggregate(hypothesis_key=hypothesis_key))
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError) as exc:
+        _fail(exc)
+
+
+@decision_app.command("draft")
+def decision_draft(
+    hypothesis_key: str = typer.Option(..., "--hypothesis-key"),
+    requested_by: str = typer.Option("research:evidence-engine", "--requested-by"),
+    submit: bool = typer.Option(True, "--submit/--draft-only"),
+) -> None:
+    try:
+        _emit(
+            _evidence_service().draft_decision(
+                hypothesis_key=hypothesis_key,
+                requested_by=requested_by,
+                submit=submit,
+            )
+        )
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError) as exc:
+        _fail(exc)
+
+
+@decision_app.command("review")
+def decision_review(
+    request_key: str,
+    reviewer_id: str = typer.Option(..., "--reviewer-id"),
+) -> None:
+    try:
+        _emit(_evidence_service().review_decision(request_key=request_key, reviewer_id=reviewer_id))
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError) as exc:
+        _fail(exc)
+
+
+@decision_app.command("approve")
+def decision_approve(
+    request_key: str,
+    reviewer_id: str = typer.Option(..., "--reviewer-id"),
+) -> None:
+    try:
+        _emit(_evidence_service().approve_decision(request_key=request_key, reviewer_id=reviewer_id))
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError) as exc:
+        _fail(exc)
+
+
+@decision_app.command("reject")
+def decision_reject(
+    request_key: str,
+    reviewer_id: str = typer.Option(..., "--reviewer-id"),
+    reason_file: Path | None = typer.Option(None, "--reason-file"),
+) -> None:
+    try:
+        reason = _load_object(reason_file) if reason_file else None
+        _emit(_evidence_service().reject_decision(request_key=request_key, reviewer_id=reviewer_id, reason=reason))
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
         _fail(exc)
 
 

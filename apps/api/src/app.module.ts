@@ -8,6 +8,8 @@ import { AgentAuthorityModule } from './agent-authority/agent-authority.module';
 import { ResearchAutonomyModule } from './research-autonomy/research-autonomy.module';
 import { ResearchPlanningModule } from './research-planning/research-planning.module';
 import { ResearchExecutionModule } from './research-execution/research-execution.module';
+import { ResearchEvidenceModule } from './research-evidence/research-evidence.module';
+import { ResearchDecisionModule } from './research-decision/research-decision.module';
 
 @Module({
   imports: [
@@ -16,6 +18,8 @@ import { ResearchExecutionModule } from './research-execution/research-execution
     ResearchAutonomyModule,
     ResearchPlanningModule,
     ResearchExecutionModule,
+    ResearchEvidenceModule,
+    ResearchDecisionModule,
   ],
   controllers: [ResearchController],
   providers: [
