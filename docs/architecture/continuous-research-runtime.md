@@ -129,9 +129,12 @@ promote research evidence.
 
 Resident research uses `research_cpu` as real parallelism, not just metadata.
 Each cycle fans out multiple CPU-heavy dry-run pattern-discovery lanes over
-different immutable history windows, then persists one primary lane serially.
-This keeps CPU utilization visible while avoiding concurrent database writes,
-schema locks, or proposal-key races. The packaged service runs with
+different immutable history windows, then persists all lanes serially. This
+keeps CPU utilization visible, makes research memory accumulate, and avoids
+concurrent database writes, schema locks, or proposal-key races. Runtime health
+must be judged by both CPU/cycle liveness and `repository_delta` growth
+(`pattern_count`, `feature_count`, `strategy_count`, `observation_count`,
+`validation_count`, and `cycle_count`). The packaged service runs with
 `--research-cpu 12`, `--interval-seconds 1`, and a bounded
 `--daily-cycle-limit 5760`.
 

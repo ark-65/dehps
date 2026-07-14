@@ -41,8 +41,10 @@ The intended operating state is:
 - Follow-up utilization fix:
   - `research_cpu` now controls real parallel pattern-discovery lanes;
   - lanes perform CPU-heavy dry-run searches across different history windows;
-  - the parent process persists one primary lane serially to avoid Postgres
+  - the parent process persists all lanes serially to avoid Postgres
     deadlocks and foreign-key races;
+  - repository summaries now expose observation, validation, and cycle counts so
+    learning/evidence accumulation is visible even when formulas are canonicalized;
   - the packaged resident unit now uses `--interval-seconds 1` and
     `--daily-cycle-limit 5760`.
 
@@ -108,6 +110,11 @@ Runtime state after service start:
   ~423 MB peak memory, and more than 100 CPU seconds in the first 42 seconds.
   Cycle audit showed `parallel_lanes=12`, `max_workers=12`,
   `discovered_count=996`, `feature_count=600`, and `strategy_count=360`.
+- Learning smoke after serial lane persistence: a 4-lane cycle persisted four
+  windows and produced `repository_delta.pattern_count=57`,
+  `repository_delta.feature_count=32`, and
+  `repository_delta.strategy_count=26`; proposal submission was skipped because
+  an open pattern proposal already existed.
 - Forward runtime: `active=true`, `status=forward_waiting`.
 - Draw sync watch: `status=ok`, `resume_on_event=false`.
 - Legacy supervisor process: none.
