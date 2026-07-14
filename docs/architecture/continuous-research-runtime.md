@@ -114,6 +114,19 @@ Resident research writes:
 - `runtime/logs/research-runtime-state.json`
 - `runtime/logs/research-runtime-cycles.jsonl`
 
+Resident research cycles execute safe research actions through a bounded action
+executor. The initial resident executor is wired to Round 28 pattern discovery:
+
+- `pattern_mining`
+- `feature_synthesis`
+- `strategy_synthesis`
+- `proposal_generation`
+
+These actions may persist research-only pattern, feature, strategy, validation,
+cycle, and low-risk Research Proposal Request records. They do not start the
+legacy training supervisor, modify source code, run production training, or
+promote research evidence.
+
 Resident forward writes:
 
 - `runtime/logs/forward-runtime.pid`

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dehps.research_runtime.budget import RuntimeBudgetScheduler
+from dehps.research_runtime.executor import NoopResearchActionExecutor, ResearchActionExecutor
 from dehps.research_runtime.models import (
     HistorySnapshot,
     ResearchCycleResult,
@@ -24,10 +25,12 @@ class ContinuousResearchRuntime:
         *,
         snapshot_manager: HistorySnapshotManager | None = None,
         scheduler: ContinuousResearchScheduler | None = None,
+        executor: ResearchActionExecutor | None = None,
         budget: ResearchRuntimeBudget | None = None,
     ) -> None:
         self.snapshot_manager = snapshot_manager or HistorySnapshotManager()
         self.scheduler = scheduler or ContinuousResearchScheduler()
+        self.executor = executor or NoopResearchActionExecutor()
         self.budget = budget or ResearchRuntimeBudget()
         self.active_snapshot: HistorySnapshot | None = None
 
@@ -62,11 +65,13 @@ class ContinuousResearchRuntime:
                 snapshot=self.active_snapshot,
                 queue_item=None,
                 scheduler_result=None,
+                execution_result=None,
                 rotation=rotation,
                 budget=self.budget,
                 warnings=(budget_decision.reason_code,),
             )
         item = self.scheduler.next_item(snapshot=self.active_snapshot)
+        execution_result = self.executor.execute(item=item, snapshot=self.active_snapshot, budget=self.budget)
         return ResearchCycleResult(
             cycle_key=f"research-cycle-{item.queue_key}",
             status=ResearchCycleStatus.COMPLETED,
@@ -74,6 +79,7 @@ class ContinuousResearchRuntime:
             snapshot=self.active_snapshot,
             queue_item=item,
             scheduler_result=item,
+            execution_result=execution_result,
             rotation=rotation,
             budget=self.budget,
         )

@@ -120,6 +120,7 @@ class ResearchCycleResult:
     snapshot: HistorySnapshot
     queue_item: ResearchRuntimeQueueItem | None
     scheduler_result: Any | None
+    execution_result: dict[str, Any] | None
     rotation: SnapshotRotationDecision
     budget: ResearchRuntimeBudget
     evidence_source: EvidenceSource = EvidenceSource.RESEARCH
