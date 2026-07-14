@@ -154,15 +154,19 @@ class PatternDiscoveryService:
             pattern_count=len(extraction.patterns),
         )
         writes: list[str] = []
+        patterns = extraction.patterns
         if persist:
+            stored_patterns: list[PatternCandidate] = []
             for pattern in extraction.patterns:
                 stored = self.repository.upsert_pattern(pattern)
                 self.repository.append_observations(stored)
+                stored_patterns.append(stored)
                 writes.append(stored.pattern_key)
+            patterns = tuple(stored_patterns)
         return {
             "schema_version": ROUND28_SCHEMA_VERSION,
             "dry_run": not persist,
-            "patterns": extraction.patterns,
+            "patterns": patterns,
             "family_counts": extraction.family_counts,
             "stopped_by_budget": extraction.stopped_by_budget,
             "budget": budget,
@@ -300,6 +304,8 @@ class PatternDiscoveryService:
                 "pattern-cycle",
                 {
                     "patterns": [pattern.pattern_key for pattern in patterns],
+                    "search_issue_range": patterns[0].search_issue_range if patterns else {},
+                    "history_fingerprints": sorted({pattern.history_fingerprint for pattern in patterns}),
                     "budget": budget,
                     "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 },

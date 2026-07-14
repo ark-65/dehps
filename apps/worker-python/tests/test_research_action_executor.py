@@ -29,11 +29,13 @@ class PatternService:
         )
 
     def status(self):
+        cycle_count = len(self.calls)
         return {
             "repository": {
-                "pattern_count": 2,
-                "feature_count": 1,
-                "strategy_count": 1,
+                "pattern_count": cycle_count * 2,
+                "discovered_count": cycle_count * 2,
+                "feature_count": cycle_count,
+                "strategy_count": cycle_count,
             }
         }
 
@@ -78,7 +80,13 @@ def test_pattern_discovery_executor_runs_research_cycle_and_reports_writes() -> 
     assert result["feature_count"] == 2
     assert result["strategy_count"] == 2
     assert result["submitted_request_key"] == "request-1"
-    assert result["repository"]["pattern_count"] == 2
+    assert result["repository"]["pattern_count"] == 4
+    assert result["repository_delta"]["pattern_count"] == 4
+    assert result["repository_delta"]["feature_count"] == 2
+    assert result["repository_delta"]["strategy_count"] == 2
+    assert result["persisted"]["persisted_lane_count"] == 2
+    assert [call["persist"] for call in service.calls] == [True, True]
+    assert [call["submit"] for call in service.calls] == [True, False]
     assert len(lane_calls) == 2
     assert [call["submit"] for call in lane_calls] == [True, False]
 

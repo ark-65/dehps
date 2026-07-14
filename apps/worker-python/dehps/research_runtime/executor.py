@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from typing import Any, Callable, Protocol
 
+from dehps.agents.requests import AgentRequestStatus, AgentRequestType
 from dehps.pattern_discovery.models import PatternSearchBudget
 from dehps.pattern_discovery.service import PatternDiscoveryService
 from dehps.research_runtime.models import HistorySnapshot, ResearchRuntimeBudget, ResearchRuntimeQueueItem
@@ -90,9 +91,11 @@ class PatternDiscoveryActionExecutor:
             max_lanes=max_workers,
             budget=budget,
         )
+        repository_before = (self.service.status().get("repository") or {}).copy()
         lane_results = self._execute_lanes(lanes, max_workers=max_workers)
-        persisted = self._persist_primary_lane(lanes=lanes, action=item.action)
+        persisted = self._persist_lanes(lanes=lanes, action=item.action)
         status = self.service.status()
+        repository_after = status.get("repository", {})
         successful = [result for result in lane_results if result.get("executed")]
         return {
             "executed": True,
@@ -108,8 +111,9 @@ class PatternDiscoveryActionExecutor:
             "strategy_count": sum(int(result.get("strategy_count") or 0) for result in successful),
             "submitted_request_key": persisted.get("submitted_request_key"),
             "writes_count": persisted.get("writes_count", 0),
-            "persisted_cycle": persisted,
-            "repository": status.get("repository", {}),
+            "persisted": persisted,
+            "repository": repository_after,
+            "repository_delta": _repository_delta(repository_before, repository_after),
             "production_access": False,
             "promotion_allowed_from_research": False,
         }
@@ -139,31 +143,74 @@ class PatternDiscoveryActionExecutor:
                     )
         return tuple(sorted(results, key=lambda item: str(item.get("lane_key") or "")))
 
-    def _persist_primary_lane(self, *, lanes: tuple[dict[str, Any], ...], action: str) -> dict[str, Any]:
+    def _persist_lanes(self, *, lanes: tuple[dict[str, Any], ...], action: str) -> dict[str, Any]:
         if not lanes:
             return {"persisted": False, "reason_code": "no_research_lanes"}
-        primary = lanes[0]
-        cycle = self.service.cycle(
-            draws=primary["draws"],
-            budget=PatternSearchBudget(**dict(primary["budget"])),
-            persist=True,
-            submit=action == "proposal_generation",
-            requested_by="research:resident-runtime",
-        )
+        proposal_open = self._open_pattern_proposal_exists() if action == "proposal_generation" else True
+        persisted_lanes: list[dict[str, Any]] = []
+        submitted_request_key: str | None = None
+        writes_count = 0
+        for lane in lanes:
+            submit = bool(lane.get("submit")) and not proposal_open and submitted_request_key is None
+            cycle = self.service.cycle(
+                draws=lane["draws"],
+                budget=PatternSearchBudget(**dict(lane["budget"])),
+                persist=True,
+                submit=submit,
+                requested_by="research:resident-runtime",
+            )
+            if cycle.submitted_request_key:
+                submitted_request_key = cycle.submitted_request_key
+                proposal_open = True
+            writes_count += len(cycle.writes)
+            persisted_lanes.append(
+                {
+                    "persisted": True,
+                    "reason_code": "pattern_lane_persisted",
+                    "lane_key": lane["lane_key"],
+                    "pattern_cycle_key": cycle.cycle_key,
+                    "pattern_cycle_status": cycle.status,
+                    "discovered_count": len(cycle.patterns),
+                    "validation_count": len(cycle.validations),
+                    "feature_count": len(cycle.features),
+                    "strategy_count": len(cycle.strategies),
+                    "submitted_request_key": cycle.submitted_request_key,
+                    "writes_count": len(cycle.writes),
+                    "search_issue_range": cycle.search_issue_range,
+                }
+            )
         return {
             "persisted": True,
-            "reason_code": "primary_pattern_lane_persisted",
-            "lane_key": primary["lane_key"],
-            "pattern_cycle_key": cycle.cycle_key,
-            "pattern_cycle_status": cycle.status,
-            "discovered_count": len(cycle.patterns),
-            "validation_count": len(cycle.validations),
-            "feature_count": len(cycle.features),
-            "strategy_count": len(cycle.strategies),
-            "submitted_request_key": cycle.submitted_request_key,
-            "writes_count": len(cycle.writes),
-            "search_issue_range": cycle.search_issue_range,
+            "reason_code": "pattern_lanes_persisted_serially",
+            "persisted_lane_count": len(persisted_lanes),
+            "submitted_request_key": submitted_request_key,
+            "writes_count": writes_count,
+            "proposal_submission_skipped": submitted_request_key is None,
+            "proposal_skip_reason": "open_pattern_proposal_exists" if submitted_request_key is None else None,
+            "lanes": tuple(persisted_lanes),
         }
+
+    def _open_pattern_proposal_exists(self) -> bool:
+        repository = getattr(self.service, "agent_repository", None)
+        if repository is None:
+            return False
+        try:
+            repository.ensure_schema()
+            for status in (
+                AgentRequestStatus.SUBMITTED,
+                AgentRequestStatus.UNDER_REVIEW,
+                AgentRequestStatus.APPROVED,
+                AgentRequestStatus.EXECUTING,
+            ):
+                if repository.list_requests(
+                    status=status,
+                    request_type=AgentRequestType.RESEARCH_HYPOTHESIS_PROPOSAL,
+                    limit=1,
+                ):
+                    return True
+        except Exception:
+            return True
+        return False
 
 
 def _build_pattern_lanes(
@@ -175,8 +222,8 @@ def _build_pattern_lanes(
 ) -> tuple[dict[str, Any], ...]:
     if not history:
         return ()
-    windows = (
-        None,
+    cycle_index = max(0, int(budget.cycles_used))
+    window_sizes = (
         3200,
         2800,
         2400,
@@ -192,24 +239,43 @@ def _build_pattern_lanes(
         120,
         90,
         60,
+        45,
+        30,
     )
     lanes: list[dict[str, Any]] = []
     seen_ranges: set[tuple[str, str]] = set()
     lane_memory = min(20, max(1, int(budget.research_memory_gb) // max(1, max_lanes)))
-    for window in windows:
-        draws = history if window is None or window >= len(history) else history[-window:]
+    candidates: list[tuple[str, tuple[DrawRecord, ...]]] = []
+    if cycle_index % 12 == 0:
+        candidates.append(("full-history", history))
+    for lane_index in range(max_lanes * 3):
+        window = min(len(history), window_sizes[(cycle_index + lane_index) % len(window_sizes)])
+        max_offset = max(0, len(history) - window)
+        if max_offset:
+            step = max(1, window // 3)
+            offset = ((cycle_index * max_lanes + lane_index) * step) % (max_offset + 1)
+        else:
+            offset = 0
+        end = len(history) - offset
+        start = max(0, end - window)
+        draws = history[start:end]
         if len(draws) < 30:
             continue
         issue_range = (str(draws[0][0]), str(draws[-1][0]))
         if issue_range in seen_ranges:
             continue
         seen_ranges.add(issue_range)
-        lane_key = "full-history" if window is None or window >= len(history) else f"tail-{len(draws)}"
+        lane_key = f"window-{len(draws)}-{issue_range[0]}-{issue_range[1]}"
+        candidates.append((lane_key, draws))
+        if len(candidates) >= max_lanes:
+            break
+    submit_index = cycle_index % max(1, min(max_lanes, len(candidates)))
+    for index, (lane_key, draws) in enumerate(candidates[:max_lanes]):
         lanes.append(
             {
                 "lane_key": lane_key,
                 "draws": draws,
-                "submit": action == "proposal_generation" and not lanes,
+                "submit": action == "proposal_generation" and index == submit_index,
                 "requested_by": "research:resident-runtime",
                 "budget": {
                     "families": 10,
@@ -222,8 +288,6 @@ def _build_pattern_lanes(
                 },
             }
         )
-        if len(lanes) >= max_lanes:
-            break
     return tuple(lanes)
 
 
@@ -250,4 +314,23 @@ def _run_pattern_lane(payload: dict[str, Any]) -> dict[str, Any]:
         "submitted_request_key": None,
         "writes_count": 0,
         "search_issue_range": cycle.search_issue_range,
+    }
+
+
+def _repository_delta(before: dict[str, Any], after: dict[str, Any]) -> dict[str, int]:
+    keys = (
+        "pattern_count",
+        "discovered_count",
+        "screened_count",
+        "frozen_supported_count",
+        "rejected_count",
+        "feature_count",
+        "strategy_count",
+        "observation_count",
+        "validation_count",
+        "cycle_count",
+    )
+    return {
+        key: int(after.get(key) or 0) - int(before.get(key) or 0)
+        for key in keys
     }

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import replace
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from typing import Any
@@ -159,10 +160,12 @@ class PatternDiscoveryRepository:
             ).fetchone()
             if row is None:
                 row = cursor.execute(
-                    "SELECT pattern_json FROM discovered_patterns WHERE formula_hash = %s",
+                    "SELECT pattern_key FROM discovered_patterns WHERE formula_hash = %s",
                     (pattern.formula_hash,),
                 ).fetchone()
         assert row is not None
+        if "pattern_key" in row:
+            return replace(pattern, pattern_key=str(row["pattern_key"]))
         return _pattern_from_json(dict(row["pattern_json"]))
 
     def append_observations(self, pattern: PatternCandidate) -> int:
@@ -287,9 +290,15 @@ class PatternDiscoveryRepository:
             ).fetchone()
             features = cursor.execute("SELECT count(*)::int AS count FROM synthesized_features").fetchone()
             strategies = cursor.execute("SELECT count(*)::int AS count FROM synthesized_strategies").fetchone()
+            observations = cursor.execute("SELECT count(*)::int AS count FROM pattern_observations").fetchone()
+            validations = cursor.execute("SELECT count(*)::int AS count FROM pattern_validations").fetchone()
+            cycles = cursor.execute("SELECT count(*)::int AS count FROM pattern_search_cycles").fetchone()
         return {
             "enabled": True,
             **dict(counts or {}),
+            "observation_count": int(observations["count"] if observations else 0),
+            "validation_count": int(validations["count"] if validations else 0),
+            "cycle_count": int(cycles["count"] if cycles else 0),
             "feature_count": int(features["count"] if features else 0),
             "strategy_count": int(strategies["count"] if strategies else 0),
         }
