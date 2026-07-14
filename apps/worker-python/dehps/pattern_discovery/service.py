@@ -369,6 +369,13 @@ class PatternDiscoveryService:
             ],
         }
         key = request_key or self._proposal_request_key(hypothesis_key, pattern, feature, strategy)
+        metadata = {
+            "schema_version": ROUND28_SCHEMA_VERSION,
+            "pattern_key": pattern.pattern_key,
+            "feature_key": feature.feature_key,
+            "strategy_key": strategy.strategy_key,
+            "formula_hash": pattern.formula_hash,
+        }
         try:
             request = self.agent_service.create_draft(
                 request_key=key,
@@ -383,18 +390,23 @@ class PatternDiscoveryService:
                 payload=payload,
                 environment="isolated",
                 risk_level=AgentRiskLevel.LOW,
-                metadata={
-                    "schema_version": ROUND28_SCHEMA_VERSION,
-                    "pattern_key": pattern.pattern_key,
-                    "feature_key": feature.feature_key,
-                    "strategy_key": strategy.strategy_key,
-                    "formula_hash": pattern.formula_hash,
-                },
+                metadata=metadata,
             )
         except AgentRequestConflictError:
             existing = self.agent_repository.get_request(key)
-            if existing.payload != payload or existing.status != AgentRequestStatus.SUBMITTED:
+            same_request = (
+                existing.request_type == AgentRequestType.RESEARCH_HYPOTHESIS_PROPOSAL
+                and all(existing.metadata.get(name) == value for name, value in metadata.items())
+            )
+            if not same_request:
                 raise
+            if existing.status == AgentRequestStatus.DRAFT:
+                return self.agent_service.submit(
+                    existing.request_key,
+                    actor_role=AgentRole.RESEARCH,
+                    actor_id=requested_by,
+                    environment="isolated",
+                )
             return existing
         return self.agent_service.submit(
             request.request_key,

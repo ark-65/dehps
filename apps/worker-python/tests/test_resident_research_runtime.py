@@ -74,6 +74,7 @@ def test_resident_research_runtime_runs_ten_cycles_and_audits_snapshot(tmp_path,
     assert all(cycle["forward_wait_blocks_research"] is False for cycle in cycles)
     assert all(cycle["evidence_source"] == "research" for cycle in cycles)
     assert all(cycle["snapshot_stable_within_cycle"] is True for cycle in cycles)
+    assert all(cycle["execution_result"]["executed"] is False for cycle in cycles)
     assert cycles[-1]["cycle_number"] == 10
 
 

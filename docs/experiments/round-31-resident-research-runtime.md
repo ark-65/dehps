@@ -31,6 +31,13 @@ The intended operating state is:
   - legacy supervisor concurrency blocking;
   - resident forward waiting status;
   - draw-sync default no legacy training resume.
+- Follow-up runtime fix:
+  - resident research cycles now execute wired research actions instead of only
+    emitting queued items;
+  - current safe executor runs Round 28 Pattern Discovery / Feature Synthesis /
+    Strategy Synthesis / Proposal Generation with research-only persistence;
+  - duplicate pattern proposal submission is idempotent, so repeated resident
+    cycles reuse the existing Research Proposal Request instead of crashing.
 
 ## Operational boundary
 
@@ -87,6 +94,9 @@ Runtime state after service start:
 
 - Research runtime: `active=true`, `status=research_running`,
   `forward_wait_blocks_research=false`.
+- Research execution: Pattern Discovery wrote `83` patterns, `50` features,
+  `30` strategies, and submitted
+  `research-proposal-pattern-440767addb399de1`.
 - Forward runtime: `active=true`, `status=forward_waiting`.
 - Draw sync watch: `status=ok`, `resume_on_event=false`.
 - Legacy supervisor process: none.

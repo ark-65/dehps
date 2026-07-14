@@ -13,6 +13,7 @@ from typing import Any
 
 from dehps.artifacts import atomic_write_text
 from dehps.config import ROOT_DIR
+from dehps.research_runtime.executor import PatternDiscoveryActionExecutor
 from dehps.research_runtime.models import (
     ResidentResearchRuntimeConfig,
     ResearchCycleResult,
@@ -46,7 +47,10 @@ class ResidentResearchRuntime:
         self.config = config or ResidentResearchRuntimeConfig()
         self.config.validate()
         self.budget = budget or ResearchRuntimeBudget()
-        self.runtime = runtime or ContinuousResearchRuntime(budget=self.budget)
+        self.runtime = runtime or ContinuousResearchRuntime(
+            budget=self.budget,
+            executor=PatternDiscoveryActionExecutor(),
+        )
         self.cycles_completed = 0
         self._stopping = False
 
@@ -115,6 +119,7 @@ class ResidentResearchRuntime:
             "snapshot_stable_within_cycle": start_snapshot.snapshot_key == end_snapshot.snapshot_key,
             "rotation": result.rotation,
             "budget": result.budget,
+            "execution_result": result.execution_result,
             "evidence_source": result.evidence_source.value,
             "forward_wait_blocks_research": False,
         }
