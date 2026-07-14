@@ -47,6 +47,13 @@ The intended operating state is:
     learning/evidence accumulation is visible even when formulas are canonicalized;
   - the packaged resident unit now uses `--interval-seconds 1` and
     `--daily-cycle-limit 5760`.
+- Follow-up restart-cursor fix:
+  - lane selection now uses the persisted pattern repository `cycle_count` as
+    the durable learning cursor;
+  - a restarted resident worker no longer falls back to process-local
+    `cycles_used=0` and repeats old windows;
+  - cold-start smoke produced positive repository growth instead of
+    `repository_delta=0`.
 
 ## Operational boundary
 
@@ -115,6 +122,13 @@ Runtime state after service start:
   `repository_delta.feature_count=32`, and
   `repository_delta.strategy_count=26`; proposal submission was skipped because
   an open pattern proposal already existed.
+- Durable cursor cold-start smoke: with process-local `cycles_used=0` and
+  repository `cycle_count=164`, a 4-lane resident cycle resumed at new windows
+  and produced `repository_delta.pattern_count=154`,
+  `repository_delta.feature_count=76`,
+  `repository_delta.strategy_count=54`,
+  `repository_delta.validation_count=304`, and
+  `repository_delta.cycle_count=4`.
 - Forward runtime: `active=true`, `status=forward_waiting`.
 - Draw sync watch: `status=ok`, `resume_on_event=false`.
 - Legacy supervisor process: none.

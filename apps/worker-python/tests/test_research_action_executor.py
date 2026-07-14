@@ -36,6 +36,7 @@ class PatternService:
                 "discovered_count": cycle_count * 2,
                 "feature_count": cycle_count,
                 "strategy_count": cycle_count,
+                "cycle_count": cycle_count,
             }
         }
 
@@ -89,6 +90,53 @@ def test_pattern_discovery_executor_runs_research_cycle_and_reports_writes() -> 
     assert [call["submit"] for call in service.calls] == [True, False]
     assert len(lane_calls) == 2
     assert [call["submit"] for call in lane_calls] == [True, False]
+
+
+def test_pattern_discovery_executor_uses_repository_cycle_count_as_durable_cursor() -> None:
+    service = PatternService()
+
+    def status():
+        return {
+            "repository": {
+                "pattern_count": 0,
+                "feature_count": 0,
+                "strategy_count": 0,
+                "cycle_count": 13,
+            }
+        }
+
+    service.status = status  # type: ignore[method-assign]
+    lane_keys = []
+
+    def lane_runner(payload):
+        lane_keys.append(payload["lane_key"])
+        return {
+            "executed": True,
+            "reason_code": "pattern_lane_executed",
+            "lane_key": payload["lane_key"],
+            "discovered_count": 1,
+            "validation_count": 1,
+            "feature_count": 1,
+            "strategy_count": 1,
+            "submitted_request_key": None,
+            "writes_count": 0,
+        }
+
+    PatternDiscoveryActionExecutor(service, lane_runner=lane_runner).execute(  # type: ignore[arg-type]
+        item=ResearchRuntimeQueueItem(
+            queue_key="queue-1",
+            action="pattern_mining",
+            status="queued",
+            snapshot_key="snapshot-1",
+            history_fingerprint="fp",
+        ),
+        snapshot=HistorySnapshot("snapshot-1", "2026079", 1, "fp"),
+        budget=ResearchRuntimeBudget(research_cpu=2, cycles_used=0),
+    )
+
+    assert len(lane_keys) == 2
+    assert "full-history" not in lane_keys
+    assert all(key.startswith("window-") for key in lane_keys)
 
 
 def test_pattern_discovery_executor_skips_unwired_actions() -> None:
