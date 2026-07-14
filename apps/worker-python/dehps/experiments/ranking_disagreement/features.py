@@ -50,9 +50,7 @@ def compute_features(matrix: RankMatrix) -> FeatureFrame:
             "version": FEATURE_VERSION,
             "rank_matrix_fingerprint": matrix.fingerprint,
             "numeric_hashes": {key: array_hash(value) for key, value in sorted(numeric.items())},
-            "categorical_hashes": {
-                key: stable_hash(value.tolist()) for key, value in sorted(categorical.items())
-            },
+            "categorical_hashes": {key: array_hash(value) for key, value in sorted(categorical.items())},
         }
     )
     return FeatureFrame(
@@ -103,7 +101,7 @@ def _ranker_order_entropy(ranks: np.ndarray) -> np.ndarray:
 
 def _band_by_quantile(values: np.ndarray, *, prefix: str) -> np.ndarray:
     q1, q2, q3 = np.quantile(values, [0.25, 0.50, 0.75], method="linear")
-    bands = np.full(values.shape[0], f"{prefix}_extreme", dtype=object)
+    bands = np.full(values.shape[0], f"{prefix}_extreme", dtype="U24")
     bands[values <= q3] = f"{prefix}_high"
     bands[values <= q2] = f"{prefix}_medium"
     bands[values <= q1] = f"{prefix}_low"
