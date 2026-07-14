@@ -44,6 +44,7 @@ Independent draw sync entrypoints:
 
 - `dehps draw-sync once`
 - `dehps draw-sync watch`
+- `scripts/run_draw_sync_watch.py`
 - `scripts/ensure_draw_sync_watch.sh`
 - `deploy/systemd/dehps-draw-sync.service`
 - `deploy/systemd/dehps-draw-sync.timer`
@@ -77,3 +78,4 @@ No API route can modify training, draw history, events, or production state.
 - A failed launch returns the event to `failed`, which is retryable.
 - A consumed event cannot launch training again.
 - Draw-sync and training-resume locks are separate from the heavy training lock.
+- The packaged systemd draw-sync service has `OnSuccess=dehps-training-resume.service`; the resume controller still performs all event, fingerprint, PID, heavy-lock, and current-ref checks before launching anything.

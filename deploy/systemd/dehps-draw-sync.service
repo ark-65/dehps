@@ -3,12 +3,17 @@ Description=DEHPS audited draw synchronization
 Documentation=file:/home/ark/workspace/dehps/docs/architecture/draw-sync-and-training-resume.md
 Wants=network-online.target
 After=network-online.target postgresql.service
+OnSuccess=dehps-training-resume.service
+StartLimitIntervalSec=15min
+StartLimitBurst=3
 
 [Service]
 Type=oneshot
 WorkingDirectory=/home/ark/workspace/dehps/apps/worker-python
 EnvironmentFile=-/home/ark/workspace/dehps/.env
 ExecStart=/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python -m dehps.cli draw-sync once
+Restart=on-failure
+RestartSec=30s
 
 [Install]
 WantedBy=multi-user.target

@@ -9,12 +9,14 @@ Decouple official draw synchronization from the training forward-wait gate, then
 - Added `dehps.draw_sync` with formal sync run records, draw audits, issue detection, idempotent new-issue events, a scheduler policy, and a watch process.
 - Added `dehps.forward_state` to reconcile audited draw events with the supervisor's pending forward issue.
 - Added `dehps.training_resume` to claim one event, launch one supervisor, persist the attempt, and mark events consumed only after launch succeeds.
+- Added the root `scripts/run_draw_sync_watch.py` wrapper expected by deployment docs.
 - Added CLI commands:
   - `dehps draw-sync once|watch|status|events`
   - `dehps forward reconcile|status`
   - `dehps training-resume check|execute|history`
 - Added read-only API modules for draw sync, training resume, and forward state.
 - Added systemd units for periodic draw sync and explicit training resume.
+- Wired `dehps-draw-sync.service` to trigger `dehps-training-resume.service` on successful sync service completion; the resume controller still gates launch on an audited pending event.
 - Updated `scripts/ensure_training_supervisor.sh` so the training watchdog no longer performs remote draw sync.
 
 ## Verification focus
