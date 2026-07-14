@@ -5,7 +5,7 @@ const ROLES = ['research', 'engineering', 'reviewer', 'operator'] as const;
 const ACTIONS = [
   'read_hypothesis', 'create_hypothesis_proposal', 'create_experiment_plan',
   'submit_preregistration', 'add_evidence_proposal', 'submit_hypothesis_decision',
-  'create_engineering_request', 'modify_code', 'run_tests', 'run_isolated_experiment',
+  'schedule_research', 'create_engineering_request', 'modify_code', 'run_tests', 'run_isolated_experiment',
   'create_pull_request', 'review_request', 'approve_request', 'reject_request',
   'cancel_request', 'restart_production_supervisor', 'apply_database_migration',
   'publish_release', 'promote_production_strategy',
@@ -16,7 +16,7 @@ const REQUEST_STATUSES = new Set([
 ]);
 const REQUEST_TYPES = new Set([
   'research_hypothesis_proposal', 'research_preregistration', 'research_experiment_plan',
-  'research_evidence_submission', 'research_decision_submission', 'engineering_implementation',
+  'research_evidence_submission', 'research_decision_submission', 'research_scheduler_request', 'engineering_implementation',
   'engineering_bug_fix', 'engineering_test_addition', 'engineering_runtime_fix',
   'engineering_experiment_tool', 'operator_isolated_run', 'operator_database_migration',
   'operator_supervisor_restart', 'operator_release',
@@ -26,7 +26,7 @@ const ROLE_ACTIONS: Record<(typeof ROLES)[number], string[]> = {
   research: [
     'read_hypothesis', 'create_hypothesis_proposal', 'create_experiment_plan',
     'submit_preregistration', 'add_evidence_proposal', 'submit_hypothesis_decision',
-    'create_engineering_request', 'cancel_request',
+    'schedule_research', 'create_engineering_request', 'cancel_request',
   ],
   engineering: [
     'read_hypothesis', 'create_engineering_request', 'modify_code', 'run_tests',

@@ -40,6 +40,7 @@ from dehps.research_autonomy.validation import HypothesisProposalValidator
 from dehps.research_planning.service import ExperimentPlanningService
 from dehps.experiments.ranking_disagreement.cli import app as ranking_disagreement_app
 from dehps.research_evidence.service import EvidenceEvaluationService
+from dehps.research_scheduler.scheduler import AutonomousResearchScheduler
 
 app = typer.Typer(help="DEHPS worker commands")
 agent_app = typer.Typer(
@@ -57,6 +58,7 @@ hypothesis_app = typer.Typer(
 )
 evidence_app = typer.Typer(help="Build and inspect formal autonomous research Evidence.")
 decision_app = typer.Typer(help="Draft and review autonomous hypothesis decisions.")
+scheduler_app = typer.Typer(help="Autonomous research scheduler. It only creates audited Research Requests.")
 app.add_typer(hypothesis_app, name="hypothesis")
 app.add_typer(agent_app, name="agent")
 app.add_typer(research_context_app, name="research-context")
@@ -65,6 +67,7 @@ app.add_typer(experiment_plan_app, name="experiment-plan")
 app.add_typer(ranking_disagreement_app, name="ranking-disagreement")
 app.add_typer(evidence_app, name="evidence")
 app.add_typer(decision_app, name="decision")
+app.add_typer(scheduler_app, name="scheduler")
 
 
 @app.command()
@@ -100,6 +103,12 @@ def _experiment_planning_service() -> ExperimentPlanningService:
 
 def _evidence_service() -> EvidenceEvaluationService:
     service = EvidenceEvaluationService()
+    service.ensure_schema()
+    return service
+
+
+def _scheduler_service() -> AutonomousResearchScheduler:
+    service = AutonomousResearchScheduler()
     service.ensure_schema()
     return service
 
@@ -499,6 +508,77 @@ def decision_reject(
     try:
         reason = _load_object(reason_file) if reason_file else None
         _emit(_evidence_service().reject_decision(request_key=request_key, reviewer_id=reviewer_id, reason=reason))
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@scheduler_app.command("next")
+def scheduler_next(
+    budget_file: Path | None = typer.Option(None, "--budget-file"),
+) -> None:
+    """Compute the next research action without writing queue or Agent Request rows."""
+    try:
+        budget = _load_object(budget_file) if budget_file else None
+        _emit(_scheduler_service().next_action(budget=budget))
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@scheduler_app.command("once")
+def scheduler_once(
+    requested_by: str = typer.Option("research:scheduler", "--requested-by"),
+    budget_file: Path | None = typer.Option(None, "--budget-file"),
+    create_request: bool = typer.Option(True, "--create-request/--queue-only"),
+) -> None:
+    """Run one scheduler decision and create at most one Research Scheduler Request."""
+    try:
+        budget = _load_object(budget_file) if budget_file else None
+        _emit(
+            _scheduler_service().once(
+                requested_by=requested_by,
+                budget=budget,
+                create_request=create_request,
+            )
+        )
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@scheduler_app.command("run")
+def scheduler_run(
+    requested_by: str = typer.Option("research:scheduler", "--requested-by"),
+    max_iterations: int = typer.Option(1, "--max-iterations", min=1, max=10),
+    budget_file: Path | None = typer.Option(None, "--budget-file"),
+) -> None:
+    """Run bounded scheduler iterations; it stops on WAIT/BLOCK/STOP/CONTINUE."""
+    try:
+        budget = _load_object(budget_file) if budget_file else None
+        _emit(
+            _scheduler_service().run(
+                requested_by=requested_by,
+                max_iterations=max_iterations,
+                budget=budget,
+            )
+        )
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@scheduler_app.command("status")
+def scheduler_status() -> None:
+    try:
+        _emit(_scheduler_service().status())
+    except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@scheduler_app.command("queue")
+def scheduler_queue(
+    limit: int = typer.Option(100, min=1, max=500),
+    offset: int = typer.Option(0, min=0),
+) -> None:
+    try:
+        _emit(_scheduler_service().queue(limit=limit, offset=offset))
     except (AgentAuthorityError, HypothesisRegistryError, ValueError, OSError, TypeError) as exc:
         _fail(exc)
 

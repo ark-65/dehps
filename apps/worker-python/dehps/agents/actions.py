@@ -10,6 +10,7 @@ class AgentAction(str, Enum):
     SUBMIT_PREREGISTRATION = "submit_preregistration"
     ADD_EVIDENCE_PROPOSAL = "add_evidence_proposal"
     SUBMIT_HYPOTHESIS_DECISION = "submit_hypothesis_decision"
+    SCHEDULE_RESEARCH = "schedule_research"
     CREATE_ENGINEERING_REQUEST = "create_engineering_request"
     MODIFY_CODE = "modify_code"
     RUN_TESTS = "run_tests"

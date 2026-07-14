@@ -13,6 +13,7 @@ ROLE_ACTION_PERMISSIONS: dict[AgentRole, frozenset[AgentAction]] = {
             AgentAction.SUBMIT_PREREGISTRATION,
             AgentAction.ADD_EVIDENCE_PROPOSAL,
             AgentAction.SUBMIT_HYPOTHESIS_DECISION,
+            AgentAction.SCHEDULE_RESEARCH,
             AgentAction.CREATE_ENGINEERING_REQUEST,
             AgentAction.CANCEL_REQUEST,
         }
