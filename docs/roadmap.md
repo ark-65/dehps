@@ -67,7 +67,8 @@ At the end of each round:
 | 26 | Autonomous Research Scheduler | Done | `docs/experiments/round-26-autonomous-research-scheduler.md` |
 | 27 | Autonomous Experiment Implementation Contracts | Done | `docs/experiments/round-27-autonomous-engineering.md` |
 | 28 | Autonomous Pattern Discovery and Strategy Synthesis | Done | `docs/experiments/round-28-autonomous-pattern-discovery.md` |
-| 29 | Decouple Data Synchronization and Automatic Training Resume | In review | `docs/experiments/round-29-sync-resume-decoupling.md` |
+| 29 | Decouple Data Synchronization and Automatic Training Resume | Done | `docs/experiments/round-29-sync-resume-decoupling.md` |
+| 30 | Decouple Continuous Research From Forward Validation | In review | `docs/experiments/round-30-runtime-decoupling.md` |
 
 ## Round 1: Basic Computation And Backtest Loop
 

@@ -42,7 +42,9 @@ from dehps.experiments.ranking_disagreement.cli import app as ranking_disagreeme
 from dehps.draw_sync.scheduler import DrawSyncSchedulePolicy, DrawSyncWatch
 from dehps.draw_sync.service import DrawSyncService
 from dehps.forward_state.service import ForwardStateService
+from dehps.forward_runtime.service import ForwardRuntimeService
 from dehps.research_evidence.service import EvidenceEvaluationService
+from dehps.research_runtime.runtime import ContinuousResearchRuntime
 from dehps.research_scheduler.scheduler import AutonomousResearchScheduler
 from dehps.engineering.service import AutonomousEngineeringService
 from dehps.pattern_discovery.models import PatternSearchBudget
@@ -71,6 +73,8 @@ pattern_app = typer.Typer(help="Autonomous pattern discovery and declarative str
 draw_sync_app = typer.Typer(help="Independent audited draw synchronization.")
 forward_app = typer.Typer(help="Forward-state reconciliation for training resume.")
 training_resume_app = typer.Typer(help="Exactly-once training resume from audited draw events.")
+research_runtime_app = typer.Typer(help="Continuous research runtime decoupled from forward validation.")
+forward_runtime_app = typer.Typer(help="Forward validation runtime decoupled from continuous research.")
 app.add_typer(hypothesis_app, name="hypothesis")
 app.add_typer(agent_app, name="agent")
 app.add_typer(research_context_app, name="research-context")
@@ -85,6 +89,8 @@ app.add_typer(pattern_app, name="pattern")
 app.add_typer(draw_sync_app, name="draw-sync")
 app.add_typer(forward_app, name="forward")
 app.add_typer(training_resume_app, name="training-resume")
+app.add_typer(research_runtime_app, name="research-runtime")
+app.add_typer(forward_runtime_app, name="forward-runtime")
 
 
 @app.command()
@@ -152,6 +158,14 @@ def _training_resume_service() -> TrainingResumeService:
     service = TrainingResumeService()
     service.repository.ensure_schema()
     return service
+
+
+def _research_runtime() -> ContinuousResearchRuntime:
+    return ContinuousResearchRuntime()
+
+
+def _forward_runtime_service() -> ForwardRuntimeService:
+    return ForwardRuntimeService()
 
 
 def _load_object(path: Path) -> dict[str, Any]:
@@ -1522,6 +1536,30 @@ def training_resume_history(
 ) -> None:
     try:
         _emit(_training_resume_service().history(limit=limit, offset=offset))
+    except (ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@research_runtime_app.command("status")
+def research_runtime_status() -> None:
+    try:
+        _emit(_research_runtime().status())
+    except (ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@research_runtime_app.command("once")
+def research_runtime_once() -> None:
+    try:
+        _emit({"result": _research_runtime().once()})
+    except (ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@forward_runtime_app.command("status")
+def forward_runtime_status(event_key: str | None = typer.Option(None, "--event-key")) -> None:
+    try:
+        _emit(_forward_runtime_service().status(event_key=event_key))
     except (ValueError, OSError, TypeError) as exc:
         _fail(exc)
 

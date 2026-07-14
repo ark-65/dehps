@@ -33,7 +33,7 @@ class EvidenceRepository:
                 metrics=record.to_metrics(),
                 artifact_path=record.artifact_path,
                 content_hash=record.content_hash,
-                metadata=record.metadata,
+                metadata={**record.metadata, "evidence_source": record.evidence_source.value},
             )
             appended.append(replace(record, registry_id=evidence.id))
         return tuple(appended)
