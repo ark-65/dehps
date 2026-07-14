@@ -19,7 +19,7 @@ if [[ "$pid" =~ ^[0-9]+$ ]] && ps -p "$pid" -o args= 2>/dev/null | grep -Fq "scr
   exit 0
 fi
 
-nohup .venv/bin/python "$REPO_ROOT/scripts/run_draw_sync_watch.py" \
+setsid .venv/bin/python "$REPO_ROOT/scripts/run_draw_sync_watch.py" \
   --interval-seconds "${DEHPS_DRAW_SYNC_INTERVAL_SECONDS:-900}" \
   --hot-interval-seconds "${DEHPS_DRAW_SYNC_HOT_INTERVAL_SECONDS:-300}" \
   --timezone "${DEHPS_DRAW_SYNC_TIMEZONE:-Asia/Shanghai}" \
