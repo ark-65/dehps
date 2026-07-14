@@ -1,0 +1,108 @@
+# Round 31 - Resident Continuous Research Runtime
+
+## Goal
+
+Deploy the Round 30 continuous research runtime as the resident research worker,
+while the forward runtime waits independently for new draw evidence.
+
+The intended operating state is:
+
+- Continuous Research Runtime: resident, cycling, and never waiting for forward.
+- Forward Runtime: resident and allowed to wait for the next issue.
+- Draw Sync: managed by the draw-sync timer/watch path.
+- Legacy Training Supervisor: not running.
+
+## Changes
+
+- Added a resident research runtime wrapper with PID, heartbeat, lock, state, and
+  JSONL cycle audit.
+- Added a resident forward runtime wrapper with PID, heartbeat, lock, and state.
+- Added CLI commands:
+  - `dehps research-runtime run`
+  - `dehps forward-runtime run`
+- Added user-service-ready systemd units:
+  - `deploy/systemd/dehps-research-runtime.service`
+  - `deploy/systemd/dehps-forward-runtime.service`
+  - updated `deploy/systemd/dehps-draw-sync.service`
+- Changed draw-sync watch default so new events no longer launch legacy training
+  resume unless explicitly requested with `--resume-on-event`.
+- Added tests for:
+  - 10 resident research cycles;
+  - legacy supervisor concurrency blocking;
+  - resident forward waiting status;
+  - draw-sync default no legacy training resume.
+
+## Operational boundary
+
+Research evidence remains source=`research` and cannot promote production
+behavior. Promotion remains forward-only.
+
+The resident research worker refuses to start when a legacy supervisor process is
+active. Stale PID files may be cleaned only after the PID is confirmed inactive.
+
+## Validation
+
+Completed:
+
+```bash
+cd apps/worker-python
+.venv/bin/python -m pytest -q tests/test_resident_research_runtime.py tests/test_resident_forward_runtime.py tests/test_draw_sync_scheduler.py
+# 8 passed
+
+.venv/bin/python -m compileall -q dehps/research_runtime dehps/forward_runtime dehps/draw_sync scripts/run_research_runtime.py scripts/run_forward_runtime.py dehps/cli.py
+
+.venv/bin/python -m pytest -q
+# 938 passed
+
+DB_PORT=1 .venv/bin/python -m pytest -q
+# 938 passed
+```
+
+Resident smoke:
+
+- `dehps research-runtime run --max-cycles 10 --interval-seconds 0`
+  completed `cycles_completed=10`.
+- Last 10 cycle records had:
+  - `snapshot_stable_within_cycle=true`
+  - `evidence_source=research`
+  - `forward_wait_blocks_research=false`
+  - snapshot key `history-snapshot-2026079-d9aae1656126e465`
+- `dehps forward-runtime run --max-checks 2 --interval-seconds 0`
+  reported `forward_waiting`.
+
+Installed user services:
+
+```bash
+systemctl --user status dehps-research-runtime.service
+# Active: active (running)
+
+systemctl --user status dehps-forward-runtime.service
+# Active: active (running)
+
+systemctl --user status dehps-draw-sync.timer
+# Active: active (waiting)
+```
+
+Runtime state after service start:
+
+- Research runtime: `active=true`, `status=research_running`,
+  `forward_wait_blocks_research=false`.
+- Forward runtime: `active=true`, `status=forward_waiting`.
+- Draw sync watch: `status=ok`, `resume_on_event=false`.
+- Legacy supervisor process: none.
+- `dehps-training-supervisor.service`: not found/disabled.
+- `dehps-training-resume.service`: not found/disabled.
+
+## Smoke plan
+
+1. Confirm no legacy training supervisor process is running.
+2. Confirm stale legacy PID files before cleanup.
+3. Install user systemd units and reload the user daemon.
+4. Start research runtime, forward runtime, and draw-sync timer.
+5. Run at least 10 research cycles and verify:
+   - cycle count increases;
+   - snapshot remains stable within each cycle;
+   - `forward_wait_blocks_research=false`;
+   - evidence source is `research`;
+   - forward runtime remains `forward_waiting`;
+   - legacy supervisor process count remains zero.

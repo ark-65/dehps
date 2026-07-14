@@ -83,6 +83,23 @@ class ResearchRuntimeBudget:
 
 
 @dataclass(frozen=True)
+class ResidentResearchRuntimeConfig:
+    interval_seconds: float = 1.0
+    max_cycles: int | None = None
+    lock_path: str = "runtime/logs/research-runtime.lock"
+    pid_path: str = "runtime/logs/research-runtime.pid"
+    state_path: str = "runtime/logs/research-runtime-state.json"
+    cycle_log_path: str = "runtime/logs/research-runtime-cycles.jsonl"
+    legacy_supervisor_patterns: tuple[str, ...] = ("run_training_supervisor", "training_supervisor")
+
+    def validate(self) -> None:
+        if self.interval_seconds < 0:
+            raise ValueError("interval_seconds must be non-negative")
+        if self.max_cycles is not None and self.max_cycles < 1:
+            raise ValueError("max_cycles must be positive when provided")
+
+
+@dataclass(frozen=True)
 class ResearchRuntimeQueueItem:
     queue_key: str
     action: str

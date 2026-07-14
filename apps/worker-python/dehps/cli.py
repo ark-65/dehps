@@ -42,8 +42,11 @@ from dehps.experiments.ranking_disagreement.cli import app as ranking_disagreeme
 from dehps.draw_sync.scheduler import DrawSyncSchedulePolicy, DrawSyncWatch
 from dehps.draw_sync.service import DrawSyncService
 from dehps.forward_state.service import ForwardStateService
+from dehps.forward_runtime.resident import ResidentForwardRuntime, ResidentForwardRuntimeConfig
 from dehps.forward_runtime.service import ForwardRuntimeService
 from dehps.research_evidence.service import EvidenceEvaluationService
+from dehps.research_runtime.models import ResidentResearchRuntimeConfig, ResearchRuntimeBudget
+from dehps.research_runtime.resident import ResidentResearchRuntime
 from dehps.research_runtime.runtime import ContinuousResearchRuntime
 from dehps.research_scheduler.scheduler import AutonomousResearchScheduler
 from dehps.engineering.service import AutonomousEngineeringService
@@ -166,6 +169,37 @@ def _research_runtime() -> ContinuousResearchRuntime:
 
 def _forward_runtime_service() -> ForwardRuntimeService:
     return ForwardRuntimeService()
+
+
+def _resident_research_runtime(
+    *,
+    interval_seconds: float,
+    max_cycles: int | None,
+    research_cpu: int,
+    forward_cpu: int,
+    total_memory_gb: int,
+    research_memory_gb: int,
+    forward_memory_gb: int,
+    daily_cycle_limit: int,
+) -> ResidentResearchRuntime:
+    budget = ResearchRuntimeBudget(
+        research_cpu=research_cpu,
+        forward_cpu=forward_cpu,
+        total_memory_gb=total_memory_gb,
+        research_memory_gb=research_memory_gb,
+        forward_memory_gb=forward_memory_gb,
+        daily_cycle_limit=daily_cycle_limit,
+    )
+    return ResidentResearchRuntime(
+        budget=budget,
+        config=ResidentResearchRuntimeConfig(interval_seconds=interval_seconds, max_cycles=max_cycles),
+    )
+
+
+def _resident_forward_runtime(*, interval_seconds: float, max_checks: int | None) -> ResidentForwardRuntime:
+    return ResidentForwardRuntime(
+        config=ResidentForwardRuntimeConfig(interval_seconds=interval_seconds, max_checks=max_checks),
+    )
 
 
 def _load_object(path: Path) -> dict[str, Any]:
@@ -1461,7 +1495,7 @@ def draw_sync_watch(
     hot_interval_seconds: int = typer.Option(300, "--hot-interval-seconds", min=300),
     cold_interval_seconds: int = typer.Option(3600, "--cold-interval-seconds", min=900),
     timezone: str = typer.Option("Asia/Shanghai", "--timezone"),
-    resume_on_event: bool = typer.Option(True, "--resume-on-event/--no-resume-on-event"),
+    resume_on_event: bool = typer.Option(False, "--resume-on-event/--no-resume-on-event"),
     once: bool = typer.Option(False, "--once"),
 ) -> None:
     try:
@@ -1556,11 +1590,50 @@ def research_runtime_once() -> None:
         _fail(exc)
 
 
+@research_runtime_app.command("run")
+def research_runtime_run(
+    interval_seconds: float = typer.Option(1.0, "--interval-seconds", min=0.0),
+    max_cycles: int | None = typer.Option(None, "--max-cycles", min=1),
+    research_cpu: int = typer.Option(12, "--research-cpu", min=1),
+    forward_cpu: int = typer.Option(4, "--forward-cpu", min=0),
+    total_memory_gb: int = typer.Option(20, "--total-memory-gb", min=1),
+    research_memory_gb: int = typer.Option(18, "--research-memory-gb", min=1),
+    forward_memory_gb: int = typer.Option(2, "--forward-memory-gb", min=0),
+    daily_cycle_limit: int = typer.Option(100, "--daily-cycle-limit", min=1),
+) -> None:
+    try:
+        _emit(
+            _resident_research_runtime(
+                interval_seconds=interval_seconds,
+                max_cycles=max_cycles,
+                research_cpu=research_cpu,
+                forward_cpu=forward_cpu,
+                total_memory_gb=total_memory_gb,
+                research_memory_gb=research_memory_gb,
+                forward_memory_gb=forward_memory_gb,
+                daily_cycle_limit=daily_cycle_limit,
+            ).run()
+        )
+    except (ValueError, OSError, TypeError, RuntimeError) as exc:
+        _fail(exc)
+
+
 @forward_runtime_app.command("status")
 def forward_runtime_status(event_key: str | None = typer.Option(None, "--event-key")) -> None:
     try:
         _emit(_forward_runtime_service().status(event_key=event_key))
     except (ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@forward_runtime_app.command("run")
+def forward_runtime_run(
+    interval_seconds: float = typer.Option(10.0, "--interval-seconds", min=0.0),
+    max_checks: int | None = typer.Option(None, "--max-checks", min=1),
+) -> None:
+    try:
+        _emit(_resident_forward_runtime(interval_seconds=interval_seconds, max_checks=max_checks).run())
+    except (ValueError, OSError, TypeError, RuntimeError) as exc:
         _fail(exc)
 
 

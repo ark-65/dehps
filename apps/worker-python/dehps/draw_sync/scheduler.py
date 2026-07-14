@@ -48,7 +48,7 @@ class DrawSyncWatch:
         *,
         service: DrawSyncService | None = None,
         policy: DrawSyncSchedulePolicy | None = None,
-        resume_on_event: bool = True,
+        resume_on_event: bool = False,
         state_path: Path = DEFAULT_STATE_PATH,
         pid_path: Path = DEFAULT_PID_PATH,
     ) -> None:
@@ -116,7 +116,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--cold-interval-seconds", type=int, default=3600)
     parser.add_argument("--timezone", default="Asia/Shanghai")
     parser.add_argument("--once", action="store_true")
-    parser.add_argument("--resume-on-event", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--resume-on-event", action=argparse.BooleanOptionalAction, default=False)
     args = parser.parse_args(argv)
     DrawSyncWatch(
         policy=DrawSyncSchedulePolicy(

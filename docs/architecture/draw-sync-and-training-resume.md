@@ -49,7 +49,10 @@ Independent draw sync entrypoints:
 - `deploy/systemd/dehps-draw-sync.service`
 - `deploy/systemd/dehps-draw-sync.timer`
 
-`draw-sync once` is sync-only and never launches training. `draw-sync watch` defaults to `resume_on_event=true`: when a sync run emits an audited `event_key`, the watch process immediately calls the training resume controller for that event. Launch still requires every resume gate to pass.
+`draw-sync once` is sync-only and never launches training. As of Round 31,
+`draw-sync watch` defaults to `resume_on_event=false`; legacy training resume
+must be requested explicitly with `--resume-on-event` and should remain disabled
+for the resident runtime deployment.
 
 Resume entrypoints:
 
@@ -80,5 +83,7 @@ No API route can modify training, draw history, events, or production state.
 - A failed launch returns the event to `failed`, which is retryable.
 - A consumed event cannot launch training again.
 - Draw-sync and training-resume locks are separate from the heavy training lock.
-- The packaged systemd draw-sync service has `OnSuccess=dehps-training-resume.service`; the resume controller still performs all event, fingerprint, PID, heavy-lock, and current-ref checks before launching anything.
-- The long-running draw-sync watch only calls resume when the just-completed sync produced an audited event key; no-change syncs do not call training resume.
+- The packaged Round 31 systemd draw-sync service is a resident
+  `draw-sync watch --no-resume-on-event` process and no longer starts
+  `dehps-training-resume.service`.
+- The long-running draw-sync watch does not call legacy resume by default.

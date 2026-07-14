@@ -1,0 +1,22 @@
+[Unit]
+Description=DEHPS continuous research runtime
+Documentation=file:/home/ark/workspace/dehps/docs/architecture/continuous-research-runtime.md
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=15min
+StartLimitBurst=3
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ark/workspace/dehps/apps/worker-python
+EnvironmentFile=-/home/ark/workspace/dehps/.env
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=OMP_NUM_THREADS=1
+Environment=MKL_NUM_THREADS=1
+Environment=NUMEXPR_NUM_THREADS=1
+ExecStart=/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python scripts/run_research_runtime.py --interval-seconds 15 --research-cpu 12 --forward-cpu 4 --total-memory-gb 20 --research-memory-gb 18 --forward-memory-gb 2 --daily-cycle-limit 100
+Restart=always
+RestartSec=10s
+
+[Install]
+WantedBy=default.target
