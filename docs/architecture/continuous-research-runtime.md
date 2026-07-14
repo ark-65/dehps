@@ -127,6 +127,14 @@ cycle, and low-risk Research Proposal Request records. They do not start the
 legacy training supervisor, modify source code, run production training, or
 promote research evidence.
 
+Resident research uses `research_cpu` as real parallelism, not just metadata.
+Each cycle fans out multiple CPU-heavy dry-run pattern-discovery lanes over
+different immutable history windows, then persists one primary lane serially.
+This keeps CPU utilization visible while avoiding concurrent database writes,
+schema locks, or proposal-key races. The packaged service runs with
+`--research-cpu 12`, `--interval-seconds 1`, and a bounded
+`--daily-cycle-limit 5760`.
+
 Resident forward writes:
 
 - `runtime/logs/forward-runtime.pid`
