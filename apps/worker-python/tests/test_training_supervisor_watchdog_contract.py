@@ -4,79 +4,71 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
-def test_watchdog_fails_closed_before_advisor_refresh_or_supervisor_start():
+def test_watchdog_reads_local_history_before_advisor_refresh_or_supervisor_start():
     script = (REPO_ROOT / "scripts/ensure_training_supervisor.sh").read_text(
         encoding="utf-8"
     )
 
-    guarded_call = (
-        'if ! evaluate_synced_predictions_if_needed "$sync_output_file" '
-        '"$sync_from_issue" "$latest_issue" "$prediction_snapshot_file"; then'
-    )
-    assert guarded_call in script
-    assert "forward prediction evaluation did not complete safely" in script
-    assert script.index(guarded_call) < script.index('if [[ "$signal_refresh_needed" == true ]]')
-    assert script.index(guarded_call) < script.index("setsid bash -lc")
-    assert "plan_synced_prediction_evaluations.py" in script
-    assert "refusing advisor refresh or supervisor start" in script
+    local_history_gate = 'latest_issue="$(latest_db_issue)"'
+    assert local_history_gate in script
+    assert "draw synchronization is decoupled from training watchdog" in script
+    assert script.index(local_history_gate) < script.index('if [[ "$signal_refresh_needed" == true ]]')
+    assert script.index(local_history_gate) < script.index("setsid bash -lc")
+    assert "scripts/sync_latest_ssq.py" not in script
+    assert "scripts/plan_ssq_remote_sync_poll.py" not in script
 
 
-def test_watchdog_always_rechecks_due_snapshots_for_idempotent_retry():
+def test_draw_sync_responsibility_moved_to_independent_watch_process():
     script = (REPO_ROOT / "scripts/ensure_training_supervisor.sh").read_text(
         encoding="utf-8"
     )
-    function_body = script.split(
-        "evaluate_synced_predictions_if_needed() {", 1
-    )[1].split("\n}\n\ntraining_pid_as_of_issue()", 1)[0]
-
-    assert "plan_synced_prediction_evaluations.py" in function_body
-    assert "prediction evaluation skipped changed_count" not in function_body
-    assert "forward prediction evaluation batch accepted count=0" not in function_body
-
-
-def test_watchdog_invalidates_accepted_evaluation_when_sync_changes_issue():
-    script = (REPO_ROOT / "scripts/ensure_training_supervisor.sh").read_text(
+    ensure_draw_sync = (REPO_ROOT / "scripts/ensure_draw_sync_watch.sh").read_text(
         encoding="utf-8"
     )
-    function_body = script.split(
-        "evaluate_synced_predictions_if_needed() {", 1
-    )[1].split("\n}\n\ntraining_pid_as_of_issue()", 1)[0]
+    draw_watch = (
+        REPO_ROOT / "apps/worker-python/scripts/run_draw_sync_watch.py"
+    ).read_text(encoding="utf-8")
 
-    assert 'planner_args+=(--force-issue "$current_issue")' in function_body
-    assert "sync changed current issue; forcing forward re-evaluation" in function_body
-    assert function_body.index("--force-issue") < function_body.index(
-        "plan_synced_prediction_evaluations.py"
-    )
+    assert "run_draw_sync_watch.py" in ensure_draw_sync
+    assert "DEHPS_DRAW_SYNC_INTERVAL_SECONDS:-900" in ensure_draw_sync
+    assert "DEHPS_DRAW_SYNC_HOT_INTERVAL_SECONDS:-300" in ensure_draw_sync
+    assert "dehps.draw_sync.scheduler" in draw_watch
+    assert "run_draw_sync_watch.py" not in script
 
 
-def test_watchdog_blocks_sync_conflicts_before_forward_release():
+def test_watchdog_no_longer_runs_synced_prediction_evaluation():
     script = (REPO_ROOT / "scripts/ensure_training_supervisor.sh").read_text(
         encoding="utf-8"
     )
 
-    conflict_gate = "sync conflict audit blocked release"
-    evaluation_call = (
-        'if ! evaluate_synced_predictions_if_needed "$sync_output_file" '
-        '"$sync_from_issue" "$latest_issue" "$prediction_snapshot_file"; then'
+    assert "evaluate_synced_predictions_if_needed" not in script
+    assert "plan_synced_prediction_evaluations.py" not in script
+    assert "evaluate_training_prediction.py" not in script
+
+
+def test_watchdog_blocks_unresolved_local_draw_conflicts_before_forward_release():
+    script = (REPO_ROOT / "scripts/ensure_training_supervisor.sh").read_text(
+        encoding="utf-8"
     )
-    assert "sync_conflict_draw_count" in script
+
+    conflict_gate = "draw conflict audit blocked release"
+    assert "sync_conflict_draw_count" not in script
     assert "unresolved_data_conflict_count" in script
     assert conflict_gate in script
-    assert "refusing evaluation, advisor refresh, or supervisor start" in script
-    assert script.index(conflict_gate) < script.index(evaluation_call)
+    assert "refusing advisor refresh or supervisor start" in script
     assert script.index(conflict_gate) < script.index('if [[ "$signal_refresh_needed" == true ]]')
     assert script.index(conflict_gate) < script.index("setsid bash -lc")
 
 
-def test_watchdog_checks_runtime_storage_before_sync_or_heavy_work():
+def test_watchdog_checks_runtime_storage_before_advisor_or_heavy_work():
     script = (REPO_ROOT / "scripts/ensure_training_supervisor.sh").read_text(
         encoding="utf-8"
     )
 
-    storage_gate = "runtime storage capacity blocked sync, evaluation, advisor refresh, and supervisor start"
+    storage_gate = "runtime storage capacity blocked advisor refresh and supervisor start"
     assert "scripts/check_runtime_storage_capacity.py" in script
     assert storage_gate in script
-    assert script.index(storage_gate) < script.index('sync_from_issue="$(latest_db_issue)"')
+    assert script.index(storage_gate) < script.index('latest_issue="$(latest_db_issue)"')
     assert script.index(storage_gate) < script.index("setsid bash -lc")
 
 
@@ -85,15 +77,11 @@ def test_watchdog_decouples_remote_sync_from_ten_minute_local_checks():
         encoding="utf-8"
     )
 
-    assert "scripts/plan_ssq_remote_sync_poll.py" in script
-    assert "remote_sync_plan_status" in script
-    assert '[[ "$remote_sync_plan_status" -eq 3 ]]' in script
-    assert "remote SSQ sync skipped by cold cadence" in script
-    assert "continuing local evaluation, advisor, and supervisor checks" in script
-    assert "skipped_remote_cold_cadence" in script
-    assert script.index("remote sync cadence plan") < script.index(
-        'sync_from_issue="$(latest_db_issue)"'
-    )
+    assert "scripts/plan_ssq_remote_sync_poll.py" not in script
+    assert "remote_sync_plan_status" not in script
+    assert "remote SSQ sync skipped by cold cadence" not in script
+    assert "skipped_remote_cold_cadence" not in script
+    assert "draw synchronization is decoupled from training watchdog" in script
 
 
 def test_watchdog_closes_inherited_cron_lock_before_supervisor_exec():

@@ -39,11 +39,15 @@ from dehps.research_autonomy.submission import ResearchProposalSubmissionService
 from dehps.research_autonomy.validation import HypothesisProposalValidator
 from dehps.research_planning.service import ExperimentPlanningService
 from dehps.experiments.ranking_disagreement.cli import app as ranking_disagreement_app
+from dehps.draw_sync.scheduler import DrawSyncSchedulePolicy, DrawSyncWatch
+from dehps.draw_sync.service import DrawSyncService
+from dehps.forward_state.service import ForwardStateService
 from dehps.research_evidence.service import EvidenceEvaluationService
 from dehps.research_scheduler.scheduler import AutonomousResearchScheduler
 from dehps.engineering.service import AutonomousEngineeringService
 from dehps.pattern_discovery.models import PatternSearchBudget
 from dehps.pattern_discovery.service import PatternDiscoveryService
+from dehps.training_resume.service import TrainingResumeService
 
 app = typer.Typer(help="DEHPS worker commands")
 agent_app = typer.Typer(
@@ -64,6 +68,9 @@ decision_app = typer.Typer(help="Draft and review autonomous hypothesis decision
 scheduler_app = typer.Typer(help="Autonomous research scheduler. It only creates audited Research Requests.")
 engineering_app = typer.Typer(help="Dry-run autonomous engineering implementation contracts.")
 pattern_app = typer.Typer(help="Autonomous pattern discovery and declarative strategy synthesis.")
+draw_sync_app = typer.Typer(help="Independent audited draw synchronization.")
+forward_app = typer.Typer(help="Forward-state reconciliation for training resume.")
+training_resume_app = typer.Typer(help="Exactly-once training resume from audited draw events.")
 app.add_typer(hypothesis_app, name="hypothesis")
 app.add_typer(agent_app, name="agent")
 app.add_typer(research_context_app, name="research-context")
@@ -75,6 +82,9 @@ app.add_typer(decision_app, name="decision")
 app.add_typer(scheduler_app, name="scheduler")
 app.add_typer(engineering_app, name="engineering")
 app.add_typer(pattern_app, name="pattern")
+app.add_typer(draw_sync_app, name="draw-sync")
+app.add_typer(forward_app, name="forward")
+app.add_typer(training_resume_app, name="training-resume")
 
 
 @app.command()
@@ -126,6 +136,22 @@ def _engineering_service() -> AutonomousEngineeringService:
 
 def _pattern_service() -> PatternDiscoveryService:
     return PatternDiscoveryService()
+
+
+def _draw_sync_service() -> DrawSyncService:
+    service = DrawSyncService()
+    service.ensure_schema()
+    return service
+
+
+def _forward_state_service() -> ForwardStateService:
+    return ForwardStateService()
+
+
+def _training_resume_service() -> TrainingResumeService:
+    service = TrainingResumeService()
+    service.repository.ensure_schema()
+    return service
 
 
 def _load_object(path: Path) -> dict[str, Any]:
@@ -1393,6 +1419,108 @@ def hypothesis_decisions(hypothesis_key: str) -> None:
         repository, _ = _registry_context()
         _emit({"decisions": repository.list_decisions(hypothesis_key)})
     except HypothesisRegistryError as exc:
+        _fail(exc)
+
+
+@draw_sync_app.command("once")
+def draw_sync_once(
+    source: str = typer.Option("zhcw", "--source"),
+    history: bool = typer.Option(True, "--history/--no-history"),
+    csv_file: str | None = typer.Option(None, "--csv-file"),
+    lock_timeout_seconds: float = typer.Option(0.0, "--lock-timeout-seconds", min=0.0),
+) -> None:
+    try:
+        result = _draw_sync_service().once(
+            source=source,
+            history=history,
+            csv_file=csv_file,
+            lock_timeout_seconds=lock_timeout_seconds,
+        )
+        _emit({"result": result})
+    except (ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@draw_sync_app.command("watch")
+def draw_sync_watch(
+    interval_seconds: int = typer.Option(900, "--interval-seconds", min=300),
+    hot_interval_seconds: int = typer.Option(300, "--hot-interval-seconds", min=300),
+    cold_interval_seconds: int = typer.Option(3600, "--cold-interval-seconds", min=900),
+    timezone: str = typer.Option("Asia/Shanghai", "--timezone"),
+    once: bool = typer.Option(False, "--once"),
+) -> None:
+    try:
+        DrawSyncWatch(
+            policy=DrawSyncSchedulePolicy(
+                interval_seconds=interval_seconds,
+                hot_interval_seconds=hot_interval_seconds,
+                cold_interval_seconds=cold_interval_seconds,
+                timezone=timezone,
+            )
+        ).run(once=once)
+    except (ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@draw_sync_app.command("status")
+def draw_sync_status() -> None:
+    try:
+        _emit(_draw_sync_service().status())
+    except (ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@draw_sync_app.command("events")
+def draw_sync_events(
+    limit: int = typer.Option(100, "--limit", min=1, max=1000),
+    offset: int = typer.Option(0, "--offset", min=0),
+) -> None:
+    try:
+        _emit(_draw_sync_service().events(limit=limit, offset=offset))
+    except (ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@forward_app.command("reconcile")
+def forward_reconcile(event_key: str | None = typer.Option(None, "--event-key")) -> None:
+    try:
+        _emit(_forward_state_service().reconcile(event_key=event_key))
+    except (ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@forward_app.command("status")
+def forward_status() -> None:
+    try:
+        _emit(_forward_state_service().status())
+    except (ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@training_resume_app.command("check")
+def training_resume_check(event_key: str | None = typer.Option(None, "--event-key")) -> None:
+    try:
+        _emit(_training_resume_service().check(event_key=event_key))
+    except (ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@training_resume_app.command("execute")
+def training_resume_execute(event_key: str | None = typer.Option(None, "--event-key")) -> None:
+    try:
+        _emit(_training_resume_service().execute(event_key=event_key))
+    except (ValueError, OSError, TypeError) as exc:
+        _fail(exc)
+
+
+@training_resume_app.command("history")
+def training_resume_history(
+    limit: int = typer.Option(100, "--limit", min=1, max=1000),
+    offset: int = typer.Option(0, "--offset", min=0),
+) -> None:
+    try:
+        _emit(_training_resume_service().history(limit=limit, offset=offset))
+    except (ValueError, OSError, TypeError) as exc:
         _fail(exc)
 
 

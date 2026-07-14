@@ -168,83 +168,6 @@ refresh_weight_kdj_signals() {
   log "weight KDJ signal refresh completed issue=$signal_issue log=$refresh_log"
 }
 
-capture_current_prediction_snapshots() {
-  local output_path="$1"
-  .venv/bin/python - "$output_path" <<'PY'
-import json
-import sys
-from dehps.db import get_connection
-
-output_path = sys.argv[1]
-rows = []
-try:
-    with get_connection() as conn:
-        table = conn.execute("SELECT to_regclass('public.training_next_candidates_current')").fetchone()
-        if table and table[0]:
-            with conn.cursor() as cur:
-                rows = cur.execute(
-                    """
-                    SELECT line_key, next_issue, snapshot_key, as_of_issue,
-                           min(top_n) AS min_top_n,
-                           max(top_n) AS max_top_n,
-                           count(*) AS candidate_count
-                    FROM training_next_candidates_current
-                    WHERE line_key IN ('static_100', 'dynamic_kdj', 'dynamic_kdj_near')
-                    GROUP BY line_key, next_issue, snapshot_key, as_of_issue
-                    ORDER BY line_key
-                    """
-                ).fetchall()
-except Exception:
-    rows = []
-payload = [
-    {
-        "line_key": str(row[0]),
-        "next_issue": str(row[1]),
-        "snapshot_key": str(row[2]),
-        "as_of_issue": str(row[3]),
-        "top_n": int(row[4]) if row[4] == row[5] else None,
-        "candidate_count": int(row[6]),
-    }
-    for row in rows
-]
-with open(output_path, "w", encoding="utf-8") as handle:
-    json.dump(payload, handle, ensure_ascii=False)
-PY
-}
-
-sync_changed_draw_count() {
-  local path="$1"
-  .venv/bin/python - "$path" <<'PY'
-import json
-import sys
-
-try:
-    with open(sys.argv[1], encoding="utf-8") as handle:
-        payload = json.load(handle)
-except Exception:
-    print("0")
-    raise SystemExit(0)
-print(int(payload.get("inserted_count") or 0) + int(payload.get("updated_count") or 0))
-PY
-}
-
-sync_conflict_draw_count() {
-  local path="$1"
-  .venv/bin/python - "$path" <<'PY'
-import json
-import sys
-
-try:
-    with open(sys.argv[1], encoding="utf-8") as handle:
-        payload = json.load(handle)
-except Exception:
-    print("invalid")
-    raise SystemExit(0)
-value = payload.get("conflict_count") if isinstance(payload, dict) else None
-print(value if isinstance(value, int) and value >= 0 else "invalid")
-PY
-}
-
 unresolved_data_conflict_count() {
   .venv/bin/python - <<'PY'
 from dehps.db import get_connection
@@ -261,54 +184,6 @@ with get_connection() as conn:
         ).fetchone()
         print(int((row and row[0]) or 0))
 PY
-}
-
-evaluate_synced_predictions_if_needed() {
-  local sync_output_file="$1"
-  local previous_issue="$2"
-  local current_issue="$3"
-  local prediction_snapshot_file="$4"
-  local changed_count
-  local evaluation_plan_file
-  local evaluation_count=0
-  local evaluation_failed=false
-  local -a planner_args
-  changed_count="$(sync_changed_draw_count "$sync_output_file")"
-  evaluation_plan_file="$(mktemp "$LOG_DIR/training-forward-evaluation-plan.XXXXXX.tsv")"
-  planner_args=(
-    --snapshot-file "$prediction_snapshot_file" \
-    --previous-issue "$previous_issue" \
-    --current-issue "$current_issue"
-  )
-  if [[ "$changed_count" =~ ^[1-9][0-9]*$ && -n "$current_issue" ]]; then
-    planner_args+=(--force-issue "$current_issue")
-    log "sync changed current issue; forcing forward re-evaluation issue=$current_issue changed_count=$changed_count"
-  fi
-  if ! .venv/bin/python scripts/plan_synced_prediction_evaluations.py \
-    "${planner_args[@]}" \
-    > "$evaluation_plan_file"; then
-    log "forward prediction evaluation plan rejected; refusing advisor refresh or supervisor start"
-    rm -f "$evaluation_plan_file"
-    return 1
-  fi
-  while IFS=$'\t' read -r line_key next_issue snapshot_key as_of_issue; do
-    [[ -n "${line_key:-}" && -n "${next_issue:-}" && -n "${snapshot_key:-}" ]] || continue
-    evaluation_count=$((evaluation_count + 1))
-    log "evaluating prediction line=$line_key issue=$next_issue snapshot=$snapshot_key as_of_issue=$as_of_issue changed_count=$changed_count previous_issue=${previous_issue:-none} current_issue=${current_issue:-none}"
-    if .venv/bin/python scripts/evaluate_training_prediction.py --line-key "$line_key" --issue "$next_issue" --snapshot-key "$snapshot_key"; then
-      log "prediction evaluation completed line=$line_key issue=$next_issue"
-    else
-      log "prediction evaluation failed line=$line_key issue=$next_issue"
-      evaluation_failed=true
-    fi
-  done < "$evaluation_plan_file"
-  rm -f "$evaluation_plan_file"
-  if [[ "$evaluation_failed" == true ]]; then
-    log "forward prediction evaluation batch failed count=$evaluation_count; refusing advisor refresh or supervisor start"
-    return 1
-  fi
-  log "forward prediction evaluation batch accepted count=$evaluation_count"
-  return 0
 }
 
 training_pid_as_of_issue() {
@@ -513,63 +388,22 @@ write_training_stall_diagnosis() {
 }
 
 storage_capacity_output="$(.venv/bin/python scripts/check_runtime_storage_capacity.py)" || {
-  log "runtime storage capacity blocked sync, evaluation, advisor refresh, and supervisor start payload=$storage_capacity_output"
+  log "runtime storage capacity blocked advisor refresh and supervisor start payload=$storage_capacity_output"
   exit 1
 }
 log "runtime storage capacity accepted payload=$storage_capacity_output"
 
-set +e
-remote_sync_plan="$(.venv/bin/python scripts/plan_ssq_remote_sync_poll.py)"
-remote_sync_plan_status=$?
-set -e
-if [[ "$remote_sync_plan_status" -eq 0 ]]; then
-  remote_sync_due=true
-elif [[ "$remote_sync_plan_status" -eq 3 ]]; then
-  remote_sync_due=false
-else
-  log "remote sync cadence plan failed status=$remote_sync_plan_status; watchdog stopping fail closed"
-  exit 1
-fi
-log "remote sync cadence plan payload=$remote_sync_plan"
-
-sync_from_issue="$(latest_db_issue)"
-prediction_snapshot_file="$(mktemp "$LOG_DIR/training-prediction-snapshots.XXXXXX.json")"
-capture_current_prediction_snapshots "$prediction_snapshot_file"
-sync_output_file="$(mktemp "$LOG_DIR/ssq-sync.XXXXXX.json")"
-if [[ "$remote_sync_due" == false ]]; then
-  log "remote SSQ sync skipped by cold cadence; continuing local evaluation, advisor, and supervisor checks"
-  printf '%s\n' '{"status":"skipped_remote_cold_cadence","fetched_count":0,"inserted_count":0,"updated_count":0,"skipped_count":0,"conflict_count":0}' > "$sync_output_file"
-elif [[ -n "$sync_from_issue" ]]; then
-  log "syncing ssq history from issue=$sync_from_issue"
-  .venv/bin/python scripts/sync_latest_ssq.py --source zhcw --history --from-issue "$sync_from_issue" | tee "$sync_output_file"
-else
-  log "syncing ssq history with no local issue"
-  .venv/bin/python scripts/sync_latest_ssq.py --source zhcw --history | tee "$sync_output_file"
-fi
-
 latest_issue="$(latest_db_issue)"
-sync_conflict_count="$(sync_conflict_draw_count "$sync_output_file")"
 unresolved_conflict_count="$(unresolved_data_conflict_count)"
-if [[ ! "$sync_conflict_count" =~ ^[0-9]+$ || ! "$unresolved_conflict_count" =~ ^[0-9]+$ ]]; then
-  rm -f "$sync_output_file"
-  rm -f "$prediction_snapshot_file"
-  log "sync conflict audit invalid sync_conflict_count=$sync_conflict_count unresolved_conflict_count=$unresolved_conflict_count; watchdog stopping fail closed"
+if [[ ! "$unresolved_conflict_count" =~ ^[0-9]+$ ]]; then
+  log "draw conflict audit invalid unresolved_conflict_count=$unresolved_conflict_count; watchdog stopping fail closed"
   exit 1
 fi
-if (( sync_conflict_count > 0 || unresolved_conflict_count > 0 )); then
-  rm -f "$sync_output_file"
-  rm -f "$prediction_snapshot_file"
-  log "sync conflict audit blocked release sync_conflict_count=$sync_conflict_count unresolved_conflict_count=$unresolved_conflict_count; refusing evaluation, advisor refresh, or supervisor start"
+if (( unresolved_conflict_count > 0 )); then
+  log "draw conflict audit blocked release unresolved_conflict_count=$unresolved_conflict_count; refusing advisor refresh or supervisor start"
   exit 1
 fi
-if ! evaluate_synced_predictions_if_needed "$sync_output_file" "$sync_from_issue" "$latest_issue" "$prediction_snapshot_file"; then
-  rm -f "$sync_output_file"
-  rm -f "$prediction_snapshot_file"
-  log "forward prediction evaluation did not complete safely; watchdog stopping fail closed"
-  exit 1
-fi
-rm -f "$sync_output_file"
-rm -f "$prediction_snapshot_file"
+log "draw synchronization is decoupled from training watchdog; latest_db_issue=${latest_issue:-none}"
 signal_issue="$(latest_weight_kdj_signal_issue)"
 signal_refresh_needed=false
 if [[ -n "$latest_issue" && "$signal_issue" != "$latest_issue" ]]; then

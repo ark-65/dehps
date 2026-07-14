@@ -610,6 +610,18 @@ def ensure_pattern_discovery_schema(conn: Connection) -> None:
     sql = schema_path.read_text()
     marker = "CREATE TABLE IF NOT EXISTS discovered_patterns"
     start = sql.index(marker)
+    draw_marker = "CREATE TABLE IF NOT EXISTS draw_sync_runs"
+    end = sql.index(draw_marker, start)
+    conn.execute(sql[start:end])
+
+
+def ensure_draw_sync_schema(conn: Connection) -> None:
+    """Apply the additive Round 29 draw-sync and training-resume schema."""
+    ensure_pattern_discovery_schema(conn)
+    schema_path = Path(__file__).resolve().parents[4] / "infra/postgres/init/001_init.sql"
+    sql = schema_path.read_text()
+    marker = "CREATE TABLE IF NOT EXISTS draw_sync_runs"
+    start = sql.index(marker)
     end = sql.index("INSERT INTO dehps_strategies", start)
     conn.execute(sql[start:end])
 

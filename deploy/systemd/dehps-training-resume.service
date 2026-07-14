@@ -1,0 +1,13 @@
+[Unit]
+Description=DEHPS exactly-once training resume from audited draw events
+Documentation=file:/home/ark/workspace/dehps/docs/architecture/draw-sync-and-training-resume.md
+After=postgresql.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ark/workspace/dehps/apps/worker-python
+EnvironmentFile=-/home/ark/workspace/dehps/.env
+ExecStart=/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python -m dehps.cli training-resume execute
+
+[Install]
+WantedBy=multi-user.target
