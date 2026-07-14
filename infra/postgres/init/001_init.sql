@@ -494,7 +494,8 @@ CREATE TABLE IF NOT EXISTS agent_requests (
   request_type TEXT NOT NULL CHECK (request_type IN (
     'research_hypothesis_proposal', 'research_preregistration',
     'research_experiment_plan', 'research_evidence_submission',
-    'research_decision_submission', 'engineering_implementation',
+    'research_decision_submission', 'research_scheduler_request',
+    'engineering_implementation',
     'engineering_bug_fix', 'engineering_test_addition',
     'engineering_runtime_fix', 'engineering_experiment_tool',
     'operator_isolated_run', 'operator_database_migration',
@@ -616,6 +617,68 @@ DROP TRIGGER IF EXISTS agent_requests_mutation_guard ON agent_requests;
 CREATE TRIGGER agent_requests_mutation_guard
 BEFORE UPDATE OR DELETE ON agent_requests
 FOR EACH ROW EXECUTE FUNCTION guard_agent_request_mutation();
+
+ALTER TABLE IF EXISTS agent_requests
+  DROP CONSTRAINT IF EXISTS agent_requests_request_type_check;
+ALTER TABLE IF EXISTS agent_requests
+  ADD CONSTRAINT agent_requests_request_type_check
+  CHECK (request_type IN (
+    'research_hypothesis_proposal', 'research_preregistration',
+    'research_experiment_plan', 'research_evidence_submission',
+    'research_decision_submission', 'research_scheduler_request',
+    'engineering_implementation', 'engineering_bug_fix',
+    'engineering_test_addition', 'engineering_runtime_fix',
+    'engineering_experiment_tool', 'operator_isolated_run',
+    'operator_database_migration', 'operator_supervisor_restart',
+    'operator_release'
+  ));
+
+CREATE TABLE IF NOT EXISTS research_scheduler_queue (
+  id BIGSERIAL PRIMARY KEY,
+  queue_key TEXT NOT NULL UNIQUE,
+  queue_status TEXT NOT NULL CHECK (queue_status IN (
+    'proposal', 'planning', 'engineering', 'operator',
+    'waiting_forward', 'review', 'completed', 'blocked'
+  )),
+  action TEXT NOT NULL CHECK (action IN (
+    'create_proposal_request', 'create_planning_request',
+    'create_engineering_request', 'create_operator_request',
+    'create_review_request', 'wait_forward', 'block', 'stop',
+    'continue_existing'
+  )),
+  priority_score NUMERIC(10,6) NOT NULL DEFAULT 0,
+  target_hypothesis_key TEXT,
+  target_family_key TEXT,
+  target_experiment_key TEXT,
+  request_key TEXT REFERENCES agent_requests(request_key) ON DELETE RESTRICT,
+  context_fingerprint TEXT NOT NULL,
+  reason_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(reason_json) = 'object'),
+  budget_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(budget_json) = 'object'),
+  policy_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(policy_json) = 'object'),
+  created_by TEXT NOT NULL DEFAULT 'research:scheduler',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at TIMESTAMPTZ,
+  metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb
+    CHECK (jsonb_typeof(metadata_json) = 'object')
+);
+
+CREATE INDEX IF NOT EXISTS idx_research_scheduler_queue_status
+  ON research_scheduler_queue (queue_status, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_research_scheduler_queue_request
+  ON research_scheduler_queue (request_key)
+  WHERE request_key IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_research_scheduler_open_action
+  ON research_scheduler_queue (
+    action,
+    COALESCE(target_hypothesis_key, ''),
+    COALESCE(target_family_key, ''),
+    COALESCE(target_experiment_key, '')
+  )
+  WHERE queue_status NOT IN ('completed', 'blocked');
 
 INSERT INTO dehps_strategies (strategy_key, name, description, config)
 VALUES (

@@ -42,6 +42,7 @@ class AgentRequestType(str, Enum):
     RESEARCH_EXPERIMENT_PLAN = "research_experiment_plan"
     RESEARCH_EVIDENCE_SUBMISSION = "research_evidence_submission"
     RESEARCH_DECISION_SUBMISSION = "research_decision_submission"
+    RESEARCH_SCHEDULER_REQUEST = "research_scheduler_request"
     ENGINEERING_IMPLEMENTATION = "engineering_implementation"
     ENGINEERING_BUG_FIX = "engineering_bug_fix"
     ENGINEERING_TEST_ADDITION = "engineering_test_addition"
@@ -162,6 +163,14 @@ REQUEST_TYPE_SPECS: dict[AgentRequestType, AgentRequestTypeSpec] = {
         risk=AgentRiskLevel.HIGH,
         fields={"hypothesis_key", "proposed_status", "evidence_ids", "reason"},
         hypothesis=True, hypothesis_status=True,
+    ),
+    AgentRequestType.RESEARCH_SCHEDULER_REQUEST: _spec(
+        AgentRequestType.RESEARCH_SCHEDULER_REQUEST,
+        initiators={AgentRole.RESEARCH}, executors={AgentRole.RESEARCH},
+        creation=AgentAction.SCHEDULE_RESEARCH,
+        execution=AgentAction.SCHEDULE_RESEARCH,
+        risk=AgentRiskLevel.LOW,
+        fields={"queue_key", "action", "reason", "context_fingerprint", "budget"},
     ),
     AgentRequestType.ENGINEERING_IMPLEMENTATION: _spec(
         AgentRequestType.ENGINEERING_IMPLEMENTATION,

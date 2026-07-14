@@ -47,4 +47,4 @@ def test_domain_enums_match_database_contract() -> None:
     }
     assert {item.value for item in AgentRiskLevel} == {"low", "medium", "high", "critical"}
     assert {item.value for item in AgentExecutionStatus} == {"running", "completed", "failed", "cancelled"}
-    assert len(AgentRequestType) == 14
+    assert len(AgentRequestType) == 15

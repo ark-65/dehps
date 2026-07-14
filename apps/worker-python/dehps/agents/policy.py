@@ -23,6 +23,7 @@ ENGINEERING_RESEARCH_ACTIONS = frozenset(
         AgentAction.SUBMIT_PREREGISTRATION,
         AgentAction.ADD_EVIDENCE_PROPOSAL,
         AgentAction.SUBMIT_HYPOTHESIS_DECISION,
+        AgentAction.SCHEDULE_RESEARCH,
     }
 )
 RESEARCH_ENGINEERING_ACTIONS = frozenset(
@@ -52,6 +53,7 @@ OPERATOR_RESEARCH_ACTIONS = frozenset(
         AgentAction.SUBMIT_PREREGISTRATION,
         AgentAction.ADD_EVIDENCE_PROPOSAL,
         AgentAction.SUBMIT_HYPOTHESIS_DECISION,
+        AgentAction.SCHEDULE_RESEARCH,
     }
 )
 

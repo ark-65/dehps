@@ -571,6 +571,18 @@ def ensure_agent_authority_schema(conn: Connection) -> None:
     sql = schema_path.read_text()
     marker = "CREATE TABLE IF NOT EXISTS agent_requests"
     start = sql.index(marker)
+    scheduler_marker = "CREATE TABLE IF NOT EXISTS research_scheduler_queue"
+    end = sql.index(scheduler_marker, start)
+    conn.execute(sql[start:end])
+
+
+def ensure_research_scheduler_schema(conn: Connection) -> None:
+    """Apply the additive Round 26 autonomous scheduler schema."""
+    ensure_agent_authority_schema(conn)
+    schema_path = Path(__file__).resolve().parents[4] / "infra/postgres/init/001_init.sql"
+    sql = schema_path.read_text()
+    marker = "CREATE TABLE IF NOT EXISTS research_scheduler_queue"
+    start = sql.index(marker)
     end = sql.index("INSERT INTO dehps_strategies", start)
     conn.execute(sql[start:end])
 

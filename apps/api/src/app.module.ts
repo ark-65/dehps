@@ -10,6 +10,7 @@ import { ResearchPlanningModule } from './research-planning/research-planning.mo
 import { ResearchExecutionModule } from './research-execution/research-execution.module';
 import { ResearchEvidenceModule } from './research-evidence/research-evidence.module';
 import { ResearchDecisionModule } from './research-decision/research-decision.module';
+import { ResearchSchedulerModule } from './research-scheduler/research-scheduler.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { ResearchDecisionModule } from './research-decision/research-decision.mo
     ResearchExecutionModule,
     ResearchEvidenceModule,
     ResearchDecisionModule,
+    ResearchSchedulerModule,
   ],
   controllers: [ResearchController],
   providers: [
