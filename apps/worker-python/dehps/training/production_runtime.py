@@ -22,6 +22,19 @@ from dehps.training.persistence_policy import (
 )
 
 
+def ranked_universe_size_status(ranked_universe) -> dict[str, int]:
+    ranked_count = len(ranked_universe)
+    return {
+        "legal_universe_size": TOTAL_LOCAL_LEGAL_COMBINATIONS,
+        "ranked_universe_size": ranked_count,
+        "excluded_universe_count": max(
+            0,
+            TOTAL_LOCAL_LEGAL_COMBINATIONS - ranked_count,
+        ),
+        "universe_size": ranked_count,
+    }
+
+
 @dataclass(frozen=True)
 class ProductionRuntimeRoundExecutor:
     """Run the established production round body exactly once."""
@@ -1990,10 +2003,7 @@ def build_production_training_session(
         "top_n": top_n,
         "workers": worker_count,
         "memory_budget_gb": memory_budget_gb,
-        "legal_universe_size": len(universe),
-        "ranked_universe_size": len(ranked_universe),
-        "excluded_universe_count": max(0, len(universe) - len(ranked_universe)),
-        "universe_size": len(ranked_universe),
+        **ranked_universe_size_status(ranked_universe),
         "matrix_backend": "NumPy 特征矩阵",
         "feature_matrix_cache": matrix_cache_info,
         "red5_rank_mode": "红5候选使用完整分数向量精排，不重复计算特征矩阵",
