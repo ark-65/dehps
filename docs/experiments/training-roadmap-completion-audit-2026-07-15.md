@@ -14,18 +14,18 @@
 - Null model: all legal red-six combinations are equiprobable before a draw. DEHPS ranking is a transparent structural-scoring hypothesis, not a probability claim.
 - Measurement: stage timing and workers, exact logical config-target pairs, mmap identity, durable prediction/evaluation rows, feature-ablation isolation, promotion cohort invariants, tests, and bounded live resource observations.
 - Failure mode: declaring the roadmap complete from green unit tests while the merged launcher, durable database, prediction product, or production watchdog contradicts it.
-- Next experiment: after merge, run one approved observability-only round and require the new schedule details, five-second progress cadence, zero swap, and unchanged durable state before acceptance.
+- Decisive experiment: merged-code run `20260715-150735` required persisted schedule details, a five-completed-target progress cadence, zero swap, and unchanged durable state.
 
 ## Requirement audit
 
 | Roadmap item | Current implementation | Authoritative evidence | Status |
 | --- | --- | --- | --- |
-| 1. Stage/worker/config/target monitoring | `RoundStageTracker` records current/completed stages, durations, active workers, generated/selected configs, target progress, failure details, and the evaluation schedule geometry. | `test_round_observability.py`; live run `20260715-144158` previously showed all stages and 16-worker progress. | Implemented; merged-code live recheck pending. |
+| 1. Stage/worker/config/target monitoring | `RoundStageTracker` records current/completed stages, durations, active workers, generated/selected configs, target progress, failure details, and the evaluation schedule geometry. | `test_round_observability.py`; merged-code run `20260715-150735` preserved all stages, details, and 16-worker progress. | Complete. |
 | 2. Forward evaluation auto-persistence | Draw sync evaluates pending runs after changed and unchanged sync attempts; structured failures retry; due failures block training resume. | `ForwardEvaluationService`, scheduler tests, compensation CLI, PR #114. | Complete. |
 | 3. Fixed latest-prediction product | Durable three-line view includes issue, as-of issue, generation time, lifecycle status, source/viewer commit, model version, parameter version, prediction/source run, round, TopN, and consensus. | `show_latest_prediction.py`; `test_latest_prediction.py`; live read-only issue `2026081` output. | Complete. |
 | 4. Local mmap universe/features | Versioned local `.npy` arrays are opened read-only with mmap; atomic build path validates schema/rules/counts and excludes PostgreSQL from the hot static-matrix path. | `walk_forward.py`; mmap tests; hot cache open 0.003–0.004 seconds; 1,107,568 source / 1,105,506 ranked / 2,062 excluded. | Complete. |
-| 5. Config × target evaluation work | The logical grid is every selected config × every target. Scheduling uses target shards because each worker computes the full config dimension in one vectorized matrix multiply; status exposes exact pair count and names this mode `target_shard_vectorized_config_grid`. | Serial/parallel equality tests; live 16-worker main evaluation; new schedule contract test. | Implemented without redundant per-config feature recomputation; merged-code live recheck pending. |
-| 6. Larger bounded experiment budget | Launcher defaults are 96 configs, 20% neural share, 22% Weight KDJ, 8×100×12 inversion, 16 workers, one BLAS thread, and 24 GiB. | Launcher contract tests; controlled 28/48/96 run; run `20260715-144158`. | Complete. |
+| 5. Config × target evaluation work | The logical grid is every selected config × every target. Scheduling uses target shards because each worker computes the full config dimension in one vectorized matrix multiply; status exposes exact pair count and names this mode `target_shard_vectorized_config_grid`. | Serial/parallel equality tests; schedule contract test; run `20260715-150735` persisted 26 × 100 = 2,600 pairs with 16 workers. | Complete without redundant per-config feature recomputation. |
+| 6. Larger bounded experiment budget | Launcher defaults are 96 configs, 20% neural share, 22% Weight KDJ, 8×100×12 inversion, 16 workers, one BLAS thread, and 24 GiB. | Launcher contract tests; controlled 28/48/96 run; merged-code run `20260715-150735`. | Complete. |
 | 7. Feature-family ablation | Deterministic leave-one-family-out tool evaluates full and six ablated models on identical search/frozen issues; it is diagnostic-only and cannot promote. | `run_feature_ablation.py`; feature-ablation tests/report and runtime artifact. | Complete. |
 | 8. Champion/challenger promotion | Prospective fixed challenger, 20 paired unseen issues, frozen config identity, leakage/duplicate/completeness checks, existing PromotionGate, consecutive-loss bound, atomic champion checkpoint, and idempotent terminal decisions. | Forward-promotion tests/report; production schema; zero currently eligible cohorts. | Complete and fail-closed. |
 
@@ -42,7 +42,7 @@ The process pool does not enqueue 2,600 independent `(config_hash, target_issue)
 - Forward-promotion cohort and champion counts are both zero; no historical candidate is eligible for prospective promotion.
 - Issue `2026080` actual-red audit found generation and hard filtering passed, initial rank 298,492, and model ranks 643,938 / 663,994 / 696,201. The miss was caused by model scoring, not export truncation.
 
-## Acceptance still required for this round
+## Validation and live acceptance
 
 Pre-merge validation:
 
@@ -53,11 +53,21 @@ bash -n scripts/ensure_training_supervisor.sh
 live read-only latest-prediction display passed for issue 2026081
 ```
 
-Before this report is final, one approved observability-only live round on the merged code must prove:
+Operator Request `operator-validate-training-roadmap-c164d98` (request id 98, execution id 21) ran commit `c164d98` in bounded observability-only mode. Supervisor run `20260715-150735` completed one round with:
 
-- schedule details survive into the completed `main_evaluation` stage;
-- `config_target_pair_count` equals selected configs × actual evaluation targets;
-- progress logs use the five-second launcher cadence;
-- resource use remains inside 24 GiB with zero process swap;
-- observability-only persistence leaves durable training/prediction markers unchanged;
-- the normal watchdog still obeys the forward-evidence wait boundary.
+- 96 generated and 26 selected configurations;
+- 100 target shards, 2,600 exact config-target logical pairs, and 16 active main-evaluation workers;
+- main evaluation 66.072 seconds and target inversion 50.730 seconds;
+- dynamic / near-dynamic training 42.506 / 4.593 seconds;
+- 277.87 seconds wall time and 1,616% CPU;
+- maximum RSS 10,096,652 KiB; four process-tree samples and `/usr/bin/time` all reported zero swap;
+- read-only mmap cache hit in 0.003 seconds;
+- observability-only persistence skipped, with durable training rows, three issue-2026081 runs, and 30,000 candidates unchanged.
+
+`--progress-interval 5` means emit after every five completed targets, plus the first and final target. The observed sequence was `1, 5, 10, …, 95, 100`; it is not a five-wall-clock-second timer.
+
+The normal watchdog was invoked after acceptance and parked again at `watch_forward_wait_ready:2026080->2026081`. No continuous supervisor was left running on unchanged history.
+
+## Completion decision
+
+All eight roadmap items are implemented and verified against current code, tests, durable database state, and merged-code runtime behavior. Operational completion does not change the scientific boundary: no forward draw has yet evaluated issue `2026081`, the current promotion cohort is empty, and neither CPU utilization nor historical results establish predictive lift.
