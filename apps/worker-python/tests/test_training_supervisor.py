@@ -4424,10 +4424,13 @@ def test_training_event_payload_is_compact_signal_only():
     assert payload == {
         "run_id": "run-1",
         "status": "running",
+        "execution_mode": None,
+        "persistence_policy": None,
         "pid": 12345,
         "updated_at": "2026-06-17T12:00:00",
         "latest_progress": {"round": 1},
         "round_execution": {"round": 1, "stage": "main_evaluation"},
+        "round_execution_history": None,
         "search_base": {"source": "challenger_best"},
         "status_path": "/tmp/status.json",
         "report_path": "/tmp/status.md",

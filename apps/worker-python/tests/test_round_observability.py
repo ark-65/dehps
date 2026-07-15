@@ -74,3 +74,23 @@ def test_round_stage_tracker_marks_failure_without_swallowing_error():
         "type": "RuntimeError",
         "message": "boom",
     }
+
+
+def test_round_stage_tracker_keeps_bounded_completed_round_history():
+    status = {}
+    tracker = RoundStageTracker(
+        status=status,
+        publish=lambda: None,
+        log=lambda _message: None,
+        monotonic=lambda: 1.0,
+        now=lambda: datetime(2026, 7, 15, 12, 0, 0),
+    )
+
+    for round_index in range(1, 11):
+        tracker.transition("main_evaluation", round_index=round_index, active_workers=16)
+        tracker.complete(round_index=round_index)
+
+    history = status["round_execution_history"]
+    assert [item["round"] for item in history] == list(range(3, 11))
+    assert all(item["status"] == "completed" for item in history)
+    assert history[-1]["completed_stages"][0]["stage"] == "main_evaluation"
