@@ -29,6 +29,7 @@ from dehps.optimization.walk_forward import (
     rank_target_grid_with_red5,
     top_candidates_for_next,
 )
+from dehps.source_version import resolve_git_commit
 from dehps.storage.postgres_store import (
     CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID,
     TOTAL_SSQ_RED_COMBINATIONS,
@@ -1092,6 +1093,7 @@ def build_training_next_candidate_snapshot(
         },
         "generated_at": generated_at,
         "candidate_count": len(candidates),
+        "git_commit": resolve_git_commit(),
     }
     return {"metadata": metadata, "candidates": candidates}
 
@@ -1387,6 +1389,7 @@ def build_dynamic_kdj_next_candidate_snapshot(
         },
         "generated_at": generated_at,
         "candidate_count": len(candidates),
+        "git_commit": resolve_git_commit(),
     }
     return {"metadata": metadata, "candidates": candidates}
 

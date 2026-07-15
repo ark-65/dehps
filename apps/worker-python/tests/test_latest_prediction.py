@@ -1,0 +1,83 @@
+from datetime import datetime, timezone
+
+from dehps.forward_runtime.latest_prediction import (
+    build_latest_prediction_payload,
+    render_latest_prediction,
+)
+
+
+def _run(line_key: str, *, status: str = "pending") -> dict:
+    return {
+        "prediction_run_key": f"{line_key}:2026081:snapshot",
+        "line_key": line_key,
+        "line_label": line_key,
+        "source_run_id": "run-1",
+        "source_round_index": 8,
+        "as_of_issue": "2026080",
+        "target_issue": "2026081",
+        "status": status,
+        "generated_at": datetime(2026, 7, 15, tzinfo=timezone.utc),
+        "candidate_count": 10000,
+        "config_hash": f"hash-{line_key}",
+        "metadata": {"git_commit": "source123"},
+    }
+
+
+def test_latest_prediction_builds_three_lines_and_cross_line_consensus():
+    runs = [_run("static_100"), _run("dynamic_kdj"), _run("dynamic_kdj_near")]
+    candidates = []
+    for run in runs:
+        candidates.extend(
+            (
+                {
+                    "prediction_run_key": run["prediction_run_key"],
+                    "rank": 1,
+                    "red_numbers": [1, 2, 3, 4, 5, 6],
+                    "score": 0.5,
+                },
+                {
+                    "prediction_run_key": run["prediction_run_key"],
+                    "rank": 2,
+                    "red_numbers": [1, 7, 8, 9, 10, 11],
+                    "score": 0.4,
+                },
+            )
+        )
+
+    payload = build_latest_prediction_payload(
+        runs,
+        candidates,
+        git_commit="abc123",
+        top_limit=10,
+    )
+
+    assert payload["status"] == "waiting_draw"
+    assert payload["git_commit"] == "source123"
+    assert payload["viewer_git_commit"] == "abc123"
+    assert payload["missing_lines"] == []
+    assert [line["line_key"] for line in payload["lines"]] == [
+        "static_100",
+        "dynamic_kdj",
+        "dynamic_kdj_near",
+    ]
+    assert payload["consensus_numbers"][0] == {
+        "number": 1,
+        "line_count": 3,
+        "candidate_occurrences": 6,
+    }
+    rendered = render_latest_prediction(payload)
+    assert "Issue: 2026081" in rendered
+    assert "Git (prediction source): source123" in rendered
+    assert rendered.count("run=run-1 round=8 status=pending") == 3
+    assert "Consensus across all lines: 01(6)" in rendered
+
+
+def test_latest_prediction_reports_missing_line_instead_of_hiding_it():
+    payload = build_latest_prediction_payload(
+        [_run("static_100")],
+        [],
+        git_commit="abc123",
+    )
+
+    assert payload["status"] == "incomplete_lines"
+    assert payload["missing_lines"] == ["dynamic_kdj", "dynamic_kdj_near"]
