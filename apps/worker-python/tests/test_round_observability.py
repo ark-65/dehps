@@ -1,6 +1,9 @@
 from datetime import datetime
 
-from dehps.training.round_observability import RoundStageTracker
+from dehps.training.round_observability import (
+    RoundStageTracker,
+    vectorized_config_target_schedule,
+)
 
 
 def test_round_stage_tracker_preserves_target_progress_and_stage_durations():
@@ -24,6 +27,7 @@ def test_round_stage_tracker_preserves_target_progress_and_stage_durations():
         selected_config_count=19,
         target_completed=0,
         target_total=100,
+        details={"config_target_pair_count": 1900},
     )
     tracker.update_target_progress(completed=10, total=100, publish=False)
     tracker.transition(
@@ -49,6 +53,7 @@ def test_round_stage_tracker_preserves_target_progress_and_stage_durations():
             "generated_config_count": 28,
             "selected_config_count": 19,
             "target_progress": {"completed": 10, "total": 100},
+            "details": {"config_target_pair_count": 1900},
         }
     ]
     assert "stage=main_evaluation" in logged[0]
@@ -94,3 +99,22 @@ def test_round_stage_tracker_keeps_bounded_completed_round_history():
     assert [item["round"] for item in history] == list(range(3, 11))
     assert all(item["status"] == "completed" for item in history)
     assert history[-1]["completed_stages"][0]["stage"] == "main_evaluation"
+
+
+def test_vectorized_config_target_schedule_reports_complete_logical_grid():
+    schedule = vectorized_config_target_schedule(
+        config_count=26,
+        target_count=80,
+        workers=16,
+    )
+
+    assert schedule == {
+        "logical_work_unit": "config_target_pair",
+        "scheduler": "target_shard_vectorized_config_grid",
+        "config_count": 26,
+        "target_task_count": 80,
+        "config_target_pair_count": 2080,
+        "config_batch_size": 26,
+        "active_worker_limit": 16,
+        "matrix_access": "read_only_mmap_or_fork_cow",
+    }

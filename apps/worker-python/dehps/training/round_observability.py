@@ -11,6 +11,26 @@ StatusPublisher = Callable[[], None]
 LogWriter = Callable[[str], None]
 
 
+def vectorized_config_target_schedule(
+    *,
+    config_count: int,
+    target_count: int,
+    workers: int,
+) -> dict[str, Any]:
+    resolved_configs = max(0, int(config_count))
+    resolved_targets = max(0, int(target_count))
+    return {
+        "logical_work_unit": "config_target_pair",
+        "scheduler": "target_shard_vectorized_config_grid",
+        "config_count": resolved_configs,
+        "target_task_count": resolved_targets,
+        "config_target_pair_count": resolved_configs * resolved_targets,
+        "config_batch_size": resolved_configs,
+        "active_worker_limit": min(max(1, int(workers)), resolved_targets) if resolved_targets else 0,
+        "matrix_access": "read_only_mmap_or_fork_cow",
+    }
+
+
 class RoundStageTracker:
     """Publish non-destructive stage telemetry for one training round at a time."""
 
@@ -61,6 +81,7 @@ class RoundStageTracker:
                         "generated_config_count": current.get("generated_config_count"),
                         "selected_config_count": current.get("selected_config_count"),
                         "target_progress": current.get("target_progress"),
+                        "details": deepcopy(current.get("details") or {}),
                     }
                 )
         self._stage_started_monotonic = self._monotonic()

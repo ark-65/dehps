@@ -14,6 +14,23 @@ EXPECTED_LINE_KEYS = ("static_100", "dynamic_kdj", "dynamic_kdj_near")
 OPTIONAL_LINE_KEYS = (FORWARD_CHALLENGER_LINE_KEY,)
 
 
+def prediction_model_version(run: dict[str, Any]) -> str:
+    metadata = run.get("metadata")
+    metadata = metadata if isinstance(metadata, dict) else {}
+    prediction_metadata = metadata.get("prediction_metadata")
+    prediction_metadata = prediction_metadata if isinstance(prediction_metadata, dict) else {}
+    for value in (
+        prediction_metadata.get("model_version"),
+        prediction_metadata.get("protocol"),
+        metadata.get("model_version"),
+        metadata.get("protocol"),
+        run.get("line_kind"),
+    ):
+        if value:
+            return str(value)
+    return "not_recorded"
+
+
 def load_latest_prediction_rows(
     conn: Connection,
     *,
@@ -124,8 +141,12 @@ def build_latest_prediction_payload(
                 number_candidate_occurrences.update(candidate["red_numbers"])
         line_payloads.append(
             {
+                "prediction_run_key": str(run["prediction_run_key"]),
                 "line_key": line_key,
                 "line_label": str(run["line_label"]),
+                "line_kind": str(run["line_kind"]),
+                "model_version": prediction_model_version(run),
+                "parameter_version": str(run["config_hash"]),
                 "status": str(run["status"]),
                 "source_run_id": str(run["source_run_id"]),
                 "source_round_index": run.get("source_round_index"),
@@ -195,8 +216,9 @@ def render_latest_prediction(payload: dict[str, Any]) -> str:
         lines.append("")
         lines.append(
             f"[{line['line_key']}] {line['line_label']} "
+            f"model={line['model_version']} parameters={line['parameter_version']} "
             f"run={line['source_run_id']} round={line['source_round_index']} "
-            f"status={line['status']}"
+            f"prediction_run={line['prediction_run_key']} status={line['status']}"
         )
         for candidate in line["top_candidates"]:
             numbers = " ".join(f"{number:02d}" for number in candidate["red_numbers"])

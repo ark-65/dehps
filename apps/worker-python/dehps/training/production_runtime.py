@@ -15,7 +15,10 @@ from dehps.training.runtime_round_executor import (
     RuntimeRoundRequest,
     RuntimeTrainingState,
 )
-from dehps.training.round_observability import RoundStageTracker
+from dehps.training.round_observability import (
+    RoundStageTracker,
+    vectorized_config_target_schedule,
+)
 from dehps.training.persistence_policy import (
     apply_observability_only_database_guard,
     training_persistence_policy,
@@ -550,14 +553,22 @@ class ProductionRuntimeRoundExecutor:
             f"prefilter_elapsed={prefilter_info['elapsed_seconds']}s "
             f"search_base={config_dict(search_base_config)}"
         )
+        evaluation_start_index = max(train_window, len(training_history) - eval_window)
+        evaluation_target_total = max(0, len(training_history) - evaluation_start_index)
+        evaluation_schedule = vectorized_config_target_schedule(
+            config_count=len(refined_configs),
+            target_count=evaluation_target_total,
+            workers=worker_count,
+        )
         round_stage_tracker.transition(
             "main_evaluation",
             round_index=round_index + 1,
-            active_workers=min(worker_count, max(1, eval_window)),
+            active_workers=evaluation_schedule["active_worker_limit"],
             generated_config_count=generated_config_count,
             selected_config_count=len(refined_configs),
             target_completed=0,
-            target_total=eval_window,
+            target_total=evaluation_target_total,
+            details=evaluation_schedule,
         )
 
         def publish_round_evaluation_progress(progress: dict) -> None:
@@ -589,8 +600,8 @@ class ProductionRuntimeRoundExecutor:
             active_workers=1,
             generated_config_count=generated_config_count,
             selected_config_count=len(refined_configs),
-            target_completed=eval_window,
-            target_total=eval_window,
+            target_completed=evaluation_target_total,
+            target_total=evaluation_target_total,
         )
         normalized = RuntimeEvaluationNormalizer(
             attach_candidate_source_metadata=attach_candidate_source_metadata,
