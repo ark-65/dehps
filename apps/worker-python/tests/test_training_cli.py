@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
 from dehps.training.cli import build_settings, parse_args
+from dehps.training.production_runtime import build_production_training_session
 
 
 def test_legacy_supervisor_command_remains_cli_compatible() -> None:
@@ -26,6 +29,7 @@ def test_legacy_supervisor_command_remains_cli_compatible() -> None:
             "20",
             "--max-rounds",
             "1",
+            "--observability-only",
             "--memory-budget-gb",
             "20",
         ]
@@ -43,4 +47,29 @@ def test_legacy_supervisor_command_remains_cli_compatible() -> None:
     assert settings.run_arguments["progress_interval"] == 10
     assert settings.run_arguments["max_configs_per_round"] == 20
     assert settings.run_arguments["max_rounds"] == 1
+    assert settings.run_arguments["observability_only"] is True
     assert settings.run_arguments["memory_budget_gb"] == 20
+
+
+def test_observability_only_requires_a_bounded_round_count(tmp_path) -> None:
+    with pytest.raises(
+        ValueError,
+        match="observability-only mode requires --max-rounds >= 1",
+    ):
+        build_production_training_session(
+            duration_hours=0,
+            train_window=900,
+            eval_window=100,
+            top_n=10000,
+            as_of_issue=None,
+            workers=1,
+            train_mode="expanding",
+            history_scope="current_regime_default",
+            regime_years=10,
+            output_dir=tmp_path,
+            progress_interval=10,
+            max_configs_per_round=28,
+            memory_budget_gb=20,
+            max_rounds=None,
+            observability_only=True,
+        )

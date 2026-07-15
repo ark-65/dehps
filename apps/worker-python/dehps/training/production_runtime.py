@@ -15,6 +15,10 @@ from dehps.training.runtime_round_executor import (
     RuntimeTrainingState,
 )
 from dehps.training.round_observability import RoundStageTracker
+from dehps.training.persistence_policy import (
+    apply_observability_only_database_guard,
+    training_persistence_policy,
+)
 
 
 @dataclass(frozen=True)
@@ -43,6 +47,7 @@ class ProductionRuntimeRoundExecutor:
         leaderboard = state.values["leaderboard"]
         max_configs_per_round = state.values["max_configs_per_round"]
         max_rounds = state.values["max_rounds"]
+        observability_only = state.values["observability_only"]
         navigation_records = state.values["navigation_records"]
         near_dynamic_kdj_best_policy = state.values["near_dynamic_kdj_best_policy"]
         near_dynamic_kdj_best_training_summary = state.values["near_dynamic_kdj_best_training_summary"]
@@ -1428,82 +1433,96 @@ class ProductionRuntimeRoundExecutor:
         status["best"] = strip_target_results(best_summary) if best_summary else None
         status["search_base"] = search_base_info
         status["prefilter"]["completed_latest"] = prefilter_info
-        round_stage_tracker.transition(
-            "persistence_and_prediction_refresh",
-            round_index=round_index + 1,
-            active_workers=1,
-            generated_config_count=generated_config_count,
-            selected_config_count=len(refined_configs),
-        )
-        with get_connection() as conn:
-            ensure_training_round_results_schema(conn)
-            upsert_training_round_result(conn, run_id=run_id, round_info=round_record, status=status)
-            upsert_training_line_round_result(
-                conn,
-                training_line_round_payload(
-                    run_id=run_id,
-                    round_index=round_index + 1,
-                    line_key=STATIC_100_LINE_KEY,
-                    line_label=STATIC_100_LINE_LABEL,
-                    line_kind="static_training",
-                    policy_key=str(round_best.get("config_hash") or ""),
-                    policy_params={"config_hash": round_best.get("config_hash")},
-                    summary=round_best,
-                    status=status,
-                    training_payload={"source": "training_supervisor_round_best"},
-                ),
-            )
-            if dynamic_line_payload is not None:
-                upsert_training_line_round_result(conn, dynamic_line_payload)
-            if near_dynamic_line_payload is not None:
-                upsert_training_line_round_result(conn, near_dynamic_line_payload)
-            if should_checkpoint_supervisor_best(
-                best_summary,
+        if observability_only:
+            round_stage_tracker.transition(
+                "persistence_skipped_observability_only",
                 round_index=round_index + 1,
-                improved=improved,
-            ):
-                upsert_training_supervisor_best(
+                active_workers=0,
+                generated_config_count=generated_config_count,
+                selected_config_count=len(refined_configs),
+            )
+            status["persistence_policy"]["skipped_rounds"].append(round_index + 1)
+            log(
+                f"round={round_index + 1} persistence=skipped "
+                "reason=observability_only"
+            )
+        else:
+            round_stage_tracker.transition(
+                "persistence_and_prediction_refresh",
+                round_index=round_index + 1,
+                active_workers=1,
+                generated_config_count=generated_config_count,
+                selected_config_count=len(refined_configs),
+            )
+            with get_connection() as conn:
+                ensure_training_round_results_schema(conn)
+                upsert_training_round_result(conn, run_id=run_id, round_info=round_record, status=status)
+                upsert_training_line_round_result(
                     conn,
-                    run_id=run_id,
-                    round_index=round_index + 1,
-                    best_summary=best_summary,
-                    status=status,
+                    training_line_round_payload(
+                        run_id=run_id,
+                        round_index=round_index + 1,
+                        line_key=STATIC_100_LINE_KEY,
+                        line_label=STATIC_100_LINE_LABEL,
+                        line_kind="static_training",
+                        policy_key=str(round_best.get("config_hash") or ""),
+                        policy_params={"config_hash": round_best.get("config_hash")},
+                        summary=round_best,
+                        status=status,
+                        training_payload={"source": "training_supervisor_round_best"},
+                    ),
                 )
-            if enable_target_weight_inversion_advisor and inversion_rows:
-                ensure_training_target_weight_inversions_schema(conn)
-                for inversion in inversion_rows:
-                    upsert_training_target_weight_inversion(
-                        conn,
-                        {
-                            **inversion,
-                            "run_id": run_id,
-                            "round_index": round_index + 1,
-                            "aggregate": inversion_aggregate,
-                            "prefilter": target_weight_inversion_latest or {},
-                        },
-                    )
-            if best_summary:
-                try:
-                    status["next_candidates"] = refresh_training_prediction_lines_current(
+                if dynamic_line_payload is not None:
+                    upsert_training_line_round_result(conn, dynamic_line_payload)
+                if near_dynamic_line_payload is not None:
+                    upsert_training_line_round_result(conn, near_dynamic_line_payload)
+                if should_checkpoint_supervisor_best(
+                    best_summary,
+                    round_index=round_index + 1,
+                    improved=improved,
+                ):
+                    upsert_training_supervisor_best(
                         conn,
                         run_id=run_id,
-                        top_n=top_n,
-                        ranked_universe=ranked_universe,
-                        dynamic_policy=dynamic_kdj_best_policy,
-                        near_dynamic_policy=near_dynamic_kdj_latest_policy or near_dynamic_kdj_best_policy,
-                        near_dynamic_sealed=False,
+                        round_index=round_index + 1,
+                        best_summary=best_summary,
+                        status=status,
                     )
-                    if near_dynamic_kdj_latest_policy is not None or near_dynamic_kdj_best_policy is not None:
-                        try:
-                            status["near_dynamic_kdj_training"]["report"] = write_near_dynamic_line_report(conn)
-                        except Exception as report_exc:  # pragma: no cover - reporting must not stop training.
-                            status["near_dynamic_kdj_training"]["report"] = {
-                                "status": "failed",
-                                "error": str(report_exc),
-                            }
-                except Exception as exc:  # pragma: no cover - candidate refresh must not stop training.
-                    status["next_candidates"] = {"status": "failed", "error": str(exc)}
-                    log(f"next_candidates_warning round={round_index + 1} error={exc}")
+                if enable_target_weight_inversion_advisor and inversion_rows:
+                    ensure_training_target_weight_inversions_schema(conn)
+                    for inversion in inversion_rows:
+                        upsert_training_target_weight_inversion(
+                            conn,
+                            {
+                                **inversion,
+                                "run_id": run_id,
+                                "round_index": round_index + 1,
+                                "aggregate": inversion_aggregate,
+                                "prefilter": target_weight_inversion_latest or {},
+                            },
+                        )
+                if best_summary:
+                    try:
+                        status["next_candidates"] = refresh_training_prediction_lines_current(
+                            conn,
+                            run_id=run_id,
+                            top_n=top_n,
+                            ranked_universe=ranked_universe,
+                            dynamic_policy=dynamic_kdj_best_policy,
+                            near_dynamic_policy=near_dynamic_kdj_latest_policy or near_dynamic_kdj_best_policy,
+                            near_dynamic_sealed=False,
+                        )
+                        if near_dynamic_kdj_latest_policy is not None or near_dynamic_kdj_best_policy is not None:
+                            try:
+                                status["near_dynamic_kdj_training"]["report"] = write_near_dynamic_line_report(conn)
+                            except Exception as report_exc:  # pragma: no cover - reporting must not stop training.
+                                status["near_dynamic_kdj_training"]["report"] = {
+                                    "status": "failed",
+                                    "error": str(report_exc),
+                                }
+                    except Exception as exc:  # pragma: no cover - candidate refresh must not stop training.
+                        status["next_candidates"] = {"status": "failed", "error": str(exc)}
+                        log(f"next_candidates_warning round={round_index + 1} error={exc}")
         round_stage_tracker.complete(round_index=round_index + 1)
         rounds.append(compact_round_info(round_record))
         publish_status_snapshot(status_path, status, event_url=resolved_event_url, write_json=write_status_json)
@@ -1656,18 +1675,23 @@ def build_production_training_session(
     target_weight_inversion_max_targets: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_TARGETS,
     target_weight_inversion_max_deltas_per_target: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_DELTAS_PER_TARGET,
     max_rounds: int | None = None,
+    observability_only: bool = False,
 ) -> ProductionTrainingSession:
+    if observability_only and (max_rounds is None or max_rounds < 1):
+        raise ValueError("observability-only mode requires --max-rounds >= 1")
+    apply_observability_only_database_guard(observability_only)
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
     started_at = datetime.now()
     deadline = resolve_training_deadline(started_at, duration_hours)
-    resolved_event_url = training_event_url(event_url)
+    resolved_event_url = None if observability_only else training_event_url(event_url)
     output_dir.mkdir(parents=True, exist_ok=True)
     status_path = output_dir / f"training-supervisor-{run_id}.json"
     report_path = output_dir / f"training-supervisor-{run_id}.md"
 
     with get_connection() as conn:
-        ensure_training_round_results_schema(conn)
-        ensure_training_supervisor_best_schema(conn)
+        if not observability_only:
+            ensure_training_round_results_schema(conn)
+            ensure_training_supervisor_best_schema(conn)
         selection = select_history(conn, scope=history_scope, as_of_issue=as_of_issue, regime_years=regime_years)
         history_table_fields = load_ssq_history_column_names(conn)
         training_history = selection.dated_history
@@ -1710,6 +1734,7 @@ def build_production_training_session(
         eval_window=eval_window,
         top_n=top_n,
         universe_size=len(ranked_universe),
+        ensure_schema=not observability_only,
     )
     if not prior_leaderboard:
         prior_leaderboard = load_prior_supervisor_candidates(
@@ -1739,6 +1764,7 @@ def build_production_training_session(
         eval_window=eval_window,
         top_n=top_n,
         universe_size=len(ranked_universe),
+        ensure_schema=not observability_only,
     )
     status_carryover_configs = load_prior_supervisor_carryover_configs(
         output_dir=output_dir,
@@ -1938,6 +1964,9 @@ def build_production_training_session(
         "updated_at": started_at.isoformat(timespec="seconds"),
         "deadline": deadline.isoformat(timespec="seconds") if deadline else None,
         "run_mode": "continuous" if deadline is None else "timed",
+        "execution_mode": "observability_only" if observability_only else "production",
+        "persistence_policy": training_persistence_policy(observability_only),
+        "round_execution_history": [],
         "status": "running",
         "pid": os.getpid(),
         "history_scope": selection.scope,
@@ -2082,7 +2111,7 @@ def build_production_training_session(
         log=log,
     )
 
-    if should_checkpoint_supervisor_best(best_summary, round_index=0, improved=True):
+    if not observability_only and should_checkpoint_supervisor_best(best_summary, round_index=0, improved=True):
         with get_connection() as conn:
             upsert_training_supervisor_best(
                 conn,
@@ -2142,6 +2171,7 @@ def iter_supervisor_rounds(
     target_weight_inversion_max_targets: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_TARGETS,
     target_weight_inversion_max_deltas_per_target: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_DELTAS_PER_TARGET,
     max_rounds: int | None = None,
+    observability_only: bool = False,
 ) -> Iterator[dict]:
     session = build_production_training_session(**locals())
     while request := session.next_request():

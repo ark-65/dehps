@@ -248,10 +248,13 @@ def training_event_payload(status: dict) -> dict:
     return {
         "run_id": status.get("run_id"),
         "status": status.get("status"),
+        "execution_mode": status.get("execution_mode"),
+        "persistence_policy": status.get("persistence_policy"),
         "pid": status.get("pid"),
         "updated_at": status.get("updated_at"),
         "latest_progress": status.get("latest_progress"),
         "round_execution": status.get("round_execution"),
+        "round_execution_history": status.get("round_execution_history"),
         "search_base": status.get("search_base"),
         "status_path": status.get("status_path"),
         "report_path": status.get("report_path"),
@@ -4353,10 +4356,12 @@ def load_db_supervisor_candidates(
     top_n: int,
     universe_size: int,
     limit: int = 24,
+    ensure_schema: bool = True,
 ) -> list[dict]:
     with get_connection() as conn:
-        ensure_training_round_results_schema(conn)
-        ensure_training_supervisor_best_schema(conn)
+        if ensure_schema:
+            ensure_training_round_results_schema(conn)
+            ensure_training_supervisor_best_schema(conn)
         raw_candidates = load_training_supervisor_best_candidate_summaries(
             conn,
             as_of_issue=as_of_issue,
@@ -4513,10 +4518,12 @@ def load_db_supervisor_carryover_configs(
     top_n: int,
     universe_size: int,
     limit: int = 16,
+    ensure_schema: bool = True,
 ) -> tuple[FrequencyRankerConfig, ...]:
     with get_connection() as conn:
-        ensure_training_round_results_schema(conn)
-        ensure_training_supervisor_best_schema(conn)
+        if ensure_schema:
+            ensure_training_round_results_schema(conn)
+            ensure_training_supervisor_best_schema(conn)
         raw_candidates = load_training_supervisor_best_carryover_candidate_summaries(
             conn,
             current_as_of_issue=current_as_of_issue,
@@ -6258,6 +6265,8 @@ def compact_status_payload(status: dict) -> dict:
         "updated_at": status.get("updated_at"),
         "deadline": status.get("deadline"),
         "status": status.get("status"),
+        "execution_mode": status.get("execution_mode"),
+        "persistence_policy": status.get("persistence_policy"),
         "pid": status.get("pid"),
         "history_scope": status.get("history_scope"),
         "regime_years": status.get("regime_years"),
@@ -6297,6 +6306,7 @@ def compact_status_payload(status: dict) -> dict:
         "search_base": status.get("search_base"),
         "latest_progress": status.get("latest_progress"),
         "round_execution": status.get("round_execution"),
+        "round_execution_history": status.get("round_execution_history"),
         "status_path": status.get("status_path"),
         "report_path": status.get("report_path"),
     }

@@ -32,6 +32,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--progress-interval", type=int, default=10)
     parser.add_argument("--max-configs-per-round", type=int, default=28)
     parser.add_argument("--max-rounds", type=int, help="Bound completed rounds for isolated smoke validation; defaults to unbounded.")
+    parser.add_argument(
+        "--observability-only",
+        action="store_true",
+        help=(
+            "Run bounded full training rounds while disabling database, prediction, "
+            "promotion-state, and event writes. Requires --max-rounds >= 1."
+        ),
+    )
     parser.add_argument("--memory-budget-gb", type=int, default=20)
     parser.add_argument("--event-url", default=os.getenv("DEHPS_TRAINING_EVENT_URL", runtime.DEFAULT_TRAINING_EVENT_URL))
     parser.add_argument("--write-status-json", action="store_true", help="Write a compact legacy status JSON snapshot.")
@@ -95,6 +103,7 @@ def build_settings(args: argparse.Namespace) -> TrainingSupervisorSettings:
             "progress_interval": args.progress_interval,
             "max_configs_per_round": args.max_configs_per_round,
             "max_rounds": args.max_rounds,
+            "observability_only": args.observability_only,
             "memory_budget_gb": args.memory_budget_gb,
             "event_url": args.event_url,
             "write_status_json": args.write_status_json,

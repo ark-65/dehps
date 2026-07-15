@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from copy import deepcopy
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
@@ -124,6 +125,10 @@ class RoundStageTracker:
         payload["status"] = "completed"
         payload["completed_at"] = self._now().isoformat(timespec="seconds")
         payload["stage_elapsed_seconds"] = 0.0
+        history = self._status.setdefault("round_execution_history", [])
+        if isinstance(history, list):
+            history.append(deepcopy(payload))
+            del history[:-8]
         self._publish()
         return payload
 
