@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import multiprocessing as mp
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Sequence
 
@@ -23,6 +25,14 @@ SIMPLIFIED_COMPONENT_NAMES = {
     "omission_score": "omission_weight",
     "previous_consecutive_score": "previous_consecutive_weight",
 }
+
+_INVERSION_WORKER_UNIVERSE: RankedUniverseMatrix | None = None
+_INVERSION_WORKER_HISTORY: list[HistoryDraw] | None = None
+_INVERSION_WORKER_BASE_CONFIG: FrequencyRankerConfig | None = None
+_INVERSION_WORKER_TRAIN_WINDOW = 0
+_INVERSION_WORKER_TRAIN_MODE = "expanding"
+_INVERSION_WORKER_TOP_N = 10_000
+_INVERSION_WORKER_MAX_DELTA_CANDIDATES = 8
 
 
 @dataclass(frozen=True)
@@ -531,6 +541,63 @@ def invert_target_weight(
     return best_result
 
 
+def _target_inversion_pool_context():
+    return mp.get_context("fork") if "fork" in mp.get_all_start_methods() else mp.get_context()
+
+
+def _init_target_inversion_worker(
+    ranked_universe: RankedUniverseMatrix,
+    history: list[HistoryDraw],
+    base_config: FrequencyRankerConfig,
+    train_window: int,
+    train_mode: str,
+    top_n: int,
+    max_delta_candidates: int,
+) -> None:
+    global _INVERSION_WORKER_UNIVERSE
+    global _INVERSION_WORKER_HISTORY
+    global _INVERSION_WORKER_BASE_CONFIG
+    global _INVERSION_WORKER_TRAIN_WINDOW
+    global _INVERSION_WORKER_TRAIN_MODE
+    global _INVERSION_WORKER_TOP_N
+    global _INVERSION_WORKER_MAX_DELTA_CANDIDATES
+    _INVERSION_WORKER_UNIVERSE = ranked_universe
+    _INVERSION_WORKER_HISTORY = history
+    _INVERSION_WORKER_BASE_CONFIG = base_config
+    _INVERSION_WORKER_TRAIN_WINDOW = train_window
+    _INVERSION_WORKER_TRAIN_MODE = train_mode
+    _INVERSION_WORKER_TOP_N = top_n
+    _INVERSION_WORKER_MAX_DELTA_CANDIDATES = max_delta_candidates
+
+
+def _invert_target_worker(
+    task: tuple[int, int, str, tuple[int, ...]],
+) -> tuple[int, TargetWeightInversion]:
+    position, target_index, issue, red_numbers = task
+    if (
+        _INVERSION_WORKER_UNIVERSE is None
+        or _INVERSION_WORKER_HISTORY is None
+        or _INVERSION_WORKER_BASE_CONFIG is None
+    ):
+        raise RuntimeError("target inversion worker is not initialized")
+    train_start = (
+        0
+        if _INVERSION_WORKER_TRAIN_MODE == "expanding"
+        else max(0, target_index - _INVERSION_WORKER_TRAIN_WINDOW)
+    )
+    result = invert_target_weight(
+        target_issue=issue,
+        red_numbers=red_numbers,
+        train_history=_INVERSION_WORKER_HISTORY[train_start:target_index],
+        base_config=_INVERSION_WORKER_BASE_CONFIG,
+        ranked_universe=_INVERSION_WORKER_UNIVERSE,
+        target_draw_date=history_draw_date(_INVERSION_WORKER_HISTORY[target_index]),
+        top_n=_INVERSION_WORKER_TOP_N,
+        max_delta_candidates=_INVERSION_WORKER_MAX_DELTA_CANDIDATES,
+    )
+    return position, result
+
+
 def invert_targets_for_summary(
     *,
     history: list[HistoryDraw],
@@ -542,9 +609,11 @@ def invert_targets_for_summary(
     top_n: int,
     max_targets: int | None = None,
     max_delta_candidates: int = 8,
+    workers: int = 1,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> list[TargetWeightInversion]:
     issue_to_index = {history_issue(draw): index for index, draw in enumerate(history)}
-    rows: list[TargetWeightInversion] = []
+    tasks: list[tuple[int, int, str, tuple[int, ...]]] = []
     selected_results = target_results[:max_targets] if max_targets is not None else target_results
     for target in selected_results:
         issue = str(target.get("issue") or "")
@@ -552,20 +621,52 @@ def invert_targets_for_summary(
         red_numbers = tuple(int(number) for number in target.get("red_numbers") or ())
         if target_index is None or len(red_numbers) != 6:
             continue
-        train_start = 0 if train_mode == "expanding" else max(0, target_index - train_window)
-        rows.append(
-            invert_target_weight(
-                target_issue=issue,
-                red_numbers=red_numbers,
-                train_history=history[train_start:target_index],
-                base_config=base_config,
-                ranked_universe=ranked_universe,
-                target_draw_date=history_draw_date(history[target_index]),
-                top_n=top_n,
-                max_delta_candidates=max_delta_candidates,
-            )
-        )
-    return rows
+        tasks.append((len(tasks), target_index, issue, red_numbers))
+    if not tasks:
+        return []
+
+    _init_target_inversion_worker(
+        ranked_universe,
+        history,
+        base_config,
+        train_window,
+        train_mode,
+        top_n,
+        max_delta_candidates,
+    )
+    worker_count = max(1, min(int(workers), len(tasks)))
+    ordered_rows: list[TargetWeightInversion | None] = [None] * len(tasks)
+    if worker_count > 1:
+        context = _target_inversion_pool_context()
+        with context.Pool(
+            processes=worker_count,
+            initializer=_init_target_inversion_worker,
+            initargs=(
+                ranked_universe,
+                history,
+                base_config,
+                train_window,
+                train_mode,
+                top_n,
+                max_delta_candidates,
+            ),
+        ) as pool:
+            for completed, (position, result) in enumerate(
+                pool.imap_unordered(_invert_target_worker, tasks),
+                start=1,
+            ):
+                ordered_rows[position] = result
+                if progress_callback is not None:
+                    progress_callback(completed, len(tasks))
+    else:
+        for completed, task in enumerate(tasks, start=1):
+            position, result = _invert_target_worker(task)
+            ordered_rows[position] = result
+            if progress_callback is not None:
+                progress_callback(completed, len(tasks))
+    if any(row is None for row in ordered_rows):
+        raise RuntimeError("target inversion worker returned an incomplete result set")
+    return [row for row in ordered_rows if row is not None]
 
 
 def _vector_from_delta_config(delta_config: dict[str, float]) -> np.ndarray:

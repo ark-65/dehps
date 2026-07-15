@@ -2563,6 +2563,7 @@ def target_weight_inversion_advisor_metadata(
     frozen_validation_window_value: int = 0,
     max_targets: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_TARGETS,
     max_deltas_per_target: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_DELTAS_PER_TARGET,
+    workers: int = 1,
 ) -> dict:
     aggregate = aggregate if isinstance(aggregate, dict) else {}
     selected_hashes = set(bounded_unique_config_hashes(configs, limit=len(configs) or 1))
@@ -2591,6 +2592,8 @@ def target_weight_inversion_advisor_metadata(
     selected_count = sum(1 for item in advice if item["decision"] == "selected")
     rejected_count = sum(1 for item in advice if item["decision"] == "rejected")
     candidate_count = len(configs)
+    sample_count = int(aggregate.get("sample_count") or 0)
+    worker_count = min(max(1, int(workers)), sample_count) if sample_count else 0
     status = "ready" if enabled and candidate_count else ("waiting" if enabled else "disabled")
     return {
         "mode": "target_weight_inversion_v0",
@@ -2599,8 +2602,9 @@ def target_weight_inversion_advisor_metadata(
         "budget": budget,
         "max_targets": max_targets,
         "max_deltas_per_target": max_deltas_per_target,
+        "worker_count": worker_count,
         "latest_issue": str(aggregate.get("latest_issue") or ""),
-        "sample_count": int(aggregate.get("sample_count") or 0),
+        "sample_count": sample_count,
         "success_count": int(aggregate.get("success_count") or 0),
         "success_rate": float(aggregate.get("success_rate") or 0.0),
         "hit_count": int(aggregate.get("hit_count") or 0),
@@ -2647,6 +2651,8 @@ def target_weight_inversion_advisor(
     budget: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES,
     control_experiments: list[dict] | None = None,
     frozen_validation_window_value: int = 0,
+    workers: int = 1,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> tuple[list[dict], dict, tuple[FrequencyRankerConfig, ...], dict]:
     safe_max_targets = max(0, int(max_targets))
     safe_max_deltas = max(1, int(max_deltas_per_target))
@@ -2658,6 +2664,7 @@ def target_weight_inversion_advisor(
             frozen_validation_window_value=frozen_validation_window_value,
             max_targets=safe_max_targets,
             max_deltas_per_target=safe_max_deltas,
+            workers=workers,
         )
         return [], {}, (), metadata
     target_results = best_summary.get("target_results")
@@ -2670,6 +2677,7 @@ def target_weight_inversion_advisor(
             frozen_validation_window_value=frozen_validation_window_value,
             max_targets=safe_max_targets,
             max_deltas_per_target=safe_max_deltas,
+            workers=workers,
         )
         return [], {}, (), metadata
     base_config = FrequencyRankerConfig(**{**config_dict(FrequencyRankerConfig()), **config_values})
@@ -2683,6 +2691,8 @@ def target_weight_inversion_advisor(
         top_n=top_n,
         max_targets=safe_max_targets,
         max_delta_candidates=safe_max_deltas,
+        workers=workers,
+        progress_callback=progress_callback,
     )
     rows, aggregate, configs = target_inversion_payload(inversions=inversions, base_config=base_config)
     limited_configs = tuple(configs[: min(max(0, max_candidates), max(0, budget))])
@@ -2695,6 +2705,7 @@ def target_weight_inversion_advisor(
         frozen_validation_window_value=frozen_validation_window_value,
         max_targets=safe_max_targets,
         max_deltas_per_target=safe_max_deltas,
+        workers=workers,
     )
     return rows, aggregate, limited_configs, metadata
 
