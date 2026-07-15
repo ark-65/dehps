@@ -729,6 +729,49 @@ def test_refresh_training_prediction_lines_writes_near_line_when_policy_exists(m
     ]
 
 
+def test_refresh_training_prediction_lines_writes_fixed_forward_challenger(monkeypatch):
+    events: list[str] = []
+    static_metadata = {
+        "line_key": STATIC_100_LINE_KEY,
+        "next_issue": "2026081",
+        "config_hash": "incumbent",
+    }
+
+    monkeypatch.setattr(
+        next_candidates,
+        "build_training_next_candidate_snapshot",
+        lambda *_args, **_kwargs: {"metadata": static_metadata, "candidates": []},
+    )
+    monkeypatch.setattr(
+        next_candidates,
+        "build_dynamic_kdj_next_candidate_snapshot",
+        lambda *_args, **_kwargs: {"metadata": {"line_key": DYNAMIC_KDJ_LINE_KEY}, "candidates": []},
+    )
+    monkeypatch.setattr(
+        next_candidates,
+        "ensure_active_forward_promotion_cohort",
+        lambda *_args, **_kwargs: {"cohort_key": "cohort-1"},
+    )
+    monkeypatch.setattr(
+        next_candidates,
+        "build_forward_challenger_next_candidate_snapshot",
+        lambda *_args, **_kwargs: {
+            "metadata": {"line_key": "forward_challenger"},
+            "candidates": [],
+        },
+    )
+    monkeypatch.setattr(
+        next_candidates,
+        "replace_training_next_candidates_current",
+        lambda _conn, *, metadata, candidates: events.append(metadata["line_key"]),
+    )
+
+    result = refresh_training_prediction_lines_current(object(), ranked_universe=[object()])
+
+    assert "forward_challenger" in result["lines"]
+    assert events == ["static_100", "dynamic_kdj", "forward_challenger"]
+
+
 def test_training_next_candidate_snapshot_uses_training_regime_for_freshness(monkeypatch):
     history = [
         ("2026067", date(2026, 6, 20), (1, 2, 3, 4, 5, 6)),

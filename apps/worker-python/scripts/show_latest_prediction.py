@@ -29,7 +29,7 @@ def show_latest_prediction(*, top_limit: int = 10) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Show the latest durable three-line forward prediction snapshot."
+        description="Show the latest durable three-line prediction and any prospective fixed challenger."
     )
     parser.add_argument("--top", type=int, default=10)
     parser.add_argument("--json", action="store_true")

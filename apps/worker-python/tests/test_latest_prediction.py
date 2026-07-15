@@ -81,3 +81,29 @@ def test_latest_prediction_reports_missing_line_instead_of_hiding_it():
 
     assert payload["status"] == "incomplete_lines"
     assert payload["missing_lines"] == ["dynamic_kdj", "dynamic_kdj_near"]
+
+
+def test_latest_prediction_displays_optional_forward_challenger_without_changing_consensus():
+    runs = [
+        _run("static_100"),
+        _run("dynamic_kdj"),
+        _run("dynamic_kdj_near"),
+        _run("forward_challenger"),
+    ]
+    candidates = [
+        {
+            "prediction_run_key": run["prediction_run_key"],
+            "rank": 1,
+            "red_numbers": [1, 2, 3, 4, 5, 6]
+            if run["line_key"] != "forward_challenger"
+            else [7, 8, 9, 10, 11, 12],
+            "score": 0.5,
+        }
+        for run in runs
+    ]
+
+    payload = build_latest_prediction_payload(runs, candidates, git_commit="abc123")
+
+    assert [line["line_key"] for line in payload["lines"]][-1] == "forward_challenger"
+    assert [item["number"] for item in payload["consensus_numbers"]] == [1, 2, 3, 4, 5, 6]
+    assert payload["missing_lines"] == []

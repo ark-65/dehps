@@ -389,6 +389,48 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_training_prediction_evaluations_official_r
   ON training_prediction_evaluations (prediction_run_key, predicted_issue)
   WHERE prediction_run_key IS NOT NULL;
 
+CREATE TABLE IF NOT EXISTS forward_promotion_cohorts (
+  cohort_key TEXT PRIMARY KEY,
+  status TEXT NOT NULL CHECK (status IN ('accumulating', 'invalid', 'rejected', 'promoted')),
+  activation_issue TEXT NOT NULL,
+  incumbent_config_hash TEXT NOT NULL,
+  incumbent_config JSONB NOT NULL,
+  incumbent_summary JSONB NOT NULL,
+  challenger_config_hash TEXT NOT NULL,
+  challenger_config JSONB NOT NULL,
+  challenger_summary JSONB NOT NULL,
+  source_run_id TEXT NOT NULL,
+  source_round_index INTEGER NOT NULL,
+  source_train_mode TEXT NOT NULL,
+  source_train_window INTEGER NOT NULL,
+  source_eval_window INTEGER NOT NULL,
+  source_top_n INTEGER NOT NULL,
+  source_history_scope TEXT NOT NULL DEFAULT '',
+  source_regime_years INTEGER NOT NULL DEFAULT 0,
+  source_regime_start_date DATE,
+  historical_gate_passed BOOLEAN NOT NULL,
+  min_paired_issues INTEGER NOT NULL DEFAULT 20,
+  max_losing_streak INTEGER NOT NULL DEFAULT 3,
+  paired_issue_count INTEGER NOT NULL DEFAULT 0,
+  decision JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  decided_at TIMESTAMPTZ
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_forward_promotion_one_accumulating
+  ON forward_promotion_cohorts ((status)) WHERE status = 'accumulating';
+
+CREATE TABLE IF NOT EXISTS forward_champion_state (
+  champion_key TEXT PRIMARY KEY,
+  cohort_key TEXT NOT NULL REFERENCES forward_promotion_cohorts(cohort_key) ON DELETE RESTRICT,
+  config_hash TEXT NOT NULL,
+  config JSONB NOT NULL,
+  source_summary JSONB NOT NULL,
+  promoted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS research_hypothesis_families (
   id BIGSERIAL PRIMARY KEY,
   family_key TEXT NOT NULL UNIQUE,

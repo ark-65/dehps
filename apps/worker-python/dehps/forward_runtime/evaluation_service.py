@@ -9,6 +9,7 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 
 from dehps.db import get_connection
+from dehps.forward_promotion.service import reconcile_forward_promotion
 from dehps.optimization.prediction_evaluation import (
     evaluate_prediction_snapshot,
     load_actual_draw,
@@ -37,12 +38,14 @@ class ForwardEvaluationService:
         ranking_auditor: RankingAuditor = build_actual_ranking_audit,
         actual_loader: ActualLoader = load_actual_draw,
         prediction_loader: PredictionLoader = load_prediction_rows,
+        promotion_reconciler: Callable[..., dict[str, Any]] = reconcile_forward_promotion,
     ) -> None:
         self.connection_factory = connection_factory
         self.snapshot_evaluator = snapshot_evaluator
         self.ranking_auditor = ranking_auditor
         self.actual_loader = actual_loader
         self.prediction_loader = prediction_loader
+        self.promotion_reconciler = promotion_reconciler
 
     def ensure_schema(self) -> None:
         with self.connection_factory() as conn:
@@ -96,6 +99,14 @@ class ForwardEvaluationService:
                 failed_count += 1
             else:
                 skipped_count += 1
+        try:
+            promotion = self.promotion_reconciler(connection_factory=self.connection_factory)
+        except Exception as exc:  # promotion must fail closed without undoing accepted evaluation rows.
+            promotion = {
+                "status": "reconciliation_failed",
+                "promote": False,
+                "error": {"type": type(exc).__name__, "message": str(exc)},
+            }
         return {
             "status": "failed" if failed_count else "ok",
             "pending_count": len(pending),
@@ -104,6 +115,7 @@ class ForwardEvaluationService:
             "failed_count": failed_count,
             "skipped_count": skipped_count,
             "results": results,
+            "forward_promotion": promotion,
         }
 
     def _evaluate_one(
