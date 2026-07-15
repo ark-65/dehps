@@ -3558,12 +3558,14 @@ def test_target_weight_inversion_metadata_records_sample_candidate_and_guardrail
         configs=configs,
         control_experiments=controls,
         frozen_validation_window_value=20,
+        workers=16,
     )
 
     assert metadata["mode"] == "target_weight_inversion_v0"
     assert metadata["enabled"] is True
     assert metadata["budget"] == 4
     assert metadata["sample_count"] == 5
+    assert metadata["worker_count"] == 5
     assert metadata["success_count"] == 3
     assert metadata["latest_issue"] == "2026068"
     assert metadata["candidate_count"] == 2
@@ -3586,6 +3588,7 @@ def test_target_weight_inversion_advisor_limits_candidates_for_next_round(monkey
     def fake_invert_targets_for_summary(**kwargs):
         captured["target_results"] = kwargs["target_results"]
         captured["top_n"] = kwargs["top_n"]
+        captured["workers"] = kwargs["workers"]
         return ["inversion-row"]
 
     candidate_configs = tuple(FrequencyRankerConfig(frequency_weight=round(0.30 + index * 0.01, 4)) for index in range(5))
@@ -3627,9 +3630,14 @@ def test_target_weight_inversion_advisor_limits_candidates_for_next_round(monkey
         budget=4,
         control_experiments=[{"label": "null_baseline"}],
         frozen_validation_window_value=20,
+        workers=6,
     )
 
-    assert captured == {"target_results": best_summary["target_results"], "top_n": 10_000}
+    assert captured == {
+        "target_results": best_summary["target_results"],
+        "top_n": 10_000,
+        "workers": 6,
+    }
     assert rows == [{"target_issue": "2026068", "success": True}]
     assert aggregate["sample_count"] == 6
     assert len(configs) == 4

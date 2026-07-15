@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from itertools import combinations
+
 from dehps.models.frequency_ranker import FrequencyRankerConfig
 from dehps.optimization.target_inversion import TargetWeightInversion
 from dehps.optimization.target_inversion import aggregate_target_inversions
+from dehps.optimization.target_inversion import invert_targets_for_summary
 from dehps.optimization.target_inversion import invert_target_weight_delta
+import dehps.optimization.target_inversion as target_inversion
+from dehps.optimization.walk_forward import build_ranked_universe
 
 
 def test_target_inversion_finds_small_delta_for_simplified_components():
@@ -114,6 +119,106 @@ def test_target_inversion_requires_components_instead_of_fitting_history():
     assert result["success"] is False
     assert result["outlier_reason"] == "missing_target_components"
     assert result["delta_norm"] == 0.0
+
+
+def test_parallel_target_inversion_preserves_serial_order_and_payload(monkeypatch):
+    history = [
+        ("2026001", (1, 2, 3, 4, 5, 6)),
+        ("2026002", (1, 2, 3, 4, 5, 7)),
+        ("2026003", (1, 2, 3, 4, 5, 8)),
+        ("2026004", (1, 2, 3, 4, 5, 9)),
+    ]
+    target_results = [
+        {"issue": issue, "red_numbers": list(numbers)}
+        for issue, numbers in history[1:]
+    ]
+
+    def fake_invert_target_weight(**kwargs):
+        rank = int(kwargs["target_issue"][-1])
+        return TargetWeightInversion(
+            target_issue=kwargs["target_issue"],
+            red_numbers=kwargs["red_numbers"],
+            current_rank=rank,
+            hit_top10000=True,
+            score=float(rank),
+            rank_margin=0,
+            base_config_hash="base",
+            required_delta_config={},
+            adjusted_config={},
+            adjusted_rank=rank,
+            adjusted_hit_top10000=True,
+            delta_norm=0.0,
+            changed_fields=(),
+            success=True,
+        )
+
+    class FakePool:
+        def __init__(self, *, initializer, initargs, **_kwargs):
+            initializer(*initargs)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def imap_unordered(self, function, tasks):
+            return iter(function(task) for task in reversed(tasks))
+
+    class FakeContext:
+        Pool = FakePool
+
+    monkeypatch.setattr(target_inversion, "invert_target_weight", fake_invert_target_weight)
+    monkeypatch.setattr(target_inversion, "_target_inversion_pool_context", lambda: FakeContext())
+    progress = []
+    kwargs = {
+        "history": history,
+        "ranked_universe": object(),
+        "base_config": FrequencyRankerConfig(),
+        "target_results": target_results,
+        "train_window": 3,
+        "train_mode": "expanding",
+        "top_n": 10_000,
+    }
+
+    serial = invert_targets_for_summary(**kwargs, workers=1)
+    parallel = invert_targets_for_summary(
+        **kwargs,
+        workers=3,
+        progress_callback=lambda completed, total: progress.append((completed, total)),
+    )
+
+    assert parallel == serial
+    assert [item.target_issue for item in parallel] == ["2026002", "2026003", "2026004"]
+    assert progress == [(1, 3), (2, 3), (3, 3)]
+
+
+def test_real_parallel_target_inversion_is_bitwise_equal_to_serial():
+    universe = list(combinations(range(1, 11), 6))
+    ranked_universe = build_ranked_universe(universe, use_cache=False)
+    history = [
+        (f"202600{index}", numbers)
+        for index, numbers in enumerate(universe[:8], start=1)
+    ]
+    target_results = [
+        {"issue": issue, "red_numbers": list(numbers)}
+        for issue, numbers in history[-4:]
+    ]
+    kwargs = {
+        "history": history,
+        "ranked_universe": ranked_universe,
+        "base_config": FrequencyRankerConfig(),
+        "target_results": target_results,
+        "train_window": 4,
+        "train_mode": "expanding",
+        "top_n": 10,
+        "max_delta_candidates": 3,
+    }
+
+    serial = invert_targets_for_summary(**kwargs, workers=1)
+    parallel = invert_targets_for_summary(**kwargs, workers=2)
+
+    assert parallel == serial
 
 
 def test_target_inversion_aggregate_uses_partial_improvements_as_micro_candidates():

@@ -884,7 +884,11 @@ class ProductionRuntimeRoundExecutor:
         round_stage_tracker.transition(
             "target_weight_inversion",
             round_index=round_index + 1,
-            active_workers=1 if enable_target_weight_inversion_advisor else 0,
+            active_workers=(
+                min(worker_count, max(1, target_weight_inversion_max_targets))
+                if enable_target_weight_inversion_advisor
+                else 0
+            ),
             generated_config_count=generated_config_count,
             selected_config_count=len(refined_configs),
             target_completed=0,
@@ -909,6 +913,12 @@ class ProductionRuntimeRoundExecutor:
                 budget=max(0, target_weight_inversion_max_candidates),
                 control_experiments=control_summaries,
                 frozen_validation_window_value=validation_window,
+                workers=worker_count,
+                progress_callback=lambda completed, total: round_stage_tracker.update_target_progress(
+                    completed=completed,
+                    total=total,
+                    publish=(completed == 1 or completed == total or completed % 10 == 0),
+                ),
             )
         else:
             target_weight_inversion_configs = ()
@@ -917,6 +927,7 @@ class ProductionRuntimeRoundExecutor:
                 budget=0,
                 max_targets=target_weight_inversion_max_targets,
                 max_deltas_per_target=target_weight_inversion_max_deltas_per_target,
+                workers=worker_count,
             )
         target_weight_inversion_latest = {
             **target_weight_inversion_latest,
