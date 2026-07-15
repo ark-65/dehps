@@ -15,6 +15,7 @@ NEURAL_KDJ_HIDDEN_UNITS="${DEHPS_NEURAL_KDJ_HIDDEN_UNITS:-8}"
 NEURAL_KDJ_EPOCHS="${DEHPS_NEURAL_KDJ_EPOCHS:-120}"
 TARGET_INVERSION_MAX_CANDIDATES="${DEHPS_TARGET_INVERSION_MAX_CANDIDATES:-8}"
 TARGET_INVERSION_MAX_DELTAS="${DEHPS_TARGET_INVERSION_MAX_DELTAS:-12}"
+PROGRESS_INTERVAL="${DEHPS_PROGRESS_INTERVAL:-5}"
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
@@ -484,6 +485,7 @@ setsid bash -lc '
   neural_kdj_epochs="$9"
   target_inversion_max_candidates="${10}"
   target_inversion_max_deltas="${11}"
+  progress_interval="${12}"
   for fd_path in /proc/$$/fd/*; do
     fd="${fd_path##*/}"
     if [[ "$fd" =~ ^[0-9]+$ ]] && (( fd > 2 )) \
@@ -502,7 +504,7 @@ setsid bash -lc '
     --train-mode expanding
     --history-scope current_regime_default
     --regime-years 10
-    --progress-interval 10
+    --progress-interval "$progress_interval"
     --max-configs-per-round "$max_configs_per_round"
     --memory-budget-gb "$memory_budget_gb"
     --write-status-json
@@ -525,7 +527,7 @@ setsid bash -lc '
 ' "$PID_FILE" "$latest_issue" "$WEIGHT_KDJ_BUDGET_SHARE" "$NEURAL_KDJ_BUDGET_SHARE" "$TRAINING_WORKERS" \
   "$LOG_DIR/training-supervisor-watchdog.lock" "$MAX_CONFIGS_PER_ROUND" "$MEMORY_BUDGET_GB" \
   "$NEURAL_KDJ_HIDDEN_UNITS" "$NEURAL_KDJ_EPOCHS" "$TARGET_INVERSION_MAX_CANDIDATES" \
-  "$TARGET_INVERSION_MAX_DELTAS" > "$run_log" 2>&1 < /dev/null &
+  "$TARGET_INVERSION_MAX_DELTAS" "$PROGRESS_INTERVAL" > "$run_log" 2>&1 < /dev/null &
 
 launcher_pid="$!"
 sleep 1

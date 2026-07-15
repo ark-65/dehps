@@ -111,11 +111,13 @@ def test_training_launcher_uses_validated_scale_defaults_and_keeps_them_override
     assert 'NEURAL_KDJ_EPOCHS="${DEHPS_NEURAL_KDJ_EPOCHS:-120}"' in script
     assert 'TARGET_INVERSION_MAX_CANDIDATES="${DEHPS_TARGET_INVERSION_MAX_CANDIDATES:-8}"' in script
     assert 'TARGET_INVERSION_MAX_DELTAS="${DEHPS_TARGET_INVERSION_MAX_DELTAS:-12}"' in script
+    assert 'PROGRESS_INTERVAL="${DEHPS_PROGRESS_INTERVAL:-5}"' in script
     assert '--max-configs-per-round "$max_configs_per_round"' in script
     assert '--memory-budget-gb "$memory_budget_gb"' in script
     assert '--neural-kdj-hidden-units "$neural_kdj_hidden_units"' in script
     assert '--neural-kdj-epochs "$neural_kdj_epochs"' in script
     assert '--target-weight-inversion-max-candidates "$target_inversion_max_candidates"' in script
     assert '--target-weight-inversion-max-deltas-per-target "$target_inversion_max_deltas"' in script
+    assert '--progress-interval "$progress_interval"' in script
     assert '--workers "$training_workers"' in script
     assert "--cpu-threads 1" in script

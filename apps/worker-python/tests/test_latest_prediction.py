@@ -11,6 +11,7 @@ def _run(line_key: str, *, status: str = "pending") -> dict:
         "prediction_run_key": f"{line_key}:2026081:snapshot",
         "line_key": line_key,
         "line_label": line_key,
+        "line_kind": line_key,
         "source_run_id": "run-1",
         "source_round_index": 8,
         "as_of_issue": "2026080",
@@ -19,7 +20,10 @@ def _run(line_key: str, *, status: str = "pending") -> dict:
         "generated_at": datetime(2026, 7, 15, tzinfo=timezone.utc),
         "candidate_count": 10000,
         "config_hash": f"hash-{line_key}",
-        "metadata": {"git_commit": "source123"},
+        "metadata": {
+            "git_commit": "source123",
+            "prediction_metadata": {"protocol": f"{line_key}-model-v1"},
+        },
     }
 
 
@@ -55,6 +59,10 @@ def test_latest_prediction_builds_three_lines_and_cross_line_consensus():
     assert payload["git_commit"] == "source123"
     assert payload["viewer_git_commit"] == "abc123"
     assert payload["missing_lines"] == []
+    assert payload["lines"][0]["prediction_run_key"] == "static_100:2026081:snapshot"
+    assert payload["lines"][0]["line_kind"] == "static_100"
+    assert payload["lines"][0]["model_version"] == "static_100-model-v1"
+    assert payload["lines"][0]["parameter_version"] == "hash-static_100"
     assert [line["line_key"] for line in payload["lines"]] == [
         "static_100",
         "dynamic_kdj",
@@ -68,7 +76,8 @@ def test_latest_prediction_builds_three_lines_and_cross_line_consensus():
     rendered = render_latest_prediction(payload)
     assert "Issue: 2026081" in rendered
     assert "Git (prediction source): source123" in rendered
-    assert rendered.count("run=run-1 round=8 status=pending") == 3
+    assert rendered.count("run=run-1 round=8 prediction_run=") == 3
+    assert "model=static_100-model-v1 parameters=hash-static_100" in rendered
     assert "Consensus across all lines: 01(6)" in rendered
 
 
