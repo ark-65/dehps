@@ -77,6 +77,31 @@ The ranked universe is an immutable shared base space. Splitting its coordinate 
 
 Exact semantic equivalence is established, but page-fault behavior under a complete training round is still an operational measurement rather than a proof. The smallest shared conclusion is to merge this representation-only change, then run one bounded observability-only 28-config round before considering 48 or 96 configurations.
 
-## Remaining acceptance step
+## Live acceptance and bounded scale test
 
-A separately authorized Operator run must complete at least one observability-only training round on the merged commit, record stage timing and RSS/PSS, and confirm that durable training and forward fingerprints remain unchanged.
+The first authorized live attempt, supervisor run `20260715-130405`, failed before round 1 because the production status renderer still referenced the removed Python `universe` list. The mmap cache itself opened successfully in about 0.005 seconds. The failure was recorded, no training or forward rows changed, and the integration bug was fixed by deriving legal, ranked, and excluded counts from the matrix status. PR #120 added the regression test.
+
+The retry, supervisor run `20260715-131447`, completed one 28-config observability-only round:
+
+- cache hit/open: 0.009 seconds
+- total wall: 253.85 seconds
+- target inversion: 43.539 seconds with 16 active workers
+- maximum RSS: 10,178,892 KiB
+- maximum sampled process-tree PSS: 6,798,523 KiB
+- swaps: 0
+
+The same merged commit then ran controlled 48- and 96-config rounds. Only the configuration budget changed.
+
+| Budget | Generated | Selected | Wall seconds | Inversion seconds | Max RSS KiB | Sampled PSS KiB | Swap |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 28 | 28 | 17 | 253.85 | 43.539 | 10,178,892 | 6,798,523 | 0 |
+| 48 | 48 | 21 | 261.66 | 43.212 | 10,653,504 | 6,001,435 | 0 |
+| 96 | 96 | 26 | 279.99 | 45.165 | 10,349,128 | 5,286,486 | 0 |
+
+Moving from 28 to 96 generated configurations increased wall time by 10.30% while remaining within the 24 GB operational bound. The sampled PSS values are observations, not proven true peaks.
+
+All three rounds selected the same round-best config hash, `9ee993...5212f`. This establishes bounded capacity only; it is not evidence that 96 configurations improve predictive quality. Durable training table counts/update markers and the 2026081 forward run/candidate counts remained unchanged after every observability-only run.
+
+## Acceptance conclusion
+
+The mmap representation is accepted as semantically exact and operationally live-tested. A 96-config budget is safe for this one-round workload, but additional candidate volume produced no better round-best configuration and therefore does not justify a production budget increase by itself.
