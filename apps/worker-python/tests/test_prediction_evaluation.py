@@ -72,6 +72,7 @@ def test_evaluate_prediction_snapshot_scores_exact_and_red5(monkeypatch):
     assert payload["hit_red5_top_100"] is True
     assert payload["actual_blue_number"] == 9
     assert payload["summary"]["blue_scored"] is False
+    assert payload["summary"]["matched_red_count_by_cutoff"]["top_100"] == {"6": 1, "5": 1}
     assert payload["top_n"] == 2
 
 

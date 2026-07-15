@@ -499,6 +499,17 @@ def test_replace_training_next_candidates_current_deletes_previous_snapshot():
         "2026068",
     )
     assert insert_params[0][17:20] == (1, [1, 2, 3, 4, 5, 6], 0.9)
+    forward_run_inserts = [params for sql, params in conn.executed if "INSERT INTO forward_prediction_runs" in sql]
+    assert len(forward_run_inserts) == 1
+    assert forward_run_inserts[0][:3] == (
+        "static_100:2026069:training-next-2026068",
+        "static_100",
+        "100-period static training",
+    )
+    forward_candidate_inserts = [
+        params for sql, params in conn.executed if "INSERT INTO forward_prediction_candidates" in sql
+    ]
+    assert len(forward_candidate_inserts) == 2
 
 
 def test_upsert_training_prediction_line_regression_persists_comparison_metrics():

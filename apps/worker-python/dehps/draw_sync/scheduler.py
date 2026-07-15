@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, time as day_time
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from dehps.artifacts import atomic_write_text
@@ -47,12 +48,18 @@ class DrawSyncWatch:
         self,
         *,
         service: DrawSyncService | None = None,
+        forward_evaluator: Any | None = None,
         policy: DrawSyncSchedulePolicy | None = None,
         resume_on_event: bool = False,
         state_path: Path = DEFAULT_STATE_PATH,
         pid_path: Path = DEFAULT_PID_PATH,
     ) -> None:
         self.service = service or DrawSyncService()
+        if forward_evaluator is None:
+            from dehps.forward_runtime.evaluation_service import ForwardEvaluationService
+
+            forward_evaluator = ForwardEvaluationService()
+        self.forward_evaluator = forward_evaluator
         self.policy = policy or DrawSyncSchedulePolicy()
         self.resume_on_event = resume_on_event
         self.state_path = state_path
@@ -68,14 +75,25 @@ class DrawSyncWatch:
             started = datetime.now(ZoneInfo(self.policy.timezone))
             try:
                 result = self.service.once()
-                resume_result = self._resume_if_event(result.event_key)
+                evaluation_result = self.forward_evaluator.evaluate_pending()
+                evaluation_failed = int(evaluation_result.get("failed_count") or 0) > 0
+                resume_result = None if evaluation_failed else self._resume_if_event(result.event_key)
                 payload = {
-                    "status": "ok",
+                    "status": "error" if evaluation_failed else "ok",
                     "pid": os.getpid(),
                     "heartbeat_at": datetime.now(ZoneInfo(self.policy.timezone)).isoformat(),
                     "last_result": result,
+                    "forward_evaluation": evaluation_result,
                     "resume_on_event": self.resume_on_event,
                     "resume_result": resume_result,
+                    "error": (
+                        {
+                            "type": "ForwardEvaluationBatchFailed",
+                            "message": "pending forward evaluation failed; training resume withheld",
+                        }
+                        if evaluation_failed
+                        else None
+                    ),
                     "next_interval_seconds": self.policy.next_interval(),
                 }
             except Exception as exc:  # fail closed: record but keep the watch process alive.
