@@ -97,3 +97,25 @@ def test_watchdog_closes_inherited_cron_lock_before_supervisor_exec():
     assert 'eval "exec ${fd}>&-"' in script
     assert script.index(close_guard) < script.index(supervisor_exec)
     assert '"$LOG_DIR/training-supervisor-watchdog.lock"' in script
+
+
+def test_training_launcher_uses_validated_scale_defaults_and_keeps_them_overrideable():
+    script = (REPO_ROOT / "scripts/ensure_training_supervisor.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'NEURAL_KDJ_BUDGET_SHARE="${DEHPS_NEURAL_KDJ_BUDGET_SHARE:-0.20}"' in script
+    assert 'MAX_CONFIGS_PER_ROUND="${DEHPS_MAX_CONFIGS_PER_ROUND:-96}"' in script
+    assert 'MEMORY_BUDGET_GB="${DEHPS_MEMORY_BUDGET_GB:-24}"' in script
+    assert 'NEURAL_KDJ_HIDDEN_UNITS="${DEHPS_NEURAL_KDJ_HIDDEN_UNITS:-32}"' in script
+    assert 'NEURAL_KDJ_EPOCHS="${DEHPS_NEURAL_KDJ_EPOCHS:-500}"' in script
+    assert 'TARGET_INVERSION_MAX_CANDIDATES="${DEHPS_TARGET_INVERSION_MAX_CANDIDATES:-8}"' in script
+    assert 'TARGET_INVERSION_MAX_DELTAS="${DEHPS_TARGET_INVERSION_MAX_DELTAS:-12}"' in script
+    assert '--max-configs-per-round "$max_configs_per_round"' in script
+    assert '--memory-budget-gb "$memory_budget_gb"' in script
+    assert '--neural-kdj-hidden-units "$neural_kdj_hidden_units"' in script
+    assert '--neural-kdj-epochs "$neural_kdj_epochs"' in script
+    assert '--target-weight-inversion-max-candidates "$target_inversion_max_candidates"' in script
+    assert '--target-weight-inversion-max-deltas-per-target "$target_inversion_max_deltas"' in script
+    assert '--workers "$training_workers"' in script
+    assert "--cpu-threads 1" in script
