@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Iterator
 
+from dehps.optimization.walk_forward import TOTAL_LOCAL_LEGAL_COMBINATIONS
 from dehps.training.models import TrainingRoundRequest
 from dehps.training.runtime import *  # noqa: F403
 from dehps.training.runtime_advisors import (
@@ -1719,16 +1720,15 @@ def build_production_training_session(
             f"market_selected={prediction_input_boundary['selected_market_aggregate_fields']} "
             f"ticket_distribution_observed={prediction_input_boundary['ticket_distribution_observed']}"
         )
-        universe = load_red_combination_universe(conn)
-
     worker_count = normalize_worker_count(workers)
     as_of_issue_value = history_issue(training_history[-1])
     history_fingerprint_value = fingerprint_history(training_history)
     log(
-        f"run_id={run_id} building static universe rows={len(universe)} workers={worker_count} "
+        f"run_id={run_id} building static universe rows={TOTAL_LOCAL_LEGAL_COMBINATIONS} "
+        f"workers={worker_count} "
         f"memory_budget_gb={memory_budget_gb}"
     )
-    ranked_universe = build_ranked_universe(universe)
+    ranked_universe = build_ranked_universe()
     matrix_cache_info = dict(getattr(ranked_universe, "cache_info", {}))
     log(
         "static_matrix_ready="

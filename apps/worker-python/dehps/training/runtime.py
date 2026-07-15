@@ -134,7 +134,6 @@ from dehps.storage.postgres_store import (
     ensure_training_round_results_schema,
     ensure_training_supervisor_best_schema,
     ensure_training_target_weight_inversions_schema,
-    load_red_combination_universe,
     load_ssq_history_column_names,
     load_training_sequential_null_ledger,
     load_training_round_carryover_candidate_summaries,
