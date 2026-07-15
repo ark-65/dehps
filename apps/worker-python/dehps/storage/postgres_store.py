@@ -355,8 +355,103 @@ def ensure_training_prediction_evaluations_schema(conn: Connection) -> None:
     )
     conn.execute(
         """
+        ALTER TABLE training_prediction_evaluations
+          ADD COLUMN IF NOT EXISTS prediction_run_key TEXT,
+          ADD COLUMN IF NOT EXISTS evaluation_run_key TEXT
+        """
+    )
+    conn.execute(
+        """
         CREATE INDEX IF NOT EXISTS idx_training_prediction_evaluations_line_issue
           ON training_prediction_evaluations (line_key, predicted_issue, evaluated_at DESC)
+        """
+    )
+
+
+def ensure_forward_prediction_evaluation_schema(conn: Connection) -> None:
+    """Create the durable forward prediction/evaluation lifecycle tables.
+
+    ``training_next_candidates_current`` remains the replaceable dashboard view.
+    These tables preserve the exact candidate snapshot needed after the draw.
+    """
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS forward_prediction_runs (
+          id BIGSERIAL PRIMARY KEY,
+          prediction_run_key TEXT NOT NULL UNIQUE,
+          line_key TEXT NOT NULL,
+          line_label TEXT NOT NULL,
+          line_kind TEXT NOT NULL,
+          snapshot_key TEXT NOT NULL,
+          source_run_id TEXT NOT NULL,
+          source_round_index INTEGER,
+          as_of_issue TEXT NOT NULL,
+          target_issue TEXT NOT NULL,
+          train_mode TEXT NOT NULL,
+          train_window INTEGER NOT NULL,
+          top_n INTEGER NOT NULL,
+          candidate_count INTEGER NOT NULL,
+          config_hash TEXT NOT NULL,
+          config JSONB NOT NULL DEFAULT '{}'::jsonb,
+          metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+          status TEXT NOT NULL DEFAULT 'pending',
+          failure JSONB NOT NULL DEFAULT '{}'::jsonb,
+          generated_at TIMESTAMPTZ NOT NULL,
+          evaluated_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (line_key, snapshot_key, target_issue)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_forward_prediction_runs_pending
+          ON forward_prediction_runs (status, target_issue, generated_at)
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS forward_prediction_candidates (
+          prediction_run_key TEXT NOT NULL REFERENCES forward_prediction_runs(prediction_run_key) ON DELETE RESTRICT,
+          rank INTEGER NOT NULL,
+          red_numbers SMALLINT[] NOT NULL,
+          score NUMERIC(14,8) NOT NULL,
+          PRIMARY KEY (prediction_run_key, rank),
+          UNIQUE (prediction_run_key, red_numbers)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS forward_evaluation_runs (
+          evaluation_run_key TEXT PRIMARY KEY,
+          prediction_run_key TEXT NOT NULL REFERENCES forward_prediction_runs(prediction_run_key) ON DELETE RESTRICT,
+          target_issue TEXT NOT NULL,
+          status TEXT NOT NULL,
+          attempt_count INTEGER NOT NULL DEFAULT 0,
+          error JSONB NOT NULL DEFAULT '{}'::jsonb,
+          started_at TIMESTAMPTZ,
+          completed_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (prediction_run_key, target_issue)
+        )
+        """
+    )
+    ensure_training_prediction_evaluations_schema(conn)
+    conn.execute(
+        """
+        ALTER TABLE training_prediction_evaluations
+          ADD COLUMN IF NOT EXISTS prediction_run_key TEXT,
+          ADD COLUMN IF NOT EXISTS evaluation_run_key TEXT
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_training_prediction_evaluations_official_result
+          ON training_prediction_evaluations (prediction_run_key, predicted_issue)
+          WHERE prediction_run_key IS NOT NULL
         """
     )
 
@@ -972,6 +1067,193 @@ def prune_stale_training_weight_signals(
     return int(row[0]) if row else 0
 
 
+def forward_prediction_run_key(metadata: dict[str, Any]) -> str:
+    return ":".join(
+        (
+            str(metadata.get("line_key") or "static_100"),
+            str(metadata["next_issue"]),
+            str(metadata["snapshot_key"]),
+        )
+    )
+
+
+def persist_forward_prediction_snapshot(
+    conn: Connection,
+    *,
+    metadata: dict[str, Any],
+    candidates: list[tuple[int, tuple[int, ...], float]],
+) -> str:
+    ensure_forward_prediction_evaluation_schema(conn)
+    prediction_run_key = forward_prediction_run_key(metadata)
+    line_key = str(metadata.get("line_key") or "static_100")
+    target_issue = str(metadata["next_issue"])
+    superseded = conn.execute(
+        """
+        UPDATE forward_prediction_runs
+        SET status = 'superseded', updated_at = now()
+        WHERE line_key = %s
+          AND target_issue = %s
+          AND prediction_run_key <> %s
+          AND status IN ('pending', 'evaluation_failed')
+        RETURNING prediction_run_key
+        """,
+        (line_key, target_issue, prediction_run_key),
+    ).fetchall()
+    if superseded:
+        conn.execute(
+            "DELETE FROM forward_prediction_candidates WHERE prediction_run_key = ANY(%s::text[])",
+            ([str(row[0]) for row in superseded],),
+        )
+    conn.execute(
+        """
+        INSERT INTO forward_prediction_runs (
+          prediction_run_key, line_key, line_label, line_kind, snapshot_key,
+          source_run_id, source_round_index, as_of_issue, target_issue,
+          train_mode, train_window, top_n, candidate_count, config_hash,
+          config, metadata, status, generated_at
+        )
+        VALUES (
+          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+          %s::jsonb, %s::jsonb, 'pending', %s
+        )
+        ON CONFLICT (prediction_run_key) DO UPDATE
+        SET line_label = EXCLUDED.line_label,
+            line_kind = EXCLUDED.line_kind,
+            source_run_id = EXCLUDED.source_run_id,
+            source_round_index = EXCLUDED.source_round_index,
+            train_mode = EXCLUDED.train_mode,
+            train_window = EXCLUDED.train_window,
+            top_n = EXCLUDED.top_n,
+            candidate_count = EXCLUDED.candidate_count,
+            config_hash = EXCLUDED.config_hash,
+            config = EXCLUDED.config,
+            metadata = EXCLUDED.metadata,
+            generated_at = EXCLUDED.generated_at,
+            updated_at = now()
+        """,
+        (
+            prediction_run_key,
+            line_key,
+            str(metadata.get("line_label") or "100-period static training"),
+            str(metadata.get("line_kind") or "static"),
+            str(metadata["snapshot_key"]),
+            str(metadata["run_id"]),
+            metadata.get("source_round_index"),
+            str(metadata["as_of_issue"]),
+            target_issue,
+            str(metadata["train_mode"]),
+            int(metadata["train_window"]),
+            int(metadata["top_n"]),
+            len(candidates),
+            str(metadata["config_hash"]),
+            json.dumps(metadata.get("config") or {}, ensure_ascii=False),
+            json.dumps(metadata, ensure_ascii=False),
+            metadata["generated_at"],
+        ),
+    )
+    conn.execute(
+        "DELETE FROM forward_prediction_candidates WHERE prediction_run_key = %s",
+        (prediction_run_key,),
+    )
+    if candidates:
+        with conn.cursor() as cur:
+            cur.executemany(
+                """
+                INSERT INTO forward_prediction_candidates (
+                  prediction_run_key, rank, red_numbers, score
+                ) VALUES (%s, %s, %s, %s)
+                """,
+                [
+                    (prediction_run_key, rank, list(numbers), score)
+                    for rank, numbers, score in candidates
+                ],
+            )
+    return prediction_run_key
+
+
+def archive_current_forward_prediction_snapshots(conn: Connection) -> int:
+    """One-time compatibility bridge for snapshots created before durable runs existed."""
+    ensure_forward_prediction_evaluation_schema(conn)
+    table = conn.execute("SELECT to_regclass('public.training_next_candidates_current')").fetchone()
+    if not table or not table[0]:
+        return 0
+    with conn.cursor(row_factory=dict_row) as cur:
+        snapshots = cur.execute(
+            """
+            SELECT DISTINCT ON (line_key)
+                   line_key, line_label, line_kind, snapshot_key, run_id,
+                   source_round_index, as_of_issue, next_issue, next_draw_date,
+                   train_mode, train_window, eval_window, top_n,
+                   history_fingerprint, config_hash, config, prediction_metadata,
+                   generated_at
+            FROM training_next_candidates_current
+            ORDER BY line_key ASC, rank ASC
+            """
+        ).fetchall()
+    archived = 0
+    for snapshot in snapshots:
+        first = dict(snapshot)
+        key = ":".join((str(first["line_key"]), str(first["next_issue"]), str(first["snapshot_key"])))
+        exists = conn.execute(
+            "SELECT 1 FROM forward_prediction_runs WHERE prediction_run_key = %s",
+            (key,),
+        ).fetchone()
+        if exists:
+            continue
+        candidate_rows = conn.execute(
+            """
+            SELECT rank, red_numbers, score
+            FROM training_next_candidates_current
+            WHERE line_key = %s AND snapshot_key = %s AND next_issue = %s
+            ORDER BY rank ASC
+            """,
+            (first["line_key"], first["snapshot_key"], first["next_issue"]),
+        ).fetchall()
+        next_draw_date = first.get("next_draw_date")
+        generated_at = first.get("generated_at")
+        metadata = {
+            "line_key": first["line_key"],
+            "line_label": first["line_label"],
+            "line_kind": first["line_kind"],
+            "snapshot_key": first["snapshot_key"],
+            "run_id": first["run_id"],
+            "source_round_index": first.get("source_round_index"),
+            "as_of_issue": first["as_of_issue"],
+            "next_issue": first["next_issue"],
+            "next_draw_date": next_draw_date.isoformat() if hasattr(next_draw_date, "isoformat") else next_draw_date,
+            "train_mode": first["train_mode"],
+            "train_window": first["train_window"],
+            "eval_window": first["eval_window"],
+            "top_n": first["top_n"],
+            "history_fingerprint": first["history_fingerprint"],
+            "config_hash": first["config_hash"],
+            "config": first.get("config") if isinstance(first.get("config"), dict) else {},
+            "prediction_metadata": (
+                first.get("prediction_metadata")
+                if isinstance(first.get("prediction_metadata"), dict)
+                else {}
+            ),
+            "generated_at": generated_at.isoformat() if hasattr(generated_at, "isoformat") else generated_at,
+        }
+        persist_forward_prediction_snapshot(
+            conn,
+            metadata=metadata,
+            candidates=[
+                (
+                    int(row["rank"]),
+                    tuple(int(value) for value in row["red_numbers"]),
+                    float(row["score"]),
+                )
+                for row in (
+                    {"rank": item[0], "red_numbers": item[1], "score": item[2]}
+                    for item in candidate_rows
+                )
+            ],
+        )
+        archived += 1
+    return archived
+
+
 def replace_training_next_candidates_current(
     conn: Connection,
     *,
@@ -979,6 +1261,7 @@ def replace_training_next_candidates_current(
     candidates: list[tuple[int, tuple[int, ...], float]],
 ) -> None:
     ensure_training_next_candidates_current_schema(conn)
+    persist_forward_prediction_snapshot(conn, metadata=metadata, candidates=candidates)
     line_key = str(metadata.get("line_key") or "static_100")
     line_label = str(metadata.get("line_label") or "100-period static training")
     line_kind = str(metadata.get("line_kind") or "static")
@@ -1232,7 +1515,8 @@ def upsert_training_prediction_evaluation(conn: Connection, payload: dict[str, A
     conn.execute(
         """
         INSERT INTO training_prediction_evaluations (
-          evaluation_key, line_key, line_label, line_kind, snapshot_key, run_id, source_round_index,
+          evaluation_key, prediction_run_key, evaluation_run_key,
+          line_key, line_label, line_kind, snapshot_key, run_id, source_round_index,
           as_of_issue, predicted_issue, actual_draw_date, actual_red_numbers, actual_blue_number,
           exact_rank, exact_score, hit_top_100, hit_top_1000, hit_top_10000,
           red5_rank, red5_score, red5_numbers, hit_red5_top_100, hit_red5_top_1000, hit_red5_top_10000,
@@ -1241,11 +1525,13 @@ def upsert_training_prediction_evaluation(conn: Connection, payload: dict[str, A
         )
         VALUES (
           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb,
+          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb,
           %s, %s, %s, %s
         )
         ON CONFLICT (evaluation_key) DO UPDATE
-        SET line_label = EXCLUDED.line_label,
+        SET prediction_run_key = EXCLUDED.prediction_run_key,
+            evaluation_run_key = EXCLUDED.evaluation_run_key,
+            line_label = EXCLUDED.line_label,
             line_kind = EXCLUDED.line_kind,
             snapshot_key = EXCLUDED.snapshot_key,
             run_id = EXCLUDED.run_id,
@@ -1278,6 +1564,8 @@ def upsert_training_prediction_evaluation(conn: Connection, payload: dict[str, A
         """,
         (
             payload["evaluation_key"],
+            payload.get("prediction_run_key"),
+            payload.get("evaluation_run_key"),
             payload["line_key"],
             payload.get("line_label") or "",
             payload.get("line_kind") or "",

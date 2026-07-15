@@ -292,6 +292,8 @@ CREATE INDEX IF NOT EXISTS idx_training_next_candidates_current_line_issue
 CREATE TABLE IF NOT EXISTS training_prediction_evaluations (
   id BIGSERIAL PRIMARY KEY,
   evaluation_key TEXT NOT NULL UNIQUE,
+  prediction_run_key TEXT,
+  evaluation_run_key TEXT,
   line_key TEXT NOT NULL,
   line_label TEXT NOT NULL,
   line_kind TEXT NOT NULL,
@@ -329,6 +331,63 @@ CREATE TABLE IF NOT EXISTS training_prediction_evaluations (
 
 CREATE INDEX IF NOT EXISTS idx_training_prediction_evaluations_line_issue
   ON training_prediction_evaluations (line_key, predicted_issue, evaluated_at DESC);
+
+CREATE TABLE IF NOT EXISTS forward_prediction_runs (
+  id BIGSERIAL PRIMARY KEY,
+  prediction_run_key TEXT NOT NULL UNIQUE,
+  line_key TEXT NOT NULL,
+  line_label TEXT NOT NULL,
+  line_kind TEXT NOT NULL,
+  snapshot_key TEXT NOT NULL,
+  source_run_id TEXT NOT NULL,
+  source_round_index INTEGER,
+  as_of_issue TEXT NOT NULL,
+  target_issue TEXT NOT NULL,
+  train_mode TEXT NOT NULL,
+  train_window INTEGER NOT NULL,
+  top_n INTEGER NOT NULL,
+  candidate_count INTEGER NOT NULL,
+  config_hash TEXT NOT NULL,
+  config JSONB NOT NULL DEFAULT '{}'::jsonb,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status TEXT NOT NULL DEFAULT 'pending',
+  failure JSONB NOT NULL DEFAULT '{}'::jsonb,
+  generated_at TIMESTAMPTZ NOT NULL,
+  evaluated_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (line_key, snapshot_key, target_issue)
+);
+
+CREATE INDEX IF NOT EXISTS idx_forward_prediction_runs_pending
+  ON forward_prediction_runs (status, target_issue, generated_at);
+
+CREATE TABLE IF NOT EXISTS forward_prediction_candidates (
+  prediction_run_key TEXT NOT NULL REFERENCES forward_prediction_runs(prediction_run_key) ON DELETE RESTRICT,
+  rank INTEGER NOT NULL,
+  red_numbers SMALLINT[] NOT NULL,
+  score NUMERIC(14,8) NOT NULL,
+  PRIMARY KEY (prediction_run_key, rank),
+  UNIQUE (prediction_run_key, red_numbers)
+);
+
+CREATE TABLE IF NOT EXISTS forward_evaluation_runs (
+  evaluation_run_key TEXT PRIMARY KEY,
+  prediction_run_key TEXT NOT NULL REFERENCES forward_prediction_runs(prediction_run_key) ON DELETE RESTRICT,
+  target_issue TEXT NOT NULL,
+  status TEXT NOT NULL,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  error JSONB NOT NULL DEFAULT '{}'::jsonb,
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (prediction_run_key, target_issue)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_training_prediction_evaluations_official_result
+  ON training_prediction_evaluations (prediction_run_key, predicted_issue)
+  WHERE prediction_run_key IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS research_hypothesis_families (
   id BIGSERIAL PRIMARY KEY,

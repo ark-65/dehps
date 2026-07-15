@@ -73,7 +73,35 @@ def load_prediction_rows(
     line_key: str,
     predicted_issue: str,
     snapshot_key: str | None = None,
+    prediction_run_key: str | None = None,
 ) -> tuple[list[dict[str, Any]], str | None]:
+    if prediction_run_key:
+        exists = conn.execute("SELECT to_regclass('public.forward_prediction_candidates')").fetchone()
+        if not exists or not exists[0]:
+            return [], None
+        with conn.cursor(row_factory=dict_row) as cur:
+            rows = cur.execute(
+                """
+                SELECT r.line_key, r.line_label, r.line_kind, r.snapshot_key,
+                       r.source_run_id AS run_id, r.source_round_index,
+                       r.as_of_issue, r.target_issue AS next_issue,
+                       r.metadata->>'next_draw_date' AS next_draw_date,
+                       r.train_mode, r.train_window,
+                       COALESCE((r.metadata->>'eval_window')::integer, 0) AS eval_window,
+                       r.top_n, r.metadata->>'history_fingerprint' AS history_fingerprint,
+                       r.config_hash, r.config,
+                       COALESCE(r.metadata->'prediction_metadata', '{}'::jsonb) AS prediction_metadata,
+                       c.rank, c.red_numbers, c.score, r.generated_at
+                FROM forward_prediction_runs r
+                JOIN forward_prediction_candidates c USING (prediction_run_key)
+                WHERE r.prediction_run_key = %s
+                  AND r.line_key = %s
+                  AND r.target_issue = %s
+                ORDER BY c.rank ASC
+                """,
+                (prediction_run_key, line_key, predicted_issue),
+            ).fetchall()
+        return [dict(row) for row in rows], None
     exists = conn.execute("SELECT to_regclass('public.training_next_candidates_current')").fetchone()
     if not exists or not exists[0]:
         return [], None
@@ -149,6 +177,8 @@ def _base_payload(
     line_label, line_kind = _line_defaults(line_key)
     return {
         "evaluation_key": evaluation_key(line_key=line_key, predicted_issue=predicted_issue, snapshot_key=snapshot_key),
+        "prediction_run_key": None,
+        "evaluation_run_key": None,
         "line_key": line_key,
         "line_label": line_label,
         "line_kind": line_kind,
@@ -176,6 +206,7 @@ def _base_payload(
         "snapshot_generated_at": None,
         "status": status,
         "summary": {},
+        "ranking_audit": {},
         "prediction_metadata": {},
         "json_path": None,
         "report_path": None,
@@ -190,6 +221,9 @@ def evaluate_prediction_snapshot(
     line_key: str,
     predicted_issue: str,
     snapshot_key: str | None = None,
+    prediction_run_key: str | None = None,
+    evaluation_run_key: str | None = None,
+    ranking_audit: dict[str, Any] | None = None,
     output_dir: Path | None = None,
     write_report: bool = True,
     persist: bool = True,
@@ -200,6 +234,7 @@ def evaluate_prediction_snapshot(
         line_key=line_key,
         predicted_issue=predicted_issue,
         snapshot_key=snapshot_key,
+        prediction_run_key=prediction_run_key,
     )
     actual = load_actual_draw(conn, issue=predicted_issue)
     if actual is None:
@@ -211,6 +246,9 @@ def evaluate_prediction_snapshot(
             status="missing_actual_draw",
             evaluated_at=evaluated_at,
         )
+        payload["prediction_run_key"] = prediction_run_key
+        payload["evaluation_run_key"] = evaluation_run_key
+        payload["ranking_audit"] = ranking_audit or {}
         if first:
             payload.update(
                 {
@@ -237,6 +275,9 @@ def evaluate_prediction_snapshot(
             status=status,
             evaluated_at=evaluated_at,
         )
+        payload["prediction_run_key"] = prediction_run_key
+        payload["evaluation_run_key"] = evaluation_run_key
+        payload["ranking_audit"] = ranking_audit or {}
         payload["actual_draw_date"] = actual.get("draw_date")
         payload["actual_red_numbers"] = list(actual.get("red_numbers") or [])
         payload["actual_blue_number"] = actual.get("blue_number")
@@ -251,6 +292,9 @@ def evaluate_prediction_snapshot(
         status="evaluated",
         evaluated_at=evaluated_at,
     )
+    payload["prediction_run_key"] = prediction_run_key
+    payload["evaluation_run_key"] = evaluation_run_key
+    payload["ranking_audit"] = ranking_audit or {}
     payload.update(
         {
             "line_label": str(first.get("line_label") or payload["line_label"]),
@@ -271,14 +315,22 @@ def evaluate_prediction_snapshot(
     actual_set = set(actual_red)
     exact_row = None
     red5_row = None
+    hit_counts = {
+        "top_100": {"6": 0, "5": 0},
+        "top_1000": {"6": 0, "5": 0},
+        "top_10000": {"6": 0, "5": 0},
+    }
     for row in rows:
         numbers = tuple(int(value) for value in row.get("red_numbers") or [])
+        overlap = len(actual_set.intersection(numbers))
+        rank = int(row["rank"])
+        for label, cutoff in (("top_100", 100), ("top_1000", 1000), ("top_10000", 10000)):
+            if rank <= cutoff and overlap in {5, 6}:
+                hit_counts[label][str(overlap)] += 1
         if numbers == actual_red and exact_row is None:
             exact_row = row
         if len(actual_set.intersection(numbers)) == 5 and red5_row is None:
             red5_row = row
-        if exact_row is not None and red5_row is not None:
-            break
 
     if exact_row is not None:
         rank = int(exact_row["rank"])
@@ -308,6 +360,8 @@ def evaluate_prediction_snapshot(
         "actual_red_numbers": list(actual_red),
         "actual_blue_number": actual.get("blue_number"),
         "blue_scored": False,
+        "matched_red_count_by_cutoff": hit_counts,
+        "ranking_audit": ranking_audit or {},
     }
     return finalize_prediction_evaluation(conn, payload, output_dir=output_dir, write_report=write_report, persist=persist)
 
@@ -349,6 +403,7 @@ def render_prediction_evaluation_report(payload: dict[str, Any]) -> str:
     prediction_metadata = (
         payload.get("prediction_metadata") if isinstance(payload.get("prediction_metadata"), dict) else {}
     )
+    ranking_audit = payload.get("ranking_audit") if isinstance(payload.get("ranking_audit"), dict) else {}
     return f"""# Training Prediction Evaluation
 
 - Line: `{payload.get("line_key")}` ({payload.get("line_label")})
@@ -363,6 +418,16 @@ def render_prediction_evaluation_report(payload: dict[str, Any]) -> str:
 - Red5 best rank: `{red5_rank if red5_rank is not None else "miss"}`
 - Red5 Top100/1000/10000: `{payload.get("hit_red5_top_100")}/{payload.get("hit_red5_top_1000")}/{payload.get("hit_red5_top_10000")}`
 - Candidate count: `{payload.get("candidate_count")}`
+
+## Ranking Path Audit
+
+- Generated in legal space: `{ranking_audit.get("generated")}`
+- Passed hard filters: `{ranking_audit.get("passed_hard_filters")}`
+- Initial structural rank: `{ranking_audit.get("initial_score_rank")}`
+- Model score rank: `{ranking_audit.get("model_score_rank")}`
+- Rerank applied/rank: `{ranking_audit.get("rerank_applied")}/{ranking_audit.get("rerank_rank")}`
+- Final export rank: `{ranking_audit.get("final_export_rank")}`
+- Elimination reason: `{ranking_audit.get("elimination_reason")}`
 
 ## Guardrails
 
