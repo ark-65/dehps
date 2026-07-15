@@ -5,10 +5,13 @@ from datetime import date
 from hashlib import sha256
 from heapq import nlargest
 import json
+from math import comb
 import multiprocessing as mp
 import os
 from multiprocessing.pool import Pool
 from pathlib import Path
+import shutil
+import tempfile
 import time
 from typing import Callable, Iterable, Literal
 
@@ -43,7 +46,10 @@ DEFAULT_WORKERS = 16
 ScoreComponents = tuple[float, ...]
 FEATURE_SCHEMA_VERSION = "ranked-universe-matrix-v1"
 FILTER_RULE_VERSION = "fixed-max-run-5-single-zone-v1"
+MATRIX_CACHE_FORMAT_VERSION = "ranked-universe-npy-mmap-v1"
 DEFAULT_MATRIX_CACHE_DIR = ROOT_DIR / "data/output/cache"
+LOCAL_LEGAL_UNIVERSE_SOURCE = "lexicographic-combinations-1-33-choose-6-v1"
+TOTAL_LOCAL_LEGAL_COMBINATIONS = comb(33, 6)
 QIAN_KUN_SIMILARITY = np.array(
     [
         [1 - (left ^ right).bit_count() / 6 for right in range(64)]
@@ -84,6 +90,30 @@ CONFIG_WEIGHT_FIELDS = (
     "weekday_trend_weight",
     "short_hot_frequency_weight",
     "long_omission_cooldown_weight",
+)
+MATRIX_ARRAY_FIELDS = (
+    "numbers",
+    "structural_score",
+    "consecutive_pair_count",
+    "odd_count",
+    "zone_counts",
+    "gaps",
+    "sum_value",
+    "span_value",
+    "qian_kun_code",
+    "first_last_sum",
+    "sum_bucket",
+    "span_bucket",
+    "ac_value",
+    "big_count",
+    "even_count",
+    "prime_count",
+    "mod012_counts",
+    "tail_unique_count",
+    "sum_tail",
+    "max_gap",
+    "min_gap",
+    "number_presence",
 )
 
 
@@ -1098,6 +1128,18 @@ def _matrix_cache_key(combinations: list[tuple[int, ...]]) -> str:
     return sha256(payload.encode("utf-8")).hexdigest()[:24]
 
 
+def _local_legal_universe_cache_key() -> str:
+    payload = ":".join(
+        (
+            FEATURE_SCHEMA_VERSION,
+            FILTER_RULE_VERSION,
+            str(TOTAL_LOCAL_LEGAL_COMBINATIONS),
+            LOCAL_LEGAL_UNIVERSE_SOURCE,
+        )
+    )
+    return sha256(payload.encode("utf-8")).hexdigest()[:24]
+
+
 def _qian_kun_code(numbers: tuple[int, ...]) -> int:
     code = 0
     for index, number in enumerate(numbers):
@@ -1143,87 +1185,134 @@ def _weekday_profile_lookup(stats: FrequencyStats, key: str, *, size: int, encod
     return _dense_lookup(stats.weekday_profile_rates.get(key, {}), size=size, encoder=encoder)
 
 
-def _load_matrix_cache(cache_path: Path, *, cache_key: str) -> RankedUniverseMatrix | None:
+def _load_matrix_cache(
+    cache_path: Path,
+    *,
+    cache_key: str,
+    expected_source_count: int | None = None,
+) -> RankedUniverseMatrix | None:
     started = time.time()
     try:
-        data = np.load(cache_path, allow_pickle=False)
-    except OSError:
-        return None
-    try:
-        metadata = json.loads(str(data["metadata_json"].item()))
+        manifest = json.loads((cache_path / "manifest.json").read_text())
+        metadata = manifest["metadata"]
+        array_specs = manifest["arrays"]
         if (
             metadata.get("cache_key") != cache_key
+            or metadata.get("cache_format_version") != MATRIX_CACHE_FORMAT_VERSION
             or metadata.get("feature_schema_version") != FEATURE_SCHEMA_VERSION
             or metadata.get("filter_rule_version") != FILTER_RULE_VERSION
+            or (
+                expected_source_count is not None
+                and int(metadata.get("source_count", -1)) != expected_source_count
+            )
+            or set(array_specs) != set(MATRIX_ARRAY_FIELDS)
         ):
             return None
-        metadata.update(
-            {
-                "cache_hit": True,
-                "cache_path": str(cache_path),
-                "build_seconds": round(time.time() - started, 3),
-                "backend": "numpy_matrix",
-            }
-        )
-        return RankedUniverseMatrix(
-            numbers=data["numbers"],
-            structural_score=data["structural_score"],
-            consecutive_pair_count=data["consecutive_pair_count"],
-            odd_count=data["odd_count"],
-            zone_counts=data["zone_counts"],
-            gaps=data["gaps"],
-            sum_value=data["sum_value"],
-            span_value=data["span_value"],
-            qian_kun_code=data["qian_kun_code"],
-            first_last_sum=data["first_last_sum"],
-            sum_bucket=data["sum_bucket"],
-            span_bucket=data["span_bucket"],
-            ac_value=data["ac_value"],
-            big_count=data["big_count"],
-            even_count=data["even_count"],
-            prime_count=data["prime_count"],
-            mod012_counts=data["mod012_counts"],
-            tail_unique_count=data["tail_unique_count"],
-            sum_tail=data["sum_tail"],
-            max_gap=data["max_gap"],
-            min_gap=data["min_gap"],
-            number_presence=data["number_presence"],
-            cache_info=metadata,
-        )
-    finally:
-        data.close()
+        arrays: dict[str, np.ndarray] = {}
+        for field_name in MATRIX_ARRAY_FIELDS:
+            spec = array_specs[field_name]
+            expected_filename = f"{field_name}.npy"
+            if spec.get("filename") != expected_filename:
+                return None
+            array = np.load(cache_path / expected_filename, allow_pickle=False, mmap_mode="r")
+            if not isinstance(array, np.memmap):
+                return None
+            if array.dtype != np.dtype(spec.get("dtype")):
+                return None
+            if tuple(array.shape) != tuple(int(value) for value in spec.get("shape", ())):
+                return None
+            arrays[field_name] = array
+        row_count = int(arrays["numbers"].shape[0])
+        if (
+            tuple(arrays["numbers"].shape) != (row_count, 6)
+            or int(metadata.get("filtered_count", -1)) != row_count
+            or any(not array.shape or int(array.shape[0]) != row_count for array in arrays.values())
+        ):
+            return None
+    except (
+        OSError,
+        ValueError,
+        TypeError,
+        KeyError,
+        IndexError,
+        AttributeError,
+        json.JSONDecodeError,
+    ):
+        return None
+    metadata = dict(metadata)
+    metadata.update(
+        {
+            "cache_hit": True,
+            "cache_path": str(cache_path),
+            "build_seconds": round(time.time() - started, 3),
+            "load_seconds": round(time.time() - started, 3),
+            "backend": "numpy_mmap_matrix",
+            "storage": "npy_mmap_read_only",
+        }
+    )
+    return RankedUniverseMatrix(
+        **arrays,
+        cache_info=metadata,
+    )
+
+
+def _remove_cache_artifact(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path)
+    elif path.exists():
+        path.unlink()
 
 
 def _write_matrix_cache(cache_path: Path, matrix: RankedUniverseMatrix) -> None:
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     metadata = dict(matrix.cache_info)
-    metadata["cache_hit"] = False
-    np.savez(
-        cache_path,
-        metadata_json=np.array(json.dumps(metadata, sort_keys=True)),
-        numbers=matrix.numbers,
-        structural_score=matrix.structural_score,
-        consecutive_pair_count=matrix.consecutive_pair_count,
-        odd_count=matrix.odd_count,
-        zone_counts=matrix.zone_counts,
-        gaps=matrix.gaps,
-        sum_value=matrix.sum_value,
-        span_value=matrix.span_value,
-        qian_kun_code=matrix.qian_kun_code,
-        first_last_sum=matrix.first_last_sum,
-        sum_bucket=matrix.sum_bucket,
-        span_bucket=matrix.span_bucket,
-        ac_value=matrix.ac_value,
-        big_count=matrix.big_count,
-        even_count=matrix.even_count,
-        prime_count=matrix.prime_count,
-        mod012_counts=matrix.mod012_counts,
-        tail_unique_count=matrix.tail_unique_count,
-        sum_tail=matrix.sum_tail,
-        max_gap=matrix.max_gap,
-        min_gap=matrix.min_gap,
-        number_presence=matrix.number_presence,
+    metadata.update(
+        {
+            "cache_hit": False,
+            "cache_format_version": MATRIX_CACHE_FORMAT_VERSION,
+            "backend": "numpy_mmap_matrix",
+            "storage": "npy_mmap_read_only",
+        }
     )
+    temporary_path = Path(
+        tempfile.mkdtemp(prefix=f".{cache_path.name}.", dir=cache_path.parent)
+    )
+    stale_path: Path | None = None
+    try:
+        array_specs: dict[str, dict[str, object]] = {}
+        for field_name in MATRIX_ARRAY_FIELDS:
+            array = np.asarray(getattr(matrix, field_name))
+            filename = f"{field_name}.npy"
+            np.save(temporary_path / filename, array, allow_pickle=False)
+            array_specs[field_name] = {
+                "filename": filename,
+                "dtype": array.dtype.str,
+                "shape": list(array.shape),
+            }
+        (temporary_path / "manifest.json").write_text(
+            json.dumps(
+                {"metadata": metadata, "arrays": array_specs},
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        if cache_path.exists():
+            cached = _load_matrix_cache(
+                cache_path,
+                cache_key=str(metadata["cache_key"]),
+                expected_source_count=int(metadata["source_count"]),
+            )
+            if cached is not None:
+                return
+            stale_path = cache_path.with_name(
+                f".{cache_path.name}.stale-{os.getpid()}-{time.time_ns()}"
+            )
+            os.replace(cache_path, stale_path)
+        os.replace(temporary_path, cache_path)
+    finally:
+        _remove_cache_artifact(temporary_path)
+        if stale_path is not None:
+            _remove_cache_artifact(stale_path)
 
 
 def _matrix_from_combinations(
@@ -1302,10 +1391,12 @@ def _matrix_from_combinations(
     if len(numbers_array):
         number_presence[np.arange(len(numbers_array))[:, None], numbers_array] = True
     cache_info = {
-        "backend": "numpy_matrix",
+        "backend": "numpy_mmap_matrix" if cache_path else "numpy_matrix",
         "cache_key": cache_key,
         "cache_path": str(cache_path) if cache_path else "",
         "cache_hit": False,
+        "cache_format_version": MATRIX_CACHE_FORMAT_VERSION if cache_path else None,
+        "storage": "npy_mmap_read_only" if cache_path else "in_memory",
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "filter_rule_version": FILTER_RULE_VERSION,
         "source_count": len(combinations),
@@ -1348,17 +1439,50 @@ def build_ranked_universe(
     use_cache: bool | None = None,
 ) -> RankedUniverseMatrix:
     started = time.time()
-    combinations = _materialize_universe(universe)
-    cache_enabled = (use_cache if use_cache is not None else len(combinations) >= 100_000) and cache_dir is not None
-    cache_key = _matrix_cache_key(combinations)
-    cache_path = (cache_dir / f"ranked-universe-{cache_key}.npz") if cache_enabled and cache_dir else None
+    combinations: list[tuple[int, ...]] | None = None
+    if universe is None:
+        cache_enabled = (use_cache if use_cache is not None else True) and cache_dir is not None
+        cache_key = _local_legal_universe_cache_key()
+        expected_source_count = TOTAL_LOCAL_LEGAL_COMBINATIONS
+    else:
+        combinations = _materialize_universe(universe)
+        cache_enabled = (
+            use_cache if use_cache is not None else len(combinations) >= 100_000
+        ) and cache_dir is not None
+        cache_key = _matrix_cache_key(combinations)
+        expected_source_count = len(combinations)
+    cache_path = (
+        cache_dir / f"ranked-universe-{cache_key}.mmap"
+        if cache_enabled and cache_dir
+        else None
+    )
     if cache_path is not None:
-        cached = _load_matrix_cache(cache_path, cache_key=cache_key)
+        cached = _load_matrix_cache(
+            cache_path,
+            cache_key=cache_key,
+            expected_source_count=expected_source_count,
+        )
         if cached is not None:
             return cached
+    if combinations is None:
+        combinations = _materialize_universe(None)
     matrix = _matrix_from_combinations(combinations, cache_key=cache_key, cache_path=cache_path, started=started)
     if cache_path is not None:
         _write_matrix_cache(cache_path, matrix)
+        cached = _load_matrix_cache(
+            cache_path,
+            cache_key=cache_key,
+            expected_source_count=expected_source_count,
+        )
+        if cached is not None:
+            cached.cache_info.update(
+                {
+                    "cache_hit": False,
+                    "cache_created": True,
+                    "build_seconds": round(time.time() - started, 3),
+                }
+            )
+            return cached
     return matrix
 
 

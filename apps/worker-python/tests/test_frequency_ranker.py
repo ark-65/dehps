@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
+import numpy as np
 import pytest
 
 from dehps.features.qian_kun import (
@@ -12,6 +14,7 @@ from dehps.features.qian_kun import (
     qian_kun_pattern,
 )
 from dehps.models.frequency_ranker import FrequencyRankerConfig, score_frequency_candidate, train_frequency_stats
+from dehps.optimization import walk_forward
 from dehps.optimization.walk_forward import (
     build_ranked_universe,
     deterministic_run_key,
@@ -274,11 +277,113 @@ def test_ranked_universe_matrix_cache_round_trips(tmp_path):
     first = build_ranked_universe(universe, cache_dir=tmp_path, use_cache=True)
     second = build_ranked_universe(universe, cache_dir=tmp_path, use_cache=True)
 
-    assert first.cache_info["backend"] == "numpy_matrix"
+    assert first.cache_info["backend"] == "numpy_mmap_matrix"
     assert first.cache_info["cache_hit"] is False
+    assert first.cache_info["cache_created"] is True
+    assert isinstance(first.numbers, np.memmap)
+    assert first.numbers.flags.writeable is False
     assert second.cache_info["cache_hit"] is True
+    assert second.cache_info["storage"] == "npy_mmap_read_only"
+    assert all(
+        isinstance(getattr(second, field_name), np.memmap)
+        for field_name in walk_forward.MATRIX_ARRAY_FIELDS
+    )
     assert second.cache_info["filtered_count"] == len(first)
     assert [entry.numbers for entry in second] == [entry.numbers for entry in first]
+
+
+def test_ranked_universe_matrix_cache_rebuilds_corrupt_manifest(tmp_path):
+    universe = [
+        (1, 8, 13, 18, 23, 31),
+        (2, 9, 14, 19, 24, 32),
+    ]
+    first = build_ranked_universe(universe, cache_dir=tmp_path, use_cache=True)
+    cache_path = Path(first.cache_info["cache_path"])
+    (cache_path / "manifest.json").write_text("{not-json")
+
+    rebuilt = build_ranked_universe(universe, cache_dir=tmp_path, use_cache=True)
+
+    assert rebuilt.cache_info["cache_hit"] is False
+    assert rebuilt.cache_info["cache_created"] is True
+    assert isinstance(rebuilt.numbers, np.memmap)
+    assert [entry.numbers for entry in rebuilt] == [entry.numbers for entry in first]
+
+
+def test_ranked_universe_matrix_cache_replaces_corrupt_file(tmp_path):
+    universe = [(1, 8, 13, 18, 23, 31)]
+    first = build_ranked_universe(universe, cache_dir=tmp_path, use_cache=True)
+    cache_path = Path(first.cache_info["cache_path"])
+    walk_forward._remove_cache_artifact(cache_path)
+    cache_path.write_text("partial-cache")
+
+    rebuilt = build_ranked_universe(universe, cache_dir=tmp_path, use_cache=True)
+
+    assert rebuilt.cache_info["cache_hit"] is False
+    assert cache_path.is_dir()
+    assert isinstance(rebuilt.numbers, np.memmap)
+
+
+def test_ranked_universe_matrix_cache_preserves_all_arrays_and_ranks(tmp_path):
+    universe = [
+        (1, 4, 9, 14, 22, 31),
+        (1, 4, 9, 14, 22, 32),
+        (2, 7, 12, 17, 24, 29),
+        (3, 8, 13, 18, 25, 30),
+    ]
+    uncached = build_ranked_universe(universe, use_cache=False)
+    cached = build_ranked_universe(universe, cache_dir=tmp_path, use_cache=True)
+
+    for field_name in walk_forward.MATRIX_ARRAY_FIELDS:
+        assert np.array_equal(getattr(cached, field_name), getattr(uncached, field_name))
+
+    history = [
+        ("001", universe[2]),
+        ("002", universe[3]),
+    ]
+    configs = (
+        FrequencyRankerConfig(),
+        FrequencyRankerConfig(
+            structural_weight=0,
+            frequency_weight=1,
+            omission_weight=0,
+            previous_consecutive_weight=0,
+        ),
+    )
+    expected = rank_target_grid_with_red5(
+        target_numbers=universe[0],
+        train_history=history,
+        configs=configs,
+        ranked_universe=uncached,
+    )
+    actual = rank_target_grid_with_red5(
+        target_numbers=universe[0],
+        train_history=history,
+        configs=configs,
+        ranked_universe=cached,
+    )
+
+    assert actual == expected
+
+
+def test_default_legal_universe_cache_hit_skips_enumeration(tmp_path, monkeypatch):
+    universe = [
+        (1, 8, 13, 18, 23, 31),
+        (2, 9, 14, 19, 24, 32),
+    ]
+    monkeypatch.setattr(walk_forward, "TOTAL_LOCAL_LEGAL_COMBINATIONS", len(universe))
+    monkeypatch.setattr(walk_forward, "iter_ssq_red_combinations", lambda: iter(universe))
+    created = build_ranked_universe(cache_dir=tmp_path)
+
+    def fail_if_enumerated():
+        raise AssertionError("cache hit must not enumerate the legal universe")
+
+    monkeypatch.setattr(walk_forward, "iter_ssq_red_combinations", fail_if_enumerated)
+    loaded = build_ranked_universe(cache_dir=tmp_path)
+
+    assert created.cache_info["cache_hit"] is False
+    assert loaded.cache_info["cache_hit"] is True
+    assert isinstance(loaded.numbers, np.memmap)
+    assert np.array_equal(loaded.numbers, created.numbers)
 
 
 def test_walk_forward_reports_target_ranks_on_small_universe():
