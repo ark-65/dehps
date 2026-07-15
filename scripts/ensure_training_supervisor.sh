@@ -6,9 +6,15 @@ WORKER_DIR="$REPO_ROOT/apps/worker-python"
 LOG_DIR="$REPO_ROOT/runtime/logs"
 PID_FILE="$LOG_DIR/training-supervisor-kdj-ridge-neural.pid"
 WEIGHT_KDJ_BUDGET_SHARE="${DEHPS_WEIGHT_KDJ_BUDGET_SHARE:-0.22}"
-NEURAL_KDJ_BUDGET_SHARE="${DEHPS_NEURAL_KDJ_BUDGET_SHARE:-0.10}"
+NEURAL_KDJ_BUDGET_SHARE="${DEHPS_NEURAL_KDJ_BUDGET_SHARE:-0.20}"
 TRAINING_WORKERS="${DEHPS_TRAINING_WORKERS:-16}"
 RESEARCH_LANE_WORKERS="${DEHPS_RESEARCH_LANE_WORKERS:-$TRAINING_WORKERS}"
+MAX_CONFIGS_PER_ROUND="${DEHPS_MAX_CONFIGS_PER_ROUND:-96}"
+MEMORY_BUDGET_GB="${DEHPS_MEMORY_BUDGET_GB:-24}"
+NEURAL_KDJ_HIDDEN_UNITS="${DEHPS_NEURAL_KDJ_HIDDEN_UNITS:-32}"
+NEURAL_KDJ_EPOCHS="${DEHPS_NEURAL_KDJ_EPOCHS:-500}"
+TARGET_INVERSION_MAX_CANDIDATES="${DEHPS_TARGET_INVERSION_MAX_CANDIDATES:-8}"
+TARGET_INVERSION_MAX_DELTAS="${DEHPS_TARGET_INVERSION_MAX_DELTAS:-12}"
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
@@ -472,6 +478,12 @@ setsid bash -lc '
   neural_kdj_budget_share="$3"
   training_workers="$4"
   watchdog_lock="$5"
+  max_configs_per_round="$6"
+  memory_budget_gb="$7"
+  neural_kdj_hidden_units="$8"
+  neural_kdj_epochs="$9"
+  target_inversion_max_candidates="${10}"
+  target_inversion_max_deltas="${11}"
   for fd_path in /proc/$$/fd/*; do
     fd="${fd_path##*/}"
     if [[ "$fd" =~ ^[0-9]+$ ]] && (( fd > 2 )) \
@@ -491,24 +503,29 @@ setsid bash -lc '
     --history-scope current_regime_default
     --regime-years 10
     --progress-interval 10
-    --max-configs-per-round 28
-    --memory-budget-gb 20
+    --max-configs-per-round "$max_configs_per_round"
+    --memory-budget-gb "$memory_budget_gb"
     --write-status-json
     --enable-weight-kdj-advisor
     --weight-kdj-budget-share "$weight_kdj_budget_share"
     --enable-ridge-kdj-advisor
     --enable-neural-kdj-advisor
     --neural-kdj-budget-share "$neural_kdj_budget_share"
-    --target-weight-inversion-max-candidates 4
+    --neural-kdj-hidden-units "$neural_kdj_hidden_units"
+    --neural-kdj-epochs "$neural_kdj_epochs"
+    --target-weight-inversion-max-candidates "$target_inversion_max_candidates"
     --target-weight-inversion-max-targets 100
-    --target-weight-inversion-max-deltas-per-target 8
+    --target-weight-inversion-max-deltas-per-target "$target_inversion_max_deltas"
     --cpu-threads 1
   )
   if [[ -n "$as_of_issue" ]]; then
     args+=(--as-of-issue "$as_of_issue")
   fi
   exec .venv/bin/python "${args[@]}"
-' "$PID_FILE" "$latest_issue" "$WEIGHT_KDJ_BUDGET_SHARE" "$NEURAL_KDJ_BUDGET_SHARE" "$TRAINING_WORKERS" "$LOG_DIR/training-supervisor-watchdog.lock" > "$run_log" 2>&1 < /dev/null &
+' "$PID_FILE" "$latest_issue" "$WEIGHT_KDJ_BUDGET_SHARE" "$NEURAL_KDJ_BUDGET_SHARE" "$TRAINING_WORKERS" \
+  "$LOG_DIR/training-supervisor-watchdog.lock" "$MAX_CONFIGS_PER_ROUND" "$MEMORY_BUDGET_GB" \
+  "$NEURAL_KDJ_HIDDEN_UNITS" "$NEURAL_KDJ_EPOCHS" "$TARGET_INVERSION_MAX_CANDIDATES" \
+  "$TARGET_INVERSION_MAX_DELTAS" > "$run_log" 2>&1 < /dev/null &
 
 launcher_pid="$!"
 sleep 1
