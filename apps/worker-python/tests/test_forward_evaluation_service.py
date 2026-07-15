@@ -43,7 +43,7 @@ class Connection:
 
 
 class Harness(ForwardEvaluationService):
-    def __init__(self, *, draw, evaluator):
+    def __init__(self, *, draw, evaluator, promotion_reconciler=None):
         self.status = "pending"
         self.attempts = 0
         self.failure = None
@@ -61,6 +61,9 @@ class Harness(ForwardEvaluationService):
             ),
             ranking_auditor=lambda *_args, **_kwargs: {"model_score_rank": 1},
             snapshot_evaluator=evaluator,
+            promotion_reconciler=promotion_reconciler or (
+                lambda **_kwargs: {"status": "no_active_cohort", "promote": False}
+            ),
         )
 
     def pending_runs(self):
@@ -139,3 +142,27 @@ def test_failed_evaluation_records_status_and_retries() -> None:
     assert second["evaluated_count"] == 1
     assert service.status == "evaluated"
     assert service.attempts == 2
+
+
+def test_promotion_reconciliation_failure_is_structured_without_undoing_evaluation() -> None:
+    def fail_reconciliation(**_kwargs):
+        raise RuntimeError("promotion database unavailable")
+
+    service = Harness(
+        draw={"issue": "2026080", "red_numbers": [4, 5, 11, 19, 27, 32]},
+        evaluator=accepted_payload,
+        promotion_reconciler=fail_reconciliation,
+    )
+
+    result = service.evaluate_pending(write_report=False)
+
+    assert result["evaluated_count"] == 1
+    assert service.status == "evaluated"
+    assert result["forward_promotion"] == {
+        "status": "reconciliation_failed",
+        "promote": False,
+        "error": {
+            "type": "RuntimeError",
+            "message": "promotion database unavailable",
+        },
+    }

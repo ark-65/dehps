@@ -18,6 +18,14 @@ from dehps.models.frequency_ranker import (
     history_numbers,
     infer_next_ssq_draw_date,
 )
+from dehps.forward_promotion.gate import (
+    FORWARD_CHALLENGER_LINE_KEY,
+    FORWARD_CHALLENGER_LINE_LABEL,
+)
+from dehps.forward_promotion.storage import (
+    ensure_active_forward_promotion_cohort,
+    invalidate_active_forward_promotion_cohort,
+)
 from dehps.optimization.regime import select_history
 from dehps.optimization.self_diagnostics import build_prediction_self_diagnostics
 from dehps.optimization.weight_kdj import weight_kdj_advice_from_signals
@@ -1098,6 +1106,65 @@ def build_training_next_candidate_snapshot(
     return {"metadata": metadata, "candidates": candidates}
 
 
+def build_forward_challenger_next_candidate_snapshot(
+    conn: Connection,
+    *,
+    cohort: dict[str, Any],
+    static_snapshot: dict[str, Any],
+    top_n: int,
+    ranked_universe: Any,
+) -> dict[str, Any]:
+    static_metadata = static_snapshot["metadata"]
+    if str(static_metadata.get("config_hash") or "") != str(cohort["incumbent_config_hash"]):
+        raise ValueError("forward_promotion_incumbent_config_drift")
+    best = load_best_training_summary(conn, str(static_metadata.get("run_id") or "") or None)
+    if best is None:
+        best = load_best_training_summary(conn)
+    if best is None:
+        raise RuntimeError("no training summary is available for forward challenger history")
+    history, _history_context = load_current_history_for_training_scope(conn, best)
+    config = FrequencyRankerConfig(**cohort["challenger_config"])
+    target_draw_date = infer_next_ssq_draw_date(history)
+    resolved_top_n = min(top_n, len(ranked_universe))
+    candidates = top_candidates_for_next(
+        history=history if best["train_mode"] == "expanding" else history[-best["train_window"] :],
+        top_n=resolved_top_n,
+        config=config,
+        target_draw_date=target_draw_date,
+        ranked_universe=ranked_universe,
+    )
+    metadata = {
+        **static_metadata,
+        "line_key": FORWARD_CHALLENGER_LINE_KEY,
+        "line_label": FORWARD_CHALLENGER_LINE_LABEL,
+        "line_kind": "prospective_fixed_config",
+        "snapshot_key": (
+            f"forward-challenger-{static_metadata['as_of_issue']}-"
+            f"{str(cohort['cohort_key']).split(':')[-1]}"
+        ),
+        "run_id": str(cohort["source_run_id"]),
+        "source_round_index": int(cohort["source_round_index"]),
+        "config_hash": str(cohort["challenger_config_hash"]),
+        "config": dict(cohort["challenger_config"]),
+        "candidate_count": len(candidates),
+        "top_n": resolved_top_n,
+        "prediction_metadata": {
+            "line_key": FORWARD_CHALLENGER_LINE_KEY,
+            "line_label": FORWARD_CHALLENGER_LINE_LABEL,
+            "protocol": "config_bound_forward_promotion_v1",
+            "cohort_key": str(cohort["cohort_key"]),
+            "activation_issue": str(cohort["activation_issue"]),
+            "incumbent_config_hash": str(cohort["incumbent_config_hash"]),
+            "challenger_config_hash": str(cohort["challenger_config_hash"]),
+            "prospective": True,
+            "snapshot_sealed": True,
+            "leakage_passed": True,
+            "promotion_authority": "existing_promotion_gate",
+        },
+    }
+    return {"metadata": metadata, "candidates": candidates}
+
+
 def dynamic_kdj_config_for_next(
     *,
     base_config: FrequencyRankerConfig,
@@ -1531,6 +1598,31 @@ def refresh_training_prediction_lines_current(
             dynamic_policy=near_dynamic_policy,
             sealed=False,
         )
+    activation_issue = str(static_snapshot["metadata"].get("next_issue") or "")
+    cohort = (
+        ensure_active_forward_promotion_cohort(conn, activation_issue=activation_issue)
+        if activation_issue and static_snapshot["metadata"].get("config_hash")
+        else None
+    )
+    challenger_snapshot = None
+    if cohort is not None:
+        try:
+            challenger_snapshot = build_forward_challenger_next_candidate_snapshot(
+                conn,
+                cohort=cohort,
+                static_snapshot=static_snapshot,
+                top_n=top_n,
+                ranked_universe=matrix,
+            )
+        except ValueError as exc:
+            if str(exc) == "forward_promotion_incumbent_config_drift":
+                invalidate_active_forward_promotion_cohort(
+                    conn,
+                    cohort_key=str(cohort["cohort_key"]),
+                    reason="incumbent_config_drift_before_snapshot",
+                )
+            else:
+                raise
     replace_training_next_candidates_current(
         conn,
         metadata=static_snapshot["metadata"],
@@ -1547,12 +1639,20 @@ def refresh_training_prediction_lines_current(
             metadata=near_snapshot["metadata"],
             candidates=near_snapshot["candidates"],
         )
+    if challenger_snapshot is not None:
+        replace_training_next_candidates_current(
+            conn,
+            metadata=challenger_snapshot["metadata"],
+            candidates=challenger_snapshot["candidates"],
+        )
     lines = {
         STATIC_100_LINE_KEY: static_snapshot["metadata"],
         DYNAMIC_KDJ_LINE_KEY: dynamic_snapshot["metadata"],
     }
     if near_snapshot is not None:
         lines[NEAR_DYNAMIC_KDJ_LINE_KEY] = near_snapshot["metadata"]
+    if challenger_snapshot is not None:
+        lines[FORWARD_CHALLENGER_LINE_KEY] = challenger_snapshot["metadata"]
     return {
         "status": "ready",
         "lines": lines,

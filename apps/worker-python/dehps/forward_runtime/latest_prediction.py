@@ -7,9 +7,11 @@ from psycopg import Connection
 from psycopg.rows import dict_row
 
 from dehps.source_version import resolve_git_commit
+from dehps.forward_promotion.gate import FORWARD_CHALLENGER_LINE_KEY
 
 
 EXPECTED_LINE_KEYS = ("static_100", "dynamic_kdj", "dynamic_kdj_near")
+OPTIONAL_LINE_KEYS = (FORWARD_CHALLENGER_LINE_KEY,)
 
 
 def load_latest_prediction_rows(
@@ -98,7 +100,8 @@ def build_latest_prediction_payload(
     line_payloads: list[dict[str, Any]] = []
     number_line_presence: Counter[int] = Counter()
     number_candidate_occurrences: Counter[int] = Counter()
-    for line_key in EXPECTED_LINE_KEYS:
+    display_line_keys = (*EXPECTED_LINE_KEYS, *(key for key in OPTIONAL_LINE_KEYS if key in runs_by_line))
+    for line_key in display_line_keys:
         run = runs_by_line.get(line_key)
         if run is None:
             continue
@@ -115,8 +118,10 @@ def build_latest_prediction_payload(
         for candidate in top_candidates:
             numbers = candidate["red_numbers"]
             present_in_line.update(numbers)
-            number_candidate_occurrences.update(numbers)
-        number_line_presence.update(present_in_line)
+        if line_key in EXPECTED_LINE_KEYS:
+            number_line_presence.update(present_in_line)
+            for candidate in top_candidates:
+                number_candidate_occurrences.update(candidate["red_numbers"])
         line_payloads.append(
             {
                 "line_key": line_key,
@@ -130,7 +135,7 @@ def build_latest_prediction_payload(
             }
         )
 
-    line_count = len(line_payloads)
+    line_count = sum(line["line_key"] in EXPECTED_LINE_KEYS for line in line_payloads)
     consensus_numbers = [
         {
             "number": number,
@@ -169,7 +174,7 @@ def build_latest_prediction_payload(
         "git_commit": source_git_commit,
         "viewer_git_commit": git_commit,
         "lines": line_payloads,
-        "consensus_definition": f"red numbers present in Top {top_limit} of every available line",
+        "consensus_definition": f"red numbers present in Top {top_limit} of every required three-line prediction",
         "consensus_numbers": consensus_numbers,
         "missing_lines": missing_lines,
     }
