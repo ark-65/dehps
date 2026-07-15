@@ -4412,6 +4412,7 @@ def test_training_event_payload_is_compact_signal_only():
             "pid": 12345,
             "updated_at": "2026-06-17T12:00:00",
             "latest_progress": {"round": 1},
+            "round_execution": {"round": 1, "stage": "main_evaluation"},
             "search_base": {"source": "challenger_best"},
             "status_path": "/tmp/status.json",
             "report_path": "/tmp/status.md",
@@ -4426,6 +4427,7 @@ def test_training_event_payload_is_compact_signal_only():
         "pid": 12345,
         "updated_at": "2026-06-17T12:00:00",
         "latest_progress": {"round": 1},
+        "round_execution": {"round": 1, "stage": "main_evaluation"},
         "search_base": {"source": "challenger_best"},
         "status_path": "/tmp/status.json",
         "report_path": "/tmp/status.md",
@@ -4728,10 +4730,16 @@ def test_compact_status_payload_keeps_latest_progress_separate_from_completed_ro
         "elapsed_seconds": 33.5,
     }
 
+    round_execution = {
+        "round": 3,
+        "stage": "post_evaluation_diagnostics",
+        "active_workers": 1,
+    }
     payload = compact_status_payload(
         {
             "run_id": "run-1",
             "latest_progress": latest_progress,
+            "round_execution": round_execution,
             "rounds": [
                 {
                     "round": 1,
@@ -4748,6 +4756,7 @@ def test_compact_status_payload_keeps_latest_progress_separate_from_completed_ro
     )
 
     assert payload["latest_progress"] == latest_progress
+    assert payload["round_execution"] == round_execution
     assert payload["round_summary"]["round_count"] == 2
     assert payload["round_summary"]["latest_round"] == 2
     assert payload["round_summary"]["stagnation_rounds"] == 2

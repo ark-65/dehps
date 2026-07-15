@@ -140,6 +140,7 @@ def test_training_next_candidate_snapshot_reports_training_freshness(monkeypatch
     }
     monkeypatch.setattr(next_candidates, "load_best_training_summary", lambda _conn, _run_id: best)
     monkeypatch.setattr(next_candidates, "load_history_with_dates", lambda _conn: history)
+    monkeypatch.setattr(next_candidates, "resolve_git_commit", lambda: "source-commit")
     monkeypatch.setattr(
         next_candidates,
         "top_candidates_for_next",
@@ -157,6 +158,7 @@ def test_training_next_candidate_snapshot_reports_training_freshness(monkeypatch
     assert metadata["prediction_metadata"]["regression_100"]["red5"]["top_10000_hits"] == 8
     assert metadata["history_fingerprint"] == next_candidates.fingerprint_history(history)
     assert metadata["freshness_mode"] == "legacy_full_history"
+    assert metadata["git_commit"] == "source-commit"
     assert metadata["training_freshness"] == {
         "status": "stale",
         "training_issue_matches_current": False,
@@ -535,6 +537,7 @@ def test_dynamic_kdj_next_candidate_snapshot_includes_regression_summary(monkeyp
     }
     monkeypatch.setattr(next_candidates, "load_best_training_summary", lambda _conn, _run_id: best)
     monkeypatch.setattr(next_candidates, "load_history_with_dates", lambda _conn: history)
+    monkeypatch.setattr(next_candidates, "resolve_git_commit", lambda: "source-commit")
     monkeypatch.setattr(
         next_candidates,
         "load_recent_training_weight_signals",
@@ -566,6 +569,7 @@ def test_dynamic_kdj_next_candidate_snapshot_includes_regression_summary(monkeyp
     assert metadata["prediction_metadata"]["dynamic_policy"]["strength_mode"] == "kdj_state_band"
     assert metadata["prediction_metadata"]["fallback_static_base"] is False
     assert metadata["prediction_metadata"]["gauss_guardrail"]["regression_leakage_passed"] is True
+    assert metadata["git_commit"] == "source-commit"
 
 
 def test_near_dynamic_kdj_next_candidate_snapshot_marks_window(monkeypatch):

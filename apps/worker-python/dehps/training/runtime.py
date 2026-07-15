@@ -251,6 +251,7 @@ def training_event_payload(status: dict) -> dict:
         "pid": status.get("pid"),
         "updated_at": status.get("updated_at"),
         "latest_progress": status.get("latest_progress"),
+        "round_execution": status.get("round_execution"),
         "search_base": status.get("search_base"),
         "status_path": status.get("status_path"),
         "report_path": status.get("report_path"),
@@ -6295,6 +6296,7 @@ def compact_status_payload(status: dict) -> dict:
         "strategy_memory": status.get("strategy_memory"),
         "search_base": status.get("search_base"),
         "latest_progress": status.get("latest_progress"),
+        "round_execution": status.get("round_execution"),
         "status_path": status.get("status_path"),
         "report_path": status.get("report_path"),
     }

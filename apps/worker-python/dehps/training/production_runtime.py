@@ -14,6 +14,7 @@ from dehps.training.runtime_round_executor import (
     RuntimeRoundRequest,
     RuntimeTrainingState,
 )
+from dehps.training.round_observability import RoundStageTracker
 
 
 @dataclass(frozen=True)
@@ -67,6 +68,7 @@ class ProductionRuntimeRoundExecutor:
         probability_focus_source = state.values["probability_focus_source"]
         progress_interval = state.values["progress_interval"]
         publish_progress = state.values["publish_progress"]
+        round_stage_tracker = state.values["round_stage_tracker"]
         ranked_universe = state.values["ranked_universe"]
         report_path = state.values["report_path"]
         resolved_event_url = state.values["resolved_event_url"]
@@ -110,6 +112,11 @@ class ProductionRuntimeRoundExecutor:
                 f"runtime round sequence mismatch: expected={round_index + 1} "
                 f"actual={request.round_index}"
             )
+        round_stage_tracker.transition(
+            "candidate_generation",
+            round_index=round_index + 1,
+            active_workers=1,
+        )
         guard_rounds = active_supervisor_guard_rounds(guard_history, rounds)
         stagnation_rounds = active_supervisor_stagnation_round_count(
             int(guard_continuity_info.get("stagnation_rounds") or 0),
@@ -406,6 +413,18 @@ class ProductionRuntimeRoundExecutor:
             control_configs=control_configs,
         )
         validation_window = frozen_validation_window(eval_window)
+        prefilter_start_index = max(train_window, len(training_history) - eval_window)
+        prefilter_end_index = len(training_history) - validation_window
+        prefilter_target_total = len(range(prefilter_start_index, prefilter_end_index, 4))
+        round_stage_tracker.transition(
+            "prefilter",
+            round_index=round_index + 1,
+            active_workers=min(worker_count, max(1, eval_window)),
+            generated_config_count=generated_config_count,
+            selected_config_count=None,
+            target_completed=0,
+            target_total=prefilter_target_total,
+        )
         refined_configs, prefilter_info = prefilter_configs(
             history=training_history,
             ranked_universe=ranked_universe,
@@ -512,6 +531,24 @@ class ProductionRuntimeRoundExecutor:
             f"prefilter_elapsed={prefilter_info['elapsed_seconds']}s "
             f"search_base={config_dict(search_base_config)}"
         )
+        round_stage_tracker.transition(
+            "main_evaluation",
+            round_index=round_index + 1,
+            active_workers=min(worker_count, max(1, eval_window)),
+            generated_config_count=generated_config_count,
+            selected_config_count=len(refined_configs),
+            target_completed=0,
+            target_total=eval_window,
+        )
+
+        def publish_round_evaluation_progress(progress: dict) -> None:
+            round_stage_tracker.update_target_progress(
+                completed=int(progress.get("target_index") or 0),
+                total=int(progress.get("target_total") or 0),
+                publish=False,
+            )
+            publish_progress(progress)
+
         summaries = evaluate_configs(
             history=training_history,
             ranked_universe=ranked_universe,
@@ -524,8 +561,17 @@ class ProductionRuntimeRoundExecutor:
             pool=pool,
             progress_interval=progress_interval,
             round_index=round_index + 1,
-            progress_callback=publish_progress,
+            progress_callback=publish_round_evaluation_progress,
             frozen_validation_window_value=validation_window,
+        )
+        round_stage_tracker.transition(
+            "post_evaluation_diagnostics",
+            round_index=round_index + 1,
+            active_workers=1,
+            generated_config_count=generated_config_count,
+            selected_config_count=len(refined_configs),
+            target_completed=eval_window,
+            target_total=eval_window,
         )
         normalized = RuntimeEvaluationNormalizer(
             attach_candidate_source_metadata=attach_candidate_source_metadata,
@@ -830,6 +876,20 @@ class ProductionRuntimeRoundExecutor:
         prefilter_info["target_weight_inversion_anchor"] = inversion_anchor_info
         inversion_rows: list[dict] = []
         inversion_aggregate: dict = {}
+        round_stage_tracker.transition(
+            "target_weight_inversion",
+            round_index=round_index + 1,
+            active_workers=1 if enable_target_weight_inversion_advisor else 0,
+            generated_config_count=generated_config_count,
+            selected_config_count=len(refined_configs),
+            target_completed=0,
+            target_total=target_weight_inversion_max_targets,
+            details={
+                "enabled": enable_target_weight_inversion_advisor,
+                "max_candidates": target_weight_inversion_max_candidates,
+                "max_deltas_per_target": target_weight_inversion_max_deltas_per_target,
+            },
+        )
         if enable_target_weight_inversion_advisor:
             inversion_rows, inversion_aggregate, target_weight_inversion_configs, target_weight_inversion_latest = target_weight_inversion_advisor(
                 history=training_history,
@@ -866,6 +926,13 @@ class ProductionRuntimeRoundExecutor:
         }
         prefilter_info["target_weight_inversion_advisor"] = target_weight_inversion_latest
         status["target_weight_inversion_advisor"]["latest"] = target_weight_inversion_latest
+        round_stage_tracker.transition(
+            "near_miss_inversion",
+            round_index=round_index + 1,
+            active_workers=1,
+            generated_config_count=generated_config_count,
+            selected_config_count=len(refined_configs),
+        )
         near_miss_inversion_configs, near_miss_inversion_latest = near_miss_inversion_advisor(
             history=training_history,
             ranked_universe=ranked_universe,
@@ -1044,6 +1111,13 @@ class ProductionRuntimeRoundExecutor:
             if isinstance(decision_round_best, dict) and isinstance(decision_round_best.get("config"), dict)
             else round_best
         )
+        round_stage_tracker.transition(
+            "dynamic_kdj_training",
+            round_index=round_index + 1,
+            active_workers=min(worker_count, max(1, search_eval_window)),
+            target_completed=0,
+            target_total=search_eval_window,
+        )
         try:
             dynamic_training_signals = kdj_signals
             if not dynamic_training_signals:
@@ -1162,6 +1236,13 @@ class ProductionRuntimeRoundExecutor:
             "line_key": NEAR_DYNAMIC_KDJ_LINE_KEY,
         }
         near_dynamic_training_selected: dict = {}
+        round_stage_tracker.transition(
+            "near_dynamic_kdj_training",
+            round_index=round_index + 1,
+            active_workers=min(worker_count, NEAR_DYNAMIC_KDJ_EVAL_WINDOW),
+            target_completed=0,
+            target_total=NEAR_DYNAMIC_KDJ_EVAL_WINDOW,
+        )
         try:
             near_dynamic_training_signals = kdj_signals
             if not near_dynamic_training_signals:
@@ -1303,6 +1384,11 @@ class ProductionRuntimeRoundExecutor:
             prefilter_info["near_dynamic_kdj_training"] = near_dynamic_training_payload
             log(f"near_dynamic_kdj_training_warning round={round_index + 1} error={exc}")
 
+        round_stage_tracker.transition(
+            "round_postprocessing",
+            round_index=round_index + 1,
+            active_workers=1,
+        )
         strategy_memory = build_specialist_strategy_memory(
             current_diagnostic=self_diagnostics,
             recent_diagnostics=(
@@ -1342,6 +1428,13 @@ class ProductionRuntimeRoundExecutor:
         status["best"] = strip_target_results(best_summary) if best_summary else None
         status["search_base"] = search_base_info
         status["prefilter"]["completed_latest"] = prefilter_info
+        round_stage_tracker.transition(
+            "persistence_and_prediction_refresh",
+            round_index=round_index + 1,
+            active_workers=1,
+            generated_config_count=generated_config_count,
+            selected_config_count=len(refined_configs),
+        )
         with get_connection() as conn:
             ensure_training_round_results_schema(conn)
             upsert_training_round_result(conn, run_id=run_id, round_info=round_record, status=status)
@@ -1411,6 +1504,7 @@ class ProductionRuntimeRoundExecutor:
                 except Exception as exc:  # pragma: no cover - candidate refresh must not stop training.
                     status["next_candidates"] = {"status": "failed", "error": str(exc)}
                     log(f"next_candidates_warning round={round_index + 1} error={exc}")
+        round_stage_tracker.complete(round_index=round_index + 1)
         rounds.append(compact_round_info(round_record))
         publish_status_snapshot(status_path, status, event_url=resolved_event_url, write_json=write_status_json)
         write_report(report_path, status)
@@ -1494,6 +1588,9 @@ class ProductionTrainingSession:
         runtime_status["status"] = status
         if error is not None:
             runtime_status["error_message"] = str(error)
+            round_stage_tracker = values.get("round_stage_tracker")
+            if round_stage_tracker is not None:
+                round_stage_tracker.fail(error=error)
         pool = values.get("pool")
         if pool is not None:
             pool.close()
@@ -1960,6 +2057,7 @@ def build_production_training_session(
             "config": config_dict(search_base_config),
         },
         "latest_progress": None,
+        "round_execution": None,
         "status_path": str(status_path),
         "report_path": str(report_path),
     }
@@ -1968,6 +2066,21 @@ def build_production_training_session(
         status["latest_progress"] = progress
         status["updated_at"] = progress["logged_at"]
         publish_status_snapshot(status_path, status, event_url=resolved_event_url, write_json=write_status_json)
+
+    def publish_round_execution() -> None:
+        status["updated_at"] = datetime.now().isoformat(timespec="seconds")
+        publish_status_snapshot(
+            status_path,
+            status,
+            event_url=resolved_event_url,
+            write_json=write_status_json,
+        )
+
+    round_stage_tracker = RoundStageTracker(
+        status=status,
+        publish=publish_round_execution,
+        log=log,
+    )
 
     if should_checkpoint_supervisor_best(best_summary, round_index=0, improved=True):
         with get_connection() as conn:
