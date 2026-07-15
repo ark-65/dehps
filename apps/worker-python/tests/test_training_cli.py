@@ -3,7 +3,10 @@ from __future__ import annotations
 import pytest
 
 from dehps.training.cli import build_settings, parse_args
-from dehps.training.production_runtime import build_production_training_session
+from dehps.training.production_runtime import (
+    build_production_training_session,
+    ranked_universe_size_status,
+)
 
 
 def test_legacy_supervisor_command_remains_cli_compatible() -> None:
@@ -73,3 +76,14 @@ def test_observability_only_requires_a_bounded_round_count(tmp_path) -> None:
             max_rounds=None,
             observability_only=True,
         )
+
+
+def test_ranked_universe_size_status_does_not_require_materialized_legal_universe() -> None:
+    status = ranked_universe_size_status(range(1_105_506))
+
+    assert status == {
+        "legal_universe_size": 1_107_568,
+        "ranked_universe_size": 1_105_506,
+        "excluded_universe_count": 2_062,
+        "universe_size": 1_105_506,
+    }
