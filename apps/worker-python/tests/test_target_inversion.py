@@ -11,6 +11,24 @@ import dehps.optimization.target_inversion as target_inversion
 from dehps.optimization.walk_forward import build_ranked_universe
 
 
+class SynchronousReversePool:
+    def __init__(self, *, initializer, initargs, **_kwargs):
+        initializer(*initargs)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return None
+
+    def imap_unordered(self, function, tasks):
+        return iter(function(task) for task in reversed(tasks))
+
+
+class SynchronousReverseContext:
+    Pool = SynchronousReversePool
+
+
 def test_target_inversion_finds_small_delta_for_simplified_components():
     config = FrequencyRankerConfig(structural_weight=0.5, frequency_weight=0.5)
     universe = [
@@ -152,24 +170,12 @@ def test_parallel_target_inversion_preserves_serial_order_and_payload(monkeypatc
             success=True,
         )
 
-    class FakePool:
-        def __init__(self, *, initializer, initargs, **_kwargs):
-            initializer(*initargs)
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_args):
-            return None
-
-        def imap_unordered(self, function, tasks):
-            return iter(function(task) for task in reversed(tasks))
-
-    class FakeContext:
-        Pool = FakePool
-
     monkeypatch.setattr(target_inversion, "invert_target_weight", fake_invert_target_weight)
-    monkeypatch.setattr(target_inversion, "_target_inversion_pool_context", lambda: FakeContext())
+    monkeypatch.setattr(
+        target_inversion,
+        "_target_inversion_pool_context",
+        lambda: SynchronousReverseContext(),
+    )
     progress = []
     kwargs = {
         "history": history,
@@ -193,7 +199,7 @@ def test_parallel_target_inversion_preserves_serial_order_and_payload(monkeypatc
     assert progress == [(1, 3), (2, 3), (3, 3)]
 
 
-def test_real_parallel_target_inversion_is_bitwise_equal_to_serial():
+def test_real_parallel_target_inversion_is_bitwise_equal_to_serial(monkeypatch):
     universe = list(combinations(range(1, 11), 6))
     ranked_universe = build_ranked_universe(universe, use_cache=False)
     history = [
@@ -214,6 +220,11 @@ def test_real_parallel_target_inversion_is_bitwise_equal_to_serial():
         "top_n": 10,
         "max_delta_candidates": 3,
     }
+    monkeypatch.setattr(
+        target_inversion,
+        "_target_inversion_pool_context",
+        lambda: SynchronousReverseContext(),
+    )
 
     serial = invert_targets_for_summary(**kwargs, workers=1)
     parallel = invert_targets_for_summary(**kwargs, workers=2)
