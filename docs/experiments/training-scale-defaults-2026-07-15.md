@@ -45,6 +45,21 @@ bash -n scripts/ensure_training_supervisor.sh
 981 full worker tests passed in 43.96s
 ```
 
-## Remaining acceptance after capacity rollback
+## Live acceptance after capacity rollback
 
-After merge, an approved Operator restart must record the new run id and observe at least one completed 8×120 round, including generated/selected config counts, stage durations, active workers, maximum memory, repeated process-level swap samples, forward-promotion cohort count, and prediction status. Only a run whose sampled `VmSwap` remains zero may activate the normal watchdog. A second round should be observed when the supervisor does not park at its forward-wait boundary after round 1.
+Operator Request `operator-validate-neural-rollback-209a1a4` (request id 95, execution id 17) ran merged commit `209a1a4` in bounded observability-only mode. Supervisor run `20260715-144158` completed one 8×120 round in 282.70 seconds, generated 96 configurations, and selected 26. The main stage timings were:
+
+| Stage | Seconds | Active workers |
+| --- | ---: | ---: |
+| candidate generation | 4.531 | 1 |
+| prefilter | 16.510 | 16 |
+| main evaluation | 66.177 | 16 |
+| target-weight inversion | 50.547 | 16 |
+| dynamic KDJ | 40.095 | 16 |
+| near dynamic KDJ | 4.698 | 9 |
+
+`/usr/bin/time` reported maximum RSS 10,108,012 KiB and zero swaps. Six process-tree samples taken across generation, evaluation, inversion, and dynamic training all reported `VmSwap=0`; the maximum sampled aggregate RSS was 11,499,464 KiB, below the 24 GB budget. The observability-only database guard skipped persistence. Durable markers remained unchanged at 10,010 `training_round_results` rows and 11 `training_supervisor_best` rows.
+
+After acceptance, the normal watchdog was invoked. It parked intentionally on `watch_forward_wait_ready:2026080->2026081` rather than repeat training on unchanged history. The existing issue `2026081` prediction remains `waiting_draw` with three lines and 30,000 candidates; no continuous supervisor is active. Forward-promotion cohorts and champion-state rows remain zero because no challenger is yet eligible.
+
+Operational acceptance is complete for the 96-config, 20% neural-share, 8×120 defaults. A second live round was neither required nor forced because the forward-evidence wait boundary was already satisfied. This acceptance establishes runtime safety and operability only; it does not establish predictive lift.
