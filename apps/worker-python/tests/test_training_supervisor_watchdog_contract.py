@@ -107,8 +107,8 @@ def test_training_launcher_uses_validated_scale_defaults_and_keeps_them_override
     assert 'NEURAL_KDJ_BUDGET_SHARE="${DEHPS_NEURAL_KDJ_BUDGET_SHARE:-0.20}"' in script
     assert 'MAX_CONFIGS_PER_ROUND="${DEHPS_MAX_CONFIGS_PER_ROUND:-96}"' in script
     assert 'MEMORY_BUDGET_GB="${DEHPS_MEMORY_BUDGET_GB:-24}"' in script
-    assert 'NEURAL_KDJ_HIDDEN_UNITS="${DEHPS_NEURAL_KDJ_HIDDEN_UNITS:-32}"' in script
-    assert 'NEURAL_KDJ_EPOCHS="${DEHPS_NEURAL_KDJ_EPOCHS:-500}"' in script
+    assert 'NEURAL_KDJ_HIDDEN_UNITS="${DEHPS_NEURAL_KDJ_HIDDEN_UNITS:-8}"' in script
+    assert 'NEURAL_KDJ_EPOCHS="${DEHPS_NEURAL_KDJ_EPOCHS:-120}"' in script
     assert 'TARGET_INVERSION_MAX_CANDIDATES="${DEHPS_TARGET_INVERSION_MAX_CANDIDATES:-8}"' in script
     assert 'TARGET_INVERSION_MAX_DELTAS="${DEHPS_TARGET_INVERSION_MAX_DELTAS:-12}"' in script
     assert '--max-configs-per-round "$max_configs_per_round"' in script
