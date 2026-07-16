@@ -6,6 +6,7 @@ import itertools
 import numpy as np
 import pytest
 
+import dehps.scoring_kernel.numba_backend as numba_backend_module
 from dehps.models.frequency_ranker import FrequencyRankerConfig, train_frequency_stats
 from dehps.optimization.walk_forward import (
     _components_for_matrix,
@@ -285,6 +286,18 @@ def test_planner_defaults_to_reference_and_has_explicit_rollback(monkeypatch):
 def test_numba_contract_disables_fastmath_and_enables_parallel():
     assert _score_rank_tile.targetoptions["parallel"] is True
     assert _score_rank_tile.targetoptions["fastmath"] is False
+
+
+def test_numba_caps_requested_workers_to_runtime_capacity(monkeypatch, kernel_case):
+    monkeypatch.setattr(numba_backend_module.numba_config, "NUMBA_NUM_THREADS", 2)
+    result = _run(
+        kernel_case,
+        NumbaCpuBackend(),
+        chunk_size=1_024,
+        worker_count=4,
+    )
+    assert result.telemetry["worker_count"] == 2
+    _assert_strict_result(result, _strict_expected(kernel_case, top_k=257))
 
 
 def test_streaming_workspace_and_per_kernel_telemetry_are_bounded(kernel_case):
