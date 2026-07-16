@@ -88,4 +88,14 @@ This round repairs orchestration, idempotence, and provenance. It does not show 
 
 ## Operational acceptance
 
-Production index application and a fresh bounded research run from the merged commit are pending separately authorized Operator executions. Acceptance requires the research fingerprint to complete without runtime errors and the three `2026081` runs, their statuses, and all 30,000 candidate rows to remain unchanged.
+Operator Request `operator-apply-forward-active-index-67eaacf` (request id 102, execution id 25) applied the partial unique index from merged commit `67eaacf`. The migration transaction compared full forward-run keys, status, candidate count, generated timestamp, and updated timestamp before and after schema assurance. All three `2026081` runs remained pending and unchanged; candidate rows stayed at 30,000; active duplicate groups stayed at zero.
+
+The post-merge watchdog then automatically started research PID `3493934`, fingerprint `0866de81a67425cd39be4c68eef5644a70c31786197cbad0c16f92286800bef0`. Operator Request `operator-validate-idle-research-67eaacf` (request id 103, execution id 26) adopted the existing process instead of starting a duplicate. Live acceptance observed three completed tasks without runtime errors:
+
+- `training_diagnostics`;
+- `walk_forward_optimization` over 100 historical targets (about 132.5 seconds);
+- `weight_grid_search` over the same 100-target boundary.
+
+The next bounded task, `feature_family_ablation`, was running when acceptance closed. The research parent and sampled child processes both reported `VmSwap: 0 kB`. The shared heavy-job metadata identified owner `research-training`, included `production_prediction_write_allowed: false`, and reported the merged fingerprint.
+
+Post-run database verification still showed exactly three pending `2026081` runs, 30,000 archived candidates, zero evaluation rows, zero active duplicate groups, and the original `2026-07-15 09:50:07.057287+08:00` run update marker. The ongoing bounded research is operationally accepted; its historical metrics are not a predictive-quality conclusion and cannot alter the official prediction or Promotion state.
