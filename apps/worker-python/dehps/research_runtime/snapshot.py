@@ -7,6 +7,7 @@ from typing import Any
 from psycopg import Connection
 
 from dehps.db import get_connection
+from dehps.input_contracts import HistorySnapshotArtifact
 from dehps.research_runtime.models import (
     ROUND30_SCHEMA_VERSION,
     HistorySnapshot,
@@ -25,6 +26,8 @@ class HistorySnapshotManager:
         self.connection_factory = connection_factory
 
     def current(self) -> HistorySnapshot:
+        """Return the legacy runtime summary without changing historical fingerprints."""
+
         rows = self._load_history()
         latest_issue = rows[-1][0] if rows else None
         fingerprint = stable_hash(
@@ -39,6 +42,18 @@ class HistorySnapshotManager:
             latest_issue=latest_issue,
             issue_count=len(rows),
             history_fingerprint=fingerprint,
+        )
+
+    def contract_current(self) -> HistorySnapshotArtifact:
+        """Materialize the opt-in v1 scoring history artifact.
+
+        This does not replace ``current`` yet: existing runtime fingerprints and
+        persisted production evidence remain byte-for-byte compatible.
+        """
+
+        return HistorySnapshotArtifact.from_history(
+            self._load_contract_history(),
+            source="ssq_history",
         )
 
     def rotation_decision(
@@ -79,3 +94,13 @@ class HistorySnapshotManager:
         with self.connection_factory() as conn:
             rows = conn.execute("SELECT issue, red_numbers FROM ssq_history ORDER BY issue").fetchall()
         return tuple((str(row[0]), tuple(int(number) for number in row[1])) for row in rows)
+
+    def _load_contract_history(self) -> tuple[tuple[str, object, tuple[int, ...]], ...]:
+        with self.connection_factory() as conn:
+            rows = conn.execute(
+                "SELECT issue, draw_date, red_numbers FROM ssq_history ORDER BY issue"
+            ).fetchall()
+        return tuple(
+            (str(row[0]), row[1], tuple(int(number) for number in row[2]))
+            for row in rows
+        )
