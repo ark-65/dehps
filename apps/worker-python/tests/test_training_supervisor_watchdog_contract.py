@@ -148,6 +148,7 @@ def test_forward_wait_parks_only_production_and_runs_fingerprinted_research():
     assert "--check-completed" in script
     assert "identical training fingerprint" in script
     assert 'RESEARCH_TRAIN_WINDOW="${DEHPS_RESEARCH_TRAIN_WINDOW:-900}"' in script
-    assert 'RESEARCH_RANDOM_SEEDS="${DEHPS_RESEARCH_RANDOM_SEEDS:-11,23,37}"' in script
+    assert 'RESEARCH_RANDOM_SEEDS="${DEHPS_RESEARCH_RANDOM_SEEDS:-}"' in script
     assert "--mode research" in script
-    assert 'RESEARCH_TASKS="${DEHPS_RESEARCH_TASKS:-training-diagnostics,walk-forward,weight-grid,feature-ablation,dynamic-kdj,frozen-controls}"' in script
+    assert 'RESEARCH_TASKS="${DEHPS_RESEARCH_TASKS:-training-diagnostics,walk-forward,weight-grid,analytic-null-baseline}"' in script
+    assert "seed_policy=${RESEARCH_RANDOM_SEEDS:-none}" in script

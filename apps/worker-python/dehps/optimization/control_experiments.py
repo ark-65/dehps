@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from statistics import mean
+from statistics import mean, pvariance
 from typing import Iterable, Literal
 
 from dehps.config import ROOT_DIR
@@ -61,12 +61,15 @@ class LoadedCandidate:
 
 def parse_random_seeds(value: str | Iterable[int] | None) -> tuple[int, ...]:
     if value is None:
-        return (11, 23, 37)
+        raise ValueError("stochastic controls require an explicit seed policy")
     if isinstance(value, str):
         seeds = tuple(int(item.strip()) for item in value.split(",") if item.strip())
-        return seeds or (11, 23, 37)
-    seeds = tuple(int(item) for item in value)
-    return seeds or (11, 23, 37)
+    else:
+        seeds = tuple(int(item) for item in value)
+    normalized = tuple(sorted(set(seeds)))
+    if not normalized:
+        raise ValueError("stochastic controls require an explicit seed policy")
+    return normalized
 
 
 def fixed_control_labels() -> tuple[str, ...]:
@@ -95,6 +98,13 @@ def protocol_snapshot(
         "universe_size": universe_size,
         "target_issues": target_issues,
         "random_seeds": list(random_seeds),
+        "seed_policy": {
+            "seeds": list(random_seeds),
+            "aggregation": "mean_variance",
+            "selection_policy": "no_best_seed",
+            "random_algorithm_version": "python-mt19937-uniform-rank-v1",
+            "sampling_method": "uniform_integer_rank_with_replacement",
+        },
         "control_labels": list(CONTROL_LABELS),
         "protocol_equality": {
             "same_universe": True,
@@ -340,6 +350,7 @@ def random_same_budget_summary(
     random_seeds: tuple[int, ...],
 ) -> dict:
     top_n = validate_positive_int("top_n", top_n)
+    random_seeds = parse_random_seeds(random_seeds)
     safe_universe = max(1, universe_size)
     cutoffs = {
         "top_100": min(100, top_n, safe_universe),
@@ -377,11 +388,20 @@ def random_same_budget_summary(
     tail_penalties = [float(item["reward"]["tailRiskPenalty"]) for item in simulations]
     return {
         "label": "random_same_budget",
+        "execution_mode": "stochastic",
         "evaluated_draws": evaluated_draws,
         "top_n": top_n,
         "universe_size": universe_size,
         "analytical": analytical,
         "monte_carlo": simulations,
+        "seed_policy": {
+            "seeds": list(random_seeds),
+            "aggregation": "mean_variance",
+            "selection_policy": "no_best_seed",
+            "random_algorithm_version": "python-mt19937-uniform-rank-v1",
+            "sampling_method": "uniform_integer_rank_with_replacement",
+        },
+        "aggregation": stochastic_replicate_aggregation(simulations),
         "reward": {
             "objectiveScore": round(mean(objective_values), 6) if objective_values else 0.0,
             "tailRiskPenalty": round(mean(tail_penalties), 6) if tail_penalties else 0.0,
@@ -390,6 +410,60 @@ def random_same_budget_summary(
             "tail_risk_penalty": round(mean(tail_penalties), 6) if tail_penalties else 0.0,
         },
         "protocol_key": {"evaluated_draws": evaluated_draws, "universe_size": universe_size},
+    }
+
+
+def _quantile(values: list[float], probability: float) -> float:
+    ordered = sorted(values)
+    if not ordered:
+        return 0.0
+    if len(ordered) == 1:
+        return ordered[0]
+    position = (len(ordered) - 1) * probability
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    fraction = position - lower
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
+
+
+def _replicate_distribution(values: list[float], *, worst: str) -> dict[str, float]:
+    if not values:
+        return {
+            "mean": 0.0,
+            "variance": 0.0,
+            "p05": 0.0,
+            "p50": 0.0,
+            "p95": 0.0,
+            "worst": 0.0,
+        }
+    return {
+        "mean": round(mean(values), 6),
+        "variance": round(pvariance(values), 6),
+        "p05": round(_quantile(values, 0.05), 6),
+        "p50": round(_quantile(values, 0.50), 6),
+        "p95": round(_quantile(values, 0.95), 6),
+        "worst": round(min(values) if worst == "min" else max(values), 6),
+    }
+
+
+def stochastic_replicate_aggregation(simulations: list[dict]) -> dict:
+    metrics = {
+        "top_100_hits": ([float(item["top_100_hits"]) for item in simulations], "min"),
+        "top_1000_hits": ([float(item["top_1000_hits"]) for item in simulations], "min"),
+        "top_10000_hits": ([float(item["top_10000_hits"]) for item in simulations], "min"),
+        "median_rank": ([float(item["median_rank"]) for item in simulations], "max"),
+        "worst_rank": ([float(item["worst_rank"]) for item in simulations], "max"),
+        "objective_score": ([float(item["reward"]["objectiveScore"]) for item in simulations], "min"),
+        "tail_risk_penalty": ([float(item["reward"]["tailRiskPenalty"]) for item in simulations], "max"),
+    }
+    return {
+        "method": "mean_variance",
+        "selection_policy": "no_best_seed",
+        "replicate_count": len(simulations),
+        "metrics": {
+            key: _replicate_distribution(values, worst=worst)
+            for key, (values, worst) in metrics.items()
+        },
     }
 
 

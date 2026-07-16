@@ -38,7 +38,7 @@ class ProbeDataset:
     negative_count: int
     feature_count: int
     sampled_rows: int
-    split_mode: str = "random"
+    split_mode: str = "temporal-positive"
 
 
 @dataclass(frozen=True)
@@ -145,7 +145,7 @@ def build_probe_dataset(
     max_sample_rows: int,
     negative_ratio: int,
     seed: int,
-    split_mode: str = "random",
+    split_mode: str = "temporal-positive",
 ) -> ProbeDataset:
     if split_mode not in {"random", "temporal-positive"}:
         raise ValueError("split_mode must be random or temporal-positive")
@@ -571,7 +571,7 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=4096)
     parser.add_argument("--learning-rate", type=float, default=0.03)
     parser.add_argument("--seed", type=int, default=20260618)
-    parser.add_argument("--split-mode", choices=["random", "temporal-positive"], default="random")
+    parser.add_argument("--split-mode", choices=["random", "temporal-positive"], default="temporal-positive")
     parser.add_argument("--score-top-k", type=int, default=0, help="Explicitly score the full universe and emit top-K neural candidates.")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     args = parser.parse_args()

@@ -9,7 +9,10 @@ from dehps.research_autonomy.proposal_models import HypothesisProposal, NoveltyR
 
 PSEUDO_INNOVATION_CHANGES = {
     "seed": "seed_only_change",
+    "seeds": "seed_only_change",
     "random_seed": "seed_only_change",
+    "random_seeds": "seed_only_change",
+    "seed_policy": "seed_only_change",
     "epochs": "epoch_only_change",
     "epoch": "epoch_only_change",
     "hidden_layers": "hidden_layer_only_change",

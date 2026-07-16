@@ -76,6 +76,15 @@ def test_random_same_budget_has_deterministic_math_and_monte_carlo():
     assert first["analytical"]["top_n"]["expected_hits"] == 1.5
     assert first["analytical"]["top_10000"]["expected_hits"] == 1.5
     assert [item["seed"] for item in first["monte_carlo"]] == [7, 11]
+    assert first["aggregation"]["selection_policy"] == "no_best_seed"
+    assert first["aggregation"]["replicate_count"] == 2
+    for metric in first["aggregation"]["metrics"].values():
+        assert set(metric) == {"mean", "variance", "p05", "p50", "p95", "worst"}
+
+
+def test_random_controls_require_an_explicit_seed_policy():
+    with pytest.raises(ValueError, match="explicit seed policy"):
+        parse_random_seeds(None)
 
 
 def test_random_same_budget_rejects_nonpositive_top_n():

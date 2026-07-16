@@ -118,7 +118,11 @@ def main() -> None:
     parser.add_argument("--eval-window", type=int, default=100)
     parser.add_argument("--top-n", type=int, default=10000)
     parser.add_argument("--signal-run-id", help="KDJ signal_run_id, or a neural JSON path for --candidate-source neural.")
-    parser.add_argument("--random-seeds", default="11,23,37")
+    parser.add_argument(
+        "--random-seeds",
+        required=True,
+        help="Explicit comma-separated replicate seeds; best-seed selection is forbidden.",
+    )
     parser.add_argument("--output-dir", type=Path, default=default_output_dir())
     parser.add_argument("--config-json", type=Path, help="Candidate config JSON for --candidate-source config-json.")
     parser.add_argument("--neural-json", type=Path, help="Neural feasibility JSON for --candidate-source neural.")
