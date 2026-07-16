@@ -9,6 +9,9 @@ class SnapshotManager(HistorySnapshotManager):
     def _load_history(self):
         return self.rows
 
+    def _load_contract_history(self):
+        return tuple((issue, None, numbers) for issue, numbers in self.rows)
+
 
 def test_history_snapshot_is_fingerprint_stable_for_same_rows() -> None:
     rows = (("2026079", (1, 2, 3, 4, 5, 6)),)
@@ -18,6 +21,19 @@ def test_history_snapshot_is_fingerprint_stable_for_same_rows() -> None:
     assert first.snapshot_key == second.snapshot_key
     assert first.history_fingerprint == second.history_fingerprint
     assert first.latest_issue == "2026079"
+
+
+def test_contract_snapshot_is_opt_in_and_does_not_replace_legacy_fingerprint() -> None:
+    rows = (("2026079", (1, 2, 3, 4, 5, 6)),)
+    manager = SnapshotManager(rows)
+
+    legacy = manager.current()
+    contracted = manager.contract_current()
+
+    assert contracted.latest_issue == legacy.latest_issue
+    assert contracted.draw_count == legacy.issue_count
+    assert contracted.history_digest != legacy.history_fingerprint
+    assert contracted.contract.key == "history_snapshot.v1.0.0"
 
 
 def test_snapshot_rotation_defers_while_cycle_is_running() -> None:
