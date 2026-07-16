@@ -19,6 +19,7 @@ from dehps.models.prediction_input_boundary import (
     DRAW_PREDICTION_HISTORY_FIELDS,
     PREDICTION_INPUT_BOUNDARY_PROTOCOL,
 )
+from dehps.ranking_contract import with_effective_ranking_contract
 from dehps.runtime.compute_capability import compute_capability_summary
 from dehps.runtime.heavy_job import describe_heavy_job_owner, is_pid_active
 from dehps.runtime.remote_sync_schedule import ssq_remote_sync_poll_plan
@@ -1679,11 +1680,16 @@ def load_forward_evidence_rows(*, limit: int = DEFAULT_FORWARD_EVIDENCE_ROW_LIMI
                 "SELECT to_regclass('public.training_prediction_evaluations') AS table_name"
             ).fetchone()
             if evaluation_table and evaluation_table.get("table_name"):
-                evaluation_rows = list(
-                    cur.execute(
+                evaluation_rows = [
+                    with_effective_ranking_contract(
+                        dict(row),
+                        stored_field="prediction_ranking_contract",
+                    )
+                    for row in cur.execute(
                         """
                         SELECT evaluation_key, line_key, snapshot_key, run_id, source_round_index,
-                               as_of_issue, predicted_issue, status, summary,
+                               as_of_issue, predicted_issue, prediction_ranking_contract,
+                               status, summary,
                                hit_top_100, hit_top_1000, hit_top_10000,
                                hit_red5_top_100, hit_red5_top_1000, hit_red5_top_10000,
                                evaluated_at
@@ -1693,26 +1699,27 @@ def load_forward_evidence_rows(*, limit: int = DEFAULT_FORWARD_EVIDENCE_ROW_LIMI
                         """,
                         (limit,),
                     ).fetchall()
-                )
+                ]
 
             snapshot_rows: list[dict[str, Any]] = []
             snapshot_table = cur.execute(
                 "SELECT to_regclass('public.training_next_candidates_current') AS table_name"
             ).fetchone()
             if snapshot_table and snapshot_table.get("table_name"):
-                snapshot_rows = list(
-                    cur.execute(
+                snapshot_rows = [
+                    with_effective_ranking_contract(dict(row))
+                    for row in cur.execute(
                         """
                         SELECT line_key, next_issue AS predicted_issue, as_of_issue, run_id,
                                source_round_index, snapshot_key, COUNT(*) AS candidate_count,
-                               MIN(generated_at) AS generated_at
+                               MIN(generated_at) AS generated_at, ranking_contract
                         FROM training_next_candidates_current
                         GROUP BY line_key, next_issue, as_of_issue, run_id,
-                                 source_round_index, snapshot_key
+                                 source_round_index, snapshot_key, ranking_contract
                         ORDER BY next_issue ASC, line_key ASC
                         """
                     ).fetchall()
-                )
+                ]
 
     activation_row = dict(activation) if activation else {}
     frozen_issues = (
@@ -1767,6 +1774,10 @@ def summarize_forward_evidence(
     for raw_row in evaluation_rows:
         if not isinstance(raw_row, dict):
             continue
+        raw_row = with_effective_ranking_contract(
+            raw_row,
+            stored_field="prediction_ranking_contract",
+        )
         line_key = str(raw_row.get("line_key") or "")
         predicted_issue = str(raw_row.get("predicted_issue") or "")
         as_of_issue = str(raw_row.get("as_of_issue") or "")
@@ -1828,6 +1839,7 @@ def summarize_forward_evidence(
                         ),
                         "snapshot_key": row.get("snapshot_key"),
                         "run_id": row.get("run_id"),
+                        "ranking_contract": row.get("prediction_ranking_contract"),
                     }
                     for line_key, row in selected.items()
                 },
@@ -1840,6 +1852,7 @@ def summarize_forward_evidence(
     for raw_row in snapshot_rows:
         if not isinstance(raw_row, dict):
             continue
+        raw_row = with_effective_ranking_contract(raw_row)
         line_key = str(raw_row.get("line_key") or "")
         predicted_issue = str(raw_row.get("predicted_issue") or "")
         as_of_issue = str(raw_row.get("as_of_issue") or "")
@@ -1863,6 +1876,10 @@ def summarize_forward_evidence(
             "complete_line_set": set(rows) == expected_lines,
             "candidate_counts": {
                 line_key: safe_int(row.get("candidate_count")) or 0
+                for line_key, row in sorted(rows.items())
+            },
+            "ranking_contracts": {
+                line_key: row.get("ranking_contract")
                 for line_key, row in sorted(rows.items())
             },
         }
@@ -3119,6 +3136,14 @@ def forward_evidence_wait_summary(
         if future_complete_snapshots
         else None
     )
+    next_pending_contracts = next(
+        (
+            item.get("ranking_contracts") or {}
+            for item in future_complete_snapshots
+            if str(item.get("predicted_issue")) == str(next_pending_issue)
+        ),
+        {},
+    )
     safe_min_repeat_streak = max(1, safe_int(min_repeat_streak) or 1)
     config_repeat_streak = safe_int(repetition.get("latest_config_repeat_streak")) or 0
     metric_repeat_streak = safe_int(repetition.get("latest_metric_repeat_streak")) or 0
@@ -3173,6 +3198,7 @@ def forward_evidence_wait_summary(
         ),
         "history_latest_issue": current_issue or None,
         "next_pending_issue": next_pending_issue,
+        "ranking_contracts": next_pending_contracts,
         "paired_issue_count": paired_issue_count,
         "min_paired_issues": min_paired_issues,
         "selected_experiment": selected_experiment.get("key"),
@@ -4531,6 +4557,7 @@ def render_forward_wait_markdown(forward_wait: Any) -> str:
         "- History/pending issue: "
         f"{markdown_inline_text(forward_wait.get('history_latest_issue'))} / "
         f"{markdown_inline_text(forward_wait.get('next_pending_issue'))}\n"
+        f"- Pending ranking contracts: {markdown_inline_text(forward_wait.get('ranking_contracts'))}\n"
         "- Repetition/stagnation: "
         f"config={forward_wait.get('config_repeat_streak')} "
         f"metrics={forward_wait.get('metric_repeat_streak')} "
@@ -5632,6 +5659,7 @@ def artifact_snapshot_state(payload: dict[str, Any]) -> dict[str, Any]:
             "status": forward_wait.get("status"),
             "history_latest_issue": forward_wait.get("history_latest_issue"),
             "next_pending_issue": forward_wait.get("next_pending_issue"),
+            "ranking_contracts": forward_wait.get("ranking_contracts") or {},
             "ready": forward_wait.get("ready"),
         },
         "supervisor_lifecycle": {

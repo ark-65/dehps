@@ -23,6 +23,7 @@ def run_row() -> dict:
         "config_hash": "config-1",
         "config": {},
         "metadata": {},
+        "ranking_contract": None,
         "status": "pending",
     }
 
@@ -73,7 +74,7 @@ class Harness(ForwardEvaluationService):
         row["status"] = self.status
         return [row]
 
-    def _claim(self, prediction_run_key, target_issue, evaluation_run_key):
+    def _claim(self, prediction_run_key, target_issue, evaluation_run_key, prediction_ranking_contract):
         if self.status not in {"pending", "evaluation_failed"}:
             return False
         self.status = "evaluating"
@@ -117,6 +118,26 @@ def test_draw_availability_triggers_evaluation_and_repeat_is_idempotent() -> Non
     assert second["pending_count"] == 0
     assert service.status == "evaluated"
     assert service.attempts == 1
+    assert first["results"][0]["ranking_contract"] == "legacy_score_partition"
+
+
+def test_evaluation_receives_the_normalized_prediction_contract() -> None:
+    received = None
+
+    def evaluator(*_args, **kwargs):
+        nonlocal received
+        received = kwargs["prediction_ranking_contract"]
+        return accepted_payload()
+
+    service = Harness(
+        draw={"issue": "2026080", "red_numbers": [4, 5, 11, 19, 27, 32]},
+        evaluator=evaluator,
+    )
+
+    result = service.evaluate_pending(write_report=False)
+
+    assert result["evaluated_count"] == 1
+    assert received == "legacy_score_partition"
 
 
 def test_failed_evaluation_records_status_and_retries() -> None:

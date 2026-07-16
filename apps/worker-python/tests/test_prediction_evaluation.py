@@ -26,6 +26,7 @@ def _row(*, rank: int, numbers: tuple[int, ...], line_key: str = "static_100", a
         "as_of_issue": as_of_issue,
         "next_issue": "2026069",
         "prediction_metadata": {"fallback_static_base": False},
+        "prediction_ranking_contract": "strict_v1",
         "top_n": 2,
         "rank": rank,
         "red_numbers": list(numbers),
@@ -74,6 +75,7 @@ def test_evaluate_prediction_snapshot_scores_exact_and_red5(monkeypatch):
     assert payload["summary"]["blue_scored"] is False
     assert payload["summary"]["matched_red_count_by_cutoff"]["top_100"] == {"6": 1, "5": 1}
     assert payload["top_n"] == 2
+    assert payload["prediction_ranking_contract"] == "strict_v1"
 
 
 def test_evaluate_prediction_snapshot_reports_missing_snapshot(monkeypatch):

@@ -8,6 +8,7 @@ from dehps.evaluation.objective import TrainingMetrics, evaluate_objective
 from dehps.evaluation.objective_policy import DEFAULT_OBJECTIVE_POLICY
 from dehps.evaluation.promotion import PromotionGate
 from dehps.evaluation.tail_risk import calculate_tail_risk_penalty
+from dehps.ranking_contract import normalize_ranking_contract
 
 
 FORWARD_CHALLENGER_LINE_KEY = "forward_challenger"
@@ -145,6 +146,10 @@ def evaluate_forward_promotion(
             blockers.append(f"incumbent_config_drift:{issue}")
         if challenger.get("config_hash") != challenger_hash:
             blockers.append(f"challenger_config_drift:{issue}")
+        if normalize_ranking_contract(incumbent.get("ranking_contract")) != normalize_ranking_contract(
+            challenger.get("ranking_contract")
+        ):
+            blockers.append(f"ranking_contract_mismatch:{issue}")
         for label, row in (("incumbent", incumbent), ("challenger", challenger)):
             if row.get("status") != "evaluated" or row.get("leakage_passed") is not True:
                 blockers.append(f"invalid_forward_evaluation:{issue}:{label}")

@@ -126,6 +126,17 @@ def test_forward_promotion_fails_closed_on_duplicate_line_for_an_issue():
     assert "duplicate_forward_lines:2026101:static_100" in decision["blockers"]
 
 
+def test_forward_promotion_does_not_treat_mixed_ranking_contracts_as_model_evidence():
+    mixed = pairs()
+    mixed[0]["incumbent"]["ranking_contract"] = "legacy_score_partition"
+    mixed[0]["challenger"]["ranking_contract"] = "strict_v1"
+
+    decision = evaluate_forward_promotion(cohort(), mixed)
+
+    assert decision["status"] == "invalid"
+    assert "ranking_contract_mismatch:2026101" in decision["blockers"]
+
+
 def test_forward_promotion_schema_has_one_active_cohort_and_durable_champion():
     assert "forward_promotion_cohorts" in FORWARD_PROMOTION_SCHEMA_SQL
     assert "idx_forward_promotion_one_accumulating" in FORWARD_PROMOTION_SCHEMA_SQL

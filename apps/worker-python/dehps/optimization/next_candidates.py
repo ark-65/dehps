@@ -37,6 +37,8 @@ from dehps.optimization.walk_forward import (
     rank_target_grid_with_red5,
     top_candidates_for_next,
 )
+from dehps.ranking_contract import STRICT_RANKING_CONTRACT
+from dehps.scoring_kernel.contracts import STRICT_CONTRACT_VERSION
 from dehps.source_version import resolve_git_commit
 from dehps.storage.postgres_store import (
     CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID,
@@ -1078,6 +1080,8 @@ def build_training_next_candidate_snapshot(
         ),
         "config_hash": config_hash(config),
         "config": best["config"],
+        "scoring_contract": STRICT_CONTRACT_VERSION,
+        "ranking_contract": STRICT_RANKING_CONTRACT,
         "prediction_metadata": {
             "line_key": STATIC_100_LINE_KEY,
             "line_label": STATIC_100_LINE_LABEL,
@@ -1404,6 +1408,8 @@ def build_dynamic_kdj_next_candidate_snapshot(
         ),
         "config_hash": config_hash(dynamic_config),
         "config": dynamic_config_values,
+        "scoring_contract": STRICT_CONTRACT_VERSION,
+        "ranking_contract": STRICT_RANKING_CONTRACT,
         "prediction_metadata": {
             "line_key": line_key,
             "line_label": line_label,

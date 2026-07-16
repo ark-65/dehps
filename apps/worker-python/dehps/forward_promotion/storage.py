@@ -7,6 +7,7 @@ from typing import Any
 from psycopg import Connection
 from psycopg.rows import dict_row
 
+from dehps.ranking_contract import normalize_ranking_contract
 from dehps.storage.postgres_store import upsert_training_supervisor_best
 
 
@@ -192,6 +193,7 @@ def load_forward_promotion_pairs(conn: Connection, cohort: dict[str, Any]) -> li
             """
             SELECT e.line_key, e.predicted_issue AS target_issue, e.status,
                    e.candidate_count, e.red5_rank, e.summary,
+                   e.prediction_ranking_contract,
                    r.config_hash, r.top_n, r.as_of_issue
             FROM training_prediction_evaluations e
             JOIN forward_prediction_runs r USING (prediction_run_key)
@@ -212,6 +214,9 @@ def load_forward_promotion_pairs(conn: Connection, cohort: dict[str, Any]) -> li
             "candidate_count": int(row.get("candidate_count") or 0),
             "top_n": int(row.get("top_n") or 0),
             "config_hash": str(row.get("config_hash") or ""),
+            "ranking_contract": normalize_ranking_contract(
+                row.get("prediction_ranking_contract")
+            ),
             "leakage_passed": summary.get("leakage_passed") is True,
             "model_rank": int(audit["model_score_rank"]) if isinstance(audit.get("model_score_rank"), int | float) else None,
             "red5_rank": int(row["red5_rank"]) if isinstance(row.get("red5_rank"), int | float) else None,

@@ -8,6 +8,7 @@ from psycopg.rows import dict_row
 
 from dehps.source_version import resolve_git_commit
 from dehps.forward_promotion.gate import FORWARD_CHALLENGER_LINE_KEY
+from dehps.ranking_contract import normalize_ranking_contract
 
 
 EXPECTED_LINE_KEYS = ("static_100", "dynamic_kdj", "dynamic_kdj_near")
@@ -49,7 +50,7 @@ def load_latest_prediction_rows(
                      prediction_run_key, line_key, line_label, line_kind,
                      source_run_id, source_round_index, as_of_issue,
                      target_issue, status, generated_at, candidate_count,
-                     config_hash, metadata
+                     config_hash, prediction_fingerprint, ranking_contract, metadata
               FROM forward_prediction_runs
               WHERE target_issue = (SELECT target_issue FROM latest_target)
                 AND status <> 'superseded'
@@ -151,6 +152,8 @@ def build_latest_prediction_payload(
                 "source_run_id": str(run["source_run_id"]),
                 "source_round_index": run.get("source_round_index"),
                 "config_hash": str(run["config_hash"]),
+                "prediction_fingerprint": run.get("prediction_fingerprint"),
+                "ranking_contract": normalize_ranking_contract(run.get("ranking_contract")),
                 "candidate_count": int(run["candidate_count"]),
                 "top_candidates": top_candidates,
             }
@@ -218,7 +221,8 @@ def render_latest_prediction(payload: dict[str, Any]) -> str:
             f"[{line['line_key']}] {line['line_label']} "
             f"model={line['model_version']} parameters={line['parameter_version']} "
             f"run={line['source_run_id']} round={line['source_round_index']} "
-            f"prediction_run={line['prediction_run_key']} status={line['status']}"
+            f"prediction_run={line['prediction_run_key']} status={line['status']} "
+            f"ranking_contract={line['ranking_contract']}"
         )
         for candidate in line["top_candidates"]:
             numbers = " ".join(f"{number:02d}" for number in candidate["red_numbers"])

@@ -192,12 +192,17 @@ def test_forward_evidence_excludes_pre_isolation_rows_and_surfaces_pending_pair(
             "predicted_issue": "2026079",
             "line_keys": ["dynamic_kdj", "dynamic_kdj_near", "static_100"],
             "complete_line_set": True,
-            "candidate_counts": {
-                "dynamic_kdj": 10_000,
-                "dynamic_kdj_near": 10_000,
-                "static_100": 10_000,
-            },
-        }
+                "candidate_counts": {
+                    "dynamic_kdj": 10_000,
+                    "dynamic_kdj_near": 10_000,
+                    "static_100": 10_000,
+                },
+                "ranking_contracts": {
+                    "dynamic_kdj": "legacy_score_partition",
+                    "dynamic_kdj_near": "legacy_score_partition",
+                    "static_100": "legacy_score_partition",
+                },
+            }
     ]
     assert summary["promotion_eligible"] is False
     assert summary["automatic_quarantine_release"] is False

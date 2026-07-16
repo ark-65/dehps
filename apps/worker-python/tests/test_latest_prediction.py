@@ -63,6 +63,7 @@ def test_latest_prediction_builds_three_lines_and_cross_line_consensus():
     assert payload["lines"][0]["line_kind"] == "static_100"
     assert payload["lines"][0]["model_version"] == "static_100-model-v1"
     assert payload["lines"][0]["parameter_version"] == "hash-static_100"
+    assert payload["lines"][0]["ranking_contract"] == "legacy_score_partition"
     assert [line["line_key"] for line in payload["lines"]] == [
         "static_100",
         "dynamic_kdj",
@@ -78,6 +79,7 @@ def test_latest_prediction_builds_three_lines_and_cross_line_consensus():
     assert "Git (prediction source): source123" in rendered
     assert rendered.count("run=run-1 round=8 prediction_run=") == 3
     assert "model=static_100-model-v1 parameters=hash-static_100" in rendered
+    assert "ranking_contract=legacy_score_partition" in rendered
     assert "Consensus across all lines: 01(6)" in rendered
 
 

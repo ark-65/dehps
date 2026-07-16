@@ -1,5 +1,6 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Pool } from 'pg';
+import { normalizeRankingContract } from './ranking-contract';
 import { parseDbPort } from './config';
 import {
   ExperimentDetail,
@@ -522,6 +523,7 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
       configHash: null,
       config: {},
       predictionMetadata: {},
+      rankingContract: 'legacy_score_partition',
       generatedAt: null,
       totalCount: 0,
       candidates: [],
@@ -546,7 +548,7 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
       SELECT line_key, line_label, line_kind,
              snapshot_key, run_id, source_round_index, as_of_issue, next_issue, next_draw_date,
              train_mode, train_window, eval_window, top_n, history_fingerprint, config_hash,
-             config, prediction_metadata, rank, red_numbers, score, generated_at
+             config, prediction_metadata, ranking_contract, rank, red_numbers, score, generated_at
       FROM training_next_candidates_current
       WHERE line_key = $2
       ORDER BY rank ASC
@@ -577,6 +579,7 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
         first.prediction_metadata && typeof first.prediction_metadata === 'object' && !Array.isArray(first.prediction_metadata)
           ? first.prediction_metadata
           : {},
+      rankingContract: normalizeRankingContract(first.ranking_contract),
       generatedAt: first.generated_at instanceof Date ? first.generated_at.toISOString() : first.generated_at ? String(first.generated_at) : null,
       totalCount,
       candidates: rows.map((row) => ({

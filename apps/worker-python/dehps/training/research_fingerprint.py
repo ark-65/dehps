@@ -5,6 +5,8 @@ import json
 from dataclasses import dataclass
 from typing import Any, Literal, Mapping
 
+from dehps.ranking_contract import normalize_ranking_contract
+
 
 RESEARCH_EXECUTION_MODE = "research"
 TaskExecutionMode = Literal["deterministic", "stochastic"]
@@ -84,6 +86,7 @@ class ResearchTaskSpec:
     execution_mode: TaskExecutionMode
     config: Mapping[str, Any]
     evaluation_contract: str
+    ranking_contract: str | None = None
     seed_policy: SeedPolicy | None = None
 
     def __post_init__(self) -> None:
@@ -91,6 +94,12 @@ class ResearchTaskSpec:
             raise ValueError("research task type is required")
         if not self.evaluation_contract.strip():
             raise ValueError("research task evaluation contract is required")
+        if self.ranking_contract is not None:
+            object.__setattr__(
+                self,
+                "ranking_contract",
+                normalize_ranking_contract(self.ranking_contract),
+            )
         if self.execution_mode == "deterministic":
             if self.seed_policy is not None:
                 raise ValueError("deterministic task cannot declare a seed policy")
@@ -139,6 +148,8 @@ class ResearchTaskFingerprint:
         }
         if self.spec.seed_policy is not None:
             payload["seed_policy"] = self.spec.seed_policy.as_dict()
+        if self.spec.ranking_contract is not None:
+            payload["ranking_contract"] = self.spec.ranking_contract
         return payload
 
     @property

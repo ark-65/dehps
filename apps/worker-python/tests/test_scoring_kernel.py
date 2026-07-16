@@ -333,6 +333,7 @@ def test_streaming_workspace_and_per_kernel_telemetry_are_bounded(kernel_case):
     required = {
         "backend",
         "contract_version",
+        "ranking_contract",
         "candidate_store_version",
         "candidate_count",
         "window_id",
@@ -353,6 +354,7 @@ def test_streaming_workspace_and_per_kernel_telemetry_are_bounded(kernel_case):
         "workspace_bytes_estimate",
     }
     assert required <= result.telemetry.keys()
+    assert result.telemetry["ranking_contract"] == "strict_v1"
 
 
 def test_fixed_seed_weight_matrices_match_every_rounded_score_cell(kernel_case):

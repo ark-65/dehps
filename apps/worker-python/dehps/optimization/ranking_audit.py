@@ -13,6 +13,7 @@ from dehps.optimization.walk_forward import (
     rank_target,
     rank_target_structural,
 )
+from dehps.ranking_contract import normalize_ranking_contract
 from dehps.storage.postgres_store import (
     TOTAL_SSQ_RED_COMBINATIONS,
     load_history_until_with_dates,
@@ -83,6 +84,9 @@ def build_actual_ranking_audit(
         "line_key": prediction_run.get("line_key"),
         "prediction_run_key": prediction_run.get("prediction_run_key"),
         "snapshot_key": prediction_run.get("snapshot_key"),
+        "ranking_contract": normalize_ranking_contract(
+            prediction_run.get("ranking_contract")
+        ),
         "actual_reds": list(actual),
         "legal_sample_space": TOTAL_SSQ_RED_COMBINATIONS,
         "generated": generated,

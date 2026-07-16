@@ -66,6 +66,39 @@ def test_deterministic_task_identity_contains_no_random_fields() -> None:
         task.run_fingerprint(11)
 
 
+def test_ranking_contract_only_affects_ranking_task_identity_when_declared() -> None:
+    strict = task_fingerprint(
+        ResearchTaskSpec(
+            task_type="weight-grid",
+            execution_mode="deterministic",
+            config={"eval_window": 100, "top_n": 10000},
+            evaluation_contract="complete-grid-v1",
+            ranking_contract="strict_v1",
+        )
+    )
+    legacy = task_fingerprint(
+        ResearchTaskSpec(
+            task_type="weight-grid",
+            execution_mode="deterministic",
+            config={"eval_window": 100, "top_n": 10000},
+            evaluation_contract="complete-grid-v1",
+            ranking_contract="legacy_score_partition",
+        )
+    )
+    diagnostics = task_fingerprint(
+        ResearchTaskSpec(
+            task_type="training-diagnostics",
+            execution_mode="deterministic",
+            config={"profile_key": "default"},
+            evaluation_contract="training-diagnostics-v1",
+        )
+    )
+
+    assert strict.experiment_fingerprint != legacy.experiment_fingerprint
+    assert strict.payload["ranking_contract"] == "strict_v1"
+    assert "ranking_contract" not in diagnostics.payload
+
+
 def test_stochastic_experiment_and_replicate_identity_are_separate() -> None:
     first = task_fingerprint(
         ResearchTaskSpec(
