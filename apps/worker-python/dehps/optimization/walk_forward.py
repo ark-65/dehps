@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from hashlib import sha256
 from heapq import nlargest
@@ -40,6 +40,17 @@ from dehps.models.frequency_ranker import (
     infer_next_ssq_draw_date,
 )
 from dehps.scoring.strategy import score_numbers
+from dehps.scoring_kernel import (
+    CandidateStore,
+    KernelPlanner,
+    KernelRequest,
+    KernelWorkspace,
+    WeightMatrix,
+    candidate_store_from_matrix,
+    numbers_mask,
+    pack_window_state,
+    target_lex_id,
+)
 
 _WORKER_UNIVERSE: object | None = None
 DEFAULT_WORKERS = 16
@@ -167,6 +178,7 @@ class RankedUniverseMatrix:
     min_gap: np.ndarray
     number_presence: np.ndarray
     cache_info: dict
+    _kernel_store: CandidateStore | None = field(default=None, init=False, repr=False)
 
     def __len__(self) -> int:
         return int(self.numbers.shape[0])
@@ -1321,6 +1333,7 @@ def _matrix_from_combinations(
     cache_key: str,
     cache_path: Path | None,
     started: float,
+    include_hard_filter_exclusions: bool = False,
 ) -> RankedUniverseMatrix:
     rows: list[tuple[int, ...]] = []
     structural_scores: list[float] = []
@@ -1346,9 +1359,12 @@ def _matrix_from_combinations(
 
     for numbers in combinations:
         features = calculate_red_ball_features(numbers)
-        if int(features["max_consecutive_run"]) >= 5 or any(
-            int(features[key]) == 6
-            for key in ("zone_1_count", "zone_2_count", "zone_3_count")
+        if not include_hard_filter_exclusions and (
+            int(features["max_consecutive_run"]) >= 5
+            or any(
+                int(features[key]) == 6
+                for key in ("zone_1_count", "zone_2_count", "zone_3_count")
+            )
         ):
             continue
         gaps = tuple(right - left for left, right in zip(numbers, numbers[1:]))
@@ -1398,7 +1414,11 @@ def _matrix_from_combinations(
         "cache_format_version": MATRIX_CACHE_FORMAT_VERSION if cache_path else None,
         "storage": "npy_mmap_read_only" if cache_path else "in_memory",
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
-        "filter_rule_version": FILTER_RULE_VERSION,
+        "filter_rule_version": (
+            "none-full-legal-universe-v1"
+            if include_hard_filter_exclusions
+            else FILTER_RULE_VERSION
+        ),
         "source_count": len(combinations),
         "filtered_count": len(numbers_array),
         "excluded_count": len(combinations) - len(numbers_array),
@@ -1437,18 +1457,23 @@ def build_ranked_universe(
     *,
     cache_dir: Path | None = DEFAULT_MATRIX_CACHE_DIR,
     use_cache: bool | None = None,
+    include_hard_filter_exclusions: bool = False,
 ) -> RankedUniverseMatrix:
     started = time.time()
     combinations: list[tuple[int, ...]] | None = None
     if universe is None:
-        cache_enabled = (use_cache if use_cache is not None else True) and cache_dir is not None
+        cache_enabled = (
+            (use_cache if use_cache is not None else True)
+            and cache_dir is not None
+            and not include_hard_filter_exclusions
+        )
         cache_key = _local_legal_universe_cache_key()
         expected_source_count = TOTAL_LOCAL_LEGAL_COMBINATIONS
     else:
         combinations = _materialize_universe(universe)
         cache_enabled = (
             use_cache if use_cache is not None else len(combinations) >= 100_000
-        ) and cache_dir is not None
+        ) and cache_dir is not None and not include_hard_filter_exclusions
         cache_key = _matrix_cache_key(combinations)
         expected_source_count = len(combinations)
     cache_path = (
@@ -1466,7 +1491,13 @@ def build_ranked_universe(
             return cached
     if combinations is None:
         combinations = _materialize_universe(None)
-    matrix = _matrix_from_combinations(combinations, cache_key=cache_key, cache_path=cache_path, started=started)
+    matrix = _matrix_from_combinations(
+        combinations,
+        cache_key=cache_key,
+        cache_path=cache_path,
+        started=started,
+        include_hard_filter_exclusions=include_hard_filter_exclusions,
+    )
     if cache_path is not None:
         _write_matrix_cache(cache_path, matrix)
         cached = _load_matrix_cache(
@@ -1700,6 +1731,64 @@ def _target_scores(target_numbers: tuple[int, ...], stats: FrequencyStats, confi
     return tuple(score_from_components(components, config) for config in configs)
 
 
+def _candidate_store_for_matrix(matrix: RankedUniverseMatrix):
+    if matrix._kernel_store is None:
+        matrix._kernel_store = candidate_store_from_matrix(matrix)
+    return matrix._kernel_store
+
+
+def _kernel_score_rank(
+    *,
+    matrix: RankedUniverseMatrix,
+    stats: FrequencyStats,
+    configs: tuple[FrequencyRankerConfig, ...],
+    target_numbers: tuple[int, ...] | None,
+    target_scores: tuple[float, ...] | None,
+    top_k: int,
+    workers: int,
+    red5: bool,
+    target_excluded: bool = False,
+    window_id: int = 0,
+):
+    store = _candidate_store_for_matrix(matrix)
+    state = pack_window_state(stats)
+    weights = WeightMatrix(np.ascontiguousarray(_config_weight_matrix(configs)))
+    resolved_target_scores = np.ascontiguousarray(
+        target_scores if target_scores is not None else np.zeros(len(configs)),
+        dtype=np.float64,
+    )
+    lex_id = target_lex_id(store, target_numbers) if target_numbers is not None else 0
+    target_mask = numbers_mask(target_numbers) if target_numbers is not None else np.uint64(0)
+    request = KernelRequest(
+        target_scores=resolved_target_scores,
+        target_lex_id=lex_id,
+        target_mask=target_mask,
+        top_k=top_k,
+        chunk_size=max(1, int(os.getenv("DEHPS_SCORING_CHUNK_SIZE", "262144"))),
+        worker_count=max(1, workers),
+        exact_rank=target_numbers is not None,
+        red5=red5,
+        target_excluded=target_excluded,
+        window_id=window_id,
+    )
+    backend = KernelPlanner().backend()
+    result = backend.score_rank(
+        backend.prepare(store),
+        state,
+        weights,
+        request,
+        KernelWorkspace(),
+    )
+    matrix.cache_info["scoring_kernel"] = {
+        "backend": result.backend,
+        "contract_version": result.contract_version,
+        "candidate_store_version": store.store_version,
+        "candidate_store_fingerprint": store.fingerprint,
+        "last_run": dict(result.telemetry),
+    }
+    return result
+
+
 def _rank_targets_from_scores(
     *,
     matrix: RankedUniverseMatrix,
@@ -1727,6 +1816,7 @@ def rank_target(
     ranked_universe: RankedUniverseMatrix | None = None,
     workers: int = 1,
     pool: Pool | None = None,
+    window_id: int = 0,
 ) -> tuple[int, float]:
     return rank_target_grid(
         target_numbers=target_numbers,
@@ -1736,6 +1826,7 @@ def rank_target(
         target_draw_date=target_draw_date,
         workers=workers,
         pool=pool,
+        window_id=window_id,
     )[0]
 
 
@@ -1748,17 +1839,26 @@ def rank_target_grid(
     target_draw_date: date | None = None,
     workers: int = 1,
     pool: Pool | None = None,
+    window_id: int = 0,
 ) -> list[tuple[int, float]]:
     stats = train_frequency_stats(train_history, target_draw_date=target_draw_date)
     target_scores = _target_scores(target_numbers, stats, configs)
-    scores = _score_matrix(ranked_universe, stats, configs)
-    return _rank_targets_from_scores(
+    result = _kernel_score_rank(
         matrix=ranked_universe,
-        scores=scores,
+        stats=stats,
+        configs=configs,
         target_numbers=target_numbers,
         target_scores=target_scores,
+        top_k=0,
+        workers=normalize_worker_count(workers),
+        red5=False,
         target_excluded=is_excluded_red_combination(target_numbers),
+        window_id=window_id,
     )
+    return [
+        (int(result.exact_ranks[index]), float(result.target_scores[index]))
+        for index in range(len(configs))
+    ]
 
 
 def rank_target_grid_with_red5(
@@ -1770,51 +1870,38 @@ def rank_target_grid_with_red5(
     target_draw_date: date | None = None,
     workers: int = 1,
     pool: Pool | None = None,
+    window_id: int = 0,
 ) -> list[tuple[int, float, RedFiveMatch | None]]:
     stats = train_frequency_stats(train_history, target_draw_date=target_draw_date)
     target_scores = _target_scores(target_numbers, stats, configs)
-    scores = _score_matrix(ranked_universe, stats, configs)
-    target_ranks = _rank_targets_from_scores(
+    kernel_result = _kernel_score_rank(
         matrix=ranked_universe,
-        scores=scores,
+        stats=stats,
+        configs=configs,
         target_numbers=target_numbers,
         target_scores=target_scores,
+        top_k=0,
+        workers=normalize_worker_count(workers),
+        red5=True,
         target_excluded=is_excluded_red_combination(target_numbers),
+        window_id=window_id,
     )
-
     target_set = set(target_numbers)
-    red5_mask = ranked_universe.number_presence[:, list(target_numbers)].sum(axis=1) == 5
-    red5_indices = np.flatnonzero(red5_mask)
     results: list[tuple[int, float, RedFiveMatch | None]] = []
-    for config_index, (target_rank, target_score) in enumerate(target_ranks):
+    for config_index in range(len(configs)):
+        target_rank = int(kernel_result.exact_ranks[config_index])
+        target_score = float(kernel_result.target_scores[config_index])
         match = None
-        if len(red5_indices):
-            candidate_scores = scores[red5_indices, config_index]
-            candidate_numbers = ranked_universe.numbers[red5_indices]
-            order = np.lexsort(
-                (
-                    candidate_numbers[:, 5],
-                    candidate_numbers[:, 4],
-                    candidate_numbers[:, 3],
-                    candidate_numbers[:, 2],
-                    candidate_numbers[:, 1],
-                    candidate_numbers[:, 0],
-                    -candidate_scores,
-                )
-            )
-            best_index = int(red5_indices[int(order[0])])
+        best_index = int(kernel_result.red5_candidate_ids[config_index])
+        if best_index >= 0:
             best_numbers = tuple(int(number) for number in ranked_universe.numbers[best_index])
-            best_score = float(scores[best_index, config_index])
+            best_score = float(kernel_result.red5_scores[config_index])
             candidate_set = set(best_numbers)
             missing = sorted(target_set - candidate_set)
             extra = sorted(candidate_set - target_set)
             if len(missing) == 1 and len(extra) == 1:
-                red5_better = int((scores[:, config_index] > best_score).sum())
-                red5_equal_before = int(
-                    ((scores[:, config_index] == best_score) & _lex_less_than(ranked_universe.numbers, best_numbers)).sum()
-                )
                 match = RedFiveMatch(
-                    rank=red5_better + red5_equal_before + 1,
+                    rank=int(kernel_result.red5_ranks[config_index]),
                     score=best_score,
                     numbers=best_numbers,
                     missing_number=missing[0],
@@ -1839,26 +1926,15 @@ def rank_target_structural(
 
 
 def _top_indices(scores: np.ndarray, matrix: RankedUniverseMatrix, top_n: int) -> np.ndarray:
-    limit = min(top_n, len(scores))
-    if limit <= 0:
-        return np.array([], dtype=np.int64)
-    if limit < len(scores):
-        candidate_indices = np.argpartition(scores, -limit)[-limit:]
-    else:
-        candidate_indices = np.arange(len(scores))
-    candidate_numbers = matrix.numbers[candidate_indices]
-    order = np.lexsort(
-        (
-            candidate_numbers[:, 5],
-            candidate_numbers[:, 4],
-            candidate_numbers[:, 3],
-            candidate_numbers[:, 2],
-            candidate_numbers[:, 1],
-            candidate_numbers[:, 0],
-            -scores[candidate_indices],
-        )
-    )
-    return candidate_indices[order]
+    # Matrix rows are canonical lexicographic ids.  Selecting the boundary with
+    # score-only argpartition is non-deterministic when more tied rows exist than
+    # remaining TopK slots, so selection and final ordering must share the same
+    # strict (score desc, lex id asc) contract.
+    from dehps.scoring_kernel.numpy_backend import _ordered_topk
+
+    candidate_indices = np.arange(len(scores), dtype=np.int64)
+    selected, _ = _ordered_topk(candidate_indices, scores, top_n)
+    return selected
 
 
 def top_indices_for_scores(
@@ -1892,11 +1968,21 @@ def top_candidates_for_next(
     resolved_target_draw_date = target_draw_date or infer_next_ssq_draw_date(history)
     stats = train_frequency_stats(history, target_draw_date=resolved_target_draw_date)
     matrix = ranked_universe or build_ranked_universe(universe)
-    scores = _score_matrix(matrix, stats, (config,))[:, 0]
-    indices = _top_indices(scores, matrix, top_n)
+    result = _kernel_score_rank(
+        matrix=matrix,
+        stats=stats,
+        configs=(config,),
+        target_numbers=None,
+        target_scores=None,
+        top_k=top_n,
+        workers=normalize_worker_count(workers),
+        red5=False,
+    )
+    indices = result.top_candidate_ids[0]
+    scores = result.top_scores[0]
     return [
-        (rank, tuple(int(number) for number in matrix.numbers[index]), float(scores[index]))
-        for rank, index in enumerate(indices, start=1)
+        (rank, tuple(int(number) for number in matrix.numbers[index]), float(score))
+        for rank, (index, score) in enumerate(zip(indices, scores, strict=True), start=1)
     ]
 
 
@@ -1950,6 +2036,7 @@ def run_walk_forward(
                 ranked_universe=ranked_universe,
                 workers=worker_count,
                 pool=pool,
+                window_id=target_index,
             )
             target_ranks.append(
                 TargetRank(

@@ -218,6 +218,7 @@ def run_grid_search(
                 target_draw_date=history_draw_date(target_draw),
                 workers=worker_count,
                 pool=pool,
+                window_id=target_index,
             )
             for config_index, (rank, score) in enumerate(ranked_targets):
                 target_rank_lists[config_index].append(
@@ -266,6 +267,7 @@ def run_grid_search(
         summaries.append(summary)
 
     summaries.sort(key=sort_key, reverse=True)
+    matrix_cache_info = dict(getattr(ranked_universe, "cache_info", {}))
     payload = {
         "history_scope": selection.scope,
         "regime_years": selection.regime_years,

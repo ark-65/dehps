@@ -6084,6 +6084,7 @@ def _evaluate_prefilter_target_worker(args: tuple) -> tuple[int, str, list[tuple
         target_draw_date=history_draw_date(target_draw),
         workers=workers,
         pool=None,
+        window_id=target_index,
     )
     return target_index, issue, ranked_targets
 
@@ -6114,6 +6115,7 @@ def _evaluate_target_worker(args: tuple) -> tuple[int, str, object, tuple[int, .
         target_draw_date=history_draw_date(target_draw),
         workers=workers,
         pool=None,
+        window_id=target_index,
     )
     return progress_index, issue, draw_date, red_numbers, len(train_history), ranked_targets
 
