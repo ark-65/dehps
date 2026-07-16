@@ -31,7 +31,9 @@ def generate_next_candidates(
         latest = latest_draw(conn)
 
     latest_issue = latest["issue"] if latest else None
-    frozen_seed = seed or latest_issue or datetime.now().strftime("%Y%m%d")
+    frozen_seed = seed or latest_issue
+    if frozen_seed is None:
+        raise ValueError("candidate generation requires an explicit seed when no latest issue exists")
     candidate_key = f"next-red-candidates-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     candidates = generate_candidates(limit=limit, seed=frozen_seed, history=history)
     null_summary = generate_null_candidates(

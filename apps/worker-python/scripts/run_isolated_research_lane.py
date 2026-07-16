@@ -18,6 +18,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from psycopg.rows import dict_row
+
 WORKER_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = WORKER_ROOT.parents[1]
 if str(WORKER_ROOT) not in sys.path:
@@ -32,13 +34,16 @@ from dehps.source_version import resolve_git_commit
 from dehps.training.persistence_policy import apply_read_only_database_guard
 from dehps.training.research_fingerprint import (
     RESEARCH_EXECUTION_MODE,
+    ResearchTaskFingerprint,
+    ResearchTaskSpec,
     ResearchTrainingFingerprint,
+    SeedPolicy,
     completed_manifest_matches,
 )
 
 
 LANE_KEY = "isolated_historical_research"
-SUITE_VERSION = "idle-optimization-v2"
+SUITE_VERSION = "idle-optimization-v3"
 DEFAULT_MODEL_VERSION = "frequency-ranker-kdj-v1"
 DEFAULT_FEATURE_VERSION = "frequency-ranker-structural-v1"
 DEFAULT_CANDIDATE_ALGORITHM_VERSION = "kdj-controls-v1"
@@ -46,11 +51,44 @@ DEFAULT_TASKS = (
     "training-diagnostics",
     "walk-forward",
     "weight-grid",
-    "feature-ablation",
-    "dynamic-kdj",
-    "frozen-controls",
+    "analytic-null-baseline",
 )
-ALLOWED_TASKS = frozenset(DEFAULT_TASKS)
+DETERMINISTIC_TASKS = frozenset((*DEFAULT_TASKS, "feature-ablation", "dynamic-kdj"))
+STOCHASTIC_TASKS = frozenset(("frozen-controls",))
+ALLOWED_TASKS = DETERMINISTIC_TASKS | STOCHASTIC_TASKS
+TASK_CONFIG_FIELDS = {
+    "training-diagnostics": (
+        "profile_key",
+        "history_scope",
+        "regime_years",
+        "diagnostics_snapshot",
+    ),
+    "walk-forward": ("train_mode", "train_window", "eval_window", "top_n", "history_scope", "regime_years"),
+    "weight-grid": ("train_mode", "train_window", "eval_window", "top_n", "history_scope", "regime_years"),
+    "analytic-null-baseline": ("eval_window", "top_n", "history_scope", "regime_years"),
+    "feature-ablation": ("train_mode", "train_window", "eval_window", "top_n", "history_scope", "regime_years"),
+    "dynamic-kdj": ("train_mode", "train_window", "eval_window", "top_n", "history_scope", "regime_years"),
+    "frozen-controls": (
+        "train_mode",
+        "train_window",
+        "eval_window",
+        "top_n",
+        "history_scope",
+        "regime_years",
+        "random_algorithm_version",
+        "sampling_method",
+        "monte_carlo_trials",
+    ),
+}
+TASK_EVALUATION_CONTRACTS = {
+    "training-diagnostics": "training-diagnostics-read-only-v1",
+    "walk-forward": "fixed-historical-walk-forward-v1",
+    "weight-grid": "complete-weight-grid-v1",
+    "analytic-null-baseline": "analytic-uniform-rank-null-v1",
+    "feature-ablation": "fixed-feature-family-ablation-v1",
+    "dynamic-kdj": "frozen-dynamic-kdj-backtest-v1",
+    "frozen-controls": "monte-carlo-random-ranking-controls-v1",
+}
 DEFAULT_OUTPUT_DIR = ROOT_DIR / "data/output/optimization/research-lane"
 DEFAULT_LOCK_PATH = ROOT_DIR / "runtime/logs/isolated-research-lane.lock"
 
@@ -95,9 +133,10 @@ def research_commands(
     top_n: int,
     history_scope: str,
     regime_years: int,
-    random_seeds: str,
+    random_seeds: str | None,
     tasks: tuple[str, ...],
-) -> list[tuple[str, list[str]]]:
+    diagnostics_run_id: str | None = None,
+) -> list[tuple[str, str, list[str]]]:
     common = [
         "--as-of-issue",
         as_of_issue,
@@ -121,6 +160,7 @@ def research_commands(
                 sys.executable,
                 "scripts/generate_training_diagnostics.py",
                 "--read-only",
+                *(["--run-id", diagnostics_run_id] if diagnostics_run_id else []),
                 "--output-dir",
                 str(output_dir / "training-diagnostics"),
             ],
@@ -147,6 +187,16 @@ def research_commands(
                 str(workers),
                 "--output-dir",
                 str(output_dir / "weight-grid"),
+            ],
+        ),
+        "analytic-null-baseline": (
+            "analytic_null_baseline",
+            [
+                sys.executable,
+                "scripts/generate_analytic_null_baseline.py",
+                *common,
+                "--output-dir",
+                str(output_dir / "analytic-null-baseline"),
             ],
         ),
         "feature-ablation": (
@@ -183,7 +233,7 @@ def research_commands(
                 "kdj",
                 *common,
                 "--random-seeds",
-                random_seeds,
+                str(random_seeds or ""),
                 "--workers",
                 str(workers),
                 "--output-dir",
@@ -191,7 +241,9 @@ def research_commands(
             ],
         ),
     }
-    return [commands[task] for task in tasks]
+    if "frozen-controls" in tasks and not str(random_seeds or "").strip():
+        raise ValueError("stochastic frozen-controls task requires --random-seeds")
+    return [(task, *commands[task]) for task in tasks]
 
 
 def manifest_matches(manifest: Any, *, training_fingerprint: str) -> bool:
@@ -202,14 +254,14 @@ def manifest_matches(manifest: Any, *, training_fingerprint: str) -> bool:
     )
 
 
-def parse_random_seeds(value: str) -> tuple[int, ...]:
+def parse_random_seeds(value: str | None) -> tuple[int, ...]:
+    if value is None or not value.strip():
+        return ()
     try:
         seeds = tuple(int(part.strip()) for part in value.split(",") if part.strip())
     except ValueError as exc:
         raise ValueError("--random-seeds must be comma-separated integers") from exc
-    if not seeds:
-        raise ValueError("--random-seeds must contain at least one integer")
-    return seeds
+    return tuple(sorted(set(seeds)))
 
 
 def parse_tasks(value: str) -> tuple[str, ...]:
@@ -222,6 +274,49 @@ def parse_tasks(value: str) -> tuple[str, ...]:
     return tasks
 
 
+def project_config_for_task(full_config: dict[str, Any], *, task_type: str) -> dict[str, Any]:
+    fields = TASK_CONFIG_FIELDS.get(task_type)
+    if fields is None:
+        raise ValueError(f"unknown research task: {task_type}")
+    return {field: full_config[field] for field in fields}
+
+
+def project_versions_for_task(args: argparse.Namespace, *, task_type: str) -> tuple[str, str, str]:
+    if task_type == "training-diagnostics":
+        return ("training-diagnostics-v1", "training-round-results-v1", "not-applicable")
+    if task_type == "analytic-null-baseline":
+        return ("analytic-uniform-rank-null-v1", "not-applicable", "legal-6-of-33-v1")
+    return (args.model_version, args.feature_version, args.candidate_algorithm_version)
+
+
+def training_diagnostics_snapshot(conn, *, run_id: str | None = None) -> dict[str, Any]:
+    with conn.cursor(row_factory=dict_row) as cur:
+        resolved_run_id = run_id
+        if not resolved_run_id:
+            latest = cur.execute(
+                "SELECT run_id FROM training_round_results ORDER BY updated_at DESC, round_index DESC LIMIT 1"
+            ).fetchone()
+            resolved_run_id = str(latest["run_id"]) if latest else None
+        if not resolved_run_id:
+            return {"run_id": None, "row_count": 0, "max_round_index": None, "max_updated_at": None}
+        snapshot = cur.execute(
+            """
+            SELECT count(*)::int AS row_count,
+                   max(round_index)::int AS max_round_index,
+                   max(updated_at) AS max_updated_at
+            FROM training_round_results
+            WHERE run_id = %s
+            """,
+            (resolved_run_id,),
+        ).fetchone()
+    return {
+        "run_id": resolved_run_id,
+        "row_count": int(snapshot["row_count"] or 0),
+        "max_round_index": snapshot["max_round_index"],
+        "max_updated_at": snapshot["max_updated_at"].isoformat() if snapshot["max_updated_at"] else None,
+    }
+
+
 def build_training_contract(
     *,
     args: argparse.Namespace,
@@ -229,7 +324,12 @@ def build_training_contract(
 ) -> ResearchTrainingFingerprint:
     seeds = parse_random_seeds(args.random_seeds)
     tasks = parse_tasks(args.tasks)
-    config = {
+    stochastic_tasks = tuple(task for task in tasks if task in STOCHASTIC_TASKS)
+    if stochastic_tasks and not seeds:
+        raise ValueError("stochastic research tasks require an explicit seed policy")
+    if not stochastic_tasks and seeds:
+        raise ValueError("deterministic research suite does not accept --random-seeds")
+    full_config = {
         "profile_key": args.profile_key,
         "train_mode": args.train_mode,
         "train_window": args.train_window,
@@ -237,20 +337,53 @@ def build_training_contract(
         "top_n": args.top_n,
         "history_scope": args.history_scope,
         "regime_years": args.regime_years,
-        "random_seeds": list(seeds),
-        "tasks": list(tasks),
+        "diagnostics_snapshot": getattr(
+            args,
+            "diagnostics_snapshot",
+            {"run_id": args.diagnostics_run_id, "row_count": None, "max_round_index": None, "max_updated_at": None},
+        ),
+        "random_algorithm_version": "python-mt19937-uniform-rank-v1",
+        "sampling_method": "uniform_integer_rank_with_replacement",
+        "monte_carlo_trials": args.eval_window,
     }
+    code_commit = resolve_git_commit(REPO_ROOT)
+    seed_policy = (
+        SeedPolicy(
+            seeds=seeds,
+            aggregation=args.seed_aggregation,
+            selection_policy=args.seed_selection_policy,
+        )
+        if stochastic_tasks
+        else None
+    )
+    task_fingerprints = []
+    for task in tasks:
+        model_version, feature_version, candidate_algorithm_version = project_versions_for_task(
+            args,
+            task_type=task,
+        )
+        task_fingerprints.append(
+            ResearchTaskFingerprint(
+                history_max_issue=args.as_of_issue,
+                history_fingerprint=history_fingerprint_value,
+                training_mode=args.mode,
+                model_version=model_version,
+                feature_version=feature_version,
+                candidate_algorithm_version=candidate_algorithm_version,
+                code_commit=code_commit,
+                spec=ResearchTaskSpec(
+                    task_type=task,
+                    execution_mode="stochastic" if task in STOCHASTIC_TASKS else "deterministic",
+                    config=project_config_for_task(full_config, task_type=task),
+                    evaluation_contract=TASK_EVALUATION_CONTRACTS[task],
+                    seed_policy=seed_policy if task in STOCHASTIC_TASKS else None,
+                ),
+            )
+        )
     return ResearchTrainingFingerprint(
-        history_max_issue=args.as_of_issue,
-        history_fingerprint=history_fingerprint_value,
         training_mode=args.mode,
         suite_version=SUITE_VERSION,
-        model_version=args.model_version,
-        feature_version=args.feature_version,
-        candidate_algorithm_version=args.candidate_algorithm_version,
-        config=config,
-        code_commit=resolve_git_commit(REPO_ROOT),
-        seed=seeds[0],
+        tasks=tuple(task_fingerprints),
     )
 
 
@@ -280,12 +413,12 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- History fingerprint: `{payload.get('history_fingerprint')}`",
         "- Boundary: PostgreSQL is transaction-read-only; this suite does not run the training supervisor used for production, write current prediction candidates, select a line, or promote a model.",
         "",
-        "## Fixed audits",
+        "## Task executions",
         "",
     ]
     for run in runs:
         rows.append(
-            f"- `{run.get('name')}`: `{run.get('status')}` "
+            f"- `{run.get('name')}` ({run.get('execution_mode')}): `{run.get('status')}` "
             f"({run.get('elapsed_seconds')}s; log `{run.get('log_path')}`)"
         )
     rows.extend(
@@ -310,7 +443,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--top-n", type=int, default=10000)
     parser.add_argument("--history-scope", choices=["full_history_audit", "current_regime_default"], default="current_regime_default")
     parser.add_argument("--regime-years", type=int, default=10)
-    parser.add_argument("--random-seeds", default=os.getenv("DEHPS_RESEARCH_RANDOM_SEEDS", "11,23,37"))
+    parser.add_argument("--diagnostics-run-id")
+    parser.add_argument("--random-seeds", default=os.getenv("DEHPS_RESEARCH_RANDOM_SEEDS"))
+    parser.add_argument("--seed-aggregation", choices=["mean_variance"], default="mean_variance")
+    parser.add_argument("--seed-selection-policy", choices=["no_best_seed"], default="no_best_seed")
     parser.add_argument(
         "--tasks",
         default=os.getenv("DEHPS_RESEARCH_TASKS", ",".join(DEFAULT_TASKS)),
@@ -355,6 +491,12 @@ def main() -> None:
             as_of_issue=args.as_of_issue,
             regime_years=args.regime_years,
         )
+        diagnostics_snapshot = training_diagnostics_snapshot(
+            conn,
+            run_id=args.diagnostics_run_id,
+        )
+    args.diagnostics_run_id = diagnostics_snapshot["run_id"]
+    args.diagnostics_snapshot = diagnostics_snapshot
     if not selection.dated_history:
         raise ValueError("selected history is empty")
     observed_issue = str(selection.dated_history[-1][0])
@@ -380,6 +522,8 @@ def main() -> None:
                 {
                     "status": "already_completed" if already_completed else "not_completed",
                     "lane_key": LANE_KEY,
+                    "as_of_issue": args.as_of_issue,
+                    "history_fingerprint": history_fingerprint_value,
                     **contract.as_dict(),
                 },
                 ensure_ascii=False,
@@ -424,6 +568,7 @@ def main() -> None:
             "suite_version": SUITE_VERSION,
             "as_of_issue": args.as_of_issue,
             "history_fingerprint": history_fingerprint_value,
+            "code_commit": resolve_git_commit(REPO_ROOT),
             **contract.as_dict(),
             "database_guard": database_guard,
             "selection_changed": False,
@@ -442,7 +587,8 @@ def main() -> None:
                 "production_prediction_write_allowed": False,
             },
         ) as heavy_lock:
-            for name, command in research_commands(
+            task_contracts = {task.spec.task_type: task for task in contract.tasks}
+            for task_type, name, command in research_commands(
                 as_of_issue=args.as_of_issue,
                 workers=args.workers,
                 output_dir=args.output_dir,
@@ -454,7 +600,9 @@ def main() -> None:
                 regime_years=args.regime_years,
                 random_seeds=args.random_seeds,
                 tasks=tasks,
+                diagnostics_run_id=args.diagnostics_run_id,
             ):
+                task_contract = task_contracts[task_type]
                 log_path = args.output_dir / f"{stamp}-{name}.log"
                 command_started = time.monotonic()
                 heavy_lock.heartbeat(
@@ -471,12 +619,23 @@ def main() -> None:
                         text=True,
                     )
                 result = {
+                    "task_type": task_type,
                     "name": name,
+                    "execution_mode": task_contract.spec.execution_mode,
+                    "experiment_fingerprint": task_contract.experiment_fingerprint,
                     "status": "completed" if completed.returncode == 0 else "failed",
                     "returncode": completed.returncode,
                     "elapsed_seconds": round(time.monotonic() - command_started, 3),
                     "log_path": str(log_path),
                 }
+                if task_contract.spec.seed_policy is not None:
+                    result["replicates"] = [
+                        {
+                            "seed": seed,
+                            "run_fingerprint": task_contract.run_fingerprint(seed),
+                        }
+                        for seed in task_contract.spec.seed_policy.seeds
+                    ]
                 payload["runs"].append(result)
                 if completed.returncode != 0:
                     payload["status"] = "failed"

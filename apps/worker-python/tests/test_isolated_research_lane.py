@@ -94,8 +94,9 @@ def test_fixed_research_suite_cannot_invoke_or_write_the_main_supervisor(tmp_pat
         tasks=("dynamic-kdj", "frozen-controls"),
     )
 
-    flattened = "\n".join(" ".join(command) for _, command in commands)
-    assert [name for name, _ in commands] == [
+    flattened = "\n".join(" ".join(command) for _, _, command in commands)
+    assert [task for task, _, _ in commands] == ["dynamic-kdj", "frozen-controls"]
+    assert [name for _, name, _ in commands] == [
         "dynamic_kdj_frozen_backtest",
         "kdj_advisor_frozen_controls",
     ]
@@ -119,26 +120,23 @@ def test_idle_optimization_suite_uses_only_existing_read_only_research_commands(
         top_n=10000,
         history_scope="current_regime_default",
         regime_years=10,
-        random_seeds="11,23,37",
+        random_seeds=None,
         tasks=research_lane.DEFAULT_TASKS,
     )
 
-    flattened = "\n".join(" ".join(command) for _, command in commands)
-    assert [name for name, _ in commands] == [
+    flattened = "\n".join(" ".join(command) for _, _, command in commands)
+    assert [task for task, _, _ in commands] == list(research_lane.DEFAULT_TASKS)
+    assert [name for _, name, _ in commands] == [
         "training_diagnostics",
         "walk_forward_optimization",
         "weight_grid_search",
-        "feature_family_ablation",
-        "dynamic_kdj_frozen_backtest",
-        "kdj_advisor_frozen_controls",
+        "analytic_null_baseline",
     ]
     assert "generate_training_diagnostics.py --read-only" in flattened
-    assert "run_feature_ablation.py --read-only" in flattened
-    assert "run_dynamic_kdj_backtest.py --read-only" in flattened
-    assert "run_control_experiments.py --read-only" in flattened
     assert "run_walk_forward_optimization.py" in flattened
     assert "run_weight_grid_search.py" in flattened
-    assert "run_feature_ablation.py" in flattened
+    assert "generate_analytic_null_baseline.py" in flattened
+    assert "--random-seeds" not in flattened
     assert "run_training_supervisor.py" not in flattened
     assert "generate_training_next_candidates.py" not in flattened
 
@@ -158,9 +156,9 @@ def test_report_states_the_main_line_boundary() -> None:
     assert "cannot change line selection" not in report
 
 
-def test_research_contract_changes_for_parameter_code_and_seed(monkeypatch) -> None:
+def test_deterministic_research_contract_changes_for_parameter_and_code_not_seed(monkeypatch) -> None:
     args = research_lane.build_parser().parse_args(
-        ["--as-of-issue", "2026080", "--train-window", "900", "--random-seeds", "11,23,37"]
+        ["--as-of-issue", "2026080", "--train-window", "900"]
     )
     monkeypatch.setattr(research_lane, "resolve_git_commit", lambda _root: "commit-a")
     first = research_lane.build_training_contract(
@@ -169,7 +167,7 @@ def test_research_contract_changes_for_parameter_code_and_seed(monkeypatch) -> N
     )
 
     changed_args = research_lane.build_parser().parse_args(
-        ["--as-of-issue", "2026080", "--train-window", "700", "--random-seeds", "13,29,41"]
+        ["--as-of-issue", "2026080", "--train-window", "700"]
     )
     changed = research_lane.build_training_contract(
         args=changed_args,
@@ -184,7 +182,74 @@ def test_research_contract_changes_for_parameter_code_and_seed(monkeypatch) -> N
     assert first.value != changed.value
     assert first.value != code_changed.value
     assert first.payload["training_mode"] == "research"
-    assert first.payload["history_max_issue"] == "2026080"
-    assert first.payload["code_commit"] == "commit-a"
-    assert first.payload["seed"] == 11
     assert first.config_hash != changed.config_hash
+    assert "seed" not in first.payload
+    assert "random_seeds" not in first.payload
+    assert all(task.spec.execution_mode == "deterministic" for task in first.tasks)
+    assert all("seed" not in task.payload for task in first.tasks)
+
+
+def test_deterministic_suite_rejects_seed_only_reruns(monkeypatch) -> None:
+    args = research_lane.build_parser().parse_args(
+        ["--as-of-issue", "2026080", "--random-seeds", "11"]
+    )
+    monkeypatch.setattr(research_lane, "resolve_git_commit", lambda _root: "commit-a")
+
+    with pytest.raises(ValueError, match="deterministic research suite does not accept"):
+        research_lane.build_training_contract(args=args, history_fingerprint_value="history-a")
+
+
+def test_task_config_projection_prevents_random_config_pollution() -> None:
+    full_config = {
+        "profile_key": "default",
+        "train_mode": "expanding",
+        "train_window": 900,
+        "eval_window": 100,
+        "top_n": 10000,
+        "history_scope": "current_regime_default",
+        "regime_years": 10,
+        "random_algorithm_version": "rng-v1",
+        "sampling_method": "uniform",
+        "monte_carlo_trials": 100,
+        "random_seeds": [11, 23, 37],
+    }
+
+    deterministic = research_lane.project_config_for_task(full_config, task_type="weight-grid")
+    stochastic = research_lane.project_config_for_task(full_config, task_type="frozen-controls")
+
+    assert "random_seeds" not in deterministic
+    assert "monte_carlo_trials" not in deterministic
+    assert stochastic["monte_carlo_trials"] == 100
+
+
+def test_stochastic_task_has_experiment_and_replicate_fingerprints(monkeypatch) -> None:
+    args = research_lane.build_parser().parse_args(
+        [
+            "--as-of-issue",
+            "2026080",
+            "--tasks",
+            "frozen-controls",
+            "--random-seeds",
+            "37,11,23,11",
+        ]
+    )
+    monkeypatch.setattr(research_lane, "resolve_git_commit", lambda _root: "commit-a")
+    contract = research_lane.build_training_contract(args=args, history_fingerprint_value="history-a")
+    task = contract.tasks[0]
+
+    assert task.spec.execution_mode == "stochastic"
+    assert task.spec.seed_policy is not None
+    assert task.spec.seed_policy.seeds == (11, 23, 37)
+    assert task.spec.seed_policy.selection_policy == "no_best_seed"
+    assert task.run_fingerprint(11) != task.run_fingerprint(23)
+    assert task.experiment_fingerprint == contract.payload["task_experiment_fingerprints"][0]["experiment_fingerprint"]
+
+
+def test_stochastic_task_rejects_missing_seed_policy(monkeypatch) -> None:
+    args = research_lane.build_parser().parse_args(
+        ["--as-of-issue", "2026080", "--tasks", "frozen-controls"]
+    )
+    monkeypatch.setattr(research_lane, "resolve_git_commit", lambda _root: "commit-a")
+
+    with pytest.raises(ValueError, match="explicit seed policy"):
+        research_lane.build_training_contract(args=args, history_fingerprint_value="history-a")

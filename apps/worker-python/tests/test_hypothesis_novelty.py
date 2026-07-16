@@ -9,8 +9,13 @@ def test_seed_only_and_epoch_only_changes_are_pseudo_innovation() -> None:
     proposal = make_proposal(context)
     detector = HypothesisNoveltyDetector()
     seed = detector.compare(replace(proposal, model_contract={**proposal.model_contract, "only_change": "seed"}), context)
+    seed_set = detector.compare(
+        replace(proposal, model_contract={**proposal.model_contract, "only_change": "random_seeds"}),
+        context,
+    )
     epoch = detector.compare(replace(proposal, model_contract={**proposal.model_contract, "only_change": "epochs"}), context)
     assert seed.is_novel is False and "seed_only_change" in seed.duplicate_reasons
+    assert seed_set.is_novel is False and "seed_only_change" in seed_set.duplicate_reasons
     assert epoch.is_novel is False and "epoch_only_change" in epoch.duplicate_reasons
 
 

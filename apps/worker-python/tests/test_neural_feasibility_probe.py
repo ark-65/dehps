@@ -97,7 +97,8 @@ def test_probe_dataset_samples_history_positives_and_negatives():
     assert dataset.positive_count == 8
     assert dataset.negative_count == 2
     assert dataset.feature_count > 40
-    assert dataset.x_train.shape[0] == 8
+    assert dataset.split_mode == "temporal-positive"
+    assert dataset.x_train.shape[0] == 7
 
 
 def test_temporal_positive_split_keeps_late_draws_in_validation():
