@@ -5,6 +5,7 @@ from decimal import Decimal
 import pytest
 
 from dehps.storage.postgres_store import DEFAULT_SSQ_DRAW_SITE
+from dehps.storage.postgres_store import ActiveForwardPredictionExists
 from dehps.storage.postgres_store import CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID
 from dehps.storage.postgres_store import ensure_training_next_candidates_current_schema
 from dehps.storage.postgres_store import ensure_training_prediction_line_regressions_schema
@@ -23,7 +24,9 @@ from dehps.storage.postgres_store import load_training_weight_signal_tail
 from dehps.storage.postgres_store import load_training_round_candidate_summaries
 from dehps.storage.postgres_store import load_red_combination_universe
 from dehps.storage.postgres_store import prune_stale_training_weight_signals
+from dehps.storage.postgres_store import persist_forward_prediction_snapshot
 from dehps.storage.postgres_store import replace_training_next_candidates_current
+from dehps.storage.postgres_store import supersede_forward_prediction_run
 from dehps.storage.postgres_store import upsert_training_target_weight_inversion
 from dehps.storage.postgres_store import upsert_training_prediction_line_regression
 from dehps.storage.postgres_store import upsert_training_line_round_result
@@ -510,6 +513,63 @@ def test_replace_training_next_candidates_current_deletes_previous_snapshot():
         params for sql, params in conn.executed if "INSERT INTO forward_prediction_candidates" in sql
     ]
     assert len(forward_candidate_inserts) == 2
+
+
+def test_forward_snapshot_refuses_to_implicitly_supersede_an_active_run():
+    conn = FakeCursorConn([("static_100:2026081:existing", "pending")])
+
+    with pytest.raises(
+        ActiveForwardPredictionExists,
+        match="explicit_supersede_required",
+    ):
+        persist_forward_prediction_snapshot(
+            conn,
+            metadata={
+                "line_key": "static_100",
+                "snapshot_key": "training-next-new",
+                "run_id": "run-new",
+                "as_of_issue": "2026080",
+                "next_issue": "2026081",
+                "train_mode": "expanding",
+                "train_window": 900,
+                "top_n": 10000,
+                "config_hash": "config-new",
+                "generated_at": "2026-07-16T09:00:00Z",
+            },
+            candidates=[],
+        )
+
+    sql_statements = [sql for sql, _params in conn.executed]
+    assert any("status = ANY" in sql for sql in sql_statements)
+    assert not any("SET status = 'superseded'" in sql for sql in sql_statements)
+    assert not any("DELETE FROM forward_prediction_candidates" in sql for sql in sql_statements)
+
+
+def test_explicit_supersede_preserves_candidates_and_records_actor_and_reason():
+    conn = FakeConn(
+        [("static_100:2026081:existing", "static_100", "2026081", "superseded")]
+    )
+
+    result = supersede_forward_prediction_run(
+        conn,
+        prediction_run_key="static_100:2026081:existing",
+        actor="operator-1",
+        reason="approved replacement",
+    )
+
+    sql, params = conn.executed[-1]
+    assert "SET status = 'superseded'" in sql
+    assert "metadata = metadata ||" in sql
+    assert "DELETE" not in sql
+    assert '"superseded_by": "operator-1"' in params[0]
+    assert '"supersede_reason": "approved replacement"' in params[0]
+    assert params[1] == "static_100:2026081:existing"
+    assert result == {
+        "prediction_run_key": "static_100:2026081:existing",
+        "line_key": "static_100",
+        "target_issue": "2026081",
+        "status": "superseded",
+    }
 
 
 def test_upsert_training_prediction_line_regression_persists_comparison_metrics():

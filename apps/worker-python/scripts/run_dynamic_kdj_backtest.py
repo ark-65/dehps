@@ -100,6 +100,7 @@ def resolve_base_config(
     eval_window: int,
     top_n: int,
     universe_size: int,
+    ensure_schema: bool = True,
 ) -> tuple[FrequencyRankerConfig, dict]:
     if base_config_json is not None:
         config = load_base_config_json(base_config_json)
@@ -117,6 +118,7 @@ def resolve_base_config(
         eval_window=eval_window,
         top_n=top_n,
         universe_size=universe_size,
+        ensure_schema=ensure_schema,
     )
     return config, metadata
 
@@ -159,6 +161,11 @@ def main() -> None:
     parser.add_argument("--disable-negative-controls", action="store_true")
     parser.add_argument("--output-dir", type=Path, default=default_output_dir())
     parser.add_argument("--no-write", action="store_true", help="Print the summary without writing md/json artifacts.")
+    parser.add_argument(
+        "--read-only",
+        action="store_true",
+        help="Skip schema creation so the command can run under a read-only database guard.",
+    )
     args = parser.parse_args()
 
     train_mode = validate_train_mode(args.train_mode)
@@ -202,6 +209,7 @@ def main() -> None:
         eval_window=args.eval_window,
         top_n=args.top_n,
         universe_size=len(ranked_universe),
+        ensure_schema=not args.read_only,
     )
     thresholds = DynamicKdjThresholds(
         min_objective_delta=args.weight_kdj_min_objective_delta,

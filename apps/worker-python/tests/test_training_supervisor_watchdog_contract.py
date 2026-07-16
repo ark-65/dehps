@@ -121,3 +121,21 @@ def test_training_launcher_uses_validated_scale_defaults_and_keeps_them_override
     assert '--progress-interval "$progress_interval"' in script
     assert '--workers "$training_workers"' in script
     assert "--cpu-threads 1" in script
+
+
+def test_forward_wait_parks_only_production_and_runs_fingerprinted_research():
+    script = (REPO_ROOT / "scripts/ensure_training_supervisor.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "state=WAITING_FOR_DRAW" in script
+    assert "production_prediction_allowed=false" in script
+    assert "research_state=RESEARCH_ONLY" in script
+    assert "research_training_allowed=true" in script
+    assert "scripts/run_isolated_research_lane.py" in script
+    assert "--check-completed" in script
+    assert "identical training fingerprint" in script
+    assert 'RESEARCH_TRAIN_WINDOW="${DEHPS_RESEARCH_TRAIN_WINDOW:-900}"' in script
+    assert 'RESEARCH_RANDOM_SEEDS="${DEHPS_RESEARCH_RANDOM_SEEDS:-11,23,37}"' in script
+    assert "--mode research" in script
+    assert 'RESEARCH_TASKS="${DEHPS_RESEARCH_TASKS:-training-diagnostics,walk-forward,weight-grid,feature-ablation,dynamic-kdj,frozen-controls}"' in script

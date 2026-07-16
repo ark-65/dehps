@@ -17,6 +17,19 @@ from dehps.models.prediction_input_boundary import DRAW_PREDICTION_HISTORY_FIELD
 
 TOTAL_SSQ_RED_COMBINATIONS = comb(33, 6)
 CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID = "weight-kdj-recent-1000-v1"
+ACTIVE_FORWARD_PREDICTION_STATUSES = (
+    "pending",
+    "evaluating",
+    "evaluation_failed",
+)
+SUPERSEDABLE_FORWARD_PREDICTION_STATUSES = (
+    "pending",
+    "evaluation_failed",
+)
+
+
+class ActiveForwardPredictionExists(RuntimeError):
+    """Raised when ordinary production generation would replace an active run."""
 
 
 @dataclass(frozen=True)
@@ -408,6 +421,13 @@ def ensure_forward_prediction_evaluation_schema(conn: Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_forward_prediction_runs_pending
           ON forward_prediction_runs (status, target_issue, generated_at)
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_forward_prediction_one_active_line_target
+          ON forward_prediction_runs (line_key, target_issue)
+          WHERE status IN ('pending', 'evaluating', 'evaluation_failed')
         """
     )
     conn.execute(
@@ -1087,22 +1107,35 @@ def persist_forward_prediction_snapshot(
     prediction_run_key = forward_prediction_run_key(metadata)
     line_key = str(metadata.get("line_key") or "static_100")
     target_issue = str(metadata["next_issue"])
-    superseded = conn.execute(
+    active = conn.execute(
         """
-        UPDATE forward_prediction_runs
-        SET status = 'superseded', updated_at = now()
-        WHERE line_key = %s
-          AND target_issue = %s
-          AND prediction_run_key <> %s
-          AND status IN ('pending', 'evaluation_failed')
-        RETURNING prediction_run_key
+        SELECT prediction_run_key, status
+        FROM forward_prediction_runs
+        WHERE prediction_run_key = %s
+           OR (
+             line_key = %s
+             AND target_issue = %s
+             AND status = ANY(%s::text[])
+           )
+        ORDER BY (prediction_run_key = %s) DESC, generated_at ASC
+        LIMIT 1
         """,
-        (line_key, target_issue, prediction_run_key),
-    ).fetchall()
-    if superseded:
-        conn.execute(
-            "DELETE FROM forward_prediction_candidates WHERE prediction_run_key = ANY(%s::text[])",
-            ([str(row[0]) for row in superseded],),
+        (
+            prediction_run_key,
+            line_key,
+            target_issue,
+            list(ACTIVE_FORWARD_PREDICTION_STATUSES),
+            prediction_run_key,
+        ),
+    ).fetchone()
+    if active:
+        active_key = str(active[0])
+        active_status = str(active[1])
+        raise ActiveForwardPredictionExists(
+            "active_forward_prediction_exists:"
+            f"line_key={line_key}:target_issue={target_issue}:"
+            f"prediction_run_key={active_key}:status={active_status}:"
+            "explicit_supersede_required"
         )
     conn.execute(
         """
@@ -1169,6 +1202,55 @@ def persist_forward_prediction_snapshot(
                 ],
             )
     return prediction_run_key
+
+
+def supersede_forward_prediction_run(
+    conn: Connection,
+    *,
+    prediction_run_key: str,
+    actor: str,
+    reason: str,
+) -> dict[str, str]:
+    """Explicitly retire one active official run without deleting its evidence."""
+    if not actor.strip():
+        raise ValueError("actor is required")
+    if not reason.strip():
+        raise ValueError("reason is required")
+    ensure_forward_prediction_evaluation_schema(conn)
+    audit = json.dumps(
+        {
+            "superseded_by": actor.strip(),
+            "supersede_reason": reason.strip(),
+            "superseded_at": datetime.now().astimezone().isoformat(),
+        },
+        ensure_ascii=False,
+    )
+    row = conn.execute(
+        """
+        UPDATE forward_prediction_runs
+        SET status = 'superseded',
+            metadata = metadata || %s::jsonb,
+            updated_at = now()
+        WHERE prediction_run_key = %s
+          AND status = ANY(%s::text[])
+        RETURNING prediction_run_key, line_key, target_issue, status
+        """,
+        (
+            audit,
+            prediction_run_key,
+            list(SUPERSEDABLE_FORWARD_PREDICTION_STATUSES),
+        ),
+    ).fetchone()
+    if not row:
+        raise ValueError(
+            f"active forward prediction run not found: {prediction_run_key}"
+        )
+    return {
+        "prediction_run_key": str(row[0]),
+        "line_key": str(row[1]),
+        "target_issue": str(row[2]),
+        "status": str(row[3]),
+    }
 
 
 def archive_current_forward_prediction_snapshots(conn: Connection) -> int:

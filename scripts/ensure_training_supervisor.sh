@@ -9,6 +9,15 @@ WEIGHT_KDJ_BUDGET_SHARE="${DEHPS_WEIGHT_KDJ_BUDGET_SHARE:-0.22}"
 NEURAL_KDJ_BUDGET_SHARE="${DEHPS_NEURAL_KDJ_BUDGET_SHARE:-0.20}"
 TRAINING_WORKERS="${DEHPS_TRAINING_WORKERS:-16}"
 RESEARCH_LANE_WORKERS="${DEHPS_RESEARCH_LANE_WORKERS:-$TRAINING_WORKERS}"
+RESEARCH_PROFILE="${DEHPS_RESEARCH_PROFILE:-idle-optimization-default}"
+RESEARCH_TRAIN_MODE="${DEHPS_RESEARCH_TRAIN_MODE:-expanding}"
+RESEARCH_TRAIN_WINDOW="${DEHPS_RESEARCH_TRAIN_WINDOW:-900}"
+RESEARCH_EVAL_WINDOW="${DEHPS_RESEARCH_EVAL_WINDOW:-100}"
+RESEARCH_TOP_N="${DEHPS_RESEARCH_TOP_N:-10000}"
+RESEARCH_HISTORY_SCOPE="${DEHPS_RESEARCH_HISTORY_SCOPE:-current_regime_default}"
+RESEARCH_REGIME_YEARS="${DEHPS_RESEARCH_REGIME_YEARS:-10}"
+RESEARCH_RANDOM_SEEDS="${DEHPS_RESEARCH_RANDOM_SEEDS:-11,23,37}"
+RESEARCH_TASKS="${DEHPS_RESEARCH_TASKS:-training-diagnostics,walk-forward,weight-grid,feature-ablation,dynamic-kdj,frozen-controls}"
 MAX_CONFIGS_PER_ROUND="${DEHPS_MAX_CONFIGS_PER_ROUND:-96}"
 MEMORY_BUDGET_GB="${DEHPS_MEMORY_BUDGET_GB:-24}"
 NEURAL_KDJ_HIDDEN_UNITS="${DEHPS_NEURAL_KDJ_HIDDEN_UNITS:-8}"
@@ -324,40 +333,21 @@ isolated_research_lane_active() {
 
 isolated_research_lane_completed() {
   local as_of_issue="$1"
-  .venv/bin/python - "$as_of_issue" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-from dehps.config import ROOT_DIR
-from dehps.db import get_connection
-from dehps.optimization.regime import select_history
-from dehps.optimization.walk_forward import fingerprint_history
-
-as_of_issue = str(sys.argv[1] or "")
-path = ROOT_DIR / "data/output/optimization/research-lane/isolated-research-lane-latest.json"
-try:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-except (OSError, json.JSONDecodeError):
-    raise SystemExit(1)
-if not isinstance(payload, dict) or payload.get("status") != "completed":
-    raise SystemExit(1)
-with get_connection() as conn:
-    selection = select_history(
-        conn,
-        scope="current_regime_default",
-        as_of_issue=as_of_issue,
-        regime_years=10,
-    )
-if not selection.dated_history:
-    raise SystemExit(1)
-if str(selection.dated_history[-1][0]) != as_of_issue:
-    raise SystemExit(1)
-if payload.get("as_of_issue") != as_of_issue:
-    raise SystemExit(1)
-if payload.get("history_fingerprint") != fingerprint_history(selection.dated_history):
-    raise SystemExit(1)
-PY
+  .venv/bin/python scripts/run_isolated_research_lane.py \
+    --mode research \
+    --as-of-issue "$as_of_issue" \
+    --workers "$RESEARCH_LANE_WORKERS" \
+    --profile-key "$RESEARCH_PROFILE" \
+    --train-mode "$RESEARCH_TRAIN_MODE" \
+    --train-window "$RESEARCH_TRAIN_WINDOW" \
+    --eval-window "$RESEARCH_EVAL_WINDOW" \
+    --top-n "$RESEARCH_TOP_N" \
+    --history-scope "$RESEARCH_HISTORY_SCOPE" \
+    --regime-years "$RESEARCH_REGIME_YEARS" \
+    --random-seeds "$RESEARCH_RANDOM_SEEDS" \
+    --tasks "$RESEARCH_TASKS" \
+    --check-completed \
+    >/dev/null
 }
 
 start_isolated_research_lane() {
@@ -369,19 +359,32 @@ start_isolated_research_lane() {
     return 0
   fi
   if isolated_research_lane_completed "$as_of_issue"; then
-    log "isolated research lane already completed for unchanged history as_of_issue=${as_of_issue:-none}"
+    log "isolated research lane already completed for identical training fingerprint as_of_issue=${as_of_issue:-none} profile=$RESEARCH_PROFILE"
     return 0
   fi
   stamp="$(date +%Y%m%d-%H%M%S)"
   research_log="$LOG_DIR/isolated-research-lane-$stamp.log"
-  log "starting isolated research lane as_of_issue=${as_of_issue:-none} workers=$RESEARCH_LANE_WORKERS log=$research_log"
+  log "starting isolated research lane state=RESEARCH_ONLY as_of_issue=${as_of_issue:-none} profile=$RESEARCH_PROFILE tasks=$RESEARCH_TASKS train_mode=$RESEARCH_TRAIN_MODE train_window=$RESEARCH_TRAIN_WINDOW eval_window=$RESEARCH_EVAL_WINDOW top_n=$RESEARCH_TOP_N seeds=$RESEARCH_RANDOM_SEEDS workers=$RESEARCH_LANE_WORKERS log=$research_log"
   nohup bash -lc '
     set -euo pipefail
     cd "$0"
     exec .venv/bin/python scripts/run_isolated_research_lane.py \
+      --mode research \
       --as-of-issue "$1" \
-      --workers "$2"
-  ' "$WORKER_DIR" "$as_of_issue" "$RESEARCH_LANE_WORKERS" > "$research_log" 2>&1 < /dev/null &
+      --workers "$2" \
+      --profile-key "$3" \
+      --train-mode "$4" \
+      --train-window "$5" \
+      --eval-window "$6" \
+      --top-n "$7" \
+      --history-scope "$8" \
+      --regime-years "$9" \
+      --random-seeds "${10}" \
+      --tasks "${11}"
+  ' "$WORKER_DIR" "$as_of_issue" "$RESEARCH_LANE_WORKERS" "$RESEARCH_PROFILE" \
+    "$RESEARCH_TRAIN_MODE" "$RESEARCH_TRAIN_WINDOW" "$RESEARCH_EVAL_WINDOW" \
+    "$RESEARCH_TOP_N" "$RESEARCH_HISTORY_SCOPE" "$RESEARCH_REGIME_YEARS" \
+    "$RESEARCH_RANDOM_SEEDS" "$RESEARCH_TASKS" > "$research_log" 2>&1 < /dev/null &
 }
 
 write_training_stall_diagnosis() {
@@ -463,8 +466,9 @@ fi
 
 if watch_requests_forward_evidence_wait ""; then
   write_training_stall_diagnosis || true
+  log "orchestration state=WAITING_FOR_DRAW production_prediction_allowed=false research_state=RESEARCH_ONLY research_training_allowed=true evaluation_allowed=false"
   start_isolated_research_lane "$latest_issue"
-  log "training supervisor remains parked until a new forward issue is synced latest_issue=${latest_issue:-none}"
+  log "production training supervisor remains parked; fingerprinted research may continue until a new forward issue is synced latest_issue=${latest_issue:-none}"
   exit 0
 fi
 
