@@ -8,6 +8,7 @@ from dehps.storage.postgres_store import DEFAULT_SSQ_DRAW_SITE
 from dehps.storage.postgres_store import ActiveForwardPredictionExists
 from dehps.storage.postgres_store import CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID
 from dehps.storage.postgres_store import ensure_training_next_candidates_current_schema
+from dehps.storage.postgres_store import ensure_forward_prediction_evaluation_schema
 from dehps.storage.postgres_store import ensure_training_prediction_line_regressions_schema
 from dehps.storage.postgres_store import ensure_training_line_round_results_schema
 from dehps.storage.postgres_store import ensure_training_target_weight_inversions_schema
@@ -271,6 +272,20 @@ def test_training_next_candidates_schema_uses_current_rank_index():
     assert "line_key TEXT NOT NULL" in schema_sql
     assert "snapshot_key TEXT NOT NULL" in schema_sql
     assert any("idx_training_next_candidates_current_line_rank" in sql for sql, _params in conn.executed)
+    assert any("ADD COLUMN IF NOT EXISTS ranking_contract TEXT" in sql for sql, _params in conn.executed)
+
+
+def test_forward_schema_adds_nullable_provenance_without_historical_backfill():
+    conn = FakeConn([])
+
+    ensure_forward_prediction_evaluation_schema(conn)
+
+    schema_sql = "\n".join(sql for sql, _params in conn.executed)
+    assert "prediction_fingerprint TEXT" in schema_sql
+    assert "ranking_contract TEXT" in schema_sql
+    assert "prediction_ranking_contract TEXT" in schema_sql
+    assert "UPDATE forward_prediction_runs" not in schema_sql
+    assert "UPDATE training_next_candidates_current" not in schema_sql
 
 
 def test_training_prediction_line_regressions_schema_uses_unique_regression_key():
@@ -481,6 +496,7 @@ def test_replace_training_next_candidates_current_deletes_previous_snapshot():
             "history_fingerprint": "history-current",
             "config_hash": "config-1",
             "config": {"frequency_weight": 0.4},
+            "ranking_contract": "strict_v1",
             "generated_at": "2026-06-18T09:00:00Z",
         },
         candidates=[(1, (1, 2, 3, 4, 5, 6), 0.9), (2, (7, 8, 9, 10, 11, 12), 0.8)],
@@ -501,7 +517,7 @@ def test_replace_training_next_candidates_current_deletes_previous_snapshot():
         3,
         "2026068",
     )
-    assert insert_params[0][17:20] == (1, [1, 2, 3, 4, 5, 6], 0.9)
+    assert insert_params[0][17:21] == ("strict_v1", 1, [1, 2, 3, 4, 5, 6], 0.9)
     forward_run_inserts = [params for sql, params in conn.executed if "INSERT INTO forward_prediction_runs" in sql]
     assert len(forward_run_inserts) == 1
     assert forward_run_inserts[0][:3] == (
@@ -513,6 +529,30 @@ def test_replace_training_next_candidates_current_deletes_previous_snapshot():
         params for sql, params in conn.executed if "INSERT INTO forward_prediction_candidates" in sql
     ]
     assert len(forward_candidate_inserts) == 2
+
+
+def test_new_forward_snapshot_rejects_missing_or_legacy_ranking_contract():
+    base = {
+        "line_key": "static_100",
+        "snapshot_key": "training-next-new",
+        "run_id": "run-new",
+        "as_of_issue": "2026080",
+        "next_issue": "2026081",
+        "train_mode": "expanding",
+        "train_window": 900,
+        "top_n": 10000,
+        "config_hash": "config-new",
+        "generated_at": "2026-07-16T09:00:00Z",
+    }
+
+    with pytest.raises(ValueError, match="explicitly provided"):
+        persist_forward_prediction_snapshot(FakeCursorConn([]), metadata=base, candidates=[])
+    with pytest.raises(ValueError, match="must use ranking_contract=strict_v1"):
+        persist_forward_prediction_snapshot(
+            FakeCursorConn([]),
+            metadata={**base, "ranking_contract": "legacy_score_partition"},
+            candidates=[],
+        )
 
 
 def test_forward_snapshot_refuses_to_implicitly_supersede_an_active_run():
@@ -534,6 +574,7 @@ def test_forward_snapshot_refuses_to_implicitly_supersede_an_active_run():
                 "train_window": 900,
                 "top_n": 10000,
                 "config_hash": "config-new",
+                "ranking_contract": "strict_v1",
                 "generated_at": "2026-07-16T09:00:00Z",
             },
             candidates=[],

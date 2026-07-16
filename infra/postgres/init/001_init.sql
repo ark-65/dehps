@@ -274,6 +274,7 @@ CREATE TABLE IF NOT EXISTS training_next_candidates_current (
   config_hash TEXT NOT NULL,
   config JSONB NOT NULL DEFAULT '{}'::jsonb,
   prediction_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ranking_contract TEXT CHECK (ranking_contract IN ('legacy_score_partition', 'strict_v1')),
   rank INTEGER NOT NULL,
   red_numbers SMALLINT[] NOT NULL,
   score NUMERIC(14,8) NOT NULL,
@@ -294,6 +295,7 @@ CREATE TABLE IF NOT EXISTS training_prediction_evaluations (
   evaluation_key TEXT NOT NULL UNIQUE,
   prediction_run_key TEXT,
   evaluation_run_key TEXT,
+  prediction_ranking_contract TEXT CHECK (prediction_ranking_contract IN ('legacy_score_partition', 'strict_v1')),
   line_key TEXT NOT NULL,
   line_label TEXT NOT NULL,
   line_kind TEXT NOT NULL,
@@ -348,6 +350,8 @@ CREATE TABLE IF NOT EXISTS forward_prediction_runs (
   top_n INTEGER NOT NULL,
   candidate_count INTEGER NOT NULL,
   config_hash TEXT NOT NULL,
+  prediction_fingerprint TEXT,
+  ranking_contract TEXT CHECK (ranking_contract IN ('legacy_score_partition', 'strict_v1')),
   config JSONB NOT NULL DEFAULT '{}'::jsonb,
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
   status TEXT NOT NULL DEFAULT 'pending',
@@ -362,6 +366,10 @@ CREATE TABLE IF NOT EXISTS forward_prediction_runs (
 CREATE INDEX IF NOT EXISTS idx_forward_prediction_runs_pending
   ON forward_prediction_runs (status, target_issue, generated_at);
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_forward_prediction_fingerprint
+  ON forward_prediction_runs (prediction_fingerprint)
+  WHERE prediction_fingerprint IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS forward_prediction_candidates (
   prediction_run_key TEXT NOT NULL REFERENCES forward_prediction_runs(prediction_run_key) ON DELETE RESTRICT,
   rank INTEGER NOT NULL,
@@ -375,6 +383,7 @@ CREATE TABLE IF NOT EXISTS forward_evaluation_runs (
   evaluation_run_key TEXT PRIMARY KEY,
   prediction_run_key TEXT NOT NULL REFERENCES forward_prediction_runs(prediction_run_key) ON DELETE RESTRICT,
   target_issue TEXT NOT NULL,
+  prediction_ranking_contract TEXT CHECK (prediction_ranking_contract IN ('legacy_score_partition', 'strict_v1')),
   status TEXT NOT NULL,
   attempt_count INTEGER NOT NULL DEFAULT 0,
   error JSONB NOT NULL DEFAULT '{}'::jsonb,

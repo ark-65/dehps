@@ -16,6 +16,10 @@ from dehps.optimization.prediction_evaluation import (
     load_prediction_rows,
 )
 from dehps.optimization.ranking_audit import build_actual_ranking_audit
+from dehps.ranking_contract import (
+    normalize_ranking_contract,
+    with_effective_ranking_contract,
+)
 from dehps.storage.postgres_store import (
     archive_current_forward_prediction_snapshots,
     ensure_forward_prediction_evaluation_schema,
@@ -61,14 +65,14 @@ class ForwardEvaluationService:
                        snapshot_key, source_run_id, source_round_index,
                        as_of_issue, target_issue, train_mode, train_window,
                        top_n, candidate_count, config_hash, config, metadata,
-                       status, generated_at
+                       prediction_fingerprint, ranking_contract, status, generated_at
                 FROM forward_prediction_runs
                 WHERE status IN ('pending', 'evaluation_failed')
                    OR (status = 'evaluating' AND updated_at < now() - interval '30 minutes')
                 ORDER BY target_issue ASC, line_key ASC, generated_at ASC
                 """
             ).fetchall()
-        return [dict(row) for row in rows]
+        return [with_effective_ranking_contract(dict(row)) for row in rows]
 
     def evaluate_pending(self, *, write_report: bool = True) -> dict[str, Any]:
         pending = self.pending_runs()
@@ -87,6 +91,7 @@ class ForwardEvaluationService:
                     {
                         "prediction_run_key": run["prediction_run_key"],
                         "target_issue": target_issue,
+                        "ranking_contract": normalize_ranking_contract(run.get("ranking_contract")),
                         "status": "pending_missing_actual_draw",
                     }
                 )
@@ -127,11 +132,18 @@ class ForwardEvaluationService:
     ) -> dict[str, Any]:
         prediction_run_key = str(run["prediction_run_key"])
         target_issue = str(run["target_issue"])
+        ranking_contract = normalize_ranking_contract(run.get("ranking_contract"))
         evaluation_run_key = f"forward-eval:{prediction_run_key}:{target_issue}"
-        if not self._claim(prediction_run_key, target_issue, evaluation_run_key):
+        if not self._claim(
+            prediction_run_key,
+            target_issue,
+            evaluation_run_key,
+            ranking_contract,
+        ):
             return {
                 "prediction_run_key": prediction_run_key,
                 "target_issue": target_issue,
+                "ranking_contract": ranking_contract,
                 "status": "skipped_not_pending",
             }
         try:
@@ -156,6 +168,7 @@ class ForwardEvaluationService:
                     snapshot_key=str(run["snapshot_key"]),
                     prediction_run_key=prediction_run_key,
                     evaluation_run_key=evaluation_run_key,
+                    prediction_ranking_contract=ranking_contract,
                     ranking_audit=ranking_audit,
                     write_report=write_report,
                     persist=True,
@@ -198,6 +211,7 @@ class ForwardEvaluationService:
                 "evaluation_run_key": evaluation_run_key,
                 "target_issue": target_issue,
                 "line_key": run["line_key"],
+                "ranking_contract": ranking_contract,
                 "status": "evaluated",
                 "ranking_audit": ranking_audit,
             }
@@ -209,11 +223,18 @@ class ForwardEvaluationService:
                 "evaluation_run_key": evaluation_run_key,
                 "target_issue": target_issue,
                 "line_key": run["line_key"],
+                "ranking_contract": ranking_contract,
                 "status": "evaluation_failed",
                 "error": error,
             }
 
-    def _claim(self, prediction_run_key: str, target_issue: str, evaluation_run_key: str) -> bool:
+    def _claim(
+        self,
+        prediction_run_key: str,
+        target_issue: str,
+        evaluation_run_key: str,
+        prediction_ranking_contract: str,
+    ) -> bool:
         with self.connection_factory() as conn:
             claimed = conn.execute(
                 """
@@ -234,16 +255,22 @@ class ForwardEvaluationService:
                 """
                 INSERT INTO forward_evaluation_runs (
                   evaluation_run_key, prediction_run_key, target_issue,
-                  status, attempt_count, started_at
-                ) VALUES (%s, %s, %s, 'running', 1, now())
+                  prediction_ranking_contract, status, attempt_count, started_at
+                ) VALUES (%s, %s, %s, %s, 'running', 1, now())
                 ON CONFLICT (prediction_run_key, target_issue) DO UPDATE
                 SET evaluation_run_key = EXCLUDED.evaluation_run_key,
                     status = 'running',
+                    prediction_ranking_contract = EXCLUDED.prediction_ranking_contract,
                     attempt_count = forward_evaluation_runs.attempt_count + 1,
                     error = '{}'::jsonb,
                     started_at = now(), completed_at = NULL, updated_at = now()
                 """,
-                (evaluation_run_key, prediction_run_key, target_issue),
+                (
+                    evaluation_run_key,
+                    prediction_run_key,
+                    target_issue,
+                    normalize_ranking_contract(prediction_ranking_contract),
+                ),
             )
         return True
 

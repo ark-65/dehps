@@ -13,6 +13,13 @@ from psycopg.rows import dict_row
 
 from dehps.crawler.ssq_parser import ValidatedSsqDraw
 from dehps.models.prediction_input_boundary import DRAW_PREDICTION_HISTORY_FIELDS
+from dehps.ranking_contract import (
+    LEGACY_RANKING_CONTRACT,
+    STRICT_RANKING_CONTRACT,
+    normalize_ranking_contract,
+    production_prediction_fingerprint,
+    require_explicit_ranking_contract,
+)
 
 
 TOTAL_SSQ_RED_COMBINATIONS = comb(33, 6)
@@ -288,6 +295,7 @@ def ensure_training_next_candidates_current_schema(conn: Connection) -> None:
           config_hash TEXT NOT NULL,
           config JSONB NOT NULL DEFAULT '{}'::jsonb,
           prediction_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+          ranking_contract TEXT CHECK (ranking_contract IN ('legacy_score_partition', 'strict_v1')),
           rank INTEGER NOT NULL,
           red_numbers SMALLINT[] NOT NULL,
           score NUMERIC(14,8) NOT NULL,
@@ -299,6 +307,13 @@ def ensure_training_next_candidates_current_schema(conn: Connection) -> None:
     conn.execute("ALTER TABLE training_next_candidates_current ADD COLUMN IF NOT EXISTS line_label TEXT NOT NULL DEFAULT '100-period static training'")
     conn.execute("ALTER TABLE training_next_candidates_current ADD COLUMN IF NOT EXISTS line_kind TEXT NOT NULL DEFAULT 'static'")
     conn.execute("ALTER TABLE training_next_candidates_current ADD COLUMN IF NOT EXISTS prediction_metadata JSONB NOT NULL DEFAULT '{}'::jsonb")
+    conn.execute(
+        """
+        ALTER TABLE training_next_candidates_current
+          ADD COLUMN IF NOT EXISTS ranking_contract TEXT
+          CHECK (ranking_contract IN ('legacy_score_partition', 'strict_v1'))
+        """
+    )
     conn.execute(
         """
         DROP INDEX IF EXISTS idx_training_next_candidates_current_rank
@@ -370,7 +385,9 @@ def ensure_training_prediction_evaluations_schema(conn: Connection) -> None:
         """
         ALTER TABLE training_prediction_evaluations
           ADD COLUMN IF NOT EXISTS prediction_run_key TEXT,
-          ADD COLUMN IF NOT EXISTS evaluation_run_key TEXT
+          ADD COLUMN IF NOT EXISTS evaluation_run_key TEXT,
+          ADD COLUMN IF NOT EXISTS prediction_ranking_contract TEXT
+            CHECK (prediction_ranking_contract IN ('legacy_score_partition', 'strict_v1'))
         """
     )
     conn.execute(
@@ -405,6 +422,8 @@ def ensure_forward_prediction_evaluation_schema(conn: Connection) -> None:
           top_n INTEGER NOT NULL,
           candidate_count INTEGER NOT NULL,
           config_hash TEXT NOT NULL,
+          prediction_fingerprint TEXT,
+          ranking_contract TEXT CHECK (ranking_contract IN ('legacy_score_partition', 'strict_v1')),
           config JSONB NOT NULL DEFAULT '{}'::jsonb,
           metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
           status TEXT NOT NULL DEFAULT 'pending',
@@ -419,8 +438,23 @@ def ensure_forward_prediction_evaluation_schema(conn: Connection) -> None:
     )
     conn.execute(
         """
+        ALTER TABLE forward_prediction_runs
+          ADD COLUMN IF NOT EXISTS prediction_fingerprint TEXT,
+          ADD COLUMN IF NOT EXISTS ranking_contract TEXT
+            CHECK (ranking_contract IN ('legacy_score_partition', 'strict_v1'))
+        """
+    )
+    conn.execute(
+        """
         CREATE INDEX IF NOT EXISTS idx_forward_prediction_runs_pending
           ON forward_prediction_runs (status, target_issue, generated_at)
+        """
+    )
+    conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_forward_prediction_fingerprint
+          ON forward_prediction_runs (prediction_fingerprint)
+          WHERE prediction_fingerprint IS NOT NULL
         """
     )
     conn.execute(
@@ -448,6 +482,8 @@ def ensure_forward_prediction_evaluation_schema(conn: Connection) -> None:
           evaluation_run_key TEXT PRIMARY KEY,
           prediction_run_key TEXT NOT NULL REFERENCES forward_prediction_runs(prediction_run_key) ON DELETE RESTRICT,
           target_issue TEXT NOT NULL,
+          prediction_ranking_contract TEXT
+            CHECK (prediction_ranking_contract IN ('legacy_score_partition', 'strict_v1')),
           status TEXT NOT NULL,
           attempt_count INTEGER NOT NULL DEFAULT 0,
           error JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -459,12 +495,21 @@ def ensure_forward_prediction_evaluation_schema(conn: Connection) -> None:
         )
         """
     )
+    conn.execute(
+        """
+        ALTER TABLE forward_evaluation_runs
+          ADD COLUMN IF NOT EXISTS prediction_ranking_contract TEXT
+            CHECK (prediction_ranking_contract IN ('legacy_score_partition', 'strict_v1'))
+        """
+    )
     ensure_training_prediction_evaluations_schema(conn)
     conn.execute(
         """
         ALTER TABLE training_prediction_evaluations
           ADD COLUMN IF NOT EXISTS prediction_run_key TEXT,
-          ADD COLUMN IF NOT EXISTS evaluation_run_key TEXT
+          ADD COLUMN IF NOT EXISTS evaluation_run_key TEXT,
+          ADD COLUMN IF NOT EXISTS prediction_ranking_contract TEXT
+            CHECK (prediction_ranking_contract IN ('legacy_score_partition', 'strict_v1'))
         """
     )
     conn.execute(
@@ -1102,7 +1147,15 @@ def persist_forward_prediction_snapshot(
     *,
     metadata: dict[str, Any],
     candidates: list[tuple[int, tuple[int, ...], float]],
+    historical_compatibility: bool = False,
 ) -> str:
+    ranking_contract = require_explicit_ranking_contract(metadata.get("ranking_contract"))
+    if ranking_contract != STRICT_RANKING_CONTRACT and not historical_compatibility:
+        raise ValueError("new prediction runs must use ranking_contract=strict_v1")
+    prediction_fingerprint = production_prediction_fingerprint(
+        metadata,
+        ranking_contract=ranking_contract,
+    )
     ensure_forward_prediction_evaluation_schema(conn)
     prediction_run_key = forward_prediction_run_key(metadata)
     line_key = str(metadata.get("line_key") or "static_100")
@@ -1143,11 +1196,11 @@ def persist_forward_prediction_snapshot(
           prediction_run_key, line_key, line_label, line_kind, snapshot_key,
           source_run_id, source_round_index, as_of_issue, target_issue,
           train_mode, train_window, top_n, candidate_count, config_hash,
-          config, metadata, status, generated_at
+          prediction_fingerprint, ranking_contract, config, metadata, status, generated_at
         )
         VALUES (
           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-          %s::jsonb, %s::jsonb, 'pending', %s
+          %s, %s, %s::jsonb, %s::jsonb, 'pending', %s
         )
         ON CONFLICT (prediction_run_key) DO UPDATE
         SET line_label = EXCLUDED.line_label,
@@ -1159,6 +1212,8 @@ def persist_forward_prediction_snapshot(
             top_n = EXCLUDED.top_n,
             candidate_count = EXCLUDED.candidate_count,
             config_hash = EXCLUDED.config_hash,
+            prediction_fingerprint = EXCLUDED.prediction_fingerprint,
+            ranking_contract = EXCLUDED.ranking_contract,
             config = EXCLUDED.config,
             metadata = EXCLUDED.metadata,
             generated_at = EXCLUDED.generated_at,
@@ -1179,6 +1234,8 @@ def persist_forward_prediction_snapshot(
             int(metadata["top_n"]),
             len(candidates),
             str(metadata["config_hash"]),
+            prediction_fingerprint,
+            ranking_contract,
             json.dumps(metadata.get("config") or {}, ensure_ascii=False),
             json.dumps(metadata, ensure_ascii=False),
             metadata["generated_at"],
@@ -1315,11 +1372,13 @@ def archive_current_forward_prediction_snapshots(conn: Connection) -> int:
                 if isinstance(first.get("prediction_metadata"), dict)
                 else {}
             ),
+            "ranking_contract": LEGACY_RANKING_CONTRACT,
             "generated_at": generated_at.isoformat() if hasattr(generated_at, "isoformat") else generated_at,
         }
         persist_forward_prediction_snapshot(
             conn,
             metadata=metadata,
+            historical_compatibility=True,
             candidates=[
                 (
                     int(row["rank"]),
@@ -1347,6 +1406,7 @@ def replace_training_next_candidates_current(
     line_key = str(metadata.get("line_key") or "static_100")
     line_label = str(metadata.get("line_label") or "100-period static training")
     line_kind = str(metadata.get("line_kind") or "static")
+    ranking_contract = require_explicit_ranking_contract(metadata.get("ranking_contract"))
     prediction_metadata = metadata.get("prediction_metadata") if isinstance(metadata.get("prediction_metadata"), dict) else {}
     conn.execute("DELETE FROM training_next_candidates_current WHERE line_key = %s", (line_key,))
     if not candidates:
@@ -1370,6 +1430,7 @@ def replace_training_next_candidates_current(
             metadata["config_hash"],
             json.dumps(metadata.get("config") or {}),
             json.dumps(prediction_metadata),
+            ranking_contract,
             rank,
             list(numbers),
             score,
@@ -1384,11 +1445,11 @@ def replace_training_next_candidates_current(
               line_key, line_label, line_kind,
               snapshot_key, run_id, source_round_index, as_of_issue, next_issue, next_draw_date,
               train_mode, train_window, eval_window, top_n, history_fingerprint, config_hash,
-              config, prediction_metadata, rank, red_numbers, score, generated_at
+              config, prediction_metadata, ranking_contract, rank, red_numbers, score, generated_at
             )
             VALUES (
               %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-              %s::jsonb, %s::jsonb, %s, %s, %s, %s
+              %s::jsonb, %s::jsonb, %s, %s, %s, %s, %s
             )
             """,
             params,
@@ -1590,6 +1651,9 @@ def upsert_training_line_round_result(conn: Connection, payload: dict[str, Any])
 
 def upsert_training_prediction_evaluation(conn: Connection, payload: dict[str, Any]) -> None:
     ensure_training_prediction_evaluations_schema(conn)
+    prediction_ranking_contract = normalize_ranking_contract(
+        payload.get("prediction_ranking_contract")
+    )
     summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
     prediction_metadata = (
         payload.get("prediction_metadata") if isinstance(payload.get("prediction_metadata"), dict) else {}
@@ -1597,7 +1661,7 @@ def upsert_training_prediction_evaluation(conn: Connection, payload: dict[str, A
     conn.execute(
         """
         INSERT INTO training_prediction_evaluations (
-          evaluation_key, prediction_run_key, evaluation_run_key,
+          evaluation_key, prediction_run_key, evaluation_run_key, prediction_ranking_contract,
           line_key, line_label, line_kind, snapshot_key, run_id, source_round_index,
           as_of_issue, predicted_issue, actual_draw_date, actual_red_numbers, actual_blue_number,
           exact_rank, exact_score, hit_top_100, hit_top_1000, hit_top_10000,
@@ -1607,12 +1671,13 @@ def upsert_training_prediction_evaluation(conn: Connection, payload: dict[str, A
         )
         VALUES (
           %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb,
+          %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb,
           %s, %s, %s, %s
         )
         ON CONFLICT (evaluation_key) DO UPDATE
         SET prediction_run_key = EXCLUDED.prediction_run_key,
             evaluation_run_key = EXCLUDED.evaluation_run_key,
+            prediction_ranking_contract = EXCLUDED.prediction_ranking_contract,
             line_label = EXCLUDED.line_label,
             line_kind = EXCLUDED.line_kind,
             snapshot_key = EXCLUDED.snapshot_key,
@@ -1648,6 +1713,7 @@ def upsert_training_prediction_evaluation(conn: Connection, payload: dict[str, A
             payload["evaluation_key"],
             payload.get("prediction_run_key"),
             payload.get("evaluation_run_key"),
+            prediction_ranking_contract,
             payload["line_key"],
             payload.get("line_label") or "",
             payload.get("line_kind") or "",

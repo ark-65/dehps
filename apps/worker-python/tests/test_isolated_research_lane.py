@@ -187,6 +187,13 @@ def test_deterministic_research_contract_changes_for_parameter_and_code_not_seed
     assert "random_seeds" not in first.payload
     assert all(task.spec.execution_mode == "deterministic" for task in first.tasks)
     assert all("seed" not in task.payload for task in first.tasks)
+    contracts = {task.spec.task_type: task.spec.ranking_contract for task in first.tasks}
+    assert contracts == {
+        "training-diagnostics": None,
+        "walk-forward": "strict_v1",
+        "weight-grid": "strict_v1",
+        "analytic-null-baseline": None,
+    }
 
 
 def test_deterministic_suite_rejects_seed_only_reruns(monkeypatch) -> None:

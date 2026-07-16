@@ -29,6 +29,7 @@ from dehps.config import ROOT_DIR
 from dehps.db import get_connection
 from dehps.optimization.regime import select_history
 from dehps.optimization.walk_forward import fingerprint_history
+from dehps.ranking_contract import STRICT_RANKING_CONTRACT
 from dehps.runtime.heavy_job import heavy_job_lock
 from dehps.source_version import resolve_git_commit
 from dehps.training.persistence_policy import apply_read_only_database_guard
@@ -55,6 +56,7 @@ DEFAULT_TASKS = (
 )
 DETERMINISTIC_TASKS = frozenset((*DEFAULT_TASKS, "feature-ablation", "dynamic-kdj"))
 STOCHASTIC_TASKS = frozenset(("frozen-controls",))
+RANKING_TASKS = frozenset(("walk-forward", "weight-grid", "feature-ablation", "dynamic-kdj", "frozen-controls"))
 ALLOWED_TASKS = DETERMINISTIC_TASKS | STOCHASTIC_TASKS
 TASK_CONFIG_FIELDS = {
     "training-diagnostics": (
@@ -376,6 +378,9 @@ def build_training_contract(
                     execution_mode="stochastic" if task in STOCHASTIC_TASKS else "deterministic",
                     config=project_config_for_task(full_config, task_type=task),
                     evaluation_contract=TASK_EVALUATION_CONTRACTS[task],
+                    ranking_contract=(
+                        STRICT_RANKING_CONTRACT if task in RANKING_TASKS else None
+                    ),
                     seed_policy=seed_policy if task in STOCHASTIC_TASKS else None,
                 ),
             )
@@ -419,7 +424,8 @@ def render_report(payload: dict[str, Any]) -> str:
     for run in runs:
         rows.append(
             f"- `{run.get('name')}` ({run.get('execution_mode')}): `{run.get('status')}` "
-            f"({run.get('elapsed_seconds')}s; log `{run.get('log_path')}`)"
+            f"({run.get('elapsed_seconds')}s; ranking contract "
+            f"`{run.get('ranking_contract') or 'not_applicable'}`; log `{run.get('log_path')}`)"
         )
     rows.extend(
         [
@@ -622,6 +628,7 @@ def main() -> None:
                     "task_type": task_type,
                     "name": name,
                     "execution_mode": task_contract.spec.execution_mode,
+                    "ranking_contract": task_contract.spec.ranking_contract,
                     "experiment_fingerprint": task_contract.experiment_fingerprint,
                     "status": "completed" if completed.returncode == 0 else "failed",
                     "returncode": completed.returncode,

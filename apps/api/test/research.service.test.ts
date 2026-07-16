@@ -461,6 +461,7 @@ const repository: ResearchRepository = {
       historyFingerprint: 'history-current',
       configHash: 'config-1',
       config: { frequency_weight: 0.4 },
+      rankingContract: 'legacy_score_partition',
       generatedAt: '2026-06-18T09:00:00.000Z',
       totalCount: 10000,
       candidates: [
@@ -1016,6 +1017,7 @@ test('postgres training next candidates mapping reads the current snapshot', asy
               config_hash: 'config-1',
               config: { frequency_weight: '0.4' },
               prediction_metadata: { fallback_static_base: params?.[1] === 'dynamic_kdj' },
+              ranking_contract: null,
               rank: 1,
               red_numbers: ['1', '2', '3', '4', '5', '6'],
               score: '0.90000000',
@@ -1040,6 +1042,7 @@ test('postgres training next candidates mapping reads the current snapshot', asy
     assert.equal(payload.totalCount, 10000);
     assert.equal(payload.nextDrawDate, '2026-06-18');
     assert.deepEqual(payload.predictionMetadata, { fallback_static_base: false });
+    assert.equal(payload.rankingContract, 'legacy_score_partition');
     assert.deepEqual(payload.candidates[0].redNumbers, [1, 2, 3, 4, 5, 6]);
     assert.deepEqual(queries.at(-1)?.params, [10000, 'static_100']);
 

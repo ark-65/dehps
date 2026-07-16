@@ -159,6 +159,8 @@ def test_training_next_candidate_snapshot_reports_training_freshness(monkeypatch
     assert metadata["history_fingerprint"] == next_candidates.fingerprint_history(history)
     assert metadata["freshness_mode"] == "legacy_full_history"
     assert metadata["git_commit"] == "source-commit"
+    assert metadata["scoring_contract"] == "dehps-scoring-strict-v1"
+    assert metadata["ranking_contract"] == "strict_v1"
     assert metadata["training_freshness"] == {
         "status": "stale",
         "training_issue_matches_current": False,
@@ -570,6 +572,8 @@ def test_dynamic_kdj_next_candidate_snapshot_includes_regression_summary(monkeyp
     assert metadata["prediction_metadata"]["fallback_static_base"] is False
     assert metadata["prediction_metadata"]["gauss_guardrail"]["regression_leakage_passed"] is True
     assert metadata["git_commit"] == "source-commit"
+    assert metadata["scoring_contract"] == "dehps-scoring-strict-v1"
+    assert metadata["ranking_contract"] == "strict_v1"
 
 
 def test_near_dynamic_kdj_next_candidate_snapshot_marks_window(monkeypatch):

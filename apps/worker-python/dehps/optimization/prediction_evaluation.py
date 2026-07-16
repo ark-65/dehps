@@ -19,6 +19,11 @@ from dehps.optimization.next_candidates import (
     STATIC_100_LINE_KEY,
     STATIC_100_LINE_LABEL,
 )
+from dehps.ranking_contract import (
+    LEGACY_RANKING_CONTRACT,
+    normalize_ranking_contract,
+    with_effective_ranking_contract,
+)
 from dehps.storage.postgres_store import TOTAL_SSQ_RED_COMBINATIONS, upsert_training_prediction_evaluation
 
 
@@ -89,7 +94,7 @@ def load_prediction_rows(
                        r.train_mode, r.train_window,
                        COALESCE((r.metadata->>'eval_window')::integer, 0) AS eval_window,
                        r.top_n, r.metadata->>'history_fingerprint' AS history_fingerprint,
-                       r.config_hash, r.config,
+                       r.config_hash, r.config, r.ranking_contract,
                        COALESCE(r.metadata->'prediction_metadata', '{}'::jsonb) AS prediction_metadata,
                        c.rank, c.red_numbers, c.score, r.generated_at
                 FROM forward_prediction_runs r
@@ -101,7 +106,13 @@ def load_prediction_rows(
                 """,
                 (prediction_run_key, line_key, predicted_issue),
             ).fetchall()
-        return [dict(row) for row in rows], None
+        return [
+            with_effective_ranking_contract(
+                dict(row),
+                output_field="prediction_ranking_contract",
+            )
+            for row in rows
+        ], None
     exists = conn.execute("SELECT to_regclass('public.training_next_candidates_current')").fetchone()
     if not exists or not exists[0]:
         return [], None
@@ -118,6 +129,7 @@ def load_prediction_rows(
             SELECT line_key, line_label, line_kind, snapshot_key, run_id, source_round_index,
                    as_of_issue, next_issue, next_draw_date, train_mode, train_window, eval_window,
                    top_n, history_fingerprint, config_hash, config, prediction_metadata,
+                   ranking_contract,
                    rank, red_numbers, score, generated_at
             FROM training_next_candidates_current
             WHERE line_key = %s
@@ -128,7 +140,13 @@ def load_prediction_rows(
             params,
         ).fetchall()
     if rows or not snapshot_key:
-        return [dict(row) for row in rows], None
+        return [
+            with_effective_ranking_contract(
+                dict(row),
+                output_field="prediction_ranking_contract",
+            )
+            for row in rows
+        ], None
 
     with conn.cursor(row_factory=dict_row) as cur:
         mismatch = cur.execute(
@@ -179,6 +197,7 @@ def _base_payload(
         "evaluation_key": evaluation_key(line_key=line_key, predicted_issue=predicted_issue, snapshot_key=snapshot_key),
         "prediction_run_key": None,
         "evaluation_run_key": None,
+        "prediction_ranking_contract": LEGACY_RANKING_CONTRACT,
         "line_key": line_key,
         "line_label": line_label,
         "line_kind": line_kind,
@@ -223,12 +242,14 @@ def evaluate_prediction_snapshot(
     snapshot_key: str | None = None,
     prediction_run_key: str | None = None,
     evaluation_run_key: str | None = None,
+    prediction_ranking_contract: str | None = None,
     ranking_audit: dict[str, Any] | None = None,
     output_dir: Path | None = None,
     write_report: bool = True,
     persist: bool = True,
 ) -> dict[str, Any]:
     evaluated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    effective_ranking_contract = normalize_ranking_contract(prediction_ranking_contract)
     rows, found_snapshot_key = load_prediction_rows(
         conn,
         line_key=line_key,
@@ -248,6 +269,9 @@ def evaluate_prediction_snapshot(
         )
         payload["prediction_run_key"] = prediction_run_key
         payload["evaluation_run_key"] = evaluation_run_key
+        payload["prediction_ranking_contract"] = normalize_ranking_contract(
+            first.get("prediction_ranking_contract") if first else effective_ranking_contract
+        )
         payload["ranking_audit"] = ranking_audit or {}
         if first:
             payload.update(
@@ -277,6 +301,7 @@ def evaluate_prediction_snapshot(
         )
         payload["prediction_run_key"] = prediction_run_key
         payload["evaluation_run_key"] = evaluation_run_key
+        payload["prediction_ranking_contract"] = effective_ranking_contract
         payload["ranking_audit"] = ranking_audit or {}
         payload["actual_draw_date"] = actual.get("draw_date")
         payload["actual_red_numbers"] = list(actual.get("red_numbers") or [])
@@ -294,6 +319,9 @@ def evaluate_prediction_snapshot(
     )
     payload["prediction_run_key"] = prediction_run_key
     payload["evaluation_run_key"] = evaluation_run_key
+    payload["prediction_ranking_contract"] = normalize_ranking_contract(
+        first.get("prediction_ranking_contract") or effective_ranking_contract
+    )
     payload["ranking_audit"] = ranking_audit or {}
     payload.update(
         {
@@ -362,6 +390,7 @@ def evaluate_prediction_snapshot(
         "blue_scored": False,
         "matched_red_count_by_cutoff": hit_counts,
         "ranking_audit": ranking_audit or {},
+        "prediction_ranking_contract": payload["prediction_ranking_contract"],
     }
     return finalize_prediction_evaluation(conn, payload, output_dir=output_dir, write_report=write_report, persist=persist)
 
@@ -408,8 +437,11 @@ def render_prediction_evaluation_report(payload: dict[str, Any]) -> str:
 
 - Line: `{payload.get("line_key")}` ({payload.get("line_label")})
 - Status: `{payload.get("status")}`
+- Prediction run: `{payload.get("prediction_run_key") or "legacy-unkeyed"}`
+- Source run: `{payload.get("run_id") or "none"}`
 - Predicted issue: `{payload.get("predicted_issue")}`
 - Snapshot: `{payload.get("snapshot_key") or "none"}`
+- Ranking contract: `{payload.get("prediction_ranking_contract")}`
 - As-of issue: `{payload.get("as_of_issue") or "none"}`
 - Actual red: `{actual}`
 - Actual blue: `{payload.get("actual_blue_number")}` (recorded, not scored)

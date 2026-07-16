@@ -18,6 +18,7 @@ from dehps.scoring_kernel.contracts import (
     WeightMatrix,
 )
 from dehps.scoring_kernel.telemetry import record_kernel_telemetry
+from dehps.ranking_contract import STRICT_RANKING_CONTRACT
 
 
 COMPONENT_COUNT = 32
@@ -471,6 +472,7 @@ class NumpyReferenceBackend:
         telemetry: dict[str, int | float | str] = {
             "backend": self.name,
             "contract_version": self.contract_version,
+            "ranking_contract": STRICT_RANKING_CONTRACT,
             "candidate_store_version": store.store_version,
             "candidate_count": len(store),
             "window_id": request.window_id,
