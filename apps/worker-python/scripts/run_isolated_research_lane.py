@@ -55,6 +55,35 @@ DEFAULT_OUTPUT_DIR = ROOT_DIR / "data/output/optimization/research-lane"
 DEFAULT_LOCK_PATH = ROOT_DIR / "runtime/logs/isolated-research-lane.lock"
 
 
+def git_worktree_changes(repo_root: Path = REPO_ROOT) -> tuple[str, ...]:
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "status",
+                "--porcelain=v1",
+                "--untracked-files=all",
+            ],
+            cwd=repo_root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError("research_worktree_status_unavailable") from exc
+    return tuple(line for line in result.stdout.splitlines() if line.strip())
+
+
+def require_clean_worktree(repo_root: Path = REPO_ROOT) -> None:
+    changes = git_worktree_changes(repo_root)
+    if changes:
+        preview = ",".join(changes[:5])
+        raise RuntimeError(
+            "research_requires_clean_worktree:"
+            f"change_count={len(changes)}:changes={preview}"
+        )
+
+
 def research_commands(
     *,
     as_of_issue: str,
@@ -316,6 +345,7 @@ def main() -> None:
         if int(getattr(args, name)) < 1:
             raise ValueError(f"--{name.replace('_', '-')} must be positive")
 
+    require_clean_worktree()
     database_guard = apply_read_only_database_guard(True)
 
     with get_connection() as conn:

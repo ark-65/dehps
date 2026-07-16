@@ -38,6 +38,8 @@ The canonical SHA-256 fingerprint contains:
 
 Each completed fingerprint has its own immutable-named local manifest in addition to the latest pointer. Therefore `A -> B -> A` remains idempotent: the second `A` is recognized even though `B` is the latest run. Failed fingerprints remain retryable.
 
+The Git commit is valid only for a clean source tree. A pre-merge automatic attempt at 09:20 exposed this boundary: it recorded the old `6ed4eca` commit while uncommitted v2 files were already on disk, then failed in a schema-assurance path. That run is rejected evidence. Both the watchdog and the research entrypoint now fail closed when `git status --porcelain` contains tracked or untracked changes; ignored runtime artifacts remain outside the gate.
+
 The default idle suite composes existing research tools only:
 
 1. read-only training diagnostics;
@@ -96,6 +98,8 @@ The post-merge watchdog then automatically started research PID `3493934`, finge
 - `walk_forward_optimization` over 100 historical targets (about 132.5 seconds);
 - `weight_grid_search` over the same 100-target boundary.
 
-The next bounded task, `feature_family_ablation`, was running when acceptance closed. The research parent and sampled child processes both reported `VmSwap: 0 kB`. The shared heavy-job metadata identified owner `research-training`, included `production_prediction_write_allowed: false`, and reported the merged fingerprint.
+The research parent and sampled child processes both reported `VmSwap: 0 kB`. The shared heavy-job metadata identified owner `research-training`, included `production_prediction_write_allowed: false`, and reported the merged fingerprint.
 
-Post-run database verification still showed exactly three pending `2026081` runs, 30,000 archived candidates, zero evaluation rows, zero active duplicate groups, and the original `2026-07-15 09:50:07.057287+08:00` run update marker. The ongoing bounded research is operationally accepted; its historical metrics are not a predictive-quality conclusion and cannot alter the official prediction or Promotion state.
+The bounded process subsequently completed all six tasks with return code zero. Total lane time was 1,375.926 seconds; per-task times were 0.538 seconds (diagnostics), 135.807 seconds (walk-forward), 143.741 seconds (grid search), 151.525 seconds (ablation), 789.175 seconds (dynamic KDJ), and 155.139 seconds (frozen controls). Its final per-fingerprint manifest is `completed` and records merged commit `67eaacf`.
+
+Post-run database verification still showed exactly three pending `2026081` runs, 30,000 archived candidates, zero evaluation rows, zero active duplicate groups, and the original `2026-07-15 09:50:07.057287+08:00` run update marker. The completed bounded research is operationally accepted; its historical metrics are not a predictive-quality conclusion and cannot alter the official prediction or Promotion state.
