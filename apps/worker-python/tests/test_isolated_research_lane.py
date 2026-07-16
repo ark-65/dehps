@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts/run_isolated_research_lane.py"
@@ -9,6 +13,42 @@ SPEC = importlib.util.spec_from_file_location("isolated_research_lane", SCRIPT_P
 assert SPEC and SPEC.loader
 research_lane = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(research_lane)
+
+
+def test_clean_worktree_preflight_accepts_an_empty_porcelain_status(monkeypatch) -> None:
+    monkeypatch.setattr(
+        research_lane.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(stdout=""),
+    )
+
+    research_lane.require_clean_worktree(Path("/repo"))
+
+
+def test_clean_worktree_preflight_fails_closed_on_source_changes(monkeypatch) -> None:
+    monkeypatch.setattr(
+        research_lane.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            stdout=" M scripts/run_isolated_research_lane.py\n?? new_feature.py\n"
+        ),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="research_requires_clean_worktree:change_count=2",
+    ):
+        research_lane.require_clean_worktree(Path("/repo"))
+
+
+def test_clean_worktree_preflight_fails_closed_when_git_status_errors(monkeypatch) -> None:
+    def fail(*_args, **_kwargs):
+        raise subprocess.CalledProcessError(128, ["git", "status"])
+
+    monkeypatch.setattr(research_lane.subprocess, "run", fail)
+
+    with pytest.raises(RuntimeError, match="research_worktree_status_unavailable"):
+        research_lane.require_clean_worktree(Path("/repo"))
 
 
 def test_completed_manifest_is_reused_only_for_the_identical_training_fingerprint() -> None:

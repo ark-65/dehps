@@ -397,6 +397,16 @@ write_training_stall_diagnosis() {
   return 1
 }
 
+source_worktree_status="$(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all)" || {
+  log "source worktree status unavailable; refusing automated training"
+  exit 1
+}
+if [[ -n "$source_worktree_status" ]]; then
+  source_change_count="$(printf '%s\n' "$source_worktree_status" | wc -l)"
+  log "source worktree is dirty; refusing automated production or research training change_count=$source_change_count"
+  exit 1
+fi
+
 storage_capacity_output="$(.venv/bin/python scripts/check_runtime_storage_capacity.py)" || {
   log "runtime storage capacity blocked advisor refresh and supervisor start payload=$storage_capacity_output"
   exit 1

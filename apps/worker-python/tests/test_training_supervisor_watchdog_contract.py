@@ -72,6 +72,18 @@ def test_watchdog_checks_runtime_storage_before_advisor_or_heavy_work():
     assert script.index(storage_gate) < script.index("setsid bash -lc")
 
 
+def test_watchdog_refuses_automated_training_from_a_dirty_source_tree():
+    script = (REPO_ROOT / "scripts/ensure_training_supervisor.sh").read_text(
+        encoding="utf-8"
+    )
+
+    dirty_gate = "source worktree is dirty; refusing automated production or research training"
+    assert "git -C \"$REPO_ROOT\" status --porcelain=v1 --untracked-files=all" in script
+    assert dirty_gate in script
+    assert script.index(dirty_gate) < script.index("scripts/check_runtime_storage_capacity.py")
+    assert script.index(dirty_gate) < script.index("setsid bash -lc")
+
+
 def test_watchdog_decouples_remote_sync_from_ten_minute_local_checks():
     script = (REPO_ROOT / "scripts/ensure_training_supervisor.sh").read_text(
         encoding="utf-8"
