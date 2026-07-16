@@ -38,6 +38,11 @@ def main() -> None:
     )
     parser.add_argument("--regime-years", type=int, default=10)
     parser.add_argument("--output-dir", type=Path, default=default_output_dir())
+    parser.add_argument(
+        "--read-only",
+        action="store_true",
+        help="Skip schema creation so the command can run under a read-only database guard.",
+    )
     args = parser.parse_args()
 
     train_mode = validate_train_mode(args.train_mode)
@@ -61,6 +66,7 @@ def main() -> None:
         eval_window=args.eval_window,
         top_n=args.top_n,
         universe_size=len(ranked_universe),
+        ensure_schema=not args.read_only,
     )
     payload = run_feature_ablation(
         history=history,

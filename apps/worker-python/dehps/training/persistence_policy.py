@@ -6,7 +6,7 @@ import os
 READ_ONLY_PGOPTION = "-c default_transaction_read_only=on"
 
 
-def apply_observability_only_database_guard(enabled: bool) -> str:
+def apply_read_only_database_guard(enabled: bool) -> str:
     """Make every new libpq connection fail closed on attempted writes."""
     if not enabled:
         return "disabled"
@@ -16,6 +16,11 @@ def apply_observability_only_database_guard(enabled: bool) -> str:
             part for part in (current, READ_ONLY_PGOPTION) if part
         )
     return "postgres_default_transaction_read_only"
+
+
+def apply_observability_only_database_guard(enabled: bool) -> str:
+    """Backward-compatible name for the shared read-only execution guard."""
+    return apply_read_only_database_guard(enabled)
 
 
 def training_persistence_policy(observability_only: bool) -> dict:

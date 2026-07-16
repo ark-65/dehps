@@ -42,6 +42,7 @@ def latest_prior_base_config(
     eval_window: int,
     top_n: int,
     universe_size: int,
+    ensure_schema: bool = True,
 ) -> tuple[FrequencyRankerConfig, dict]:
     prior = load_db_supervisor_candidates(
         as_of_issue=as_of_issue,
@@ -52,6 +53,7 @@ def latest_prior_base_config(
         top_n=top_n,
         universe_size=universe_size,
         limit=1,
+        ensure_schema=ensure_schema,
     )
     if prior:
         return FrequencyRankerConfig(**prior[0]["config"]), {
@@ -124,6 +126,11 @@ def main() -> None:
     parser.add_argument("--history-scope", choices=["full_history_audit", "current_regime_default"], default="current_regime_default")
     parser.add_argument("--regime-years", type=int, default=10)
     parser.add_argument("--kdj-signal-limit", type=int, default=1000)
+    parser.add_argument(
+        "--read-only",
+        action="store_true",
+        help="Skip schema creation so the command can run under a read-only database guard.",
+    )
     args = parser.parse_args()
 
     train_mode = validate_train_mode(args.train_mode)
@@ -151,6 +158,7 @@ def main() -> None:
         eval_window=args.eval_window,
         top_n=args.top_n,
         universe_size=len(ranked_universe),
+        ensure_schema=not args.read_only,
     )
     candidate = load_candidate_from_args(args, base_config=base_config)
     payload = run_control_experiments(

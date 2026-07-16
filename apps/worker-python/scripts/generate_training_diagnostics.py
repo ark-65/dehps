@@ -193,9 +193,15 @@ This report diagnoses historical walk-forward search behavior. It does not claim
 """
 
 
-def load_round_rows(run_id: str | None, *, limit: int) -> list[dict[str, Any]]:
+def load_round_rows(
+    run_id: str | None,
+    *,
+    limit: int,
+    ensure_schema: bool = True,
+) -> list[dict[str, Any]]:
     with get_connection() as conn:
-        ensure_training_round_results_schema(conn)
+        if ensure_schema:
+            ensure_training_round_results_schema(conn)
         with conn.cursor(row_factory=dict_row) as cur:
             resolved_run_id = run_id
             if not resolved_run_id:
@@ -224,9 +230,18 @@ def main() -> None:
     parser.add_argument("--run-id")
     parser.add_argument("--limit", type=int, default=2000)
     parser.add_argument("--output-dir", type=Path, default=ROOT_DIR / "data/output/optimization")
+    parser.add_argument(
+        "--read-only",
+        action="store_true",
+        help="Skip schema creation so the command can run under a read-only database guard.",
+    )
     args = parser.parse_args()
 
-    rows = load_round_rows(args.run_id, limit=args.limit)
+    rows = load_round_rows(
+        args.run_id,
+        limit=args.limit,
+        ensure_schema=not args.read_only,
+    )
     summary = summarize_training_rounds(rows)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     run_id = summary.get("run_id") or "none"
