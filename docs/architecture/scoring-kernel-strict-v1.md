@@ -67,6 +67,8 @@ The canonical SSQ source space is `C(33,6) = 1,107,568`, in `itertools.combinati
 
 `numba_cpu` uses `njit(parallel=True, fastmath=False)` and `prange` over candidate rows. One compiled row loop computes all 32 components, accumulates every requested configuration, rounds the scores, updates thread-local exact-rank counters, and computes Red5 membership with a `uint64` popcount. Python sees only bounded tile score arrays for deterministic TopK merging. This is a fused compute/reduction kernel, not a JIT wrapper around a Python candidate loop.
 
+If a caller requests more workers than the Numba runtime exposes (for example, a two-core CI runner receiving `worker_count=4`), the backend caps execution to `NUMBA_NUM_THREADS`. Telemetry records the actual worker count. This changes capacity only; the strict result is invariant.
+
 Red5's global rank requires a second bounded scoring pass using the selected Red5 score and lex id as the target. This preserves exact rank without retaining the first pass's full score matrix. Telemetry counts both passes in `score_cells`.
 
 ## Telemetry

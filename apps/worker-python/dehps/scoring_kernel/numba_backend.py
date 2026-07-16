@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import time
 
 import numpy as np
+from numba import config as numba_config
 from numba import get_num_threads, get_thread_id, njit, prange, set_num_threads
 
 from dehps.scoring_kernel.contracts import (
@@ -385,11 +387,19 @@ class NumbaCpuBackend(NumpyReferenceBackend):
         )
 
     def score_rank(self, prepared_store, window_state, weights, request, workspace=None):
-        set_num_threads(request.worker_count)
+        effective_workers = min(
+            request.worker_count, int(numba_config.NUMBA_NUM_THREADS)
+        )
+        set_num_threads(effective_workers)
+        effective_request = (
+            request
+            if effective_workers == request.worker_count
+            else replace(request, worker_count=effective_workers)
+        )
         return super().score_rank(
             prepared_store,
             window_state,
             weights,
-            request,
+            effective_request,
             workspace,
         )

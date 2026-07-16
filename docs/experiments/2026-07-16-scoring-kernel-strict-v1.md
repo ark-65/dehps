@@ -33,10 +33,12 @@ The pre-migration TopK helper exposed one defect: it used score-only `argpartiti
 Validation after implementation:
 
 ```text
-1024 passed, 4 warnings in 54.71s
+1025 passed, 4 warnings in 53.06s
 ```
 
 The four warnings are the existing Python 3.14 `fork()`-from-a-multithreaded-process deprecation warnings in training-supervisor multiprocessing tests; there were no test failures.
+
+The first GitHub Actions run exposed a capacity-only portability edge: its Numba runtime allowed two threads while two strict tests requested four. The backend now caps the request to `NUMBA_NUM_THREADS`, reports the actual count, and retains exact output. The complete suite above was rerun with `NUMBA_NUM_THREADS=2` to reproduce the constrained runner.
 
 ## Full-space benchmark
 
