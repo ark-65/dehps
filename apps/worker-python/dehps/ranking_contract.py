@@ -145,10 +145,22 @@ class ShadowComparisonReport:
     candidate_digest: str = ""
     candidate_layout_digest: str = ""
     candidate_package_digest: str = ""
+    official_runtime_envelope: Mapping[str, Any] | None = None
+    shadow_runtime_envelope: Mapping[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
+        from dehps.runtime_provenance import project_runtime_envelope
+
         official_contract = normalize_ranking_contract(self.official_ranking_contract)
         shadow_contract = normalize_ranking_contract(self.shadow_ranking_contract)
+        official_runtime = project_runtime_envelope(
+            self.official_runtime_envelope,
+            unavailable_reason="legacy_official_run_without_runtime_envelope",
+        ).as_dict()
+        shadow_runtime = project_runtime_envelope(
+            self.shadow_runtime_envelope,
+            unavailable_reason="legacy_shadow_run_without_runtime_envelope",
+        ).as_dict()
         return {
             "protocol": "scoring-kernel-shadow-comparison-v1",
             "target_issue": self.target_issue,
@@ -161,6 +173,8 @@ class ShadowComparisonReport:
             "candidate_digest": self.candidate_digest,
             "candidate_layout_digest": self.candidate_layout_digest,
             "candidate_package_digest": self.candidate_package_digest,
+            "official_runtime_envelope": official_runtime,
+            "shadow_runtime_envelope": shadow_runtime,
             "config_fingerprint": self.config_fingerprint,
             "target_score_diff": float(self.target_score_diff),
             "rank_diff": int(self.rank_diff),

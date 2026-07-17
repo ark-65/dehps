@@ -358,6 +358,7 @@ export type TrainingNextCandidatesPayload = {
   configHash: string | null;
   config: Record<string, number>;
   predictionMetadata: Record<string, unknown>;
+  runtimeEnvelope: import('./runtime-provenance').RuntimeEnvelopeProjection;
   rankingContract: 'legacy_score_partition' | 'strict_v1';
   generatedAt: string | null;
   totalCount: number;

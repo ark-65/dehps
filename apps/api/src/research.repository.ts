@@ -1,6 +1,7 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { Pool } from 'pg';
 import { normalizeRankingContract } from './ranking-contract';
+import { normalizeRuntimeEnvelopeProjection } from './runtime-provenance';
 import { parseDbPort } from './config';
 import {
   ExperimentDetail,
@@ -523,6 +524,7 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
       configHash: null,
       config: {},
       predictionMetadata: {},
+      runtimeEnvelope: normalizeRuntimeEnvelopeProjection({}),
       rankingContract: 'legacy_score_partition',
       generatedAt: null,
       totalCount: 0,
@@ -557,6 +559,10 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
       [limit, lineKey],
     );
     const first = rows[0];
+    const predictionMetadata =
+      first.prediction_metadata && typeof first.prediction_metadata === 'object' && !Array.isArray(first.prediction_metadata)
+        ? first.prediction_metadata
+        : {};
     return {
       status: 'ready',
       lineKey: first.line_key,
@@ -575,10 +581,8 @@ export class PostgresResearchRepository implements ResearchRepository, OnModuleD
       historyFingerprint: first.history_fingerprint,
       configHash: first.config_hash,
       config: this.numericRecordValue(first.config),
-      predictionMetadata:
-        first.prediction_metadata && typeof first.prediction_metadata === 'object' && !Array.isArray(first.prediction_metadata)
-          ? first.prediction_metadata
-          : {},
+      predictionMetadata,
+      runtimeEnvelope: normalizeRuntimeEnvelopeProjection(predictionMetadata),
       rankingContract: normalizeRankingContract(first.ranking_contract),
       generatedAt: first.generated_at instanceof Date ? first.generated_at.toISOString() : first.generated_at ? String(first.generated_at) : null,
       totalCount,

@@ -101,3 +101,8 @@ def test_shadow_report_carries_both_contracts_and_difference_classification() ->
     assert report["candidate_digest"] == "a" * 64
     assert report["candidate_layout_digest"] == "b" * 64
     assert report["candidate_package_digest"] == "c" * 64
+    assert report["official_runtime_envelope"]["status"] == "unavailable"
+    assert report["official_runtime_envelope"]["reason"] == (
+        "legacy_official_run_without_runtime_envelope"
+    )
+    assert report["shadow_runtime_envelope"]["status"] == "unavailable"

@@ -34,6 +34,7 @@ from dehps.runtime_envelope import (
     RuntimeEnvelopeViolation,
     RuntimeState,
 )
+from dehps.runtime_provenance import project_runtime_envelope
 from dehps.unified_runtime import (
     RuntimeVerificationViolation,
     UnifiedRuntimeVerifier,
@@ -212,6 +213,13 @@ def test_feature_abi_runtime_matches_existing_reference_score_rank_topk_and_red5
         runtime=runtime,
         expected_backend="feature_abi_numpy_reference",
     )
+    projection = project_runtime_envelope(
+        result.runtime_envelope,
+        unavailable_reason="not_used",
+    ).as_dict()
+    assert projection["status"] == "verified"
+    assert projection["reason"] is None
+    assert projection["envelope"]["envelope_digest"] == envelope.envelope_digest
 
 
 def test_feature_abi_runtime_preflight_is_deterministic(feature_runtime_case) -> None:
