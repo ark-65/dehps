@@ -469,12 +469,22 @@ class NumpyReferenceBackend:
             if self.name == "numpy_reference"
             else 0
         )
+        candidate_envelope = store.candidate_runtime_envelope
+        candidate_contract = candidate_envelope["candidate_contract"]
+        if not isinstance(candidate_contract, dict):
+            raise ValueError("candidate runtime envelope contract must be structured")
         telemetry: dict[str, int | float | str] = {
             "backend": self.name,
             "contract_version": self.contract_version,
             "ranking_contract": STRICT_RANKING_CONTRACT,
             "candidate_store_version": store.store_version,
             "candidate_count": len(store),
+            "candidate_contract": str(candidate_contract["contract_key"]),
+            "candidate_abi": str(candidate_envelope["candidate_abi"]),
+            "candidate_digest": str(candidate_envelope["candidate_digest"]),
+            "candidate_layout_digest": str(candidate_envelope["layout_digest"]),
+            "candidate_package_digest": str(candidate_envelope["package_digest"]),
+            "candidate_identity_id_kind": "candidate_store_row_index",
             "window_id": request.window_id,
             "config_count": weights.config_count,
             "score_cells": score_cells,

@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import math
 from hashlib import sha256
 
 import numpy as np
 
+from dehps.input_contracts import CandidateArrayCompiler, CandidateUniverseManifest
 from dehps.models.frequency_ranker import FrequencyStats
 from dehps.scoring_kernel.contracts import CandidateStore, PackedWindowState
 
 
 CANDIDATE_STORE_VERSION = "dehps-candidate-store-v1"
+CANDIDATE_ABI_ADAPTER_VERSION = "candidate-store-to-candidate-abi-adapter.v1"
 STABLE_RANGE_KEYS = ("sum_value", "span_value", "ac_numeric", "first_last_sum", "max_gap", "min_gap")
 
 
@@ -62,6 +65,47 @@ def _lex_codes(numbers: np.ndarray) -> np.ndarray:
     return np.ascontiguousarray(result)
 
 
+def _candidate_lex_ids(
+    numbers: np.ndarray,
+    *,
+    domain_size: int = 33,
+    pick_count: int = 6,
+) -> np.ndarray:
+    if numbers.dtype != np.uint8 or numbers.shape[1:] != (pick_count,):
+        raise ValueError("candidate ABI adapter requires uint8[N,6] numbers")
+    lex_id = np.zeros(numbers.shape[0], dtype=np.uint64)
+    previous = np.zeros(numbers.shape[0], dtype=np.uint8)
+    for column in range(pick_count):
+        remaining = pick_count - column - 1
+        current = numbers[:, column]
+        for skipped in range(1, domain_size + 1):
+            add = np.uint64(math.comb(domain_size - skipped, remaining))
+            if add:
+                lex_id += ((previous < skipped) & (current > skipped)).astype(np.uint64) * add
+        previous = current
+    if np.any(lex_id > np.iinfo(np.uint32).max):
+        raise ValueError("candidate lex_id exceeds uint32")
+    return np.ascontiguousarray(lex_id, dtype=np.dtype("<u4"))
+
+
+def _candidate_abi_package(numbers: np.ndarray, candidate_masks: np.ndarray):
+    if not numbers.flags.c_contiguous or numbers.dtype != np.uint8:
+        raise ValueError("Candidate ABI adapter requires C-contiguous uint8 numbers")
+    if not candidate_masks.flags.c_contiguous or candidate_masks.dtype != np.dtype("<u8"):
+        raise ValueError("Candidate ABI adapter requires C-contiguous little-endian uint64 masks")
+    universe = CandidateUniverseManifest(domain_size=33, pick_count=6)
+    return CandidateArrayCompiler().compile(
+        universe=universe,
+        numbers=numbers,
+        mask=candidate_masks,
+        lex_id=_candidate_lex_ids(
+            numbers,
+            domain_size=universe.domain_size,
+            pick_count=universe.pick_count,
+        ),
+    )
+
+
 def target_lex_id(store: CandidateStore, numbers: tuple[int, ...]) -> int:
     code = np.uint64(0)
     for number in numbers:
@@ -71,14 +115,19 @@ def target_lex_id(store: CandidateStore, numbers: tuple[int, ...]) -> int:
 
 def candidate_store_from_matrix(matrix) -> CandidateStore:
     numbers = np.ascontiguousarray(matrix.numbers, dtype=np.uint8)
+    candidate_masks = _candidate_masks(numbers)
+    candidate_abi_package = _candidate_abi_package(numbers, candidate_masks)
     cache_info = getattr(matrix, "cache_info", {}) or {}
     source = str(cache_info.get("cache_key") or cache_info.get("feature_schema_version") or "in-memory")
     fingerprint = sha256(
-        f"{CANDIDATE_STORE_VERSION}:{source}:{len(numbers)}".encode("utf-8")
+        (
+            f"{CANDIDATE_STORE_VERSION}:{CANDIDATE_ABI_ADAPTER_VERSION}:"
+            f"{source}:{len(numbers)}:{candidate_abi_package.package_digest}"
+        ).encode("utf-8")
     ).hexdigest()
     store = CandidateStore(
         numbers=numbers,
-        candidate_mask=_candidate_masks(numbers),
+        candidate_mask=candidate_masks,
         lex_code=_lex_codes(numbers),
         structural_score=np.ascontiguousarray(matrix.structural_score, dtype=np.float64),
         consecutive_pair_count=np.ascontiguousarray(matrix.consecutive_pair_count),
@@ -102,8 +151,12 @@ def candidate_store_from_matrix(matrix) -> CandidateStore:
         min_gap=np.ascontiguousarray(matrix.min_gap),
         store_version=CANDIDATE_STORE_VERSION,
         fingerprint=fingerprint,
+        candidate_abi_package=candidate_abi_package,
     )
     store.validate()
+    cache_info["candidate_abi"] = candidate_abi_package.runtime_envelope.as_dict()
+    cache_info["candidate_abi_adapter_version"] = CANDIDATE_ABI_ADAPTER_VERSION
+    cache_info["candidate_store_fingerprint"] = fingerprint
     return store
 
 

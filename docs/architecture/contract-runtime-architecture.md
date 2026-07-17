@@ -188,7 +188,7 @@ This envelope is not a replacement for stage envelopes. A stage envelope carries
 | --- | --- | --- |
 | History Snapshot Contract | Implemented | `history_snapshot.v1.0.0` red-ball scoring projection |
 | Window Contract | Implemented | `window.v1.0.0`, rolling/expanding value object and stage envelope |
-| Candidate Contract / ABI | Specified, reference oracle | `candidate.v1.0.0`, `candidate_abi.v1`, Compiler, Verifier, golden fixtures; not connected to production Kernel |
+| Candidate Contract / ABI | Runtime preflight integrated | `candidate.v1.0.0`, `candidate_abi.v1`, Compiler, Verifier, golden fixtures, CandidateStore adapter, Kernel prepare validation, telemetry propagation |
 | Feature Contract / ABI | Next | feature meaning, index, dtype, shape, scale, golden vectors |
 | Scoring Contract | Implemented | `dehps-scoring-strict-v1` |
 | Ranking Contract | Implemented | `legacy_score_partition` compatibility and `strict_v1` |
@@ -202,7 +202,7 @@ Every compiled ABI package must satisfy an explicit compatibility matrix. Exampl
 window.v1.0.0 -> feature.v1.0.0: allowed
 window.v2.0.0 -> feature.v1.0.0: reject
 candidate.v1.0.0 -> candidate_abi.v1 reference compiler/verifier: allowed
-candidate_abi.v1 -> production scoring strict_v1: reject until an integration edge is explicitly approved
+candidate_abi.v1 -> production scoring strict_v1: allowed through verified CandidateStore adapter
 candidate_abi.v2 -> candidate.v1.0.0: reject until explicitly specified
 ```
 
@@ -239,11 +239,10 @@ This is the boundary that lets NumPy, Numba, SIMD, CUDA, OpenCL, and future nati
 
 The next migration rounds should be staged as:
 
-1. Candidate ABI v1 production integration: characterize the current CandidateStore, prove exact equality with the specified ABI, and add an explicit Kernel compatibility edge in a separate round.
-2. Feature Contract and Feature ABI v1: freeze feature meaning separately from packed feature layout.
-3. Runtime Envelope v1: add envelope writers to new artifacts without rewriting historical evidence.
-4. Evaluation Contract v1: freeze hit, rank, TopK, Red5, comparison, and mismatch classification semantics.
-5. Kernel P2: optimize TopK reduction after the ABI inputs are stable.
+1. Feature Contract and Feature ABI v1: freeze feature meaning separately from packed feature layout.
+2. Runtime Envelope v1: add envelope writers to new artifacts without rewriting historical evidence.
+3. Evaluation Contract v1: freeze hit, rank, TopK, Red5, comparison, and mismatch classification semantics.
+4. Kernel P2: optimize TopK reduction after the ABI inputs are stable.
 
 Non-goals for this architecture document:
 

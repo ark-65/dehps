@@ -8,12 +8,12 @@ Primary goal:
 
 > Freeze one unique, stable, verifiable, and reproducible candidate identity and ABI before any production integration.
 
-This round provides a control-plane reference compiler, fail-closed verifier, language-neutral golden fixtures, and conformance tests. It does not connect the ABI to the current `CandidateStore` or scoring kernel.
+This specification provides a control-plane reference compiler, fail-closed verifier, language-neutral golden fixtures, and conformance tests. The first runtime migration connects the current `CandidateStore` to `candidate_abi.v1` through an explicit adapter without changing scoring output, pending predictions, database rows, or candidate-set strategy.
 
 Non-goals:
 
 - no production prediction or pending-run mutation;
-- no `CandidateStore`, Kernel, Numba, TopK, Feature, GPU, cache, database, or evaluation behavior change;
+- no Numba math, TopK, Feature, GPU, database, production prediction, or evaluation behavior change;
 - no historical fingerprint rewrite;
 - no backend-default or runtime-state change.
 
@@ -300,22 +300,21 @@ runtime:
     package_digest: sha256:...
 ```
 
-The reference package exposes this fragment now. Propagation into new candidate artifacts, cache records, evaluations, shadow reports, and telemetry is a later integration migration. Existing artifacts and pending predictions are not rewritten. Missing historical fields must remain interpretable by their historical evidence contracts rather than being silently backfilled.
+The reference package exposes this fragment. The first runtime migration propagates the Candidate ABI envelope into new `CandidateStore` metadata, scoring-kernel telemetry, matrix cache metadata, and shadow comparison reports. Existing artifacts and pending predictions are not rewritten. Missing historical fields must remain interpretable by their historical evidence contracts rather than being silently backfilled.
 
 ## Compatibility and migration
 
-Candidate ABI v1 is not yet an accepted input to the production scoring Kernel. The current `CandidateStore` remains the active production representation. This round adds a conformance oracle alongside it.
+Candidate ABI v1 is now an accepted preflight contract for the production scoring Kernel. The current `CandidateStore` remains the hot-path representation, but it must carry a verified Candidate ABI package compiled by the explicit legacy-store adapter before backend preparation.
 
-The future migration gate is:
+The completed runtime migration gate is:
 
-1. compile the existing full candidate universe into Candidate ABI v1;
+1. compile the existing candidate matrix into Candidate ABI v1 without copying the `numbers` and `mask` payload buffers;
 2. prove exact `numbers`, mask, ordering, and candidate identity against the characterized current store;
 3. add an explicit Kernel compatibility edge for `candidate_abi.v1`;
-4. run shadow scoring and ranking without changing production output;
-5. propagate Runtime Envelope fields only to newly created artifacts;
-6. promote through a separate approval.
+4. run scoring and ranking through the same Kernel entry without changing production output;
+5. propagate Runtime Envelope fields only to newly created telemetry, cache metadata, and reports.
 
-Until that gate is complete, no Kernel may claim Candidate ABI v1 conformance merely because its arrays look similar.
+The adapter is a compatibility bridge, not a new candidate strategy. Hard filters, compression, source merging, sampling, and Top-N truncation remain Candidate Set Artifact or generation-strategy concerns and must not enter Candidate ABI identity.
 
 ## Acceptance criteria
 
@@ -326,4 +325,4 @@ Candidate ABI v1 is specified when the repository proves:
 - verifiability: independent validation rejects version, contract, dtype, shape, alignment, layout, digest, and payload tampering;
 - reproducibility: recompiling the same manifests yields byte-identical buffers and identities;
 - domain isolation: the same compiler and verifier work for a non-SSQ universe without importing domain code;
-- migration safety: current CandidateStore, Kernel, production predictions, pending runs, and persistence state remain unchanged.
+- runtime safety: current production predictions, pending runs, and persistence state remain unchanged while Kernel preparation fails closed on ABI mismatch.

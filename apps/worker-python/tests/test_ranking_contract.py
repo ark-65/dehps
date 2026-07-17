@@ -79,6 +79,10 @@ def test_shadow_report_carries_both_contracts_and_difference_classification() ->
         official_ranking_contract="legacy_score_partition",
         shadow_ranking_contract="strict_v1",
         candidate_store_version="ssq-6-of-33-v1",
+        candidate_abi="candidate_abi.v1",
+        candidate_digest="a" * 64,
+        candidate_layout_digest="b" * 64,
+        candidate_package_digest="c" * 64,
         config_fingerprint="config-1",
         target_score_diff=0.0,
         rank_diff=0,
@@ -93,3 +97,7 @@ def test_shadow_report_carries_both_contracts_and_difference_classification() ->
     assert report["difference_classification"] == "ranking-contract difference"
     assert report["official_ranking_contract"] == "legacy_score_partition"
     assert report["shadow_ranking_contract"] == "strict_v1"
+    assert report["candidate_abi"] == "candidate_abi.v1"
+    assert report["candidate_digest"] == "a" * 64
+    assert report["candidate_layout_digest"] == "b" * 64
+    assert report["candidate_package_digest"] == "c" * 64

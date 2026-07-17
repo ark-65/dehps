@@ -1784,6 +1784,7 @@ def _kernel_score_rank(
         "contract_version": result.contract_version,
         "candidate_store_version": store.store_version,
         "candidate_store_fingerprint": store.fingerprint,
+        "candidate_abi": store.candidate_runtime_envelope,
         "last_run": dict(result.telemetry),
     }
     return result

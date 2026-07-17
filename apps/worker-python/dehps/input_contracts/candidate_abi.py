@@ -564,6 +564,80 @@ class CandidateCompiler:
         return package
 
 
+class CandidateArrayCompiler:
+    """Compile already-materialized candidate buffers without repairing or reordering them."""
+
+    def compile(
+        self,
+        *,
+        universe: CandidateUniverseManifest,
+        numbers: np.ndarray,
+        mask: np.ndarray,
+        lex_id: np.ndarray,
+    ) -> CandidateABIPackage:
+        if not isinstance(numbers, np.ndarray) or numbers.ndim != 2:
+            raise CandidateContractViolation(
+                "candidate_buffer_shape_mismatch",
+                "numbers must be a two-dimensional Candidate ABI buffer",
+            )
+        row_count = int(numbers.shape[0])
+        buffers = (
+            _metadata(
+                "numbers",
+                numbers,
+                dtype="uint8",
+                endianness="not_applicable",
+                alignment=1,
+            ),
+            _metadata("mask", mask, dtype="uint64", endianness="little", alignment=8),
+            _metadata("lex_id", lex_id, dtype="uint32", endianness="little", alignment=4),
+        )
+        header = CandidateABIHeader(
+            abi_version=CANDIDATE_ABI_VERSION,
+            candidate_contract=universe.contract,
+            universe_manifest_digest=universe.manifest_digest,
+            candidate_digest=_candidate_manifest_digest_from_numbers(numbers, universe=universe),
+            layout_digest=CANDIDATE_ABI_LAYOUT_DIGEST,
+            payload_digest=_payload_digest(buffers),
+            row_count=row_count,
+            domain_size=universe.domain_size,
+            pick_count=universe.pick_count,
+            universe_cardinality=universe.cardinality,
+            buffers=buffers,
+        )
+        package = CandidateABIPackage(
+            header=header,
+            numbers=numbers,
+            mask=mask,
+            lex_id=lex_id,
+        )
+        CandidateABIVerifier().verify(package)
+        return package
+
+
+def _candidate_manifest_digest_from_numbers(
+    numbers: np.ndarray,
+    *,
+    universe: CandidateUniverseManifest,
+) -> str:
+    digest = sha256(b"dehps.candidate-manifest.v1\x00")
+    digest.update(b'{"candidates":[')
+    for row_index, row in enumerate(numbers):
+        if row_index:
+            digest.update(b",")
+        canonical = validate_candidate_numbers(
+            tuple(int(value) for value in row),
+            universe=universe,
+        )
+        digest.update(b"[")
+        digest.update(",".join(str(value) for value in canonical).encode("ascii"))
+        digest.update(b"]")
+    digest.update(b'],"universe_manifest_digest":"')
+    digest.update(universe.manifest_digest.encode("ascii"))
+    digest.update(b'"}')
+    return digest.hexdigest()
+
+
 class CandidateABIVerifier:
     """Fail-closed verifier for Candidate ABI packages; it never coerces or repairs buffers."""
 
@@ -622,7 +696,6 @@ class CandidateABIVerifier:
         if header.payload_digest != _payload_digest(recomputed_metadata):
             self._reject("candidate_payload_digest_mismatch", "payload digest does not match buffers")
 
-        candidates: list[tuple[int, ...]] = []
         previous_lex_id: int | None = None
         for row_index in range(header.row_count):
             numbers = tuple(int(value) for value in package.numbers[row_index])
@@ -639,13 +712,9 @@ class CandidateABIVerifier:
                 self._reject("candidate_mask_roundtrip_mismatch", "mask round trip is not canonical", row_index=row_index)
             if previous_lex_id is not None and lex_id <= previous_lex_id:
                 self._reject("candidate_abi_order_violation", "ABI rows must have strictly increasing lex_id")
-            candidates.append(canonical)
             previous_lex_id = lex_id
 
-        expected_candidate_digest = CandidateManifest(
-            universe=universe,
-            candidates=tuple(candidates),
-        ).manifest_digest
+        expected_candidate_digest = _candidate_manifest_digest_from_numbers(package.numbers, universe=universe)
         if header.candidate_digest != expected_candidate_digest:
             self._reject("candidate_digest_mismatch", "candidate digest does not match canonical rows")
 

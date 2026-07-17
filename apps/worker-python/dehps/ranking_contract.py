@@ -141,6 +141,10 @@ class ShadowComparisonReport:
     evaluation_mismatch_count: int
     restart_recovery_result: str
     watchdog_result: str
+    candidate_abi: str = ""
+    candidate_digest: str = ""
+    candidate_layout_digest: str = ""
+    candidate_package_digest: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         official_contract = normalize_ranking_contract(self.official_ranking_contract)
@@ -153,6 +157,10 @@ class ShadowComparisonReport:
             "official_ranking_contract": official_contract,
             "shadow_ranking_contract": shadow_contract,
             "candidate_store_version": self.candidate_store_version,
+            "candidate_abi": self.candidate_abi,
+            "candidate_digest": self.candidate_digest,
+            "candidate_layout_digest": self.candidate_layout_digest,
+            "candidate_package_digest": self.candidate_package_digest,
             "config_fingerprint": self.config_fingerprint,
             "target_score_diff": float(self.target_score_diff),
             "rank_diff": int(self.rank_diff),
