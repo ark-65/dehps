@@ -95,6 +95,7 @@ CandidateABIPackage + FeatureABIPackage tiles
         -> KernelPlanner.prepare_feature_abi
         -> FeatureABINumpyReferenceBackend
         -> strict_v1 score / rank / TopK / Red5 result
+        -> runtime_envelope.v1 artifact_produced evidence
 ```
 
 Preflight requires ordered, contiguous, complete Feature tile coverage of the Candidate ABI rows,

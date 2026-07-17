@@ -273,6 +273,10 @@ class HistorySnapshotArtifact:
         )
 
     def __post_init__(self) -> None:
+        self.verify()
+
+    def verify(self) -> None:
+        """Re-run the fail-closed History Snapshot checks at a runtime boundary."""
         if not self.contract.normatively_equals(HISTORY_SNAPSHOT_CONTRACT_V1):
             raise InputContractViolation(
                 "history_snapshot_contract_mismatch",

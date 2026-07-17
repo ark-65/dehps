@@ -6,8 +6,16 @@ import time
 
 import numpy as np
 
+from dehps.contracts import canonical_digest
+from dehps.feature_runtime.compiler import feature_array_digest
 from dehps.feature_runtime.runtime import FeatureABIRuntime
 from dehps.ranking_contract import STRICT_RANKING_CONTRACT
+from dehps.runtime_envelope import (
+    RuntimeEnvelopeCompiler,
+    RuntimeEnvelopeV1,
+    RuntimeEnvelopeVerifier,
+    RuntimeState,
+)
 from dehps.scoring_kernel.contracts import (
     SCORE_ROUND_DIGITS,
     STRICT_CONTRACT_VERSION,
@@ -25,6 +33,7 @@ class PreparedFeatureABIRuntime:
     runtime: FeatureABIRuntime
     backend_name: str
     prepare_seconds: float
+    runtime_envelope: RuntimeEnvelopeV1
 
 
 @dataclass(frozen=True)
@@ -41,13 +50,24 @@ class FeatureABINumpyReferenceBackend:
     name = "feature_abi_numpy_reference"
     contract_version = STRICT_CONTRACT_VERSION
 
-    def prepare(self, runtime: FeatureABIRuntime) -> PreparedFeatureABIRuntime:
+    def prepare(
+        self,
+        runtime: FeatureABIRuntime,
+        *,
+        code_commit: str,
+    ) -> PreparedFeatureABIRuntime:
         started = time.perf_counter()
         runtime.verify()
+        runtime_envelope = RuntimeEnvelopeCompiler().compile_kernel_ready(
+            runtime,
+            backend=self.name,
+            code_commit=code_commit,
+        )
         return PreparedFeatureABIRuntime(
             runtime=runtime,
             backend_name=self.name,
             prepare_seconds=time.perf_counter() - started,
+            runtime_envelope=runtime_envelope,
         )
 
     def _tile(
@@ -106,6 +126,14 @@ class FeatureABINumpyReferenceBackend:
         workspace = workspace or KernelWorkspace()
         runtime = prepared.runtime
         runtime.verify()
+        RuntimeEnvelopeVerifier().verify(
+            prepared.runtime_envelope,
+            runtime=runtime,
+            expected_backend=self.name,
+        )
+        if prepared.runtime_envelope.state is not RuntimeState.KERNEL_READY:
+            raise ValueError("Feature ABI runtime envelope must be kernel_ready")
+        executing_envelope = prepared.runtime_envelope.transition(RuntimeState.KERNEL_EXECUTING)
         candidate_count = runtime.candidate_count
         request.validate(config_count=weights.config_count, candidate_count=candidate_count)
         if weights.values.shape[1] != 32:
@@ -275,6 +303,26 @@ class FeatureABINumpyReferenceBackend:
                 max_tile_rows * weights.config_count * 8 + max_tile_rows
             ),
         }
+        payload_digest = kernel_result_payload_digest(
+            target_scores=request.target_scores,
+            exact_ranks=exact_ranks,
+            top_candidate_ids=top_id_matrix,
+            top_scores=top_score_matrix,
+            red5_candidate_ids=red5_ids,
+            red5_scores=red5_scores,
+            red5_ranks=red5_ranks,
+        )
+        produced_envelope = executing_envelope.produce_artifact(payload_digest)
+        RuntimeEnvelopeVerifier().verify_artifact_payload(
+            produced_envelope,
+            payload_digest=payload_digest,
+            runtime=runtime,
+            expected_backend=self.name,
+        )
+        telemetry["runtime_envelope_version"] = produced_envelope.envelope_version
+        telemetry["runtime_envelope_state"] = produced_envelope.state.value
+        telemetry["runtime_envelope_digest"] = produced_envelope.envelope_digest
+        telemetry["artifact_payload_digest"] = payload_digest
         result = KernelResult(
             backend=self.name,
             contract_version=self.contract_version,
@@ -286,6 +334,38 @@ class FeatureABINumpyReferenceBackend:
             red5_scores=np.ascontiguousarray(red5_scores),
             red5_ranks=np.ascontiguousarray(red5_ranks),
             telemetry=telemetry,
+            runtime_envelope=produced_envelope.as_dict(),
         )
         record_kernel_telemetry(telemetry)
         return result
+
+
+def kernel_result_payload_digest(
+    *,
+    target_scores: np.ndarray,
+    exact_ranks: np.ndarray,
+    top_candidate_ids: np.ndarray,
+    top_scores: np.ndarray,
+    red5_candidate_ids: np.ndarray,
+    red5_scores: np.ndarray,
+    red5_ranks: np.ndarray,
+) -> str:
+    arrays = {
+        "target_scores": target_scores,
+        "exact_ranks": exact_ranks,
+        "top_candidate_ids": top_candidate_ids,
+        "top_scores": top_scores,
+        "red5_candidate_ids": red5_candidate_ids,
+        "red5_scores": red5_scores,
+        "red5_ranks": red5_ranks,
+    }
+    return canonical_digest(
+        {
+            name: feature_array_digest(
+                np.ascontiguousarray(value),
+                domain=f"dehps.kernel-result.{name}.v1",
+            )
+            for name, value in arrays.items()
+        },
+        domain="dehps.kernel-result-payload.v1",
+    )

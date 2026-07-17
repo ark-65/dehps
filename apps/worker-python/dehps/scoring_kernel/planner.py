@@ -58,8 +58,13 @@ class KernelPlanner:
             )
         return FeatureABINumpyReferenceBackend()
 
-    def prepare_feature_abi(self, runtime: FeatureABIRuntime) -> PreparedFeatureABIRuntime:
-        return self.feature_abi_backend().prepare(runtime)
+    def prepare_feature_abi(
+        self,
+        runtime: FeatureABIRuntime,
+        *,
+        code_commit: str,
+    ) -> PreparedFeatureABIRuntime:
+        return self.feature_abi_backend().prepare(runtime, code_commit=code_commit)
 
     def score_rank_feature_abi(
         self,
