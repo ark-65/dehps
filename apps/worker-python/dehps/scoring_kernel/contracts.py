@@ -5,7 +5,11 @@ from typing import Protocol
 
 import numpy as np
 
-from dehps.input_contracts.candidate_abi import CandidateABIPackage, CandidateABIVerifier
+from dehps.input_contracts.candidate_abi import (
+    CandidateABIPackage,
+    CandidateABIVerification,
+    CandidateABIVerifier,
+)
 
 
 STRICT_CONTRACT_VERSION = "dehps-scoring-strict-v1"
@@ -48,7 +52,7 @@ class CandidateStore:
     def __len__(self) -> int:
         return int(self.numbers.shape[0])
 
-    def validate(self) -> None:
+    def validate(self) -> CandidateABIVerification:
         row_count = len(self)
         if self.numbers.dtype != np.uint8 or self.numbers.shape != (row_count, 6):
             raise ValueError("candidate numbers must be uint8[N,6]")
@@ -70,13 +74,14 @@ class CandidateStore:
             raise ValueError("candidate structural scores must be finite")
         if self.candidate_abi_package is None:
             raise ValueError("candidate store must carry a verified Candidate ABI package")
-        CandidateABIVerifier().verify(self.candidate_abi_package)
+        verification = CandidateABIVerifier().verify(self.candidate_abi_package)
         if not np.shares_memory(self.numbers, self.candidate_abi_package.numbers):
             raise ValueError("Candidate ABI numbers buffer must share the CandidateStore numbers memory")
         if not np.shares_memory(self.candidate_mask, self.candidate_abi_package.mask):
             raise ValueError("Candidate ABI mask buffer must share the CandidateStore mask memory")
         if self.candidate_abi_package.header.row_count != row_count:
             raise ValueError("Candidate ABI row_count must match CandidateStore")
+        return verification
 
     @property
     def candidate_runtime_envelope(self) -> dict[str, object]:
@@ -230,6 +235,7 @@ class PreparedCandidateStore:
     store: CandidateStore
     backend_name: str
     prepare_seconds: float = 0.0
+    candidate_abi_verification: CandidateABIVerification | None = None
 
 
 @dataclass(frozen=True)
