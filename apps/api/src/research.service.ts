@@ -53,8 +53,8 @@ const HEAVY_JOB_INACTIVE_STATUSES = new Set([
 ]);
 const SYNC_SCHEDULE = {
   timezone: 'Asia/Shanghai',
-  cron: '59 23 * * 2,4,0',
-  description: '每周二、周四、周日 23:59 自动同步当期开奖数据',
+  cron: '45 21 * * 2,4,0',
+  description: '每周二、周四、周日 21:45 自动同步当期开奖数据（以实际更新为准）',
 };
 const SYNC_STALE_SECONDS = 4 * 24 * 60 * 60;
 const KDJ_STALE_SECONDS = 14 * 24 * 60 * 60;

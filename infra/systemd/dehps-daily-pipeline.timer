@@ -2,7 +2,7 @@
 Description=Run DEHPS daily SSQ pipeline after SSQ draw days
 
 [Timer]
-OnCalendar=Tue,Thu,Sun 23:59:00
+OnCalendar=Tue,Thu,Sun *-*-* 21:45:00 Asia/Shanghai
 Persistent=true
 Unit=dehps-daily-pipeline.service
 
