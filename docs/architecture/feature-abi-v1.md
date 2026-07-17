@@ -85,9 +85,26 @@ compliant. A fused backend may avoid a full-universe Feature matrix only after t
 defines how its tile producer is verified against this ABI and proves exact component/score/rank
 equivalence. Performance is not authority to bypass the contract.
 
+## Reference runtime migration
+
+The explicit reference execution path is now:
+
+```text
+CandidateABIPackage + FeatureABIPackage tiles
+        -> FeatureABIRuntimeVerifier
+        -> KernelPlanner.prepare_feature_abi
+        -> FeatureABINumpyReferenceBackend
+        -> strict_v1 score / rank / TopK / Red5 result
+```
+
+Preflight requires ordered, contiguous, complete Feature tile coverage of the Candidate ABI rows,
+one Candidate package binding, and one Window/target context. The planner rejects `numba_cpu` for this
+entry because that fused backend has not yet exposed a verified Feature ABI tile producer. Its existing
+non-Feature-ABI execution path remains unchanged.
+
 ## Non-goals
 
-- no Kernel Planner or backend migration;
+- no fused Numba or production-default migration;
 - no full candidate-space Feature materialization requirement;
 - no scoring, ranking, TopK, weight, or formula change;
 - no production prediction, pending candidate, database, or runtime-state mutation.
