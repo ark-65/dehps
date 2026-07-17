@@ -5,6 +5,8 @@ from typing import Protocol
 
 import numpy as np
 
+from dehps.input_contracts.candidate_abi import CandidateABIPackage, CandidateABIVerifier
+
 
 STRICT_CONTRACT_VERSION = "dehps-scoring-strict-v1"
 SCORE_ROUND_DIGITS = 8
@@ -41,6 +43,7 @@ class CandidateStore:
     min_gap: np.ndarray
     store_version: str
     fingerprint: str
+    candidate_abi_package: CandidateABIPackage | None = None
 
     def __len__(self) -> int:
         return int(self.numbers.shape[0])
@@ -65,6 +68,21 @@ class CandidateStore:
                     raise ValueError(f"candidate store field {name} has a mismatched row count")
         if not np.isfinite(self.structural_score).all():
             raise ValueError("candidate structural scores must be finite")
+        if self.candidate_abi_package is None:
+            raise ValueError("candidate store must carry a verified Candidate ABI package")
+        CandidateABIVerifier().verify(self.candidate_abi_package)
+        if not np.shares_memory(self.numbers, self.candidate_abi_package.numbers):
+            raise ValueError("Candidate ABI numbers buffer must share the CandidateStore numbers memory")
+        if not np.shares_memory(self.candidate_mask, self.candidate_abi_package.mask):
+            raise ValueError("Candidate ABI mask buffer must share the CandidateStore mask memory")
+        if self.candidate_abi_package.header.row_count != row_count:
+            raise ValueError("Candidate ABI row_count must match CandidateStore")
+
+    @property
+    def candidate_runtime_envelope(self) -> dict[str, object]:
+        if self.candidate_abi_package is None:
+            raise ValueError("candidate store has no Candidate ABI package")
+        return self.candidate_abi_package.runtime_envelope.as_dict()
 
 
 @dataclass(frozen=True)

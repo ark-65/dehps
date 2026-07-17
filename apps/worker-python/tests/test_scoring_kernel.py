@@ -8,6 +8,7 @@ import pytest
 
 import dehps.scoring_kernel.numba_backend as numba_backend_module
 from dehps.models.frequency_ranker import FrequencyRankerConfig, train_frequency_stats
+from dehps.input_contracts import CandidateContractViolation, CandidateUniverseManifest, candidate_rank
 from dehps.optimization.walk_forward import (
     _components_for_matrix,
     _config_weight_matrix,
@@ -269,9 +270,53 @@ def test_candidate_and_window_hot_path_arrays_are_dense(kernel_case):
     assert kernel_case["store"].numbers.dtype == np.uint8
     assert kernel_case["store"].candidate_mask.dtype == np.uint64
     assert kernel_case["store"].lex_code.dtype == np.uint64
+    assert kernel_case["store"].candidate_abi_package is not None
     assert np.shares_memory(
         kernel_case["store"].numbers, kernel_case["matrix"].numbers
     )
+    assert np.shares_memory(
+        kernel_case["store"].candidate_abi_package.numbers,
+        kernel_case["store"].numbers,
+    )
+    assert np.shares_memory(
+        kernel_case["store"].candidate_abi_package.mask,
+        kernel_case["store"].candidate_mask,
+    )
+    assert kernel_case["store"].candidate_abi_package.header.row_count == len(kernel_case["store"])
+    assert int(kernel_case["store"].candidate_abi_package.lex_id[kernel_case["target_id"]]) == candidate_rank(
+        kernel_case["target_numbers"],
+        universe=CandidateUniverseManifest(domain_size=33, pick_count=6),
+    )
+
+
+def test_candidate_store_from_mmap_matrix_reuses_candidate_abi_payload_buffers(tmp_path):
+    combinations = list(itertools.islice(itertools.combinations(range(1, 34), 6), 400))
+    matrix = build_ranked_universe(combinations, cache_dir=tmp_path, use_cache=True)
+    assert isinstance(matrix.numbers, np.memmap)
+
+    store = candidate_store_from_matrix(matrix)
+
+    assert store.candidate_abi_package is not None
+    assert np.shares_memory(store.candidate_abi_package.numbers, matrix.numbers)
+    assert np.shares_memory(store.candidate_abi_package.numbers, store.numbers)
+    assert np.shares_memory(store.candidate_abi_package.mask, store.candidate_mask)
+    assert matrix.cache_info["candidate_abi"]["candidate_abi"] == "candidate_abi.v1"
+    assert matrix.cache_info["candidate_store_fingerprint"] == store.fingerprint
+
+
+def test_kernel_prepare_rejects_candidate_abi_mismatch_without_repair(kernel_case):
+    package = kernel_case["store"].candidate_abi_package
+    assert package is not None
+    invalid_package = replace(
+        package,
+        header=replace(package.header, layout_digest="0" * 64),
+    )
+    invalid_store = replace(kernel_case["store"], candidate_abi_package=invalid_package)
+
+    with pytest.raises(CandidateContractViolation) as error:
+        NumpyReferenceBackend().prepare(invalid_store)
+
+    assert error.value.code == "candidate_layout_digest_mismatch"
 
 
 def test_planner_defaults_to_reference_and_has_explicit_rollback(monkeypatch):
@@ -336,6 +381,12 @@ def test_streaming_workspace_and_per_kernel_telemetry_are_bounded(kernel_case):
         "ranking_contract",
         "candidate_store_version",
         "candidate_count",
+        "candidate_contract",
+        "candidate_abi",
+        "candidate_digest",
+        "candidate_layout_digest",
+        "candidate_package_digest",
+        "candidate_identity_id_kind",
         "window_id",
         "config_count",
         "score_cells",
@@ -355,6 +406,10 @@ def test_streaming_workspace_and_per_kernel_telemetry_are_bounded(kernel_case):
     }
     assert required <= result.telemetry.keys()
     assert result.telemetry["ranking_contract"] == "strict_v1"
+    assert result.telemetry["candidate_abi"] == "candidate_abi.v1"
+    assert result.telemetry["candidate_package_digest"] == (
+        kernel_case["store"].candidate_abi_package.package_digest
+    )
 
 
 def test_fixed_seed_weight_matrices_match_every_rounded_score_cell(kernel_case):

@@ -14,6 +14,7 @@ from dehps.input_contracts.candidate_abi import (
     CANDIDATE_ABI_VERSION,
     CANDIDATE_CONTRACT_V1,
     CANDIDATE_GOLDEN_SUITE,
+    CandidateArrayCompiler,
     CandidateABIVerifier,
     CandidateCompiler,
     CandidateContractViolation,
@@ -157,6 +158,29 @@ def test_compiler_and_verifier_support_a_non_ssq_domain_without_domain_code() ->
     assert package.header.domain_size == 10
     assert package.header.pick_count == 3
     assert package.numbers.shape == (3, 3)
+    assert package.lex_id.tolist() == [0, 53, 119]
+
+
+def test_array_compiler_uses_existing_buffers_without_reordering_or_copying() -> None:
+    universe = CandidateUniverseManifest(domain_size=10, pick_count=3)
+    numbers = np.ascontiguousarray([[1, 2, 3], [2, 5, 10], [8, 9, 10]], dtype=np.uint8)
+    mask = np.ascontiguousarray(
+        [candidate_mask(tuple(int(value) for value in row), universe=universe) for row in numbers],
+        dtype=np.dtype("<u8"),
+    )
+    lex_id = np.ascontiguousarray([0, 53, 119], dtype=np.dtype("<u4"))
+
+    package = CandidateArrayCompiler().compile(
+        universe=universe,
+        numbers=numbers,
+        mask=mask,
+        lex_id=lex_id,
+    )
+
+    CandidateABIVerifier().verify(package)
+    assert np.shares_memory(package.numbers, numbers)
+    assert np.shares_memory(package.mask, mask)
+    assert np.shares_memory(package.lex_id, lex_id)
     assert package.lex_id.tolist() == [0, 53, 119]
 
 
