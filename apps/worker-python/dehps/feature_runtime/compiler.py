@@ -47,7 +47,7 @@ def _require_digest(name: str, value: str) -> None:
         )
 
 
-def _array_digest(array: np.ndarray, *, domain: str) -> str:
+def feature_array_digest(array: np.ndarray, *, domain: str) -> str:
     digest = sha256(domain.encode("ascii") + b"\x00")
     digest.update(array.dtype.str.encode("ascii"))
     digest.update(b"\x00")
@@ -86,7 +86,7 @@ def _candidate_static_digest(store: CandidateStore, *, start: int, end: int) -> 
             "candidate_store_fingerprint": store.fingerprint,
             "row_range": [start, end],
             "buffers": {
-                name: _array_digest(
+                name: feature_array_digest(
                     getattr(store, name)[start:end],
                     domain=f"dehps.feature-compiler.candidate-static.{name}.v1",
                 )
@@ -256,7 +256,7 @@ class FeatureArtifactVerifier:
             self._reject("feature_buffer_not_contiguous", "Feature values must be C-contiguous")
         if not np.isfinite(values).all():
             self._reject("feature_buffer_non_finite", "Feature values must be finite")
-        actual_values_digest = _array_digest(values, domain="dehps.feature-artifact.values.v1")
+        actual_values_digest = feature_array_digest(values, domain="dehps.feature-artifact.values.v1")
         if header.values_digest != actual_values_digest:
             self._reject("feature_values_digest_mismatch", "Feature values do not match the header digest")
 
@@ -346,7 +346,7 @@ class FeatureCompiler:
             row_count=end - start,
             component_count=FEATURE_VECTOR_LENGTH,
             dtype="float64",
-            values_digest=_array_digest(values, domain="dehps.feature-artifact.values.v1"),
+            values_digest=feature_array_digest(values, domain="dehps.feature-artifact.values.v1"),
         )
         artifact = CompiledFeatureArtifact(header=header, values=values)
         FeatureArtifactVerifier().verify(artifact, request=request)

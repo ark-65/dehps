@@ -190,7 +190,7 @@ This envelope is not a replacement for stage envelopes. A stage envelope carries
 | Window Contract | Implemented | `window.v1.0.0`, rolling/expanding value object and stage envelope |
 | Candidate Contract / ABI | Runtime preflight integrated | `candidate.v1.0.0`, `candidate_abi.v1`, Compiler, Verifier, golden fixtures, CandidateStore adapter, Kernel prepare validation, telemetry propagation |
 | Feature Contract / Compiler | Reference compiler implemented | `feature.v1.0.0`, component manifest, golden vector, verified Window/Candidate input binding, deterministic Feature Artifact, fail-closed artifact verifier |
-| Feature ABI | Next | packed feature layout, buffers, verifier, and Kernel preflight edge |
+| Feature ABI | Specified and reference-compiled | `feature_abi.v1`, tile-local dense `float64[R,32]`, fixed layout digest, zero-copy Artifact adapter, golden digests, fail-closed verifier; Kernel preflight migration remains |
 | Scoring Contract | Implemented | `dehps-scoring-strict-v1` |
 | Ranking Contract | Implemented | `legacy_score_partition` compatibility and `strict_v1` |
 | Evaluation Contract | Later | hit, TopK, Red5, rank, score, and comparison semantics |
@@ -204,6 +204,8 @@ window.v1.0.0 -> feature.v1.0.0: allowed
 window.v2.0.0 -> feature.v1.0.0: reject
 candidate.v1.0.0 -> candidate_abi.v1 reference compiler/verifier: allowed
 candidate_abi.v1 -> production scoring strict_v1: allowed through verified CandidateStore adapter
+feature.v1.0.0 -> feature_abi.v1 reference compiler/verifier: allowed
+feature_abi.v1 -> Kernel Planner: reject until the explicit Runtime Migration round
 candidate_abi.v2 -> candidate.v1.0.0: reject until explicitly specified
 ```
 
@@ -240,12 +242,11 @@ This is the boundary that lets NumPy, Numba, SIMD, CUDA, OpenCL, and future nati
 
 The next migration rounds should be staged as:
 
-1. Feature ABI v1: freeze packed feature layout separately from feature meaning and from the reference Feature Artifact.
-2. Feature ABI Runtime Migration: make Kernel Planner consume a verified Feature ABI without changing score or rank output.
-3. Runtime Envelope v1: add envelope writers to new artifacts without rewriting historical evidence.
-4. Unified Runtime Verifier: assemble History, Window, Candidate, and Feature verification into one verified runtime package.
-5. Evaluation Contract v1: freeze hit, rank, TopK, Red5, comparison, and mismatch classification semantics.
-6. Kernel P2: optimize TopK reduction after the ABI inputs are stable.
+1. Feature ABI Runtime Migration: add Kernel Planner preflight and prove no score/rank behavior change; do not silently bypass the ABI in fused backends.
+2. Runtime Envelope v1: add envelope writers to new artifacts without rewriting historical evidence.
+3. Unified Runtime Verifier: assemble History, Window, Candidate, and Feature verification into one verified runtime package.
+4. Evaluation Contract v1: freeze hit, rank, TopK, Red5, comparison, and mismatch classification semantics.
+5. Kernel P2: optimize TopK reduction after the ABI inputs are stable.
 
 Non-goals for this architecture document:
 
