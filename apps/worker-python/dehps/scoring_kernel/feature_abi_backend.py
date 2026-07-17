@@ -16,6 +16,7 @@ from dehps.runtime_envelope import (
     RuntimeEnvelopeVerifier,
     RuntimeState,
 )
+from dehps.unified_runtime import UnifiedRuntimeVerifier, VerifiedRuntimePackage
 from dehps.scoring_kernel.contracts import (
     SCORE_ROUND_DIGITS,
     STRICT_CONTRACT_VERSION,
@@ -30,10 +31,14 @@ from dehps.scoring_kernel.telemetry import record_kernel_telemetry
 
 @dataclass(frozen=True)
 class PreparedFeatureABIRuntime:
-    runtime: FeatureABIRuntime
+    verified_runtime: VerifiedRuntimePackage
     backend_name: str
     prepare_seconds: float
     runtime_envelope: RuntimeEnvelopeV1
+
+    @property
+    def runtime(self) -> FeatureABIRuntime:
+        return self.verified_runtime.runtime
 
 
 @dataclass(frozen=True)
@@ -52,19 +57,20 @@ class FeatureABINumpyReferenceBackend:
 
     def prepare(
         self,
-        runtime: FeatureABIRuntime,
+        verified_runtime: VerifiedRuntimePackage,
         *,
         code_commit: str,
     ) -> PreparedFeatureABIRuntime:
         started = time.perf_counter()
-        runtime.verify()
+        UnifiedRuntimeVerifier().verify_package(verified_runtime)
+        runtime = verified_runtime.runtime
         runtime_envelope = RuntimeEnvelopeCompiler().compile_kernel_ready(
-            runtime,
+            verified_runtime,
             backend=self.name,
             code_commit=code_commit,
         )
         return PreparedFeatureABIRuntime(
-            runtime=runtime,
+            verified_runtime=verified_runtime,
             backend_name=self.name,
             prepare_seconds=time.perf_counter() - started,
             runtime_envelope=runtime_envelope,
@@ -124,6 +130,7 @@ class FeatureABINumpyReferenceBackend:
         workspace: KernelWorkspace | None = None,
     ) -> KernelResult:
         workspace = workspace or KernelWorkspace()
+        UnifiedRuntimeVerifier().verify_package(prepared.verified_runtime)
         runtime = prepared.runtime
         runtime.verify()
         RuntimeEnvelopeVerifier().verify(
@@ -278,6 +285,9 @@ class FeatureABINumpyReferenceBackend:
             "feature_abi": str(feature_envelope["feature_abi"]),
             "feature_layout_digest": str(feature_envelope["layout_digest"]),
             "feature_runtime_digest": runtime.runtime_digest,
+            "runtime_verifier_version": prepared.verified_runtime.verifier_version,
+            "runtime_verification_digest": prepared.verified_runtime.verification_digest,
+            "verified_runtime_id": prepared.verified_runtime.verified_runtime_id,
             "window_artifact_digest": str(feature_envelope["window_artifact_digest"]),
             "target_context_digest": str(feature_envelope["target_context_digest"]),
             "window_id": request.window_id,

@@ -92,6 +92,7 @@ The explicit reference execution path is now:
 ```text
 CandidateABIPackage + FeatureABIPackage tiles
         -> FeatureABIRuntimeVerifier
+        -> UnifiedRuntimeVerifier -> VerifiedRuntimePackage
         -> KernelPlanner.prepare_feature_abi
         -> FeatureABINumpyReferenceBackend
         -> strict_v1 score / rank / TopK / Red5 result

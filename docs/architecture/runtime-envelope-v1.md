@@ -46,8 +46,8 @@ not depend on transient in-process state.
 
 ## Compiler
 
-`RuntimeEnvelopeCompiler.compile_kernel_ready()` accepts a verified `FeatureABIRuntime`, explicit
-backend, and full code commit. It:
+`RuntimeEnvelopeCompiler.compile_kernel_ready()` accepts only a sealed `VerifiedRuntimePackage`,
+explicit backend, and full code commit. Raw Feature ABI runtimes are rejected. It:
 
 1. re-verifies History Snapshot, Window Artifact, Candidate ABI, Feature ABI, tile coverage, and all
    cross-stage bindings;
@@ -84,8 +84,9 @@ This prevents a valid Window digest from being attached to a different History v
 New explicit Feature ABI KernelResults carry Runtime Envelope v1. Existing production predictions and
 historical artifacts remain under their original evidence contract and are not backfilled or rewritten.
 
-The next step is a Unified Runtime Verifier that returns one verified package to Kernel Planner,
-followed by Envelope propagation to exports, APIs, shadow reports, and evaluation artifacts.
+The Unified Runtime Verifier now returns one sealed package to Kernel Planner and the Envelope
+Compiler. The next step is Envelope propagation to exports, APIs, shadow reports, and evaluation
+artifacts.
 
 ## Non-goals
 

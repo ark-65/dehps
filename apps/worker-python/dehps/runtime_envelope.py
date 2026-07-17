@@ -20,6 +20,7 @@ from dehps.ranking_contract import STRICT_RANKING_CONTRACT
 
 if TYPE_CHECKING:
     from dehps.feature_runtime.runtime import FeatureABIRuntime
+    from dehps.unified_runtime import VerifiedRuntimePackage
 
 
 RUNTIME_ENVELOPE_VERSION = "runtime_envelope.v1"
@@ -310,12 +311,16 @@ def _contract_ref(value: Any, *, field: str) -> ContractRef:
 class RuntimeEnvelopeCompiler:
     def compile_kernel_ready(
         self,
-        runtime: FeatureABIRuntime,
+        verified_runtime: VerifiedRuntimePackage,
         *,
         backend: str,
         code_commit: str,
         artifact_type: str = "scoring_kernel_result",
     ) -> RuntimeEnvelopeV1:
+        from dehps.unified_runtime import UnifiedRuntimeVerifier
+
+        UnifiedRuntimeVerifier().verify_package(verified_runtime)
+        runtime = verified_runtime.runtime
         runtime.verify()
         history = runtime.history_snapshot
         window = runtime.window_artifact

@@ -13,11 +13,11 @@ from dehps.scoring_kernel.contracts import (
 from dehps.scoring_kernel.numpy_backend import NumpyReferenceBackend
 
 if TYPE_CHECKING:
-    from dehps.feature_runtime.runtime import FeatureABIRuntime
     from dehps.scoring_kernel.feature_abi_backend import (
         FeatureABINumpyReferenceBackend,
         PreparedFeatureABIRuntime,
     )
+    from dehps.unified_runtime import VerifiedRuntimePackage
 
 
 DEFAULT_BACKEND = "numpy_reference"
@@ -60,11 +60,14 @@ class KernelPlanner:
 
     def prepare_feature_abi(
         self,
-        runtime: FeatureABIRuntime,
+        verified_runtime: VerifiedRuntimePackage,
         *,
         code_commit: str,
     ) -> PreparedFeatureABIRuntime:
-        return self.feature_abi_backend().prepare(runtime, code_commit=code_commit)
+        return self.feature_abi_backend().prepare(
+            verified_runtime,
+            code_commit=code_commit,
+        )
 
     def score_rank_feature_abi(
         self,
