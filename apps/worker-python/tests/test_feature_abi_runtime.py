@@ -222,6 +222,30 @@ def test_feature_abi_runtime_matches_existing_reference_score_rank_topk_and_red5
     assert projection["envelope"]["envelope_digest"] == envelope.envelope_digest
 
 
+def test_feature_abi_topk_reduction_is_worker_invariant(feature_runtime_case) -> None:
+    runtime = _runtime(feature_runtime_case, tile_size=333)
+    planner = KernelPlanner("numpy_reference")
+    prepared = planner.prepare_feature_abi(_verified(runtime), code_commit=TEST_CODE_COMMIT)
+    serial = planner.score_rank_feature_abi(
+        prepared,
+        feature_runtime_case["weights"],
+        replace(feature_runtime_case["request"], worker_count=1),
+    )
+    parallel = planner.score_rank_feature_abi(
+        prepared,
+        feature_runtime_case["weights"],
+        replace(feature_runtime_case["request"], worker_count=3),
+    )
+
+    assert np.array_equal(parallel.exact_ranks, serial.exact_ranks)
+    assert np.array_equal(parallel.top_candidate_ids, serial.top_candidate_ids)
+    assert np.array_equal(parallel.top_scores, serial.top_scores)
+    assert np.array_equal(parallel.red5_candidate_ids, serial.red5_candidate_ids)
+    assert np.array_equal(parallel.red5_scores, serial.red5_scores)
+    assert np.array_equal(parallel.red5_ranks, serial.red5_ranks)
+    assert parallel.telemetry["topk_reduction_workers"] == 3
+
+
 def test_feature_abi_runtime_preflight_is_deterministic(feature_runtime_case) -> None:
     first = _runtime(feature_runtime_case, tile_size=500)
     second = _runtime(feature_runtime_case, tile_size=500)

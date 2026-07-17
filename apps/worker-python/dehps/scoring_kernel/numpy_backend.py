@@ -18,6 +18,11 @@ from dehps.scoring_kernel.contracts import (
     WeightMatrix,
 )
 from dehps.scoring_kernel.telemetry import record_kernel_telemetry
+from dehps.scoring_kernel.topk_reducer import (
+    TopKReducerPlanner,
+    TopKReductionPool,
+    ordered_topk as _ordered_topk,
+)
 from dehps.ranking_contract import STRICT_RANKING_CONTRACT
 
 
@@ -234,35 +239,6 @@ def component_tile(
     )
 
 
-def _ordered_topk(
-    candidate_ids: np.ndarray,
-    scores: np.ndarray,
-    top_k: int,
-) -> tuple[np.ndarray, np.ndarray]:
-    if top_k <= 0 or not len(candidate_ids):
-        return np.empty(0, dtype=np.int64), np.empty(0, dtype=np.float64)
-    limit = min(top_k, len(candidate_ids))
-    if limit < len(candidate_ids):
-        threshold = np.partition(scores, len(scores) - limit)[len(scores) - limit]
-        better = np.flatnonzero(scores > threshold)
-        equal = np.flatnonzero(scores == threshold)
-        remaining = limit - len(better)
-        if remaining < len(equal):
-            equal_ids = candidate_ids[equal]
-            chosen_equal = equal[np.argpartition(equal_ids, remaining - 1)[:remaining]]
-        else:
-            chosen_equal = equal
-        selected = np.concatenate((better, chosen_equal))
-    else:
-        selected = np.arange(len(candidate_ids), dtype=np.int64)
-    order = np.lexsort((candidate_ids[selected], -scores[selected]))
-    chosen = selected[order[:limit]]
-    return (
-        np.ascontiguousarray(candidate_ids[chosen], dtype=np.int64),
-        np.ascontiguousarray(scores[chosen], dtype=np.float64),
-    )
-
-
 class NumpyReferenceBackend:
     name = "numpy_reference"
     contract_version = STRICT_CONTRACT_VERSION
@@ -345,10 +321,6 @@ class NumpyReferenceBackend:
         effective_top_k = min(request.top_k, len(store))
         better = np.zeros(weights.config_count, dtype=np.int64)
         equal_before = np.zeros(weights.config_count, dtype=np.int64)
-        top_ids = [np.empty(0, dtype=np.int64) for _ in range(weights.config_count)]
-        top_scores = [np.empty(0, dtype=np.float64) for _ in range(weights.config_count)]
-        red5_ids = np.full(weights.config_count, -1, dtype=np.int64)
-        red5_scores = np.full(weights.config_count, -np.inf, dtype=np.float64)
         target_lex_ids = np.full(weights.config_count, request.target_lex_id, dtype=np.int64)
         chunk_count = 0
         feature_seconds = 0.0
@@ -357,60 +329,58 @@ class NumpyReferenceBackend:
         topk_merge_seconds = 0.0
         score_passes = 0
 
-        if not request.target_excluded or request.top_k or request.red5:
-            score_passes += 1
-            for start in range(0, len(store), request.chunk_size):
-                end = min(start + request.chunk_size, len(store))
-                tile = self._tile(
-                    store,
-                    window_state,
-                    weights.values,
-                    start,
-                    end,
-                    request.target_scores,
-                    target_lex_ids,
-                    request.exact_rank and not request.target_excluded,
-                    request.target_mask,
-                    request.red5,
-                    workspace,
-                )
-                feature_seconds += tile.feature_seconds
-                kernel_seconds += tile.kernel_seconds
-                rank_seconds += tile.rank_seconds
-                merge_started = time.perf_counter()
-                better += tile.better
-                equal_before += tile.equal_before
-                ids = np.arange(start, end, dtype=np.int64)
-                for config_index in range(weights.config_count):
-                    if effective_top_k:
-                        merged_ids = np.concatenate((top_ids[config_index], ids))
-                        merged_scores = np.concatenate(
-                            (top_scores[config_index], tile.scores[:, config_index])
-                        )
-                        top_ids[config_index], top_scores[config_index] = _ordered_topk(
-                            merged_ids, merged_scores, effective_top_k
-                        )
-                    if request.red5 and tile.red5_mask.any():
-                        local_ids, local_scores = _ordered_topk(
-                            ids[tile.red5_mask],
-                            tile.scores[tile.red5_mask, config_index],
-                            1,
-                        )
-                        merged_ids = np.concatenate(
-                            (np.array([red5_ids[config_index]], dtype=np.int64), local_ids)
-                        )
-                        merged_scores = np.concatenate(
-                            (np.array([red5_scores[config_index]], dtype=np.float64), local_scores)
-                        )
-                        valid = merged_ids >= 0
-                        chosen_ids, chosen_scores = _ordered_topk(
-                            merged_ids[valid], merged_scores[valid], 1
-                        )
-                        if len(chosen_ids):
-                            red5_ids[config_index] = chosen_ids[0]
-                            red5_scores[config_index] = chosen_scores[0]
-                topk_merge_seconds += time.perf_counter() - merge_started
-                chunk_count += 1
+        with TopKReductionPool(request.worker_count, weights.config_count) as reduction_pool:
+            reducer_planner = TopKReducerPlanner()
+            topk_reducer = reducer_planner.create(
+                config_count=weights.config_count,
+                top_k=effective_top_k,
+                tile_size=min(request.chunk_size, len(store)),
+                pool=reduction_pool,
+            )
+            red5_reducer = reducer_planner.create(
+                config_count=weights.config_count,
+                top_k=1,
+                tile_size=min(request.chunk_size, len(store)),
+                pool=reduction_pool,
+            )
+            if not request.target_excluded or request.top_k or request.red5:
+                score_passes += 1
+                for start in range(0, len(store), request.chunk_size):
+                    end = min(start + request.chunk_size, len(store))
+                    tile = self._tile(
+                        store,
+                        window_state,
+                        weights.values,
+                        start,
+                        end,
+                        request.target_scores,
+                        target_lex_ids,
+                        request.exact_rank and not request.target_excluded,
+                        request.target_mask,
+                        request.red5,
+                        workspace,
+                    )
+                    feature_seconds += tile.feature_seconds
+                    kernel_seconds += tile.kernel_seconds
+                    rank_seconds += tile.rank_seconds
+                    merge_started = time.perf_counter()
+                    better += tile.better
+                    equal_before += tile.equal_before
+                    ids = np.arange(start, end, dtype=np.int64)
+                    topk_reducer.consume(tile.scores, ids)
+                    if request.red5:
+                        red5_reducer.consume(tile.scores, ids, tile.red5_mask)
+                    topk_merge_seconds += time.perf_counter() - merge_started
+                    chunk_count += 1
+            merge_started = time.perf_counter()
+            topk_result = topk_reducer.finalize()
+            red5_result = red5_reducer.finalize()
+            topk_merge_seconds += time.perf_counter() - merge_started
+
+        top_id_matrix = topk_result.candidate_ids
+        top_score_matrix = topk_result.scores
+        red5_ids = red5_result.candidate_ids[:, 0]
+        red5_scores = red5_result.scores[:, 0]
 
         if request.target_excluded and request.exact_rank:
             exact_ranks = np.full(weights.config_count, len(store) + 1, dtype=np.int64)
@@ -447,17 +417,6 @@ class NumpyReferenceBackend:
                 chunk_count += 1
             valid = red5_ids >= 0
             red5_ranks[valid] = red5_better[valid] + red5_equal[valid] + 1
-
-        top_id_matrix = np.full(
-            (weights.config_count, effective_top_k), -1, dtype=np.int64
-        )
-        top_score_matrix = np.full(
-            (weights.config_count, effective_top_k), -np.inf, dtype=np.float64
-        )
-        for config_index in range(weights.config_count):
-            count = len(top_ids[config_index])
-            top_id_matrix[config_index, :count] = top_ids[config_index]
-            top_score_matrix[config_index, :count] = top_scores[config_index]
 
         wall_seconds = time.perf_counter() - started_wall
         cpu_seconds = time.process_time() - started_cpu
@@ -496,6 +455,12 @@ class NumpyReferenceBackend:
             "kernel_time": kernel_seconds,
             "rank_time": rank_seconds,
             "topk_merge_time": topk_merge_seconds,
+            "topk_reducer": topk_result.algorithm,
+            "topk_reduction_workers": reduction_pool.worker_count,
+            "topk_shard_count": topk_result.shard_count,
+            "topk_merge_levels": topk_result.merge_levels,
+            "topk_workspace_bytes_estimate": topk_result.workspace_bytes_estimate,
+            "red5_reducer": red5_result.algorithm,
             "wall_time": wall_seconds,
             "cpu_time": cpu_seconds,
             "peak_rss": int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss),
@@ -509,7 +474,10 @@ class NumpyReferenceBackend:
                 * score_passes
             ),
             "workspace_bytes_estimate": int(
-                score_workspace_bytes + component_workspace_bytes
+                score_workspace_bytes
+                + component_workspace_bytes
+                + topk_result.workspace_bytes_estimate
+                + red5_result.workspace_bytes_estimate
             ),
         }
         result = KernelResult(
