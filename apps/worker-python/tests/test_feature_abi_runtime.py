@@ -34,6 +34,11 @@ from dehps.runtime_envelope import (
     RuntimeEnvelopeViolation,
     RuntimeState,
 )
+from dehps.unified_runtime import (
+    RuntimeVerificationViolation,
+    UnifiedRuntimeVerifier,
+    VerifiedRuntimePackage,
+)
 
 
 TEST_CODE_COMMIT = "a" * 40
@@ -142,6 +147,10 @@ def _legacy_result(case):
     )
 
 
+def _verified(runtime: FeatureABIRuntime) -> VerifiedRuntimePackage:
+    return UnifiedRuntimeVerifier().verify(runtime)
+
+
 def _result_payload_digest(result, *, top_candidate_ids=None) -> str:
     return kernel_result_payload_digest(
         target_scores=result.target_scores,
@@ -165,7 +174,7 @@ def test_feature_abi_runtime_matches_existing_reference_score_rank_topk_and_red5
     planner = KernelPlanner("numpy_reference")
 
     result = planner.score_rank_feature_abi(
-        planner.prepare_feature_abi(runtime, code_commit=TEST_CODE_COMMIT),
+        planner.prepare_feature_abi(_verified(runtime), code_commit=TEST_CODE_COMMIT),
         feature_runtime_case["weights"],
         feature_runtime_case["request"],
         KernelWorkspace(),
@@ -183,6 +192,11 @@ def test_feature_abi_runtime_matches_existing_reference_score_rank_topk_and_red5
     assert result.telemetry["feature_abi"] == "feature_abi.v1"
     assert result.telemetry["candidate_identity_id_kind"] == "candidate_abi_row_index"
     assert result.telemetry["feature_runtime_digest"] == runtime.runtime_digest
+    assert result.telemetry["runtime_verifier_version"] == "unified_runtime_verifier.v1"
+    assert result.telemetry["runtime_verification_digest"] == (
+        _verified(runtime).verification_digest
+    )
+    assert result.telemetry["verified_runtime_id"] == _verified(runtime).verified_runtime_id
     envelope = RuntimeEnvelopeV1.from_dict(result.runtime_envelope)
     assert envelope.state is RuntimeState.ARTIFACT_PRODUCED
     assert envelope.state_path == tuple(RuntimeState)
@@ -241,7 +255,7 @@ def test_planner_refuses_to_label_unmigrated_fused_backend_as_feature_abi(
 
     with pytest.raises(FeatureRuntimeViolation, match="feature_abi_backend_not_migrated"):
         KernelPlanner("numba_cpu").prepare_feature_abi(
-            runtime,
+            _verified(runtime),
             code_commit=TEST_CODE_COMMIT,
         )
 
@@ -249,7 +263,7 @@ def test_planner_refuses_to_label_unmigrated_fused_backend_as_feature_abi(
 def test_planner_rejects_prepared_runtime_from_another_backend(feature_runtime_case) -> None:
     runtime = _runtime(feature_runtime_case, tile_size=1_000)
     planner = KernelPlanner("numpy_reference")
-    prepared = planner.prepare_feature_abi(runtime, code_commit=TEST_CODE_COMMIT)
+    prepared = planner.prepare_feature_abi(_verified(runtime), code_commit=TEST_CODE_COMMIT)
 
     with pytest.raises(FeatureRuntimeViolation, match="feature_abi_prepared_backend_mismatch"):
         planner.score_rank_feature_abi(
@@ -272,7 +286,7 @@ def test_feature_abi_runtime_preserves_strict_tie_order(feature_runtime_case) ->
     )
 
     result = planner.score_rank_feature_abi(
-        planner.prepare_feature_abi(runtime, code_commit=TEST_CODE_COMMIT),
+        planner.prepare_feature_abi(_verified(runtime), code_commit=TEST_CODE_COMMIT),
         weights,
         request,
     )
@@ -287,7 +301,7 @@ def test_runtime_envelope_state_machine_is_sequential_and_fail_closed(
 ) -> None:
     runtime = _runtime(feature_runtime_case, tile_size=750)
     ready = RuntimeEnvelopeCompiler().compile_kernel_ready(
-        runtime,
+        _verified(runtime),
         backend="feature_abi_numpy_reference",
         code_commit=TEST_CODE_COMMIT,
     )
@@ -319,13 +333,13 @@ def test_runtime_envelope_rejects_invalid_commit_binding_and_serialized_tamperin
 
     with pytest.raises(RuntimeEnvelopeViolation, match="runtime_code_commit_invalid"):
         RuntimeEnvelopeCompiler().compile_kernel_ready(
-            runtime,
+            _verified(runtime),
             backend="feature_abi_numpy_reference",
             code_commit="short-sha",
         )
 
     ready = RuntimeEnvelopeCompiler().compile_kernel_ready(
-        runtime,
+        _verified(runtime),
         backend="feature_abi_numpy_reference",
         code_commit=TEST_CODE_COMMIT,
     )
@@ -347,7 +361,7 @@ def test_runtime_envelope_detects_detached_kernel_result_mutation(feature_runtim
     runtime = _runtime(feature_runtime_case, tile_size=750)
     planner = KernelPlanner("numpy_reference")
     result = planner.score_rank_feature_abi(
-        planner.prepare_feature_abi(runtime, code_commit=TEST_CODE_COMMIT),
+        planner.prepare_feature_abi(_verified(runtime), code_commit=TEST_CODE_COMMIT),
         feature_runtime_case["weights"],
         feature_runtime_case["request"],
     )
@@ -369,7 +383,7 @@ def test_runtime_envelope_backend_binding_is_rechecked_at_execution(
 ) -> None:
     runtime = _runtime(feature_runtime_case, tile_size=750)
     planner = KernelPlanner("numpy_reference")
-    prepared = planner.prepare_feature_abi(runtime, code_commit=TEST_CODE_COMMIT)
+    prepared = planner.prepare_feature_abi(_verified(runtime), code_commit=TEST_CODE_COMMIT)
     wrong_envelope = replace(prepared.runtime_envelope, backend="other_backend")
 
     with pytest.raises(RuntimeEnvelopeViolation, match="runtime_backend_mismatch"):
@@ -388,3 +402,63 @@ def test_feature_runtime_rejects_history_window_snapshot_mismatch(feature_runtim
 
     with pytest.raises(FeatureRuntimeViolation, match="feature_runtime_history_window_binding_mismatch"):
         replace(runtime, history_snapshot=shorter).verify()
+
+
+def test_unified_runtime_verifier_mints_a_deterministic_sealed_package(
+    feature_runtime_case,
+) -> None:
+    runtime = _runtime(feature_runtime_case, tile_size=750)
+
+    first = UnifiedRuntimeVerifier().verify(runtime)
+    second = UnifiedRuntimeVerifier().verify(runtime)
+
+    assert first.verification_digest == second.verification_digest
+    assert first.verified_runtime_id == second.verified_runtime_id
+    assert first.as_dict() == second.as_dict()
+    assert first.as_dict()["runtime_digest"] == runtime.runtime_digest
+    UnifiedRuntimeVerifier().verify_package(first)
+
+
+def test_kernel_and_envelope_compilers_reject_raw_unverified_runtime(
+    feature_runtime_case,
+) -> None:
+    runtime = _runtime(feature_runtime_case, tile_size=750)
+
+    with pytest.raises(RuntimeVerificationViolation, match="runtime_package_not_verified"):
+        KernelPlanner("numpy_reference").prepare_feature_abi(
+            runtime,  # type: ignore[arg-type]
+            code_commit=TEST_CODE_COMMIT,
+        )
+
+    with pytest.raises(RuntimeVerificationViolation, match="runtime_package_not_verified"):
+        RuntimeEnvelopeCompiler().compile_kernel_ready(
+            runtime,  # type: ignore[arg-type]
+            backend="feature_abi_numpy_reference",
+            code_commit=TEST_CODE_COMMIT,
+        )
+
+
+def test_unified_runtime_verifier_rejects_seal_and_payload_drift(
+    feature_runtime_case,
+) -> None:
+    runtime = _runtime(feature_runtime_case, tile_size=750)
+    verified = _verified(runtime)
+
+    with pytest.raises(RuntimeVerificationViolation, match="runtime_verification_seal_mismatch"):
+        UnifiedRuntimeVerifier().verify_package(
+            replace(verified, verification_digest="0" * 64)
+        )
+
+    runtime.feature_tiles[0].values[0, 0] += 0.25
+    with pytest.raises(RuntimeVerificationViolation, match="runtime_stage_verification_failed"):
+        UnifiedRuntimeVerifier().verify_package(verified)
+
+
+def test_unified_runtime_seal_cannot_be_reused_for_another_runtime(
+    feature_runtime_case,
+) -> None:
+    first = _verified(_runtime(feature_runtime_case, tile_size=750))
+    other_runtime = _runtime(feature_runtime_case, tile_size=600)
+
+    with pytest.raises(RuntimeVerificationViolation, match="runtime_verification_seal_mismatch"):
+        UnifiedRuntimeVerifier().verify_package(replace(first, runtime=other_runtime))

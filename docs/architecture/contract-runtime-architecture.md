@@ -194,6 +194,7 @@ This envelope is not a replacement for stage envelopes. A stage envelope carries
 | Feature Contract / Compiler | Reference compiler implemented | `feature.v1.0.0`, component manifest, golden vector, verified Window/Candidate input binding, deterministic Feature Artifact, fail-closed artifact verifier |
 | Feature ABI Runtime | Reference execution integrated | `feature_abi.v1`, tile-local dense `float64[R,32]`, joint Candidate/Feature preflight, explicit Kernel Planner entry, strict score/rank/TopK/Red5 reference execution; fused Numba remains unapproved for this entry |
 | Runtime Envelope | Reference KernelResult integrated | `runtime_envelope.v1`, full History/Window/Candidate/Feature/Scoring/Ranking/code binding, canonical state path, detached payload verification; legacy artifacts are not rewritten |
+| Unified Runtime Verifier | Reference path enforced | `unified_runtime_verifier.v1` mints sealed `verified_runtime_package.v1`; Planner and Envelope Compiler reject raw runtime inputs |
 | Scoring Contract | Implemented | `dehps-scoring-strict-v1` |
 | Ranking Contract | Implemented | `legacy_score_partition` compatibility and `strict_v1` |
 | Evaluation Contract | Later | hit, TopK, Red5, rank, score, and comparison semantics |
@@ -246,11 +247,10 @@ This is the boundary that lets NumPy, Numba, SIMD, CUDA, OpenCL, and future nati
 
 The next migration rounds should be staged as:
 
-1. Unified Runtime Verifier: replace stage-specific orchestration with one verified runtime package consumed by Kernel Planner.
-2. Runtime Envelope propagation: carry v1 through exports, APIs, shadow reports, and later evaluation artifacts without historical backfill.
-3. Fused backend migration: define and verify the Numba tile producer against Feature ABI before claiming compliance or changing defaults.
-4. Evaluation Contract v1: freeze hit, rank, TopK, Red5, comparison, and mismatch classification semantics.
-5. Kernel P2: optimize TopK reduction after the ABI inputs are stable.
+1. Runtime Envelope propagation: carry v1 through exports, APIs, shadow reports, and later evaluation artifacts without historical backfill.
+2. Fused backend migration: define and verify the Numba tile producer against Feature ABI before claiming compliance or changing defaults.
+3. Evaluation Contract v1: freeze hit, rank, TopK, Red5, comparison, and mismatch classification semantics.
+4. Kernel P2: optimize TopK reduction after the ABI inputs are stable.
 
 Non-goals for this architecture document:
 
