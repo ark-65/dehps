@@ -1,0 +1,236 @@
+from __future__ import annotations
+
+from dataclasses import replace
+import itertools
+
+import numpy as np
+import pytest
+
+from dehps.feature_runtime import (
+    FeatureABICompiler,
+    FeatureABIRuntime,
+    FeatureCompileRequest,
+    FeatureCompiler,
+    FeatureRuntimeViolation,
+)
+from dehps.input_contracts import HistorySnapshotArtifact, WindowMode, WindowSpec
+from dehps.models.frequency_ranker import FrequencyRankerConfig, train_frequency_stats
+from dehps.optimization.walk_forward import _config_weight_matrix, build_ranked_universe
+from dehps.scoring_kernel import (
+    KernelPlanner,
+    KernelRequest,
+    KernelWorkspace,
+    WeightMatrix,
+    candidate_store_from_matrix,
+    numbers_mask,
+    pack_window_state,
+)
+from dehps.scoring_kernel.numpy_backend import NumpyReferenceBackend, component_tile
+
+
+@pytest.fixture(scope="module")
+def feature_runtime_case():
+    candidates = list(itertools.islice(itertools.combinations(range(1, 34), 6), 3_000))
+    matrix = build_ranked_universe(
+        candidates,
+        use_cache=False,
+        include_hard_filter_exclusions=True,
+    )
+    history = [
+        (f"2025{index:03d}", tuple(int(number) for number in row))
+        for index, row in enumerate(matrix.numbers[100:2_100:40], start=1)
+    ]
+    snapshot = HistorySnapshotArtifact.from_history(history)
+    window = WindowSpec(
+        mode=WindowMode.EXPANDING,
+        as_of_issue=history[-1][0],
+        include_as_of=True,
+        size=None,
+        target_issue="2026051",
+    ).materialize(snapshot)
+    store = candidate_store_from_matrix(matrix)
+    stats = train_frequency_stats([record.as_history_draw() for record in window.records])
+    state = pack_window_state(stats)
+    configs = (
+        FrequencyRankerConfig(),
+        FrequencyRankerConfig(
+            structural_weight=0.0,
+            frequency_weight=0.45,
+            omission_weight=0.35,
+            previous_overlap_weight=-0.1,
+            recent_neighbor_weight=0.2,
+            qian_kun_pattern_weight=0.1,
+        ),
+        FrequencyRankerConfig(
+            structural_weight=0.23,
+            frequency_weight=-0.17,
+            omission_weight=0.31,
+            stable_range_weight=0.19,
+            short_hot_frequency_weight=0.11,
+            long_omission_cooldown_weight=-0.07,
+        ),
+    )
+    weights = WeightMatrix(np.ascontiguousarray(_config_weight_matrix(configs)))
+    target_id = len(store) // 2
+    target_scores = np.ascontiguousarray(
+        np.round(component_tile(store, state, target_id, target_id + 1)[0] @ weights.values.T, 8),
+        dtype=np.float64,
+    )
+    target_numbers = tuple(int(number) for number in store.numbers[target_id])
+    request = KernelRequest(
+        target_scores=target_scores,
+        target_lex_id=target_id,
+        target_mask=numbers_mask(target_numbers),
+        top_k=127,
+        chunk_size=333,
+        worker_count=1,
+        exact_rank=True,
+        red5=True,
+        window_id=91,
+    )
+    return {
+        "window": window,
+        "store": store,
+        "state": state,
+        "weights": weights,
+        "request": request,
+    }
+
+
+def _runtime(case, *, tile_size: int) -> FeatureABIRuntime:
+    store = case["store"]
+    tiles = []
+    for start in range(0, len(store), tile_size):
+        artifact = FeatureCompiler().compile(
+            FeatureCompileRequest(
+                window=case["window"],
+                candidate_store=store,
+                start=start,
+                end=min(start + tile_size, len(store)),
+            )
+        )
+        tiles.append(FeatureABICompiler().compile(artifact))
+    assert store.candidate_abi_package is not None
+    return FeatureABIRuntime(
+        candidate_package=store.candidate_abi_package,
+        feature_tiles=tuple(tiles),
+    )
+
+
+def _legacy_result(case):
+    backend = NumpyReferenceBackend()
+    return backend.score_rank(
+        backend.prepare(case["store"]),
+        case["state"],
+        case["weights"],
+        case["request"],
+        KernelWorkspace(),
+    )
+
+
+@pytest.mark.parametrize("tile_size", [127, 777])
+def test_feature_abi_runtime_matches_existing_reference_score_rank_topk_and_red5(
+    feature_runtime_case,
+    tile_size,
+) -> None:
+    runtime = _runtime(feature_runtime_case, tile_size=tile_size)
+    planner = KernelPlanner("numpy_reference")
+
+    result = planner.score_rank_feature_abi(
+        planner.prepare_feature_abi(runtime),
+        feature_runtime_case["weights"],
+        feature_runtime_case["request"],
+        KernelWorkspace(),
+    )
+    legacy = _legacy_result(feature_runtime_case)
+
+    assert result.backend == "feature_abi_numpy_reference"
+    assert np.array_equal(result.target_scores, legacy.target_scores)
+    assert np.array_equal(result.exact_ranks, legacy.exact_ranks)
+    assert np.array_equal(result.top_candidate_ids, legacy.top_candidate_ids)
+    assert np.array_equal(result.top_scores, legacy.top_scores)
+    assert np.array_equal(result.red5_candidate_ids, legacy.red5_candidate_ids)
+    assert np.array_equal(result.red5_scores, legacy.red5_scores)
+    assert np.array_equal(result.red5_ranks, legacy.red5_ranks)
+    assert result.telemetry["feature_abi"] == "feature_abi.v1"
+    assert result.telemetry["candidate_identity_id_kind"] == "candidate_abi_row_index"
+    assert result.telemetry["feature_runtime_digest"] == runtime.runtime_digest
+
+
+def test_feature_abi_runtime_preflight_is_deterministic(feature_runtime_case) -> None:
+    first = _runtime(feature_runtime_case, tile_size=500)
+    second = _runtime(feature_runtime_case, tile_size=500)
+
+    first.verify()
+    second.verify()
+    assert first.runtime_digest == second.runtime_digest
+
+
+def test_feature_abi_runtime_rejects_incomplete_or_misbound_tiles(feature_runtime_case) -> None:
+    runtime = _runtime(feature_runtime_case, tile_size=500)
+
+    with pytest.raises(FeatureRuntimeViolation, match="feature_runtime_incomplete_coverage"):
+        replace(runtime, feature_tiles=runtime.feature_tiles[:-1]).verify()
+
+    first = runtime.feature_tiles[0]
+    wrong_header = replace(first.header, candidate_package_digest="0" * 64)
+    wrong_first = replace(first, header=wrong_header)
+    with pytest.raises(FeatureRuntimeViolation, match="feature_runtime_candidate_binding_mismatch"):
+        replace(runtime, feature_tiles=(wrong_first, *runtime.feature_tiles[1:])).verify()
+
+
+def test_feature_abi_runtime_rejects_context_drift_between_tiles(feature_runtime_case) -> None:
+    runtime = _runtime(feature_runtime_case, tile_size=500)
+    second = runtime.feature_tiles[1]
+    wrong_header = replace(second.header, target_context_digest="5" * 64)
+
+    with pytest.raises(FeatureRuntimeViolation, match="feature_runtime_context_mismatch"):
+        replace(
+            runtime,
+            feature_tiles=(runtime.feature_tiles[0], replace(second, header=wrong_header), *runtime.feature_tiles[2:]),
+        ).verify()
+
+
+def test_planner_refuses_to_label_unmigrated_fused_backend_as_feature_abi(
+    feature_runtime_case,
+) -> None:
+    runtime = _runtime(feature_runtime_case, tile_size=1_000)
+
+    with pytest.raises(FeatureRuntimeViolation, match="feature_abi_backend_not_migrated"):
+        KernelPlanner("numba_cpu").prepare_feature_abi(runtime)
+
+
+def test_planner_rejects_prepared_runtime_from_another_backend(feature_runtime_case) -> None:
+    runtime = _runtime(feature_runtime_case, tile_size=1_000)
+    planner = KernelPlanner("numpy_reference")
+    prepared = planner.prepare_feature_abi(runtime)
+
+    with pytest.raises(FeatureRuntimeViolation, match="feature_abi_prepared_backend_mismatch"):
+        planner.score_rank_feature_abi(
+            replace(prepared, backend_name="unverified_backend"),
+            feature_runtime_case["weights"],
+            feature_runtime_case["request"],
+        )
+
+
+def test_feature_abi_runtime_preserves_strict_tie_order(feature_runtime_case) -> None:
+    runtime = _runtime(feature_runtime_case, tile_size=700)
+    planner = KernelPlanner("numpy_reference")
+    target_id = feature_runtime_case["request"].target_lex_id
+    weights = WeightMatrix(np.zeros((1, 32), dtype=np.float64))
+    request = replace(
+        feature_runtime_case["request"],
+        target_scores=np.zeros(1, dtype=np.float64),
+        top_k=10,
+        red5=False,
+    )
+
+    result = planner.score_rank_feature_abi(
+        planner.prepare_feature_abi(runtime),
+        weights,
+        request,
+    )
+
+    assert result.exact_ranks.tolist() == [target_id + 1]
+    assert result.top_candidate_ids.tolist() == [list(range(10))]
+    assert result.top_scores.tolist() == [[0.0] * 10]

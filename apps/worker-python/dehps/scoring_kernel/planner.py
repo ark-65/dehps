@@ -1,9 +1,23 @@
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
 
-from dehps.scoring_kernel.contracts import ScoringKernelBackend
+from dehps.scoring_kernel.contracts import (
+    KernelRequest,
+    KernelResult,
+    KernelWorkspace,
+    ScoringKernelBackend,
+    WeightMatrix,
+)
 from dehps.scoring_kernel.numpy_backend import NumpyReferenceBackend
+
+if TYPE_CHECKING:
+    from dehps.feature_runtime.runtime import FeatureABIRuntime
+    from dehps.scoring_kernel.feature_abi_backend import (
+        FeatureABINumpyReferenceBackend,
+        PreparedFeatureABIRuntime,
+    )
 
 
 DEFAULT_BACKEND = "numpy_reference"
@@ -31,3 +45,37 @@ class KernelPlanner:
 
             return NumbaCpuBackend()
         raise AssertionError(f"unreachable backend: {self.backend_name}")
+
+    def feature_abi_backend(self) -> FeatureABINumpyReferenceBackend:
+        from dehps.feature_runtime.compiler import FeatureRuntimeViolation
+        from dehps.scoring_kernel.feature_abi_backend import FeatureABINumpyReferenceBackend
+
+        if self.backend_name != "numpy_reference":
+            raise FeatureRuntimeViolation(
+                "feature_abi_backend_not_migrated",
+                "the selected fused backend has no verified Feature ABI execution path",
+                backend=self.backend_name,
+            )
+        return FeatureABINumpyReferenceBackend()
+
+    def prepare_feature_abi(self, runtime: FeatureABIRuntime) -> PreparedFeatureABIRuntime:
+        return self.feature_abi_backend().prepare(runtime)
+
+    def score_rank_feature_abi(
+        self,
+        prepared: PreparedFeatureABIRuntime,
+        weights: WeightMatrix,
+        request: KernelRequest,
+        workspace: KernelWorkspace | None = None,
+    ) -> KernelResult:
+        from dehps.feature_runtime.compiler import FeatureRuntimeViolation
+
+        backend = self.feature_abi_backend()
+        if prepared.backend_name != backend.name:
+            raise FeatureRuntimeViolation(
+                "feature_abi_prepared_backend_mismatch",
+                "prepared Feature ABI runtime belongs to another backend",
+                prepared_backend=prepared.backend_name,
+                selected_backend=backend.name,
+            )
+        return backend.score_rank(prepared, weights, request, workspace)

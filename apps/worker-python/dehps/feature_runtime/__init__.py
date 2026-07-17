@@ -22,6 +22,7 @@ from dehps.feature_runtime.compiler import (
     FeatureRuntimeViolation,
     feature_array_digest,
 )
+from dehps.feature_runtime.runtime import FeatureABIRuntime, FeatureABIRuntimeVerifier
 
 __all__ = [
     "FEATURE_ABI_GOLDEN_SUITE",
@@ -33,6 +34,8 @@ __all__ = [
     "FeatureABICompiler",
     "FeatureABIHeader",
     "FeatureABIPackage",
+    "FeatureABIRuntime",
+    "FeatureABIRuntimeVerifier",
     "FeatureABIVerifier",
     "FeatureArtifactHeader",
     "FeatureArtifactVerifier",
