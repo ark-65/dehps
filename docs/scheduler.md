@@ -1,12 +1,12 @@
 # Scheduler
 
-双色球在[中国福彩网官方开奖页](https://www.cwl.gov.cn/ygkj/wqkjgg/)标注为每周二、四、日 21:15 开奖。为了避免页面延迟，项目固定在北京时间 23:59 执行正式同步。
+双色球在[中国福彩网官方开奖页](https://www.cwl.gov.cn/ygkj/wqkjgg/)标注为每周二、四、日 21:15 开奖。项目在开奖后预留 30 分钟，固定于北京时间 21:45 执行正式同步；如果数据源尚未更新，常驻轮询与恢复链路继续补偿，以实际更新为准。
 
 ## Crontab
 
 ```cron
 CRON_TZ=Asia/Shanghai
-59 23 * * 2,4,0 cd /path/to/ark-dehps/apps/worker-python && /usr/bin/flock -n /path/to/ark-dehps/runtime/logs/ssq_draw_sync.lock /path/to/ark-dehps/apps/worker-python/.venv/bin/python -m scripts.daily_pipeline --strategy-key baseline_v1 --source zhcw --force >> /path/to/ark-dehps/runtime/logs/ssq_draw_sync.log 2>&1
+45 21 * * 2,4,0 cd /path/to/ark-dehps/apps/worker-python && /usr/bin/flock -n /path/to/ark-dehps/runtime/logs/ssq_draw_sync.lock /path/to/ark-dehps/apps/worker-python/.venv/bin/python -m scripts.daily_pipeline --strategy-key baseline_v1 --source zhcw --force >> /path/to/ark-dehps/runtime/logs/ssq_draw_sync.log 2>&1
 ```
 
 ## systemd
