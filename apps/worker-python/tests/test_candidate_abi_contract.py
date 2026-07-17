@@ -134,6 +134,44 @@ def test_compiler_emits_the_frozen_soa_layout_and_verifier_accepts_it() -> None:
     assert package.lex_id.strides == (4,)
 
 
+def test_verifier_reuses_only_a_payload_bound_semantic_receipt() -> None:
+    CandidateABIVerifier.clear_cache()
+    package = golden_package()
+    equivalent_package = golden_package()
+
+    first = CandidateABIVerifier().verify(package)
+    second = CandidateABIVerifier().verify(equivalent_package)
+
+    # The compiler performs the first full proof; all later verifier instances may
+    # reuse it only after recomputing and matching every buffer digest.
+    assert first.cache_hit is True
+    assert second.cache_hit is True
+    assert first.verification_digest == second.verification_digest
+    assert package is not equivalent_package
+    assert first.package_digest == package.package_digest
+    assert first.row_count == 3
+    assert first.payload_bytes == (
+        package.numbers.nbytes + package.mask.nbytes + package.lex_id.nbytes
+    )
+
+
+def test_cached_verification_rejects_payload_drift_instead_of_trusting_object_identity() -> None:
+    CandidateABIVerifier.clear_cache()
+    package = golden_package()
+    assert CandidateABIVerifier().verify(package).cache_hit is True
+
+    original = int(package.numbers[0, -1])
+    package.numbers[0, -1] = original + 1
+    try:
+        with pytest.raises(CandidateContractViolation) as error:
+            CandidateABIVerifier().verify(package)
+        assert error.value.code == "candidate_buffer_metadata_mismatch"
+    finally:
+        package.numbers[0, -1] = original
+
+    assert CandidateABIVerifier().verify(package).cache_hit is True
+
+
 def test_recompiling_the_same_manifests_is_byte_reproducible() -> None:
     first = golden_package()
     second = golden_package()

@@ -245,11 +245,12 @@ class NumpyReferenceBackend:
 
     def prepare(self, candidate_store: CandidateStore) -> PreparedCandidateStore:
         started = time.perf_counter()
-        candidate_store.validate()
+        verification = candidate_store.validate()
         return PreparedCandidateStore(
             store=candidate_store,
             backend_name=self.name,
             prepare_seconds=time.perf_counter() - started,
+            candidate_abi_verification=verification,
         )
 
     def _tile(
@@ -443,6 +444,16 @@ class NumpyReferenceBackend:
             "candidate_digest": str(candidate_envelope["candidate_digest"]),
             "candidate_layout_digest": str(candidate_envelope["layout_digest"]),
             "candidate_package_digest": str(candidate_envelope["package_digest"]),
+            "candidate_abi_verification_id": (
+                prepared_store.candidate_abi_verification.verified_candidate_id
+                if prepared_store.candidate_abi_verification is not None
+                else "unavailable"
+            ),
+            "candidate_abi_verification_cache_hit": int(
+                prepared_store.candidate_abi_verification.cache_hit
+                if prepared_store.candidate_abi_verification is not None
+                else False
+            ),
             "candidate_identity_id_kind": "candidate_store_row_index",
             "window_id": request.window_id,
             "config_count": weights.config_count,

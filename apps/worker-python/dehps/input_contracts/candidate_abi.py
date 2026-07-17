@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import math
 import struct
+import threading
+from collections import OrderedDict
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from hashlib import sha256
 from typing import Any
 
@@ -491,6 +493,29 @@ class CandidateABIPackage:
         )
 
 
+@dataclass(frozen=True)
+class CandidateABIVerification:
+    """A payload-bound proof that the expensive Candidate ABI semantics passed."""
+
+    verifier_version: str
+    package_digest: str
+    verification_digest: str
+    row_count: int
+    payload_bytes: int
+    cache_hit: bool
+
+    @property
+    def verified_candidate_id(self) -> str:
+        return f"verified_candidate.v1-{self.verification_digest[:16]}"
+
+
+@dataclass(frozen=True)
+class _CandidateVerificationCacheEntry:
+    header_digest: str
+    buffer_metadata: tuple[CandidateBufferMetadata, ...]
+    verification: CandidateABIVerification
+
+
 def _buffer_digest(name: str, array: np.ndarray) -> str:
     return _binary_digest(array.tobytes(order="C"), domain=f"dehps.candidate-abi.buffer.{name}.v1")
 
@@ -641,7 +666,12 @@ def _candidate_manifest_digest_from_numbers(
 class CandidateABIVerifier:
     """Fail-closed verifier for Candidate ABI packages; it never coerces or repairs buffers."""
 
-    def verify(self, package: CandidateABIPackage) -> None:
+    verifier_version = "candidate_abi_verifier.v1"
+    _cache_capacity = 64
+    _cache: OrderedDict[str, _CandidateVerificationCacheEntry] = OrderedDict()
+    _cache_lock = threading.RLock()
+
+    def verify(self, package: CandidateABIPackage) -> CandidateABIVerification:
         header = package.header
         if header.abi_version != CANDIDATE_ABI_VERSION:
             self._reject("unsupported_candidate_abi_version", "unsupported Candidate ABI version")
@@ -696,6 +726,15 @@ class CandidateABIVerifier:
         if header.payload_digest != _payload_digest(recomputed_metadata):
             self._reject("candidate_payload_digest_mismatch", "payload digest does not match buffers")
 
+        # Buffer digests are deliberately recomputed on every call. This O(payload bytes)
+        # seal check detects mutation while avoiding another O(rows) Python semantic pass.
+        cached = self._cached_verification(
+            package,
+            buffer_metadata=tuple(recomputed_metadata),
+        )
+        if cached is not None:
+            return cached
+
         previous_lex_id: int | None = None
         for row_index in range(header.row_count):
             numbers = tuple(int(value) for value in package.numbers[row_index])
@@ -717,6 +756,78 @@ class CandidateABIVerifier:
         expected_candidate_digest = _candidate_manifest_digest_from_numbers(package.numbers, universe=universe)
         if header.candidate_digest != expected_candidate_digest:
             self._reject("candidate_digest_mismatch", "candidate digest does not match canonical rows")
+
+        verification = CandidateABIVerification(
+            verifier_version=self.verifier_version,
+            package_digest=package.package_digest,
+            verification_digest=canonical_digest(
+                {
+                    "verifier_version": self.verifier_version,
+                    "header_digest": header.header_digest,
+                    "package_digest": package.package_digest,
+                    "buffer_metadata": [item.identity_payload() for item in recomputed_metadata],
+                },
+                domain="dehps.candidate-abi-verification.v1",
+            ),
+            row_count=header.row_count,
+            payload_bytes=sum(item.byte_length for item in recomputed_metadata),
+            cache_hit=False,
+        )
+        self._remember_verification(
+            package,
+            buffer_metadata=tuple(recomputed_metadata),
+            verification=verification,
+        )
+        return verification
+
+    @classmethod
+    def clear_cache(cls) -> None:
+        """Clear process-local verification receipts; intended for isolation and tests."""
+
+        with cls._cache_lock:
+            cls._cache.clear()
+
+    @classmethod
+    def _cached_verification(
+        cls,
+        package: CandidateABIPackage,
+        *,
+        buffer_metadata: tuple[CandidateBufferMetadata, ...],
+    ) -> CandidateABIVerification | None:
+        cache_key = package.package_digest
+        with cls._cache_lock:
+            entry = cls._cache.get(cache_key)
+            if entry is None:
+                return None
+            if (
+                entry.header_digest != package.header.header_digest
+                or entry.buffer_metadata != buffer_metadata
+                or entry.verification.package_digest != package.package_digest
+            ):
+                cls._cache.pop(cache_key, None)
+                return None
+            cls._cache.move_to_end(cache_key)
+            return replace(entry.verification, cache_hit=True)
+
+    @classmethod
+    def _remember_verification(
+        cls,
+        package: CandidateABIPackage,
+        *,
+        buffer_metadata: tuple[CandidateBufferMetadata, ...],
+        verification: CandidateABIVerification,
+    ) -> None:
+        cache_key = package.package_digest
+        entry = _CandidateVerificationCacheEntry(
+            header_digest=package.header.header_digest,
+            buffer_metadata=buffer_metadata,
+            verification=verification,
+        )
+        with cls._cache_lock:
+            cls._cache[cache_key] = entry
+            cls._cache.move_to_end(cache_key)
+            while len(cls._cache) > cls._cache_capacity:
+                cls._cache.popitem(last=False)
 
     def _verify_buffer(
         self,
