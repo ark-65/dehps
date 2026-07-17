@@ -6,6 +6,8 @@ DEHPS is a contract-driven research runtime. Domain code defines facts and seman
 
 > A Kernel does not understand history, draw rules, SSQ, or feature names. It executes one frozen ABI. A contract mismatch fails closed.
 
+The broader runtime boundary is described in [Contract Runtime Architecture](contract-runtime-architecture.md).
+
 The complete execution model is a dependency graph rather than a linear pipeline:
 
 ```mermaid

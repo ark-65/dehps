@@ -1,0 +1,248 @@
+# DEHPS Contract Runtime Architecture
+
+## Purpose
+
+DEHPS is a contract-driven discrete computation runtime. The SSQ red-ball domain is the first domain, not the runtime boundary.
+
+The runtime rule is:
+
+```text
+Domain facts -> Contracts -> Contract Compiler -> ABI Package -> Kernel -> Artifacts
+```
+
+A compute backend never interprets history, draw rules, candidate meaning, feature names, or manifests. It receives a validated ABI package: headers, shapes, strides, buffers, and digests. If the package does not match the backend's accepted contracts and layouts, execution fails closed.
+
+## Runtime diagram
+
+![DEHPS Contract Runtime Architecture](assets/dehps-contract-runtime-architecture.svg)
+
+The diagram is intentionally not a Mermaid pipeline. The runtime is a DAG: Candidate identity feeds feature construction, scoring, ranking, and evaluation; history feeds windows; windows feed features; ranked predictions and outcomes feed evaluation.
+
+## Contract, manifest, ABI, artifact
+
+DEHPS uses these terms narrowly:
+
+| Term | Meaning | Consumed by |
+| --- | --- | --- |
+| Contract | Normative semantics and compatibility identity | Control plane |
+| Manifest | Auditable data or feature specification under a contract | Control plane |
+| ABI | Packed machine layout compiled from contracts and manifests | Kernels |
+| Artifact | Durable result plus runtime envelope and payload digest | Humans, APIs, downstream stages |
+
+Examples:
+
+- Candidate Contract defines canonical candidate identity semantics.
+- Universe Manifest names a concrete candidate universe or filtered candidate set.
+- Candidate ABI defines row id dtype, combination encoding, mask layout, shape, and rank/unrank buffers.
+- Candidate Set Artifact records a specific candidate payload digest under that ABI.
+
+Changing a candidate filter changes a manifest or artifact. It must not change Candidate ABI unless the machine representation or identity semantics changed.
+
+## Runtime layers
+
+### Domain layer
+
+The domain layer reads and normalizes source facts. In the current SSQ domain, this includes issues, draw dates, red numbers, target issues, and candidate universes.
+
+Domain objects are not kernel inputs. They must be compiled into contract-aware artifacts before reaching a backend.
+
+### Contract registry
+
+The registry owns immutable contract references:
+
+```text
+family
+semantic_version
+schema_version
+normative_digest
+golden_suite_digest
+```
+
+Semantic version alone is not authority. Consumers carry explicit compatibility requirements for accepted versions, schema versions, and normative digests.
+
+### Contract compiler
+
+The compiler validates the Contract DAG and projects it into an ABI package.
+
+Inputs include:
+
+- history snapshot artifacts;
+- window specs and window artifacts;
+- candidate contracts, universe manifests, and candidate set artifacts;
+- feature contracts and feature manifests;
+- scoring, ranking, and evaluation contracts;
+- backend capability declarations;
+- explicit compatibility matrices.
+
+Outputs include:
+
+- a runtime envelope;
+- ABI headers;
+- layout digests;
+- payload buffer digests;
+- packed buffers;
+- backend execution constraints.
+
+The compiler is the only layer that may interpret manifests. Kernels never parse JSON, YAML, SQL rows, feature formulas, or domain names.
+
+### Kernel planner
+
+The planner selects a backend that can execute the ABI package:
+
+- `numpy_reference`;
+- `numba_cpu`;
+- future SIMD/native CPU;
+- future CUDA/OpenCL/device-resident backend.
+
+Backend selection may change mechanics, parallelism, memory locality, and reduction strategy. It may not change contract semantics, score identity, rank identity, or artifact identity.
+
+### Artifact runtime
+
+The artifact runtime writes standalone evidence. A JSON, Markdown, Parquet, Arrow, or database row should remain auditable outside the database because its runtime envelope names the contracts, layouts, code, backend, and payload digests that produced it.
+
+## ABI package
+
+The long-term ABI package shape is:
+
+```yaml
+abi_package:
+  version: abi_package.v1
+  runtime_envelope_version: runtime_envelope.v1
+  contracts:
+    history_snapshot: history_snapshot.v1.0.0
+    window: window.v1.0.0
+    candidate: candidate.v1.0.0
+    feature: feature.v1.0.0
+    scoring: dehps-scoring-strict-v1
+    ranking: strict_v1
+    evaluation: evaluation.v1.0.0
+  digests:
+    history_snapshot: sha256:...
+    window_artifact: sha256:...
+    candidate_payload: sha256:...
+    feature_layout: sha256:...
+    buffer_layout: sha256:...
+    abi_package: sha256:...
+  headers:
+    window_abi: ...
+    candidate_abi: ...
+    feature_abi: ...
+    scoring_abi: ...
+    ranking_abi: ...
+  buffers:
+    window_buffer: pointer-or-artifact-ref
+    candidate_buffer: pointer-or-artifact-ref
+    feature_buffer: pointer-or-artifact-ref
+```
+
+The exact serialization can evolve, but the boundary cannot: kernels receive ABI headers, buffer references, and digests, not semantic manifests.
+
+## Runtime envelope
+
+Every durable artifact should converge on a top-level runtime envelope:
+
+```yaml
+runtime:
+  envelope_version: runtime_envelope.v1
+  artifact_type: ranked_prediction
+  domain: ssq_red_ball
+  history_snapshot:
+    contract: history_snapshot.v1.0.0
+    digest: sha256:...
+    latest_issue: "2026080"
+    draw_count: 3477
+  window:
+    contract: window.v1.0.0
+    artifact_digest: sha256:...
+  candidate:
+    contract: candidate.v1.0.0
+    abi_version: candidate_abi.v1
+    payload_digest: sha256:...
+  feature:
+    contract: feature.v1.0.0
+    abi_version: feature_abi.v1
+    layout_digest: sha256:...
+  scoring:
+    contract: dehps-scoring-strict-v1
+    backend: numba_cpu
+  ranking:
+    contract: strict_v1
+  evaluation:
+    contract: evaluation.v1.0.0
+  code:
+    commit: git-sha
+  abi_package_digest: sha256:...
+  artifact_payload_digest: sha256:...
+```
+
+This envelope is not a replacement for stage envelopes. A stage envelope carries the minimal dependencies needed to validate one stage. The runtime envelope is the top-level provenance record for durable artifacts.
+
+## Current contract DAG status
+
+| Node | Status | Notes |
+| --- | --- | --- |
+| History Snapshot Contract | Implemented | `history_snapshot.v1.0.0` red-ball scoring projection |
+| Window Contract | Implemented | `window.v1.0.0`, rolling/expanding value object and stage envelope |
+| Candidate Contract / ABI | Next | canonical identity, lex id, rank/unrank, masks, serialization |
+| Feature Contract / ABI | Next | feature meaning, index, dtype, shape, scale, golden vectors |
+| Scoring Contract | Implemented | `dehps-scoring-strict-v1` |
+| Ranking Contract | Implemented | `legacy_score_partition` compatibility and `strict_v1` |
+| Evaluation Contract | Later | hit, TopK, Red5, rank, score, and comparison semantics |
+
+## Compatibility matrix
+
+Every compiled ABI package must satisfy an explicit compatibility matrix. Examples:
+
+```text
+window.v1.0.0 -> feature.v1.0.0: allowed
+window.v2.0.0 -> feature.v1.0.0: reject
+candidate_abi.v1 -> scoring strict_v1: allowed
+candidate_abi.v2 -> scoring strict_v1: reject until explicitly approved
+```
+
+There is no implicit "same major version" compatibility rule. A missing compatibility edge is a rejection, not a warning.
+
+## Kernel boundary
+
+The kernel boundary is intentionally narrow:
+
+Allowed:
+
+- ABI version;
+- numeric buffers;
+- fixed dtypes;
+- shapes and strides;
+- scalar flags;
+- layout digests;
+- payload digests;
+- backend capability flags.
+
+Forbidden:
+
+- SQL reads;
+- JSON/YAML manifest parsing;
+- feature formula interpretation;
+- issue/date parsing;
+- candidate filtering semantics;
+- domain-specific rule checks;
+- warning-only contract fallback.
+
+This is the boundary that lets NumPy, Numba, SIMD, CUDA, OpenCL, and future native backends remain interchangeable implementations of the same runtime.
+
+## Migration order
+
+The next migration rounds should be staged as:
+
+1. Candidate ABI v1: freeze canonical candidate row identity, lex id, rank/unrank, bitmask, dtype, shape, serialization, and golden vectors.
+2. Feature Contract and Feature ABI v1: freeze feature meaning separately from packed feature layout.
+3. Runtime Envelope v1: add envelope writers to new artifacts without rewriting historical evidence.
+4. Evaluation Contract v1: freeze hit, rank, TopK, Red5, comparison, and mismatch classification semantics.
+5. Kernel P2: optimize TopK reduction after the ABI inputs are stable.
+
+Non-goals for this architecture document:
+
+- no production prediction regeneration;
+- no pending candidate rewrite;
+- no database migration;
+- no backend default switch;
+- no feature, scoring, ranking, or evaluation behavior change.
