@@ -153,9 +153,11 @@ The research resident fails closed if a legacy process matching
 supervisor and research runtime from consuming the same research queue.
 
 Draw sync no longer starts the legacy training resume path by default. The
-packaged draw-sync unit runs a resident `draw-sync watch --no-resume-on-event`
-process. The forward runtime remains resident while research observes history
-changes only at cycle boundaries through snapshot rotation.
+packaged draw-sync timer starts a fresh
+`draw-sync watch --once --no-resume-on-event` interpreter for every recovery
+poll. This prevents deployed evaluation logic from being bypassed by stale
+resident code. The forward runtime remains resident while research observes
+history changes only at cycle boundaries through snapshot rotation.
 
 ## Evidence source boundary
 

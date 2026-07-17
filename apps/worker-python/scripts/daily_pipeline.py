@@ -10,6 +10,7 @@ from dehps.backtest.report import render_daily_report, render_experiment_report
 from dehps.config import ROOT_DIR, get_settings
 from dehps.crawler.ssq_sync import sync_ssq
 from dehps.db import get_connection
+from dehps.forward_runtime.evaluation_service import ForwardEvaluationService
 from dehps.models.frequency_ranker import FrequencyRankerConfig
 from dehps.optimization.next_candidates import refresh_training_prediction_lines_current
 from dehps.optimization.weight_kdj import DEFAULT_KDJ_WINDOW
@@ -87,6 +88,7 @@ def run_pipeline(
     skip_weight_kdj_signals: bool = False,
     heavy_job_lock_timeout_seconds: float = 0.0,
     cpu_threads: int = 1,
+    forward_evaluator: ForwardEvaluationService | None = None,
 ) -> dict:
     apply_cpu_thread_env_defaults(cpu_threads)
     settings = get_settings()
@@ -118,6 +120,18 @@ def run_pipeline(
         _heartbeat_heavy_lock(
             heavy_lock,
             context={"sync_run_key": sync_summary["run_key"], "has_synced_changes": has_synced_changes},
+        )
+        evaluation_result = (forward_evaluator or ForwardEvaluationService()).evaluate_pending()
+        summary["forward_evaluation"] = evaluation_result
+        if int(evaluation_result.get("failed_count") or 0) > 0:
+            raise RuntimeError(
+                "forward_evaluation_batch_failed:"
+                f"failed_count={evaluation_result.get('failed_count')}:"
+                f"pending_count={evaluation_result.get('pending_count')}"
+            )
+        _heartbeat_heavy_lock(
+            heavy_lock,
+            context={"forward_evaluation": evaluation_result},
         )
 
         metrics = {

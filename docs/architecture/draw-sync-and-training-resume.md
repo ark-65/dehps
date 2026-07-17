@@ -83,7 +83,12 @@ No API route can modify training, draw history, events, or production state.
 - A failed launch returns the event to `failed`, which is retryable.
 - A consumed event cannot launch training again.
 - Draw-sync and training-resume locks are separate from the heavy training lock.
-- The packaged Round 31 systemd draw-sync service is a resident
-  `draw-sync watch --no-resume-on-event` process and no longer starts
-  `dehps-training-resume.service`.
-- The long-running draw-sync watch does not call legacy resume by default.
+- The packaged systemd draw-sync service is a timer-driven
+  `draw-sync watch --once --no-resume-on-event` process. A fresh interpreter is
+  loaded for every poll, so deployed evaluation code cannot remain hidden behind
+  a stale resident Python process.
+- Each poll evaluates pending forward predictions even when synchronization
+  reports `no_change`; it never calls legacy resume by default.
+- On Tuesday, Thursday, and Sunday, remote synchronization is deferred between
+  the 21:15 draw and the configured 21:45 update boundary. Pending evaluations
+  remain eligible during that interval.

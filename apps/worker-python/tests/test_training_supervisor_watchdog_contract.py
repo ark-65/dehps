@@ -32,6 +32,12 @@ def test_draw_sync_responsibility_moved_to_independent_watch_process():
     assert "run_draw_sync_watch.py" in ensure_draw_sync
     assert "DEHPS_DRAW_SYNC_INTERVAL_SECONDS:-900" in ensure_draw_sync
     assert "DEHPS_DRAW_SYNC_HOT_INTERVAL_SECONDS:-300" in ensure_draw_sync
+    assert 'VERSION_FILE="$LOG_DIR/draw-sync-watch.version"' in ensure_draw_sync
+    assert 'desired_commit="$(git -C "$REPO_ROOT" rev-parse HEAD' in ensure_draw_sync
+    assert 'running_commit" == "$desired_commit"' in ensure_draw_sync
+    assert "stopping stale draw sync watch" in ensure_draw_sync
+    assert "refusing overlapping restart" in ensure_draw_sync
+    assert "source worktree is dirty; refusing draw sync watcher restart" in ensure_draw_sync
     assert "dehps.draw_sync.scheduler" in draw_watch
     assert "run_draw_sync_watch.py" not in script
 

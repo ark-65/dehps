@@ -2,23 +2,26 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import signal
 import time
 from dataclasses import dataclass
 from datetime import datetime, time as day_time
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 from dehps.artifacts import atomic_write_text
 from dehps.config import ROOT_DIR
 from dehps.draw_sync.models import jsonable
 from dehps.draw_sync.service import DrawSyncService
+from dehps.source_version import resolve_git_commit
 
 
 DEFAULT_STATE_PATH = ROOT_DIR / "runtime" / "logs" / "draw-sync-watch.json"
 DEFAULT_PID_PATH = ROOT_DIR / "runtime" / "logs" / "draw-sync-watch.pid"
+DEFAULT_VERSION_PATH = ROOT_DIR / "runtime" / "logs" / "draw-sync-watch.version"
 
 
 @dataclass(frozen=True)
@@ -28,12 +31,30 @@ class DrawSyncSchedulePolicy:
     cold_interval_seconds: int = 3600
     timezone: str = "Asia/Shanghai"
 
+    def deferred_until(self, moment: datetime | None = None) -> datetime | None:
+        tz = ZoneInfo(self.timezone)
+        local = (moment or datetime.now(tz)).astimezone(tz)
+        is_draw_day = local.weekday() in {1, 3, 6}
+        draw_time = day_time(21, 15)
+        update_time = day_time(21, 45)
+        if is_draw_day and draw_time <= local.time() < update_time:
+            return local.replace(
+                hour=update_time.hour,
+                minute=update_time.minute,
+                second=0,
+                microsecond=0,
+            )
+        return None
+
     def next_interval(self, moment: datetime | None = None) -> int:
         tz = ZoneInfo(self.timezone)
         local = (moment or datetime.now(tz)).astimezone(tz)
-        # 双色球 official draw days: Tuesday, Thursday, Sunday around 21:15.
+        deferred_until = self.deferred_until(local)
+        if deferred_until is not None:
+            return max(1, math.ceil((deferred_until - local).total_seconds()))
+        # Draws are scheduled at 21:15; remote update polling accelerates at 21:45.
         is_draw_day = local.weekday() in {1, 3, 6}
-        hot_start = day_time(20, 45)
+        hot_start = day_time(21, 45)
         hot_end = day_time(23, 59, 59)
         recovery_end = day_time(2, 0)
         if is_draw_day and hot_start <= local.time() <= hot_end:
@@ -53,6 +74,9 @@ class DrawSyncWatch:
         resume_on_event: bool = False,
         state_path: Path = DEFAULT_STATE_PATH,
         pid_path: Path = DEFAULT_PID_PATH,
+        version_path: Path | None = None,
+        code_commit: str | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.service = service or DrawSyncService()
         if forward_evaluator is None:
@@ -64,25 +88,47 @@ class DrawSyncWatch:
         self.resume_on_event = resume_on_event
         self.state_path = state_path
         self.pid_path = pid_path
+        if version_path is not None:
+            self.version_path = version_path
+        elif pid_path == DEFAULT_PID_PATH:
+            self.version_path = DEFAULT_VERSION_PATH
+        else:
+            self.version_path = pid_path.with_suffix(".version")
+        self.code_commit = code_commit or resolve_git_commit()
+        self._clock = clock or (lambda: datetime.now(ZoneInfo(self.policy.timezone)))
+        self.started_at = self._clock().isoformat()
         self._stopping = False
 
     def run(self, *, once: bool = False) -> None:
         self.pid_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(self.pid_path, f"{os.getpid()}\n")
+        atomic_write_text(self.version_path, f"{self.code_commit}\n")
         signal.signal(signal.SIGTERM, self._stop)
         signal.signal(signal.SIGINT, self._stop)
         while not self._stopping:
-            started = datetime.now(ZoneInfo(self.policy.timezone))
+            started = self._clock()
             try:
-                result = self.service.once()
+                deferred_until = self.policy.deferred_until(started)
+                if deferred_until is None:
+                    result = self.service.once()
+                    event_key = result.event_key
+                else:
+                    result = {
+                        "status": "deferred_until_update_window",
+                        "deferred_until": deferred_until.isoformat(),
+                    }
+                    event_key = None
                 evaluation_result = self.forward_evaluator.evaluate_pending()
                 evaluation_failed = int(evaluation_result.get("failed_count") or 0) > 0
-                resume_result = None if evaluation_failed else self._resume_if_event(result.event_key)
+                resume_result = None if evaluation_failed else self._resume_if_event(event_key)
                 payload = {
                     "status": "error" if evaluation_failed else "ok",
                     "pid": os.getpid(),
-                    "heartbeat_at": datetime.now(ZoneInfo(self.policy.timezone)).isoformat(),
+                    "watch_code_commit": self.code_commit,
+                    "watch_started_at": self.started_at,
+                    "heartbeat_at": self._clock().isoformat(),
                     "last_result": result,
+                    "sync_deferred": deferred_until is not None,
                     "forward_evaluation": evaluation_result,
                     "resume_on_event": self.resume_on_event,
                     "resume_result": resume_result,
@@ -94,21 +140,24 @@ class DrawSyncWatch:
                         if evaluation_failed
                         else None
                     ),
-                    "next_interval_seconds": self.policy.next_interval(),
+                    "next_interval_seconds": self.policy.next_interval(self._clock()),
                 }
             except Exception as exc:  # fail closed: record but keep the watch process alive.
                 payload = {
                     "status": "error",
                     "pid": os.getpid(),
-                    "heartbeat_at": datetime.now(ZoneInfo(self.policy.timezone)).isoformat(),
+                    "watch_code_commit": self.code_commit,
+                    "watch_started_at": self.started_at,
+                    "heartbeat_at": self._clock().isoformat(),
                     "error": {"type": type(exc).__name__, "message": str(exc)},
-                    "next_interval_seconds": self.policy.next_interval(),
+                    "next_interval_seconds": self.policy.next_interval(self._clock()),
                 }
             atomic_write_text(self.state_path, json.dumps(jsonable(payload), ensure_ascii=False, indent=2))
             if once:
                 return
-            elapsed = (datetime.now(ZoneInfo(self.policy.timezone)) - started).total_seconds()
-            sleep_seconds = max(1.0, self.policy.next_interval() - elapsed)
+            current = self._clock()
+            elapsed = (current - started).total_seconds()
+            sleep_seconds = max(1.0, self.policy.next_interval(current) - elapsed)
             self._sleep(sleep_seconds)
 
     def _stop(self, *_args: object) -> None:

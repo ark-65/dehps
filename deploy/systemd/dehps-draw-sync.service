@@ -8,12 +8,10 @@ StartLimitIntervalSec=15min
 StartLimitBurst=3
 
 [Service]
-Type=simple
+Type=oneshot
 WorkingDirectory=/home/ark/workspace/dehps/apps/worker-python
 EnvironmentFile=-/home/ark/workspace/dehps/.env
-ExecStart=/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python scripts/run_draw_sync_watch.py --no-resume-on-event
-Restart=always
-RestartSec=30s
+ExecStart=/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python scripts/run_draw_sync_watch.py --once --no-resume-on-event
 
 [Install]
 WantedBy=default.target

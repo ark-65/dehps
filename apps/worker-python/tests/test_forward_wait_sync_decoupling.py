@@ -15,3 +15,13 @@ def test_draw_sync_has_independent_watch_entrypoint() -> None:
     assert Path(ROOT_DIR / "scripts/run_draw_sync_watch.py").exists()
     assert Path(ROOT_DIR / "apps/worker-python/scripts/run_draw_sync_watch.py").exists()
     assert Path(ROOT_DIR / "scripts/ensure_draw_sync_watch.sh").exists()
+
+
+def test_packaged_draw_sync_timer_loads_fresh_code_for_every_poll() -> None:
+    service = Path(ROOT_DIR / "deploy/systemd/dehps-draw-sync.service").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Type=oneshot" in service
+    assert "run_draw_sync_watch.py --once --no-resume-on-event" in service
+    assert "Restart=always" not in service
