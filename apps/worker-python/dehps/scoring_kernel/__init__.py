@@ -18,6 +18,15 @@ from dehps.scoring_kernel.packing import (
     target_lex_id,
 )
 from dehps.scoring_kernel.planner import KernelPlanner, resolve_backend_name
+from dehps.scoring_kernel.topk_reducer import (
+    PartitionMergeReducer,
+    SmallKReducer,
+    TileSelectionReducer,
+    TopKReducer,
+    TopKReducerPlanner,
+    TopKReductionPool,
+    TopKResult,
+)
 
 __all__ = (
     "STRICT_CONTRACT_VERSION",
@@ -29,6 +38,13 @@ __all__ = (
     "PackedWindowState",
     "PreparedCandidateStore",
     "ScoringKernelBackend",
+    "SmallKReducer",
+    "TileSelectionReducer",
+    "PartitionMergeReducer",
+    "TopKReducer",
+    "TopKReducerPlanner",
+    "TopKReductionPool",
+    "TopKResult",
     "WeightMatrix",
     "candidate_store_from_matrix",
     "numbers_mask",

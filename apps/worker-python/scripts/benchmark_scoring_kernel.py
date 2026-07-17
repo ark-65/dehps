@@ -112,8 +112,8 @@ def _request(
     )
 
 
-def _run_backend(backend, store, state, weights, request):
-    prepared = backend.prepare(store)
+def _run_backend(backend, store, state, weights, request, *, prepared=None):
+    prepared = prepared or backend.prepare(store)
     result = backend.score_rank(
         prepared,
         state,
@@ -302,6 +302,9 @@ def benchmark_full_legal(
 
     # Compile only the real fused tile signature; compilation is excluded from steady-state rows.
     numba_backend = NumbaCpuBackend()
+    numpy_backend = NumpyReferenceBackend()
+    numpy_prepared = numpy_backend.prepare(store)
+    numba_prepared = numba_backend.prepare(store)
     first_window = windows[0]
     first_lex = target_lex_id(store, first_window[2])
     numba_backend._tile(
@@ -332,7 +335,12 @@ def benchmark_full_legal(
             target_excluded=False,
         )
         oracle, _ = _run_backend(
-            NumpyReferenceBackend(), store, state, weights, oracle_request
+            numpy_backend,
+            store,
+            state,
+            weights,
+            oracle_request,
+            prepared=numpy_prepared,
         )
         oracle_digests[target_index] = _digest_result(oracle)
 
@@ -348,7 +356,12 @@ def benchmark_full_legal(
                 target_excluded=False,
             )
             result, telemetry = _run_backend(
-                NumpyReferenceBackend(), store, state, weights, request
+                numpy_backend,
+                store,
+                state,
+                weights,
+                request,
+                prepared=numpy_prepared,
             )
             telemetry.update(
                 {
@@ -372,7 +385,12 @@ def benchmark_full_legal(
                     target_excluded=False,
                 )
                 result, telemetry = _run_backend(
-                    numba_backend, store, state, weights, request
+                    numba_backend,
+                    store,
+                    state,
+                    weights,
+                    request,
+                    prepared=numba_prepared,
                 )
                 telemetry.update(
                     {
@@ -397,7 +415,12 @@ def benchmark_full_legal(
     )
     profile.enable()
     profile_result, profile_row = _run_backend(
-        numba_backend, store, state, weights, profile_request
+        numba_backend,
+        store,
+        state,
+        weights,
+        profile_request,
+        prepared=numba_prepared,
     )
     profile.disable()
     stream = io.StringIO()

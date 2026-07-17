@@ -397,6 +397,12 @@ def test_streaming_workspace_and_per_kernel_telemetry_are_bounded(kernel_case):
         "kernel_time",
         "rank_time",
         "topk_merge_time",
+        "topk_reducer",
+        "topk_reduction_workers",
+        "topk_shard_count",
+        "topk_merge_levels",
+        "topk_workspace_bytes_estimate",
+        "red5_reducer",
         "wall_time",
         "cpu_time",
         "peak_rss",
@@ -410,6 +416,8 @@ def test_streaming_workspace_and_per_kernel_telemetry_are_bounded(kernel_case):
     assert result.telemetry["candidate_package_digest"] == (
         kernel_case["store"].candidate_abi_package.package_digest
     )
+    assert result.telemetry["topk_reducer"] == "small_k_tree"
+    assert result.telemetry["red5_reducer"] == "small_k_tree"
 
 
 def test_fixed_seed_weight_matrices_match_every_rounded_score_cell(kernel_case):

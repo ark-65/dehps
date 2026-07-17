@@ -25,8 +25,8 @@ from dehps.scoring_kernel.contracts import (
     KernelWorkspace,
     WeightMatrix,
 )
-from dehps.scoring_kernel.numpy_backend import _ordered_topk
 from dehps.scoring_kernel.telemetry import record_kernel_telemetry
+from dehps.scoring_kernel.topk_reducer import TopKReducerPlanner, TopKReductionPool
 
 
 @dataclass(frozen=True)
@@ -151,10 +151,6 @@ class FeatureABINumpyReferenceBackend:
         effective_top_k = min(request.top_k, candidate_count)
         better = np.zeros(weights.config_count, dtype=np.int64)
         equal_before = np.zeros(weights.config_count, dtype=np.int64)
-        top_ids = [np.empty(0, dtype=np.int64) for _ in range(weights.config_count)]
-        top_scores = [np.empty(0, dtype=np.float64) for _ in range(weights.config_count)]
-        red5_ids = np.full(weights.config_count, -1, dtype=np.int64)
-        red5_scores = np.full(weights.config_count, -np.inf, dtype=np.float64)
         target_ids = np.full(weights.config_count, request.target_lex_id, dtype=np.int64)
         kernel_seconds = 0.0
         rank_seconds = 0.0
@@ -162,59 +158,58 @@ class FeatureABINumpyReferenceBackend:
         chunk_count = 0
         score_passes = 0
 
-        if not request.target_excluded or request.top_k or request.red5:
-            score_passes += 1
-            for package in runtime.feature_tiles:
-                start = package.header.start
-                end = package.header.end
-                tile = self._tile(
-                    values=package.values,
-                    candidate_masks=runtime.candidate_package.mask[start:end],
-                    start=start,
-                    weights=weights.values,
-                    target_scores=request.target_scores,
-                    target_ids=target_ids,
-                    exact_rank=request.exact_rank and not request.target_excluded,
-                    target_mask=request.target_mask,
-                    red5=request.red5,
-                    workspace=workspace,
-                )
-                kernel_seconds += tile.kernel_seconds
-                rank_seconds += tile.rank_seconds
-                merge_started = time.perf_counter()
-                ids = np.arange(start, end, dtype=np.int64)
-                better += tile.better
-                equal_before += tile.equal_before
-                for config_index in range(weights.config_count):
-                    if effective_top_k:
-                        merged_ids = np.concatenate((top_ids[config_index], ids))
-                        merged_scores = np.concatenate(
-                            (top_scores[config_index], tile.scores[:, config_index])
-                        )
-                        top_ids[config_index], top_scores[config_index] = _ordered_topk(
-                            merged_ids, merged_scores, effective_top_k
-                        )
-                    if request.red5 and tile.red5_mask.any():
-                        local_ids, local_scores = _ordered_topk(
-                            ids[tile.red5_mask],
-                            tile.scores[tile.red5_mask, config_index],
-                            1,
-                        )
-                        merged_ids = np.concatenate(
-                            (np.array([red5_ids[config_index]], dtype=np.int64), local_ids)
-                        )
-                        merged_scores = np.concatenate(
-                            (np.array([red5_scores[config_index]], dtype=np.float64), local_scores)
-                        )
-                        valid = merged_ids >= 0
-                        chosen_ids, chosen_scores = _ordered_topk(
-                            merged_ids[valid], merged_scores[valid], 1
-                        )
-                        if len(chosen_ids):
-                            red5_ids[config_index] = chosen_ids[0]
-                            red5_scores[config_index] = chosen_scores[0]
-                topk_merge_seconds += time.perf_counter() - merge_started
-                chunk_count += 1
+        max_tile_rows = max(package.header.row_count for package in runtime.feature_tiles)
+        with TopKReductionPool(request.worker_count, weights.config_count) as reduction_pool:
+            reducer_planner = TopKReducerPlanner()
+            topk_reducer = reducer_planner.create(
+                config_count=weights.config_count,
+                top_k=effective_top_k,
+                tile_size=max_tile_rows,
+                pool=reduction_pool,
+            )
+            red5_reducer = reducer_planner.create(
+                config_count=weights.config_count,
+                top_k=1,
+                tile_size=max_tile_rows,
+                pool=reduction_pool,
+            )
+            if not request.target_excluded or request.top_k or request.red5:
+                score_passes += 1
+                for package in runtime.feature_tiles:
+                    start = package.header.start
+                    end = package.header.end
+                    tile = self._tile(
+                        values=package.values,
+                        candidate_masks=runtime.candidate_package.mask[start:end],
+                        start=start,
+                        weights=weights.values,
+                        target_scores=request.target_scores,
+                        target_ids=target_ids,
+                        exact_rank=request.exact_rank and not request.target_excluded,
+                        target_mask=request.target_mask,
+                        red5=request.red5,
+                        workspace=workspace,
+                    )
+                    kernel_seconds += tile.kernel_seconds
+                    rank_seconds += tile.rank_seconds
+                    merge_started = time.perf_counter()
+                    ids = np.arange(start, end, dtype=np.int64)
+                    better += tile.better
+                    equal_before += tile.equal_before
+                    topk_reducer.consume(tile.scores, ids)
+                    if request.red5:
+                        red5_reducer.consume(tile.scores, ids, tile.red5_mask)
+                    topk_merge_seconds += time.perf_counter() - merge_started
+                    chunk_count += 1
+            merge_started = time.perf_counter()
+            topk_result = topk_reducer.finalize()
+            red5_result = red5_reducer.finalize()
+            topk_merge_seconds += time.perf_counter() - merge_started
+
+        top_id_matrix = topk_result.candidate_ids
+        top_score_matrix = topk_result.scores
+        red5_ids = red5_result.candidate_ids[:, 0]
+        red5_scores = red5_result.scores[:, 0]
 
         if request.target_excluded and request.exact_rank:
             exact_ranks = np.full(weights.config_count, candidate_count + 1, dtype=np.int64)
@@ -251,17 +246,6 @@ class FeatureABINumpyReferenceBackend:
             valid = red5_ids >= 0
             red5_ranks[valid] = red5_better[valid] + red5_equal[valid] + 1
 
-        top_id_matrix = np.full(
-            (weights.config_count, effective_top_k), -1, dtype=np.int64
-        )
-        top_score_matrix = np.full(
-            (weights.config_count, effective_top_k), -np.inf, dtype=np.float64
-        )
-        for config_index in range(weights.config_count):
-            count = len(top_ids[config_index])
-            top_id_matrix[config_index, :count] = top_ids[config_index]
-            top_score_matrix[config_index, :count] = top_scores[config_index]
-
         wall_seconds = time.perf_counter() - started_wall
         cpu_seconds = time.process_time() - started_cpu
         score_cells = candidate_count * weights.config_count * score_passes
@@ -271,7 +255,6 @@ class FeatureABINumpyReferenceBackend:
         candidate_contract = candidate_envelope["candidate_contract"]
         if not isinstance(feature_contract, dict) or not isinstance(candidate_contract, dict):
             raise ValueError("runtime envelope contracts must be structured")
-        max_tile_rows = max(package.header.row_count for package in runtime.feature_tiles)
         telemetry: dict[str, int | float | str] = {
             "backend": self.name,
             "contract_version": self.contract_version,
@@ -295,12 +278,18 @@ class FeatureABINumpyReferenceBackend:
             "score_cells": score_cells,
             "chunk_size": max_tile_rows,
             "chunk_count": chunk_count,
-            "worker_count": 1,
+            "worker_count": request.worker_count,
             "prepare_time": prepared.prepare_seconds,
             "feature_time": 0.0,
             "kernel_time": kernel_seconds,
             "rank_time": rank_seconds,
             "topk_merge_time": topk_merge_seconds,
+            "topk_reducer": topk_result.algorithm,
+            "topk_reduction_workers": reduction_pool.worker_count,
+            "topk_shard_count": topk_result.shard_count,
+            "topk_merge_levels": topk_result.merge_levels,
+            "topk_workspace_bytes_estimate": topk_result.workspace_bytes_estimate,
+            "red5_reducer": red5_result.algorithm,
             "wall_time": wall_seconds,
             "cpu_time": cpu_seconds,
             "peak_rss": int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss),
@@ -310,7 +299,10 @@ class FeatureABINumpyReferenceBackend:
                 candidate_count * weights.config_count * 32 * 8 * score_passes
             ),
             "workspace_bytes_estimate": int(
-                max_tile_rows * weights.config_count * 8 + max_tile_rows
+                max_tile_rows * weights.config_count * 8
+                + max_tile_rows
+                + topk_result.workspace_bytes_estimate
+                + red5_result.workspace_bytes_estimate
             ),
         }
         payload_digest = kernel_result_payload_digest(
