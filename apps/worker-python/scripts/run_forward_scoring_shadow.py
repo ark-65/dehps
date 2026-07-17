@@ -19,13 +19,12 @@ from dehps.forward_runtime.shadow_adapter import (
 )
 from dehps.models.frequency_ranker import FrequencyRankerConfig, train_frequency_stats
 from dehps.optimization.prediction_evaluation import load_actual_draw
-from dehps.optimization.ranking_audit import training_history_for_prediction_run
+from dehps.optimization.ranking_audit import resolve_training_history_for_prediction_run
 from dehps.optimization.walk_forward import (
     _config_weight_matrix,
     _target_scores,
     build_ranked_universe,
     config_hash,
-    fingerprint_history,
     is_excluded_red_combination,
 )
 from dehps.scoring_kernel import (
@@ -143,23 +142,15 @@ def build_run_evidence(
             stored_count=len(stored_candidates),
         )
 
-    full_history = training_history_for_prediction_run(
-        conn,
-        run,
-        apply_train_window=False,
-    )
+    history_replay = resolve_training_history_for_prediction_run(conn, run)
     metadata = run.get("metadata") if isinstance(run.get("metadata"), dict) else {}
-    stored_history_fingerprint = str(metadata.get("history_fingerprint") or "")
-    replay_history_fingerprint = fingerprint_history(full_history)
-    if not stored_history_fingerprint or stored_history_fingerprint != replay_history_fingerprint:
+    if not history_replay.stored_fingerprint:
         raise ForwardShadowViolation(
-            "forward_shadow_history_fingerprint_mismatch",
-            "the prediction history snapshot cannot be reproduced exactly",
+            "forward_shadow_history_fingerprint_missing",
+            "the prediction run has no sealed history fingerprint",
             prediction_run_key=prediction_run_key,
-            stored=stored_history_fingerprint,
-            replay=replay_history_fingerprint,
         )
-    history = training_history_for_prediction_run(conn, run)
+    history = history_replay.history
     config_payload = run.get("config") if isinstance(run.get("config"), dict) else {}
     config = FrequencyRankerConfig(
         **{

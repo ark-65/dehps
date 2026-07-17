@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from psycopg import Connection
@@ -10,6 +11,7 @@ from dehps.optimization.regime import select_history
 from dehps.optimization.walk_forward import (
     RankedUniverseMatrix,
     build_ranked_universe,
+    fingerprint_history,
     rank_target,
     rank_target_structural,
 )
@@ -18,6 +20,95 @@ from dehps.storage.postgres_store import (
     TOTAL_SSQ_RED_COMBINATIONS,
     load_history_until_with_dates,
 )
+
+
+LEGACY_CURRENT_REGIME_YEARS = 10
+
+
+class PredictionHistoryReplayError(ValueError):
+    def __init__(self, code: str, message: str, **context: Any) -> None:
+        self.code = code
+        self.context = context
+        super().__init__(f"{code}: {message}")
+
+
+@dataclass(frozen=True)
+class PredictionHistoryReplay:
+    history: list
+    base_history: list
+    resolution: str
+    stored_fingerprint: str
+    replay_fingerprint: str
+
+
+def resolve_training_history_for_prediction_run(
+    conn: Connection,
+    run: dict[str, Any],
+    *,
+    apply_train_window: bool = True,
+) -> PredictionHistoryReplay:
+    """Reconstruct the exact history identity before applying a rolling window.
+
+    Legacy forward runs did not persist their current-regime fields. They may use
+    the historical 10-year production default only when its digest exactly matches
+    the immutable fingerprint stored with the run. No heuristic fallback is allowed.
+    """
+
+    metadata = run.get("metadata") if isinstance(run.get("metadata"), dict) else {}
+    as_of_issue = str(run.get("as_of_issue") or metadata.get("as_of_issue") or "")
+    scope = str(metadata.get("history_scope") or "")
+    regime_years = int(metadata.get("regime_years") or 0)
+    stored_fingerprint = str(metadata.get("history_fingerprint") or "")
+
+    if scope in {"full_history_audit", "current_regime_default"} and regime_years >= 1:
+        base_history = select_history(
+            conn,
+            scope=scope,  # type: ignore[arg-type]
+            as_of_issue=as_of_issue,
+            regime_years=regime_years,
+        ).dated_history
+        resolution = f"explicit:{scope}:{regime_years}y"
+    else:
+        base_history = load_history_until_with_dates(conn, as_of_issue)
+        resolution = "legacy:full_history"
+
+    replay_fingerprint = fingerprint_history(base_history)
+    if stored_fingerprint and replay_fingerprint != stored_fingerprint and not scope:
+        legacy_selection = select_history(
+            conn,
+            scope="current_regime_default",
+            as_of_issue=as_of_issue,
+            regime_years=LEGACY_CURRENT_REGIME_YEARS,
+        )
+        legacy_fingerprint = fingerprint_history(legacy_selection.dated_history)
+        if legacy_fingerprint == stored_fingerprint:
+            base_history = legacy_selection.dated_history
+            replay_fingerprint = legacy_fingerprint
+            resolution = "legacy:current_regime_default:10y:exact_digest"
+
+    if stored_fingerprint and replay_fingerprint != stored_fingerprint:
+        raise PredictionHistoryReplayError(
+            "prediction_history_fingerprint_mismatch",
+            "the prediction history snapshot cannot be reconstructed exactly",
+            prediction_run_key=run.get("prediction_run_key"),
+            as_of_issue=as_of_issue,
+            resolution=resolution,
+            stored=stored_fingerprint,
+            replay=replay_fingerprint,
+        )
+
+    history = base_history
+    if apply_train_window and str(run.get("train_mode") or metadata.get("train_mode")) == "rolling":
+        train_window = int(run.get("train_window") or metadata.get("train_window") or 0)
+        if train_window > 0:
+            history = history[-train_window:]
+    return PredictionHistoryReplay(
+        history=history,
+        base_history=base_history,
+        resolution=resolution,
+        stored_fingerprint=stored_fingerprint,
+        replay_fingerprint=replay_fingerprint,
+    )
 
 
 def legal_red_combination(numbers: tuple[int, ...]) -> bool:
@@ -45,24 +136,11 @@ def training_history_for_prediction_run(
     *,
     apply_train_window: bool = True,
 ) -> list:
-    metadata = run.get("metadata") if isinstance(run.get("metadata"), dict) else {}
-    as_of_issue = str(run.get("as_of_issue") or metadata.get("as_of_issue") or "")
-    scope = str(metadata.get("history_scope") or "")
-    regime_years = int(metadata.get("regime_years") or 0)
-    if scope in {"full_history_audit", "current_regime_default"} and regime_years >= 1:
-        history = select_history(
-            conn,
-            scope=scope,  # type: ignore[arg-type]
-            as_of_issue=as_of_issue,
-            regime_years=regime_years,
-        ).dated_history
-    else:
-        history = load_history_until_with_dates(conn, as_of_issue)
-    if apply_train_window and str(run.get("train_mode") or metadata.get("train_mode")) == "rolling":
-        train_window = int(run.get("train_window") or metadata.get("train_window") or 0)
-        if train_window > 0:
-            history = history[-train_window:]
-    return history
+    return resolve_training_history_for_prediction_run(
+        conn,
+        run,
+        apply_train_window=apply_train_window,
+    ).history
 
 
 def build_actual_ranking_audit(
