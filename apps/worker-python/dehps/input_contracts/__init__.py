@@ -16,6 +16,17 @@ from dehps.input_contracts.candidate_abi import (
     candidate_record_digest,
     candidate_unrank,
 )
+from dehps.input_contracts.feature_contract import (
+    FEATURE_COMPONENT_MANIFEST_DIGEST,
+    FEATURE_COMPONENTS_V1,
+    FEATURE_CONTRACT_V1,
+    FEATURE_CONTRACT_VERSION,
+    FEATURE_GOLDEN_SUITE,
+    FEATURE_VECTOR_LENGTH,
+    FeatureContractVerifier,
+    FeatureContractViolation,
+    feature_component_manifest,
+)
 from dehps.input_contracts.history_window import (
     HISTORY_SNAPSHOT_CONTRACT_V1,
     WINDOW_CONTRACT_V1,
@@ -32,6 +43,12 @@ __all__ = [
     "CANDIDATE_ABI_LAYOUT_DIGEST",
     "CANDIDATE_ABI_VERSION",
     "CANDIDATE_CONTRACT_V1",
+    "FEATURE_COMPONENT_MANIFEST_DIGEST",
+    "FEATURE_COMPONENTS_V1",
+    "FEATURE_CONTRACT_V1",
+    "FEATURE_CONTRACT_VERSION",
+    "FEATURE_GOLDEN_SUITE",
+    "FEATURE_VECTOR_LENGTH",
     "HISTORY_SNAPSHOT_CONTRACT_V1",
     "WINDOW_CONTRACT_V1",
     "CandidateArrayCompiler",
@@ -41,6 +58,8 @@ __all__ = [
     "CandidateContractViolation",
     "CandidateManifest",
     "CandidateUniverseManifest",
+    "FeatureContractVerifier",
+    "FeatureContractViolation",
     "HistoryRecord",
     "HistorySnapshotArtifact",
     "InputContractViolation",
@@ -52,4 +71,5 @@ __all__ = [
     "candidate_rank",
     "candidate_record_digest",
     "candidate_unrank",
+    "feature_component_manifest",
 ]
