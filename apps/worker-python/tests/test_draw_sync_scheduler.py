@@ -10,9 +10,19 @@ from dehps.draw_sync.models import DrawSyncResult, DrawSyncStatus
 def test_draw_sync_scheduler_uses_hot_interval_on_draw_evening() -> None:
     policy = DrawSyncSchedulePolicy(interval_seconds=900, hot_interval_seconds=300, timezone="Asia/Shanghai")
 
-    interval = policy.next_interval(datetime(2026, 7, 14, 21, 30, tzinfo=ZoneInfo("Asia/Shanghai")))
+    interval = policy.next_interval(datetime(2026, 7, 14, 21, 45, tzinfo=ZoneInfo("Asia/Shanghai")))
 
     assert interval == 300
+
+
+def test_draw_sync_scheduler_defers_draw_update_until_2145() -> None:
+    policy = DrawSyncSchedulePolicy(interval_seconds=900, hot_interval_seconds=300, timezone="Asia/Shanghai")
+    moment = datetime(2026, 7, 14, 21, 32, tzinfo=ZoneInfo("Asia/Shanghai"))
+
+    deferred_until = policy.deferred_until(moment)
+
+    assert deferred_until == datetime(2026, 7, 14, 21, 45, tzinfo=ZoneInfo("Asia/Shanghai"))
+    assert policy.next_interval(moment) == 13 * 60
 
 
 def test_draw_sync_scheduler_defaults_to_cold_safe_interval() -> None:
@@ -26,8 +36,10 @@ def test_draw_sync_scheduler_defaults_to_cold_safe_interval() -> None:
 class Service:
     def __init__(self, event_key: str | None) -> None:
         self.event_key = event_key
+        self.calls = 0
 
     def once(self):
+        self.calls += 1
         return DrawSyncResult(
             status=DrawSyncStatus.NEW_ISSUE if self.event_key else DrawSyncStatus.NO_CHANGE,
             previous_latest_issue="2026079",
@@ -75,12 +87,16 @@ def test_draw_sync_watch_resumes_once_when_new_event_is_seen(monkeypatch, tmp_pa
         resume_on_event=True,
         state_path=tmp_path / "state.json",
         pid_path=tmp_path / "pid",
+        code_commit="a" * 40,
     )
 
     watch.run(once=True)
 
     state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
     assert evaluator.calls == 1
+    assert state["watch_code_commit"] == "a" * 40
+    assert state["watch_started_at"]
+    assert (tmp_path / "pid.version").read_text(encoding="utf-8").strip() == "a" * 40
     assert calls == ["event-2026080"]
     assert state["forward_evaluation"]["failed_count"] == 0
     assert state["resume_result"]["executed"] is True
@@ -109,6 +125,51 @@ def test_draw_sync_watch_defaults_to_no_legacy_training_resume(monkeypatch, tmp_
     assert calls == []
     assert state["resume_on_event"] is False
     assert state["resume_result"] is None
+
+
+def test_no_change_poll_still_backfills_pending_forward_evaluation(tmp_path) -> None:
+    evaluator = ForwardEvaluator()
+    watch = DrawSyncWatch(
+        service=Service(None),  # type: ignore[arg-type]
+        forward_evaluator=evaluator,
+        state_path=tmp_path / "state.json",
+        pid_path=tmp_path / "pid",
+        code_commit="c" * 40,
+    )
+
+    watch.run(once=True)
+
+    state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+    assert state["last_result"]["status"] == "no_change"
+    assert evaluator.calls == 1
+    assert state["forward_evaluation"]["status"] == "ok"
+
+
+def test_deferred_draw_poll_skips_remote_sync_but_still_evaluates_pending(
+    tmp_path,
+) -> None:
+    service = Service("must-not-be-used")
+    evaluator = ForwardEvaluator()
+    moment = datetime(2026, 7, 14, 21, 32, tzinfo=ZoneInfo("Asia/Shanghai"))
+    watch = DrawSyncWatch(
+        service=service,  # type: ignore[arg-type]
+        forward_evaluator=evaluator,
+        policy=DrawSyncSchedulePolicy(timezone="Asia/Shanghai"),
+        state_path=tmp_path / "state.json",
+        pid_path=tmp_path / "pid",
+        code_commit="d" * 40,
+        clock=lambda: moment,
+    )
+    watch.run(once=True)
+
+    state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+    assert service.calls == 0
+    assert evaluator.calls == 1
+    assert state["sync_deferred"] is True
+    assert state["last_result"] == {
+        "status": "deferred_until_update_window",
+        "deferred_until": "2026-07-14T21:45:00+08:00",
+    }
 
 
 def test_draw_sync_watch_can_disable_resume_on_event(monkeypatch, tmp_path) -> None:
@@ -160,3 +221,24 @@ def test_draw_sync_watch_withholds_resume_when_forward_evaluation_fails(monkeypa
     assert calls == []
     assert state["status"] == "error"
     assert state["error"]["type"] == "ForwardEvaluationBatchFailed"
+
+
+def test_draw_sync_watch_error_state_retains_loaded_code_identity(tmp_path) -> None:
+    class BrokenService:
+        def once(self):
+            raise RuntimeError("sync exploded")
+
+    watch = DrawSyncWatch(
+        service=BrokenService(),  # type: ignore[arg-type]
+        forward_evaluator=ForwardEvaluator(),
+        state_path=tmp_path / "state.json",
+        pid_path=tmp_path / "pid",
+        code_commit="b" * 40,
+    )
+
+    watch.run(once=True)
+
+    state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+    assert state["status"] == "error"
+    assert state["watch_code_commit"] == "b" * 40
+    assert state["error"] == {"type": "RuntimeError", "message": "sync exploded"}

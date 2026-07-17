@@ -3,7 +3,27 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from scripts.daily_pipeline import run_pipeline
+
+
+class ForwardEvaluator:
+    def __init__(self, result=None, events=None):
+        self.result = result or {
+            "status": "ok",
+            "pending_count": 0,
+            "evaluated_count": 0,
+            "missing_draw_count": 0,
+            "failed_count": 0,
+            "results": [],
+        }
+        self.events = events
+
+    def evaluate_pending(self):
+        if self.events is not None:
+            self.events.append("evaluate")
+        return self.result
 
 
 def test_daily_pipeline_direct_script_help_starts_without_import_error():
@@ -100,7 +120,11 @@ def test_daily_pipeline_no_new_data_finishes(monkeypatch, tmp_path):
         "scripts.daily_pipeline.finish_pipeline_run",
         lambda conn, run_key, status, summary: finished.update({"status": status, "summary": summary}),
     )
-    result = run_pipeline("baseline_v1", "zhcw")
+    result = run_pipeline(
+        "baseline_v1",
+        "zhcw",
+        forward_evaluator=ForwardEvaluator(),
+    )
     assert result["sync"]["inserted_count"] == 0
     assert sync_calls[0][0] == ("zhcw",)
     assert sync_calls[0][1]["history"] is True
@@ -111,6 +135,7 @@ def test_daily_pipeline_no_new_data_finishes(monkeypatch, tmp_path):
 def test_daily_pipeline_runs_incremental_weight_kdj_after_sync_change(monkeypatch, tmp_path):
     finished = {}
     kdj_calls = []
+    events = []
 
     monkeypatch.setattr("scripts.daily_pipeline.ROOT_DIR", tmp_path)
     monkeypatch.setattr("scripts.daily_pipeline._latest_local_issue", lambda: "2026067")
@@ -132,10 +157,15 @@ def test_daily_pipeline_runs_incremental_weight_kdj_after_sync_change(monkeypatc
     monkeypatch.setattr("scripts.daily_pipeline.save_experiment", lambda *args: None)
 
     def fake_generate_signals(**kwargs):
+        events.append("signals")
         kdj_calls.append(kwargs)
         return {"status": "seed_missing", "signals": 0}
 
     monkeypatch.setattr("scripts.daily_pipeline.generate_signals", fake_generate_signals)
+    monkeypatch.setattr(
+        "scripts.daily_pipeline.refresh_training_prediction_lines_current",
+        lambda conn, top_n: events.append("prediction") or {"status": "ready"},
+    )
 
     class FakeConn:
         pass
@@ -154,12 +184,82 @@ def test_daily_pipeline_runs_incremental_weight_kdj_after_sync_change(monkeypatc
         lambda conn, run_key, status, summary: finished.update({"status": status, "summary": summary}),
     )
 
-    result = run_pipeline("baseline_v1", "zhcw")
+    result = run_pipeline(
+        "baseline_v1",
+        "zhcw",
+        forward_evaluator=ForwardEvaluator(events=events),
+    )
 
     assert kdj_calls[0]["mode"] == "incremental"
     assert kdj_calls[0]["signal_run_id"] == "weight-kdj-recent-1000-v1"
     assert result["weight_kdj"]["status"] == "seed_missing"
     assert finished["summary"]["weight_kdj"]["signals"] == 0
+    assert result["forward_evaluation"]["status"] == "ok"
+    assert events == ["evaluate", "signals", "prediction"]
+
+
+def test_daily_pipeline_blocks_next_prediction_when_forward_evaluation_fails(
+    monkeypatch,
+    tmp_path,
+):
+    finished = {}
+    downstream_calls = []
+    monkeypatch.setattr("scripts.daily_pipeline.ROOT_DIR", tmp_path)
+    monkeypatch.setattr("scripts.daily_pipeline._latest_local_issue", lambda: "2026080")
+    monkeypatch.setattr(
+        "scripts.daily_pipeline.sync_ssq",
+        lambda *a, **k: {
+            "run_key": "sync",
+            "inserted_count": 1,
+            "updated_count": 0,
+            "latest_draw": {"issue": "2026081"},
+        },
+    )
+    monkeypatch.setattr(
+        "scripts.daily_pipeline.generate_signals",
+        lambda **kwargs: downstream_calls.append("signals"),
+    )
+    monkeypatch.setattr(
+        "scripts.daily_pipeline.refresh_training_prediction_lines_current",
+        lambda *args, **kwargs: downstream_calls.append("prediction"),
+    )
+
+    class FakeContext:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr("scripts.daily_pipeline.get_connection", lambda: FakeContext())
+    monkeypatch.setattr("scripts.daily_pipeline.create_pipeline_run", lambda conn, run_key: None)
+    monkeypatch.setattr(
+        "scripts.daily_pipeline.finish_pipeline_run",
+        lambda conn, run_key, status, summary: finished.update(
+            {"status": status, "summary": summary}
+        ),
+    )
+    evaluator = ForwardEvaluator(
+        {
+            "status": "failed",
+            "pending_count": 3,
+            "evaluated_count": 0,
+            "missing_draw_count": 0,
+            "failed_count": 1,
+            "results": [{"status": "evaluation_failed"}],
+        }
+    )
+
+    with pytest.raises(RuntimeError, match="forward_evaluation_batch_failed"):
+        run_pipeline(
+            "baseline_v1",
+            "zhcw",
+            forward_evaluator=evaluator,
+        )
+
+    assert downstream_calls == []
+    assert finished["status"] == "failed"
+    assert finished["summary"]["forward_evaluation"]["failed_count"] == 1
 
 
 def test_daily_pipeline_records_failed_status(monkeypatch, tmp_path):
