@@ -18,6 +18,18 @@ from dehps.scoring_kernel.packing import (
     target_lex_id,
 )
 from dehps.scoring_kernel.planner import KernelPlanner, resolve_backend_name
+from dehps.scoring_kernel.shadow import (
+    DEFAULT_PRODUCTION_LINES,
+    SHADOW_GATE_VERSION,
+    SHADOW_PROTOCOL_VERSION,
+    ShadowEvidenceViolation,
+    ShadowOperationalEvidence,
+    compare_kernel_results,
+    run_shadow_comparison,
+    shadow_promotion_readiness,
+    verify_shadow_evidence,
+    write_shadow_artifact,
+)
 from dehps.scoring_kernel.topk_reducer import (
     PartitionMergeReducer,
     SmallKReducer,
@@ -31,6 +43,7 @@ from dehps.scoring_kernel.topk_reducer import (
 __all__ = (
     "STRICT_CONTRACT_VERSION",
     "CandidateStore",
+    "DEFAULT_PRODUCTION_LINES",
     "KernelPlanner",
     "KernelRequest",
     "KernelResult",
@@ -38,6 +51,10 @@ __all__ = (
     "PackedWindowState",
     "PreparedCandidateStore",
     "ScoringKernelBackend",
+    "SHADOW_GATE_VERSION",
+    "SHADOW_PROTOCOL_VERSION",
+    "ShadowEvidenceViolation",
+    "ShadowOperationalEvidence",
     "SmallKReducer",
     "TileSelectionReducer",
     "PartitionMergeReducer",
@@ -47,8 +64,13 @@ __all__ = (
     "TopKResult",
     "WeightMatrix",
     "candidate_store_from_matrix",
+    "compare_kernel_results",
     "numbers_mask",
     "pack_window_state",
     "resolve_backend_name",
+    "run_shadow_comparison",
+    "shadow_promotion_readiness",
     "target_lex_id",
+    "verify_shadow_evidence",
+    "write_shadow_artifact",
 )

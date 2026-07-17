@@ -9,6 +9,10 @@ import numpy as np
 from dehps.contracts import canonical_digest
 from dehps.feature_runtime.compiler import feature_array_digest
 from dehps.feature_runtime.runtime import FeatureABIRuntime
+from dehps.input_contracts.candidate_abi import (
+    CandidateABIVerification,
+    CandidateABIVerifier,
+)
 from dehps.ranking_contract import STRICT_RANKING_CONTRACT
 from dehps.runtime_envelope import (
     RuntimeEnvelopeCompiler,
@@ -35,6 +39,7 @@ class PreparedFeatureABIRuntime:
     backend_name: str
     prepare_seconds: float
     runtime_envelope: RuntimeEnvelopeV1
+    candidate_abi_verification: CandidateABIVerification
 
     @property
     def runtime(self) -> FeatureABIRuntime:
@@ -64,6 +69,9 @@ class FeatureABINumpyReferenceBackend:
         started = time.perf_counter()
         UnifiedRuntimeVerifier().verify_package(verified_runtime)
         runtime = verified_runtime.runtime
+        candidate_verification = CandidateABIVerifier().verify(
+            runtime.candidate_package
+        )
         runtime_envelope = RuntimeEnvelopeCompiler().compile_kernel_ready(
             verified_runtime,
             backend=self.name,
@@ -74,6 +82,7 @@ class FeatureABINumpyReferenceBackend:
             backend_name=self.name,
             prepare_seconds=time.perf_counter() - started,
             runtime_envelope=runtime_envelope,
+            candidate_abi_verification=candidate_verification,
         )
 
     def _tile(
@@ -262,7 +271,15 @@ class FeatureABINumpyReferenceBackend:
             "candidate_count": candidate_count,
             "candidate_contract": str(candidate_contract["contract_key"]),
             "candidate_abi": str(candidate_envelope["candidate_abi"]),
+            "candidate_digest": str(candidate_envelope["candidate_digest"]),
+            "candidate_layout_digest": str(candidate_envelope["layout_digest"]),
             "candidate_package_digest": runtime.candidate_package.package_digest,
+            "candidate_abi_verification_id": (
+                prepared.candidate_abi_verification.verified_candidate_id
+            ),
+            "candidate_abi_verification_cache_hit": int(
+                prepared.candidate_abi_verification.cache_hit
+            ),
             "candidate_identity_id_kind": "candidate_abi_row_index",
             "feature_contract": str(feature_contract["contract_key"]),
             "feature_abi": str(feature_envelope["feature_abi"]),
