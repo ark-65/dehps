@@ -51,20 +51,43 @@ class ShadowEvidenceViolation(ValueError):
 
 @dataclass(frozen=True)
 class ShadowOperationalEvidence:
+    capture_mode: str = "simultaneous"
+    prediction_run_key: str = ""
+    source_prediction_ranking_contract: str = STRICT_RANKING_CONTRACT
+    source_code_commit: str = ""
+    replay_code_commit: str = ""
+    official_candidate_artifact_status: str = "not_bound"
+    official_candidate_id_mismatch_count: int = 0
+    official_candidate_score_mismatch_count: int = 0
     evaluation_status: str = "pending"
     evaluation_mismatch_count: int = 0
     restart_recovery_result: str = "pending"
     watchdog_result: str = "pending"
 
     def __post_init__(self) -> None:
+        if self.capture_mode not in {"simultaneous", "posthoc_reconstruction"}:
+            raise ValueError("capture_mode must be simultaneous or posthoc_reconstruction")
+        if self.official_candidate_artifact_status not in {
+            "not_bound",
+            "matched",
+            "mismatch",
+        }:
+            raise ValueError(
+                "official_candidate_artifact_status must be not_bound, matched, or mismatch"
+            )
         if self.evaluation_status not in {"pending", "passed", "failed"}:
             raise ValueError("evaluation_status must be pending, passed, or failed")
         if self.restart_recovery_result not in {"pending", "passed", "failed"}:
             raise ValueError("restart_recovery_result must be pending, passed, or failed")
         if self.watchdog_result not in {"pending", "passed", "failed"}:
             raise ValueError("watchdog_result must be pending, passed, or failed")
-        if self.evaluation_mismatch_count < 0:
-            raise ValueError("evaluation_mismatch_count must be non-negative")
+        for field in (
+            "official_candidate_id_mismatch_count",
+            "official_candidate_score_mismatch_count",
+            "evaluation_mismatch_count",
+        ):
+            if int(getattr(self, field)) < 0:
+                raise ValueError(f"{field} must be non-negative")
 
 
 def _mismatch_count(left: np.ndarray, right: np.ndarray) -> int:
@@ -277,6 +300,22 @@ def compare_kernel_results(
         "candidate_identity_mismatch_count": candidate_identity_mismatch_count,
         "runtime_envelope_mismatch_count": runtime_envelope_mismatch_count,
         "ranking_contract_mismatch_count": ranking_contract_mismatch_count,
+        "capture_mode": operational.capture_mode,
+        "prediction_run_key": operational.prediction_run_key,
+        "source_prediction_ranking_contract": (
+            operational.source_prediction_ranking_contract
+        ),
+        "source_code_commit": operational.source_code_commit,
+        "replay_code_commit": operational.replay_code_commit,
+        "official_candidate_artifact_status": (
+            operational.official_candidate_artifact_status
+        ),
+        "official_candidate_id_mismatch_count": (
+            operational.official_candidate_id_mismatch_count
+        ),
+        "official_candidate_score_mismatch_count": (
+            operational.official_candidate_score_mismatch_count
+        ),
         "evaluation_status": operational.evaluation_status,
         "comparison_status": comparison_status,
         "comparison_passed": comparison_status == "exact",
@@ -304,6 +343,34 @@ def run_shadow_comparison(
     shadow_backend: str = "numba_cpu",
     operational: ShadowOperationalEvidence | None = None,
 ) -> dict[str, Any]:
+    official_result, shadow_result = execute_shadow_pair(
+        candidate_store=candidate_store,
+        window_state=window_state,
+        weights=weights,
+        request=request,
+        official_backend=official_backend,
+        shadow_backend=shadow_backend,
+    )
+    return compare_kernel_results(
+        target_issue=target_issue,
+        line_key=line_key,
+        config_fingerprint=config_fingerprint,
+        candidate_store_version=candidate_store.store_version,
+        official=official_result,
+        shadow=shadow_result,
+        operational=operational,
+    )
+
+
+def execute_shadow_pair(
+    *,
+    candidate_store: CandidateStore,
+    window_state: PackedWindowState,
+    weights: WeightMatrix,
+    request: KernelRequest,
+    official_backend: str = "numpy_reference",
+    shadow_backend: str = "numba_cpu",
+) -> tuple[KernelResult, KernelResult]:
     official_engine = KernelPlanner(official_backend).backend()
     shadow_engine = KernelPlanner(shadow_backend).backend()
     official_result = official_engine.score_rank(
@@ -320,15 +387,7 @@ def run_shadow_comparison(
         request,
         KernelWorkspace(),
     )
-    return compare_kernel_results(
-        target_issue=target_issue,
-        line_key=line_key,
-        config_fingerprint=config_fingerprint,
-        candidate_store_version=candidate_store.store_version,
-        official=official_result,
-        shadow=shadow_result,
-        operational=operational,
-    )
+    return official_result, shadow_result
 
 
 def write_shadow_artifact(output_dir: Path, evidence: Mapping[str, Any]) -> Path:
@@ -390,6 +449,20 @@ def verify_shadow_evidence(evidence: Mapping[str, Any]) -> None:
         raise ShadowEvidenceViolation(
             "shadow_comparison_digest_mismatch",
             "shadow evidence seal does not match its payload",
+        )
+    artifact_mismatches = int(
+        evidence.get("official_candidate_id_mismatch_count") or 0
+    ) + int(evidence.get("official_candidate_score_mismatch_count") or 0)
+    artifact_status = evidence.get("official_candidate_artifact_status")
+    if artifact_status == "matched" and artifact_mismatches != 0:
+        raise ShadowEvidenceViolation(
+            "shadow_official_artifact_status_inconsistent",
+            "matched official candidate artifact contains mismatches",
+        )
+    if artifact_status == "mismatch" and artifact_mismatches == 0:
+        raise ShadowEvidenceViolation(
+            "shadow_official_artifact_status_inconsistent",
+            "mismatched official candidate artifact has no mismatch evidence",
         )
     if evidence.get("comparison_status") == "exact":
         mismatch_fields = (
@@ -460,6 +533,8 @@ def shadow_promotion_readiness(
         grouped[issue][line_key] = row
 
     issue_rows: list[dict[str, Any]] = []
+    seen_prediction_run_keys: set[str] = set()
+    duplicate_prediction_run_keys: list[str] = []
     for issue in sorted(grouped, key=_issue_sort_key):
         lines = grouped[issue]
         missing = [line for line in required_lines if line not in lines]
@@ -474,6 +549,27 @@ def shadow_promotion_readiness(
                 failures.append(f"{line}:invalid_evidence")
             if row.get("comparison_status") != "exact":
                 failures.append(f"{line}:comparison")
+            if row.get("capture_mode") != "simultaneous":
+                failures.append(f"{line}:capture_mode")
+            if row.get("source_prediction_ranking_contract") != STRICT_RANKING_CONTRACT:
+                failures.append(f"{line}:source_prediction_ranking_contract")
+            if not row.get("prediction_run_key"):
+                failures.append(f"{line}:prediction_run_key")
+            elif str(row["prediction_run_key"]) in seen_prediction_run_keys:
+                failures.append(f"{line}:duplicate_prediction_run_key")
+                duplicate_prediction_run_keys.append(str(row["prediction_run_key"]))
+            else:
+                seen_prediction_run_keys.add(str(row["prediction_run_key"]))
+            if not row.get("source_code_commit") or row.get(
+                "source_code_commit"
+            ) != row.get("replay_code_commit"):
+                failures.append(f"{line}:code_commit")
+            if row.get("official_candidate_artifact_status") != "matched":
+                failures.append(f"{line}:official_candidate_artifact")
+            if int(row.get("official_candidate_id_mismatch_count") or 0) != 0:
+                failures.append(f"{line}:official_candidate_ids")
+            if int(row.get("official_candidate_score_mismatch_count") or 0) != 0:
+                failures.append(f"{line}:official_candidate_scores")
             if row.get("official_backend") != "numpy_reference":
                 failures.append(f"{line}:official_backend")
             if row.get("shadow_backend") != "numba_cpu":
@@ -509,6 +605,7 @@ def shadow_promotion_readiness(
     consecutive = len(selected) == required_issue_count and _issues_are_consecutive(selected)
     evidence_sufficient = (
         not duplicate_keys
+        and not duplicate_prediction_run_keys
         and len(selected) == required_issue_count
         and all(row["passed"] for row in selected_rows)
         and consecutive
@@ -522,6 +619,7 @@ def shadow_promotion_readiness(
         "selected_issues": selected,
         "issues_are_consecutive": consecutive,
         "duplicate_evidence_keys": duplicate_keys,
+        "duplicate_prediction_run_keys": duplicate_prediction_run_keys,
         "ignored_evidence_keys": ignored_keys,
         "evidence_sufficient": evidence_sufficient,
         "status": "ready_for_independent_approval" if evidence_sufficient else "insufficient_evidence",

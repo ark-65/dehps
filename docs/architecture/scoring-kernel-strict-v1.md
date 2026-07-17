@@ -95,6 +95,22 @@ fails closed. The gate may return `ready_for_independent_approval`, but always
 returns `automatic_promotion_allowed=false`: it has evidence authority, not
 production promotion authority.
 
+### Forward reconstruction adapter
+
+`scripts.run_forward_scoring_shadow` is a read-only compensation and diagnostic
+entry point for an already persisted `forward_prediction_run`. It reconstructs
+the exact history boundary and configuration, executes both current backends,
+and binds the result to the stored official TopK artifact and completed forward
+evaluation. History fingerprint, configuration fingerprint, candidate count,
+rank continuity, CandidateStore row identity, scores, leakage status, model rank,
+and model score all fail closed.
+
+Reconstruction is always recorded as `capture_mode=posthoc_reconstruction`, with
+separate source and replay commits. It can expose historical differences, but it
+cannot satisfy the promotion gate. Only `capture_mode=simultaneous`, produced at
+the original prediction boundary with matching source/replay commit and an
+explicit prediction run key, may count toward the three-issue cohort.
+
 If a caller requests more workers than the Numba runtime exposes (for example, a two-core CI runner receiving `worker_count=4`), the backend caps execution to `NUMBA_NUM_THREADS`. Telemetry records the actual worker count. This changes capacity only; the strict result is invariant.
 
 Red5's global rank requires a second bounded scoring pass using the selected Red5 score and lex id as the target. This preserves exact rank without retaining the first pass's full score matrix. Telemetry counts both passes in `score_cells`.

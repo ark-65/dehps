@@ -63,8 +63,16 @@ def exact_evidence(
     )
 
 
-def passed_operational_evidence() -> ShadowOperationalEvidence:
+def passed_operational_evidence(
+    issue: str = "2026082",
+    line_key: str = "static_100",
+) -> ShadowOperationalEvidence:
     return ShadowOperationalEvidence(
+        capture_mode="simultaneous",
+        prediction_run_key=f"{line_key}:{issue}:fixture",
+        source_code_commit="a" * 40,
+        replay_code_commit="a" * 40,
+        official_candidate_artifact_status="matched",
         evaluation_status="passed",
         evaluation_mismatch_count=0,
         restart_recovery_result="passed",
@@ -159,7 +167,7 @@ def test_artifact_write_is_digest_checked_and_append_only_by_identity(tmp_path) 
 
 def test_three_issue_gate_requires_every_line_and_completed_operations() -> None:
     rows = [
-        exact_evidence(issue, line, operational=passed_operational_evidence())
+        exact_evidence(issue, line, operational=passed_operational_evidence(issue, line))
         for issue in ("2026082", "2026083", "2026084")
         for line in ("static_100", "dynamic_kdj", "dynamic_kdj_near")
     ]
@@ -178,10 +186,26 @@ def test_three_issue_gate_requires_every_line_and_completed_operations() -> None
     assert pending_gate["evidence_sufficient"] is False
     assert "dynamic_kdj_near:evaluation" in pending_gate["issue_results"][-1]["failures"]
 
+    posthoc = rows.copy()
+    posthoc[-1] = exact_evidence(
+        "2026084",
+        "dynamic_kdj_near",
+        operational=replace(
+            passed_operational_evidence("2026084", "dynamic_kdj_near"),
+            capture_mode="posthoc_reconstruction",
+            replay_code_commit="b" * 40,
+        ),
+    )
+    posthoc_gate = shadow_promotion_readiness(posthoc)
+    assert posthoc_gate["evidence_sufficient"] is False
+    assert "dynamic_kdj_near:capture_mode" in posthoc_gate["issue_results"][-1][
+        "failures"
+    ]
+
 
 def test_gate_rejects_nonconsecutive_duplicate_or_tampered_evidence() -> None:
     rows = [
-        exact_evidence(issue, line, operational=passed_operational_evidence())
+        exact_evidence(issue, line, operational=passed_operational_evidence(issue, line))
         for issue in ("2026082", "2026084", "2026085")
         for line in ("static_100", "dynamic_kdj", "dynamic_kdj_near")
     ]
@@ -195,7 +219,7 @@ def test_gate_rejects_nonconsecutive_duplicate_or_tampered_evidence() -> None:
     extra_line = exact_evidence(
         "2026086",
         "forward_challenger",
-        operational=passed_operational_evidence(),
+        operational=passed_operational_evidence("2026086", "forward_challenger"),
     )
     ignored_gate = shadow_promotion_readiness(rows + [extra_line])
     assert ignored_gate["ignored_evidence_keys"] == ["2026086:forward_challenger"]
