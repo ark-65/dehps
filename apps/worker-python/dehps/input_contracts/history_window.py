@@ -533,6 +533,10 @@ class WindowArtifact:
         )
 
     def __post_init__(self) -> None:
+        self.verify()
+
+    def verify(self) -> None:
+        """Re-run the fail-closed Window artifact checks at a runtime boundary."""
         self.envelope.validate()
         _require_digest("artifact_digest", self.artifact_digest)
         if not self.envelope.window_contract.normatively_equals(self.spec.contract):
