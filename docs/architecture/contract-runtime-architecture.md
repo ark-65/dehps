@@ -147,11 +147,13 @@ Every durable artifact should converge on a top-level runtime envelope:
 ```yaml
 runtime:
   envelope_version: runtime_envelope.v1
-  artifact_type: ranked_prediction
+  artifact_type: scoring_kernel_result
   domain: ssq_red_ball
-  history_snapshot:
+  state: artifact_produced
+  state_path: [compiled_abi, verified_runtime, kernel_ready, kernel_executing, artifact_produced]
+  history:
     contract: history_snapshot.v1.0.0
-    digest: sha256:...
+    snapshot_digest: sha256:...
     latest_issue: "2026080"
     draw_count: 3477
   window:
@@ -169,13 +171,13 @@ runtime:
     layout_digest: sha256:...
   scoring:
     contract: dehps-scoring-strict-v1
-    backend: numba_cpu
+    backend: feature_abi_numpy_reference
   ranking:
     contract: strict_v1
   evaluation:
-    contract: evaluation.v1.0.0
+    contract: null
   code:
-    commit: git-sha
+    commit: full-git-sha
   abi_package_digest: sha256:...
   artifact_payload_digest: sha256:...
 ```
@@ -191,6 +193,7 @@ This envelope is not a replacement for stage envelopes. A stage envelope carries
 | Candidate Contract / ABI | Runtime preflight integrated | `candidate.v1.0.0`, `candidate_abi.v1`, Compiler, Verifier, golden fixtures, CandidateStore adapter, Kernel prepare validation, telemetry propagation |
 | Feature Contract / Compiler | Reference compiler implemented | `feature.v1.0.0`, component manifest, golden vector, verified Window/Candidate input binding, deterministic Feature Artifact, fail-closed artifact verifier |
 | Feature ABI Runtime | Reference execution integrated | `feature_abi.v1`, tile-local dense `float64[R,32]`, joint Candidate/Feature preflight, explicit Kernel Planner entry, strict score/rank/TopK/Red5 reference execution; fused Numba remains unapproved for this entry |
+| Runtime Envelope | Reference KernelResult integrated | `runtime_envelope.v1`, full History/Window/Candidate/Feature/Scoring/Ranking/code binding, canonical state path, detached payload verification; legacy artifacts are not rewritten |
 | Scoring Contract | Implemented | `dehps-scoring-strict-v1` |
 | Ranking Contract | Implemented | `legacy_score_partition` compatibility and `strict_v1` |
 | Evaluation Contract | Later | hit, TopK, Red5, rank, score, and comparison semantics |
@@ -243,8 +246,8 @@ This is the boundary that lets NumPy, Numba, SIMD, CUDA, OpenCL, and future nati
 
 The next migration rounds should be staged as:
 
-1. Runtime Envelope v1: add envelope writers to new artifacts without rewriting historical evidence.
-2. Unified Runtime Verifier: assemble History, Window, Candidate, and Feature verification into one verified runtime package.
+1. Unified Runtime Verifier: replace stage-specific orchestration with one verified runtime package consumed by Kernel Planner.
+2. Runtime Envelope propagation: carry v1 through exports, APIs, shadow reports, and later evaluation artifacts without historical backfill.
 3. Fused backend migration: define and verify the Numba tile producer against Feature ABI before claiming compliance or changing defaults.
 4. Evaluation Contract v1: freeze hit, rank, TopK, Red5, comparison, and mismatch classification semantics.
 5. Kernel P2: optimize TopK reduction after the ABI inputs are stable.

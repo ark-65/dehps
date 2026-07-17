@@ -6,10 +6,13 @@ from dehps.contracts import canonical_digest
 from dehps.feature_runtime.abi import FeatureABIPackage, FeatureABIVerifier
 from dehps.feature_runtime.compiler import FeatureRuntimeViolation
 from dehps.input_contracts.candidate_abi import CandidateABIPackage, CandidateABIVerifier
+from dehps.input_contracts.history_window import HistorySnapshotArtifact, WindowArtifact
 
 
 @dataclass(frozen=True)
 class FeatureABIRuntime:
+    history_snapshot: HistorySnapshotArtifact
+    window_artifact: WindowArtifact
     candidate_package: CandidateABIPackage
     feature_tiles: tuple[FeatureABIPackage, ...]
 
@@ -22,6 +25,8 @@ class FeatureABIRuntime:
         return canonical_digest(
             {
                 "runtime_type": "feature_abi_runtime.v1",
+                "history_snapshot_digest": self.history_snapshot.history_digest,
+                "window_artifact_digest": self.window_artifact.artifact_digest,
                 "candidate_package_digest": self.candidate_package.package_digest,
                 "feature_tiles": [
                     {
@@ -43,6 +48,19 @@ class FeatureABIRuntimeVerifier:
     """Joint Candidate/Feature preflight for the explicit Feature ABI execution path."""
 
     def verify(self, runtime: FeatureABIRuntime) -> None:
+        runtime.history_snapshot.verify()
+        runtime.window_artifact.verify()
+        if (
+            runtime.window_artifact.snapshot_id != runtime.history_snapshot.snapshot_id
+            or runtime.window_artifact.envelope.history_snapshot_digest
+            != runtime.history_snapshot.history_digest
+            or runtime.window_artifact.envelope.input_draw_count
+            != runtime.history_snapshot.draw_count
+        ):
+            self._reject(
+                "feature_runtime_history_window_binding_mismatch",
+                "Window Artifact does not match the runtime History Snapshot",
+            )
         CandidateABIVerifier().verify(runtime.candidate_package)
         if not runtime.feature_tiles:
             self._reject("feature_runtime_missing_tiles", "Feature ABI runtime requires at least one tile")
@@ -58,6 +76,12 @@ class FeatureABIRuntimeVerifier:
                 self._reject(
                     "feature_runtime_candidate_binding_mismatch",
                     "Feature tile does not reference the runtime Candidate ABI package",
+                    tile_index=tile_index,
+                )
+            if header.window_artifact_digest != runtime.window_artifact.artifact_digest:
+                self._reject(
+                    "feature_runtime_window_binding_mismatch",
+                    "Feature tile does not reference the runtime Window Artifact",
                     tile_index=tile_index,
                 )
             if header.start != expected_start:

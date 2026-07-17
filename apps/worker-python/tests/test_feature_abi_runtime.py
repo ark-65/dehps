@@ -26,6 +26,17 @@ from dehps.scoring_kernel import (
     pack_window_state,
 )
 from dehps.scoring_kernel.numpy_backend import NumpyReferenceBackend, component_tile
+from dehps.scoring_kernel.feature_abi_backend import kernel_result_payload_digest
+from dehps.runtime_envelope import (
+    RuntimeEnvelopeCompiler,
+    RuntimeEnvelopeV1,
+    RuntimeEnvelopeVerifier,
+    RuntimeEnvelopeViolation,
+    RuntimeState,
+)
+
+
+TEST_CODE_COMMIT = "a" * 40
 
 
 @pytest.fixture(scope="module")
@@ -89,6 +100,7 @@ def feature_runtime_case():
         window_id=91,
     )
     return {
+        "snapshot": snapshot,
         "window": window,
         "store": store,
         "state": state,
@@ -112,6 +124,8 @@ def _runtime(case, *, tile_size: int) -> FeatureABIRuntime:
         tiles.append(FeatureABICompiler().compile(artifact))
     assert store.candidate_abi_package is not None
     return FeatureABIRuntime(
+        history_snapshot=case["snapshot"],
+        window_artifact=case["window"],
         candidate_package=store.candidate_abi_package,
         feature_tiles=tuple(tiles),
     )
@@ -128,6 +142,20 @@ def _legacy_result(case):
     )
 
 
+def _result_payload_digest(result, *, top_candidate_ids=None) -> str:
+    return kernel_result_payload_digest(
+        target_scores=result.target_scores,
+        exact_ranks=result.exact_ranks,
+        top_candidate_ids=(
+            result.top_candidate_ids if top_candidate_ids is None else top_candidate_ids
+        ),
+        top_scores=result.top_scores,
+        red5_candidate_ids=result.red5_candidate_ids,
+        red5_scores=result.red5_scores,
+        red5_ranks=result.red5_ranks,
+    )
+
+
 @pytest.mark.parametrize("tile_size", [127, 777])
 def test_feature_abi_runtime_matches_existing_reference_score_rank_topk_and_red5(
     feature_runtime_case,
@@ -137,7 +165,7 @@ def test_feature_abi_runtime_matches_existing_reference_score_rank_topk_and_red5
     planner = KernelPlanner("numpy_reference")
 
     result = planner.score_rank_feature_abi(
-        planner.prepare_feature_abi(runtime),
+        planner.prepare_feature_abi(runtime, code_commit=TEST_CODE_COMMIT),
         feature_runtime_case["weights"],
         feature_runtime_case["request"],
         KernelWorkspace(),
@@ -155,6 +183,21 @@ def test_feature_abi_runtime_matches_existing_reference_score_rank_topk_and_red5
     assert result.telemetry["feature_abi"] == "feature_abi.v1"
     assert result.telemetry["candidate_identity_id_kind"] == "candidate_abi_row_index"
     assert result.telemetry["feature_runtime_digest"] == runtime.runtime_digest
+    envelope = RuntimeEnvelopeV1.from_dict(result.runtime_envelope)
+    assert envelope.state is RuntimeState.ARTIFACT_PRODUCED
+    assert envelope.state_path == tuple(RuntimeState)
+    assert envelope.history_snapshot_digest == runtime.window_artifact.envelope.history_snapshot_digest
+    assert envelope.window_artifact_digest == runtime.window_artifact.artifact_digest
+    assert envelope.candidate_package_digest == runtime.candidate_package.package_digest
+    assert envelope.feature_runtime_digest == runtime.runtime_digest
+    assert envelope.code_commit == TEST_CODE_COMMIT
+    assert result.telemetry["runtime_envelope_digest"] == envelope.envelope_digest
+    RuntimeEnvelopeVerifier().verify_artifact_payload(
+        envelope,
+        payload_digest=_result_payload_digest(result),
+        runtime=runtime,
+        expected_backend="feature_abi_numpy_reference",
+    )
 
 
 def test_feature_abi_runtime_preflight_is_deterministic(feature_runtime_case) -> None:
@@ -197,13 +240,16 @@ def test_planner_refuses_to_label_unmigrated_fused_backend_as_feature_abi(
     runtime = _runtime(feature_runtime_case, tile_size=1_000)
 
     with pytest.raises(FeatureRuntimeViolation, match="feature_abi_backend_not_migrated"):
-        KernelPlanner("numba_cpu").prepare_feature_abi(runtime)
+        KernelPlanner("numba_cpu").prepare_feature_abi(
+            runtime,
+            code_commit=TEST_CODE_COMMIT,
+        )
 
 
 def test_planner_rejects_prepared_runtime_from_another_backend(feature_runtime_case) -> None:
     runtime = _runtime(feature_runtime_case, tile_size=1_000)
     planner = KernelPlanner("numpy_reference")
-    prepared = planner.prepare_feature_abi(runtime)
+    prepared = planner.prepare_feature_abi(runtime, code_commit=TEST_CODE_COMMIT)
 
     with pytest.raises(FeatureRuntimeViolation, match="feature_abi_prepared_backend_mismatch"):
         planner.score_rank_feature_abi(
@@ -226,7 +272,7 @@ def test_feature_abi_runtime_preserves_strict_tie_order(feature_runtime_case) ->
     )
 
     result = planner.score_rank_feature_abi(
-        planner.prepare_feature_abi(runtime),
+        planner.prepare_feature_abi(runtime, code_commit=TEST_CODE_COMMIT),
         weights,
         request,
     )
@@ -234,3 +280,111 @@ def test_feature_abi_runtime_preserves_strict_tie_order(feature_runtime_case) ->
     assert result.exact_ranks.tolist() == [target_id + 1]
     assert result.top_candidate_ids.tolist() == [list(range(10))]
     assert result.top_scores.tolist() == [[0.0] * 10]
+
+
+def test_runtime_envelope_state_machine_is_sequential_and_fail_closed(
+    feature_runtime_case,
+) -> None:
+    runtime = _runtime(feature_runtime_case, tile_size=750)
+    ready = RuntimeEnvelopeCompiler().compile_kernel_ready(
+        runtime,
+        backend="feature_abi_numpy_reference",
+        code_commit=TEST_CODE_COMMIT,
+    )
+
+    assert ready.state is RuntimeState.KERNEL_READY
+    assert ready.state_path == tuple(RuntimeState)[:3]
+    RuntimeEnvelopeVerifier().verify(ready, runtime=runtime)
+
+    with pytest.raises(RuntimeEnvelopeViolation, match="invalid_runtime_state_transition"):
+        ready.transition(RuntimeState.ARTIFACT_PRODUCED)
+
+    executing = ready.transition(RuntimeState.KERNEL_EXECUTING)
+    with pytest.raises(RuntimeEnvelopeViolation, match="artifact_digest_required_for_transition"):
+        executing.transition(RuntimeState.ARTIFACT_PRODUCED)
+
+    produced = executing.produce_artifact("9" * 64)
+    assert produced.state_path == tuple(RuntimeState)
+    RuntimeEnvelopeVerifier().verify_artifact_payload(
+        produced,
+        payload_digest="9" * 64,
+        runtime=runtime,
+    )
+
+
+def test_runtime_envelope_rejects_invalid_commit_binding_and_serialized_tampering(
+    feature_runtime_case,
+) -> None:
+    runtime = _runtime(feature_runtime_case, tile_size=750)
+
+    with pytest.raises(RuntimeEnvelopeViolation, match="runtime_code_commit_invalid"):
+        RuntimeEnvelopeCompiler().compile_kernel_ready(
+            runtime,
+            backend="feature_abi_numpy_reference",
+            code_commit="short-sha",
+        )
+
+    ready = RuntimeEnvelopeCompiler().compile_kernel_ready(
+        runtime,
+        backend="feature_abi_numpy_reference",
+        code_commit=TEST_CODE_COMMIT,
+    )
+    serialized = ready.as_dict()
+    serialized["candidate"] = {
+        **serialized["candidate"],
+        "package_digest": "0" * 64,
+    }
+    with pytest.raises(RuntimeEnvelopeViolation, match="runtime_envelope_digest_mismatch"):
+        RuntimeEnvelopeV1.from_dict(serialized)
+
+    without_digest = ready.as_dict()
+    del without_digest["envelope_digest"]
+    with pytest.raises(RuntimeEnvelopeViolation, match="runtime_envelope_digest_missing"):
+        RuntimeEnvelopeV1.from_dict(without_digest)
+
+
+def test_runtime_envelope_detects_detached_kernel_result_mutation(feature_runtime_case) -> None:
+    runtime = _runtime(feature_runtime_case, tile_size=750)
+    planner = KernelPlanner("numpy_reference")
+    result = planner.score_rank_feature_abi(
+        planner.prepare_feature_abi(runtime, code_commit=TEST_CODE_COMMIT),
+        feature_runtime_case["weights"],
+        feature_runtime_case["request"],
+    )
+    envelope = RuntimeEnvelopeV1.from_dict(result.runtime_envelope)
+    mutated_ids = result.top_candidate_ids.copy()
+    mutated_ids[0, 0] += 1
+
+    with pytest.raises(RuntimeEnvelopeViolation, match="runtime_artifact_payload_mismatch"):
+        RuntimeEnvelopeVerifier().verify_artifact_payload(
+            envelope,
+            payload_digest=_result_payload_digest(result, top_candidate_ids=mutated_ids),
+            runtime=runtime,
+            expected_backend="feature_abi_numpy_reference",
+        )
+
+
+def test_runtime_envelope_backend_binding_is_rechecked_at_execution(
+    feature_runtime_case,
+) -> None:
+    runtime = _runtime(feature_runtime_case, tile_size=750)
+    planner = KernelPlanner("numpy_reference")
+    prepared = planner.prepare_feature_abi(runtime, code_commit=TEST_CODE_COMMIT)
+    wrong_envelope = replace(prepared.runtime_envelope, backend="other_backend")
+
+    with pytest.raises(RuntimeEnvelopeViolation, match="runtime_backend_mismatch"):
+        planner.score_rank_feature_abi(
+            replace(prepared, runtime_envelope=wrong_envelope),
+            feature_runtime_case["weights"],
+            feature_runtime_case["request"],
+        )
+
+
+def test_feature_runtime_rejects_history_window_snapshot_mismatch(feature_runtime_case) -> None:
+    runtime = _runtime(feature_runtime_case, tile_size=750)
+    shorter = HistorySnapshotArtifact.from_history(
+        [record.as_history_draw() for record in runtime.history_snapshot.records[:-1]]
+    )
+
+    with pytest.raises(FeatureRuntimeViolation, match="feature_runtime_history_window_binding_mismatch"):
+        replace(runtime, history_snapshot=shorter).verify()

@@ -244,6 +244,7 @@ class KernelResult:
     red5_scores: np.ndarray
     red5_ranks: np.ndarray
     telemetry: dict[str, int | float | str] = field(default_factory=dict)
+    runtime_envelope: dict[str, object] = field(default_factory=dict)
 
 
 class ScoringKernelBackend(Protocol):
