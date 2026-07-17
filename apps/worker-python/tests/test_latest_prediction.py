@@ -64,6 +64,18 @@ def test_latest_prediction_builds_three_lines_and_cross_line_consensus():
     assert payload["lines"][0]["model_version"] == "static_100-model-v1"
     assert payload["lines"][0]["parameter_version"] == "hash-static_100"
     assert payload["lines"][0]["ranking_contract"] == "legacy_score_partition"
+    assert payload["lines"][0]["runtime_envelope"] == {
+        "protocol": "runtime_envelope_projection.v1",
+        "status": "unavailable",
+        "reason": "legacy_prediction_without_runtime_envelope",
+        "envelope": None,
+    }
+    assert payload["runtime_envelope_summary"] == {
+        "status": "unavailable",
+        "verified_count": 0,
+        "unavailable_count": 3,
+        "envelope_digests": [],
+    }
     assert [line["line_key"] for line in payload["lines"]] == [
         "static_100",
         "dynamic_kdj",
@@ -80,6 +92,7 @@ def test_latest_prediction_builds_three_lines_and_cross_line_consensus():
     assert rendered.count("run=run-1 round=8 prediction_run=") == 3
     assert "model=static_100-model-v1 parameters=hash-static_100" in rendered
     assert "ranking_contract=legacy_score_partition" in rendered
+    assert "runtime_envelope=unavailable" in rendered
     assert "Consensus across all lines: 01(6)" in rendered
 
 

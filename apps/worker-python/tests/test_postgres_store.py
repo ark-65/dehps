@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+import json
 
 import pytest
 
@@ -518,6 +519,8 @@ def test_replace_training_next_candidates_current_deletes_previous_snapshot():
         "2026068",
     )
     assert insert_params[0][17:21] == ("strict_v1", 1, [1, 2, 3, 4, 5, 6], 0.9)
+    current_prediction_metadata = json.loads(insert_params[0][16])
+    assert current_prediction_metadata["runtime_envelope_projection"]["status"] == "unavailable"
     forward_run_inserts = [params for sql, params in conn.executed if "INSERT INTO forward_prediction_runs" in sql]
     assert len(forward_run_inserts) == 1
     assert forward_run_inserts[0][:3] == (
@@ -525,6 +528,13 @@ def test_replace_training_next_candidates_current_deletes_previous_snapshot():
         "static_100",
         "100-period static training",
     )
+    persisted_metadata = json.loads(forward_run_inserts[0][17])
+    assert persisted_metadata["runtime_envelope_projection"] == {
+        "protocol": "runtime_envelope_projection.v1",
+        "status": "unavailable",
+        "reason": "prediction_created_without_runtime_envelope",
+        "envelope": None,
+    }
     forward_candidate_inserts = [
         params for sql, params in conn.executed if "INSERT INTO forward_prediction_candidates" in sql
     ]

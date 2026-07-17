@@ -9,6 +9,7 @@ from psycopg.rows import dict_row
 from dehps.source_version import resolve_git_commit
 from dehps.forward_promotion.gate import FORWARD_CHALLENGER_LINE_KEY
 from dehps.ranking_contract import normalize_ranking_contract
+from dehps.runtime_provenance import projection_from_metadata
 
 
 EXPECTED_LINE_KEYS = ("static_100", "dynamic_kdj", "dynamic_kdj_near")
@@ -106,6 +107,12 @@ def build_latest_prediction_payload(
             "lines": [],
             "consensus_numbers": [],
             "missing_lines": list(EXPECTED_LINE_KEYS),
+            "runtime_envelope_summary": {
+                "status": "not_applicable",
+                "verified_count": 0,
+                "unavailable_count": 0,
+                "envelope_digests": [],
+            },
         }
 
     candidates_by_run: dict[str, list[dict[str, Any]]] = {}
@@ -154,6 +161,10 @@ def build_latest_prediction_payload(
                 "config_hash": str(run["config_hash"]),
                 "prediction_fingerprint": run.get("prediction_fingerprint"),
                 "ranking_contract": normalize_ranking_contract(run.get("ranking_contract")),
+                "runtime_envelope": projection_from_metadata(
+                    run.get("metadata"),
+                    unavailable_reason="legacy_prediction_without_runtime_envelope",
+                ).as_dict(),
                 "candidate_count": int(run["candidate_count"]),
                 "top_candidates": top_candidates,
             }
@@ -190,6 +201,15 @@ def build_latest_prediction_payload(
         if len(source_git_commits) == 1
         else "mixed" if source_git_commits else "not_recorded"
     )
+    projections = [line["runtime_envelope"] for line in line_payloads]
+    verified = [item for item in projections if item["status"] == "verified"]
+    unavailable = [item for item in projections if item["status"] == "unavailable"]
+    if verified and unavailable:
+        projection_status = "mixed"
+    elif verified:
+        projection_status = "verified"
+    else:
+        projection_status = "unavailable"
     return {
         "status": prediction_display_status(statuses, complete_line_set=not missing_lines),
         "issue": str(first["target_issue"]),
@@ -201,6 +221,14 @@ def build_latest_prediction_payload(
         "consensus_definition": f"red numbers present in Top {top_limit} of every required three-line prediction",
         "consensus_numbers": consensus_numbers,
         "missing_lines": missing_lines,
+        "runtime_envelope_summary": {
+            "status": projection_status,
+            "verified_count": len(verified),
+            "unavailable_count": len(unavailable),
+            "envelope_digests": sorted(
+                item["envelope"]["envelope_digest"] for item in verified
+            ),
+        },
     }
 
 
@@ -222,7 +250,8 @@ def render_latest_prediction(payload: dict[str, Any]) -> str:
             f"model={line['model_version']} parameters={line['parameter_version']} "
             f"run={line['source_run_id']} round={line['source_round_index']} "
             f"prediction_run={line['prediction_run_key']} status={line['status']} "
-            f"ranking_contract={line['ranking_contract']}"
+            f"ranking_contract={line['ranking_contract']} "
+            f"runtime_envelope={line['runtime_envelope']['status']}"
         )
         for candidate in line["top_candidates"]:
             numbers = " ".join(f"{number:02d}" for number in candidate["red_numbers"])

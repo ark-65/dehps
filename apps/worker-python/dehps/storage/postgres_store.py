@@ -1149,6 +1149,8 @@ def persist_forward_prediction_snapshot(
     candidates: list[tuple[int, tuple[int, ...], float]],
     historical_compatibility: bool = False,
 ) -> str:
+    from dehps.runtime_provenance import projection_from_metadata
+
     ranking_contract = require_explicit_ranking_contract(metadata.get("ranking_contract"))
     if ranking_contract != STRICT_RANKING_CONTRACT and not historical_compatibility:
         raise ValueError("new prediction runs must use ranking_contract=strict_v1")
@@ -1156,6 +1158,11 @@ def persist_forward_prediction_snapshot(
         metadata,
         ranking_contract=ranking_contract,
     )
+    persisted_metadata = dict(metadata)
+    persisted_metadata["runtime_envelope_projection"] = projection_from_metadata(
+        metadata,
+        unavailable_reason="prediction_created_without_runtime_envelope",
+    ).as_dict()
     ensure_forward_prediction_evaluation_schema(conn)
     prediction_run_key = forward_prediction_run_key(metadata)
     line_key = str(metadata.get("line_key") or "static_100")
@@ -1237,7 +1244,7 @@ def persist_forward_prediction_snapshot(
             prediction_fingerprint,
             ranking_contract,
             json.dumps(metadata.get("config") or {}, ensure_ascii=False),
-            json.dumps(metadata, ensure_ascii=False),
+            json.dumps(persisted_metadata, ensure_ascii=False),
             metadata["generated_at"],
         ),
     )
@@ -1401,13 +1408,23 @@ def replace_training_next_candidates_current(
     metadata: dict[str, Any],
     candidates: list[tuple[int, tuple[int, ...], float]],
 ) -> None:
+    from dehps.runtime_provenance import projection_from_metadata
+
     ensure_training_next_candidates_current_schema(conn)
     persist_forward_prediction_snapshot(conn, metadata=metadata, candidates=candidates)
     line_key = str(metadata.get("line_key") or "static_100")
     line_label = str(metadata.get("line_label") or "100-period static training")
     line_kind = str(metadata.get("line_kind") or "static")
     ranking_contract = require_explicit_ranking_contract(metadata.get("ranking_contract"))
-    prediction_metadata = metadata.get("prediction_metadata") if isinstance(metadata.get("prediction_metadata"), dict) else {}
+    prediction_metadata = (
+        dict(metadata["prediction_metadata"])
+        if isinstance(metadata.get("prediction_metadata"), dict)
+        else {}
+    )
+    prediction_metadata["runtime_envelope_projection"] = projection_from_metadata(
+        metadata,
+        unavailable_reason="prediction_created_without_runtime_envelope",
+    ).as_dict()
     conn.execute("DELETE FROM training_next_candidates_current WHERE line_key = %s", (line_key,))
     if not candidates:
         return
