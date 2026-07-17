@@ -189,7 +189,8 @@ This envelope is not a replacement for stage envelopes. A stage envelope carries
 | History Snapshot Contract | Implemented | `history_snapshot.v1.0.0` red-ball scoring projection |
 | Window Contract | Implemented | `window.v1.0.0`, rolling/expanding value object and stage envelope |
 | Candidate Contract / ABI | Runtime preflight integrated | `candidate.v1.0.0`, `candidate_abi.v1`, Compiler, Verifier, golden fixtures, CandidateStore adapter, Kernel prepare validation, telemetry propagation |
-| Feature Contract / ABI | Next | feature meaning, index, dtype, shape, scale, golden vectors |
+| Feature Contract | Specified | `feature.v1.0.0`, component manifest, index/weight mapping, finite float64 policy, formulas, golden vector |
+| Feature ABI | Next | packed feature layout, buffers, verifier, and Kernel preflight edge |
 | Scoring Contract | Implemented | `dehps-scoring-strict-v1` |
 | Ranking Contract | Implemented | `legacy_score_partition` compatibility and `strict_v1` |
 | Evaluation Contract | Later | hit, TopK, Red5, rank, score, and comparison semantics |
@@ -239,10 +240,12 @@ This is the boundary that lets NumPy, Numba, SIMD, CUDA, OpenCL, and future nati
 
 The next migration rounds should be staged as:
 
-1. Feature Contract and Feature ABI v1: freeze feature meaning separately from packed feature layout.
-2. Runtime Envelope v1: add envelope writers to new artifacts without rewriting historical evidence.
-3. Evaluation Contract v1: freeze hit, rank, TopK, Red5, comparison, and mismatch classification semantics.
-4. Kernel P2: optimize TopK reduction after the ABI inputs are stable.
+1. Feature Compiler reference implementation: compile `feature.v1.0.0` from verified Window and Candidate inputs without changing scoring output.
+2. Feature ABI v1: freeze packed feature layout separately from feature meaning.
+3. Runtime Envelope v1: add envelope writers to new artifacts without rewriting historical evidence.
+4. Unified Runtime Verifier: assemble History, Window, Candidate, and Feature verification into one verified runtime package.
+5. Evaluation Contract v1: freeze hit, rank, TopK, Red5, comparison, and mismatch classification semantics.
+6. Kernel P2: optimize TopK reduction after the ABI inputs are stable.
 
 Non-goals for this architecture document:
 
