@@ -1,0 +1,45 @@
+{
+  "suite": "candidate_abi_golden.v1",
+  "universe": {
+    "domain_size": 33,
+    "pick_count": 6,
+    "cardinality": 1107568
+  },
+  "records": [
+    {
+      "numbers": [1, 2, 3, 4, 5, 6],
+      "lex_id": 0,
+      "mask": 63,
+      "record_digest": "33b549d9f7addd8345fa2111d9eb641a22855e79c47ccc237548251dbbccd613"
+    },
+    {
+      "numbers": [1, 2, 3, 4, 5, 33],
+      "lex_id": 27,
+      "mask": 4294967327,
+      "record_digest": "aa1d667b651e3cb14c2b1c110e96c5e7e8964064ec481cb0f45985d7429bea5c"
+    },
+    {
+      "numbers": [3, 8, 12, 18, 25, 33],
+      "lex_id": 454194,
+      "mask": 4311877764,
+      "record_digest": "f28b99157308218c1bdd4355eb9a5dc1dc56b57bd17e46bfd4f13b1d626cd6e3"
+    },
+    {
+      "numbers": [28, 29, 30, 31, 32, 33],
+      "lex_id": 1107567,
+      "mask": 8455716864,
+      "record_digest": "ad2f6309920b5c247441754d91ee1f4179576946a4ef2f912bd9d53b21662903"
+    }
+  ],
+  "package_case": {
+    "candidates": [
+      [1, 2, 3, 4, 5, 6],
+      [3, 8, 12, 18, 25, 33],
+      [28, 29, 30, 31, 32, 33]
+    ],
+    "expected_candidate_digest": "a107cdf57651d385e8a9081b68a807647709c9c05717ba8fd9ca506100e9e102",
+    "expected_layout_digest": "aaf29afc661c4814d1234407cbfb3ca952c4eae4fc6cd293fc455c70c7bbcd66",
+    "expected_payload_digest": "b4610df5fb470c3949e910cb9c1282a485f8acae60779f3c5b97a62675c968a6",
+    "expected_package_digest": "a0cd69fcf681456f66ff5d6f3056fd473c0e74d15bbe69c5e4ae1665bb6f885b"
+  }
+}

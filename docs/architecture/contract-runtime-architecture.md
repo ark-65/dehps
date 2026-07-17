@@ -32,7 +32,8 @@ DEHPS uses these terms narrowly:
 Examples:
 
 - Candidate Contract defines canonical candidate identity semantics.
-- Universe Manifest names a concrete candidate universe or filtered candidate set.
+- Universe Manifest fixes a concrete `domain_size` and `pick_count` universe.
+- Candidate Manifest names one canonical candidate subset under that universe.
 - Candidate ABI defines row id dtype, combination encoding, mask layout, shape, and rank/unrank buffers.
 - Candidate Set Artifact records a specific candidate payload digest under that ABI.
 
@@ -119,6 +120,8 @@ abi_package:
   digests:
     history_snapshot: sha256:...
     window_artifact: sha256:...
+    candidate_manifest: sha256:...
+    candidate_layout: sha256:...
     candidate_payload: sha256:...
     feature_layout: sha256:...
     buffer_layout: sha256:...
@@ -155,9 +158,11 @@ runtime:
     contract: window.v1.0.0
     artifact_digest: sha256:...
   candidate:
-    contract: candidate.v1.0.0
-    abi_version: candidate_abi.v1
-    payload_digest: sha256:...
+    candidate_contract: candidate.v1.0.0
+    candidate_abi: candidate_abi.v1
+    candidate_digest: sha256:...
+    layout_digest: sha256:...
+    package_digest: sha256:...
   feature:
     contract: feature.v1.0.0
     abi_version: feature_abi.v1
@@ -183,7 +188,7 @@ This envelope is not a replacement for stage envelopes. A stage envelope carries
 | --- | --- | --- |
 | History Snapshot Contract | Implemented | `history_snapshot.v1.0.0` red-ball scoring projection |
 | Window Contract | Implemented | `window.v1.0.0`, rolling/expanding value object and stage envelope |
-| Candidate Contract / ABI | Next | canonical identity, lex id, rank/unrank, masks, serialization |
+| Candidate Contract / ABI | Specified, reference oracle | `candidate.v1.0.0`, `candidate_abi.v1`, Compiler, Verifier, golden fixtures; not connected to production Kernel |
 | Feature Contract / ABI | Next | feature meaning, index, dtype, shape, scale, golden vectors |
 | Scoring Contract | Implemented | `dehps-scoring-strict-v1` |
 | Ranking Contract | Implemented | `legacy_score_partition` compatibility and `strict_v1` |
@@ -196,8 +201,9 @@ Every compiled ABI package must satisfy an explicit compatibility matrix. Exampl
 ```text
 window.v1.0.0 -> feature.v1.0.0: allowed
 window.v2.0.0 -> feature.v1.0.0: reject
-candidate_abi.v1 -> scoring strict_v1: allowed
-candidate_abi.v2 -> scoring strict_v1: reject until explicitly approved
+candidate.v1.0.0 -> candidate_abi.v1 reference compiler/verifier: allowed
+candidate_abi.v1 -> production scoring strict_v1: reject until an integration edge is explicitly approved
+candidate_abi.v2 -> candidate.v1.0.0: reject until explicitly specified
 ```
 
 There is no implicit "same major version" compatibility rule. A missing compatibility edge is a rejection, not a warning.
@@ -233,7 +239,7 @@ This is the boundary that lets NumPy, Numba, SIMD, CUDA, OpenCL, and future nati
 
 The next migration rounds should be staged as:
 
-1. Candidate ABI v1: freeze canonical candidate row identity, lex id, rank/unrank, bitmask, dtype, shape, serialization, and golden vectors.
+1. Candidate ABI v1 production integration: characterize the current CandidateStore, prove exact equality with the specified ABI, and add an explicit Kernel compatibility edge in a separate round.
 2. Feature Contract and Feature ABI v1: freeze feature meaning separately from packed feature layout.
 3. Runtime Envelope v1: add envelope writers to new artifacts without rewriting historical evidence.
 4. Evaluation Contract v1: freeze hit, rank, TopK, Red5, comparison, and mismatch classification semantics.

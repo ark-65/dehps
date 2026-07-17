@@ -1,5 +1,20 @@
 """Versioned scoring-input contracts compiled by the DEHPS control plane."""
 
+from dehps.input_contracts.candidate_abi import (
+    CANDIDATE_ABI_LAYOUT_DIGEST,
+    CANDIDATE_ABI_VERSION,
+    CANDIDATE_CONTRACT_V1,
+    CandidateABIPackage,
+    CandidateABIVerifier,
+    CandidateCompiler,
+    CandidateContractViolation,
+    CandidateManifest,
+    CandidateUniverseManifest,
+    candidate_mask,
+    candidate_rank,
+    candidate_record_digest,
+    candidate_unrank,
+)
 from dehps.input_contracts.history_window import (
     HISTORY_SNAPSHOT_CONTRACT_V1,
     WINDOW_CONTRACT_V1,
@@ -13,8 +28,17 @@ from dehps.input_contracts.history_window import (
 )
 
 __all__ = [
+    "CANDIDATE_ABI_LAYOUT_DIGEST",
+    "CANDIDATE_ABI_VERSION",
+    "CANDIDATE_CONTRACT_V1",
     "HISTORY_SNAPSHOT_CONTRACT_V1",
     "WINDOW_CONTRACT_V1",
+    "CandidateABIPackage",
+    "CandidateABIVerifier",
+    "CandidateCompiler",
+    "CandidateContractViolation",
+    "CandidateManifest",
+    "CandidateUniverseManifest",
     "HistoryRecord",
     "HistorySnapshotArtifact",
     "InputContractViolation",
@@ -22,4 +46,8 @@ __all__ = [
     "WindowMode",
     "WindowSpec",
     "WindowStageEnvelope",
+    "candidate_mask",
+    "candidate_rank",
+    "candidate_record_digest",
+    "candidate_unrank",
 ]
