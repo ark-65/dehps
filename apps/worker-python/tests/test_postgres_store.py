@@ -498,6 +498,11 @@ def test_replace_training_next_candidates_current_deletes_previous_snapshot():
             "config_hash": "config-1",
             "config": {"frequency_weight": 0.4},
             "ranking_contract": "strict_v1",
+            "shadow_scoring_evidence": {
+                "protocol": "scoring-kernel-shadow-evidence.v1",
+                "evidence_phase": "scoring_capture",
+                "comparison_digest": "a" * 64,
+            },
             "generated_at": "2026-06-18T09:00:00Z",
         },
         candidates=[(1, (1, 2, 3, 4, 5, 6), 0.9), (2, (7, 8, 9, 10, 11, 12), 0.8)],
@@ -534,6 +539,11 @@ def test_replace_training_next_candidates_current_deletes_previous_snapshot():
         "status": "unavailable",
         "reason": "prediction_created_without_runtime_envelope",
         "envelope": None,
+    }
+    assert persisted_metadata["shadow_scoring_evidence"] == {
+        "protocol": "scoring-kernel-shadow-evidence.v1",
+        "evidence_phase": "scoring_capture",
+        "comparison_digest": "a" * 64,
     }
     forward_candidate_inserts = [
         params for sql, params in conn.executed if "INSERT INTO forward_prediction_candidates" in sql

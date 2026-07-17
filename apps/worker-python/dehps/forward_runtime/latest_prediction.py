@@ -10,10 +10,52 @@ from dehps.source_version import resolve_git_commit
 from dehps.forward_promotion.gate import FORWARD_CHALLENGER_LINE_KEY
 from dehps.ranking_contract import normalize_ranking_contract
 from dehps.runtime_provenance import projection_from_metadata
+from dehps.scoring_kernel.shadow import verify_shadow_evidence
 
 
 EXPECTED_LINE_KEYS = ("static_100", "dynamic_kdj", "dynamic_kdj_near")
 OPTIONAL_LINE_KEYS = (FORWARD_CHALLENGER_LINE_KEY,)
+
+
+def shadow_scoring_projection(metadata: object) -> dict[str, Any]:
+    metadata = metadata if isinstance(metadata, dict) else {}
+    evidence = metadata.get("shadow_scoring_evidence")
+    if evidence is not None:
+        if not isinstance(evidence, dict):
+            raise ValueError("shadow_scoring_evidence must be structured")
+        verify_shadow_evidence(evidence)
+        return {
+            "status": "captured",
+            "evidence_phase": evidence["evidence_phase"],
+            "comparison_status": evidence["comparison_status"],
+            "comparison_digest": evidence["comparison_digest"],
+            "official_backend": evidence["official_backend"],
+            "shadow_backend": evidence["shadow_backend"],
+            "automatic_promotion_allowed": False,
+        }
+    failure = metadata.get("shadow_scoring_failure")
+    if failure is not None:
+        if not isinstance(failure, dict):
+            raise ValueError("shadow_scoring_failure must be structured")
+        return {
+            "status": "failed",
+            "evidence_phase": None,
+            "comparison_status": None,
+            "comparison_digest": None,
+            "official_backend": "numpy_reference",
+            "shadow_backend": "numba_cpu",
+            "error": failure.get("error"),
+            "automatic_promotion_allowed": False,
+        }
+    return {
+        "status": "unavailable",
+        "evidence_phase": None,
+        "comparison_status": None,
+        "comparison_digest": None,
+        "official_backend": None,
+        "shadow_backend": None,
+        "automatic_promotion_allowed": False,
+    }
 
 
 def prediction_model_version(run: dict[str, Any]) -> str:
@@ -113,6 +155,13 @@ def build_latest_prediction_payload(
                 "unavailable_count": 0,
                 "envelope_digests": [],
             },
+            "shadow_scoring_summary": {
+                "status": "not_applicable",
+                "captured_count": 0,
+                "failed_count": 0,
+                "unavailable_count": 0,
+                "comparison_digests": [],
+            },
         }
 
     candidates_by_run: dict[str, list[dict[str, Any]]] = {}
@@ -165,6 +214,7 @@ def build_latest_prediction_payload(
                     run.get("metadata"),
                     unavailable_reason="legacy_prediction_without_runtime_envelope",
                 ).as_dict(),
+                "shadow_scoring": shadow_scoring_projection(run.get("metadata")),
                 "candidate_count": int(run["candidate_count"]),
                 "top_candidates": top_candidates,
             }
@@ -202,6 +252,7 @@ def build_latest_prediction_payload(
         else "mixed" if source_git_commits else "not_recorded"
     )
     projections = [line["runtime_envelope"] for line in line_payloads]
+    shadow_projections = [line["shadow_scoring"] for line in line_payloads]
     verified = [item for item in projections if item["status"] == "verified"]
     unavailable = [item for item in projections if item["status"] == "unavailable"]
     if verified and unavailable:
@@ -210,6 +261,13 @@ def build_latest_prediction_payload(
         projection_status = "verified"
     else:
         projection_status = "unavailable"
+    shadow_statuses = {item["status"] for item in shadow_projections}
+    if shadow_statuses == {"captured"}:
+        shadow_status = "captured"
+    elif len(shadow_statuses) == 1:
+        shadow_status = next(iter(shadow_statuses), "unavailable")
+    else:
+        shadow_status = "mixed"
     return {
         "status": prediction_display_status(statuses, complete_line_set=not missing_lines),
         "issue": str(first["target_issue"]),
@@ -227,6 +285,19 @@ def build_latest_prediction_payload(
             "unavailable_count": len(unavailable),
             "envelope_digests": sorted(
                 item["envelope"]["envelope_digest"] for item in verified
+            ),
+        },
+        "shadow_scoring_summary": {
+            "status": shadow_status,
+            "captured_count": sum(item["status"] == "captured" for item in shadow_projections),
+            "failed_count": sum(item["status"] == "failed" for item in shadow_projections),
+            "unavailable_count": sum(
+                item["status"] == "unavailable" for item in shadow_projections
+            ),
+            "comparison_digests": sorted(
+                str(item["comparison_digest"])
+                for item in shadow_projections
+                if item["status"] == "captured"
             ),
         },
     }
@@ -252,6 +323,7 @@ def render_latest_prediction(payload: dict[str, Any]) -> str:
             f"prediction_run={line['prediction_run_key']} status={line['status']} "
             f"ranking_contract={line['ranking_contract']} "
             f"runtime_envelope={line['runtime_envelope']['status']}"
+            f" shadow_scoring={line['shadow_scoring']['status']}"
         )
         for candidate in line["top_candidates"]:
             numbers = " ".join(f"{number:02d}" for number in candidate["red_numbers"])

@@ -111,6 +111,40 @@ cannot satisfy the promotion gate. Only `capture_mode=simultaneous`, produced at
 the original prediction boundary with matching source/replay commit and an
 explicit prediction run key, may count toward the three-issue cohort.
 
+### Two-phase evidence
+
+Live shadow evidence is immutable and split at the draw boundary:
+
+```text
+new forward snapshot
+  -> simultaneous NumPy/Numba scoring_capture
+  -> sealed inside forward_prediction_run.metadata
+  -> draw and official evaluation
+  -> simultaneous exact-rank/Red5 replay on the same code commit
+  -> post_draw_attested evidence embedding the original capture
+  -> three-issue readiness gate
+```
+
+The post-draw attestation contains the complete pre-draw evidence and references
+its `comparison_digest`. Target issue, line key, prediction run key, config
+fingerprint, Candidate ABI package, source code commit, and official candidate
+artifact identity cannot change across the link. The gate accepts only
+`post_draw_attested`; an unlinked scoring capture or a post-hoc reconstruction is
+insufficient.
+
+Simultaneous pre-draw capture is opt-in:
+
+```text
+DEHPS_FORWARD_SHADOW_CAPTURE=true
+DEHPS_FORWARD_SHADOW_WORKERS=8
+```
+
+The official backend must remain `numpy_reference`. A shadow failure is written
+as structured `shadow_scoring_failure` metadata and emits a runtime warning, but
+does not replace or suppress the official candidates. Successful evidence is
+stored transactionally with the new forward run. The capture flag is not enabled
+by this architecture change; activation is a separate Operator operation.
+
 If a caller requests more workers than the Numba runtime exposes (for example, a two-core CI runner receiving `worker_count=4`), the backend caps execution to `NUMBA_NUM_THREADS`. Telemetry records the actual worker count. This changes capacity only; the strict result is invariant.
 
 Red5's global rank requires a second bounded scoring pass using the selected Red5 score and lex id as the target. This preserves exact rank without retaining the first pass's full score matrix. Telemetry counts both passes in `score_cells`.
