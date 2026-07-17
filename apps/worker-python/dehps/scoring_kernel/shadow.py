@@ -291,6 +291,8 @@ def compare_kernel_results(
     payload: dict[str, Any] = {
         **base,
         "protocol": SHADOW_PROTOCOL_VERSION,
+        "evidence_phase": "scoring_capture",
+        "source_comparison_digest": None,
         "line_key": str(line_key),
         "scoring_contract": official.contract_version,
         "official_result_digest": official_digest,
@@ -390,6 +392,50 @@ def execute_shadow_pair(
     return official_result, shadow_result
 
 
+def link_post_draw_attestation(
+    *,
+    scoring_capture: Mapping[str, Any],
+    post_draw_comparison: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Bind completed draw/evaluation evidence without rewriting pre-draw evidence."""
+
+    verify_shadow_evidence(scoring_capture)
+    verify_shadow_evidence(post_draw_comparison)
+    if scoring_capture.get("evidence_phase") != "scoring_capture" or post_draw_comparison.get(
+        "evidence_phase"
+    ) != "scoring_capture":
+        raise ShadowEvidenceViolation(
+            "shadow_attestation_source_phase_invalid",
+            "attestation inputs must be immutable scoring captures",
+        )
+    if scoring_capture.get("capture_mode") != "simultaneous" or post_draw_comparison.get(
+        "capture_mode"
+    ) != "simultaneous":
+        raise ShadowEvidenceViolation(
+            "shadow_attestation_not_simultaneous",
+            "post-draw attestation requires simultaneous pre-draw and replay comparisons",
+        )
+    if post_draw_comparison.get("evaluation_status") not in {"passed", "failed"}:
+        raise ShadowEvidenceViolation(
+            "shadow_attestation_evaluation_pending",
+            "post-draw comparison must carry a completed evaluation decision",
+        )
+    payload = {
+        key: value
+        for key, value in post_draw_comparison.items()
+        if key != "comparison_digest"
+    }
+    payload["evidence_phase"] = "post_draw_attested"
+    payload["source_comparison_digest"] = scoring_capture["comparison_digest"]
+    payload["source_scoring_evidence"] = dict(scoring_capture)
+    payload["comparison_digest"] = canonical_digest(
+        payload,
+        domain="dehps.scoring-kernel-shadow-evidence.v1",
+    )
+    verify_shadow_evidence(payload)
+    return payload
+
+
 def write_shadow_artifact(output_dir: Path, evidence: Mapping[str, Any]) -> Path:
     """Atomically persist an append-only evidence artifact outside production tables."""
 
@@ -450,6 +496,45 @@ def verify_shadow_evidence(evidence: Mapping[str, Any]) -> None:
             "shadow_comparison_digest_mismatch",
             "shadow evidence seal does not match its payload",
         )
+    phase = evidence.get("evidence_phase")
+    if phase not in {"scoring_capture", "post_draw_attested"}:
+        raise ShadowEvidenceViolation(
+            "shadow_evidence_phase_invalid",
+            "shadow evidence phase is missing or unsupported",
+        )
+    if phase == "scoring_capture":
+        if evidence.get("source_comparison_digest") is not None:
+            raise ShadowEvidenceViolation(
+                "shadow_source_evidence_unexpected",
+                "scoring capture cannot reference an earlier comparison",
+            )
+    else:
+        source = evidence.get("source_scoring_evidence")
+        if not isinstance(source, Mapping) or source.get("evidence_phase") != "scoring_capture":
+            raise ShadowEvidenceViolation(
+                "shadow_source_evidence_missing",
+                "post-draw attestation requires embedded pre-draw scoring evidence",
+            )
+        verify_shadow_evidence(source)
+        if evidence.get("source_comparison_digest") != source.get("comparison_digest"):
+            raise ShadowEvidenceViolation(
+                "shadow_source_evidence_digest_mismatch",
+                "post-draw attestation does not reference its embedded scoring capture",
+            )
+        for field in (
+            "target_issue",
+            "line_key",
+            "prediction_run_key",
+            "config_fingerprint",
+            "candidate_package_digest",
+            "source_code_commit",
+        ):
+            if evidence.get(field) != source.get(field):
+                raise ShadowEvidenceViolation(
+                    "shadow_attestation_identity_mismatch",
+                    "post-draw attestation changed pre-draw prediction identity",
+                    field=field,
+                )
     artifact_mismatches = int(
         evidence.get("official_candidate_id_mismatch_count") or 0
     ) + int(evidence.get("official_candidate_score_mismatch_count") or 0)
@@ -517,6 +602,7 @@ def shadow_promotion_readiness(
     grouped: dict[str, dict[str, Mapping[str, Any]]] = defaultdict(dict)
     duplicate_keys: list[str] = []
     ignored_keys: list[str] = []
+    invalid_keys: list[str] = []
     for row in evidence_rows:
         issue = str(row.get("target_issue") or "")
         line_key = str(row.get("line_key") or "")
@@ -527,10 +613,29 @@ def shadow_promotion_readiness(
         if line_key not in required_lines:
             ignored_keys.append(key)
             continue
+        try:
+            verify_shadow_evidence(row)
+        except (ShadowEvidenceViolation, TypeError, ValueError):
+            invalid_keys.append(key)
+            continue
+        existing = grouped[issue].get(line_key)
+        if existing is None:
+            grouped[issue][line_key] = row
+            continue
+        existing_phase = existing.get("evidence_phase")
+        row_phase = row.get("evidence_phase")
+        if existing_phase == "scoring_capture" and row_phase == "post_draw_attested":
+            if row.get("source_comparison_digest") == existing.get("comparison_digest"):
+                ignored_keys.append(f"{key}:superseded_scoring_capture")
+                grouped[issue][line_key] = row
+                continue
+        elif existing_phase == "post_draw_attested" and row_phase == "scoring_capture":
+            if existing.get("source_comparison_digest") == row.get("comparison_digest"):
+                ignored_keys.append(f"{key}:superseded_scoring_capture")
+                continue
         if line_key in grouped[issue]:
             duplicate_keys.append(key)
             continue
-        grouped[issue][line_key] = row
 
     issue_rows: list[dict[str, Any]] = []
     seen_prediction_run_keys: set[str] = set()
@@ -543,12 +648,10 @@ def shadow_promotion_readiness(
             row = lines.get(line)
             if row is None:
                 continue
-            try:
-                verify_shadow_evidence(row)
-            except (ShadowEvidenceViolation, TypeError, ValueError):
-                failures.append(f"{line}:invalid_evidence")
             if row.get("comparison_status") != "exact":
                 failures.append(f"{line}:comparison")
+            if row.get("evidence_phase") != "post_draw_attested":
+                failures.append(f"{line}:evidence_phase")
             if row.get("capture_mode") != "simultaneous":
                 failures.append(f"{line}:capture_mode")
             if row.get("source_prediction_ranking_contract") != STRICT_RANKING_CONTRACT:
@@ -605,6 +708,7 @@ def shadow_promotion_readiness(
     consecutive = len(selected) == required_issue_count and _issues_are_consecutive(selected)
     evidence_sufficient = (
         not duplicate_keys
+        and not invalid_keys
         and not duplicate_prediction_run_keys
         and len(selected) == required_issue_count
         and all(row["passed"] for row in selected_rows)
@@ -619,6 +723,7 @@ def shadow_promotion_readiness(
         "selected_issues": selected,
         "issues_are_consecutive": consecutive,
         "duplicate_evidence_keys": duplicate_keys,
+        "invalid_evidence_keys": invalid_keys,
         "duplicate_prediction_run_keys": duplicate_prediction_run_keys,
         "ignored_evidence_keys": ignored_keys,
         "evidence_sufficient": evidence_sufficient,

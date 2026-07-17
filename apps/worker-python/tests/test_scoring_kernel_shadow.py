@@ -13,6 +13,7 @@ from dehps.scoring_kernel import (
     ShadowEvidenceViolation,
     ShadowOperationalEvidence,
     compare_kernel_results,
+    link_post_draw_attestation,
     shadow_promotion_readiness,
     verify_shadow_evidence,
     write_shadow_artifact,
@@ -80,11 +81,38 @@ def passed_operational_evidence(
     )
 
 
+def capture_operational_evidence(issue: str, line_key: str) -> ShadowOperationalEvidence:
+    return replace(
+        passed_operational_evidence(issue, line_key),
+        evaluation_status="pending",
+        restart_recovery_result="pending",
+        watchdog_result="pending",
+    )
+
+
+def attested_evidence(issue: str, line_key: str) -> dict:
+    capture = exact_evidence(
+        issue,
+        line_key,
+        operational=capture_operational_evidence(issue, line_key),
+    )
+    post_draw = exact_evidence(
+        issue,
+        line_key,
+        operational=passed_operational_evidence(issue, line_key),
+    )
+    return link_post_draw_attestation(
+        scoring_capture=capture,
+        post_draw_comparison=post_draw,
+    )
+
+
 def test_exact_comparison_is_sealed_and_has_no_promotion_authority() -> None:
     evidence = exact_evidence()
 
     verify_shadow_evidence(evidence)
     assert evidence["protocol"] == SHADOW_PROTOCOL_VERSION
+    assert evidence["evidence_phase"] == "scoring_capture"
     assert evidence["comparison_status"] == "exact"
     assert evidence["comparison_passed"] is True
     assert evidence["official_result_digest"] == evidence["shadow_result_digest"]
@@ -114,6 +142,23 @@ def test_score_difference_is_preserved_as_mismatch_evidence() -> None:
     assert evidence["topk_score_mismatch_count"] == 1
     assert evidence["official_result_digest"] != evidence["shadow_result_digest"]
     assert evidence["automatic_promotion_allowed"] is False
+
+
+def test_post_draw_attestation_embeds_and_seals_the_pre_draw_capture() -> None:
+    evidence = attested_evidence("2026082", "static_100")
+
+    verify_shadow_evidence(evidence)
+    assert evidence["evidence_phase"] == "post_draw_attested"
+    assert evidence["source_comparison_digest"] == evidence[
+        "source_scoring_evidence"
+    ]["comparison_digest"]
+    assert evidence["source_scoring_evidence"]["evaluation_status"] == "pending"
+    assert evidence["evaluation_status"] == "passed"
+
+    tampered = deepcopy(evidence)
+    tampered["source_scoring_evidence"]["line_key"] = "other"
+    with pytest.raises(ShadowEvidenceViolation):
+        verify_shadow_evidence(tampered)
 
 
 def test_comparison_rejects_missing_candidate_identity_and_shape_drift() -> None:
@@ -167,7 +212,7 @@ def test_artifact_write_is_digest_checked_and_append_only_by_identity(tmp_path) 
 
 def test_three_issue_gate_requires_every_line_and_completed_operations() -> None:
     rows = [
-        exact_evidence(issue, line, operational=passed_operational_evidence(issue, line))
+        attested_evidence(issue, line)
         for issue in ("2026082", "2026083", "2026084")
         for line in ("static_100", "dynamic_kdj", "dynamic_kdj_near")
     ]
@@ -180,11 +225,24 @@ def test_three_issue_gate_requires_every_line_and_completed_operations() -> None
     assert gate["status"] == "ready_for_independent_approval"
     assert gate["automatic_promotion_allowed"] is False
 
+    with_pre_draw_capture = rows + [rows[0]["source_scoring_evidence"]]
+    joined_gate = shadow_promotion_readiness(with_pre_draw_capture)
+    assert joined_gate["evidence_sufficient"] is True
+    assert joined_gate["ignored_evidence_keys"] == [
+        "2026082:static_100:superseded_scoring_capture"
+    ]
+
     pending = rows.copy()
-    pending[-1] = exact_evidence("2026084", "dynamic_kdj_near")
+    pending[-1] = exact_evidence(
+        "2026084",
+        "dynamic_kdj_near",
+        operational=capture_operational_evidence("2026084", "dynamic_kdj_near"),
+    )
     pending_gate = shadow_promotion_readiness(pending)
     assert pending_gate["evidence_sufficient"] is False
-    assert "dynamic_kdj_near:evaluation" in pending_gate["issue_results"][-1]["failures"]
+    assert "dynamic_kdj_near:evidence_phase" in pending_gate["issue_results"][-1][
+        "failures"
+    ]
 
     posthoc = rows.copy()
     posthoc[-1] = exact_evidence(
@@ -205,7 +263,7 @@ def test_three_issue_gate_requires_every_line_and_completed_operations() -> None
 
 def test_gate_rejects_nonconsecutive_duplicate_or_tampered_evidence() -> None:
     rows = [
-        exact_evidence(issue, line, operational=passed_operational_evidence(issue, line))
+        attested_evidence(issue, line)
         for issue in ("2026082", "2026084", "2026085")
         for line in ("static_100", "dynamic_kdj", "dynamic_kdj_near")
     ]
@@ -216,15 +274,11 @@ def test_gate_rejects_nonconsecutive_duplicate_or_tampered_evidence() -> None:
     assert duplicate_gate["evidence_sufficient"] is False
     assert duplicate_gate["duplicate_evidence_keys"] == ["2026085:dynamic_kdj_near"]
 
-    extra_line = exact_evidence(
-        "2026086",
-        "forward_challenger",
-        operational=passed_operational_evidence("2026086", "forward_challenger"),
-    )
+    extra_line = attested_evidence("2026086", "forward_challenger")
     ignored_gate = shadow_promotion_readiness(rows + [extra_line])
     assert ignored_gate["ignored_evidence_keys"] == ["2026086:forward_challenger"]
 
     tampered = deepcopy(rows)
     tampered[0]["comparison_status"] = "mismatch"
     tampered_gate = shadow_promotion_readiness(tampered)
-    assert "static_100:invalid_evidence" in tampered_gate["issue_results"][0]["failures"]
+    assert tampered_gate["invalid_evidence_keys"] == ["2026082:static_100"]

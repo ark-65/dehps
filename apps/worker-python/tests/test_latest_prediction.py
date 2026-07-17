@@ -76,6 +76,13 @@ def test_latest_prediction_builds_three_lines_and_cross_line_consensus():
         "unavailable_count": 3,
         "envelope_digests": [],
     }
+    assert payload["shadow_scoring_summary"] == {
+        "status": "unavailable",
+        "captured_count": 0,
+        "failed_count": 0,
+        "unavailable_count": 3,
+        "comparison_digests": [],
+    }
     assert [line["line_key"] for line in payload["lines"]] == [
         "static_100",
         "dynamic_kdj",
@@ -93,6 +100,7 @@ def test_latest_prediction_builds_three_lines_and_cross_line_consensus():
     assert "model=static_100-model-v1 parameters=hash-static_100" in rendered
     assert "ranking_contract=legacy_score_partition" in rendered
     assert "runtime_envelope=unavailable" in rendered
+    assert "shadow_scoring=unavailable" in rendered
     assert "Consensus across all lines: 01(6)" in rendered
 
 
@@ -105,6 +113,27 @@ def test_latest_prediction_reports_missing_line_instead_of_hiding_it():
 
     assert payload["status"] == "incomplete_lines"
     assert payload["missing_lines"] == ["dynamic_kdj", "dynamic_kdj_near"]
+
+
+def test_latest_prediction_surfaces_structured_shadow_capture_failure():
+    run = _run("static_100")
+    run["metadata"]["shadow_scoring_failure"] = {
+        "protocol": "scoring-kernel-shadow-capture-failure.v1",
+        "status": "failed",
+        "error": {"code": "backend_failed", "message": "numba unavailable"},
+        "automatic_promotion_allowed": False,
+    }
+
+    payload = build_latest_prediction_payload([run], [], git_commit="abc123")
+
+    assert payload["lines"][0]["shadow_scoring"]["status"] == "failed"
+    assert payload["shadow_scoring_summary"] == {
+        "status": "failed",
+        "captured_count": 0,
+        "failed_count": 1,
+        "unavailable_count": 0,
+        "comparison_digests": [],
+    }
 
 
 def test_latest_prediction_displays_optional_forward_challenger_without_changing_consensus():

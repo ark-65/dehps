@@ -34,10 +34,12 @@ from dehps.scoring_kernel import (
     candidate_store_from_matrix,
     compare_kernel_results,
     execute_shadow_pair,
+    link_post_draw_attestation,
     numbers_mask,
     pack_window_state,
     target_lex_id,
     write_shadow_artifact,
+    verify_shadow_evidence,
 )
 from dehps.source_version import resolve_git_commit
 
@@ -230,17 +232,32 @@ def build_run_evidence(
         official_result=official,
         evaluation_row=evaluation_row,
     )
+    source_capture = metadata.get("shadow_scoring_evidence")
+    if source_capture is not None:
+        if not isinstance(source_capture, dict):
+            raise ForwardShadowViolation(
+                "forward_shadow_source_capture_invalid",
+                "stored shadow scoring evidence must be a structured object",
+                prediction_run_key=prediction_run_key,
+            )
+        verify_shadow_evidence(source_capture)
+    capture_mode = "simultaneous" if source_capture is not None else "posthoc_reconstruction"
+    source_commit = (
+        str(source_capture.get("source_code_commit") or "")
+        if source_capture is not None
+        else _source_code_commit(run)
+    )
     operational = forward_operational_evidence(
         prediction_run=run,
         artifact_check=artifact_check,
         evaluation_check=evaluation_check,
-        source_code_commit=_source_code_commit(run),
+        source_code_commit=source_commit,
         replay_code_commit=resolve_git_commit(),
-        capture_mode="posthoc_reconstruction",
+        capture_mode=capture_mode,
         restart_recovery_result=restart_recovery_result,
         watchdog_result=watchdog_result,
     )
-    return compare_kernel_results(
+    comparison = compare_kernel_results(
         target_issue=str(run["target_issue"]),
         line_key=str(run["line_key"]),
         config_fingerprint=str(run["config_hash"]),
@@ -249,13 +266,20 @@ def build_run_evidence(
         shadow=shadow,
         operational=operational,
     )
+    if source_capture is not None and evaluation_check.status != "pending":
+        return link_post_draw_attestation(
+            scoring_capture=source_capture,
+            post_draw_comparison=comparison,
+        )
+    return comparison
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
-            "Reconstruct forward runs read-only and emit post-hoc NumPy/Numba shadow evidence. "
-            "Post-hoc evidence is diagnostic and cannot satisfy the simultaneous promotion gate."
+            "Reconstruct forward runs read-only and emit NumPy/Numba shadow evidence. "
+            "Runs with a sealed pre-draw capture can produce post-draw attestation; older runs "
+            "remain diagnostic post-hoc evidence."
         ),
     )
     parser.add_argument("--target-issue", required=True)
@@ -313,6 +337,7 @@ def main(argv: list[str] | None = None) -> int:
                     ],
                     "evaluation_status": evidence["evaluation_status"],
                     "capture_mode": evidence["capture_mode"],
+                    "evidence_phase": evidence["evidence_phase"],
                     "artifact_path": str(path),
                     "comparison_digest": evidence["comparison_digest"],
                 }

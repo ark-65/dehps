@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from math import isfinite
@@ -69,6 +70,53 @@ NEAR_DYNAMIC_KDJ_PRIMARY_METRIC = "top_100_hits"
 DEFAULT_DYNAMIC_KDJ_STRENGTH_SWEEP = (0.25, 0.5, 1.0)
 DEFAULT_DYNAMIC_KDJ_MIN_EFFECTIVE_STRENGTH = 0.05
 DEFAULT_DYNAMIC_KDJ_MAX_EFFECTIVE_STRENGTH = 1.0
+
+
+def attach_forward_shadow_capture(
+    *,
+    metadata: dict[str, Any],
+    candidates: list[tuple[int, tuple[int, ...], float]],
+    history: list[HistoryDraw],
+    config: FrequencyRankerConfig,
+    ranked_universe: Any,
+    target_draw_date,
+) -> None:
+    from dehps.forward_runtime.shadow_capture import (
+        capture_forward_snapshot_shadow,
+        forward_shadow_capture_enabled,
+        forward_shadow_worker_count,
+    )
+
+    if not forward_shadow_capture_enabled():
+        return
+    try:
+        metadata["shadow_scoring_evidence"] = capture_forward_snapshot_shadow(
+            metadata=metadata,
+            candidates=candidates,
+            history=history,
+            config=config,
+            ranked_universe=ranked_universe,
+            target_draw_date=target_draw_date,
+            worker_count=forward_shadow_worker_count(),
+        )
+    except Exception as exc:  # shadow failure must be durable without blocking official output.
+        serializer = getattr(exc, "as_dict", None)
+        error = serializer() if callable(serializer) else {
+            "code": type(exc).__name__,
+            "message": str(exc),
+            "context": {},
+        }
+        metadata["shadow_scoring_failure"] = {
+            "protocol": "scoring-kernel-shadow-capture-failure.v1",
+            "status": "failed",
+            "error": error,
+            "automatic_promotion_allowed": False,
+        }
+        warnings.warn(
+            f"forward shadow capture failed for {metadata.get('line_key')}: {exc}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
 
 def next_issue_hint(issue: str | None) -> str:
@@ -1037,8 +1085,11 @@ def build_training_next_candidate_snapshot(
     config = FrequencyRankerConfig(**best["config"])
     matrix = ranked_universe or build_ranked_universe()
     resolved_top_n = min(top_n, len(matrix))
+    candidate_history = (
+        history if best["train_mode"] == "expanding" else history[-best["train_window"] :]
+    )
     candidates = top_candidates_for_next(
-        history=history if best["train_mode"] == "expanding" else history[-best["train_window"] :],
+        history=candidate_history,
         top_n=resolved_top_n,
         config=config,
         target_draw_date=target_draw_date,
@@ -1107,6 +1158,14 @@ def build_training_next_candidate_snapshot(
         "candidate_count": len(candidates),
         "git_commit": resolve_git_commit(),
     }
+    attach_forward_shadow_capture(
+        metadata=metadata,
+        candidates=candidates,
+        history=candidate_history,
+        config=config,
+        ranked_universe=matrix,
+        target_draw_date=target_draw_date,
+    )
     return {"metadata": metadata, "candidates": candidates}
 
 
@@ -1130,8 +1189,11 @@ def build_forward_challenger_next_candidate_snapshot(
     config = FrequencyRankerConfig(**cohort["challenger_config"])
     target_draw_date = infer_next_ssq_draw_date(history)
     resolved_top_n = min(top_n, len(ranked_universe))
+    candidate_history = (
+        history if best["train_mode"] == "expanding" else history[-best["train_window"] :]
+    )
     candidates = top_candidates_for_next(
-        history=history if best["train_mode"] == "expanding" else history[-best["train_window"] :],
+        history=candidate_history,
         top_n=resolved_top_n,
         config=config,
         target_draw_date=target_draw_date,
@@ -1166,6 +1228,16 @@ def build_forward_challenger_next_candidate_snapshot(
             "promotion_authority": "existing_promotion_gate",
         },
     }
+    metadata.pop("shadow_scoring_evidence", None)
+    metadata.pop("shadow_scoring_failure", None)
+    attach_forward_shadow_capture(
+        metadata=metadata,
+        candidates=candidates,
+        history=candidate_history,
+        config=config,
+        ranked_universe=ranked_universe,
+        target_draw_date=target_draw_date,
+    )
     return {"metadata": metadata, "candidates": candidates}
 
 
@@ -1464,6 +1536,14 @@ def build_dynamic_kdj_next_candidate_snapshot(
         "candidate_count": len(candidates),
         "git_commit": resolve_git_commit(),
     }
+    attach_forward_shadow_capture(
+        metadata=metadata,
+        candidates=candidates,
+        history=candidate_history,
+        config=dynamic_config,
+        ranked_universe=matrix,
+        target_draw_date=target_draw_date,
+    )
     return {"metadata": metadata, "candidates": candidates}
 
 
