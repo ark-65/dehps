@@ -155,5 +155,5 @@
   <path class="arrow" d="M 1095 556 L 1095 620"/>
 
   <text class="small" x="51" y="820">Invariant: kernels consume ABI headers, buffers, and digests only. They do not parse contracts, manifests, SQL rows, feature formulas, or domain rules.</text>
-  <text class="small" x="51" y="846">Next ABI nodes: Candidate ABI v1 and Feature ABI v1. GPU/SIMD backends remain implementation choices after the ABI inputs are frozen.</text>
+  <text class="small" x="51" y="846">Candidate ABI v1 is specified with a reference compiler/verifier; Feature ABI v1 is next. GPU/SIMD remain later backend choices.</text>
 </svg>
