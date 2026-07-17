@@ -138,7 +138,6 @@ Not allowed in this round:
 
 The next feature rounds should remain staged:
 
-1. Feature ABI v1 specification.
-2. Feature ABI Runtime Migration.
-3. Runtime Envelope v1 propagation.
-4. Unified Runtime Verifier.
+1. Feature ABI Runtime Migration.
+2. Runtime Envelope v1 propagation.
+3. Unified Runtime Verifier.
