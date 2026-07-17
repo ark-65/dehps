@@ -24,6 +24,7 @@ from dehps.scoring_kernel import (
     candidate_store_from_matrix,
     numbers_mask,
     pack_window_state,
+    run_shadow_comparison,
     target_lex_id,
 )
 from dehps.scoring_kernel.numba_backend import NumbaCpuBackend, _score_rank_tile
@@ -160,6 +161,38 @@ def _run(case, backend, *, chunk_size: int, worker_count: int, top_k: int = 257)
         request,
         KernelWorkspace(),
     )
+
+
+def test_shadow_runtime_executes_numpy_and_numba_against_one_request(kernel_case):
+    request = KernelRequest(
+        target_scores=kernel_case["target_scores"],
+        target_lex_id=target_lex_id(
+            kernel_case["store"], kernel_case["target_numbers"]
+        ),
+        target_mask=numbers_mask(kernel_case["target_numbers"]),
+        top_k=257,
+        chunk_size=2_048,
+        worker_count=4,
+        exact_rank=True,
+        red5=True,
+        window_id=79,
+    )
+
+    evidence = run_shadow_comparison(
+        target_issue="2026082",
+        line_key="static_100",
+        config_fingerprint="fixture-config",
+        candidate_store=kernel_case["store"],
+        window_state=kernel_case["state"],
+        weights=kernel_case["weights"],
+        request=request,
+    )
+
+    assert evidence["comparison_status"] == "exact"
+    assert evidence["official_backend"] == "numpy_reference"
+    assert evidence["shadow_backend"] == "numba_cpu"
+    assert evidence["official_result_digest"] == evidence["shadow_result_digest"]
+    assert evidence["automatic_promotion_allowed"] is False
 
 
 def _assert_strict_result(result, expected):

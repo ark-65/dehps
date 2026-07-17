@@ -67,6 +67,34 @@ The canonical SSQ source space is `C(33,6) = 1,107,568`, in `itertools.combinati
 
 `numba_cpu` uses `njit(parallel=True, fastmath=False)` and `prange` over candidate rows. One compiled row loop computes all 32 components, accumulates every requested configuration, rounds the scores, updates thread-local exact-rank counters, and computes Red5 membership with a `uint64` popcount. Python sees only bounded tile score arrays for deterministic TopK merging. This is a fused compute/reduction kernel, not a JIT wrapper around a Python candidate loop.
 
+## Shadow evidence boundary
+
+Production backend promotion is governed by
+`scoring-kernel-shadow-evidence.v1`, not by an ad-hoc benchmark. One comparison
+executes `numpy_reference` and `numba_cpu` against the same `CandidateStore`,
+packed window, weight matrix, and immutable `KernelRequest`. The evidence seals:
+
+- target scores and exact ranks;
+- strict TopK candidate row IDs and scores;
+- Red5 candidate IDs, scores, and global ranks;
+- Candidate ABI contract, layout, package, payload, and verified identity;
+- backend-neutral Runtime Envelope dependencies when full envelopes are present;
+- official and shadow result payload digests.
+
+Array shapes must match. Floating-point tolerances, best-run selection, missing
+identity repair, and silent fallback are forbidden. Runtime Envelope comparison
+excludes only the deliberately different backend field; every shared contract,
+history, window, candidate, feature, code, ABI package, and artifact payload
+identity must remain equal.
+
+The promotion-readiness gate requires the latest three target issues to be
+consecutive. Each issue must contain sealed evidence for `static_100`,
+`dynamic_kdj`, and `dynamic_kdj_near`; scoring comparison, post-draw evaluation,
+restart recovery, and watchdog checks must all pass. Duplicate issue/line evidence
+fails closed. The gate may return `ready_for_independent_approval`, but always
+returns `automatic_promotion_allowed=false`: it has evidence authority, not
+production promotion authority.
+
 If a caller requests more workers than the Numba runtime exposes (for example, a two-core CI runner receiving `worker_count=4`), the backend caps execution to `NUMBA_NUM_THREADS`. Telemetry records the actual worker count. This changes capacity only; the strict result is invariant.
 
 Red5's global rank requires a second bounded scoring pass using the selected Red5 score and lex id as the target. This preserves exact rank without retaining the first pass's full score matrix. Telemetry counts both passes in `score_cells`.

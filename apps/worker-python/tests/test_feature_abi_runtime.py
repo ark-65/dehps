@@ -22,6 +22,7 @@ from dehps.scoring_kernel import (
     KernelWorkspace,
     WeightMatrix,
     candidate_store_from_matrix,
+    compare_kernel_results,
     numbers_mask,
     pack_window_state,
 )
@@ -192,6 +193,17 @@ def test_feature_abi_runtime_matches_existing_reference_score_rank_topk_and_red5
     assert np.array_equal(result.red5_ranks, legacy.red5_ranks)
     assert result.telemetry["feature_abi"] == "feature_abi.v1"
     assert result.telemetry["candidate_identity_id_kind"] == "candidate_abi_row_index"
+    assert (
+        result.telemetry["candidate_digest"]
+        == runtime.candidate_package.header.candidate_digest
+    )
+    assert (
+        result.telemetry["candidate_layout_digest"]
+        == runtime.candidate_package.header.layout_digest
+    )
+    assert result.telemetry["candidate_abi_verification_id"].startswith(
+        "verified_candidate.v1-"
+    )
     assert result.telemetry["feature_runtime_digest"] == runtime.runtime_digest
     assert result.telemetry["runtime_verifier_version"] == "unified_runtime_verifier.v1"
     assert result.telemetry["runtime_verification_digest"] == (
@@ -356,6 +368,44 @@ def test_runtime_envelope_state_machine_is_sequential_and_fail_closed(
         payload_digest="9" * 64,
         runtime=runtime,
     )
+
+
+def test_shadow_comparison_ignores_only_the_expected_runtime_backend_field(
+    feature_runtime_case,
+) -> None:
+    runtime = _runtime(feature_runtime_case, tile_size=750)
+    planner = KernelPlanner("numpy_reference")
+    official = planner.score_rank_feature_abi(
+        planner.prepare_feature_abi(_verified(runtime), code_commit=TEST_CODE_COMMIT),
+        feature_runtime_case["weights"],
+        feature_runtime_case["request"],
+    )
+    shadow_ready = RuntimeEnvelopeCompiler().compile_kernel_ready(
+        _verified(runtime),
+        backend="numba_cpu",
+        code_commit=TEST_CODE_COMMIT,
+    )
+    shadow_envelope = shadow_ready.transition(
+        RuntimeState.KERNEL_EXECUTING
+    ).produce_artifact(_result_payload_digest(official))
+    shadow = replace(
+        official,
+        backend="numba_cpu",
+        telemetry={**official.telemetry, "backend": "numba_cpu"},
+        runtime_envelope=shadow_envelope.as_dict(),
+    )
+
+    evidence = compare_kernel_results(
+        target_issue="2026082",
+        line_key="static_100",
+        config_fingerprint="feature-runtime-fixture",
+        candidate_store_version="candidate-store.v1",
+        official=official,
+        shadow=shadow,
+    )
+
+    assert evidence["comparison_status"] == "exact"
+    assert evidence["runtime_envelope_mismatch_count"] == 0
 
 
 def test_runtime_envelope_rejects_invalid_commit_binding_and_serialized_tampering(
