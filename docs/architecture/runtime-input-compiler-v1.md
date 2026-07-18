@@ -89,8 +89,9 @@ Legacy `execute_shadow_pair(...)` and the low-level planner backend accessor rem
 historical/post-hoc compatibility and reference tests. They are no longer used by production,
 walk-forward, training evaluation, or simultaneous forward shadow capture.
 
-The separate full-score-grid helper used by one offline residual script is not a KernelResult caller
-and remains a named migration item. No claim is made that it has entered Runtime enforcement yet.
+The separate full-score-grid research path is represented by `full_score_grid_artifact.v1`; it
+consumes the same verified Runtime input but produces a candidate-major full-score Artifact rather
+than pretending that a full matrix is a TopK `KernelResult`.
 
 ## Non-goals
 

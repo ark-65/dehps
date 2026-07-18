@@ -28,8 +28,8 @@ from dehps.optimization.next_candidates import (
 from dehps.optimization.regime import select_history
 from dehps.optimization.walk_forward import (
     build_ranked_universe,
+    compile_score_config_grid_artifact,
     fingerprint_history,
-    score_config_grid,
 )
 from dehps.storage.postgres_store import (
     CANONICAL_TRAINING_WEIGHT_SIGNAL_RUN_ID,
@@ -145,12 +145,14 @@ def main() -> None:
             offset_scale=args.anchor_offset_scale,
             strength_policy=strength_policy,
         )
-        score_grid = score_config_grid(
+        score_artifact = compile_score_config_grid_artifact(
             train_history=train_history,
             configs=(base_config, dynamic_config),
             ranked_universe=matrix,
             target_draw_date=history_draw_date(target_draw),
+            target_issue=issue,
         )
+        score_grid = score_artifact.scores
         blend = orthogonal_residual_blend(
             score_grid[:, 0],
             score_grid[:, 1],
@@ -168,6 +170,7 @@ def main() -> None:
                 "effective_offset_scale": dynamic_metadata["effective_offset_scale"],
                 "changed_weight_count": len(dynamic_metadata["applied_offsets"]),
                 "blend": blend.metadata,
+                "score_artifact": score_artifact.as_metadata(),
                 "static": rank_metrics_from_scores(
                     ranked_universe=matrix, scores=score_grid[:, 0], target_numbers=target_numbers, top_n=args.top_n
                 ),

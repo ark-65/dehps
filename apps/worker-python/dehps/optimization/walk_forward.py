@@ -50,6 +50,10 @@ from dehps.scoring_kernel import (
     numbers_mask,
     target_lex_id,
 )
+from dehps.scoring_kernel.full_score_artifact import (
+    FullScoreGridArtifactCompilerV1,
+    FullScoreGridArtifactV1,
+)
 from dehps.scoring_kernel.runtime_input import default_runtime_input_compiler
 from dehps.source_version import resolve_git_commit
 
@@ -1721,10 +1725,51 @@ def score_config_grid(
     configs: tuple[FrequencyRankerConfig, ...],
     ranked_universe: RankedUniverseMatrix,
     target_draw_date: date | None = None,
+    target_issue: str | None = None,
 ) -> np.ndarray:
-    """Score one fixed universe for several configs under the same history boundary."""
-    stats = train_frequency_stats(train_history, target_draw_date=target_draw_date)
-    return _score_matrix(ranked_universe, stats, configs)
+    """Compatibility projection of the verified FullScore Artifact values."""
+    return compile_score_config_grid_artifact(
+        train_history=train_history,
+        configs=configs,
+        ranked_universe=ranked_universe,
+        target_draw_date=target_draw_date,
+        target_issue=target_issue,
+    ).scores
+
+
+def compile_score_config_grid_artifact(
+    *,
+    train_history: list[HistoryDraw],
+    configs: tuple[FrequencyRankerConfig, ...],
+    ranked_universe: RankedUniverseMatrix,
+    target_draw_date: date | None = None,
+    target_issue: str | None = None,
+) -> FullScoreGridArtifactV1:
+    """Compile a full candidate/config score grid as a sealed Runtime Artifact."""
+
+    store = _candidate_store_for_matrix(ranked_universe)
+    chunk_size = max(1, int(os.getenv("DEHPS_SCORING_CHUNK_SIZE", "262144")))
+    runtime_inputs = default_runtime_input_compiler().compile_effective_history(
+        history=train_history,
+        candidate_store=store,
+        tile_size=chunk_size,
+        target_draw_date=target_draw_date,
+        target_issue=target_issue,
+        source="full_score_grid_effective_history",
+    )
+    weights = WeightMatrix(
+        np.ascontiguousarray(_config_weight_matrix(configs), dtype=np.float64)
+    )
+    artifact = FullScoreGridArtifactCompilerV1().compile(
+        verified_runtime=runtime_inputs.verified_runtime,
+        weights=weights,
+        code_commit=resolve_git_commit(),
+    )
+    ranked_universe.cache_info["full_score_grid"] = {
+        "runtime_input": runtime_inputs.as_dict(),
+        "artifact": artifact.as_metadata(),
+    }
+    return artifact
 
 
 def _target_scores(target_numbers: tuple[int, ...], stats: FrequencyStats, configs: tuple[FrequencyRankerConfig, ...]) -> tuple[float, ...]:
