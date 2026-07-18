@@ -15,17 +15,28 @@ from dehps.feature_runtime.abi import (
     FeatureABIVerifier,
 )
 from dehps.feature_runtime.compiler import (
+    FEATURE_ARTIFACT_VERSION,
     FEATURE_COMPILER_VERSION,
+    CompiledFeatureArtifact,
+    FeatureArtifactVerifier,
     FeatureCompileRequest,
     FeatureCompiler,
     FeatureRuntimeViolation,
     candidate_static_digest,
+    feature_artifact_digest,
+)
+from dehps.feature_runtime.producer import (
+    DirectFeatureABIProducer,
+    FeatureABIProducer,
+    FeatureABIProducerResult,
+    StagedFeatureABIProducer,
 )
 from dehps.feature_runtime.runtime import FeatureABIRuntime
 from dehps.input_contracts.candidate_abi import CandidateABIPackage
 from dehps.input_contracts.feature_contract import (
     FEATURE_COMPONENT_MANIFEST_DIGEST,
     FEATURE_CONTRACT_V1,
+    FEATURE_VECTOR_LENGTH,
 )
 from dehps.input_contracts.history_window import HistorySnapshotArtifact, WindowArtifact
 from dehps.scoring_kernel.contracts import CandidateStore
@@ -65,6 +76,7 @@ class FeatureABICacheKey:
     feature_layout_digest: str
     feature_manifest_digest: str
     feature_compiler_version: str
+    feature_producer_version: str
     target_context_digest: str
     start: int
     end: int
@@ -94,6 +106,7 @@ class FeatureABICacheKey:
                 "layout_digest": self.feature_layout_digest,
                 "manifest_digest": self.feature_manifest_digest,
                 "compiler_version": self.feature_compiler_version,
+                "producer_version": self.feature_producer_version,
                 "target_context_digest": self.target_context_digest,
                 "row_range": [self.start, self.end],
             },
@@ -113,6 +126,10 @@ class FeatureABICacheReceipt:
     key: FeatureABICacheKey
     cache_hit: bool
     stored: bool
+    producer_version: str
+    payload_materializations: int
+    abi_buffer_copied: bool
+    source_artifact_payload_verification_passes: int
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -122,6 +139,12 @@ class FeatureABICacheReceipt:
             "stored": self.stored,
             "package_digest": self.package.package_digest,
             "payload_bytes": int(self.package.values.nbytes),
+            "producer_version": self.producer_version,
+            "payload_materializations": self.payload_materializations,
+            "abi_buffer_copied": self.abi_buffer_copied,
+            "source_artifact_payload_verification_passes": (
+                self.source_artifact_payload_verification_passes
+            ),
         }
 
 
@@ -139,6 +162,13 @@ class RuntimeABICacheCompilation:
     def all_feature_cache_hits(self) -> bool:
         return all(receipt.cache_hit for receipt in self.feature_receipts)
 
+    @property
+    def source_artifact_payload_verification_passes(self) -> int:
+        return sum(
+            receipt.source_artifact_payload_verification_passes
+            for receipt in self.feature_receipts
+        )
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "protocol": RUNTIME_ABI_CACHE_PROTOCOL,
@@ -150,6 +180,9 @@ class RuntimeABICacheCompilation:
             "feature_payload_verification_passes": self.feature_payload_verification_passes,
             "runtime_payload_verification_passes": self.runtime_payload_verification_passes,
             "transaction_recovered": self.transaction_recovered,
+            "source_artifact_payload_verification_passes": (
+                self.source_artifact_payload_verification_passes
+            ),
             "feature_tiles": [receipt.as_dict() for receipt in self.feature_receipts],
         }
 
@@ -179,6 +212,9 @@ class _FeatureCacheEntry:
     header_digest: str
     package_digest: str
     payload_bytes: int
+    producer_version: str
+    payload_materializations: int
+    abi_buffer_copied: bool
 
 
 @dataclass(frozen=True)
@@ -207,6 +243,7 @@ class RuntimeABICache:
         *,
         max_entries: int = DEFAULT_MAX_ENTRIES,
         max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES,
+        feature_producer: FeatureABIProducer | None = None,
         feature_compiler: FeatureCompiler | None = None,
         abi_compiler: FeatureABICompiler | None = None,
         runtime_verifier: UnifiedRuntimeVerifier | None = None,
@@ -221,8 +258,19 @@ class RuntimeABICache:
             raise ValueError("max_payload_bytes must be a non-negative integer")
         self.max_entries = max_entries
         self.max_payload_bytes = max_payload_bytes
-        self.feature_compiler = feature_compiler or FeatureCompiler()
-        self.abi_compiler = abi_compiler or FeatureABICompiler()
+        if feature_producer is not None and (
+            feature_compiler is not None or abi_compiler is not None
+        ):
+            raise ValueError(
+                "feature_producer cannot be combined with legacy compiler injection"
+            )
+        if feature_compiler is not None or abi_compiler is not None:
+            self.feature_producer = StagedFeatureABIProducer(
+                feature_compiler=feature_compiler,
+                abi_compiler=abi_compiler,
+            )
+        else:
+            self.feature_producer = feature_producer or DirectFeatureABIProducer()
         self.runtime_verifier = runtime_verifier or UnifiedRuntimeVerifier()
         self._feature_entries: OrderedDict[str, _FeatureCacheEntry] = OrderedDict()
         self._runtime_entries: OrderedDict[str, _RuntimeCacheEntry] = OrderedDict()
@@ -271,6 +319,7 @@ class RuntimeABICache:
             feature_layout_digest=FEATURE_ABI_LAYOUT_DIGEST,
             feature_manifest_digest=FEATURE_COMPONENT_MANIFEST_DIGEST,
             feature_compiler_version=FEATURE_COMPILER_VERSION,
+            feature_producer_version=self.feature_producer.version,
             target_context_digest=request.target_context_digest,
             start=start,
             end=end,
@@ -294,18 +343,24 @@ class RuntimeABICache:
                         key=key,
                         cache_hit=True,
                         stored=True,
+                        producer_version=entry.producer_version,
+                        payload_materializations=entry.payload_materializations,
+                        abi_buffer_copied=entry.abi_buffer_copied,
+                        source_artifact_payload_verification_passes=0,
                     )
 
             self._feature_misses += 1
-            artifact = self.feature_compiler.compile(request)
-            package = self.abi_compiler.compile(artifact)
-            if package.values is not artifact.values:
-                raise FeatureRuntimeViolation(
-                    "feature_abi_cache_buffer_copy",
-                    "Feature ABI Cache requires the compiler to preserve the values buffer",
-                )
+            production = self.feature_producer.produce(request)
+            package = production.package
+            self._verify_production_identity(production, expected_key=key)
             package.values.setflags(write=False)
-            FeatureABIVerifier().verify(package, source_artifact=artifact)
+            FeatureArtifactVerifier().verify(
+                CompiledFeatureArtifact(
+                    header=production.source_header,
+                    values=package.values,
+                )
+            )
+            FeatureABIVerifier().verify(package)
             final_key = self.feature_key(request)
             if final_key != key:
                 raise FeatureRuntimeViolation(
@@ -322,6 +377,9 @@ class RuntimeABICache:
                     header_digest=package.header.header_digest,
                     package_digest=package.package_digest,
                     payload_bytes=payload_bytes,
+                    producer_version=production.producer_version,
+                    payload_materializations=production.payload_materializations,
+                    abi_buffer_copied=production.abi_buffer_copied,
                 )
                 self._payload_bytes += payload_bytes
                 self._evict_feature_entries()
@@ -331,6 +389,10 @@ class RuntimeABICache:
                 key=key,
                 cache_hit=False,
                 stored=stored,
+                producer_version=production.producer_version,
+                payload_materializations=production.payload_materializations,
+                abi_buffer_copied=production.abi_buffer_copied,
+                source_artifact_payload_verification_passes=1,
             )
 
     def compile_runtime(
@@ -506,6 +568,10 @@ class RuntimeABICache:
                         key=key,
                         cache_hit=True,
                         stored=True,
+                        producer_version=entry.producer_version,
+                        payload_materializations=entry.payload_materializations,
+                        abi_buffer_copied=entry.abi_buffer_copied,
+                        source_artifact_payload_verification_passes=0,
                     )
                     for entry, key in zip(matched_entries, keys)
                 )
@@ -613,6 +679,69 @@ class RuntimeABICache:
     ) -> None:
         self._verify_feature_entry_identity(entry, expected_key=expected_key)
         FeatureABIVerifier().verify(entry.package)
+
+    def _verify_production_identity(
+        self,
+        production: FeatureABIProducerResult,
+        *,
+        expected_key: FeatureABICacheKey,
+    ) -> None:
+        package = production.package
+        source = production.source_header
+        if production.producer_version != self.feature_producer.version:
+            raise FeatureRuntimeViolation(
+                "feature_abi_cache_producer_version_mismatch",
+                "Feature ABI producer result does not match the configured producer",
+            )
+        if production.abi_buffer_copied or production.payload_materializations != 1:
+            raise FeatureRuntimeViolation(
+                "feature_abi_cache_materialization_contract_mismatch",
+                "Feature ABI producer must provide one uncopied payload materialization",
+            )
+        if (
+            source.artifact_version != FEATURE_ARTIFACT_VERSION
+            or source.compiler_version != FEATURE_COMPILER_VERSION
+            or not source.feature_contract.normatively_equals(FEATURE_CONTRACT_V1)
+            or source.component_manifest_digest != FEATURE_COMPONENT_MANIFEST_DIGEST
+            or source.dtype != "float64"
+            or source.component_count != FEATURE_VECTOR_LENGTH
+            or source.row_count != source.end - source.start
+        ):
+            raise FeatureRuntimeViolation(
+                "feature_abi_cache_source_contract_mismatch",
+                "Feature ABI producer source header does not implement Feature Artifact v1",
+            )
+        if feature_artifact_digest(source) != production.source_artifact_digest:
+            raise FeatureRuntimeViolation(
+                "feature_abi_cache_source_seal_mismatch",
+                "Feature ABI producer source header does not match its Artifact digest",
+            )
+        if production.source_artifact_digest != package.header.source_artifact_digest:
+            raise FeatureRuntimeViolation(
+                "feature_abi_cache_source_identity_mismatch",
+                "Feature ABI producer source identity does not match its package",
+            )
+        source_bindings = {
+            "window_artifact_digest": source.window_artifact_digest,
+            "candidate_package_digest": source.candidate_package_digest,
+            "candidate_static_digest": source.candidate_static_digest,
+            "target_context_digest": source.target_context_digest,
+            "start": source.start,
+            "end": source.end,
+        }
+        expected_bindings = {
+            "window_artifact_digest": expected_key.window_artifact_digest,
+            "candidate_package_digest": expected_key.candidate_package_digest,
+            "candidate_static_digest": expected_key.candidate_static_digest,
+            "target_context_digest": expected_key.target_context_digest,
+            "start": expected_key.start,
+            "end": expected_key.end,
+        }
+        if source_bindings != expected_bindings:
+            raise FeatureRuntimeViolation(
+                "feature_abi_cache_source_binding_mismatch",
+                "Feature ABI producer source header does not match the current Contract DAG",
+            )
 
     def _verify_feature_entry_identity(
         self,

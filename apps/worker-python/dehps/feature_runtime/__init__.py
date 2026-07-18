@@ -22,6 +22,7 @@ from dehps.feature_runtime.compiler import (
     FeatureRuntimeViolation,
     candidate_static_digest,
     feature_array_digest,
+    feature_artifact_digest,
 )
 from dehps.feature_runtime.cache import (
     RUNTIME_ABI_CACHE_PROTOCOL,
@@ -32,19 +33,32 @@ from dehps.feature_runtime.cache import (
     RuntimeABICacheStats,
 )
 from dehps.feature_runtime.runtime import FeatureABIRuntime, FeatureABIRuntimeVerifier
+from dehps.feature_runtime.producer import (
+    FEATURE_ABI_DIRECT_PRODUCER_VERSION,
+    FEATURE_ABI_STAGED_PRODUCER_VERSION,
+    DirectFeatureABIProducer,
+    FeatureABIProducer,
+    FeatureABIProducerResult,
+    StagedFeatureABIProducer,
+)
 
 __all__ = [
     "FEATURE_ABI_GOLDEN_SUITE",
     "FEATURE_ABI_LAYOUT_DEFINITION",
     "FEATURE_ABI_LAYOUT_DIGEST",
     "FEATURE_ABI_VERSION",
+    "FEATURE_ABI_DIRECT_PRODUCER_VERSION",
+    "FEATURE_ABI_STAGED_PRODUCER_VERSION",
     "FEATURE_COMPILER_VERSION",
     "RUNTIME_ABI_CACHE_PROTOCOL",
     "CompiledFeatureArtifact",
+    "DirectFeatureABIProducer",
     "FeatureABICompiler",
     "FeatureABICacheKey",
     "FeatureABICacheReceipt",
     "FeatureABIHeader",
+    "FeatureABIProducer",
+    "FeatureABIProducerResult",
     "FeatureABIPackage",
     "FeatureABIRuntime",
     "FeatureABIRuntimeVerifier",
@@ -59,6 +73,8 @@ __all__ = [
     "RuntimeABICache",
     "RuntimeABICacheCompilation",
     "RuntimeABICacheStats",
+    "StagedFeatureABIProducer",
     "candidate_static_digest",
     "feature_array_digest",
+    "feature_artifact_digest",
 ]

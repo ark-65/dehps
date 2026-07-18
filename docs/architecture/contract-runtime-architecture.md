@@ -191,9 +191,9 @@ This envelope is not a replacement for stage envelopes. A stage envelope carries
 | History Snapshot Contract | Implemented | `history_snapshot.v1.0.0` red-ball scoring projection |
 | Window Contract | Implemented | `window.v1.0.0`, rolling/expanding value object and stage envelope |
 | Candidate Contract / ABI | Runtime preflight integrated | `candidate.v1.0.0`, `candidate_abi.v1`, Compiler, Verifier, golden fixtures, CandidateStore adapter, Kernel prepare validation, telemetry propagation |
-| Feature Contract / Compiler | Reference compiler implemented | `feature.v1.0.0`, component manifest, golden vector, verified Window/Candidate input binding, deterministic Feature Artifact, fail-closed artifact verifier |
+| Feature Contract / Compiler | Direct producer integrated | `feature.v1.0.0`, component manifest, golden vector, direct single-buffer Artifact/ABI identity production, staged reference oracle, verified Window/Candidate input binding, deterministic Feature Artifact identity |
 | Feature ABI Runtime | NumPy and Numba execution integrated | `feature_abi.v1`, tile-local dense `float64[R,32]`, joint Candidate/Feature preflight, sealed `VerifiedRuntimePackage`, explicit Kernel Planner entries, strict score/rank/TopK/Red5 execution; the older component-producing fused Numba entry remains separate |
-| Runtime ABI Cache | Control-plane capability implemented | `runtime_abi_cache.v1`, complete Contract DAG key, no-copy read-only Feature buffers, verifier-gated hits, byte/entry bounded LRU, dependent Runtime eviction |
+| Runtime ABI Cache | Transactional control-plane capability implemented | `runtime_abi_cache.v1`, complete Contract DAG and producer key, direct-producer miss path, no-copy read-only Feature buffers, one assembled warm Runtime verification, deterministic fallback recovery, byte/entry bounded LRU, dependent Runtime eviction |
 | Verified Runtime Shadow | Forward simultaneous capture integrated | One cached and verified History/Window/Candidate/Feature Runtime package drives Feature ABI NumPy and Numba; evidence seals the shared Runtime identity and binds the reference result to official rows without changing the production backend |
 | Runtime Input Compiler | Core production/research callers integrated | Effective history and known target issue compile to History/Window artifacts; production TopK, walk-forward, Red5, training prefilter/full evaluation, and simultaneous shadow consume cached `VerifiedRuntimePackage` identities |
 | FullScore Runtime Artifact | Residual research integrated | Candidate-major full score grids compile only from verified Feature ABI tiles and WeightMatrix identity; Artifact header, payload digest, Runtime Envelope, verifier, and residual evidence propagation are explicit |
@@ -215,7 +215,8 @@ window.v2.0.0 -> feature.v1.0.0: reject
 candidate.v1.0.0 -> candidate_abi.v1 reference compiler/verifier: allowed
 candidate_abi.v1 -> production scoring strict_v1: allowed through verified CandidateStore adapter
 feature.v1.0.0 -> feature_abi.v1 reference compiler/verifier: allowed
-feature_abi.v1 -> runtime_abi_cache.v1: allowed only with per-hit Feature and Unified Runtime revalidation
+feature.v1.0.0 -> direct Feature ABI producer -> feature_abi.v1: allowed only when exact staged Artifact/ABI identity and one-buffer ownership verify
+feature_abi.v1 -> runtime_abi_cache.v1: allowed after one cold Feature ABI verification or one complete warm Runtime transaction verification
 feature_abi.v1 -> Kernel Planner -> feature_abi_numpy_reference: allowed after Unified Runtime verification
 feature_abi.v1 -> Kernel Planner -> feature_abi_numba_cpu: allowed after the same Unified Runtime verification
 legacy fused numba_cpu -> Feature ABI producer: not claimed; requires a separately verified producer
@@ -256,7 +257,7 @@ This is the boundary that lets NumPy, Numba, SIMD, CUDA, OpenCL, and future nati
 The next migration rounds should be staged as:
 
 1. Warm Runtime ABI Cache transaction: remove duplicate entry/assembled-Runtime scans while preserving invalidation and rebuild semantics.
-2. Fused producer migration: define and verify any zero-materialization Feature tile producer before claiming ABI compliance or changing defaults.
+2. Direct producer migration: implemented for one-buffer Feature tiles with exact staged Artifact/ABI identity; a future streaming Runtime must separately prove bounded tile retention before claiming full-universe zero-materialization.
 3. Shadow completion: collect the required simultaneous, post-draw, three-issue zero-difference evidence before a backend-default decision.
 4. Future backends: SIMD, CUDA, OpenCL, or Rust implementations must accept the same verified runtime and reproduce the same Golden fixtures and artifact payload digest.
 

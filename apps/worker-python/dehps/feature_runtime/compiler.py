@@ -196,6 +196,17 @@ class FeatureArtifactHeader:
         return canonical_digest(self.identity_payload(), domain="dehps.feature-artifact-header.v1")
 
 
+def feature_artifact_digest(header: FeatureArtifactHeader) -> str:
+    return canonical_digest(
+        {
+            "artifact_type": FEATURE_ARTIFACT_VERSION,
+            "header_digest": header.header_digest,
+            "values_digest": header.values_digest,
+        },
+        domain="dehps.feature-artifact.v1",
+    )
+
+
 @dataclass(frozen=True)
 class CompiledFeatureArtifact:
     header: FeatureArtifactHeader
@@ -203,14 +214,7 @@ class CompiledFeatureArtifact:
 
     @property
     def artifact_digest(self) -> str:
-        return canonical_digest(
-            {
-                "artifact_type": FEATURE_ARTIFACT_VERSION,
-                "header_digest": self.header.header_digest,
-                "values_digest": self.header.values_digest,
-            },
-            domain="dehps.feature-artifact.v1",
-        )
+        return feature_artifact_digest(self.header)
 
     def as_metadata(self) -> dict[str, Any]:
         return {

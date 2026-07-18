@@ -10,6 +10,7 @@ from dehps.contracts import ContractRef, canonical_digest
 from dehps.feature_runtime.compiler import (
     FEATURE_ARTIFACT_VERSION,
     CompiledFeatureArtifact,
+    FeatureArtifactHeader,
     FeatureArtifactVerifier,
     FeatureRuntimeViolation,
     feature_array_digest,
@@ -110,6 +111,34 @@ def _payload_digest(buffer: FeatureBufferMetadata) -> str:
         {"buffers": [buffer.identity_payload()]},
         domain="dehps.feature-abi-payload.v1",
     )
+
+
+def _package_from_source_identity(
+    *,
+    source: FeatureArtifactHeader,
+    source_artifact_digest: str,
+    values: np.ndarray,
+) -> FeatureABIPackage:
+    buffer = _values_metadata(values)
+    header = FeatureABIHeader(
+        abi_version=FEATURE_ABI_VERSION,
+        feature_contract=source.feature_contract,
+        component_manifest_digest=source.component_manifest_digest,
+        layout_digest=FEATURE_ABI_LAYOUT_DIGEST,
+        source_artifact_version=source.artifact_version,
+        source_artifact_digest=source_artifact_digest,
+        window_artifact_digest=source.window_artifact_digest,
+        candidate_package_digest=source.candidate_package_digest,
+        candidate_static_digest=source.candidate_static_digest,
+        target_context_digest=source.target_context_digest,
+        start=source.start,
+        end=source.end,
+        row_count=source.row_count,
+        component_count=source.component_count,
+        payload_digest=_payload_digest(buffer),
+        buffer=buffer,
+    )
+    return FeatureABIPackage(header=header, values=values)
 
 
 @dataclass(frozen=True)
@@ -233,27 +262,11 @@ class FeatureABICompiler:
 
     def compile(self, artifact: CompiledFeatureArtifact) -> FeatureABIPackage:
         FeatureArtifactVerifier().verify(artifact)
-        buffer = _values_metadata(artifact.values)
-        source = artifact.header
-        header = FeatureABIHeader(
-            abi_version=FEATURE_ABI_VERSION,
-            feature_contract=source.feature_contract,
-            component_manifest_digest=source.component_manifest_digest,
-            layout_digest=FEATURE_ABI_LAYOUT_DIGEST,
-            source_artifact_version=source.artifact_version,
+        package = _package_from_source_identity(
+            source=artifact.header,
             source_artifact_digest=artifact.artifact_digest,
-            window_artifact_digest=source.window_artifact_digest,
-            candidate_package_digest=source.candidate_package_digest,
-            candidate_static_digest=source.candidate_static_digest,
-            target_context_digest=source.target_context_digest,
-            start=source.start,
-            end=source.end,
-            row_count=source.row_count,
-            component_count=source.component_count,
-            payload_digest=_payload_digest(buffer),
-            buffer=buffer,
+            values=artifact.values,
         )
-        package = FeatureABIPackage(header=header, values=artifact.values)
         FeatureABIVerifier().verify(package, source_artifact=artifact)
         return package
 

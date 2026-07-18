@@ -92,8 +92,9 @@ returned but not cached.
 
 The public control-plane entry is `RuntimeABICache.compile_runtime(...)`. It returns a
 `VerifiedRuntimePackage`, per-tile key/digest/hit/storage/byte telemetry, and the runtime-cache result.
-Its receipt also records the verification strategy, separate Feature payload pass count, Runtime
-payload pass count, and whether a failed warm transaction recovered through the compatibility path.
+Its receipt also records producer identity/materialization evidence, source Artifact payload pass
+count, verification strategy, separate Feature payload pass count, Runtime payload pass count, and
+whether a failed warm transaction recovered through the compatibility path.
 The package is accepted by the existing NumPy and Numba Feature ABI Planner entries.
 
 This round does not switch production or research callers to the cache. Migration remains explicit so

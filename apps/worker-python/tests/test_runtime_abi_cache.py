@@ -14,6 +14,8 @@ from dehps.feature_runtime import (
     FeatureABICompiler,
     FeatureABIRuntime,
     FeatureABIVerifier,
+    DirectFeatureABIProducer,
+    FEATURE_ABI_STAGED_PRODUCER_VERSION,
     FeatureCompileRequest,
     FeatureCompiler,
     FeatureRuntimeViolation,
@@ -110,6 +112,7 @@ def test_runtime_abi_cache_reuses_read_only_feature_buffers_and_verified_runtime
     assert second.verification_strategy == "assembled_runtime_transaction"
     assert second.feature_payload_verification_passes == 0
     assert second.runtime_payload_verification_passes == 1
+    assert second.source_artifact_payload_verification_passes == 0
     assert second.transaction_recovered is False
     assert second.as_dict()["verification_strategy"] == "assembled_runtime_transaction"
     assert second.verified_runtime is first.verified_runtime
@@ -188,6 +191,7 @@ def test_runtime_abi_cache_warm_transaction_coalesces_payload_verification(
     assert runtime_verifier.verify_package_calls == 1
     assert warm.feature_payload_verification_passes == 0
     assert warm.runtime_payload_verification_passes == 1
+    assert warm.source_artifact_payload_verification_passes == 0
 
 
 def test_runtime_abi_cache_rejects_history_window_mismatch_before_partial_insert() -> None:
@@ -450,43 +454,76 @@ def test_runtime_abi_cache_transaction_rekeys_changed_candidate_static_input() -
 def test_runtime_abi_cache_serializes_concurrent_identical_compilation() -> None:
     _, window, store = _case()
 
-    class CountingCompiler(FeatureCompiler):
+    class CountingProducer(DirectFeatureABIProducer):
         def __init__(self):
+            super().__init__()
             self.calls = 0
             self.lock = threading.Lock()
 
-        def compile(self, request):
+        def produce(self, request):
             with self.lock:
                 self.calls += 1
-            return super().compile(request)
+            return super().produce(request)
 
-    compiler = CountingCompiler()
-    cache = RuntimeABICache(feature_compiler=compiler)
+    producer = CountingProducer()
+    cache = RuntimeABICache(feature_producer=producer)
     request = FeatureCompileRequest(window=window, candidate_store=store, start=0, end=200)
 
     with ThreadPoolExecutor(max_workers=4) as executor:
         receipts = list(executor.map(lambda _index: cache.compile_feature(request), range(4)))
 
-    assert compiler.calls == 1
+    assert producer.calls == 1
     assert sum(receipt.cache_hit for receipt in receipts) == 3
     assert len({id(receipt.package) for receipt in receipts}) == 1
+
+
+def test_runtime_abi_cache_legacy_compiler_injection_is_explicit_staged_adapter() -> None:
+    _, window, store = _case()
+
+    class CountingCompiler(FeatureCompiler):
+        def __init__(self):
+            self.calls = 0
+
+        def compile(self, request):
+            self.calls += 1
+            return super().compile(request)
+
+    compiler = CountingCompiler()
+    cache = RuntimeABICache(feature_compiler=compiler)
+    receipt = cache.compile_feature(
+        FeatureCompileRequest(
+            window=window,
+            candidate_store=store,
+            start=0,
+            end=200,
+        )
+    )
+
+    assert compiler.calls == 1
+    assert receipt.producer_version == FEATURE_ABI_STAGED_PRODUCER_VERSION
+    with pytest.raises(ValueError, match="cannot be combined"):
+        RuntimeABICache(
+            feature_producer=DirectFeatureABIProducer(),
+            feature_compiler=compiler,
+        )
 
 
 def test_runtime_abi_cache_serializes_concurrent_identical_runtime_compilation() -> None:
     snapshot, window, store = _case()
 
-    class CountingCompiler(FeatureCompiler):
+    class CountingProducer(DirectFeatureABIProducer):
         def __init__(self):
+            super().__init__()
             self.calls = 0
             self.lock = threading.Lock()
 
-        def compile(self, request):
+        def produce(self, request):
             with self.lock:
                 self.calls += 1
-            return super().compile(request)
+            return super().produce(request)
 
-    compiler = CountingCompiler()
-    cache = RuntimeABICache(feature_compiler=compiler)
+    producer = CountingProducer()
+    cache = RuntimeABICache(feature_producer=producer)
 
     def compile_runtime(_index):
         return cache.compile_runtime(
@@ -499,7 +536,7 @@ def test_runtime_abi_cache_serializes_concurrent_identical_runtime_compilation()
     with ThreadPoolExecutor(max_workers=4) as executor:
         compilations = list(executor.map(compile_runtime, range(4)))
 
-    assert compiler.calls == 3
+    assert producer.calls == 3
     assert sum(compilation.runtime_cache_hit for compilation in compilations) == 3
     assert len({id(compilation.verified_runtime) for compilation in compilations}) == 1
     assert cache.stats().runtime_hits == 3

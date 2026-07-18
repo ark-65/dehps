@@ -24,6 +24,7 @@ RAW_BACKEND_MODULES = {
 }
 ALLOWED_IMPLEMENTATION_IMPORTS = {
     Path("dehps/feature_runtime/compiler.py"): {"component_tile"},
+    Path("dehps/feature_runtime/producer.py"): {"component_tile"},
     Path("dehps/optimization/walk_forward.py"): {"_ordered_topk"},
 }
 
