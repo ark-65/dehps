@@ -74,6 +74,10 @@ Passing `raw_runtime` directly produces `runtime_package_not_verified`. Prepared
 revalidated immediately before scoring, so mutable NumPy payload drift after sealing is detected.
 Prepared packages are backend-bound and cannot cross the ABI NumPy and ABI Numba paths.
 
+`RuntimeABICache` may retain a verified package for an identical Contract DAG, but it invokes
+`verify_package()` on every hit. A cache receipt is not a verification seal and cannot bypass this
+boundary.
+
 ## Non-goals
 
 - no cryptographic signing or remote attestation;

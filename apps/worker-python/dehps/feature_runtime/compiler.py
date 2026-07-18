@@ -57,7 +57,9 @@ def feature_array_digest(array: np.ndarray, *, domain: str) -> str:
     return digest.hexdigest()
 
 
-def _candidate_static_digest(store: CandidateStore, *, start: int, end: int) -> str:
+def candidate_static_digest(store: CandidateStore, *, start: int, end: int) -> str:
+    """Digest every CandidateStore input that participates in Feature compilation."""
+
     fields = (
         "structural_score",
         "consecutive_pair_count",
@@ -273,7 +275,7 @@ class FeatureArtifactVerifier:
                 self._reject("feature_window_binding_mismatch", "Feature artifact does not match Window artifact")
             if header.candidate_package_digest != candidate_package.package_digest:
                 self._reject("feature_candidate_binding_mismatch", "Feature artifact does not match Candidate ABI")
-            if header.candidate_static_digest != _candidate_static_digest(
+            if header.candidate_static_digest != candidate_static_digest(
                 request.candidate_store,
                 start=start,
                 end=end,
@@ -335,7 +337,7 @@ class FeatureCompiler:
             component_manifest_digest=FEATURE_COMPONENT_MANIFEST_DIGEST,
             window_artifact_digest=request.window.artifact_digest,
             candidate_package_digest=candidate_package.package_digest,
-            candidate_static_digest=_candidate_static_digest(
+            candidate_static_digest=candidate_static_digest(
                 request.candidate_store,
                 start=start,
                 end=end,
