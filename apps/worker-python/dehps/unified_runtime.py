@@ -2,17 +2,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+import threading
+import time
 from typing import Any
 
 from dehps.contracts import canonical_digest
 from dehps.feature_runtime.abi import FEATURE_ABI_VERSION
 from dehps.feature_runtime.runtime import FeatureABIRuntime, FeatureABIRuntimeVerifier
 from dehps.input_contracts.candidate_abi import CANDIDATE_ABI_VERSION
+from dehps.input_contracts.candidate_abi import CandidateABIVerification
 
 
 UNIFIED_RUNTIME_VERIFIER_VERSION = "unified_runtime_verifier.v1"
 VERIFIED_RUNTIME_PACKAGE_VERSION = "verified_runtime_package.v1"
 _DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_SESSION_CONSTRUCTOR_TOKEN = object()
 
 
 class RuntimeVerificationViolation(ValueError):
@@ -50,6 +54,111 @@ class VerifiedRuntimePackage:
                 package.package_digest for package in self.runtime.feature_tiles
             ],
         }
+
+
+class RuntimeVerificationSession:
+    """One synchronous pre/post payload-verification boundary.
+
+    The session is not a lease: it has no TTL, is bound to one package object and
+    one thread, and cannot be reused after context exit.
+    """
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        raise TypeError("RuntimeVerificationSession is final")
+
+    def __init__(
+        self,
+        verifier: UnifiedRuntimeVerifier,
+        package: VerifiedRuntimePackage,
+        *,
+        _token: object,
+    ) -> None:
+        if _token is not _SESSION_CONSTRUCTOR_TOKEN:
+            raise RuntimeVerificationViolation(
+                "runtime_verification_session_construction_forbidden",
+                "Runtime Verification Sessions must be created by UnifiedRuntimeVerifier",
+            )
+        self._verifier = verifier
+        self._package = package
+        self._owner_thread_id: int | None = None
+        self._active = False
+        self._closed = False
+        self._candidate_verification: CandidateABIVerification | None = None
+        self.entry_verification_seconds = 0.0
+        self.exit_verification_seconds = 0.0
+        self.full_verification_passes = 0
+
+    def __enter__(self) -> RuntimeVerificationSession:
+        if self._active or self._closed:
+            self._reject(
+                "runtime_verification_session_reuse",
+                "Runtime Verification Sessions are single-use",
+            )
+        self._owner_thread_id = threading.get_ident()
+        started = time.perf_counter()
+        self._candidate_verification = self._verifier.verify_package(self._package)
+        self.entry_verification_seconds = time.perf_counter() - started
+        self.full_verification_passes += 1
+        self._active = True
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> bool:
+        self.require_package(self._package)
+        try:
+            started = time.perf_counter()
+            self._verifier.verify_package(self._package)
+            self.exit_verification_seconds = time.perf_counter() - started
+            self.full_verification_passes += 1
+        finally:
+            self._active = False
+            self._closed = True
+        return False
+
+    @property
+    def candidate_verification(self) -> CandidateABIVerification:
+        self._require_active_thread()
+        if self._candidate_verification is None:
+            self._reject(
+                "runtime_verification_session_receipt_missing",
+                "active Runtime Verification Session has no Candidate ABI receipt",
+            )
+        return self._candidate_verification
+
+    @property
+    def total_verification_seconds(self) -> float:
+        return self.entry_verification_seconds + self.exit_verification_seconds
+
+    def require_package(self, package: VerifiedRuntimePackage) -> None:
+        self._require_active_thread()
+        if package is not self._package:
+            self._reject(
+                "runtime_verification_session_package_mismatch",
+                "Runtime Verification Session belongs to another package object",
+            )
+
+    def require_runtime(self, runtime: FeatureABIRuntime) -> None:
+        self._require_active_thread()
+        if runtime is not self._package.runtime:
+            self._reject(
+                "runtime_verification_session_runtime_mismatch",
+                "Runtime Verification Session belongs to another Runtime object",
+            )
+
+    def _require_active_thread(self) -> None:
+        if not self._active or self._closed:
+            self._reject(
+                "runtime_verification_session_inactive",
+                "Runtime Verification Session is not active",
+            )
+        if threading.get_ident() != self._owner_thread_id:
+            self._reject(
+                "runtime_verification_session_thread_mismatch",
+                "Runtime Verification Session cannot cross threads",
+            )
+
+    @staticmethod
+    def _reject(code: str, message: str) -> None:
+        raise RuntimeVerificationViolation(code, message)
 
 
 def _verification_identity(runtime: FeatureABIRuntime) -> dict[str, Any]:
@@ -114,10 +223,55 @@ class UnifiedRuntimeVerifier:
             runtime=runtime,
             verification_digest=verification_digest,
         )
-        self.verify_package(package)
+        self._verify_package_header(package)
+        self._verify_package_seal(package)
         return package
 
-    def verify_package(self, package: VerifiedRuntimePackage) -> None:
+    def verification_session(
+        self,
+        package: VerifiedRuntimePackage,
+    ) -> RuntimeVerificationSession:
+        return RuntimeVerificationSession(
+            self,
+            package,
+            _token=_SESSION_CONSTRUCTOR_TOKEN,
+        )
+
+    def require_active_session(
+        self,
+        session: object,
+        *,
+        package: VerifiedRuntimePackage | None = None,
+        runtime: FeatureABIRuntime | None = None,
+    ) -> RuntimeVerificationSession:
+        if not isinstance(session, RuntimeVerificationSession):
+            self._reject(
+                "runtime_verification_session_type_invalid",
+                "nested Runtime operations require an authentic active session",
+            )
+        if package is not None:
+            session.require_package(package)
+        if runtime is not None:
+            session.require_runtime(runtime)
+        return session
+
+    def verify_package(
+        self,
+        package: VerifiedRuntimePackage,
+    ) -> CandidateABIVerification:
+        self._verify_package_header(package)
+        try:
+            candidate_verification = FeatureABIRuntimeVerifier().verify(package.runtime)
+        except ValueError as exc:
+            self._reject(
+                "runtime_stage_verification_failed",
+                "a sealed runtime dependency no longer verifies",
+                cause=_cause_payload(exc),
+            )
+        self._verify_package_seal(package)
+        return candidate_verification
+
+    def _verify_package_header(self, package: VerifiedRuntimePackage) -> None:
         if not isinstance(package, VerifiedRuntimePackage):
             self._reject(
                 "runtime_package_not_verified",
@@ -136,14 +290,8 @@ class UnifiedRuntimeVerifier:
             package.verification_digest
         ):
             self._reject("runtime_verification_digest_invalid", "verification digest is invalid")
-        try:
-            FeatureABIRuntimeVerifier().verify(package.runtime)
-        except ValueError as exc:
-            self._reject(
-                "runtime_stage_verification_failed",
-                "a sealed runtime dependency no longer verifies",
-                cause=_cause_payload(exc),
-            )
+
+    def _verify_package_seal(self, package: VerifiedRuntimePackage) -> None:
         expected = canonical_digest(
             _verification_identity(package.runtime),
             domain="dehps.verified-runtime-package.v1",

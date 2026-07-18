@@ -167,8 +167,10 @@ def _require_digest(name: str, value: str) -> None:
         )
 
 
-def _binary_digest(payload: bytes, *, domain: str) -> str:
-    return sha256(domain.encode("ascii") + b"\x00" + payload).hexdigest()
+def _binary_digest(payload: bytes | bytearray | memoryview, *, domain: str) -> str:
+    digest = sha256(domain.encode("ascii") + b"\x00")
+    digest.update(payload)
+    return digest.hexdigest()
 
 
 @dataclass(frozen=True)
@@ -517,7 +519,14 @@ class _CandidateVerificationCacheEntry:
 
 
 def _buffer_digest(name: str, array: np.ndarray) -> str:
-    return _binary_digest(array.tobytes(order="C"), domain=f"dehps.candidate-abi.buffer.{name}.v1")
+    payload: bytes | memoryview
+    if array.nbytes == 0:
+        payload = b""
+    elif array.flags.c_contiguous:
+        payload = memoryview(array).cast("B")
+    else:
+        payload = array.tobytes(order="C")
+    return _binary_digest(payload, domain=f"dehps.candidate-abi.buffer.{name}.v1")
 
 
 def _metadata(

@@ -20,7 +20,10 @@ from dehps.ranking_contract import STRICT_RANKING_CONTRACT
 
 if TYPE_CHECKING:
     from dehps.feature_runtime.runtime import FeatureABIRuntime
-    from dehps.unified_runtime import VerifiedRuntimePackage
+    from dehps.unified_runtime import (
+        RuntimeVerificationSession,
+        VerifiedRuntimePackage,
+    )
 
 
 RUNTIME_ENVELOPE_VERSION = "runtime_envelope.v1"
@@ -316,12 +319,25 @@ class RuntimeEnvelopeCompiler:
         backend: str,
         code_commit: str,
         artifact_type: str = "scoring_kernel_result",
+        verification_session: RuntimeVerificationSession | None = None,
     ) -> RuntimeEnvelopeV1:
         from dehps.unified_runtime import UnifiedRuntimeVerifier
 
-        UnifiedRuntimeVerifier().verify_package(verified_runtime)
+        if verification_session is None:
+            verifier = UnifiedRuntimeVerifier()
+            with verifier.verification_session(verified_runtime) as active_session:
+                return self.compile_kernel_ready(
+                    verified_runtime,
+                    backend=backend,
+                    code_commit=code_commit,
+                    artifact_type=artifact_type,
+                    verification_session=active_session,
+                )
+        UnifiedRuntimeVerifier().require_active_session(
+            verification_session,
+            package=verified_runtime,
+        )
         runtime = verified_runtime.runtime
-        runtime.verify()
         history = runtime.history_snapshot
         window = runtime.window_artifact
         candidate = runtime.candidate_package
@@ -359,11 +375,23 @@ class RuntimeEnvelopeCompiler:
             abi_package_digest=runtime.runtime_digest,
         )
         verifier = RuntimeEnvelopeVerifier()
-        verifier.verify(compiled, runtime=runtime)
+        verifier.verify(
+            compiled,
+            runtime=runtime,
+            verification_session=verification_session,
+        )
         verified = compiled.transition(RuntimeState.VERIFIED_RUNTIME)
-        verifier.verify(verified, runtime=runtime)
+        verifier.verify(
+            verified,
+            runtime=runtime,
+            verification_session=verification_session,
+        )
         ready = verified.transition(RuntimeState.KERNEL_READY)
-        verifier.verify(ready, runtime=runtime)
+        verifier.verify(
+            ready,
+            runtime=runtime,
+            verification_session=verification_session,
+        )
         return ready
 
 
@@ -374,6 +402,7 @@ class RuntimeEnvelopeVerifier:
         *,
         runtime: FeatureABIRuntime | None = None,
         expected_backend: str | None = None,
+        verification_session: RuntimeVerificationSession | None = None,
     ) -> None:
         if envelope.envelope_version != RUNTIME_ENVELOPE_VERSION:
             self._reject("unsupported_runtime_envelope", "unsupported Runtime Envelope version")
@@ -477,7 +506,15 @@ class RuntimeEnvelopeVerifier:
             self._reject("runtime_artifact_digest_premature", "payload digest is only valid for produced artifacts")
 
         if runtime is not None:
-            runtime.verify()
+            if verification_session is None:
+                runtime.verify()
+            else:
+                from dehps.unified_runtime import UnifiedRuntimeVerifier
+
+                UnifiedRuntimeVerifier().require_active_session(
+                    verification_session,
+                    runtime=runtime,
+                )
             history = runtime.history_snapshot
             window = runtime.window_artifact
             candidate = runtime.candidate_package
@@ -509,8 +546,14 @@ class RuntimeEnvelopeVerifier:
         payload_digest: str,
         runtime: FeatureABIRuntime | None = None,
         expected_backend: str | None = None,
+        verification_session: RuntimeVerificationSession | None = None,
     ) -> None:
-        self.verify(envelope, runtime=runtime, expected_backend=expected_backend)
+        self.verify(
+            envelope,
+            runtime=runtime,
+            expected_backend=expected_backend,
+            verification_session=verification_session,
+        )
         if envelope.state is not RuntimeState.ARTIFACT_PRODUCED:
             self._reject(
                 "runtime_artifact_state_mismatch",

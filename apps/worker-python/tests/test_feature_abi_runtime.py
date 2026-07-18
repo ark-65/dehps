@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from concurrent.futures import ThreadPoolExecutor
 import itertools
 
 import numpy as np
@@ -28,7 +29,10 @@ from dehps.scoring_kernel import (
     pack_window_state,
 )
 from dehps.scoring_kernel.numpy_backend import NumpyReferenceBackend, component_tile
-from dehps.scoring_kernel.feature_abi_backend import kernel_result_payload_digest
+from dehps.scoring_kernel.feature_abi_backend import (
+    FeatureABINumpyReferenceBackend,
+    kernel_result_payload_digest,
+)
 from dehps.runtime_envelope import (
     RuntimeEnvelopeCompiler,
     RuntimeEnvelopeV1,
@@ -211,6 +215,8 @@ def test_feature_abi_runtime_matches_existing_reference_score_rank_topk_and_red5
         _verified(runtime).verification_digest
     )
     assert result.telemetry["verified_runtime_id"] == _verified(runtime).verified_runtime_id
+    assert result.telemetry["prepare_runtime_verification_passes"] == 2
+    assert result.telemetry["runtime_verification_passes"] == 2
     envelope = RuntimeEnvelopeV1.from_dict(result.runtime_envelope)
     assert envelope.state is RuntimeState.ARTIFACT_PRODUCED
     assert envelope.state_path == tuple(RuntimeState)
@@ -630,6 +636,19 @@ def test_unified_runtime_verifier_rejects_seal_and_payload_drift(
         UnifiedRuntimeVerifier().verify_package(verified)
 
 
+def test_unified_runtime_verifier_rejects_malformed_runtime_before_seal_projection(
+    feature_runtime_case,
+) -> None:
+    verified = _verified(_runtime(feature_runtime_case, tile_size=750))
+    malformed = replace(verified.runtime, feature_tiles=())
+
+    with pytest.raises(
+        RuntimeVerificationViolation,
+        match="runtime_stage_verification_failed",
+    ):
+        UnifiedRuntimeVerifier().verify_package(replace(verified, runtime=malformed))
+
+
 def test_unified_runtime_seal_cannot_be_reused_for_another_runtime(
     feature_runtime_case,
 ) -> None:
@@ -638,3 +657,111 @@ def test_unified_runtime_seal_cannot_be_reused_for_another_runtime(
 
     with pytest.raises(RuntimeVerificationViolation, match="runtime_verification_seal_mismatch"):
         UnifiedRuntimeVerifier().verify_package(replace(first, runtime=other_runtime))
+
+
+def test_runtime_verification_session_is_single_use_package_and_thread_bound(
+    feature_runtime_case,
+) -> None:
+    verified = _verified(_runtime(feature_runtime_case, tile_size=750))
+    other = _verified(_runtime(feature_runtime_case, tile_size=600))
+    verifier = UnifiedRuntimeVerifier()
+    session = verifier.verification_session(verified)
+
+    with pytest.raises(RuntimeVerificationViolation, match="runtime_verification_session_inactive"):
+        session.require_package(verified)
+
+    with session:
+        assert session.full_verification_passes == 1
+        session.require_package(verified)
+        with pytest.raises(
+            RuntimeVerificationViolation,
+            match="runtime_verification_session_package_mismatch",
+        ):
+            session.require_package(other)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            error = pool.submit(
+                lambda: pytest.raises(
+                    RuntimeVerificationViolation,
+                    session.require_package,
+                    verified,
+                ),
+            ).result()
+        assert "runtime_verification_session_thread_mismatch" in str(error.value)
+
+    assert session.full_verification_passes == 2
+    with pytest.raises(RuntimeVerificationViolation, match="runtime_verification_session_inactive"):
+        session.require_package(verified)
+    with pytest.raises(RuntimeVerificationViolation, match="runtime_verification_session_reuse"):
+        session.__enter__()
+
+
+def test_runtime_envelope_rejects_forged_verification_session(
+    feature_runtime_case,
+) -> None:
+    class ForgedSession:
+        def require_package(self, _package) -> None:
+            return None
+
+        def require_runtime(self, _runtime) -> None:
+            return None
+
+    verified = _verified(_runtime(feature_runtime_case, tile_size=750))
+    with pytest.raises(
+        RuntimeVerificationViolation,
+        match="runtime_verification_session_type_invalid",
+    ):
+        RuntimeEnvelopeCompiler().compile_kernel_ready(
+            verified,
+            backend="feature_abi_numpy_reference",
+            code_commit=TEST_CODE_COMMIT,
+            verification_session=ForgedSession(),  # type: ignore[arg-type]
+        )
+
+
+def test_runtime_verification_session_rejects_mutation_between_prepare_and_score(
+    feature_runtime_case,
+) -> None:
+    runtime = _runtime(feature_runtime_case, tile_size=750)
+    verified = _verified(runtime)
+    backend = FeatureABINumpyReferenceBackend()
+    prepared = backend.prepare(verified, code_commit=TEST_CODE_COMMIT)
+    runtime.feature_tiles[0].values[0, 0] += 0.25
+
+    with pytest.raises(
+        RuntimeVerificationViolation,
+        match="runtime_stage_verification_failed",
+    ):
+        backend.score_rank(
+            prepared,
+            feature_runtime_case["weights"],
+            feature_runtime_case["request"],
+        )
+
+
+def test_runtime_verification_session_rejects_mutation_during_score_at_exit(
+    feature_runtime_case,
+) -> None:
+    class MutatingBackend(FeatureABINumpyReferenceBackend):
+        mutated = False
+
+        def _tile(self, **kwargs):
+            result = super()._tile(**kwargs)
+            if not self.mutated:
+                kwargs["values"][0, 0] += 0.25
+                self.mutated = True
+            return result
+
+    runtime = _runtime(feature_runtime_case, tile_size=750)
+    verified = _verified(runtime)
+    backend = MutatingBackend()
+    prepared = backend.prepare(verified, code_commit=TEST_CODE_COMMIT)
+
+    with pytest.raises(
+        RuntimeVerificationViolation,
+        match="runtime_stage_verification_failed",
+    ):
+        backend.score_rank(
+            prepared,
+            feature_runtime_case["weights"],
+            feature_runtime_case["request"],
+        )

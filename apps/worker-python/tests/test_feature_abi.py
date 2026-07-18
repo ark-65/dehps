@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from hashlib import sha256
 
 import numpy as np
 import pytest
@@ -33,6 +34,24 @@ from dehps.input_contracts import (
     WindowSpec,
 )
 from dehps.optimization.walk_forward import build_ranked_universe
+
+
+def test_feature_array_digest_preserves_v1_bytes_for_all_layout_paths() -> None:
+    domain = "dehps.test.feature-array-digest.v1"
+    base = np.arange(256, dtype=np.float64).reshape(4, 64)
+    arrays = (
+        np.ascontiguousarray(base[:, :32]),
+        np.empty((0, FEATURE_VECTOR_LENGTH), dtype=np.float64),
+        base[:, ::2],
+    )
+    for array in arrays:
+        reference = sha256(domain.encode("ascii") + b"\x00")
+        reference.update(array.dtype.str.encode("ascii"))
+        reference.update(b"\x00")
+        reference.update(",".join(str(value) for value in array.shape).encode("ascii"))
+        reference.update(b"\x00")
+        reference.update(array.tobytes(order="C"))
+        assert feature_array_digest(array, domain=domain) == reference.hexdigest()
 from dehps.scoring_kernel import candidate_store_from_matrix
 
 

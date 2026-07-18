@@ -53,7 +53,13 @@ def feature_array_digest(array: np.ndarray, *, domain: str) -> str:
     digest.update(b"\x00")
     digest.update(",".join(str(value) for value in array.shape).encode("ascii"))
     digest.update(b"\x00")
-    digest.update(array.tobytes(order="C"))
+    if array.nbytes == 0:
+        pass
+    elif array.flags.c_contiguous:
+        digest.update(memoryview(array).cast("B"))
+    else:
+        # Preserve the v1 C-order byte contract for non-contiguous reference inputs.
+        digest.update(array.tobytes(order="C"))
     return digest.hexdigest()
 
 

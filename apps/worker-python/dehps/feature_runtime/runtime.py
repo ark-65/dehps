@@ -5,7 +5,11 @@ from dataclasses import dataclass
 from dehps.contracts import canonical_digest
 from dehps.feature_runtime.abi import FeatureABIPackage, FeatureABIVerifier
 from dehps.feature_runtime.compiler import FeatureRuntimeViolation
-from dehps.input_contracts.candidate_abi import CandidateABIPackage, CandidateABIVerifier
+from dehps.input_contracts.candidate_abi import (
+    CandidateABIPackage,
+    CandidateABIVerification,
+    CandidateABIVerifier,
+)
 from dehps.input_contracts.history_window import HistorySnapshotArtifact, WindowArtifact
 
 
@@ -47,7 +51,7 @@ class FeatureABIRuntime:
 class FeatureABIRuntimeVerifier:
     """Joint Candidate/Feature preflight for the explicit Feature ABI execution path."""
 
-    def verify(self, runtime: FeatureABIRuntime) -> None:
+    def verify(self, runtime: FeatureABIRuntime) -> CandidateABIVerification:
         runtime.history_snapshot.verify()
         runtime.window_artifact.verify()
         if (
@@ -61,7 +65,9 @@ class FeatureABIRuntimeVerifier:
                 "feature_runtime_history_window_binding_mismatch",
                 "Window Artifact does not match the runtime History Snapshot",
             )
-        CandidateABIVerifier().verify(runtime.candidate_package)
+        candidate_verification = CandidateABIVerifier().verify(
+            runtime.candidate_package
+        )
         if not runtime.feature_tiles:
             self._reject("feature_runtime_missing_tiles", "Feature ABI runtime requires at least one tile")
 
@@ -130,6 +136,7 @@ class FeatureABIRuntimeVerifier:
                 "feature_runtime_empty_tile_count_mismatch",
                 "an empty Candidate runtime requires exactly one canonical empty Feature tile",
             )
+        return candidate_verification
 
     @staticmethod
     def _reject(code: str, message: str, **context: object) -> None:
