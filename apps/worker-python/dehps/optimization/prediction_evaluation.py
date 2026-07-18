@@ -433,6 +433,11 @@ def render_prediction_evaluation_report(payload: dict[str, Any]) -> str:
         payload.get("prediction_metadata") if isinstance(payload.get("prediction_metadata"), dict) else {}
     )
     ranking_audit = payload.get("ranking_audit") if isinstance(payload.get("ranking_audit"), dict) else {}
+    evaluation_artifact = (
+        summary.get("evaluation_artifact")
+        if isinstance(summary.get("evaluation_artifact"), dict)
+        else {}
+    )
     return f"""# Training Prediction Evaluation
 
 - Line: `{payload.get("line_key")}` ({payload.get("line_label")})
@@ -450,6 +455,16 @@ def render_prediction_evaluation_report(payload: dict[str, Any]) -> str:
 - Red5 best rank: `{red5_rank if red5_rank is not None else "miss"}`
 - Red5 Top100/1000/10000: `{payload.get("hit_red5_top_100")}/{payload.get("hit_red5_top_1000")}/{payload.get("hit_red5_top_10000")}`
 - Candidate count: `{payload.get("candidate_count")}`
+
+## Evaluation Artifact
+
+- Status: `{evaluation_artifact.get("status") or "not-recorded"}`
+- Contract: `{evaluation_artifact.get("evaluation_contract") or "not-recorded"}`
+- Artifact digest: `{evaluation_artifact.get("artifact_digest") or "none"}`
+- Artifact path: `{evaluation_artifact.get("artifact_path") or "none"}`
+- Source Runtime Envelope: `{evaluation_artifact.get("source_runtime_envelope_digest") or "none"}`
+- Candidate ABI package: `{evaluation_artifact.get("candidate_package_digest") or "none"}`
+- Automatic promotion allowed: `{evaluation_artifact.get("automatic_promotion_allowed")}`
 
 ## Ranking Path Audit
 

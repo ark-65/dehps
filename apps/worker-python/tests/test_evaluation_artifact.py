@@ -4,6 +4,7 @@ from copy import deepcopy
 from dataclasses import replace
 from datetime import date
 import itertools
+import json
 
 import pytest
 
@@ -18,6 +19,10 @@ from dehps.evaluation import (
 )
 from dehps.feature_runtime import FeatureABICompiler, FeatureCompileRequest, FeatureCompiler
 from dehps.feature_runtime.runtime import FeatureABIRuntime
+from dehps.forward_runtime.evaluation_artifact import (
+    ForwardEvaluationArtifactAdapter,
+    ForwardEvaluationArtifactRequiredError,
+)
 from dehps.input_contracts import (
     EvaluationCandidateV1,
     HistorySnapshotArtifact,
@@ -26,6 +31,7 @@ from dehps.input_contracts import (
 )
 from dehps.optimization.walk_forward import build_ranked_universe
 from dehps.runtime_envelope import RuntimeEnvelopeCompiler, RuntimeState
+from dehps.runtime_provenance import RuntimeEnvelopeProjection
 from dehps.scoring_kernel import candidate_store_from_matrix
 from dehps.unified_runtime import UnifiedRuntimeVerifier
 
@@ -329,3 +335,237 @@ def test_evaluation_artifact_object_mutation_is_detected(evaluation_runtime_case
     with pytest.raises(EvaluationArtifactViolation) as exc_info:
         EvaluationArtifactVerifier().verify(mutated)
     assert exc_info.value.code == "evaluation_metrics_mismatch"
+
+
+def _forward_case(case, *, metadata=None, required=False):
+    source = case["source_envelope"]
+    run_metadata = dict(metadata or {})
+    if required:
+        run_metadata["evaluation_artifact_required"] = True
+    run = {
+        "prediction_run_key": case["prediction"].prediction_run_key,
+        "line_key": case["prediction"].line_key,
+        "target_issue": case["prediction"].target_issue,
+        "ranking_contract": source.ranking_contract,
+        "metadata": run_metadata,
+    }
+    candidates = [
+        {
+            "rank": candidate.rank,
+            "red_numbers": list(candidate.red_numbers),
+            "score": candidate.score,
+        }
+        for candidate in case["prediction"].candidates
+    ]
+    actual = {
+        "issue": case["outcome"].target_issue,
+        "draw_date": case["outcome"].draw_date,
+        "red_numbers": list(case["outcome"].red_numbers),
+        "blue_number": case["outcome"].blue_number,
+    }
+    metrics = _compile(case).metrics.as_dict()
+    payload = {
+        "status": "evaluated",
+        "candidate_count": len(candidates),
+        "prediction_run_key": run["prediction_run_key"],
+        "line_key": run["line_key"],
+        "predicted_issue": run["target_issue"],
+        "prediction_ranking_contract": run["ranking_contract"],
+        "actual_draw_date": actual["draw_date"],
+        "actual_blue_number": actual["blue_number"],
+        "ranking_audit": dict(case["ranking_audit"]),
+        **{
+            key: value
+            for key, value in metrics.items()
+            if key not in {"matched_red_count_by_cutoff", "blue_scored"}
+        },
+        "summary": {
+            "leakage_passed": True,
+            "matched_red_count_by_cutoff": metrics["matched_red_count_by_cutoff"],
+            "blue_scored": False,
+        },
+    }
+    return run, actual, candidates, payload
+
+
+def test_forward_adapter_compiles_and_writes_detached_artifact(
+    evaluation_runtime_case,
+    tmp_path,
+) -> None:
+    source = evaluation_runtime_case["source_envelope"]
+    run, actual, candidates, payload = _forward_case(
+        evaluation_runtime_case,
+        metadata={
+            "runtime_envelope_projection": RuntimeEnvelopeProjection.verified(
+                source
+            ).as_dict()
+        },
+    )
+    package = evaluation_runtime_case["store"].candidate_abi_package
+    resolved = []
+
+    def resolver(digest):
+        resolved.append(digest)
+        return package
+
+    adapter = ForwardEvaluationArtifactAdapter(
+        candidate_resolver=resolver,
+        code_commit_resolver=lambda: CODE_COMMIT,
+        artifact_dir=tmp_path,
+    )
+
+    projection = adapter(
+        run=run,
+        actual=actual,
+        candidates=candidates,
+        ranking_audit=evaluation_runtime_case["ranking_audit"],
+        evaluation_payload=payload,
+        write_artifact=True,
+    )
+
+    assert projection["status"] == "verified"
+    assert projection["evaluation_contract"] == "evaluation.v1.0.0"
+    assert projection["source_runtime_envelope_digest"] == source.envelope_digest
+    assert projection["candidate_package_digest"] == package.package_digest
+    assert projection["automatic_promotion_allowed"] is False
+    assert resolved == [source.candidate_package_digest]
+    artifact_path = tmp_path / str(projection["artifact_path"]).split("/")[-1]
+    restored = CompiledEvaluationArtifactV1.from_dict(
+        json.loads(artifact_path.read_text(encoding="utf-8"))
+    )
+    assert restored.artifact_digest == projection["artifact_digest"]
+
+
+def test_forward_adapter_preserves_legacy_and_missing_source_as_unavailable(
+    evaluation_runtime_case,
+) -> None:
+    run, actual, candidates, payload = _forward_case(evaluation_runtime_case)
+    adapter = ForwardEvaluationArtifactAdapter(
+        candidate_resolver=lambda _digest: pytest.fail("resolver must not run"),
+        code_commit_resolver=lambda: CODE_COMMIT,
+    )
+
+    missing = adapter(
+        run=run,
+        actual=actual,
+        candidates=candidates,
+        ranking_audit=evaluation_runtime_case["ranking_audit"],
+        evaluation_payload=payload,
+        write_artifact=False,
+    )
+    legacy = adapter(
+        run={**run, "ranking_contract": "legacy_score_partition"},
+        actual=actual,
+        candidates=candidates,
+        ranking_audit=evaluation_runtime_case["ranking_audit"],
+        evaluation_payload=payload,
+        write_artifact=False,
+    )
+
+    assert missing["status"] == "unavailable"
+    assert missing["reason"] == "prediction_created_without_runtime_envelope"
+    assert legacy["status"] == "unavailable"
+    assert legacy["reason"] == "legacy_ranking_contract"
+
+
+def test_forward_adapter_classifies_malformed_source_and_required_fails_closed(
+    evaluation_runtime_case,
+) -> None:
+    malformed = {
+        "protocol": "runtime_envelope_projection.v1",
+        "status": "verified",
+        "reason": None,
+        "envelope": {"not": "an envelope"},
+    }
+    run, actual, candidates, payload = _forward_case(
+        evaluation_runtime_case,
+        metadata={"runtime_envelope_projection": malformed},
+    )
+    adapter = ForwardEvaluationArtifactAdapter(
+        candidate_resolver=lambda _digest: pytest.fail("resolver must not run"),
+        code_commit_resolver=lambda: CODE_COMMIT,
+    )
+
+    projection = adapter(
+        run=run,
+        actual=actual,
+        candidates=candidates,
+        ranking_audit=evaluation_runtime_case["ranking_audit"],
+        evaluation_payload=payload,
+        write_artifact=False,
+    )
+
+    assert projection["status"] == "failed"
+    assert projection["reason"] == "runtime_envelope_parse_error"
+    assert projection["failure"]["code"] == "runtime_envelope_parse_error"
+
+    required_run, actual, candidates, payload = _forward_case(
+        evaluation_runtime_case,
+        required=True,
+    )
+    with pytest.raises(ForwardEvaluationArtifactRequiredError) as exc_info:
+        adapter(
+            run=required_run,
+            actual=actual,
+            candidates=candidates,
+            ranking_audit=evaluation_runtime_case["ranking_audit"],
+            evaluation_payload=payload,
+            write_artifact=False,
+        )
+    assert exc_info.value.projection["status"] == "unavailable"
+    assert exc_info.value.projection["required"] is True
+
+
+def test_forward_adapter_rejects_snapshot_metrics_that_disagree_with_artifact(
+    evaluation_runtime_case,
+) -> None:
+    source = evaluation_runtime_case["source_envelope"]
+    run, actual, candidates, payload = _forward_case(
+        evaluation_runtime_case,
+        metadata={
+            "runtime_envelope_projection": RuntimeEnvelopeProjection.verified(
+                source
+            ).as_dict()
+        },
+    )
+    payload["exact_rank"] = 2
+    package = evaluation_runtime_case["store"].candidate_abi_package
+    adapter = ForwardEvaluationArtifactAdapter(
+        candidate_resolver=lambda _digest: package,
+        code_commit_resolver=lambda: CODE_COMMIT,
+    )
+
+    projection = adapter(
+        run=run,
+        actual=actual,
+        candidates=candidates,
+        ranking_audit=evaluation_runtime_case["ranking_audit"],
+        evaluation_payload=payload,
+        write_artifact=False,
+    )
+
+    assert projection["status"] == "failed"
+    assert projection["reason"] == "forward_evaluation_payload_mismatch"
+    assert projection["failure"]["context"]["fields"] == ["exact_rank"]
+
+    _, _, _, parent_payload = _forward_case(
+        evaluation_runtime_case,
+        metadata={
+            "runtime_envelope_projection": RuntimeEnvelopeProjection.verified(
+                source
+            ).as_dict()
+        },
+    )
+    parent_payload["actual_blue_number"] = 15
+    parent_projection = adapter(
+        run=run,
+        actual=actual,
+        candidates=candidates,
+        ranking_audit=evaluation_runtime_case["ranking_audit"],
+        evaluation_payload=parent_payload,
+        write_artifact=False,
+    )
+    assert parent_projection["reason"] == "forward_evaluation_parent_binding_mismatch"
+    assert parent_projection["failure"]["context"]["fields"] == [
+        "actual_blue_number"
+    ]

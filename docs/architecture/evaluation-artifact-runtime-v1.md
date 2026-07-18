@@ -85,12 +85,13 @@ Envelope, reconstructs every parent artifact, recomputes metrics, and requires c
 serialization and the same final artifact digest. Unknown fields, stale digests, altered metrics,
 changed Ranking Audit, or noncanonical payloads are rejected; there is no repair mode.
 
-## Current boundary
+## Runtime boundary
 
 Evaluation Artifact v1 represents completed `evaluated` evidence only. Missing draw, missing
 prediction, leakage failure, and execution lifecycle states remain operational attempt evidence and
 must not be disguised as successful Evaluation Artifacts.
 
-This round does not connect the compiler to pending forward evaluation or persistence. That is the
-next migration and requires explicit legacy handling because historical prediction runs do not all
-carry a Runtime Envelope or Candidate ABI artifact reference.
+Forward evaluation integration is defined separately in
+`forward-evaluation-artifact-integration-v1.md`. It preserves this compiler's fail-closed boundary:
+eligible strict runs compile a detached artifact, while legacy or missing source evidence is recorded
+as an explicit compact `unavailable` projection and is never replayed or backfilled.

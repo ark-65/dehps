@@ -4,6 +4,7 @@ from datetime import date
 
 import dehps.optimization.prediction_evaluation as evaluation
 from dehps.optimization.prediction_evaluation import evaluate_prediction_snapshot
+from dehps.optimization.prediction_evaluation import render_prediction_evaluation_report
 
 
 def _row(*, rank: int, numbers: tuple[int, ...], line_key: str = "static_100", as_of_issue: str = "2026068") -> dict:
@@ -148,3 +149,29 @@ def test_evaluate_prediction_snapshot_rejects_leaking_snapshot(monkeypatch):
 
     assert payload["status"] == "leakage_guard_failed"
     assert payload["summary"]["leakage_passed"] is False
+
+
+def test_report_propagates_compact_evaluation_artifact_projection() -> None:
+    payload = {
+        "line_key": "static_100",
+        "line_label": "Static",
+        "status": "evaluated",
+        "prediction_ranking_contract": "strict_v1",
+        "summary": {
+            "evaluation_artifact": {
+                "status": "verified",
+                "evaluation_contract": "evaluation.v1.0.0",
+                "artifact_digest": "a" * 64,
+                "artifact_path": "/tmp/evaluation.json",
+                "source_runtime_envelope_digest": "b" * 64,
+                "candidate_package_digest": "c" * 64,
+                "automatic_promotion_allowed": False,
+            }
+        },
+    }
+
+    report = render_prediction_evaluation_report(payload)
+
+    assert "## Evaluation Artifact" in report
+    assert f"Artifact digest: `{'a' * 64}`" in report
+    assert "Automatic promotion allowed: `False`" in report
