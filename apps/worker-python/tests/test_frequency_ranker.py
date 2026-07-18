@@ -13,6 +13,7 @@ from dehps.features.qian_kun import (
     qian_kun_lines_from_pattern,
     qian_kun_pattern,
 )
+from dehps.input_contracts import InputContractViolation
 from dehps.models.frequency_ranker import FrequencyRankerConfig, score_frequency_candidate, train_frequency_stats
 from dehps.optimization import walk_forward
 from dehps.optimization.walk_forward import (
@@ -337,8 +338,8 @@ def test_ranked_universe_matrix_cache_preserves_all_arrays_and_ranks(tmp_path):
         assert np.array_equal(getattr(cached, field_name), getattr(uncached, field_name))
 
     history = [
-        ("001", universe[2]),
-        ("002", universe[3]),
+        ("2025001", universe[2]),
+        ("2025002", universe[3]),
     ]
     configs = (
         FrequencyRankerConfig(),
@@ -394,10 +395,10 @@ def test_walk_forward_reports_target_ranks_on_small_universe():
         (3, 8, 13, 18, 23, 28),
     ]
     history = [
-        ("001", universe[0]),
-        ("002", universe[1]),
-        ("003", universe[2]),
-        ("004", universe[3]),
+        ("2025001", universe[0]),
+        ("2025002", universe[1]),
+        ("2025003", universe[2]),
+        ("2025004", universe[3]),
     ]
 
     result = run_walk_forward(
@@ -410,7 +411,7 @@ def test_walk_forward_reports_target_ranks_on_small_universe():
     )
 
     assert result.evaluated_draws == 2
-    assert result.as_of_issue == "004"
+    assert result.as_of_issue == "2025004"
     assert result.train_mode == "expanding"
     assert result.history_fingerprint == fingerprint_history(history)
     assert len(result.target_ranks) == 2
@@ -430,9 +431,9 @@ def test_walk_forward_rejects_nonpositive_top_n():
     with pytest.raises(ValueError, match="top_n must be at least 1"):
         run_walk_forward(
             history=[
-                ("001", universe[0]),
-                ("002", universe[1]),
-                ("003", universe[2]),
+                ("2025001", universe[0]),
+                ("2025002", universe[1]),
+                ("2025003", universe[2]),
             ],
             train_window=1,
             eval_window=1,
@@ -451,10 +452,10 @@ def test_walk_forward_parallel_matches_single_worker_on_small_universe():
         (4, 9, 14, 19, 24, 29),
     ]
     history = [
-        ("001", universe[0]),
-        ("002", universe[1]),
-        ("003", universe[2]),
-        ("004", universe[3]),
+        ("2025001", universe[0]),
+        ("2025002", universe[1]),
+        ("2025003", universe[2]),
+        ("2025004", universe[3]),
     ]
 
     single = run_walk_forward(
@@ -496,7 +497,7 @@ def test_rank_target_uses_only_supplied_train_history():
 
     rank, score = rank_target(
         target_numbers=(1, 8, 13, 18, 23, 31),
-        train_history=[("001", (2, 9, 14, 19, 24, 32))],
+        train_history=[("2025001", (2, 9, 14, 19, 24, 32))],
         config=config,
         universe=universe,
     )
@@ -513,8 +514,8 @@ def test_rank_target_grid_matches_individual_rank_target():
         (3, 8, 13, 18, 23, 28),
     ]
     train_history = [
-        ("001", universe[0]),
-        ("002", universe[1]),
+        ("2025001", universe[0]),
+        ("2025002", universe[1]),
     ]
     configs = (
         FrequencyRankerConfig(),
@@ -551,8 +552,8 @@ def test_rank_target_grid_with_red5_reports_nearest_difference_number():
         (3, 8, 13, 18, 25, 30),
     ]
     train_history = [
-        ("001", (2, 7, 12, 17, 24, 29)),
-        ("002", (3, 8, 13, 18, 25, 30)),
+        ("2025001", (2, 7, 12, 17, 24, 29)),
+        ("2025002", (3, 8, 13, 18, 25, 30)),
     ]
     configs = (FrequencyRankerConfig(),)
 
@@ -583,12 +584,27 @@ def test_excluded_target_ranks_after_filtered_universe():
 
     rank, _ = rank_target(
         target_numbers=(1, 2, 3, 4, 5, 9),
-        train_history=[("001", (1, 8, 13, 18, 23, 31))],
+        train_history=[("2025001", (1, 8, 13, 18, 23, 31))],
         config=config,
         universe=universe,
     )
 
     assert rank == len(build_ranked_universe(universe)) + 1
+
+
+def test_core_scoring_runtime_rejects_noncanonical_issue_identity():
+    universe = [
+        (1, 8, 13, 18, 23, 31),
+        (2, 9, 14, 19, 24, 32),
+    ]
+
+    with pytest.raises(InputContractViolation, match="invalid_issue_encoding"):
+        rank_target(
+            target_numbers=universe[0],
+            train_history=[("001", universe[1])],
+            config=FrequencyRankerConfig(),
+            universe=universe,
+        )
 
 
 def test_random_uniform_baseline_is_analytical_only():

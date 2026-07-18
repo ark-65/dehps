@@ -54,10 +54,11 @@ recomputed equal numeric values from independently interpreted inputs.
 
 ## Production boundary
 
-This migration changes only the optional simultaneous shadow hook. Official forward candidates are
-still generated and persisted by the existing `numpy_reference` production path before shadow
-evidence is attached. The Feature ABI NumPy result is bound back to those already generated rows by
-strict candidate id and score comparison.
+Official forward candidates are generated through the core verified Runtime path with the default
+`numpy_reference` selection, which executes `feature_abi_numpy_reference`. The simultaneous shadow
+hook reuses the same Runtime compiler/cache identity, executes NumPy reference and Numba CPU from
+that sealed package, and binds the reference result back to the already generated rows by strict
+candidate id and score comparison.
 
 A shadow compilation, verification, backend, or comparison failure remains a structured warning in
 prediction metadata. It cannot replace candidates, block official persistence, enable promotion, or

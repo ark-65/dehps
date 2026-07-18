@@ -32,7 +32,7 @@ TOY_UNIVERSE = [
 def toy_history():
     start = date(2026, 1, 1)
     return [
-        (f"00{index + 1}", start + timedelta(days=index * 2), numbers)
+        (f"2026{index + 1:03d}", start + timedelta(days=index * 2), numbers)
         for index, numbers in enumerate(TOY_UNIVERSE[:5])
     ]
 

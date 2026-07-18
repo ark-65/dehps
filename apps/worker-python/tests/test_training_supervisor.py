@@ -3806,13 +3806,13 @@ def test_prefilter_configs_keeps_base_and_elite_before_full_refine():
         (5, 12, 17, 22, 27, 29),
     ]
     history = [
-        ("001", universe[0]),
-        ("002", universe[1]),
-        ("003", universe[2]),
-        ("004", universe[3]),
-        ("005", universe[4]),
-        ("006", universe[0]),
-        ("007", universe[1]),
+        ("2025001", universe[0]),
+        ("2025002", universe[1]),
+        ("2025003", universe[2]),
+        ("2025004", universe[3]),
+        ("2025005", universe[4]),
+        ("2025006", universe[0]),
+        ("2025007", universe[1]),
     ]
     base = FrequencyRankerConfig()
     elite = FrequencyRankerConfig(structural_weight=0.35, frequency_weight=0.40, omission_weight=0.20)
@@ -3857,13 +3857,13 @@ def test_prefilter_configs_keeps_diversity_quota():
         (5, 12, 17, 22, 27, 29),
     ]
     history = [
-        ("001", universe[0]),
-        ("002", universe[1]),
-        ("003", universe[2]),
-        ("004", universe[3]),
-        ("005", universe[4]),
-        ("006", universe[0]),
-        ("007", universe[1]),
+        ("2025001", universe[0]),
+        ("2025002", universe[1]),
+        ("2025003", universe[2]),
+        ("2025004", universe[3]),
+        ("2025005", universe[4]),
+        ("2025006", universe[0]),
+        ("2025007", universe[1]),
     ]
     base = FrequencyRankerConfig()
     far = FrequencyRankerConfig(structural_weight=1.25, frequency_weight=0.0, omission_weight=0.0)
@@ -3903,7 +3903,7 @@ def test_prefilter_configs_excludes_frozen_validation_targets():
         (4, 11, 16, 21, 26, 30),
     ]
     history = [
-        (f"{index:03d}", universe[(index - 1) % len(universe)])
+        (f"2025{index:03d}", universe[(index - 1) % len(universe)])
         for index in range(1, 13)
     ]
     base = FrequencyRankerConfig()
@@ -3926,8 +3926,15 @@ def test_prefilter_configs_excludes_frozen_validation_targets():
 
     assert metadata["search_target_count"] == 6
     assert metadata["frozen_target_count"] == 2
-    assert metadata["target_issues"] == ["005", "006", "007", "008", "009", "010"]
-    assert set(metadata["target_issues"]).isdisjoint({"011", "012"})
+    assert metadata["target_issues"] == [
+        "2025005",
+        "2025006",
+        "2025007",
+        "2025008",
+        "2025009",
+        "2025010",
+    ]
+    assert set(metadata["target_issues"]).isdisjoint({"2025011", "2025012"})
 
 
 def test_prefilter_holdout_isolation_audit_fails_on_frozen_or_unknown_issue():
@@ -4289,13 +4296,13 @@ def test_prefilter_configs_target_parallel_matches_single_worker():
         (5, 12, 17, 22, 27, 29),
     ]
     history = [
-        ("001", universe[0]),
-        ("002", universe[1]),
-        ("003", universe[2]),
-        ("004", universe[3]),
-        ("005", universe[4]),
-        ("006", universe[0]),
-        ("007", universe[1]),
+        ("2025001", universe[0]),
+        ("2025002", universe[1]),
+        ("2025003", universe[2]),
+        ("2025004", universe[3]),
+        ("2025005", universe[4]),
+        ("2025006", universe[0]),
+        ("2025007", universe[1]),
     ]
     base = FrequencyRankerConfig()
     elite = FrequencyRankerConfig(structural_weight=0.35, frequency_weight=0.40, omission_weight=0.20)
@@ -4355,12 +4362,12 @@ def test_evaluate_configs_target_parallel_matches_single_worker():
         (5, 12, 17, 22, 27, 29),
     ]
     history = [
-        ("001", universe[0]),
-        ("002", universe[1]),
-        ("003", universe[2]),
-        ("004", universe[3]),
-        ("005", universe[4]),
-        ("006", universe[0]),
+        ("2025001", universe[0]),
+        ("2025002", universe[1]),
+        ("2025003", universe[2]),
+        ("2025004", universe[3]),
+        ("2025005", universe[4]),
+        ("2025006", universe[0]),
     ]
     configs = (
         FrequencyRankerConfig(),
