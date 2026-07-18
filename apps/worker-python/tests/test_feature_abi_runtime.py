@@ -478,6 +478,26 @@ def test_shadow_comparison_ignores_only_the_expected_runtime_backend_field(
 
     assert evidence["comparison_status"] == "exact"
     assert evidence["runtime_envelope_mismatch_count"] == 0
+    assert evidence["runtime_identity_mismatch_count"] == 0
+    assert evidence["verified_runtime_id"] == official.telemetry["verified_runtime_id"]
+
+    misbound_cache = compare_kernel_results(
+        target_issue="2026082",
+        line_key="static_100",
+        config_fingerprint="feature-runtime-fixture",
+        candidate_store_version="candidate-store.v1",
+        official=official,
+        shadow=shadow,
+        runtime_abi_cache={
+            "verified_runtime_id": "verified_runtime.v1-wrong",
+            "runtime_verification_digest": official.telemetry[
+                "runtime_verification_digest"
+            ],
+        },
+    )
+
+    assert misbound_cache["comparison_status"] == "mismatch"
+    assert misbound_cache["runtime_identity_mismatch_count"] == 1
 
 
 def test_runtime_envelope_rejects_invalid_commit_binding_and_serialized_tampering(

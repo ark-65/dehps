@@ -7,7 +7,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -23,6 +23,9 @@ from dehps.scoring_kernel.contracts import (
     WeightMatrix,
 )
 from dehps.scoring_kernel.planner import KernelPlanner
+
+if TYPE_CHECKING:
+    from dehps.unified_runtime import VerifiedRuntimePackage
 
 
 SHADOW_PROTOCOL_VERSION = "scoring-kernel-shadow-evidence.v1"
@@ -188,6 +191,7 @@ def compare_kernel_results(
     official: KernelResult,
     shadow: KernelResult,
     operational: ShadowOperationalEvidence | None = None,
+    runtime_abi_cache: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Create immutable, exact shadow evidence; no tolerance or best-run selection exists."""
 
@@ -253,6 +257,36 @@ def compare_kernel_results(
         _runtime_invariant(official.runtime_envelope)
         != _runtime_invariant(shadow.runtime_envelope)
     )
+    runtime_identity_fields = (
+        "verified_runtime_id",
+        "runtime_verification_digest",
+        "feature_runtime_digest",
+    )
+    official_runtime_identity = {
+        field: official.telemetry.get(field) for field in runtime_identity_fields
+    }
+    shadow_runtime_identity = {
+        field: shadow.telemetry.get(field) for field in runtime_identity_fields
+    }
+    runtime_identity_present = any(
+        value is not None
+        for identity in (official_runtime_identity, shadow_runtime_identity)
+        for value in identity.values()
+    )
+    runtime_abi_cache_payload = dict(runtime_abi_cache or {})
+    runtime_identity_mismatch_count = (
+        sum(
+            official_runtime_identity[field] != shadow_runtime_identity[field]
+            for field in runtime_identity_fields
+        )
+        if runtime_identity_present
+        else 0
+    )
+    if runtime_abi_cache_payload:
+        runtime_identity_mismatch_count += sum(
+            runtime_abi_cache_payload.get(field) != official_runtime_identity[field]
+            for field in ("verified_runtime_id", "runtime_verification_digest")
+        )
     operational = operational or ShadowOperationalEvidence()
 
     base = ShadowComparisonReport(
@@ -289,6 +323,7 @@ def compare_kernel_results(
         + red5_mismatch_count
         + candidate_identity_mismatch_count
         + runtime_envelope_mismatch_count
+        + runtime_identity_mismatch_count
         + ranking_contract_mismatch_count
     )
     comparison_status = "exact" if mismatch_total == 0 and official_digest == shadow_digest else "mismatch"
@@ -305,6 +340,13 @@ def compare_kernel_results(
         "rank_mismatch_count": rank_mismatch_count,
         "candidate_identity_mismatch_count": candidate_identity_mismatch_count,
         "runtime_envelope_mismatch_count": runtime_envelope_mismatch_count,
+        "runtime_identity_mismatch_count": runtime_identity_mismatch_count,
+        "verified_runtime_id": official_runtime_identity["verified_runtime_id"],
+        "runtime_verification_digest": official_runtime_identity[
+            "runtime_verification_digest"
+        ],
+        "feature_runtime_digest": official_runtime_identity["feature_runtime_digest"],
+        "runtime_abi_cache": runtime_abi_cache_payload,
         "ranking_contract_mismatch_count": ranking_contract_mismatch_count,
         "capture_mode": operational.capture_mode,
         "prediction_run_key": operational.prediction_run_key,
@@ -393,6 +435,55 @@ def execute_shadow_pair(
         request,
         KernelWorkspace(),
     )
+    return official_result, shadow_result
+
+
+def execute_feature_abi_shadow_pair(
+    *,
+    verified_runtime: VerifiedRuntimePackage,
+    code_commit: str,
+    weights: WeightMatrix,
+    request: KernelRequest,
+    official_backend: str = "numpy_reference",
+    shadow_backend: str = "numba_cpu",
+) -> tuple[KernelResult, KernelResult]:
+    """Execute both shadow backends from one fail-closed Runtime ABI identity."""
+
+    if not str(code_commit).strip():
+        raise ShadowEvidenceViolation(
+            "shadow_code_commit_missing",
+            "Feature ABI shadow execution requires an immutable code commit",
+        )
+    official_planner = KernelPlanner(official_backend)
+    shadow_planner = KernelPlanner(shadow_backend)
+    official_result = official_planner.score_rank_feature_abi(
+        official_planner.prepare_feature_abi(
+            verified_runtime,
+            code_commit=code_commit,
+        ),
+        weights,
+        request,
+        KernelWorkspace(),
+    )
+    shadow_result = shadow_planner.score_rank_feature_abi(
+        shadow_planner.prepare_feature_abi(
+            verified_runtime,
+            code_commit=code_commit,
+        ),
+        weights,
+        request,
+        KernelWorkspace(),
+    )
+    expected_runtime_id = verified_runtime.verified_runtime_id
+    for result in (official_result, shadow_result):
+        if result.telemetry.get("verified_runtime_id") != expected_runtime_id:
+            raise ShadowEvidenceViolation(
+                "shadow_verified_runtime_identity_mismatch",
+                "shadow backend did not execute the supplied Verified Runtime package",
+                backend=result.backend,
+                expected_verified_runtime_id=expected_runtime_id,
+                actual_verified_runtime_id=result.telemetry.get("verified_runtime_id"),
+            )
     return official_result, shadow_result
 
 
@@ -562,6 +653,7 @@ def verify_shadow_evidence(evidence: Mapping[str, Any]) -> None:
             "red5_mismatch_count",
             "candidate_identity_mismatch_count",
             "runtime_envelope_mismatch_count",
+            "runtime_identity_mismatch_count",
             "ranking_contract_mismatch_count",
         )
         if any(int(evidence.get(field) or 0) != 0 for field in mismatch_fields):
