@@ -59,6 +59,17 @@ Feature ABI Package
 It does not cast, transpose, reorder, repair, or copy the values buffer. A nonconforming source is
 rejected by the Artifact Verifier before ABI compilation.
 
+The Runtime cache cold path now uses `DirectFeatureABIProducer`. It computes one Feature tile and
+constructs the exact same Feature Artifact v1 identity and Feature ABI v1 package around that one
+buffer without invoking the staged `FeatureCompiler -> FeatureABICompiler` chain. The direct result
+is deliberately unverified: `RuntimeABICache` validates its source seal and bindings, marks the buffer
+read-only, independently verifies the source Feature Artifact payload, and performs the formal
+`FeatureABIVerifier` pass before insertion. The staged chain remains an explicit independent oracle.
+
+Direct production means one tile payload materialization and no Artifact-to-ABI buffer copy. It does
+not mean that the complete Runtime is streamed through the Kernel without retaining Feature tiles;
+that requires a separately versioned streaming Runtime contract.
+
 ## Runtime verification
 
 `FeatureABIVerifier` rejects:
@@ -86,9 +97,10 @@ score/rank/Red5 compute loop and shares the Runtime Envelope and deterministic T
 with the ABI NumPy reference.
 
 This does not silently redefine the older fused `numba_cpu` entry as Feature ABI compliant. That
-path still constructs components internally. A future fused Feature producer may avoid a
-full-universe Feature matrix only after its tile producer is verified against this ABI and proves
-exact component/score/rank equivalence. Performance is not authority to bypass the contract.
+path still constructs components and scores internally. The direct producer proves exact Feature
+Artifact/ABI identity but does not turn the legacy fused scoring path into an ABI implementation.
+Avoiding retention of the complete set of Feature tiles still requires a verified streaming producer
+and Runtime boundary. Performance is not authority to bypass the contract.
 
 ## Runtime migration
 
@@ -111,7 +123,8 @@ non-Feature-ABI NumPy/Numba execution paths remain unchanged.
 
 ## Non-goals
 
-- no legacy fused Numba producer or production-default migration;
+- no legacy fused Numba scoring-path or production-default migration;
+- no streaming Runtime or tile-at-a-time Kernel execution;
 - no full candidate-space Feature materialization requirement;
 - no scoring, ranking, TopK, weight, or formula change;
 - no production prediction, pending candidate, database, or runtime-state mutation.
