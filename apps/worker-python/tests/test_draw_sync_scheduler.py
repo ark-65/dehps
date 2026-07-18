@@ -242,3 +242,63 @@ def test_draw_sync_watch_error_state_retains_loaded_code_identity(tmp_path) -> N
     assert state["status"] == "error"
     assert state["watch_code_commit"] == "b" * 40
     assert state["error"] == {"type": "RuntimeError", "message": "sync exploded"}
+
+
+def test_draw_sync_watch_seals_and_closes_shadow_after_evaluation(tmp_path) -> None:
+    cycles = []
+
+    class Attestor:
+        def close_cycle(self, cycle):
+            cycles.append(cycle)
+            return {
+                "protocol": "forward-shadow-attestation-closure.v1",
+                "status": "ok",
+                "attested_count": 3,
+                "automatic_promotion_allowed": False,
+            }
+
+    watch = DrawSyncWatch(
+        service=Service("event-2026080"),  # type: ignore[arg-type]
+        forward_evaluator=ForwardEvaluator(),
+        state_path=tmp_path / "state.json",
+        pid_path=tmp_path / "pid",
+        code_commit="a" * 40,
+        shadow_attestor=Attestor(),
+        shadow_attestation_enabled=True,
+    )
+
+    watch.run(once=True)
+
+    state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+    assert len(cycles) == 1
+    assert cycles[0]["watch_code_commit"] == "a" * 40
+    assert cycles[0]["current_latest_issue"] == "2026080"
+    assert cycles[0]["sync_audit_passed"] is True
+    assert cycles[0]["evaluation_batch_status"] == "ok"
+    assert state["shadow_watch_cycle"]["cycle_digest"] == cycles[0]["cycle_digest"]
+    assert state["shadow_attestation"]["attested_count"] == 3
+    assert state["shadow_attestation"]["automatic_promotion_allowed"] is False
+
+
+def test_draw_sync_watch_records_shadow_failure_without_replacing_evaluation(tmp_path) -> None:
+    class BrokenAttestor:
+        def close_cycle(self, cycle):
+            raise RuntimeError("shadow replay failed")
+
+    watch = DrawSyncWatch(
+        service=Service("event-2026080"),  # type: ignore[arg-type]
+        forward_evaluator=ForwardEvaluator(),
+        state_path=tmp_path / "state.json",
+        pid_path=tmp_path / "pid",
+        shadow_attestor=BrokenAttestor(),
+        shadow_attestation_enabled=True,
+    )
+
+    watch.run(once=True)
+
+    state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+    assert state["status"] == "ok"
+    assert state["forward_evaluation"]["status"] == "ok"
+    assert state["shadow_attestation"]["status"] == "failed"
+    assert state["shadow_attestation"]["error"]["message"] == "shadow replay failed"
+    assert state["shadow_attestation"]["automatic_promotion_allowed"] is False

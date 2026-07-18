@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import date
 import json
 from pathlib import Path
@@ -17,6 +17,9 @@ from dehps.forward_runtime.shadow_adapter import (
     compare_forward_evaluation,
     compare_official_candidate_artifact,
     forward_operational_evidence,
+)
+from dehps.forward_runtime.shadow_attestation import (
+    build_run_attestation as build_persisted_run_attestation,
 )
 from dehps.models.frequency_ranker import (
     FrequencyRankerConfig,
@@ -40,11 +43,11 @@ from dehps.scoring_kernel import (
     candidate_store_from_matrix,
     compare_kernel_results,
     execute_feature_abi_shadow_pair,
-    link_post_draw_attestation,
     numbers_mask,
     target_lex_id,
     write_shadow_artifact,
     verify_shadow_evidence,
+    verify_shadow_watch_cycle,
 )
 from dehps.scoring_kernel.runtime_input import default_runtime_input_compiler
 from dehps.source_version import resolve_git_commit
@@ -160,9 +163,17 @@ def build_run_evidence(
     run: dict[str, Any],
     store,
     worker_count: int,
-    restart_recovery_result: str,
-    watchdog_result: str,
+    watch_cycle: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
+    if watch_cycle is not None:
+        return build_persisted_run_attestation(
+            conn,
+            run=run,
+            store=store,
+            worker_count=worker_count,
+            watch_cycle=watch_cycle,
+            runtime_compiler=_REPLAY_RUNTIME_COMPILER,
+        )
     prediction_run_key = str(run["prediction_run_key"])
     stored_candidates = load_stored_candidates(
         conn,
@@ -283,8 +294,8 @@ def build_run_evidence(
         source_code_commit=source_commit,
         replay_code_commit=replay_commit,
         capture_mode=capture_mode,
-        restart_recovery_result=restart_recovery_result,
-        watchdog_result=watchdog_result,
+        restart_recovery_result="pending",
+        watchdog_result="pending",
     )
     comparison = compare_kernel_results(
         target_issue=str(run["target_issue"]),
@@ -296,11 +307,6 @@ def build_run_evidence(
         operational=operational,
         runtime_abi_cache=runtime_abi_cache,
     )
-    if source_capture is not None and evaluation_check.status != "pending":
-        return link_post_draw_attestation(
-            scoring_capture=source_capture,
-            post_draw_comparison=comparison,
-        )
     return comparison
 
 
@@ -316,18 +322,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument(
-        "--restart-recovery-result",
-        choices=("pending", "passed", "failed"),
-        default="pending",
-    )
-    parser.add_argument(
-        "--watchdog-result",
-        choices=("pending", "passed", "failed"),
-        default="pending",
+        "--watch-cycle-evidence",
+        type=Path,
+        help=(
+            "Sealed draw-sync watchdog cycle JSON. Without it this command emits "
+            "diagnostic reconstruction only and cannot create post-draw attestation."
+        ),
     )
     args = parser.parse_args(argv)
     if args.workers < 1:
         parser.error("--workers must be positive")
+    watch_cycle = None
+    if args.watch_cycle_evidence is not None:
+        watch_cycle = json.loads(args.watch_cycle_evidence.read_text(encoding="utf-8"))
+        verify_shadow_watch_cycle(watch_cycle)
 
     matrix = build_ranked_universe()
     store = candidate_store_from_matrix(matrix)
@@ -353,8 +361,7 @@ def main(argv: list[str] | None = None) -> int:
                 run=run,
                 store=store,
                 worker_count=args.workers,
-                restart_recovery_result=args.restart_recovery_result,
-                watchdog_result=args.watchdog_result,
+                watch_cycle=watch_cycle,
             )
             path = write_shadow_artifact(args.output_dir, evidence)
             output.append(

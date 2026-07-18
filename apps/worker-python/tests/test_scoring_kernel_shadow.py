@@ -7,13 +7,16 @@ import numpy as np
 import pytest
 
 from dehps.ranking_contract import STRICT_RANKING_CONTRACT
+from dehps.contracts import canonical_digest
 from dehps.scoring_kernel import (
     SHADOW_PROTOCOL_VERSION,
     KernelResult,
     ShadowEvidenceViolation,
     ShadowOperationalEvidence,
+    build_shadow_operational_receipt,
     compare_kernel_results,
     link_post_draw_attestation,
+    seal_shadow_watch_cycle,
     shadow_promotion_readiness,
     verify_shadow_evidence,
     write_shadow_artifact,
@@ -96,10 +99,33 @@ def attested_evidence(issue: str, line_key: str) -> dict:
         line_key,
         operational=capture_operational_evidence(issue, line_key),
     )
-    post_draw = exact_evidence(
+    reconstruction = exact_evidence(
         issue,
         line_key,
         operational=passed_operational_evidence(issue, line_key),
+    )
+    cycle = seal_shadow_watch_cycle(
+        watch_code_commit="a" * 40,
+        watch_started_at="2026-07-18T00:00:00+00:00",
+        observed_at="2026-07-18T01:00:00+00:00",
+        sync_status="no_change",
+        sync_audit_passed=True,
+        current_latest_issue=issue,
+        evaluation_batch_status="ok",
+        evaluation_failed_count=0,
+    )
+    receipt = build_shadow_operational_receipt(
+        scoring_capture=capture,
+        reconstruction=reconstruction,
+        watch_cycle=cycle,
+    )
+    post_draw = exact_evidence(
+        issue,
+        line_key,
+        operational=replace(
+            passed_operational_evidence(issue, line_key),
+            operational_receipt=receipt,
+        ),
     )
     return link_post_draw_attestation(
         scoring_capture=capture,
@@ -154,11 +180,66 @@ def test_post_draw_attestation_embeds_and_seals_the_pre_draw_capture() -> None:
     ]["comparison_digest"]
     assert evidence["source_scoring_evidence"]["evaluation_status"] == "pending"
     assert evidence["evaluation_status"] == "passed"
+    assert evidence["operational_receipt"]["restart_recovery_result"] == "passed"
+    assert evidence["operational_receipt"]["watchdog_result"] == "passed"
 
     tampered = deepcopy(evidence)
     tampered["source_scoring_evidence"]["line_key"] = "other"
     with pytest.raises(ShadowEvidenceViolation):
         verify_shadow_evidence(tampered)
+
+
+def test_operational_result_cannot_be_self_reported_with_a_resealed_digest() -> None:
+    issue = "2026082"
+    line = "static_100"
+    capture = exact_evidence(
+        issue,
+        line,
+        operational=capture_operational_evidence(issue, line),
+    )
+    reconstruction = exact_evidence(
+        issue,
+        line,
+        operational=passed_operational_evidence(issue, line),
+    )
+    failed_cycle = seal_shadow_watch_cycle(
+        watch_code_commit="b" * 40,
+        watch_started_at="2026-07-18T00:00:00+00:00",
+        observed_at="2026-07-18T01:00:00+00:00",
+        sync_status="no_change",
+        sync_audit_passed=True,
+        current_latest_issue=issue,
+        evaluation_batch_status="ok",
+        evaluation_failed_count=0,
+    )
+    forged = build_shadow_operational_receipt(
+        scoring_capture=capture,
+        reconstruction=reconstruction,
+        watch_cycle=failed_cycle,
+    )
+    assert forged["watchdog_result"] == "failed"
+    forged["watchdog_result"] = "passed"
+    forged["receipt_digest"] = canonical_digest(
+        {key: value for key, value in forged.items() if key != "receipt_digest"},
+        domain="dehps.scoring-kernel-shadow-operational-receipt.v1",
+    )
+    post_draw = exact_evidence(
+        issue,
+        line,
+        operational=replace(
+            passed_operational_evidence(issue, line),
+            operational_receipt=forged,
+        ),
+    )
+
+    with pytest.raises(
+        ShadowEvidenceViolation,
+        match="shadow_operational_receipt_derivation_mismatch",
+    ):
+        link_post_draw_attestation(
+            scoring_capture=capture,
+            post_draw_comparison=post_draw,
+        )
 
 
 def test_comparison_rejects_missing_candidate_identity_and_shape_drift() -> None:
@@ -282,3 +363,4 @@ def test_gate_rejects_nonconsecutive_duplicate_or_tampered_evidence() -> None:
     tampered[0]["comparison_status"] = "mismatch"
     tampered_gate = shadow_promotion_readiness(tampered)
     assert tampered_gate["invalid_evidence_keys"] == ["2026082:static_100"]
+    seal_shadow_watch_cycle,

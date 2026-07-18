@@ -28,6 +28,8 @@ if TYPE_CHECKING:
 
 SHADOW_PROTOCOL_VERSION = "scoring-kernel-shadow-evidence.v1"
 SHADOW_GATE_VERSION = "scoring-kernel-shadow-promotion-gate.v1"
+SHADOW_WATCH_CYCLE_VERSION = "scoring-kernel-shadow-watch-cycle.v1"
+SHADOW_OPERATIONAL_RECEIPT_VERSION = "scoring-kernel-shadow-operational-receipt.v1"
 DEFAULT_PRODUCTION_LINES = ("static_100", "dynamic_kdj", "dynamic_kdj_near")
 _CANDIDATE_IDENTITY_FIELDS = (
     "candidate_contract",
@@ -63,6 +65,7 @@ class ShadowOperationalEvidence:
     evaluation_mismatch_count: int = 0
     restart_recovery_result: str = "pending"
     watchdog_result: str = "pending"
+    operational_receipt: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if self.capture_mode not in {"simultaneous", "posthoc_reconstruction"}:
@@ -88,6 +91,203 @@ class ShadowOperationalEvidence:
         ):
             if int(getattr(self, field)) < 0:
                 raise ValueError(f"{field} must be non-negative")
+
+
+def seal_shadow_watch_cycle(
+    *,
+    watch_code_commit: str,
+    watch_started_at: str,
+    observed_at: str,
+    sync_status: str,
+    sync_audit_passed: bool,
+    current_latest_issue: str | None,
+    evaluation_batch_status: str,
+    evaluation_failed_count: int,
+) -> dict[str, Any]:
+    """Seal facts observed by one live draw-sync watchdog cycle."""
+
+    payload = {
+        "protocol": SHADOW_WATCH_CYCLE_VERSION,
+        "watch_code_commit": str(watch_code_commit),
+        "watch_started_at": str(watch_started_at),
+        "observed_at": str(observed_at),
+        "sync_status": str(sync_status),
+        "sync_audit_passed": bool(sync_audit_passed),
+        "current_latest_issue": (
+            None if current_latest_issue is None else str(current_latest_issue)
+        ),
+        "evaluation_batch_status": str(evaluation_batch_status),
+        "evaluation_failed_count": int(evaluation_failed_count),
+        "automatic_promotion_allowed": False,
+    }
+    payload["cycle_digest"] = canonical_digest(
+        payload,
+        domain="dehps.scoring-kernel-shadow-watch-cycle.v1",
+    )
+    verify_shadow_watch_cycle(payload)
+    return payload
+
+
+def verify_shadow_watch_cycle(cycle: Mapping[str, Any]) -> None:
+    if cycle.get("protocol") != SHADOW_WATCH_CYCLE_VERSION:
+        raise ShadowEvidenceViolation(
+            "shadow_watch_cycle_protocol_mismatch",
+            "unsupported shadow watchdog cycle evidence",
+        )
+    expected = canonical_digest(
+        {key: value for key, value in cycle.items() if key != "cycle_digest"},
+        domain="dehps.scoring-kernel-shadow-watch-cycle.v1",
+    )
+    if cycle.get("cycle_digest") != expected:
+        raise ShadowEvidenceViolation(
+            "shadow_watch_cycle_digest_mismatch",
+            "shadow watchdog cycle seal does not match its facts",
+        )
+    if not str(cycle.get("watch_code_commit") or "").strip():
+        raise ShadowEvidenceViolation(
+            "shadow_watch_cycle_commit_missing",
+            "watchdog cycle must identify its loaded code commit",
+        )
+    if not str(cycle.get("watch_started_at") or "").strip() or not str(
+        cycle.get("observed_at") or ""
+    ).strip():
+        raise ShadowEvidenceViolation(
+            "shadow_watch_cycle_time_missing",
+            "watchdog cycle start and observation times are required",
+        )
+    if int(cycle.get("evaluation_failed_count") or 0) < 0:
+        raise ShadowEvidenceViolation(
+            "shadow_watch_cycle_failure_count_invalid",
+            "watchdog evaluation failure count cannot be negative",
+        )
+    if cycle.get("automatic_promotion_allowed") is not False:
+        raise ShadowEvidenceViolation(
+            "shadow_watch_cycle_promotion_authority_invalid",
+            "watchdog cycle evidence cannot authorize promotion",
+        )
+
+
+def build_shadow_operational_receipt(
+    *,
+    scoring_capture: Mapping[str, Any],
+    reconstruction: Mapping[str, Any],
+    watch_cycle: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Derive operational pass/fail from sealed replay and watchdog facts."""
+
+    verify_shadow_evidence(scoring_capture)
+    verify_shadow_evidence(reconstruction)
+    verify_shadow_watch_cycle(watch_cycle)
+    restart_result, watchdog_result = _derive_shadow_operational_results(
+        scoring_capture=scoring_capture,
+        reconstruction=reconstruction,
+        watch_cycle=watch_cycle,
+    )
+    payload = {
+        "protocol": SHADOW_OPERATIONAL_RECEIPT_VERSION,
+        "target_issue": reconstruction.get("target_issue"),
+        "line_key": reconstruction.get("line_key"),
+        "prediction_run_key": reconstruction.get("prediction_run_key"),
+        "source_comparison_digest": scoring_capture.get("comparison_digest"),
+        "reconstruction_comparison_digest": reconstruction.get("comparison_digest"),
+        "watch_cycle": dict(watch_cycle),
+        "reconstruction_mode": "persisted_forward_run_replay",
+        "restart_recovery_result": restart_result,
+        "watchdog_result": watchdog_result,
+        "automatic_promotion_allowed": False,
+    }
+    payload["receipt_digest"] = canonical_digest(
+        payload,
+        domain="dehps.scoring-kernel-shadow-operational-receipt.v1",
+    )
+    verify_shadow_operational_receipt(payload)
+    return payload
+
+
+def _derive_shadow_operational_results(
+    *,
+    scoring_capture: Mapping[str, Any],
+    reconstruction: Mapping[str, Any],
+    watch_cycle: Mapping[str, Any],
+) -> tuple[str, str]:
+    identity_matches = all(
+        reconstruction.get(field) == scoring_capture.get(field)
+        for field in (
+            "target_issue",
+            "line_key",
+            "prediction_run_key",
+            "config_fingerprint",
+            "candidate_package_digest",
+            "source_code_commit",
+        )
+    )
+    restart_passed = (
+        scoring_capture.get("evidence_phase") == "scoring_capture"
+        and scoring_capture.get("capture_mode") == "simultaneous"
+        and reconstruction.get("comparison_status") == "exact"
+        and reconstruction.get("official_candidate_artifact_status") == "matched"
+        and reconstruction.get("evaluation_status") == "passed"
+        and int(reconstruction.get("evaluation_mismatch_count") or 0) == 0
+        and reconstruction.get("source_code_commit")
+        == reconstruction.get("replay_code_commit")
+        and identity_matches
+    )
+    watchdog_passed = (
+        watch_cycle.get("sync_status")
+        in {"no_change", "new_issue", "corrected_issue"}
+        and watch_cycle.get("sync_audit_passed") is True
+        and watch_cycle.get("evaluation_batch_status") == "ok"
+        and int(watch_cycle.get("evaluation_failed_count") or 0) == 0
+        and str(watch_cycle.get("current_latest_issue") or "")
+        == str(reconstruction.get("target_issue") or "")
+        and watch_cycle.get("watch_code_commit")
+        == reconstruction.get("replay_code_commit")
+    )
+    return (
+        "passed" if restart_passed else "failed",
+        "passed" if watchdog_passed else "failed",
+    )
+
+
+def verify_shadow_operational_receipt(receipt: Mapping[str, Any]) -> None:
+    if receipt.get("protocol") != SHADOW_OPERATIONAL_RECEIPT_VERSION:
+        raise ShadowEvidenceViolation(
+            "shadow_operational_receipt_protocol_mismatch",
+            "unsupported shadow operational receipt",
+        )
+    expected = canonical_digest(
+        {key: value for key, value in receipt.items() if key != "receipt_digest"},
+        domain="dehps.scoring-kernel-shadow-operational-receipt.v1",
+    )
+    if receipt.get("receipt_digest") != expected:
+        raise ShadowEvidenceViolation(
+            "shadow_operational_receipt_digest_mismatch",
+            "shadow operational receipt seal does not match its facts",
+        )
+    cycle = receipt.get("watch_cycle")
+    if not isinstance(cycle, Mapping):
+        raise ShadowEvidenceViolation(
+            "shadow_operational_receipt_watch_cycle_missing",
+            "operational receipt requires sealed watchdog cycle evidence",
+        )
+    verify_shadow_watch_cycle(cycle)
+    if receipt.get("reconstruction_mode") != "persisted_forward_run_replay":
+        raise ShadowEvidenceViolation(
+            "shadow_operational_receipt_reconstruction_invalid",
+            "operational receipt must prove replay from persisted forward state",
+        )
+    if receipt.get("restart_recovery_result") not in {"passed", "failed"} or receipt.get(
+        "watchdog_result"
+    ) not in {"passed", "failed"}:
+        raise ShadowEvidenceViolation(
+            "shadow_operational_receipt_result_invalid",
+            "operational receipt results must be explicit pass or fail",
+        )
+    if receipt.get("automatic_promotion_allowed") is not False:
+        raise ShadowEvidenceViolation(
+            "shadow_operational_receipt_promotion_authority_invalid",
+            "operational receipt cannot authorize promotion",
+        )
 
 
 def _mismatch_count(left: np.ndarray, right: np.ndarray) -> int:
@@ -363,6 +563,11 @@ def compare_kernel_results(
             operational.official_candidate_score_mismatch_count
         ),
         "evaluation_status": operational.evaluation_status,
+        "operational_receipt": (
+            None
+            if operational.operational_receipt is None
+            else dict(operational.operational_receipt)
+        ),
         "comparison_status": comparison_status,
         "comparison_passed": comparison_status == "exact",
         "automatic_promotion_allowed": False,
@@ -453,6 +658,13 @@ def link_post_draw_attestation(
             "shadow_attestation_evaluation_pending",
             "post-draw comparison must carry a completed evaluation decision",
         )
+    receipt = post_draw_comparison.get("operational_receipt")
+    if not isinstance(receipt, Mapping):
+        raise ShadowEvidenceViolation(
+            "shadow_attestation_operational_receipt_missing",
+            "post-draw attestation requires derived operational evidence",
+        )
+    verify_shadow_operational_receipt(receipt)
     payload = {
         key: value
         for key, value in post_draw_comparison.items()
@@ -568,6 +780,46 @@ def verify_shadow_evidence(evidence: Mapping[str, Any]) -> None:
                     "post-draw attestation changed pre-draw prediction identity",
                     field=field,
                 )
+        receipt = evidence.get("operational_receipt")
+        if not isinstance(receipt, Mapping):
+            raise ShadowEvidenceViolation(
+                "shadow_operational_receipt_missing",
+                "post-draw attestation requires operational provenance",
+            )
+        verify_shadow_operational_receipt(receipt)
+        for field in ("target_issue", "line_key", "prediction_run_key"):
+            if evidence.get(field) != receipt.get(field):
+                raise ShadowEvidenceViolation(
+                    "shadow_operational_receipt_identity_mismatch",
+                    "operational receipt is bound to a different prediction",
+                    field=field,
+                )
+        if evidence.get("source_comparison_digest") != receipt.get(
+            "source_comparison_digest"
+        ):
+            raise ShadowEvidenceViolation(
+                "shadow_operational_receipt_source_mismatch",
+                "operational receipt references a different pre-draw capture",
+            )
+        if evidence.get("restart_recovery_result") != receipt.get(
+            "restart_recovery_result"
+        ) or evidence.get("watchdog_result") != receipt.get("watchdog_result"):
+            raise ShadowEvidenceViolation(
+                "shadow_operational_receipt_result_mismatch",
+                "attestation results differ from the derived operational receipt",
+            )
+        expected_restart, expected_watchdog = _derive_shadow_operational_results(
+            scoring_capture=source,
+            reconstruction=evidence,
+            watch_cycle=receipt["watch_cycle"],
+        )
+        if receipt.get("restart_recovery_result") != expected_restart or receipt.get(
+            "watchdog_result"
+        ) != expected_watchdog:
+            raise ShadowEvidenceViolation(
+                "shadow_operational_receipt_derivation_mismatch",
+                "operational pass/fail was not derived from the embedded replay and watchdog facts",
+            )
     artifact_mismatches = int(
         evidence.get("official_candidate_id_mismatch_count") or 0
     ) + int(evidence.get("official_candidate_score_mismatch_count") or 0)
