@@ -98,11 +98,11 @@ The verifier returns no repaired rows. Runtime migration must consume verified i
 
 ## Migration boundary
 
-The next Evaluation rounds are:
+The Evaluation Artifact compiler/verifier in `evaluation-artifact-runtime-v1.md` now implements the
+first step below. Remaining migration rounds are:
 
-1. compile an Evaluation Artifact bound to Prediction, Outcome, Ranking Audit, and Runtime Envelope;
-2. integrate the artifact compiler/verifier into pending forward evaluation without rewriting history;
-3. propagate `evaluation.v1.0.0` through shadow evidence, exports, API, telemetry, and promotion evidence;
-4. define an Evaluation ABI only if a non-Python evaluation backend creates a real machine boundary.
+1. integrate the artifact compiler/verifier into pending forward evaluation without rewriting history;
+2. propagate `evaluation.v1.0.0` through shadow evidence, exports, API, telemetry, and promotion evidence;
+3. define an Evaluation ABI only if a non-Python evaluation backend creates a real machine boundary.
 
 Historical rows are not backfilled or re-evaluated merely because the contract now exists.

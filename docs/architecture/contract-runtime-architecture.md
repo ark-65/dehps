@@ -197,7 +197,7 @@ This envelope is not a replacement for stage envelopes. A stage envelope carries
 | Unified Runtime Verifier | Feature ABI paths enforced | `unified_runtime_verifier.v1` mints sealed `verified_runtime_package.v1`; NumPy/Numba Planner paths and Envelope Compiler reject raw runtime inputs |
 | Scoring Contract | Implemented | `dehps-scoring-strict-v1` |
 | Ranking Contract | Implemented | `legacy_score_partition` compatibility and `strict_v1` |
-| Evaluation Contract | [Specification implemented](evaluation-contract-v1.md) | `evaluation.v1.0.0`, one-based rank namespaces, exact-six/Red5, inclusive cutoff counts, comparison taxonomy, golden suite, fail-closed reference verifier; runtime migration remains separate |
+| Evaluation Contract / Artifact | [Artifact runtime implemented](evaluation-artifact-runtime-v1.md) | `evaluation.v1.0.0`, Prediction/Outcome/Ranking Audit parents, source Runtime Envelope binding, Stage Envelope, metric recomputation, Candidate ABI membership and detached fail-closed verification; forward persistence integration remains separate |
 
 ## Compatibility matrix
 
@@ -248,7 +248,7 @@ This is the boundary that lets NumPy, Numba, SIMD, CUDA, OpenCL, and future nati
 
 The next migration rounds should be staged as:
 
-1. Evaluation Artifact Runtime: bind Prediction, Outcome, Ranking Audit, Runtime Envelope, and `evaluation.v1.0.0` without rewriting historical evidence.
+1. Forward Evaluation Artifact integration: persist new artifacts for eligible strict runs while preserving explicit legacy-unavailable evidence and never rewriting history.
 2. Fused producer migration: define and verify any zero-materialization Feature tile producer before claiming ABI compliance or changing defaults.
 3. Future backends: SIMD, CUDA, OpenCL, or Rust implementations must accept the same verified runtime and reproduce the same Golden fixtures and artifact payload digest.
 
