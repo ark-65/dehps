@@ -11,12 +11,6 @@ from dehps.forward_runtime.shadow_adapter import (
     compare_official_candidate_artifact,
     forward_operational_evidence,
 )
-from dehps.feature_runtime import RuntimeABICache
-from dehps.input_contracts.history_window import (
-    HistorySnapshotArtifact,
-    WindowMode,
-    WindowSpec,
-)
 from dehps.models.frequency_ranker import (
     FrequencyRankerConfig,
     HistoryDraw,
@@ -30,13 +24,15 @@ from dehps.scoring_kernel import (
     execute_feature_abi_shadow_pair,
     resolve_backend_name,
 )
+from dehps.scoring_kernel.runtime_input import default_runtime_input_compiler
 from dehps.source_version import resolve_git_commit
 from dehps.storage.postgres_store import forward_prediction_run_key
 
 
 FORWARD_SHADOW_CAPTURE_ENV = "DEHPS_FORWARD_SHADOW_CAPTURE"
 FORWARD_SHADOW_WORKERS_ENV = "DEHPS_FORWARD_SHADOW_WORKERS"
-_FORWARD_SHADOW_RUNTIME_CACHE = RuntimeABICache()
+_FORWARD_SHADOW_RUNTIME_COMPILER = default_runtime_input_compiler()
+_FORWARD_SHADOW_RUNTIME_CACHE = _FORWARD_SHADOW_RUNTIME_COMPILER.cache
 
 
 def forward_shadow_capture_enabled() -> bool:
@@ -90,27 +86,15 @@ def capture_forward_snapshot_shadow(
         exact_rank=False,
         red5=False,
     )
-    history_snapshot = HistorySnapshotArtifact.from_history(
-        history,
-        source="forward_shadow_effective_history",
-    )
-    if history_snapshot.latest_issue is None:
-        raise ValueError("forward shadow capture requires non-empty history")
-    window = WindowSpec(
-        mode=WindowMode.EXPANDING,
-        size=None,
-        as_of_issue=history_snapshot.latest_issue,
-        include_as_of=True,
-        minimum_size=1,
-        target_issue=str(metadata["next_issue"]),
-    ).materialize(history_snapshot)
-    runtime_compilation = _FORWARD_SHADOW_RUNTIME_CACHE.compile_runtime(
-        history_snapshot=history_snapshot,
-        window=window,
+    runtime_inputs = _FORWARD_SHADOW_RUNTIME_COMPILER.compile_effective_history(
+        history=history,
         candidate_store=store,
         tile_size=request.chunk_size,
         target_draw_date=target_draw_date,
+        target_issue=str(metadata["next_issue"]),
+        source="forward_shadow_effective_history",
     )
+    runtime_compilation = runtime_inputs.abi_cache_compilation
     official, shadow = execute_feature_abi_shadow_pair(
         verified_runtime=runtime_compilation.verified_runtime,
         code_commit=source_commit,

@@ -91,6 +91,7 @@ def main(argv: list[str] | None = None) -> int:
                 top_n=int(metadata["top_n"]),
                 config=config,
                 target_draw_date=actual.get("draw_date"),
+                target_issue=str(metadata["next_issue"]),
                 ranked_universe=matrix,
             )
             candidates = [

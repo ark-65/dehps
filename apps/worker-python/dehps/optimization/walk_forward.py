@@ -48,9 +48,10 @@ from dehps.scoring_kernel import (
     WeightMatrix,
     candidate_store_from_matrix,
     numbers_mask,
-    pack_window_state,
     target_lex_id,
 )
+from dehps.scoring_kernel.runtime_input import default_runtime_input_compiler
+from dehps.source_version import resolve_git_commit
 
 _WORKER_UNIVERSE: object | None = None
 DEFAULT_WORKERS = 16
@@ -1740,10 +1741,12 @@ def _candidate_store_for_matrix(matrix: RankedUniverseMatrix):
 def _kernel_score_rank(
     *,
     matrix: RankedUniverseMatrix,
-    stats: FrequencyStats,
+    train_history: list[HistoryDraw],
     configs: tuple[FrequencyRankerConfig, ...],
     target_numbers: tuple[int, ...] | None,
     target_scores: tuple[float, ...] | None,
+    target_draw_date: date | None,
+    target_issue: str | None,
     top_k: int,
     workers: int,
     red5: bool,
@@ -1751,7 +1754,6 @@ def _kernel_score_rank(
     window_id: int = 0,
 ):
     store = _candidate_store_for_matrix(matrix)
-    state = pack_window_state(stats)
     weights = WeightMatrix(np.ascontiguousarray(_config_weight_matrix(configs)))
     resolved_target_scores = np.ascontiguousarray(
         target_scores if target_scores is not None else np.zeros(len(configs)),
@@ -1759,22 +1761,33 @@ def _kernel_score_rank(
     )
     lex_id = target_lex_id(store, target_numbers) if target_numbers is not None else 0
     target_mask = numbers_mask(target_numbers) if target_numbers is not None else np.uint64(0)
+    chunk_size = max(1, int(os.getenv("DEHPS_SCORING_CHUNK_SIZE", "262144")))
     request = KernelRequest(
         target_scores=resolved_target_scores,
         target_lex_id=lex_id,
         target_mask=target_mask,
         top_k=top_k,
-        chunk_size=max(1, int(os.getenv("DEHPS_SCORING_CHUNK_SIZE", "262144"))),
+        chunk_size=chunk_size,
         worker_count=max(1, workers),
         exact_rank=target_numbers is not None,
         red5=red5,
         target_excluded=target_excluded,
         window_id=window_id,
     )
-    backend = KernelPlanner().backend()
-    result = backend.score_rank(
-        backend.prepare(store),
-        state,
+    runtime_inputs = default_runtime_input_compiler().compile_effective_history(
+        history=train_history,
+        candidate_store=store,
+        tile_size=chunk_size,
+        target_draw_date=target_draw_date,
+        target_issue=target_issue,
+        source="core_scoring_effective_history",
+    )
+    planner = KernelPlanner()
+    result = planner.score_rank_feature_abi(
+        planner.prepare_feature_abi(
+            runtime_inputs.verified_runtime,
+            code_commit=resolve_git_commit(),
+        ),
         weights,
         request,
         KernelWorkspace(),
@@ -1785,6 +1798,7 @@ def _kernel_score_rank(
         "candidate_store_version": store.store_version,
         "candidate_store_fingerprint": store.fingerprint,
         "candidate_abi": store.candidate_runtime_envelope,
+        "runtime_input": runtime_inputs.as_dict(),
         "last_run": dict(result.telemetry),
     }
     return result
@@ -1813,6 +1827,7 @@ def rank_target(
     train_history: list[HistoryDraw],
     config: FrequencyRankerConfig,
     target_draw_date: date | None = None,
+    target_issue: str | None = None,
     universe: Iterable[tuple[int, ...]] | None = None,
     ranked_universe: RankedUniverseMatrix | None = None,
     workers: int = 1,
@@ -1825,6 +1840,7 @@ def rank_target(
         configs=(config,),
         ranked_universe=ranked_universe or build_ranked_universe(universe),
         target_draw_date=target_draw_date,
+        target_issue=target_issue,
         workers=workers,
         pool=pool,
         window_id=window_id,
@@ -1838,6 +1854,7 @@ def rank_target_grid(
     configs: tuple[FrequencyRankerConfig, ...],
     ranked_universe: RankedUniverseMatrix,
     target_draw_date: date | None = None,
+    target_issue: str | None = None,
     workers: int = 1,
     pool: Pool | None = None,
     window_id: int = 0,
@@ -1846,10 +1863,12 @@ def rank_target_grid(
     target_scores = _target_scores(target_numbers, stats, configs)
     result = _kernel_score_rank(
         matrix=ranked_universe,
-        stats=stats,
+        train_history=train_history,
         configs=configs,
         target_numbers=target_numbers,
         target_scores=target_scores,
+        target_draw_date=target_draw_date,
+        target_issue=target_issue,
         top_k=0,
         workers=normalize_worker_count(workers),
         red5=False,
@@ -1869,6 +1888,7 @@ def rank_target_grid_with_red5(
     configs: tuple[FrequencyRankerConfig, ...],
     ranked_universe: RankedUniverseMatrix,
     target_draw_date: date | None = None,
+    target_issue: str | None = None,
     workers: int = 1,
     pool: Pool | None = None,
     window_id: int = 0,
@@ -1877,10 +1897,12 @@ def rank_target_grid_with_red5(
     target_scores = _target_scores(target_numbers, stats, configs)
     kernel_result = _kernel_score_rank(
         matrix=ranked_universe,
-        stats=stats,
+        train_history=train_history,
         configs=configs,
         target_numbers=target_numbers,
         target_scores=target_scores,
+        target_draw_date=target_draw_date,
+        target_issue=target_issue,
         top_k=0,
         workers=normalize_worker_count(workers),
         red5=True,
@@ -1958,6 +1980,7 @@ def top_candidates_for_next(
     top_n: int,
     config: FrequencyRankerConfig,
     target_draw_date: date | None = None,
+    target_issue: str | None = None,
     universe: Iterable[tuple[int, ...]] | None = None,
     ranked_universe: RankedUniverseMatrix | None = None,
     workers: int = 1,
@@ -1967,14 +1990,15 @@ def top_candidates_for_next(
         raise ValueError("top_n must be at least 1")
 
     resolved_target_draw_date = target_draw_date or infer_next_ssq_draw_date(history)
-    stats = train_frequency_stats(history, target_draw_date=resolved_target_draw_date)
     matrix = ranked_universe or build_ranked_universe(universe)
     result = _kernel_score_rank(
         matrix=matrix,
-        stats=stats,
+        train_history=history,
         configs=(config,),
         target_numbers=None,
         target_scores=None,
+        target_draw_date=resolved_target_draw_date,
+        target_issue=target_issue,
         top_k=top_n,
         workers=normalize_worker_count(workers),
         red5=False,
@@ -2034,6 +2058,7 @@ def run_walk_forward(
                 train_history=train_history,
                 config=cfg,
                 target_draw_date=history_draw_date(target_draw),
+                target_issue=issue,
                 ranked_universe=ranked_universe,
                 workers=worker_count,
                 pool=pool,
@@ -2071,6 +2096,7 @@ def run_walk_forward(
             top_n=top_n,
             config=cfg,
             target_draw_date=infer_next_ssq_draw_date(history),
+            target_issue=None,
             ranked_universe=ranked_universe,
             workers=worker_count,
             pool=pool,

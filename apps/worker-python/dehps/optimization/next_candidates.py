@@ -1093,6 +1093,7 @@ def build_training_next_candidate_snapshot(
         top_n=resolved_top_n,
         config=config,
         target_draw_date=target_draw_date,
+        target_issue=next_issue_hint(latest_issue),
         ranked_universe=matrix,
     )
     regression_summary = compact_static_regression_summary(best)
@@ -1197,6 +1198,7 @@ def build_forward_challenger_next_candidate_snapshot(
         top_n=resolved_top_n,
         config=config,
         target_draw_date=target_draw_date,
+        target_issue=str(static_metadata["next_issue"]),
         ranked_universe=ranked_universe,
     )
     metadata = {
@@ -1419,6 +1421,7 @@ def build_dynamic_kdj_next_candidate_snapshot(
         top_n=resolved_top_n,
         config=dynamic_config,
         target_draw_date=target_draw_date,
+        target_issue=next_issue,
         ranked_universe=matrix,
     )
     dynamic_config_values = config_values(dynamic_config)

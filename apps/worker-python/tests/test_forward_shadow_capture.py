@@ -39,9 +39,13 @@ def test_simultaneous_capture_binds_generated_candidates_before_persistence() ->
         history=history,
         top_n=100,
         config=config,
+        target_issue="2026082",
         ranked_universe=matrix,
         workers=2,
     )
+    official_runtime_id = matrix.cache_info["scoring_kernel"]["last_run"][
+        "verified_runtime_id"
+    ]
     metadata = {
         "line_key": "static_100",
         "snapshot_key": "fixture-snapshot",
@@ -74,8 +78,9 @@ def test_simultaneous_capture_binds_generated_candidates_before_persistence() ->
     assert evidence["runtime_abi_cache"]["verified_runtime_id"] == evidence[
         "verified_runtime_id"
     ]
-    assert evidence["runtime_abi_cache"]["runtime_cache_hit"] is False
-    assert evidence["runtime_abi_cache"]["all_feature_cache_hits"] is False
+    assert evidence["verified_runtime_id"] == official_runtime_id
+    assert evidence["runtime_abi_cache"]["runtime_cache_hit"] is True
+    assert evidence["runtime_abi_cache"]["all_feature_cache_hits"] is True
     assert evidence["official_candidate_artifact_status"] == "matched"
     assert evidence["official_candidate_id_mismatch_count"] == 0
     assert evidence["official_candidate_score_mismatch_count"] == 0
