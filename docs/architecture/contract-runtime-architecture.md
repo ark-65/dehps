@@ -194,6 +194,7 @@ This envelope is not a replacement for stage envelopes. A stage envelope carries
 | Feature Contract / Compiler | Reference compiler implemented | `feature.v1.0.0`, component manifest, golden vector, verified Window/Candidate input binding, deterministic Feature Artifact, fail-closed artifact verifier |
 | Feature ABI Runtime | NumPy and Numba execution integrated | `feature_abi.v1`, tile-local dense `float64[R,32]`, joint Candidate/Feature preflight, sealed `VerifiedRuntimePackage`, explicit Kernel Planner entries, strict score/rank/TopK/Red5 execution; the older component-producing fused Numba entry remains separate |
 | Runtime ABI Cache | Control-plane capability implemented | `runtime_abi_cache.v1`, complete Contract DAG key, no-copy read-only Feature buffers, verifier-gated hits, byte/entry bounded LRU, dependent Runtime eviction |
+| Verified Runtime Shadow | Forward simultaneous capture integrated | One cached and verified History/Window/Candidate/Feature Runtime package drives Feature ABI NumPy and Numba; evidence seals the shared Runtime identity and binds the reference result to official rows without changing the production backend |
 | Runtime Envelope | Feature ABI KernelResult integrated | `runtime_envelope.v1`, full History/Window/Candidate/Feature/Scoring/Ranking/code binding, backend identity, canonical state path, detached payload verification; legacy artifacts are not rewritten |
 | Unified Runtime Verifier | Feature ABI paths enforced | `unified_runtime_verifier.v1` mints sealed `verified_runtime_package.v1`; NumPy/Numba Planner paths and Envelope Compiler reject raw runtime inputs |
 | Scoring Contract | Implemented | `dehps-scoring-strict-v1` |
@@ -250,7 +251,7 @@ This is the boundary that lets NumPy, Numba, SIMD, CUDA, OpenCL, and future nati
 
 The next migration rounds should be staged as:
 
-1. Explicit caller migration: adopt Runtime ABI Cache and forward Evaluation Artifact capabilities without changing prediction identity or backend defaults.
+1. Remaining caller migration: production/research scoring callers outside simultaneous shadow adopt the Runtime ABI path only through separately reviewed, identity-preserving rounds.
 2. Fused producer migration: define and verify any zero-materialization Feature tile producer before claiming ABI compliance or changing defaults.
 3. Shadow completion: collect the required simultaneous, post-draw, three-issue zero-difference evidence before a backend-default decision.
 4. Future backends: SIMD, CUDA, OpenCL, or Rust implementations must accept the same verified runtime and reproduce the same Golden fixtures and artifact payload digest.

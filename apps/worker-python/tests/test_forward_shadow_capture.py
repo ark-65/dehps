@@ -16,10 +16,12 @@ from dehps.optimization.walk_forward import (
     top_candidates_for_next,
 )
 from dehps.optimization.next_candidates import attach_forward_shadow_capture
+from dehps.scoring_kernel import verify_shadow_evidence
 from dehps.source_version import resolve_git_commit
 
 
 def test_simultaneous_capture_binds_generated_candidates_before_persistence() -> None:
+    shadow_capture_module._FORWARD_SHADOW_RUNTIME_CACHE.clear()
     combinations = list(
         itertools.islice(itertools.combinations(range(1, 34), 6), 3_000)
     )
@@ -63,12 +65,42 @@ def test_simultaneous_capture_binds_generated_candidates_before_persistence() ->
     assert evidence["evidence_phase"] == "scoring_capture"
     assert evidence["capture_mode"] == "simultaneous"
     assert evidence["comparison_status"] == "exact"
+    assert evidence["official_backend"] == "feature_abi_numpy_reference"
+    assert evidence["shadow_backend"] == "feature_abi_numba_cpu"
+    assert evidence["runtime_identity_mismatch_count"] == 0
+    assert evidence["verified_runtime_id"].startswith("verified_runtime.v1-")
+    assert evidence["runtime_verification_digest"]
+    assert evidence["feature_runtime_digest"]
+    assert evidence["runtime_abi_cache"]["verified_runtime_id"] == evidence[
+        "verified_runtime_id"
+    ]
+    assert evidence["runtime_abi_cache"]["runtime_cache_hit"] is False
+    assert evidence["runtime_abi_cache"]["all_feature_cache_hits"] is False
     assert evidence["official_candidate_artifact_status"] == "matched"
     assert evidence["official_candidate_id_mismatch_count"] == 0
     assert evidence["official_candidate_score_mismatch_count"] == 0
     assert evidence["evaluation_status"] == "pending"
     assert evidence["prediction_run_key"] == "static_100:2026082:fixture-snapshot"
     assert evidence["automatic_promotion_allowed"] is False
+    verify_shadow_evidence(evidence)
+
+    repeated = capture_forward_snapshot_shadow(
+        metadata=metadata,
+        candidates=candidates,
+        history=history,
+        config=config,
+        ranked_universe=matrix,
+        target_draw_date=None,
+        worker_count=2,
+    )
+
+    assert repeated["comparison_status"] == "exact"
+    assert repeated["verified_runtime_id"] == evidence["verified_runtime_id"]
+    assert repeated["official_result_digest"] == evidence["official_result_digest"]
+    assert repeated["shadow_result_digest"] == evidence["shadow_result_digest"]
+    assert repeated["runtime_abi_cache"]["runtime_cache_hit"] is True
+    assert repeated["runtime_abi_cache"]["all_feature_cache_hits"] is True
+    verify_shadow_evidence(repeated)
 
 
 def test_shadow_capture_flag_is_explicit_and_fail_closed(monkeypatch) -> None:
