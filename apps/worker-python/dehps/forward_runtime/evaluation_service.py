@@ -10,8 +10,10 @@ from psycopg.rows import dict_row
 
 from dehps.db import get_connection
 from dehps.forward_promotion.service import reconcile_forward_promotion
+from dehps.forward_runtime.evaluation_artifact import ForwardEvaluationArtifactAdapter
 from dehps.optimization.prediction_evaluation import (
     evaluate_prediction_snapshot,
+    finalize_prediction_evaluation,
     load_actual_draw,
     load_prediction_rows,
 )
@@ -28,9 +30,11 @@ from dehps.storage.postgres_store import (
 
 ConnectionFactory = Callable[[], AbstractContextManager[Connection[Any]]]
 SnapshotEvaluator = Callable[..., dict[str, Any]]
+SnapshotFinalizer = Callable[..., dict[str, Any]]
 RankingAuditor = Callable[..., dict[str, Any]]
 ActualLoader = Callable[..., dict[str, Any] | None]
 PredictionLoader = Callable[..., tuple[list[dict[str, Any]], str | None]]
+ArtifactAdapter = Callable[..., dict[str, Any]]
 
 
 class ForwardEvaluationService:
@@ -39,16 +43,20 @@ class ForwardEvaluationService:
         *,
         connection_factory: ConnectionFactory = get_connection,
         snapshot_evaluator: SnapshotEvaluator = evaluate_prediction_snapshot,
+        snapshot_finalizer: SnapshotFinalizer = finalize_prediction_evaluation,
         ranking_auditor: RankingAuditor = build_actual_ranking_audit,
         actual_loader: ActualLoader = load_actual_draw,
         prediction_loader: PredictionLoader = load_prediction_rows,
+        artifact_adapter: ArtifactAdapter | None = None,
         promotion_reconciler: Callable[..., dict[str, Any]] = reconcile_forward_promotion,
     ) -> None:
         self.connection_factory = connection_factory
         self.snapshot_evaluator = snapshot_evaluator
+        self.snapshot_finalizer = snapshot_finalizer
         self.ranking_auditor = ranking_auditor
         self.actual_loader = actual_loader
         self.prediction_loader = prediction_loader
+        self.artifact_adapter = artifact_adapter or ForwardEvaluationArtifactAdapter()
         self.promotion_reconciler = promotion_reconciler
 
     def ensure_schema(self) -> None:
@@ -170,8 +178,8 @@ class ForwardEvaluationService:
                     evaluation_run_key=evaluation_run_key,
                     prediction_ranking_contract=ranking_contract,
                     ranking_audit=ranking_audit,
-                    write_report=write_report,
-                    persist=True,
+                    write_report=False,
+                    persist=False,
                 )
                 summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
                 accepted = (
@@ -188,6 +196,25 @@ class ForwardEvaluationService:
                         f"top_n={run.get('top_n')}:"
                         f"leakage_passed={summary.get('leakage_passed')}"
                     )
+                artifact_projection = self.artifact_adapter(
+                    run=run,
+                    actual=actual,
+                    candidates=candidates,
+                    ranking_audit=ranking_audit,
+                    evaluation_payload=payload,
+                    write_artifact=write_report,
+                )
+                payload["summary"] = {
+                    **summary,
+                    "evaluation_artifact": artifact_projection,
+                }
+                payload = self.snapshot_finalizer(
+                    conn,
+                    payload,
+                    output_dir=None,
+                    write_report=write_report,
+                    persist=True,
+                )
                 conn.execute(
                     """
                     UPDATE forward_evaluation_runs
@@ -214,9 +241,13 @@ class ForwardEvaluationService:
                 "ranking_contract": ranking_contract,
                 "status": "evaluated",
                 "ranking_audit": ranking_audit,
+                "evaluation_artifact": artifact_projection,
             }
         except Exception as exc:
             error = {"type": type(exc).__name__, "message": str(exc)}
+            as_dict = getattr(exc, "as_dict", None)
+            if callable(as_dict):
+                error["details"] = as_dict()
             self._record_failure(prediction_run_key, evaluation_run_key, error)
             return {
                 "prediction_run_key": prediction_run_key,
@@ -278,7 +309,7 @@ class ForwardEvaluationService:
         self,
         prediction_run_key: str,
         evaluation_run_key: str,
-        error: dict[str, str],
+        error: dict[str, Any],
     ) -> None:
         encoded = json.dumps(error, ensure_ascii=False)
         with self.connection_factory() as conn:

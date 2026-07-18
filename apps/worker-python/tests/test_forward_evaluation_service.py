@@ -44,10 +44,22 @@ class Connection:
 
 
 class Harness(ForwardEvaluationService):
-    def __init__(self, *, draw, evaluator, promotion_reconciler=None):
+    def __init__(
+        self,
+        *,
+        draw,
+        evaluator,
+        artifact_adapter=None,
+        promotion_reconciler=None,
+    ):
         self.status = "pending"
         self.attempts = 0
         self.failure = None
+        self.finalized = []
+
+        def finalizer(_conn, payload, **kwargs):
+            self.finalized.append({"payload": payload, "kwargs": kwargs})
+            return payload
 
         @contextmanager
         def connection_factory():
@@ -62,6 +74,8 @@ class Harness(ForwardEvaluationService):
             ),
             ranking_auditor=lambda *_args, **_kwargs: {"model_score_rank": 1},
             snapshot_evaluator=evaluator,
+            snapshot_finalizer=finalizer,
+            artifact_adapter=artifact_adapter,
             promotion_reconciler=promotion_reconciler or (
                 lambda **_kwargs: {"status": "no_active_cohort", "promote": False}
             ),
@@ -119,14 +133,24 @@ def test_draw_availability_triggers_evaluation_and_repeat_is_idempotent() -> Non
     assert service.status == "evaluated"
     assert service.attempts == 1
     assert first["results"][0]["ranking_contract"] == "legacy_score_partition"
+    assert first["results"][0]["evaluation_artifact"]["status"] == "unavailable"
+    assert first["results"][0]["evaluation_artifact"]["reason"] == "legacy_ranking_contract"
+    assert len(service.finalized) == 1
+    assert service.finalized[0]["kwargs"] == {
+        "output_dir": None,
+        "write_report": False,
+        "persist": True,
+    }
 
 
 def test_evaluation_receives_the_normalized_prediction_contract() -> None:
     received = None
+    persistence = None
 
     def evaluator(*_args, **kwargs):
-        nonlocal received
+        nonlocal received, persistence
         received = kwargs["prediction_ranking_contract"]
+        persistence = (kwargs["write_report"], kwargs["persist"])
         return accepted_payload()
 
     service = Harness(
@@ -138,6 +162,34 @@ def test_evaluation_receives_the_normalized_prediction_contract() -> None:
 
     assert result["evaluated_count"] == 1
     assert received == "legacy_score_partition"
+    assert persistence == (False, False)
+
+
+def test_artifact_projection_is_attached_before_the_single_finalize() -> None:
+    def artifact_adapter(**kwargs):
+        assert kwargs["evaluation_payload"]["summary"] == {"leakage_passed": True}
+        assert kwargs["write_artifact"] is True
+        return {
+            "protocol": "forward_evaluation_artifact_projection.v1",
+            "status": "verified",
+            "artifact_digest": "a" * 64,
+        }
+
+    service = Harness(
+        draw={"issue": "2026080", "red_numbers": [4, 5, 11, 19, 27, 32]},
+        evaluator=accepted_payload,
+        artifact_adapter=artifact_adapter,
+    )
+
+    result = service.evaluate_pending(write_report=True)
+
+    assert result["evaluated_count"] == 1
+    assert result["results"][0]["evaluation_artifact"]["status"] == "verified"
+    assert len(service.finalized) == 1
+    assert service.finalized[0]["payload"]["summary"]["evaluation_artifact"][
+        "artifact_digest"
+    ] == "a" * 64
+    assert service.finalized[0]["kwargs"]["write_report"] is True
 
 
 def test_failed_evaluation_records_status_and_retries() -> None:
@@ -160,6 +212,41 @@ def test_failed_evaluation_records_status_and_retries() -> None:
 
     assert first["failed_count"] == 1
     assert service.failure == {"type": "RuntimeError", "message": "database unavailable"}
+    assert second["evaluated_count"] == 1
+    assert service.status == "evaluated"
+    assert service.attempts == 2
+
+
+def test_required_artifact_failure_is_structured_and_retryable() -> None:
+    calls = 0
+
+    class RequiredArtifactError(RuntimeError):
+        def as_dict(self):
+            return {
+                "code": "forward_evaluation_artifact_required",
+                "projection": {"status": "failed", "reason": "runtime_envelope_parse_error"},
+            }
+
+    def artifact_adapter(**_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RequiredArtifactError("required artifact unavailable")
+        return {"status": "verified", "artifact_digest": "a" * 64}
+
+    service = Harness(
+        draw={"issue": "2026080", "red_numbers": [4, 5, 11, 19, 27, 32]},
+        evaluator=accepted_payload,
+        artifact_adapter=artifact_adapter,
+    )
+
+    first = service.evaluate_pending(write_report=False)
+    second = service.evaluate_pending(write_report=False)
+
+    assert first["failed_count"] == 1
+    assert first["results"][0]["error"]["details"]["code"] == (
+        "forward_evaluation_artifact_required"
+    )
     assert second["evaluated_count"] == 1
     assert service.status == "evaluated"
     assert service.attempts == 2
