@@ -15,11 +15,9 @@ from dehps.contracts import canonical_digest
 from dehps.ranking_contract import STRICT_RANKING_CONTRACT, ShadowComparisonReport
 from dehps.runtime_envelope import RuntimeEnvelopeV1
 from dehps.scoring_kernel.contracts import (
-    CandidateStore,
     KernelRequest,
     KernelResult,
     KernelWorkspace,
-    PackedWindowState,
     WeightMatrix,
 )
 from dehps.scoring_kernel.planner import KernelPlanner
@@ -376,66 +374,6 @@ def compare_kernel_results(
         domain="dehps.scoring-kernel-shadow-evidence.v1",
     )
     return payload
-
-
-def run_shadow_comparison(
-    *,
-    target_issue: str,
-    line_key: str,
-    config_fingerprint: str,
-    candidate_store: CandidateStore,
-    window_state: PackedWindowState,
-    weights: WeightMatrix,
-    request: KernelRequest,
-    official_backend: str = "numpy_reference",
-    shadow_backend: str = "numba_cpu",
-    operational: ShadowOperationalEvidence | None = None,
-) -> dict[str, Any]:
-    official_result, shadow_result = execute_shadow_pair(
-        candidate_store=candidate_store,
-        window_state=window_state,
-        weights=weights,
-        request=request,
-        official_backend=official_backend,
-        shadow_backend=shadow_backend,
-    )
-    return compare_kernel_results(
-        target_issue=target_issue,
-        line_key=line_key,
-        config_fingerprint=config_fingerprint,
-        candidate_store_version=candidate_store.store_version,
-        official=official_result,
-        shadow=shadow_result,
-        operational=operational,
-    )
-
-
-def execute_shadow_pair(
-    *,
-    candidate_store: CandidateStore,
-    window_state: PackedWindowState,
-    weights: WeightMatrix,
-    request: KernelRequest,
-    official_backend: str = "numpy_reference",
-    shadow_backend: str = "numba_cpu",
-) -> tuple[KernelResult, KernelResult]:
-    official_engine = KernelPlanner(official_backend).backend()
-    shadow_engine = KernelPlanner(shadow_backend).backend()
-    official_result = official_engine.score_rank(
-        official_engine.prepare(candidate_store),
-        window_state,
-        weights,
-        request,
-        KernelWorkspace(),
-    )
-    shadow_result = shadow_engine.score_rank(
-        shadow_engine.prepare(candidate_store),
-        window_state,
-        weights,
-        request,
-        KernelWorkspace(),
-    )
-    return official_result, shadow_result
 
 
 def execute_feature_abi_shadow_pair(

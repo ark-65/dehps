@@ -7,10 +7,8 @@ from dehps.scoring_kernel.contracts import (
     KernelRequest,
     KernelResult,
     KernelWorkspace,
-    ScoringKernelBackend,
     WeightMatrix,
 )
-from dehps.scoring_kernel.numpy_backend import NumpyReferenceBackend
 
 if TYPE_CHECKING:
     from dehps.scoring_kernel.feature_abi_backend import (
@@ -39,15 +37,6 @@ class KernelPlanner:
 
     def __init__(self, backend_name: str | None = None) -> None:
         self.backend_name = resolve_backend_name(backend_name)
-
-    def backend(self) -> ScoringKernelBackend:
-        if self.backend_name == "numpy_reference":
-            return NumpyReferenceBackend()
-        if self.backend_name == "numba_cpu":
-            from dehps.scoring_kernel.numba_backend import NumbaCpuBackend
-
-            return NumbaCpuBackend()
-        raise AssertionError(f"unreachable backend: {self.backend_name}")
 
     def feature_abi_backend(
         self,

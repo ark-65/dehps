@@ -85,13 +85,18 @@ The ranked-universe cache record now carries:
 
 ## Compatibility boundary
 
-Legacy `execute_shadow_pair(...)` and the low-level planner backend accessor remain only for explicit
-historical/post-hoc compatibility and reference tests. They are no longer used by production,
-walk-forward, training evaluation, or simultaneous forward shadow capture.
+Raw `execute_shadow_pair(...)`, `run_shadow_comparison(...)`, and the low-level
+`KernelPlanner.backend()` accessor have been removed. Post-draw replay, production, walk-forward,
+training evaluation, simultaneous shadow, and FullScore research all enter through verified Runtime
+inputs. A source-boundary test prevents application modules from importing the old raw execution
+surface.
 
 The separate full-score-grid research path is represented by `full_score_grid_artifact.v1`; it
 consumes the same verified Runtime input but produces a candidate-major full-score Artifact rather
 than pretending that a full matrix is a TopK `KernelResult`.
+
+Independent raw backend classes and reference formulae remain restricted to backend implementation
+tests and `scripts/benchmark_scoring_kernel.py`; they are not scheduler or application entry points.
 
 ## Non-goals
 

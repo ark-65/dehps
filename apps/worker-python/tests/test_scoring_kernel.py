@@ -22,13 +22,15 @@ from dehps.scoring_kernel import (
     KernelWorkspace,
     WeightMatrix,
     candidate_store_from_matrix,
+    compare_kernel_results,
+    execute_feature_abi_shadow_pair,
     numbers_mask,
     pack_window_state,
-    run_shadow_comparison,
     target_lex_id,
 )
 from dehps.scoring_kernel.numba_backend import NumbaCpuBackend, _score_rank_tile
 from dehps.scoring_kernel.numpy_backend import NumpyReferenceBackend, component_tile
+from dehps.scoring_kernel.runtime_input import default_runtime_input_compiler
 
 
 @pytest.fixture(scope="module")
@@ -76,6 +78,7 @@ def kernel_case():
     )
     return {
         "matrix": matrix,
+        "history": history,
         "stats": stats,
         "store": store,
         "state": state,
@@ -178,20 +181,34 @@ def test_shadow_runtime_executes_numpy_and_numba_against_one_request(kernel_case
         window_id=79,
     )
 
-    evidence = run_shadow_comparison(
-        target_issue="2026082",
-        line_key="static_100",
-        config_fingerprint="fixture-config",
+    runtime_inputs = default_runtime_input_compiler().compile_effective_history(
+        history=kernel_case["history"],
         candidate_store=kernel_case["store"],
-        window_state=kernel_case["state"],
+        tile_size=request.chunk_size,
+        target_issue="2026082",
+        source="test_verified_shadow_effective_history",
+    )
+    official, shadow = execute_feature_abi_shadow_pair(
+        verified_runtime=runtime_inputs.verified_runtime,
+        code_commit="a" * 40,
         weights=kernel_case["weights"],
         request=request,
     )
+    evidence = compare_kernel_results(
+        target_issue="2026082",
+        line_key="static_100",
+        config_fingerprint="fixture-config",
+        candidate_store_version=kernel_case["store"].store_version,
+        official=official,
+        shadow=shadow,
+        runtime_abi_cache=runtime_inputs.abi_cache_compilation.as_dict(),
+    )
 
     assert evidence["comparison_status"] == "exact"
-    assert evidence["official_backend"] == "numpy_reference"
-    assert evidence["shadow_backend"] == "numba_cpu"
+    assert evidence["official_backend"] == "feature_abi_numpy_reference"
+    assert evidence["shadow_backend"] == "feature_abi_numba_cpu"
     assert evidence["official_result_digest"] == evidence["shadow_result_digest"]
+    assert evidence["verified_runtime_id"] == runtime_inputs.verified_runtime.verified_runtime_id
     assert evidence["automatic_promotion_allowed"] is False
 
 
@@ -352,13 +369,13 @@ def test_kernel_prepare_rejects_candidate_abi_mismatch_without_repair(kernel_cas
     assert error.value.code == "candidate_layout_digest_mismatch"
 
 
-def test_planner_defaults_to_reference_and_has_explicit_rollback(monkeypatch):
+def test_planner_defaults_to_verified_reference_and_has_explicit_rollback(monkeypatch):
     monkeypatch.delenv("DEHPS_SCORING_BACKEND", raising=False)
-    assert KernelPlanner().backend().name == "numpy_reference"
+    assert KernelPlanner().feature_abi_backend().name == "feature_abi_numpy_reference"
     monkeypatch.setenv("DEHPS_SCORING_BACKEND", "numba_cpu")
-    assert KernelPlanner().backend().name == "numba_cpu"
+    assert KernelPlanner().feature_abi_backend().name == "feature_abi_numba_cpu"
     monkeypatch.setenv("DEHPS_SCORING_BACKEND", "numpy_reference")
-    assert KernelPlanner().backend().name == "numpy_reference"
+    assert KernelPlanner().feature_abi_backend().name == "feature_abi_numpy_reference"
 
 
 def test_numba_contract_disables_fastmath_and_enables_parallel():
