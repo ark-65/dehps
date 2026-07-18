@@ -16,6 +16,11 @@ from dehps.artifacts import atomic_write_text
 from dehps.config import ROOT_DIR
 from dehps.draw_sync.models import jsonable
 from dehps.draw_sync.service import DrawSyncService
+from dehps.forward_runtime.shadow_attestation import (
+    ForwardShadowAttestationService,
+    forward_shadow_attestation_enabled,
+)
+from dehps.scoring_kernel import seal_shadow_watch_cycle
 from dehps.source_version import resolve_git_commit
 
 
@@ -77,6 +82,8 @@ class DrawSyncWatch:
         version_path: Path | None = None,
         code_commit: str | None = None,
         clock: Callable[[], datetime] | None = None,
+        shadow_attestor: Any | None = None,
+        shadow_attestation_enabled: bool | None = None,
     ) -> None:
         self.service = service or DrawSyncService()
         if forward_evaluator is None:
@@ -97,6 +104,20 @@ class DrawSyncWatch:
         self.code_commit = code_commit or resolve_git_commit()
         self._clock = clock or (lambda: datetime.now(ZoneInfo(self.policy.timezone)))
         self.started_at = self._clock().isoformat()
+        self.shadow_attestation_enabled = (
+            forward_shadow_attestation_enabled()
+            if shadow_attestation_enabled is None
+            else bool(shadow_attestation_enabled)
+        )
+        self.shadow_attestor = (
+            shadow_attestor
+            if shadow_attestor is not None
+            else (
+                ForwardShadowAttestationService()
+                if self.shadow_attestation_enabled
+                else None
+            )
+        )
         self._stopping = False
 
     def run(self, *, once: bool = False) -> None:
@@ -120,6 +141,46 @@ class DrawSyncWatch:
                     event_key = None
                 evaluation_result = self.forward_evaluator.evaluate_pending()
                 evaluation_failed = int(evaluation_result.get("failed_count") or 0) > 0
+                shadow_watch_cycle = None
+                shadow_attestation = {
+                    "protocol": "forward-shadow-attestation-closure.v1",
+                    "status": "disabled",
+                    "automatic_promotion_allowed": False,
+                }
+                if self.shadow_attestation_enabled and self.shadow_attestor is not None:
+                    result_payload = jsonable(result)
+                    result_payload = result_payload if isinstance(result_payload, dict) else {}
+                    shadow_watch_cycle = seal_shadow_watch_cycle(
+                        watch_code_commit=self.code_commit,
+                        watch_started_at=self.started_at,
+                        observed_at=self._clock().isoformat(),
+                        sync_status=str(result_payload.get("status") or "unknown"),
+                        sync_audit_passed=result_payload.get("audit_passed") is True,
+                        current_latest_issue=result_payload.get("current_latest_issue"),
+                        evaluation_batch_status=str(
+                            evaluation_result.get("status") or "unknown"
+                        ),
+                        evaluation_failed_count=int(
+                            evaluation_result.get("failed_count") or 0
+                        ),
+                    )
+                    try:
+                        shadow_attestation = self.shadow_attestor.close_cycle(
+                            shadow_watch_cycle
+                        )
+                    except Exception as exc:  # shadow evidence cannot replace official evaluation.
+                        details = getattr(exc, "as_dict", None)
+                        shadow_attestation = {
+                            "protocol": "forward-shadow-attestation-closure.v1",
+                            "status": "failed",
+                            "failed_count": 1,
+                            "error": (
+                                details()
+                                if callable(details)
+                                else {"type": type(exc).__name__, "message": str(exc)}
+                            ),
+                            "automatic_promotion_allowed": False,
+                        }
                 resume_result = None if evaluation_failed else self._resume_if_event(event_key)
                 payload = {
                     "status": "error" if evaluation_failed else "ok",
@@ -130,6 +191,8 @@ class DrawSyncWatch:
                     "last_result": result,
                     "sync_deferred": deferred_until is not None,
                     "forward_evaluation": evaluation_result,
+                    "shadow_watch_cycle": shadow_watch_cycle,
+                    "shadow_attestation": shadow_attestation,
                     "resume_on_event": self.resume_on_event,
                     "resume_result": resume_result,
                     "error": (

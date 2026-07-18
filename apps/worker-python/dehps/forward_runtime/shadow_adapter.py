@@ -137,6 +137,7 @@ def forward_operational_evidence(
     capture_mode: str,
     restart_recovery_result: str,
     watchdog_result: str,
+    operational_receipt: Mapping[str, Any] | None = None,
 ) -> ShadowOperationalEvidence:
     return ShadowOperationalEvidence(
         capture_mode=capture_mode,
@@ -153,4 +154,5 @@ def forward_operational_evidence(
         evaluation_mismatch_count=evaluation_check.mismatch_count,
         restart_recovery_result=restart_recovery_result,
         watchdog_result=watchdog_result,
+        operational_receipt=operational_receipt,
     )
