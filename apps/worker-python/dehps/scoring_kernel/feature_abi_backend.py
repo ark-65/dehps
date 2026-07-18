@@ -10,7 +10,6 @@ from dehps.contracts import canonical_digest
 from dehps.feature_runtime.runtime import FeatureABIRuntime
 from dehps.input_contracts.candidate_abi import (
     CandidateABIVerification,
-    CandidateABIVerifier,
 )
 from dehps.ranking_contract import STRICT_RANKING_CONTRACT
 from dehps.runtime_envelope import (
@@ -19,7 +18,11 @@ from dehps.runtime_envelope import (
     RuntimeEnvelopeVerifier,
     RuntimeState,
 )
-from dehps.unified_runtime import UnifiedRuntimeVerifier, VerifiedRuntimePackage
+from dehps.unified_runtime import (
+    RuntimeVerificationSession,
+    UnifiedRuntimeVerifier,
+    VerifiedRuntimePackage,
+)
 from dehps.scoring_kernel.contracts import (
     SCORE_ROUND_DIGITS,
     STRICT_CONTRACT_VERSION,
@@ -39,6 +42,8 @@ class PreparedFeatureABIRuntime:
     prepare_seconds: float
     runtime_envelope: RuntimeEnvelopeV1
     candidate_abi_verification: CandidateABIVerification
+    runtime_verification_passes: int
+    runtime_verification_seconds: float
 
     @property
     def runtime(self) -> FeatureABIRuntime:
@@ -66,22 +71,28 @@ class FeatureABINumpyReferenceBackend:
         code_commit: str,
     ) -> PreparedFeatureABIRuntime:
         started = time.perf_counter()
-        UnifiedRuntimeVerifier().verify_package(verified_runtime)
-        runtime = verified_runtime.runtime
-        candidate_verification = CandidateABIVerifier().verify(
-            runtime.candidate_package
-        )
-        runtime_envelope = RuntimeEnvelopeCompiler().compile_kernel_ready(
-            verified_runtime,
-            backend=self.name,
-            code_commit=code_commit,
-        )
+        verifier = UnifiedRuntimeVerifier()
+        verification_session = verifier.verification_session(verified_runtime)
+        with verification_session:
+            candidate_verification = verification_session.candidate_verification
+            runtime_envelope = RuntimeEnvelopeCompiler().compile_kernel_ready(
+                verified_runtime,
+                backend=self.name,
+                code_commit=code_commit,
+                verification_session=verification_session,
+            )
         return PreparedFeatureABIRuntime(
             verified_runtime=verified_runtime,
             backend_name=self.name,
             prepare_seconds=time.perf_counter() - started,
             runtime_envelope=runtime_envelope,
             candidate_abi_verification=candidate_verification,
+            runtime_verification_passes=(
+                verification_session.full_verification_passes
+            ),
+            runtime_verification_seconds=(
+                verification_session.total_verification_seconds
+            ),
         )
 
     def _tile(
@@ -137,14 +148,53 @@ class FeatureABINumpyReferenceBackend:
         request: KernelRequest,
         workspace: KernelWorkspace | None = None,
     ) -> KernelResult:
+        verifier = UnifiedRuntimeVerifier()
+        verification_session = verifier.verification_session(
+            prepared.verified_runtime
+        )
+        with verification_session:
+            result = self._score_rank_in_session(
+                prepared,
+                weights,
+                request,
+                workspace,
+                verification_session=verification_session,
+            )
+        result.telemetry["runtime_verification_passes"] = (
+            verification_session.full_verification_passes
+        )
+        result.telemetry["runtime_verification_seconds"] = (
+            verification_session.total_verification_seconds
+        )
+        result.telemetry["prepare_runtime_verification_passes"] = (
+            prepared.runtime_verification_passes
+        )
+        result.telemetry["prepare_runtime_verification_seconds"] = (
+            prepared.runtime_verification_seconds
+        )
+        record_kernel_telemetry(result.telemetry)
+        return result
+
+    def _score_rank_in_session(
+        self,
+        prepared: PreparedFeatureABIRuntime,
+        weights: WeightMatrix,
+        request: KernelRequest,
+        workspace: KernelWorkspace | None,
+        *,
+        verification_session: RuntimeVerificationSession,
+    ) -> KernelResult:
         workspace = workspace or KernelWorkspace()
-        UnifiedRuntimeVerifier().verify_package(prepared.verified_runtime)
+        UnifiedRuntimeVerifier().require_active_session(
+            verification_session,
+            package=prepared.verified_runtime,
+        )
         runtime = prepared.runtime
-        runtime.verify()
         RuntimeEnvelopeVerifier().verify(
             prepared.runtime_envelope,
             runtime=runtime,
             expected_backend=self.name,
+            verification_session=verification_session,
         )
         if prepared.runtime_envelope.state is not RuntimeState.KERNEL_READY:
             raise ValueError("Feature ABI runtime envelope must be kernel_ready")
@@ -336,6 +386,7 @@ class FeatureABINumpyReferenceBackend:
             payload_digest=payload_digest,
             runtime=runtime,
             expected_backend=self.name,
+            verification_session=verification_session,
         )
         telemetry["runtime_envelope_version"] = produced_envelope.envelope_version
         telemetry["runtime_envelope_state"] = produced_envelope.state.value
@@ -354,7 +405,6 @@ class FeatureABINumpyReferenceBackend:
             telemetry=telemetry,
             runtime_envelope=produced_envelope.as_dict(),
         )
-        record_kernel_telemetry(telemetry)
         return result
 
 

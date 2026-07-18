@@ -98,6 +98,11 @@ than pretending that a full matrix is a TopK `KernelResult`.
 Independent raw backend classes and reference formulae remain restricted to backend implementation
 tests and `scripts/benchmark_scoring_kernel.py`; they are not scheduler or application entry points.
 
+Planner, Envelope, and FullScore nested verification now uses
+[`runtime-verification-session.v1`](runtime-verification-session-v1.md): one full payload check at
+entry and one at exit, with no time- or identity-based trust lease. Warm Runtime ABI Cache lookup
+still performs separate entry and assembled-Runtime checks and remains the next performance boundary.
+
 ## Non-goals
 
 - no live deployment, supervisor restart, or production write;

@@ -20,7 +20,11 @@ from dehps.scoring_kernel.contracts import (
     STRICT_CONTRACT_VERSION,
     WeightMatrix,
 )
-from dehps.unified_runtime import UnifiedRuntimeVerifier, VerifiedRuntimePackage
+from dehps.unified_runtime import (
+    RuntimeVerificationSession,
+    UnifiedRuntimeVerifier,
+    VerifiedRuntimePackage,
+)
 
 
 FULL_SCORE_GRID_ARTIFACT_VERSION = "full_score_grid_artifact.v1"
@@ -140,7 +144,28 @@ class FullScoreGridArtifactCompilerV1:
         weights: WeightMatrix,
         code_commit: str,
     ) -> FullScoreGridArtifactV1:
-        UnifiedRuntimeVerifier().verify_package(verified_runtime)
+        verifier = UnifiedRuntimeVerifier()
+        verification_session = verifier.verification_session(verified_runtime)
+        with verification_session:
+            return self._compile_in_session(
+                verified_runtime=verified_runtime,
+                weights=weights,
+                code_commit=code_commit,
+                verification_session=verification_session,
+            )
+
+    def _compile_in_session(
+        self,
+        *,
+        verified_runtime: VerifiedRuntimePackage,
+        weights: WeightMatrix,
+        code_commit: str,
+        verification_session: RuntimeVerificationSession,
+    ) -> FullScoreGridArtifactV1:
+        UnifiedRuntimeVerifier().require_active_session(
+            verification_session,
+            package=verified_runtime,
+        )
         runtime = verified_runtime.runtime
         if weights.config_count < 1:
             self._reject("full_score_config_count_invalid", "at least one config is required")
@@ -157,6 +182,7 @@ class FullScoreGridArtifactCompilerV1:
             backend=FULL_SCORE_GRID_BACKEND,
             code_commit=code_commit,
             artifact_type="full_score_grid",
+            verification_session=verification_session,
         )
         executing = ready.transition(RuntimeState.KERNEL_EXECUTING)
         scores = np.empty(
@@ -203,6 +229,7 @@ class FullScoreGridArtifactCompilerV1:
             artifact,
             verified_runtime=verified_runtime,
             weights=weights,
+            verification_session=verification_session,
         )
         return artifact
 
@@ -218,10 +245,23 @@ class FullScoreGridArtifactVerifierV1:
         *,
         verified_runtime: VerifiedRuntimePackage,
         weights: WeightMatrix,
+        verification_session: RuntimeVerificationSession | None = None,
     ) -> None:
+        if verification_session is None:
+            verifier = UnifiedRuntimeVerifier()
+            with verifier.verification_session(verified_runtime) as active_session:
+                return self.verify(
+                    artifact,
+                    verified_runtime=verified_runtime,
+                    weights=weights,
+                    verification_session=active_session,
+                )
+        UnifiedRuntimeVerifier().require_active_session(
+            verification_session,
+            package=verified_runtime,
+        )
         if not isinstance(artifact, FullScoreGridArtifactV1):
             self._reject("full_score_artifact_type_invalid", "unsupported artifact object")
-        UnifiedRuntimeVerifier().verify_package(verified_runtime)
         runtime = verified_runtime.runtime
         header = artifact.header
         expected_identity = {
@@ -282,6 +322,7 @@ class FullScoreGridArtifactVerifierV1:
             payload_digest=artifact.payload_digest,
             runtime=runtime,
             expected_backend=FULL_SCORE_GRID_BACKEND,
+            verification_session=verification_session,
         )
 
     @staticmethod
