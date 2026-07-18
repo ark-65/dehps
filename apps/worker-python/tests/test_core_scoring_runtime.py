@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import itertools
 
 import numpy as np
@@ -10,8 +11,11 @@ from dehps.models.frequency_ranker import FrequencyRankerConfig, train_frequency
 from dehps.optimization.walk_forward import (
     _config_weight_matrix,
     _kernel_score_rank,
+    _score_matrix,
     _target_scores,
     build_ranked_universe,
+    compile_score_config_grid_artifact,
+    score_config_grid,
 )
 from dehps.scoring_kernel import (
     KernelRequest,
@@ -23,7 +27,13 @@ from dehps.scoring_kernel import (
     target_lex_id,
 )
 from dehps.scoring_kernel.numpy_backend import NumpyReferenceBackend
+from dehps.scoring_kernel.full_score_artifact import (
+    FullScoreGridArtifactCompilerV1,
+    FullScoreGridArtifactVerifierV1,
+    FullScoreGridViolation,
+)
 from dehps.scoring_kernel.runtime_input import default_runtime_input_compiler
+from dehps.unified_runtime import RuntimeVerificationViolation
 
 
 def _case():
@@ -191,4 +201,137 @@ def test_runtime_input_compiler_rejects_target_issue_leakage() -> None:
             candidate_store=store,
             tile_size=333,
             target_issue=history[-1][0],
+        )
+
+
+def test_full_score_grid_artifact_is_reference_exact_and_deterministic() -> None:
+    default_runtime_input_compiler().cache.clear()
+    matrix, history, configs, _target_numbers, stats, _scores = _case()
+    expected = _score_matrix(matrix, stats, configs)
+
+    first = compile_score_config_grid_artifact(
+        train_history=history,
+        configs=configs,
+        ranked_universe=matrix,
+        target_issue="2025051",
+    )
+    second = compile_score_config_grid_artifact(
+        train_history=history,
+        configs=configs,
+        ranked_universe=matrix,
+        target_issue="2025051",
+    )
+
+    assert np.array_equal(first.scores, expected)
+    assert first.scores.flags.writeable is False
+    assert first.artifact_digest == second.artifact_digest
+    assert first.payload_digest == second.payload_digest
+    assert first.runtime_envelope.state.value == "artifact_produced"
+    assert first.runtime_envelope.artifact_type == "full_score_grid"
+    assert first.header.verified_runtime_id == matrix.cache_info["full_score_grid"][
+        "runtime_input"
+    ]["runtime_abi_cache"]["verified_runtime_id"]
+    assert matrix.cache_info["full_score_grid"]["runtime_input"][
+        "runtime_abi_cache"
+    ]["runtime_cache_hit"] is True
+
+    projected = score_config_grid(
+        train_history=history,
+        configs=configs,
+        ranked_universe=matrix,
+        target_issue="2025051",
+    )
+    assert np.array_equal(projected, expected)
+    assert projected.flags.writeable is False
+
+
+def test_full_score_grid_verifier_rejects_score_weight_and_envelope_drift() -> None:
+    matrix, history, configs, _target_numbers, _stats, _scores = _case()
+    store = candidate_store_from_matrix(matrix)
+    runtime_inputs = default_runtime_input_compiler().compile_effective_history(
+        history=history,
+        candidate_store=store,
+        tile_size=333,
+        target_issue="2025051",
+    )
+    weights = WeightMatrix(
+        np.ascontiguousarray(_config_weight_matrix(configs), dtype=np.float64)
+    )
+    artifact = FullScoreGridArtifactCompilerV1().compile(
+        verified_runtime=runtime_inputs.verified_runtime,
+        weights=weights,
+        code_commit="a" * 40,
+    )
+    verifier = FullScoreGridArtifactVerifierV1()
+    verifier.verify(
+        artifact,
+        verified_runtime=runtime_inputs.verified_runtime,
+        weights=weights,
+    )
+
+    writable = artifact.scores.copy()
+    with pytest.raises(FullScoreGridViolation, match="full_score_buffer_writable"):
+        verifier.verify(
+            replace(artifact, scores=writable),
+            verified_runtime=runtime_inputs.verified_runtime,
+            weights=weights,
+        )
+
+    mutated = artifact.scores.copy()
+    mutated[0, 0] += 0.25
+    mutated.setflags(write=False)
+    with pytest.raises(
+        FullScoreGridViolation,
+        match="full_score_payload_digest_mismatch",
+    ):
+        verifier.verify(
+            replace(artifact, scores=mutated),
+            verified_runtime=runtime_inputs.verified_runtime,
+            weights=weights,
+        )
+
+    wrong_weights = WeightMatrix(weights.values.copy())
+    wrong_weights.values[0, 0] += 0.01
+    with pytest.raises(
+        FullScoreGridViolation,
+        match="full_score_header_binding_mismatch",
+    ):
+        verifier.verify(
+            artifact,
+            verified_runtime=runtime_inputs.verified_runtime,
+            weights=wrong_weights,
+        )
+
+    with pytest.raises(ValueError, match="runtime_backend_mismatch"):
+        verifier.verify(
+            replace(
+                artifact,
+                runtime_envelope=replace(
+                    artifact.runtime_envelope,
+                    backend="unverified_backend",
+                ),
+            ),
+            verified_runtime=runtime_inputs.verified_runtime,
+            weights=weights,
+        )
+
+
+def test_full_score_grid_compiler_rejects_raw_unverified_runtime() -> None:
+    matrix, history, configs, _target_numbers, _stats, _scores = _case()
+    store = candidate_store_from_matrix(matrix)
+    runtime_inputs = default_runtime_input_compiler().compile_effective_history(
+        history=history,
+        candidate_store=store,
+        tile_size=333,
+        target_issue="2025051",
+    )
+    weights = WeightMatrix(
+        np.ascontiguousarray(_config_weight_matrix(configs), dtype=np.float64)
+    )
+
+    with pytest.raises(RuntimeVerificationViolation, match="runtime_package_not_verified"):
+        FullScoreGridArtifactCompilerV1().compile(
+            verified_runtime=runtime_inputs.verified_runtime.runtime,  # type: ignore[arg-type]
+            weights=weights,
+            code_commit="a" * 40,
         )
