@@ -9,9 +9,11 @@ import threading
 import numpy as np
 import pytest
 
+import dehps.feature_runtime.cache as runtime_cache_module
 from dehps.feature_runtime import (
     FeatureABICompiler,
     FeatureABIRuntime,
+    FeatureABIVerifier,
     FeatureCompileRequest,
     FeatureCompiler,
     FeatureRuntimeViolation,
@@ -105,6 +107,11 @@ def test_runtime_abi_cache_reuses_read_only_feature_buffers_and_verified_runtime
     assert first.runtime_cache_hit is False
     assert second.runtime_cache_hit is True
     assert second.all_feature_cache_hits is True
+    assert second.verification_strategy == "assembled_runtime_transaction"
+    assert second.feature_payload_verification_passes == 0
+    assert second.runtime_payload_verification_passes == 1
+    assert second.transaction_recovered is False
+    assert second.as_dict()["verification_strategy"] == "assembled_runtime_transaction"
     assert second.verified_runtime is first.verified_runtime
     assert second.verified_runtime.verified_runtime_id == first.verified_runtime.verified_runtime_id
     for left, right in zip(first.feature_receipts, second.feature_receipts):
@@ -126,6 +133,61 @@ def test_runtime_abi_cache_reuses_read_only_feature_buffers_and_verified_runtime
         "max_entries": 8,
         "max_payload_bytes": 8 * 1024 * 1024,
     }
+
+
+def test_runtime_abi_cache_warm_transaction_coalesces_payload_verification(
+    monkeypatch,
+) -> None:
+    snapshot, window, store = _case()
+
+    class CountingFeatureVerifier(FeatureABIVerifier):
+        calls = 0
+
+        def verify(self, *args, **kwargs):
+            type(self).calls += 1
+            return super().verify(*args, **kwargs)
+
+    class CountingRuntimeVerifier(UnifiedRuntimeVerifier):
+        def __init__(self):
+            self.verify_calls = 0
+            self.verify_package_calls = 0
+
+        def verify(self, runtime):
+            self.verify_calls += 1
+            return super().verify(runtime)
+
+        def verify_package(self, package):
+            self.verify_package_calls += 1
+            return super().verify_package(package)
+
+    monkeypatch.setattr(
+        runtime_cache_module,
+        "FeatureABIVerifier",
+        CountingFeatureVerifier,
+    )
+    runtime_verifier = CountingRuntimeVerifier()
+    cache = RuntimeABICache(runtime_verifier=runtime_verifier)
+
+    cache.compile_runtime(
+        history_snapshot=snapshot,
+        window=window,
+        candidate_store=store,
+        tile_size=200,
+    )
+    cold_feature_passes = CountingFeatureVerifier.calls
+    warm = cache.compile_runtime(
+        history_snapshot=snapshot,
+        window=window,
+        candidate_store=store,
+        tile_size=200,
+    )
+
+    assert cold_feature_passes == 3
+    assert CountingFeatureVerifier.calls == cold_feature_passes
+    assert runtime_verifier.verify_calls == 1
+    assert runtime_verifier.verify_package_calls == 1
+    assert warm.feature_payload_verification_passes == 0
+    assert warm.runtime_payload_verification_passes == 1
 
 
 def test_runtime_abi_cache_rejects_history_window_mismatch_before_partial_insert() -> None:
@@ -314,7 +376,75 @@ def test_runtime_abi_cache_invalidates_mutated_verified_runtime_seal() -> None:
     assert recovered.runtime_cache_hit is False
     assert recovered.verified_runtime is not first.verified_runtime
     assert recovered.verified_runtime.verification_digest != "f" * 64
+    assert recovered.verification_strategy == "transaction_fallback_recovery"
+    assert recovered.feature_payload_verification_passes == 3
+    assert recovered.runtime_payload_verification_passes == 1
+    assert recovered.transaction_recovered is True
     assert cache.stats().invalidations == 1
+
+
+def test_runtime_abi_cache_transaction_recovers_mutated_feature_payload() -> None:
+    snapshot, window, store = _case()
+    cache = RuntimeABICache()
+    first = cache.compile_runtime(
+        history_snapshot=snapshot,
+        window=window,
+        candidate_store=store,
+        tile_size=200,
+    )
+    canonical = first.feature_receipts[0].package.values.copy()
+    first.feature_receipts[0].package.values.setflags(write=True)
+    first.feature_receipts[0].package.values[0, 0] += 1.0
+    first.feature_receipts[0].package.values.setflags(write=False)
+
+    recovered = cache.compile_runtime(
+        history_snapshot=snapshot,
+        window=window,
+        candidate_store=store,
+        tile_size=200,
+    )
+
+    assert recovered.runtime_cache_hit is False
+    assert recovered.verification_strategy == "transaction_fallback_recovery"
+    assert recovered.feature_payload_verification_passes == 3
+    assert recovered.runtime_payload_verification_passes == 2
+    assert recovered.transaction_recovered is True
+    assert recovered.feature_receipts[0].cache_hit is False
+    assert np.array_equal(recovered.feature_receipts[0].package.values, canonical)
+    assert cache.stats().invalidations == 1
+    assert cache.stats().evictions == 1
+
+
+def test_runtime_abi_cache_transaction_rekeys_changed_candidate_static_input() -> None:
+    snapshot, window, store = _case()
+    cache = RuntimeABICache()
+    first = cache.compile_runtime(
+        history_snapshot=snapshot,
+        window=window,
+        candidate_store=store,
+        tile_size=200,
+    )
+    first_keys = tuple(
+        receipt.key.cache_key_digest for receipt in first.feature_receipts
+    )
+
+    store.structural_score[0] += 0.125
+    changed = cache.compile_runtime(
+        history_snapshot=snapshot,
+        window=window,
+        candidate_store=store,
+        tile_size=200,
+    )
+
+    assert changed.runtime_cache_hit is False
+    assert changed.transaction_recovered is False
+    assert changed.verification_strategy == "per_feature_verification"
+    assert changed.feature_payload_verification_passes == 3
+    assert changed.runtime_payload_verification_passes == 1
+    assert changed.feature_receipts[0].key.cache_key_digest != first_keys[0]
+    assert tuple(
+        receipt.key.cache_key_digest for receipt in changed.feature_receipts[1:]
+    ) == first_keys[1:]
 
 
 def test_runtime_abi_cache_serializes_concurrent_identical_compilation() -> None:
@@ -340,6 +470,40 @@ def test_runtime_abi_cache_serializes_concurrent_identical_compilation() -> None
     assert compiler.calls == 1
     assert sum(receipt.cache_hit for receipt in receipts) == 3
     assert len({id(receipt.package) for receipt in receipts}) == 1
+
+
+def test_runtime_abi_cache_serializes_concurrent_identical_runtime_compilation() -> None:
+    snapshot, window, store = _case()
+
+    class CountingCompiler(FeatureCompiler):
+        def __init__(self):
+            self.calls = 0
+            self.lock = threading.Lock()
+
+        def compile(self, request):
+            with self.lock:
+                self.calls += 1
+            return super().compile(request)
+
+    compiler = CountingCompiler()
+    cache = RuntimeABICache(feature_compiler=compiler)
+
+    def compile_runtime(_index):
+        return cache.compile_runtime(
+            history_snapshot=snapshot,
+            window=window,
+            candidate_store=store,
+            tile_size=200,
+        )
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        compilations = list(executor.map(compile_runtime, range(4)))
+
+    assert compiler.calls == 3
+    assert sum(compilation.runtime_cache_hit for compilation in compilations) == 3
+    assert len({id(compilation.verified_runtime) for compilation in compilations}) == 1
+    assert cache.stats().runtime_hits == 3
+    assert cache.stats().runtime_misses == 1
 
 
 def test_runtime_abi_cache_lru_and_byte_limits_are_deterministic() -> None:
