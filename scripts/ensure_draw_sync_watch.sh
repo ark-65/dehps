@@ -6,10 +6,17 @@ WORKER_DIR="$REPO_ROOT/apps/worker-python"
 LOG_DIR="$REPO_ROOT/runtime/logs"
 PID_FILE="$LOG_DIR/draw-sync-watch.pid"
 VERSION_FILE="$LOG_DIR/draw-sync-watch.version"
+LAUNCH_CONTRACT_FILE="$LOG_DIR/draw-sync-watch.launch.json"
 LOG_FILE="$LOG_DIR/draw-sync-watch.log"
 
 mkdir -p "$LOG_DIR"
 cd "$WORKER_DIR"
+
+INTERVAL_SECONDS="${DEHPS_DRAW_SYNC_INTERVAL_SECONDS:-900}"
+HOT_INTERVAL_SECONDS="${DEHPS_DRAW_SYNC_HOT_INTERVAL_SECONDS:-300}"
+COLD_INTERVAL_SECONDS="${DEHPS_DRAW_SYNC_COLD_INTERVAL_SECONDS:-3600}"
+TIMEZONE="${DEHPS_DRAW_SYNC_TIMEZONE:-Asia/Shanghai}"
+SHADOW_ATTESTATION="${DEHPS_FORWARD_SHADOW_ATTESTATION:-false}"
 
 desired_commit="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || true)"
 if [[ ! "$desired_commit" =~ ^[0-9a-f]{40}$ ]]; then
@@ -21,18 +28,43 @@ if [[ -n "$(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all)" ]]
   exit 1
 fi
 
+if ! desired_contract_digest="$(
+  .venv/bin/python -m dehps.draw_sync.launch_contract \
+    --code-commit "$desired_commit" \
+    --interval-seconds "$INTERVAL_SECONDS" \
+    --hot-interval-seconds "$HOT_INTERVAL_SECONDS" \
+    --cold-interval-seconds "$COLD_INTERVAL_SECONDS" \
+    --timezone "$TIMEZONE" \
+    --resume-on-event false \
+    --shadow-attestation-enabled "$SHADOW_ATTESTATION" \
+    --digest-only
+)"; then
+  printf '%s invalid draw sync launch configuration\n' "$(date -Is)" >&2
+  exit 1
+fi
+
+running_contract_digest() {
+  .venv/bin/python -m dehps.draw_sync.launch_contract \
+    --verify-file "$LAUNCH_CONTRACT_FILE" \
+    --digest-only 2>/dev/null || true
+}
+
 pid=""
 if [[ -f "$PID_FILE" ]]; then
   pid="$(tr -d '[:space:]' < "$PID_FILE" 2>/dev/null || true)"
 fi
 if [[ "$pid" =~ ^[0-9]+$ ]] && ps -p "$pid" -o args= 2>/dev/null | grep -Fq "scripts/run_draw_sync_watch.py"; then
   running_commit="$(tr -d '[:space:]' < "$VERSION_FILE" 2>/dev/null || true)"
-  if [[ "$running_commit" == "$desired_commit" ]]; then
-    printf '%s draw sync watch already running pid=%s commit=%s\n' "$(date -Is)" "$pid" "$running_commit"
+  running_launch_digest="$(running_contract_digest)"
+  if [[ "$running_commit" == "$desired_commit" \
+    && "$running_launch_digest" == "$desired_contract_digest" ]]; then
+    printf '%s draw sync watch already running pid=%s commit=%s launch_contract=%s\n' \
+      "$(date -Is)" "$pid" "$running_commit" "$running_launch_digest"
     exit 0
   fi
-  printf '%s stopping stale draw sync watch pid=%s running_commit=%s desired_commit=%s\n' \
-    "$(date -Is)" "$pid" "${running_commit:-not_recorded}" "$desired_commit"
+  printf '%s stopping stale draw sync watch pid=%s running_commit=%s desired_commit=%s running_launch_contract=%s desired_launch_contract=%s\n' \
+    "$(date -Is)" "$pid" "${running_commit:-not_recorded}" "$desired_commit" \
+    "${running_launch_digest:-not_recorded}" "$desired_contract_digest"
   kill -TERM "$pid"
   for _attempt in {1..50}; do
     if ! ps -p "$pid" -o args= 2>/dev/null | grep -Fq "scripts/run_draw_sync_watch.py"; then
@@ -47,12 +79,13 @@ if [[ "$pid" =~ ^[0-9]+$ ]] && ps -p "$pid" -o args= 2>/dev/null | grep -Fq "scr
   fi
 fi
 
-rm -f "$PID_FILE" "$VERSION_FILE"
+rm -f "$PID_FILE" "$VERSION_FILE" "$LAUNCH_CONTRACT_FILE"
 
 setsid .venv/bin/python "$REPO_ROOT/scripts/run_draw_sync_watch.py" \
-  --interval-seconds "${DEHPS_DRAW_SYNC_INTERVAL_SECONDS:-900}" \
-  --hot-interval-seconds "${DEHPS_DRAW_SYNC_HOT_INTERVAL_SECONDS:-300}" \
-  --timezone "${DEHPS_DRAW_SYNC_TIMEZONE:-Asia/Shanghai}" \
+  --interval-seconds "$INTERVAL_SECONDS" \
+  --hot-interval-seconds "$HOT_INTERVAL_SECONDS" \
+  --cold-interval-seconds "$COLD_INTERVAL_SECONDS" \
+  --timezone "$TIMEZONE" \
   >> "$LOG_FILE" 2>&1 < /dev/null &
 
 sleep 1
@@ -62,14 +95,22 @@ if [[ -f "$PID_FILE" ]]; then
 fi
 if [[ "$pid" =~ ^[0-9]+$ ]] && ps -p "$pid" -o args= 2>/dev/null | grep -Fq "scripts/run_draw_sync_watch.py"; then
   running_commit="$(tr -d '[:space:]' < "$VERSION_FILE" 2>/dev/null || true)"
+  running_launch_digest="$(running_contract_digest)"
   if [[ "$running_commit" != "$desired_commit" ]]; then
     printf '%s draw sync watch started with wrong commit pid=%s running_commit=%s desired_commit=%s\n' \
       "$(date -Is)" "$pid" "${running_commit:-not_recorded}" "$desired_commit" >&2
     kill -TERM "$pid" 2>/dev/null || true
     exit 1
   fi
-  printf '%s started draw sync watch pid=%s commit=%s log=%s\n' \
-    "$(date -Is)" "$pid" "$running_commit" "$LOG_FILE"
+  if [[ "$running_launch_digest" != "$desired_contract_digest" ]]; then
+    printf '%s draw sync watch started with wrong launch contract pid=%s running=%s desired=%s\n' \
+      "$(date -Is)" "$pid" "${running_launch_digest:-not_recorded}" \
+      "$desired_contract_digest" >&2
+    kill -TERM "$pid" 2>/dev/null || true
+    exit 1
+  fi
+  printf '%s started draw sync watch pid=%s commit=%s launch_contract=%s log=%s\n' \
+    "$(date -Is)" "$pid" "$running_commit" "$running_launch_digest" "$LOG_FILE"
   exit 0
 fi
 
