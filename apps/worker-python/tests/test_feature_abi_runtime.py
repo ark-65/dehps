@@ -234,9 +234,13 @@ def test_feature_abi_runtime_matches_existing_reference_score_rank_topk_and_red5
     assert projection["envelope"]["envelope_digest"] == envelope.envelope_digest
 
 
-def test_feature_abi_topk_reduction_is_worker_invariant(feature_runtime_case) -> None:
+@pytest.mark.parametrize("backend_name", ["numpy_reference", "numba_cpu"])
+def test_feature_abi_topk_reduction_is_worker_invariant(
+    feature_runtime_case,
+    backend_name,
+) -> None:
     runtime = _runtime(feature_runtime_case, tile_size=333)
-    planner = KernelPlanner("numpy_reference")
+    planner = KernelPlanner(backend_name)
     prepared = planner.prepare_feature_abi(_verified(runtime), code_commit=TEST_CODE_COMMIT)
     serial = planner.score_rank_feature_abi(
         prepared,
@@ -292,15 +296,71 @@ def test_feature_abi_runtime_rejects_context_drift_between_tiles(feature_runtime
         ).verify()
 
 
-def test_planner_refuses_to_label_unmigrated_fused_backend_as_feature_abi(
+@pytest.mark.parametrize("tile_size", [127, 777])
+def test_numba_feature_abi_runtime_matches_reference_exactly(
+    feature_runtime_case,
+    tile_size,
+) -> None:
+    runtime = _runtime(feature_runtime_case, tile_size=tile_size)
+    verified = _verified(runtime)
+    reference_planner = KernelPlanner("numpy_reference")
+    numba_planner = KernelPlanner("numba_cpu")
+
+    reference = reference_planner.score_rank_feature_abi(
+        reference_planner.prepare_feature_abi(
+            verified,
+            code_commit=TEST_CODE_COMMIT,
+        ),
+        feature_runtime_case["weights"],
+        feature_runtime_case["request"],
+    )
+    numba = numba_planner.score_rank_feature_abi(
+        numba_planner.prepare_feature_abi(
+            verified,
+            code_commit=TEST_CODE_COMMIT,
+        ),
+        feature_runtime_case["weights"],
+        feature_runtime_case["request"],
+    )
+
+    assert numba.backend == "feature_abi_numba_cpu"
+    assert np.array_equal(numba.target_scores, reference.target_scores)
+    assert np.array_equal(numba.exact_ranks, reference.exact_ranks)
+    assert np.array_equal(numba.top_candidate_ids, reference.top_candidate_ids)
+    assert np.array_equal(numba.top_scores, reference.top_scores)
+    assert np.array_equal(numba.red5_candidate_ids, reference.red5_candidate_ids)
+    assert np.array_equal(numba.red5_scores, reference.red5_scores)
+    assert np.array_equal(numba.red5_ranks, reference.red5_ranks)
+    assert numba.telemetry["verified_runtime_id"] == reference.telemetry[
+        "verified_runtime_id"
+    ]
+    assert numba.telemetry["runtime_verification_digest"] == reference.telemetry[
+        "runtime_verification_digest"
+    ]
+    envelope = RuntimeEnvelopeV1.from_dict(numba.runtime_envelope)
+    assert envelope.backend == "feature_abi_numba_cpu"
+    RuntimeEnvelopeVerifier().verify_artifact_payload(
+        envelope,
+        payload_digest=_result_payload_digest(numba),
+        runtime=runtime,
+        expected_backend="feature_abi_numba_cpu",
+    )
+
+
+def test_feature_abi_planner_rejects_cross_backend_prepared_runtime(
     feature_runtime_case,
 ) -> None:
     runtime = _runtime(feature_runtime_case, tile_size=1_000)
+    prepared = KernelPlanner("numpy_reference").prepare_feature_abi(
+        _verified(runtime),
+        code_commit=TEST_CODE_COMMIT,
+    )
 
-    with pytest.raises(FeatureRuntimeViolation, match="feature_abi_backend_not_migrated"):
-        KernelPlanner("numba_cpu").prepare_feature_abi(
-            _verified(runtime),
-            code_commit=TEST_CODE_COMMIT,
+    with pytest.raises(FeatureRuntimeViolation, match="feature_abi_prepared_backend_mismatch"):
+        KernelPlanner("numba_cpu").score_rank_feature_abi(
+            prepared,
+            feature_runtime_case["weights"],
+            feature_runtime_case["request"],
         )
 
 
@@ -317,9 +377,13 @@ def test_planner_rejects_prepared_runtime_from_another_backend(feature_runtime_c
         )
 
 
-def test_feature_abi_runtime_preserves_strict_tie_order(feature_runtime_case) -> None:
+@pytest.mark.parametrize("backend_name", ["numpy_reference", "numba_cpu"])
+def test_feature_abi_runtime_preserves_strict_tie_order(
+    feature_runtime_case,
+    backend_name,
+) -> None:
     runtime = _runtime(feature_runtime_case, tile_size=700)
-    planner = KernelPlanner("numpy_reference")
+    planner = KernelPlanner(backend_name)
     target_id = feature_runtime_case["request"].target_lex_id
     weights = WeightMatrix(np.zeros((1, 32), dtype=np.float64))
     request = replace(
@@ -501,13 +565,15 @@ def test_unified_runtime_verifier_mints_a_deterministic_sealed_package(
     UnifiedRuntimeVerifier().verify_package(first)
 
 
+@pytest.mark.parametrize("backend_name", ["numpy_reference", "numba_cpu"])
 def test_kernel_and_envelope_compilers_reject_raw_unverified_runtime(
     feature_runtime_case,
+    backend_name,
 ) -> None:
     runtime = _runtime(feature_runtime_case, tile_size=750)
 
     with pytest.raises(RuntimeVerificationViolation, match="runtime_package_not_verified"):
-        KernelPlanner("numpy_reference").prepare_feature_abi(
+        KernelPlanner(backend_name).prepare_feature_abi(
             runtime,  # type: ignore[arg-type]
             code_commit=TEST_CODE_COMMIT,
         )
