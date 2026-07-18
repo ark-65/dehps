@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 from dehps.draw_sync.scheduler import DrawSyncSchedulePolicy
 from dehps.draw_sync.scheduler import DrawSyncWatch
+from dehps.draw_sync.launch_contract import load_draw_sync_watch_launch_contract
 from dehps.draw_sync.models import DrawSyncResult, DrawSyncStatus
 
 
@@ -97,6 +98,11 @@ def test_draw_sync_watch_resumes_once_when_new_event_is_seen(monkeypatch, tmp_pa
     assert state["watch_code_commit"] == "a" * 40
     assert state["watch_started_at"]
     assert (tmp_path / "pid.version").read_text(encoding="utf-8").strip() == "a" * 40
+    launch = load_draw_sync_watch_launch_contract(tmp_path / "pid.launch.json")
+    assert launch["code_commit"] == "a" * 40
+    assert launch["resume_on_event"] is True
+    assert launch["shadow_attestation_enabled"] is False
+    assert state["launch_contract"] == launch
     assert calls == ["event-2026080"]
     assert state["forward_evaluation"]["failed_count"] == 0
     assert state["resume_result"]["executed"] is True
@@ -278,6 +284,7 @@ def test_draw_sync_watch_seals_and_closes_shadow_after_evaluation(tmp_path) -> N
     assert state["shadow_watch_cycle"]["cycle_digest"] == cycles[0]["cycle_digest"]
     assert state["shadow_attestation"]["attested_count"] == 3
     assert state["shadow_attestation"]["automatic_promotion_allowed"] is False
+    assert state["launch_contract"]["shadow_attestation_enabled"] is True
 
 
 def test_draw_sync_watch_records_shadow_failure_without_replacing_evaluation(tmp_path) -> None:

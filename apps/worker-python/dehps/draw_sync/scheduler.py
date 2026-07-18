@@ -16,6 +16,10 @@ from dehps.artifacts import atomic_write_text
 from dehps.config import ROOT_DIR
 from dehps.draw_sync.models import jsonable
 from dehps.draw_sync.service import DrawSyncService
+from dehps.draw_sync.launch_contract import (
+    build_draw_sync_watch_launch_contract,
+    write_draw_sync_watch_launch_contract,
+)
 from dehps.forward_runtime.shadow_attestation import (
     ForwardShadowAttestationService,
     forward_shadow_attestation_enabled,
@@ -27,6 +31,9 @@ from dehps.source_version import resolve_git_commit
 DEFAULT_STATE_PATH = ROOT_DIR / "runtime" / "logs" / "draw-sync-watch.json"
 DEFAULT_PID_PATH = ROOT_DIR / "runtime" / "logs" / "draw-sync-watch.pid"
 DEFAULT_VERSION_PATH = ROOT_DIR / "runtime" / "logs" / "draw-sync-watch.version"
+DEFAULT_LAUNCH_CONTRACT_PATH = (
+    ROOT_DIR / "runtime" / "logs" / "draw-sync-watch.launch.json"
+)
 
 
 @dataclass(frozen=True)
@@ -80,6 +87,7 @@ class DrawSyncWatch:
         state_path: Path = DEFAULT_STATE_PATH,
         pid_path: Path = DEFAULT_PID_PATH,
         version_path: Path | None = None,
+        launch_contract_path: Path | None = None,
         code_commit: str | None = None,
         clock: Callable[[], datetime] | None = None,
         shadow_attestor: Any | None = None,
@@ -101,6 +109,12 @@ class DrawSyncWatch:
             self.version_path = DEFAULT_VERSION_PATH
         else:
             self.version_path = pid_path.with_suffix(".version")
+        if launch_contract_path is not None:
+            self.launch_contract_path = launch_contract_path
+        elif pid_path == DEFAULT_PID_PATH:
+            self.launch_contract_path = DEFAULT_LAUNCH_CONTRACT_PATH
+        else:
+            self.launch_contract_path = pid_path.with_suffix(".launch.json")
         self.code_commit = code_commit or resolve_git_commit()
         self._clock = clock or (lambda: datetime.now(ZoneInfo(self.policy.timezone)))
         self.started_at = self._clock().isoformat()
@@ -118,12 +132,25 @@ class DrawSyncWatch:
                 else None
             )
         )
+        self.launch_contract = build_draw_sync_watch_launch_contract(
+            code_commit=self.code_commit,
+            interval_seconds=self.policy.interval_seconds,
+            hot_interval_seconds=self.policy.hot_interval_seconds,
+            cold_interval_seconds=self.policy.cold_interval_seconds,
+            timezone=self.policy.timezone,
+            resume_on_event=self.resume_on_event,
+            shadow_attestation_enabled=self.shadow_attestation_enabled,
+        )
         self._stopping = False
 
     def run(self, *, once: bool = False) -> None:
         self.pid_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(self.pid_path, f"{os.getpid()}\n")
         atomic_write_text(self.version_path, f"{self.code_commit}\n")
+        write_draw_sync_watch_launch_contract(
+            self.launch_contract_path,
+            self.launch_contract,
+        )
         signal.signal(signal.SIGTERM, self._stop)
         signal.signal(signal.SIGINT, self._stop)
         while not self._stopping:
@@ -187,6 +214,7 @@ class DrawSyncWatch:
                     "pid": os.getpid(),
                     "watch_code_commit": self.code_commit,
                     "watch_started_at": self.started_at,
+                    "launch_contract": self.launch_contract,
                     "heartbeat_at": self._clock().isoformat(),
                     "last_result": result,
                     "sync_deferred": deferred_until is not None,
