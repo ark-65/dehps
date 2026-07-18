@@ -82,8 +82,8 @@ Residual construction, deterministic shuffle seed, ranking metrics, target bound
 claims are unchanged.
 
 `score_config_grid(...)` remains only as a compatibility projection returning the verified
-Artifact's read-only `scores` view. The old `_score_matrix(...)` helper remains restricted to
-benchmark/reference comparison.
+Artifact's read-only `scores` view. The independent score-matrix oracle now lives only inside
+`scripts/benchmark_scoring_kernel.py` and tests; application modules no longer expose it.
 
 ## Non-goals
 

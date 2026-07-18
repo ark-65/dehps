@@ -26,7 +26,6 @@ from dehps.optimization.walk_forward import (
     _components_for_matrix,
     _config_weight_matrix,
     _rank_targets_from_scores,
-    _score_matrix,
     _target_scores,
     _top_indices,
     build_ranked_universe,
@@ -48,6 +47,13 @@ from scripts.run_weight_grid_search import DEFAULT_GRID
 
 
 DEFAULT_CHUNKS = (65_536, 131_072, 262_144, 524_288)
+
+
+def _reference_score_matrix(matrix, stats, configs) -> np.ndarray:
+    """Independent benchmark oracle; never imported by application code."""
+
+    components = _components_for_matrix(matrix, stats)
+    return np.round(components @ _config_weight_matrix(configs).T, 8)
 DEFAULT_WORKERS = (1, 2, 4, 8, 16)
 DEFAULT_OUTPUT = ROOT_DIR / "runtime/benchmarks/scoring-kernel-strict-v1.json"
 
@@ -179,7 +185,7 @@ def verify_real_windows(history, *, window_count: int, top_k: int) -> list[dict]
         target_scores = np.ascontiguousarray(
             _target_scores(target_numbers, stats, configs), dtype=np.float64
         )
-        legacy_scores = _score_matrix(matrix, stats, configs)
+        legacy_scores = _reference_score_matrix(matrix, stats, configs)
         legacy_ranks = np.array(
             [
                 rank

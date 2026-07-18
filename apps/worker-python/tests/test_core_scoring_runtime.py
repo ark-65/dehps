@@ -9,9 +9,9 @@ import pytest
 from dehps.input_contracts import InputContractViolation
 from dehps.models.frequency_ranker import FrequencyRankerConfig, train_frequency_stats
 from dehps.optimization.walk_forward import (
+    _components_for_matrix,
     _config_weight_matrix,
     _kernel_score_rank,
-    _score_matrix,
     _target_scores,
     build_ranked_universe,
     compile_score_config_grid_artifact,
@@ -34,6 +34,7 @@ from dehps.scoring_kernel.full_score_artifact import (
 )
 from dehps.scoring_kernel.runtime_input import default_runtime_input_compiler
 from dehps.unified_runtime import RuntimeVerificationViolation
+from scripts.run_forward_scoring_shadow import execute_verified_replay_pair
 
 
 def _case():
@@ -207,7 +208,10 @@ def test_runtime_input_compiler_rejects_target_issue_leakage() -> None:
 def test_full_score_grid_artifact_is_reference_exact_and_deterministic() -> None:
     default_runtime_input_compiler().cache.clear()
     matrix, history, configs, _target_numbers, stats, _scores = _case()
-    expected = _score_matrix(matrix, stats, configs)
+    expected = np.round(
+        _components_for_matrix(matrix, stats) @ _config_weight_matrix(configs).T,
+        8,
+    )
 
     first = compile_score_config_grid_artifact(
         train_history=history,
@@ -335,3 +339,44 @@ def test_full_score_grid_compiler_rejects_raw_unverified_runtime() -> None:
             weights=weights,
             code_commit="a" * 40,
         )
+
+
+def test_post_draw_shadow_replay_uses_one_verified_runtime_identity() -> None:
+    matrix, history, configs, target_numbers, stats, scores = _case()
+    store = candidate_store_from_matrix(matrix)
+    weights = WeightMatrix(
+        np.ascontiguousarray(_config_weight_matrix(configs), dtype=np.float64)
+    )
+    request = KernelRequest(
+        target_scores=np.ascontiguousarray(scores, dtype=np.float64),
+        target_lex_id=target_lex_id(store, target_numbers),
+        target_mask=numbers_mask(target_numbers),
+        top_k=127,
+        chunk_size=333,
+        worker_count=2,
+        exact_rank=True,
+        red5=True,
+    )
+
+    official, shadow, runtime_cache = execute_verified_replay_pair(
+        history=history,
+        store=store,
+        target_draw_date=None,
+        target_issue="2025051",
+        weights=weights,
+        request=request,
+        code_commit="a" * 40,
+    )
+    legacy = _legacy_result(matrix, configs, target_numbers, stats, scores)
+
+    assert official.telemetry["verified_runtime_id"] == shadow.telemetry[
+        "verified_runtime_id"
+    ]
+    assert official.telemetry["verified_runtime_id"] == runtime_cache[
+        "verified_runtime_id"
+    ]
+    assert np.array_equal(official.target_scores, shadow.target_scores)
+    assert np.array_equal(official.exact_ranks, shadow.exact_ranks)
+    assert np.array_equal(official.top_candidate_ids, shadow.top_candidate_ids)
+    assert np.array_equal(official.red5_candidate_ids, shadow.red5_candidate_ids)
+    _assert_result_exact(official, legacy)

@@ -99,17 +99,18 @@ production promotion authority.
 
 `scripts.run_forward_scoring_shadow` is a read-only compensation and diagnostic
 entry point for an already persisted `forward_prediction_run`. It reconstructs
-the exact history boundary and configuration, executes both current backends,
+the exact history boundary and configuration, compiles one `VerifiedRuntimePackage`, executes both
+Feature ABI backends from that sealed identity,
 and binds the result to the stored official TopK artifact and completed forward
 evaluation. History fingerprint, configuration fingerprint, candidate count,
-rank continuity, CandidateStore row identity, scores, leakage status, model rank,
+rank continuity, Runtime ABI identity, CandidateStore row identity, scores, leakage status, model rank,
 and model score all fail closed.
 
-Reconstruction is always recorded as `capture_mode=posthoc_reconstruction`, with
-separate source and replay commits. It can expose historical differences, but it
-cannot satisfy the promotion gate. Only `capture_mode=simultaneous`, produced at
-the original prediction boundary with matching source/replay commit and an
-explicit prediction run key, may count toward the three-issue cohort.
+Runs without a sealed pre-draw capture remain `capture_mode=posthoc_reconstruction`; they can expose
+historical differences but cannot satisfy the promotion gate. When a sealed simultaneous capture
+exists, the replay may link completed draw/evaluation evidence to it without rewriting the pre-draw
+Artifact. Only that original simultaneous capture, with matching source/replay commit and an explicit
+prediction run key, may count toward the three-issue cohort.
 
 ### Two-phase evidence
 

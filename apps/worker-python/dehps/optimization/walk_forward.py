@@ -1710,15 +1710,6 @@ def _components_for_matrix(
     )
 
 
-def _score_matrix(
-    matrix: RankedUniverseMatrix,
-    stats: FrequencyStats,
-    configs: tuple[FrequencyRankerConfig, ...],
-) -> np.ndarray:
-    components = _components_for_matrix(matrix, stats)
-    return np.round(components @ _config_weight_matrix(configs).T, 8)
-
-
 def score_config_grid(
     *,
     train_history: list[HistoryDraw],

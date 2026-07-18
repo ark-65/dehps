@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Sequence
 from datetime import date
 import json
 from pathlib import Path
@@ -17,7 +18,11 @@ from dehps.forward_runtime.shadow_adapter import (
     compare_official_candidate_artifact,
     forward_operational_evidence,
 )
-from dehps.models.frequency_ranker import FrequencyRankerConfig, train_frequency_stats
+from dehps.models.frequency_ranker import (
+    FrequencyRankerConfig,
+    HistoryDraw,
+    train_frequency_stats,
+)
 from dehps.optimization.prediction_evaluation import load_actual_draw
 from dehps.optimization.ranking_audit import resolve_training_history_for_prediction_run
 from dehps.optimization.walk_forward import (
@@ -28,22 +33,52 @@ from dehps.optimization.walk_forward import (
     is_excluded_red_combination,
 )
 from dehps.scoring_kernel import (
+    CandidateStore,
     KernelRequest,
+    KernelResult,
     WeightMatrix,
     candidate_store_from_matrix,
     compare_kernel_results,
-    execute_shadow_pair,
+    execute_feature_abi_shadow_pair,
     link_post_draw_attestation,
     numbers_mask,
-    pack_window_state,
     target_lex_id,
     write_shadow_artifact,
     verify_shadow_evidence,
 )
+from dehps.scoring_kernel.runtime_input import default_runtime_input_compiler
 from dehps.source_version import resolve_git_commit
 
 
 DEFAULT_OUTPUT_DIR = ROOT_DIR / "data/output/scoring-shadow"
+_REPLAY_RUNTIME_COMPILER = default_runtime_input_compiler()
+
+
+def execute_verified_replay_pair(
+    *,
+    history: Sequence[HistoryDraw],
+    store: CandidateStore,
+    target_draw_date: date | None,
+    target_issue: str,
+    weights: WeightMatrix,
+    request: KernelRequest,
+    code_commit: str,
+) -> tuple[KernelResult, KernelResult, dict[str, Any]]:
+    runtime_inputs = _REPLAY_RUNTIME_COMPILER.compile_effective_history(
+        history=history,
+        candidate_store=store,
+        tile_size=request.chunk_size,
+        target_draw_date=target_draw_date,
+        target_issue=target_issue,
+        source="forward_shadow_replay_effective_history",
+    )
+    official, shadow = execute_feature_abi_shadow_pair(
+        verified_runtime=runtime_inputs.verified_runtime,
+        code_commit=code_commit,
+        weights=weights,
+        request=request,
+    )
+    return official, shadow, runtime_inputs.abi_cache_compilation.as_dict()
 
 
 def load_forward_runs(conn, *, target_issue: str) -> list[dict[str, Any]]:
@@ -169,7 +204,6 @@ def build_run_evidence(
     actual = load_actual_draw(conn, issue=str(run["target_issue"]))
     target_draw_date = _target_date(run, actual)
     stats = train_frequency_stats(history, target_draw_date=target_draw_date)
-    state = pack_window_state(stats)
     weights = WeightMatrix(
         np.ascontiguousarray(_config_weight_matrix((config,)), dtype=np.float64)
     )
@@ -199,11 +233,15 @@ def build_run_evidence(
         red5=actual is not None,
         target_excluded=target_excluded,
     )
-    official, shadow = execute_shadow_pair(
-        candidate_store=store,
-        window_state=state,
+    replay_commit = resolve_git_commit()
+    official, shadow, runtime_abi_cache = execute_verified_replay_pair(
+        history=history,
+        store=store,
+        target_draw_date=target_draw_date,
+        target_issue=str(run["target_issue"]),
         weights=weights,
         request=request,
+        code_commit=replay_commit,
     )
     artifact_check = compare_official_candidate_artifact(
         candidate_store=store,
@@ -243,7 +281,7 @@ def build_run_evidence(
         artifact_check=artifact_check,
         evaluation_check=evaluation_check,
         source_code_commit=source_commit,
-        replay_code_commit=resolve_git_commit(),
+        replay_code_commit=replay_commit,
         capture_mode=capture_mode,
         restart_recovery_result=restart_recovery_result,
         watchdog_result=watchdog_result,
@@ -256,6 +294,7 @@ def build_run_evidence(
         official=official,
         shadow=shadow,
         operational=operational,
+        runtime_abi_cache=runtime_abi_cache,
     )
     if source_capture is not None and evaluation_check.status != "pending":
         return link_post_draw_attestation(

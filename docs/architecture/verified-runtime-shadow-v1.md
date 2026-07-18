@@ -71,11 +71,16 @@ lines only when the complete History/Window/Candidate/Feature key is identical. 
 re-runs Feature ABI and Unified Runtime verification. Different effective histories, target date
 contexts, candidate packages, layouts, or feature inputs cannot collide.
 
-## Legacy compatibility
+## Post-draw replay
 
-The original `execute_shadow_pair(...)` remains available for historical tests and post-hoc legacy
-reconstruction. It is not the simultaneous forward evidence path and emits no verified Runtime
-identity. Existing shadow artifacts and pending predictions are not rewritten.
+Post-draw and post-hoc reconstruction now compile the sealed effective history and canonical
+CandidateStore through `RuntimeInputCompiler`, then execute both Feature ABI backends from one
+`VerifiedRuntimePackage`. Runtime ABI Cache identity is part of the comparison evidence.
+
+The raw `execute_shadow_pair(...)`, `run_shadow_comparison(...)`, and `KernelPlanner.backend()`
+entry points have been removed. Independent backend classes remain available only inside backend
+implementation tests and the explicit benchmark oracle. Existing shadow artifacts and pending
+predictions are not rewritten.
 
 ## Non-goals
 
