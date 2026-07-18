@@ -193,11 +193,12 @@ This envelope is not a replacement for stage envelopes. A stage envelope carries
 | Candidate Contract / ABI | Runtime preflight integrated | `candidate.v1.0.0`, `candidate_abi.v1`, Compiler, Verifier, golden fixtures, CandidateStore adapter, Kernel prepare validation, telemetry propagation |
 | Feature Contract / Compiler | Reference compiler implemented | `feature.v1.0.0`, component manifest, golden vector, verified Window/Candidate input binding, deterministic Feature Artifact, fail-closed artifact verifier |
 | Feature ABI Runtime | NumPy and Numba execution integrated | `feature_abi.v1`, tile-local dense `float64[R,32]`, joint Candidate/Feature preflight, sealed `VerifiedRuntimePackage`, explicit Kernel Planner entries, strict score/rank/TopK/Red5 execution; the older component-producing fused Numba entry remains separate |
+| Runtime ABI Cache | Control-plane capability implemented | `runtime_abi_cache.v1`, complete Contract DAG key, no-copy read-only Feature buffers, verifier-gated hits, byte/entry bounded LRU, dependent Runtime eviction |
 | Runtime Envelope | Feature ABI KernelResult integrated | `runtime_envelope.v1`, full History/Window/Candidate/Feature/Scoring/Ranking/code binding, backend identity, canonical state path, detached payload verification; legacy artifacts are not rewritten |
 | Unified Runtime Verifier | Feature ABI paths enforced | `unified_runtime_verifier.v1` mints sealed `verified_runtime_package.v1`; NumPy/Numba Planner paths and Envelope Compiler reject raw runtime inputs |
 | Scoring Contract | Implemented | `dehps-scoring-strict-v1` |
 | Ranking Contract | Implemented | `legacy_score_partition` compatibility and `strict_v1` |
-| Evaluation Contract / Artifact | [Artifact runtime implemented](evaluation-artifact-runtime-v1.md) | `evaluation.v1.0.0`, Prediction/Outcome/Ranking Audit parents, source Runtime Envelope binding, Stage Envelope, metric recomputation, Candidate ABI membership and detached fail-closed verification; forward persistence integration remains separate |
+| Evaluation Contract / Artifact | [Forward integration implemented](forward-evaluation-artifact-integration-v1.md) | `evaluation.v1.0.0`, Prediction/Outcome/Ranking Audit parents, source Runtime Envelope binding, Stage Envelope, metric recomputation, Candidate ABI membership, detached fail-closed verification, and one-finalize forward persistence |
 
 ## Compatibility matrix
 
@@ -209,6 +210,7 @@ window.v2.0.0 -> feature.v1.0.0: reject
 candidate.v1.0.0 -> candidate_abi.v1 reference compiler/verifier: allowed
 candidate_abi.v1 -> production scoring strict_v1: allowed through verified CandidateStore adapter
 feature.v1.0.0 -> feature_abi.v1 reference compiler/verifier: allowed
+feature_abi.v1 -> runtime_abi_cache.v1: allowed only with per-hit Feature and Unified Runtime revalidation
 feature_abi.v1 -> Kernel Planner -> feature_abi_numpy_reference: allowed after Unified Runtime verification
 feature_abi.v1 -> Kernel Planner -> feature_abi_numba_cpu: allowed after the same Unified Runtime verification
 legacy fused numba_cpu -> Feature ABI producer: not claimed; requires a separately verified producer
@@ -248,9 +250,10 @@ This is the boundary that lets NumPy, Numba, SIMD, CUDA, OpenCL, and future nati
 
 The next migration rounds should be staged as:
 
-1. Forward Evaluation Artifact integration: persist new artifacts for eligible strict runs while preserving explicit legacy-unavailable evidence and never rewriting history.
+1. Explicit caller migration: adopt Runtime ABI Cache and forward Evaluation Artifact capabilities without changing prediction identity or backend defaults.
 2. Fused producer migration: define and verify any zero-materialization Feature tile producer before claiming ABI compliance or changing defaults.
-3. Future backends: SIMD, CUDA, OpenCL, or Rust implementations must accept the same verified runtime and reproduce the same Golden fixtures and artifact payload digest.
+3. Shadow completion: collect the required simultaneous, post-draw, three-issue zero-difference evidence before a backend-default decision.
+4. Future backends: SIMD, CUDA, OpenCL, or Rust implementations must accept the same verified runtime and reproduce the same Golden fixtures and artifact payload digest.
 
 Non-goals for this architecture document:
 
