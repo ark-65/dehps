@@ -22,6 +22,7 @@ from dehps.feature_runtime.compiler import (
     candidate_static_digest,
 )
 from dehps.feature_runtime.runtime import FeatureABIRuntime
+from dehps.input_contracts.candidate_abi import CandidateABIPackage
 from dehps.input_contracts.feature_contract import (
     FEATURE_COMPONENT_MANIFEST_DIGEST,
     FEATURE_CONTRACT_V1,
@@ -129,6 +130,10 @@ class RuntimeABICacheCompilation:
     verified_runtime: VerifiedRuntimePackage
     feature_receipts: tuple[FeatureABICacheReceipt, ...]
     runtime_cache_hit: bool
+    verification_strategy: str
+    feature_payload_verification_passes: int
+    runtime_payload_verification_passes: int
+    transaction_recovered: bool
 
     @property
     def all_feature_cache_hits(self) -> bool:
@@ -141,6 +146,10 @@ class RuntimeABICacheCompilation:
             "runtime_verification_digest": self.verified_runtime.verification_digest,
             "runtime_cache_hit": self.runtime_cache_hit,
             "all_feature_cache_hits": self.all_feature_cache_hits,
+            "verification_strategy": self.verification_strategy,
+            "feature_payload_verification_passes": self.feature_payload_verification_passes,
+            "runtime_payload_verification_passes": self.runtime_payload_verification_passes,
+            "transaction_recovered": self.transaction_recovered,
             "feature_tiles": [receipt.as_dict() for receipt in self.feature_receipts],
         }
 
@@ -177,6 +186,13 @@ class _RuntimeCacheEntry:
     runtime_key: str
     verified_runtime: VerifiedRuntimePackage
     verification_digest: str
+
+
+@dataclass(frozen=True)
+class _RuntimeTransactionAttempt:
+    compilation: RuntimeABICacheCompilation | None
+    attempted: bool
+    runtime_payload_verification_passes: int
 
 
 class RuntimeABICache:
@@ -340,24 +356,32 @@ class RuntimeABICache:
                 "feature_runtime_history_window_binding_mismatch",
                 "Window Artifact does not match the requested History Snapshot",
             )
-        receipts = tuple(
-            self.compile_feature(
-                FeatureCompileRequest(
-                    window=window,
-                    candidate_store=candidate_store,
-                    start=start,
-                    end=min(start + tile_size, len(candidate_store)),
-                    target_draw_date=target_draw_date,
-                )
+        requests = tuple(
+            FeatureCompileRequest(
+                window=window,
+                candidate_store=candidate_store,
+                start=start,
+                end=min(start + tile_size, len(candidate_store)),
+                target_draw_date=target_draw_date,
             )
             for start in range(0, max(1, len(candidate_store)), tile_size)
         )
         candidate_package = candidate_store.candidate_abi_package
-        if candidate_package is None:  # compile_feature validates this first.
+        if candidate_package is None:
             raise FeatureRuntimeViolation(
                 "candidate_abi_missing",
                 "Runtime ABI Cache requires a Candidate ABI package",
             )
+        transaction = self._try_warm_runtime_transaction(
+            history_snapshot=history_snapshot,
+            window=window,
+            candidate_package=candidate_package,
+            requests=requests,
+        )
+        if transaction.compilation is not None:
+            return transaction.compilation
+
+        receipts = tuple(self.compile_feature(request) for request in requests)
         runtime = FeatureABIRuntime(
             history_snapshot=history_snapshot,
             window_artifact=window,
@@ -365,6 +389,9 @@ class RuntimeABICache:
             feature_tiles=tuple(receipt.package for receipt in receipts),
         )
         runtime_key = self._runtime_key(runtime)
+        runtime_payload_verification_passes = (
+            transaction.runtime_payload_verification_passes
+        )
         with self._lock:
             cached_entry = self._runtime_entries.get(runtime_key)
             if cached_entry is not None:
@@ -380,6 +407,7 @@ class RuntimeABICache:
                             "runtime_abi_cache_identity_mutated",
                             "cached Verified Runtime identity changed after insertion",
                         )
+                    runtime_payload_verification_passes += 1
                     self.runtime_verifier.verify_package(cached)
                 except ValueError:
                     self._runtime_entries.pop(runtime_key, None)
@@ -391,8 +419,19 @@ class RuntimeABICache:
                         verified_runtime=cached,
                         feature_receipts=receipts,
                         runtime_cache_hit=True,
+                        verification_strategy=(
+                            "transaction_fallback_recovery"
+                            if transaction.attempted
+                            else "per_feature_verification"
+                        ),
+                        feature_payload_verification_passes=len(receipts),
+                        runtime_payload_verification_passes=(
+                            runtime_payload_verification_passes
+                        ),
+                        transaction_recovered=transaction.attempted,
                     )
             self._runtime_misses += 1
+            runtime_payload_verification_passes += 1
             verified = self.runtime_verifier.verify(runtime)
             feature_entries_are_retained = all(
                 (
@@ -418,6 +457,123 @@ class RuntimeABICache:
                 verified_runtime=verified,
                 feature_receipts=receipts,
                 runtime_cache_hit=False,
+                verification_strategy=(
+                    "transaction_fallback_recovery"
+                    if transaction.attempted
+                    else "per_feature_verification"
+                ),
+                feature_payload_verification_passes=len(receipts),
+                runtime_payload_verification_passes=runtime_payload_verification_passes,
+                transaction_recovered=transaction.attempted,
+            )
+
+    def _try_warm_runtime_transaction(
+        self,
+        *,
+        history_snapshot: HistorySnapshotArtifact,
+        window: WindowArtifact,
+        candidate_package: CandidateABIPackage,
+        requests: tuple[FeatureCompileRequest, ...],
+    ) -> _RuntimeTransactionAttempt:
+        """Verify a fully matched warm Runtime once instead of scanning each tile first."""
+
+        with self._lock:
+            if not self._feature_entries or not self._runtime_entries:
+                return _RuntimeTransactionAttempt(
+                    compilation=None,
+                    attempted=False,
+                    runtime_payload_verification_passes=0,
+                )
+
+            keys = tuple(self.feature_key(request) for request in requests)
+            entries = tuple(
+                self._feature_entries.get(key.cache_key_digest) for key in keys
+            )
+            if any(entry is None for entry in entries):
+                return _RuntimeTransactionAttempt(
+                    compilation=None,
+                    attempted=False,
+                    runtime_payload_verification_passes=0,
+                )
+
+            matched_entries = tuple(entry for entry in entries if entry is not None)
+            try:
+                for entry, key in zip(matched_entries, keys):
+                    self._verify_feature_entry_identity(entry, expected_key=key)
+                receipts = tuple(
+                    FeatureABICacheReceipt(
+                        package=entry.package,
+                        key=key,
+                        cache_hit=True,
+                        stored=True,
+                    )
+                    for entry, key in zip(matched_entries, keys)
+                )
+                runtime = FeatureABIRuntime(
+                    history_snapshot=history_snapshot,
+                    window_artifact=window,
+                    candidate_package=candidate_package,
+                    feature_tiles=tuple(entry.package for entry in matched_entries),
+                )
+                runtime_key = self._runtime_key(runtime)
+                cached_entry = self._runtime_entries.get(runtime_key)
+                if cached_entry is None:
+                    return _RuntimeTransactionAttempt(
+                        compilation=None,
+                        attempted=False,
+                        runtime_payload_verification_passes=0,
+                    )
+                cached = cached_entry.verified_runtime
+                if (
+                    cached_entry.runtime_key != runtime_key
+                    or cached_entry.verification_digest != cached.verification_digest
+                    or self._runtime_key(cached.runtime) != runtime_key
+                    or len(cached.runtime.feature_tiles) != len(matched_entries)
+                    or any(
+                        cached_tile is not entry.package
+                        for cached_tile, entry in zip(
+                            cached.runtime.feature_tiles,
+                            matched_entries,
+                        )
+                    )
+                ):
+                    raise FeatureRuntimeViolation(
+                        "runtime_abi_cache_transaction_identity_mismatch",
+                        "cached Runtime does not contain the exact matched Feature ABI entries",
+                    )
+            except ValueError:
+                return _RuntimeTransactionAttempt(
+                    compilation=None,
+                    attempted=True,
+                    runtime_payload_verification_passes=0,
+                )
+
+            try:
+                self.runtime_verifier.verify_package(cached)
+            except ValueError:
+                return _RuntimeTransactionAttempt(
+                    compilation=None,
+                    attempted=True,
+                    runtime_payload_verification_passes=1,
+                )
+
+            for key in keys:
+                self._feature_entries.move_to_end(key.cache_key_digest)
+            self._runtime_entries.move_to_end(runtime_key)
+            self._feature_hits += len(receipts)
+            self._runtime_hits += 1
+            return _RuntimeTransactionAttempt(
+                compilation=RuntimeABICacheCompilation(
+                    verified_runtime=cached,
+                    feature_receipts=receipts,
+                    runtime_cache_hit=True,
+                    verification_strategy="assembled_runtime_transaction",
+                    feature_payload_verification_passes=0,
+                    runtime_payload_verification_passes=1,
+                    transaction_recovered=False,
+                ),
+                attempted=True,
+                runtime_payload_verification_passes=1,
             )
 
     def stats(self) -> RuntimeABICacheStats:
@@ -455,6 +611,15 @@ class RuntimeABICache:
         *,
         expected_key: FeatureABICacheKey,
     ) -> None:
+        self._verify_feature_entry_identity(entry, expected_key=expected_key)
+        FeatureABIVerifier().verify(entry.package)
+
+    def _verify_feature_entry_identity(
+        self,
+        entry: _FeatureCacheEntry,
+        *,
+        expected_key: FeatureABICacheKey,
+    ) -> None:
         if entry.key != expected_key:
             raise FeatureRuntimeViolation(
                 "feature_abi_cache_key_mismatch",
@@ -473,7 +638,6 @@ class RuntimeABICache:
                 "feature_abi_cache_buffer_writeable",
                 "cached Feature ABI values buffer must remain read-only",
             )
-        FeatureABIVerifier().verify(entry.package)
         self._verify_package_bindings(entry.package, expected_key=expected_key)
 
     @staticmethod
