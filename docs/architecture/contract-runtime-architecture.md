@@ -192,9 +192,9 @@ This envelope is not a replacement for stage envelopes. A stage envelope carries
 | Window Contract | Implemented | `window.v1.0.0`, rolling/expanding value object and stage envelope |
 | Candidate Contract / ABI | Runtime preflight integrated | `candidate.v1.0.0`, `candidate_abi.v1`, Compiler, Verifier, golden fixtures, CandidateStore adapter, Kernel prepare validation, telemetry propagation |
 | Feature Contract / Compiler | Reference compiler implemented | `feature.v1.0.0`, component manifest, golden vector, verified Window/Candidate input binding, deterministic Feature Artifact, fail-closed artifact verifier |
-| Feature ABI Runtime | Reference execution integrated | `feature_abi.v1`, tile-local dense `float64[R,32]`, joint Candidate/Feature preflight, explicit Kernel Planner entry, strict score/rank/TopK/Red5 reference execution; fused Numba remains unapproved for this entry |
-| Runtime Envelope | Reference KernelResult integrated | `runtime_envelope.v1`, full History/Window/Candidate/Feature/Scoring/Ranking/code binding, canonical state path, detached payload verification; legacy artifacts are not rewritten |
-| Unified Runtime Verifier | Reference path enforced | `unified_runtime_verifier.v1` mints sealed `verified_runtime_package.v1`; Planner and Envelope Compiler reject raw runtime inputs |
+| Feature ABI Runtime | NumPy and Numba execution integrated | `feature_abi.v1`, tile-local dense `float64[R,32]`, joint Candidate/Feature preflight, sealed `VerifiedRuntimePackage`, explicit Kernel Planner entries, strict score/rank/TopK/Red5 execution; the older component-producing fused Numba entry remains separate |
+| Runtime Envelope | Feature ABI KernelResult integrated | `runtime_envelope.v1`, full History/Window/Candidate/Feature/Scoring/Ranking/code binding, backend identity, canonical state path, detached payload verification; legacy artifacts are not rewritten |
+| Unified Runtime Verifier | Feature ABI paths enforced | `unified_runtime_verifier.v1` mints sealed `verified_runtime_package.v1`; NumPy/Numba Planner paths and Envelope Compiler reject raw runtime inputs |
 | Scoring Contract | Implemented | `dehps-scoring-strict-v1` |
 | Ranking Contract | Implemented | `legacy_score_partition` compatibility and `strict_v1` |
 | Evaluation Contract | Later | hit, TopK, Red5, rank, score, and comparison semantics |
@@ -209,8 +209,9 @@ window.v2.0.0 -> feature.v1.0.0: reject
 candidate.v1.0.0 -> candidate_abi.v1 reference compiler/verifier: allowed
 candidate_abi.v1 -> production scoring strict_v1: allowed through verified CandidateStore adapter
 feature.v1.0.0 -> feature_abi.v1 reference compiler/verifier: allowed
-feature_abi.v1 -> Kernel Planner -> feature_abi_numpy_reference: allowed after joint Candidate/Feature preflight
-feature_abi.v1 -> Kernel Planner -> numba_cpu: reject until a verified fused Feature ABI producer exists
+feature_abi.v1 -> Kernel Planner -> feature_abi_numpy_reference: allowed after Unified Runtime verification
+feature_abi.v1 -> Kernel Planner -> feature_abi_numba_cpu: allowed after the same Unified Runtime verification
+legacy fused numba_cpu -> Feature ABI producer: not claimed; requires a separately verified producer
 candidate_abi.v2 -> candidate.v1.0.0: reject until explicitly specified
 ```
 
@@ -247,10 +248,9 @@ This is the boundary that lets NumPy, Numba, SIMD, CUDA, OpenCL, and future nati
 
 The next migration rounds should be staged as:
 
-1. Runtime Envelope propagation: carry v1 through exports, APIs, shadow reports, and later evaluation artifacts without historical backfill.
-2. Fused backend migration: define and verify the Numba tile producer against Feature ABI before claiming compliance or changing defaults.
-3. Evaluation Contract v1: freeze hit, rank, TopK, Red5, comparison, and mismatch classification semantics.
-4. Kernel P2: optimize TopK reduction after the ABI inputs are stable.
+1. Evaluation Contract v1: freeze hit, rank, TopK, Red5, comparison, and mismatch classification semantics.
+2. Fused producer migration: define and verify any zero-materialization Feature tile producer before claiming ABI compliance or changing defaults.
+3. Future backends: SIMD, CUDA, OpenCL, or Rust implementations must accept the same verified runtime and reproduce the same Golden fixtures and artifact payload digest.
 
 Non-goals for this architecture document:
 

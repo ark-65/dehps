@@ -22,7 +22,6 @@ from dehps.scoring_kernel.contracts import (
     PackedWindowState,
     WeightMatrix,
 )
-from dehps.scoring_kernel.feature_abi_backend import kernel_result_payload_digest
 from dehps.scoring_kernel.planner import KernelPlanner
 
 
@@ -115,6 +114,11 @@ def _maximum_absolute_difference(left: np.ndarray, right: np.ndarray) -> float:
 
 
 def _result_digest(result: KernelResult) -> str:
+    # Feature Runtime imports scoring contracts.  Resolve the shared payload
+    # digest lazily so importing the scoring package does not recurse through
+    # Feature ABI modules during package initialization.
+    from dehps.scoring_kernel.feature_abi_backend import kernel_result_payload_digest
+
     return kernel_result_payload_digest(
         target_scores=result.target_scores,
         exact_ranks=result.exact_ranks,

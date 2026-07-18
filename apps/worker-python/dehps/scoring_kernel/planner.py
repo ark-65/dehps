@@ -17,6 +17,9 @@ if TYPE_CHECKING:
         FeatureABINumpyReferenceBackend,
         PreparedFeatureABIRuntime,
     )
+    from dehps.scoring_kernel.feature_abi_numba_backend import (
+        FeatureABINumbaCpuBackend,
+    )
     from dehps.unified_runtime import VerifiedRuntimePackage
 
 
@@ -46,17 +49,20 @@ class KernelPlanner:
             return NumbaCpuBackend()
         raise AssertionError(f"unreachable backend: {self.backend_name}")
 
-    def feature_abi_backend(self) -> FeatureABINumpyReferenceBackend:
-        from dehps.feature_runtime.compiler import FeatureRuntimeViolation
+    def feature_abi_backend(
+        self,
+    ) -> FeatureABINumpyReferenceBackend | FeatureABINumbaCpuBackend:
         from dehps.scoring_kernel.feature_abi_backend import FeatureABINumpyReferenceBackend
 
-        if self.backend_name != "numpy_reference":
-            raise FeatureRuntimeViolation(
-                "feature_abi_backend_not_migrated",
-                "the selected fused backend has no verified Feature ABI execution path",
-                backend=self.backend_name,
+        if self.backend_name == "numpy_reference":
+            return FeatureABINumpyReferenceBackend()
+        if self.backend_name == "numba_cpu":
+            from dehps.scoring_kernel.feature_abi_numba_backend import (
+                FeatureABINumbaCpuBackend,
             )
-        return FeatureABINumpyReferenceBackend()
+
+            return FeatureABINumbaCpuBackend()
+        raise AssertionError(f"unreachable backend: {self.backend_name}")
 
     def prepare_feature_abi(
         self,

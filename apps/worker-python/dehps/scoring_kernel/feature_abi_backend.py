@@ -7,7 +7,6 @@ import time
 import numpy as np
 
 from dehps.contracts import canonical_digest
-from dehps.feature_runtime.compiler import feature_array_digest
 from dehps.feature_runtime.runtime import FeatureABIRuntime
 from dehps.input_contracts.candidate_abi import (
     CandidateABIVerification,
@@ -369,6 +368,12 @@ def kernel_result_payload_digest(
     red5_scores: np.ndarray,
     red5_ranks: np.ndarray,
 ) -> str:
+    # Keep the Feature compiler out of scoring package initialization.  The
+    # compiler itself imports scoring contracts, so importing this helper at
+    # module load time would make standalone Feature Runtime collection depend
+    # on incidental import order.
+    from dehps.feature_runtime.compiler import feature_array_digest
+
     arrays = {
         "target_scores": target_scores,
         "exact_ranks": exact_ranks,

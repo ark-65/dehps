@@ -78,14 +78,19 @@ There is no warning-only mode and no automatic conversion.
 digests for the Feature Contract Golden Row. Future NumPy, Numba, SIMD, CUDA, OpenCL, Rust, or other
 implementations must reproduce these identities when emitting the same ABI package.
 
-## Fused backend boundary
+## Numba backend boundary
 
-This specification does not silently redefine the current fused Numba backend as Feature ABI
-compliant. A fused backend may avoid a full-universe Feature matrix only after the Runtime Migration
-defines how its tile producer is verified against this ABI and proves exact component/score/rank
-equivalence. Performance is not authority to bypass the contract.
+The explicit `feature_abi_numba_cpu` backend consumes verified `float64[R,32]` Feature ABI tiles and
+does not interpret Feature names, formulas, History, or Window values. It uses Numba only for the
+score/rank/Red5 compute loop and shares the Runtime Envelope and deterministic TopK reduction path
+with the ABI NumPy reference.
 
-## Reference runtime migration
+This does not silently redefine the older fused `numba_cpu` entry as Feature ABI compliant. That
+path still constructs components internally. A future fused Feature producer may avoid a
+full-universe Feature matrix only after its tile producer is verified against this ABI and proves
+exact component/score/rank equivalence. Performance is not authority to bypass the contract.
+
+## Runtime migration
 
 The explicit reference execution path is now:
 
@@ -94,19 +99,19 @@ CandidateABIPackage + FeatureABIPackage tiles
         -> FeatureABIRuntimeVerifier
         -> UnifiedRuntimeVerifier -> VerifiedRuntimePackage
         -> KernelPlanner.prepare_feature_abi
-        -> FeatureABINumpyReferenceBackend
+        -> FeatureABINumpyReferenceBackend | FeatureABINumbaCpuBackend
         -> strict_v1 score / rank / TopK / Red5 result
         -> runtime_envelope.v1 artifact_produced evidence
 ```
 
 Preflight requires ordered, contiguous, complete Feature tile coverage of the Candidate ABI rows,
-one Candidate package binding, and one Window/target context. The planner rejects `numba_cpu` for this
-entry because that fused backend has not yet exposed a verified Feature ABI tile producer. Its existing
-non-Feature-ABI execution path remains unchanged.
+one Candidate package binding, and one Window/target context. Both ABI backends require the same sealed
+`VerifiedRuntimePackage`; a prepared package cannot cross backend identities. The existing legacy
+non-Feature-ABI NumPy/Numba execution paths remain unchanged.
 
 ## Non-goals
 
-- no fused Numba or production-default migration;
+- no legacy fused Numba producer or production-default migration;
 - no full candidate-space Feature materialization requirement;
 - no scoring, ranking, TopK, weight, or formula change;
 - no production prediction, pending candidate, database, or runtime-state mutation.

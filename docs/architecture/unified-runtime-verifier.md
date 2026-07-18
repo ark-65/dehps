@@ -66,15 +66,18 @@ prepared = KernelPlanner("numpy_reference").prepare_feature_abi(
     verified,
     code_commit=full_git_sha,
 )
+# The same sealed package is accepted by KernelPlanner("numba_cpu"), which
+# selects feature_abi_numba_cpu for this explicit ABI entry.
 ```
 
 Passing `raw_runtime` directly produces `runtime_package_not_verified`. Prepared packages are
 revalidated immediately before scoring, so mutable NumPy payload drift after sealing is detected.
+Prepared packages are backend-bound and cannot cross the ABI NumPy and ABI Numba paths.
 
 ## Non-goals
 
 - no cryptographic signing or remote attestation;
 - no legacy production-path migration;
-- no fused Numba compliance claim;
+- no claim that the legacy fused Numba Feature producer is ABI compliant;
 - no historical Artifact backfill;
 - no database or live runtime operation.
