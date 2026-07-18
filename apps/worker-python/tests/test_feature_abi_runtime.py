@@ -5,6 +5,7 @@ import itertools
 
 import numpy as np
 import pytest
+from numba import config as numba_config
 
 from dehps.feature_runtime import (
     FeatureABICompiler,
@@ -239,6 +240,7 @@ def test_feature_abi_topk_reduction_is_worker_invariant(
     feature_runtime_case,
     backend_name,
 ) -> None:
+    requested_workers = 3
     runtime = _runtime(feature_runtime_case, tile_size=333)
     planner = KernelPlanner(backend_name)
     prepared = planner.prepare_feature_abi(_verified(runtime), code_commit=TEST_CODE_COMMIT)
@@ -250,7 +252,7 @@ def test_feature_abi_topk_reduction_is_worker_invariant(
     parallel = planner.score_rank_feature_abi(
         prepared,
         feature_runtime_case["weights"],
-        replace(feature_runtime_case["request"], worker_count=3),
+        replace(feature_runtime_case["request"], worker_count=requested_workers),
     )
 
     assert np.array_equal(parallel.exact_ranks, serial.exact_ranks)
@@ -259,7 +261,13 @@ def test_feature_abi_topk_reduction_is_worker_invariant(
     assert np.array_equal(parallel.red5_candidate_ids, serial.red5_candidate_ids)
     assert np.array_equal(parallel.red5_scores, serial.red5_scores)
     assert np.array_equal(parallel.red5_ranks, serial.red5_ranks)
-    assert parallel.telemetry["topk_reduction_workers"] == 3
+    expected_workers = (
+        requested_workers
+        if backend_name == "numpy_reference"
+        else min(requested_workers, int(numba_config.NUMBA_NUM_THREADS))
+    )
+    assert parallel.telemetry["worker_count"] == expected_workers
+    assert parallel.telemetry["topk_reduction_workers"] == expected_workers
 
 
 def test_feature_abi_runtime_preflight_is_deterministic(feature_runtime_case) -> None:
