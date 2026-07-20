@@ -18,6 +18,9 @@ import {
   DashboardPayload,
   ExperimentDetail,
   ExperimentSummary,
+  EvidenceState,
+  ResearchDashboardPayload,
+  RuntimeDashboardPayload,
   ServiceStatusItem,
   ServiceStatusPayload,
   TrainingAdvisorAdviceRow,
@@ -91,13 +94,25 @@ type ServiceStatusState =
   | { status: 'ready'; payload: ServiceStatusPayload; services: ServiceStatusItem[] }
   | { status: 'error'; message: string };
 
+type RuntimeDashboardState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'ready'; payload: RuntimeDashboardPayload }
+  | { status: 'error'; message: string };
+
+type ResearchDashboardState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'ready'; payload: ResearchDashboardPayload }
+  | { status: 'error'; message: string };
+
 type TrainingNextCandidatesState =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'ready'; payload: TrainingNextCandidatesPayload; comparison: TrainingNextCandidatesPayload[] }
   | { status: 'error'; message: string };
 
-type DashboardTab = 'training' | 'training-rounds' | 'next-candidates' | 'experiments' | 'service-status';
+type DashboardTab = 'runtime-dashboard' | 'research-dashboard' | 'training' | 'training-rounds' | 'next-candidates' | 'experiments' | 'service-status';
 type PredictionLineKey = 'static_100' | 'dynamic_kdj' | 'dynamic_kdj_near';
 type NextCandidateComparisonRow = {
   lineKey: string;
@@ -214,7 +229,9 @@ export class AppComponent {
   private readonly trainingRoundsRefreshRequests = new Subject<void>();
   private readonly trainingNextCandidatesRefreshRequests = new Subject<void>();
   private readonly serviceStatusRefreshRequests = new Subject<void>();
-  private readonly activeTabRequests = new BehaviorSubject<DashboardTab>('training');
+  private readonly runtimeDashboardRefreshRequests = new Subject<void>();
+  private readonly researchDashboardRefreshRequests = new Subject<void>();
+  private readonly activeTabRequests = new BehaviorSubject<DashboardTab>('runtime-dashboard');
   private readonly trainingPredictionLineRequests = new BehaviorSubject<PredictionLineKey>('static_100');
   private readonly detailRequests = new BehaviorSubject<string | null>(null);
   private readonly trainingRoundDetailRequests = new BehaviorSubject<TrainingRoundListItem | null>(null);
@@ -223,7 +240,7 @@ export class AppComponent {
   selectedTrainingRoundKey: string | null = null;
   selectedPredictionLineKey: PredictionLineKey = 'static_100';
   candidateActionMessage = '';
-  activeTab: DashboardTab = 'training';
+  activeTab: DashboardTab = 'runtime-dashboard';
   readonly predictionLineOptions: { key: PredictionLineKey; label: string }[] = [
     { key: 'static_100', label: '100主线' },
     { key: 'dynamic_kdj', label: '动态KDJ' },
@@ -241,6 +258,7 @@ export class AppComponent {
   readonly signedNumber = signedNumber;
   readonly signedPercent = signedPercent;
   readonly serviceStatusLabel = serviceStatusLabel;
+  readonly evidenceStateLabel = evidenceStateLabel;
   readonly trainModeText = trainModeText;
   readonly trainingStatusText = trainingStatusText;
   readonly trainingStream$ = this.dashboardService.watchTrainingStatus().pipe(
@@ -355,6 +373,40 @@ export class AppComponent {
     startWith({ status: 'idle' as const }),
     shareReplay({ bufferSize: 1, refCount: true }),
   );
+  readonly runtimeDashboardState$ = this.activeTabRequests.pipe(
+    filter((tab) => tab === 'runtime-dashboard'),
+    map(() => undefined),
+  ).pipe(
+    mergeWith(this.runtimeDashboardRefreshRequests),
+    switchMap(() =>
+      this.dashboardService.loadRuntimeDashboard().pipe(
+        map((payload): RuntimeDashboardState => ({ status: 'ready', payload })),
+        catchError((error: unknown) =>
+          of({ status: 'error' as const, message: error instanceof Error ? error.message : 'Runtime Dashboard 加载失败' }),
+        ),
+        startWith({ status: 'loading' as const }),
+      ),
+    ),
+    startWith({ status: 'idle' as const }),
+    shareReplay({ bufferSize: 1, refCount: true }),
+  );
+  readonly researchDashboardState$ = this.activeTabRequests.pipe(
+    filter((tab) => tab === 'research-dashboard'),
+    map(() => undefined),
+  ).pipe(
+    mergeWith(this.researchDashboardRefreshRequests),
+    switchMap(() =>
+      this.dashboardService.loadResearchDashboard().pipe(
+        map((payload): ResearchDashboardState => ({ status: 'ready', payload })),
+        catchError((error: unknown) =>
+          of({ status: 'error' as const, message: error instanceof Error ? error.message : 'Research Dashboard 加载失败' }),
+        ),
+        startWith({ status: 'loading' as const }),
+      ),
+    ),
+    startWith({ status: 'idle' as const }),
+    shareReplay({ bufferSize: 1, refCount: true }),
+  );
   readonly trainingNextCandidatesState$ = this.activeTabRequests.pipe(
     filter((tab) => tab === 'next-candidates'),
     map(() => this.selectedPredictionLineKey),
@@ -448,6 +500,14 @@ export class AppComponent {
   constructor(private readonly dashboardService: DashboardService) {}
 
   refresh(): void {
+    if (this.activeTab === 'runtime-dashboard') {
+      this.runtimeDashboardRefreshRequests.next();
+      return;
+    }
+    if (this.activeTab === 'research-dashboard') {
+      this.researchDashboardRefreshRequests.next();
+      return;
+    }
     if (this.activeTab === 'training') {
       this.trainingRefreshRequests.next();
       this.trainingWeightSignalsRefreshRequests.next();
@@ -1841,4 +1901,17 @@ export class AppComponent {
       window.history.replaceState(null, '', nextHash ? `#${nextHash}` : window.location.pathname);
     }
   }
+}
+
+export function evidenceStateLabel(state: EvidenceState): string {
+  const labels: Record<EvidenceState, string> = {
+    verified: '已验证',
+    warning: '需审查',
+    stale: '已过期',
+    missing: '缺失',
+    failed: '失败',
+    not_applicable: '不适用',
+    not_defined: '未定义',
+  };
+  return labels[state];
 }

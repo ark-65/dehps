@@ -228,7 +228,7 @@ test('training view does not use periodic dashboard polling', () => {
   assert.equal(component.includes('advisorSummaries(status: TrainingStatusPayload)'), true);
   assert.equal(component.includes('advisorVerdictText'), true);
   assert.equal(
-    component.includes("type DashboardTab = 'training' | 'training-rounds' | 'next-candidates' | 'experiments' | 'service-status'"),
+    component.includes("type DashboardTab = 'runtime-dashboard' | 'research-dashboard' | 'training' | 'training-rounds' | 'next-candidates' | 'experiments' | 'service-status'"),
     true,
   );
   assert.equal(component.includes('targetHitRows'), true);
@@ -251,6 +251,24 @@ test('training view does not use periodic dashboard polling', () => {
   assert.equal(template.includes('权重演化图待拆分'), false);
   assert.equal(component.includes("title: '权重演化 - 基础'"), true);
   assert.equal(component.includes("title: '权重演化 - 奖惩'"), true);
+});
+
+test('runtime and research dashboards remain separate lazy evidence views', () => {
+  const component = readFileSync(new URL('../src/app/app.component.ts', import.meta.url), 'utf8');
+  const template = readFileSync(new URL('../src/app/app.component.html', import.meta.url), 'utf8');
+  const service = readFileSync(new URL('../src/app/dashboard.service.ts', import.meta.url), 'utf8');
+
+  assert.equal(service.includes("'/dashboard/runtime'"), true);
+  assert.equal(service.includes("'/dashboard/research'"), true);
+  assert.equal(component.includes("filter((tab) => tab === 'runtime-dashboard')"), true);
+  assert.equal(component.includes("filter((tab) => tab === 'research-dashboard')"), true);
+  assert.equal(component.includes("activeTab: DashboardTab = 'runtime-dashboard'"), true);
+  assert.equal(template.includes("activeTab === 'runtime-dashboard'"), true);
+  assert.equal(template.includes("activeTab === 'research-dashboard'"), true);
+  assert.equal(template.includes('Runtime Capability'), true);
+  assert.equal(template.includes('Prediction Quality'), true);
+  assert.equal(template.includes('Expected Value'), true);
+  assert.equal(component.includes("not_defined: '未定义'"), true);
 });
 
 test('training websocket parse errors keep the live connection state accurate', () => {

@@ -9,7 +9,9 @@ import {
   ExperimentSummary,
   FeatureDistribution,
   PipelineRunSummary,
+  ResearchDashboardPayload,
   ResearchRepository,
+  RuntimeDashboardPayload,
   ServiceStatusItem,
   ServiceStatusLevel,
   ServiceStatusPayload,
@@ -581,6 +583,228 @@ export class ResearchService {
       this.trainingStatus(),
     ]);
     return { experiments, pipelineRuns, syncRuns, featureDistributions, trainingStatus };
+  }
+
+  async runtimeDashboard(): Promise<RuntimeDashboardPayload> {
+    const generatedAt = new Date();
+    const services = await this.serviceStatus();
+    const acceptedSource = 'docs/milestones/m1-contract-runtime-complete.md';
+    const acceptedSourcePath = await this.firstExistingPath(path.join(this.repoRoot(), acceptedSource));
+    const capabilityState = acceptedSourcePath ? 'verified' : 'missing';
+    const acceptanceObservedAt = '2026-07-20T00:00:00.000Z';
+    const backendObservedAt = '2026-07-20T00:00:00.000Z';
+    const backendFreshUntil = '2026-07-27T00:00:00.000Z';
+    const backendSource = 'docs/experiments/2026-07-20-opencl-feature-abi-backend-v1.md';
+    const backendSourcePath = await this.firstExistingPath(path.join(this.repoRoot(), backendSource));
+    const backendState = !backendSourcePath
+      ? 'missing'
+      : generatedAt.getTime() <= Date.parse(backendFreshUntil)
+        ? 'verified'
+        : 'stale';
+    const workerState = !acceptedSourcePath
+      ? 'missing'
+      : generatedAt.getTime() <= Date.parse(backendFreshUntil)
+        ? 'verified'
+        : 'stale';
+
+    return {
+      generatedAt: generatedAt.toISOString(),
+      milestone: {
+        key: 'M1',
+        label: 'Contract Runtime Complete',
+        state: 'accepted',
+        source: acceptedSource,
+      },
+      capabilityStatus: capabilityState,
+      operationalStatus: services.overall,
+      capabilities: [
+        this.dashboardEvidence('contract_runtime', 'Contract → Artifact Runtime', capabilityState, acceptedSourcePath ? 'M1 acceptance records the complete Contract Runtime v1 chain.' : 'The M1 acceptance source is missing.', acceptedSourcePath, acceptanceObservedAt, null, 'source-controlled milestone acceptance'),
+        this.dashboardEvidence('abi_enforcement', 'ABI fail-closed', capabilityState, acceptedSourcePath ? 'ABI mismatch and runtime enforcement are accepted M1 capabilities.' : 'The M1 acceptance source is missing.', acceptedSourcePath, acceptanceObservedAt, null, 'source-controlled milestone acceptance'),
+        this.dashboardEvidence('golden_vectors', 'Golden Vectors', capabilityState, acceptedSourcePath ? 'Golden-vector and shared-package verification are accepted M1 capabilities.' : 'The M1 acceptance source is missing.', acceptedSourcePath, acceptanceObservedAt, null, 'source-controlled milestone acceptance'),
+      ],
+      operations: [
+        this.dashboardEvidence(
+          'backend_equality',
+          'Cross-backend equality',
+          backendState,
+          backendState === 'verified'
+            ? 'NumPy, Numba and OpenCL equality evidence is inside its review window.'
+            : backendState === 'missing'
+              ? 'No backend-equality evidence source is available.'
+              : 'The last backend-equality evidence has expired and must be rerun.',
+          backendSourcePath,
+          backendObservedAt,
+          backendFreshUntil,
+          'full-universe verified runtime package',
+        ),
+        this.dashboardEvidence(
+          'worker_regression',
+          'Worker regression',
+          workerState,
+          workerState === 'verified'
+            ? 'The accepted worker regression recorded 1285 passing tests.'
+            : workerState === 'missing'
+              ? 'No accepted worker-regression evidence source is available.'
+              : 'The accepted worker regression is outside its freshness window.',
+          acceptedSourcePath,
+          backendObservedAt,
+          backendFreshUntil,
+          'apps/worker-python test suite',
+          { passed: 1285 },
+        ),
+        this.dashboardEvidence('shadow_future_cohort', 'Shadow future cohort', 'missing', 'No independent future Shadow cohort artifact is available.', null, null, null, 'unseen future issues'),
+      ],
+      services,
+      guardrail: 'Runtime status measures trust, reproducibility and operational health; it is not a prediction-quality score.',
+    };
+  }
+
+  async researchDashboard(): Promise<ResearchDashboardPayload> {
+    const generatedAt = new Date();
+    const root = this.repoRoot();
+    const lane = path.join(root, OPTIMIZATION_OUTPUT_DIR, 'research-lane');
+    const adaptiveDir = path.join(lane, 'adaptive-success-training');
+    const walkForwardDir = path.join(lane, 'walk-forward');
+    const ablationDir = path.join(lane, 'feature-ablation');
+    const [statusFile, walkForwardFile, ablationFile] = await Promise.all([
+      this.findLatestFile(adaptiveDir, 'training-supervisor-', '.json'),
+      this.findLatestFile(walkForwardDir, 'walk-forward-', '.json'),
+      this.findLatestFile(ablationDir, 'feature-ablation-', '.json'),
+    ]);
+    const [rawStatus, rawWalkForward, rawAblation] = await Promise.all([
+      statusFile ? this.readJsonObject(statusFile) : null,
+      walkForwardFile ? this.readJsonObject(walkForwardFile) : null,
+      ablationFile ? this.readJsonObject(ablationFile) : null,
+    ]);
+    const learning = this.objectValue(this.objectValue(rawStatus?.research_learning)?.latest);
+    const aggregate = this.objectValue(learning?.aggregate);
+    const roundSummary = this.objectValue(rawStatus?.round_summary);
+    const metrics = this.objectValue(roundSummary?.latest_metrics);
+    const pairedIssues = this.numberValue(learning?.paired_issue_count);
+    const identityMatches = learning?.evaluation_identity_matches === true;
+    const recent100State = pairedIssues === 100 && identityMatches ? 'verified' : statusFile ? 'warning' : 'missing';
+    const top100Hits = this.metricValue(aggregate, 'top_100_hits', metrics?.top_100_hits);
+    const top1000Hits = this.metricValue(aggregate, 'top_1000_hits', metrics?.top_1000_hits);
+    const top10000Hits = this.metricValue(aggregate, 'top_10000_hits', metrics?.top_10000_hits);
+    const walkForwardState = rawWalkForward ? 'verified' : 'missing';
+    const ablationState = rawAblation ? 'verified' : 'missing';
+    const status = this.stringValue(rawStatus?.status);
+    const updatedAt = this.stringValue(rawStatus?.updated_at);
+    const processState =
+      status === 'running' && !this.isStale(generatedAt, updatedAt, 15 * 60)
+        ? 'verified'
+        : status === 'running'
+          ? 'stale'
+          : statusFile
+            ? 'warning'
+            : 'missing';
+    const qualityStatus = recent100State !== 'verified' ? recent100State : learning?.learning_observed === true ? 'verified' : 'warning';
+
+    const quality = [
+      this.dashboardEvidence('recent_30', 'Recent-30', 'missing', 'No independent Recent-30 evaluation artifact is available.', null, null, null, 'search-selection evidence'),
+      this.dashboardEvidence(
+        'recent_100',
+        'Recent-100',
+        recent100State,
+        recent100State === 'verified'
+          ? `Same-window incumbent/challenger evaluation is complete; current result is ${top100Hits ?? '—'} / ${top1000Hits ?? '—'} / ${top10000Hits ?? '—'}.`
+          : 'Recent-100 evidence is absent or does not satisfy same-window identity checks.',
+        statusFile,
+        this.stringValue(rawStatus?.updated_at),
+        null,
+        'search-selection evidence; not independent generalization',
+        {
+          pairedIssues,
+          evaluationIdentityMatches: identityMatches,
+          top100Hits,
+          top1000Hits,
+          top10000Hits,
+          learningStatus: this.stringValue(learning?.status),
+        },
+      ),
+      this.dashboardEvidence('recent_300', 'Recent-300', 'missing', 'No Recent-300 artifact is available. When added, it is overlap-stability evidence rather than independent generalization.', null, null, null, 'overlapping stability evidence'),
+      this.dashboardEvidence(
+        'walk_forward',
+        'Frozen walk-forward',
+        walkForwardState,
+        walkForwardState === 'verified' ? 'A walk-forward artifact is available for historical rejection and validation.' : 'No walk-forward artifact is available.',
+        walkForwardFile,
+        walkForwardFile ? (await stat(walkForwardFile)).mtime.toISOString() : null,
+        null,
+        'historical rejection/validation',
+        rawWalkForward
+          ? {
+              asOfIssue: this.stringValue(rawWalkForward.as_of_issue),
+              evaluatedDraws: this.numberValue(rawWalkForward.evaluated_draws),
+              top100Hits: this.numberValue(rawWalkForward.top_100_hits),
+              top1000Hits: this.numberValue(rawWalkForward.top_1000_hits),
+              top10000Hits: this.numberValue(rawWalkForward.top_10000_hits),
+            }
+          : {},
+      ),
+      this.dashboardEvidence('generalization', 'Unseen generalization', 'missing', 'No sealed future-issue cohort has completed.', null, null, null, 'truly unseen future issues'),
+      this.dashboardEvidence('calibration', 'Calibration', 'missing', 'No frozen calibration artifact is available.', null, null, null, 'probability calibration'),
+      this.dashboardEvidence(
+        'ablation',
+        'Feature ablation',
+        ablationState,
+        ablationState === 'verified' ? 'A diagnostic-only ablation artifact is available; it is not promotion evidence.' : 'No ablation artifact is available.',
+        ablationFile,
+        this.stringValue(rawAblation?.generated_at),
+        null,
+        'diagnostic-only feature contribution',
+        { status: this.stringValue(rawAblation?.status), promotionAllowed: rawAblation?.promotion_allowed === true },
+      ),
+    ];
+
+    return {
+      generatedAt: generatedAt.toISOString(),
+      milestone: {
+        key: 'M2',
+        label: 'Prediction Quality Improvement',
+        state: 'active',
+        source: 'docs/roadmaps/research.md',
+      },
+      qualityStatus,
+      processStatus: processState,
+      quality,
+      process: [
+        this.dashboardEvidence(
+          'research_run',
+          'Research run',
+          processState,
+          statusFile ? `Run ${this.stringValue(rawStatus?.run_id) ?? 'unknown'} is ${status ?? 'unknown'}.` : 'No research-run status artifact is available.',
+          statusFile,
+          updatedAt,
+          null,
+          'research process only',
+          { rounds: this.numberValue(roundSummary?.round_count), evalWindow: this.numberValue(rawStatus?.eval_window) },
+        ),
+        this.dashboardEvidence('shadow_evaluation', 'Shadow evaluation', 'missing', 'No Shadow evaluation artifact is available; nothing is eligible for promotion from this dashboard.', null, null, null, 'Shadow → Evaluation'),
+        this.dashboardEvidence('promotion', 'Promotion', 'not_applicable', 'Promotion Rate is descriptive only. Current evidence records no production selection change.', statusFile, updatedAt, null, 'Promotion Gate', { productionSelectionChanged: learning?.production_selection_changed === true }),
+      ],
+      expectedValue: this.dashboardEvidence('expected_value', 'Expected Value', 'not_defined', 'Expected Value remains undefined until payout, cost and decision-policy contracts are frozen.', null, null, null, 'economic contract'),
+      guardrail: 'Research quality is judged independently from Runtime maturity. Historical lift is evidence for a hypothesis, not proof of generalization.',
+    };
+  }
+
+  private dashboardEvidence(
+    key: string,
+    label: string,
+    state: import('./research.types').EvidenceState,
+    summary: string,
+    source: string | null,
+    observedAt: string | null,
+    freshUntil: string | null,
+    scope: string,
+    metrics: Record<string, unknown> = {},
+  ): import('./research.types').DashboardEvidence {
+    return { key, label, state, summary, source, observedAt, freshUntil, scope, metrics };
+  }
+
+  private metricValue(aggregate: Record<string, unknown> | null, key: string, fallback: unknown): number | null {
+    const row = this.objectValue(aggregate?.[key]);
+    return this.numberValue(row?.challenger) ?? this.numberValue(fallback);
   }
 
   private async apiServiceStatus(generatedAt: Date, logDir: string): Promise<ServiceStatusItem> {

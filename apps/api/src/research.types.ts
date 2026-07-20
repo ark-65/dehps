@@ -307,6 +307,59 @@ export type ServiceStatusPayload = {
   heavyTaskLimits: HeavyTaskLimits;
 };
 
+export type EvidenceState =
+  | 'verified'
+  | 'warning'
+  | 'stale'
+  | 'missing'
+  | 'failed'
+  | 'not_applicable'
+  | 'not_defined';
+
+export type DashboardEvidence = {
+  key: string;
+  label: string;
+  state: EvidenceState;
+  summary: string;
+  source: string | null;
+  observedAt: string | null;
+  freshUntil: string | null;
+  scope: string;
+  metrics: Record<string, unknown>;
+};
+
+export type RuntimeDashboardPayload = {
+  generatedAt: string;
+  milestone: {
+    key: 'M1';
+    label: 'Contract Runtime Complete';
+    state: 'accepted';
+    source: string;
+  };
+  capabilityStatus: EvidenceState;
+  operationalStatus: ServiceStatusLevel;
+  capabilities: DashboardEvidence[];
+  operations: DashboardEvidence[];
+  services: ServiceStatusPayload;
+  guardrail: string;
+};
+
+export type ResearchDashboardPayload = {
+  generatedAt: string;
+  milestone: {
+    key: 'M2';
+    label: 'Prediction Quality Improvement';
+    state: 'active';
+    source: string;
+  };
+  qualityStatus: EvidenceState;
+  processStatus: EvidenceState;
+  quality: DashboardEvidence[];
+  process: DashboardEvidence[];
+  expectedValue: DashboardEvidence;
+  guardrail: string;
+};
+
 export type SsqHistorySummary = {
   tablePresent: boolean;
   totalDraws: number;
