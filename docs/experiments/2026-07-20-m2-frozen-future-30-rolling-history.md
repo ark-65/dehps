@@ -129,6 +129,7 @@ The cohort fails closed on any of the following:
   `research-m2-frozen-future-30-rolling-history-amendment-v1`, request id `151`.
 - Human Reviewer decision: `批准滚动历史`.
 - Clarification execution: id `73`, completed in the isolated environment.
+- Evaluator implementation: [M2 Frozen-Future-30 Sealed Evaluator](2026-07-20-m2-frozen-future-30-evaluator.md).
 - Historical boundary: Gauss and Riemann are historically inspired verification lenses, not literal
   minds, evidence, or authority.
 
