@@ -18,6 +18,9 @@ if TYPE_CHECKING:
     from dehps.scoring_kernel.feature_abi_numba_backend import (
         FeatureABINumbaCpuBackend,
     )
+    from dehps.scoring_kernel.feature_abi_opencl_backend import (
+        FeatureABIOpenCLBackend,
+    )
     from dehps.unified_runtime import VerifiedRuntimePackage
 
 
@@ -26,8 +29,16 @@ BACKEND_ENV = "DEHPS_SCORING_BACKEND"
 
 
 def resolve_backend_name(explicit: str | None = None) -> str:
-    name = str(explicit or os.getenv(BACKEND_ENV) or DEFAULT_BACKEND).strip().lower()
+    name = str(
+        explicit if explicit is not None else os.getenv(BACKEND_ENV) or DEFAULT_BACKEND
+    ).strip().lower()
+    if name == "opencl_gpu" and explicit is None:
+        raise ValueError(
+            "opencl_gpu is research-only and requires explicit KernelPlanner selection"
+        )
     if name not in {"numpy_reference", "numba_cpu"}:
+        if name == "opencl_gpu":
+            return name
         raise ValueError(f"unsupported scoring backend: {name}")
     return name
 
@@ -40,7 +51,11 @@ class KernelPlanner:
 
     def feature_abi_backend(
         self,
-    ) -> FeatureABINumpyReferenceBackend | FeatureABINumbaCpuBackend:
+    ) -> (
+        FeatureABINumpyReferenceBackend
+        | FeatureABINumbaCpuBackend
+        | FeatureABIOpenCLBackend
+    ):
         from dehps.scoring_kernel.feature_abi_backend import FeatureABINumpyReferenceBackend
 
         if self.backend_name == "numpy_reference":
@@ -51,6 +66,12 @@ class KernelPlanner:
             )
 
             return FeatureABINumbaCpuBackend()
+        if self.backend_name == "opencl_gpu":
+            from dehps.scoring_kernel.feature_abi_opencl_backend import (
+                FeatureABIOpenCLBackend,
+            )
+
+            return FeatureABIOpenCLBackend()
         raise AssertionError(f"unreachable backend: {self.backend_name}")
 
     def prepare_feature_abi(

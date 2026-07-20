@@ -18,6 +18,11 @@ dependencies = [
   "pytest>=8.2",
 ]
 
+[project.optional-dependencies]
+opencl = [
+  "pyopencl>=2026.1.2,<2027",
+]
+
 [project.scripts]
 dehps = "dehps.cli:app"
 
