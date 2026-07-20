@@ -16,6 +16,7 @@ index authority; they do not themselves authorize implementation, operation, or 
 | Candidate definitions | `docs/architecture/candidate-abi-v1.md` and Candidate Contract docs | Candidate identity, universe, ordering, layouts, rank/unrank |
 | Window definitions | `docs/architecture/scoring-input-contract-v1.md` and history/window specs | Rolling/expanding semantics, target boundary, history binding |
 | Evaluation semantics | `docs/architecture/evaluation-contract-v1.md`, `objective-policy.md` | Metric formulas, rank namespaces, cutoffs, status and promotion meaning |
+| Active research protocols | [Frozen-Future-30 rolling-history preregistration](../experiments/2026-07-20-m2-frozen-future-30-rolling-history.md), Agent Request ledger | Frozen versus rolling identities, pre-outcome boundaries, null model, decision rule, invalidation conditions |
 | Research theory and sources | `docs/theory/`, `docs/sources/`, future reviewed paper notes | Assumptions, references, applicability, limitations |
 | Architecture decisions | `docs/architecture/` | Current design, invariants, compatibility, non-goals |
 | Decision records | `DECISIONS.md` and future focused ADRs | Project-level choices, reasons, consequences, supersession |
