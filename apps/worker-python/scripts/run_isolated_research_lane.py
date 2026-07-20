@@ -1,19 +1,21 @@
 from __future__ import annotations
 
-"""Run bounded, read-only historical research while forward training is parked.
+"""Run isolated historical research while forward production is parked.
 
-This lane deliberately never invokes the training supervisor and never writes current
-prediction candidates.  It is a fixed audit suite: its artifacts may inform a human
-review, but cannot change line selection or promotion.
+The adaptive task reuses the production search implementation under the strict
+``observability_only`` persistence policy.  It may select a local research champion,
+but never writes current prediction candidates or changes production promotion state.
 """
 
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 import subprocess
 import sys
 import time
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -44,19 +46,29 @@ from dehps.training.research_fingerprint import (
 
 
 LANE_KEY = "isolated_historical_research"
-SUITE_VERSION = "idle-optimization-v3"
+SUITE_VERSION = "idle-optimization-v4"
 DEFAULT_MODEL_VERSION = "frequency-ranker-kdj-v1"
 DEFAULT_FEATURE_VERSION = "frequency-ranker-structural-v1"
 DEFAULT_CANDIDATE_ALGORITHM_VERSION = "kdj-controls-v1"
 DEFAULT_TASKS = (
     "training-diagnostics",
-    "walk-forward",
-    "weight-grid",
     "analytic-null-baseline",
+    "adaptive-success-training",
 )
-DETERMINISTIC_TASKS = frozenset((*DEFAULT_TASKS, "feature-ablation", "dynamic-kdj"))
+DETERMINISTIC_TASKS = frozenset(
+    (*DEFAULT_TASKS, "walk-forward", "weight-grid", "feature-ablation", "dynamic-kdj")
+)
 STOCHASTIC_TASKS = frozenset(("frozen-controls",))
-RANKING_TASKS = frozenset(("walk-forward", "weight-grid", "feature-ablation", "dynamic-kdj", "frozen-controls"))
+RANKING_TASKS = frozenset(
+    (
+        "adaptive-success-training",
+        "walk-forward",
+        "weight-grid",
+        "feature-ablation",
+        "dynamic-kdj",
+        "frozen-controls",
+    )
+)
 ALLOWED_TASKS = DETERMINISTIC_TASKS | STOCHASTIC_TASKS
 TASK_CONFIG_FIELDS = {
     "training-diagnostics": (
@@ -68,6 +80,23 @@ TASK_CONFIG_FIELDS = {
     "walk-forward": ("train_mode", "train_window", "eval_window", "top_n", "history_scope", "regime_years"),
     "weight-grid": ("train_mode", "train_window", "eval_window", "top_n", "history_scope", "regime_years"),
     "analytic-null-baseline": ("eval_window", "top_n", "history_scope", "regime_years"),
+    "adaptive-success-training": (
+        "train_mode",
+        "train_window",
+        "eval_window",
+        "top_n",
+        "history_scope",
+        "regime_years",
+        "workers",
+        "adaptive_max_rounds",
+        "adaptive_max_configs_per_round",
+        "adaptive_memory_budget_gb",
+        "adaptive_weight_kdj_budget_share",
+        "adaptive_ridge_kdj_budget_share",
+        "adaptive_target_inversion_max_candidates",
+        "adaptive_target_inversion_max_deltas",
+        "continuation_snapshot",
+    ),
     "feature-ablation": ("train_mode", "train_window", "eval_window", "top_n", "history_scope", "regime_years"),
     "dynamic-kdj": ("train_mode", "train_window", "eval_window", "top_n", "history_scope", "regime_years"),
     "frozen-controls": (
@@ -87,6 +116,7 @@ TASK_EVALUATION_CONTRACTS = {
     "walk-forward": "fixed-historical-walk-forward-v1",
     "weight-grid": "complete-weight-grid-v1",
     "analytic-null-baseline": "analytic-uniform-rank-null-v1",
+    "adaptive-success-training": "recent-history-success-learning-v1",
     "feature-ablation": "fixed-feature-family-ablation-v1",
     "dynamic-kdj": "frozen-dynamic-kdj-backtest-v1",
     "frozen-controls": "monte-carlo-random-ranking-controls-v1",
@@ -138,6 +168,14 @@ def research_commands(
     random_seeds: str | None,
     tasks: tuple[str, ...],
     diagnostics_run_id: str | None = None,
+    adaptive_max_rounds: int = 512,
+    adaptive_max_configs_per_round: int = 96,
+    adaptive_memory_budget_gb: int = 24,
+    adaptive_weight_kdj_budget_share: float = 0.22,
+    adaptive_ridge_kdj_budget_share: float = 0.22,
+    adaptive_target_inversion_max_candidates: int = 8,
+    adaptive_target_inversion_max_deltas: int = 12,
+    adaptive_progress_interval: int = 5,
 ) -> list[tuple[str, str, list[str]]]:
     common = [
         "--as-of-issue",
@@ -201,6 +239,55 @@ def research_commands(
                 str(output_dir / "analytic-null-baseline"),
             ],
         ),
+        "adaptive-success-training": (
+            "adaptive_success_training",
+            [
+                sys.executable,
+                "scripts/run_training_supervisor.py",
+                "--observability-only",
+                "--max-rounds",
+                str(adaptive_max_rounds),
+                "--as-of-issue",
+                as_of_issue,
+                "--train-mode",
+                train_mode,
+                "--train-window",
+                str(train_window),
+                "--eval-window",
+                str(eval_window),
+                "--top-n",
+                str(top_n),
+                "--history-scope",
+                history_scope,
+                "--regime-years",
+                str(regime_years),
+                "--workers",
+                str(workers),
+                "--max-configs-per-round",
+                str(adaptive_max_configs_per_round),
+                "--memory-budget-gb",
+                str(adaptive_memory_budget_gb),
+                "--progress-interval",
+                str(adaptive_progress_interval),
+                "--output-dir",
+                str(output_dir / "adaptive-success-training"),
+                "--write-status-json",
+                "--enable-weight-kdj-advisor",
+                "--weight-kdj-budget-share",
+                str(adaptive_weight_kdj_budget_share),
+                "--enable-ridge-kdj-advisor",
+                "--ridge-kdj-budget-share",
+                str(adaptive_ridge_kdj_budget_share),
+                "--target-weight-inversion-max-candidates",
+                str(adaptive_target_inversion_max_candidates),
+                "--target-weight-inversion-max-targets",
+                str(eval_window),
+                "--target-weight-inversion-max-deltas-per-target",
+                str(adaptive_target_inversion_max_deltas),
+                "--cpu-threads",
+                "1",
+            ],
+        ),
         "feature-ablation": (
             "feature_family_ablation",
             [
@@ -246,6 +333,119 @@ def research_commands(
     if "frozen-controls" in tasks and not str(random_seeds or "").strip():
         raise ValueError("stochastic frozen-controls task requires --random-seeds")
     return [(task, *commands[task]) for task in tasks]
+
+
+def adaptive_continuation_snapshot(
+    output_dir: Path,
+    *,
+    as_of_issue: str,
+    train_mode: str,
+    train_window: int,
+    eval_window: int,
+    top_n: int,
+) -> dict[str, Any]:
+    """Fingerprint semantic search progress without using run ids or timestamps."""
+
+    task_dir = output_dir / "adaptive-success-training"
+    evaluated_hashes: set[str] = set()
+    champion_hashes: set[str] = set()
+    search_base_hashes: set[str] = set()
+    for status_path in sorted(task_dir.glob("training-supervisor-*.json")):
+        status = load_manifest(status_path)
+        if not isinstance(status, dict):
+            continue
+        status_candidates = [status.get("best")]
+        for round_info in status.get("rounds") or []:
+            if isinstance(round_info, dict):
+                status_candidates.append(round_info.get("best"))
+                status_candidates.extend(round_info.get("top_results") or [])
+        observed_issues = {
+            str(candidate.get("as_of_issue"))
+            for candidate in status_candidates
+            if isinstance(candidate, dict) and candidate.get("as_of_issue")
+        }
+        if (
+            status.get("execution_mode") != "observability_only"
+            or (observed_issues and observed_issues != {as_of_issue})
+            or status.get("train_mode") != train_mode
+            or int(status.get("train_window") or 0) != train_window
+            or int(status.get("eval_window") or 0) != eval_window
+            or int(status.get("top_n") or 0) != top_n
+        ):
+            continue
+        for candidate in status_candidates:
+            if isinstance(candidate, dict) and candidate.get("config_hash"):
+                evaluated_hashes.add(str(candidate["config_hash"]))
+        learning = status.get("research_learning")
+        if isinstance(learning, dict):
+            champion = learning.get("champion")
+            if isinstance(champion, dict) and champion.get("config_hash"):
+                champion_hashes.add(str(champion["config_hash"]))
+        search_base = status.get("search_base")
+        if isinstance(search_base, dict) and search_base.get("config_hash"):
+            search_base_hashes.add(str(search_base["config_hash"]))
+    semantic_state = {
+        "evaluated_config_hashes": sorted(evaluated_hashes),
+        "research_champion_hashes": sorted(champion_hashes),
+        "search_base_hashes": sorted(search_base_hashes),
+    }
+    digest = hashlib.sha256(
+        json.dumps(semantic_state, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return {
+        "protocol": "adaptive-search-semantic-continuation-v1",
+        "evaluated_config_count": len(evaluated_hashes),
+        "semantic_state_digest": digest,
+    }
+
+
+def latest_adaptive_training_status(output_dir: Path) -> dict[str, Any] | None:
+    task_dir = output_dir / "adaptive-success-training"
+    paths = sorted(
+        task_dir.glob("training-supervisor-*.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    return load_manifest(paths[0]) if paths else None
+
+
+def execute_research_command(
+    *,
+    task_type: str,
+    name: str,
+    command: list[str],
+    log_path: Path,
+    training_fingerprint: str,
+    as_of_issue: str,
+) -> subprocess.CompletedProcess[str]:
+    lock_context = (
+        nullcontext(None)
+        if task_type == "adaptive-success-training"
+        else heavy_job_lock(
+            owner="research-training",
+            timeout_seconds=0.0,
+            context={
+                "training_fingerprint": training_fingerprint,
+                "as_of_issue": as_of_issue,
+                "task": name,
+                "production_prediction_write_allowed": False,
+            },
+        )
+    )
+    with lock_context as heavy_lock, log_path.open("w", encoding="utf-8") as log_handle:
+        if heavy_lock is not None:
+            heavy_lock.heartbeat(
+                status="running",
+                context={"task": name, "training_fingerprint": training_fingerprint},
+            )
+        return subprocess.run(
+            command,
+            cwd=WORKER_ROOT,
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
+            check=False,
+            text=True,
+        )
 
 
 def manifest_matches(manifest: Any, *, training_fingerprint: str) -> bool:
@@ -339,6 +539,23 @@ def build_training_contract(
         "top_n": args.top_n,
         "history_scope": args.history_scope,
         "regime_years": args.regime_years,
+        "workers": args.workers,
+        "adaptive_max_rounds": args.adaptive_max_rounds,
+        "adaptive_max_configs_per_round": args.adaptive_max_configs_per_round,
+        "adaptive_memory_budget_gb": args.adaptive_memory_budget_gb,
+        "adaptive_weight_kdj_budget_share": args.adaptive_weight_kdj_budget_share,
+        "adaptive_ridge_kdj_budget_share": args.adaptive_ridge_kdj_budget_share,
+        "adaptive_target_inversion_max_candidates": args.adaptive_target_inversion_max_candidates,
+        "adaptive_target_inversion_max_deltas": args.adaptive_target_inversion_max_deltas,
+        "continuation_snapshot": getattr(
+            args,
+            "continuation_snapshot",
+            {
+                "protocol": "adaptive-search-semantic-continuation-v1",
+                "evaluated_config_count": 0,
+                "semantic_state_digest": hashlib.sha256(b"{}").hexdigest(),
+            },
+        ),
         "diagnostics_snapshot": getattr(
             args,
             "diagnostics_snapshot",
@@ -416,7 +633,7 @@ def render_report(payload: dict[str, Any]) -> str:
         f"- Config hash: `{payload.get('config_hash')}`",
         f"- Code commit: `{payload.get('code_commit')}`",
         f"- History fingerprint: `{payload.get('history_fingerprint')}`",
-        "- Boundary: PostgreSQL is transaction-read-only; this suite does not run the training supervisor used for production, write current prediction candidates, select a line, or promote a model.",
+        "- Boundary: PostgreSQL is transaction-read-only. Adaptive search runs under observability-only policy; it may select a local research champion but cannot write current prediction candidates or change production selection/promotion state.",
         "",
         "## Task executions",
         "",
@@ -430,7 +647,7 @@ def render_report(payload: dict[str, Any]) -> str:
     rows.extend(
         [
             "",
-            "Results are historical diagnostics only. They require the normal frozen and forward-evidence gates before any main-line change.",
+            "Research learning is judged on the fixed recent-history success contract. Frozen and forward evidence remain separate gates for any production change.",
             "",
         ]
     )
@@ -449,6 +666,42 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--top-n", type=int, default=10000)
     parser.add_argument("--history-scope", choices=["full_history_audit", "current_regime_default"], default="current_regime_default")
     parser.add_argument("--regime-years", type=int, default=10)
+    parser.add_argument("--adaptive-max-rounds", type=int, default=int(os.getenv("DEHPS_RESEARCH_ADAPTIVE_MAX_ROUNDS", "512")))
+    parser.add_argument(
+        "--adaptive-max-configs-per-round",
+        type=int,
+        default=int(os.getenv("DEHPS_RESEARCH_ADAPTIVE_MAX_CONFIGS_PER_ROUND", "96")),
+    )
+    parser.add_argument(
+        "--adaptive-memory-budget-gb",
+        type=int,
+        default=int(os.getenv("DEHPS_RESEARCH_ADAPTIVE_MEMORY_BUDGET_GB", "24")),
+    )
+    parser.add_argument(
+        "--adaptive-weight-kdj-budget-share",
+        type=float,
+        default=float(os.getenv("DEHPS_RESEARCH_ADAPTIVE_WEIGHT_KDJ_BUDGET_SHARE", "0.22")),
+    )
+    parser.add_argument(
+        "--adaptive-ridge-kdj-budget-share",
+        type=float,
+        default=float(os.getenv("DEHPS_RESEARCH_ADAPTIVE_RIDGE_KDJ_BUDGET_SHARE", "0.22")),
+    )
+    parser.add_argument(
+        "--adaptive-target-inversion-max-candidates",
+        type=int,
+        default=int(os.getenv("DEHPS_RESEARCH_ADAPTIVE_TARGET_INVERSION_MAX_CANDIDATES", "8")),
+    )
+    parser.add_argument(
+        "--adaptive-target-inversion-max-deltas",
+        type=int,
+        default=int(os.getenv("DEHPS_RESEARCH_ADAPTIVE_TARGET_INVERSION_MAX_DELTAS", "12")),
+    )
+    parser.add_argument(
+        "--adaptive-progress-interval",
+        type=int,
+        default=int(os.getenv("DEHPS_RESEARCH_ADAPTIVE_PROGRESS_INTERVAL", "5")),
+    )
     parser.add_argument("--diagnostics-run-id")
     parser.add_argument("--random-seeds", default=os.getenv("DEHPS_RESEARCH_RANDOM_SEEDS"))
     parser.add_argument("--seed-aggregation", choices=["mean_variance"], default="mean_variance")
@@ -483,7 +736,18 @@ def main() -> None:
     args = build_parser().parse_args()
     if args.workers < 1:
         raise ValueError("--workers must be positive")
-    for name in ("train_window", "eval_window", "top_n", "regime_years"):
+    for name in (
+        "train_window",
+        "eval_window",
+        "top_n",
+        "regime_years",
+        "adaptive_max_rounds",
+        "adaptive_max_configs_per_round",
+        "adaptive_memory_budget_gb",
+        "adaptive_target_inversion_max_candidates",
+        "adaptive_target_inversion_max_deltas",
+        "adaptive_progress_interval",
+    ):
         if int(getattr(args, name)) < 1:
             raise ValueError(f"--{name.replace('_', '-')} must be positive")
 
@@ -509,6 +773,14 @@ def main() -> None:
     if observed_issue != args.as_of_issue:
         raise ValueError(f"as-of issue mismatch: requested={args.as_of_issue} observed={observed_issue}")
     history_fingerprint_value = fingerprint_history(selection.dated_history)
+    args.continuation_snapshot = adaptive_continuation_snapshot(
+        args.output_dir,
+        as_of_issue=args.as_of_issue,
+        train_mode=args.train_mode,
+        train_window=args.train_window,
+        eval_window=args.eval_window,
+        top_n=args.top_n,
+    )
     contract = build_training_contract(
         args=args,
         history_fingerprint_value=history_fingerprint_value,
@@ -577,22 +849,14 @@ def main() -> None:
             "code_commit": resolve_git_commit(REPO_ROOT),
             **contract.as_dict(),
             "database_guard": database_guard,
-            "selection_changed": False,
+            "research_selection_changed": False,
+            "production_selection_changed": False,
             "promotion_allowed": False,
             "main_candidate_write_allowed": False,
             "started_at": datetime.now(timezone.utc).isoformat(),
             "runs": [],
         }
-        with heavy_job_lock(
-            owner="research-training",
-            timeout_seconds=0.0,
-            context={
-                "training_fingerprint": contract.value,
-                "as_of_issue": args.as_of_issue,
-                "tasks": list(tasks),
-                "production_prediction_write_allowed": False,
-            },
-        ) as heavy_lock:
+        if tasks:
             task_contracts = {task.spec.task_type: task for task in contract.tasks}
             for task_type, name, command in research_commands(
                 as_of_issue=args.as_of_issue,
@@ -607,23 +871,26 @@ def main() -> None:
                 random_seeds=args.random_seeds,
                 tasks=tasks,
                 diagnostics_run_id=args.diagnostics_run_id,
+                adaptive_max_rounds=args.adaptive_max_rounds,
+                adaptive_max_configs_per_round=args.adaptive_max_configs_per_round,
+                adaptive_memory_budget_gb=args.adaptive_memory_budget_gb,
+                adaptive_weight_kdj_budget_share=args.adaptive_weight_kdj_budget_share,
+                adaptive_ridge_kdj_budget_share=args.adaptive_ridge_kdj_budget_share,
+                adaptive_target_inversion_max_candidates=args.adaptive_target_inversion_max_candidates,
+                adaptive_target_inversion_max_deltas=args.adaptive_target_inversion_max_deltas,
+                adaptive_progress_interval=args.adaptive_progress_interval,
             ):
                 task_contract = task_contracts[task_type]
                 log_path = args.output_dir / f"{stamp}-{name}.log"
                 command_started = time.monotonic()
-                heavy_lock.heartbeat(
-                    status="running",
-                    context={"task": name, "training_fingerprint": contract.value},
+                completed = execute_research_command(
+                    task_type=task_type,
+                    name=name,
+                    command=command,
+                    log_path=log_path,
+                    training_fingerprint=contract.value,
+                    as_of_issue=args.as_of_issue,
                 )
-                with log_path.open("w", encoding="utf-8") as log_handle:
-                    completed = subprocess.run(
-                        command,
-                        cwd=WORKER_ROOT,
-                        stdout=log_handle,
-                        stderr=subprocess.STDOUT,
-                        check=False,
-                        text=True,
-                    )
                 result = {
                     "task_type": task_type,
                     "name": name,
@@ -643,6 +910,28 @@ def main() -> None:
                         }
                         for seed in task_contract.spec.seed_policy.seeds
                     ]
+                if task_type == "adaptive-success-training":
+                    adaptive_status = latest_adaptive_training_status(args.output_dir)
+                    learning = (
+                        adaptive_status.get("research_learning")
+                        if isinstance(adaptive_status, dict)
+                        else None
+                    )
+                    result["persistence_policy"] = (
+                        adaptive_status.get("persistence_policy")
+                        if isinstance(adaptive_status, dict)
+                        else None
+                    )
+                    result["research_learning"] = learning
+                    result["status_path"] = (
+                        adaptive_status.get("status_path")
+                        if isinstance(adaptive_status, dict)
+                        else None
+                    )
+                    champion = learning.get("champion") if isinstance(learning, dict) else None
+                    if isinstance(champion, dict) and champion.get("config_hash"):
+                        payload["research_selection_changed"] = True
+                        payload["research_champion"] = champion
                 payload["runs"].append(result)
                 if completed.returncode != 0:
                     payload["status"] = "failed"

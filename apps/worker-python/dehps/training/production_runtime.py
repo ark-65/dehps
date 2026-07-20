@@ -625,8 +625,19 @@ class ProductionRuntimeRoundExecutor:
         round_best = normalized.round_best
         prior_best_summary = normalized.prior_best_summary
         promotion_gate = normalized.promotion_gate
-        improved = normalized.improved
+        production_improved = normalized.improved
         raw_improved = normalized.raw_improved
+        improved = raw_improved if observability_only else production_improved
+        research_learning = (
+            research_learning_comparison(
+                incumbent=prior_best_summary,
+                challenger=round_best,
+                improved=improved,
+                evaluation_window=eval_window,
+            )
+            if observability_only
+            else None
+        )
         prefilter_isolation = normalized.prefilter_isolation
         evaluation_split = normalized.evaluation_split
         eval_slice_overfit = eval_slice_overfit_guardrail(
@@ -1458,6 +1469,9 @@ class ProductionRuntimeRoundExecutor:
             "config_count": len(refined_configs),
             "prefilter": prefilter_info,
             "improved": improved,
+            "improvement_scope": "research_success_objective" if observability_only else "production_promotion_gate",
+            "raw_success_objective_improved": raw_improved,
+            "production_promotion_gate_improved": production_improved,
             "best": round_best,
             "top_results": persisted_round_candidate_summaries(
                 summaries,
@@ -1465,6 +1479,16 @@ class ProductionRuntimeRoundExecutor:
             ),
             "control_experiments": control_summaries,
         }
+        if research_learning is not None:
+            round_record["production_selection_changed"] = False
+            round_record["research_learning"] = research_learning
+            status["research_learning"]["latest"] = research_learning
+            if research_learning["learning_observed"]:
+                status["research_learning"]["champion"] = {
+                    "config_hash": research_learning["challenger_config_hash"],
+                    "round": round_index + 1,
+                    "aggregate": research_learning["aggregate"],
+                }
         status["updated_at"] = datetime.now().isoformat(timespec="seconds")
         status["best"] = strip_target_results(best_summary) if best_summary else None
         status["search_base"] = search_base_info
@@ -2001,6 +2025,13 @@ def build_production_training_session(
         "run_mode": "continuous" if deadline is None else "timed",
         "execution_mode": "observability_only" if observability_only else "production",
         "persistence_policy": training_persistence_policy(observability_only),
+        "research_learning": {
+            "enabled": observability_only,
+            "contract": "recent-history-success-learning-v1",
+            "production_selection_changed": False,
+            "latest": None,
+            "champion": None,
+        },
         "round_execution_history": [],
         "status": "running",
         "pid": os.getpid(),

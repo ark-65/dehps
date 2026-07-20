@@ -206,5 +206,11 @@ def test_forward_wait_parks_only_production_and_runs_fingerprinted_research():
     assert 'RESEARCH_TRAIN_WINDOW="${DEHPS_RESEARCH_TRAIN_WINDOW:-900}"' in script
     assert 'RESEARCH_RANDOM_SEEDS="${DEHPS_RESEARCH_RANDOM_SEEDS:-}"' in script
     assert "--mode research" in script
-    assert 'RESEARCH_TASKS="${DEHPS_RESEARCH_TASKS:-training-diagnostics,walk-forward,weight-grid,analytic-null-baseline}"' in script
+    assert 'RESEARCH_TASKS="${DEHPS_RESEARCH_TASKS:-training-diagnostics,analytic-null-baseline,adaptive-success-training}"' in script
+    assert 'RESEARCH_ADAPTIVE_MAX_ROUNDS="${DEHPS_RESEARCH_ADAPTIVE_MAX_ROUNDS:-512}"' in script
+    assert '--adaptive-max-rounds "$RESEARCH_ADAPTIVE_MAX_ROUNDS"' in script
+    assert "stop_stale_isolated_research_lane" in script
+    assert 'setsid nohup .venv/bin/python scripts/run_isolated_research_lane.py' in script
+    assert 'RESEARCH_PID_FILE="$LOG_DIR/isolated-research-lane.pid"' in script
+    assert 'context.get("observability_only") is not True' in script
     assert "seed_policy=${RESEARCH_RANDOM_SEEDS:-none}" in script

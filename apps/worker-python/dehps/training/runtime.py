@@ -3692,6 +3692,10 @@ def summarize_partitioned_target_ranks(
         "search_uses_frozen_validation": False,
         "frozen_validation_role": "promotion_only",
     }
+    # Kept only until the observability artifact is built. Persistence helpers
+    # strip this field together with target_results, so production rows remain
+    # compact while research can audit the complete requested window.
+    summary["full_target_results"] = [target_result_payload(target) for target in target_ranks]
     return summary
 
 
@@ -4916,6 +4920,7 @@ def active_supervisor_stagnation_round_count(
 def strip_target_results(summary: dict) -> dict:
     stripped = dict(summary)
     stripped.pop("target_results", None)
+    stripped.pop("full_target_results", None)
     return stripped
 
 
@@ -5749,6 +5754,174 @@ def compact_round_info(round_info: dict) -> dict:
         for summary in compact.get("top_results", [])
     ]
     return compact
+
+
+def research_learning_comparison(
+    *,
+    incumbent: dict | None,
+    challenger: dict | None,
+    improved: bool,
+    evaluation_window: int,
+) -> dict:
+    """Describe whether a research round learned on its fixed historical objective.
+
+    This is deliberately a research-local decision.  It records paired target rank
+    movement and aggregate success metrics, but never authorizes production
+    selection or promotion.
+    """
+
+    contract = {
+        "name": "recent-history-success-learning-v1",
+        "evaluation_window": int(evaluation_window),
+        "primary_metrics": ["top_100_hits", "top_1000_hits", "top_10000_hits"],
+        "rank_tail_metrics": ["median_rank", "worst_rank"],
+        "selection_scope": "research_only",
+    }
+    if not isinstance(incumbent, dict) or not isinstance(challenger, dict):
+        return {
+            "status": "insufficient_baseline",
+            "contract": contract,
+            "learning_observed": False,
+            "research_selection_changed": False,
+            "production_selection_changed": False,
+            "failure_reasons": ["missing_incumbent_or_challenger"],
+        }
+
+    incumbent_target_rows = incumbent.get("full_target_results") or incumbent.get("target_results") or []
+    challenger_target_rows = challenger.get("full_target_results") or challenger.get("target_results") or []
+    incumbent_targets = {
+        str(target.get("issue") or ""): target
+        for target in incumbent_target_rows
+        if isinstance(target, dict) and target.get("issue")
+    }
+    challenger_targets = {
+        str(target.get("issue") or ""): target
+        for target in challenger_target_rows
+        if isinstance(target, dict) and target.get("issue")
+    }
+    common_issues = sorted(set(incumbent_targets) & set(challenger_targets))
+    paired: list[dict] = []
+    for issue in common_issues:
+        incumbent_target = incumbent_targets[issue]
+        challenger_target = challenger_targets[issue]
+        incumbent_rank = incumbent_target.get("rank")
+        challenger_rank = challenger_target.get("rank")
+        if not isinstance(incumbent_rank, int | float) or not isinstance(challenger_rank, int | float):
+            continue
+        paired.append(
+            {
+                "issue": issue,
+                "incumbent_rank": int(incumbent_rank),
+                "challenger_rank": int(challenger_rank),
+                "rank_delta": int(challenger_rank) - int(incumbent_rank),
+                "top_100_delta": int(bool(challenger_target.get("hit_top_100")))
+                - int(bool(incumbent_target.get("hit_top_100"))),
+                "top_1000_delta": int(bool(challenger_target.get("hit_top_1000")))
+                - int(bool(incumbent_target.get("hit_top_1000"))),
+                "top_10000_delta": int(bool(challenger_target.get("hit_top_10000")))
+                - int(bool(incumbent_target.get("hit_top_10000"))),
+            }
+        )
+
+    def full_window_metrics(targets: dict[str, dict]) -> dict:
+        rows = list(targets.values())
+        ranks = [int(row["rank"]) for row in rows if isinstance(row.get("rank"), int | float)]
+        return {
+            "top_100_hits": sum(bool(row.get("hit_top_100")) for row in rows),
+            "top_1000_hits": sum(bool(row.get("hit_top_1000")) for row in rows),
+            "top_10000_hits": sum(bool(row.get("hit_top_10000")) for row in rows),
+            "median_rank": median(ranks) if ranks else None,
+            "best_rank": min(ranks) if ranks else None,
+            "worst_rank": max(ranks) if ranks else None,
+        }
+
+    incumbent_metrics = full_window_metrics(incumbent_targets)
+    challenger_metrics = full_window_metrics(challenger_targets)
+    metric_fields = tuple(incumbent_metrics)
+    aggregate = {
+        field: {
+            "incumbent": incumbent_metrics.get(field),
+            "challenger": challenger_metrics.get(field),
+            "delta": (
+                challenger_metrics.get(field) - incumbent_metrics.get(field)
+                if isinstance(incumbent_metrics.get(field), int | float)
+                and isinstance(challenger_metrics.get(field), int | float)
+                else None
+            ),
+        }
+        for field in metric_fields
+    }
+    identity_matches = bool(
+        incumbent.get("as_of_issue") == challenger.get("as_of_issue")
+        and incumbent.get("history_fingerprint") == challenger.get("history_fingerprint")
+        and len(incumbent_targets) == len(challenger_targets)
+    )
+    complete_pairing = bool(
+        identity_matches
+        and len(paired) == len(incumbent_targets)
+        and len(paired) == len(challenger_targets)
+        and len(paired) == int(evaluation_window)
+    )
+    objective_improved = bool(sort_key(challenger) > sort_key(incumbent))
+    full_window_success_improved = (
+        (
+            int(challenger_metrics["top_100_hits"]),
+            int(challenger_metrics["top_1000_hits"]),
+            int(challenger_metrics["top_10000_hits"]),
+            -float(challenger_metrics["worst_rank"] or 0),
+            -float(challenger_metrics["median_rank"] or 0),
+            -float(challenger_metrics["best_rank"] or 0),
+        )
+        > (
+            int(incumbent_metrics["top_100_hits"]),
+            int(incumbent_metrics["top_1000_hits"]),
+            int(incumbent_metrics["top_10000_hits"]),
+            -float(incumbent_metrics["worst_rank"] or 0),
+            -float(incumbent_metrics["median_rank"] or 0),
+            -float(incumbent_metrics["best_rank"] or 0),
+        )
+    )
+    learning_observed = bool(improved and objective_improved and complete_pairing)
+    failure_reasons: list[str] = []
+    if not identity_matches:
+        failure_reasons.append("evaluation_identity_mismatch")
+    if not complete_pairing:
+        failure_reasons.append("incomplete_paired_target_results")
+    if not objective_improved:
+        failure_reasons.append("no_success_objective_lift")
+    if not full_window_success_improved:
+        failure_reasons.append("full_evaluation_window_success_not_improved")
+    if improved != objective_improved:
+        failure_reasons.append("runtime_improvement_flag_mismatch")
+
+    return {
+        "status": (
+            "learned_and_full_window_validated"
+            if learning_observed and full_window_success_improved
+            else "learned_on_search_slice_only"
+            if learning_observed
+            else "no_learning_lift"
+        ),
+        "contract": contract,
+        "learning_observed": learning_observed,
+        "research_selection_changed": learning_observed,
+        "production_selection_changed": False,
+        "incumbent_config_hash": summary_config_hash(incumbent) or "",
+        "challenger_config_hash": summary_config_hash(challenger) or "",
+        "evaluation_identity_matches": identity_matches,
+        "search_objective_improved": objective_improved,
+        "full_window_success_improved": full_window_success_improved,
+        "learning_validated_on_full_window": bool(
+            learning_observed and full_window_success_improved
+        ),
+        "paired_issue_count": len(paired),
+        "improved_issue_count": sum(row["rank_delta"] < 0 for row in paired),
+        "regressed_issue_count": sum(row["rank_delta"] > 0 for row in paired),
+        "unchanged_issue_count": sum(row["rank_delta"] == 0 for row in paired),
+        "aggregate": aggregate,
+        "paired_issue_deltas": paired,
+        "failure_reasons": failure_reasons,
+    }
 
 
 def training_line_round_payload(

@@ -17,7 +17,17 @@ RESEARCH_TOP_N="${DEHPS_RESEARCH_TOP_N:-10000}"
 RESEARCH_HISTORY_SCOPE="${DEHPS_RESEARCH_HISTORY_SCOPE:-current_regime_default}"
 RESEARCH_REGIME_YEARS="${DEHPS_RESEARCH_REGIME_YEARS:-10}"
 RESEARCH_RANDOM_SEEDS="${DEHPS_RESEARCH_RANDOM_SEEDS:-}"
-RESEARCH_TASKS="${DEHPS_RESEARCH_TASKS:-training-diagnostics,walk-forward,weight-grid,analytic-null-baseline}"
+RESEARCH_TASKS="${DEHPS_RESEARCH_TASKS:-training-diagnostics,analytic-null-baseline,adaptive-success-training}"
+RESEARCH_ADAPTIVE_MAX_ROUNDS="${DEHPS_RESEARCH_ADAPTIVE_MAX_ROUNDS:-512}"
+RESEARCH_ADAPTIVE_MAX_CONFIGS_PER_ROUND="${DEHPS_RESEARCH_ADAPTIVE_MAX_CONFIGS_PER_ROUND:-96}"
+RESEARCH_ADAPTIVE_MEMORY_BUDGET_GB="${DEHPS_RESEARCH_ADAPTIVE_MEMORY_BUDGET_GB:-24}"
+RESEARCH_ADAPTIVE_WEIGHT_KDJ_BUDGET_SHARE="${DEHPS_RESEARCH_ADAPTIVE_WEIGHT_KDJ_BUDGET_SHARE:-0.22}"
+RESEARCH_ADAPTIVE_RIDGE_KDJ_BUDGET_SHARE="${DEHPS_RESEARCH_ADAPTIVE_RIDGE_KDJ_BUDGET_SHARE:-0.22}"
+RESEARCH_ADAPTIVE_TARGET_INVERSION_MAX_CANDIDATES="${DEHPS_RESEARCH_ADAPTIVE_TARGET_INVERSION_MAX_CANDIDATES:-8}"
+RESEARCH_ADAPTIVE_TARGET_INVERSION_MAX_DELTAS="${DEHPS_RESEARCH_ADAPTIVE_TARGET_INVERSION_MAX_DELTAS:-12}"
+RESEARCH_ADAPTIVE_PROGRESS_INTERVAL="${DEHPS_RESEARCH_ADAPTIVE_PROGRESS_INTERVAL:-5}"
+RESEARCH_PID_FILE="$LOG_DIR/isolated-research-lane.pid"
+RESEARCH_ISSUE_FILE="$LOG_DIR/isolated-research-lane.issue"
 MAX_CONFIGS_PER_ROUND="${DEHPS_MAX_CONFIGS_PER_ROUND:-96}"
 MEMORY_BUDGET_GB="${DEHPS_MEMORY_BUDGET_GB:-24}"
 NEURAL_KDJ_HIDDEN_UNITS="${DEHPS_NEURAL_KDJ_HIDDEN_UNITS:-8}"
@@ -78,7 +88,12 @@ from dehps.runtime.heavy_job import describe_heavy_job_owner
 
 status = describe_heavy_job_owner()
 metadata = status.metadata or {}
-if status.active and metadata.get("owner") == "training-supervisor":
+context = metadata.get("context") if isinstance(metadata.get("context"), dict) else {}
+if (
+    status.active
+    and metadata.get("owner") == "training-supervisor"
+    and context.get("observability_only") is not True
+):
     print(metadata.get("pid") or "")
 PY
 )"
@@ -353,7 +368,36 @@ watch_forward_evidence_wait_requested() {
 }
 
 isolated_research_lane_active() {
-  pgrep -f "scripts/run_isolated_research_lane.py" >/dev/null 2>&1
+  local pid
+  pid="$(tr -d '[:space:]' < "$RESEARCH_PID_FILE" 2>/dev/null || true)"
+  [[ "$pid" =~ ^[0-9]+$ ]] \
+    && ps -p "$pid" -o args= 2>/dev/null | grep -Fq "scripts/run_isolated_research_lane.py"
+}
+
+stop_stale_isolated_research_lane() {
+  local latest_issue="$1"
+  local pid
+  local running_issue
+  pid="$(tr -d '[:space:]' < "$RESEARCH_PID_FILE" 2>/dev/null || true)"
+  running_issue="$(tr -d '[:space:]' < "$RESEARCH_ISSUE_FILE" 2>/dev/null || true)"
+  if ! isolated_research_lane_active; then
+    rm -f "$RESEARCH_PID_FILE" "$RESEARCH_ISSUE_FILE"
+    return 0
+  fi
+  if [[ -n "$latest_issue" && "$running_issue" != "$latest_issue" ]]; then
+    log "stopping stale isolated research lane pid=$pid running_as_of=${running_issue:-unknown} latest_issue=$latest_issue"
+    kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+    for _ in $(seq 1 20); do
+      if ! kill -0 "$pid" 2>/dev/null; then
+        break
+      fi
+      sleep 1
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+    fi
+    rm -f "$RESEARCH_PID_FILE" "$RESEARCH_ISSUE_FILE"
+  fi
 }
 
 isolated_research_lane_completed() {
@@ -373,6 +417,14 @@ isolated_research_lane_completed() {
     --top-n "$RESEARCH_TOP_N" \
     --history-scope "$RESEARCH_HISTORY_SCOPE" \
     --regime-years "$RESEARCH_REGIME_YEARS" \
+    --adaptive-max-rounds "$RESEARCH_ADAPTIVE_MAX_ROUNDS" \
+    --adaptive-max-configs-per-round "$RESEARCH_ADAPTIVE_MAX_CONFIGS_PER_ROUND" \
+    --adaptive-memory-budget-gb "$RESEARCH_ADAPTIVE_MEMORY_BUDGET_GB" \
+    --adaptive-weight-kdj-budget-share "$RESEARCH_ADAPTIVE_WEIGHT_KDJ_BUDGET_SHARE" \
+    --adaptive-ridge-kdj-budget-share "$RESEARCH_ADAPTIVE_RIDGE_KDJ_BUDGET_SHARE" \
+    --adaptive-target-inversion-max-candidates "$RESEARCH_ADAPTIVE_TARGET_INVERSION_MAX_CANDIDATES" \
+    --adaptive-target-inversion-max-deltas "$RESEARCH_ADAPTIVE_TARGET_INVERSION_MAX_DELTAS" \
+    --adaptive-progress-interval "$RESEARCH_ADAPTIVE_PROGRESS_INTERVAL" \
     "${seed_args[@]}" \
     --tasks "$RESEARCH_TASKS" \
     --check-completed \
@@ -397,8 +449,8 @@ start_isolated_research_lane() {
   if [[ -n "$RESEARCH_RANDOM_SEEDS" ]]; then
     seed_args=(--random-seeds "$RESEARCH_RANDOM_SEEDS")
   fi
-  log "starting isolated research lane state=RESEARCH_ONLY as_of_issue=${as_of_issue:-none} profile=$RESEARCH_PROFILE tasks=$RESEARCH_TASKS train_mode=$RESEARCH_TRAIN_MODE train_window=$RESEARCH_TRAIN_WINDOW eval_window=$RESEARCH_EVAL_WINDOW top_n=$RESEARCH_TOP_N seed_policy=${RESEARCH_RANDOM_SEEDS:-none} workers=$RESEARCH_LANE_WORKERS log=$research_log"
-  nohup .venv/bin/python scripts/run_isolated_research_lane.py \
+  log "starting isolated research lane state=RESEARCH_ONLY as_of_issue=${as_of_issue:-none} profile=$RESEARCH_PROFILE tasks=$RESEARCH_TASKS train_mode=$RESEARCH_TRAIN_MODE train_window=$RESEARCH_TRAIN_WINDOW eval_window=$RESEARCH_EVAL_WINDOW top_n=$RESEARCH_TOP_N adaptive_max_rounds=$RESEARCH_ADAPTIVE_MAX_ROUNDS seed_policy=${RESEARCH_RANDOM_SEEDS:-none} workers=$RESEARCH_LANE_WORKERS log=$research_log"
+  setsid nohup .venv/bin/python scripts/run_isolated_research_lane.py \
     --mode research \
     --as-of-issue "$as_of_issue" \
     --workers "$RESEARCH_LANE_WORKERS" \
@@ -409,8 +461,18 @@ start_isolated_research_lane() {
     --top-n "$RESEARCH_TOP_N" \
     --history-scope "$RESEARCH_HISTORY_SCOPE" \
     --regime-years "$RESEARCH_REGIME_YEARS" \
+    --adaptive-max-rounds "$RESEARCH_ADAPTIVE_MAX_ROUNDS" \
+    --adaptive-max-configs-per-round "$RESEARCH_ADAPTIVE_MAX_CONFIGS_PER_ROUND" \
+    --adaptive-memory-budget-gb "$RESEARCH_ADAPTIVE_MEMORY_BUDGET_GB" \
+    --adaptive-weight-kdj-budget-share "$RESEARCH_ADAPTIVE_WEIGHT_KDJ_BUDGET_SHARE" \
+    --adaptive-ridge-kdj-budget-share "$RESEARCH_ADAPTIVE_RIDGE_KDJ_BUDGET_SHARE" \
+    --adaptive-target-inversion-max-candidates "$RESEARCH_ADAPTIVE_TARGET_INVERSION_MAX_CANDIDATES" \
+    --adaptive-target-inversion-max-deltas "$RESEARCH_ADAPTIVE_TARGET_INVERSION_MAX_DELTAS" \
+    --adaptive-progress-interval "$RESEARCH_ADAPTIVE_PROGRESS_INTERVAL" \
     "${seed_args[@]}" \
     --tasks "$RESEARCH_TASKS" > "$research_log" 2>&1 < /dev/null &
+  printf '%s\n' "$!" > "$RESEARCH_PID_FILE"
+  printf '%s\n' "$as_of_issue" > "$RESEARCH_ISSUE_FILE"
 }
 
 write_training_stall_diagnosis() {
@@ -450,6 +512,7 @@ if (( unresolved_conflict_count > 0 )); then
   exit 1
 fi
 log "draw synchronization is decoupled from training watchdog; latest_db_issue=${latest_issue:-none}"
+stop_stale_isolated_research_lane "$latest_issue"
 signal_issue="$(latest_weight_kdj_signal_issue)"
 signal_refresh_needed=false
 if [[ -n "$latest_issue" && "$signal_issue" != "$latest_issue" ]]; then

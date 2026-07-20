@@ -52,6 +52,7 @@ from scripts.run_training_supervisor import (
     reward_summary,
     resolve_training_deadline,
     rank_homogeneity_guardrail,
+    research_learning_comparison,
     recover_supervisor_continuity_configs,
     recover_supervisor_guard_history,
     search_base_min_distance_for_phase,
@@ -197,6 +198,13 @@ def test_partitioned_summary_keeps_frozen_targets_out_of_search_metrics():
         "issue-1",
         "issue-2",
         "issue-3",
+    ]
+    assert [row["issue"] for row in summary["full_target_results"]] == [
+        "issue-1",
+        "issue-2",
+        "issue-3",
+        "issue-4",
+        "issue-5",
     ]
     assert summary["frozen_validation"]["issues"] == ["issue-4", "issue-5"]
     assert summary["frozen_validation"]["top_100_hits"] == 1
@@ -4816,6 +4824,52 @@ def test_training_sort_key_prefers_higher_coverage_then_lower_rank():
 
     assert sort_key(stronger) > sort_key(weaker)
     assert sort_key(tie_better_rank) > sort_key(weaker)
+
+
+def test_research_learning_comparison_records_paired_success_lift_without_production_change():
+    incumbent = {
+        "as_of_issue": "2026082",
+        "history_fingerprint": "history-a",
+        "config_hash": "incumbent",
+        "evaluated_draws": 2,
+        "top_100_hits": 0,
+        "top_1000_hits": 0,
+        "top_10000_hits": 0,
+        "median_rank": 30000,
+        "best_rank": 20000,
+        "worst_rank": 40000,
+        "target_results": [
+            {"issue": "2026081", "rank": 20000},
+            {"issue": "2026082", "rank": 40000},
+        ],
+    }
+    challenger = {
+        **incumbent,
+        "config_hash": "challenger",
+        "top_10000_hits": 1,
+        "median_rank": 15000,
+        "best_rank": 5000,
+        "worst_rank": 25000,
+        "target_results": [
+            {"issue": "2026081", "rank": 5000, "hit_top_10000": True},
+            {"issue": "2026082", "rank": 25000},
+        ],
+    }
+
+    result = research_learning_comparison(
+        incumbent=incumbent,
+        challenger=challenger,
+        improved=True,
+        evaluation_window=2,
+    )
+
+    assert result["status"] == "learned_and_full_window_validated"
+    assert result["learning_observed"] is True
+    assert result["research_selection_changed"] is True
+    assert result["production_selection_changed"] is False
+    assert result["learning_validated_on_full_window"] is True
+    assert result["paired_issue_count"] == 2
+    assert result["aggregate"]["top_10000_hits"]["delta"] == 1
 
 
 def test_training_sort_key_prefers_top1000_over_extra_top10000_hit():
