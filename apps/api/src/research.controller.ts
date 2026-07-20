@@ -26,6 +26,16 @@ export class ResearchController {
     return this.researchService.dashboard(this.numberQuery(limit));
   }
 
+  @Get('dashboard/runtime')
+  runtimeDashboard() {
+    return this.researchService.runtimeDashboard();
+  }
+
+  @Get('dashboard/research')
+  researchDashboard() {
+    return this.researchService.researchDashboard();
+  }
+
   @Get('experiments')
   experiments(@Query('limit') limit?: string) {
     return this.researchService.listExperiments(this.numberQuery(limit));

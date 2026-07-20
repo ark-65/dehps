@@ -7,6 +7,8 @@ import {
   ExperimentSummary,
   FeatureDistribution,
   PipelineRunSummary,
+  ResearchDashboardPayload,
+  RuntimeDashboardPayload,
   ServiceStatusPayload,
   SyncRunSummary,
   TrainingNextCandidatesPayload,
@@ -49,6 +51,14 @@ export class DashboardService {
 
   load(): Observable<DashboardPayload> {
     return this.http.get<DashboardPayload>('/dashboard');
+  }
+
+  loadRuntimeDashboard(): Observable<RuntimeDashboardPayload> {
+    return this.http.get<RuntimeDashboardPayload>('/dashboard/runtime');
+  }
+
+  loadResearchDashboard(): Observable<ResearchDashboardPayload> {
+    return this.http.get<ResearchDashboardPayload>('/dashboard/research');
   }
 
   loadExperiments(): Observable<ExperimentSummary[]> {

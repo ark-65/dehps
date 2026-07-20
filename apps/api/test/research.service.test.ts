@@ -498,6 +498,66 @@ test('dashboard returns experiments, pipeline runs, and sync runs', async () => 
   assert.equal(dashboard.featureDistributions[0].featureKey, 'sum_value');
 });
 
+test('runtime dashboard fails closed when acceptance and operational evidence are absent', async () => {
+  await withTempDehpsRoot('dehps-runtime-dashboard-test-', async () => {
+    const service = new ResearchService(repository);
+    const dashboard = await service.runtimeDashboard();
+
+    assert.equal(dashboard.milestone.key, 'M1');
+    assert.equal(dashboard.capabilityStatus, 'missing');
+    assert.equal(dashboard.capabilities.every((item) => item.state === 'missing'), true);
+    assert.equal(dashboard.operations.find((item) => item.key === 'backend_equality')?.state, 'missing');
+    assert.equal(dashboard.operations.find((item) => item.key === 'shadow_future_cohort')?.state, 'missing');
+    assert.match(dashboard.guardrail, /not a prediction-quality score/);
+  });
+});
+
+test('research dashboard separates same-window quality from process and undefined EV', async () => {
+  await withTempDehpsRoot('dehps-research-dashboard-test-', async () => {
+    const root = process.env.DEHPS_ROOT as string;
+    const adaptiveDir = path.join(root, 'data/output/optimization/research-lane/adaptive-success-training');
+    mkdirSync(adaptiveDir, { recursive: true });
+    writeFileSync(
+      path.join(adaptiveDir, 'training-supervisor-run-1.json'),
+      JSON.stringify({
+        run_id: 'run-1',
+        status: 'running',
+        updated_at: new Date().toISOString(),
+        eval_window: 100,
+        round_summary: {
+          round_count: 16,
+          latest_metrics: { top_100_hits: 3, top_1000_hits: 3, top_10000_hits: 4 },
+        },
+        research_learning: {
+          latest: {
+            status: 'no_learning_lift',
+            paired_issue_count: 100,
+            evaluation_identity_matches: true,
+            production_selection_changed: false,
+          },
+        },
+      }),
+    );
+    const service = new ResearchService(repository);
+    const dashboard = await service.researchDashboard();
+    const recent100 = dashboard.quality.find((item) => item.key === 'recent_100');
+    const recent300 = dashboard.quality.find((item) => item.key === 'recent_300');
+
+    assert.equal(dashboard.milestone.key, 'M2');
+    assert.equal(dashboard.qualityStatus, 'warning');
+    assert.equal(recent100?.state, 'verified');
+    assert.deepEqual(
+      [recent100?.metrics.top100Hits, recent100?.metrics.top1000Hits, recent100?.metrics.top10000Hits],
+      [3, 3, 4],
+    );
+    assert.equal(recent300?.state, 'missing');
+    assert.match(recent300?.scope ?? '', /overlapping stability/);
+    assert.equal(dashboard.processStatus, 'verified');
+    assert.equal(dashboard.expectedValue.state, 'not_defined');
+    assert.equal(dashboard.process.find((item) => item.key === 'promotion')?.state, 'not_applicable');
+  });
+});
+
 test('health reports read-only API mode', () => {
   const service = new ResearchService(repository);
 

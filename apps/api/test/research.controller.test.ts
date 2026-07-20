@@ -125,3 +125,22 @@ test('controller round index path param rejects non-positive integers', () => {
   assert.throws(() => controller.trainingRoundDetail('run-100', '0'), BadRequestException);
   assert.throws(() => controller.trainingRoundDetail('run-100', '-1'), BadRequestException);
 });
+
+test('controller exposes separate runtime and research dashboard projections', () => {
+  const calls: string[] = [];
+  const service = {
+    runtimeDashboard() {
+      calls.push('runtime');
+      return { milestone: { key: 'M1' } };
+    },
+    researchDashboard() {
+      calls.push('research');
+      return { milestone: { key: 'M2' } };
+    },
+  } as unknown as ResearchService;
+  const controller = new ResearchController(service, new TrainingStatusHub());
+
+  assert.deepEqual(controller.runtimeDashboard(), { milestone: { key: 'M1' } });
+  assert.deepEqual(controller.researchDashboard(), { milestone: { key: 'M2' } });
+  assert.deepEqual(calls, ['runtime', 'research']);
+});

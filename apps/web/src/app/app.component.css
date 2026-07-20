@@ -109,11 +109,93 @@ h2 {
 .feature-distributions,
 .advisor-panel,
 .service-status-panel,
+.governance-dashboard,
 .training-monitor,
 .panel {
   background: #ffffff;
   border: 1px solid #d9dee3;
   border-radius: 8px;
+}
+
+.governance-dashboard {
+  padding: 20px;
+}
+
+.dashboard-guardrail {
+  margin: 14px 0 18px;
+  padding: 12px 14px;
+  border-left: 4px solid #4472a5;
+  background: #f2f6f9;
+  color: #344454;
+}
+
+.dashboard-summary-grid,
+.evidence-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.dashboard-summary-grid article,
+.evidence-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid #d9dee3;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.dashboard-summary-grid span,
+.dashboard-summary-grid small,
+.evidence-card small {
+  color: #687684;
+}
+
+.governance-dashboard h3 {
+  margin: 24px 0 10px;
+}
+
+.evidence-card {
+  border-top: 4px solid #98a4ad;
+}
+
+.evidence-card.verified { border-top-color: #327857; }
+.evidence-card.warning,
+.evidence-card.stale { border-top-color: #a57b1d; }
+.evidence-card.failed,
+.evidence-card.missing { border-top-color: #b5413f; }
+.evidence-card.not_defined,
+.evidence-card.not_applicable { border-top-color: #718096; }
+
+.evidence-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.evidence-card p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.evidence-card code {
+  overflow-wrap: anywhere;
+  color: #52616f;
+  font-size: 0.72rem;
+}
+
+.metric-line {
+  display: flex;
+  gap: 8px;
+}
+
+.metric-line b {
+  min-width: 36px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  background: #edf4ef;
+  text-align: center;
 }
 
 .experiments {
@@ -1151,6 +1233,8 @@ em {
   .training-detail-grid,
   .training-grid,
   .service-tile-grid,
+  .dashboard-summary-grid,
+  .evidence-grid,
   .feature-grid {
     grid-template-columns: 1fr;
   }

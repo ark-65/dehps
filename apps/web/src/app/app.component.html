@@ -26,6 +26,20 @@
     <nav class="tabs" aria-label="仪表盘视图">
       <button
         type="button"
+        [class.active]="activeTab === 'runtime-dashboard'"
+        (click)="selectTab('runtime-dashboard')"
+      >
+        Runtime Dashboard
+      </button>
+      <button
+        type="button"
+        [class.active]="activeTab === 'research-dashboard'"
+        (click)="selectTab('research-dashboard')"
+      >
+        Research Dashboard
+      </button>
+      <button
+        type="button"
         [class.active]="activeTab === 'training'"
         (click)="selectTab('training')"
       >
@@ -60,6 +74,98 @@
         服务状态
       </button>
     </nav>
+
+    @if (activeTab === 'runtime-dashboard') {
+      @if (runtimeDashboardState$ | async; as state) {
+        @if (state.status === 'loading' || state.status === 'idle') {
+          <section class="detail-workbench"><div class="detail-placeholder">正在加载 Runtime Dashboard...</div></section>
+        } @else if (state.status === 'error') {
+          <section class="detail-workbench"><div class="detail-placeholder error-text">{{ state.message }}</div></section>
+        } @else {
+          <section class="governance-dashboard">
+            <div class="section-heading">
+              <div><p class="eyebrow">{{ state.payload.milestone.key }} · 平台目标</p><h2>{{ state.payload.milestone.label }}</h2></div>
+              <span>{{ state.payload.generatedAt | date: 'yyyy-MM-dd HH:mm:ss' }}</span>
+            </div>
+            <p class="dashboard-guardrail">{{ state.payload.guardrail }}</p>
+            <div class="dashboard-summary-grid">
+              <article><span>Capability</span><strong>{{ evidenceStateLabel(state.payload.capabilityStatus) }}</strong><small>持久能力验收</small></article>
+              <article><span>Live Operations</span><strong>{{ serviceStatusLabel(state.payload.operationalStatus) }}</strong><small>当前服务与证据健康</small></article>
+            </div>
+            <h3>Runtime Capability</h3>
+            <div class="evidence-grid">
+              @for (item of state.payload.capabilities; track item.key) {
+                <article class="evidence-card" [ngClass]="item.state">
+                  <header><strong>{{ item.label }}</strong><span>{{ evidenceStateLabel(item.state) }}</span></header>
+                  <p>{{ item.summary }}</p><small>{{ item.scope }}</small>
+                  @if (item.source) { <code>{{ item.source }}</code> }
+                </article>
+              }
+            </div>
+            <h3>Runtime Operations</h3>
+            <div class="evidence-grid">
+              @for (item of state.payload.operations; track item.key) {
+                <article class="evidence-card" [ngClass]="item.state">
+                  <header><strong>{{ item.label }}</strong><span>{{ evidenceStateLabel(item.state) }}</span></header>
+                  <p>{{ item.summary }}</p><small>{{ item.scope }}</small>
+                  @if (item.freshUntil) { <small>fresh until {{ item.freshUntil | date: 'yyyy-MM-dd HH:mm' }}</small> }
+                  @if (item.source) { <code>{{ item.source }}</code> }
+                </article>
+              }
+            </div>
+          </section>
+        }
+      }
+    }
+
+    @if (activeTab === 'research-dashboard') {
+      @if (researchDashboardState$ | async; as state) {
+        @if (state.status === 'loading' || state.status === 'idle') {
+          <section class="detail-workbench"><div class="detail-placeholder">正在加载 Research Dashboard...</div></section>
+        } @else if (state.status === 'error') {
+          <section class="detail-workbench"><div class="detail-placeholder error-text">{{ state.message }}</div></section>
+        } @else {
+          <section class="governance-dashboard">
+            <div class="section-heading">
+              <div><p class="eyebrow">{{ state.payload.milestone.key }} · 研究目标</p><h2>{{ state.payload.milestone.label }}</h2></div>
+              <span>{{ state.payload.generatedAt | date: 'yyyy-MM-dd HH:mm:ss' }}</span>
+            </div>
+            <p class="dashboard-guardrail">{{ state.payload.guardrail }}</p>
+            <div class="dashboard-summary-grid">
+              <article><span>Research Quality</span><strong>{{ evidenceStateLabel(state.payload.qualityStatus) }}</strong><small>预测证据，不含 Runtime KPI</small></article>
+              <article><span>Research Process</span><strong>{{ evidenceStateLabel(state.payload.processStatus) }}</strong><small>Shadow → Evaluation → Promotion</small></article>
+              <article><span>Expected Value</span><strong>{{ evidenceStateLabel(state.payload.expectedValue.state) }}</strong><small>等待经济契约</small></article>
+            </div>
+            <h3>Prediction Quality</h3>
+            <div class="evidence-grid">
+              @for (item of state.payload.quality; track item.key) {
+                <article class="evidence-card" [ngClass]="item.state">
+                  <header><strong>{{ item.label }}</strong><span>{{ evidenceStateLabel(item.state) }}</span></header>
+                  <p>{{ item.summary }}</p><small>{{ item.scope }}</small>
+                  @if (item.key === 'recent_100') {
+                    <div class="metric-line"><b>{{ item.metrics['top100Hits'] ?? '—' }}</b><b>{{ item.metrics['top1000Hits'] ?? '—' }}</b><b>{{ item.metrics['top10000Hits'] ?? '—' }}</b></div>
+                  }
+                  @if (item.source) { <code>{{ item.source }}</code> }
+                </article>
+              }
+            </div>
+            <h3>Research Process</h3>
+            <div class="evidence-grid">
+              @for (item of state.payload.process; track item.key) {
+                <article class="evidence-card" [ngClass]="item.state">
+                  <header><strong>{{ item.label }}</strong><span>{{ evidenceStateLabel(item.state) }}</span></header>
+                  <p>{{ item.summary }}</p><small>{{ item.scope }}</small>
+                </article>
+              }
+              <article class="evidence-card" [ngClass]="state.payload.expectedValue.state">
+                <header><strong>{{ state.payload.expectedValue.label }}</strong><span>{{ evidenceStateLabel(state.payload.expectedValue.state) }}</span></header>
+                <p>{{ state.payload.expectedValue.summary }}</p><small>{{ state.payload.expectedValue.scope }}</small>
+              </article>
+            </div>
+          </section>
+        }
+      }
+    }
 
     @if (activeTab === 'service-status') {
     @if (serviceStatusState$ | async; as state) {
