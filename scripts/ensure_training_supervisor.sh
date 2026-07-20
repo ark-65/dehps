@@ -25,6 +25,8 @@ NEURAL_KDJ_EPOCHS="${DEHPS_NEURAL_KDJ_EPOCHS:-120}"
 TARGET_INVERSION_MAX_CANDIDATES="${DEHPS_TARGET_INVERSION_MAX_CANDIDATES:-8}"
 TARGET_INVERSION_MAX_DELTAS="${DEHPS_TARGET_INVERSION_MAX_DELTAS:-12}"
 PROGRESS_INTERVAL="${DEHPS_PROGRESS_INTERVAL:-5}"
+FORWARD_SHADOW_CAPTURE="true"
+FORWARD_SHADOW_WORKERS="${DEHPS_FORWARD_SHADOW_WORKERS:-8}"
 
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
@@ -35,10 +37,33 @@ log() {
   printf '%s %s\n' "$(date -Is)" "$*"
 }
 
+if [[ ! "$FORWARD_SHADOW_WORKERS" =~ ^[1-9][0-9]*$ ]]; then
+  log "invalid production forward shadow worker count value=$FORWARD_SHADOW_WORKERS"
+  exit 1
+fi
+
 is_training_pid_active() {
   local pid="$1"
   [[ "$pid" =~ ^[0-9]+$ ]] || return 1
   ps -p "$pid" -o args= 2>/dev/null | grep -Fq "scripts/run_training_supervisor.py"
+}
+
+training_pid_environment_value() {
+  local pid="$1"
+  local key="$2"
+  [[ -r "/proc/$pid/environ" ]] || return 1
+  tr '\0' '\n' < "/proc/$pid/environ" \
+    | awk -F= -v expected_key="$key" '$1 == expected_key {sub(/^[^=]*=/, ""); print; exit}'
+}
+
+training_pid_shadow_contract_valid() {
+  local pid="$1"
+  local observed_capture
+  local observed_workers
+  observed_capture="$(training_pid_environment_value "$pid" DEHPS_FORWARD_SHADOW_CAPTURE || true)"
+  observed_workers="$(training_pid_environment_value "$pid" DEHPS_FORWARD_SHADOW_WORKERS || true)"
+  [[ "$observed_capture" == "$FORWARD_SHADOW_CAPTURE" \
+    && "$observed_workers" == "$FORWARD_SHADOW_WORKERS" ]]
 }
 
 discover_training_pid() {
@@ -439,34 +464,41 @@ if [[ -n "$pid" ]]; then
     log "recovered training supervisor pid=$pid from heavy-job metadata"
   fi
   if is_training_pid_active "$pid"; then
-    running_as_of="$(training_pid_as_of_issue "$pid")"
-    if [[ "$running_as_of" == "$latest_issue" && "$signal_refresh_needed" == false ]]; then
-      if watch_forward_evidence_wait_requested "$pid"; then
-        log "waiting for the next durable round boundary before parking supervisor pid=$pid"
-        for _ in $(seq 1 90); do
-          if watch_requests_forward_evidence_wait "$pid"; then
-            stop_training_pid "$pid"
-            mark_training_supervisor_waiting "$pid" "$latest_issue"
-            log "training supervisor parked until a new forward issue is synced latest_issue=${latest_issue:-none}"
-            exit 0
-          fi
-          if ! is_training_pid_active "$pid"; then
-            log "training supervisor stopped before forward-wait boundary pid=$pid"
-            break
-          fi
-          sleep 5
-        done
-        log "forward-evidence wait boundary was not reached in time; keeping supervisor pid=$pid"
-      fi
-      if watch_recommends_supervisor_restart "$pid"; then
-        stop_training_pid "$pid"
-      else
-        log "training supervisor already running pid=$pid as_of_issue=${running_as_of:-auto}"
-        exit 0
-      fi
-    else
-      log "training supervisor stale pid=$pid running_as_of=${running_as_of:-auto} latest_issue=${latest_issue:-none} signal_issue=${signal_issue:-none}"
+    if ! training_pid_shadow_contract_valid "$pid"; then
+      observed_capture="$(training_pid_environment_value "$pid" DEHPS_FORWARD_SHADOW_CAPTURE || true)"
+      observed_workers="$(training_pid_environment_value "$pid" DEHPS_FORWARD_SHADOW_WORKERS || true)"
+      log "training supervisor shadow contract mismatch pid=$pid capture=${observed_capture:-missing} workers=${observed_workers:-missing}; stopping fail closed"
       stop_training_pid "$pid"
+    else
+      running_as_of="$(training_pid_as_of_issue "$pid")"
+      if [[ "$running_as_of" == "$latest_issue" && "$signal_refresh_needed" == false ]]; then
+        if watch_forward_evidence_wait_requested "$pid"; then
+          log "waiting for the next durable round boundary before parking supervisor pid=$pid"
+          for _ in $(seq 1 90); do
+            if watch_requests_forward_evidence_wait "$pid"; then
+              stop_training_pid "$pid"
+              mark_training_supervisor_waiting "$pid" "$latest_issue"
+              log "training supervisor parked until a new forward issue is synced latest_issue=${latest_issue:-none}"
+              exit 0
+            fi
+            if ! is_training_pid_active "$pid"; then
+              log "training supervisor stopped before forward-wait boundary pid=$pid"
+              break
+            fi
+            sleep 5
+          done
+          log "forward-evidence wait boundary was not reached in time; keeping supervisor pid=$pid"
+        fi
+        if watch_recommends_supervisor_restart "$pid"; then
+          stop_training_pid "$pid"
+        else
+          log "training supervisor already running pid=$pid as_of_issue=${running_as_of:-auto} shadow_capture=$FORWARD_SHADOW_CAPTURE shadow_workers=$FORWARD_SHADOW_WORKERS"
+          exit 0
+        fi
+      else
+        log "training supervisor stale pid=$pid running_as_of=${running_as_of:-auto} latest_issue=${latest_issue:-none} signal_issue=${signal_issue:-none}"
+        stop_training_pid "$pid"
+      fi
     fi
   fi
 fi
@@ -501,6 +533,10 @@ setsid bash -lc '
   target_inversion_max_candidates="${10}"
   target_inversion_max_deltas="${11}"
   progress_interval="${12}"
+  shadow_capture="${13}"
+  shadow_workers="${14}"
+  export DEHPS_FORWARD_SHADOW_CAPTURE="$shadow_capture"
+  export DEHPS_FORWARD_SHADOW_WORKERS="$shadow_workers"
   for fd_path in /proc/$$/fd/*; do
     fd="${fd_path##*/}"
     if [[ "$fd" =~ ^[0-9]+$ ]] && (( fd > 2 )) \
@@ -542,13 +578,21 @@ setsid bash -lc '
 ' "$PID_FILE" "$latest_issue" "$WEIGHT_KDJ_BUDGET_SHARE" "$NEURAL_KDJ_BUDGET_SHARE" "$TRAINING_WORKERS" \
   "$LOG_DIR/training-supervisor-watchdog.lock" "$MAX_CONFIGS_PER_ROUND" "$MEMORY_BUDGET_GB" \
   "$NEURAL_KDJ_HIDDEN_UNITS" "$NEURAL_KDJ_EPOCHS" "$TARGET_INVERSION_MAX_CANDIDATES" \
-  "$TARGET_INVERSION_MAX_DELTAS" "$PROGRESS_INTERVAL" > "$run_log" 2>&1 < /dev/null &
+  "$TARGET_INVERSION_MAX_DELTAS" "$PROGRESS_INTERVAL" "$FORWARD_SHADOW_CAPTURE" \
+  "$FORWARD_SHADOW_WORKERS" > "$run_log" 2>&1 < /dev/null &
 
 launcher_pid="$!"
 sleep 1
 started_pid="$(tr -d '[:space:]' < "$PID_FILE" 2>/dev/null || true)"
 if is_training_pid_active "$started_pid"; then
-  log "started training supervisor pid=$started_pid launcher_pid=$launcher_pid as_of_issue=${latest_issue:-auto} log=$run_log"
+  if ! training_pid_shadow_contract_valid "$started_pid"; then
+    observed_capture="$(training_pid_environment_value "$started_pid" DEHPS_FORWARD_SHADOW_CAPTURE || true)"
+    observed_workers="$(training_pid_environment_value "$started_pid" DEHPS_FORWARD_SHADOW_WORKERS || true)"
+    log "started training supervisor with invalid shadow contract pid=$started_pid capture=${observed_capture:-missing} workers=${observed_workers:-missing}; stopping fail closed"
+    stop_training_pid "$started_pid"
+    exit 1
+  fi
+  log "started training supervisor pid=$started_pid launcher_pid=$launcher_pid as_of_issue=${latest_issue:-auto} shadow_capture=$FORWARD_SHADOW_CAPTURE shadow_workers=$FORWARD_SHADOW_WORKERS log=$run_log"
   exit 0
 fi
 
