@@ -38,6 +38,9 @@ def test_draw_sync_responsibility_moved_to_independent_watch_process():
     assert 'running_commit" == "$desired_commit"' in ensure_draw_sync
     assert 'running_launch_digest" == "$desired_contract_digest"' in ensure_draw_sync
     assert "dehps.draw_sync.launch_contract" in ensure_draw_sync
+    assert "dehps.draw_sync.supervisor_ownership" in ensure_draw_sync
+    assert "--require-manual-ownership" in ensure_draw_sync
+    assert "draw sync supervisor ownership rejected manual mutation" in ensure_draw_sync
     assert "--shadow-attestation-enabled" in ensure_draw_sync
     assert "started with wrong launch contract" in ensure_draw_sync
     assert "stopping stale draw sync watch" in ensure_draw_sync
@@ -45,6 +48,27 @@ def test_draw_sync_responsibility_moved_to_independent_watch_process():
     assert "source worktree is dirty; refusing draw sync watcher restart" in ensure_draw_sync
     assert "dehps.draw_sync.scheduler" in draw_watch
     assert "run_draw_sync_watch.py" not in script
+
+
+def test_systemd_draw_sync_has_a_separate_verified_deployment_path():
+    deployment = (REPO_ROOT / "scripts/ensure_draw_sync_systemd.sh").read_text(
+        encoding="utf-8"
+    )
+    service = (REPO_ROOT / "deploy/systemd/dehps-draw-sync.service").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'if [[ "${1:-}" != "--apply" ]]' in deployment
+    assert "dehps.draw_sync.systemd_deployment" in deployment
+    assert 'systemctl --user stop "$SYSTEMD_TIMER" "$SYSTEMD_UNIT"' in deployment
+    assert "unmanaged draw-sync watcher remains" in deployment
+    assert "draw-sync oneshot launch digest mismatch" in deployment
+    assert 'systemctl --user enable --now "$SYSTEMD_TIMER"' in deployment
+    assert "draw-sync systemd deployment rolled back" in deployment
+    assert "Type=oneshot" in service
+    assert "Restart=always" not in service
+    assert "EnvironmentFile=-/home/ark/.config/dehps/draw-sync.env" in service
+    assert "--once --no-resume-on-event" in service
 
 
 def test_watchdog_no_longer_runs_synced_prediction_evaluation():
