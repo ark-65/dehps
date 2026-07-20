@@ -4553,6 +4553,46 @@ def test_compact_status_payload_includes_probability_focus_diagnostics():
     assert "best" not in payload
 
 
+def test_compact_status_payload_exports_observability_research_state():
+    learning = {
+        "status": "no_learning_lift",
+        "research_selection_changed": False,
+        "production_selection_changed": False,
+    }
+    candidate = {
+        "as_of_issue": "2026082",
+        "config_hash": "candidate-a",
+        "config": {"structural_weight": 0.5},
+        "target_results": [{"issue": "2026082", "rank": 42}],
+        "full_target_results": [{"issue": "2026082", "rank": 42}],
+    }
+
+    payload = compact_status_payload(
+        {
+            "execution_mode": "observability_only",
+            "research_learning": {"latest": learning, "champion": None},
+            "best": candidate,
+            "rounds": [
+                {
+                    "round": 1,
+                    "improved": False,
+                    "best": candidate,
+                    "top_results": [candidate],
+                }
+            ],
+        }
+    )
+
+    assert payload["research_learning"]["latest"] == learning
+    assert payload["research_candidate_state"]["candidate_count"] == 1
+    assert payload["research_candidate_state"]["evaluated_config_hashes"] == [
+        "candidate-a"
+    ]
+    exported = payload["research_candidate_state"]["candidates"][0]
+    assert "target_results" not in exported
+    assert "full_target_results" not in exported
+
+
 def test_compact_status_payload_includes_supervisor_continuity_seed():
     continuity = {
         "mode": "same_history_validated_navigation_replay",
@@ -4870,6 +4910,40 @@ def test_research_learning_comparison_records_paired_success_lift_without_produc
     assert result["learning_validated_on_full_window"] is True
     assert result["paired_issue_count"] == 2
     assert result["aggregate"]["top_10000_hits"]["delta"] == 1
+
+
+def test_research_learning_comparison_rejects_incumbent_replay_as_learning():
+    incumbent = {
+        "as_of_issue": "2026082",
+        "history_fingerprint": "history-a",
+        "config_hash": "same-config",
+        "evaluated_draws": 1,
+        "top_100_hits": 0,
+        "top_1000_hits": 0,
+        "top_10000_hits": 0,
+        "median_rank": 20000,
+        "best_rank": 20000,
+        "worst_rank": 20000,
+        "target_results": [{"issue": "2026082", "rank": 20000}],
+    }
+    replay = {
+        **incumbent,
+        "baseline_overlap": {
+            "bands": {"top_1000": {"unique_hit_count": 1}}
+        },
+    }
+
+    result = research_learning_comparison(
+        incumbent=incumbent,
+        challenger=replay,
+        improved=False,
+        evaluation_window=1,
+    )
+
+    assert result["status"] == "no_learning_lift"
+    assert result["candidate_changed"] is False
+    assert result["research_selection_changed"] is False
+    assert "incumbent_replay" in result["failure_reasons"]
 
 
 def test_training_sort_key_prefers_top1000_over_extra_top10000_hit():

@@ -5862,7 +5862,10 @@ def research_learning_comparison(
         and len(paired) == len(challenger_targets)
         and len(paired) == int(evaluation_window)
     )
-    objective_improved = bool(sort_key(challenger) > sort_key(incumbent))
+    incumbent_hash = summary_config_hash(incumbent) or ""
+    challenger_hash = summary_config_hash(challenger) or ""
+    candidate_changed = bool(challenger_hash and challenger_hash != incumbent_hash)
+    objective_improved = bool(candidate_changed and sort_key(challenger) > sort_key(incumbent))
     full_window_success_improved = (
         (
             int(challenger_metrics["top_100_hits"]),
@@ -5889,6 +5892,8 @@ def research_learning_comparison(
         failure_reasons.append("incomplete_paired_target_results")
     if not objective_improved:
         failure_reasons.append("no_success_objective_lift")
+    if not candidate_changed:
+        failure_reasons.append("incumbent_replay")
     if not full_window_success_improved:
         failure_reasons.append("full_evaluation_window_success_not_improved")
     if improved != objective_improved:
@@ -5906,8 +5911,9 @@ def research_learning_comparison(
         "learning_observed": learning_observed,
         "research_selection_changed": learning_observed,
         "production_selection_changed": False,
-        "incumbent_config_hash": summary_config_hash(incumbent) or "",
-        "challenger_config_hash": summary_config_hash(challenger) or "",
+        "incumbent_config_hash": incumbent_hash,
+        "challenger_config_hash": challenger_hash,
+        "candidate_changed": candidate_changed,
         "evaluation_identity_matches": identity_matches,
         "search_objective_improved": objective_improved,
         "full_window_success_improved": full_window_success_improved,
@@ -6446,6 +6452,29 @@ def write_status(output_path: Path, status: dict, *, event_url: str | None = Non
 
 
 def compact_status_payload(status: dict) -> dict:
+    research_candidate_state = None
+    if status.get("execution_mode") == "observability_only":
+        candidates: list[dict] = []
+        seen: set[str] = set()
+        raw_candidates = [status.get("best")]
+        for round_info in status.get("rounds") or []:
+            if not isinstance(round_info, dict):
+                continue
+            raw_candidates.append(round_info.get("best"))
+            raw_candidates.extend(round_info.get("top_results") or [])
+        for candidate in raw_candidates:
+            if not isinstance(candidate, dict):
+                continue
+            candidate_hash = summary_config_hash(candidate) or ""
+            if not candidate_hash or candidate_hash in seen:
+                continue
+            seen.add(candidate_hash)
+            candidates.append(strip_target_results(candidate))
+        research_candidate_state = {
+            "candidate_count": len(candidates),
+            "evaluated_config_hashes": sorted(seen),
+            "candidates": candidates,
+        }
     return {
         "run_id": status.get("run_id"),
         "started_at": status.get("started_at"),
@@ -6454,6 +6483,8 @@ def compact_status_payload(status: dict) -> dict:
         "status": status.get("status"),
         "execution_mode": status.get("execution_mode"),
         "persistence_policy": status.get("persistence_policy"),
+        "research_learning": status.get("research_learning"),
+        "research_candidate_state": research_candidate_state,
         "pid": status.get("pid"),
         "history_scope": status.get("history_scope"),
         "regime_years": status.get("regime_years"),

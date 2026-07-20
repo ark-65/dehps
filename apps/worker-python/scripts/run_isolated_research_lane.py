@@ -354,11 +354,16 @@ def adaptive_continuation_snapshot(
         status = load_manifest(status_path)
         if not isinstance(status, dict):
             continue
-        status_candidates = [status.get("best")]
-        for round_info in status.get("rounds") or []:
-            if isinstance(round_info, dict):
-                status_candidates.append(round_info.get("best"))
-                status_candidates.extend(round_info.get("top_results") or [])
+        candidate_state = (
+            status.get("research_candidate_state")
+            if isinstance(status.get("research_candidate_state"), dict)
+            else {}
+        )
+        status_candidates = [
+            candidate
+            for candidate in candidate_state.get("candidates") or []
+            if isinstance(candidate, dict)
+        ]
         observed_issues = {
             str(candidate.get("as_of_issue"))
             for candidate in status_candidates

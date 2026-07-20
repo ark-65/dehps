@@ -207,10 +207,14 @@ def test_adaptive_continuation_fingerprint_uses_semantic_search_state(tmp_path: 
           "train_window": 900,
           "eval_window": 100,
           "top_n": 10000,
-          "best": {"as_of_issue": "2026082", "config_hash": "champion-a"},
           "search_base": {"config_hash": "search-a"},
           "research_learning": {"champion": {"config_hash": "champion-a"}},
-          "rounds": [{"best": {"as_of_issue": "2026082", "config_hash": "candidate-a"}, "top_results": []}]
+          "research_candidate_state": {
+            "candidates": [
+              {"as_of_issue": "2026082", "config_hash": "champion-a"},
+              {"as_of_issue": "2026082", "config_hash": "candidate-a"}
+            ]
+          }
         }""",
         encoding="utf-8",
     )

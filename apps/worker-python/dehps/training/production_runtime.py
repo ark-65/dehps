@@ -627,7 +627,12 @@ class ProductionRuntimeRoundExecutor:
         promotion_gate = normalized.promotion_gate
         production_improved = normalized.improved
         raw_improved = normalized.raw_improved
-        improved = raw_improved if observability_only else production_improved
+        research_candidate_changed = bool(
+            summary_config_hash(round_best)
+            and summary_config_hash(round_best) != summary_config_hash(prior_best_summary)
+        )
+        research_improved = bool(raw_improved and research_candidate_changed)
+        improved = research_improved if observability_only else production_improved
         research_learning = (
             research_learning_comparison(
                 incumbent=prior_best_summary,
@@ -1471,6 +1476,7 @@ class ProductionRuntimeRoundExecutor:
             "improved": improved,
             "improvement_scope": "research_success_objective" if observability_only else "production_promotion_gate",
             "raw_success_objective_improved": raw_improved,
+            "research_candidate_changed": research_candidate_changed,
             "production_promotion_gate_improved": production_improved,
             "best": round_best,
             "top_results": persisted_round_candidate_summaries(
