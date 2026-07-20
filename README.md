@@ -22,6 +22,17 @@ AI proposes hypotheses. Code verifies them. Historical data judges them.
 
 Long-term work is tracked in `docs/roadmap.md`. Development should move by staged rounds, with each round ending in tests, a human-readable report, and a rollback-friendly commit.
 
+Current milestone governance:
+
+- [Milestone M1: Contract Runtime Complete](docs/milestones/m1-contract-runtime-complete.md) — the v1
+  engineering capability is stable and maintained independently of prediction metrics.
+- [Milestone M2: Prediction Quality Improvement](docs/roadmaps/research.md) — the active research
+  objective, evaluated through frozen historical and future evidence.
+- [Runtime](docs/roadmaps/runtime.md), [Research](docs/roadmaps/research.md), and
+  [Knowledge](docs/roadmaps/knowledge.md) use separate ownership and KPI namespaces.
+- The [dual-dashboard governance](docs/architecture/dashboard-governance.md) prevents platform health
+  from being presented as model quality.
+
 For local setup and acceptance commands, see `docs/local-runbook.md`.
 
 ## Quick Start

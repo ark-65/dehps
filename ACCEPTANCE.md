@@ -19,6 +19,27 @@
 - 必须说明样本空间: 双色球红球合法组合为 `C(33,6)=1,107,568`。
 - 任何“提升”都必须附带对照，不允许只展示最佳窗口。
 
+## Roadmap 归属验收
+
+- 每轮只声明一个 owner lane: Runtime、Research 或 Knowledge；跨线依赖可以记录，但不能合并
+  目标函数。
+- Runtime 验收只使用 determinism、ABI、backend equality、throughput、latency、memory、
+  scalability、reproducibility、auditability 等平台指标。
+- Research 验收区分 search selection、window stability、historical walk-forward 和 genuinely
+  unseen forward generalization；同一观察不得重复充当选择和独立验证证据。
+- Knowledge 验收检查定义、版本、权威来源、链接、假设、非目标和 supersession，不替代代码、
+  实验或 Promotion Gate。
+- Runtime 绿色不能抵消 Research 失败；Research lift 不能掩盖 Runtime stale/missing/failed。
+
+## Dashboard 证据验收
+
+- Runtime Dashboard 与 Research Dashboard 使用独立 payload、状态和 KPI，不生成综合健康分。
+- M1 milestone 不得硬编码成永久绿色；状态必须绑定 commit、命令、时间、范围和 freshness。
+- Shadow 数值相等/attestation validity 归 Runtime Health；evaluation completion 归 Research
+  Process。
+- Promotion Rate 只做描述性流程指标，不能作为模型选择目标。
+- Expected Value 在经济合同缺失时必须显示 `not_defined`，不得从 hit rate 推算。
+
 ## 数据同步验收
 
 - 数据来源显式，优先真实历史源。

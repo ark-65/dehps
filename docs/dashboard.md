@@ -1,5 +1,20 @@
 # DEHPS 可视化监控入口
 
+## 治理边界
+
+当前页面仍是历史形成的混合视图。目标信息架构已经在
+[Runtime And Research Dashboard Governance](architecture/dashboard-governance.md) 冻结，后续将以
+单独 Engineering Request 拆为：
+
+- Runtime Dashboard：Contracts、ABI、backend equality、Golden、测试证据、性能、Telemetry、
+  operational freshness。
+- Research Dashboard：Recent-30/100/300、walk-forward、rank、calibration、stability、ablation、
+  future generalization。
+- Cross-lane Process strip：evaluation completion、shadow coverage、experiment/promotion decisions。
+
+三个命名空间不计算综合分。M1 capability 不代表现场永远绿色；缺失或陈旧证据必须显示
+`missing`/`stale`。当前 Expected Value 在经济合同建立前显示 `not_defined`。
+
 ## 页面入口
 
 - 局域网仪表盘：http://192.168.99.248:4200/

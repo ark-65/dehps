@@ -90,3 +90,28 @@
 
 - 默认交付不再停留在本地工作区。
 - 提交前必须更严格地区分本轮文件、历史脏改动和生成产物。
+
+## 2026-07-20 - Runtime、Research、Knowledge 使用独立目标与评价口径
+
+背景: Contract Runtime v1 已经具备 Contract、Compiler、ABI、Unified Runtime Verifier、
+VerifiedRuntimePackage、Kernel Planner、多后端和 Artifact Runtime 全链路。Recent-100 仍为
+`3 / 3 / 4`，说明工程成熟度与预测能力是不同目标函数。
+
+决定:
+
+- 接受 [M1 Contract Runtime Complete](docs/milestones/m1-contract-runtime-complete.md) 为工程能力
+  milestone，并开启 [M2 Prediction Quality Improvement](docs/roadmaps/research.md)。
+- Runtime、Research、Knowledge 分别维护独立 Roadmap、KPI、证据和失败条件。
+- Runtime 工作不承担 Recent-N、hit、rank 或 generalization KPI；Research 改善也不自动提高
+  Runtime 成熟度。
+- Dashboard 分为 Runtime Health 与 Research Quality；跨线流程指标单独展示，不计算综合分。
+- Shadow 数值一致性归 Runtime Health；研究评估是否完成归 Research Process。
+- Promotion Rate 只描述流程，不以越高越好为目标。
+- 当前红球排名输出的 Expected Value 为 `not_defined`，直到独立经济合同被接受。
+
+后果:
+
+- 后续每轮必须声明唯一 owner lane，验收指标不得跨线偷换。
+- M1 是 capability badge，不是永久绿色运行状态；缺失、陈旧或失败证据仍必须 fail closed。
+- Recent-100 用于搜索选择，Recent-300 用于重叠窗口稳定性；真正未见 future issues 才支持
+  generalization 置信度提升。

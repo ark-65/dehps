@@ -96,13 +96,17 @@ and invalid strict tie order.
 
 The verifier returns no repaired rows. Runtime migration must consume verified input or reject it.
 
-## Migration boundary
+## Current integration boundary
 
-The Evaluation Artifact compiler/verifier in `evaluation-artifact-runtime-v1.md` now implements the
-first step below. Remaining migration rounds are:
+The Evaluation Artifact compiler/verifier and pending-forward integration are implemented. Current
+forward evaluation performs pure metric calculation, compiles and verifies one parent-bound artifact,
+then finalizes JSON, Markdown, database summary, and service result exactly once. Shadow attestation
+closure binds completed evaluation evidence without granting automatic promotion.
 
-1. integrate the artifact compiler/verifier into pending forward evaluation without rewriting history;
-2. propagate `evaluation.v1.0.0` through shadow evidence, exports, API, telemetry, and promotion evidence;
-3. define an Evaluation ABI only if a non-Python evaluation backend creates a real machine boundary.
+Legacy prediction artifacts that predate Runtime Envelope provenance remain explicitly unavailable;
+current code does not replay history to invent a source identity. Historical rows are not backfilled
+or re-evaluated merely because the contract now exists.
 
-Historical rows are not backfilled or re-evaluated merely because the contract now exists.
+An Evaluation ABI remains unnecessary until a non-Python evaluation backend creates a real machine
+boundary. Dashboard freshness and evidence-status projection are presentation work under
+[Dashboard Governance](dashboard-governance.md), not a new Evaluation semantic version.

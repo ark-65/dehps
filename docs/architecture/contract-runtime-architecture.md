@@ -253,14 +253,25 @@ Forbidden:
 
 This is the boundary that lets NumPy, Numba, SIMD, CUDA, OpenCL, and future native backends remain interchangeable implementations of the same runtime.
 
-## Migration order
+## Stable lifecycle after M1
 
-The next migration rounds should be staged as:
+[Milestone M1](../milestones/m1-contract-runtime-complete.md) accepts Contract Runtime v1 as a
+complete capability baseline. The former foundational migration sequence now has these states:
 
-1. Warm Runtime ABI Cache transaction: remove duplicate entry/assembled-Runtime scans while preserving invalidation and rebuild semantics.
-2. Direct producer migration: implemented for one-buffer Feature tiles with exact staged Artifact/ABI identity; a future streaming Runtime must separately prove bounded tile retention before claiming full-universe zero-materialization.
-3. Shadow completion: collect the required simultaneous, post-draw, three-issue zero-difference evidence before a backend-default decision.
-4. Future backends: SIMD, CUDA, OpenCL, or Rust implementations must accept the same verified runtime and reproduce the same Golden fixtures and artifact payload digest.
+1. Warm Runtime ABI Cache transaction: implemented with complete transaction verification and
+   bounded eviction.
+2. Direct producer migration: implemented for one-buffer Feature tiles with exact staged
+   Artifact/ABI identity. A future streaming Runtime must separately prove bounded tile retention
+   before claiming full-universe zero-materialization.
+3. Shadow capability: simultaneous capture, post-draw reconstruction, and attestation closure are
+   integrated. The required three-future-issue live cohort remains operational/promotion evidence,
+   not unfinished Contract Runtime construction.
+4. Device backend: OpenCL is implemented as an explicit research backend and proved exact on the
+   measured full universe; it remains unpromoted because the measured hot path was slower than NumPy.
+
+Future Runtime work follows the [Runtime Roadmap](../roadmaps/runtime.md): v1 maintenance,
+semantic-preserving performance, compatible v1.1 extensions, explicit v2 generations, or new
+backends behind the same verified package and Golden/equality gates.
 
 Non-goals for this architecture document:
 
