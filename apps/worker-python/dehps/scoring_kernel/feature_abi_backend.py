@@ -44,6 +44,8 @@ class PreparedFeatureABIRuntime:
     candidate_abi_verification: CandidateABIVerification
     runtime_verification_passes: int
     runtime_verification_seconds: float
+    backend_capability_digest: str = ""
+    backend_capabilities: dict[str, int | str] | None = None
 
     @property
     def runtime(self) -> FeatureABIRuntime:
@@ -58,6 +60,9 @@ class FeatureABITileResult:
     red5_mask: np.ndarray
     kernel_seconds: float
     rank_seconds: float
+    transfer_in_seconds: float = 0.0
+    transfer_out_seconds: float = 0.0
+    device_workspace_bytes: int = 0
 
 
 class FeatureABINumpyReferenceBackend:
@@ -213,6 +218,9 @@ class FeatureABINumpyReferenceBackend:
         kernel_seconds = 0.0
         rank_seconds = 0.0
         topk_merge_seconds = 0.0
+        transfer_in_seconds = 0.0
+        transfer_out_seconds = 0.0
+        device_workspace_bytes = 0
         chunk_count = 0
         score_passes = 0
 
@@ -250,6 +258,12 @@ class FeatureABINumpyReferenceBackend:
                     )
                     kernel_seconds += tile.kernel_seconds
                     rank_seconds += tile.rank_seconds
+                    transfer_in_seconds += tile.transfer_in_seconds
+                    transfer_out_seconds += tile.transfer_out_seconds
+                    device_workspace_bytes = max(
+                        device_workspace_bytes,
+                        tile.device_workspace_bytes,
+                    )
                     merge_started = time.perf_counter()
                     ids = np.arange(start, end, dtype=np.int64)
                     better += tile.better
@@ -298,6 +312,12 @@ class FeatureABINumpyReferenceBackend:
                 )
                 kernel_seconds += tile.kernel_seconds
                 rank_seconds += tile.rank_seconds
+                transfer_in_seconds += tile.transfer_in_seconds
+                transfer_out_seconds += tile.transfer_out_seconds
+                device_workspace_bytes = max(
+                    device_workspace_bytes,
+                    tile.device_workspace_bytes,
+                )
                 red5_better += tile.better
                 red5_equal += tile.equal_before
                 chunk_count += 1
@@ -349,6 +369,9 @@ class FeatureABINumpyReferenceBackend:
             "feature_time": 0.0,
             "kernel_time": kernel_seconds,
             "rank_time": rank_seconds,
+            "transfer_in_time": transfer_in_seconds,
+            "transfer_out_time": transfer_out_seconds,
+            "device_workspace_bytes": device_workspace_bytes,
             "topk_merge_time": topk_merge_seconds,
             "topk_reducer": topk_result.algorithm,
             "topk_reduction_workers": reduction_pool.worker_count,
@@ -371,6 +394,11 @@ class FeatureABINumpyReferenceBackend:
                 + red5_result.workspace_bytes_estimate
             ),
         }
+        if prepared.backend_capability_digest:
+            telemetry["backend_capability_digest"] = prepared.backend_capability_digest
+        if prepared.backend_capabilities:
+            for name, value in prepared.backend_capabilities.items():
+                telemetry[f"backend_capability_{name}"] = value
         payload_digest = kernel_result_payload_digest(
             target_scores=request.target_scores,
             exact_ranks=exact_ranks,

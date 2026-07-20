@@ -376,6 +376,10 @@ def test_planner_defaults_to_verified_reference_and_has_explicit_rollback(monkey
     assert KernelPlanner().feature_abi_backend().name == "feature_abi_numba_cpu"
     monkeypatch.setenv("DEHPS_SCORING_BACKEND", "numpy_reference")
     assert KernelPlanner().feature_abi_backend().name == "feature_abi_numpy_reference"
+    monkeypatch.setenv("DEHPS_SCORING_BACKEND", "opencl_gpu")
+    with pytest.raises(ValueError, match="research-only"):
+        KernelPlanner()
+    assert KernelPlanner("opencl_gpu").feature_abi_backend().name == "feature_abi_opencl_gpu"
 
 
 def test_numba_contract_disables_fastmath_and_enables_parallel():

@@ -33,6 +33,7 @@ from dehps.scoring_kernel.feature_abi_backend import (
     FeatureABINumpyReferenceBackend,
     kernel_result_payload_digest,
 )
+from dehps.scoring_kernel.feature_abi_opencl_backend import opencl_backend_available
 from dehps.runtime_envelope import (
     RuntimeEnvelopeCompiler,
     RuntimeEnvelopeV1,
@@ -358,6 +359,58 @@ def test_numba_feature_abi_runtime_matches_reference_exactly(
         payload_digest=_result_payload_digest(numba),
         runtime=runtime,
         expected_backend="feature_abi_numba_cpu",
+    )
+
+
+@pytest.mark.skipif(not opencl_backend_available(), reason="OpenCL GPU is unavailable")
+@pytest.mark.parametrize("tile_size", [127, 777])
+def test_opencl_feature_abi_runtime_matches_reference_exactly(
+    feature_runtime_case,
+    tile_size,
+) -> None:
+    runtime = _runtime(feature_runtime_case, tile_size=tile_size)
+    verified = _verified(runtime)
+    reference_planner = KernelPlanner("numpy_reference")
+    opencl_planner = KernelPlanner("opencl_gpu")
+
+    reference = reference_planner.score_rank_feature_abi(
+        reference_planner.prepare_feature_abi(
+            verified,
+            code_commit=TEST_CODE_COMMIT,
+        ),
+        feature_runtime_case["weights"],
+        feature_runtime_case["request"],
+    )
+    opencl = opencl_planner.score_rank_feature_abi(
+        opencl_planner.prepare_feature_abi(
+            verified,
+            code_commit=TEST_CODE_COMMIT,
+        ),
+        feature_runtime_case["weights"],
+        feature_runtime_case["request"],
+    )
+
+    assert opencl.backend == "feature_abi_opencl_gpu"
+    assert np.array_equal(opencl.target_scores, reference.target_scores)
+    assert np.array_equal(opencl.exact_ranks, reference.exact_ranks)
+    assert np.array_equal(opencl.top_candidate_ids, reference.top_candidate_ids)
+    assert np.array_equal(opencl.top_scores, reference.top_scores)
+    assert np.array_equal(opencl.red5_candidate_ids, reference.red5_candidate_ids)
+    assert np.array_equal(opencl.red5_scores, reference.red5_scores)
+    assert np.array_equal(opencl.red5_ranks, reference.red5_ranks)
+    assert opencl.telemetry["artifact_payload_digest"] == reference.telemetry[
+        "artifact_payload_digest"
+    ]
+    assert opencl.telemetry["backend_capability_device_name"]
+    assert opencl.telemetry["backend_capability_kernel_digest"]
+    assert int(opencl.telemetry["device_workspace_bytes"]) > 0
+    envelope = RuntimeEnvelopeV1.from_dict(opencl.runtime_envelope)
+    assert envelope.backend == "feature_abi_opencl_gpu"
+    RuntimeEnvelopeVerifier().verify_artifact_payload(
+        envelope,
+        payload_digest=_result_payload_digest(opencl),
+        runtime=runtime,
+        expected_backend="feature_abi_opencl_gpu",
     )
 
 
