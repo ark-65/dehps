@@ -109,7 +109,7 @@ def test_fixed_research_suite_cannot_invoke_or_write_the_main_supervisor(tmp_pat
     assert str(tmp_path) in flattened
 
 
-def test_idle_optimization_suite_uses_only_existing_read_only_research_commands(tmp_path: Path) -> None:
+def test_idle_optimization_suite_prioritizes_guardrails_then_adaptive_success_training(tmp_path: Path) -> None:
     commands = research_lane.research_commands(
         as_of_issue="2026080",
         workers=16,
@@ -128,16 +128,17 @@ def test_idle_optimization_suite_uses_only_existing_read_only_research_commands(
     assert [task for task, _, _ in commands] == list(research_lane.DEFAULT_TASKS)
     assert [name for _, name, _ in commands] == [
         "training_diagnostics",
-        "walk_forward_optimization",
-        "weight_grid_search",
         "analytic_null_baseline",
+        "adaptive_success_training",
     ]
     assert "generate_training_diagnostics.py --read-only" in flattened
-    assert "run_walk_forward_optimization.py" in flattened
-    assert "run_weight_grid_search.py" in flattened
     assert "generate_analytic_null_baseline.py" in flattened
     assert "--random-seeds" not in flattened
-    assert "run_training_supervisor.py" not in flattened
+    assert "run_training_supervisor.py --observability-only --max-rounds 512" in flattened
+    assert "--eval-window 100" in flattened
+    assert "--enable-weight-kdj-advisor" in flattened
+    assert "--enable-ridge-kdj-advisor" in flattened
+    assert "--enable-neural-kdj-advisor" not in flattened
     assert "generate_training_next_candidates.py" not in flattened
 
 
@@ -152,8 +153,8 @@ def test_report_states_the_main_line_boundary() -> None:
         }
     )
 
-    assert "does not run the training supervisor" in report
-    assert "cannot change line selection" not in report
+    assert "observability-only policy" in report
+    assert "local research champion" in report
 
 
 def test_deterministic_research_contract_changes_for_parameter_and_code_not_seed(monkeypatch) -> None:
@@ -190,10 +191,54 @@ def test_deterministic_research_contract_changes_for_parameter_and_code_not_seed
     contracts = {task.spec.task_type: task.spec.ranking_contract for task in first.tasks}
     assert contracts == {
         "training-diagnostics": None,
-        "walk-forward": "strict_v1",
-        "weight-grid": "strict_v1",
         "analytic-null-baseline": None,
+        "adaptive-success-training": "strict_v1",
     }
+
+
+def test_adaptive_continuation_fingerprint_uses_semantic_search_state(tmp_path: Path) -> None:
+    task_dir = tmp_path / "adaptive-success-training"
+    task_dir.mkdir(parents=True)
+    status_path = task_dir / "training-supervisor-one.json"
+    status_path.write_text(
+        """{
+          "execution_mode": "observability_only",
+          "train_mode": "expanding",
+          "train_window": 900,
+          "eval_window": 100,
+          "top_n": 10000,
+          "search_base": {"config_hash": "search-a"},
+          "research_learning": {"champion": {"config_hash": "champion-a"}},
+          "research_candidate_state": {
+            "candidates": [
+              {"as_of_issue": "2026082", "config_hash": "champion-a"},
+              {"as_of_issue": "2026082", "config_hash": "candidate-a"}
+            ]
+          }
+        }""",
+        encoding="utf-8",
+    )
+
+    first = research_lane.adaptive_continuation_snapshot(
+        tmp_path,
+        as_of_issue="2026082",
+        train_mode="expanding",
+        train_window=900,
+        eval_window=100,
+        top_n=10000,
+    )
+    status_path.write_text(status_path.read_text(encoding="utf-8").replace("candidate-a", "candidate-b"), encoding="utf-8")
+    second = research_lane.adaptive_continuation_snapshot(
+        tmp_path,
+        as_of_issue="2026082",
+        train_mode="expanding",
+        train_window=900,
+        eval_window=100,
+        top_n=10000,
+    )
+
+    assert first["evaluated_config_count"] == 2
+    assert first["semantic_state_digest"] != second["semantic_state_digest"]
 
 
 def test_deterministic_suite_rejects_seed_only_reruns(monkeypatch) -> None:

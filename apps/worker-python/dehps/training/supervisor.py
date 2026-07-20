@@ -63,6 +63,7 @@ class TrainingSupervisor:
     @staticmethod
     def _lock_context(arguments: Mapping[str, object]) -> dict[str, object]:
         keys = (
+            "observability_only",
             "duration_hours",
             "train_window",
             "eval_window",

@@ -27,9 +27,11 @@ class FakeLock:
 
 def test_training_supervisor_owns_lifecycle_and_loops_through_round_runner(monkeypatch) -> None:
     lock = FakeLock()
+    lock_calls: list[dict] = []
 
     @contextmanager
-    def fake_heavy_job_lock(**_kwargs):
+    def fake_heavy_job_lock(**kwargs):
+        lock_calls.append(kwargs)
         yield lock
 
     monkeypatch.setattr(application, "heavy_job_lock", fake_heavy_job_lock)
@@ -75,7 +77,9 @@ def test_training_supervisor_owns_lifecycle_and_loops_through_round_runner(monke
             }
 
     supervisor = TrainingSupervisor(
-        settings=TrainingSupervisorSettings(run_arguments={"max_rounds": 2}),
+        settings=TrainingSupervisorSettings(
+            run_arguments={"max_rounds": 2, "observability_only": True}
+        ),
         dependencies=SupervisorDependencies(
             build_round_runner=lambda _arguments: TrainingRoundRunner.for_production(Session())
         ),
@@ -86,3 +90,4 @@ def test_training_supervisor_owns_lifecycle_and_loops_through_round_runner(monke
     assert result["status"] == "completed"
     assert len(result["rounds"]) == 2
     assert [status for status, _context in lock.heartbeats] == ["running", "running", "completed"]
+    assert lock_calls[0]["context"]["observability_only"] is True
