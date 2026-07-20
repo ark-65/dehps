@@ -1407,12 +1407,47 @@ def replace_training_next_candidates_current(
     *,
     metadata: dict[str, Any],
     candidates: list[tuple[int, tuple[int, ...], float]],
-) -> None:
+    reuse_active: bool = False,
+) -> dict[str, Any]:
     from dehps.runtime_provenance import projection_from_metadata
 
     ensure_training_next_candidates_current_schema(conn)
-    persist_forward_prediction_snapshot(conn, metadata=metadata, candidates=candidates)
     line_key = str(metadata.get("line_key") or "static_100")
+    target_issue = str(metadata["next_issue"])
+    if reuse_active:
+        ensure_forward_prediction_evaluation_schema(conn)
+        lock_key = f"forward_prediction_line:{line_key}:{target_issue}"
+        conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            (lock_key,),
+        )
+        active = conn.execute(
+            """
+            SELECT prediction_run_key, status, candidate_count, ranking_contract
+            FROM forward_prediction_runs
+            WHERE line_key = %s
+              AND target_issue = %s
+              AND status = ANY(%s::text[])
+            ORDER BY generated_at ASC
+            LIMIT 1
+            """,
+            (line_key, target_issue, list(ACTIVE_FORWARD_PREDICTION_STATUSES)),
+        ).fetchone()
+        if active is not None:
+            return {
+                "status": "reused_active",
+                "line_key": line_key,
+                "target_issue": target_issue,
+                "prediction_run_key": str(active[0]),
+                "prediction_status": str(active[1]),
+                "candidate_count": int(active[2]),
+                "ranking_contract": active[3],
+            }
+    prediction_run_key = persist_forward_prediction_snapshot(
+        conn,
+        metadata=metadata,
+        candidates=candidates,
+    )
     line_label = str(metadata.get("line_label") or "100-period static training")
     line_kind = str(metadata.get("line_kind") or "static")
     ranking_contract = require_explicit_ranking_contract(metadata.get("ranking_contract"))
@@ -1426,8 +1461,17 @@ def replace_training_next_candidates_current(
         unavailable_reason="prediction_created_without_runtime_envelope",
     ).as_dict()
     conn.execute("DELETE FROM training_next_candidates_current WHERE line_key = %s", (line_key,))
+    created = {
+        "status": "created",
+        "line_key": line_key,
+        "target_issue": target_issue,
+        "prediction_run_key": prediction_run_key,
+        "prediction_status": "pending",
+        "candidate_count": len(candidates),
+        "ranking_contract": ranking_contract,
+    }
     if not candidates:
-        return
+        return created
     params = [
         (
             line_key,
@@ -1479,6 +1523,7 @@ def replace_training_next_candidates_current(
             break
     if regression is not None:
         upsert_training_prediction_line_regression(conn, metadata=metadata, regression=regression)
+    return created
 
 
 def upsert_training_prediction_line_regression(
