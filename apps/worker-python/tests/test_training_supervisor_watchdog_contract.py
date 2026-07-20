@@ -170,6 +170,27 @@ def test_training_launcher_uses_validated_scale_defaults_and_keeps_them_override
     assert "--cpu-threads 1" in script
 
 
+def test_training_launcher_requires_explicit_forward_shadow_capture_contract():
+    script = (REPO_ROOT / "scripts/ensure_training_supervisor.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'FORWARD_SHADOW_CAPTURE="true"' in script
+    assert 'FORWARD_SHADOW_WORKERS="${DEHPS_FORWARD_SHADOW_WORKERS:-8}"' in script
+    assert "invalid production forward shadow worker count" in script
+    assert "training_pid_shadow_contract_valid" in script
+    assert 'export DEHPS_FORWARD_SHADOW_CAPTURE="$shadow_capture"' in script
+    assert 'export DEHPS_FORWARD_SHADOW_WORKERS="$shadow_workers"' in script
+    assert "training supervisor shadow contract mismatch" in script
+    assert "started training supervisor with invalid shadow contract" in script
+    assert script.index("training supervisor shadow contract mismatch") < script.index(
+        "training supervisor already running"
+    )
+    assert script.index("started training supervisor with invalid shadow contract") < script.index(
+        "started training supervisor pid="
+    )
+
+
 def test_forward_wait_parks_only_production_and_runs_fingerprinted_research():
     script = (REPO_ROOT / "scripts/ensure_training_supervisor.sh").read_text(
         encoding="utf-8"
