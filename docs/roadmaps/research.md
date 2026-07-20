@@ -24,9 +24,12 @@ The snapshot is documented by [Research Success Learning Loop v1](../experiments
 Core question: does one preregistered research change improve the declared ranking objective relative
 to frozen controls, then retain the effect outside the selection evidence?
 
-Invariant: comparisons use the same legal sample space, history identity, target issues, candidate
-boundary, contract package, compute semantics, and cutoff definitions. For the full SSQ red-ball demo,
-the legal universe remains `C(33,6) = 1,107,568`; any ranked subset or excluded rows must be explicit.
+Invariant: within each comparison, both sides use the same legal sample space, history identity,
+target issues, candidate boundary, contract package, compute semantics, and cutoff definitions. In a
+prospective rolling protocol, history may advance only with data legally available before the next
+target; every new history and Runtime content identity must be sealed before that outcome. For the
+full SSQ red-ball demo, the legal universe remains `C(33,6) = 1,107,568`; any ranked subset or
+excluded rows must be explicit.
 
 ## Evidence ladder
 
@@ -75,7 +78,8 @@ presence of complete research evaluation evidence belongs to Research Process.
 
 ```text
 Preregister one hypothesis
-  -> freeze Runtime and evaluation identities
+  -> freeze model, Runtime-contract, and evaluation-contract identities
+  -> seal each per-issue Runtime and evidence content identity
   -> implement an isolated challenger
   -> compare with baseline and same-boundary nulls
   -> run Recent-100 search selection
@@ -87,13 +91,24 @@ Preregister one hypothesis
 Each batch changes one declared research mechanism. Runtime, sync, API, dashboard, and unrelated
 features remain frozen so attribution is possible.
 
+## Active forward protocol
+
+[Frozen-Future-30 Rolling-History Preregistration](../experiments/2026-07-20-m2-frozen-future-30-rolling-history.md)
+is the active prospective M2 study. It freezes model and contract identity while recomputing and
+sealing each issue's history, Runtime, ABI, candidate, and Prediction Evidence identities before the
+target outcome. The null remains `Binomial(30, 10000/1105506)`, the decision threshold remains at
+least two exact Top10000 hits, and no conclusion is allowed before all 30 issues complete.
+
+Runtime equality in this protocol is a health gate. Cohort completion is a Research Process metric.
+Only the final preregistered outcome count is Research Quality evidence.
+
 ## Immediate priorities
 
-1. Let the current observability-only Recent-100 learning batch accumulate failures and challenger
-   evidence without changing Runtime.
-2. Preregister a Recent-300 stability projection using frozen issue identities and no retuning on that
-   window.
+1. Complete Frozen-Future-30 issue by issue without changing Feature, weight, scoring, ranking,
+   candidate boundary, Runtime code, or production selection.
+2. Keep each pre-outcome seal and post-outcome evaluation append-only; report process failures
+   without turning interim hits into a Research decision.
 3. Surface walk-forward, calibration, ablation, and forward evidence under one Research Dashboard
-   contract.
-4. Do not add a feature until an approved Research Request names its mechanism, baseline, failure
-   condition, and smallest deciding experiment.
+   contract without conflating Runtime equality with Prediction Quality.
+4. Do not add a feature until Frozen-Future-30 finishes or a separately approved Research Request
+   names its mechanism, baseline, failure condition, and non-overlapping evidence boundary.
