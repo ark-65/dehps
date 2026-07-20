@@ -4,7 +4,15 @@
 
 ## 当前总目标
 
-把 DEHPS 持续推进为一个可审计的预测训练平台: 以透明特征、冻结规则、历史回测、null model 对照、训练/仪表盘可读、风险可追踪为基础，逐步验证是否具备未来预测价值。
+M1 Contract Runtime v1 已进入稳定期。当前主目标是 M2 Prediction Quality Improvement：保持
+Runtime 语义和计算边界冻结，以透明特征、冻结规则、历史回测、null model、窗口稳定性和
+未来 issue 验证，独立评估是否形成可泛化的预测证据。
+
+项目同时维护三条路线：
+
+- Runtime: 可信、稳定、可验证和可审计；不承担预测质量 KPI。
+- Research: Recent-N、walk-forward、rank、calibration、stability 和 generalization。
+- Knowledge: Contract、Feature、Window、Candidate、Evaluation 和决策语义的共享权威索引。
 
 长期训练增强目标：保持历史、canonical advisor 信号和 live supervisor `as_of_issue` 对齐；每 2 小时自我迭代检查训练进度、跨 supervisor continuity seed、停滞恢复、候选/排名多样性、`candidate_source_survival`、冻结验证、null baseline、泄漏和 parser/sync/duplicate 状态。来源转化窗口未达到最小轮数时只观察；成熟窗口只用于定位预筛/预算瓶颈，不按来源保送候选。同历史、曾严格提高冻结主指标的 navigation candidate 必须在交接后重评，仍通过才续接 search base，且不得冒充 incumbent。只有可复现的新结构、冻结/前向证据改善或失败模式减少才算“变强”，持续计算本身不算。
 
@@ -20,6 +28,23 @@
 6. 收束: 提交并推送本轮相关改动；若用户明确要求暂不提交或暂不推送，记录原因和断点。
 
 ## 优先任务池
+
+### P0 - M2 研究基线与冻结边界
+
+- 当前 Recent-100 baseline: Top100/Top1000/Top10000 = `3 / 3 / 4`。
+- 当前 Runtime generation: Contract Runtime v1；非必要 Runtime 基建变更冻结。
+- Recent-30 只做快速诊断，Recent-100 做搜索选择，Recent-300 做重叠窗口稳定性，冻结
+  walk-forward 做历史反证，真正未见 issue 做 generalization。
+- 每个研究批次只改一个批准机制，并保留 same-universe/null、泄漏、parser/sync、duplicate、
+  post-hoc 和 multiple-search 检查。
+
+### P1 - 双 Dashboard 实现闭环
+
+- 问题: 当前服务、训练和实验视图仍混合平台健康、研究质量与流程状态。
+- 基线: [Dashboard Governance](docs/architecture/dashboard-governance.md)。
+- 非目标: 不改训练、算法、Runtime 或 Promotion Gate。
+- 产物: Runtime Dashboard、Research Dashboard、独立 Process strip 和 Knowledge links。
+- 验收: API/Web 测试与 Web build 通过；missing/stale/failed/not_defined 不得伪装绿色。
 
 ### P0 - 保护当前工作区
 

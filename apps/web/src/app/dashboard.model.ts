@@ -44,6 +44,49 @@ export type SyncRunSummary = {
   errorMessage: string | null;
 };
 
+export type EvidenceState =
+  | 'verified'
+  | 'warning'
+  | 'stale'
+  | 'missing'
+  | 'failed'
+  | 'not_applicable'
+  | 'not_defined';
+
+export type DashboardEvidence = {
+  key: string;
+  label: string;
+  state: EvidenceState;
+  summary: string;
+  source: string | null;
+  observedAt: string | null;
+  freshUntil: string | null;
+  scope: string;
+  metrics: Record<string, unknown>;
+};
+
+export type RuntimeDashboardPayload = {
+  generatedAt: string;
+  milestone: { key: 'M1'; label: string; state: 'accepted'; source: string };
+  capabilityStatus: EvidenceState;
+  operationalStatus: ServiceStatusLevel;
+  capabilities: DashboardEvidence[];
+  operations: DashboardEvidence[];
+  services: ServiceStatusPayload;
+  guardrail: string;
+};
+
+export type ResearchDashboardPayload = {
+  generatedAt: string;
+  milestone: { key: 'M2'; label: string; state: 'active'; source: string };
+  qualityStatus: EvidenceState;
+  processStatus: EvidenceState;
+  quality: DashboardEvidence[];
+  process: DashboardEvidence[];
+  expectedValue: DashboardEvidence;
+  guardrail: string;
+};
+
 export type FeatureDistributionBin = {
   label: string;
   count: number;

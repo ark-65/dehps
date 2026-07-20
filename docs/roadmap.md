@@ -18,6 +18,22 @@ Core principle:
 AI proposes hypotheses. Code verifies them. Historical data judges them.
 ```
 
+## Current Milestones And Roadmap Ownership
+
+- [M1: Contract Runtime Complete](milestones/m1-contract-runtime-complete.md) is accepted as a v1
+  capability milestone. Runtime remains maintained but no longer carries Prediction Quality KPI.
+- [M2: Prediction Quality Improvement](roadmaps/research.md) is the active research milestone. Its
+  baseline at opening is Recent-100 `3 / 3 / 4`; historical selection is not future proof.
+- [Runtime Roadmap](roadmaps/runtime.md) owns Contracts, ABI, Kernel, backends, performance,
+  reproducibility, and auditability.
+- [Research Roadmap](roadmaps/research.md) owns features, weights, windows, candidate methods,
+  evaluation, stability, and generalization.
+- [Knowledge Roadmap](roadmaps/knowledge.md) owns shared definitions, evidence semantics, ADRs, and
+  discoverability.
+
+The Round Status table below remains the historical delivery ledger. It must not be used as a single
+maturity score spanning all three roadmaps.
+
 ## Working Rules
 
 Each round must complete exactly one verifiable loop.
@@ -290,3 +306,6 @@ This file is the durable plan. At the end of each accepted round:
 - Move unfinished acceptance items into the next round only when still relevant.
 - Add new rounds only when they represent a distinct verifiable loop.
 - Keep the roadmap short enough to guide work rather than replace experiment reports.
+- Assign every new round exactly one owner lane and keep its KPI within that lane.
+- A Runtime round never fails solely because Recent-N is unchanged; a Research round never improves
+  Runtime maturity solely because rank or hit metrics moved.

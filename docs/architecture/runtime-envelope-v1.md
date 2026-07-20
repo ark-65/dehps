@@ -79,14 +79,19 @@ Feature ABI Runtime now carries both `HistorySnapshotArtifact` and `WindowArtifa
 
 This prevents a valid Window digest from being attached to a different History value object.
 
-## Compatibility and migration
+## Compatibility and current propagation
 
-New explicit Feature ABI KernelResults carry Runtime Envelope v1. Existing production predictions and
-historical artifacts remain under their original evidence contract and are not backfilled or rewritten.
+Explicit Feature ABI KernelResults, verified scoring callers, FullScore research artifacts,
+simultaneous/post-draw shadow evidence, and current forward Evaluation Artifacts carry or bind Runtime
+Envelope v1 provenance. API normalization recognizes verified and explicitly unavailable projections.
 
-The Unified Runtime Verifier now returns one sealed package to Kernel Planner and the Envelope
-Compiler. The next step is Envelope propagation to exports, APIs, shadow reports, and evaluation
-artifacts.
+Existing production predictions and historical artifacts remain under their original evidence
+contract and are not backfilled or rewritten. Missing historical provenance is reported as
+unavailable, never reconstructed with current code.
+
+The Unified Runtime Verifier returns one sealed package to Kernel Planner and the Envelope Compiler.
+Further work is freshness/status presentation under [Dashboard Governance](dashboard-governance.md)
+or an explicit versioned envelope extension—not unfinished v1 foundational migration.
 
 ## Non-goals
 
