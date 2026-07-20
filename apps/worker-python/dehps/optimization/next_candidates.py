@@ -1712,27 +1712,19 @@ def refresh_training_prediction_lines_current(
                 )
             else:
                 raise
-    replace_training_next_candidates_current(
-        conn,
-        metadata=static_snapshot["metadata"],
-        candidates=static_snapshot["candidates"],
-    )
-    replace_training_next_candidates_current(
-        conn,
-        metadata=dynamic_snapshot["metadata"],
-        candidates=dynamic_snapshot["candidates"],
-    )
+    snapshots = [static_snapshot, dynamic_snapshot]
     if near_snapshot is not None:
-        replace_training_next_candidates_current(
-            conn,
-            metadata=near_snapshot["metadata"],
-            candidates=near_snapshot["candidates"],
-        )
+        snapshots.append(near_snapshot)
     if challenger_snapshot is not None:
-        replace_training_next_candidates_current(
+        snapshots.append(challenger_snapshot)
+    line_persistence: dict[str, dict[str, Any]] = {}
+    for snapshot in snapshots:
+        line_key = str(snapshot["metadata"]["line_key"])
+        line_persistence[line_key] = replace_training_next_candidates_current(
             conn,
-            metadata=challenger_snapshot["metadata"],
-            candidates=challenger_snapshot["candidates"],
+            metadata=snapshot["metadata"],
+            candidates=snapshot["candidates"],
+            reuse_active=True,
         )
     lines = {
         STATIC_100_LINE_KEY: static_snapshot["metadata"],
@@ -1745,4 +1737,15 @@ def refresh_training_prediction_lines_current(
     return {
         "status": "ready",
         "lines": lines,
+        "line_persistence": line_persistence,
+        "created_lines": sorted(
+            line
+            for line, result in line_persistence.items()
+            if result["status"] == "created"
+        ),
+        "reused_active_lines": sorted(
+            line
+            for line, result in line_persistence.items()
+            if result["status"] == "reused_active"
+        ),
     }

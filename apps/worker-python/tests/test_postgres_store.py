@@ -95,6 +95,18 @@ class FakeExistingCursorConn(FakeCursorConn):
         return super().execute(sql, params)
 
 
+class FakeForwardLineReuseConn(FakeCursorConn):
+    def __init__(self, active_row=None):
+        super().__init__([])
+        self.active_row = active_row
+
+    def execute(self, sql, params=None):
+        self.executed.append((sql, params))
+        if "SELECT prediction_run_key, status, candidate_count, ranking_contract" in sql:
+            return FakeResult([] if self.active_row is None else [self.active_row])
+        return FakeResult([])
+
+
 def test_load_red_combination_universe_rejects_incomplete_table():
     with pytest.raises(ValueError, match="full C\\(33,6\\) universe"):
         load_red_combination_universe(FakeConn([([1, 2, 3, 4, 5, 6],)]))
@@ -549,6 +561,82 @@ def test_replace_training_next_candidates_current_deletes_previous_snapshot():
         params for sql, params in conn.executed if "INSERT INTO forward_prediction_candidates" in sql
     ]
     assert len(forward_candidate_inserts) == 2
+
+
+def _forward_line_metadata(line_key: str = "dynamic_kdj_near") -> dict:
+    return {
+        "line_key": line_key,
+        "line_label": "near dynamic",
+        "line_kind": "dynamic_kdj_near",
+        "snapshot_key": f"training-next-{line_key}-2026082",
+        "run_id": "run-2026082",
+        "source_round_index": 76,
+        "as_of_issue": "2026082",
+        "next_issue": "2026083",
+        "next_draw_date": "2026-07-21",
+        "train_mode": "rolling",
+        "train_window": 100,
+        "eval_window": 9,
+        "top_n": 10000,
+        "history_fingerprint": "history-2026082",
+        "config_hash": f"config-{line_key}",
+        "config": {"frequency_weight": 0.4},
+        "ranking_contract": "strict_v1",
+        "generated_at": "2026-07-20T09:00:00Z",
+    }
+
+
+def test_reuse_active_forward_line_returns_identity_without_writes():
+    conn = FakeForwardLineReuseConn(
+        (
+            "static_100:2026083:existing",
+            "pending",
+            10000,
+            "strict_v1",
+        )
+    )
+
+    result = replace_training_next_candidates_current(
+        conn,
+        metadata=_forward_line_metadata("static_100"),
+        candidates=[(1, (1, 2, 3, 4, 5, 6), 0.9)],
+        reuse_active=True,
+    )
+
+    assert result == {
+        "status": "reused_active",
+        "line_key": "static_100",
+        "target_issue": "2026083",
+        "prediction_run_key": "static_100:2026083:existing",
+        "prediction_status": "pending",
+        "candidate_count": 10000,
+        "ranking_contract": "strict_v1",
+    }
+    sql_statements = [sql for sql, _ in conn.executed]
+    assert any("pg_advisory_xact_lock" in sql for sql in sql_statements)
+    assert not any("INSERT INTO forward_prediction_runs" in sql for sql in sql_statements)
+    assert not any("DELETE FROM training_next_candidates_current" in sql for sql in sql_statements)
+    assert not any("DELETE FROM forward_prediction_candidates" in sql for sql in sql_statements)
+
+
+def test_reuse_policy_creates_a_missing_forward_line_normally():
+    conn = FakeForwardLineReuseConn()
+
+    result = replace_training_next_candidates_current(
+        conn,
+        metadata=_forward_line_metadata(),
+        candidates=[(1, (1, 2, 3, 4, 5, 6), 0.9)],
+        reuse_active=True,
+    )
+
+    assert result["status"] == "created"
+    assert result["line_key"] == "dynamic_kdj_near"
+    assert result["target_issue"] == "2026083"
+    assert result["candidate_count"] == 1
+    sql_statements = [sql for sql, _ in conn.executed]
+    assert any("INSERT INTO forward_prediction_runs" in sql for sql in sql_statements)
+    assert any("INSERT INTO forward_prediction_candidates" in sql for sql in sql_statements)
+    assert any("INSERT INTO training_next_candidates_current" in sql for sql in sql_statements)
 
 
 def test_new_forward_snapshot_rejects_missing_or_legacy_ranking_contract():

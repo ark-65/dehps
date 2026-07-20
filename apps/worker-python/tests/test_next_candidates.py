@@ -677,8 +677,10 @@ def test_refresh_training_prediction_lines_builds_both_snapshots_before_writes(m
             "candidates": [],
         }
 
-    def fake_replace(_conn, *, metadata, candidates):
+    def fake_replace(_conn, *, metadata, candidates, reuse_active):
+        assert reuse_active is True
         events.append(f"replace_{metadata['line_key']}")
+        return {"status": "created"}
 
     monkeypatch.setattr(next_candidates, "build_training_next_candidate_snapshot", fake_static_snapshot)
     monkeypatch.setattr(next_candidates, "build_dynamic_kdj_next_candidate_snapshot", fake_dynamic_snapshot)
@@ -687,6 +689,8 @@ def test_refresh_training_prediction_lines_builds_both_snapshots_before_writes(m
     result = refresh_training_prediction_lines_current(object(), ranked_universe=[object()])
 
     assert result["status"] == "ready"
+    assert result["created_lines"] == [DYNAMIC_KDJ_LINE_KEY, STATIC_100_LINE_KEY]
+    assert result["reused_active_lines"] == []
     assert events == ["build_static", "build_dynamic", "replace_static_100", "replace_dynamic_kdj"]
 
 
@@ -706,8 +710,16 @@ def test_refresh_training_prediction_lines_writes_near_line_when_policy_exists(m
         events.append("build_near")
         return {"metadata": {"line_key": NEAR_DYNAMIC_KDJ_LINE_KEY}, "candidates": []}
 
-    def fake_replace(_conn, *, metadata, candidates):
+    def fake_replace(_conn, *, metadata, candidates, reuse_active):
+        assert reuse_active is True
         events.append(f"replace_{metadata['line_key']}")
+        return {
+            "status": (
+                "created"
+                if metadata["line_key"] == NEAR_DYNAMIC_KDJ_LINE_KEY
+                else "reused_active"
+            )
+        }
 
     monkeypatch.setattr(next_candidates, "build_training_next_candidate_snapshot", fake_static_snapshot)
     monkeypatch.setattr(next_candidates, "build_dynamic_kdj_next_candidate_snapshot", fake_dynamic_snapshot)
@@ -723,6 +735,8 @@ def test_refresh_training_prediction_lines_writes_near_line_when_policy_exists(m
 
     assert result["status"] == "ready"
     assert set(result["lines"]) == {STATIC_100_LINE_KEY, DYNAMIC_KDJ_LINE_KEY, NEAR_DYNAMIC_KDJ_LINE_KEY}
+    assert result["created_lines"] == [NEAR_DYNAMIC_KDJ_LINE_KEY]
+    assert result["reused_active_lines"] == [DYNAMIC_KDJ_LINE_KEY, STATIC_100_LINE_KEY]
     assert events == [
         "build_static",
         "build_dynamic",
@@ -764,10 +778,16 @@ def test_refresh_training_prediction_lines_writes_fixed_forward_challenger(monke
             "candidates": [],
         },
     )
+
+    def fake_replace(_conn, *, metadata, candidates, reuse_active):
+        assert reuse_active is True
+        events.append(metadata["line_key"])
+        return {"status": "created"}
+
     monkeypatch.setattr(
         next_candidates,
         "replace_training_next_candidates_current",
-        lambda _conn, *, metadata, candidates: events.append(metadata["line_key"]),
+        fake_replace,
     )
 
     result = refresh_training_prediction_lines_current(object(), ranked_universe=[object()])
