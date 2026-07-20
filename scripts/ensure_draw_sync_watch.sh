@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_ROOT="/home/ark/workspace/dehps"
+REPO_ROOT="${DEHPS_REPO_ROOT:-/home/ark/workspace/dehps}"
 WORKER_DIR="$REPO_ROOT/apps/worker-python"
 LOG_DIR="$REPO_ROOT/runtime/logs"
 PID_FILE="$LOG_DIR/draw-sync-watch.pid"
@@ -26,6 +26,17 @@ fi
 if [[ -n "$(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all)" ]]; then
   printf '%s source worktree is dirty; refusing draw sync watcher restart\n' "$(date -Is)" >&2
   exit 1
+fi
+
+ownership_status=0
+ownership_json="$(
+  .venv/bin/python -m dehps.draw_sync.supervisor_ownership \
+    --require-manual-ownership
+)" || ownership_status=$?
+if [[ "$ownership_status" -ne 0 ]]; then
+  printf '%s draw sync supervisor ownership rejected manual mutation payload=%s\n' \
+    "$(date -Is)" "$ownership_json" >&2
+  exit "$ownership_status"
 fi
 
 if ! desired_contract_digest="$(
