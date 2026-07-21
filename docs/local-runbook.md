@@ -84,7 +84,7 @@ cd apps/worker-python
 .venv/bin/dehps mail mainline-prediction --preview
 ```
 
-The checked-in timer runs at 18:15 Asia/Shanghai on Tuesday, Thursday, and Sunday, exactly three hours before the official 21:15 SSQ draw. Install it only under an approved Operator Request:
+The checked-in timer runs at 17:00 Asia/Shanghai on Tuesday, Thursday, and Sunday, four hours and fifteen minutes before the official 21:15 SSQ draw. Install it only under an approved Operator Request:
 
 ```bash
 sudo install -m 0644 infra/systemd/dehps-mainline-prediction-mail.service /etc/systemd/system/

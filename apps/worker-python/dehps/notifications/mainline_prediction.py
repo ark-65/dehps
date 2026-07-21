@@ -21,7 +21,7 @@ MAINLINE_KEY = "static_100"
 TOP_LIMIT = 100
 BEIJING_TIMEZONE = ZoneInfo("Asia/Shanghai")
 DRAW_WEEKDAYS = frozenset({1, 3, 6})  # Tuesday, Thursday, Sunday
-SCHEDULED_SEND_TIME = time(18, 15)
+SCHEDULED_SEND_TIME = time(17, 0)
 DRAW_TIME = time(21, 15)
 DELIVERY_LEDGER_PROTOCOL = "mainline-prediction-mail-ledger.v1"
 DEFAULT_DELIVERY_LEDGER_PATH = (
@@ -69,7 +69,7 @@ def require_pre_draw_delivery_window(now: datetime) -> datetime:
     local_time = local.timetz().replace(tzinfo=None)
     if local_time < SCHEDULED_SEND_TIME:
         raise MainlinePredictionMailError(
-            "mainline prediction mail window has not opened at 18:15 Asia/Shanghai"
+            "mainline prediction mail window has not opened at 17:00 Asia/Shanghai"
         )
     if local_time >= DRAW_TIME:
         raise MainlinePredictionMailError(

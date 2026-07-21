@@ -86,9 +86,9 @@ def _config() -> QqMailConfig:
 @pytest.mark.parametrize(
     "now",
     [
-        datetime(2026, 7, 21, 10, 15, tzinfo=timezone.utc),  # Tuesday 18:15 Beijing
+        datetime(2026, 7, 21, 9, 0, tzinfo=timezone.utc),  # Tuesday 17:00 Beijing
         datetime(2026, 7, 23, 12, 30, tzinfo=timezone.utc),  # Thursday 20:30 Beijing
-        datetime(2026, 7, 26, 10, 15, tzinfo=timezone.utc),  # Sunday 18:15 Beijing
+        datetime(2026, 7, 26, 9, 0, tzinfo=timezone.utc),  # Sunday 17:00 Beijing
     ],
 )
 def test_pre_draw_delivery_window_accepts_draw_days(now: datetime) -> None:
@@ -98,7 +98,7 @@ def test_pre_draw_delivery_window_accepts_draw_days(now: datetime) -> None:
 @pytest.mark.parametrize(
     "now, message",
     [
-        (datetime(2026, 7, 21, 10, 14, tzinfo=timezone.utc), "has not opened"),
+        (datetime(2026, 7, 21, 8, 59, tzinfo=timezone.utc), "has not opened"),
         (datetime(2026, 7, 21, 13, 15, tzinfo=timezone.utc), "closed"),
         (datetime(2026, 7, 20, 10, 15, tzinfo=timezone.utc), "Tuesday"),
     ],
@@ -211,7 +211,7 @@ def test_systemd_timer_is_exactly_three_hours_before_official_draw() -> None:
     timer = (root / "infra/systemd/dehps-mainline-prediction-mail.timer").read_text()
     service = (root / "infra/systemd/dehps-mainline-prediction-mail.service").read_text()
 
-    assert "OnCalendar=Tue,Thu,Sun *-*-* 18:15:00 Asia/Shanghai" in timer
+    assert "OnCalendar=Tue,Thu,Sun *-*-* 17:00:00 Asia/Shanghai" in timer
     assert "Persistent=true" in timer
     assert "mail mainline-prediction --send" in service
     assert "EnvironmentFile=/home/ark/workspace/dehps/.env" in service
