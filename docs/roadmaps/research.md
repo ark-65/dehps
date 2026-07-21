@@ -91,6 +91,12 @@ Preregister one hypothesis
 Each batch changes one declared research mechanism. Runtime, sync, API, dashboard, and unrelated
 features remain frozen so attribution is possible.
 
+Research work is orchestrated by the accepted
+[Goal-Driven Research Orchestrator](../architecture/goal-driven-research-orchestrator.md) target
+architecture. A forward Evaluation in `external_wait` blocks only its dependent path. It does not
+block independent, approved Replay, ablation, stability, diagnostics, benchmark, or Evidence-review
+Tasks on immutable historical snapshots.
+
 ## Active forward protocol
 
 [Frozen-Future-30 Rolling-History Preregistration](../experiments/2026-07-20-m2-frozen-future-30-rolling-history.md)
@@ -104,11 +110,13 @@ Only the final preregistered outcome count is Research Quality evidence.
 
 ## Immediate priorities
 
-1. Complete Frozen-Future-30 issue by issue without changing Feature, weight, scoring, ranking,
-   candidate boundary, Runtime code, or production selection.
-2. Keep each pre-outcome seal and post-outcome evaluation append-only; report process failures
-   without turning interim hits into a Research decision.
-3. Surface walk-forward, calibration, ablation, and forward evidence under one Research Dashboard
-   contract without conflating Runtime equality with Prediction Quality.
-4. Do not add a feature until Frozen-Future-30 finishes or a separately approved Research Request
-   names its mechanism, baseline, failure condition, and non-overlapping evidence boundary.
+1. Complete Frozen-Future-30 issue by issue without changing its Feature, weight, scoring, ranking,
+   candidate boundary, Runtime code, null, stopping rule, or production selection.
+2. Keep each pre-outcome seal and post-outcome evaluation append-only; treat a missing outcome as a
+   task-local `external_wait`, not a global Research stop.
+3. Continue independent Research Tasks on immutable historical snapshots only when a separate
+   approved Research Request names the mechanism, baseline, failure condition, and evidence boundary.
+4. Implement the Goal Graph and Task DAG control plane before expanding unattended research action
+   breadth; preserve Search, Stability, Historical Validation, and Forward evidence namespaces.
+5. Surface Goal, Task, Resource, and Evidence views without conflating Runtime equality, Research
+   process, Prediction Quality, or Promotion outcomes.

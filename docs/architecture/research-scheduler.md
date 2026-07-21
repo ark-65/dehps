@@ -1,5 +1,10 @@
 # Autonomous Research Scheduler
 
+> Implementation status: this document describes the Round 26 v1 scheduler. Its global forward and
+> open-request waiting behavior is not the target control plane. The accepted successor architecture
+> is [Goal-Driven Research Orchestrator](goal-driven-research-orchestrator.md), which scopes waits to
+> typed Task dependencies under a durable Goal Graph.
+
 Round 26 adds the first DEHPS component that decides what research work should happen next.
 
 The scheduler is intentionally narrow:
@@ -73,6 +78,10 @@ wait_forward
 ```
 
 This prevents the system from spending compute on additional proposals before the existing validation obligation has matured.
+
+This is preserved as historical v1 behavior, not as a v2 invariant. In the Goal-driven architecture,
+forward coverage gates only Tasks whose declared evidence or authority depends on that coverage.
+Unrelated Replay, benchmark, diagnostics, Runtime-capability, and Maintenance Tasks remain eligible.
 
 ## Budget Policy
 

@@ -1,5 +1,11 @@
 # Continuous Research Runtime
 
+> Implementation status: this document describes the Round 30/31 resident runtime. The accepted
+> control-plane successor is [Goal-Driven Research Orchestrator](goal-driven-research-orchestrator.md).
+> The current runtime proves that forward wait need not stop historical computation, but it does not
+> yet implement the Goal Graph, Task DAG, Evidence Bundle, Resource Manager, Capability ABI, or
+> Maintenance Scheduler defined there.
+
 Round 30 separates DEHPS into two independent runtimes:
 
 ```text
@@ -24,6 +30,10 @@ History Database
 ```
 
 The key invariant is simple: research may run forever on frozen historical snapshots, but promotion may only use forward evidence.
+
+The stronger target invariant is: Promotion may consume only a Reviewer-approved Evidence Bundle
+whose exact digest satisfies the applicable Promotion policy. Neither a queue item, Task result, Run,
+Artifact, nor unreviewed Evidence may be promoted.
 
 ## History snapshots
 
