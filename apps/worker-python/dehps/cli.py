@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, is_dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -63,6 +63,18 @@ from dehps.notifications.mail import (
     QqMailConfig,
     QqMailService,
 )
+from dehps.notifications.mainline_prediction import (
+    MainlinePredictionMailError,
+    MainlinePredictionNotificationService,
+    PredictionDeliveryStateError,
+)
+from dehps.db import get_connection
+from dehps.config import ROOT_DIR
+from dehps.forward_runtime.latest_prediction import (
+    build_latest_prediction_payload,
+    load_latest_prediction_rows,
+)
+from dehps.source_version import resolve_git_commit
 
 app = typer.Typer(help="DEHPS worker commands")
 agent_app = typer.Typer(
@@ -142,6 +154,54 @@ def mail_send(
         )
         _emit({"sent": True, "receipt": receipt})
     except (MailConfigurationError, MailDeliveryError) as exc:
+        _fail(exc)
+
+
+@mail_app.command("mainline-prediction")
+def mail_mainline_prediction(
+    send: bool = typer.Option(
+        False,
+        "--send/--preview",
+        help="Deliver the email or only validate and summarize the latest mainline.",
+    ),
+) -> None:
+    """Validate or send the durable static_100 Top-100 prediction."""
+    try:
+        config = QqMailConfig.from_environment()
+        service = MainlinePredictionNotificationService(config)
+        with get_connection() as conn:
+            runs, candidates = load_latest_prediction_rows(conn, top_limit=100)
+        payload = build_latest_prediction_payload(
+            runs,
+            candidates,
+            git_commit=resolve_git_commit(ROOT_DIR),
+            top_limit=100,
+        )
+        if send:
+            result = service.deliver(payload, now=datetime.now(timezone.utc))
+            _emit({"delivery": result})
+            return
+        email = service.preview(payload)
+        _emit(
+            {
+                "status": "preview",
+                "delivery_key": email.delivery_key,
+                "issue": email.issue,
+                "as_of_issue": email.as_of_issue,
+                "prediction_run_key": email.prediction_run_key,
+                "candidate_count": email.candidate_count,
+                "recipient": config.destination,
+                "subject": email.subject,
+            }
+        )
+    except (
+        MailConfigurationError,
+        MailDeliveryError,
+        MainlinePredictionMailError,
+        PredictionDeliveryStateError,
+        OSError,
+        ValueError,
+    ) as exc:
         _fail(exc)
 
 

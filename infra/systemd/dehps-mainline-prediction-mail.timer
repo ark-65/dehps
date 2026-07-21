@@ -1,0 +1,11 @@
+[Unit]
+Description=Send the DEHPS mainline Top-100 three hours before SSQ draws
+
+[Timer]
+OnCalendar=Tue,Thu,Sun *-*-* 18:15:00 Asia/Shanghai
+Persistent=true
+AccuracySec=1min
+Unit=dehps-mainline-prediction-mail.service
+
+[Install]
+WantedBy=timers.target
