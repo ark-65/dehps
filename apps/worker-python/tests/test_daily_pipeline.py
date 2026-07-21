@@ -94,6 +94,7 @@ runpy.run_path(sys.argv[0], run_name="__main__")
 def test_daily_pipeline_no_new_data_finishes(monkeypatch, tmp_path):
     finished = {}
     sync_calls = []
+    report_calls = []
 
     monkeypatch.setattr("scripts.daily_pipeline.ROOT_DIR", tmp_path)
     monkeypatch.setattr("scripts.daily_pipeline._latest_local_issue", lambda: "2026067")
@@ -124,12 +125,14 @@ def test_daily_pipeline_no_new_data_finishes(monkeypatch, tmp_path):
         "baseline_v1",
         "zhcw",
         forward_evaluator=ForwardEvaluator(),
+        post_draw_report_notifier=lambda issue: report_calls.append(issue) or {"status": "sent"},
     )
     assert result["sync"]["inserted_count"] == 0
     assert sync_calls[0][0] == ("zhcw",)
     assert sync_calls[0][1]["history"] is True
     assert sync_calls[0][1]["from_issue"] == "2026067"
     assert finished["status"] == "success"
+    assert report_calls == []
 
 
 def test_daily_pipeline_runs_incremental_weight_kdj_after_sync_change(monkeypatch, tmp_path):
@@ -188,6 +191,8 @@ def test_daily_pipeline_runs_incremental_weight_kdj_after_sync_change(monkeypatc
         "baseline_v1",
         "zhcw",
         forward_evaluator=ForwardEvaluator(events=events),
+        post_draw_report_notifier=lambda issue: events.append("report")
+        or {"status": "sent", "issue": issue},
     )
 
     assert kdj_calls[0]["mode"] == "incremental"
@@ -195,7 +200,64 @@ def test_daily_pipeline_runs_incremental_weight_kdj_after_sync_change(monkeypatc
     assert result["weight_kdj"]["status"] == "seed_missing"
     assert finished["summary"]["weight_kdj"]["signals"] == 0
     assert result["forward_evaluation"]["status"] == "ok"
-    assert events == ["evaluate", "signals", "prediction"]
+    assert result["post_draw_evaluation_mail"] == {"status": "sent", "issue": "2026068"}
+    assert events == ["evaluate", "report", "signals", "prediction"]
+
+
+def test_daily_pipeline_records_mail_failure_without_blocking_next_prediction(monkeypatch, tmp_path):
+    events = []
+    monkeypatch.setattr("scripts.daily_pipeline.ROOT_DIR", tmp_path)
+    monkeypatch.setattr("scripts.daily_pipeline._latest_local_issue", lambda: "2026067")
+    monkeypatch.setattr(
+        "scripts.daily_pipeline.sync_ssq",
+        lambda *a, **k: {
+            "run_key": "sync",
+            "inserted_count": 1,
+            "updated_count": 0,
+            "latest_draw": {"issue": "2026068"},
+        },
+    )
+    monkeypatch.setattr("scripts.daily_pipeline.load_history", lambda conn: [])
+    monkeypatch.setattr("scripts.daily_pipeline.previous_experiment_metrics", lambda conn, key: None)
+    monkeypatch.setattr("scripts.daily_pipeline.latest_draw", lambda conn: {"issue": "2026068"})
+    monkeypatch.setattr("scripts.daily_pipeline.run_baseline_backtest", lambda history: {})
+    monkeypatch.setattr("scripts.daily_pipeline.render_experiment_report", lambda *args: "# experiment")
+    monkeypatch.setattr("scripts.daily_pipeline.render_daily_report", lambda *args: "# daily")
+    monkeypatch.setattr("scripts.daily_pipeline.save_experiment", lambda *args: None)
+    monkeypatch.setattr(
+        "scripts.daily_pipeline.generate_signals",
+        lambda **kwargs: events.append("signals") or {"status": "ok"},
+    )
+    monkeypatch.setattr(
+        "scripts.daily_pipeline.refresh_training_prediction_lines_current",
+        lambda *args, **kwargs: events.append("prediction") or {"status": "ready"},
+    )
+
+    class FakeContext:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr("scripts.daily_pipeline.get_connection", lambda: FakeContext())
+    monkeypatch.setattr("scripts.daily_pipeline.create_pipeline_run", lambda conn, run_key: None)
+    monkeypatch.setattr("scripts.daily_pipeline.finish_pipeline_run", lambda *args: None)
+
+    def fail_report(issue):
+        events.append("report")
+        raise RuntimeError("SMTP unavailable")
+
+    result = run_pipeline(
+        "baseline_v1",
+        "zhcw",
+        forward_evaluator=ForwardEvaluator(events=events),
+        post_draw_report_notifier=fail_report,
+    )
+
+    assert result["post_draw_evaluation_mail"]["status"] == "failed"
+    assert result["post_draw_evaluation_mail"]["error"]["type"] == "RuntimeError"
+    assert events == ["evaluate", "report", "signals", "prediction"]
 
 
 def test_daily_pipeline_blocks_next_prediction_when_forward_evaluation_fails(

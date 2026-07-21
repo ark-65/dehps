@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import sys
+from collections.abc import Callable
 from datetime import date, datetime
 
 from dehps.backtest.coverage import run_baseline_backtest
@@ -12,6 +13,11 @@ from dehps.crawler.ssq_sync import sync_ssq
 from dehps.db import get_connection
 from dehps.forward_runtime.evaluation_service import ForwardEvaluationService
 from dehps.models.frequency_ranker import FrequencyRankerConfig
+from dehps.notifications.mail import QqMailConfig
+from dehps.notifications.post_draw_evaluation import (
+    PostDrawEvaluationNotificationService,
+    load_post_draw_evaluations,
+)
 from dehps.optimization.next_candidates import refresh_training_prediction_lines_current
 from dehps.optimization.weight_kdj import DEFAULT_KDJ_WINDOW
 from dehps.runtime.heavy_job import HeavyJobLock, apply_cpu_thread_env_defaults
@@ -78,6 +84,22 @@ def _heartbeat_heavy_lock(
     return True
 
 
+def deliver_post_draw_evaluation_report(issue: str) -> dict:
+    service = PostDrawEvaluationNotificationService(QqMailConfig.from_environment())
+    with get_connection() as conn:
+        rows = load_post_draw_evaluations(conn, issue=issue)
+    result = service.deliver(rows)
+    return {
+        "status": result.status,
+        "issue": result.issue,
+        "report_digest": result.report_digest,
+        "delivery_key": result.delivery_key,
+        "json_path": result.json_path,
+        "text_path": result.text_path,
+        "message_id": result.message_id,
+    }
+
+
 def run_pipeline(
     strategy_key: str,
     source: str,
@@ -89,6 +111,7 @@ def run_pipeline(
     heavy_job_lock_timeout_seconds: float = 0.0,
     cpu_threads: int = 1,
     forward_evaluator: ForwardEvaluationService | None = None,
+    post_draw_report_notifier: Callable[[str], dict] | None = None,
 ) -> dict:
     apply_cpu_thread_env_defaults(cpu_threads)
     settings = get_settings()
@@ -133,6 +156,30 @@ def run_pipeline(
             heavy_lock,
             context={"forward_evaluation": evaluation_result},
         )
+
+        if has_synced_changes and post_draw_report_notifier is not None:
+            synced_issue = str((sync_summary.get("latest_draw") or {}).get("issue") or "")
+            if not synced_issue:
+                summary["post_draw_evaluation_mail"] = {
+                    "status": "not_ready",
+                    "reason": "synchronized changes did not identify a latest draw issue",
+                }
+            else:
+                try:
+                    summary["post_draw_evaluation_mail"] = post_draw_report_notifier(synced_issue)
+                except Exception as exc:
+                    # Notification delivery is observable but must not prevent generation of
+                    # the next pre-draw snapshot. Ambiguous SMTP state remains fail-closed in
+                    # the notification ledger and requires manual review.
+                    summary["post_draw_evaluation_mail"] = {
+                        "status": "failed",
+                        "issue": synced_issue,
+                        "error": {"type": type(exc).__name__, "message": str(exc)},
+                    }
+            _heartbeat_heavy_lock(
+                heavy_lock,
+                context={"post_draw_evaluation_mail": summary["post_draw_evaluation_mail"]},
+            )
 
         metrics = {
             "total_combinations": 1107568,
@@ -250,6 +297,7 @@ def main() -> None:
             skip_weight_kdj_signals=args.skip_weight_kdj_signals,
             heavy_job_lock_timeout_seconds=args.heavy_job_lock_timeout_seconds,
             cpu_threads=args.cpu_threads,
+            post_draw_report_notifier=deliver_post_draw_evaluation_report,
         )
     )
 
