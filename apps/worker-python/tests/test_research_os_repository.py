@@ -10,7 +10,12 @@ import pytest
 from psycopg import sql
 
 from dehps.config import get_settings
-from dehps.research_os.models import ControlPlaneManifest, ResearchOSValidationError, TaskStatus
+from dehps.research_os.models import (
+    ControlPlaneManifest,
+    ExternalExecutorObservation,
+    ResearchOSValidationError,
+    TaskStatus,
+)
 from dehps.research_os.repository import PostgresResearchOSRepository
 
 
@@ -86,6 +91,7 @@ def postgres_repository():
             yield connection
 
     repository = PostgresResearchOSRepository(connection_factory)  # type: ignore[arg-type]
+    repository.ensure_schema()
     repository.ensure_schema()
     try:
         yield repository, connection_factory, schema
@@ -230,3 +236,45 @@ def test_repository_corruption_and_digest_mismatch_fail_closed(postgres_reposito
     bad_export["manifest_digest"] = "0" * 64
     with pytest.raises(ResearchOSValidationError, match="manifest digest mismatch"):
         repository.import_manifest(control_plane_key="bad", payload=bad_export)
+
+
+def test_external_executor_observation_is_append_only_and_does_not_block_resolution(
+    postgres_repository,
+) -> None:
+    repository, _connection_factory, _schema = postgres_repository
+    imported = repository.import_manifest(control_plane_key="legacy-shadow", payload=_manifest())
+    before = repository.resolve_persisted(control_plane_key="legacy-shadow")
+    observation = ExternalExecutorObservation(
+        capability="historical_research",
+        owner="legacy-supervisor",
+        status="running",
+        pid=4242,
+        observed_at="2026-07-21T03:00:00+00:00",
+        metadata=(
+            ("command", "scripts/run_training_supervisor.py"),
+            ("scheduling_advisory", "resource_or_executor_busy"),
+        ),
+    )
+
+    assert repository.record_external_executor_observation(
+        control_plane_key="legacy-shadow", observation=observation
+    ) is True
+    assert repository.record_external_executor_observation(
+        control_plane_key="legacy-shadow", observation=observation
+    ) is False
+    stored = repository.list_external_executor_observations(control_plane_key="legacy-shadow")
+    after = repository.resolve_persisted(control_plane_key="legacy-shadow")
+
+    assert len(stored) == 1
+    assert stored[0]["observation_digest"] == observation.artifact_digest
+    assert stored[0]["capability"] == "historical_research"
+    assert stored[0]["owner"] == "legacy-supervisor"
+    assert stored[0]["status"] == "running"
+    assert stored[0]["pid"] == 4242
+    assert ["scheduling_advisory", "resource_or_executor_busy"] in stored[0]["metadata"]
+    assert after.manifest_digest == imported.manifest_digest == before.manifest_digest
+    assert after.snapshot_digest == imported.snapshot_digest == before.snapshot_digest
+    assert tuple(item.task_key for item in after.ready_queue) == (
+        "artifact-audit",
+        "historical-replay",
+    )
