@@ -69,6 +69,33 @@ cd apps/worker-python
 
 The service uses implicit TLS at `smtp.qq.com:465`. Credentials are not accepted as CLI arguments and successful output contains only the sender, recipient, and message ID. Do not commit `.env`, paste the authorization code into an Agent Request, or put it in a shell command.
 
+### Scheduled Mainline Top-100 Mail
+
+Scheduled delivery requires an explicit recipient in the same ignored `.env`:
+
+```dotenv
+DEHPS_QQ_MAIL_RECIPIENT=recipient@example.com
+```
+
+Validate the current durable `static_100` prediction without sending:
+
+```bash
+cd apps/worker-python
+.venv/bin/dehps mail mainline-prediction --preview
+```
+
+The checked-in timer runs at 18:15 Asia/Shanghai on Tuesday, Thursday, and Sunday, exactly three hours before the official 21:15 SSQ draw. Install it only under an approved Operator Request:
+
+```bash
+sudo install -m 0644 infra/systemd/dehps-mainline-prediction-mail.service /etc/systemd/system/
+sudo install -m 0644 infra/systemd/dehps-mainline-prediction-mail.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now dehps-mainline-prediction-mail.timer
+systemctl list-timers dehps-mainline-prediction-mail.timer
+```
+
+The delivery ledger is stored at `runtime/notifications/mainline_prediction_mail.json`. A completed delivery is idempotently skipped. An interrupted or ambiguous SMTP attempt becomes `uncertain` and blocks automatic retries until an operator reviews it; this avoids silently sending duplicates.
+
 ## NestJS API
 
 Install dependencies:

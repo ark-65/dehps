@@ -2,6 +2,8 @@
 
 双色球在[中国福彩网官方开奖页](https://www.cwl.gov.cn/ygkj/wqkjgg/)标注为每周二、四、日 21:15 开奖。项目在开奖后预留 30 分钟，固定于北京时间 21:45 执行正式同步；如果数据源尚未更新，常驻轮询与恢复链路继续补偿，以实际更新为准。
 
+开奖前主线邮件使用独立 timer，在同一三个开奖日的 18:15 读取 durable `static_100` 快照并发送 Top-100。它只消费既有预测，不触发训练、重排、晋升或开奖同步。主线缺失、rank 1–100 不连续、候选非法、运行身份缺失、非开奖日、18:15 之前或 21:15 之后均 fail-closed。
+
 ## Crontab
 
 ```cron
@@ -17,6 +19,16 @@ Copy files from `infra/systemd/` to `/etc/systemd/system/`, update paths in the 
 sudo systemctl daemon-reload
 sudo systemctl enable --now dehps-daily-pipeline.timer
 systemctl list-timers dehps-daily-pipeline.timer
+```
+
+开奖前邮件 timer：
+
+```bash
+sudo install -m 0644 infra/systemd/dehps-mainline-prediction-mail.service /etc/systemd/system/
+sudo install -m 0644 infra/systemd/dehps-mainline-prediction-mail.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now dehps-mainline-prediction-mail.timer
+systemctl list-timers dehps-mainline-prediction-mail.timer
 ```
 
 ## Logs

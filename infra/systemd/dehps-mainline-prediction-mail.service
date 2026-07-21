@@ -1,0 +1,17 @@
+[Unit]
+Description=Send the durable DEHPS static_100 prediction by QQ mail
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ark
+Group=ark
+WorkingDirectory=/home/ark/workspace/dehps/apps/worker-python
+EnvironmentFile=/home/ark/workspace/dehps/.env
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/ark/workspace/dehps/runtime
+ExecStart=/home/ark/workspace/dehps/apps/worker-python/.venv/bin/dehps mail mainline-prediction --send
