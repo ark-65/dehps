@@ -38,6 +38,11 @@ count to a commit, command, timestamp, scope, and result.
 Every Runtime round must state its class and the Runtime KPI it is allowed to change. It must not use
 Recent-30/100/300, hit rate, rank, calibration, or generalization as its acceptance criterion.
 
+The [Goal-Driven Research Orchestrator](../architecture/goal-driven-research-orchestrator.md) may
+schedule Kernel or backend experiments through a `runtime_capability` Goal and a versioned executor
+Capability ABI. Such a Goal may enable downstream Research Tasks, but its evidence remains in the
+Runtime KPI namespace and cannot satisfy Prediction Quality success criteria.
+
 ## Current state and next gates
 
 | Area | State | Next evidence |
