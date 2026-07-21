@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from itertools import islice, combinations
 from pathlib import Path
@@ -108,19 +109,22 @@ def test_pre_draw_delivery_window_fails_closed(now: datetime, message: str) -> N
         require_pre_draw_delivery_window(now)
 
 
-def test_compiler_emits_only_static_top100_with_risk_language() -> None:
+def test_compiler_emits_copy_ready_static_top100_number_lines() -> None:
     email = compile_mainline_prediction_email(_payload(), recipient=RECIPIENT)
 
     assert email.issue == "2026083"
     assert email.as_of_issue == "2026082"
     assert email.candidate_count == 100
-    assert email.subject == "[DEHPS][实验性] 双色球 2026083 主线预测 Top 100"
-    assert email.text.count("\n0") >= 99
+    assert email.subject == "[DEHPS][实验性·未达预测目标] 双色球 2026083 主线 Top 100"
+    lines = email.text.splitlines()
+    assert len(lines) == 100
+    assert lines[0] == "01 02 03 04 05 06"
+    assert all(re.fullmatch(r"\d{2}( \d{2}){5}", line) for line in lines)
     assert "dynamic_kdj" not in email.text
-    assert "不保证中奖" in email.text
-    assert "历史表现不能证明未来结果" in email.text
-    assert "禁止未成年人购彩" in email.text
-    assert email.html.count("<tr>") == 101
+    assert "rank" not in email.text.lower()
+    assert "score" not in email.text.lower()
+    assert "目标期次" not in email.text
+    assert email.html == f"<!doctype html><html><body><pre>{email.text}</pre></body></html>"
 
 
 @pytest.mark.parametrize(

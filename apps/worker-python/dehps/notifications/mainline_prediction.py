@@ -143,42 +143,10 @@ def compile_mainline_prediction_email(
         prediction_fingerprint=prediction_fingerprint,
         recipient=recipient,
     )
-    subject = f"[DEHPS][实验性] 双色球 {issue} 主线预测 Top 100"
-    metadata_lines = [
-        f"目标期次：{issue}",
-        f"历史截止：{as_of_issue}",
-        f"生成时间：{payload.get('generated_at')}",
-        f"主线：{MAINLINE_KEY}",
-        f"预测运行：{prediction_run_key}",
-        f"模型版本：{line.get('model_version')}",
-        f"参数版本：{line.get('parameter_version')}",
-        f"排名契约：{line.get('ranking_contract')}",
-        f"候选全集数量：{line.get('candidate_count')}",
-    ]
-    warning_lines = [
-        "风险说明：这是训练中的实验性决策支持输出，不保证中奖，也不代表模型已达到预测目标。",
-        "历史表现不能证明未来结果；请理性购彩、量力而行，禁止未成年人购彩。",
-    ]
-    candidate_lines = [
-        _render_text_candidate(candidate)
-        for candidate in candidates
-    ]
-    text_body = "\n".join(
-        [
-            *metadata_lines,
-            "",
-            *warning_lines,
-            "",
-            "主线 Top 100（红球）：",
-            *candidate_lines,
-        ]
-    )
-    html_body = _render_html(
-        subject=subject,
-        metadata_lines=metadata_lines,
-        warning_lines=warning_lines,
-        candidates=candidates,
-    )
+    subject = f"[DEHPS][实验性·未达预测目标] 双色球 {issue} 主线 Top 100"
+    candidate_lines = [_render_candidate_numbers(candidate) for candidate in candidates]
+    text_body = "\n".join(candidate_lines)
+    html_body = _render_html(text_body)
     return MainlinePredictionEmail(
         delivery_key=delivery_key,
         issue=issue,
@@ -399,35 +367,9 @@ def _delivery_key(
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()
 
 
-def _render_text_candidate(candidate: dict[str, Any]) -> str:
-    numbers = " ".join(f"{int(value):02d}" for value in candidate["red_numbers"])
-    return f"{int(candidate['rank']):03d}. {numbers} | score={float(candidate['score']):.8f}"
+def _render_candidate_numbers(candidate: dict[str, Any]) -> str:
+    return " ".join(f"{int(value):02d}" for value in candidate["red_numbers"])
 
 
-def _render_html(
-    *,
-    subject: str,
-    metadata_lines: list[str],
-    warning_lines: list[str],
-    candidates: list[dict[str, Any]],
-) -> str:
-    rows = "".join(
-        "<tr>"
-        f"<td>{int(candidate['rank'])}</td>"
-        f"<td>{html.escape(' '.join(f'{int(value):02d}' for value in candidate['red_numbers']))}</td>"
-        f"<td>{float(candidate['score']):.8f}</td>"
-        "</tr>"
-        for candidate in candidates
-    )
-    metadata = "".join(f"<li>{html.escape(line)}</li>" for line in metadata_lines)
-    warnings = "".join(f"<p><strong>{html.escape(line)}</strong></p>" for line in warning_lines)
-    return (
-        "<!doctype html><html><body>"
-        f"<h1>{html.escape(subject)}</h1>"
-        f"<ul>{metadata}</ul>{warnings}"
-        "<h2>主线 Top 100（红球）</h2>"
-        "<table border=\"1\" cellspacing=\"0\" cellpadding=\"4\">"
-        "<thead><tr><th>Rank</th><th>红球</th><th>Score</th></tr></thead>"
-        f"<tbody>{rows}</tbody></table>"
-        "</body></html>"
-    )
+def _render_html(text_body: str) -> str:
+    return f"<!doctype html><html><body><pre>{html.escape(text_body)}</pre></body></html>"
