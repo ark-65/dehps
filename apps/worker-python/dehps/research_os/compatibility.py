@@ -18,6 +18,7 @@ def project_legacy_wait_task(
     item: Mapping[str, Any],
     *,
     goal_key: str,
+    goal_digest: str = "",
     lane: TaskLane = TaskLane.RESEARCH,
 ) -> Task:
     """Project one legacy WAIT action into a task-local typed dependency.
@@ -52,6 +53,7 @@ def project_legacy_wait_task(
     return Task(
         task_key=f"legacy:{queue_key}",
         goal_key=goal_key,
+        goal_digest=goal_digest,
         task_type=action,
         lane=lane,
         dependencies=(dependency,),

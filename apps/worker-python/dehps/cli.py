@@ -50,6 +50,8 @@ from dehps.research_runtime.resident import ResidentResearchRuntime
 from dehps.research_runtime.runtime import ContinuousResearchRuntime
 from dehps.research_os.control_plane import ResearchOSControlPlane
 from dehps.research_os.models import ResearchOSValidationError
+from dehps.research_os.repository import PostgresResearchOSRepository
+from dehps.research_os.shadow import LegacyResearchOSShadowService
 from dehps.research_scheduler.scheduler import AutonomousResearchScheduler
 from dehps.engineering.service import AutonomousEngineeringService
 from dehps.pattern_discovery.models import PatternSearchBudget
@@ -143,6 +145,12 @@ def _scheduler_service() -> AutonomousResearchScheduler:
     service = AutonomousResearchScheduler()
     service.ensure_schema()
     return service
+
+
+def _research_os_repository() -> PostgresResearchOSRepository:
+    repository = PostgresResearchOSRepository()
+    repository.ensure_schema()
+    return repository
 
 
 def _engineering_service() -> AutonomousEngineeringService:
@@ -1631,6 +1639,67 @@ def research_os_resolve(
     """Resolve one immutable Goal/Task manifest without dispatching any Task."""
     try:
         _emit(ResearchOSControlPlane().resolve_payload(_load_object(input_file)))
+    except (ResearchOSValidationError, HypothesisRegistryError, OSError, TypeError, ValueError) as exc:
+        _fail(exc)
+
+
+@research_os_app.command("import-manifest")
+def research_os_import_manifest(
+    control_plane_key: str = typer.Option(..., "--control-plane-key"),
+    input_file: Path = typer.Option(..., "--input"),
+    source: str = typer.Option("native", "--source"),
+) -> None:
+    """Idempotently import one manifest into the durable shadow repository."""
+    try:
+        _emit(
+            _research_os_repository().import_manifest(
+                control_plane_key=control_plane_key,
+                payload=_load_object(input_file),
+                source=source,
+            )
+        )
+    except (ResearchOSValidationError, HypothesisRegistryError, OSError, TypeError, ValueError) as exc:
+        _fail(exc)
+
+
+@research_os_app.command("resolve-persisted")
+def research_os_resolve_persisted(
+    control_plane_key: str = typer.Option(..., "--control-plane-key"),
+) -> None:
+    """Reload and verify durable state before recomputing the Resolution Snapshot."""
+    try:
+        _emit(_research_os_repository().resolve_persisted(control_plane_key=control_plane_key))
+    except (ResearchOSValidationError, HypothesisRegistryError, OSError, TypeError, ValueError) as exc:
+        _fail(exc)
+
+
+@research_os_app.command("export-manifest")
+def research_os_export_manifest(
+    control_plane_key: str = typer.Option(..., "--control-plane-key"),
+) -> None:
+    """Export the current verified manifest with its canonical digest."""
+    try:
+        _emit(_research_os_repository().export_manifest(control_plane_key=control_plane_key))
+    except (ResearchOSValidationError, HypothesisRegistryError, OSError, TypeError, ValueError) as exc:
+        _fail(exc)
+
+
+@research_os_app.command("shadow-legacy")
+def research_os_shadow_legacy(
+    control_plane_key: str = typer.Option(..., "--control-plane-key"),
+    legacy_goal_key: str = typer.Option(..., "--legacy-goal-key"),
+    input_file: Path = typer.Option(..., "--input"),
+) -> None:
+    """Read legacy queue/process state and persist a one-way shadow projection."""
+    try:
+        repository = _research_os_repository()
+        _emit(
+            LegacyResearchOSShadowService(repository=repository).refresh(
+                control_plane_key=control_plane_key,
+                base_payload=_load_object(input_file),
+                legacy_goal_key=legacy_goal_key,
+            )
+        )
     except (ResearchOSValidationError, HypothesisRegistryError, OSError, TypeError, ValueError) as exc:
         _fail(exc)
 

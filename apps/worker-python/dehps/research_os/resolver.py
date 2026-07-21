@@ -22,8 +22,12 @@ class TaskDependencyResolver:
         goals = self._unique_goals(manifest)
         tasks = self._unique_tasks(manifest)
         self._validate_task_graph(tasks)
+        goal_states = manifest.goal_state_by_digest
+        task_states = manifest.task_state_by_digest
         completed = {
-            task.task_key for task in manifest.tasks if task.status is TaskStatus.COMPLETED
+            task.task_key
+            for task in manifest.tasks
+            if task_states[task.artifact_digest].declared_status is TaskStatus.COMPLETED
         }
         resolutions: list[TaskResolution] = []
         for task in sorted(manifest.tasks, key=lambda item: item.task_key):
@@ -32,17 +36,35 @@ class TaskDependencyResolver:
                 raise ResearchOSValidationError(
                     f"task {task.task_key!r} references missing goal {task.goal_key!r}"
                 )
+            if task.goal_digest != goal.artifact_digest:
+                raise ResearchOSValidationError(
+                    f"task {task.task_key!r} goal_digest does not match Goal definition"
+                )
             if task.lane is not goal.owner_lane:
                 raise ResearchOSValidationError(
                     f"task {task.task_key!r} lane {task.lane.value!r} does not match "
                     f"goal {goal.goal_key!r} owner lane {goal.owner_lane.value!r}"
                 )
-            if task.status in TERMINAL_TASK_STATUSES:
+            task_state = task_states.get(task.artifact_digest)
+            if task_state is None:
+                raise ResearchOSValidationError(
+                    f"task {task.task_key!r} is missing its declared state"
+                )
+            goal_state = goal_states.get(goal.artifact_digest)
+            if goal_state is None:
+                raise ResearchOSValidationError(
+                    f"goal {goal.goal_key!r} is missing its lifecycle state"
+                )
+            if task_state.declared_status in TERMINAL_TASK_STATUSES:
                 resolutions.append(
-                    self._resolution(task, task.status, f"task_{task.status.value}")
+                    self._resolution(
+                        task,
+                        task_state.declared_status,
+                        f"task_{task_state.declared_status.value}",
+                    )
                 )
                 continue
-            if goal.status is not GoalStatus.ACTIVE:
+            if goal_state.status is not GoalStatus.ACTIVE:
                 resolutions.append(
                     self._resolution(task, TaskStatus.DEPENDENCY_WAIT, "goal_not_active")
                 )

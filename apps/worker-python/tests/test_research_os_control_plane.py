@@ -106,6 +106,10 @@ def test_external_wait_is_local_and_event_arrival_changes_only_its_path() -> Non
     assert second_tasks["evaluate-2026083"].status is TaskStatus.READY
     assert second_tasks["historical-replay"].status is TaskStatus.READY
     assert second_tasks["sealed-artifact-audit"].status is TaskStatus.READY
+    assert (
+        first_tasks["evaluate-2026083"].task_digest
+        == second_tasks["evaluate-2026083"].task_digest
+    )
     assert first.manifest_digest != second.manifest_digest
     assert first.snapshot_digest != second.snapshot_digest
 

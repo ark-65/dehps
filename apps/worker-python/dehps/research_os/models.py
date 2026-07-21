@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass, field, is_dataclass
+from datetime import datetime, timezone
 from enum import Enum
 from hashlib import sha256
 from typing import Any, Mapping
@@ -49,6 +50,9 @@ class TaskStatus(str, Enum):
 
 TERMINAL_TASK_STATUSES = frozenset(
     {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.SUPERSEDED}
+)
+DECLARED_TASK_STATUSES = frozenset(
+    {TaskStatus.DRAFT, TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.SUPERSEDED}
 )
 
 
@@ -104,15 +108,43 @@ def stable_hash(value: Any) -> str:
     return sha256(stable_json(value).encode("utf-8")).hexdigest()
 
 
+def _canonical_object(value: Any, *, field_name: str) -> str:
+    if value is None:
+        value = {}
+    _mapping(value, field_name=field_name)
+    return stable_json(value)
+
+
+def _canonical_timestamp(value: Any, *, field_name: str) -> str | None:
+    if value in (None, ""):
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ResearchOSValidationError(f"{field_name} must be an ISO-8601 timestamp") from exc
+    if parsed.tzinfo is None:
+        raise ResearchOSValidationError(f"{field_name} must include a timezone")
+    return parsed.astimezone(timezone.utc).isoformat()
+
+
+def _decoded_object(value: str) -> dict[str, Any]:
+    decoded = json.loads(value)
+    assert isinstance(decoded, dict)
+    return decoded
+
+
 @dataclass(frozen=True)
 class Goal:
+    """Immutable Goal definition. Lifecycle state is stored in GoalState."""
+
     goal_key: str
     semantic_version: str
     objective_class: ObjectiveClass
-    status: GoalStatus
     success_evidence: tuple[str, ...]
     owner_lane: TaskLane
     question: str = ""
+    baseline_metric_manifest: str = "{}"
+    target_metric_manifest: str = "{}"
     guardrails: tuple[str, ...] = ()
 
     @classmethod
@@ -136,20 +168,52 @@ class Goal:
                 value.get("objective_class"),
                 field_name="objective_class",
             ),
-            status=_enum(GoalStatus, value.get("status"), field_name="goal status"),
             success_evidence=tuple(
                 _required_text(item, field_name="success_evidence item") for item in success
             ),
             owner_lane=_enum(TaskLane, value.get("owner_lane"), field_name="owner_lane"),
             question=str(value.get("question") or "").strip(),
+            baseline_metric_manifest=_canonical_object(
+                value.get("baseline_metric_manifest", value.get("baseline")),
+                field_name="baseline_metric_manifest",
+            ),
+            target_metric_manifest=_canonical_object(
+                value.get("target_metric_manifest", value.get("target")),
+                field_name="target_metric_manifest",
+            ),
             guardrails=tuple(str(item) for item in guardrails),
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "goal_key": self.goal_key,
+            "semantic_version": self.semantic_version,
+            "objective_class": self.objective_class.value,
+            "success_evidence": list(self.success_evidence),
+            "owner_lane": self.owner_lane.value,
+            "question": self.question,
+            "baseline_metric_manifest": _decoded_object(self.baseline_metric_manifest),
+            "target_metric_manifest": _decoded_object(self.target_metric_manifest),
+            "guardrails": list(self.guardrails),
+        }
 
     @property
     def artifact_digest(self) -> str:
         return stable_hash(
-            {"schema": RESEARCH_OS_SCHEMA_VERSION, "artifact_type": "goal", "spec": self}
+            {
+                "schema": RESEARCH_OS_SCHEMA_VERSION,
+                "artifact_type": "goal_definition",
+                "definition": self.to_dict(),
+            }
         )
+
+
+@dataclass(frozen=True)
+class GoalState:
+    goal_digest: str
+    status: GoalStatus
+    retired_at: str | None = None
+    superseded_by_goal_digest: str | None = None
 
 
 @dataclass(frozen=True)
@@ -174,20 +238,31 @@ class TaskDependency:
             ),
         )
 
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "dependency_type": self.dependency_type.value,
+            "target_key": self.target_key,
+            "required_status": self.required_status,
+        }
+
 
 @dataclass(frozen=True)
 class Task:
+    """Immutable Task definition. Resolver state is stored separately."""
+
     task_key: str
     goal_key: str
+    goal_digest: str
     task_type: str
     lane: TaskLane
     dependencies: tuple[TaskDependency, ...] = ()
-    status: TaskStatus = TaskStatus.DRAFT
     priority: int = 0
     input_artifact_digests: tuple[str, ...] = ()
+    requested_capability: str | None = None
+    metric_contract: str = "{}"
 
     @classmethod
-    def from_dict(cls, value: Mapping[str, Any]) -> Task:
+    def from_dict(cls, value: Mapping[str, Any], *, goal_digest: str = "") -> Task:
         value = _mapping(value, field_name="task")
         raw_dependencies = value.get("dependencies")
         if raw_dependencies is None:
@@ -209,28 +284,58 @@ class Task:
             priority = int(value.get("priority") or 0)
         except (TypeError, ValueError) as exc:
             raise ResearchOSValidationError("task priority must be an integer") from exc
+        capability = value.get("requested_capability")
         return cls(
             task_key=_required_text(value.get("task_key"), field_name="task_key"),
             goal_key=_required_text(value.get("goal_key"), field_name="task goal_key"),
+            goal_digest=str(value.get("goal_digest") or goal_digest).strip(),
             task_type=_required_text(value.get("task_type"), field_name="task_type"),
             lane=_enum(TaskLane, value.get("lane"), field_name="task lane"),
             dependencies=dependencies,
-            status=_enum(
-                TaskStatus,
-                value.get("status", TaskStatus.DRAFT.value),
-                field_name="task status",
-            ),
             priority=priority,
             input_artifact_digests=tuple(
                 _required_text(item, field_name="input artifact digest") for item in raw_inputs
             ),
+            requested_capability=(
+                None
+                if capability is None
+                else _required_text(capability, field_name="requested_capability")
+            ),
+            metric_contract=_canonical_object(
+                value.get("metric_contract"), field_name="task metric_contract"
+            ),
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "task_key": self.task_key,
+            "goal_key": self.goal_key,
+            "goal_digest": self.goal_digest,
+            "task_type": self.task_type,
+            "lane": self.lane.value,
+            "dependencies": [item.to_dict() for item in self.dependencies],
+            "priority": self.priority,
+            "input_artifact_digests": list(self.input_artifact_digests),
+            "requested_capability": self.requested_capability,
+            "metric_contract": _decoded_object(self.metric_contract),
+        }
 
     @property
     def artifact_digest(self) -> str:
         return stable_hash(
-            {"schema": RESEARCH_OS_SCHEMA_VERSION, "artifact_type": "task", "spec": self}
+            {
+                "schema": RESEARCH_OS_SCHEMA_VERSION,
+                "artifact_type": "task_definition",
+                "definition": self.to_dict(),
+            }
         )
+
+
+@dataclass(frozen=True)
+class TaskState:
+    task_digest: str
+    declared_status: TaskStatus = TaskStatus.DRAFT
+    superseded_by_task_digest: str | None = None
 
 
 @dataclass(frozen=True)
@@ -261,11 +366,21 @@ class DependencyFacts:
             authorities=values("authorities"),
         )
 
+    def to_dict(self) -> dict[str, list[str]]:
+        return {
+            "artifacts": sorted(self.artifacts),
+            "evidence": sorted(self.evidence),
+            "external_events": sorted(self.external_events),
+            "authorities": sorted(self.authorities),
+        }
+
 
 @dataclass(frozen=True)
 class ControlPlaneManifest:
     goals: tuple[Goal, ...]
     tasks: tuple[Task, ...]
+    goal_states: tuple[GoalState, ...]
+    task_states: tuple[TaskState, ...]
     facts: DependencyFacts = field(default_factory=DependencyFacts)
     schema_version: str = RESEARCH_OS_SCHEMA_VERSION
 
@@ -281,12 +396,129 @@ class ControlPlaneManifest:
         raw_tasks = value.get("tasks")
         if not isinstance(raw_goals, list) or not isinstance(raw_tasks, list):
             raise ResearchOSValidationError("manifest goals and tasks must be arrays")
-        return cls(
-            goals=tuple(Goal.from_dict(item) for item in raw_goals),
-            tasks=tuple(Task.from_dict(item) for item in raw_tasks),
+
+        goals = tuple(Goal.from_dict(item) for item in raw_goals)
+        goal_by_key: dict[str, Goal] = {}
+        for goal in goals:
+            if goal.goal_key in goal_by_key:
+                raise ResearchOSValidationError(f"duplicate goal_key: {goal.goal_key}")
+            goal_by_key[goal.goal_key] = goal
+        goal_states = tuple(
+            GoalState(
+                goal_digest=goal.artifact_digest,
+                status=_enum(
+                    GoalStatus,
+                    raw_goals[index].get("status"),
+                    field_name="goal status",
+                ),
+                retired_at=_canonical_timestamp(
+                    raw_goals[index].get("retired_at"), field_name="goal retired_at"
+                ),
+                superseded_by_goal_digest=(
+                    str(raw_goals[index].get("superseded_by_goal_digest"))
+                    if raw_goals[index].get("superseded_by_goal_digest")
+                    else None
+                ),
+            )
+            for index, goal in enumerate(goals)
+        )
+
+        tasks_list: list[Task] = []
+        task_states_list: list[TaskState] = []
+        task_keys: set[str] = set()
+        for raw_task in raw_tasks:
+            raw_task = _mapping(raw_task, field_name="task")
+            goal_key = _required_text(raw_task.get("goal_key"), field_name="task goal_key")
+            goal = goal_by_key.get(goal_key)
+            if goal is None:
+                raise ResearchOSValidationError(
+                    f"task {raw_task.get('task_key')!r} references missing goal {goal_key!r}"
+                )
+            task = Task.from_dict(raw_task, goal_digest=goal.artifact_digest)
+            if task.goal_digest != goal.artifact_digest:
+                raise ResearchOSValidationError(
+                    f"task {task.task_key!r} goal_digest does not match Goal definition"
+                )
+            if task.task_key in task_keys:
+                raise ResearchOSValidationError(f"duplicate task_key: {task.task_key}")
+            task_keys.add(task.task_key)
+            declared_status = _enum(
+                TaskStatus,
+                raw_task.get("status", TaskStatus.DRAFT.value),
+                field_name="task declared status",
+            )
+            if declared_status not in DECLARED_TASK_STATUSES:
+                allowed = ", ".join(sorted(item.value for item in DECLARED_TASK_STATUSES))
+                raise ResearchOSValidationError(
+                    f"task declared status must be one of: {allowed}"
+                )
+            tasks_list.append(task)
+            task_states_list.append(
+                TaskState(
+                    task_digest=task.artifact_digest,
+                    declared_status=declared_status,
+                    superseded_by_task_digest=(
+                        str(raw_task.get("superseded_by_task_digest"))
+                        if raw_task.get("superseded_by_task_digest")
+                        else None
+                    ),
+                )
+            )
+
+        manifest = cls(
+            goals=goals,
+            tasks=tuple(tasks_list),
+            goal_states=goal_states,
+            task_states=tuple(task_states_list),
             facts=DependencyFacts.from_dict(value.get("facts")),
             schema_version=schema,
         )
+        expected_digest = value.get("manifest_digest")
+        if expected_digest and str(expected_digest) != manifest.artifact_digest:
+            raise ResearchOSValidationError(
+                f"manifest digest mismatch: expected {expected_digest}, calculated {manifest.artifact_digest}"
+            )
+        return manifest
+
+    @property
+    def goal_state_by_digest(self) -> dict[str, GoalState]:
+        return {item.goal_digest: item for item in self.goal_states}
+
+    @property
+    def task_state_by_digest(self) -> dict[str, TaskState]:
+        return {item.task_digest: item for item in self.task_states}
+
+    def to_dict(self, *, include_digest: bool = False) -> dict[str, Any]:
+        goal_states = self.goal_state_by_digest
+        task_states = self.task_state_by_digest
+        goals: list[dict[str, Any]] = []
+        for goal in self.goals:
+            state = goal_states[goal.artifact_digest]
+            item = {
+                **goal.to_dict(),
+                "status": state.status.value,
+                "retired_at": state.retired_at,
+                "superseded_by_goal_digest": state.superseded_by_goal_digest,
+            }
+            goals.append(item)
+        tasks: list[dict[str, Any]] = []
+        for task in self.tasks:
+            state = task_states[task.artifact_digest]
+            item = {
+                **task.to_dict(),
+                "status": state.declared_status.value,
+                "superseded_by_task_digest": state.superseded_by_task_digest,
+            }
+            tasks.append(item)
+        payload: dict[str, Any] = {
+            "schema_version": self.schema_version,
+            "goals": goals,
+            "tasks": tasks,
+            "facts": self.facts.to_dict(),
+        }
+        if include_digest:
+            payload["manifest_digest"] = self.artifact_digest
+        return payload
 
     @property
     def artifact_digest(self) -> str:
@@ -294,9 +526,7 @@ class ControlPlaneManifest:
             {
                 "schema": self.schema_version,
                 "artifact_type": "control_plane_manifest",
-                "goals": self.goals,
-                "tasks": self.tasks,
-                "facts": self.facts,
+                "manifest": self.to_dict(include_digest=False),
             }
         )
 
@@ -329,3 +559,23 @@ class ResolutionSnapshot:
     state_counts: tuple[tuple[str, int], ...]
     snapshot_digest: str
     schema_version: str = RESEARCH_OS_SCHEMA_VERSION
+
+
+@dataclass(frozen=True)
+class ExternalExecutorObservation:
+    capability: str
+    owner: str
+    status: str
+    observed_at: str
+    pid: int | None = None
+    metadata: tuple[tuple[str, Any], ...] = ()
+
+    @property
+    def artifact_digest(self) -> str:
+        return stable_hash(
+            {
+                "schema": RESEARCH_OS_SCHEMA_VERSION,
+                "artifact_type": "external_executor_observation",
+                "observation": self,
+            }
+        )
