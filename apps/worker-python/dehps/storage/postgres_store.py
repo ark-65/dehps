@@ -763,6 +763,12 @@ def ensure_research_scheduler_schema(conn: Connection) -> None:
     )
 
 
+def ensure_research_os_schema(conn: Connection) -> None:
+    """Apply the additive M3-P2 durable Research OS schema."""
+    schema_path = Path(__file__).resolve().parents[4] / "infra/postgres/init/002_research_os.sql"
+    conn.execute(schema_path.read_text())
+
+
 def ensure_pattern_discovery_schema(conn: Connection) -> None:
     """Apply the additive Round 28 autonomous pattern discovery schema."""
     ensure_research_scheduler_schema(conn)

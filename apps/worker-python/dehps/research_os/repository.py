@@ -1,0 +1,602 @@
+from __future__ import annotations
+
+import json
+from collections.abc import Callable
+from contextlib import AbstractContextManager
+from dataclasses import dataclass
+from typing import Any
+
+from psycopg import Connection
+from psycopg.rows import dict_row
+
+from dehps.db import get_connection
+from dehps.research_os.control_plane import ResearchOSControlPlane
+from dehps.research_os.models import (
+    ControlPlaneManifest,
+    DependencyType,
+    ExternalExecutorObservation,
+    Goal,
+    ResearchOSValidationError,
+    ResolutionSnapshot,
+    Task,
+    TaskResolution,
+    jsonable,
+    stable_json,
+)
+from dehps.storage.postgres_store import ensure_research_os_schema
+
+
+ConnectionFactory = Callable[[], AbstractContextManager[Connection[Any]]]
+
+
+def _json(value: Any) -> str:
+    return json.dumps(jsonable(value), ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+
+
+@dataclass(frozen=True)
+class ManifestImportResult:
+    control_plane_key: str
+    manifest_digest: str
+    snapshot_digest: str
+    created_goal_definitions: int
+    created_task_definitions: int
+    created_manifest: bool
+    goal_revisions: tuple[tuple[str, str, str], ...]
+    task_revisions: tuple[tuple[str, str, str], ...]
+    ready_task_keys: tuple[str, ...]
+    dispatch_performed: bool = False
+    production_impact: str = "none"
+
+
+class PostgresResearchOSRepository:
+    """Durable P2 shadow repository; it never dispatches or writes legacy state."""
+
+    def __init__(
+        self,
+        connection_factory: ConnectionFactory = get_connection,
+        *,
+        control_plane: ResearchOSControlPlane | None = None,
+    ) -> None:
+        self.connection_factory = connection_factory
+        self.control_plane = control_plane or ResearchOSControlPlane()
+
+    def ensure_schema(self) -> None:
+        with self.connection_factory() as conn:
+            ensure_research_os_schema(conn)
+
+    def import_manifest(
+        self,
+        *,
+        control_plane_key: str,
+        payload: dict[str, Any],
+        source: str = "native",
+    ) -> ManifestImportResult:
+        key = self._key(control_plane_key)
+        source = self._key(source)
+        manifest = ControlPlaneManifest.from_dict(payload)
+        snapshot = self.control_plane.resolve(manifest)
+        normalized_payload = manifest.to_dict(include_digest=False)
+        resolutions = {item.task_digest: item for item in snapshot.resolutions}
+
+        created_goals = 0
+        created_tasks = 0
+        created_manifest = False
+        goal_revisions: list[tuple[str, str, str]] = []
+        task_revisions: list[tuple[str, str, str]] = []
+
+        with self.connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
+            previous_goals, previous_tasks = self._current_revisions(cursor, key)
+            for goal in manifest.goals:
+                inserted = cursor.execute(
+                    """
+                    INSERT INTO research_os_goal_definitions (
+                      goal_digest, goal_key, semantic_version, objective_class,
+                      owner_lane, definition_json
+                    ) VALUES (%s, %s, %s, %s, %s, %s::jsonb)
+                    ON CONFLICT (goal_digest) DO NOTHING
+                    RETURNING goal_digest
+                    """,
+                    (
+                        goal.artifact_digest,
+                        goal.goal_key,
+                        goal.semantic_version,
+                        goal.objective_class.value,
+                        goal.owner_lane.value,
+                        _json(goal.to_dict()),
+                    ),
+                ).fetchone()
+                created_goals += int(inserted is not None)
+                self._verify_goal_definition(cursor, goal)
+
+            for task in manifest.tasks:
+                inserted = cursor.execute(
+                    """
+                    INSERT INTO research_os_task_definitions (
+                      task_digest, task_key, goal_digest, task_type, lane,
+                      priority, definition_json
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb)
+                    ON CONFLICT (task_digest) DO NOTHING
+                    RETURNING task_digest
+                    """,
+                    (
+                        task.artifact_digest,
+                        task.task_key,
+                        task.goal_digest,
+                        task.task_type,
+                        task.lane.value,
+                        task.priority,
+                        _json(task.to_dict()),
+                    ),
+                ).fetchone()
+                created_tasks += int(inserted is not None)
+                self._verify_task_definition(cursor, task)
+
+            inserted_manifest = cursor.execute(
+                """
+                INSERT INTO research_os_manifests (
+                  manifest_digest, schema_version, manifest_json, source
+                ) VALUES (%s, %s, %s::jsonb, %s)
+                ON CONFLICT (manifest_digest) DO NOTHING
+                RETURNING manifest_digest
+                """,
+                (
+                    manifest.artifact_digest,
+                    manifest.schema_version,
+                    _json(normalized_payload),
+                    source,
+                ),
+            ).fetchone()
+            created_manifest = inserted_manifest is not None
+            self._verify_manifest_row(cursor, manifest)
+
+            for ordinal, goal in enumerate(manifest.goals):
+                cursor.execute(
+                    """
+                    INSERT INTO research_os_manifest_goals (manifest_digest, goal_digest, ordinal)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    (manifest.artifact_digest, goal.artifact_digest, ordinal),
+                )
+            for ordinal, task in enumerate(manifest.tasks):
+                cursor.execute(
+                    """
+                    INSERT INTO research_os_manifest_tasks (manifest_digest, task_digest, ordinal)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    (manifest.artifact_digest, task.artifact_digest, ordinal),
+                )
+
+            cursor.execute(
+                """
+                INSERT INTO research_os_control_planes (
+                  control_plane_key, schema_version, current_manifest_digest, source
+                ) VALUES (%s, %s, %s, %s)
+                ON CONFLICT (control_plane_key) DO UPDATE
+                SET schema_version = EXCLUDED.schema_version,
+                    current_manifest_digest = EXCLUDED.current_manifest_digest,
+                    source = EXCLUDED.source,
+                    updated_at = now()
+                """,
+                (key, manifest.schema_version, manifest.artifact_digest, source),
+            )
+
+            current_goals = {goal.goal_key: goal.artifact_digest for goal in manifest.goals}
+            current_tasks = {task.task_key: task.artifact_digest for task in manifest.tasks}
+            for goal_key, old_digest in previous_goals.items():
+                new_digest = current_goals.get(goal_key)
+                if new_digest and new_digest != old_digest:
+                    goal_revisions.append((goal_key, old_digest, new_digest))
+                    cursor.execute(
+                        """
+                        UPDATE research_os_goal_states
+                        SET status = 'retired', retired_at = COALESCE(retired_at, now()),
+                            superseded_by_goal_digest = %s, updated_at = now()
+                        WHERE control_plane_key = %s AND goal_digest = %s
+                        """,
+                        (new_digest, key, old_digest),
+                    )
+            for task_key, old_digest in previous_tasks.items():
+                new_digest = current_tasks.get(task_key)
+                if new_digest and new_digest != old_digest:
+                    task_revisions.append((task_key, old_digest, new_digest))
+                    cursor.execute(
+                        """
+                        UPDATE research_os_task_states
+                        SET declared_status = 'superseded', resolved_status = 'superseded',
+                            reason_code = 'definition_superseded',
+                            dependency_state_json = '[]'::jsonb,
+                            superseded_by_task_digest = %s, updated_at = now()
+                        WHERE control_plane_key = %s AND task_digest = %s
+                        """,
+                        (new_digest, key, old_digest),
+                    )
+
+            goal_states = manifest.goal_state_by_digest
+            for goal in manifest.goals:
+                state = goal_states[goal.artifact_digest]
+                cursor.execute(
+                    """
+                    INSERT INTO research_os_goal_states (
+                      control_plane_key, goal_digest, status, retired_at,
+                      superseded_by_goal_digest
+                    ) VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (control_plane_key, goal_digest) DO UPDATE
+                    SET status = EXCLUDED.status,
+                        retired_at = EXCLUDED.retired_at,
+                        superseded_by_goal_digest = EXCLUDED.superseded_by_goal_digest,
+                        updated_at = now()
+                    """,
+                    (
+                        key,
+                        goal.artifact_digest,
+                        state.status.value,
+                        state.retired_at,
+                        state.superseded_by_goal_digest,
+                    ),
+                )
+
+            task_states = manifest.task_state_by_digest
+            for task in manifest.tasks:
+                state = task_states[task.artifact_digest]
+                resolution = resolutions[task.artifact_digest]
+                cursor.execute(
+                    """
+                    INSERT INTO research_os_task_states (
+                      control_plane_key, task_digest, declared_status, resolved_status,
+                      reason_code, dependency_state_json, superseded_by_task_digest
+                    ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s)
+                    ON CONFLICT (control_plane_key, task_digest) DO UPDATE
+                    SET declared_status = EXCLUDED.declared_status,
+                        resolved_status = EXCLUDED.resolved_status,
+                        reason_code = EXCLUDED.reason_code,
+                        dependency_state_json = EXCLUDED.dependency_state_json,
+                        superseded_by_task_digest = EXCLUDED.superseded_by_task_digest,
+                        updated_at = now()
+                    """,
+                    (
+                        key,
+                        task.artifact_digest,
+                        state.declared_status.value,
+                        resolution.status.value,
+                        resolution.reason_code,
+                        _json(resolution.unsatisfied_dependencies),
+                        state.superseded_by_task_digest,
+                    ),
+                )
+
+            cursor.execute(
+                "DELETE FROM research_os_dependency_facts WHERE control_plane_key = %s",
+                (key,),
+            )
+            for fact_type, fact_key in self._fact_rows(manifest):
+                cursor.execute(
+                    """
+                    INSERT INTO research_os_dependency_facts (
+                      control_plane_key, fact_type, fact_key
+                    ) VALUES (%s, %s, %s)
+                    """,
+                    (key, fact_type, fact_key),
+                )
+
+        return ManifestImportResult(
+            control_plane_key=key,
+            manifest_digest=manifest.artifact_digest,
+            snapshot_digest=snapshot.snapshot_digest,
+            created_goal_definitions=created_goals,
+            created_task_definitions=created_tasks,
+            created_manifest=created_manifest,
+            goal_revisions=tuple(goal_revisions),
+            task_revisions=tuple(task_revisions),
+            ready_task_keys=tuple(item.task_key for item in snapshot.ready_queue),
+        )
+
+    def load_manifest(self, *, control_plane_key: str) -> ControlPlaneManifest:
+        key = self._key(control_plane_key)
+        with self.connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
+            control = cursor.execute(
+                """
+                SELECT current_manifest_digest, schema_version
+                FROM research_os_control_planes
+                WHERE control_plane_key = %s
+                """,
+                (key,),
+            ).fetchone()
+            if control is None:
+                raise ResearchOSValidationError(f"control plane not found: {key}")
+            manifest_digest = str(control["current_manifest_digest"])
+            stored_manifest = cursor.execute(
+                "SELECT manifest_json FROM research_os_manifests WHERE manifest_digest = %s",
+                (manifest_digest,),
+            ).fetchone()
+            if stored_manifest is None:
+                raise ResearchOSValidationError("current manifest row is missing")
+
+            goal_rows = cursor.execute(
+                """
+                SELECT gd.goal_digest, gd.definition_json, gs.status, gs.retired_at,
+                       gs.superseded_by_goal_digest
+                FROM research_os_manifest_goals mg
+                JOIN research_os_goal_definitions gd ON gd.goal_digest = mg.goal_digest
+                JOIN research_os_goal_states gs
+                  ON gs.control_plane_key = %s AND gs.goal_digest = gd.goal_digest
+                WHERE mg.manifest_digest = %s
+                ORDER BY mg.ordinal
+                """,
+                (key, manifest_digest),
+            ).fetchall()
+            task_rows = cursor.execute(
+                """
+                SELECT td.task_digest, td.definition_json, ts.declared_status,
+                       ts.superseded_by_task_digest, ts.resolved_status,
+                       ts.reason_code, ts.dependency_state_json
+                FROM research_os_manifest_tasks mt
+                JOIN research_os_task_definitions td ON td.task_digest = mt.task_digest
+                JOIN research_os_task_states ts
+                  ON ts.control_plane_key = %s AND ts.task_digest = td.task_digest
+                WHERE mt.manifest_digest = %s
+                ORDER BY mt.ordinal
+                """,
+                (key, manifest_digest),
+            ).fetchall()
+            fact_rows = cursor.execute(
+                """
+                SELECT fact_type, fact_key
+                FROM research_os_dependency_facts
+                WHERE control_plane_key = %s AND fact_status = 'available'
+                ORDER BY fact_type, fact_key
+                """,
+                (key,),
+            ).fetchall()
+
+        goals: list[dict[str, Any]] = []
+        for row in goal_rows:
+            definition = dict(row["definition_json"])
+            goal = Goal.from_dict(definition)
+            if goal.artifact_digest != str(row["goal_digest"]):
+                raise ResearchOSValidationError(
+                    f"stored Goal definition digest mismatch: {row['goal_digest']}"
+                )
+            goals.append(
+                {
+                    **definition,
+                    "status": str(row["status"]),
+                    "retired_at": row["retired_at"].isoformat() if row["retired_at"] else None,
+                    "superseded_by_goal_digest": row["superseded_by_goal_digest"],
+                }
+            )
+
+        tasks: list[dict[str, Any]] = []
+        stored_projections: dict[str, dict[str, Any]] = {}
+        for row in task_rows:
+            definition = dict(row["definition_json"])
+            task = Task.from_dict(definition, goal_digest=str(definition.get("goal_digest") or ""))
+            if task.artifact_digest != str(row["task_digest"]):
+                raise ResearchOSValidationError(
+                    f"stored Task definition digest mismatch: {row['task_digest']}"
+                )
+            tasks.append(
+                {
+                    **definition,
+                    "status": str(row["declared_status"]),
+                    "superseded_by_task_digest": row["superseded_by_task_digest"],
+                }
+            )
+            stored_projections[task.artifact_digest] = {
+                "status": str(row["resolved_status"]),
+                "reason_code": str(row["reason_code"]),
+                "dependencies": list(row["dependency_state_json"] or []),
+            }
+
+        facts: dict[str, list[str]] = {
+            "artifacts": [],
+            "evidence": [],
+            "external_events": [],
+            "authorities": [],
+        }
+        fact_field = {
+            "artifact": "artifacts",
+            "evidence": "evidence",
+            "external_event": "external_events",
+            "authority": "authorities",
+        }
+        for row in fact_rows:
+            facts[fact_field[str(row["fact_type"])]].append(str(row["fact_key"]))
+
+        payload = {
+            "schema_version": str(control["schema_version"]),
+            "goals": goals,
+            "tasks": tasks,
+            "facts": facts,
+        }
+        manifest = ControlPlaneManifest.from_dict(payload)
+        if manifest.artifact_digest != manifest_digest:
+            raise ResearchOSValidationError(
+                f"repository manifest digest mismatch: expected {manifest_digest}, "
+                f"calculated {manifest.artifact_digest}"
+            )
+        if stable_json(dict(stored_manifest["manifest_json"])) != stable_json(
+            manifest.to_dict(include_digest=False)
+        ):
+            raise ResearchOSValidationError("stored immutable manifest payload mismatch")
+
+        snapshot = self.control_plane.resolve(manifest)
+        self._verify_state_projection(snapshot.resolutions, stored_projections)
+        return manifest
+
+    def resolve_persisted(self, *, control_plane_key: str) -> ResolutionSnapshot:
+        return self.control_plane.resolve(self.load_manifest(control_plane_key=control_plane_key))
+
+    def export_manifest(self, *, control_plane_key: str) -> dict[str, Any]:
+        return self.load_manifest(control_plane_key=control_plane_key).to_dict(include_digest=True)
+
+    def record_external_executor_observation(
+        self,
+        *,
+        control_plane_key: str,
+        observation: ExternalExecutorObservation,
+    ) -> bool:
+        key = self._key(control_plane_key)
+        payload = jsonable(observation)
+        with self.connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
+            exists = cursor.execute(
+                "SELECT 1 FROM research_os_control_planes WHERE control_plane_key = %s",
+                (key,),
+            ).fetchone()
+            if exists is None:
+                raise ResearchOSValidationError(f"control plane not found: {key}")
+            row = cursor.execute(
+                """
+                INSERT INTO research_os_external_executor_observations (
+                  observation_digest, control_plane_key, capability, owner,
+                  status, pid, observed_at, observation_json
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+                ON CONFLICT (observation_digest) DO NOTHING
+                RETURNING observation_digest
+                """,
+                (
+                    observation.artifact_digest,
+                    key,
+                    observation.capability,
+                    observation.owner,
+                    observation.status,
+                    observation.pid,
+                    observation.observed_at,
+                    _json(payload),
+                ),
+            ).fetchone()
+        return row is not None
+
+    def list_external_executor_observations(
+        self,
+        *,
+        control_plane_key: str,
+        limit: int = 100,
+    ) -> tuple[dict[str, Any], ...]:
+        key = self._key(control_plane_key)
+        if limit < 1 or limit > 1000:
+            raise ResearchOSValidationError("observation limit must be between 1 and 1000")
+        with self.connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
+            rows = cursor.execute(
+                """
+                SELECT observation_digest, observation_json
+                FROM research_os_external_executor_observations
+                WHERE control_plane_key = %s
+                ORDER BY observed_at DESC, observation_digest DESC
+                LIMIT %s
+                """,
+                (key, limit),
+            ).fetchall()
+        return tuple(
+            {"observation_digest": str(row["observation_digest"]), **dict(row["observation_json"])}
+            for row in rows
+        )
+
+    @staticmethod
+    def _key(value: str) -> str:
+        normalized = str(value or "").strip()
+        if not normalized:
+            raise ResearchOSValidationError("repository key must be a non-empty string")
+        return normalized
+
+    @staticmethod
+    def _fact_rows(manifest: ControlPlaneManifest) -> tuple[tuple[str, str], ...]:
+        rows = [
+            *(("artifact", item) for item in manifest.facts.artifacts),
+            *(("evidence", item) for item in manifest.facts.evidence),
+            *(("external_event", item) for item in manifest.facts.external_events),
+            *(("authority", item) for item in manifest.facts.authorities),
+        ]
+        return tuple(sorted(rows))
+
+    @staticmethod
+    def _current_revisions(cursor, control_plane_key: str) -> tuple[dict[str, str], dict[str, str]]:
+        exists = cursor.execute(
+            """
+            SELECT current_manifest_digest
+            FROM research_os_control_planes
+            WHERE control_plane_key = %s
+            """,
+            (control_plane_key,),
+        ).fetchone()
+        if exists is None:
+            return {}, {}
+        manifest_digest = str(exists["current_manifest_digest"])
+        goal_rows = cursor.execute(
+            """
+            SELECT gd.goal_key, gd.goal_digest
+            FROM research_os_manifest_goals mg
+            JOIN research_os_goal_definitions gd ON gd.goal_digest = mg.goal_digest
+            WHERE mg.manifest_digest = %s
+            """,
+            (manifest_digest,),
+        ).fetchall()
+        task_rows = cursor.execute(
+            """
+            SELECT td.task_key, td.task_digest
+            FROM research_os_manifest_tasks mt
+            JOIN research_os_task_definitions td ON td.task_digest = mt.task_digest
+            WHERE mt.manifest_digest = %s
+            """,
+            (manifest_digest,),
+        ).fetchall()
+        return (
+            {str(row["goal_key"]): str(row["goal_digest"]) for row in goal_rows},
+            {str(row["task_key"]): str(row["task_digest"]) for row in task_rows},
+        )
+
+    @staticmethod
+    def _verify_goal_definition(cursor, goal: Goal) -> None:
+        row = cursor.execute(
+            "SELECT definition_json FROM research_os_goal_definitions WHERE goal_digest = %s",
+            (goal.artifact_digest,),
+        ).fetchone()
+        if row is None:
+            raise ResearchOSValidationError("stored Goal definition is missing")
+        stored = Goal.from_dict(dict(row["definition_json"]))
+        if stored.artifact_digest != goal.artifact_digest:
+            raise ResearchOSValidationError("stored Goal definition failed digest verification")
+
+    @staticmethod
+    def _verify_task_definition(cursor, task: Task) -> None:
+        row = cursor.execute(
+            "SELECT definition_json FROM research_os_task_definitions WHERE task_digest = %s",
+            (task.artifact_digest,),
+        ).fetchone()
+        if row is None:
+            raise ResearchOSValidationError("stored Task definition is missing")
+        stored = Task.from_dict(dict(row["definition_json"]), goal_digest=task.goal_digest)
+        if stored.artifact_digest != task.artifact_digest:
+            raise ResearchOSValidationError("stored Task definition failed digest verification")
+
+    @staticmethod
+    def _verify_manifest_row(cursor, manifest: ControlPlaneManifest) -> None:
+        row = cursor.execute(
+            "SELECT manifest_json FROM research_os_manifests WHERE manifest_digest = %s",
+            (manifest.artifact_digest,),
+        ).fetchone()
+        if row is None:
+            raise ResearchOSValidationError("stored manifest is missing")
+        stored = ControlPlaneManifest.from_dict(dict(row["manifest_json"]))
+        if stored.artifact_digest != manifest.artifact_digest:
+            raise ResearchOSValidationError("stored manifest failed digest verification")
+
+    @staticmethod
+    def _verify_state_projection(
+        resolutions: tuple[TaskResolution, ...],
+        stored: dict[str, dict[str, Any]],
+    ) -> None:
+        if {item.task_digest for item in resolutions} != set(stored):
+            raise ResearchOSValidationError("stored Task state projection membership mismatch")
+        for resolution in resolutions:
+            state = stored[resolution.task_digest]
+            expected_dependencies = jsonable(resolution.unsatisfied_dependencies)
+            if (
+                state["status"] != resolution.status.value
+                or state["reason_code"] != resolution.reason_code
+                or state["dependencies"] != expected_dependencies
+            ):
+                raise ResearchOSValidationError(
+                    f"stored Task state projection mismatch: {resolution.task_key}"
+                )

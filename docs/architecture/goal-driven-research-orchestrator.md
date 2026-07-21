@@ -187,6 +187,24 @@ A Task is the smallest schedulable unit. It must declare:
 - whether its result is exploratory, selection, validation, forward, Runtime, or maintenance
   evidence.
 
+### Definition and state separation
+
+Goal and Task identity is immutable; lifecycle and dependency state are mutable projections:
+
+```text
+GoalDefinition(goal_digest)   + GoalState(status, retired_at, superseded_by)
+TaskDefinition(task_digest)   + TaskState(declared_status, resolved_status, explanation)
+```
+
+`TaskDefinition` includes its exact Goal revision, typed dependency specification, lane, priority,
+input Artifact identities, requested Capability name, and metric contract. It never includes
+`ready`, `external_wait`, `approval_wait`, or another resolver result. Consequently, adding an
+external-event fact changes the manifest and state projection but not the Task definition digest.
+
+The P2 repository retains every Goal and Task definition revision. Re-importing the same digest is
+idempotent. Reusing a key with a different definition creates a new digest revision and records a
+supersession edge; no immutable definition is overwritten or deleted.
+
 ### Dependency types
 
 - `task`: another task reached its required terminal state;
@@ -410,8 +428,14 @@ The accepted target architecture is not yet the deployed implementation:
 - M3-P1 implements immutable Goal and Task models, task-local dependency resolution, deterministic
   Ready Queue construction, legacy `WAIT_FORWARD` compatibility projection, and the read-only
   `dehps research-os resolve` command;
-- P1 consumes a digest-addressed Control-Plane Manifest and emits a digest-addressed Resolution
-  Snapshot, but it does not persist, dispatch, lease, execute, or mutate production state;
+- the P1 `research-os resolve` path consumes a digest-addressed Control-Plane Manifest and emits a
+  digest-addressed Resolution Snapshot without persistence or dispatch;
+- M3-P2 adds an additive PostgreSQL repository for immutable manifest/Goal/Task revisions, mutable
+  Goal/Task state projections, dependency facts, and append-only external executor observations;
+- P2 import, export, and reload verify definition, manifest, and resolver-state digests before
+  returning a Ready Queue; corruption or an unknown schema fails closed;
+- P2 legacy compatibility is one-way: legacy queue/process state is read into a durable shadow
+  manifest and external executor observations, with no legacy write-back or dispatch;
 - the v1 autonomous priority engine still has a global forward gate and global open-request gate;
 - the continuous scheduler has no durable Goal Graph or Task DAG;
 - the resident executor implements only the pattern-discovery capability family;
@@ -430,7 +454,12 @@ prove otherwise.
 
 - **P1 completed in isolation:** add immutable Goal and Task models, typed dependency resolution,
   deterministic Ready Queue construction, a legacy wait projection, and a read-only resolution CLI;
-- next, add durable Goal, Goal edge, Task, and dependency records without changing dispatch;
+- **P2 completed as a durable shadow:** persist immutable revisions separately from mutable state,
+  add idempotent import/export and restart recovery, and project legacy waits and running supervisor
+  observations without changing legacy ownership;
+- remain in migration Phase A: legacy is execution primary and Research OS is the shadow control
+  plane; Phase B selection ownership and Phase C legacy retirement require later approval;
+- next, add durable Goal edges before Capability/Executor integration;
 - defer Run, Evidence Bundle, Review, Lease, and Capability records to their owning phases;
 - project existing hypotheses, experiments, Agent Requests, queue rows, and Frozen-Future work into
   compatibility views;
