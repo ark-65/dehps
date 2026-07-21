@@ -68,6 +68,12 @@ from dehps.notifications.mainline_prediction import (
     MainlinePredictionNotificationService,
     PredictionDeliveryStateError,
 )
+from dehps.notifications.post_draw_evaluation import (
+    PostDrawDeliveryStateError,
+    PostDrawEvaluationNotificationService,
+    PostDrawEvaluationReportError,
+    load_post_draw_evaluations,
+)
 from dehps.db import get_connection
 from dehps.config import ROOT_DIR
 from dehps.forward_runtime.latest_prediction import (
@@ -199,6 +205,48 @@ def mail_mainline_prediction(
         MailDeliveryError,
         MainlinePredictionMailError,
         PredictionDeliveryStateError,
+        OSError,
+        ValueError,
+    ) as exc:
+        _fail(exc)
+
+
+@mail_app.command("post-draw-evaluation")
+def mail_post_draw_evaluation(
+    issue: str = typer.Option(..., help="Evaluated draw issue to report."),
+    send: bool = typer.Option(
+        False,
+        "--send/--preview",
+        help="Deliver the email or only validate and summarize the report.",
+    ),
+) -> None:
+    """Validate or send one accepted three-line post-draw evaluation report."""
+    try:
+        config = QqMailConfig.from_environment()
+        service = PostDrawEvaluationNotificationService(config)
+        with get_connection() as conn:
+            rows = load_post_draw_evaluations(conn, issue=issue)
+        if send:
+            result = service.deliver(rows)
+            _emit({"delivery": result})
+            return
+        report = service.preview(rows)
+        _emit(
+            {
+                "status": "preview",
+                "issue": report.issue,
+                "report_digest": report.report_digest,
+                "delivery_key": report.delivery_key,
+                "recipient": config.destination,
+                "subject": report.subject,
+                "line_count": len(report.payload["lines"]),
+            }
+        )
+    except (
+        MailConfigurationError,
+        MailDeliveryError,
+        PostDrawEvaluationReportError,
+        PostDrawDeliveryStateError,
         OSError,
         ValueError,
     ) as exc:

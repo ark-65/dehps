@@ -96,6 +96,33 @@ systemctl list-timers dehps-mainline-prediction-mail.timer
 
 The delivery ledger is stored at `runtime/notifications/mainline_prediction_mail.json`. A completed delivery is idempotently skipped. An interrupted or ambiguous SMTP attempt becomes `uncertain` and blocks automatic retries until an operator reviews it; this avoids silently sending duplicates.
 
+### Post-draw Three-line Evaluation Mail
+
+After a draw update, `daily_pipeline.py` first synchronizes the official result and completes accepted forward Evaluation for the three frozen lines. It then sends one detailed report for:
+
+- `static_100`;
+- `dynamic_kdj`;
+- `dynamic_kdj_near`.
+
+The report distinguishes the actual red combination's full-universe model rank from its rank in the frozen TopN export. It separately reports exact-six and red-five Top100/1000/10000 outcomes, cutoff overlap counts, ranking-path audit, prediction/evaluation identity, leakage status, and Runtime/Evaluation Artifact digests. The blue ball is recorded but never scored.
+
+Preview one completed issue without writing artifacts or opening SMTP:
+
+```bash
+cd apps/worker-python
+.venv/bin/dehps mail post-draw-evaluation --issue 2026082 --preview
+```
+
+External delivery requires an approved Operator Request:
+
+```bash
+.venv/bin/dehps mail post-draw-evaluation --issue 2026082 --send
+```
+
+Compilation fails closed unless exactly one accepted pre-draw evaluation exists for every required line, all three rows bind to the same draw, leakage checks pass, candidate counts equal the frozen TopN, and Ranking Audit supplies a legal full-universe rank. Digest-addressed JSON/text reports are written under `data/output/post-draw-evaluation-reports/`. Delivery state is stored at `runtime/notifications/post_draw_evaluation_report_mail.json`; `uncertain` SMTP state requires manual review and is never retried automatically.
+
+Mail failure is recorded in the pipeline summary but does not block generation of the next pre-draw prediction snapshot. This preserves the separation between notification operations and prediction production.
+
 ## NestJS API
 
 Install dependencies:
