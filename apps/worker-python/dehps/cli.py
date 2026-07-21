@@ -57,6 +57,12 @@ from dehps.engineering.service import AutonomousEngineeringService
 from dehps.pattern_discovery.models import PatternSearchBudget
 from dehps.pattern_discovery.service import PatternDiscoveryService
 from dehps.training_resume.service import TrainingResumeService
+from dehps.notifications.mail import (
+    MailConfigurationError,
+    MailDeliveryError,
+    QqMailConfig,
+    QqMailService,
+)
 
 app = typer.Typer(help="DEHPS worker commands")
 agent_app = typer.Typer(
@@ -85,6 +91,9 @@ research_os_app = typer.Typer(
     help="Goal-driven Research OS control plane. P1 resolves dependencies but does not dispatch Tasks."
 )
 forward_runtime_app = typer.Typer(help="Forward validation runtime decoupled from continuous research.")
+mail_app = typer.Typer(
+    help="Operator-controlled email delivery. Credentials are read only from environment variables."
+)
 app.add_typer(hypothesis_app, name="hypothesis")
 app.add_typer(agent_app, name="agent")
 app.add_typer(research_context_app, name="research-context")
@@ -102,6 +111,7 @@ app.add_typer(training_resume_app, name="training-resume")
 app.add_typer(research_runtime_app, name="research-runtime")
 app.add_typer(research_os_app, name="research-os")
 app.add_typer(forward_runtime_app, name="forward-runtime")
+app.add_typer(mail_app, name="mail")
 
 
 @app.command()
@@ -109,6 +119,30 @@ def version() -> None:
     from dehps import __version__
 
     typer.echo(__version__)
+
+
+@mail_app.command("send")
+def mail_send(
+    subject: str = typer.Option(..., help="Message subject."),
+    text: str = typer.Option(..., help="Plain-text message body."),
+    html: str | None = typer.Option(None, help="Optional HTML alternative."),
+    recipient: str | None = typer.Option(
+        None,
+        "--to",
+        help="Optional recipient; defaults to the configured QQ sender address.",
+    ),
+) -> None:
+    """Send one message through QQ SMTP over TLS."""
+    try:
+        receipt = QqMailService(QqMailConfig.from_environment()).send(
+            subject=subject,
+            text=text,
+            html=html,
+            recipient=recipient,
+        )
+        _emit({"sent": True, "receipt": receipt})
+    except (MailConfigurationError, MailDeliveryError) as exc:
+        _fail(exc)
 
 
 def _registry_context() -> tuple[HypothesisRepository, ResearchHypothesisService]:

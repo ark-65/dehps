@@ -47,6 +47,28 @@ python scripts/daily_pipeline.py --strategy-key baseline_v1 --source zhcw --forc
 
 This smoke writes local run records and Markdown output. Review the result, but do not commit generated `runtime/` or `data/output/` content unless the task explicitly asks for a specific evidence artifact.
 
+## QQ Mail Smoke
+
+QQ Mail must have SMTP enabled and must use its generated authorization code, not the QQ login password. Put the following values in the repository-root `.env`, which is ignored by Git:
+
+```dotenv
+DEHPS_QQ_MAIL_ADDRESS=your-account@qq.com
+DEHPS_QQ_MAIL_AUTHORIZATION_CODE=your-qq-smtp-authorization-code
+```
+
+The recipient defaults to the same QQ address. To send elsewhere, add an optional `DEHPS_QQ_MAIL_RECIPIENT` value or pass `--to` for one command.
+
+Send one manual smoke message:
+
+```bash
+cd apps/worker-python
+.venv/bin/dehps mail send \
+  --subject "DEHPS mail smoke" \
+  --text "QQ SMTP delivery is working."
+```
+
+The service uses implicit TLS at `smtp.qq.com:465`. Credentials are not accepted as CLI arguments and successful output contains only the sender, recipient, and message ID. Do not commit `.env`, paste the authorization code into an Agent Request, or put it in a shell command.
+
 ## NestJS API
 
 Install dependencies:
