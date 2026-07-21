@@ -38,6 +38,41 @@ with typed, task-local dependencies and durable Goal state.
 
 ## Research OS model
 
+### Architecture freeze layers
+
+PR #181 is the architecture freeze point between the established computation path and the new
+control plane. DEHPS is divided into five cooperating subsystems:
+
+| Subsystem | Owns | Governing question |
+| --- | --- | --- |
+| Research OS | Goal Graph, Task DAG, dependency resolution, Scheduler, Lease intent, Capability requirements | Why should a computation run next? |
+| Contract Runtime | History, Window, Candidate, Feature, Scoring, Ranking, Evaluation contracts and compilers | Is the requested computation legal and reproducible? |
+| Compute Runtime | Kernel Planner, NumPy, Numba, SIMD, OpenCL/GPU execution | How is the verified computation executed efficiently? |
+| Evidence Runtime | Run Artifacts, digests, Evidence Compiler, Evidence Bundle assembly and verification | What claim do the outputs support under the declared contract? |
+| Governance | Reviewer Decisions, Policy, Authority, Promotion authorization, ADRs, and Knowledge | Which reviewed claims and transitions are accepted? |
+
+The Promotion mechanism consumes Evidence Runtime artifacts, but Promotion authority belongs to
+Governance. Neither subsystem may bypass the other.
+
+### Immutable layer-boundary rule
+
+> Every transition between architecture layers must be represented by an immutable,
+> digest-addressable artifact.
+
+At minimum:
+
+- Research OS emits a Task artifact; it never calls a Kernel directly.
+- Contract Runtime emits a compiled and verified Runtime Package; raw requests do not enter Compute
+  Runtime.
+- Compute Runtime emits a Run Artifact; executor memory or logs are not Evidence.
+- Evidence Runtime compiles one or more verified Artifacts into Evidence and an immutable Evidence
+  Bundle.
+- Governance emits a Reviewer Decision bound to the exact Evidence Bundle digest before Promotion
+  can proceed.
+
+An in-process function call may implement a transition, but it does not replace the required
+artifact identity and provenance boundary.
+
 ```text
 Goal Graph
   -> per-Goal Task DAG
@@ -170,6 +205,7 @@ forward Evaluation waits.
 
 ```text
 draft -> ready -> lease_requested -> leased -> running
+      -> dependency_wait
       -> external_wait
       -> approval_wait
       -> resource_wait
@@ -371,6 +407,11 @@ cohort.
 
 The accepted target architecture is not yet the deployed implementation:
 
+- M3-P1 implements immutable Goal and Task models, task-local dependency resolution, deterministic
+  Ready Queue construction, legacy `WAIT_FORWARD` compatibility projection, and the read-only
+  `dehps research-os resolve` command;
+- P1 consumes a digest-addressed Control-Plane Manifest and emits a digest-addressed Resolution
+  Snapshot, but it does not persist, dispatch, lease, execute, or mutate production state;
 - the v1 autonomous priority engine still has a global forward gate and global open-request gate;
 - the continuous scheduler has no durable Goal Graph or Task DAG;
 - the resident executor implements only the pattern-discovery capability family;
@@ -387,7 +428,10 @@ prove otherwise.
 
 ### Phase 1: control-plane schema and compatibility
 
-- add versioned Goal, Goal edge, Task, dependency, Run, Evidence Bundle, Review, and Lease records;
+- **P1 completed in isolation:** add immutable Goal and Task models, typed dependency resolution,
+  deterministic Ready Queue construction, a legacy wait projection, and a read-only resolution CLI;
+- next, add durable Goal, Goal edge, Task, and dependency records without changing dispatch;
+- defer Run, Evidence Bundle, Review, Lease, and Capability records to their owning phases;
 - project existing hypotheses, experiments, Agent Requests, queue rows, and Frozen-Future work into
   compatibility views;
 - replace global forward/open-request gates with task-local dependencies;

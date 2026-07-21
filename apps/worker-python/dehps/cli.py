@@ -48,6 +48,8 @@ from dehps.research_evidence.service import EvidenceEvaluationService
 from dehps.research_runtime.models import ResidentResearchRuntimeConfig, ResearchRuntimeBudget
 from dehps.research_runtime.resident import ResidentResearchRuntime
 from dehps.research_runtime.runtime import ContinuousResearchRuntime
+from dehps.research_os.control_plane import ResearchOSControlPlane
+from dehps.research_os.models import ResearchOSValidationError
 from dehps.research_scheduler.scheduler import AutonomousResearchScheduler
 from dehps.engineering.service import AutonomousEngineeringService
 from dehps.pattern_discovery.models import PatternSearchBudget
@@ -77,6 +79,9 @@ draw_sync_app = typer.Typer(help="Independent audited draw synchronization.")
 forward_app = typer.Typer(help="Forward-state reconciliation for training resume.")
 training_resume_app = typer.Typer(help="Exactly-once training resume from audited draw events.")
 research_runtime_app = typer.Typer(help="Continuous research runtime decoupled from forward validation.")
+research_os_app = typer.Typer(
+    help="Goal-driven Research OS control plane. P1 resolves dependencies but does not dispatch Tasks."
+)
 forward_runtime_app = typer.Typer(help="Forward validation runtime decoupled from continuous research.")
 app.add_typer(hypothesis_app, name="hypothesis")
 app.add_typer(agent_app, name="agent")
@@ -93,6 +98,7 @@ app.add_typer(draw_sync_app, name="draw-sync")
 app.add_typer(forward_app, name="forward")
 app.add_typer(training_resume_app, name="training-resume")
 app.add_typer(research_runtime_app, name="research-runtime")
+app.add_typer(research_os_app, name="research-os")
 app.add_typer(forward_runtime_app, name="forward-runtime")
 
 
@@ -1615,6 +1621,17 @@ def research_runtime_run(
             ).run()
         )
     except (ValueError, OSError, TypeError, RuntimeError) as exc:
+        _fail(exc)
+
+
+@research_os_app.command("resolve")
+def research_os_resolve(
+    input_file: Path = typer.Option(..., "--input"),
+) -> None:
+    """Resolve one immutable Goal/Task manifest without dispatching any Task."""
+    try:
+        _emit(ResearchOSControlPlane().resolve_payload(_load_object(input_file)))
+    except (ResearchOSValidationError, HypothesisRegistryError, OSError, TypeError, ValueError) as exc:
         _fail(exc)
 
 
