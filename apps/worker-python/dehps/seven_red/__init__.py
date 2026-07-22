@@ -66,6 +66,22 @@ from dehps.seven_red.scoring import (
     SixRedSeed,
     compile_seven_red_score_pool,
 )
+from dehps.seven_red.portfolio import (
+    EQUAL_COST_PORTFOLIO_COMPILER_CONTRACT,
+    EQUAL_COST_PORTFOLIO_CONTRACT_V1,
+    EQUAL_COST_PORTFOLIO_VERSION,
+    EQUAL_COST_SETTLEMENT_VERSION,
+    EQUAL_COST_TICKET_BUDGET,
+    EqualCostPortfolioSettlement,
+    EqualCostPortfolioSource,
+    EqualCostPortfolioVerifier,
+    EqualCostPortfolioViolation,
+    EqualCostSixRedPortfolio70,
+    SixRedTicketSlot,
+    compile_diversified_equal_cost_portfolio,
+    compile_raw_equal_cost_portfolio,
+    compile_six_red_top70_portfolio,
+)
 
 __all__ = [
     "LINE_KEY",
@@ -124,4 +140,18 @@ __all__ = [
     "SixRedFullScoreVector",
     "SixRedSeed",
     "compile_seven_red_score_pool",
+    "EQUAL_COST_PORTFOLIO_COMPILER_CONTRACT",
+    "EQUAL_COST_PORTFOLIO_CONTRACT_V1",
+    "EQUAL_COST_PORTFOLIO_VERSION",
+    "EQUAL_COST_SETTLEMENT_VERSION",
+    "EQUAL_COST_TICKET_BUDGET",
+    "EqualCostPortfolioSettlement",
+    "EqualCostPortfolioSource",
+    "EqualCostPortfolioVerifier",
+    "EqualCostPortfolioViolation",
+    "EqualCostSixRedPortfolio70",
+    "SixRedTicketSlot",
+    "compile_diversified_equal_cost_portfolio",
+    "compile_raw_equal_cost_portfolio",
+    "compile_six_red_top70_portfolio",
 ]
