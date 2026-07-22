@@ -15,6 +15,18 @@ from dehps.seven_red.domain import (
     SixRedCombination,
     expand_seven_red_candidate,
 )
+from dehps.seven_red.raw_top10 import (
+    PRE_SCORED_CANDIDATE_LIST_VERSION,
+    RAW_TOP10_RANKING_CONTRACT,
+    RAW_TOP10_SIZE,
+    RAW_TOP10_SNAPSHOT_VERSION,
+    SEVEN_RED_RAW_TOP10_CONTRACT_V1,
+    PreScoredSevenRedCandidateList,
+    RawSevenRedTop10Entry,
+    RawSevenRedTop10Snapshot,
+    ScoredSevenRedCandidate,
+    SevenRedRawTop10Violation,
+)
 
 __all__ = [
     "LINE_KEY",
@@ -30,4 +42,14 @@ __all__ = [
     "SevenRedSettlement",
     "SixRedCombination",
     "expand_seven_red_candidate",
+    "PRE_SCORED_CANDIDATE_LIST_VERSION",
+    "RAW_TOP10_RANKING_CONTRACT",
+    "RAW_TOP10_SIZE",
+    "RAW_TOP10_SNAPSHOT_VERSION",
+    "SEVEN_RED_RAW_TOP10_CONTRACT_V1",
+    "PreScoredSevenRedCandidateList",
+    "RawSevenRedTop10Entry",
+    "RawSevenRedTop10Snapshot",
+    "ScoredSevenRedCandidate",
+    "SevenRedRawTop10Violation",
 ]
