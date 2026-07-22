@@ -50,6 +50,22 @@ from dehps.seven_red.diversified import (
     SevenRedDiversificationWeights,
     SevenRedDiversifiedTop10Violation,
 )
+from dehps.seven_red.scoring import (
+    SCORE_TICK_SCALE,
+    SEVEN_RED_SCORE_POOL_COMPILER_CONTRACT,
+    SEVEN_RED_SCORE_POOL_CONTRACT_V1,
+    SEVEN_RED_SCORE_POOL_SNAPSHOT_VERSION,
+    SIX_RED_FULL_SCORE_VECTOR_VERSION,
+    SevenRedPoolScore,
+    SevenRedScorePoolCompiler,
+    SevenRedScorePoolConfig,
+    SevenRedScorePoolVerifier,
+    SevenRedScorePoolViolation,
+    SevenRedScoredCandidatePoolSnapshot,
+    SixRedFullScoreVector,
+    SixRedSeed,
+    compile_seven_red_score_pool,
+)
 
 __all__ = [
     "LINE_KEY",
@@ -94,4 +110,18 @@ __all__ = [
     "ExactUtilityComponents",
     "SevenRedDiversificationWeights",
     "SevenRedDiversifiedTop10Violation",
+    "SCORE_TICK_SCALE",
+    "SEVEN_RED_SCORE_POOL_COMPILER_CONTRACT",
+    "SEVEN_RED_SCORE_POOL_CONTRACT_V1",
+    "SEVEN_RED_SCORE_POOL_SNAPSHOT_VERSION",
+    "SIX_RED_FULL_SCORE_VECTOR_VERSION",
+    "SevenRedPoolScore",
+    "SevenRedScorePoolCompiler",
+    "SevenRedScorePoolConfig",
+    "SevenRedScorePoolVerifier",
+    "SevenRedScorePoolViolation",
+    "SevenRedScoredCandidatePoolSnapshot",
+    "SixRedFullScoreVector",
+    "SixRedSeed",
+    "compile_seven_red_score_pool",
 ]
