@@ -350,13 +350,21 @@ def test_seed_and_pool_ties_break_on_lex_id() -> None:
 
 
 def test_vectorized_top_m_matches_transparent_python_reference() -> None:
-    ticks = np.array([-5, 7, 7, -1, 7, 3, -5, 8, 0], dtype=np.int64)
+    minimum = int(np.iinfo(np.int64).min)
+    maximum = int(np.iinfo(np.int64).max)
+    ticks = np.array(
+        [minimum, -5, 7, 7, -1, 7, 3, minimum + 1, maximum, -5, 8, 0],
+        dtype=np.int64,
+    )
     expected = np.array(
-        sorted(range(len(ticks)), key=lambda lex_id: (-int(ticks[lex_id]), lex_id))[:6],
+        sorted(
+            range(len(ticks)),
+            key=lambda lex_id: (-int(ticks[lex_id]), lex_id),
+        )[: len(ticks)],
         dtype=np.int64,
     )
 
-    actual = SevenRedScorePoolCompiler._top_seed_ids(ticks, 6)
+    actual = SevenRedScorePoolCompiler._top_seed_ids(ticks, len(ticks))
 
     assert np.array_equal(actual, expected)
 
