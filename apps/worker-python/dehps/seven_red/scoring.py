@@ -815,7 +815,9 @@ class SevenRedScorePoolCompiler:
             selected = np.concatenate((better, selected_equal))
         else:
             selected = np.arange(count, dtype=np.int64)
-        order = np.lexsort((selected, -score_ticks[selected]))
+        signed_order = score_ticks[selected].view(np.uint64) ^ np.uint64(1 << 63)
+        descending_score_key = np.bitwise_not(signed_order)
+        order = np.lexsort((selected, descending_score_key))
         return np.ascontiguousarray(selected[order[:top_n]], dtype=np.int64)
 
 
