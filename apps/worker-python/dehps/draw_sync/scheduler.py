@@ -24,6 +24,9 @@ from dehps.forward_runtime.shadow_attestation import (
     ForwardShadowAttestationService,
     forward_shadow_attestation_enabled,
 )
+from dehps.notifications.post_draw_evaluation import (
+    deliver_post_draw_evaluation_report,
+)
 from dehps.scoring_kernel import seal_shadow_watch_cycle
 from dehps.source_version import resolve_git_commit
 
@@ -92,6 +95,7 @@ class DrawSyncWatch:
         clock: Callable[[], datetime] | None = None,
         shadow_attestor: Any | None = None,
         shadow_attestation_enabled: bool | None = None,
+        post_draw_report_notifier: Callable[[str], dict[str, Any]] | None = None,
     ) -> None:
         self.service = service or DrawSyncService()
         if forward_evaluator is None:
@@ -132,6 +136,7 @@ class DrawSyncWatch:
                 else None
             )
         )
+        self.post_draw_report_notifier = post_draw_report_notifier
         self.launch_contract = build_draw_sync_watch_launch_contract(
             code_commit=self.code_commit,
             interval_seconds=self.policy.interval_seconds,
@@ -168,6 +173,13 @@ class DrawSyncWatch:
                     event_key = None
                 evaluation_result = self.forward_evaluator.evaluate_pending()
                 evaluation_failed = int(evaluation_result.get("failed_count") or 0) > 0
+                result_payload = jsonable(result)
+                result_payload = result_payload if isinstance(result_payload, dict) else {}
+                current_issue = str(result_payload.get("current_latest_issue") or "").strip()
+                post_draw_evaluation_mail = self._notify_post_draw_report(
+                    current_issue=current_issue or None,
+                    evaluation_failed=evaluation_failed,
+                )
                 shadow_watch_cycle = None
                 shadow_attestation = {
                     "protocol": "forward-shadow-attestation-closure.v1",
@@ -175,8 +187,6 @@ class DrawSyncWatch:
                     "automatic_promotion_allowed": False,
                 }
                 if self.shadow_attestation_enabled and self.shadow_attestor is not None:
-                    result_payload = jsonable(result)
-                    result_payload = result_payload if isinstance(result_payload, dict) else {}
                     shadow_watch_cycle = seal_shadow_watch_cycle(
                         watch_code_commit=self.code_commit,
                         watch_started_at=self.started_at,
@@ -219,6 +229,7 @@ class DrawSyncWatch:
                     "last_result": result,
                     "sync_deferred": deferred_until is not None,
                     "forward_evaluation": evaluation_result,
+                    "post_draw_evaluation_mail": post_draw_evaluation_mail,
                     "shadow_watch_cycle": shadow_watch_cycle,
                     "shadow_attestation": shadow_attestation,
                     "resume_on_event": self.resume_on_event,
@@ -266,6 +277,34 @@ class DrawSyncWatch:
 
         return TrainingResumeService().execute(event_key=event_key)
 
+    def _notify_post_draw_report(
+        self,
+        *,
+        current_issue: str | None,
+        evaluation_failed: bool,
+    ) -> dict[str, Any]:
+        if self.post_draw_report_notifier is None:
+            return {"status": "disabled"}
+        if evaluation_failed:
+            return {
+                "status": "withheld",
+                "issue": current_issue,
+                "reason": "forward evaluation batch failed",
+            }
+        if current_issue is None:
+            return {
+                "status": "not_ready",
+                "reason": "draw sync did not identify a current latest issue",
+            }
+        try:
+            return self.post_draw_report_notifier(current_issue)
+        except Exception as exc:
+            return {
+                "status": "failed",
+                "issue": current_issue,
+                "error": {"type": type(exc).__name__, "message": str(exc)},
+            }
+
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Run the independent DEHPS draw-sync watch.")
@@ -275,6 +314,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--timezone", default="Asia/Shanghai")
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--resume-on-event", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument(
+        "--post-draw-report-notifications",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
     args = parser.parse_args(argv)
     DrawSyncWatch(
         policy=DrawSyncSchedulePolicy(
@@ -284,4 +328,9 @@ def main(argv: list[str] | None = None) -> None:
             timezone=args.timezone,
         ),
         resume_on_event=bool(args.resume_on_event),
+        post_draw_report_notifier=(
+            deliver_post_draw_evaluation_report
+            if args.post_draw_report_notifications
+            else None
+        ),
     ).run(once=args.once)

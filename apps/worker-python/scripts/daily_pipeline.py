@@ -13,10 +13,8 @@ from dehps.crawler.ssq_sync import sync_ssq
 from dehps.db import get_connection
 from dehps.forward_runtime.evaluation_service import ForwardEvaluationService
 from dehps.models.frequency_ranker import FrequencyRankerConfig
-from dehps.notifications.mail import QqMailConfig
 from dehps.notifications.post_draw_evaluation import (
-    PostDrawEvaluationNotificationService,
-    load_post_draw_evaluations,
+    deliver_post_draw_evaluation_report,
 )
 from dehps.optimization.next_candidates import refresh_training_prediction_lines_current
 from dehps.optimization.weight_kdj import DEFAULT_KDJ_WINDOW
@@ -82,22 +80,6 @@ def _heartbeat_heavy_lock(
         print(f"[daily_pipeline] heavy_job_heartbeat_warning error={exc}", file=sys.stderr, flush=True)
         return False
     return True
-
-
-def deliver_post_draw_evaluation_report(issue: str) -> dict:
-    service = PostDrawEvaluationNotificationService(QqMailConfig.from_environment())
-    with get_connection() as conn:
-        rows = load_post_draw_evaluations(conn, issue=issue)
-    result = service.deliver(rows)
-    return {
-        "status": result.status,
-        "issue": result.issue,
-        "report_digest": result.report_digest,
-        "delivery_key": result.delivery_key,
-        "json_path": result.json_path,
-        "text_path": result.text_path,
-        "message_id": result.message_id,
-    }
 
 
 def run_pipeline(

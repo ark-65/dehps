@@ -98,7 +98,7 @@ The delivery ledger is stored at `runtime/notifications/mainline_prediction_mail
 
 ### Post-draw Three-line Evaluation Mail
 
-After a draw update, `daily_pipeline.py` first synchronizes the official result and completes accepted forward Evaluation for the three frozen lines. It then sends one detailed report for:
+After a draw update, the active `dehps-draw-sync.service` first synchronizes the official result and completes accepted forward Evaluation for the three frozen lines. It then sends one detailed report for:
 
 - `static_100`;
 - `dynamic_kdj`;
@@ -122,6 +122,8 @@ External delivery requires an approved Operator Request:
 Compilation fails closed unless exactly one accepted pre-draw evaluation exists for every required line, all three rows bind to the same draw, leakage checks pass, candidate counts equal the frozen TopN, and Ranking Audit supplies a legal full-universe rank. Digest-addressed JSON/text reports are written under `data/output/post-draw-evaluation-reports/`. Delivery state is stored at `runtime/notifications/post_draw_evaluation_report_mail.json`; `uncertain` SMTP state requires manual review and is never retried automatically.
 
 Mail failure is recorded in the pipeline summary but does not block generation of the next pre-draw prediction snapshot. This preserves the separation between notification operations and prediction production.
+
+The draw-sync watcher also checks the current latest issue on no-change polls. This is an idempotent recovery path: a report missed by an earlier process or transient readiness failure is sent later, while an existing `sent` ledger entry returns `already_sent` without opening SMTP again. The latest attempt is visible as `post_draw_evaluation_mail` in `runtime/logs/draw-sync-watch.json`. Notification failure does not replace successful sync or Evaluation state.
 
 ## NestJS API
 
