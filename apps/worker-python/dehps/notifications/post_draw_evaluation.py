@@ -120,6 +120,25 @@ def load_post_draw_evaluations(
     return [_json_safe(dict(row)) for row in rows]
 
 
+def deliver_post_draw_evaluation_report(issue: str) -> dict[str, Any]:
+    """Deliver one accepted issue through the shared idempotent mail contract."""
+    from dehps.db import get_connection
+
+    service = PostDrawEvaluationNotificationService(QqMailConfig.from_environment())
+    with get_connection() as conn:
+        rows = load_post_draw_evaluations(conn, issue=issue)
+    result = service.deliver(rows)
+    return {
+        "status": result.status,
+        "issue": result.issue,
+        "report_digest": result.report_digest,
+        "delivery_key": result.delivery_key,
+        "json_path": result.json_path,
+        "text_path": result.text_path,
+        "message_id": result.message_id,
+    }
+
+
 def compile_post_draw_evaluation_report(
     rows: list[dict[str, Any]],
     *,
@@ -768,6 +787,7 @@ __all__ = [
     "PostDrawEvaluationReport",
     "PostDrawEvaluationReportError",
     "compile_post_draw_evaluation_report",
+    "deliver_post_draw_evaluation_report",
     "load_post_draw_evaluations",
     "render_post_draw_evaluation_report",
     "write_post_draw_evaluation_artifacts",

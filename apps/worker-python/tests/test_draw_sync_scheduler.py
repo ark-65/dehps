@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 from dehps.draw_sync.scheduler import DrawSyncSchedulePolicy
 from dehps.draw_sync.scheduler import DrawSyncWatch
+from dehps.draw_sync.scheduler import main
 from dehps.draw_sync.launch_contract import load_draw_sync_watch_launch_contract
 from dehps.draw_sync.models import DrawSyncResult, DrawSyncStatus
 
@@ -69,6 +70,27 @@ class ForwardEvaluator:
             "failed_count": self.failed_count,
             "results": [],
         }
+
+
+def test_draw_sync_cli_requires_explicit_post_draw_notification_opt_in(monkeypatch) -> None:
+    calls = []
+
+    class Watch:
+        def __init__(self, **kwargs):
+            calls.append(kwargs)
+
+        def run(self, *, once=False):
+            calls.append({"once": once})
+
+    monkeypatch.setattr("dehps.draw_sync.scheduler.DrawSyncWatch", Watch)
+
+    main(["--once"])
+    main(["--once", "--post-draw-report-notifications"])
+
+    assert calls[0]["post_draw_report_notifier"] is None
+    assert calls[1] == {"once": True}
+    assert callable(calls[2]["post_draw_report_notifier"])
+    assert calls[3] == {"once": True}
 
 
 def test_draw_sync_watch_resumes_once_when_new_event_is_seen(monkeypatch, tmp_path) -> None:
@@ -149,6 +171,87 @@ def test_no_change_poll_still_backfills_pending_forward_evaluation(tmp_path) -> 
     assert state["last_result"]["status"] == "no_change"
     assert evaluator.calls == 1
     assert state["forward_evaluation"]["status"] == "ok"
+
+
+def test_no_change_poll_recovers_current_issue_post_draw_report(tmp_path) -> None:
+    delivered = []
+
+    def notify(issue: str) -> dict:
+        delivered.append(issue)
+        return {"status": "sent", "issue": issue, "delivery_key": "mail-1"}
+
+    watch = DrawSyncWatch(
+        service=Service(None),  # type: ignore[arg-type]
+        forward_evaluator=ForwardEvaluator(),
+        post_draw_report_notifier=notify,
+        state_path=tmp_path / "state.json",
+        pid_path=tmp_path / "pid",
+        code_commit="e" * 40,
+    )
+
+    watch.run(once=True)
+
+    state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+    assert delivered == ["2026079"]
+    assert state["status"] == "ok"
+    assert state["post_draw_evaluation_mail"] == {
+        "status": "sent",
+        "issue": "2026079",
+        "delivery_key": "mail-1",
+    }
+
+
+def test_post_draw_report_failure_is_observable_without_replacing_sync_success(
+    tmp_path,
+) -> None:
+    def fail_report(issue: str) -> dict:
+        raise RuntimeError(f"report unavailable for {issue}")
+
+    watch = DrawSyncWatch(
+        service=Service("event-2026080"),  # type: ignore[arg-type]
+        forward_evaluator=ForwardEvaluator(),
+        post_draw_report_notifier=fail_report,
+        state_path=tmp_path / "state.json",
+        pid_path=tmp_path / "pid",
+        code_commit="f" * 40,
+    )
+
+    watch.run(once=True)
+
+    state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+    assert state["status"] == "ok"
+    assert state["last_result"]["status"] == "new_issue"
+    assert state["forward_evaluation"]["status"] == "ok"
+    assert state["post_draw_evaluation_mail"] == {
+        "status": "failed",
+        "issue": "2026080",
+        "error": {
+            "type": "RuntimeError",
+            "message": "report unavailable for 2026080",
+        },
+    }
+
+
+def test_post_draw_report_is_withheld_when_forward_evaluation_fails(tmp_path) -> None:
+    delivered = []
+    watch = DrawSyncWatch(
+        service=Service("event-2026080"),  # type: ignore[arg-type]
+        forward_evaluator=ForwardEvaluator(failed_count=1),
+        post_draw_report_notifier=lambda issue: delivered.append(issue) or {"status": "sent"},
+        state_path=tmp_path / "state.json",
+        pid_path=tmp_path / "pid",
+        code_commit="1" * 40,
+    )
+
+    watch.run(once=True)
+
+    state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+    assert delivered == []
+    assert state["post_draw_evaluation_mail"] == {
+        "status": "withheld",
+        "issue": "2026080",
+        "reason": "forward evaluation batch failed",
+    }
 
 
 def test_deferred_draw_poll_skips_remote_sync_but_still_evaluates_pending(
