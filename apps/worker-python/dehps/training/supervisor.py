@@ -69,6 +69,7 @@ class TrainingSupervisor:
             "eval_window",
             "top_n",
             "max_rounds",
+            "frozen_plateau_patience",
             "enable_weight_kdj_advisor",
             "enable_ridge_kdj_advisor",
             "enable_neural_kdj_advisor",

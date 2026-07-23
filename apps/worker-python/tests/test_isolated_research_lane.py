@@ -135,6 +135,7 @@ def test_idle_optimization_suite_prioritizes_guardrails_then_adaptive_success_tr
     assert "generate_analytic_null_baseline.py" in flattened
     assert "--random-seeds" not in flattened
     assert "run_training_supervisor.py --observability-only --max-rounds 512" in flattened
+    assert "--frozen-plateau-patience 40" in flattened
     assert "--eval-window 100" in flattened
     assert "--enable-weight-kdj-advisor" in flattened
     assert "--enable-ridge-kdj-advisor" in flattened

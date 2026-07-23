@@ -49,3 +49,50 @@ def test_production_session_builds_two_explicit_requests_from_persistent_state()
     assert second.round_index == 2
     assert second.run_id == first.run_id
     assert second.round.history_fingerprint == first.round.history_fingerprint
+
+
+def test_production_session_stops_before_next_round_on_frozen_plateau(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setattr(
+        "dehps.training.production_runtime.publish_status_snapshot",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        "dehps.training.production_runtime.write_report",
+        lambda *_args, **_kwargs: None,
+    )
+    status = {
+        "status": "running",
+        "objective_policy_version": "rank_objective_v1",
+        "objective_policy_hash": "policy-hash",
+        "frozen_plateau": {
+            "stop_requested": True,
+            "stop_reason": "frozen_validation_plateau",
+        },
+    }
+    state = RuntimeTrainingState(
+        values={
+            "round_index": 40,
+            "deadline": None,
+            "max_rounds": 512,
+            "run_id": "run-plateau",
+            "as_of_issue_value": "2026083",
+            "history_fingerprint_value": "history",
+            "max_configs_per_round": 20,
+            "status": status,
+            "status_path": tmp_path / "status.json",
+            "report_path": tmp_path / "report.md",
+            "resolved_event_url": None,
+            "write_status_json": True,
+            "pool": None,
+            "best_summary": None,
+        }
+    )
+
+    session = ProductionTrainingSession(state)
+
+    assert session.next_request() is None
+    assert status["status"] == "stopped_plateau"
+    assert session._finished is True

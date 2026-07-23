@@ -32,6 +32,8 @@ def test_legacy_supervisor_command_remains_cli_compatible() -> None:
             "20",
             "--max-rounds",
             "1",
+            "--frozen-plateau-patience",
+            "40",
             "--observability-only",
             "--memory-budget-gb",
             "20",
@@ -50,6 +52,7 @@ def test_legacy_supervisor_command_remains_cli_compatible() -> None:
     assert settings.run_arguments["progress_interval"] == 10
     assert settings.run_arguments["max_configs_per_round"] == 20
     assert settings.run_arguments["max_rounds"] == 1
+    assert settings.run_arguments["frozen_plateau_patience"] == 40
     assert settings.run_arguments["observability_only"] is True
     assert settings.run_arguments["memory_budget_gb"] == 20
 

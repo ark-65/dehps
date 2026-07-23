@@ -33,6 +33,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-configs-per-round", type=int, default=28)
     parser.add_argument("--max-rounds", type=int, help="Bound completed rounds for isolated smoke validation; defaults to unbounded.")
     parser.add_argument(
+        "--frozen-plateau-patience",
+        type=int,
+        help=(
+            "Stop between completed rounds after this many rounds without a strict "
+            "frozen-validation frontier improvement."
+        ),
+    )
+    parser.add_argument(
         "--observability-only",
         action="store_true",
         help=(
@@ -103,6 +111,7 @@ def build_settings(args: argparse.Namespace) -> TrainingSupervisorSettings:
             "progress_interval": args.progress_interval,
             "max_configs_per_round": args.max_configs_per_round,
             "max_rounds": args.max_rounds,
+            "frozen_plateau_patience": args.frozen_plateau_patience,
             "observability_only": args.observability_only,
             "memory_budget_gb": args.memory_budget_gb,
             "event_url": args.event_url,
