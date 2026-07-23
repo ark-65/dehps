@@ -546,8 +546,20 @@ def circular_block_bootstrap(
         _fail("bootstrap values must be non-empty")
     if block_length < 1 or resamples < 1:
         _fail("bootstrap block length and resamples must be positive")
+    series_identity_digest = canonical_digest(
+        {
+            "values": [float(value) for value in array],
+            "block_length": block_length,
+            "resamples": resamples,
+        },
+        domain="dehps.signal-diagnostic.circular-block-series.v1",
+    )
     rng = np.random.default_rng(
-        _seed_int(seed_digest, label, "circular_block_bootstrap")
+        _seed_int(
+            seed_digest,
+            series_identity_digest,
+            "circular_block_bootstrap",
+        )
     )
     block_count = math.ceil(len(array) / block_length)
     means = np.empty(resamples, dtype=np.float64)
@@ -563,6 +575,7 @@ def circular_block_bootstrap(
         "block_length": block_length,
         "resamples": resamples,
         "seed_digest": seed_digest,
+        "series_identity_digest": series_identity_digest,
         "mean": float(array.mean()),
         "interval_95": [float(lower), float(upper)],
     }

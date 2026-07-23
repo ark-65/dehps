@@ -136,6 +136,26 @@ def test_circular_block_bootstrap_is_deterministic_and_paired() -> None:
     assert first == second
     assert first["mean"] == 0.0
     assert first["method"] == "circular_block_bootstrap"
+    assert len(first["series_identity_digest"]) == 64
+
+
+def test_circular_block_bootstrap_identity_excludes_display_label() -> None:
+    first = circular_block_bootstrap(
+        [0.5, -0.25, 1.0, -0.75, 0.0],
+        seed_digest="ab" * 32,
+        label="full_model:top70_minus_matched",
+        block_length=2,
+        resamples=100,
+    )
+    equivalent = circular_block_bootstrap(
+        [0.5, -0.25, 1.0, -0.75, 0.0],
+        seed_digest="ab" * 32,
+        label="fixed_minimal_linear:top70_minus_matched",
+        block_length=2,
+        resamples=100,
+    )
+
+    assert first == equivalent
 
 
 def test_manifest_validation_rejects_missing_arm() -> None:
