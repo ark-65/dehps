@@ -352,18 +352,34 @@ def _random_control_rows(
     numbers: np.ndarray,
     actual: Sequence[int],
     target_issue: str,
-    arm_label: str,
     seed_digests: Sequence[str],
     pool_size: int,
 ) -> list[dict[str, Any]]:
-    pool = order[: min(pool_size, len(order))]
+    pool = np.ascontiguousarray(
+        order[: min(pool_size, len(order))],
+        dtype=np.int64,
+    )
+    pool_digest = hashlib.sha256(
+        pool.astype("<i8", copy=False).tobytes()
+    ).hexdigest()
+    universe_identity = f"full_legal_six_red:{len(scores)}"
     rows = []
     for seed in seed_digests:
         rng_pool = np.random.default_rng(
-            _seed_int(seed, target_issue, arm_label, "matched_score_pool")
+            _seed_int(
+                seed,
+                target_issue,
+                "matched_score_pool",
+                pool_digest,
+            )
         )
         rng_uniform = np.random.default_rng(
-            _seed_int(seed, target_issue, arm_label, "uniform_legal")
+            _seed_int(
+                seed,
+                target_issue,
+                "uniform_legal",
+                universe_identity,
+            )
         )
         matched = rng_pool.choice(pool, size=70, replace=False)
         uniform = rng_uniform.choice(len(scores), size=70, replace=False)
@@ -372,11 +388,15 @@ def _random_control_rows(
                 {
                     "control_kind": "matched_score_pool",
                     "seed_digest": seed,
+                    "source_pool_sequence_digest": pool_digest,
+                    "universe_identity": universe_identity,
                     **_settle_top_ids(numbers, matched, actual),
                 },
                 {
                     "control_kind": "uniform_legal",
                     "seed_digest": seed,
+                    "source_pool_sequence_digest": None,
+                    "universe_identity": universe_identity,
                     **_settle_top_ids(numbers, uniform, actual),
                 },
             )
@@ -416,7 +436,6 @@ def score_vector_diagnostics(
         numbers=ranked_universe.numbers,
         actual=actual_tuple,
         target_issue=target_issue,
-        arm_label=label,
         seed_digests=seed_digests,
         pool_size=random_pool_size,
     )
