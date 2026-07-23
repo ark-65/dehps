@@ -89,6 +89,7 @@ TASK_CONFIG_FIELDS = {
         "regime_years",
         "workers",
         "adaptive_max_rounds",
+        "adaptive_frozen_plateau_patience",
         "adaptive_max_configs_per_round",
         "adaptive_memory_budget_gb",
         "adaptive_weight_kdj_budget_share",
@@ -169,6 +170,7 @@ def research_commands(
     tasks: tuple[str, ...],
     diagnostics_run_id: str | None = None,
     adaptive_max_rounds: int = 512,
+    adaptive_frozen_plateau_patience: int = 40,
     adaptive_max_configs_per_round: int = 96,
     adaptive_memory_budget_gb: int = 24,
     adaptive_weight_kdj_budget_share: float = 0.22,
@@ -247,6 +249,8 @@ def research_commands(
                 "--observability-only",
                 "--max-rounds",
                 str(adaptive_max_rounds),
+                "--frozen-plateau-patience",
+                str(adaptive_frozen_plateau_patience),
                 "--as-of-issue",
                 as_of_issue,
                 "--train-mode",
@@ -546,6 +550,7 @@ def build_training_contract(
         "regime_years": args.regime_years,
         "workers": args.workers,
         "adaptive_max_rounds": args.adaptive_max_rounds,
+        "adaptive_frozen_plateau_patience": args.adaptive_frozen_plateau_patience,
         "adaptive_max_configs_per_round": args.adaptive_max_configs_per_round,
         "adaptive_memory_budget_gb": args.adaptive_memory_budget_gb,
         "adaptive_weight_kdj_budget_share": args.adaptive_weight_kdj_budget_share,
@@ -644,10 +649,16 @@ def render_report(payload: dict[str, Any]) -> str:
         "",
     ]
     for run in runs:
+        terminal = (
+            f"; terminal `{run.get('terminal_status')}`"
+            if run.get("terminal_status")
+            else ""
+        )
         rows.append(
             f"- `{run.get('name')}` ({run.get('execution_mode')}): `{run.get('status')}` "
             f"({run.get('elapsed_seconds')}s; ranking contract "
-            f"`{run.get('ranking_contract') or 'not_applicable'}`; log `{run.get('log_path')}`)"
+            f"`{run.get('ranking_contract') or 'not_applicable'}`{terminal}; "
+            f"log `{run.get('log_path')}`)"
         )
     rows.extend(
         [
@@ -672,6 +683,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--history-scope", choices=["full_history_audit", "current_regime_default"], default="current_regime_default")
     parser.add_argument("--regime-years", type=int, default=10)
     parser.add_argument("--adaptive-max-rounds", type=int, default=int(os.getenv("DEHPS_RESEARCH_ADAPTIVE_MAX_ROUNDS", "512")))
+    parser.add_argument(
+        "--adaptive-frozen-plateau-patience",
+        type=int,
+        default=int(
+            os.getenv("DEHPS_RESEARCH_FROZEN_PLATEAU_PATIENCE", "40")
+        ),
+    )
     parser.add_argument(
         "--adaptive-max-configs-per-round",
         type=int,
@@ -747,6 +765,7 @@ def main() -> None:
         "top_n",
         "regime_years",
         "adaptive_max_rounds",
+        "adaptive_frozen_plateau_patience",
         "adaptive_max_configs_per_round",
         "adaptive_memory_budget_gb",
         "adaptive_target_inversion_max_candidates",
@@ -877,6 +896,7 @@ def main() -> None:
                 tasks=tasks,
                 diagnostics_run_id=args.diagnostics_run_id,
                 adaptive_max_rounds=args.adaptive_max_rounds,
+                adaptive_frozen_plateau_patience=args.adaptive_frozen_plateau_patience,
                 adaptive_max_configs_per_round=args.adaptive_max_configs_per_round,
                 adaptive_memory_budget_gb=args.adaptive_memory_budget_gb,
                 adaptive_weight_kdj_budget_share=args.adaptive_weight_kdj_budget_share,
@@ -928,6 +948,16 @@ def main() -> None:
                         else None
                     )
                     result["research_learning"] = learning
+                    result["terminal_status"] = (
+                        adaptive_status.get("status")
+                        if isinstance(adaptive_status, dict)
+                        else None
+                    )
+                    result["frozen_plateau"] = (
+                        adaptive_status.get("frozen_plateau")
+                        if isinstance(adaptive_status, dict)
+                        else None
+                    )
                     result["status_path"] = (
                         adaptive_status.get("status_path")
                         if isinstance(adaptive_status, dict)

@@ -23,6 +23,12 @@ from dehps.training.persistence_policy import (
     apply_observability_only_database_guard,
     training_persistence_policy,
 )
+from dehps.training.frozen_plateau import (
+    compact_frozen_plateau_round_state,
+    evaluate_frozen_plateau_round,
+    initial_frozen_plateau_state,
+    validate_frozen_plateau_patience,
+)
 
 
 def ranked_universe_size_status(ranked_universe) -> dict[str, int]:
@@ -59,6 +65,10 @@ class ProductionRuntimeRoundExecutor:
         enable_target_weight_inversion_advisor = state.values["enable_target_weight_inversion_advisor"]
         enable_weight_kdj_advisor = state.values["enable_weight_kdj_advisor"]
         eval_window = state.values["eval_window"]
+        frozen_plateau_frontier_summary = state.values[
+            "frozen_plateau_frontier_summary"
+        ]
+        frozen_plateau_state = state.values["frozen_plateau_state"]
         guard_continuity_info = state.values["guard_continuity_info"]
         guard_history = state.values["guard_history"]
         leaderboard = state.values["leaderboard"]
@@ -627,6 +637,17 @@ class ProductionRuntimeRoundExecutor:
         promotion_gate = normalized.promotion_gate
         production_improved = normalized.improved
         raw_improved = normalized.raw_improved
+        (
+            frozen_plateau_next_state,
+            frozen_plateau_next_frontier,
+        ) = evaluate_frozen_plateau_round(
+            state=frozen_plateau_state,
+            frontier_summary=frozen_plateau_frontier_summary,
+            summaries=summaries,
+            round_index=round_index + 1,
+            raw_search_improved=raw_improved,
+            frozen_gate=frozen_validation_promotion_gate,
+        )
         research_candidate_changed = bool(
             summary_config_hash(round_best)
             and summary_config_hash(round_best) != summary_config_hash(prior_best_summary)
@@ -1478,6 +1499,9 @@ class ProductionRuntimeRoundExecutor:
             "raw_success_objective_improved": raw_improved,
             "research_candidate_changed": research_candidate_changed,
             "production_promotion_gate_improved": production_improved,
+            "frozen_plateau": compact_frozen_plateau_round_state(
+                frozen_plateau_next_state
+            ),
             "best": round_best,
             "top_results": persisted_round_candidate_summaries(
                 summaries,
@@ -1589,6 +1613,9 @@ class ProductionRuntimeRoundExecutor:
                     except Exception as exc:  # pragma: no cover - candidate refresh must not stop training.
                         status["next_candidates"] = {"status": "failed", "error": str(exc)}
                         log(f"next_candidates_warning round={round_index + 1} error={exc}")
+        frozen_plateau_state = frozen_plateau_next_state
+        frozen_plateau_frontier_summary = frozen_plateau_next_frontier
+        status["frozen_plateau"] = frozen_plateau_state
         round_stage_tracker.complete(round_index=round_index + 1)
         rounds.append(compact_round_info(round_record))
         publish_status_snapshot(status_path, status, event_url=resolved_event_url, write_json=write_status_json)
@@ -1600,6 +1627,8 @@ class ProductionRuntimeRoundExecutor:
                 "best_summary": best_summary,
                 "dynamic_kdj_best_policy": dynamic_kdj_best_policy,
                 "dynamic_kdj_best_training_summary": dynamic_kdj_best_training_summary,
+                "frozen_plateau_frontier_summary": frozen_plateau_frontier_summary,
+                "frozen_plateau_state": frozen_plateau_state,
                 "leaderboard": leaderboard,
                 "near_dynamic_kdj_best_policy": near_dynamic_kdj_best_policy,
                 "near_dynamic_kdj_best_training_summary": near_dynamic_kdj_best_training_summary,
@@ -1639,6 +1668,14 @@ class ProductionTrainingSession:
             return None
         values = self.state.values
         round_index = int(values["round_index"])
+        frozen_plateau = (
+            values["status"].get("frozen_plateau")
+            if isinstance(values["status"].get("frozen_plateau"), dict)
+            else {}
+        )
+        if frozen_plateau.get("stop_requested") is True:
+            self.finish(status="stopped_plateau")
+            return None
         if not should_continue_training(round_index, values["deadline"]) or (
             values["max_rounds"] is not None
             and round_index >= max(0, int(values["max_rounds"]))
@@ -1740,11 +1777,15 @@ def build_production_training_session(
     target_weight_inversion_max_candidates: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES,
     target_weight_inversion_max_targets: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_TARGETS,
     target_weight_inversion_max_deltas_per_target: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_DELTAS_PER_TARGET,
+    frozen_plateau_patience: int | None = None,
     max_rounds: int | None = None,
     observability_only: bool = False,
 ) -> ProductionTrainingSession:
     if observability_only and (max_rounds is None or max_rounds < 1):
         raise ValueError("observability-only mode requires --max-rounds >= 1")
+    frozen_plateau_patience = validate_frozen_plateau_patience(
+        frozen_plateau_patience
+    )
     apply_observability_only_database_guard(observability_only)
     run_id = datetime.now().strftime("%Y%m%d-%H%M%S")
     started_at = datetime.now()
@@ -1931,6 +1972,16 @@ def build_production_training_session(
 
     best_summary: dict | None = prior_leaderboard[0] if prior_leaderboard else None
     best_config = FrequencyRankerConfig(**best_summary["config"]) if best_summary else FrequencyRankerConfig()
+    frozen_plateau_frontier_summary = (
+        best_summary
+        if isinstance(best_summary, dict)
+        and isinstance(best_summary.get("frozen_validation"), dict)
+        else None
+    )
+    frozen_plateau_state = initial_frozen_plateau_state(
+        patience_rounds=frozen_plateau_patience,
+        baseline=frozen_plateau_frontier_summary,
+    )
     continuity_summaries: list[dict] = []
     if continuity_configs:
         log(
@@ -2040,6 +2091,7 @@ def build_production_training_session(
         },
         "round_execution_history": [],
         "status": "running",
+        "frozen_plateau": frozen_plateau_state,
         "pid": os.getpid(),
         "history_scope": selection.scope,
         "regime_years": selection.regime_years,
@@ -2239,6 +2291,7 @@ def iter_supervisor_rounds(
     target_weight_inversion_max_candidates: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_CANDIDATES,
     target_weight_inversion_max_targets: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_TARGETS,
     target_weight_inversion_max_deltas_per_target: int = DEFAULT_TARGET_WEIGHT_INVERSION_MAX_DELTAS_PER_TARGET,
+    frozen_plateau_patience: int | None = None,
     max_rounds: int | None = None,
     observability_only: bool = False,
 ) -> Iterator[dict]:

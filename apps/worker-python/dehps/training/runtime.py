@@ -6023,6 +6023,11 @@ def dynamic_policy_from_training_payload(
 
 def compact_round_status_summary(status: dict) -> dict:
     rounds = status.get("rounds") if isinstance(status.get("rounds"), list) else []
+    frozen_plateau = (
+        status.get("frozen_plateau")
+        if isinstance(status.get("frozen_plateau"), dict)
+        else {}
+    )
     latest = rounds[-1] if rounds and isinstance(rounds[-1], dict) else {}
     best = latest.get("best") if isinstance(latest.get("best"), dict) else {}
     red5 = best.get("red5") if isinstance(best.get("red5"), dict) else {}
@@ -6032,7 +6037,7 @@ def compact_round_status_summary(status: dict) -> dict:
         for round_info in rounds
         if isinstance(round_info, dict) and round_info.get("improved")
     ]
-    return {
+    result = {
         "round_count": len(rounds),
         "latest_round": latest.get("round"),
         "last_improved_round": improved_rounds[-1] if improved_rounds else None,
@@ -6055,6 +6060,21 @@ def compact_round_status_summary(status: dict) -> dict:
             else None,
         },
     }
+    if frozen_plateau:
+        result.update(
+            {
+                "frozen_plateau_stagnation_rounds": frozen_plateau.get(
+                    "stagnation_rounds"
+                ),
+                "frozen_plateau_last_improved_round": frozen_plateau.get(
+                    "last_improved_round"
+                ),
+                "frozen_plateau_stop_requested": frozen_plateau.get(
+                    "stop_requested"
+                ),
+            }
+        )
+    return result
 
 
 def prefilter_configs(
@@ -6485,6 +6505,7 @@ def compact_status_payload(status: dict) -> dict:
         "persistence_policy": status.get("persistence_policy"),
         "research_learning": status.get("research_learning"),
         "research_candidate_state": research_candidate_state,
+        "frozen_plateau": status.get("frozen_plateau"),
         "pid": status.get("pid"),
         "history_scope": status.get("history_scope"),
         "regime_years": status.get("regime_years"),
@@ -6677,6 +6698,28 @@ def promotion_report_section(status: dict) -> str:
 """
 
 
+def frozen_plateau_report_section(status: dict) -> str:
+    plateau = (
+        status.get("frozen_plateau")
+        if isinstance(status.get("frozen_plateau"), dict)
+        else {}
+    )
+    frontier = (
+        plateau.get("frontier")
+        if isinstance(plateau.get("frontier"), dict)
+        else {}
+    )
+    return f"""## Frozen Validation Plateau
+
+- Protocol: `{plateau.get("protocol", "missing")}` enabled `{plateau.get("enabled", False)}`.
+- Patience/stagnation: `{plateau.get("patience_rounds", "disabled")}` / `{plateau.get("stagnation_rounds", 0)}`.
+- Last frozen improvement: `{plateau.get("last_improved_round")}`; last search improvement: `{plateau.get("last_search_improved_round")}`.
+- Frontier: `{plateau.get("frontier_config_hash")}` primary `{frontier.get("primary_score")}` objective `{frontier.get("objective")}`.
+- Selection overfit: `{plateau.get("selection_overfit", False)}` count `{plateau.get("selection_overfit_count", 0)}`.
+- Stop requested: `{plateau.get("stop_requested", False)}` reason `{plateau.get("stop_reason")}` at round `{plateau.get("stopped_at_round")}`.
+"""
+
+
 def write_report(report_path: Path, status: dict) -> None:
     report_path.parent.mkdir(parents=True, exist_ok=True)
     rounds = "\n".join(
@@ -6698,6 +6741,7 @@ def write_report(report_path: Path, status: dict) -> None:
     self_diagnostics = self_diagnostics_report_section(status)
     strategy_memory = strategy_memory_report_section(status)
     promotion = promotion_report_section(status)
+    frozen_plateau = frozen_plateau_report_section(status)
     report = f"""# DEHPS 24h Training Supervisor Report
 
 - Run id: `{status["run_id"]}`
@@ -6736,6 +6780,8 @@ def write_report(report_path: Path, status: dict) -> None:
 {strategy_memory}
 
 {promotion}
+
+{frozen_plateau}
 
 ## Rounds
 
