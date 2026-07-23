@@ -13,6 +13,7 @@ from dehps.optimization.signal_diagnostics import (
     OMISSION_INTERVAL_FIELDS,
     RECENT_FREQUENCY_FIELDS,
     STATIC_STRUCTURE_FIELDS,
+    _random_control_rows,
     bind_signal_diagnostic_context,
     circular_block_bootstrap,
     diagnostic_config_manifest,
@@ -161,3 +162,31 @@ def test_execution_context_is_covered_by_snapshot_digest() -> None:
 
     assert first["snapshot_digest"] != second["snapshot_digest"]
     assert first["execution_context"]["base_config_metadata"]["source"] == "one"
+
+
+def test_random_controls_bind_pool_identity_not_display_label() -> None:
+    numbers = np.array(
+        [
+            tuple(range(start, start + 6))
+            for start in range(1, 72)
+        ],
+        dtype=np.uint8,
+    )
+    scores = np.arange(len(numbers), dtype=np.float64)
+    order = np.arange(len(numbers) - 1, -1, -1, dtype=np.int64)
+    kwargs = {
+        "scores": scores,
+        "order": order,
+        "numbers": numbers,
+        "actual": tuple(range(1, 7)),
+        "target_issue": "2026083",
+        "seed_digests": ("ab" * 32,),
+        "pool_size": len(numbers),
+    }
+
+    first = _random_control_rows(**kwargs)
+    second = _random_control_rows(**kwargs)
+
+    assert first == second
+    assert first[0]["source_pool_sequence_digest"]
+    assert first[1]["source_pool_sequence_digest"] is None
