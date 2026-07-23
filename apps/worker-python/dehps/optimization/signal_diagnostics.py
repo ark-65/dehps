@@ -34,6 +34,9 @@ from dehps.seven_red.domain import SIX_RED_UNIVERSE
 
 SIGNAL_DIAGNOSTIC_PROTOCOL = "dehps-signal-gradient-diagnostics.v1"
 PERMUTATION_PROTOCOL = "candidate-level-dynamic-contribution-permutation.v1"
+ISSUE_PERMUTATION_PROTOCOL = "prior-draw-outcomes-across-fixed-issue-slots.v1"
+NUMBER_LABEL_PERMUTATION_PROTOCOL = "prior-red-number-label-bijection.v1"
+RANDOM_SCORE_PROTOCOL = "full-legal-deterministic-random-score.v1"
 RANKING_TIE_POLICY = "score_desc_then_full_legal_lex_id_asc"
 DECILE_POLICY = "ten_equal_rank_position_bins_decile_10_is_highest"
 DEFAULT_RANDOM_SEEDS = (
@@ -242,6 +245,150 @@ def permute_dynamic_contribution(
         domain="dehps.signal-diagnostic.dynamic-permutation.v1",
     )
     return result, digest
+
+
+def permute_history_issue_outcomes(
+    *,
+    history: Sequence[HistoryDraw],
+    seed_digest: str,
+    target_issue: str,
+) -> tuple[list[HistoryDraw], dict[str, Any]]:
+    if len(history) < 2:
+        _fail("issue-permuted history requires at least two prior draws")
+    rng = np.random.default_rng(
+        _seed_int(seed_digest, target_issue, ISSUE_PERMUTATION_PROTOCOL)
+    )
+    permutation = rng.permutation(len(history))
+    if np.array_equal(permutation, np.arange(len(history))):
+        permutation = np.roll(permutation, 1)
+    transformed = [
+        (
+            history_issue(slot),
+            history_draw_date(slot),
+            history_numbers(history[int(source_index)]),
+        )
+        for slot, source_index in zip(history, permutation, strict=True)
+    ]
+    if sorted(history_numbers(draw) for draw in history) != sorted(
+        history_numbers(draw) for draw in transformed
+    ):
+        _fail("issue permutation did not preserve the prior outcome multiset")
+    metadata = {
+        "protocol": ISSUE_PERMUTATION_PROTOCOL,
+        "destroyed_linkage": "prior issue/date slot to draw-number outcome",
+        "preserved": [
+            "prior issue/date slots",
+            "prior draw-number multiset",
+            "history length",
+        ],
+        "permutation_sha256": hashlib.sha256(
+            permutation.astype("<i8", copy=False).tobytes()
+        ).hexdigest(),
+        "source_history_fingerprint": fingerprint_history(list(history)),
+        "transformed_history_fingerprint": fingerprint_history(transformed),
+    }
+    metadata["transformation_digest"] = canonical_digest(
+        metadata,
+        domain="dehps.signal-diagnostic.issue-permutation.v1",
+    )
+    return transformed, metadata
+
+
+def permute_history_number_labels(
+    *,
+    history: Sequence[HistoryDraw],
+    seed_digest: str,
+    target_issue: str,
+) -> tuple[list[HistoryDraw], dict[str, Any]]:
+    if not history:
+        _fail("number-label-permuted history requires prior draws")
+    rng = np.random.default_rng(
+        _seed_int(seed_digest, target_issue, NUMBER_LABEL_PERMUTATION_PROTOCOL)
+    )
+    labels = np.arange(1, 34, dtype=np.uint8)
+    permuted = rng.permutation(labels)
+    if np.array_equal(labels, permuted):
+        permuted = np.roll(permuted, 1)
+    mapping = {
+        int(source): int(destination)
+        for source, destination in zip(labels, permuted, strict=True)
+    }
+    if set(mapping) != set(range(1, 34)) or set(mapping.values()) != set(
+        range(1, 34)
+    ):
+        _fail("number-label control must use one bijection over red labels 1..33")
+    transformed = [
+        (
+            history_issue(draw),
+            history_draw_date(draw),
+            tuple(sorted(mapping[number] for number in history_numbers(draw))),
+        )
+        for draw in history
+    ]
+    if not all(
+        len(history_numbers(draw)) == 6
+        and len(set(history_numbers(draw))) == 6
+        and min(history_numbers(draw)) >= 1
+        and max(history_numbers(draw)) <= 33
+        for draw in transformed
+    ):
+        _fail("number-label permutation produced an illegal prior draw")
+    metadata = {
+        "protocol": NUMBER_LABEL_PERMUTATION_PROTOCOL,
+        "destroyed_linkage": "red-number label identity in all prior draws",
+        "preserved": [
+            "prior issue/date order",
+            "history length",
+            "one-to-one red-label cardinality",
+            "legal six-red prior draws",
+        ],
+        "label_mapping": {str(key): value for key, value in mapping.items()},
+        "source_history_fingerprint": fingerprint_history(list(history)),
+        "transformed_history_fingerprint": fingerprint_history(transformed),
+    }
+    metadata["transformation_digest"] = canonical_digest(
+        metadata,
+        domain="dehps.signal-diagnostic.number-label-permutation.v1",
+    )
+    return transformed, metadata
+
+
+def deterministic_random_scores(
+    *,
+    candidate_count: int,
+    seed_digest: str,
+    target_issue: str,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    if candidate_count < 1:
+        _fail("random-score control requires at least one candidate")
+    rng = np.random.default_rng(
+        _seed_int(seed_digest, target_issue, RANDOM_SCORE_PROTOCOL)
+    )
+    permutation = rng.permutation(candidate_count)
+    divisor = max(1, candidate_count - 1)
+    scores = np.ascontiguousarray(
+        permutation.astype(np.float64) / divisor,
+        dtype=np.float64,
+    )
+    scores.setflags(write=False)
+    metadata = {
+        "protocol": RANDOM_SCORE_PROTOCOL,
+        "destroyed_linkage": "all model score information",
+        "preserved": [
+            "full legal candidate universe",
+            "unique deterministic score order",
+            "downstream ranking, selection, settlement, and uncertainty",
+        ],
+        "candidate_count": candidate_count,
+        "permutation_sha256": hashlib.sha256(
+            permutation.astype("<i8", copy=False).tobytes()
+        ).hexdigest(),
+    }
+    metadata["transformation_digest"] = canonical_digest(
+        metadata,
+        domain="dehps.signal-diagnostic.random-score.v1",
+    )
+    return scores, metadata
 
 
 def _rank_order(scores: np.ndarray) -> np.ndarray:
@@ -682,6 +829,7 @@ def run_signal_diagnostics(
     seed_digests: Sequence[str] = DEFAULT_RANDOM_SEEDS,
     random_pool_size: int = 10_000,
     bootstrap_resamples: int = 2_000,
+    include_negative_controls: bool = False,
 ) -> dict[str, Any]:
     if len(ranked_universe) != SIX_RED_UNIVERSE.cardinality:
         _fail("run requires the full legal six-red universe")
@@ -724,6 +872,62 @@ def run_signal_diagnostics(
             target_issue=history_issue(target),
         )
         score_vectors["permuted_dynamic_features"] = permuted
+        negative_control_metadata: dict[str, Any] = {}
+        if include_negative_controls:
+            issue_history, issue_metadata = permute_history_issue_outcomes(
+                history=train_history,
+                seed_digest=seed_digests[0],
+                target_issue=history_issue(target),
+            )
+            issue_artifact = compile_score_config_grid_artifact(
+                train_history=issue_history,
+                configs=(base_config,),
+                ranked_universe=ranked_universe,
+                target_draw_date=history_draw_date(target),
+                target_issue=history_issue(target),
+            )
+            score_vectors["negative_issue_permuted_history"] = issue_artifact.scores[
+                :, 0
+            ]
+            negative_control_metadata["negative_issue_permuted_history"] = {
+                **issue_metadata,
+                "score_artifact_digest": issue_artifact.artifact_digest,
+                "scoring_path": "compile_score_config_grid_artifact",
+            }
+
+            label_history, label_metadata = permute_history_number_labels(
+                history=train_history,
+                seed_digest=seed_digests[0],
+                target_issue=history_issue(target),
+            )
+            label_artifact = compile_score_config_grid_artifact(
+                train_history=label_history,
+                configs=(base_config,),
+                ranked_universe=ranked_universe,
+                target_draw_date=history_draw_date(target),
+                target_issue=history_issue(target),
+            )
+            score_vectors[
+                "negative_number_label_permuted_history"
+            ] = label_artifact.scores[:, 0]
+            negative_control_metadata[
+                "negative_number_label_permuted_history"
+            ] = {
+                **label_metadata,
+                "score_artifact_digest": label_artifact.artifact_digest,
+                "scoring_path": "compile_score_config_grid_artifact",
+            }
+
+            random_scores, random_metadata = deterministic_random_scores(
+                candidate_count=len(ranked_universe),
+                seed_digest=seed_digests[0],
+                target_issue=history_issue(target),
+            )
+            score_vectors["negative_random_score"] = random_scores
+            negative_control_metadata["negative_random_score"] = {
+                **random_metadata,
+                "scoring_path": "deterministic_null_score_then_production_selector",
+            }
         arms: dict[str, Any] = {}
         positions: dict[str, np.ndarray] = {}
         for label, scores in score_vectors.items():
@@ -757,23 +961,24 @@ def run_signal_diagnostics(
                     comparison_label=label,
                 )
             )
-        target_rows.append(
-            {
-                "issue": history_issue(target),
-                "draw_date": (
-                    history_draw_date(target).isoformat()
-                    if history_draw_date(target)
-                    else None
-                ),
-                "actual_red_numbers": list(history_numbers(target)),
-                "train_latest_issue": history_issue(train_history[-1]),
-                "leakage_passed": int(history_issue(train_history[-1]))
-                < int(history_issue(target)),
-                "full_score_artifact_digest": artifact.artifact_digest,
-                "dynamic_permutation_digest": permutation_digest,
-                "arms": arms,
-            }
-        )
+        target_row: dict[str, Any] = {
+            "issue": history_issue(target),
+            "draw_date": (
+                history_draw_date(target).isoformat()
+                if history_draw_date(target)
+                else None
+            ),
+            "actual_red_numbers": list(history_numbers(target)),
+            "train_latest_issue": history_issue(train_history[-1]),
+            "leakage_passed": int(history_issue(train_history[-1]))
+            < int(history_issue(target)),
+            "full_score_artifact_digest": artifact.artifact_digest,
+            "dynamic_permutation_digest": permutation_digest,
+            "arms": arms,
+        }
+        if include_negative_controls:
+            target_row["negative_controls"] = negative_control_metadata
+        target_rows.append(target_row)
     if not target_rows or not all(row["leakage_passed"] for row in target_rows):
         _fail("target chronology is incomplete or contaminated")
     protocol = {
@@ -795,6 +1000,55 @@ def run_signal_diagnostics(
         "bootstrap_resamples": bootstrap_resamples,
         "guardrail": GUARDRAIL,
     }
+    if include_negative_controls:
+        protocol["negative_controls"] = {
+            "enabled": True,
+            "labels": [
+                "negative_issue_permuted_history",
+                "negative_number_label_permuted_history",
+                "negative_random_score",
+            ],
+            "actual_target_mutated": False,
+        }
+    negative_manifest = (
+        [
+            {
+                "label": "negative_issue_permuted_history",
+                "config": asdict(base_config),
+                "operation": {
+                    "protocol": ISSUE_PERMUTATION_PROTOCOL,
+                    "scoring_path": "same Full production compiler",
+                },
+                "config_digest": canonical_digest(
+                    asdict(base_config),
+                    domain="dehps.signal-diagnostic.config.v1",
+                ),
+            },
+            {
+                "label": "negative_number_label_permuted_history",
+                "config": asdict(base_config),
+                "operation": {
+                    "protocol": NUMBER_LABEL_PERMUTATION_PROTOCOL,
+                    "scoring_path": "same Full production compiler",
+                },
+                "config_digest": canonical_digest(
+                    asdict(base_config),
+                    domain="dehps.signal-diagnostic.config.v1",
+                ),
+            },
+            {
+                "label": "negative_random_score",
+                "config": None,
+                "operation": {
+                    "protocol": RANDOM_SCORE_PROTOCOL,
+                    "scoring_path": "same downstream production selector",
+                },
+                "config_digest": None,
+            },
+        ]
+        if include_negative_controls
+        else []
+    )
     payload = {
         "protocol": protocol,
         "manifest": [
@@ -820,7 +1074,8 @@ def run_signal_diagnostics(
                 },
                 "config_digest": None,
             }
-        ],
+        ]
+        + negative_manifest,
         "targets": target_rows,
         "aggregate": _aggregate_targets(
             target_rows,
@@ -931,17 +1186,23 @@ __all__ = [
     "DEFAULT_RANDOM_SEEDS",
     "DYNAMIC_FIELDS",
     "GUARDRAIL",
+    "ISSUE_PERMUTATION_PROTOCOL",
     "MINIMAL_LINEAR_WEIGHTS",
+    "NUMBER_LABEL_PERMUTATION_PROTOCOL",
     "OMISSION_INTERVAL_FIELDS",
     "PERMUTATION_PROTOCOL",
+    "RANDOM_SCORE_PROTOCOL",
     "RECENT_FREQUENCY_FIELDS",
     "SIGNAL_DIAGNOSTIC_PROTOCOL",
     "STATIC_STRUCTURE_FIELDS",
     "SignalDiagnosticError",
-    "circular_block_bootstrap",
     "bind_signal_diagnostic_context",
+    "circular_block_bootstrap",
+    "deterministic_random_scores",
     "diagnostic_config_manifest",
     "permute_dynamic_contribution",
+    "permute_history_issue_outcomes",
+    "permute_history_number_labels",
     "ranking_similarity",
     "render_signal_diagnostic_report",
     "run_signal_diagnostics",
