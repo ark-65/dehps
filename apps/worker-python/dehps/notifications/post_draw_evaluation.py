@@ -123,10 +123,12 @@ def load_post_draw_evaluations(
 def deliver_post_draw_evaluation_report(issue: str) -> dict[str, Any]:
     """Deliver one accepted issue through the shared idempotent mail contract."""
     from dehps.db import get_connection
+    from dehps.forward_checkpoint import settle_forward_checkpoint_if_available
 
     service = PostDrawEvaluationNotificationService(QqMailConfig.from_environment())
     with get_connection() as conn:
         rows = load_post_draw_evaluations(conn, issue=issue)
+        forward_checkpoint = settle_forward_checkpoint_if_available(issue, conn=conn)
     result = service.deliver(rows)
     return {
         "status": result.status,
@@ -136,6 +138,7 @@ def deliver_post_draw_evaluation_report(issue: str) -> dict[str, Any]:
         "json_path": result.json_path,
         "text_path": result.text_path,
         "message_id": result.message_id,
+        "forward_checkpoint": forward_checkpoint,
     }
 
 
