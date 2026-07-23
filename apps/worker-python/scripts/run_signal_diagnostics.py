@@ -60,6 +60,14 @@ def main() -> int:
     parser.add_argument("--bootstrap-resamples", type=int, default=2_000)
     parser.add_argument("--random-pool-size", type=int, default=10_000)
     parser.add_argument(
+        "--include-negative-controls",
+        action="store_true",
+        help=(
+            "Add issue-outcome permutation, red-label permutation, and random-score "
+            "controls while reusing the production scorer/selector boundaries."
+        ),
+    )
+    parser.add_argument(
         "--seed-digests",
         default=",".join(DEFAULT_RANDOM_SEEDS),
     )
@@ -144,6 +152,7 @@ def main() -> int:
         seed_digests=seed_digests,
         random_pool_size=args.random_pool_size,
         bootstrap_resamples=args.bootstrap_resamples,
+        include_negative_controls=args.include_negative_controls,
     )
     payload = bind_signal_diagnostic_context(
         payload,

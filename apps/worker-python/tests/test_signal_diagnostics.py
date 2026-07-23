@@ -16,8 +16,11 @@ from dehps.optimization.signal_diagnostics import (
     _random_control_rows,
     bind_signal_diagnostic_context,
     circular_block_bootstrap,
+    deterministic_random_scores,
     diagnostic_config_manifest,
     permute_dynamic_contribution,
+    permute_history_issue_outcomes,
+    permute_history_number_labels,
     ranking_similarity,
     validate_diagnostic_manifest,
 )
@@ -91,6 +94,71 @@ def test_candidate_level_dynamic_permutation_is_deterministic_and_preserves_marg
     assert first_digest == second_digest
     assert np.array_equal(first, second)
     assert sorted(first - static) == sorted(full - static)
+    assert first.flags.writeable is False
+
+
+def test_issue_permutation_preserves_slots_and_outcome_multiset() -> None:
+    history = [
+        ("2026001", None, (1, 2, 3, 4, 5, 6)),
+        ("2026002", None, (7, 8, 9, 10, 11, 12)),
+        ("2026003", None, (13, 14, 15, 16, 17, 18)),
+    ]
+    first, first_metadata = permute_history_issue_outcomes(
+        history=history,
+        seed_digest="ab" * 32,
+        target_issue="2026004",
+    )
+    second, second_metadata = permute_history_issue_outcomes(
+        history=history,
+        seed_digest="ab" * 32,
+        target_issue="2026004",
+    )
+
+    assert first == second
+    assert first_metadata == second_metadata
+    assert [draw[0] for draw in first] == [draw[0] for draw in history]
+    assert sorted(draw[2] for draw in first) == sorted(draw[2] for draw in history)
+    assert [draw[2] for draw in first] != [draw[2] for draw in history]
+    assert first_metadata["source_history_fingerprint"] != first_metadata[
+        "transformed_history_fingerprint"
+    ]
+
+
+def test_number_label_permutation_is_one_bijection_over_prior_history() -> None:
+    history = [
+        ("2026001", None, (1, 2, 3, 4, 5, 6)),
+        ("2026002", None, (1, 7, 8, 9, 10, 11)),
+    ]
+    transformed, metadata = permute_history_number_labels(
+        history=history,
+        seed_digest="cd" * 32,
+        target_issue="2026003",
+    )
+    mapping = {int(key): value for key, value in metadata["label_mapping"].items()}
+
+    assert set(mapping) == set(range(1, 34))
+    assert set(mapping.values()) == set(range(1, 34))
+    assert [draw[0] for draw in transformed] == [draw[0] for draw in history]
+    assert all(tuple(sorted(draw[2])) == draw[2] for draw in transformed)
+    assert all(len(set(draw[2])) == 6 for draw in transformed)
+    assert mapping[1] in transformed[0][2] and mapping[1] in transformed[1][2]
+
+
+def test_random_score_control_is_deterministic_unique_and_read_only() -> None:
+    first, first_metadata = deterministic_random_scores(
+        candidate_count=100,
+        seed_digest="ef" * 32,
+        target_issue="2026083",
+    )
+    second, second_metadata = deterministic_random_scores(
+        candidate_count=100,
+        seed_digest="ef" * 32,
+        target_issue="2026083",
+    )
+
+    assert np.array_equal(first, second)
+    assert first_metadata == second_metadata
+    assert len(np.unique(first)) == 100
     assert first.flags.writeable is False
 
 
