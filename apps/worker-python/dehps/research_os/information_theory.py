@@ -1,0 +1,193 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+from dehps.research_os.control_plane import ResearchOSControlPlane
+from dehps.research_os.models import (
+    ControlPlaneManifest,
+    GoalStatus,
+    ResolutionSnapshot,
+    Task,
+    TaskStatus,
+)
+
+
+M4_GOAL_KEY = "M4_INFORMATION_THEORY_EVIDENCE"
+LEGACY_GOAL_KEY = "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION"
+M4_FORWARD_EVENT_KEY = "draw:2026085"
+M4_MANIFEST_RELATIVE_PATH = Path(
+    "configs/research-os/m4-information-theory-evidence-v1.json"
+)
+
+PHASE_TASK_KEYS = {
+    "M4-P0": "m4-p0-mainline-migration",
+    "M4-P1": "m4-p1-contract-and-preregistration",
+    "M4-P2": "m4-p2-synthetic-measurement-validation",
+    "M4-P3": "m4-p3-strict-historical-walk-forward",
+    "M4-P4": "m4-p4-negative-controls-and-robustness",
+    "M4-P5": "m4-p5-forward-evidence",
+    "M4-P6": "m4-p6-information-bound-and-decision",
+}
+
+
+def load_m4_manifest(path: Path) -> ControlPlaneManifest:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("M4 manifest root must be an object")
+    return ControlPlaneManifest.from_dict(payload)
+
+
+def manifest_with_external_event(
+    manifest: ControlPlaneManifest,
+    *,
+    event_key: str,
+) -> ControlPlaneManifest:
+    payload = manifest.to_dict(include_digest=False)
+    events = set(payload["facts"]["external_events"])
+    events.add(event_key)
+    payload["facts"]["external_events"] = sorted(events)
+    return ControlPlaneManifest.from_dict(payload)
+
+
+def build_m4_status(
+    manifest: ControlPlaneManifest,
+    *,
+    snapshot: ResolutionSnapshot | None = None,
+) -> dict[str, Any]:
+    snapshot = snapshot or ResearchOSControlPlane().resolve(manifest)
+    goals = {goal.goal_key: goal for goal in manifest.goals}
+    if M4_GOAL_KEY not in goals or LEGACY_GOAL_KEY not in goals:
+        raise ValueError("M4 status requires both the active M4 and legacy Goal")
+    goal_states = manifest.goal_state_by_digest
+    m4_goal = goals[M4_GOAL_KEY]
+    legacy_goal = goals[LEGACY_GOAL_KEY]
+    if goal_states[m4_goal.artifact_digest].status is not GoalStatus.ACTIVE:
+        raise ValueError("M4 Goal must be active")
+
+    tasks = {task.task_key: task for task in manifest.tasks}
+    resolutions = {item.task_key: item for item in snapshot.resolutions}
+    current_phase = _current_phase(tasks)
+    current_task_key = PHASE_TASK_KEYS[current_phase]
+    current_resolution = resolutions[current_task_key]
+    current_state = current_resolution.status.value.upper()
+    forward_intake = resolutions["m4-forward-evidence-intake-2026085"]
+    if current_phase == "M4-P5":
+        if forward_intake.status is TaskStatus.EXTERNAL_WAIT:
+            current_state = "WAIT_FORWARD"
+        elif forward_intake.status is TaskStatus.READY:
+            current_state = "SETTLING"
+
+    next_ready = next(
+        (
+            item
+            for item in snapshot.ready_queue
+            if item.goal_key == M4_GOAL_KEY
+        ),
+        None,
+    )
+    engineering_progress = sum(
+        _metric(task).get("engineering_weight_percent", 0)
+        for task in _phase_tasks(tasks)
+        if _metric(task).get("engineering_complete") is True
+    )
+    evidence_progress = sum(
+        _metric(task).get("evidence_weight_percent", 0)
+        for task in _phase_tasks(tasks)
+        if _metric(task).get("evidence_complete") is True
+    )
+    blocked_by = [
+        {
+            "dependency_type": item.dependency_type.value,
+            "target_key": item.target_key,
+            "required_status": item.required_status,
+        }
+        for item in current_resolution.unsatisfied_dependencies
+    ]
+    legacy_target = json.loads(legacy_goal.target_metric_manifest)
+
+    return {
+        "schema_version": "dehps-m4-information-theory-status.v1",
+        "manifest_digest": manifest.artifact_digest,
+        "snapshot_digest": snapshot.snapshot_digest,
+        "goal": M4_GOAL_KEY,
+        "goal_status": "ACTIVE",
+        "previous_goal": LEGACY_GOAL_KEY,
+        "previous_goal_lifecycle": goal_states[
+            legacy_goal.artifact_digest
+        ].status.value.upper(),
+        "previous_goal_research_status": legacy_target["research_status"].upper(),
+        "old_training_mainline": legacy_target["mainline_status"].upper(),
+        "current_phase": current_phase,
+        "current_state": current_state,
+        "completed": [
+            "old training hypothesis recorded as rejected",
+            "legacy final baseline and commit recorded",
+            "2026084 settlement digest recorded",
+            "legacy adaptive tuning tasks superseded",
+            "M4 Goal and P0-P6 dependency graph activated",
+        ],
+        "evidence_changed": [],
+        "tests": {"status": "not_recorded_in_control_plane"},
+        "artifacts": {
+            "preregistration_digest": None,
+            "control_plane_manifest_digest": manifest.artifact_digest,
+            "legacy_settlement_digest": json.loads(
+                legacy_goal.baseline_metric_manifest
+            )["last_settlement_digest"],
+        },
+        "gate_status": {
+            "promotion_gate": "CLOSED",
+            "adaptive_supervisor": "STOPPED",
+            "production_action": "none",
+        },
+        "progress": {
+            "engineering_percent": engineering_progress,
+            "evidence_percent": evidence_progress,
+            "historical_walk_forward": {"completed": 0, "total": None},
+            "forward_samples": {"completed": 0, "since_issue": "2026085"},
+            "synthetic_scenarios": {"completed": 0, "total": 9},
+            "negative_controls": {"completed": 0, "total": 6},
+            "robustness_sensitivities": {"completed": 0, "total": 5},
+            "feature_families": {"completed": 0, "total": 7},
+        },
+        "current_statistics": {
+            "primary_endpoint": "out_of_sample_log_loss_improvement",
+            "oos_log_loss_improvement": None,
+            "bits_gain_per_issue": None,
+            "confidence_interval": None,
+            "practical_null": "NOT_PREREGISTERED",
+            "minimum_detectable_effect": None,
+            "power": "NOT_EVALUATED",
+            "evidence_state": "NOT_STARTED",
+        },
+        "formal_real_data_run": "NOT_STARTED",
+        "blocked_by": blocked_by,
+        "next_ready_task": None if next_ready is None else next_ready.task_key,
+        "next_external_dependency": (
+            M4_FORWARD_EVENT_KEY
+            if forward_intake.status is TaskStatus.EXTERNAL_WAIT
+            else None
+        ),
+        "stop_condition_status": "NOT_EVALUATED",
+        "dispatch_performed": False,
+        "production_impact": "none",
+    }
+
+
+def _phase_tasks(tasks: dict[str, Task]) -> tuple[Task, ...]:
+    return tuple(tasks[PHASE_TASK_KEYS[phase]] for phase in PHASE_TASK_KEYS)
+
+
+def _current_phase(tasks: dict[str, Task]) -> str:
+    for phase, task_key in PHASE_TASK_KEYS.items():
+        if _metric(tasks[task_key]).get("engineering_complete") is not True:
+            return phase
+    return "M4-P6"
+
+
+def _metric(task: Task) -> dict[str, Any]:
+    value = json.loads(task.metric_contract)
+    assert isinstance(value, dict)
+    return value

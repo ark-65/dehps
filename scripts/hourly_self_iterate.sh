@@ -7,6 +7,7 @@ CODEX_BIN="${DEHPS_CODEX_BIN:-$NODE_BIN_DIR/codex}"
 LOG_DIR="${DEHPS_LOG_DIR:-$REPO_ROOT/runtime/logs}"
 LOCK_FILE="$LOG_DIR/hourly_self_iterate.lock"
 LAST_MESSAGE="$LOG_DIR/hourly_self_iterate.last.md"
+M4_STATUS_FILE="$LOG_DIR/m4-information-theory-status.json"
 SELF_ITERATE_GIT_AUTHOR_NAME="${DEHPS_SELF_ITERATE_GIT_AUTHOR_NAME:-ark-65}"
 SELF_ITERATE_GIT_AUTHOR_EMAIL="${DEHPS_SELF_ITERATE_GIT_AUTHOR_EMAIL:-25193106+ark-65@users.noreply.github.com}"
 SELF_ITERATE_GIT_COAUTHOR_TRAILER="${DEHPS_SELF_ITERATE_GIT_COAUTHOR_TRAILER:-Co-authored-by: give me a 98K <240642031+inhuman-0@users.noreply.github.com>}"
@@ -75,6 +76,17 @@ if [[ -n "$dirty_status" ]]; then
   exit 0
 fi
 
+if ! "$REPO_ROOT/apps/worker-python/.venv/bin/python" -m dehps.cli \
+  research-os m4-status > "$M4_STATUS_FILE.tmp"; then
+  echo "$(date -Is) canonical M4 status preflight failed; stop before Codex dispatch." >&2
+  write_last_message \
+    "DEHPS Hourly Self-Iteration Failed" \
+    "m4_status_preflight_failed" \
+    "canonical M4 manifest could not be resolved"
+  exit 1
+fi
+mv "$M4_STATUS_FILE.tmp" "$M4_STATUS_FILE"
+
 run_started_at="$(date -Is)"
 set +e
 cat <<'PROMPT' | "$CODEX_BIN" exec \
@@ -94,11 +106,29 @@ Agent Authority 强制边界：
 - 任何 production 操作必须由已批准的 Operator Request 驱动。Engineering Agent 不得重启生产 Supervisor、执行生产迁移、发布版本、修改生产策略或绕过 Promotion Gate。
 - CLI `dehps agent` 只管理审计记录，不代表已经执行 Shell、Git、Supervisor 或生产操作。任何角色都不得通过同一执行自我审批。
 
-定位：这是一个私有的 DEHPS 彩票预测训练系统。可以把实验结果作为候选预测信号或训练中的预测能力来研究，但任何输出都必须保留证据等级、训练状态、风险、不确定性、失败案例、合法样本空间、历史窗口、baseline/null model 和泄漏检查；不要把未成熟结果写成保证命中、确定优势或无风险投注建议。
+当前唯一主线：`M4_INFORMATION_THEORY_EVIDENCE`。先读取
+`runtime/logs/m4-information-theory-status.json` 和
+`configs/research-os/m4-information-theory-evidence-v1.json`，并重新运行
+`apps/worker-python/.venv/bin/python -m dehps.cli research-os m4-status` 验证 digest。
+只允许处理状态报告中的 `next_ready_task`；如果该任务不属于 Engineering 角色，
+记录 typed handoff 需求并停止。不得自行选择旧训练工作来填满迭代。
 
-长期目标：让训练循环持续变强且可审计。这里的“变强”必须表现为数据更新闭环、候选/排名结构产生可解释的新变化、冻结验证或前向证据改善、失败模式减少；单纯增加运行时长、轮数或 CPU 消耗不算进步。
+M4 不变量：
+- `Promotion Gate = CLOSED`；
+- `Adaptive Supervisor = STOPPED`；
+- `Production Action = none`；
+- 正式真实数据分析必须等待不可变 preregistration；
+- 工程完成度不得冒充证据完成度；
+- 不得恢复权重搜索、候选生成、TopK 调参或旧 adaptive training；
+- 不得因单期结果改变模型、指标、practical-null 或研究结论。
 
-目标：每轮只完成一个小而可验证的改进，优先级如下：
+本轮目标：围绕 M4 Ready Queue 每次只完成一个小而可验证的切片。P0/P1 正确性、
+泄漏边界、身份、manifest digest 和 fail-closed 问题优先于后续统计、性能和 UI。
+每轮结束必须按 M4 状态格式报告 Goal、Phase、State、Evidence Changed、Gate Status、
+双进度、当前统计、阻塞、Next Ready Task、外部依赖与 Stop Condition。
+
+以下旧训练检查只保留为防御性安全约束：只有当前 M4 Ready Task 明确涉及对应边界时
+才可读取或修复，绝不能把它们当作新的训练、调参、候选或 supervisor 工作来源。
 1. 先查看训练进度和运行状态：优先运行或读取 `apps/worker-python/.venv/bin/python apps/worker-python/scripts/watch_training_progress.py --limit 12`，并检查最新 `data/output/optimization/training-supervisor-*.json` 和对应 Markdown report。必须读取 `advisor_signal_freshness`、`continuity_seed`、round repetition、rank homogeneity、`candidate_source_survival`、promotion/frozen validation 和 parser/sync/duplicate 结果。`candidate_source_survival.evidence_ready=false` 时只能继续观察；即使四轮观察窗口成熟，`budget_review_ready=false` 时也不得提出新的来源预算或预筛值。唯一例外是：当前 run 明确属于上一轮有 baseline、单变量和预声明 falsification 条件的实验；运行失败或科学护栏异常可直接回滚，重复度恶化则必须相对于同历史、同 incumbent/search base 的记录 baseline 才算已证明；此时只允许回滚到 baseline，不得转向第三个值。若起点不同或存在路径依赖混淆，只能标为不确定，不能作因果归因。只有至少八个同运行完整轮次后，才可把 `budget_review_sources` 当作新一轮可证伪实验候选；冻结前沿只能作为诊断，不得直接影响来源预算、candidate 选择或 search base。冻结护栏必须读取 `holdout_isolation`：要求 `search_uses_frozen_validation=false`、`issue_overlap_count=0`、`frozen_validation_role=promotion_only`，并且 `prefilter_isolation_status=passed`、`prefilter_uses_frozen_validation=false`、`prefilter_frozen_issue_overlap_count=0`、`prefilter_outside_split_issue_count=0`。缺少这些预筛隔离字段的旧轮次不得用于来源生存、预算、导航或模型强度判断；任何预筛冻结交集都必须停止当前 supervisor，修复后启动全新 run。历史冻结集已被反复自适应查看时，`historical_holdout_quarantined` 必须保持 true，直到出现真正前向未见证据；不得把 `pre_quarantine_passed` 当作正式晋级。若 supervisor 刚交接，只能重放带相同 holdout-isolation protocol、明确未使用冻结集的 search base，并在新进程启动时重新评估；旧的冻结主分 navigation candidate 不得续接。continuity seed 仍不能当作 incumbent 或已晋级模型。同时必须读取 `guard_continuity`，同历史且没有正式晋级时，effective stagnation、rank homogeneity 和 overfit gate 不得因新 run 从 0 重新计数。有限 navigation 查询窗口只用于最近 rank-signature 几何；窗口饱和时必须核对 `persisted_next_stagnation_rounds`/`continuity_floor_applied`，确保 restart batch/catalog offset 沿单调 effective stagnation 继续而非回退。轮次完成必须由 `supervisor_round_boundary.status=target_complete_round_recorded` 和数据库记录证明，不能只凭 `strategy_memory` 日志；未提交的部分轮次不得推进连续计数。若 action 是 `refresh_advisor_signals`、`inspect_advisor_signals` 或 `inspect_advisor_signal_leakage`，先检查 `runtime/logs/ssq_draw_sync.log`、canonical KDJ 最新 issue 与历史最新 issue，优先修复数据闭环。
 1a. rank homogeneity 激活时必须读取 `rank_homogeneity.restart_candidate_novelty`；batch/catalog offset 增长不等于新覆盖。若同历史精确哈希复用，确认过滤后 `generated_reused_count=0` 且替换数与过滤数可解释；新候选仍不能绕过预筛、search-slice 导航约束或 promotion quarantine。promotion-only 下实验导航必须记录 `eligibility_basis=search_slice_rank_geometry`、`selection_uses_frozen_validation=false`；若它成为 search base，下一数据库完整轮次的 `search_base_start.config_hash` 必须与所选哈希一致，不能只凭选择日志声称覆盖增加。若合格导航被 probability focus 抢占，必须记录 `selected=false`、`preempted_by=probability_focus`，不得误报为无候选，也不得把未选择的反事实当作已验证路径。`selected=true` 或已记录抢占表示当前 run 仲裁仍在途，不得为此重启；任何 restart 必须等 `supervisor_round_boundary.status=target_complete_round_recorded`，不能在 target 100/100 但 DB 尚未落库时终止进程。
 1b. 100 期回看必须明确拆分为互不重叠的 search/frozen 窗口；搜索排序、advisor 锚点、continuity 与 search base 不得读取 frozen 结果。固定历史冻结集被多轮查看后的提升只算污染后的诊断，不是预测能力或晋级证据。

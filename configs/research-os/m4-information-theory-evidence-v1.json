@@ -1,0 +1,374 @@
+{
+  "schema_version": "research-os-control-plane-v1",
+  "manifest_digest": "84e59c1f2c8a556a5c00f9a3e68776e8b07b466d9f0a3292c2055a3c1dd2f4c0",
+  "goals": [
+    {
+      "goal_key": "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION",
+      "semantic_version": "1.0.0",
+      "objective_class": "prediction_quality",
+      "status": "retired",
+      "retired_at": "2026-07-23T20:16:04+08:00",
+      "success_evidence": [
+        "legacy-mainline-final-baseline",
+        "forward-settlement:2026084:ef4817983ccc209aa87ff00a12be0e9f0ad263a00d8b008d873d6722d73ff932",
+        "research-hypothesis:seven-red-compound-top10-walk-forward-v1:rejected"
+      ],
+      "owner_lane": "research",
+      "question": "Can unbounded adaptive weight search and TopK feedback produce stable forward predictive improvement?",
+      "baseline_metric_manifest": {
+        "last_formal_commit": "3bfc14adeb66f2f320bf51b4dd9a8b6d4d156948",
+        "last_supervisor_run_id": "20260721-220017",
+        "last_supervisor_status": "waiting_for_forward_issue",
+        "last_settled_issue": "2026084",
+        "last_settlement_digest": "ef4817983ccc209aa87ff00a12be0e9f0ad263a00d8b008d873d6722d73ff932"
+      },
+      "target_metric_manifest": {
+        "mainline_status": "frozen",
+        "research_status": "rejected",
+        "adaptive_supervisor": "stopped",
+        "promotion_gate": "closed",
+        "production_action": "none"
+      },
+      "guardrails": [
+        "no_new_weight_search",
+        "no_new_topk_tuning",
+        "no_automatic_candidate_generation",
+        "legacy_artifacts_remain_replayable"
+      ]
+    },
+    {
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "semantic_version": "1.0.0",
+      "objective_class": "prediction_quality",
+      "status": "active",
+      "success_evidence": [
+        "information-theory-preregistration",
+        "synthetic-measurement-validation",
+        "strict-historical-walk-forward",
+        "negative-controls-and-robustness",
+        "forward-information-evidence",
+        "automatic-information-bound-decision"
+      ],
+      "owner_lane": "research",
+      "question": "Do historical SSQ draws and existing prior-only derived features contain stable, generalizable, practically meaningful out-of-sample predictive information?",
+      "baseline_metric_manifest": {
+        "primary_endpoint": "out_of_sample_log_loss_improvement",
+        "null_model": "theoretical_uniform_or_training_window_base_rate",
+        "formal_real_data_run": "not_started",
+        "preregistration_digest": null
+      },
+      "target_metric_manifest": {
+        "allowed_decisions": [
+          "SUPPORTED_WEAK_SIGNAL",
+          "PRACTICALLY_UNPREDICTABLE",
+          "INCONCLUSIVE_DUE_TO_POWER",
+          "REPAIR_MEASUREMENT_SYSTEM"
+        ],
+        "engineering_phase_weights_percent": {
+          "M4-P0": 5,
+          "M4-P1": 15,
+          "M4-P2": 20,
+          "M4-P3": 20,
+          "M4-P4": 15,
+          "M4-P5": 15,
+          "M4-P6": 10
+        },
+        "evidence_component_weights_percent": {
+          "measurement_system_validation": 25,
+          "historical_sample_analysis": 20,
+          "negative_controls": 15,
+          "robustness": 10,
+          "forward_sample_power": 20,
+          "decision_interval_convergence": 10
+        }
+      },
+      "guardrails": [
+        "strict_prior_only_walk_forward",
+        "same_legal_sample_space_for_baseline_and_candidate",
+        "preregistration_required_before_formal_real_data_run",
+        "engineering_progress_is_not_evidence_progress",
+        "promotion_gate_closed",
+        "adaptive_supervisor_stopped",
+        "production_action_none",
+        "no_production_topk_change",
+        "no_automatic_tuning"
+      ]
+    }
+  ],
+  "tasks": [
+    {
+      "task_key": "legacy-freeze-final-baseline",
+      "goal_key": "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION",
+      "task_type": "baseline_freeze",
+      "lane": "research",
+      "status": "completed",
+      "priority": 0,
+      "metric_contract": {
+        "artifact": "legacy-mainline-final-baseline",
+        "replayable": true
+      }
+    },
+    {
+      "task_key": "legacy-record-2026084-settlement",
+      "goal_key": "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION",
+      "task_type": "forward_settlement",
+      "lane": "research",
+      "status": "completed",
+      "priority": 0,
+      "metric_contract": {
+        "issue": "2026084",
+        "settlement_digest": "ef4817983ccc209aa87ff00a12be0e9f0ad263a00d8b008d873d6722d73ff932",
+        "production_action": "none"
+      }
+    },
+    {
+      "task_key": "legacy-stop-adaptive-supervisor",
+      "goal_key": "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION",
+      "task_type": "supervisor_stop",
+      "lane": "research",
+      "status": "completed",
+      "priority": 0,
+      "metric_contract": {
+        "last_run_id": "20260721-220017",
+        "process_active": false,
+        "status": "stopped"
+      }
+    },
+    {
+      "task_key": "legacy-adaptive-weight-search",
+      "goal_key": "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION",
+      "task_type": "adaptive_weight_search",
+      "lane": "research",
+      "status": "superseded",
+      "priority": 0,
+      "metric_contract": {
+        "replacement_goal": "M4_INFORMATION_THEORY_EVIDENCE"
+      }
+    },
+    {
+      "task_key": "legacy-production-candidate-generation",
+      "goal_key": "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION",
+      "task_type": "candidate_generation",
+      "lane": "research",
+      "status": "superseded",
+      "priority": 0,
+      "metric_contract": {
+        "replacement_goal": "M4_INFORMATION_THEORY_EVIDENCE"
+      }
+    },
+    {
+      "task_key": "legacy-topk-feedback-tuning",
+      "goal_key": "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION",
+      "task_type": "topk_feedback_tuning",
+      "lane": "research",
+      "status": "superseded",
+      "priority": 0,
+      "metric_contract": {
+        "replacement_goal": "M4_INFORMATION_THEORY_EVIDENCE"
+      }
+    },
+    {
+      "task_key": "m4-p0-mainline-migration",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "goal_migration",
+      "lane": "research",
+      "status": "completed",
+      "priority": 120,
+      "metric_contract": {
+        "phase": "M4-P0",
+        "engineering_weight_percent": 5,
+        "engineering_complete": true,
+        "evidence_weight_percent": 0,
+        "evidence_complete": false,
+        "formal_real_data_run": "not_started"
+      }
+    },
+    {
+      "task_key": "m4-p1-contract-and-preregistration",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "preregistration_contract",
+      "lane": "research",
+      "priority": 110,
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-p0-mainline-migration",
+          "required_status": "completed"
+        }
+      ],
+      "metric_contract": {
+        "phase": "M4-P1",
+        "engineering_weight_percent": 15,
+        "engineering_complete": false,
+        "evidence_weight_percent": 0,
+        "evidence_complete": false,
+        "formal_real_data_run": "not_started"
+      }
+    },
+    {
+      "task_key": "m4-p2-synthetic-measurement-validation",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "synthetic_validation",
+      "lane": "research",
+      "priority": 100,
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-p1-contract-and-preregistration",
+          "required_status": "completed"
+        }
+      ],
+      "metric_contract": {
+        "phase": "M4-P2",
+        "engineering_weight_percent": 20,
+        "engineering_complete": false,
+        "evidence_weight_percent": 25,
+        "evidence_complete": false,
+        "gate": "false_positive_rate_and_injected_signal_detection"
+      }
+    },
+    {
+      "task_key": "m4-p3-strict-historical-walk-forward",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "historical_walk_forward",
+      "lane": "research",
+      "priority": 90,
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-p2-synthetic-measurement-validation",
+          "required_status": "completed"
+        }
+      ],
+      "metric_contract": {
+        "phase": "M4-P3",
+        "engineering_weight_percent": 20,
+        "engineering_complete": false,
+        "evidence_weight_percent": 20,
+        "evidence_complete": false,
+        "primary_endpoint": "out_of_sample_log_loss_improvement"
+      }
+    },
+    {
+      "task_key": "m4-p4-negative-controls-and-robustness",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "negative_control_review",
+      "lane": "research",
+      "priority": 80,
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-p3-strict-historical-walk-forward",
+          "required_status": "completed"
+        }
+      ],
+      "metric_contract": {
+        "phase": "M4-P4",
+        "engineering_weight_percent": 15,
+        "engineering_complete": false,
+        "evidence_weight_percent": 25,
+        "evidence_complete": false,
+        "negative_control_count": 6,
+        "sensitivity_family_count": 5
+      }
+    },
+    {
+      "task_key": "m4-forward-evidence-intake-2026085",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "forward_evidence_intake",
+      "lane": "research",
+      "priority": 105,
+      "dependencies": [
+        {
+          "dependency_type": "external_event",
+          "target_key": "draw:2026085",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "phase": "M4-P5",
+        "architecture_label": "information_theory_forward_evidence",
+        "issue": "2026085",
+        "prediction_checkpoint_required": true,
+        "automatic_tuning": false,
+        "production_action": "none"
+      }
+    },
+    {
+      "task_key": "m4-p5-forward-evidence",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "forward_evidence",
+      "lane": "research",
+      "priority": 70,
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-p4-negative-controls-and-robustness",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "task",
+          "target_key": "m4-forward-evidence-intake-2026085",
+          "required_status": "completed"
+        }
+      ],
+      "metric_contract": {
+        "phase": "M4-P5",
+        "engineering_weight_percent": 15,
+        "engineering_complete": false,
+        "evidence_weight_percent": 20,
+        "evidence_complete": false,
+        "state_when_waiting": "WAIT_FORWARD",
+        "automatic_tuning": false
+      }
+    },
+    {
+      "task_key": "m4-p6-information-bound-and-decision",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "information_bound_decision",
+      "lane": "research",
+      "priority": 60,
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-p2-synthetic-measurement-validation",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "task",
+          "target_key": "m4-p3-strict-historical-walk-forward",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "task",
+          "target_key": "m4-p4-negative-controls-and-robustness",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "task",
+          "target_key": "m4-p5-forward-evidence",
+          "required_status": "completed"
+        }
+      ],
+      "metric_contract": {
+        "phase": "M4-P6",
+        "engineering_weight_percent": 10,
+        "engineering_complete": false,
+        "evidence_weight_percent": 10,
+        "evidence_complete": false,
+        "decision_source": "preregistered_automatic_rule"
+      }
+    }
+  ],
+  "facts": {
+    "artifacts": [
+      "legacy-mainline-final-baseline",
+      "forward-settlement:2026084:ef4817983ccc209aa87ff00a12be0e9f0ad263a00d8b008d873d6722d73ff932"
+    ],
+    "evidence": [
+      "research-hypothesis:seven-red-compound-top10-walk-forward-v1:rejected"
+    ],
+    "external_events": [],
+    "authorities": []
+  }
+}
