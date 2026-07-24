@@ -1,13 +1,10 @@
 {
   "schema_version": "dehps-m4-information-theory-preregistration.v1",
   "contract_version": "m4-information-theory-contract-v1",
-  "version": "1.0.0",
-  "status": "FROZEN",
-  "artifact_digest": "a4f29c1392305b6ef2dc90134901c74f8ffb297071838d734d1e17e8439ad6e8",
+  "version": "1.0.1",
+  "status": "VALIDATED",
   "created_at": "2026-07-24T14:30:00+08:00",
-  "code_commit": "80116b488f461ed214b46b9e2668bb190a435d0c",
-  "working_tree_clean": true,
-  "supersedes_digest": null,
+  "supersedes_digest": "a4f29c1392305b6ef2dc90134901c74f8ffb297071838d734d1e17e8439ad6e8",
   "research_questions": [
     "RQ1_PRIOR_STATE_REDUCES_NEXT_DRAW_UNCERTAINTY",
     "RQ2_STRICT_OOS_INFORMATION_GAIN_EXCEEDS_PRACTICAL_NULL",
@@ -135,7 +132,7 @@
     "secondary": "F0_TRAINING_EMPIRICAL_BASE_RATE",
     "F0_THEORETICAL_UNIFORM": {
       "number_probability": 0.18181818181818182,
-      "joint_combination_probability": 9.02885775817407e-07,
+      "joint_combination_probability": 9.028791008768762e-07,
       "fit_scope": "none"
     },
     "F0_TRAINING_EMPIRICAL_BASE_RATE": {
