@@ -1,0 +1,74 @@
+{
+  "schema_version": "dehps-m4-information-theory-contract.v1",
+  "contract_version": "m4-information-theory-contract-v1",
+  "artifact_digest": "ae4e741cfc55547785ca9cf57b5b49f37a3d8c4f2bd53daeff9228982f797a69",
+  "status": "FROZEN",
+  "scope": "research_contract_and_preregistration_only",
+  "research_questions": [
+    {
+      "id": "RQ1",
+      "question": "Does prior-only historical state reduce uncertainty in the next draw?",
+      "formal_target": "H(Y[t+1]|X[t]) < H(Y[t+1])"
+    },
+    {
+      "id": "RQ2",
+      "question": "Is strictly out-of-sample usable information above the practical null?",
+      "formal_target": "OOS information gain > practical null"
+    },
+    {
+      "id": "RQ3",
+      "question": "Does the real historical relation outperform preregistered negative controls?"
+    },
+    {
+      "id": "RQ4",
+      "question": "What signal magnitude can the frozen sample and measurement system exclude?"
+    },
+    {
+      "id": "RQ5",
+      "question": "Does the existing Full score carry probability or ranking information independently of TopK hits?"
+    }
+  ],
+  "target_contract": {
+    "version": "m4-information-theory-target-contract-v1",
+    "digest": "c768d4cc34ca92ce705cc9bc796798e459e85ccc4bc32c2e44622691c5068b2a",
+    "primary": "issue_red_number_binary_event",
+    "pair_role": "secondary_exploratory_with_multiplicity_control",
+    "full_combination_topk_primary": false
+  },
+  "feature_contract": {
+    "version": "feature.v1.0.0",
+    "normative_digest": "c7b5d9572f93c17f4b84debd3f0e9f9d445b7e3c76c5bfe5d594d180064c9869",
+    "component_manifest_digest": "42ed7fc0a60a1be64f6f097f14e765f447f941d4427395a2e86bdbc99431c0c4",
+    "component_count": 32
+  },
+  "decision_policy": {
+    "version": "m4-information-theory-decision-policy-v1",
+    "digest": "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d"
+  },
+  "phase_boundary": {
+    "allowed": [
+      "schemas",
+      "typed_contracts",
+      "validators",
+      "canonical_digests",
+      "lifecycle_freeze",
+      "read_only_cli",
+      "phase_gate_placeholders",
+      "tests",
+      "design_review_report",
+      "p2_input_contract"
+    ],
+    "forbidden": [
+      "statistical_estimator_implementation",
+      "formal_real_data_analysis",
+      "synthetic_validation_execution",
+      "bootstrap_execution",
+      "permutation_execution",
+      "model_training",
+      "production_path_change",
+      "promotion_gate_change",
+      "adaptive_supervisor_restart",
+      "retroactive_2026085_checkpoint"
+    ]
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dehps.local/schemas/research-os/m4-information-theory-contract-v1.schema.json",
+  "title": "DEHPS M4 information-theory research contract v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "contract_version",
+    "status",
+    "scope",
+    "research_questions",
+    "target_contract",
+    "feature_contract",
+    "decision_policy",
+    "phase_boundary"
+  ],
+  "properties": {
+    "schema_version": {"const": "dehps-m4-information-theory-contract.v1"},
+    "contract_version": {"const": "m4-information-theory-contract-v1"},
+    "artifact_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "status": {"const": "FROZEN"},
+    "scope": {"const": "research_contract_and_preregistration_only"},
+    "research_questions": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["id", "question"],
+        "properties": {
+          "id": {"enum": ["RQ1", "RQ2", "RQ3", "RQ4", "RQ5"]},
+          "question": {"type": "string", "minLength": 1},
+          "formal_target": {"type": "string"}
+        }
+      }
+    },
+    "target_contract": {"type": "object"},
+    "feature_contract": {"type": "object"},
+    "decision_policy": {"type": "object"},
+    "phase_boundary": {
+      "type": "object",
+      "required": ["allowed", "forbidden"],
+      "properties": {
+        "allowed": {"type": "array", "items": {"type": "string"}},
+        "forbidden": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

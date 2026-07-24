@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dehps.local/schemas/research-os/m4-information-theory-decision-policy-v1.schema.json",
+  "title": "DEHPS M4 information-theory automatic decision policy v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "version",
+    "created_at",
+    "priority",
+    "rules",
+    "tie_break",
+    "manual_override",
+    "result_driven_threshold_change"
+  ],
+  "properties": {
+    "schema_version": {"const": "dehps-m4-information-theory-decision-policy.v1"},
+    "version": {"const": "m4-information-theory-decision-policy-v1"},
+    "artifact_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "priority": {
+      "const": [
+        "REPAIR_MEASUREMENT_SYSTEM",
+        "SUPPORTED_WEAK_SIGNAL",
+        "PRACTICALLY_UNPREDICTABLE",
+        "INCONCLUSIVE_DUE_TO_POWER"
+      ]
+    },
+    "rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "REPAIR_MEASUREMENT_SYSTEM",
+        "SUPPORTED_WEAK_SIGNAL",
+        "PRACTICALLY_UNPREDICTABLE",
+        "INCONCLUSIVE_DUE_TO_POWER"
+      ],
+      "properties": {
+        "REPAIR_MEASUREMENT_SYSTEM": {"$ref": "#/$defs/rule"},
+        "SUPPORTED_WEAK_SIGNAL": {"$ref": "#/$defs/rule"},
+        "PRACTICALLY_UNPREDICTABLE": {"$ref": "#/$defs/rule"},
+        "INCONCLUSIVE_DUE_TO_POWER": {"$ref": "#/$defs/rule"}
+      }
+    },
+    "tie_break": {"const": "first_satisfied_state_in_priority_order"},
+    "manual_override": {"const": "forbidden"},
+    "result_driven_threshold_change": {"const": "forbidden"}
+  },
+  "$defs": {
+    "rule": {
+      "type": "object",
+      "required": ["all", "research_action", "promotion_gate", "production_action"],
+      "properties": {
+        "all": {"type": "array", "minItems": 1},
+        "research_action": {"type": "string"},
+        "promotion_gate": {"const": "CLOSED"},
+        "production_action": {"const": "none"}
+      }
+    }
+  }
+}

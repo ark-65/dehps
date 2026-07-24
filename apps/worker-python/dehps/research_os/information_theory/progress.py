@@ -106,6 +106,29 @@ def build_m4_status(
         for item in current_resolution.unsatisfied_dependencies
     ]
     legacy_target = json.loads(legacy_goal.target_metric_manifest)
+    m4_baseline = json.loads(m4_goal.baseline_metric_manifest)
+    p1_complete = (
+        _metric(tasks["m4-p1-contract-and-preregistration"]).get(
+            "engineering_complete"
+        )
+        is True
+    )
+
+    completed = [
+        "old training hypothesis recorded as rejected",
+        "legacy final baseline and commit recorded",
+        "2026084 settlement digest recorded",
+        "legacy adaptive tuning tasks superseded",
+        "M4 Goal and P0-P6 dependency graph activated",
+    ]
+    if p1_complete:
+        completed.extend(
+            [
+                "information-theory contract version frozen",
+                "preregistration and decision policy frozen",
+                "P2 input contract validated",
+            ]
+        )
 
     return {
         "schema_version": "dehps-m4-information-theory-status.v1",
@@ -121,22 +144,26 @@ def build_m4_status(
         "old_training_mainline": legacy_target["mainline_status"].upper(),
         "current_phase": current_phase,
         "current_state": current_state,
-        "completed": [
-            "old training hypothesis recorded as rejected",
-            "legacy final baseline and commit recorded",
-            "2026084 settlement digest recorded",
-            "legacy adaptive tuning tasks superseded",
-            "M4 Goal and P0-P6 dependency graph activated",
-        ],
+        "completed": completed,
         "evidence_changed": [],
         "tests": {"status": "not_recorded_in_control_plane"},
         "artifacts": {
-            "preregistration_digest": None,
+            "preregistration_digest": m4_baseline.get("preregistration_digest"),
+            "decision_policy_digest": m4_baseline.get("decision_policy_digest"),
+            "p2_input_contract_digest": m4_baseline.get("p2_input_contract_digest"),
             "control_plane_manifest_digest": manifest.artifact_digest,
             "legacy_settlement_digest": json.loads(
                 legacy_goal.baseline_metric_manifest
             )["last_settlement_digest"],
         },
+        "preregistration": {
+            "status": m4_baseline.get("preregistration_status", "NOT_STARTED"),
+            "version": m4_baseline.get("preregistration_version"),
+        },
+        "p2_input_contract": m4_baseline.get(
+            "p2_input_contract_status",
+            "NOT_CREATED",
+        ),
         "gate_status": {
             "promotion_gate": "CLOSED",
             "adaptive_supervisor": "STOPPED",
@@ -146,7 +173,12 @@ def build_m4_status(
             "engineering_percent": engineering_progress,
             "evidence_percent": evidence_progress,
             "historical_walk_forward": {"completed": 0, "total": None},
-            "forward_samples": {"completed": 0, "since_issue": "2026085"},
+            "forward_samples": {
+                "completed": 0,
+                "since_issue": None,
+                "eligibility_rule": "first post-P2 issue with a complete pre-draw checkpoint",
+                "retroactively_ineligible_issues": ["2026085"],
+            },
             "synthetic_scenarios": {"completed": 0, "total": 9},
             "negative_controls": {"completed": 0, "total": 6},
             "robustness_sensitivities": {"completed": 0, "total": 5},
@@ -157,12 +189,17 @@ def build_m4_status(
             "oos_log_loss_improvement": None,
             "bits_gain_per_issue": None,
             "confidence_interval": None,
-            "practical_null": "NOT_PREREGISTERED",
+            "practical_null": (
+                "[-0.01,+0.01] bits/issue"
+                if p1_complete
+                else "NOT_PREREGISTERED"
+            ),
             "minimum_detectable_effect": None,
             "power": "NOT_EVALUATED",
             "evidence_state": "NOT_STARTED",
         },
         "formal_real_data_run": "NOT_STARTED",
+        "synthetic_validation": "NOT_STARTED",
         "blocked_by": blocked_by,
         "next_ready_task": None if next_ready is None else next_ready.task_key,
         "next_external_dependency": (
@@ -170,6 +207,11 @@ def build_m4_status(
             if forward_intake.status is TaskStatus.EXTERNAL_WAIT
             else None
         ),
+        "forward_event_2026085": {
+            "resolver_status": forward_intake.status.value,
+            "m4_forward_evidence_eligible": False,
+            "reason": "no complete M4 pre-draw checkpoint after P1 freeze and P2 passage",
+        },
         "stop_condition_status": "NOT_EVALUATED",
         "dispatch_performed": False,
         "production_impact": "none",
