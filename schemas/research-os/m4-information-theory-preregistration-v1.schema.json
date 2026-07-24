@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dehps.local/schemas/research-os/m4-information-theory-preregistration-v1.schema.json",
+  "title": "DEHPS M4 information-theory preregistration v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "contract_version",
+    "version",
+    "status",
+    "created_at",
+    "research_questions",
+    "targets",
+    "null_models",
+    "feature_families",
+    "probe_models",
+    "primary_endpoints",
+    "secondary_endpoints",
+    "practical_null",
+    "walk_forward",
+    "dataset_identity",
+    "negative_controls",
+    "synthetic_validation",
+    "bootstrap_permutation",
+    "multiplicity",
+    "power_equivalence",
+    "decision_policy",
+    "time_stability",
+    "forward_evidence",
+    "artifact_contract",
+    "seed_policy",
+    "phase_gates",
+    "guardrails"
+  ],
+  "properties": {
+    "schema_version": {"const": "dehps-m4-information-theory-preregistration.v1"},
+    "contract_version": {"const": "m4-information-theory-contract-v1"},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "status": {"enum": ["DRAFT", "VALIDATED", "FROZEN", "SUPERSEDED"]},
+    "artifact_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "working_tree_clean": {"type": "boolean"},
+    "code_commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "supersedes_digest": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "research_questions": {"type": "array", "minItems": 5},
+    "targets": {"type": "object"},
+    "null_models": {"type": "object"},
+    "feature_families": {"type": "array", "minItems": 7, "maxItems": 7},
+    "probe_models": {"type": "object"},
+    "primary_endpoints": {"type": "array", "minItems": 2, "maxItems": 2},
+    "secondary_endpoints": {"type": "array", "minItems": 1},
+    "practical_null": {
+      "type": "object",
+      "required": [
+        "primary_metric",
+        "lower_bound",
+        "upper_bound",
+        "rationale",
+        "frozen"
+      ],
+      "properties": {
+        "primary_metric": {"const": "bits_gain_per_issue"},
+        "lower_bound": {"const": -0.01},
+        "upper_bound": {"const": 0.01},
+        "rationale": {"type": "string", "minLength": 1},
+        "frozen": {"const": true}
+      }
+    },
+    "walk_forward": {"type": "object"},
+    "dataset_identity": {"type": "object"},
+    "negative_controls": {"type": "array", "minItems": 6, "maxItems": 6},
+    "synthetic_validation": {"type": "object"},
+    "bootstrap_permutation": {"type": "object"},
+    "multiplicity": {"type": "object"},
+    "power_equivalence": {"type": "object"},
+    "decision_policy": {"type": "object"},
+    "time_stability": {"type": "object"},
+    "forward_evidence": {"type": "object"},
+    "artifact_contract": {"type": "object"},
+    "seed_policy": {"type": "object"},
+    "phase_gates": {"type": "object"},
+    "guardrails": {"type": "object"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"enum": ["FROZEN", "SUPERSEDED"]}}},
+      "then": {
+        "required": ["artifact_digest", "working_tree_clean", "code_commit"],
+        "properties": {"working_tree_clean": {"const": true}}
+      }
+    }
+  ]
+}

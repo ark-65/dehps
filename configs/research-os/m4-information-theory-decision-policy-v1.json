@@ -1,0 +1,80 @@
+{
+  "schema_version": "dehps-m4-information-theory-decision-policy.v1",
+  "version": "m4-information-theory-decision-policy-v1",
+  "created_at": "2026-07-24T14:30:00+08:00",
+  "priority": [
+    "REPAIR_MEASUREMENT_SYSTEM",
+    "SUPPORTED_WEAK_SIGNAL",
+    "PRACTICALLY_UNPREDICTABLE",
+    "INCONCLUSIVE_DUE_TO_POWER"
+  ],
+  "rules": {
+    "REPAIR_MEASUREMENT_SYSTEM": {
+      "all": [
+        {
+          "predicate": "any",
+          "conditions": [
+            "synthetic_null_false_positive_rate_exceeds_tolerance",
+            "injected_practical_signal_power_below_0_80",
+            "absolute_estimator_bias_exceeds_0_0025_bits_per_issue",
+            "replay_is_nondeterministic",
+            "data_leakage_check_fails"
+          ]
+        }
+      ],
+      "research_action": "repair_measurement_system",
+      "promotion_gate": "CLOSED",
+      "production_action": "none"
+    },
+    "SUPPORTED_WEAK_SIGNAL": {
+      "all": [
+        "p2_measurement_system_passed",
+        "pe1_direction_positive",
+        "pe2_direction_positive",
+        "primary_confidence_interval_lower_bound_above_0_01_bits_per_issue",
+        "primary_family_holm_adjusted_alpha_passed",
+        "real_pipeline_superior_to_primary_negative_controls",
+        "both_preregistered_chronological_halves_positive",
+        "calibration_not_materially_worse",
+        "conclusion_stable_across_estimators",
+        "conclusion_stable_across_block_sizes"
+      ],
+      "research_action": "limited_model_research",
+      "promotion_gate": "CLOSED",
+      "production_action": "none"
+    },
+    "PRACTICALLY_UNPREDICTABLE": {
+      "all": [
+        "p2_measurement_system_passed",
+        "primary_confidence_interval_inside_minus_0_01_to_plus_0_01_bits_per_issue",
+        "minimum_detectable_effect_at_or_below_0_01_bits_per_issue",
+        "injected_practical_signal_power_at_least_0_80",
+        "real_pipeline_not_stably_superior_to_negative_controls",
+        "conclusion_consistent_across_estimators",
+        "information_upper_bound_below_0_01_bits_per_issue"
+      ],
+      "research_action": "terminate_prediction_research",
+      "promotion_gate": "CLOSED",
+      "production_action": "none"
+    },
+    "INCONCLUSIVE_DUE_TO_POWER": {
+      "all": [
+        "measurement_system_has_not_failed",
+        {
+          "predicate": "any",
+          "conditions": [
+            "primary_confidence_interval_crosses_practical_null_boundary",
+            "minimum_detectable_effect_above_0_01_bits_per_issue",
+            "sample_length_below_power_requirement"
+          ]
+        }
+      ],
+      "research_action": "collect_more_forward_samples",
+      "promotion_gate": "CLOSED",
+      "production_action": "none"
+    }
+  },
+  "tie_break": "first_satisfied_state_in_priority_order",
+  "manual_override": "forbidden",
+  "result_driven_threshold_change": "forbidden"
+}

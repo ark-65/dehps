@@ -50,10 +50,18 @@ from dehps.research_runtime.resident import ResidentResearchRuntime
 from dehps.research_runtime.runtime import ContinuousResearchRuntime
 from dehps.research_os.control_plane import ResearchOSControlPlane
 from dehps.research_os.information_theory import (
+    CANONICAL_PREREGISTRATION_RELATIVE_PATH,
+    InformationTheoryValidationError,
     M4_MANIFEST_RELATIVE_PATH,
+    PhaseGateError,
     build_m4_status,
+    freeze_preregistration,
     load_m4_manifest,
+    load_preregistration,
     manifest_with_external_event,
+    require_formal_run_gate,
+    show_preregistration,
+    validate_preregistration,
 )
 from dehps.research_os.models import ResearchOSValidationError
 from dehps.research_os.repository import PostgresResearchOSRepository
@@ -114,6 +122,17 @@ research_runtime_app = typer.Typer(help="Continuous research runtime decoupled f
 research_os_app = typer.Typer(
     help="Goal-driven Research OS control plane. P1 resolves dependencies but does not dispatch Tasks."
 )
+information_theory_app = typer.Typer(
+    help="M4 information-theory contract surfaces. Statistical execution is phase-gated."
+)
+information_theory_preregistration_app = typer.Typer(
+    help="Validate, freeze, and inspect immutable M4 preregistrations."
+)
+information_theory_app.add_typer(
+    information_theory_preregistration_app,
+    name="preregistration",
+)
+research_os_app.add_typer(information_theory_app, name="information-theory")
 forward_runtime_app = typer.Typer(help="Forward validation runtime decoupled from continuous research.")
 mail_app = typer.Typer(
     help="Operator-controlled email delivery. Credentials are read only from environment variables."
@@ -1778,6 +1797,134 @@ def research_runtime_run(
         )
     except (ValueError, OSError, TypeError, RuntimeError) as exc:
         _fail(exc)
+
+
+@information_theory_preregistration_app.command("validate")
+def information_theory_preregistration_validate(
+    input_file: Path = typer.Option(..., "--input"),
+) -> None:
+    """Validate contract completeness without running any statistical method."""
+    try:
+        _emit(validate_preregistration(load_preregistration(input_file)))
+    except (
+        InformationTheoryValidationError,
+        json.JSONDecodeError,
+        OSError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        _fail(exc)
+
+
+@information_theory_preregistration_app.command("freeze")
+def information_theory_preregistration_freeze(
+    input_file: Path = typer.Option(..., "--input"),
+    output_dir: Path = typer.Option(..., "--output-dir"),
+) -> None:
+    """Freeze one validated preregistration in a digest-addressed directory."""
+    try:
+        result = freeze_preregistration(
+            load_preregistration(input_file),
+            output_dir=output_dir,
+            repo_root=ROOT_DIR,
+        )
+        _emit(
+            {
+                "status": "FROZEN",
+                "digest": result.digest,
+                "output_path": str(result.output_path),
+                "preregistration": result.payload,
+            }
+        )
+    except (
+        InformationTheoryValidationError,
+        json.JSONDecodeError,
+        OSError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        _fail(exc)
+
+
+@information_theory_preregistration_app.command("show")
+def information_theory_preregistration_show(
+    digest: str = typer.Option(..., "--digest"),
+    artifact_dir: Path = typer.Option(
+        ROOT_DIR / "runtime/research-os/information-theory/preregistrations",
+        "--artifact-dir",
+    ),
+) -> None:
+    """Show a frozen preregistration by its immutable digest."""
+    try:
+        _emit(
+            show_preregistration(
+                digest=digest,
+                search_paths=(
+                    artifact_dir,
+                    ROOT_DIR / CANONICAL_PREREGISTRATION_RELATIVE_PATH,
+                ),
+            )
+        )
+    except (
+        InformationTheoryValidationError,
+        json.JSONDecodeError,
+        OSError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        _fail(exc)
+
+
+@information_theory_app.command("status")
+def information_theory_status(
+    input_file: Path = typer.Option(
+        ROOT_DIR / M4_MANIFEST_RELATIVE_PATH,
+        "--input",
+    ),
+) -> None:
+    """Emit P1/P2 phase state without dispatching research work."""
+    try:
+        _emit(build_m4_status(load_m4_manifest(input_file)))
+    except (
+        InformationTheoryValidationError,
+        ResearchOSValidationError,
+        json.JSONDecodeError,
+        OSError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        _fail(exc)
+
+
+def _information_theory_formal_command_gate() -> None:
+    try:
+        require_formal_run_gate(p1_status="FROZEN", p2_status="NOT_STARTED")
+    except PhaseGateError as exc:
+        _fail(exc)
+
+
+@information_theory_app.command("run")
+def information_theory_run() -> None:
+    """Fail closed until P2 measurement validation has passed."""
+    _information_theory_formal_command_gate()
+
+
+@information_theory_app.command("negative-controls")
+def information_theory_negative_controls() -> None:
+    """Fail closed during P1."""
+    _information_theory_formal_command_gate()
+
+
+@information_theory_app.command("power-analysis")
+def information_theory_power_analysis() -> None:
+    """Fail closed during P1."""
+    _information_theory_formal_command_gate()
+
+
+@information_theory_app.command("report")
+def information_theory_report() -> None:
+    """Fail closed during P1."""
+    _information_theory_formal_command_gate()
 
 
 @research_os_app.command("resolve")
