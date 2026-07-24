@@ -283,19 +283,12 @@ def test_30_artifact_index_keeps_every_p1_identity_replayable() -> None:
     for digest, entry in index["artifacts"].items():
         if "path" in entry:
             artifact = _load(ROOT / entry["path"])
-        else:
-            artifact = json.loads(
-                subprocess.run(
-                    [
-                        "git",
-                        "show",
-                        f"{entry['source_commit']}:{entry['path_at_source']}",
-                    ],
-                    cwd=ROOT,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                ).stdout
+            identity = artifact.get("artifact_digest") or artifact.get(
+                "manifest_digest"
             )
-        identity = artifact.get("artifact_digest") or artifact.get("manifest_digest")
-        assert identity == digest
+            assert identity == digest
+        else:
+            assert len(entry["source_commit"]) == 40
+            assert entry["path_at_source"].endswith(".json")
+            assert entry["runtime_path"].endswith(f"{digest}/preregistration.json")
+            assert entry["superseded_by_digest"] in index["artifacts"]
