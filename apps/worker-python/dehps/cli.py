@@ -49,6 +49,12 @@ from dehps.research_runtime.models import ResidentResearchRuntimeConfig, Researc
 from dehps.research_runtime.resident import ResidentResearchRuntime
 from dehps.research_runtime.runtime import ContinuousResearchRuntime
 from dehps.research_os.control_plane import ResearchOSControlPlane
+from dehps.research_os.information_theory import (
+    M4_MANIFEST_RELATIVE_PATH,
+    build_m4_status,
+    load_m4_manifest,
+    manifest_with_external_event,
+)
 from dehps.research_os.models import ResearchOSValidationError
 from dehps.research_os.repository import PostgresResearchOSRepository
 from dehps.research_os.shadow import LegacyResearchOSShadowService
@@ -1782,6 +1788,57 @@ def research_os_resolve(
     try:
         _emit(ResearchOSControlPlane().resolve_payload(_load_object(input_file)))
     except (ResearchOSValidationError, HypothesisRegistryError, OSError, TypeError, ValueError) as exc:
+        _fail(exc)
+
+
+@research_os_app.command("m4-manifest")
+def research_os_m4_manifest(
+    input_file: Path = typer.Option(
+        ROOT_DIR / M4_MANIFEST_RELATIVE_PATH,
+        "--input",
+    ),
+) -> None:
+    """Emit the canonical digest-addressed M4 Goal/Task manifest without dispatch."""
+    try:
+        _emit(load_m4_manifest(input_file).to_dict(include_digest=True))
+    except (
+        json.JSONDecodeError,
+        ResearchOSValidationError,
+        OSError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        _fail(exc)
+
+
+@research_os_app.command("m4-status")
+def research_os_m4_status(
+    input_file: Path = typer.Option(
+        ROOT_DIR / M4_MANIFEST_RELATIVE_PATH,
+        "--input",
+    ),
+    external_event: str | None = typer.Option(
+        None,
+        "--external-event",
+        help="Optional exact observed event, such as draw:2026085.",
+    ),
+) -> None:
+    """Resolve the canonical M4 manifest into the unified read-only status report."""
+    try:
+        manifest = load_m4_manifest(input_file)
+        if external_event is not None:
+            manifest = manifest_with_external_event(
+                manifest,
+                event_key=external_event,
+            )
+        _emit(build_m4_status(manifest))
+    except (
+        json.JSONDecodeError,
+        ResearchOSValidationError,
+        OSError,
+        TypeError,
+        ValueError,
+    ) as exc:
         _fail(exc)
 
 
