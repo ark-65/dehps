@@ -2,8 +2,11 @@
   "schema_version": "dehps-m4-information-theory-preregistration.v1",
   "contract_version": "m4-information-theory-contract-v1",
   "version": "1.0.1",
-  "status": "VALIDATED",
+  "status": "FROZEN",
+  "artifact_digest": "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1",
   "created_at": "2026-07-24T14:30:00+08:00",
+  "code_commit": "823eac2fd413633280dc64079b36e8aac97c0eb7",
+  "working_tree_clean": true,
   "supersedes_digest": "a4f29c1392305b6ef2dc90134901c74f8ffb297071838d734d1e17e8439ad6e8",
   "research_questions": [
     "RQ1_PRIOR_STATE_REDUCES_NEXT_DRAW_UNCERTAINTY",

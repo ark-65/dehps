@@ -52,8 +52,8 @@ def test_01_canonical_preregistration_validates_and_is_frozen() -> None:
     assert result == {
         "valid": True,
         "status": "FROZEN",
-        "version": "1.0.0",
-        "digest": "a4f29c1392305b6ef2dc90134901c74f8ffb297071838d734d1e17e8439ad6e8",
+        "version": "1.0.1",
+        "digest": "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1",
         "contract_version": "m4-information-theory-contract-v1",
     }
 
@@ -281,6 +281,21 @@ def test_30_artifact_index_keeps_every_p1_identity_replayable() -> None:
         ROOT / "configs/research-os/m4-information-theory-artifact-index-v1.json"
     )
     for digest, entry in index["artifacts"].items():
-        artifact = _load(ROOT / entry["path"])
+        if "path" in entry:
+            artifact = _load(ROOT / entry["path"])
+        else:
+            artifact = json.loads(
+                subprocess.run(
+                    [
+                        "git",
+                        "show",
+                        f"{entry['source_commit']}:{entry['path_at_source']}",
+                    ],
+                    cwd=ROOT,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout
+            )
         identity = artifact.get("artifact_digest") or artifact.get("manifest_digest")
         assert identity == digest

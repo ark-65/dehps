@@ -1,6 +1,6 @@
 {
   "schema_version": "research-os-control-plane-v1",
-  "manifest_digest": "9a6cb175d0edcf0f3db5389eba6900be2dbefc97d2d6ded77bc2f23920f06499",
+  "manifest_digest": "1633316d335dc9d4d632df39792c5a5bb76acce58d698abe0c650c713baeadf8",
   "goals": [
     {
       "goal_key": "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION",
@@ -56,11 +56,11 @@
         "null_model": "theoretical_uniform_or_training_window_base_rate",
         "formal_real_data_run": "not_started",
         "preregistration_status": "FROZEN",
-        "preregistration_version": "1.0.0",
-        "preregistration_digest": "a4f29c1392305b6ef2dc90134901c74f8ffb297071838d734d1e17e8439ad6e8",
+        "preregistration_version": "1.0.1",
+        "preregistration_digest": "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1",
         "decision_policy_digest": "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
         "p2_input_contract_status": "VALID",
-        "p2_input_contract_digest": "9d566449102e0c4caf67c8e56ffe6c6b680705aada50590eb18be9ea832fa109"
+        "p2_input_contract_digest": "0911059971a27faf9887ddf07c668e0c9eb8210e49859f3540a4f3f739d3d56e"
       },
       "target_metric_manifest": {
         "allowed_decisions": [
@@ -210,7 +210,7 @@
         "evidence_complete": false,
         "formal_real_data_run": "not_started",
         "preregistration_status": "FROZEN",
-        "preregistration_digest": "a4f29c1392305b6ef2dc90134901c74f8ffb297071838d734d1e17e8439ad6e8",
+        "preregistration_digest": "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1",
         "decision_policy_digest": "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
         "p2_input_contract_status": "VALID"
       }
@@ -374,9 +374,9 @@
     "artifacts": [
       "legacy-mainline-final-baseline",
       "forward-settlement:2026084:ef4817983ccc209aa87ff00a12be0e9f0ad263a00d8b008d873d6722d73ff932",
-      "m4-preregistration:a4f29c1392305b6ef2dc90134901c74f8ffb297071838d734d1e17e8439ad6e8",
+      "m4-preregistration:6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1",
       "m4-decision-policy:824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
-      "m4-p2-input:9d566449102e0c4caf67c8e56ffe6c6b680705aada50590eb18be9ea832fa109"
+      "m4-p2-input:0911059971a27faf9887ddf07c668e0c9eb8210e49859f3540a4f3f739d3d56e"
     ],
     "evidence": [
       "research-hypothesis:seven-red-compound-top10-walk-forward-v1:rejected"

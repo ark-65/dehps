@@ -13,17 +13,21 @@
 |---|---|
 | Contract | `m4-information-theory-contract-v1` |
 | Contract digest | `ae4e741cfc55547785ca9cf57b5b49f37a3d8c4f2bd53daeff9228982f797a69` |
-| Preregistration version | `1.0.0` |
-| Preregistration digest | `a4f29c1392305b6ef2dc90134901c74f8ffb297071838d734d1e17e8439ad6e8` |
+| Preregistration version | `1.0.1` |
+| Preregistration digest | `6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1` |
+| Superseded preregistration | `a4f29c1392305b6ef2dc90134901c74f8ffb297071838d734d1e17e8439ad6e8` |
 | Decision policy digest | `824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d` |
-| P2 input digest | `9d566449102e0c4caf67c8e56ffe6c6b680705aada50590eb18be9ea832fa109` |
+| P2 input digest | `0911059971a27faf9887ddf07c668e0c9eb8210e49859f3540a4f3f739d3d56e` |
+| Research OS manifest | `1633316d335dc9d4d632df39792c5a5bb76acce58d698abe0c650c713baeadf8` |
 | History digest | `30224d09a8b2d9080d3bc848f50b534c6d6de50b2eac867882915e85acbf206b` |
 | Feature contract digest | `c7b5d9572f93c17f4b84debd3f0e9f9d445b7e3c76c5bfe5d594d180064c9869` |
 | F5 component manifest | `42ed7fc0a60a1be64f6f097f14e765f447f941d4427395a2e86bdbc99431c0c4` |
 | Target contract digest | `c768d4cc34ca92ce705cc9bc796798e459e85ccc4bc32c2e44622691c5068b2a` |
-| Freeze source commit | `80116b488f461ed214b46b9e2668bb190a435d0c` |
+| Freeze source commit | `823eac2fd413633280dc64079b36e8aac97c0eb7` |
 
 The canonical history identity is metadata-only: 3,481 issues from `2003001` (2003-02-23) through `2026084` (2026-07-23). P1 did not calculate any outcome statistic.
+
+During acceptance review, v1.0.0 was found to contain an incorrect displayed decimal for `1/C(33,6)`. No run had consumed it. The artifact was retained unchanged at commit `c67d8cdf284a60fc9991e2c2dab65130f296b738`; v1.0.1 corrected the constant to `9.028791008768762e-07`, records the old digest in `supersedes_digest`, and was frozen from a new clean commit. This is the lifecycle rule working as intended, not an in-place rewrite.
 
 ## Frozen research choices
 

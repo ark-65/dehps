@@ -1,9 +1,9 @@
 {
   "schema_version": "dehps-m4-information-theory-p2-input.v1",
-  "artifact_digest": "9d566449102e0c4caf67c8e56ffe6c6b680705aada50590eb18be9ea832fa109",
+  "artifact_digest": "0911059971a27faf9887ddf07c668e0c9eb8210e49859f3540a4f3f739d3d56e",
   "contract_version": "m4-information-theory-contract-v1",
   "preregistration_status": "FROZEN",
-  "preregistration_digest": "a4f29c1392305b6ef2dc90134901c74f8ffb297071838d734d1e17e8439ad6e8",
+  "preregistration_digest": "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1",
   "decision_policy_digest": "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
   "dataset_digest": "30224d09a8b2d9080d3bc848f50b534c6d6de50b2eac867882915e85acbf206b",
   "target_contract_digest": "c768d4cc34ca92ce705cc9bc796798e459e85ccc4bc32c2e44622691c5068b2a",
