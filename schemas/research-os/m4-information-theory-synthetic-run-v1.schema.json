@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dehps-m4-information-theory-synthetic-run.v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "artifact_digest",
+    "phase",
+    "status",
+    "preregistration_digest",
+    "decision_policy_digest",
+    "data_source",
+    "seed_policy",
+    "null_replicate_count",
+    "sequence_scales",
+    "scenarios",
+    "probe_allowlist",
+    "block_sizes",
+    "planned_workload",
+    "execution"
+  ],
+  "properties": {
+    "schema_version": {"const": "dehps-m4-information-theory-synthetic-run.v1"},
+    "artifact_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "phase": {"const": "M4-P2.1"},
+    "status": {"const": "PLANNED"},
+    "data_source": {"const": "synthetic_only"},
+    "real_dataset_reference": {"type": "null"},
+    "null_replicate_count": {"const": 1000},
+    "sequence_scales": {"type": "array", "minItems": 3, "maxItems": 3},
+    "scenarios": {"type": "array", "minItems": 13, "maxItems": 13},
+    "execution": {
+      "const": {
+        "large_replicates_executed": false,
+        "metrics_executed": false,
+        "real_data_executed": false
+      }
+    }
+  },
+  "additionalProperties": true
+}

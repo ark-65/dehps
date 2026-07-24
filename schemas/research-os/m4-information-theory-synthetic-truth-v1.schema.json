@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dehps-m4-information-theory-synthetic-truth.v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "scenario_id",
+    "legal_combination_count",
+    "number_marginal",
+    "pair_marginal",
+    "full_combination_probability",
+    "truth_digest"
+  ],
+  "properties": {
+    "schema_version": {"const": "dehps-m4-information-theory-synthetic-truth.v1"},
+    "scenario_id": {"const": "NULL_UNIFORM"},
+    "legal_combination_count": {"type": "integer", "minimum": 1},
+    "truth_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": true
+}

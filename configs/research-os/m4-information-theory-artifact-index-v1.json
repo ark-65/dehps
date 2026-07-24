@@ -26,8 +26,18 @@
       "path": "configs/research-os/m4-information-theory-p2-input-v1.json"
     },
     "1633316d335dc9d4d632df39792c5a5bb76acce58d698abe0c650c713baeadf8": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "source_commit": "1b4bdde9bad333b605a4e5dc1bbe335444556427",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "superseded_by_digest": "c102efe1f177fca3354b4270dd246d4eed8f2e6e710191f04fc97ec99b8222a2"
+    },
+    "c102efe1f177fca3354b4270dd246d4eed8f2e6e710191f04fc97ec99b8222a2": {
       "artifact_type": "research_os_control_plane_manifest",
       "path": "configs/research-os/m4-information-theory-evidence-v1.json"
+    },
+    "8493987cc4414414e33fb5c5ea148be1f42a1d9e57609600c4346fb642cbfa08": {
+      "artifact_type": "information_theory_p2_synthetic_run_manifest",
+      "path": "configs/research-os/m4-information-theory-p2-synthetic-run-manifest-v1.json"
     }
   },
   "lookup_rule": "digest_must_equal_the_artifact_identity_at_the_registered_canonical_path",
