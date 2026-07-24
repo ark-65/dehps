@@ -280,6 +280,11 @@ def validate_preregistration(payload: Mapping[str, Any]) -> dict[str, Any]:
         str(payload["supersedes_digest"])
     ):
         _fail("supersedes_digest_invalid", "supersedes_digest must be sha256")
+    if payload.get("supersedes_digest") is not None and payload.get("version") == "1.0.0":
+        _fail(
+            "supersede_version_not_advanced",
+            "a superseding preregistration must use a new semantic version",
+        )
 
     return {
         "valid": True,

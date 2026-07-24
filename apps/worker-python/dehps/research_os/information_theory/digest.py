@@ -9,6 +9,7 @@ from dehps.contracts import canonical_digest
 PREREGISTRATION_DIGEST_DOMAIN = "dehps.m4-information-theory.preregistration.v1"
 DECISION_POLICY_DIGEST_DOMAIN = "dehps.m4-information-theory.decision-policy.v1"
 CONFIG_DIGEST_DOMAIN = "dehps.m4-information-theory.config.v1"
+CONTRACT_DIGEST_DOMAIN = "dehps.m4-information-theory.contract.v1"
 
 
 def _without_self_digest(payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -35,4 +36,11 @@ def config_digest(payload: Mapping[str, Any]) -> str:
     return canonical_digest(
         _without_self_digest(payload),
         domain=CONFIG_DIGEST_DOMAIN,
+    )
+
+
+def information_theory_contract_digest(payload: Mapping[str, Any]) -> str:
+    return canonical_digest(
+        _without_self_digest(payload),
+        domain=CONTRACT_DIGEST_DOMAIN,
     )

@@ -9,6 +9,7 @@ from .digest import (
     DECISION_POLICY_DIGEST_DOMAIN,
     PREREGISTRATION_DIGEST_DOMAIN,
     decision_policy_digest,
+    information_theory_contract_digest,
     preregistration_digest,
 )
 from .enums import DecisionState, PreregistrationStatus
@@ -57,6 +58,7 @@ __all__ = [
     "build_m4_status",
     "decision_policy_digest",
     "freeze_preregistration",
+    "information_theory_contract_digest",
     "load_m4_manifest",
     "load_preregistration",
     "manifest_with_external_event",

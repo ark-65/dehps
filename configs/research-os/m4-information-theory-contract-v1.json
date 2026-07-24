@@ -1,6 +1,7 @@
 {
   "schema_version": "dehps-m4-information-theory-contract.v1",
   "contract_version": "m4-information-theory-contract-v1",
+  "artifact_digest": "ae4e741cfc55547785ca9cf57b5b49f37a3d8c4f2bd53daeff9228982f797a69",
   "status": "FROZEN",
   "scope": "research_contract_and_preregistration_only",
   "research_questions": [

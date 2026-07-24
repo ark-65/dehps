@@ -1,0 +1,28 @@
+{
+  "schema_version": "dehps-m4-information-theory-artifact-index.v1",
+  "artifacts": {
+    "ae4e741cfc55547785ca9cf57b5b49f37a3d8c4f2bd53daeff9228982f797a69": {
+      "artifact_type": "information_theory_contract",
+      "path": "configs/research-os/m4-information-theory-contract-v1.json"
+    },
+    "a4f29c1392305b6ef2dc90134901c74f8ffb297071838d734d1e17e8439ad6e8": {
+      "artifact_type": "information_theory_preregistration",
+      "path": "configs/research-os/m4-information-theory-preregistration-v1.json"
+    },
+    "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d": {
+      "artifact_type": "information_theory_decision_policy",
+      "path": "configs/research-os/m4-information-theory-decision-policy-v1.json"
+    },
+    "9d566449102e0c4caf67c8e56ffe6c6b680705aada50590eb18be9ea832fa109": {
+      "artifact_type": "information_theory_p2_input",
+      "path": "configs/research-os/m4-information-theory-p2-input-v1.json"
+    },
+    "9a6cb175d0edcf0f3db5389eba6900be2dbefc97d2d6ded77bc2f23920f06499": {
+      "artifact_type": "research_os_control_plane_manifest",
+      "path": "configs/research-os/m4-information-theory-evidence-v1.json"
+    }
+  },
+  "lookup_rule": "digest_must_equal_the_artifact_identity_at_the_registered_canonical_path",
+  "deletion_policy": "forbidden",
+  "supersede_policy": "append_new_digest_and_retain_old_entry"
+}

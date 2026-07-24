@@ -1,6 +1,6 @@
 {
   "schema_version": "research-os-control-plane-v1",
-  "manifest_digest": "84e59c1f2c8a556a5c00f9a3e68776e8b07b466d9f0a3292c2055a3c1dd2f4c0",
+  "manifest_digest": "9a6cb175d0edcf0f3db5389eba6900be2dbefc97d2d6ded77bc2f23920f06499",
   "goals": [
     {
       "goal_key": "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION",
@@ -55,7 +55,12 @@
         "primary_endpoint": "out_of_sample_log_loss_improvement",
         "null_model": "theoretical_uniform_or_training_window_base_rate",
         "formal_real_data_run": "not_started",
-        "preregistration_digest": null
+        "preregistration_status": "FROZEN",
+        "preregistration_version": "1.0.0",
+        "preregistration_digest": "a4f29c1392305b6ef2dc90134901c74f8ffb297071838d734d1e17e8439ad6e8",
+        "decision_policy_digest": "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
+        "p2_input_contract_status": "VALID",
+        "p2_input_contract_digest": "9d566449102e0c4caf67c8e56ffe6c6b680705aada50590eb18be9ea832fa109"
       },
       "target_metric_manifest": {
         "allowed_decisions": [
@@ -188,6 +193,7 @@
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "task_type": "preregistration_contract",
       "lane": "research",
+      "status": "completed",
       "priority": 110,
       "dependencies": [
         {
@@ -199,10 +205,14 @@
       "metric_contract": {
         "phase": "M4-P1",
         "engineering_weight_percent": 15,
-        "engineering_complete": false,
+        "engineering_complete": true,
         "evidence_weight_percent": 0,
         "evidence_complete": false,
-        "formal_real_data_run": "not_started"
+        "formal_real_data_run": "not_started",
+        "preregistration_status": "FROZEN",
+        "preregistration_digest": "a4f29c1392305b6ef2dc90134901c74f8ffb297071838d734d1e17e8439ad6e8",
+        "decision_policy_digest": "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
+        "p2_input_contract_status": "VALID"
       }
     },
     {
@@ -363,7 +373,10 @@
   "facts": {
     "artifacts": [
       "legacy-mainline-final-baseline",
-      "forward-settlement:2026084:ef4817983ccc209aa87ff00a12be0e9f0ad263a00d8b008d873d6722d73ff932"
+      "forward-settlement:2026084:ef4817983ccc209aa87ff00a12be0e9f0ad263a00d8b008d873d6722d73ff932",
+      "m4-preregistration:a4f29c1392305b6ef2dc90134901c74f8ffb297071838d734d1e17e8439ad6e8",
+      "m4-decision-policy:824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
+      "m4-p2-input:9d566449102e0c4caf67c8e56ffe6c6b680705aada50590eb18be9ea832fa109"
     ],
     "evidence": [
       "research-hypothesis:seven-red-compound-top10-walk-forward-v1:rejected"

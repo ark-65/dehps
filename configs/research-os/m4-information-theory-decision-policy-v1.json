@@ -1,6 +1,7 @@
 {
   "schema_version": "dehps-m4-information-theory-decision-policy.v1",
   "version": "m4-information-theory-decision-policy-v1",
+  "artifact_digest": "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
   "created_at": "2026-07-24T14:30:00+08:00",
   "priority": [
     "REPAIR_MEASUREMENT_SYSTEM",

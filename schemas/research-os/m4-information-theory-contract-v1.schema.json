@@ -18,6 +18,7 @@
   "properties": {
     "schema_version": {"const": "dehps-m4-information-theory-contract.v1"},
     "contract_version": {"const": "m4-information-theory-contract-v1"},
+    "artifact_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "status": {"const": "FROZEN"},
     "scope": {"const": "research_contract_and_preregistration_only"},
     "research_questions": {
