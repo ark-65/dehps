@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dehps-m4-information-theory-synthetic-scenario.v1",
+  "type": "object",
+  "required": ["schema_version", "scenario_id", "mechanism", "signal_strength", "target_bits_per_issue", "implemented", "data_source"],
+  "properties": {
+    "schema_version": {"const": "dehps-m4-information-theory-synthetic-scenario.v1"},
+    "scenario_id": {"type": "string", "minLength": 1},
+    "mechanism": {"type": "string", "minLength": 1},
+    "signal_strength": {"enum": ["ZERO", "WEAK", "MEDIUM_PRACTICAL", "STRONG"]},
+    "target_bits_per_issue": {"enum": [0, 0.001, 0.01, 0.05]},
+    "implemented": {"type": "boolean"},
+    "data_source": {"const": "synthetic_only"}
+  },
+  "additionalProperties": false
+}

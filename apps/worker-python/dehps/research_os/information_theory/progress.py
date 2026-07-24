@@ -30,6 +30,15 @@ PHASE_TASK_KEYS = {
     "M4-P5": "m4-p5-forward-evidence",
     "M4-P6": "m4-p6-information-bound-and-decision",
 }
+P2_SUBTASK_KEYS = (
+    "m4-p2-synthetic-contracts-and-null-generator",
+    "m4-p2-metric-kernel",
+    "m4-p2-walk-forward-probe-harness",
+    "m4-p2-injected-signal-calibration",
+    "m4-p2-resampling",
+    "m4-p2-false-positive-and-power-runs",
+    "m4-p2-automatic-gate-and-report",
+)
 
 
 def load_m4_manifest(path: Path) -> ControlPlaneManifest:
@@ -72,6 +81,12 @@ def build_m4_status(
     current_task_key = PHASE_TASK_KEYS[current_phase]
     current_resolution = resolutions[current_task_key]
     current_state = current_resolution.status.value.upper()
+    if (
+        current_phase == "M4-P2"
+        and resolutions[P2_SUBTASK_KEYS[0]].status is TaskStatus.COMPLETED
+        and resolutions[P2_SUBTASK_KEYS[-1]].status is not TaskStatus.COMPLETED
+    ):
+        current_state = "RUNNING"
     forward_intake = resolutions["m4-forward-evidence-intake-2026085"]
     if current_phase == "M4-P5":
         if forward_intake.status is TaskStatus.EXTERNAL_WAIT:
@@ -91,6 +106,11 @@ def build_m4_status(
         _metric(task).get("engineering_weight_percent", 0)
         for task in _phase_tasks(tasks)
         if _metric(task).get("engineering_complete") is True
+    )
+    engineering_progress += sum(
+        _metric(tasks[task_key]).get("engineering_increment_percent", 0)
+        for task_key in P2_SUBTASK_KEYS
+        if resolutions[task_key].status is TaskStatus.COMPLETED
     )
     evidence_progress = sum(
         _metric(task).get("evidence_weight_percent", 0)
@@ -129,6 +149,15 @@ def build_m4_status(
                 "P2 input contract validated",
             ]
         )
+    p2_1_complete = resolutions[P2_SUBTASK_KEYS[0]].status is TaskStatus.COMPLETED
+    if p2_1_complete:
+        completed.extend(
+            [
+                "P2.1 synthetic contracts and schemas frozen",
+                "uniform six-of-33 null generator replay contract verified",
+                "P2 fixed workload manifest frozen without formal execution",
+            ]
+        )
 
     return {
         "schema_version": "dehps-m4-information-theory-status.v1",
@@ -151,6 +180,11 @@ def build_m4_status(
             "preregistration_digest": m4_baseline.get("preregistration_digest"),
             "decision_policy_digest": m4_baseline.get("decision_policy_digest"),
             "p2_input_contract_digest": m4_baseline.get("p2_input_contract_digest"),
+            "p2_synthetic_run_manifest_digest": (
+                "8493987cc4414414e33fb5c5ea148be1f42a1d9e57609600c4346fb642cbfa08"
+                if p2_1_complete
+                else None
+            ),
             "control_plane_manifest_digest": manifest.artifact_digest,
             "legacy_settlement_digest": json.loads(
                 legacy_goal.baseline_metric_manifest
@@ -179,7 +213,7 @@ def build_m4_status(
                 "eligibility_rule": "first post-P2 issue with a complete pre-draw checkpoint",
                 "retroactively_ineligible_issues": ["2026085"],
             },
-            "synthetic_scenarios": {"completed": 0, "total": 9},
+            "synthetic_scenarios": {"completed": 0, "total": 13},
             "negative_controls": {"completed": 0, "total": 6},
             "robustness_sensitivities": {"completed": 0, "total": 5},
             "feature_families": {"completed": 0, "total": 7},
@@ -199,7 +233,14 @@ def build_m4_status(
             "evidence_state": "NOT_STARTED",
         },
         "formal_real_data_run": "NOT_STARTED",
-        "synthetic_validation": "NOT_STARTED",
+        "synthetic_validation": (
+            "P2.1_CONTRACT_READY" if p2_1_complete else "NOT_STARTED"
+        ),
+        "p2_subphase": {
+            "completed": ["M4-P2.1"] if p2_1_complete else [],
+            "current": "M4-P2.2" if p2_1_complete else "M4-P2.1",
+            "gate": "NOT_EVALUATED",
+        },
         "blocked_by": blocked_by,
         "next_ready_task": None if next_ready is None else next_ready.task_key,
         "next_external_dependency": (

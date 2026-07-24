@@ -218,9 +218,9 @@ def test_22_2026085_remains_external_wait_and_ineligible() -> None:
     ]
 
 
-def test_23_engineering_progress_is_twenty_percent() -> None:
+def test_23_engineering_progress_includes_completed_p2_1() -> None:
     status = build_m4_status(load_m4_manifest(MANIFEST_PATH))
-    assert status["progress"]["engineering_percent"] == 20
+    assert status["progress"]["engineering_percent"] == 23
 
 
 def test_24_evidence_progress_remains_zero() -> None:
@@ -232,11 +232,9 @@ def test_24_evidence_progress_remains_zero() -> None:
 def test_25_resolver_advances_only_to_p2() -> None:
     manifest = load_m4_manifest(MANIFEST_PATH)
     snapshot = ResearchOSControlPlane().resolve(manifest)
-    assert [item.task_key for item in snapshot.ready_queue] == [
-        "m4-p2-synthetic-measurement-validation"
-    ]
+    assert [item.task_key for item in snapshot.ready_queue] == ["m4-p2-metric-kernel"]
     status = build_m4_status(manifest, snapshot=snapshot)
-    assert (status["current_phase"], status["current_state"]) == ("M4-P2", "READY")
+    assert (status["current_phase"], status["current_state"]) == ("M4-P2", "RUNNING")
 
 
 def test_26_decision_policy_is_digest_addressed_and_valid() -> None:
@@ -290,5 +288,6 @@ def test_30_artifact_index_keeps_every_p1_identity_replayable() -> None:
         else:
             assert len(entry["source_commit"]) == 40
             assert entry["path_at_source"].endswith(".json")
-            assert entry["runtime_path"].endswith(f"{digest}/preregistration.json")
+            if entry["artifact_type"] == "superseded_information_theory_preregistration":
+                assert entry["runtime_path"].endswith(f"{digest}/preregistration.json")
             assert entry["superseded_by_digest"] in index["artifacts"]

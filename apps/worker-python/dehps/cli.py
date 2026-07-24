@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -62,6 +63,10 @@ from dehps.research_os.information_theory import (
     require_formal_run_gate,
     show_preregistration,
     validate_preregistration,
+)
+from dehps.research_os.information_theory.synthetic import (
+    generate_null_dataset,
+    load_synthetic_run_manifest,
 )
 from dehps.research_os.models import ResearchOSValidationError
 from dehps.research_os.repository import PostgresResearchOSRepository
@@ -128,9 +133,16 @@ information_theory_app = typer.Typer(
 information_theory_preregistration_app = typer.Typer(
     help="Validate, freeze, and inspect immutable M4 preregistrations."
 )
+information_theory_synthetic_app = typer.Typer(
+    help="P2.1 synthetic contracts and one-replicate null generation."
+)
 information_theory_app.add_typer(
     information_theory_preregistration_app,
     name="preregistration",
+)
+information_theory_app.add_typer(
+    information_theory_synthetic_app,
+    name="synthetic",
 )
 research_os_app.add_typer(information_theory_app, name="information-theory")
 forward_runtime_app = typer.Typer(help="Forward validation runtime decoupled from continuous research.")
@@ -1894,6 +1906,114 @@ def information_theory_status(
         ValueError,
     ) as exc:
         _fail(exc)
+
+
+@information_theory_synthetic_app.command("validate-config")
+def information_theory_synthetic_validate_config(
+    input_file: Path = typer.Option(..., "--input"),
+) -> None:
+    """Validate the frozen P2.1 workload contract without executing it."""
+    try:
+        manifest = load_synthetic_run_manifest(input_file)
+        _emit(
+            {
+                "valid": True,
+                "phase": "M4-P2.1",
+                "status": manifest.payload["status"],
+                "artifact_digest": manifest.artifact_digest,
+                "scenario_count": len(manifest.scenarios),
+                "scale_count": len(manifest.scales),
+                "large_replicates_executed": False,
+            }
+        )
+    except (json.JSONDecodeError, OSError, TypeError, ValueError) as exc:
+        _fail(exc)
+
+
+@information_theory_synthetic_app.command("generate")
+def information_theory_synthetic_generate(
+    input_file: Path = typer.Option(..., "--input"),
+    scale_id: str = typer.Option(..., "--scale"),
+    seed: int = typer.Option(..., "--seed"),
+    output_dir: Path = typer.Option(..., "--output-dir"),
+) -> None:
+    """Generate one digest-addressed null dataset; formal replicate runs stay gated."""
+    try:
+        dirty = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=ROOT_DIR,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        if dirty:
+            raise ValueError("dirty_worktree: synthetic artifact generation requires a clean tree")
+        manifest = load_synthetic_run_manifest(input_file)
+        artifact = generate_null_dataset(
+            manifest,
+            scale_id=scale_id,
+            seed=seed,
+        ).to_dict()
+        destination = output_dir / artifact["artifact_digest"] / "dataset.json"
+        if destination.exists():
+            existing = json.loads(destination.read_text(encoding="utf-8"))
+            if existing != artifact:
+                raise ValueError("digest collision: existing synthetic artifact differs")
+        else:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(
+                json.dumps(artifact, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+                encoding="utf-8",
+            )
+        _emit(
+            {
+                "status": "GENERATED",
+                "artifact_digest": artifact["artifact_digest"],
+                "draw_digest": artifact["draw_digest"],
+                "target_digest": artifact["target_digest"],
+                "output_path": str(destination),
+            }
+        )
+    except (
+        json.JSONDecodeError,
+        OSError,
+        subprocess.CalledProcessError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        _fail(exc)
+
+
+def _information_theory_synthetic_execution_gate() -> None:
+    _fail(
+        PhaseGateError(
+            "P2.2-P2.7 execution is not implemented or authorized by P2.1",
+        )
+    )
+
+
+@information_theory_synthetic_app.command("run")
+def information_theory_synthetic_run() -> None:
+    """Fail closed until the remaining P2 implementation contracts exist."""
+    _information_theory_synthetic_execution_gate()
+
+
+@information_theory_synthetic_app.command("resume")
+def information_theory_synthetic_resume() -> None:
+    """Fail closed until a formal synthetic run exists."""
+    _information_theory_synthetic_execution_gate()
+
+
+@information_theory_synthetic_app.command("report")
+def information_theory_synthetic_report() -> None:
+    """Fail closed until a formal synthetic run exists."""
+    _information_theory_synthetic_execution_gate()
+
+
+@information_theory_synthetic_app.command("gate")
+def information_theory_synthetic_gate() -> None:
+    """Fail closed until P2.6 evidence exists."""
+    _information_theory_synthetic_execution_gate()
 
 
 def _information_theory_formal_command_gate() -> None:

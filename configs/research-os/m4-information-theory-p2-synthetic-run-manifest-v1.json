@@ -1,0 +1,216 @@
+{
+  "schema_version": "dehps-m4-information-theory-synthetic-run.v1",
+  "artifact_digest": "8493987cc4414414e33fb5c5ea148be1f42a1d9e57609600c4346fb642cbfa08",
+  "phase": "M4-P2.1",
+  "status": "PLANNED",
+  "contract_version": "1.0.0",
+  "baseline_commit": "1b4bdde9bad333b605a4e5dc1bbe335444556427",
+  "preregistration_digest": "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1",
+  "decision_policy_digest": "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
+  "data_source": "synthetic_only",
+  "real_dataset_reference": null,
+  "legal_sample_space": {
+    "population_size": 33,
+    "draw_size": 6,
+    "replacement": false,
+    "canonical_order": "ascending",
+    "issue_independence": true,
+    "mechanism": "uniform_choose_6_without_replacement_from_33"
+  },
+  "seed_policy": {
+    "seed_range": [200000, 201000],
+    "aggregation": "distribution",
+    "selection_policy": "no_best_seed"
+  },
+  "null_replicate_count": 1000,
+  "sequence_scales": [
+    {
+      "scale_id": "HISTORICAL",
+      "sequence_length": 3481,
+      "minimum_training_length": 900,
+      "outer_evaluation_length": 2581,
+      "derivation": "frozen_history_issue_count"
+    },
+    {
+      "scale_id": "FORWARD_61",
+      "sequence_length": 961,
+      "minimum_training_length": 900,
+      "outer_evaluation_length": 61,
+      "derivation": "minimum_training_plus_61_outer_issues"
+    },
+    {
+      "scale_id": "LONG",
+      "sequence_length": 6962,
+      "minimum_training_length": 900,
+      "outer_evaluation_length": 6062,
+      "derivation": "two_times_frozen_history_issue_count"
+    }
+  ],
+  "scenarios": [
+    {
+      "schema_version": "dehps-m4-information-theory-synthetic-scenario.v1",
+      "scenario_id": "NULL_UNIFORM",
+      "mechanism": "uniform_choose_6_without_replacement_from_33",
+      "signal_strength": "ZERO",
+      "target_bits_per_issue": 0,
+      "implemented": true,
+      "data_source": "synthetic_only"
+    },
+    {
+      "schema_version": "dehps-m4-information-theory-synthetic-scenario.v1",
+      "scenario_id": "WEAK_SINGLE_NUMBER",
+      "mechanism": "single_number_conditional_shift",
+      "signal_strength": "WEAK",
+      "target_bits_per_issue": 0.001,
+      "implemented": false,
+      "data_source": "synthetic_only"
+    },
+    {
+      "schema_version": "dehps-m4-information-theory-synthetic-scenario.v1",
+      "scenario_id": "WEAK_LOCAL_TEMPORAL",
+      "mechanism": "local_temporal_state",
+      "signal_strength": "WEAK",
+      "target_bits_per_issue": 0.001,
+      "implemented": false,
+      "data_source": "synthetic_only"
+    },
+    {
+      "schema_version": "dehps-m4-information-theory-synthetic-scenario.v1",
+      "scenario_id": "WEAK_PAIR",
+      "mechanism": "pair_conditional_signal",
+      "signal_strength": "WEAK",
+      "target_bits_per_issue": 0.001,
+      "implemented": false,
+      "data_source": "synthetic_only"
+    },
+    {
+      "schema_version": "dehps-m4-information-theory-synthetic-scenario.v1",
+      "scenario_id": "WEAK_MARGINAL_PRESERVING",
+      "mechanism": "marginal_preserving_conditional_signal",
+      "signal_strength": "WEAK",
+      "target_bits_per_issue": 0.001,
+      "implemented": false,
+      "data_source": "synthetic_only"
+    },
+    {
+      "schema_version": "dehps-m4-information-theory-synthetic-scenario.v1",
+      "scenario_id": "MEDIUM_PRACTICAL_SINGLE_NUMBER",
+      "mechanism": "single_number_conditional_shift",
+      "signal_strength": "MEDIUM_PRACTICAL",
+      "target_bits_per_issue": 0.01,
+      "implemented": false,
+      "data_source": "synthetic_only"
+    },
+    {
+      "schema_version": "dehps-m4-information-theory-synthetic-scenario.v1",
+      "scenario_id": "MEDIUM_PRACTICAL_LOCAL_TEMPORAL",
+      "mechanism": "local_temporal_state",
+      "signal_strength": "MEDIUM_PRACTICAL",
+      "target_bits_per_issue": 0.01,
+      "implemented": false,
+      "data_source": "synthetic_only"
+    },
+    {
+      "schema_version": "dehps-m4-information-theory-synthetic-scenario.v1",
+      "scenario_id": "MEDIUM_PRACTICAL_PAIR",
+      "mechanism": "pair_conditional_signal",
+      "signal_strength": "MEDIUM_PRACTICAL",
+      "target_bits_per_issue": 0.01,
+      "implemented": false,
+      "data_source": "synthetic_only"
+    },
+    {
+      "schema_version": "dehps-m4-information-theory-synthetic-scenario.v1",
+      "scenario_id": "MEDIUM_PRACTICAL_MARGINAL_PRESERVING",
+      "mechanism": "marginal_preserving_conditional_signal",
+      "signal_strength": "MEDIUM_PRACTICAL",
+      "target_bits_per_issue": 0.01,
+      "implemented": false,
+      "data_source": "synthetic_only"
+    },
+    {
+      "schema_version": "dehps-m4-information-theory-synthetic-scenario.v1",
+      "scenario_id": "STRONG_SINGLE_NUMBER",
+      "mechanism": "single_number_conditional_shift",
+      "signal_strength": "STRONG",
+      "target_bits_per_issue": 0.05,
+      "implemented": false,
+      "data_source": "synthetic_only"
+    },
+    {
+      "schema_version": "dehps-m4-information-theory-synthetic-scenario.v1",
+      "scenario_id": "STRONG_LOCAL_TEMPORAL",
+      "mechanism": "local_temporal_state",
+      "signal_strength": "STRONG",
+      "target_bits_per_issue": 0.05,
+      "implemented": false,
+      "data_source": "synthetic_only"
+    },
+    {
+      "schema_version": "dehps-m4-information-theory-synthetic-scenario.v1",
+      "scenario_id": "STRONG_PAIR",
+      "mechanism": "pair_conditional_signal",
+      "signal_strength": "STRONG",
+      "target_bits_per_issue": 0.05,
+      "implemented": false,
+      "data_source": "synthetic_only"
+    },
+    {
+      "schema_version": "dehps-m4-information-theory-synthetic-scenario.v1",
+      "scenario_id": "STRONG_MARGINAL_PRESERVING",
+      "mechanism": "marginal_preserving_conditional_signal",
+      "signal_strength": "STRONG",
+      "target_bits_per_issue": 0.05,
+      "implemented": false,
+      "data_source": "synthetic_only"
+    }
+  ],
+  "probe_allowlist": [
+    "EMPIRICAL_BASELINE",
+    "REGULARIZED_LOGISTIC_REGRESSION",
+    "NAIVE_BAYES",
+    "SHALLOW_CALIBRATED_TREE"
+  ],
+  "block_sizes": {
+    "primary": 5,
+    "sensitivity": [3, 5, 8, 13]
+  },
+  "planned_workload": {
+    "schedule": [
+      {"scale_id": "HISTORICAL", "scenario_ids": "ALL_13_FROZEN_SCENARIOS", "scenario_count": 13, "replicates_per_scenario": 1000},
+      {"scale_id": "FORWARD_61", "scenario_ids": "ALL_13_FROZEN_SCENARIOS", "scenario_count": 13, "replicates_per_scenario": 1000},
+      {
+        "scale_id": "LONG",
+        "scenario_ids": [
+          "NULL_UNIFORM",
+          "MEDIUM_PRACTICAL_SINGLE_NUMBER",
+          "MEDIUM_PRACTICAL_LOCAL_TEMPORAL",
+          "MEDIUM_PRACTICAL_PAIR",
+          "MEDIUM_PRACTICAL_MARGINAL_PRESERVING"
+        ],
+        "scenario_count": 5,
+        "replicates_per_scenario": 1000
+      }
+    ],
+    "scenario_replicates": 31000,
+    "outer_issue_predictions": 64656000,
+    "number_probability_predictions_per_probe": 2133648000,
+    "all_four_probe_number_probability_predictions": 8534592000,
+    "formula": "sum(scenario_count * replicates * outer_evaluation_length), then multiply by 33 targets and four frozen probes"
+  },
+  "execution": {
+    "large_replicates_executed": false,
+    "metrics_executed": false,
+    "real_data_executed": false
+  },
+  "deferred_fail_closed": [
+    "injected_signal_generator",
+    "metric_kernel",
+    "walk_forward_probes",
+    "resampling",
+    "power_and_false_positive_runs",
+    "automatic_gate",
+    "numeric_empirical_ci_coverage_acceptance_tolerance"
+  ],
+  "production_action": "none"
+}
