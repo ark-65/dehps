@@ -10,6 +10,10 @@ from types import SimpleNamespace
 import pytest
 
 from dehps.research_os.control_plane import ResearchOSControlPlane
+from dehps.research_os.information_theory.synthetic import (
+    generate_null_dataset,
+    load_synthetic_run_manifest,
+)
 from dehps.research_os.mainline import mainline_completion_fact
 from dehps.research_os.models import (
     ControlPlaneManifest,
@@ -154,12 +158,18 @@ def prepare_root(tmp_path: Path) -> Path:
         / "dataset.json"
     )
     dataset_destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(
-        ROOT
-        / "runtime/research-os/information-theory/synthetic"
-        / DATASET_DIGEST
-        / "dataset.json",
-        dataset_destination,
+    dataset = generate_null_dataset(
+        load_synthetic_run_manifest(
+            ROOT
+            / "configs/research-os/m4-information-theory-p2-synthetic-run-manifest-v1.json"
+        ),
+        scale_id="FORWARD_61",
+        seed=200000,
+    ).to_dict()
+    assert dataset["artifact_digest"] == DATASET_DIGEST
+    dataset_destination.write_text(
+        json.dumps(dataset, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
     )
     return tmp_path
 
