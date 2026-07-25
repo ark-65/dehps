@@ -13,12 +13,14 @@ from dehps.research_os.models import (
     TaskStatus,
     TERMINAL_TASK_STATUSES,
 )
+from dehps.research_os.mainline import validate_mainline_completion_declarations
 
 
 class TaskDependencyResolver:
     """Resolve every Task independently; no Task may create a global wait state."""
 
     def resolve(self, manifest: ControlPlaneManifest) -> tuple[TaskResolution, ...]:
+        validate_mainline_completion_declarations(manifest)
         goals = self._unique_goals(manifest)
         tasks = self._unique_tasks(manifest)
         self._validate_task_graph(tasks)
@@ -62,6 +64,11 @@ class TaskDependencyResolver:
                         task_state.declared_status,
                         f"task_{task_state.declared_status.value}",
                     )
+                )
+                continue
+            if task_state.declared_status is TaskStatus.RUNNING:
+                resolutions.append(
+                    self._resolution(task, TaskStatus.RUNNING, "mainline_execution_running")
                 )
                 continue
             if goal_state.status is not GoalStatus.ACTIVE:

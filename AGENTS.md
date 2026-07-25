@@ -12,6 +12,42 @@ Core principle:
 AI proposes hypotheses. Code verifies them. Historical data judges them.
 ```
 
+## Permanent Training Mainline Integration Rule
+
+For every training, research, feature, model, evaluation, statistical, synthetic,
+walk-forward, resampling, forward-evidence, gate, or automatic-decision change:
+
+```text
+Capability complete != code complete.
+```
+
+The capability is complete only after the current canonical Goal, Task DAG,
+dependency resolver, Ready Queue, unified Research Evidence Supervisor,
+immutable execution/artifact records, status projection, downstream consumer,
+and deterministic replay have all used it successfully. A Python module, CLI,
+test, config, report, manual run, or merged PR alone is not completion.
+
+- Every task must declare its Goal, Ready condition, runner, upstream artifacts,
+  downstream artifacts, status projection, Evidence rule, decision consumer,
+  and next consumer before implementation.
+- Executable training tasks move through `CODE_COMPLETE`,
+  `INTEGRATION_PENDING`, `INTEGRATED`, `VALIDATED_IN_MAINLINE`, and `COMPLETE`.
+- A task with no downstream consumer, no successful mainline execution fact, or
+  no replay proof is `INTEGRATION_PENDING`, never `COMPLETE`.
+- The minimum proof is:
+  `Goal -> Resolver -> Ready Queue -> Supervisor -> Capability -> Artifacts ->
+  Status -> Next Task`.
+- The canonical implementation must be singular. Manual CLI and legacy runners
+  may inspect or replay, but may not be a competing completion path.
+- When an `INTEGRATION_PENDING` mainline capability exists, integrate it before
+  adding another same-level capability.
+- Every final training report must include the integration matrix and answer:
+  `YES — validated by unified mainline execution and replay`, or
+  `NO — INTEGRATION_PENDING`.
+
+The complete binding contract and acceptance matrix are in
+`docs/architecture/training-mainline-integration-governance.md`.
+
 ## Development Rules
 
 - Work in staged, reviewable rounds.

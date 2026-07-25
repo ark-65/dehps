@@ -87,6 +87,10 @@ from dehps.research_os.information_theory.walk_forward import (
 from dehps.research_os.models import ResearchOSValidationError
 from dehps.research_os.repository import PostgresResearchOSRepository
 from dehps.research_os.shadow import LegacyResearchOSShadowService
+from dehps.research_os.supervisor import (
+    MainlineSupervisorError,
+    ResearchEvidenceSupervisor,
+)
 from dehps.research_scheduler.scheduler import AutonomousResearchScheduler
 from dehps.engineering.service import AutonomousEngineeringService
 from dehps.pattern_discovery.models import PatternSearchBudget
@@ -141,7 +145,10 @@ forward_app = typer.Typer(help="Forward-state reconciliation for training resume
 training_resume_app = typer.Typer(help="Exactly-once training resume from audited draw events.")
 research_runtime_app = typer.Typer(help="Continuous research runtime decoupled from forward validation.")
 research_os_app = typer.Typer(
-    help="Goal-driven Research OS control plane. P1 resolves dependencies but does not dispatch Tasks."
+    help="Goal-driven Research OS control plane and unified mainline execution."
+)
+research_os_supervisor_app = typer.Typer(
+    help="Dispatch Ready Tasks through the unified Research Evidence Supervisor."
 )
 information_theory_app = typer.Typer(
     help="M4 information-theory contract surfaces. Statistical execution is phase-gated."
@@ -175,6 +182,7 @@ information_theory_app.add_typer(
     name="walk-forward",
 )
 research_os_app.add_typer(information_theory_app, name="information-theory")
+research_os_app.add_typer(research_os_supervisor_app, name="supervisor")
 forward_runtime_app = typer.Typer(help="Forward validation runtime decoupled from continuous research.")
 mail_app = typer.Typer(
     help="Operator-controlled email delivery. Credentials are read only from environment variables."
@@ -2516,6 +2524,80 @@ def research_os_shadow_legacy(
             )
         )
     except (ResearchOSValidationError, HypothesisRegistryError, OSError, TypeError, ValueError) as exc:
+        _fail(exc)
+
+
+@research_os_supervisor_app.command("run-once")
+def research_os_supervisor_run_once(
+    control_plane_key: str = typer.Option(
+        "m4-information-theory-mainline",
+        "--control-plane-key",
+    ),
+    task_key: str | None = typer.Option(None, "--task-key"),
+) -> None:
+    """Dispatch one supported Ready Task without manual capability arguments."""
+    try:
+        _emit(
+            ResearchEvidenceSupervisor(
+                repository=_research_os_repository(),
+                control_plane_key=control_plane_key,
+            ).run_once(task_key=task_key)
+        )
+    except (
+        MainlineSupervisorError,
+        ResearchOSValidationError,
+        OSError,
+        subprocess.CalledProcessError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        _fail(exc)
+
+
+@research_os_supervisor_app.command("replay")
+def research_os_supervisor_replay(
+    task_key: str = typer.Option(..., "--task-key"),
+    control_plane_key: str = typer.Option(
+        "m4-information-theory-mainline",
+        "--control-plane-key",
+    ),
+) -> None:
+    """Verify one completed mainline execution and every registered artifact."""
+    try:
+        _emit(
+            ResearchEvidenceSupervisor(
+                repository=_research_os_repository(),
+                control_plane_key=control_plane_key,
+                require_clean_tree=False,
+            ).replay(task_key=task_key)
+        )
+    except (
+        MainlineSupervisorError,
+        ResearchOSValidationError,
+        OSError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        _fail(exc)
+
+
+@research_os_supervisor_app.command("status")
+def research_os_supervisor_status(
+    control_plane_key: str = typer.Option(
+        "m4-information-theory-mainline",
+        "--control-plane-key",
+    ),
+) -> None:
+    """Read the last unified supervisor heartbeat and dispatch result."""
+    try:
+        _emit(
+            ResearchEvidenceSupervisor(
+                repository=_research_os_repository(),
+                control_plane_key=control_plane_key,
+                require_clean_tree=False,
+            ).status()
+        )
+    except (MainlineSupervisorError, OSError, TypeError, ValueError) as exc:
         _fail(exc)
 
 

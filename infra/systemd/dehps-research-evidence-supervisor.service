@@ -1,0 +1,23 @@
+[Unit]
+Description=DEHPS unified Research Evidence Supervisor
+Documentation=file:/home/ark/workspace/dehps/docs/architecture/training-mainline-integration-governance.md
+Wants=network-online.target
+After=network-online.target
+Conflicts=dehps-research-runtime.service
+StartLimitIntervalSec=15min
+StartLimitBurst=3
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ark/workspace/dehps/apps/worker-python
+EnvironmentFile=-/home/ark/workspace/dehps/.env
+Environment=OPENBLAS_NUM_THREADS=1
+Environment=OMP_NUM_THREADS=1
+Environment=MKL_NUM_THREADS=1
+Environment=NUMEXPR_NUM_THREADS=1
+ExecStart=/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python scripts/run_research_evidence_supervisor.py --control-plane-key m4-information-theory-mainline --interval-seconds 15
+Restart=always
+RestartSec=10s
+
+[Install]
+WantedBy=default.target
