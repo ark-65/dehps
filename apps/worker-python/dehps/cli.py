@@ -75,6 +75,15 @@ from dehps.research_os.information_theory.metrics import (
     validate_metric_artifact,
     validate_metric_input,
 )
+from dehps.research_os.information_theory.walk_forward import (
+    WalkForwardError,
+    inspect_fold,
+    load_harness_manifest,
+    load_synthetic_dataset,
+    resume_walk_forward,
+    run_walk_forward,
+    show_run,
+)
 from dehps.research_os.models import ResearchOSValidationError
 from dehps.research_os.repository import PostgresResearchOSRepository
 from dehps.research_os.shadow import LegacyResearchOSShadowService
@@ -146,6 +155,9 @@ information_theory_synthetic_app = typer.Typer(
 information_theory_metrics_app = typer.Typer(
     help="P2.2 deterministic descriptive metric artifacts; not a P2 gate."
 )
+information_theory_walk_forward_app = typer.Typer(
+    help="P2.3 strict synthetic walk-forward smoke harness; never Evidence or a P2 gate."
+)
 information_theory_app.add_typer(
     information_theory_preregistration_app,
     name="preregistration",
@@ -157,6 +169,10 @@ information_theory_app.add_typer(
 information_theory_app.add_typer(
     information_theory_metrics_app,
     name="metrics",
+)
+information_theory_app.add_typer(
+    information_theory_walk_forward_app,
+    name="walk-forward",
 )
 research_os_app.add_typer(information_theory_app, name="information-theory")
 forward_runtime_app = typer.Typer(help="Forward validation runtime decoupled from continuous research.")
@@ -2152,6 +2168,200 @@ def information_theory_metrics_show(
         TypeError,
         ValueError,
     ) as exc:
+        _fail(exc)
+
+
+@information_theory_walk_forward_app.command("validate-config")
+def information_theory_walk_forward_validate_config(
+    preregistration_digest: str = typer.Option(
+        ..., "--preregistration-digest"
+    ),
+    input_file: Path = typer.Option(..., "--input"),
+) -> None:
+    """Validate the frozen P2.3 harness without executing a smoke."""
+    try:
+        manifest = load_harness_manifest(input_file)
+        if preregistration_digest != manifest.payload["preregistration_digest"]:
+            raise WalkForwardError(
+                "preregistration_digest_mismatch",
+                "CLI preregistration identity changed",
+            )
+        _emit(
+            {
+                "valid": True,
+                "phase": "M4-P2.3",
+                "harness_version": manifest.payload["harness_version"],
+                "artifact_digest": manifest.artifact_digest,
+                "minimum_training_issues": manifest.minimum_training_issues,
+                "smoke_outer_fold_count": manifest.smoke_outer_fold_count,
+                "descriptive_only": True,
+                "eligible_for_p2_gate": False,
+                "real_data_evidence": False,
+            }
+        )
+    except (
+        WalkForwardError,
+        json.JSONDecodeError,
+        OSError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        _fail(exc)
+
+
+def _require_clean_walk_forward_tree() -> None:
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    if dirty:
+        raise WalkForwardError(
+            "dirty_worktree",
+            "formal P2.3 smoke requires a clean worktree",
+        )
+
+
+@information_theory_walk_forward_app.command("run-synthetic")
+def information_theory_walk_forward_run_synthetic(
+    dataset_artifact: Path = typer.Option(..., "--dataset-artifact"),
+    probe_manifest: Path = typer.Option(..., "--probe-manifest"),
+    probe_id: str = typer.Option(..., "--probe"),
+    output_dir: Path = typer.Option(..., "--output-dir"),
+    worker_count: int = typer.Option(1, "--workers"),
+) -> None:
+    """Run the frozen tiny synthetic smoke with blind exactly-once checkpoints."""
+    try:
+        _require_clean_walk_forward_tree()
+        dataset = load_synthetic_dataset(dataset_artifact)
+        manifest = load_harness_manifest(probe_manifest)
+        artifact = run_walk_forward(
+            dataset=dataset,
+            manifest=manifest,
+            probe_id=probe_id,
+            output_dir=output_dir,
+            git_commit=resolve_git_commit(ROOT_DIR),
+            working_tree_clean=True,
+            dataset_path=dataset_artifact,
+            manifest_path=probe_manifest,
+            worker_count=worker_count,
+        )
+        _emit(
+            {
+                "status": "SMOKE_TEST_ONLY",
+                "run_digest": artifact["run_digest"],
+                "artifact_digest": artifact["artifact_digest"],
+                "fold_count": artifact["aggregate"]["fold_count"],
+                "completed_fold_count": artifact["aggregate"][
+                    "completed_fold_count"
+                ],
+                "failed_fold_count": artifact["aggregate"]["failed_fold_count"],
+                "eligible_for_p2_gate": False,
+                "power_evidence": False,
+                "real_data_evidence": False,
+                "output_path": str(
+                    output_dir
+                    / "runs"
+                    / artifact["run_digest"]
+                    / "run-artifact.json"
+                ),
+            }
+        )
+    except (
+        WalkForwardError,
+        json.JSONDecodeError,
+        OSError,
+        subprocess.CalledProcessError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        _fail(exc)
+
+
+@information_theory_walk_forward_app.command("resume")
+def information_theory_walk_forward_resume(
+    run_digest: str = typer.Option(..., "--run-digest"),
+    artifact_dir: Path = typer.Option(..., "--artifact-dir"),
+) -> None:
+    """Resume an interrupted P2.3 smoke under the same frozen identity."""
+    try:
+        _require_clean_walk_forward_tree()
+        state = _load_object(
+            artifact_dir / "runs" / run_digest / "state.json"
+        )
+        dataset_path = Path(str(state.get("dataset_path", "")))
+        manifest_path = Path(str(state.get("manifest_path", "")))
+        if not dataset_path.is_file() or not manifest_path.is_file():
+            raise WalkForwardError(
+                "run_resume_inputs_missing",
+                "state does not retain valid dataset and manifest paths",
+            )
+        artifact = resume_walk_forward(
+            run_digest=run_digest,
+            output_dir=artifact_dir,
+            dataset=load_synthetic_dataset(dataset_path),
+            manifest=load_harness_manifest(manifest_path),
+            git_commit=resolve_git_commit(ROOT_DIR),
+            working_tree_clean=True,
+        )
+        _emit(
+            {
+                "status": "RESUMED",
+                "run_digest": artifact["run_digest"],
+                "artifact_digest": artifact["artifact_digest"],
+                "completed_fold_count": artifact["aggregate"][
+                    "completed_fold_count"
+                ],
+                "eligible_for_p2_gate": False,
+            }
+        )
+    except (
+        WalkForwardError,
+        HypothesisRegistryError,
+        json.JSONDecodeError,
+        OSError,
+        subprocess.CalledProcessError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        _fail(exc)
+
+
+@information_theory_walk_forward_app.command("inspect-fold")
+def information_theory_walk_forward_inspect_fold(
+    fold_digest: str = typer.Option(..., "--fold-digest"),
+    artifact_dir: Path = typer.Option(..., "--artifact-dir"),
+) -> None:
+    """Inspect one immutable fold identity without revealing its target."""
+    try:
+        _emit(inspect_fold(fold_digest=fold_digest, output_dir=artifact_dir))
+    except (WalkForwardError, json.JSONDecodeError, OSError, ValueError) as exc:
+        _fail(exc)
+
+
+@information_theory_walk_forward_app.command("report")
+def information_theory_walk_forward_report(
+    run_digest: str = typer.Option(..., "--run-digest"),
+    artifact_dir: Path = typer.Option(..., "--artifact-dir"),
+) -> None:
+    """Show a descriptive smoke aggregate; never a Gate or Evidence report."""
+    try:
+        artifact = show_run(run_digest=run_digest, output_dir=artifact_dir)
+        _emit(
+            {
+                "run_digest": artifact["run_digest"],
+                "artifact_digest": artifact["artifact_digest"],
+                "probe_id": artifact["probe_id"],
+                "aggregate": artifact["aggregate"],
+                "descriptive_only": True,
+                "eligible_for_p2_gate": False,
+                "formal_power_evidence": False,
+                "real_data_evidence": False,
+            }
+        )
+    except (WalkForwardError, json.JSONDecodeError, OSError, ValueError) as exc:
         _fail(exc)
 
 

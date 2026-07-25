@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dehps-m4-information-theory-walk-forward-harness.v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "artifact_digest",
+    "phase",
+    "status",
+    "harness_version",
+    "preregistration_digest",
+    "synthetic_manifest_digest",
+    "metric_kernel_digest",
+    "outer_split",
+    "inner_validation",
+    "probes",
+    "smoke_execution",
+    "pe2_status"
+  ],
+  "properties": {
+    "schema_version": {"const": "dehps-m4-information-theory-walk-forward-harness.v1"},
+    "artifact_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "phase": {"const": "M4-P2.3"},
+    "status": {"const": "FROZEN"},
+    "harness_version": {"const": "m4-information-theory-walk-forward-harness-v1"},
+    "pe2_status": {"const": "NOT_IMPLEMENTED"}
+  },
+  "additionalProperties": true
+}

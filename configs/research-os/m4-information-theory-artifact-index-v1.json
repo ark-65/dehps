@@ -38,6 +38,12 @@
       "superseded_by_digest": "d5aacae2e61d20009965f031309f3c7489a3e499f2d9ad3e43b062684dd628df"
     },
     "d5aacae2e61d20009965f031309f3c7489a3e499f2d9ad3e43b062684dd628df": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "source_commit": "f59a6b1b1dde6f02f13aa3465e560cb38931b448",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "superseded_by_digest": "3c511268fd1211c6c71de8ec3ac9c0afd218855ed58885a26b4cec4638175157"
+    },
+    "3c511268fd1211c6c71de8ec3ac9c0afd218855ed58885a26b4cec4638175157": {
       "artifact_type": "research_os_control_plane_manifest",
       "path": "configs/research-os/m4-information-theory-evidence-v1.json"
     },
@@ -48,6 +54,10 @@
     "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2": {
       "artifact_type": "information_theory_p2_metric_kernel_manifest",
       "path": "configs/research-os/m4-information-theory-metric-kernel-v1.json"
+    },
+    "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca": {
+      "artifact_type": "information_theory_p2_walk_forward_harness_manifest",
+      "path": "configs/research-os/m4-information-theory-walk-forward-harness-v1.json"
     }
   },
   "lookup_rule": "digest_must_equal_the_artifact_identity_at_the_registered_canonical_path",

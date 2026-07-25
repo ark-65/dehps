@@ -554,18 +554,19 @@ def test_48_kernel_source_uses_no_rng_or_real_history_import() -> None:
     assert "get_connection" not in source
 
 
-def test_49_research_os_advances_only_to_p2_3() -> None:
+def test_49_research_os_advances_only_to_p2_4_after_p2_3_completion() -> None:
     manifest = load_m4_manifest(CONTROL_PATH)
     snapshot = ResearchOSControlPlane().resolve(manifest)
     resolutions = {item.task_key: item for item in snapshot.resolutions}
     status = build_m4_status(manifest, snapshot=snapshot)
     assert resolutions["m4-p2-metric-kernel"].status is TaskStatus.COMPLETED
+    assert resolutions["m4-p2-walk-forward-probe-harness"].status is TaskStatus.COMPLETED
     assert [item.task_key for item in snapshot.ready_queue] == [
-        "m4-p2-walk-forward-probe-harness"
+        "m4-p2-injected-signal-calibration"
     ]
-    assert status["p2_subphase"]["completed"] == ["M4-P2.1", "M4-P2.2"]
-    assert status["next_ready_task"] == "m4-p2-walk-forward-probe-harness"
-    assert status["progress"]["engineering_percent"] == 26
+    assert status["p2_subphase"]["completed"] == ["M4-P2.1", "M4-P2.2", "M4-P2.3"]
+    assert status["next_ready_task"] == "m4-p2-injected-signal-calibration"
+    assert status["progress"]["engineering_percent"] == 30
     assert status["progress"]["evidence_percent"] == 0
 
 
