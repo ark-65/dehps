@@ -150,12 +150,21 @@ def build_m4_status(
             ]
         )
     p2_1_complete = resolutions[P2_SUBTASK_KEYS[0]].status is TaskStatus.COMPLETED
+    p2_2_complete = resolutions[P2_SUBTASK_KEYS[1]].status is TaskStatus.COMPLETED
     if p2_1_complete:
         completed.extend(
             [
                 "P2.1 synthetic contracts and schemas frozen",
                 "uniform six-of-33 null generator replay contract verified",
                 "P2 fixed workload manifest frozen without formal execution",
+            ]
+        )
+    if p2_2_complete:
+        completed.extend(
+            [
+                "P2.2 deterministic metric kernel frozen",
+                "issue-cluster and bits-per-issue unit contracts verified",
+                "PE2 explicitly remains not implemented",
             ]
         )
 
@@ -183,6 +192,11 @@ def build_m4_status(
             "p2_synthetic_run_manifest_digest": (
                 "8493987cc4414414e33fb5c5ea148be1f42a1d9e57609600c4346fb642cbfa08"
                 if p2_1_complete
+                else None
+            ),
+            "p2_metric_kernel_manifest_digest": (
+                "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2"
+                if p2_2_complete
                 else None
             ),
             "control_plane_manifest_digest": manifest.artifact_digest,
@@ -234,11 +248,21 @@ def build_m4_status(
         },
         "formal_real_data_run": "NOT_STARTED",
         "synthetic_validation": (
-            "P2.1_CONTRACT_READY" if p2_1_complete else "NOT_STARTED"
+            "P2.2_KERNEL_READY"
+            if p2_2_complete
+            else ("P2.1_CONTRACT_READY" if p2_1_complete else "NOT_STARTED")
         ),
         "p2_subphase": {
-            "completed": ["M4-P2.1"] if p2_1_complete else [],
-            "current": "M4-P2.2" if p2_1_complete else "M4-P2.1",
+            "completed": (
+                ["M4-P2.1", "M4-P2.2"]
+                if p2_2_complete
+                else (["M4-P2.1"] if p2_1_complete else [])
+            ),
+            "current": (
+                "M4-P2.3"
+                if p2_2_complete
+                else ("M4-P2.2" if p2_1_complete else "M4-P2.1")
+            ),
             "gate": "NOT_EVALUATED",
         },
         "blocked_by": blocked_by,

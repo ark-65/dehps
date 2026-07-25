@@ -68,6 +68,13 @@ from dehps.research_os.information_theory.synthetic import (
     generate_null_dataset,
     load_synthetic_run_manifest,
 )
+from dehps.research_os.information_theory.metrics import (
+    build_metric_artifact,
+    load_metric_kernel_manifest,
+    show_metric_artifact,
+    validate_metric_artifact,
+    validate_metric_input,
+)
 from dehps.research_os.models import ResearchOSValidationError
 from dehps.research_os.repository import PostgresResearchOSRepository
 from dehps.research_os.shadow import LegacyResearchOSShadowService
@@ -136,6 +143,9 @@ information_theory_preregistration_app = typer.Typer(
 information_theory_synthetic_app = typer.Typer(
     help="P2.1 synthetic contracts and one-replicate null generation."
 )
+information_theory_metrics_app = typer.Typer(
+    help="P2.2 deterministic descriptive metric artifacts; not a P2 gate."
+)
 information_theory_app.add_typer(
     information_theory_preregistration_app,
     name="preregistration",
@@ -143,6 +153,10 @@ information_theory_app.add_typer(
 information_theory_app.add_typer(
     information_theory_synthetic_app,
     name="synthetic",
+)
+information_theory_app.add_typer(
+    information_theory_metrics_app,
+    name="metrics",
 )
 research_os_app.add_typer(information_theory_app, name="information-theory")
 forward_runtime_app = typer.Typer(help="Forward validation runtime decoupled from continuous research.")
@@ -1926,7 +1940,13 @@ def information_theory_synthetic_validate_config(
                 "large_replicates_executed": False,
             }
         )
-    except (json.JSONDecodeError, OSError, TypeError, ValueError) as exc:
+    except (
+        HypothesisRegistryError,
+        json.JSONDecodeError,
+        OSError,
+        TypeError,
+        ValueError,
+    ) as exc:
         _fail(exc)
 
 
@@ -1975,6 +1995,7 @@ def information_theory_synthetic_generate(
             }
         )
     except (
+        HypothesisRegistryError,
         json.JSONDecodeError,
         OSError,
         subprocess.CalledProcessError,
@@ -1987,7 +2008,7 @@ def information_theory_synthetic_generate(
 def _information_theory_synthetic_execution_gate() -> None:
     _fail(
         PhaseGateError(
-            "P2.2-P2.7 execution is not implemented or authorized by P2.1",
+            "P2.3-P2.7 execution is not implemented or authorized by P2.2",
         )
     )
 
@@ -2014,6 +2035,124 @@ def information_theory_synthetic_report() -> None:
 def information_theory_synthetic_gate() -> None:
     """Fail closed until P2.6 evidence exists."""
     _information_theory_synthetic_execution_gate()
+
+
+@information_theory_metrics_app.command("validate")
+def information_theory_metrics_validate(
+    input_file: Path = typer.Option(..., "--input"),
+    manifest_file: Path = typer.Option(
+        ROOT_DIR
+        / "configs/research-os/m4-information-theory-metric-kernel-v1.json",
+        "--manifest",
+    ),
+) -> None:
+    """Validate one P2.2 input without evaluating a formal dataset."""
+    try:
+        manifest = load_metric_kernel_manifest(manifest_file)
+        result = validate_metric_input(_load_object(input_file))
+        _emit(
+            {
+                **result,
+                "metric_kernel_version": manifest.metric_kernel_version,
+                "metric_kernel_manifest_digest": manifest.artifact_digest,
+            }
+        )
+    except (
+        HypothesisRegistryError,
+        json.JSONDecodeError,
+        OSError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        _fail(exc)
+
+
+@information_theory_metrics_app.command("evaluate")
+def information_theory_metrics_evaluate(
+    input_file: Path = typer.Option(..., "--input"),
+    output_dir: Path = typer.Option(..., "--output-dir"),
+    manifest_file: Path = typer.Option(
+        ROOT_DIR
+        / "configs/research-os/m4-information-theory-metric-kernel-v1.json",
+        "--manifest",
+    ),
+) -> None:
+    """Build a deterministic descriptive artifact; never a P2 gate or Evidence."""
+    try:
+        dirty = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=ROOT_DIR,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        if dirty:
+            raise ValueError(
+                "dirty_worktree: formal metric artifact requires a clean tree"
+            )
+        manifest = load_metric_kernel_manifest(manifest_file)
+        artifact = build_metric_artifact(
+            _load_object(input_file),
+            manifest=manifest,
+            git_commit=resolve_git_commit(ROOT_DIR),
+            working_tree_clean=True,
+        )
+        destination = (
+            output_dir / artifact["artifact_digest"] / "metric-artifact.json"
+        )
+        if destination.exists():
+            existing = _load_object(destination)
+            if _normalized(existing) != _normalized(artifact):
+                raise ValueError("digest collision: existing metric artifact differs")
+        else:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(
+                json.dumps(artifact, ensure_ascii=False, sort_keys=True, indent=2)
+                + "\n",
+                encoding="utf-8",
+            )
+        _emit(
+            {
+                "status": "DESCRIPTIVE_METRIC_ARTIFACT",
+                "artifact_digest": artifact["artifact_digest"],
+                "issue_count": artifact["issue_count"],
+                "output_path": str(destination),
+                "p2_gate_result": False,
+                "real_data_evidence": False,
+            }
+        )
+    except (
+        HypothesisRegistryError,
+        json.JSONDecodeError,
+        OSError,
+        subprocess.CalledProcessError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        _fail(exc)
+
+
+@information_theory_metrics_app.command("show")
+def information_theory_metrics_show(
+    digest: str = typer.Option(..., "--digest"),
+    artifact_dir: Path = typer.Option(
+        ROOT_DIR / "runtime/research-os/information-theory/metrics",
+        "--artifact-dir",
+    ),
+) -> None:
+    """Show and revalidate a deterministic metric artifact."""
+    try:
+        artifact = show_metric_artifact(digest=digest, artifact_dir=artifact_dir)
+        validate_metric_artifact(artifact)
+        _emit(artifact)
+    except (
+        HypothesisRegistryError,
+        json.JSONDecodeError,
+        OSError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        _fail(exc)
 
 
 def _information_theory_formal_command_gate() -> None:

@@ -1,0 +1,87 @@
+{
+  "schema_version": "dehps-m4-information-theory-metric-kernel-manifest.v1",
+  "artifact_digest": "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
+  "phase": "M4-P2.2",
+  "status": "FROZEN",
+  "metric_kernel_version": "m4-information-theory-metric-kernel-v1",
+  "baseline_commit": "48dbcff50c2d8addb983bb61372a27a7c11a8e2f",
+  "preregistration_digest": "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1",
+  "decision_policy_digest": "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
+  "synthetic_manifest_digest": "8493987cc4414414e33fb5c5ea148be1f42a1d9e57609600c4346fb642cbfa08",
+  "probability_clip": {
+    "epsilon": 0.000001,
+    "lower": 0.000001,
+    "upper": 0.999999,
+    "source": "preregistration_v1.0.1"
+  },
+  "unit_contract": {
+    "internal_log_unit": "nats",
+    "primary_reporting_unit": "bits_per_issue",
+    "bits_per_number_event": "secondary_only",
+    "nats_per_issue": "secondary_only",
+    "brier_per_issue": "secondary_only",
+    "practical_null_compatible_unit": "bits_per_issue"
+  },
+  "baseline": {
+    "identity": "NUMBER_EVENT_COMPOSITE_BASELINE",
+    "probability": {
+      "numerator": 6,
+      "denominator": 33
+    },
+    "aggregation": "sum_33_number_event_losses_per_issue"
+  },
+  "gain_contract": {
+    "name": "observed_oos_log_loss_gain",
+    "formula": "baseline_minus_probe",
+    "direction": "positive_probe_better",
+    "eligible_for_pe1": true,
+    "eligible_for_final_pe2": false
+  },
+  "metric_identity": {
+    "metrics": [
+      {
+        "name": "composite_bernoulli_log_loss",
+        "semantic_version": "1.0.0",
+        "internal_unit": "nats_per_number_event",
+        "issue_aggregation": "stable_sum_33_events",
+        "reporting_unit": "bits_per_issue"
+      },
+      {
+        "name": "brier",
+        "semantic_version": "1.0.0",
+        "event_unit": "brier_per_number_event",
+        "issue_aggregation": "stable_sum_33_events",
+        "reporting_unit": "brier_per_issue"
+      }
+    ],
+    "probability_clipping_epsilon": 0.000001,
+    "baseline_identity": "NUMBER_EVENT_COMPOSITE_BASELINE",
+    "gain_sign_convention": "baseline_minus_probe_positive_probe_better",
+    "inference_cluster": "issue_id",
+    "joint_probability_from_marginal_product": "forbidden"
+  },
+  "aggregate_contract": {
+    "preserve_issue_sequence": true,
+    "numeric_reduction": "math_fsum",
+    "sample_size_for_inference": "issue_count",
+    "iid_standard_error": "forbidden",
+    "confidence_interval": "NOT_IMPLEMENTED",
+    "sample_std_role": "descriptive_only"
+  },
+  "calibration_contract": {
+    "sufficient_statistics_only": true,
+    "predicted_probability_source": "raw_validated_probability",
+    "binning": "NOT_IMPLEMENTED",
+    "intercept": "NOT_IMPLEMENTED",
+    "slope": "NOT_IMPLEMENTED",
+    "ece": "NOT_IMPLEMENTED"
+  },
+  "pe2_contract": {
+    "bias_corrected_information_gain": "NOT_IMPLEMENTED",
+    "reason": "requires synthetic calibration / bias validation contract"
+  },
+  "seed_policy": "none",
+  "formal_execution": "NOT_STARTED",
+  "real_data_analysis": "NOT_STARTED",
+  "production_action": "none"
+}
