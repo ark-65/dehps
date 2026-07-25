@@ -1,0 +1,140 @@
+{
+  "schema_version": "dehps-m4-information-theory-walk-forward-harness.v1",
+  "artifact_digest": "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca",
+  "phase": "M4-P2.3",
+  "status": "FROZEN",
+  "harness_version": "m4-information-theory-walk-forward-harness-v1",
+  "created_at": "2026-07-25T14:00:00+08:00",
+  "preregistration_digest": "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1",
+  "decision_policy_digest": "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
+  "synthetic_manifest_digest": "8493987cc4414414e33fb5c5ea148be1f42a1d9e57609600c4346fb642cbfa08",
+  "metric_kernel_digest": "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
+  "dataset_contract": {
+    "schema_version": "dehps-m4-information-theory-synthetic-dataset.v1",
+    "data_source": "synthetic_only",
+    "issue_order": "strictly_increasing_one_based",
+    "target": "exactly_six_positive_events_of_33",
+    "real_data": "forbidden"
+  },
+  "outer_split": {
+    "mode": "expanding_window",
+    "minimum_training_issues": 900,
+    "test_horizon": 1,
+    "test_issue_prediction_count": 1
+  },
+  "feature_view": {
+    "feature_view_id": "FV1_SYNTHETIC_HISTORY_STATE",
+    "available_through_rule": "available_through_issue_strictly_less_than_target_issue",
+    "features": [
+      "previous_issue_hit",
+      "expanding_frequency",
+      "periods_since_seen",
+      "red_number_unit"
+    ],
+    "canary_registry": "test_only_not_formal"
+  },
+  "preprocessing": {
+    "method": "standard_scaler",
+    "fit_scope": "current_fold_training_only",
+    "missing_policy": "not_applicable_finite_synthetic_features",
+    "feature_selection": "none",
+    "state_identity": [
+      "fit_start_issue",
+      "fit_end_issue",
+      "feature_names",
+      "mean",
+      "scale"
+    ]
+  },
+  "inner_validation": {
+    "method": "three_fold_expanding_blocked_time_series",
+    "fold_count": 3,
+    "selection_metric": "issue_mean_log_loss",
+    "all_preprocessing_nested": true,
+    "outer_test_metrics_used": false,
+    "tie_break": "lower_complexity_then_lexical_config_id"
+  },
+  "probes": {
+    "THEORETICAL_BASELINE": {
+      "probe_type": "theoretical_uniform_baseline",
+      "probability": {
+        "numerator": 6,
+        "denominator": 33
+      },
+      "fit_scope": "none",
+      "seed_policy": "none"
+    },
+    "EMPIRICAL_BASELINE": {
+      "probe_type": "expanding_empirical_baseline",
+      "fit_scope": "current_outer_training_history_only",
+      "smoothing": "beta_binomial_jeffreys_alpha_0_5_beta_0_5",
+      "seed_policy": "none"
+    },
+    "REGULARIZED_LOGISTIC_REGRESSION": {
+      "probe_type": "regularized_logistic_regression",
+      "penalty": [
+        "l2"
+      ],
+      "C": [
+        0.01,
+        0.1,
+        1.0
+      ],
+      "class_weight": [
+        null
+      ],
+      "solver": "liblinear",
+      "max_iter": 1000,
+      "tol": 0.0001,
+      "implementation": "scikit-learn==1.9.0",
+      "convergence_fail_policy": "outer_prediction_invalid_fail_closed",
+      "seed_source": "dataset_replicate_seed"
+    }
+  },
+  "checkpoint_contract": {
+    "target_free": true,
+    "created_before_target_access": true,
+    "identity": [
+      "dataset_digest",
+      "probe_manifest_digest",
+      "test_issue"
+    ],
+    "replay": "same_identity_requires_same_digest",
+    "overwrite": "forbidden"
+  },
+  "settlement_contract": {
+    "target_reveal": "only_after_prediction_checkpoint_persisted",
+    "metric_source": "m4-information-theory-metric-kernel-v1",
+    "descriptive_only": true,
+    "eligible_for_p2_gate": false
+  },
+  "smoke_execution": {
+    "outer_fold_count": 2,
+    "allowed_scenarios": [
+      "NULL_UNIFORM"
+    ],
+    "large_replicates_executed": false,
+    "evidence_eligibility": [
+      "SMOKE_TEST_ONLY",
+      "NOT_POWER_EVIDENCE",
+      "NOT_P2_GATE_EVIDENCE"
+    ]
+  },
+  "resume_contract": {
+    "identity_fields_immutable": true,
+    "completed_child_artifacts_reused": true,
+    "child_aggregation_order": "test_issue_ascending"
+  },
+  "pe2_status": "NOT_IMPLEMENTED",
+  "governance": {
+    "injected_signal": "NOT_IMPLEMENTED",
+    "bootstrap": "NOT_IMPLEMENTED",
+    "permutation": "NOT_IMPLEMENTED",
+    "power": "NOT_EVALUATED",
+    "real_history": "NOT_READ",
+    "production_checkpoint": "NOT_CREATED",
+    "promotion_gate": "CLOSED",
+    "adaptive_supervisor": "STOPPED",
+    "evidence_progress_percent": 0
+  }
+}

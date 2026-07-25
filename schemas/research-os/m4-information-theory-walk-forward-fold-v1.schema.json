@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dehps-m4-information-theory-walk-forward-fold.v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "fold_id",
+    "fold_digest",
+    "dataset_digest",
+    "train_start_issue",
+    "train_end_issue",
+    "test_issue",
+    "test_horizon",
+    "feature_view_digest",
+    "preprocessing_manifest_digest",
+    "probe_manifest_digest",
+    "metric_kernel_digest",
+    "preregistration_digest",
+    "parent_digests"
+  ],
+  "properties": {
+    "schema_version": {"const": "dehps-m4-information-theory-walk-forward-fold.v1"},
+    "fold_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "train_start_issue": {"type": "integer", "minimum": 1},
+    "train_end_issue": {"type": "integer", "minimum": 1},
+    "test_issue": {"type": "integer", "minimum": 2},
+    "test_horizon": {"const": 1}
+  },
+  "additionalProperties": false
+}

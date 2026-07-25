@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dehps-m4-information-theory-walk-forward-run.v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "artifact_digest",
+    "run_digest",
+    "dataset_digest",
+    "harness_manifest_digest",
+    "probe_id",
+    "fold_digests",
+    "probe_state_digests",
+    "preprocessing_state_digests",
+    "prediction_checkpoint_digests",
+    "settlement_digests",
+    "aggregate",
+    "descriptive_only",
+    "eligible_for_p2_gate",
+    "formal_power_evidence",
+    "real_data_evidence",
+    "production_checkpoint",
+    "parent_digests"
+  ],
+  "properties": {
+    "schema_version": {"const": "dehps-m4-information-theory-walk-forward-run.v1"},
+    "artifact_type": {"const": "synthetic_walk_forward_smoke"},
+    "artifact_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "descriptive_only": {"const": true},
+    "eligible_for_p2_gate": {"const": false},
+    "formal_power_evidence": {"const": false},
+    "real_data_evidence": {"const": false},
+    "production_checkpoint": {"const": false}
+  },
+  "additionalProperties": true
+}

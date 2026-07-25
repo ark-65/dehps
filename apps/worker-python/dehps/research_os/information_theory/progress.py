@@ -151,6 +151,7 @@ def build_m4_status(
         )
     p2_1_complete = resolutions[P2_SUBTASK_KEYS[0]].status is TaskStatus.COMPLETED
     p2_2_complete = resolutions[P2_SUBTASK_KEYS[1]].status is TaskStatus.COMPLETED
+    p2_3_complete = resolutions[P2_SUBTASK_KEYS[2]].status is TaskStatus.COMPLETED
     if p2_1_complete:
         completed.extend(
             [
@@ -165,6 +166,15 @@ def build_m4_status(
                 "P2.2 deterministic metric kernel frozen",
                 "issue-cluster and bits-per-issue unit contracts verified",
                 "PE2 explicitly remains not implemented",
+            ]
+        )
+    if p2_3_complete:
+        completed.extend(
+            [
+                "P2.3 strict synthetic walk-forward harness frozen",
+                "blind exactly-once prediction checkpoint boundary verified",
+                "chronological inner validation and fold-local preprocessing verified",
+                "theoretical and logistic null smoke marked non-Evidence",
             ]
         )
 
@@ -197,6 +207,11 @@ def build_m4_status(
             "p2_metric_kernel_manifest_digest": (
                 "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2"
                 if p2_2_complete
+                else None
+            ),
+            "p2_walk_forward_harness_manifest_digest": (
+                "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca"
+                if p2_3_complete
                 else None
             ),
             "control_plane_manifest_digest": manifest.artifact_digest,
@@ -248,20 +263,32 @@ def build_m4_status(
         },
         "formal_real_data_run": "NOT_STARTED",
         "synthetic_validation": (
-            "P2.2_KERNEL_READY"
-            if p2_2_complete
-            else ("P2.1_CONTRACT_READY" if p2_1_complete else "NOT_STARTED")
+            "P2.3_HARNESS_READY"
+            if p2_3_complete
+            else (
+                "P2.2_KERNEL_READY"
+                if p2_2_complete
+                else ("P2.1_CONTRACT_READY" if p2_1_complete else "NOT_STARTED")
+            )
         ),
         "p2_subphase": {
             "completed": (
-                ["M4-P2.1", "M4-P2.2"]
-                if p2_2_complete
-                else (["M4-P2.1"] if p2_1_complete else [])
+                ["M4-P2.1", "M4-P2.2", "M4-P2.3"]
+                if p2_3_complete
+                else (
+                    ["M4-P2.1", "M4-P2.2"]
+                    if p2_2_complete
+                    else (["M4-P2.1"] if p2_1_complete else [])
+                )
             ),
             "current": (
-                "M4-P2.3"
-                if p2_2_complete
-                else ("M4-P2.2" if p2_1_complete else "M4-P2.1")
+                "M4-P2.4"
+                if p2_3_complete
+                else (
+                    "M4-P2.3"
+                    if p2_2_complete
+                    else ("M4-P2.2" if p2_1_complete else "M4-P2.1")
+                )
             ),
             "gate": "NOT_EVALUATED",
         },

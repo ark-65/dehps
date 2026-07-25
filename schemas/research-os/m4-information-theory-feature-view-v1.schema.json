@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dehps-m4-information-theory-feature-view.v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "feature_view_digest",
+    "feature_manifest_digest",
+    "dataset_digest",
+    "train_view",
+    "blind_test_view",
+    "parent_digests"
+  ],
+  "properties": {
+    "schema_version": {"const": "dehps-m4-information-theory-feature-view.v1"},
+    "artifact_type": {"const": "fold_feature_view_identity"},
+    "feature_view_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "blind_test_view": {
+      "type": "object",
+      "required": [
+        "target_issue",
+        "available_through_issue",
+        "construction_start_issue",
+        "construction_end_issue",
+        "feature_names",
+        "red_numbers",
+        "target_access"
+      ],
+      "properties": {
+        "target_access": {"const": "forbidden"},
+        "red_numbers": {
+          "type": "array",
+          "minItems": 33,
+          "maxItems": 33,
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

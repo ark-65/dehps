@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dehps-m4-information-theory-prediction-checkpoint.v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "artifact_digest",
+    "prediction_identity",
+    "fold_id",
+    "fold_digest",
+    "test_issue",
+    "training_range",
+    "dataset_digest",
+    "scenario",
+    "feature_view_digest",
+    "preprocessing_digest",
+    "probe_manifest_digest",
+    "probe_state_digest",
+    "probabilities_33",
+    "probability_order",
+    "predicted_red_count",
+    "created_before_target_access",
+    "metric_kernel_digest",
+    "preregistration_digest",
+    "git_commit",
+    "working_tree_clean",
+    "seed_policy",
+    "parent_digests"
+  ],
+  "properties": {
+    "schema_version": {"const": "dehps-m4-information-theory-prediction-checkpoint.v1"},
+    "artifact_type": {"const": "prediction_checkpoint"},
+    "artifact_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "probabilities_33": {
+      "type": "array",
+      "minItems": 33,
+      "maxItems": 33,
+      "items": {"type": "number", "minimum": 0, "maximum": 1}
+    },
+    "probability_order": {"const": "red_numbers_1_to_33"},
+    "created_before_target_access": {"const": true},
+    "working_tree_clean": {"const": true}
+  },
+  "not": {
+    "anyOf": [
+      {"required": ["target"]},
+      {"required": ["target_vector"]},
+      {"required": ["red_mask"]},
+      {"required": ["sorted_red_numbers"]},
+      {"required": ["pe1"]},
+      {"required": ["brier"]},
+      {"required": ["decision"]}
+    ]
+  },
+  "additionalProperties": true
+}

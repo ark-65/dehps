@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dehps-m4-information-theory-preprocessing-state.v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "fit_start_issue",
+    "fit_end_issue",
+    "feature_names",
+    "parameters",
+    "state_digest",
+    "parent_digests"
+  ],
+  "properties": {
+    "schema_version": {"const": "dehps-m4-information-theory-preprocessing-state.v1"},
+    "artifact_type": {"const": "immutable_preprocessing_state"},
+    "fit_start_issue": {"type": "integer", "minimum": 1},
+    "fit_end_issue": {"type": "integer", "minimum": 1},
+    "state_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": true
+}

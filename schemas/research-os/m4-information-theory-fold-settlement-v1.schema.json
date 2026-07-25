@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dehps-m4-information-theory-fold-settlement.v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "artifact_digest",
+    "fold_id",
+    "fold_digest",
+    "test_issue",
+    "prediction_checkpoint_digest",
+    "target_digest",
+    "issue_metric_artifact_digest",
+    "pe1_bits_per_issue",
+    "brier_gain_per_issue",
+    "probability_clipping_diagnostics",
+    "issue_metric",
+    "metric_kernel_digest",
+    "eligible_for_p2_gate",
+    "descriptive_only",
+    "pe2_status",
+    "parent_digests"
+  ],
+  "properties": {
+    "schema_version": {"const": "dehps-m4-information-theory-fold-settlement.v1"},
+    "artifact_type": {"const": "settled_fold_metric"},
+    "artifact_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "eligible_for_p2_gate": {"const": false},
+    "descriptive_only": {"const": true},
+    "pe2_status": {"const": "NOT_IMPLEMENTED"}
+  },
+  "additionalProperties": false
+}
