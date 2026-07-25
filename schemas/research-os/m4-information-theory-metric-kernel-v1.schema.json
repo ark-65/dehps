@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dehps-m4-information-theory-metric-kernel-manifest.v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "artifact_digest",
+    "phase",
+    "status",
+    "metric_kernel_version",
+    "preregistration_digest",
+    "decision_policy_digest",
+    "synthetic_manifest_digest",
+    "probability_clip",
+    "unit_contract",
+    "baseline",
+    "gain_contract",
+    "metric_identity",
+    "aggregate_contract",
+    "pe2_contract",
+    "seed_policy"
+  ],
+  "properties": {
+    "schema_version": {"const": "dehps-m4-information-theory-metric-kernel-manifest.v1"},
+    "artifact_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "phase": {"const": "M4-P2.2"},
+    "status": {"const": "FROZEN"},
+    "metric_kernel_version": {"const": "m4-information-theory-metric-kernel-v1"},
+    "seed_policy": {"const": "none"},
+    "formal_execution": {"const": "NOT_STARTED"},
+    "real_data_analysis": {"const": "NOT_STARTED"},
+    "production_action": {"const": "none"}
+  },
+  "additionalProperties": true
+}
