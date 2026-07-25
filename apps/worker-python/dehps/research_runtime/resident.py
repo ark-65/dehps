@@ -18,6 +18,7 @@ from dehps.research_runtime.models import (
     ResidentResearchRuntimeConfig,
     ResearchCycleResult,
     ResearchRuntimeBudget,
+    ResearchRuntimeStatus,
     jsonable,
 )
 from dehps.research_runtime.runtime import ContinuousResearchRuntime
@@ -88,7 +89,17 @@ class ResidentResearchRuntime:
                 while not self._stopping:
                     if self.config.max_cycles is not None and self.cycles_completed >= self.config.max_cycles:
                         break
-                    self._run_cycle()
+                    result = self._run_cycle()
+                    if (
+                        result.runtime_status
+                        is ResearchRuntimeStatus.RESEARCH_BUDGET_EXHAUSTED
+                    ):
+                        final = self._state(
+                            status="stopped",
+                            reason_code="daily_cycle_limit",
+                        )
+                        self._write_state(final)
+                        return final
                     self._sleep(self.config.interval_seconds)
                 final = self._state(status="stopped", reason_code="max_cycles" if self.config.max_cycles else "signal")
                 self._write_state(final)

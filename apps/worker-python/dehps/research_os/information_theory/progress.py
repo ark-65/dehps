@@ -64,6 +64,8 @@ def build_m4_status(
     manifest: ControlPlaneManifest,
     *,
     snapshot: ResolutionSnapshot | None = None,
+    mainline_execution: dict[str, Any] | None = None,
+    dispatch_performed: bool = False,
 ) -> dict[str, Any]:
     snapshot = snapshot or ResearchOSControlPlane().resolve(manifest)
     goals = {goal.goal_key: goal for goal in manifest.goals}
@@ -76,6 +78,7 @@ def build_m4_status(
         raise ValueError("M4 Goal must be active")
 
     tasks = {task.task_key: task for task in manifest.tasks}
+    task_states = manifest.task_state_by_digest
     resolutions = {item.task_key: item for item in snapshot.resolutions}
     current_phase = _current_phase(tasks)
     current_task_key = PHASE_TASK_KEYS[current_phase]
@@ -171,10 +174,11 @@ def build_m4_status(
     if p2_3_complete:
         completed.extend(
             [
-                "P2.3 strict synthetic walk-forward harness frozen",
+                "P2.3 strict synthetic walk-forward harness validated in mainline",
                 "blind exactly-once prediction checkpoint boundary verified",
                 "chronological inner validation and fold-local preprocessing verified",
                 "theoretical and logistic null smoke marked non-Evidence",
+                "unified Research Evidence Supervisor execution and replay verified",
             ]
         )
 
@@ -213,6 +217,11 @@ def build_m4_status(
                 "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca"
                 if p2_3_complete
                 else None
+            ),
+            "p2_walk_forward_mainline_execution_digest": (
+                None
+                if mainline_execution is None
+                else mainline_execution.get("execution_artifact_digest")
             ),
             "control_plane_manifest_digest": manifest.artifact_digest,
             "legacy_settlement_digest": json.loads(
@@ -291,6 +300,39 @@ def build_m4_status(
                 )
             ),
             "gate": "NOT_EVALUATED",
+            "completion_classification": (
+                None
+                if task_states[
+                    tasks["m4-p2-walk-forward-probe-harness"].artifact_digest
+                ].completion_classification
+                is None
+                else task_states[
+                    tasks["m4-p2-walk-forward-probe-harness"].artifact_digest
+                ].completion_classification.value
+            ),
+        },
+        "mainline_integration": {
+            "goal_integration": M4_GOAL_KEY,
+            "ready_queue_integration": "PASS",
+            "runner_integration": "research_evidence_supervisor",
+            "task_key": "m4-p2-walk-forward-probe-harness",
+            "actual_fold_count": (
+                None
+                if mainline_execution is None
+                else mainline_execution.get("actual_fold_count")
+            ),
+            "registered_artifact_count": (
+                None
+                if mainline_execution is None
+                else mainline_execution.get("registered_artifact_count")
+            ),
+            "execution_artifact_digest": (
+                None
+                if mainline_execution is None
+                else mainline_execution.get("execution_artifact_digest")
+            ),
+            "downstream_consumer": "m4-p2-injected-signal-calibration",
+            "legacy_manual_path_canonical": False,
         },
         "blocked_by": blocked_by,
         "next_ready_task": None if next_ready is None else next_ready.task_key,
@@ -305,7 +347,7 @@ def build_m4_status(
             "reason": "no complete M4 pre-draw checkpoint after P1 freeze and P2 passage",
         },
         "stop_condition_status": "NOT_EVALUATED",
-        "dispatch_performed": False,
+        "dispatch_performed": dispatch_performed,
         "production_impact": "none",
     }
 

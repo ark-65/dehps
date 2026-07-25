@@ -79,10 +79,16 @@ CREATE TABLE IF NOT EXISTS research_os_goal_states (
 CREATE TABLE IF NOT EXISTS research_os_task_states (
   control_plane_key TEXT NOT NULL REFERENCES research_os_control_planes(control_plane_key) ON DELETE RESTRICT,
   task_digest TEXT NOT NULL REFERENCES research_os_task_definitions(task_digest) ON DELETE RESTRICT,
-  declared_status TEXT NOT NULL CHECK (declared_status IN ('draft', 'completed', 'failed', 'superseded')),
+  declared_status TEXT NOT NULL CHECK (declared_status IN (
+    'draft', 'running', 'completed', 'failed', 'superseded'
+  )),
   resolved_status TEXT NOT NULL CHECK (resolved_status IN (
-    'draft', 'ready', 'dependency_wait', 'external_wait', 'approval_wait',
+    'draft', 'running', 'ready', 'dependency_wait', 'external_wait', 'approval_wait',
     'completed', 'failed', 'superseded'
+  )),
+  completion_classification TEXT CHECK (completion_classification IN (
+    'CODE_COMPLETE', 'INTEGRATION_PENDING', 'INTEGRATED',
+    'VALIDATED_IN_MAINLINE', 'COMPLETE'
   )),
   reason_code TEXT NOT NULL,
   dependency_state_json JSONB NOT NULL DEFAULT '[]'::jsonb
@@ -91,6 +97,32 @@ CREATE TABLE IF NOT EXISTS research_os_task_states (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (control_plane_key, task_digest)
 );
+
+ALTER TABLE research_os_task_states
+  ADD COLUMN IF NOT EXISTS completion_classification TEXT;
+ALTER TABLE research_os_task_states
+  DROP CONSTRAINT IF EXISTS research_os_task_states_declared_status_check;
+ALTER TABLE research_os_task_states
+  ADD CONSTRAINT research_os_task_states_declared_status_check
+  CHECK (declared_status IN ('draft', 'running', 'completed', 'failed', 'superseded'));
+ALTER TABLE research_os_task_states
+  DROP CONSTRAINT IF EXISTS research_os_task_states_resolved_status_check;
+ALTER TABLE research_os_task_states
+  ADD CONSTRAINT research_os_task_states_resolved_status_check
+  CHECK (resolved_status IN (
+    'draft', 'running', 'ready', 'dependency_wait', 'external_wait', 'approval_wait',
+    'completed', 'failed', 'superseded'
+  ));
+ALTER TABLE research_os_task_states
+  DROP CONSTRAINT IF EXISTS research_os_task_states_completion_classification_check;
+ALTER TABLE research_os_task_states
+  ADD CONSTRAINT research_os_task_states_completion_classification_check
+  CHECK (
+    completion_classification IS NULL OR completion_classification IN (
+      'CODE_COMPLETE', 'INTEGRATION_PENDING', 'INTEGRATED',
+      'VALIDATED_IN_MAINLINE', 'COMPLETE'
+    )
+  );
 
 CREATE INDEX IF NOT EXISTS idx_research_os_task_states_status
   ON research_os_task_states (control_plane_key, resolved_status, task_digest);
@@ -116,6 +148,53 @@ CREATE TABLE IF NOT EXISTS research_os_external_executor_observations (
   observation_json JSONB NOT NULL CHECK (jsonb_typeof(observation_json) = 'object'),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS research_os_mainline_execution_events (
+  event_digest TEXT PRIMARY KEY CHECK (event_digest ~ '^[0-9a-f]{64}$'),
+  execution_id TEXT NOT NULL CHECK (execution_id ~ '^[0-9a-f]{64}$'),
+  control_plane_key TEXT NOT NULL
+    REFERENCES research_os_control_planes(control_plane_key) ON DELETE RESTRICT,
+  manifest_digest TEXT NOT NULL
+    REFERENCES research_os_manifests(manifest_digest) ON DELETE RESTRICT,
+  task_digest TEXT NOT NULL
+    REFERENCES research_os_task_definitions(task_digest) ON DELETE RESTRICT,
+  task_key TEXT NOT NULL,
+  capability TEXT NOT NULL,
+  event_type TEXT NOT NULL CHECK (event_type IN ('started', 'completed', 'failed')),
+  sequence INTEGER NOT NULL CHECK (sequence >= 0),
+  recorded_at TIMESTAMPTZ NOT NULL,
+  event_json JSONB NOT NULL CHECK (jsonb_typeof(event_json) = 'object'),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (execution_id, sequence)
+);
+
+CREATE INDEX IF NOT EXISTS idx_research_os_mainline_execution_task
+  ON research_os_mainline_execution_events
+  (control_plane_key, task_key, recorded_at DESC, event_digest DESC);
+
+CREATE TABLE IF NOT EXISTS research_os_mainline_artifacts (
+  registration_digest TEXT PRIMARY KEY CHECK (registration_digest ~ '^[0-9a-f]{64}$'),
+  execution_id TEXT NOT NULL CHECK (execution_id ~ '^[0-9a-f]{64}$'),
+  control_plane_key TEXT NOT NULL
+    REFERENCES research_os_control_planes(control_plane_key) ON DELETE RESTRICT,
+  task_digest TEXT NOT NULL
+    REFERENCES research_os_task_definitions(task_digest) ON DELETE RESTRICT,
+  task_key TEXT NOT NULL,
+  artifact_digest TEXT NOT NULL CHECK (artifact_digest ~ '^[0-9a-f]{64}$'),
+  artifact_type TEXT NOT NULL,
+  schema_version TEXT NOT NULL,
+  artifact_path TEXT NOT NULL,
+  parent_digests_json JSONB NOT NULL DEFAULT '[]'::jsonb
+    CHECK (jsonb_typeof(parent_digests_json) = 'array'),
+  git_commit TEXT NOT NULL,
+  registration_json JSONB NOT NULL CHECK (jsonb_typeof(registration_json) = 'object'),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (execution_id, artifact_digest, artifact_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_research_os_mainline_artifacts_task
+  ON research_os_mainline_artifacts
+  (control_plane_key, task_key, created_at DESC, artifact_digest);
 
 CREATE INDEX IF NOT EXISTS idx_research_os_external_executor_observations_owner
   ON research_os_external_executor_observations (control_plane_key, owner, observed_at DESC);
@@ -158,4 +237,16 @@ DROP TRIGGER IF EXISTS research_os_external_executor_observations_immutable
   ON research_os_external_executor_observations;
 CREATE TRIGGER research_os_external_executor_observations_immutable
 BEFORE UPDATE OR DELETE ON research_os_external_executor_observations
+FOR EACH ROW EXECUTE FUNCTION dehps_research_os_reject_immutable_mutation();
+
+DROP TRIGGER IF EXISTS research_os_mainline_execution_events_immutable
+  ON research_os_mainline_execution_events;
+CREATE TRIGGER research_os_mainline_execution_events_immutable
+BEFORE UPDATE OR DELETE ON research_os_mainline_execution_events
+FOR EACH ROW EXECUTE FUNCTION dehps_research_os_reject_immutable_mutation();
+
+DROP TRIGGER IF EXISTS research_os_mainline_artifacts_immutable
+  ON research_os_mainline_artifacts;
+CREATE TRIGGER research_os_mainline_artifacts_immutable
+BEFORE UPDATE OR DELETE ON research_os_mainline_artifacts
 FOR EACH ROW EXECUTE FUNCTION dehps_research_os_reject_immutable_mutation();

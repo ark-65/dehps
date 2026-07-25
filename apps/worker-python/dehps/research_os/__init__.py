@@ -2,10 +2,13 @@
 
 from dehps.research_os.control_plane import ResearchOSControlPlane
 from dehps.research_os.models import (
+    CompletionClassification,
     ControlPlaneManifest,
     DependencyFacts,
     DependencyType,
     ExternalExecutorObservation,
+    MainlineArtifactRegistration,
+    MainlineExecutionEvent,
     Goal,
     GoalState,
     GoalStatus,
@@ -21,9 +24,12 @@ from dehps.research_os.repository import PostgresResearchOSRepository
 
 __all__ = [
     "ControlPlaneManifest",
+    "CompletionClassification",
     "DependencyFacts",
     "DependencyType",
     "ExternalExecutorObservation",
+    "MainlineArtifactRegistration",
+    "MainlineExecutionEvent",
     "Goal",
     "GoalState",
     "GoalStatus",

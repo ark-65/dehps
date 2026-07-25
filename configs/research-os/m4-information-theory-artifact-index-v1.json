@@ -44,6 +44,12 @@
       "superseded_by_digest": "3c511268fd1211c6c71de8ec3ac9c0afd218855ed58885a26b4cec4638175157"
     },
     "3c511268fd1211c6c71de8ec3ac9c0afd218855ed58885a26b4cec4638175157": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "source_commit": "d61e147bcdbc13ac84e0caac964625436b2fecca",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "superseded_by_digest": "8c03e82f97190ead5c2d9002a71316ca381083c54a2fc62f5d420e40a5c2f573"
+    },
+    "8c03e82f97190ead5c2d9002a71316ca381083c54a2fc62f5d420e40a5c2f573": {
       "artifact_type": "research_os_control_plane_manifest",
       "path": "configs/research-os/m4-information-theory-evidence-v1.json"
     },

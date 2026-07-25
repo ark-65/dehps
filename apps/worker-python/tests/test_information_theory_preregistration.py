@@ -218,9 +218,10 @@ def test_22_2026085_remains_external_wait_and_ineligible() -> None:
     ]
 
 
-def test_23_engineering_progress_includes_completed_p2_1_through_p2_3() -> None:
+def test_23_engineering_progress_waits_for_p2_3_mainline_execution() -> None:
     status = build_m4_status(load_m4_manifest(MANIFEST_PATH))
-    assert status["progress"]["engineering_percent"] == 30
+    assert status["progress"]["engineering_percent"] == 26
+    assert status["p2_subphase"]["completion_classification"] == "INTEGRATION_PENDING"
 
 
 def test_24_evidence_progress_remains_zero() -> None:
@@ -233,7 +234,7 @@ def test_25_resolver_advances_only_to_p2() -> None:
     manifest = load_m4_manifest(MANIFEST_PATH)
     snapshot = ResearchOSControlPlane().resolve(manifest)
     assert [item.task_key for item in snapshot.ready_queue] == [
-        "m4-p2-injected-signal-calibration"
+        "m4-p2-walk-forward-probe-harness"
     ]
     status = build_m4_status(manifest, snapshot=snapshot)
     assert (status["current_phase"], status["current_state"]) == ("M4-P2", "RUNNING")

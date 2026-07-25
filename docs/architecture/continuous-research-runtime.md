@@ -1,10 +1,10 @@
 # Continuous Research Runtime
 
-> Implementation status: this document describes the Round 30/31 resident runtime. The accepted
-> control-plane successor is [Goal-Driven Research Orchestrator](goal-driven-research-orchestrator.md).
-> The current runtime proves that forward wait need not stop historical computation, but it does not
-> yet implement the Goal Graph, Task DAG, Evidence Bundle, Resource Manager, Capability ABI, or
-> Maintenance Scheduler defined there.
+> Implementation status: this document records the superseded Round 30/31
+> resident runtime. The accepted resident successor is the
+> [Training Mainline Integration Governance](training-mainline-integration-governance.md)
+> and its Research Evidence Supervisor. The old continuous loop is not a
+> canonical training path.
 
 Round 30 separates DEHPS into two independent runtimes:
 
@@ -105,20 +105,35 @@ Forward may wait. That wait never blocks research scheduling.
 
 ## Resident deployment
 
-Round 31 makes the continuous research runtime the resident worker. The legacy
-training supervisor is no longer the owner of continuous research.
+The Research Evidence Supervisor owns canonical training/research dispatch.
+It consumes only persisted Ready Tasks from the active Goal/Task control plane,
+records immutable execution events and artifacts, updates the unified status
+projection, and unlocks the next legal task.
 
 Expected resident units:
 
-- `dehps-research-runtime.service`
+- `dehps-research-evidence-supervisor.service`
 - `dehps-forward-runtime.service`
 - `dehps-draw-sync.timer`
+
+Superseded unit:
+
+- `dehps-research-runtime.service` must stay disabled after cutover. Its
+  free-running action scheduler is not connected to the canonical Task DAG,
+  evidence lifecycle, or downstream decision path.
 
 Legacy unit:
 
 - `dehps-training-supervisor.service` must stay disabled.
 
-Resident research writes:
+Canonical supervisor writes:
+
+- `runtime/logs/research-evidence-supervisor-state.json`
+- `runtime/logs/m4-information-theory-status.json`
+- `runtime/research-os/mainline/tasks/<task-key>/<execution-id>/`
+- append-only PostgreSQL mainline execution events and artifact registrations
+
+Historical Round 31 research writes:
 
 - `runtime/logs/research-runtime.pid`
 - `runtime/logs/research-runtime-state.json`
@@ -158,7 +173,7 @@ Resident forward writes:
 - `runtime/logs/forward-runtime.pid`
 - `runtime/logs/forward-runtime-state.json`
 
-The research resident fails closed if a legacy process matching
+The historical research resident fails closed if a legacy process matching
 `run_training_supervisor|training_supervisor` is active. This prevents the legacy
 supervisor and research runtime from consuming the same research queue.
 

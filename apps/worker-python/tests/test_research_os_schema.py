@@ -25,6 +25,8 @@ def test_research_os_migration_is_additive_idempotent_and_immutable() -> None:
         "research_os_task_states",
         "research_os_dependency_facts",
         "research_os_external_executor_observations",
+        "research_os_mainline_execution_events",
+        "research_os_mainline_artifacts",
     ):
         assert f"CREATE TABLE IF NOT EXISTS {table}" in sql
     assert "Research OS immutable artifact rows cannot be updated or deleted" in sql

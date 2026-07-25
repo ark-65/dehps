@@ -39,6 +39,7 @@ class TaskLane(str, Enum):
 
 class TaskStatus(str, Enum):
     DRAFT = "draft"
+    RUNNING = "running"
     READY = "ready"
     DEPENDENCY_WAIT = "dependency_wait"
     EXTERNAL_WAIT = "external_wait"
@@ -52,8 +53,22 @@ TERMINAL_TASK_STATUSES = frozenset(
     {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.SUPERSEDED}
 )
 DECLARED_TASK_STATUSES = frozenset(
-    {TaskStatus.DRAFT, TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.SUPERSEDED}
+    {
+        TaskStatus.DRAFT,
+        TaskStatus.RUNNING,
+        TaskStatus.COMPLETED,
+        TaskStatus.FAILED,
+        TaskStatus.SUPERSEDED,
+    }
 )
+
+
+class CompletionClassification(str, Enum):
+    CODE_COMPLETE = "CODE_COMPLETE"
+    INTEGRATION_PENDING = "INTEGRATION_PENDING"
+    INTEGRATED = "INTEGRATED"
+    VALIDATED_IN_MAINLINE = "VALIDATED_IN_MAINLINE"
+    COMPLETE = "COMPLETE"
 
 
 class DependencyType(str, Enum):
@@ -335,6 +350,7 @@ class Task:
 class TaskState:
     task_digest: str
     declared_status: TaskStatus = TaskStatus.DRAFT
+    completion_classification: CompletionClassification | None = None
     superseded_by_task_digest: str | None = None
 
 
@@ -457,6 +473,15 @@ class ControlPlaneManifest:
                 TaskState(
                     task_digest=task.artifact_digest,
                     declared_status=declared_status,
+                    completion_classification=(
+                        None
+                        if raw_task.get("completion_classification") in (None, "")
+                        else _enum(
+                            CompletionClassification,
+                            raw_task.get("completion_classification"),
+                            field_name="task completion_classification",
+                        )
+                    ),
                     superseded_by_task_digest=(
                         str(raw_task.get("superseded_by_task_digest"))
                         if raw_task.get("superseded_by_task_digest")
@@ -507,6 +532,11 @@ class ControlPlaneManifest:
             item = {
                 **task.to_dict(),
                 "status": state.declared_status.value,
+                "completion_classification": (
+                    None
+                    if state.completion_classification is None
+                    else state.completion_classification.value
+                ),
                 "superseded_by_task_digest": state.superseded_by_task_digest,
             }
             tasks.append(item)
@@ -577,5 +607,53 @@ class ExternalExecutorObservation:
                 "schema": RESEARCH_OS_SCHEMA_VERSION,
                 "artifact_type": "external_executor_observation",
                 "observation": self,
+            }
+        )
+
+
+@dataclass(frozen=True)
+class MainlineExecutionEvent:
+    execution_id: str
+    control_plane_key: str
+    manifest_digest: str
+    task_key: str
+    task_digest: str
+    capability: str
+    event_type: str
+    sequence: int
+    recorded_at: str
+    payload: tuple[tuple[str, Any], ...] = ()
+
+    @property
+    def artifact_digest(self) -> str:
+        return stable_hash(
+            {
+                "schema": RESEARCH_OS_SCHEMA_VERSION,
+                "artifact_type": "mainline_execution_event",
+                "event": self,
+            }
+        )
+
+
+@dataclass(frozen=True)
+class MainlineArtifactRegistration:
+    execution_id: str
+    control_plane_key: str
+    task_key: str
+    task_digest: str
+    artifact_digest: str
+    artifact_type: str
+    schema_version: str
+    artifact_path: str
+    parent_digests: tuple[str, ...] = ()
+    git_commit: str = ""
+
+    @property
+    def registration_digest(self) -> str:
+        return stable_hash(
+            {
+                "schema": RESEARCH_OS_SCHEMA_VERSION,
+                "artifact_type": "mainline_artifact_registration",
+                "registration": self,
             }
         )

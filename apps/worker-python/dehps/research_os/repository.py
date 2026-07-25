@@ -12,6 +12,8 @@ from psycopg.rows import dict_row
 from dehps.db import get_connection
 from dehps.research_os.control_plane import ResearchOSControlPlane
 from dehps.research_os.models import (
+    MainlineArtifactRegistration,
+    MainlineExecutionEvent,
     ControlPlaneManifest,
     DependencyType,
     ExternalExecutorObservation,
@@ -23,6 +25,7 @@ from dehps.research_os.models import (
     jsonable,
     stable_json,
 )
+from dehps.research_os.mainline import completion_execution_ids
 from dehps.storage.postgres_store import ensure_research_os_schema
 
 
@@ -85,7 +88,18 @@ class PostgresResearchOSRepository:
         task_revisions: list[tuple[str, str, str]] = []
 
         with self.connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
+            self._verify_mainline_completion_records(
+                cursor,
+                control_plane_key=key,
+                manifest=manifest,
+            )
             previous_goals, previous_tasks = self._current_revisions(cursor, key)
+            self._verify_no_mainline_completion_regression(
+                cursor,
+                control_plane_key=key,
+                manifest=manifest,
+                previous_tasks=previous_tasks,
+            )
             for goal in manifest.goals:
                 inserted = cursor.execute(
                     """
@@ -245,11 +259,13 @@ class PostgresResearchOSRepository:
                     """
                     INSERT INTO research_os_task_states (
                       control_plane_key, task_digest, declared_status, resolved_status,
-                      reason_code, dependency_state_json, superseded_by_task_digest
-                    ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s)
+                      completion_classification, reason_code, dependency_state_json,
+                      superseded_by_task_digest
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s)
                     ON CONFLICT (control_plane_key, task_digest) DO UPDATE
                     SET declared_status = EXCLUDED.declared_status,
                         resolved_status = EXCLUDED.resolved_status,
+                        completion_classification = EXCLUDED.completion_classification,
                         reason_code = EXCLUDED.reason_code,
                         dependency_state_json = EXCLUDED.dependency_state_json,
                         superseded_by_task_digest = EXCLUDED.superseded_by_task_digest,
@@ -260,6 +276,11 @@ class PostgresResearchOSRepository:
                         task.artifact_digest,
                         state.declared_status.value,
                         resolution.status.value,
+                        (
+                            None
+                            if state.completion_classification is None
+                            else state.completion_classification.value
+                        ),
                         resolution.reason_code,
                         _json(resolution.unsatisfied_dependencies),
                         state.superseded_by_task_digest,
@@ -329,6 +350,7 @@ class PostgresResearchOSRepository:
             task_rows = cursor.execute(
                 """
                 SELECT td.task_digest, td.definition_json, ts.declared_status,
+                       ts.completion_classification,
                        ts.superseded_by_task_digest, ts.resolved_status,
                        ts.reason_code, ts.dependency_state_json
                 FROM research_os_manifest_tasks mt
@@ -380,6 +402,7 @@ class PostgresResearchOSRepository:
                 {
                     **definition,
                     "status": str(row["declared_status"]),
+                    "completion_classification": row["completion_classification"],
                     "superseded_by_task_digest": row["superseded_by_task_digest"],
                 }
             )
@@ -493,6 +516,132 @@ class PostgresResearchOSRepository:
             for row in rows
         )
 
+    def record_mainline_execution_event(
+        self,
+        *,
+        event: MainlineExecutionEvent,
+    ) -> bool:
+        payload = jsonable(event)
+        with self.connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
+            row = cursor.execute(
+                """
+                INSERT INTO research_os_mainline_execution_events (
+                  event_digest, execution_id, control_plane_key, manifest_digest,
+                  task_digest, task_key, capability, event_type, sequence,
+                  recorded_at, event_json
+                ) VALUES (
+                  %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb
+                )
+                ON CONFLICT (event_digest) DO NOTHING
+                RETURNING event_digest
+                """,
+                (
+                    event.artifact_digest,
+                    event.execution_id,
+                    event.control_plane_key,
+                    event.manifest_digest,
+                    event.task_digest,
+                    event.task_key,
+                    event.capability,
+                    event.event_type,
+                    event.sequence,
+                    event.recorded_at,
+                    _json(payload),
+                ),
+            ).fetchone()
+        return row is not None
+
+    def register_mainline_artifact(
+        self,
+        *,
+        registration: MainlineArtifactRegistration,
+    ) -> bool:
+        payload = jsonable(registration)
+        with self.connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
+            row = cursor.execute(
+                """
+                INSERT INTO research_os_mainline_artifacts (
+                  registration_digest, execution_id, control_plane_key,
+                  task_digest, task_key, artifact_digest, artifact_type,
+                  schema_version, artifact_path, parent_digests_json,
+                  git_commit, registration_json
+                ) VALUES (
+                  %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s::jsonb
+                )
+                ON CONFLICT (registration_digest) DO NOTHING
+                RETURNING registration_digest
+                """,
+                (
+                    registration.registration_digest,
+                    registration.execution_id,
+                    registration.control_plane_key,
+                    registration.task_digest,
+                    registration.task_key,
+                    registration.artifact_digest,
+                    registration.artifact_type,
+                    registration.schema_version,
+                    registration.artifact_path,
+                    _json(registration.parent_digests),
+                    registration.git_commit,
+                    _json(payload),
+                ),
+            ).fetchone()
+        return row is not None
+
+    def list_mainline_execution_events(
+        self,
+        *,
+        control_plane_key: str,
+        task_key: str | None = None,
+        execution_id: str | None = None,
+    ) -> tuple[dict[str, Any], ...]:
+        clauses = ["control_plane_key = %s"]
+        params: list[Any] = [self._key(control_plane_key)]
+        if task_key is not None:
+            clauses.append("task_key = %s")
+            params.append(self._key(task_key))
+        if execution_id is not None:
+            clauses.append("execution_id = %s")
+            params.append(self._key(execution_id))
+        with self.connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
+            rows = cursor.execute(
+                f"""
+                SELECT event_digest, event_json
+                FROM research_os_mainline_execution_events
+                WHERE {' AND '.join(clauses)}
+                ORDER BY recorded_at, sequence, event_digest
+                """,
+                tuple(params),
+            ).fetchall()
+        return tuple(
+            {"event_digest": str(row["event_digest"]), **dict(row["event_json"])}
+            for row in rows
+        )
+
+    def list_mainline_artifacts(
+        self,
+        *,
+        control_plane_key: str,
+        execution_id: str,
+    ) -> tuple[dict[str, Any], ...]:
+        with self.connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
+            rows = cursor.execute(
+                """
+                SELECT registration_digest, registration_json
+                FROM research_os_mainline_artifacts
+                WHERE control_plane_key = %s AND execution_id = %s
+                ORDER BY artifact_type, artifact_digest
+                """,
+                (self._key(control_plane_key), self._key(execution_id)),
+            ).fetchall()
+        return tuple(
+            {
+                "registration_digest": str(row["registration_digest"]),
+                **dict(row["registration_json"]),
+            }
+            for row in rows
+        )
+
     @staticmethod
     def _key(value: str) -> str:
         normalized = str(value or "").strip()
@@ -599,4 +748,85 @@ class PostgresResearchOSRepository:
             ):
                 raise ResearchOSValidationError(
                     f"stored Task state projection mismatch: {resolution.task_key}"
+                )
+
+    @staticmethod
+    def _verify_mainline_completion_records(
+        cursor,
+        *,
+        control_plane_key: str,
+        manifest: ControlPlaneManifest,
+    ) -> None:
+        for task in manifest.tasks:
+            if task.requested_capability is None:
+                continue
+            execution_ids = completion_execution_ids(manifest, task=task)
+            for execution_id in execution_ids:
+                completed = cursor.execute(
+                    """
+                    SELECT 1
+                    FROM research_os_mainline_execution_events
+                    WHERE control_plane_key = %s
+                      AND task_digest = %s
+                      AND task_key = %s
+                      AND execution_id = %s
+                      AND event_type = 'completed'
+                    """,
+                    (
+                        control_plane_key,
+                        task.artifact_digest,
+                        task.task_key,
+                        execution_id,
+                    ),
+                ).fetchone()
+                if completed is None:
+                    raise ResearchOSValidationError(
+                        f"task {task.task_key!r} completion fact has no immutable "
+                        "completed mainline execution event"
+                    )
+                artifact = cursor.execute(
+                    """
+                    SELECT 1
+                    FROM research_os_mainline_artifacts
+                    WHERE control_plane_key = %s
+                      AND task_digest = %s
+                      AND execution_id = %s
+                    LIMIT 1
+                    """,
+                    (control_plane_key, task.artifact_digest, execution_id),
+                ).fetchone()
+                if artifact is None:
+                    raise ResearchOSValidationError(
+                        f"task {task.task_key!r} completion fact has no registered "
+                        "mainline artifact"
+                    )
+
+    @staticmethod
+    def _verify_no_mainline_completion_regression(
+        cursor,
+        *,
+        control_plane_key: str,
+        manifest: ControlPlaneManifest,
+        previous_tasks: dict[str, str],
+    ) -> None:
+        incoming_states = manifest.task_state_by_digest
+        for task in manifest.tasks:
+            if task.requested_capability is None:
+                continue
+            if previous_tasks.get(task.task_key) != task.artifact_digest:
+                continue
+            row = cursor.execute(
+                """
+                SELECT declared_status, completion_classification
+                FROM research_os_task_states
+                WHERE control_plane_key = %s AND task_digest = %s
+                """,
+                (control_plane_key, task.artifact_digest),
+            ).fetchone()
+            if row is None or str(row["declared_status"]) != "completed":
+                continue
+            incoming = incoming_states[task.artifact_digest]
+            if incoming.declared_status.value != "completed":
+                raise ResearchOSValidationError(
+                    f"mainline completion regression forbidden for task {task.task_key!r}"
                 )
