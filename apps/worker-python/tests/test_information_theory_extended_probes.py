@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import json
+from functools import cache
 from pathlib import Path
 
 import numpy as np
 
+from dehps.research_os.information_theory.synthetic import (
+    generate_null_dataset,
+    load_synthetic_run_manifest,
+)
 from dehps.research_os.information_theory.walk_forward import (
     build_blind_test_feature_view,
     build_train_feature_view,
-    load_synthetic_dataset,
     restrict_to_training_history,
+    validate_synthetic_dataset,
 )
 from dehps.research_os.information_theory.probes import (
     FORMAL_PROBE_REGISTRY,
@@ -23,11 +28,10 @@ from dehps.research_os.information_theory.measurement_validation import (
 
 
 ROOT = Path(__file__).resolve().parents[3]
-DATASET = (
+SYNTHETIC_MANIFEST = (
     ROOT
-    / "runtime/research-os/information-theory/synthetic/"
-    "5354b9f7f6c72996cff16d6c161b03ff49922bf92589bd43b823d107019ebd86/"
-    "dataset.json"
+    / "configs/research-os/"
+    "m4-information-theory-p2-synthetic-run-manifest-v1.json"
 )
 PREREGISTRATION = (
     ROOT / "configs/research-os/m4-information-theory-preregistration-v1.0.3.json"
@@ -38,8 +42,16 @@ HARNESS = (
 )
 
 
+@cache
 def _fixture():
-    dataset = load_synthetic_dataset(DATASET)
+    synthetic = load_synthetic_run_manifest(SYNTHETIC_MANIFEST)
+    dataset = validate_synthetic_dataset(
+        generate_null_dataset(
+            synthetic,
+            scale_id="FORWARD_61",
+            seed=synthetic.seed_policy.seeds[0],
+        ).to_dict()
+    )
     training = restrict_to_training_history(dataset, available_through_issue=900)
     train_view = build_train_feature_view(training, tuple(range(1, 901)))
     blind = build_blind_test_feature_view(dataset, target_issue=901)

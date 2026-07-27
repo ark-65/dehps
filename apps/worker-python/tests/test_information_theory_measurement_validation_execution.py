@@ -77,6 +77,83 @@ PROBES = (
     "NAIVE_BAYES",
     "SHALLOW_CALIBRATED_TREE",
 )
+P24_EXECUTION_ID = (
+    "772b5063f1a3578c7e8f8a2cd9f102357828608de8fbd80c2c1fb2c82b79afa2"
+)
+P24_TRUTH_SPECS = {
+    "WEAK_SINGLE_NUMBER": (
+        "23a41f005f369e762f26c728eb13a5fa4888b9c04590d6e0d2410506956c7e2f",
+        "single_number_conditional_shift",
+        0.0010000000558177125,
+        0.014354376630335237,
+    ),
+    "WEAK_LOCAL_TEMPORAL": (
+        "709133b116c40ba95d10018c94160786c554186b94a0fc9dfaeef539d30eb58e",
+        "local_temporal_state",
+        0.0010000000835004644,
+        0.018614336848240355,
+    ),
+    "WEAK_PAIR": (
+        "6c8a2c30941255e617205f4a59e594e4ac894dd8057accaa6b538026263654e2",
+        "pair_conditional_signal",
+        0.0009999999995979596,
+        0.008577358338132095,
+    ),
+    "WEAK_MARGINAL_PRESERVING": (
+        "a3516898188a0e8b22d0cd61f9a8b1412e4f14e80096f34a437ad720731cd179",
+        "marginal_preserving_conditional_signal",
+        0.0010000000066530295,
+        0.03725493326779454,
+    ),
+    "MEDIUM_PRACTICAL_SINGLE_NUMBER": (
+        "97e126b5ec61cb8bc8599f35754b3968fec037cc1349a419196238849eef87ab",
+        "single_number_conditional_shift",
+        0.010000000029762889,
+        0.0452148758551839,
+    ),
+    "MEDIUM_PRACTICAL_LOCAL_TEMPORAL": (
+        "0a04a7251b982c80af0c8944ecf96f6faa224ad408a2f92207c4fe5fbf603e06",
+        "local_temporal_state",
+        0.009999999955732669,
+        0.05880238860839686,
+    ),
+    "MEDIUM_PRACTICAL_PAIR": (
+        "dbc2f7a58f5b506fc911f6b9d1f27a4b3fb18215db961b50ea519baf3668b3be",
+        "pair_conditional_signal",
+        0.010000000029310811,
+        0.02666319687397467,
+    ),
+    "MEDIUM_PRACTICAL_MARGINAL_PRESERVING": (
+        "9623cdf111538f1883f1ed1b2b2f33ca852517744812e16e9f4f2fb4acf51f97",
+        "marginal_preserving_conditional_signal",
+        0.010000000043814683,
+        0.11768773291248236,
+    ),
+    "STRONG_SINGLE_NUMBER": (
+        "dee510d7ebee2e3a8248657f2c71c984250a842626d3c3e3e29e917ff5025320",
+        "single_number_conditional_shift",
+        0.04999999991203453,
+        0.09924511509852887,
+    ),
+    "STRONG_LOCAL_TEMPORAL": (
+        "025befa6028bb19f9cf79ea368a214f1228242ce6e05009845c6621332bc2537",
+        "local_temporal_state",
+        0.04999999998812052,
+        0.1308722510001245,
+    ),
+    "STRONG_PAIR": (
+        "1a5401cbe3acd347a0a617dc3b8b153db61b995f759e229cbab77e4a4f45e44c",
+        "pair_conditional_signal",
+        0.05000000003108555,
+        0.05394322249372052,
+    ),
+    "STRONG_MARGINAL_PRESERVING": (
+        "0ce5a4353051ab8dd6e033e33508f050274a5b0166f9169a4c90f0124f7a2e5d",
+        "marginal_preserving_conditional_signal",
+        0.0500000000670463,
+        0.2619290994477633,
+    ),
+}
 
 
 def _contract():
@@ -85,6 +162,56 @@ def _contract():
 
 def _synthetic():
     return load_synthetic_run_manifest(SYNTHETIC_PATH)
+
+
+def _materialize_frozen_truths(root: Path) -> dict[str, dict]:
+    resampling = load_resampling_manifest(RESAMPLING_PATH)
+    assert tuple(
+        spec[0] for spec in P24_TRUTH_SPECS.values()
+    ) == resampling.truth_artifact_digests
+    truth_root = (
+        root
+        / "runtime/research-os/mainline/tasks/"
+        "m4-p2-injected-signal-calibration"
+        / P24_EXECUTION_ID
+        / "artifacts/truth"
+    )
+    for scenario_id, (
+        digest,
+        mechanism,
+        truth_bits,
+        parameter,
+    ) in P24_TRUTH_SPECS.items():
+        path = truth_root / digest / "truth.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "artifact_digest": digest,
+                    "artifact_type": "injected_signal_truth",
+                    "scenario_id": scenario_id,
+                    "mechanism": mechanism,
+                    "joint_draw_information_bits_per_issue": truth_bits,
+                    "parameter_value": parameter,
+                    "preregistration_digest": resampling.payload[
+                        "preregistration_digest"
+                    ],
+                    "decision_policy_digest": resampling.payload[
+                        "decision_policy_digest"
+                    ],
+                    "synthetic_manifest_digest": resampling.payload[
+                        "synthetic_manifest_digest"
+                    ],
+                    "eligible_for_p2_5_input": True,
+                },
+                sort_keys=True,
+            ),
+            encoding="utf-8",
+        )
+    return locate_truth_artifacts(
+        root,
+        required_digests=resampling.truth_artifact_digests,
+    )
 
 
 def _replicate_payload(
@@ -165,7 +292,9 @@ def test_execution_plan_materializes_all_31000_unique_identities() -> None:
     assert len(plan["seed_set_digest"]) == 64
 
 
-def test_evaluation_dataset_uses_separate_seed_domain_and_p24_truth() -> None:
+def test_evaluation_dataset_uses_separate_seed_domain_and_p24_truth(
+    tmp_path: Path,
+) -> None:
     cells = build_cells(_contract(), _synthetic())
     cell = next(
         item
@@ -178,11 +307,7 @@ def test_evaluation_dataset_uses_separate_seed_domain_and_p24_truth() -> None:
         replicate_index=17,
         parent_execution_id=EXECUTION_ID,
     )
-    resampling = load_resampling_manifest(RESAMPLING_PATH)
-    truths = locate_truth_artifacts(
-        ROOT,
-        required_digests=resampling.truth_artifact_digests,
-    )
+    truths = _materialize_frozen_truths(tmp_path)
     first = generate_evaluation_dataset(
         replicate,
         synthetic=_synthetic(),
@@ -210,7 +335,7 @@ def test_evaluation_dataset_uses_separate_seed_domain_and_p24_truth() -> None:
 def test_reference_evaluator_loads_all_frozen_p2_1_through_p2_5_inputs(
     tmp_path: Path,
 ) -> None:
-    resampling = load_resampling_manifest(RESAMPLING_PATH)
+    truths = _materialize_frozen_truths(tmp_path)
     evaluator = ReferenceReplicateEvaluator.from_paths(
         manifest=_contract(),
         synthetic=_synthetic(),
@@ -225,10 +350,7 @@ def test_reference_evaluator_loads_all_frozen_p2_1_through_p2_5_inputs(
             "m4-information-theory-walk-forward-harness-v1.json"
         ),
         resampling_path=RESAMPLING_PATH,
-        truth_by_scenario=locate_truth_artifacts(
-            ROOT,
-            required_digests=resampling.truth_artifact_digests,
-        ),
+        truth_by_scenario=truths,
         git_commit="f" * 40,
         output_dir=tmp_path,
     )
@@ -241,7 +363,9 @@ def test_reference_evaluator_loads_all_frozen_p2_1_through_p2_5_inputs(
     )
 
 
-def test_strict_prior_feature_cache_is_digest_equivalent_without_future_access() -> None:
+def test_strict_prior_feature_cache_is_digest_equivalent_without_future_access(
+    tmp_path: Path,
+) -> None:
     cell = next(
         item
         for item in build_cells(_contract(), _synthetic())
@@ -253,12 +377,7 @@ def test_strict_prior_feature_cache_is_digest_equivalent_without_future_access()
         replicate_index=19,
         parent_execution_id=EXECUTION_ID,
     )
-    truths = locate_truth_artifacts(
-        ROOT,
-        required_digests=load_resampling_manifest(
-            RESAMPLING_PATH
-        ).truth_artifact_digests,
-    )
+    truths = _materialize_frozen_truths(tmp_path)
     dataset = generate_evaluation_dataset(
         replicate,
         synthetic=_synthetic(),
