@@ -22,14 +22,17 @@ from .preregistration import (
     require_formal_run_gate,
     show_preregistration,
 )
+from .seed_domains import M4_P2_SEED_DOMAINS, derive_m4_p2_seed
 from .progress import (
     LEGACY_GOAL_KEY,
+    M4_CONTRACT_REPAIR_TASK_KEY,
     M4_FORWARD_EVENT_KEY,
     M4_GOAL_KEY,
     M4_MANIFEST_RELATIVE_PATH,
     PHASE_TASK_KEYS,
     build_m4_status,
     load_m4_manifest,
+    manifest_with_contract_repair_pending,
     manifest_with_external_event,
 )
 from .validation import (
@@ -44,6 +47,7 @@ __all__ = [
     "CANONICAL_PREREGISTRATION_RELATIVE_PATH",
     "DECISION_POLICY_DIGEST_DOMAIN",
     "LEGACY_GOAL_KEY",
+    "M4_CONTRACT_REPAIR_TASK_KEY",
     "M4_FORWARD_EVENT_KEY",
     "M4_GOAL_KEY",
     "M4_MANIFEST_RELATIVE_PATH",
@@ -61,6 +65,7 @@ __all__ = [
     "information_theory_contract_digest",
     "load_m4_manifest",
     "load_preregistration",
+    "manifest_with_contract_repair_pending",
     "manifest_with_external_event",
     "preregistration_digest",
     "require_formal_run_gate",
@@ -69,4 +74,6 @@ __all__ = [
     "validate_decision_policy",
     "validate_p2_input_contract",
     "validate_preregistration",
+    "M4_P2_SEED_DOMAINS",
+    "derive_m4_p2_seed",
 ]

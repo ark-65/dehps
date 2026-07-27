@@ -13,7 +13,10 @@ from dehps.research_os.information_theory import (
     load_m4_manifest,
     manifest_with_external_event,
 )
-from dehps.research_os.mainline import mainline_completion_fact
+from dehps.research_os.mainline import (
+    completion_execution_ids,
+    mainline_completion_fact,
+)
 from dehps.research_os.models import GoalStatus, TaskStatus
 
 
@@ -37,13 +40,13 @@ def test_m4_manifest_freezes_legacy_mainline_and_selects_p2() -> None:
     assert legacy_target["research_status"] == "rejected"
     assert legacy_target["mainline_status"] == "frozen"
     assert [item.task_key for item in snapshot.ready_queue] == [
-        "m4-p2-walk-forward-probe-harness"
+        "m4-p2-injected-signal-calibration"
     ]
     assert _by_task(snapshot)["m4-p1-contract-and-preregistration"].status is TaskStatus.COMPLETED
     assert _by_task(snapshot)["m4-p2-synthetic-measurement-validation"].status is TaskStatus.DEPENDENCY_WAIT
     assert _by_task(snapshot)["m4-p2-synthetic-contracts-and-null-generator"].status is TaskStatus.COMPLETED
     assert _by_task(snapshot)["m4-p2-metric-kernel"].status is TaskStatus.COMPLETED
-    assert _by_task(snapshot)["m4-p2-walk-forward-probe-harness"].status is TaskStatus.READY
+    assert _by_task(snapshot)["m4-p2-walk-forward-probe-harness"].status is TaskStatus.COMPLETED
 
     legacy_resolutions = [
         item for item in snapshot.resolutions if item.goal_key == LEGACY_GOAL_KEY
@@ -59,7 +62,7 @@ def test_m4_p2_ready_queue_does_not_unblock_formal_run() -> None:
     snapshot = ResearchOSControlPlane().resolve(manifest)
 
     assert [item.task_key for item in snapshot.ready_queue] == [
-        "m4-p2-walk-forward-probe-harness"
+        "m4-p2-injected-signal-calibration"
     ]
     assert _by_task(snapshot)["m4-p2-synthetic-measurement-validation"].status is TaskStatus.DEPENDENCY_WAIT
     assert build_m4_status(manifest, snapshot=snapshot)["formal_real_data_run"] == "NOT_STARTED"
@@ -76,10 +79,10 @@ def test_forward_event_intake_is_local_and_does_not_change_p2_path() -> None:
 
     assert _by_task(first)["m4-forward-evidence-intake-2026085"].status is TaskStatus.EXTERNAL_WAIT
     assert _by_task(second)["m4-forward-evidence-intake-2026085"].status is TaskStatus.READY
-    assert _by_task(first)["m4-p2-walk-forward-probe-harness"].status is TaskStatus.READY
-    assert _by_task(second)["m4-p2-walk-forward-probe-harness"].status is TaskStatus.READY
-    assert _by_task(first)["m4-p2-injected-signal-calibration"].status is TaskStatus.DEPENDENCY_WAIT
-    assert _by_task(second)["m4-p2-injected-signal-calibration"].status is TaskStatus.DEPENDENCY_WAIT
+    assert _by_task(first)["m4-p2-walk-forward-probe-harness"].status is TaskStatus.COMPLETED
+    assert _by_task(second)["m4-p2-walk-forward-probe-harness"].status is TaskStatus.COMPLETED
+    assert _by_task(first)["m4-p2-injected-signal-calibration"].status is TaskStatus.READY
+    assert _by_task(second)["m4-p2-injected-signal-calibration"].status is TaskStatus.READY
     assert _by_task(first)["m4-forward-evidence-intake-2026085"].task_digest == _by_task(
         second
     )["m4-forward-evidence-intake-2026085"].task_digest
@@ -92,8 +95,8 @@ def test_m4_status_keeps_engineering_and_evidence_progress_separate() -> None:
     assert status["goal"] == M4_GOAL_KEY
     assert status["current_phase"] == "M4-P2"
     assert status["current_state"] == "RUNNING"
-    assert status["next_ready_task"] == "m4-p2-walk-forward-probe-harness"
-    assert status["progress"]["engineering_percent"] == 26
+    assert status["next_ready_task"] == "m4-p2-injected-signal-calibration"
+    assert status["progress"]["engineering_percent"] == 30
     assert status["progress"]["evidence_percent"] == 0
     assert status["gate_status"] == {
         "promotion_gate": "CLOSED",
@@ -104,9 +107,9 @@ def test_m4_status_keeps_engineering_and_evidence_progress_separate() -> None:
     assert status["current_statistics"]["practical_null"] == "[-0.01,+0.01] bits/issue"
     assert status["preregistration"]["status"] == "FROZEN"
     assert status["p2_input_contract"] == "VALID"
-    assert status["synthetic_validation"] == "P2.2_KERNEL_READY"
-    assert status["p2_subphase"]["completed"] == ["M4-P2.1", "M4-P2.2"]
-    assert status["p2_subphase"]["completion_classification"] == "INTEGRATION_PENDING"
+    assert status["synthetic_validation"] == "P2.3_HARNESS_READY"
+    assert status["p2_subphase"]["completed"] == ["M4-P2.1", "M4-P2.2", "M4-P2.3"]
+    assert status["p2_subphase"]["completion_classification"] == "COMPLETE"
     assert status["formal_real_data_run"] == "NOT_STARTED"
     assert status["production_impact"] == "none"
 
@@ -139,6 +142,7 @@ def test_m4_p5_projects_external_wait_as_wait_forward_then_settling() -> None:
         if (
             task.requested_capability is not None
             and state.declared_status is TaskStatus.COMPLETED
+            and not completion_execution_ids(provisional, task=task)
         ):
             payload["facts"]["artifacts"].append(
                 mainline_completion_fact(task=task, execution_id="c" * 64)

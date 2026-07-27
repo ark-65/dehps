@@ -13,9 +13,17 @@
       "superseded_by_digest": "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1"
     },
     "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1": {
+      "artifact_type": "superseded_information_theory_preregistration",
+      "source_commit": "00ea40325f568a58958d2ddfab79cf4a98f30c2b",
+      "path_at_source": "configs/research-os/m4-information-theory-preregistration-v1.json",
+      "runtime_path": "runtime/research-os/information-theory/preregistrations/6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1/preregistration.json",
+      "supersedes_digest": "a4f29c1392305b6ef2dc90134901c74f8ffb297071838d734d1e17e8439ad6e8",
+      "superseded_by_digest": "a8da6bf2404d3bf213ac74d331917d5308195b7c3174b002378e1bbd849f6dfa"
+    },
+    "a8da6bf2404d3bf213ac74d331917d5308195b7c3174b002378e1bbd849f6dfa": {
       "artifact_type": "information_theory_preregistration",
-      "path": "configs/research-os/m4-information-theory-preregistration-v1.json",
-      "supersedes_digest": "a4f29c1392305b6ef2dc90134901c74f8ffb297071838d734d1e17e8439ad6e8"
+      "path": "configs/research-os/m4-information-theory-preregistration-v1.0.2.json",
+      "supersedes_digest": "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1"
     },
     "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d": {
       "artifact_type": "information_theory_decision_policy",
@@ -50,6 +58,12 @@
       "superseded_by_digest": "8c03e82f97190ead5c2d9002a71316ca381083c54a2fc62f5d420e40a5c2f573"
     },
     "8c03e82f97190ead5c2d9002a71316ca381083c54a2fc62f5d420e40a5c2f573": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "source_commit": "d61e147bcdbc13ac84e0caac964625436b2fecca",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "superseded_by_digest": "0c076b73b39bd3da04cc172b881ab9b39981daf42ac48a577625f70d5854e063"
+    },
+    "0c076b73b39bd3da04cc172b881ab9b39981daf42ac48a577625f70d5854e063": {
       "artifact_type": "research_os_control_plane_manifest",
       "path": "configs/research-os/m4-information-theory-evidence-v1.json"
     },

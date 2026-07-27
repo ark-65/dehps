@@ -21,6 +21,7 @@ from .enums import DecisionState, PreregistrationStatus
 
 
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
+_V1_0_1_DIGEST = "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1"
 
 
 class InformationTheoryValidationError(ValueError):
@@ -53,6 +54,310 @@ def _keys(items: Sequence[Any], key: str) -> set[str]:
         for item in items
         if isinstance(item, Mapping) and item.get(key) is not None
     }
+
+
+def _require_fields(
+    payload: Mapping[str, Any],
+    expected: Mapping[str, Any],
+    *,
+    code: str,
+) -> None:
+    for key, value in expected.items():
+        if payload.get(key) != value:
+            _fail(code, f"{key} is not frozen to the preregistered value")
+
+
+def _validate_resampling_semantics(payload: Mapping[str, Any]) -> None:
+    semantics = _mapping(payload, "resampling_semantics")
+    moving = _mapping(semantics, "moving_block")
+    _require_fields(
+        moving,
+        {
+            "topology": "non_circular",
+            "block_size_primary": 5,
+            "block_sizes_sensitivity": [3, 5, 8, 13],
+            "start_positions": "all_integers_from_0_through_N_minus_L_inclusive",
+            "source_block": "issues[start:start+L]",
+            "sampling": "with_replacement",
+            "concatenation": "preserve_within_block_order",
+            "output_length": "original_issue_count_N",
+            "overflow_policy": "truncate_right",
+            "incomplete_source_tail_policy": "no_short_source_block",
+            "incomplete_source_tail_included_via_valid_shorter_final_start": False,
+            "source_tail_may_appear_inside_a_full_valid_block": True,
+            "cluster_unit": "issue",
+            "failure_when": "N<L",
+            "failure_code": "insufficient_issues_for_block_size",
+        },
+        code="moving_block_semantics_invalid",
+    )
+    stationary = _mapping(semantics, "stationary_bootstrap")
+    _require_fields(
+        stationary,
+        {
+            "method": "Politis-Romano",
+            "expected_block_length_primary": 5,
+            "restart_probability_primary": 0.2,
+            "topology": "circular",
+            "initial_index": "uniform_over_0_through_N_minus_1",
+            "continue_probability": "1_minus_restart_probability",
+            "continue_index": "(current_index+1)_mod_N",
+            "restart_index": "uniform_over_0_through_N_minus_1",
+            "output_length": "original_issue_count_N",
+            "expected_block_lengths_sensitivity": [3, 5, 8, 13],
+            "restart_probability_by_expected_length": (
+                "1_divided_by_expected_block_length"
+            ),
+            "role": "sensitivity_only",
+            "eligible_as_primary": False,
+        },
+        code="stationary_bootstrap_semantics_invalid",
+    )
+    block_permutation = _mapping(semantics, "block_permutation")
+    _require_fields(
+        block_permutation,
+        {
+            "topology": "non_circular",
+            "block_size": 5,
+            "full_blocks": "floor(N/L)",
+            "tail_block_policy": "include_as_final_distinct_block",
+            "permutation_unit": "complete_blocks_plus_optional_tail_block",
+            "within_block_order": "preserved",
+            "tail_merge": "forbidden",
+            "tail_split": "forbidden",
+            "mapping_artifact_records_tail_length": True,
+            "identity_block_permutation": "forbidden",
+        },
+        code="block_permutation_semantics_invalid",
+    )
+    shift = _mapping(semantics, "circular_shift")
+    _require_fields(
+        shift,
+        {
+            "formula": "shifted_target[t]=original_target[(t+k) mod N]",
+            "direction": "target_forward_relative_to_prediction",
+            "topology": "circular",
+            "wrap": "modulo_N",
+            "minimum_shift": 1,
+            "maximum_shift": "N-1",
+            "shift_zero": "forbidden",
+            "effective_issue_count": "N",
+            "frozen_shifts": [1, 2, 3, 5, 8, 13, 21],
+            "circular_shift_randomized": False,
+            "all_frozen_shifts_executed": True,
+            "seed_policy": "none",
+        },
+        code="circular_shift_semantics_invalid",
+    )
+    if 0 in shift.get("frozen_shifts", ()):
+        _fail("circular_shift_zero_forbidden", "shift=0 is forbidden")
+
+
+def _validate_inference_semantics(payload: Mapping[str, Any]) -> None:
+    inference = _mapping(payload, "inference_semantics")
+    _require_fields(
+        inference,
+        {
+            "primary_tail": "upper",
+            "upper_tail_p_plus_one": (
+                "(1+count(T_null>=T_observed))/(R+1)"
+            ),
+            "lower_tail_p_plus_one": (
+                "(1+count(T_null<=T_observed))/(R+1)"
+            ),
+            "two_sided_p_plus_one": "min(1,2*min(p_upper,p_lower))",
+            "plus_one_correction": True,
+            "rank_mid": "count(null<observed)+0.5*count(null==observed)",
+            "empirical_cdf": "count(null<=observed)/R",
+            "percentile_method": "midrank",
+            "percentile_midrank": (
+                "(count(null<observed)+0.5*count(null==observed))/R"
+            ),
+            "quantile_method": "Hyndman-Fan_type_7",
+            "required_report_fields": [
+                "empirical_cdf_inclusive",
+                "percentile_midrank",
+                "upper_tail_p_plus_one",
+                "lower_tail_p_plus_one",
+            ],
+            "formal_seed_set_complete_required": True,
+            "incomplete_replicates": "fail_closed",
+            "failed_or_missing_replicates_excluded_from_count_only_after_completeness_gate": True,
+            "smoke_aggregate_formal_p_value": "forbidden",
+            "p_zero": "forbidden",
+        },
+        code="inference_semantics_invalid",
+    )
+    ties = _mapping(inference, "tie_handling")
+    _require_fields(
+        ties,
+        {
+            "p_value": "inclusive",
+            "upper_tail_comparison": ">=",
+            "lower_tail_comparison": "<=",
+        },
+        code="inference_tie_handling_invalid",
+    )
+
+
+def _validate_seed_domains(payload: Mapping[str, Any]) -> None:
+    seed_domains = _mapping(payload, "seed_domains")
+    if seed_domains.get("identity_fields") != [
+        "seed_domain",
+        "replicate_index",
+        "scenario_id",
+        "method_id",
+        "parent_run_digest",
+    ]:
+        _fail("seed_identity_fields_invalid", "seed identity fields are frozen")
+    keys = {
+        "calibration",
+        "evaluation_dataset",
+        "bootstrap",
+        "stationary_bootstrap",
+        "issue_permutation",
+        "number_permutation",
+        "circular_shift",
+        "random_feature",
+        "random_score",
+        "power_replicate",
+        "shard_assignment",
+    }
+    if set(seed_domains) != keys | {"identity_fields"}:
+        _fail("seed_domains_missing", "all and only frozen seed domains are required")
+    expected_names = {
+        "calibration": "M4_P2_CALIBRATION",
+        "evaluation_dataset": "M4_P2_EVALUATION_DATASET",
+        "bootstrap": "M4_P2_BOOTSTRAP",
+        "stationary_bootstrap": "M4_P2_STATIONARY_BOOTSTRAP",
+        "issue_permutation": "M4_P2_ISSUE_PERMUTATION",
+        "number_permutation": "M4_P2_NUMBER_PERMUTATION",
+        "circular_shift": "M4_P2_CIRCULAR_SHIFT",
+        "random_feature": "M4_P2_RANDOM_FEATURE",
+        "random_score": "M4_P2_RANDOM_SCORE",
+        "power_replicate": "M4_P2_POWER_REPLICATE",
+        "shard_assignment": "M4_P2_SHARD_ASSIGNMENT",
+    }
+    actual_names: list[str] = []
+    for key, expected in expected_names.items():
+        domain = _mapping(seed_domains, key)
+        if domain.get("seed_domain") != expected:
+            _fail("seed_domain_name_invalid", f"{key} seed domain changed")
+        actual_names.append(expected)
+    if len(actual_names) != len(set(actual_names)):
+        _fail("seed_domains_not_unique", "seed domain names must be unique")
+
+    evaluation = _mapping(seed_domains, "evaluation_dataset")
+    _require_fields(
+        evaluation,
+        {
+            "purpose": (
+                "generate_independent_synthetic_evaluation_sequences_from_frozen_truth_artifacts"
+            ),
+            "must_not_overlap": "calibration_dataset_identity",
+            "truth_parameters": "read_only_from_P2.4_truth_artifact",
+            "recalibration": "forbidden",
+            "required_artifact_fields": [
+                "truth_artifact_digest",
+                "evaluation_seed",
+                "scenario_id",
+                "issue_count",
+            ],
+        },
+        code="evaluation_seed_policy_invalid",
+    )
+    random_feature = _mapping(seed_domains, "random_feature")
+    _require_fields(
+        random_feature,
+        {
+            "randomization_unit": "scenario_x_replicate_x_outer_fold",
+            "target_access": "forbidden",
+            "retrain_required": True,
+            "seed_scope": "feature_generation_only",
+        },
+        code="random_feature_seed_policy_invalid",
+    )
+    random_score = _mapping(seed_domains, "random_score")
+    _require_fields(
+        random_score,
+        {
+            "randomization_unit": "scenario_x_replicate_x_issue",
+            "target_access": "forbidden",
+            "retrain_required": "false_unless_score_enters_model_fitting",
+            "matching_source": "probe_score_distribution_only",
+            "forbidden_inputs": [
+                "actual_target",
+                "PE1",
+                "Brier",
+                "hit_rank",
+                "settlement_result",
+            ],
+        },
+        code="random_score_seed_policy_invalid",
+    )
+    circular_shift = _mapping(seed_domains, "circular_shift")
+    _require_fields(
+        circular_shift,
+        {"randomized": False, "seed_policy": "none"},
+        code="circular_shift_seed_policy_invalid",
+    )
+    power = _mapping(seed_domains, "power_replicate")
+    _require_fields(
+        power,
+        {
+            "purpose": "orchestrate_complete_independent_replicate_identity",
+            "direct_reuse_by_components": "forbidden",
+            "child_streams": [
+                "evaluation_dataset",
+                "model_randomness_if_required",
+                "bootstrap",
+                "stationary_bootstrap",
+                "issue_permutation",
+                "number_permutation",
+                "random_feature",
+                "random_score",
+            ],
+        },
+        code="power_seed_policy_invalid",
+    )
+
+    separation = _mapping(payload, "seed_domain_separation")
+    _require_fields(
+        separation,
+        {
+            "root_identity": "root_seed_set_digest",
+            "derivation_policy": (
+                "derive(root_seed_set_digest,seed_domain,scenario_id,method_id,"
+                "replicate_index,parent_run_digest)"
+            ),
+            "domain_identity_defines_rng_stream": True,
+            "raw_integer_equality_does_not_merge_streams": True,
+            "domain_enters_artifact_digest": True,
+            "wall_clock_seed": "forbidden",
+            "retry_reuses_child_seed": True,
+            "resume_reuses_child_seed": True,
+            "shard_change_preserves_child_seed": True,
+        },
+        code="seed_derivation_policy_invalid",
+    )
+    expected_pairs = {
+        frozenset(("M4_P2_CALIBRATION", "M4_P2_EVALUATION_DATASET")),
+        frozenset(("M4_P2_CALIBRATION", "M4_P2_BOOTSTRAP")),
+        frozenset(("M4_P2_CALIBRATION", "M4_P2_ISSUE_PERMUTATION")),
+        frozenset(("M4_P2_CALIBRATION", "M4_P2_NUMBER_PERMUTATION")),
+        frozenset(("M4_P2_CALIBRATION", "M4_P2_POWER_REPLICATE")),
+        frozenset(("M4_P2_EVALUATION_DATASET", "M4_P2_POWER_REPLICATE")),
+        frozenset(("M4_P2_RANDOM_FEATURE", "M4_P2_RANDOM_SCORE")),
+        frozenset(("M4_P2_BOOTSTRAP", "M4_P2_ISSUE_PERMUTATION")),
+        frozenset(("M4_P2_BOOTSTRAP", "M4_P2_NUMBER_PERMUTATION")),
+    }
+    actual_pairs = {
+        frozenset(str(item) for item in pair)
+        for pair in separation.get("required_disjoint_pairs", ())
+        if isinstance(pair, list) and len(pair) == 2
+    }
+    if actual_pairs != expected_pairs:
+        _fail("seed_domain_separation_invalid", "required disjoint pairs changed")
 
 
 def validate_decision_policy(payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -95,7 +400,8 @@ def validate_preregistration(payload: Mapping[str, Any]) -> dict[str, Any]:
         status = PreregistrationStatus(str(payload.get("status")))
     except ValueError:
         _fail("preregistration_status_invalid", "unsupported lifecycle status")
-    if not str(payload.get("version", "")).strip():
+    version = str(payload.get("version", "")).strip()
+    if not version:
         _fail("preregistration_version_missing", "version is required")
 
     endpoint_ids = _keys(_sequence(payload, "primary_endpoints"), "endpoint_id")
@@ -261,6 +567,13 @@ def validate_preregistration(payload: Mapping[str, Any]) -> dict[str, Any]:
         or seed_policy.get("selection_policy") != "no_best_seed"
     ):
         _fail("seed_policy_invalid", "existing SeedPolicy discipline is required")
+
+    if version == "1.0.2":
+        if payload.get("supersedes_digest") != _V1_0_1_DIGEST:
+            _fail("supersedes_digest_invalid", "v1.0.2 must supersede v1.0.1")
+        _validate_resampling_semantics(payload)
+        _validate_inference_semantics(payload)
+        _validate_seed_domains(payload)
 
     expected_digest = preregistration_digest(payload)
     supplied = payload.get("artifact_digest")

@@ -1,6 +1,6 @@
 {
   "schema_version": "research-os-control-plane-v1",
-  "manifest_digest": "8c03e82f97190ead5c2d9002a71316ca381083c54a2fc62f5d420e40a5c2f573",
+  "manifest_digest": "0c076b73b39bd3da04cc172b881ab9b39981daf42ac48a577625f70d5854e063",
   "goals": [
     {
       "goal_key": "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION",
@@ -212,7 +212,7 @@
         "evidence_complete": false,
         "formal_real_data_run": "not_started",
         "preregistration_status": "FROZEN",
-        "preregistration_digest": "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1",
+        "preregistration_digest": "a8da6bf2404d3bf213ac74d331917d5308195b7c3174b002378e1bbd849f6dfa",
         "decision_policy_digest": "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
         "p2_input_contract_status": "VALID"
       }
@@ -293,8 +293,8 @@
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "task_type": "synthetic_probe_harness",
       "lane": "research",
-      "status": "draft",
-      "completion_classification": "INTEGRATION_PENDING",
+      "status": "completed",
+      "completion_classification": "COMPLETE",
       "priority": 105,
       "requested_capability": "m4_p2_3_walk_forward_harness",
       "input_artifact_digests": [
@@ -352,17 +352,67 @@
       }
     },
     {
+      "task_key": "m4-p1-repair-resampling-preregistration-contract",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "repair_preregistration_contract",
+      "lane": "research",
+      "status": "completed",
+      "priority": 109,
+      "input_artifact_digests": [
+        "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1",
+        "a8da6bf2404d3bf213ac74d331917d5308195b7c3174b002378e1bbd849f6dfa"
+      ],
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-p2-walk-forward-probe-harness",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-preregistration:6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "phase": "M4-P1",
+        "repair_type": "REPAIR_PREREGISTRATION_CONTRACT",
+        "engineering_increment_percent": 0,
+        "engineering_complete": true,
+        "evidence_increment_percent": 0,
+        "evidence_complete": false,
+        "previous_preregistration_digest": "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1",
+        "new_preregistration_digest": "a8da6bf2404d3bf213ac74d331917d5308195b7c3174b002378e1bbd849f6dfa",
+        "formal_execution": "contract_only",
+        "p2_4_execution": "not_started",
+        "p2_5_execution": "not_started"
+      }
+    },
+    {
       "task_key": "m4-p2-injected-signal-calibration",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "task_type": "injected_signal_calibration",
       "lane": "research",
       "priority": 104,
       "requested_capability": "m4_p2_4_injected_signal_calibration",
+      "input_artifact_digests": [
+        "a8da6bf2404d3bf213ac74d331917d5308195b7c3174b002378e1bbd849f6dfa"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
           "target_key": "m4-p2-walk-forward-probe-harness",
           "required_status": "completed"
+        },
+        {
+          "dependency_type": "task",
+          "target_key": "m4-p1-repair-resampling-preregistration-contract",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-preregistration:a8da6bf2404d3bf213ac74d331917d5308195b7c3174b002378e1bbd849f6dfa",
+          "required_status": "available"
         }
       ],
       "metric_contract": {
@@ -371,10 +421,11 @@
         "evidence_complete": false,
         "mainline_integration": {
           "goal": "M4_INFORMATION_THEORY_EVIDENCE",
-          "ready_condition": "P2.3 mainline execution completed",
+          "ready_condition": "P2.3 mainline execution completed and preregistration v1.0.2 contract repair completed",
           "runner": "research_evidence_supervisor",
           "upstream_artifacts": [
-            "P2.3 mainline execution artifact"
+            "P2.3 mainline execution artifact",
+            "preregistration v1.0.2"
           ],
           "downstream_artifacts": [
             "injected signal calibration artifact"
@@ -583,12 +634,14 @@
       "legacy-mainline-final-baseline",
       "forward-settlement:2026084:ef4817983ccc209aa87ff00a12be0e9f0ad263a00d8b008d873d6722d73ff932",
       "m4-preregistration:6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1",
+      "m4-preregistration:a8da6bf2404d3bf213ac74d331917d5308195b7c3174b002378e1bbd849f6dfa",
       "m4-decision-policy:824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
       "m4-p2-input:0911059971a27faf9887ddf07c668e0c9eb8210e49859f3540a4f3f739d3d56e",
       "m4-p2-1-synthetic-run-manifest:8493987cc4414414e33fb5c5ea148be1f42a1d9e57609600c4346fb642cbfa08",
       "m4-p2-1-synthetic-dataset:5354b9f7f6c72996cff16d6c161b03ff49922bf92589bd43b823d107019ebd86",
       "m4-p2-2-metric-kernel-manifest:56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
-      "m4-p2-3-walk-forward-harness-manifest:177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca"
+      "m4-p2-3-walk-forward-harness-manifest:177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca",
+      "mainline-execution:m4-p2-walk-forward-probe-harness:0a493b3618f2b180719b360b17702d7587c25a8c6c59a577a0c099fccce01a62:de52c376117bf308e0608b75e1418d58acf6b5a1e5cf4a66925fe06b8219d3cb:completed"
     ],
     "evidence": [
       "research-hypothesis:seven-red-compound-top10-walk-forward-v1:rejected"

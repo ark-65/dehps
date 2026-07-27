@@ -44,6 +44,7 @@ class TaskStatus(str, Enum):
     DEPENDENCY_WAIT = "dependency_wait"
     EXTERNAL_WAIT = "external_wait"
     APPROVAL_WAIT = "approval_wait"
+    BLOCKED_BY_CONTRACT = "blocked_by_contract"
     COMPLETED = "completed"
     FAILED = "failed"
     SUPERSEDED = "superseded"
