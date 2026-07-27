@@ -5,6 +5,7 @@ from dehps.contracts.core import (
     ContractRef,
     ContractRequirement,
     canonical_digest,
+    canonical_digest_prevalidated_primitives,
     canonical_json,
     require_contract_compatibility,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "ContractRef",
     "ContractRequirement",
     "canonical_digest",
+    "canonical_digest_prevalidated_primitives",
     "canonical_json",
     "require_contract_compatibility",
 ]

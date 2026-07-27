@@ -11,9 +11,10 @@ from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import LogisticRegression
 
 from dehps.contracts import canonical_digest
-from dehps.research_os.information_theory.metrics import evaluate_issue
+from dehps.research_os.information_theory.metrics import (
+    probe_log_loss_bits_per_issue_batch,
+)
 from dehps.research_os.information_theory.walk_forward.contracts import (
-    THEORETICAL_PROBABILITY,
     BlindTestFeatureView,
     ProbeState,
     TrainingDatasetView,
@@ -34,6 +35,7 @@ from dehps.research_os.information_theory.walk_forward.preprocessing import (
     transform_train,
 )
 
+from .contracts import TrainViewBuilder
 from .convergence import (
     CONVERGED,
     FAILED_CONVERGENCE,
@@ -110,6 +112,7 @@ def prepare_logistic_probe(
     *,
     config: Mapping[str, Any],
     outer_test_issue: int,
+    train_view_builder: TrainViewBuilder | None = None,
 ) -> PreparedLogisticProbe:
     if not isinstance(dataset, TrainingDatasetView):
         raise WalkForwardError(
@@ -135,6 +138,18 @@ def prepare_logistic_probe(
     inner_folds = expanding_inner_folds(
         train_view.issue_ids, outer_test_issue=outer_test_issue
     )
+    build_view = train_view_builder or build_train_feature_view
+    fitted_by_view: dict[str, FittedPreprocessor] = {}
+
+    def fitted_for(view: TrainFeatureView) -> FittedPreprocessor:
+        cached = fitted_by_view.get(view.feature_view_digest)
+        if cached is None:
+            cached = fit_preprocessor(
+                view,
+                outer_train_end=max(view.issue_ids),
+            )
+            fitted_by_view[view.feature_view_digest] = cached
+        return cached
     candidate_scores: dict[str, tuple[float, ...]] = {}
     candidate_values: dict[str, float] = {}
     for c_value in config["C"]:
@@ -142,13 +157,11 @@ def prepare_logistic_probe(
         candidate_values[identifier] = float(c_value)
         scores: list[float] = []
         for inner in inner_folds:
-            inner_train = build_train_feature_view(dataset, inner.train_issues)
-            inner_validation = build_train_feature_view(
+            inner_train = build_view(dataset, inner.train_issues)
+            inner_validation = build_view(
                 dataset, inner.validation_issues
             )
-            fitted = fit_preprocessor(
-                inner_train, outer_train_end=max(inner.train_issues)
-            )
+            fitted = fitted_for(inner_train)
             model = _new_model(
                 config, c_value=float(c_value), seed=dataset.replicate_seed
             )
@@ -161,17 +174,16 @@ def prepare_logistic_probe(
                 np.asarray(inner_validation.values, dtype=np.float64)
             )
             predictions = model.predict_proba(validation_matrix)[:, 1]
-            issue_losses: list[float] = []
-            for position, issue_id in enumerate(inner.validation_issues):
-                start = position * 33
-                metric = evaluate_issue(
-                    issue_id=str(issue_id),
-                    cluster_id=str(issue_id),
-                    target_vector=dataset.issue(issue_id).target_vector,
-                    baseline_probability_vector=(THEORETICAL_PROBABILITY,) * 33,
-                    probe_probability_vector=predictions[start : start + 33],
-                )
-                issue_losses.append(metric.probe_log_loss_bits_per_issue)
+            issue_losses = probe_log_loss_bits_per_issue_batch(
+                target_vectors=tuple(
+                    dataset.issue(issue_id).target_vector
+                    for issue_id in inner.validation_issues
+                ),
+                probe_probability_vectors=tuple(
+                    predictions[position * 33 : (position + 1) * 33]
+                    for position in range(len(inner.validation_issues))
+                ),
+            )
             scores.append(fsum(issue_losses) / len(issue_losses))
         candidate_scores[identifier] = tuple(scores)
     selected_id, summaries = select_inner_candidate(
@@ -195,9 +207,7 @@ def prepare_logistic_probe(
     selection_digest = canonical_digest(
         selection_payload, domain="dehps.m4.probe.inner-selection.v1"
     )
-    fitted = fit_preprocessor(
-        train_view, outer_train_end=max(train_view.issue_ids)
-    )
+    fitted = fitted_for(train_view)
     model = _new_model(
         config,
         c_value=candidate_values[selected_id],

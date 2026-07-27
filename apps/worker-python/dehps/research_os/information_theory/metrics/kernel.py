@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from math import fsum, isclose
+from math import fsum, isclose, log, log1p
 from typing import Any, Sequence
+
+import numpy as np
 
 from .brier import brier_per_number_event
 from .calibration import issue_calibration_statistics
@@ -18,6 +20,67 @@ from .probability import (
 
 
 BASELINE_IDENTITY = "NUMBER_EVENT_COMPOSITE_BASELINE"
+
+
+def probe_log_loss_bits_per_issue_batch(
+    *,
+    target_vectors: Sequence[Sequence[Any]],
+    probe_probability_vectors: Sequence[Sequence[Any]],
+    epsilon: float = PROBABILITY_EPSILON,
+) -> tuple[float, ...]:
+    """P2.2 aggregate API for nested validation without event artifacts.
+
+    It deliberately uses the same validators, clipping rule, Bernoulli loss,
+    ``fsum`` order, and nats-to-bits conversion as ``evaluate_issue``.
+    """
+
+    if (
+        len(target_vectors) == 0
+        or len(target_vectors) != len(probe_probability_vectors)
+    ):
+        raise MetricKernelError(
+            "issue_cluster_missing",
+            "batch targets and predictions must be non-empty and aligned",
+        )
+    targets = np.asarray(target_vectors)
+    probabilities = np.asarray(probe_probability_vectors, dtype=np.float64)
+    if (
+        targets.ndim != 2
+        or targets.shape != probabilities.shape
+        or targets.shape[1] != 33
+        or not np.issubdtype(targets.dtype, np.integer)
+        or not np.isin(targets, (0, 1)).all()
+        or not np.all(targets.sum(axis=1) == 6)
+    ):
+        raise MetricKernelError(
+            "invalid_target_vector",
+            "batch targets must be legal aligned N x 33 six-of-33 vectors",
+        )
+    if (
+        not np.isfinite(probabilities).all()
+        or np.any(probabilities < 0.0)
+        or np.any(probabilities > 1.0)
+        or not np.isfinite(epsilon)
+        or epsilon <= 0.0
+        or epsilon >= 0.5
+    ):
+        raise MetricKernelError(
+            "invalid_probability_vector",
+            "batch probabilities must be finite in [0,1] with legal epsilon",
+        )
+    clipped = np.clip(probabilities, epsilon, 1.0 - epsilon)
+    result: list[float] = []
+    for target, probability in zip(targets, clipped, strict=True):
+        nats = fsum(
+            (
+                -log(float(probability[index]))
+                if int(actual) == 1
+                else -log1p(-float(probability[index]))
+            )
+            for index, actual in enumerate(target)
+        )
+        result.append(nats_to_bits(nats))
+    return tuple(result)
 
 
 def evaluate_issue(
