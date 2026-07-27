@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dehps-m4-p2-resampling-aggregate.v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "artifact_digest",
+    "group_id",
+    "method",
+    "control_id",
+    "replicate_count_expected",
+    "replicate_count_completed",
+    "replicate_count_failed",
+    "replicate_count_missing",
+    "seed_set_digest",
+    "child_replicate_digests",
+    "statistic_distribution",
+    "mean",
+    "median",
+    "standard_deviation",
+    "quantiles",
+    "minimum",
+    "maximum",
+    "eligible_for_formal_inference",
+    "formal_seed_set_complete",
+    "parent_digests"
+  ],
+  "properties": {
+    "schema_version": {"const": "dehps-m4-p2-resampling-aggregate.v1"},
+    "artifact_type": {"const": "resampling_aggregate"},
+    "artifact_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "replicate_count_expected": {"type": "integer", "minimum": 1},
+    "replicate_count_completed": {"type": "integer", "minimum": 0},
+    "replicate_count_failed": {"type": "integer", "minimum": 0},
+    "replicate_count_missing": {"type": "integer", "minimum": 0},
+    "eligible_for_formal_inference": {"const": false},
+    "plan_only": {"const": true}
+  },
+  "additionalProperties": true
+}

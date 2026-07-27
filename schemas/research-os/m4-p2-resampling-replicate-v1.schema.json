@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dehps-m4-p2-resampling-replicate.v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "artifact_digest",
+    "replicate_id",
+    "method",
+    "control_id",
+    "source_run_digest",
+    "source_issue_count",
+    "resampled_issue_count",
+    "plan_digest",
+    "source_mapping",
+    "metric_kernel_digest",
+    "statistic_name",
+    "statistic_value",
+    "unit",
+    "multiplicity_family",
+    "plan_only",
+    "eligible_for_formal_inference",
+    "parent_digests",
+    "git_commit",
+    "working_tree_clean"
+  ],
+  "properties": {
+    "schema_version": {"const": "dehps-m4-p2-resampling-replicate.v1"},
+    "artifact_type": {"const": "resampling_child_replicate"},
+    "artifact_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "replicate_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "plan_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "source_mapping": {"type": "array", "minItems": 1},
+    "unit": {"const": "bits_per_issue"},
+    "plan_only": {"const": true},
+    "eligible_for_formal_inference": {"const": false}
+  },
+  "additionalProperties": true
+}

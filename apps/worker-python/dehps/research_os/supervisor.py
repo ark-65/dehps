@@ -25,6 +25,19 @@ from dehps.research_os.information_theory.calibration.contracts import (
 )
 from dehps.research_os.information_theory.metrics import load_metric_kernel_manifest
 from dehps.research_os.information_theory.progress import build_m4_status
+from dehps.research_os.information_theory.resampling import (
+    KERNEL_MANIFEST_DIGEST,
+    load_resampling_manifest,
+    run_p25_resampling,
+)
+from dehps.research_os.information_theory.resampling.contracts import (
+    DECISION_POLICY_DIGEST as P25_DECISION_POLICY_DIGEST,
+    METRIC_KERNEL_DIGEST as P25_METRIC_KERNEL_DIGEST,
+    P24_COMPLETION_DIGEST as P25_P24_COMPLETION_DIGEST,
+    PREREGISTRATION_DIGEST as P25_PREREGISTRATION_DIGEST,
+    SYNTHETIC_MANIFEST_DIGEST as P25_SYNTHETIC_MANIFEST_DIGEST,
+    WALK_FORWARD_HARNESS_DIGEST as P25_WALK_FORWARD_HARNESS_DIGEST,
+)
 from dehps.research_os.information_theory.walk_forward import (
     load_harness_manifest,
     load_synthetic_dataset,
@@ -56,6 +69,8 @@ P23_PROBES = (
 )
 P24_TASK_KEY = "m4-p2-injected-signal-calibration"
 P24_CAPABILITY = "m4_p2_4_injected_signal_calibration"
+P25_TASK_KEY = "m4-p2-resampling"
+P25_CAPABILITY = "m4_p2_5_resampling_and_negative_controls"
 MAINLINE_EXECUTION_SCHEMA = "dehps-research-os-mainline-execution.v1"
 
 
@@ -546,6 +561,145 @@ class P24InjectedSignalCalibrationCapability:
         return tuple(by_identity[key] for key in sorted(by_identity))
 
 
+class P25ResamplingCapability:
+    def __init__(self, *, root_dir: Path = ROOT_DIR) -> None:
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key != P25_TASK_KEY
+            or task.requested_capability != P25_CAPABILITY
+        ):
+            raise MainlineSupervisorError("P2.5 capability received the wrong task")
+        expected_inputs = (
+            P25_PREREGISTRATION_DIGEST,
+            P25_DECISION_POLICY_DIGEST,
+            P25_SYNTHETIC_MANIFEST_DIGEST,
+            P25_METRIC_KERNEL_DIGEST,
+            P25_WALK_FORWARD_HARNESS_DIGEST,
+            P25_P24_COMPLETION_DIGEST,
+            KERNEL_MANIFEST_DIGEST,
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "P2.5 requires all seven frozen input identities in order"
+            )
+        manifest = load_resampling_manifest(
+            self.root_dir
+            / "configs/research-os/"
+            "m4-information-theory-p2-5-resampling-kernel-v1.json"
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        run = run_p25_resampling(
+            manifest=manifest,
+            root_dir=self.root_dir,
+            output_dir=task_dir / "artifacts",
+            execution_id=execution_id,
+            git_commit=git_commit,
+            working_tree_clean=True,
+        )
+        child_payloads = tuple(
+            (path, _load_object(path)) for path in run.artifact_paths
+        )
+        child_identities = {
+            (
+                _artifact_digest(payload),
+                str(payload.get("artifact_type") or "typed_artifact"),
+            )
+            for _, payload in child_payloads
+        }
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "resampling_kernel_digest": manifest.artifact_digest,
+            "resampling_run_digest": run.run_artifact["artifact_digest"],
+            "resampling_completion_digest": run.completion_artifact[
+                "artifact_digest"
+            ],
+            "child_replicate_digests": [
+                item["artifact_digest"] for item in run.child_artifacts
+            ],
+            "aggregate_digests": [
+                item["artifact_digest"] for item in run.aggregate_artifacts
+            ],
+            "replicate_count": run.replicate_count,
+            "aggregate_count": len(run.aggregate_artifacts),
+            "actual_fold_count": 0,
+            "registered_artifact_count": len(child_identities) + 1,
+            "engineering_progress_before": 34,
+            "engineering_progress_after": 37,
+            "evidence_progress_before": 0,
+            "evidence_progress_after": 0,
+            "downstream_consumer": "m4-p2-false-positive-and-power-runs",
+            "eligible_for_formal_inference": False,
+            "formal_power_executed": False,
+            "formal_false_positive_executed": False,
+            "mde_computed": False,
+            "pe2_finalized": False,
+            "real_history_used": False,
+            "production_checkpoint_created": False,
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "descriptive_only": True,
+            "eligible_for_p2_gate": False,
+            "evidence_created": False,
+            "production_impact": "none",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                run.run_artifact["artifact_digest"],
+                run.completion_artifact["artifact_digest"],
+                *(item["artifact_digest"] for item in run.aggregate_artifacts),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity, domain="dehps.research-os.mainline-execution.v1"
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(registrations) != execution_payload["registered_artifact_count"]:
+            raise MainlineSupervisorError("P2.5 registered artifact count changed")
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=registrations,
+        )
+
+
 class ResearchEvidenceSupervisor:
     def __init__(
         self,
@@ -568,6 +722,7 @@ class ResearchEvidenceSupervisor:
             P24_CAPABILITY: P24InjectedSignalCalibrationCapability(
                 root_dir=root_dir
             ),
+            P25_CAPABILITY: P25ResamplingCapability(root_dir=root_dir),
         }
 
     @property
@@ -777,6 +932,14 @@ class ResearchEvidenceSupervisor:
                                     "truth_artifact_count",
                                     "eligible_for_p2_5_input",
                                     "eligible_for_power_evidence",
+                                    "resampling_kernel_digest",
+                                    "resampling_run_digest",
+                                    "resampling_completion_digest",
+                                    "child_replicate_digests",
+                                    "aggregate_digests",
+                                    "replicate_count",
+                                    "aggregate_count",
+                                    "eligible_for_formal_inference",
                                 )
                                 if key in result.execution_artifact
                             },
@@ -951,6 +1114,14 @@ class ResearchEvidenceSupervisor:
             "truth_artifact_count",
             "eligible_for_p2_5_input",
             "eligible_for_power_evidence",
+            "resampling_kernel_digest",
+            "resampling_run_digest",
+            "resampling_completion_digest",
+            "child_replicate_digests",
+            "aggregate_digests",
+            "replicate_count",
+            "aggregate_count",
+            "eligible_for_formal_inference",
         ):
             if key in summary:
                 payload[key] = summary[key]

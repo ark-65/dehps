@@ -29,6 +29,29 @@ M4_SYNTHETIC_MANIFEST_V1_0_1_DIGEST = (
 M4_P2_4_CALIBRATION_MANIFEST_DIGEST = (
     "f30186e3f5aeefb07565d25c4e0de68d955a07e87d1894fdaedbe8bedf4a2317"
 )
+M4_P2_4_CALIBRATION_RUN_DIGEST = (
+    "98c75e62af6fb9fbafa11645f34a2ab69b23a60ab038788ea130eb91f3ad910c"
+)
+M4_P2_4_COMPLETION_DIGEST = (
+    "328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353"
+)
+M4_P2_4_TRUTH_DIGESTS = (
+    "23a41f005f369e762f26c728eb13a5fa4888b9c04590d6e0d2410506956c7e2f",
+    "709133b116c40ba95d10018c94160786c554186b94a0fc9dfaeef539d30eb58e",
+    "6c8a2c30941255e617205f4a59e594e4ac894dd8057accaa6b538026263654e2",
+    "a3516898188a0e8b22d0cd61f9a8b1412e4f14e80096f34a437ad720731cd179",
+    "97e126b5ec61cb8bc8599f35754b3968fec037cc1349a419196238849eef87ab",
+    "0a04a7251b982c80af0c8944ecf96f6faa224ad408a2f92207c4fe5fbf603e06",
+    "dbc2f7a58f5b506fc911f6b9d1f27a4b3fb18215db961b50ea519baf3668b3be",
+    "9623cdf111538f1883f1ed1b2b2f33ca852517744812e16e9f4f2fb4acf51f97",
+    "dee510d7ebee2e3a8248657f2c71c984250a842626d3c3e3e29e917ff5025320",
+    "025befa6028bb19f9cf79ea368a214f1228242ce6e05009845c6621332bc2537",
+    "1a5401cbe3acd347a0a617dc3b8b153db61b995f759e229cbab77e4a4f45e44c",
+    "0ce5a4353051ab8dd6e033e33508f050274a5b0166f9169a4c90f0124f7a2e5d",
+)
+M4_P2_5_RESAMPLING_KERNEL_DIGEST = (
+    "1cde473524d7d6dcafba64ab7b0a1d2862b56149d5f6f198c73d88b406c3071b"
+)
 M4_MANIFEST_RELATIVE_PATH = Path(
     "configs/research-os/m4-information-theory-evidence-v1.json"
 )
@@ -83,14 +106,32 @@ def manifest_with_contract_repair_pending(
         if task["task_key"] == M4_CONTRACT_REPAIR_TASK_KEY
     )
     repair["status"] = "draft"
+    p24 = next(
+        task
+        for task in payload["tasks"]
+        if task["task_key"] == "m4-p2-injected-signal-calibration"
+    )
+    p24["status"] = "draft"
+    p24["completion_classification"] = "INTEGRATION_PENDING"
     payload["facts"]["artifacts"] = [
         fact
         for fact in payload["facts"]["artifacts"]
-        if fact not in {
+        if not fact.startswith(
+            "mainline-execution:m4-p2-injected-signal-calibration:"
+        )
+        and fact not in {
             f"m4-preregistration:{M4_PREREGISTRATION_V1_0_3_DIGEST}",
             (
                 "m4-p2-1-synthetic-run-manifest:"
                 f"{M4_SYNTHETIC_MANIFEST_V1_0_1_DIGEST}"
+            ),
+            (
+                "m4-p2-4-injected-signal-completion:"
+                "328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353"
+            ),
+            (
+                "m4-p2-5-resampling-kernel-manifest:"
+                f"{M4_P2_5_RESAMPLING_KERNEL_DIGEST}"
             ),
         }
     ]
@@ -216,6 +257,7 @@ def build_m4_status(
     p2_2_complete = resolutions[P2_SUBTASK_KEYS[1]].status is TaskStatus.COMPLETED
     p2_3_complete = resolutions[P2_SUBTASK_KEYS[2]].status is TaskStatus.COMPLETED
     p2_4_complete = resolutions[P2_SUBTASK_KEYS[3]].status is TaskStatus.COMPLETED
+    p2_5_complete = resolutions[P2_SUBTASK_KEYS[4]].status is TaskStatus.COMPLETED
     if p2_1_complete:
         completed.extend(
             [
@@ -251,6 +293,17 @@ def build_m4_status(
                 "P2.3 blind checkpoint and P2.2 settlement smoke verified",
                 "calibration datasets excluded from evaluation, power, and Evidence",
                 "P2.4 unified supervisor execution and replay verified",
+            ]
+        )
+    if p2_5_complete:
+        completed.extend(
+            [
+                "P2.5 issue-level resampling kernel validated in mainline",
+                "moving, stationary, and block-permutation plans replay verified",
+                "NC1-NC6 registry and deterministic seed domains verified",
+                "plus-one tail, percentile, aggregate, and sharding contracts frozen",
+                "P2.5 smoke artifacts explicitly excluded from formal inference",
+                "P2.5 unified supervisor execution and replay verified",
             ]
         )
     if repair_complete:
@@ -305,21 +358,55 @@ def build_m4_status(
                 M4_P2_4_CALIBRATION_MANIFEST_DIGEST
             ),
             "p2_injected_signal_calibration_run_digest": (
-                None
-                if mainline_execution is None
-                else mainline_execution.get(
-                    "calibration_run_artifact_digest"
+                (
+                    mainline_execution.get(
+                        "calibration_run_artifact_digest"
+                    )
+                    if mainline_execution is not None
+                    else None
+                )
+                or (
+                    M4_P2_4_CALIBRATION_RUN_DIGEST
+                    if p2_4_complete
+                    else None
                 )
             ),
             "p2_injected_signal_completion_digest": (
-                None
-                if mainline_execution is None
-                else mainline_execution.get("completion_artifact_digest")
+                (
+                    mainline_execution.get("completion_artifact_digest")
+                    if mainline_execution is not None
+                    else None
+                )
+                or (M4_P2_4_COMPLETION_DIGEST if p2_4_complete else None)
             ),
             "p2_injected_signal_truth_digests": (
+                (
+                    mainline_execution.get("truth_artifact_digests")
+                    if mainline_execution is not None
+                    else None
+                )
+                or (list(M4_P2_4_TRUTH_DIGESTS) if p2_4_complete else [])
+            ),
+            "p2_resampling_kernel_digest": M4_P2_5_RESAMPLING_KERNEL_DIGEST,
+            "p2_resampling_run_digest": (
+                None
+                if mainline_execution is None
+                else mainline_execution.get("resampling_run_digest")
+            ),
+            "p2_resampling_completion_digest": (
+                None
+                if mainline_execution is None
+                else mainline_execution.get("resampling_completion_digest")
+            ),
+            "p2_resampling_child_replicate_digests": (
                 []
                 if mainline_execution is None
-                else mainline_execution.get("truth_artifact_digests", [])
+                else mainline_execution.get("child_replicate_digests", [])
+            ),
+            "p2_resampling_aggregate_digests": (
+                []
+                if mainline_execution is None
+                else mainline_execution.get("aggregate_digests", [])
             ),
             "control_plane_manifest_digest": manifest.artifact_digest,
             "legacy_settlement_digest": json.loads(
@@ -359,7 +446,10 @@ def build_m4_status(
                 "completed": 12 if p2_4_complete else 0,
                 "total": 12,
             },
-            "negative_controls": {"completed": 0, "total": 6},
+            "negative_controls": {
+                "completed": 6 if p2_5_complete else 0,
+                "total": 6,
+            },
             "robustness_sensitivities": {"completed": 0, "total": 5},
             "feature_families": {"completed": 0, "total": 7},
         },
@@ -379,33 +469,41 @@ def build_m4_status(
         },
         "formal_real_data_run": "NOT_STARTED",
         "synthetic_validation": (
-            "P2.4_CALIBRATION_READY"
-            if p2_4_complete
+            "P2.5_RESAMPLING_KERNEL_READY"
+            if p2_5_complete
             else (
-                "P2.3_HARNESS_READY"
-                if p2_3_complete
+                "P2.4_CALIBRATION_READY"
+                if p2_4_complete
                 else (
-                    "P2.2_KERNEL_READY"
-                    if p2_2_complete
+                    "P2.3_HARNESS_READY"
+                    if p2_3_complete
                     else (
-                        "P2.1_CONTRACT_READY"
-                        if p2_1_complete
-                        else "NOT_STARTED"
+                        "P2.2_KERNEL_READY"
+                        if p2_2_complete
+                        else (
+                            "P2.1_CONTRACT_READY"
+                            if p2_1_complete
+                            else "NOT_STARTED"
+                        )
                     )
                 )
             )
         ),
         "p2_subphase": {
             "completed": (
-                ["M4-P2.1", "M4-P2.2", "M4-P2.3", "M4-P2.4"]
-                if p2_4_complete
+                ["M4-P2.1", "M4-P2.2", "M4-P2.3", "M4-P2.4", "M4-P2.5"]
+                if p2_5_complete
                 else (
-                    ["M4-P2.1", "M4-P2.2", "M4-P2.3"]
-                    if p2_3_complete
+                    ["M4-P2.1", "M4-P2.2", "M4-P2.3", "M4-P2.4"]
+                    if p2_4_complete
                     else (
-                        ["M4-P2.1", "M4-P2.2"]
-                        if p2_2_complete
-                        else (["M4-P2.1"] if p2_1_complete else [])
+                        ["M4-P2.1", "M4-P2.2", "M4-P2.3"]
+                        if p2_3_complete
+                        else (
+                            ["M4-P2.1", "M4-P2.2"]
+                            if p2_2_complete
+                            else (["M4-P2.1"] if p2_1_complete else [])
+                        )
                     )
                 )
             ),
@@ -413,18 +511,22 @@ def build_m4_status(
                 "M4-P1-CONTRACT-REPAIR"
                 if not repair_complete
                 else (
-                    "M4-P2.5"
-                    if p2_4_complete
+                    "M4-P2.6"
+                    if p2_5_complete
                     else (
-                        "M4-P2.4"
-                        if p2_3_complete
+                        "M4-P2.5"
+                        if p2_4_complete
                         else (
-                            "M4-P2.3"
-                            if p2_2_complete
+                            "M4-P2.4"
+                            if p2_3_complete
                             else (
-                                "M4-P2.2"
-                                if p2_1_complete
-                                else "M4-P2.1"
+                                "M4-P2.3"
+                                if p2_2_complete
+                                else (
+                                    "M4-P2.2"
+                                    if p2_1_complete
+                                    else "M4-P2.1"
+                                )
                             )
                         )
                     )
@@ -436,9 +538,13 @@ def build_m4_status(
                 if task_states[
                     tasks[
                         (
-                            "m4-p2-injected-signal-calibration"
-                            if p2_4_complete
-                            else "m4-p2-walk-forward-probe-harness"
+                            "m4-p2-resampling"
+                            if p2_5_complete
+                            else (
+                                "m4-p2-injected-signal-calibration"
+                                if p2_4_complete
+                                else "m4-p2-walk-forward-probe-harness"
+                            )
                         )
                     ].artifact_digest
                 ].completion_classification
@@ -446,9 +552,13 @@ def build_m4_status(
                 else task_states[
                     tasks[
                         (
-                            "m4-p2-injected-signal-calibration"
-                            if p2_4_complete
-                            else "m4-p2-walk-forward-probe-harness"
+                            "m4-p2-resampling"
+                            if p2_5_complete
+                            else (
+                                "m4-p2-injected-signal-calibration"
+                                if p2_4_complete
+                                else "m4-p2-walk-forward-probe-harness"
+                            )
                         )
                     ].artifact_digest
                 ].completion_classification.value
@@ -459,9 +569,13 @@ def build_m4_status(
             "ready_queue_integration": "PASS",
             "runner_integration": "research_evidence_supervisor",
             "task_key": (
-                "m4-p2-injected-signal-calibration"
-                if p2_4_complete
-                else "m4-p2-walk-forward-probe-harness"
+                "m4-p2-resampling"
+                if p2_5_complete
+                else (
+                    "m4-p2-injected-signal-calibration"
+                    if p2_4_complete
+                    else "m4-p2-walk-forward-probe-harness"
+                )
             ),
             "actual_fold_count": (
                 None
@@ -479,9 +593,13 @@ def build_m4_status(
                 else mainline_execution.get("execution_artifact_digest")
             ),
             "downstream_consumer": (
-                "m4-p2-resampling"
-                if p2_4_complete
-                else "m4-p2-injected-signal-calibration"
+                "m4-p2-false-positive-and-power-runs"
+                if p2_5_complete
+                else (
+                    "m4-p2-resampling"
+                    if p2_4_complete
+                    else "m4-p2-injected-signal-calibration"
+                )
             ),
             "legacy_manual_path_canonical": False,
         },

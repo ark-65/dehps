@@ -82,6 +82,12 @@
       "superseded_by_digest": "2b60ee797888ed91cedf80543d6d149c5e31647e18296cb3083870119bbf24f0"
     },
     "2b60ee797888ed91cedf80543d6d149c5e31647e18296cb3083870119bbf24f0": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "source_commit": "675ebbe5ded2f68f9cd73a5086024b359c94e835",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "superseded_by_digest": "043f2175d7ea438cf6217373bef38a045e1f58bab4f8af52faa0bbe2a5332055"
+    },
+    "043f2175d7ea438cf6217373bef38a045e1f58bab4f8af52faa0bbe2a5332055": {
       "artifact_type": "research_os_control_plane_manifest",
       "path": "configs/research-os/m4-information-theory-evidence-v1.json"
     },
@@ -98,6 +104,15 @@
     "f30186e3f5aeefb07565d25c4e0de68d955a07e87d1894fdaedbe8bedf4a2317": {
       "artifact_type": "information_theory_p2_injected_signal_calibration_run_manifest",
       "path": "configs/research-os/m4-information-theory-p2-4-calibration-run-manifest-v1.json"
+    },
+    "328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353": {
+      "artifact_type": "information_theory_p2_injected_signal_completion",
+      "source_commit": "675ebbe5ded2f68f9cd73a5086024b359c94e835",
+      "runtime_path": "runtime/research-os/mainline/tasks/m4-p2-injected-signal-calibration/772b5063f1a3578c7e8f8a2cd9f102357828608de8fbd80c2c1fb2c82b79afa2/artifacts/completion/328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353/completion.json"
+    },
+    "1cde473524d7d6dcafba64ab7b0a1d2862b56149d5f6f198c73d88b406c3071b": {
+      "artifact_type": "information_theory_p2_resampling_kernel_manifest",
+      "path": "configs/research-os/m4-information-theory-p2-5-resampling-kernel-v1.json"
     },
     "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2": {
       "artifact_type": "information_theory_p2_metric_kernel_manifest",

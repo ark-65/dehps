@@ -1,0 +1,297 @@
+{
+  "schema_version": "dehps-m4-p2-resampling-kernel-manifest.v1",
+  "artifact_type": "resampling_kernel_manifest",
+  "artifact_digest": "1cde473524d7d6dcafba64ab7b0a1d2862b56149d5f6f198c73d88b406c3071b",
+  "phase": "M4-P2.5",
+  "status": "FROZEN",
+  "preregistration_digest": "4fff51c58e4a46d664e414bfe4cc0d7269c8e3712734153faec548648144d0d9",
+  "decision_policy_digest": "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
+  "synthetic_manifest_digest": "f84c2da3565f7eda41c3782517c78211805f57ea8f3bfd00659a93c380826a3c",
+  "metric_kernel_digest": "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
+  "walk_forward_harness_digest": "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca",
+  "injected_signal_completion_digest": "328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353",
+  "injected_signal_execution_id": "772b5063f1a3578c7e8f8a2cd9f102357828608de8fbd80c2c1fb2c82b79afa2",
+  "truth_artifact_digests": [
+    "23a41f005f369e762f26c728eb13a5fa4888b9c04590d6e0d2410506956c7e2f",
+    "709133b116c40ba95d10018c94160786c554186b94a0fc9dfaeef539d30eb58e",
+    "6c8a2c30941255e617205f4a59e594e4ac894dd8057accaa6b538026263654e2",
+    "a3516898188a0e8b22d0cd61f9a8b1412e4f14e80096f34a437ad720731cd179",
+    "97e126b5ec61cb8bc8599f35754b3968fec037cc1349a419196238849eef87ab",
+    "0a04a7251b982c80af0c8944ecf96f6faa224ad408a2f92207c4fe5fbf603e06",
+    "dbc2f7a58f5b506fc911f6b9d1f27a4b3fb18215db961b50ea519baf3668b3be",
+    "9623cdf111538f1883f1ed1b2b2f33ca852517744812e16e9f4f2fb4acf51f97",
+    "dee510d7ebee2e3a8248657f2c71c984250a842626d3c3e3e29e917ff5025320",
+    "025befa6028bb19f9cf79ea368a214f1228242ce6e05009845c6621332bc2537",
+    "1a5401cbe3acd347a0a617dc3b8b153db61b995f759e229cbab77e4a4f45e44c",
+    "0ce5a4353051ab8dd6e033e33508f050274a5b0166f9169a4c90f0124f7a2e5d"
+  ],
+  "statistical_unit": "issue",
+  "issue_cluster_contract": {
+    "target_dimension": 33,
+    "positive_target_count": 6,
+    "partial_number_event_resampling": "forbidden",
+    "prediction_checkpoint_identity_required": true,
+    "settlement_identity_required": true
+  },
+  "methods": {
+    "moving_block_bootstrap": {
+      "topology": "non_circular",
+      "primary_block_size": 5,
+      "sensitivity_block_sizes": [3, 5, 8, 13],
+      "sampling": "with_replacement",
+      "overflow": "truncate_right"
+    },
+    "stationary_bootstrap": {
+      "method": "Politis-Romano",
+      "topology": "circular",
+      "expected_block_lengths": [3, 5, 8, 13],
+      "restart_probability": "1_divided_by_expected_block_length",
+      "role": "sensitivity_only"
+    },
+    "block_permutation": {
+      "topology": "non_circular",
+      "block_size": 5,
+      "tail_block_policy": "include_as_final_distinct_block",
+      "identity_permutation": "forbidden"
+    }
+  },
+  "circular_shift": {
+    "formula": "shifted_target[t]=original_target[(t+k) mod N]",
+    "direction": "target_forward_relative_to_prediction",
+    "topology": "circular",
+    "frozen_shifts": [1, 2, 3, 5, 8, 13, 21],
+    "shift_zero": "forbidden"
+  },
+  "negative_controls": [
+    {
+      "control_id": "NC1_ISSUE_LABEL_PERMUTATION",
+      "destroyed_relationship": "feature_history_to_future_target_alignment",
+      "preserved_properties": ["whole_issue_target_cluster", "prediction_checkpoint"],
+      "randomization_unit": "issue",
+      "execution_mode": "RETRAIN_REQUIRED_CONTROL",
+      "seed_domain": "M4_P2_ISSUE_PERMUTATION",
+      "multiplicity_family": "FEATURE_FAMILY_COMPARISON",
+      "applicable_artifact_types": [
+        "calibration_dataset",
+        "synthetic_walk_forward_smoke"
+      ],
+      "required_upstream_digests": [
+        "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
+        "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca",
+        "328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353"
+      ],
+      "statistic_contract": {
+        "name": "PE1_mean_bits_per_issue",
+        "unit": "bits_per_issue",
+        "metric_kernel_digest": "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2"
+      }
+    },
+    {
+      "control_id": "NC2_NUMBER_LABEL_PERMUTATION",
+      "destroyed_relationship": "number_identity_semantics",
+      "preserved_properties": ["six_of_33", "global_bijection", "issue_cluster"],
+      "randomization_unit": "global_number_bijection",
+      "execution_mode": "RETRAIN_REQUIRED_CONTROL",
+      "seed_domain": "M4_P2_NUMBER_PERMUTATION",
+      "multiplicity_family": "RED_NUMBER_FAMILY",
+      "applicable_artifact_types": [
+        "calibration_dataset",
+        "synthetic_walk_forward_smoke"
+      ],
+      "required_upstream_digests": [
+        "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
+        "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca",
+        "328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353"
+      ],
+      "statistic_contract": {
+        "name": "PE1_mean_bits_per_issue",
+        "unit": "bits_per_issue",
+        "metric_kernel_digest": "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2"
+      }
+    },
+    {
+      "control_id": "NC3_CIRCULAR_TARGET_SHIFT",
+      "destroyed_relationship": "prediction_target_time_alignment",
+      "preserved_properties": ["target_sequence", "issue_cluster", "sample_size"],
+      "randomization_unit": "issue_sequence",
+      "execution_mode": "POST_PREDICTION_RESAMPLING",
+      "seed_domain": "none",
+      "multiplicity_family": "SENSITIVITY_FAMILY",
+      "applicable_artifact_types": [
+        "fold_settlement",
+        "synthetic_walk_forward_smoke"
+      ],
+      "required_upstream_digests": [
+        "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
+        "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca",
+        "328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353"
+      ],
+      "statistic_contract": {
+        "name": "PE1_mean_bits_per_issue",
+        "unit": "bits_per_issue",
+        "metric_kernel_digest": "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2"
+      }
+    },
+    {
+      "control_id": "NC4_MATCHED_RANDOM_FEATURES",
+      "destroyed_relationship": "feature_target_information",
+      "preserved_properties": ["shape", "dtype", "missingness", "marginal_distribution", "temporal_class"],
+      "randomization_unit": "feature_family_replicate",
+      "execution_mode": "RETRAIN_REQUIRED_CONTROL",
+      "seed_domain": "M4_P2_RANDOM_FEATURE",
+      "multiplicity_family": "FEATURE_FAMILY_COMPARISON",
+      "applicable_artifact_types": [
+        "feature_view",
+        "synthetic_walk_forward_smoke"
+      ],
+      "required_upstream_digests": [
+        "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
+        "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca",
+        "328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353"
+      ],
+      "statistic_contract": {
+        "name": "PE1_mean_bits_per_issue",
+        "unit": "bits_per_issue",
+        "metric_kernel_digest": "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2"
+      }
+    },
+    {
+      "control_id": "NC5_MATCHED_RANDOM_SCORE",
+      "destroyed_relationship": "score_target_information",
+      "preserved_properties": ["rank_distribution", "quantile_distribution", "issue_mean_variance"],
+      "randomization_unit": "score_replicate",
+      "execution_mode": "POST_PREDICTION_RESAMPLING",
+      "seed_domain": "M4_P2_RANDOM_SCORE",
+      "multiplicity_family": "FEATURE_FAMILY_COMPARISON",
+      "applicable_artifact_types": [
+        "prediction_checkpoint",
+        "synthetic_walk_forward_smoke"
+      ],
+      "required_upstream_digests": [
+        "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
+        "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca",
+        "328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353"
+      ],
+      "statistic_contract": {
+        "name": "PE1_mean_bits_per_issue",
+        "unit": "bits_per_issue",
+        "metric_kernel_digest": "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2"
+      }
+    },
+    {
+      "control_id": "NC6_SYNTHETIC_NULL",
+      "destroyed_relationship": "all_predictive_signal",
+      "preserved_properties": ["legal_C_33_6_draw_space", "shared_measurement_path"],
+      "randomization_unit": "synthetic_history_replicate",
+      "execution_mode": "RETRAIN_REQUIRED_CONTROL",
+      "seed_domain": "M4_P2_EVALUATION_DATASET",
+      "multiplicity_family": "PRIMARY_ENDPOINT_FAMILY",
+      "applicable_artifact_types": [
+        "synthetic_dataset",
+        "synthetic_walk_forward_smoke"
+      ],
+      "required_upstream_digests": [
+        "f84c2da3565f7eda41c3782517c78211805f57ea8f3bfd00659a93c380826a3c",
+        "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
+        "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca"
+      ],
+      "statistic_contract": {
+        "name": "PE1_mean_bits_per_issue",
+        "unit": "bits_per_issue",
+        "metric_kernel_digest": "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2"
+      }
+    }
+  ],
+  "statistic_contract": {
+    "primary_statistic": "PE1_mean_bits_per_issue",
+    "supported_statistics": [
+      "PE1_mean_bits_per_issue",
+      "PE1_cumulative_bits",
+      "PE1_median_bits_per_issue",
+      "Brier_gain_mean_per_issue",
+      "calibration_diagnostics",
+      "future_PE2_placeholder"
+    ],
+    "unit": "bits_per_issue",
+    "metric_kernel_single_source": true
+  },
+  "inference_contract": {
+    "primary_tail": "upper",
+    "plus_one_correction": true,
+    "upper_comparison": ">=",
+    "lower_comparison": "<=",
+    "two_sided": "min(1,2*min(p_upper,p_lower))",
+    "percentile_method": "midrank",
+    "empirical_cdf": "inclusive",
+    "quantile_method": "Hyndman-Fan_type_7",
+    "nan_statistic": "reject",
+    "incomplete_formal_seed_set": "fail_closed",
+    "smoke_formal_p_value": "forbidden"
+  },
+  "seed_policy": {
+    "root_seed_set_digest": "b7fe8fab4e6fbb6387823d8354e6a9ac6da15b03f26ba0dc2ce7756f296e73b7",
+    "domains": [
+      "M4_P2_BOOTSTRAP",
+      "M4_P2_STATIONARY_BOOTSTRAP",
+      "M4_P2_ISSUE_PERMUTATION",
+      "M4_P2_NUMBER_PERMUTATION",
+      "M4_P2_RANDOM_FEATURE",
+      "M4_P2_RANDOM_SCORE",
+      "M4_P2_SHARD_ASSIGNMENT"
+    ],
+    "forbidden_domains": [
+      "M4_P2_CALIBRATION",
+      "M4_P2_EVALUATION_DATASET",
+      "M4_P2_POWER_REPLICATE"
+    ],
+    "wall_clock_seed": "forbidden",
+    "retry_reuses_child_seed": true,
+    "resume_reuses_child_seed": true,
+    "shard_change_preserves_child_seed": true,
+    "selection_policy": "no_best_seed"
+  },
+  "sharding": {
+    "assignment": "replicate_index_mod_shard_count",
+    "merge_order": "replicate_identity_canonical",
+    "missing_shard": "fail_closed"
+  },
+  "performance_contract": {
+    "plan_storage": "index_based_view",
+    "formal_mapping_storage": "source_index_and_parent_digest",
+    "smoke_mapping_storage": "materialized_for_structural_audit",
+    "mmap_supported": true,
+    "maximum_resident_memory_mib_per_worker": 512,
+    "post_prediction_cost": "O(N)_index_reordering",
+    "retrain_cost": "P2.3_harness_cost_per_control_replicate"
+  },
+  "smoke": {
+    "flags": [
+      "SMOKE_TEST_ONLY",
+      "NOT_FALSE_POSITIVE_EVIDENCE",
+      "NOT_POWER_EVIDENCE",
+      "NOT_MDE_EVIDENCE",
+      "NOT_P2_GATE_EVIDENCE"
+    ],
+    "moving_block_replicates_per_block_size": 1,
+    "stationary_replicates_per_expected_length": 1,
+    "block_permutation_replicates": 3,
+    "negative_control_replicates": {
+      "NC1_ISSUE_LABEL_PERMUTATION": 2,
+      "NC2_NUMBER_LABEL_PERMUTATION": 2,
+      "NC3_CIRCULAR_TARGET_SHIFT": 2,
+      "NC4_MATCHED_RANDOM_FEATURES": 2,
+      "NC5_MATCHED_RANDOM_SCORE": 2,
+      "NC6_SYNTHETIC_NULL": 1
+    },
+    "nc3_smoke_shifts": [1, 21],
+    "plan_only": true,
+    "eligible_for_formal_inference": false
+  },
+  "future_formal_replicates": {
+    "bootstrap_count": 2000,
+    "permutation_count": 2000,
+    "negative_control_count": 1000,
+    "executed_in_p2_5": false
+  },
+  "production_action": "none"
+}
