@@ -499,6 +499,14 @@ class ControlPlaneManifest:
             facts=DependencyFacts.from_dict(value.get("facts")),
             schema_version=schema,
         )
+        p2_measurement_outcomes = {
+            "m4-p2-measurement-decision:PASS_TO_P3",
+            "m4-p2-measurement-decision:REPAIR_MEASUREMENT_SYSTEM",
+        }
+        if p2_measurement_outcomes.issubset(manifest.facts.artifacts):
+            raise ResearchOSValidationError(
+                "P2 measurement decision facts are mutually exclusive"
+            )
         expected_digest = value.get("manifest_digest")
         if expected_digest and str(expected_digest) != manifest.artifact_digest:
             raise ResearchOSValidationError(

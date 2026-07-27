@@ -88,6 +88,12 @@
       "superseded_by_digest": "043f2175d7ea438cf6217373bef38a045e1f58bab4f8af52faa0bbe2a5332055"
     },
     "043f2175d7ea438cf6217373bef38a045e1f58bab4f8af52faa0bbe2a5332055": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "source_commit": "d26d3053defee8bba831af0394a214421a672f18",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "superseded_by_digest": "ad719631406ce033a3fcd409a3ba6ba10c733f95d2a1110d960daa4865b79844"
+    },
+    "ad719631406ce033a3fcd409a3ba6ba10c733f95d2a1110d960daa4865b79844": {
       "artifact_type": "research_os_control_plane_manifest",
       "path": "configs/research-os/m4-information-theory-evidence-v1.json"
     },
@@ -113,6 +119,10 @@
     "1cde473524d7d6dcafba64ab7b0a1d2862b56149d5f6f198c73d88b406c3071b": {
       "artifact_type": "information_theory_p2_resampling_kernel_manifest",
       "path": "configs/research-os/m4-information-theory-p2-5-resampling-kernel-v1.json"
+    },
+    "953ae76e2e28523b7d067c2b73dac8bec63ff2417db283fd516fe900e52402f8": {
+      "artifact_type": "information_theory_p2_measurement_validation_manifest",
+      "path": "configs/research-os/m4-information-theory-p2-6-measurement-validation-v1.json"
     },
     "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2": {
       "artifact_type": "information_theory_p2_metric_kernel_manifest",

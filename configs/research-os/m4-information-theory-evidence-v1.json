@@ -1,6 +1,6 @@
 {
   "schema_version": "research-os-control-plane-v1",
-  "manifest_digest": "043f2175d7ea438cf6217373bef38a045e1f58bab4f8af52faa0bbe2a5332055",
+  "manifest_digest": "ad719631406ce033a3fcd409a3ba6ba10c733f95d2a1110d960daa4865b79844",
   "goals": [
     {
       "goal_key": "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION",
@@ -228,6 +228,11 @@
           "dependency_type": "task",
           "target_key": "m4-p2-automatic-gate-and-report",
           "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p2-measurement-decision:PASS_TO_P3",
+          "required_status": "available"
         }
       ],
       "metric_contract": {
@@ -565,18 +570,63 @@
       "task_type": "synthetic_power_run",
       "lane": "research",
       "priority": 102,
+      "requested_capability": "m4_p2_6_false_positive_and_power",
+      "input_artifact_digests": [
+        "4fff51c58e4a46d664e414bfe4cc0d7269c8e3712734153faec548648144d0d9",
+        "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
+        "f84c2da3565f7eda41c3782517c78211805f57ea8f3bfd00659a93c380826a3c",
+        "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
+        "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca",
+        "328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353",
+        "1cde473524d7d6dcafba64ab7b0a1d2862b56149d5f6f198c73d88b406c3071b",
+        "953ae76e2e28523b7d067c2b73dac8bec63ff2417db283fd516fe900e52402f8"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
           "target_key": "m4-p2-resampling",
           "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p2-6-measurement-validation-manifest:953ae76e2e28523b7d067c2b73dac8bec63ff2417db283fd516fe900e52402f8",
+          "required_status": "available"
         }
       ],
       "metric_contract": {
         "phase": "M4-P2.6",
+        "engineering_increment_percent": 2,
         "engineering_complete": false,
+        "evidence_increment_percent": 25,
         "evidence_complete": false,
-        "coverage_tolerance": "fail_closed_pending_frozen_numeric_contract"
+        "measurement_validation_manifest_digest": "953ae76e2e28523b7d067c2b73dac8bec63ff2417db283fd516fe900e52402f8",
+        "coverage_tolerance": [
+          0.925,
+          0.975
+        ],
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "P2.5 COMPLETE and immutable P2.6 measurement-validation manifest available",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "P2.1 synthetic run manifest",
+            "P2.2 metric kernel",
+            "P2.3 walk-forward harness",
+            "P2.4 injected-signal truth artifacts",
+            "P2.5 resampling kernel",
+            "P2.6 measurement-validation manifest"
+          ],
+          "downstream_artifacts": [
+            "31000 analysis replicate artifacts",
+            "cell aggregates",
+            "false-positive power bias RMSE coverage and MDE summary",
+            "P2.6 formal completion artifact"
+          ],
+          "status_projection": "unified_m4_status",
+          "downstream_consumer": "m4-p2-automatic-gate-and-report",
+          "evidence_progress_rule": "25_percent_only_after_complete_formal_workload",
+          "decision_consumer": "P2.7 automatic PASS_TO_P3 or REPAIR_MEASUREMENT_SYSTEM gate"
+        }
       }
     },
     {
@@ -585,6 +635,11 @@
       "task_type": "synthetic_automatic_gate",
       "lane": "research",
       "priority": 101,
+      "requested_capability": "m4_p2_7_automatic_measurement_gate",
+      "input_artifact_digests": [
+        "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
+        "953ae76e2e28523b7d067c2b73dac8bec63ff2417db283fd516fe900e52402f8"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
@@ -594,9 +649,73 @@
       ],
       "metric_contract": {
         "phase": "M4-P2.7",
+        "engineering_increment_percent": 1,
+        "engineering_complete": false,
+        "evidence_increment_percent": 0,
+        "evidence_complete": false,
+        "decision": "not_evaluated",
+        "allowed_outcomes": [
+          "PASS_TO_P3",
+          "REPAIR_MEASUREMENT_SYSTEM"
+        ],
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "P2.6 complete formal workload and immutable completion artifact available",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "P2.6 replicate graph",
+            "P2.6 cell aggregates",
+            "P2.6 formal completion artifact",
+            "P2.6 measurement-validation manifest"
+          ],
+          "downstream_artifacts": [
+            "automatic gate decision artifact",
+            "exactly one PASS_TO_P3 or REPAIR_MEASUREMENT_SYSTEM fact",
+            "P2 completion or repair status projection"
+          ],
+          "status_projection": "unified_m4_status",
+          "downstream_consumer": "m4-p3-strict-historical-walk-forward or m4-p2-repair-measurement-system",
+          "evidence_progress_rule": "no_increment_beyond_P2.6_measurement_validation_evidence",
+          "decision_consumer": "conditional Ready Queue branch"
+        }
+      }
+    },
+    {
+      "task_key": "m4-p2-repair-measurement-system",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "measurement_system_repair",
+      "lane": "research",
+      "priority": 104,
+      "requested_capability": "m4_p2_measurement_system_repair",
+      "dependencies": [
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p2-measurement-decision:REPAIR_MEASUREMENT_SYSTEM",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "phase": "M4-P2-REPAIR",
         "engineering_complete": false,
         "evidence_complete": false,
-        "decision": "not_evaluated"
+        "ready_only_when": "REPAIR_MEASUREMENT_SYSTEM",
+        "P3_reachable": false,
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "P2.7 emitted REPAIR_MEASUREMENT_SYSTEM",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "P2.7 automatic gate decision artifact",
+            "REPAIR_MEASUREMENT_SYSTEM fact"
+          ],
+          "downstream_artifacts": [
+            "future separately approved measurement-system repair contract"
+          ],
+          "status_projection": "unified_m4_status",
+          "downstream_consumer": "future repaired P2 validation task",
+          "evidence_progress_rule": "no_new_evidence_during_repair_definition",
+          "decision_consumer": "future independent Reviewer"
+        }
       }
     },
     {
@@ -610,6 +729,11 @@
           "dependency_type": "task",
           "target_key": "m4-p2-synthetic-measurement-validation",
           "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p2-measurement-decision:PASS_TO_P3",
+          "required_status": "available"
         }
       ],
       "metric_contract": {
@@ -746,6 +870,7 @@
       "m4-p2-4-calibration-run-manifest:f30186e3f5aeefb07565d25c4e0de68d955a07e87d1894fdaedbe8bedf4a2317",
       "m4-p2-4-injected-signal-completion:328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353",
       "m4-p2-5-resampling-kernel-manifest:1cde473524d7d6dcafba64ab7b0a1d2862b56149d5f6f198c73d88b406c3071b",
+      "m4-p2-6-measurement-validation-manifest:953ae76e2e28523b7d067c2b73dac8bec63ff2417db283fd516fe900e52402f8",
       "m4-p2-1-synthetic-dataset:5354b9f7f6c72996cff16d6c161b03ff49922bf92589bd43b823d107019ebd86",
       "m4-p2-2-metric-kernel-manifest:56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
       "m4-p2-3-walk-forward-harness-manifest:177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca",
