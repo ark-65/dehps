@@ -90,6 +90,14 @@ class TaskDependencyResolver:
             elif any(item.dependency_type is DependencyType.EXTERNAL_EVENT for item in unsatisfied):
                 status = TaskStatus.EXTERNAL_WAIT
                 reason = "external_event_dependency_unsatisfied"
+            elif any(
+                item.dependency_type is DependencyType.TASK
+                and item.target_key
+                == "m4-p1-repair-resampling-preregistration-contract"
+                for item in unsatisfied
+            ):
+                status = TaskStatus.BLOCKED_BY_CONTRACT
+                reason = "preregistration_contract_dependency_unsatisfied"
             else:
                 status = TaskStatus.DEPENDENCY_WAIT
                 reason = "dependency_unsatisfied"

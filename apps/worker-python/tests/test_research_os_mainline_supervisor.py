@@ -37,6 +37,38 @@ def manifest_payload() -> dict:
     value = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     assert isinstance(value, dict)
     value.pop("manifest_digest", None)
+    value["tasks"] = [
+        task
+        for task in value["tasks"]
+        if task["task_key"] != "m4-p1-repair-resampling-preregistration-contract"
+    ]
+    p23 = next(
+        task
+        for task in value["tasks"]
+        if task["task_key"] == "m4-p2-walk-forward-probe-harness"
+    )
+    p23["status"] = "draft"
+    p23["completion_classification"] = "INTEGRATION_PENDING"
+    p24 = next(
+        task
+        for task in value["tasks"]
+        if task["task_key"] == "m4-p2-injected-signal-calibration"
+    )
+    p24["dependencies"] = [p24["dependencies"][0]]
+    p24["input_artifact_digests"] = []
+    p24["metric_contract"]["mainline_integration"]["ready_condition"] = (
+        "P2.3 mainline execution completed"
+    )
+    p24["metric_contract"]["mainline_integration"]["upstream_artifacts"] = [
+        "P2.3 mainline execution artifact"
+    ]
+    value["facts"]["artifacts"] = [
+        fact
+        for fact in value["facts"]["artifacts"]
+        if not fact.startswith("mainline-execution:m4-p2-walk-forward-probe-harness:")
+        and fact
+        != "m4-preregistration:a8da6bf2404d3bf213ac74d331917d5308195b7c3174b002378e1bbd849f6dfa"
+    ]
     return value
 
 

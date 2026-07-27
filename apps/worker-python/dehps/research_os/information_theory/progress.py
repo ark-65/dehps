@@ -17,6 +17,10 @@ from dehps.research_os.models import (
 M4_GOAL_KEY = "M4_INFORMATION_THEORY_EVIDENCE"
 LEGACY_GOAL_KEY = "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION"
 M4_FORWARD_EVENT_KEY = "draw:2026085"
+M4_CONTRACT_REPAIR_TASK_KEY = "m4-p1-repair-resampling-preregistration-contract"
+M4_PREREGISTRATION_V1_0_2_DIGEST = (
+    "a8da6bf2404d3bf213ac74d331917d5308195b7c3174b002378e1bbd849f6dfa"
+)
 M4_MANIFEST_RELATIVE_PATH = Path(
     "configs/research-os/m4-information-theory-evidence-v1.json"
 )
@@ -60,6 +64,25 @@ def manifest_with_external_event(
     return ControlPlaneManifest.from_dict(payload)
 
 
+def manifest_with_contract_repair_pending(
+    manifest: ControlPlaneManifest,
+) -> ControlPlaneManifest:
+    """Reconstruct the frozen pre-repair projection for contract acceptance tests."""
+    payload = manifest.to_dict(include_digest=False)
+    repair = next(
+        task
+        for task in payload["tasks"]
+        if task["task_key"] == M4_CONTRACT_REPAIR_TASK_KEY
+    )
+    repair["status"] = "draft"
+    payload["facts"]["artifacts"] = [
+        fact
+        for fact in payload["facts"]["artifacts"]
+        if fact != f"m4-preregistration:{M4_PREREGISTRATION_V1_0_2_DIGEST}"
+    ]
+    return ControlPlaneManifest.from_dict(payload)
+
+
 def build_m4_status(
     manifest: ControlPlaneManifest,
     *,
@@ -80,10 +103,21 @@ def build_m4_status(
     tasks = {task.task_key: task for task in manifest.tasks}
     task_states = manifest.task_state_by_digest
     resolutions = {item.task_key: item for item in snapshot.resolutions}
-    current_phase = _current_phase(tasks)
-    current_task_key = PHASE_TASK_KEYS[current_phase]
+    repair_resolution = resolutions.get(M4_CONTRACT_REPAIR_TASK_KEY)
+    repair_complete = (
+        repair_resolution is not None
+        and repair_resolution.status is TaskStatus.COMPLETED
+    )
+    current_phase = "M4-P1" if not repair_complete else _current_phase(tasks)
+    current_task_key = (
+        "m4-p2-injected-signal-calibration"
+        if not repair_complete
+        else PHASE_TASK_KEYS[current_phase]
+    )
     current_resolution = resolutions[current_task_key]
     current_state = current_resolution.status.value.upper()
+    if not repair_complete:
+        current_state = "BLOCKED"
     if (
         current_phase == "M4-P2"
         and resolutions[P2_SUBTASK_KEYS[0]].status is TaskStatus.COMPLETED
@@ -130,6 +164,18 @@ def build_m4_status(
     ]
     legacy_target = json.loads(legacy_goal.target_metric_manifest)
     m4_baseline = json.loads(m4_goal.baseline_metric_manifest)
+    active_preregistration = dict(m4_baseline)
+    if repair_complete:
+        repair_metric = _metric(tasks[M4_CONTRACT_REPAIR_TASK_KEY])
+        active_preregistration.update(
+            {
+                "preregistration_status": "FROZEN",
+                "preregistration_version": "1.0.2",
+                "preregistration_digest": repair_metric[
+                    "new_preregistration_digest"
+                ],
+            }
+        )
     p1_complete = (
         _metric(tasks["m4-p1-contract-and-preregistration"]).get(
             "engineering_complete"
@@ -181,6 +227,10 @@ def build_m4_status(
                 "unified Research Evidence Supervisor execution and replay verified",
             ]
         )
+    if repair_complete:
+        completed.append(
+            "resampling, inference, and seed-domain preregistration contract repaired"
+        )
 
     return {
         "schema_version": "dehps-m4-information-theory-status.v1",
@@ -200,7 +250,9 @@ def build_m4_status(
         "evidence_changed": [],
         "tests": {"status": "not_recorded_in_control_plane"},
         "artifacts": {
-            "preregistration_digest": m4_baseline.get("preregistration_digest"),
+            "preregistration_digest": active_preregistration.get(
+                "preregistration_digest"
+            ),
             "decision_policy_digest": m4_baseline.get("decision_policy_digest"),
             "p2_input_contract_digest": m4_baseline.get("p2_input_contract_digest"),
             "p2_synthetic_run_manifest_digest": (
@@ -229,8 +281,10 @@ def build_m4_status(
             )["last_settlement_digest"],
         },
         "preregistration": {
-            "status": m4_baseline.get("preregistration_status", "NOT_STARTED"),
-            "version": m4_baseline.get("preregistration_version"),
+            "status": active_preregistration.get(
+                "preregistration_status", "NOT_STARTED"
+            ),
+            "version": active_preregistration.get("preregistration_version"),
         },
         "p2_input_contract": m4_baseline.get(
             "p2_input_contract_status",
@@ -291,12 +345,16 @@ def build_m4_status(
                 )
             ),
             "current": (
-                "M4-P2.4"
-                if p2_3_complete
+                "M4-P1-CONTRACT-REPAIR"
+                if not repair_complete
                 else (
-                    "M4-P2.3"
-                    if p2_2_complete
-                    else ("M4-P2.2" if p2_1_complete else "M4-P2.1")
+                    "M4-P2.4"
+                    if p2_3_complete
+                    else (
+                        "M4-P2.3"
+                        if p2_2_complete
+                        else ("M4-P2.2" if p2_1_complete else "M4-P2.1")
+                    )
                 )
             ),
             "gate": "NOT_EVALUATED",

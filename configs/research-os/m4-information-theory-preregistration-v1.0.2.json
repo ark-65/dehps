@@ -1,0 +1,1184 @@
+{
+  "schema_version": "dehps-m4-information-theory-preregistration.v1",
+  "contract_version": "m4-information-theory-contract-v1",
+  "version": "1.0.2",
+  "status": "FROZEN",
+  "artifact_digest": "a8da6bf2404d3bf213ac74d331917d5308195b7c3174b002378e1bbd849f6dfa",
+  "created_at": "2026-07-27T08:58:24+08:00",
+  "code_commit": "6914654e8280e5c42fd61046ec0ebead351a5fcf",
+  "working_tree_clean": true,
+  "supersedes_digest": "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1",
+  "research_questions": [
+    "RQ1_PRIOR_STATE_REDUCES_NEXT_DRAW_UNCERTAINTY",
+    "RQ2_STRICT_OOS_INFORMATION_GAIN_EXCEEDS_PRACTICAL_NULL",
+    "RQ3_REAL_RELATION_OUTPERFORMS_NEGATIVE_CONTROLS",
+    "RQ4_SIGNAL_MAGNITUDE_EXCLUDABLE_AT_CURRENT_POWER",
+    "RQ5_EXISTING_FULL_SCORE_CONTAINS_PROBABILITY_OR_RANKING_INFORMATION"
+  ],
+  "targets": {
+    "contract_version": "m4-information-theory-target-contract-v1",
+    "contract_digest": "c768d4cc34ca92ce705cc9bc796798e459e85ccc4bc32c2e44622691c5068b2a",
+    "primary": {
+      "target_id": "RED_NUMBER_MARGINAL_EVENT",
+      "unit": "issue_red_number_binary_event",
+      "value_space": [
+        0,
+        1
+      ],
+      "event_count_per_issue": 33,
+      "positive_count_per_issue": 6,
+      "negative_count_per_issue": 27,
+      "cluster_key": "issue",
+      "resampling_unit": "issue",
+      "independence_assumption": "events_within_issue_are_dependent",
+      "decision_role": "primary"
+    },
+    "pair": {
+      "target_id": "RED_NUMBER_PAIR_EVENT",
+      "role": "secondary_exploratory_with_multiplicity_control",
+      "pair_count": 528,
+      "pair_set": "all_unordered_pairs_from_1_to_33",
+      "minimum_support_issues": 20,
+      "multiplicity_family": "PAIR_FAMILY",
+      "post_result_selection": "forbidden",
+      "top_level_decision_eligible": false
+    },
+    "structural": [
+      {
+        "target_id": "odd_count",
+        "data_type": "integer",
+        "state_space": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "baseline": "exact_uniform_without_replacement",
+        "scoring_rule": "categorical_log_loss",
+        "decision_role": "secondary"
+      },
+      {
+        "target_id": "low_count",
+        "data_type": "integer",
+        "definition": "red_number<=16",
+        "state_space": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "baseline": "exact_uniform_without_replacement",
+        "scoring_rule": "categorical_log_loss",
+        "decision_role": "secondary"
+      },
+      {
+        "target_id": "sum",
+        "data_type": "integer",
+        "state_space": {
+          "minimum": 21,
+          "maximum": 183
+        },
+        "baseline": "exact_combinatorial_distribution",
+        "scoring_rule": "categorical_log_loss",
+        "decision_role": "secondary"
+      },
+      {
+        "target_id": "span",
+        "data_type": "integer",
+        "state_space": {
+          "minimum": 5,
+          "maximum": 32
+        },
+        "baseline": "exact_combinatorial_distribution",
+        "scoring_rule": "categorical_log_loss",
+        "decision_role": "secondary"
+      },
+      {
+        "target_id": "consecutive_pair_count",
+        "data_type": "integer",
+        "state_space": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "baseline": "exact_combinatorial_distribution",
+        "scoring_rule": "categorical_log_loss",
+        "decision_role": "secondary"
+      },
+      {
+        "target_id": "zone_1_count",
+        "data_type": "integer",
+        "definition": "red_number_in_1_to_11",
+        "state_space": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "baseline": "multivariate_hypergeometric",
+        "scoring_rule": "categorical_log_loss",
+        "decision_role": "secondary"
+      },
+      {
+        "target_id": "zone_2_count",
+        "data_type": "integer",
+        "definition": "red_number_in_12_to_22",
+        "state_space": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "baseline": "multivariate_hypergeometric",
+        "scoring_rule": "categorical_log_loss",
+        "decision_role": "secondary"
+      },
+      {
+        "target_id": "zone_3_count",
+        "data_type": "integer",
+        "definition": "red_number_in_23_to_33",
+        "state_space": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "baseline": "multivariate_hypergeometric",
+        "scoring_rule": "categorical_log_loss",
+        "decision_role": "secondary"
+      },
+      {
+        "target_id": "repeat_from_previous_issue_count",
+        "data_type": "integer",
+        "state_space": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "baseline": "hypergeometric_given_previous_six",
+        "scoring_rule": "categorical_log_loss",
+        "decision_role": "secondary"
+      }
+    ],
+    "full_combination": {
+      "legal_space": "choose_6_without_replacement_from_33",
+      "combination_count": 1107568,
+      "allowed_uses": [
+        "joint_log_probability",
+        "coding_length",
+        "ranking_information",
+        "information_upper_bound"
+      ],
+      "topk_primary_endpoint": false
+    }
+  },
+  "null_models": {
+    "primary": "F0_THEORETICAL_UNIFORM",
+    "secondary": "F0_TRAINING_EMPIRICAL_BASE_RATE",
+    "F0_THEORETICAL_UNIFORM": {
+      "number_probability": 0.18181818181818182,
+      "joint_combination_probability": 9.028791008768762E-7,
+      "fit_scope": "none"
+    },
+    "F0_TRAINING_EMPIRICAL_BASE_RATE": {
+      "fit_scope": "current_outer_training_history_only",
+      "smoothing": "beta_binomial_jeffreys_alpha_0_5_beta_0_5",
+      "role": "sensitivity_null"
+    }
+  },
+  "feature_families": [
+    {
+      "family_id": "F0",
+      "name": "Null Baseline",
+      "variants": [
+        "F0_THEORETICAL_UNIFORM",
+        "F0_TRAINING_EMPIRICAL_BASE_RATE"
+      ],
+      "data_dependencies": [
+        "legal_sample_space",
+        "outer_training_history"
+      ],
+      "missing_policy": "not_applicable"
+    },
+    {
+      "family_id": "F1",
+      "name": "Recent Frequency",
+      "windows": [
+        10,
+        20,
+        30,
+        50,
+        100
+      ],
+      "selection_scope": "nested_inner_training_only",
+      "data_dependencies": [
+        "prior_red_draws"
+      ],
+      "missing_policy": "family_unavailable_until_window_complete"
+    },
+    {
+      "family_id": "F2",
+      "name": "Gap and Interval",
+      "features": [
+        "periods_since_last_seen",
+        "recent_gap_percentile",
+        "expanding_historical_mean_gap",
+        "expanding_historical_gap_variance"
+      ],
+      "recent_gap_windows": [
+        20,
+        50,
+        100
+      ],
+      "data_dependencies": [
+        "prior_red_draws"
+      ],
+      "missing_policy": "training_fold_median_with_missing_indicator"
+    },
+    {
+      "family_id": "F3",
+      "name": "Trend",
+      "features": [
+        "short_frequency_minus_long_frequency",
+        "expanding_slope",
+        "exponential_decay_summary"
+      ],
+      "short_long_window_pairs": [
+        [
+          10,
+          50
+        ],
+        [
+          20,
+          100
+        ],
+        [
+          30,
+          100
+        ]
+      ],
+      "slope_windows": [
+        20,
+        50,
+        100
+      ],
+      "decay_half_lives": [
+        5,
+        10,
+        20,
+        50
+      ],
+      "selection_scope": "nested_inner_training_only",
+      "data_dependencies": [
+        "prior_red_draws"
+      ],
+      "missing_policy": "family_unavailable_until_window_complete"
+    },
+    {
+      "family_id": "F4",
+      "name": "Historical Structure",
+      "features": [
+        "prior_sum",
+        "prior_span",
+        "prior_odd_count",
+        "prior_low_count",
+        "prior_zone_counts",
+        "prior_consecutive_pair_count",
+        "prior_repeat_count",
+        "rolling_structure_mean",
+        "rolling_structure_variance"
+      ],
+      "windows": [
+        20,
+        50,
+        100
+      ],
+      "data_dependencies": [
+        "prior_red_draws"
+      ],
+      "missing_policy": "training_fold_median_with_missing_indicator"
+    },
+    {
+      "family_id": "F5",
+      "name": "Existing Full Features",
+      "source_module": "dehps.input_contracts.feature_contract",
+      "contract_version": "feature.v1.0.0",
+      "feature_count": 32,
+      "feature_manifest_digest": "42ed7fc0a60a1be64f6f097f14e765f447f941d4427395a2e86bdbc99431c0c4",
+      "feature_contract_digest": "c7b5d9572f93c17f4b84debd3f0e9f9d445b7e3c76c5bfe5d594d180064c9869",
+      "normalization": "component_formulas_are_normative; any additional scaling is fit inside each outer training fold",
+      "missing_policy": "reject_missing_dependency_and_nonfinite_value",
+      "feature_names": [
+        "structural_score",
+        "frequency_score",
+        "omission_score",
+        "previous_consecutive_score",
+        "previous_overlap_score",
+        "previous_parity_shape_score",
+        "dynamic_parity_transition_score",
+        "previous_zone_shape_score",
+        "recent_neighbor_score",
+        "lagged_consecutive_score",
+        "recent_gap_shape_score",
+        "recent_sum_span_score",
+        "qian_kun_pattern_score",
+        "first_last_sum_score",
+        "span_trend_score",
+        "sum_trend_score",
+        "ac_trend_score",
+        "zone_ratio_score",
+        "big_small_ratio_score",
+        "parity_ratio_score",
+        "prime_composite_score",
+        "mod012_score",
+        "tail_distribution_score",
+        "sum_tail_score",
+        "red_omission_shape_score",
+        "sum_span_omission_score",
+        "consecutive_trend_score",
+        "repeat_trend_score",
+        "stable_range_score",
+        "weekday_trend_score",
+        "short_hot_frequency_score",
+        "long_omission_cooldown_score"
+      ]
+    },
+    {
+      "family_id": "F6",
+      "name": "Matched Random Features",
+      "dimension_match": "exact_feature_count_and_missingness_pattern",
+      "marginal_match": "training_fold_empirical_quantile_transform",
+      "temporal_match": "training_fold_stationary_bootstrap_with_primary_block_size_5",
+      "correlation_match": "training_fold_covariance_factorization",
+      "replicate_policy": "all_replicates_reported_as_distribution",
+      "seed_policy_ref": "MATCHED_RANDOM_FEATURES"
+    }
+  ],
+  "probe_models": {
+    "allowed": [
+      "EMPIRICAL_BASELINE",
+      "REGULARIZED_LOGISTIC_REGRESSION",
+      "NAIVE_BAYES",
+      "SHALLOW_CALIBRATED_TREE"
+    ],
+    "primary": "REGULARIZED_LOGISTIC_REGRESSION",
+    "inner_validation": {
+      "method": "three_fold_expanding_blocked_time_series",
+      "selection_metric": "issue_mean_log_loss",
+      "all_preprocessing_nested": true,
+      "tie_break": "lower_complexity_then_lexical_config_id"
+    },
+    "hyperparameters": {
+      "REGULARIZED_LOGISTIC_REGRESSION": {
+        "penalty": [
+          "l2"
+        ],
+        "C": [
+          0.01,
+          0.1,
+          1.0
+        ],
+        "class_weight": [
+          null
+        ],
+        "solver": "liblinear",
+        "max_iter": 1000,
+        "convergence_fail_policy": "outer_prediction_invalid_fail_closed"
+      },
+      "NAIVE_BAYES": {
+        "type": "bernoulli",
+        "alpha": [
+          0.5,
+          1.0,
+          2.0
+        ]
+      },
+      "SHALLOW_CALIBRATED_TREE": {
+        "max_depth": [
+          2,
+          3
+        ],
+        "min_samples_leaf": [
+          50,
+          100
+        ],
+        "criterion": [
+          "log_loss"
+        ],
+        "calibration": [
+          "platt"
+        ],
+        "calibration_split": "last_20_percent_of_inner_training",
+        "minimum_calibration_issues": 120
+      }
+    },
+    "probability_clip": {
+      "lower": 0.000001,
+      "upper": 0.999999
+    },
+    "post_result_model_addition": "forbidden"
+  },
+  "primary_endpoints": [
+    {
+      "endpoint_id": "PE1",
+      "name": "OUT_OF_SAMPLE_LOG_LOSS_GAIN",
+      "definition": "baseline_issue_log_loss_minus_probe_issue_log_loss",
+      "direction": "positive_is_better",
+      "required_outputs": [
+        "mean_per_issue",
+        "median_per_issue",
+        "cumulative_gain",
+        "bits_per_issue",
+        "moving_block_bootstrap_confidence_interval"
+      ],
+      "decision_role": "joint_primary"
+    },
+    {
+      "endpoint_id": "PE2",
+      "name": "BIAS_CORRECTED_INFORMATION_GAIN",
+      "definition": "bias_corrected_out_of_sample_information_gain",
+      "units": [
+        "bits_per_issue",
+        "bits_per_red_number_event"
+      ],
+      "direction": "positive_is_better",
+      "decision_role": "joint_primary"
+    }
+  ],
+  "secondary_endpoints": [
+    "brier_improvement",
+    "calibration_intercept",
+    "calibration_slope",
+    "expected_calibration_error",
+    "auroc",
+    "average_precision",
+    "score_decile_monotonicity",
+    "kendall_association",
+    "spearman_association",
+    "pair_information",
+    "structural_target_information",
+    "joint_combination_code_length_improvement"
+  ],
+  "practical_null": {
+    "primary_metric": "bits_gain_per_issue",
+    "lower_bound": -0.01,
+    "upper_bound": 0.01,
+    "equivalence_margin": true,
+    "auxiliary_relative_log_loss_improvement_percent": 0.1,
+    "frozen": true,
+    "rationale": "0.01 bits is 0.049803% of the 20.078964-bit six-red uniform entropy and implies a 1.006956 geometric-mean likelihood ratio per issue. When evenly allocated over 33 Bernoulli marginals at p=6/33, a local KL approximation is about a 0.7905 percentage-point probability displacement; no model-free exact probability conversion exists. Detectability is not assumed and must pass the P2 power gate."
+  },
+  "walk_forward": {
+    "historical_start_issue": "2003001",
+    "historical_end_issue": "2026084",
+    "minimum_training_issues": 900,
+    "initial_training_end_issue": "2009075",
+    "first_outer_test_issue": "2009076",
+    "outer_mode": "expanding_window",
+    "outer_test_unit": "one_issue",
+    "test_horizon": 1,
+    "inner_validation_strategy": "three_fold_expanding_blocked_time_series",
+    "train_only_fit_objects": [
+      "scaling",
+      "binning",
+      "feature_selection",
+      "missing_handling",
+      "hyperparameters",
+      "calibration",
+      "estimator_smoothing",
+      "base_rates"
+    ],
+    "global_history_statistic_policy": "fail_closed",
+    "data_revision_policy": "new_dataset_digest_creates_new_run_and_never_overwrites_prior_artifacts"
+  },
+  "dataset_identity": {
+    "history_dataset_digest": "30224d09a8b2d9080d3bc848f50b534c6d6de50b2eac867882915e85acbf206b",
+    "draw_schema_version": "ssq_history.reds_only.v1",
+    "start_issue": "2003001",
+    "end_issue": "2026084",
+    "start_date": "2003-02-23",
+    "end_date": "2026-07-23",
+    "issue_count": 3481,
+    "feature_contract_digest": "c7b5d9572f93c17f4b84debd3f0e9f9d445b7e3c76c5bfe5d594d180064c9869",
+    "target_contract_digest": "c768d4cc34ca92ce705cc9bc796798e459e85ccc4bc32c2e44622691c5068b2a",
+    "decision_policy_digest": "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
+    "code_commit": "44d4820dd91a86ca8826c1448972e0dae8c97ad2",
+    "revision_policy": [
+      "original_run_is_immutable",
+      "revised_history_requires_new_dataset_digest_and_run",
+      "old_artifacts_remain_replayable",
+      "formal_results_never_silently_update"
+    ]
+  },
+  "negative_controls": [
+    {
+      "control_id": "NC1",
+      "task_key": "issue_label_permutation",
+      "random_unit": "moving_issue_blocks",
+      "preserve_issue_cluster": true,
+      "replicate_count": 1000,
+      "seed_policy": {
+        "seed_range": [
+          100000,
+          101000
+        ],
+        "aggregation": "distribution",
+        "selection_policy": "no_best_seed"
+      },
+      "statistic": "PE1_and_PE2",
+      "comparison": "real_statistic_percentile_among_controls",
+      "tail": "upper",
+      "multiplicity_family": "FEATURE_FAMILY_COMPARISON"
+    },
+    {
+      "control_id": "NC2",
+      "task_key": "number_label_permutation",
+      "random_unit": "global_bijection_of_1_to_33_per_replicate",
+      "preserve_issue_cluster": true,
+      "replicate_count": 1000,
+      "seed_policy": {
+        "seed_range": [
+          110000,
+          111000
+        ],
+        "aggregation": "distribution",
+        "selection_policy": "no_best_seed"
+      },
+      "statistic": "PE1_and_PE2",
+      "comparison": "real_statistic_percentile_among_controls",
+      "tail": "upper",
+      "multiplicity_family": "RED_NUMBER_FAMILY"
+    },
+    {
+      "control_id": "NC3",
+      "task_key": "circular_target_shift",
+      "shifts": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13,
+        21
+      ],
+      "random_unit": "issue_sequence",
+      "preserve_issue_cluster": true,
+      "replicate_count": 1000,
+      "seed_policy": {
+        "seed_range": [
+          120000,
+          121000
+        ],
+        "aggregation": "distribution",
+        "selection_policy": "no_best_seed"
+      },
+      "statistic": "PE1_and_PE2",
+      "comparison": "real_statistic_percentile_among_shift_control_distribution",
+      "tail": "upper",
+      "multiplicity_family": "SENSITIVITY_FAMILY"
+    },
+    {
+      "control_id": "NC4",
+      "task_key": "matched_random_features",
+      "random_unit": "feature_family_replicate",
+      "preserve_issue_cluster": true,
+      "replicate_count": 1000,
+      "seed_policy": {
+        "seed_range": [
+          130000,
+          131000
+        ],
+        "aggregation": "distribution",
+        "selection_policy": "no_best_seed"
+      },
+      "statistic": "PE1_and_PE2",
+      "comparison": "real_F5_statistic_percentile_among_matched_random_features",
+      "tail": "upper",
+      "multiplicity_family": "FEATURE_FAMILY_COMPARISON"
+    },
+    {
+      "control_id": "NC5",
+      "task_key": "matched_random_score",
+      "random_unit": "score_replicate",
+      "preserve_issue_cluster": true,
+      "replicate_count": 1000,
+      "seed_policy": {
+        "seed_range": [
+          140000,
+          141000
+        ],
+        "aggregation": "distribution",
+        "selection_policy": "no_best_seed"
+      },
+      "statistic": "ranking_and_proper_score_endpoints",
+      "comparison": "real_Full_score_percentile_among_quantile_matched_scores",
+      "tail": "upper",
+      "multiplicity_family": "FEATURE_FAMILY_COMPARISON"
+    },
+    {
+      "control_id": "NC6",
+      "task_key": "synthetic_uniform_null",
+      "random_unit": "synthetic_history_replicate",
+      "preserve_issue_cluster": true,
+      "replicate_count": 1000,
+      "seed_policy": {
+        "seed_range": [
+          150000,
+          151000
+        ],
+        "aggregation": "distribution",
+        "selection_policy": "no_best_seed"
+      },
+      "statistic": "full_measurement_pipeline_decision_statistics",
+      "comparison": "false_positive_rate_and_statistic_distribution",
+      "tail": "two_sided_for_bias_and_upper_for_gain",
+      "multiplicity_family": "PRIMARY_ENDPOINT_FAMILY"
+    }
+  ],
+  "synthetic_validation": {
+    "synthetic_null": {
+      "mechanism": "uniform_choose_6_without_replacement_from_33",
+      "history_length": 3481,
+      "replicate_count": 1000,
+      "seed_policy": {
+        "seed_range": [
+          200000,
+          201000
+        ],
+        "aggregation": "distribution",
+        "selection_policy": "no_best_seed"
+      }
+    },
+    "injected_signals": [
+      {
+        "strength": "WEAK",
+        "target_bits_per_issue": 0.001,
+        "replicate_count_per_mechanism": 1000
+      },
+      {
+        "strength": "MEDIUM_PRACTICAL",
+        "target_bits_per_issue": 0.01,
+        "replicate_count_per_mechanism": 1000
+      },
+      {
+        "strength": "STRONG",
+        "target_bits_per_issue": 0.05,
+        "replicate_count_per_mechanism": 1000
+      }
+    ],
+    "mechanisms": [
+      "single_number_conditional_shift",
+      "local_temporal_state",
+      "pair_conditional_signal",
+      "marginal_preserving_conditional_signal"
+    ],
+    "strength_calibration": "solve_generator_parameter_from_exact_or_high_precision_synthetic_truth_before_pipeline_execution",
+    "shared_analysis_path": true,
+    "real_result_dependency": "forbidden"
+  },
+  "bootstrap_permutation": {
+    "bootstrap_type": "moving_block_bootstrap",
+    "stationary_bootstrap_sensitivity": true,
+    "resampling_unit": "issue",
+    "primary_block_size": 5,
+    "sensitivity_block_sizes": [
+      3,
+      5,
+      8,
+      13
+    ],
+    "bootstrap_replicate_count": 2000,
+    "permutation_count": 2000,
+    "confidence_level": 0.95,
+    "interval_method": "bias_corrected_and_accelerated_when_valid_else_percentile_with_reason",
+    "bootstrap_seed_policy": {
+      "seed_range": [
+        300000,
+        302000
+      ],
+      "aggregation": "distribution",
+      "selection_policy": "no_best_seed"
+    },
+    "permutation_seed_policy": {
+      "seed_range": [
+        400000,
+        402000
+      ],
+      "aggregation": "distribution",
+      "selection_policy": "no_best_seed"
+    },
+    "block_selection_from_real_results": "forbidden"
+  },
+  "multiplicity": {
+    "families": {
+      "PRIMARY_ENDPOINT_FAMILY": {
+        "method": "Holm",
+        "alpha": 0.05
+      },
+      "FEATURE_FAMILY_COMPARISON": {
+        "method": "Holm",
+        "alpha": 0.05
+      },
+      "RED_NUMBER_FAMILY": {
+        "method": "Benjamini-Hochberg",
+        "q": 0.05
+      },
+      "PAIR_FAMILY": {
+        "method": "Benjamini-Hochberg",
+        "q": 0.05,
+        "role": "exploratory_only"
+      },
+      "STRUCTURAL_TARGET_FAMILY": {
+        "method": "Holm",
+        "alpha": 0.05
+      },
+      "SENSITIVITY_FAMILY": {
+        "method": "Holm",
+        "alpha": 0.05
+      }
+    },
+    "unadjusted_significance_claim": "forbidden"
+  },
+  "power_equivalence": {
+    "allowed_inference_states": [
+      "POSITIVE_SIGNAL",
+      "PRACTICAL_EQUIVALENCE_TO_NULL",
+      "INCONCLUSIVE_DUE_TO_POWER"
+    ],
+    "equivalence_interval_bits_per_issue": [
+      -0.01,
+      0.01
+    ],
+    "alpha": 0.05,
+    "target_power": 0.8,
+    "mde_output": [
+      "bits_per_issue",
+      "bits_per_red_number_event",
+      "required_issue_count_by_injected_strength"
+    ],
+    "injected_practical_signal_power_gate": 0.8,
+    "synthetic_null_false_positive_rate_max": 0.075,
+    "synthetic_null_false_positive_wilson_upper_max": 0.09,
+    "absolute_estimator_bias_max_bits_per_issue": 0.0025,
+    "zero_effect_interpretation_without_power": "forbidden"
+  },
+  "decision_policy": {
+    "version": "m4-information-theory-decision-policy-v1",
+    "digest": "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
+    "path": "configs/research-os/m4-information-theory-decision-policy-v1.json",
+    "allowed_states": [
+      "SUPPORTED_WEAK_SIGNAL",
+      "PRACTICALLY_UNPREDICTABLE",
+      "INCONCLUSIVE_DUE_TO_POWER",
+      "REPAIR_MEASUREMENT_SYSTEM"
+    ],
+    "automatic": true,
+    "manual_override": "forbidden"
+  },
+  "time_stability": {
+    "primary_requirement": {
+      "partition": "chronological_halves",
+      "segments": [
+        {
+          "start_issue": "2009076",
+          "end_issue": "2017139",
+          "issue_count": 1291
+        },
+        {
+          "start_issue": "2017140",
+          "end_issue": "2026084",
+          "issue_count": 1290
+        }
+      ],
+      "required_direction": "both_positive_for_supported_signal"
+    },
+    "sensitivity": {
+      "partition": "chronological_thirds",
+      "segments": [
+        {
+          "start_issue": "2009076",
+          "end_issue": "2015016",
+          "issue_count": 861
+        },
+        {
+          "start_issue": "2015017",
+          "end_issue": "2020111",
+          "issue_count": 860
+        },
+        {
+          "start_issue": "2020112",
+          "end_issue": "2026084",
+          "issue_count": 860
+        }
+      ]
+    },
+    "minimum_subinterval_issues": 120,
+    "forward_only_cohort": "reported_separately"
+  },
+  "forward_evidence": {
+    "checkpoint_required_fields": [
+      "issue",
+      "training_end_issue",
+      "history_digest",
+      "feature_manifest_digest",
+      "model_manifest_digest",
+      "preregistration_digest",
+      "decision_policy_digest",
+      "baseline_probabilities",
+      "probe_probabilities",
+      "created_at",
+      "git_commit"
+    ],
+    "settlement_required_fields": [
+      "issue",
+      "actual_draw",
+      "checkpoint_digest",
+      "per_issue_log_loss",
+      "per_issue_brier",
+      "per_issue_bits_gain",
+      "cumulative_metrics",
+      "confidence_interval_snapshot",
+      "power_snapshot",
+      "decision_state",
+      "production_action"
+    ],
+    "eligibility_rule": "first issue strictly after P2 PASSED with complete immutable checkpoint created before draw availability",
+    "earliest_issue": null,
+    "retroactively_ineligible_issues": [
+      "2026085"
+    ],
+    "event_2026085_status": "external_wait",
+    "production_action": "none"
+  },
+  "artifact_contract": {
+    "required_fields": [
+      "schema_version",
+      "artifact_type",
+      "artifact_digest",
+      "parent_digests",
+      "created_at",
+      "git_commit",
+      "working_tree_clean",
+      "dataset_digest",
+      "preregistration_digest",
+      "config_digest",
+      "seed_policy"
+    ],
+    "deterministic_seed_policy": "none",
+    "random_artifact_rules": [
+      "use_existing_SeedPolicy",
+      "digest_contains_normalized_replicate_seed_set",
+      "replicate_records_actual_seed",
+      "aggregate_records_all_child_digests",
+      "implicit_system_randomness_forbidden"
+    ]
+  },
+  "seed_policy": {
+    "implementation": "dehps.training.research_fingerprint.SeedPolicy",
+    "deterministic": "none",
+    "aggregation": "distribution",
+    "selection_policy": "no_best_seed",
+    "seed_set_encoding": "explicit_seeds_or_inclusive_start_exclusive_stop_range",
+    "implicit_system_randomness": "forbidden"
+  },
+  "resampling_semantics": {
+    "moving_block": {
+      "topology": "non_circular",
+      "block_size_primary": 5,
+      "block_sizes_sensitivity": [
+        3,
+        5,
+        8,
+        13
+      ],
+      "start_positions": "all_integers_from_0_through_N_minus_L_inclusive",
+      "source_block": "issues[start:start+L]",
+      "sampling": "with_replacement",
+      "concatenation": "preserve_within_block_order",
+      "output_length": "original_issue_count_N",
+      "overflow_policy": "truncate_right",
+      "incomplete_source_tail_policy": "no_short_source_block",
+      "incomplete_source_tail_included_via_valid_shorter_final_start": false,
+      "source_tail_may_appear_inside_a_full_valid_block": true,
+      "cluster_unit": "issue",
+      "failure_when": "N<L",
+      "failure_code": "insufficient_issues_for_block_size"
+    },
+    "stationary_bootstrap": {
+      "method": "Politis-Romano",
+      "expected_block_length_primary": 5,
+      "restart_probability_primary": 0.2,
+      "topology": "circular",
+      "initial_index": "uniform_over_0_through_N_minus_1",
+      "continue_probability": "1_minus_restart_probability",
+      "continue_index": "(current_index+1)_mod_N",
+      "restart_index": "uniform_over_0_through_N_minus_1",
+      "output_length": "original_issue_count_N",
+      "expected_block_lengths_sensitivity": [
+        3,
+        5,
+        8,
+        13
+      ],
+      "restart_probability_by_expected_length": "1_divided_by_expected_block_length",
+      "role": "sensitivity_only",
+      "eligible_as_primary": false
+    },
+    "block_permutation": {
+      "topology": "non_circular",
+      "block_size": 5,
+      "full_blocks": "floor(N/L)",
+      "tail_block_policy": "include_as_final_distinct_block",
+      "permutation_unit": "complete_blocks_plus_optional_tail_block",
+      "within_block_order": "preserved",
+      "tail_merge": "forbidden",
+      "tail_split": "forbidden",
+      "mapping_artifact_records_tail_length": true,
+      "identity_block_permutation": "forbidden"
+    },
+    "circular_shift": {
+      "formula": "shifted_target[t]=original_target[(t+k) mod N]",
+      "direction": "target_forward_relative_to_prediction",
+      "topology": "circular",
+      "wrap": "modulo_N",
+      "minimum_shift": 1,
+      "maximum_shift": "N-1",
+      "shift_zero": "forbidden",
+      "effective_issue_count": "N",
+      "frozen_shifts": [
+        1,
+        2,
+        3,
+        5,
+        8,
+        13,
+        21
+      ],
+      "circular_shift_randomized": false,
+      "all_frozen_shifts_executed": true,
+      "seed_policy": "none",
+      "index_example": {
+        "original_target": [
+          "A",
+          "B",
+          "C",
+          "D"
+        ],
+        "shift": 1,
+        "shifted_target": [
+          "B",
+          "C",
+          "D",
+          "A"
+        ]
+      }
+    }
+  },
+  "inference_semantics": {
+    "primary_tail": "upper",
+    "upper_tail_p_plus_one": "(1+count(T_null>=T_observed))/(R+1)",
+    "lower_tail_p_plus_one": "(1+count(T_null<=T_observed))/(R+1)",
+    "two_sided_p_plus_one": "min(1,2*min(p_upper,p_lower))",
+    "plus_one_correction": true,
+    "tie_handling": {
+      "p_value": "inclusive",
+      "upper_tail_comparison": ">=",
+      "lower_tail_comparison": "<="
+    },
+    "rank_mid": "count(null<observed)+0.5*count(null==observed)",
+    "empirical_cdf": "count(null<=observed)/R",
+    "percentile_method": "midrank",
+    "percentile_midrank": "(count(null<observed)+0.5*count(null==observed))/R",
+    "quantile_method": "Hyndman-Fan_type_7",
+    "required_report_fields": [
+      "empirical_cdf_inclusive",
+      "percentile_midrank",
+      "upper_tail_p_plus_one",
+      "lower_tail_p_plus_one"
+    ],
+    "formal_seed_set_complete_required": true,
+    "incomplete_replicates": "fail_closed",
+    "failed_or_missing_replicates_excluded_from_count_only_after_completeness_gate": true,
+    "smoke_aggregate_formal_p_value": "forbidden",
+    "p_zero": "forbidden"
+  },
+  "seed_domains": {
+    "identity_fields": [
+      "seed_domain",
+      "replicate_index",
+      "scenario_id",
+      "method_id",
+      "parent_run_digest"
+    ],
+    "calibration": {
+      "seed_domain": "M4_P2_CALIBRATION"
+    },
+    "evaluation_dataset": {
+      "seed_domain": "M4_P2_EVALUATION_DATASET",
+      "purpose": "generate_independent_synthetic_evaluation_sequences_from_frozen_truth_artifacts",
+      "must_not_overlap": "calibration_dataset_identity",
+      "truth_parameters": "read_only_from_P2.4_truth_artifact",
+      "recalibration": "forbidden",
+      "required_artifact_fields": [
+        "truth_artifact_digest",
+        "evaluation_seed",
+        "scenario_id",
+        "issue_count"
+      ]
+    },
+    "bootstrap": {
+      "seed_domain": "M4_P2_BOOTSTRAP"
+    },
+    "stationary_bootstrap": {
+      "seed_domain": "M4_P2_STATIONARY_BOOTSTRAP"
+    },
+    "issue_permutation": {
+      "seed_domain": "M4_P2_ISSUE_PERMUTATION"
+    },
+    "number_permutation": {
+      "seed_domain": "M4_P2_NUMBER_PERMUTATION"
+    },
+    "circular_shift": {
+      "seed_domain": "M4_P2_CIRCULAR_SHIFT",
+      "randomized": false,
+      "seed_policy": "none"
+    },
+    "random_feature": {
+      "seed_domain": "M4_P2_RANDOM_FEATURE",
+      "randomization_unit": "scenario_x_replicate_x_outer_fold",
+      "target_access": "forbidden",
+      "retrain_required": true,
+      "seed_scope": "feature_generation_only",
+      "multiple_columns": "replicate_rng_in_canonical_feature_order_or_column_identity_child_seed"
+    },
+    "random_score": {
+      "seed_domain": "M4_P2_RANDOM_SCORE",
+      "randomization_unit": "scenario_x_replicate_x_issue",
+      "target_access": "forbidden",
+      "retrain_required": "false_unless_score_enters_model_fitting",
+      "matching_source": "probe_score_distribution_only",
+      "forbidden_inputs": [
+        "actual_target",
+        "PE1",
+        "Brier",
+        "hit_rank",
+        "settlement_result"
+      ]
+    },
+    "power_replicate": {
+      "seed_domain": "M4_P2_POWER_REPLICATE",
+      "purpose": "orchestrate_complete_independent_replicate_identity",
+      "direct_reuse_by_components": "forbidden",
+      "child_streams": [
+        "evaluation_dataset",
+        "model_randomness_if_required",
+        "bootstrap",
+        "stationary_bootstrap",
+        "issue_permutation",
+        "number_permutation",
+        "random_feature",
+        "random_score"
+      ]
+    },
+    "shard_assignment": {
+      "seed_domain": "M4_P2_SHARD_ASSIGNMENT"
+    }
+  },
+  "seed_domain_separation": {
+    "root_identity": "root_seed_set_digest",
+    "derivation_policy": "derive(root_seed_set_digest,seed_domain,scenario_id,method_id,replicate_index,parent_run_digest)",
+    "domain_identity_defines_rng_stream": true,
+    "raw_integer_equality_does_not_merge_streams": true,
+    "domain_enters_artifact_digest": true,
+    "wall_clock_seed": "forbidden",
+    "retry_reuses_child_seed": true,
+    "resume_reuses_child_seed": true,
+    "shard_change_preserves_child_seed": true,
+    "required_disjoint_pairs": [
+      [
+        "M4_P2_CALIBRATION",
+        "M4_P2_EVALUATION_DATASET"
+      ],
+      [
+        "M4_P2_CALIBRATION",
+        "M4_P2_BOOTSTRAP"
+      ],
+      [
+        "M4_P2_CALIBRATION",
+        "M4_P2_ISSUE_PERMUTATION"
+      ],
+      [
+        "M4_P2_CALIBRATION",
+        "M4_P2_NUMBER_PERMUTATION"
+      ],
+      [
+        "M4_P2_CALIBRATION",
+        "M4_P2_POWER_REPLICATE"
+      ],
+      [
+        "M4_P2_EVALUATION_DATASET",
+        "M4_P2_POWER_REPLICATE"
+      ],
+      [
+        "M4_P2_RANDOM_FEATURE",
+        "M4_P2_RANDOM_SCORE"
+      ],
+      [
+        "M4_P2_BOOTSTRAP",
+        "M4_P2_ISSUE_PERMUTATION"
+      ],
+      [
+        "M4_P2_BOOTSTRAP",
+        "M4_P2_NUMBER_PERMUTATION"
+      ]
+    ]
+  },
+  "phase_gates": {
+    "p2_requires": [
+      "preregistration_status_FROZEN",
+      "preregistration_digest_present",
+      "decision_policy_digest_present",
+      "p2_input_contract_VALID"
+    ],
+    "p3_requires": [
+      "p2_measurement_system_PASSED",
+      "synthetic_null_false_positive_rate_within_tolerance",
+      "injected_practical_signal_power_at_least_0_80",
+      "estimator_bias_within_tolerance",
+      "replay_deterministic",
+      "leakage_checks_passed"
+    ],
+    "formal_real_data_analysis": "NOT_STARTED",
+    "synthetic_validation": "NOT_STARTED"
+  },
+  "guardrails": {
+    "promotion_gate": "CLOSED",
+    "adaptive_supervisor": "STOPPED",
+    "old_training_mainline": "REJECTED_FROZEN",
+    "production_action": "none",
+    "topk_primary_endpoint": false,
+    "result_driven_contract_change": "forbidden"
+  }
+}
