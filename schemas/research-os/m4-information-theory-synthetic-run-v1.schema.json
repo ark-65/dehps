@@ -7,6 +7,7 @@
     "artifact_digest",
     "phase",
     "status",
+    "contract_version",
     "preregistration_digest",
     "decision_policy_digest",
     "data_source",
@@ -24,6 +25,9 @@
     "artifact_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "phase": {"const": "M4-P2.1"},
     "status": {"const": "PLANNED"},
+    "contract_version": {"enum": ["1.0.0", "1.0.1"]},
+    "supersedes_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "injected_signal_calibration_contract": {"type": "object"},
     "data_source": {"const": "synthetic_only"},
     "real_dataset_reference": {"type": "null"},
     "null_replicate_count": {"const": 1000},
@@ -37,5 +41,16 @@
       }
     }
   },
-  "additionalProperties": true
+  "additionalProperties": true,
+  "allOf": [
+    {
+      "if": {"properties": {"contract_version": {"const": "1.0.1"}}},
+      "then": {
+        "required": [
+          "supersedes_digest",
+          "injected_signal_calibration_contract"
+        ]
+      }
+    }
+  ]
 }

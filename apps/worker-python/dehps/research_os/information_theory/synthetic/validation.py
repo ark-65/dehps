@@ -18,6 +18,12 @@ from .contracts import (
 FROZEN_PREREGISTRATION_DIGEST = (
     "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1"
 )
+CALIBRATION_PREREGISTRATION_DIGEST = (
+    "4fff51c58e4a46d664e414bfe4cc0d7269c8e3712734153faec548648144d0d9"
+)
+FROZEN_SYNTHETIC_MANIFEST_DIGEST = (
+    "8493987cc4414414e33fb5c5ea148be1f42a1d9e57609600c4346fb642cbfa08"
+)
 FROZEN_DECISION_POLICY_DIGEST = (
     "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d"
 )
@@ -37,7 +43,13 @@ def validate_synthetic_run_manifest(payload: Mapping[str, Any]) -> SyntheticRunM
         raise ValueError("phase_gate_not_satisfied: only planned P2.1 contract work is legal")
     if payload.get("data_source") != "synthetic_only" or payload.get("real_dataset_reference") is not None:
         raise ValueError("synthetic run manifest cannot reference real data")
-    if payload.get("preregistration_digest") != FROZEN_PREREGISTRATION_DIGEST:
+    contract_version = str(payload.get("contract_version"))
+    expected_preregistration = (
+        CALIBRATION_PREREGISTRATION_DIGEST
+        if contract_version == "1.0.1"
+        else FROZEN_PREREGISTRATION_DIGEST
+    )
+    if payload.get("preregistration_digest") != expected_preregistration:
         raise ValueError("preregistration digest mismatch")
     if payload.get("decision_policy_digest") != FROZEN_DECISION_POLICY_DIGEST:
         raise ValueError("decision policy digest mismatch")
@@ -45,6 +57,44 @@ def validate_synthetic_run_manifest(payload: Mapping[str, Any]) -> SyntheticRunM
     expected_digest = config_digest(payload)
     if supplied_digest != expected_digest:
         raise ValueError("synthetic run manifest digest mismatch")
+    if contract_version not in {"1.0.0", "1.0.1"}:
+        raise ValueError("unsupported synthetic contract version")
+    if contract_version == "1.0.1":
+        if payload.get("supersedes_digest") != FROZEN_SYNTHETIC_MANIFEST_DIGEST:
+            raise ValueError("synthetic supersedes digest mismatch")
+        calibration = payload.get("injected_signal_calibration_contract")
+        if not isinstance(calibration, Mapping):
+            raise ValueError("missing injected signal calibration contract")
+        expected_calibration = {
+            "contract_id": "m4-p2-injected-signal-calibration-v1",
+            "preregistration_version": "1.0.3",
+            "requested_strength_binding": (
+                "joint_draw_information_bits_per_issue"
+            ),
+            "calibration_seed_domain": "M4_P2_CALIBRATION",
+            "calibration_dataset_flags": [
+                "CALIBRATION_ONLY",
+                "NOT_EVALUATION_DATA",
+                "NOT_POWER_DATA",
+                "NOT_FALSE_POSITIVE_DATA",
+                "NOT_P2_GATE_EVIDENCE",
+            ],
+            "formal_calibration_executed": False,
+        }
+        for key, value in expected_calibration.items():
+            if calibration.get(key) != value:
+                raise ValueError("injected signal calibration contract changed")
+        if calibration.get("calibration_tolerance") != {
+            "absolute_bits_tolerance": 1e-10,
+            "relative_tolerance": 1e-6,
+        }:
+            raise ValueError("calibration tolerance changed")
+        if calibration.get("monte_carlo_uncertainty_tolerance") != {
+            "maximum_standard_error_bits_per_issue": 0.00025,
+            "agreement_standard_errors": 4,
+            "maximum_samples": 8388608,
+        }:
+            raise ValueError("Monte Carlo uncertainty tolerance changed")
 
     raw_policy = payload.get("seed_policy")
     if not isinstance(raw_policy, Mapping):

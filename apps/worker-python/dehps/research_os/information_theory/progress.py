@@ -17,9 +17,14 @@ from dehps.research_os.models import (
 M4_GOAL_KEY = "M4_INFORMATION_THEORY_EVIDENCE"
 LEGACY_GOAL_KEY = "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION"
 M4_FORWARD_EVENT_KEY = "draw:2026085"
-M4_CONTRACT_REPAIR_TASK_KEY = "m4-p1-repair-resampling-preregistration-contract"
-M4_PREREGISTRATION_V1_0_2_DIGEST = (
-    "a8da6bf2404d3bf213ac74d331917d5308195b7c3174b002378e1bbd849f6dfa"
+M4_CONTRACT_REPAIR_TASK_KEY = (
+    "m4-p1-repair-injected-signal-preregistration-contract"
+)
+M4_PREREGISTRATION_V1_0_3_DIGEST = (
+    "4fff51c58e4a46d664e414bfe4cc0d7269c8e3712734153faec548648144d0d9"
+)
+M4_SYNTHETIC_MANIFEST_V1_0_1_DIGEST = (
+    "f84c2da3565f7eda41c3782517c78211805f57ea8f3bfd00659a93c380826a3c"
 )
 M4_MANIFEST_RELATIVE_PATH = Path(
     "configs/research-os/m4-information-theory-evidence-v1.json"
@@ -78,7 +83,13 @@ def manifest_with_contract_repair_pending(
     payload["facts"]["artifacts"] = [
         fact
         for fact in payload["facts"]["artifacts"]
-        if fact != f"m4-preregistration:{M4_PREREGISTRATION_V1_0_2_DIGEST}"
+        if fact not in {
+            f"m4-preregistration:{M4_PREREGISTRATION_V1_0_3_DIGEST}",
+            (
+                "m4-p2-1-synthetic-run-manifest:"
+                f"{M4_SYNTHETIC_MANIFEST_V1_0_1_DIGEST}"
+            ),
+        }
     ]
     return ControlPlaneManifest.from_dict(payload)
 
@@ -170,7 +181,7 @@ def build_m4_status(
         active_preregistration.update(
             {
                 "preregistration_status": "FROZEN",
-                "preregistration_version": "1.0.2",
+                "preregistration_version": "1.0.3",
                 "preregistration_digest": repair_metric[
                     "new_preregistration_digest"
                 ],
@@ -229,7 +240,7 @@ def build_m4_status(
         )
     if repair_complete:
         completed.append(
-            "resampling, inference, and seed-domain preregistration contract repaired"
+            "injected-signal calibration truth and tolerance contract repaired"
         )
 
     return {
@@ -256,7 +267,7 @@ def build_m4_status(
             "decision_policy_digest": m4_baseline.get("decision_policy_digest"),
             "p2_input_contract_digest": m4_baseline.get("p2_input_contract_digest"),
             "p2_synthetic_run_manifest_digest": (
-                "8493987cc4414414e33fb5c5ea148be1f42a1d9e57609600c4346fb642cbfa08"
+                M4_SYNTHETIC_MANIFEST_V1_0_1_DIGEST
                 if p2_1_complete
                 else None
             ),

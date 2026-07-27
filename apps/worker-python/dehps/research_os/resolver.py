@@ -93,7 +93,10 @@ class TaskDependencyResolver:
             elif any(
                 item.dependency_type is DependencyType.TASK
                 and item.target_key
-                == "m4-p1-repair-resampling-preregistration-contract"
+                in {
+                    "m4-p1-repair-resampling-preregistration-contract",
+                    "m4-p1-repair-injected-signal-preregistration-contract",
+                }
                 for item in unsatisfied
             ):
                 status = TaskStatus.BLOCKED_BY_CONTRACT

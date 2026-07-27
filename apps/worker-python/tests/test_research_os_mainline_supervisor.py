@@ -40,7 +40,10 @@ def manifest_payload() -> dict:
     value["tasks"] = [
         task
         for task in value["tasks"]
-        if task["task_key"] != "m4-p1-repair-resampling-preregistration-contract"
+        if task["task_key"] not in {
+            "m4-p1-repair-resampling-preregistration-contract",
+            "m4-p1-repair-injected-signal-preregistration-contract",
+        }
     ]
     p23 = next(
         task
@@ -68,6 +71,10 @@ def manifest_payload() -> dict:
         if not fact.startswith("mainline-execution:m4-p2-walk-forward-probe-harness:")
         and fact
         != "m4-preregistration:a8da6bf2404d3bf213ac74d331917d5308195b7c3174b002378e1bbd849f6dfa"
+        and fact
+        != "m4-preregistration:4fff51c58e4a46d664e414bfe4cc0d7269c8e3712734153faec548648144d0d9"
+        and fact
+        != "m4-p2-1-synthetic-run-manifest:f84c2da3565f7eda41c3782517c78211805f57ea8f3bfd00659a93c380826a3c"
     ]
     return value
 
