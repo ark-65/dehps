@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dehps-m4-p2-resampling-kernel-manifest.v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "artifact_digest",
+    "phase",
+    "status",
+    "preregistration_digest",
+    "decision_policy_digest",
+    "synthetic_manifest_digest",
+    "metric_kernel_digest",
+    "walk_forward_harness_digest",
+    "injected_signal_completion_digest",
+    "truth_artifact_digests",
+    "statistical_unit",
+    "methods",
+    "circular_shift",
+    "negative_controls",
+    "statistic_contract",
+    "inference_contract",
+    "seed_policy",
+    "sharding",
+    "performance_contract",
+    "smoke",
+    "future_formal_replicates"
+  ],
+  "properties": {
+    "schema_version": {"const": "dehps-m4-p2-resampling-kernel-manifest.v1"},
+    "artifact_type": {"const": "resampling_kernel_manifest"},
+    "artifact_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "phase": {"const": "M4-P2.5"},
+    "status": {"const": "FROZEN"},
+    "statistical_unit": {"const": "issue"},
+    "truth_artifact_digests": {
+      "type": "array",
+      "minItems": 12,
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    },
+    "negative_controls": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "required": [
+          "control_id",
+          "destroyed_relationship",
+          "preserved_properties",
+          "randomization_unit",
+          "execution_mode",
+          "seed_domain",
+          "multiplicity_family",
+          "applicable_artifact_types",
+          "required_upstream_digests",
+          "statistic_contract"
+        ]
+      }
+    },
+    "production_action": {"const": "none"}
+  },
+  "additionalProperties": true
+}

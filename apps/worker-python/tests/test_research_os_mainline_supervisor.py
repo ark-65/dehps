@@ -14,6 +14,14 @@ from dehps.research_os.information_theory.synthetic import (
     generate_null_dataset,
     load_synthetic_run_manifest,
 )
+from dehps.research_os.information_theory.calibration import (
+    load_calibration_manifest,
+    run_p24_calibration,
+)
+from dehps.research_os.information_theory.resampling.contracts import (
+    P24_COMPLETION_DIGEST,
+    P24_EXECUTION_ID,
+)
 from dehps.research_os.mainline import mainline_completion_fact
 from dehps.research_os.models import (
     ControlPlaneManifest,
@@ -24,6 +32,7 @@ from dehps.research_os.repository import PostgresResearchOSRepository
 from dehps.research_os.supervisor import (
     P23_TASK_KEY,
     P24_TASK_KEY,
+    P25_TASK_KEY,
     ResearchEvidenceSupervisor,
 )
 
@@ -58,6 +67,8 @@ def manifest_payload() -> dict:
         for task in value["tasks"]
         if task["task_key"] == "m4-p2-injected-signal-calibration"
     )
+    p24["status"] = "draft"
+    p24["completion_classification"] = "INTEGRATION_PENDING"
     p24["dependencies"] = [p24["dependencies"][0]]
     p24["input_artifact_digests"] = []
     p24["metric_contract"]["mainline_integration"]["ready_condition"] = (
@@ -70,6 +81,9 @@ def manifest_payload() -> dict:
         fact
         for fact in value["facts"]["artifacts"]
         if not fact.startswith("mainline-execution:m4-p2-walk-forward-probe-harness:")
+        and not fact.startswith(
+            "mainline-execution:m4-p2-injected-signal-calibration:"
+        )
         and fact
         != "m4-preregistration:a8da6bf2404d3bf213ac74d331917d5308195b7c3174b002378e1bbd849f6dfa"
         and fact
@@ -81,6 +95,27 @@ def manifest_payload() -> dict:
 
 
 def source_manifest_payload() -> dict:
+    value = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    assert isinstance(value, dict)
+    value.pop("manifest_digest", None)
+    p24 = next(
+        task
+        for task in value["tasks"]
+        if task["task_key"] == P24_TASK_KEY
+    )
+    p24["status"] = "draft"
+    p24["completion_classification"] = "INTEGRATION_PENDING"
+    value["facts"]["artifacts"] = [
+        fact
+        for fact in value["facts"]["artifacts"]
+        if not fact.startswith(
+            "mainline-execution:m4-p2-injected-signal-calibration:"
+        )
+    ]
+    return value
+
+
+def p25_source_manifest_payload() -> dict:
     value = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     assert isinstance(value, dict)
     value.pop("manifest_digest", None)
@@ -198,6 +233,10 @@ def prepare_root(tmp_path: Path) -> Path:
             "configs/research-os/"
             "m4-information-theory-p2-4-calibration-run-manifest-v1.json"
         ),
+        (
+            "configs/research-os/"
+            "m4-information-theory-p2-5-resampling-kernel-v1.json"
+        ),
     ):
         destination = tmp_path / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -223,6 +262,49 @@ def prepare_root(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return tmp_path
+
+
+def prepare_formal_p24_artifacts(root: Path) -> None:
+    task_dir = (
+        root
+        / "runtime/research-os/mainline/tasks"
+        / P24_TASK_KEY
+        / P24_EXECUTION_ID
+    )
+    run = run_p24_calibration(
+        manifest=load_calibration_manifest(
+            root
+            / "configs/research-os/"
+            "m4-information-theory-p2-4-calibration-run-manifest-v1.json"
+        ),
+        harness_path=(
+            root
+            / "configs/research-os/"
+            "m4-information-theory-walk-forward-harness-v1.json"
+        ),
+        output_dir=task_dir / "artifacts",
+        execution_id=P24_EXECUTION_ID,
+        git_commit="675ebbe5ded2f68f9cd73a5086024b359c94e835",
+    )
+    assert run.completion_artifact["artifact_digest"] == P24_COMPLETION_DIGEST
+    task_dir.mkdir(parents=True, exist_ok=True)
+    (task_dir / "execution.json").write_text(
+        json.dumps(
+            {
+                "execution_id": P24_EXECUTION_ID,
+                "status": "COMPLETE",
+                "completion_artifact_digest": P24_COMPLETION_DIGEST,
+                    "truth_artifact_digests": [
+                        item["artifact_digest"] for item in run.truth_artifacts
+                    ],
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 def test_p2_3_is_integration_pending_and_ready_before_mainline_execution() -> None:
@@ -420,7 +502,6 @@ def test_supervisor_executes_p2_4_unlocks_p2_5_and_replays(
     replay = supervisor.replay(task_key=P24_TASK_KEY)
     event_count = len(repository.events)
     artifact_count = len(repository.artifacts)
-    waiting = supervisor.run_once()
 
     assert result["status"] == "COMPLETE"
     assert result["completion_classification"] == "VALIDATED_IN_MAINLINE"
@@ -448,8 +529,45 @@ def test_supervisor_executes_p2_4_unlocks_p2_5_and_replays(
         == result["execution_artifact_digest"]
     )
     assert replay["registered_artifact_count"] == result["registered_artifact_count"]
-    assert waiting["status"] == "WAITING_FOR_CAPABILITY"
-    assert waiting["ready_tasks"] == ["m4-p2-resampling"]
-    assert waiting["unsupported_ready_tasks"] == ["m4-p2-resampling"]
     assert len(repository.events) == event_count
     assert len(repository.artifacts) == artifact_count
+
+
+def test_supervisor_executes_p2_5_unlocks_p2_6_and_replays(
+    tmp_path: Path,
+) -> None:
+    repository = MemoryMainlineRepository(p25_source_manifest_payload())
+    root = prepare_root(tmp_path)
+    prepare_formal_p24_artifacts(root)
+    supervisor = ResearchEvidenceSupervisor(
+        repository=repository,  # type: ignore[arg-type]
+        control_plane_key="test-mainline",
+        root_dir=root,
+        now=lambda: datetime(2026, 7, 27, 9, 0, tzinfo=timezone.utc),
+        git_commit=TEST_COMMIT,
+        require_clean_tree=False,
+    )
+
+    result = supervisor.run_once()
+    snapshot = repository.control_plane.resolve(repository.manifest)
+    states = {item.task_key: item.status for item in snapshot.resolutions}
+    replay = supervisor.replay(task_key=P25_TASK_KEY)
+
+    assert result["status"] == "COMPLETE"
+    assert result["completion_classification"] == "VALIDATED_IN_MAINLINE"
+    assert result["actual_fold_count"] == 0
+    assert result["replicate_count"] == 22
+    assert result["aggregate_count"] == 9
+    assert result["engineering_progress_percent"] == 37
+    assert result["evidence_progress_percent"] == 0
+    assert result["next_ready_task"] == "m4-p2-false-positive-and-power-runs"
+    assert result["eligible_for_formal_inference"] is False
+    assert states[P25_TASK_KEY] is TaskStatus.COMPLETED
+    assert states["m4-p2-false-positive-and-power-runs"] is TaskStatus.READY
+    assert replay["status"] == "REPLAY_VERIFIED"
+    assert replay["manual_input_assembly"] is False
+    assert replay["registered_artifact_count"] == result["registered_artifact_count"]
+    assert [item["event_type"] for item in repository.events] == [
+        "started",
+        "completed",
+    ]
