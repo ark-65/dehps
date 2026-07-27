@@ -1,0 +1,238 @@
+{
+  "schema_version": "dehps-m4-p2-measurement-validation-manifest.v1",
+  "artifact_type": "measurement_validation_manifest",
+  "artifact_digest": "953ae76e2e28523b7d067c2b73dac8bec63ff2417db283fd516fe900e52402f8",
+  "phase": "M4-P2.6-P2.7",
+  "status": "FROZEN",
+  "created_at": "2026-07-27T14:30:00+08:00",
+  "result_blind_freeze": {
+    "formal_p2_6_dataset_created_before_freeze": false,
+    "formal_false_positive_result_used": false,
+    "formal_power_result_used": false,
+    "formal_bias_rmse_or_coverage_result_used": false,
+    "mde_result_used": false,
+    "real_history_used": false,
+    "evidence_created": false
+  },
+  "upstream_identities": {
+    "preregistration_digest": "4fff51c58e4a46d664e414bfe4cc0d7269c8e3712734153faec548648144d0d9",
+    "decision_policy_digest": "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
+    "synthetic_manifest_digest": "f84c2da3565f7eda41c3782517c78211805f57ea8f3bfd00659a93c380826a3c",
+    "metric_kernel_digest": "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
+    "walk_forward_harness_digest": "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca",
+    "injected_signal_completion_digest": "328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353",
+    "resampling_kernel_digest": "1cde473524d7d6dcafba64ab7b0a1d2862b56149d5f6f198c73d88b406c3071b"
+  },
+  "workload": {
+    "source": "m4-information-theory-p2-synthetic-run-manifest-v1.0.1",
+    "schedule": [
+      {
+        "scale_id": "HISTORICAL",
+        "outer_issue_count": 2581,
+        "scenario_ids": "ALL_13_FROZEN_SCENARIOS",
+        "scenario_count": 13,
+        "replicates_per_scenario": 1000
+      },
+      {
+        "scale_id": "FORWARD_61",
+        "outer_issue_count": 61,
+        "scenario_ids": "ALL_13_FROZEN_SCENARIOS",
+        "scenario_count": 13,
+        "replicates_per_scenario": 1000
+      },
+      {
+        "scale_id": "LONG",
+        "outer_issue_count": 6062,
+        "scenario_ids": [
+          "NULL_UNIFORM",
+          "MEDIUM_PRACTICAL_SINGLE_NUMBER",
+          "MEDIUM_PRACTICAL_LOCAL_TEMPORAL",
+          "MEDIUM_PRACTICAL_PAIR",
+          "MEDIUM_PRACTICAL_MARGINAL_PRESERVING"
+        ],
+        "scenario_count": 5,
+        "replicates_per_scenario": 1000
+      }
+    ],
+    "scenario_replicates": 31000,
+    "outer_issue_predictions": 64656000,
+    "probe_allowlist": [
+      "EMPIRICAL_BASELINE",
+      "REGULARIZED_LOGISTIC_REGRESSION",
+      "NAIVE_BAYES",
+      "SHALLOW_CALIBRATED_TREE"
+    ],
+    "gate_probe": "REGULARIZED_LOGISTIC_REGRESSION",
+    "nonprimary_probe_role": "required_sensitivity_output",
+    "missing_failed_or_duplicate_replicate": "fail_closed",
+    "partial_scale_or_scenario_aggregation": "forbidden"
+  },
+  "formal_resampling": {
+    "bootstrap_replicates": 2000,
+    "permutation_replicates": 2000,
+    "negative_control_replicates": 1000,
+    "statistical_unit": "issue",
+    "primary_block_size": 5,
+    "sensitivity_block_sizes": [
+      3,
+      5,
+      8,
+      13
+    ],
+    "kernel_single_source": true
+  },
+  "seed_policy": {
+    "root_seed_set_digest": "b7fe8fab4e6fbb6387823d8354e6a9ac6da15b03f26ba0dc2ce7756f296e73b7",
+    "replicate_orchestration_domain": "M4_P2_POWER_REPLICATE",
+    "evaluation_dataset_domain": "M4_P2_EVALUATION_DATASET",
+    "bootstrap_domain": "M4_P2_BOOTSTRAP",
+    "stationary_bootstrap_domain": "M4_P2_STATIONARY_BOOTSTRAP",
+    "permutation_domain": "M4_P2_ISSUE_PERMUTATION",
+    "calibration_domain_reuse": "forbidden",
+    "wall_clock_seed": "forbidden",
+    "retry_reuses_child_seed": true,
+    "resume_reuses_child_seed": true,
+    "shard_change_preserves_child_seed": true,
+    "selection_policy": "no_best_seed"
+  },
+  "estimator_contract": {
+    "PE1": {
+      "definition": "arithmetic_mean_of_P2.2_per_issue_theoretical_baseline_minus_probe_log_loss_gain",
+      "unit": "bits_per_issue"
+    },
+    "permutation_null_center": {
+      "definition": "arithmetic_mean_of_all_2000_complete_P2.5_block_permutation_PE1_statistics_for_the_same_prediction_target_replicate",
+      "unit": "bits_per_issue"
+    },
+    "PE2": {
+      "definition": "PE1_minus_permutation_null_center",
+      "unit": "bits_per_issue"
+    },
+    "truth_target": "P2.4_joint_draw_information_bits_per_issue_and_zero_for_NULL_UNIFORM",
+    "bias": "mean_PE2_minus_truth_across_complete_1000_replicate_cell",
+    "rmse": "sqrt_mean_squared_PE2_minus_truth_across_complete_1000_replicate_cell",
+    "rmse_role": "required_descriptive_finite_value_gate_without_numeric_threshold",
+    "absolute_bias_max_bits_per_issue": 0.0025
+  },
+  "interval_contract": {
+    "confidence_level": 0.95,
+    "primary_method": "moving_block_bootstrap_BCa",
+    "bootstrap_replicates": 2000,
+    "primary_block_size": 5,
+    "jackknife": "delete_one_non_circular_contiguous_primary_block_at_each_valid_start",
+    "quantile_method": "Hyndman-Fan_type_7",
+    "bca_valid_when": [
+      "all_bootstrap_and_jackknife_statistics_finite",
+      "mid_tie_bootstrap_proportion_below_observed_strictly_between_zero_and_one",
+      "jackknife_acceleration_denominator_finite_and_nonzero",
+      "adjusted_probabilities_finite_ordered_and_inside_1_over_R_plus_1_through_R_over_R_plus_1"
+    ],
+    "fallback": "two_sided_percentile_0.025_0.975_with_machine_readable_failed_BCa_condition",
+    "silent_fallback": "forbidden",
+    "coverage_estimator": "count_lower_le_truth_le_upper_divided_by_1000",
+    "coverage_acceptance_interval": [
+      0.925,
+      0.975
+    ],
+    "coverage_gate_scope": "every_executed_scale_x_injected_mechanism_x_strength_cell_for_primary_PE2",
+    "PE1_coverage_role": "required_report_only"
+  },
+  "detection_contract": {
+    "alpha": 0.05,
+    "tail": "upper",
+    "p_value": "one_plus_count_null_greater_than_or_equal_observed_divided_by_R_plus_1",
+    "primary_endpoint_family": [
+      "PE1",
+      "PE2"
+    ],
+    "multiplicity": "Holm",
+    "replicate_positive_signal": "both_Holm_adjusted_endpoint_p_values_at_most_0.05_and_both_95_percent_interval_lower_bounds_above_zero",
+    "manual_or_partial_endpoint_override": "forbidden"
+  },
+  "false_positive_gate": {
+    "scope": "final_replicate_positive_signal_decision_under_NULL_UNIFORM_at_every_executed_scale",
+    "rate_max": 0.075,
+    "wilson_upper_95_max": 0.09,
+    "wilson_z": 1.959963984540054
+  },
+  "power_gates": {
+    "weak_0_001_bits_per_issue": "required_report_without_acceptance_threshold",
+    "practical_0_01_bits_per_issue_min": 0.8,
+    "practical_scope": "every_mechanism_at_every_scale_where_0.01_is_scheduled",
+    "strong_0_05_bits_per_issue_min": 0.95,
+    "strong_scope": "every_mechanism_at_every_scale_where_0.05_is_scheduled",
+    "aggregation": "cell_local_1000_complete_replicates_only_without_mechanism_or_scale_averaging"
+  },
+  "mde_contract": {
+    "target_power": 0.8,
+    "tested_strengths_bits_per_issue": [
+      0.001,
+      0.01,
+      0.05
+    ],
+    "interpolation": "forbidden",
+    "per_mechanism_scale_result": "smallest_tested_strength_with_empirical_power_at_least_0.8_else_greater_than_0.05",
+    "decision_policy_mde_at_61": "maximum_of_four_FORWARD_61_per_mechanism_conservative_MDE_upper_bounds",
+    "bits_per_red_number_event": "bits_per_issue_divided_by_33",
+    "required_issue_count_by_strength": "smallest_scheduled_outer_issue_count_in_61_2581_6062_with_power_at_least_0.8_for_same_mechanism_and_strength_else_greater_than_6062",
+    "report": "tested_grid_bracket_and_conservative_upper_bound_without_interpolation"
+  },
+  "automatic_gate": {
+    "PASS_TO_P3_requires_all": [
+      "all_31000_analysis_replicates_and_frozen_seeds_complete_exactly_once",
+      "all_bootstrap_and_permutation_seed_sets_complete",
+      "all_NULL_UNIFORM_point_and_Wilson_false_positive_gates_pass",
+      "all_practical_strength_cell_power_gates_pass",
+      "all_strong_signal_cell_power_gates_pass",
+      "all_primary_PE2_absolute_bias_cell_gates_pass",
+      "all_primary_PE2_coverage_cell_gates_pass",
+      "all_RMSE_outputs_finite",
+      "all_leakage_checks_pass",
+      "deterministic_replay_passes"
+    ],
+    "PASS_TO_P3_fact": "m4-p2-measurement-decision:PASS_TO_P3",
+    "REPAIR_MEASUREMENT_SYSTEM_when": "any_PASS_TO_P3_requirement_fails",
+    "REPAIR_MEASUREMENT_SYSTEM_fact": "m4-p2-measurement-decision:REPAIR_MEASUREMENT_SYSTEM",
+    "facts_mutually_exclusive": true,
+    "manual_override": "forbidden",
+    "P3_without_PASS_TO_P3_fact": "unreachable"
+  },
+  "artifact_contract": {
+    "analysis_replicate_identity": [
+      "scale_id",
+      "scenario_id",
+      "replicate_index",
+      "power_replicate_seed_digest",
+      "evaluation_dataset_seed_digest",
+      "parent_execution_id"
+    ],
+    "every_replicate_records": [
+      "dataset_digest",
+      "truth_artifact_digest",
+      "probe_run_digests",
+      "ordered_outer_checkpoint_digest",
+      "ordered_settlement_digest",
+      "bootstrap_seed_set_digest",
+      "permutation_seed_set_digest",
+      "PE1",
+      "PE2",
+      "confidence_intervals",
+      "raw_and_Holm_adjusted_p_values",
+      "positive_signal_decision",
+      "leakage_status"
+    ],
+    "aggregate_records_all_child_digests": true,
+    "immutable_resume": true,
+    "formal_seed_set_complete_required": true,
+    "deterministic_replay_required": true
+  },
+  "branch_contract": {
+    "pass_fact": "m4-p2-measurement-decision:PASS_TO_P3",
+    "repair_fact": "m4-p2-measurement-decision:REPAIR_MEASUREMENT_SYSTEM",
+    "mutually_exclusive": true,
+    "pass_consumer": "m4-p3-strict-historical-walk-forward",
+    "repair_consumer": "m4-p2-repair-measurement-system",
+    "P3_default": "closed"
+  },
+  "production_action": "none"
+}
