@@ -110,6 +110,10 @@ def test_m4_status_keeps_engineering_and_evidence_progress_separate() -> None:
     assert status["preregistration"]["status"] == "FROZEN"
     assert status["p2_input_contract"] == "VALID"
     assert status["synthetic_validation"] == "P2.4_CALIBRATION_READY"
+    assert (
+        status["artifacts"]["p2_walk_forward_mainline_execution_digest"]
+        == "4e3d81cbee28b529091a11603e3a5683c1f265d9accc4f01d4c7076192c20363"
+    )
     assert status["p2_subphase"]["completed"] == [
         "M4-P2.1",
         "M4-P2.2",
