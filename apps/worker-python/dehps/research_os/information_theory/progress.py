@@ -26,6 +26,9 @@ M4_PREREGISTRATION_V1_0_3_DIGEST = (
 M4_SYNTHETIC_MANIFEST_V1_0_1_DIGEST = (
     "f84c2da3565f7eda41c3782517c78211805f57ea8f3bfd00659a93c380826a3c"
 )
+M4_P2_3_MAINLINE_EXECUTION_ARTIFACT_DIGEST = (
+    "4e3d81cbee28b529091a11603e3a5683c1f265d9accc4f01d4c7076192c20363"
+)
 M4_P2_4_CALIBRATION_MANIFEST_DIGEST = (
     "f30186e3f5aeefb07565d25c4e0de68d955a07e87d1894fdaedbe8bedf4a2317"
 )
@@ -350,9 +353,9 @@ def build_m4_status(
                 else None
             ),
             "p2_walk_forward_mainline_execution_digest": (
-                None
-                if mainline_execution is None
-                else mainline_execution.get("execution_artifact_digest")
+                M4_P2_3_MAINLINE_EXECUTION_ARTIFACT_DIGEST
+                if p2_3_complete
+                else None
             ),
             "p2_injected_signal_calibration_manifest_digest": (
                 M4_P2_4_CALIBRATION_MANIFEST_DIGEST
