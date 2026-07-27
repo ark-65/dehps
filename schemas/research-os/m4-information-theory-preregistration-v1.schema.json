@@ -81,10 +81,36 @@
     "forward_evidence": {"type": "object"},
     "artifact_contract": {"type": "object"},
     "seed_policy": {"type": "object"},
+    "injected_signal_calibration_contract": {
+      "type": "object",
+      "required": [
+        "contract_id",
+        "status",
+        "repair_type",
+        "repair_timing",
+        "requested_strength_binding",
+        "information_definitions",
+        "requested_strengths_bits_per_issue",
+        "calibration_tolerance",
+        "solver_contract",
+        "monte_carlo_truth_audit",
+        "numerical_invariants",
+        "pair_dominance_contract",
+        "mechanism_contracts",
+        "calibration_dataset_flags",
+        "failure_states"
+      ]
+    },
     "phase_gates": {"type": "object"},
     "guardrails": {"type": "object"}
   },
   "allOf": [
+    {
+      "if": {"properties": {"version": {"const": "1.0.3"}}},
+      "then": {
+        "required": ["injected_signal_calibration_contract"]
+      }
+    },
     {
       "if": {"properties": {"status": {"enum": ["FROZEN", "SUPERSEDED"]}}},
       "then": {

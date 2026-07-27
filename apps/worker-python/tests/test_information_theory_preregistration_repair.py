@@ -1,6 +1,8 @@
 import hashlib
 import json
 from copy import deepcopy
+from fractions import Fraction
+from math import comb
 from pathlib import Path
 
 import pytest
@@ -16,6 +18,9 @@ from dehps.research_os.information_theory import (
     validate_decision_policy,
     validate_preregistration,
 )
+from dehps.research_os.information_theory.synthetic import (
+    load_synthetic_run_manifest,
+)
 from dehps.research_os.models import TaskStatus
 
 
@@ -25,11 +30,23 @@ V102_PATH = (
     ROOT
     / "configs/research-os/m4-information-theory-preregistration-v1.0.2.json"
 )
+V103_PATH = (
+    ROOT
+    / "configs/research-os/m4-information-theory-preregistration-v1.0.3.json"
+)
 POLICY_PATH = ROOT / "configs/research-os/m4-information-theory-decision-policy-v1.json"
 MANIFEST_PATH = ROOT / "configs/research-os/m4-information-theory-evidence-v1.json"
 V101_DIGEST = "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1"
 V102_DIGEST = "a8da6bf2404d3bf213ac74d331917d5308195b7c3174b002378e1bbd849f6dfa"
+V103_DIGEST = "4fff51c58e4a46d664e414bfe4cc0d7269c8e3712734153faec548648144d0d9"
 POLICY_DIGEST = "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d"
+SYNTHETIC_V101_PATH = (
+    ROOT
+    / "configs/research-os/m4-information-theory-p2-synthetic-run-manifest-v1.0.1.json"
+)
+SYNTHETIC_V101_DIGEST = (
+    "f84c2da3565f7eda41c3782517c78211805f57ea8f3bfd00659a93c380826a3c"
+)
 
 
 def _load(path: Path = V102_PATH) -> dict:
@@ -68,6 +85,93 @@ def test_v102_is_frozen_and_supersedes_v101() -> None:
     assert result["digest"] == payload["artifact_digest"] == V102_DIGEST
     assert payload["supersedes_digest"] == V101_DIGEST
     assert preregistration_digest(payload) == V102_DIGEST
+
+
+def test_v103_is_frozen_and_supersedes_v102() -> None:
+    payload = _load(V103_PATH)
+    result = validate_preregistration(payload)
+    assert result["version"] == "1.0.3"
+    assert result["digest"] == payload["artifact_digest"] == V103_DIGEST
+    assert payload["supersedes_digest"] == V102_DIGEST
+    assert preregistration_digest(payload) == V103_DIGEST
+
+
+@pytest.mark.parametrize(
+    "path,value,code",
+    [
+        (
+            ("calibration_tolerance", "absolute_bits_tolerance"),
+            1e-6,
+            "calibration_tolerance_invalid",
+        ),
+        (
+            ("calibration_tolerance", "relative_tolerance"),
+            0.1,
+            "calibration_tolerance_invalid",
+        ),
+        (
+            (
+                "monte_carlo_truth_audit",
+                "maximum_standard_error_bits_per_issue",
+            ),
+            0.01,
+            "calibration_monte_carlo_contract_invalid",
+        ),
+        (
+            ("solver_contract", "bracket_required"),
+            False,
+            "calibration_solver_contract_invalid",
+        ),
+        (
+            ("requested_strength_binding",),
+            "composite_number_event_information_bits_per_issue",
+            "injected_signal_calibration_contract_invalid",
+        ),
+    ],
+)
+def test_v103_calibration_semantics_are_fail_closed(path, value, code: str) -> None:
+    payload = _load(V103_PATH)
+    target = payload["injected_signal_calibration_contract"]
+    for key in path[:-1]:
+        target = target[key]
+    target[path[-1]] = value
+    _invalid(payload, code)
+
+
+def test_v103_is4_weights_preserve_mass_and_number_marginals_exactly() -> None:
+    payload = _load(V103_PATH)
+    raw_weights = payload["injected_signal_calibration_contract"][
+        "mechanism_contracts"
+    ]["IS4_MARGINAL_PRESERVING_CONDITIONAL"]["orthogonal_weight_by_K"]
+    weights = {
+        item["K"]: Fraction(item["numerator"], item["denominator"])
+        for item in raw_weights
+    }
+    total = comb(33, 6)
+    probabilities = {
+        k: Fraction(comb(16, k) * comb(17, 6 - k), total)
+        for k in range(7)
+    }
+    assert sum(probabilities[k] * weights[k] for k in range(7)) == 0
+    assert sum(
+        probabilities[k] * k * weights[k] for k in range(7)
+    ) == 0
+
+
+def test_superseding_synthetic_manifest_binds_v103_without_execution() -> None:
+    manifest = load_synthetic_run_manifest(SYNTHETIC_V101_PATH)
+    calibration = manifest.payload["injected_signal_calibration_contract"]
+    assert manifest.artifact_digest == SYNTHETIC_V101_DIGEST
+    assert manifest.payload["preregistration_digest"] == V103_DIGEST
+    assert calibration["requested_strength_binding"] == (
+        "joint_draw_information_bits_per_issue"
+    )
+    assert calibration["formal_calibration_executed"] is False
+    assert all(
+        not scenario.implemented
+        for scenario in manifest.scenarios
+        if scenario.scenario_id != "NULL_UNIFORM"
+    )
 
 
 @pytest.mark.parametrize(
@@ -275,7 +379,7 @@ def test_contract_repair_pending_blocks_p24_and_is_unique_ready() -> None:
     states = _resolutions(pending)
     status = build_m4_status(pending, snapshot=snapshot)
     assert [item.task_key for item in snapshot.ready_queue] == [
-        "m4-p1-repair-resampling-preregistration-contract"
+        "m4-p1-repair-injected-signal-preregistration-contract"
     ]
     assert states["m4-p2-injected-signal-calibration"] is (
         TaskStatus.BLOCKED_BY_CONTRACT
@@ -295,14 +399,14 @@ def test_completed_repair_restores_only_p24_ready() -> None:
     assert [item.task_key for item in snapshot.ready_queue] == [
         "m4-p2-injected-signal-calibration"
     ]
-    assert states["m4-p1-repair-resampling-preregistration-contract"] is (
+    assert states["m4-p1-repair-injected-signal-preregistration-contract"] is (
         TaskStatus.COMPLETED
     )
     assert states["m4-p2-resampling"] is TaskStatus.DEPENDENCY_WAIT
     assert states["m4-p2-false-positive-and-power-runs"] is (
         TaskStatus.DEPENDENCY_WAIT
     )
-    assert status["preregistration"] == {"status": "FROZEN", "version": "1.0.2"}
+    assert status["preregistration"] == {"status": "FROZEN", "version": "1.0.3"}
     assert status["progress"]["engineering_percent"] == 30
     assert status["progress"]["evidence_percent"] == 0
 

@@ -13,7 +13,7 @@ from .validation import InformationTheoryValidationError, validate_preregistrati
 
 
 CANONICAL_PREREGISTRATION_RELATIVE_PATH = Path(
-    "configs/research-os/m4-information-theory-preregistration-v1.0.2.json"
+    "configs/research-os/m4-information-theory-preregistration-v1.0.3.json"
 )
 
 

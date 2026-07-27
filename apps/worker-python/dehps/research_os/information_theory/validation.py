@@ -22,6 +22,7 @@ from .enums import DecisionState, PreregistrationStatus
 
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
 _V1_0_1_DIGEST = "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1"
+_V1_0_2_DIGEST = "a8da6bf2404d3bf213ac74d331917d5308195b7c3174b002378e1bbd849f6dfa"
 
 
 class InformationTheoryValidationError(ValueError):
@@ -360,6 +361,195 @@ def _validate_seed_domains(payload: Mapping[str, Any]) -> None:
         _fail("seed_domain_separation_invalid", "required disjoint pairs changed")
 
 
+def _validate_injected_signal_calibration(
+    payload: Mapping[str, Any],
+) -> None:
+    contract = _mapping(payload, "injected_signal_calibration_contract")
+    _require_fields(
+        contract,
+        {
+            "contract_id": "m4-p2-injected-signal-calibration-v1",
+            "status": "FROZEN",
+            "repair_type": "REPAIR_PREREGISTRATION_CONTRACT",
+            "requested_strength_binding": (
+                "joint_draw_information_bits_per_issue"
+            ),
+            "requested_strengths_bits_per_issue": [0.001, 0.01, 0.05],
+            "calibration_dataset_flags": [
+                "CALIBRATION_ONLY",
+                "NOT_EVALUATION_DATA",
+                "NOT_POWER_DATA",
+                "NOT_FALSE_POSITIVE_DATA",
+                "NOT_P2_GATE_EVIDENCE",
+            ],
+        },
+        code="injected_signal_calibration_contract_invalid",
+    )
+    timing = _mapping(contract, "repair_timing")
+    if any(timing.get(key) is not False for key in (
+        "calibration_executed_before_freeze",
+        "truth_artifacts_created_before_freeze",
+        "probe_results_used",
+        "power_results_used",
+        "evidence_created",
+    )):
+        _fail(
+            "result_driven_calibration_contract",
+            "calibration contract must be frozen before every result",
+        )
+    definitions = _mapping(contract, "information_definitions")
+    required_definitions = {
+        "joint_draw_information_bits_per_issue",
+        "composite_number_event_information_bits_per_issue",
+        "pair_information_bits_per_issue",
+        "conditional_kl_bits_per_issue",
+        "unconditional_kl_bits_per_issue",
+    }
+    if set(definitions) != required_definitions:
+        _fail(
+            "calibration_information_definition_invalid",
+            "joint, composite, pair, and KL definitions are all required",
+        )
+    tolerance = _mapping(contract, "calibration_tolerance")
+    _require_fields(
+        tolerance,
+        {
+            "absolute_bits_tolerance": 1e-10,
+            "relative_tolerance": 1e-6,
+            "pass_rule": (
+                "absolute_error<=absolute_bits_tolerance_and_"
+                "relative_error<=relative_tolerance"
+            ),
+            "zero_requested_relative_error": "not_applicable",
+            "selection_timing": "frozen_before_all_calibration_output",
+        },
+        code="calibration_tolerance_invalid",
+    )
+    solver = _mapping(contract, "solver_contract")
+    _require_fields(
+        solver,
+        {
+            "method": "deterministic_bisection",
+            "bracket_required": True,
+            "extrapolation": "forbidden",
+            "maximum_iterations": 128,
+            "parameter_width_tolerance": 1e-14,
+            "monotonicity_grid_points": 65,
+            "monotonicity_rule": (
+                "nondecreasing_with_at_least_one_strict_increase_and_"
+                "target_bracketed"
+            ),
+            "unbracketed_failure": "REPAIR_INJECTED_SIGNAL_CALIBRATION",
+        },
+        code="calibration_solver_contract_invalid",
+    )
+    monte_carlo = _mapping(contract, "monte_carlo_truth_audit")
+    _require_fields(
+        monte_carlo,
+        {
+            "role": "independent_non_calibrating_confirmation",
+            "maximum_standard_error_bits_per_issue": 0.00025,
+            "agreement_standard_errors": 4,
+            "agreement_rule": (
+                "abs(mc_mean-exact_truth)<=4*mc_standard_error+"
+                "absolute_bits_tolerance"
+            ),
+            "sample_schedule": [
+                262144,
+                524288,
+                1048576,
+                2097152,
+                4194304,
+                8388608,
+            ],
+            "maximum_samples": 8388608,
+            "seed_domain": "M4_P2_CALIBRATION",
+            "may_change_solved_parameter": False,
+        },
+        code="calibration_monte_carlo_contract_invalid",
+    )
+    invariants = _mapping(contract, "numerical_invariants")
+    _require_fields(
+        invariants,
+        {
+            "probability_normalization_tolerance": 1e-12,
+            "null_limit_tolerance": 1e-15,
+            "unconditional_number_marginal_tolerance": 1e-12,
+            "conditional_number_marginal_tolerance_for_IS4": 1e-12,
+            "expected_selected_count_tolerance": 1e-12,
+            "negative_probability_tolerance": 0,
+            "legal_combination_count": 1107568,
+            "selected_numbers_per_issue": 6,
+            "target_vector_length": 33,
+        },
+        code="calibration_numerical_invariants_invalid",
+    )
+    pair = _mapping(contract, "pair_dominance_contract")
+    _require_fields(
+        pair,
+        {
+            "maximum_single_number_information_fraction_of_pair_information": 0.1,
+            "maximum_single_number_probability_shift": 0.01,
+            "pass_label": "PAIR_DOMINANT",
+            "fail_label": "PAIR_CONDITIONAL_WITH_MARGINAL_LEAKAGE",
+            "classification_is_not_calibration_gate": True,
+        },
+        code="pair_dominance_contract_invalid",
+    )
+    mechanisms = _mapping(contract, "mechanism_contracts")
+    if set(mechanisms) != {
+        "IS1_SINGLE_NUMBER_CONDITIONAL_SHIFT",
+        "IS2_LOCAL_TEMPORAL_STATE",
+        "IS3_PAIR_CONDITIONAL",
+        "IS4_MARGINAL_PRESERVING_CONDITIONAL",
+    }:
+        _fail(
+            "calibration_mechanism_contract_invalid",
+            "all and only IS1 through IS4 are required",
+        )
+    is2 = _mapping(mechanisms, "IS2_LOCAL_TEMPORAL_STATE")
+    if (
+        is2.get("available_through_issue") != "t"
+        or is2.get("target_issue") != "t_plus_1"
+        or is2.get("timestamp_guard_required_in_smoke") is not True
+    ):
+        _fail(
+            "calibration_temporal_boundary_invalid",
+            "IS2 must bind state t to target t+1 through the timestamp guard",
+        )
+    is4 = _mapping(mechanisms, "IS4_MARGINAL_PRESERVING_CONDITIONAL")
+    weights = is4.get("orthogonal_weight_by_K")
+    expected_weights = [
+        (0, 219, 221),
+        (1, -1, 1),
+        (2, 1, 1),
+        (3, -1, 1),
+        (4, 1, 1),
+        (5, -219, 221),
+        (6, 1, 1),
+    ]
+    actual_weights = [
+        (item.get("K"), item.get("numerator"), item.get("denominator"))
+        for item in weights
+        if isinstance(item, Mapping)
+    ] if isinstance(weights, list) else []
+    if actual_weights != expected_weights:
+        _fail(
+            "marginal_preserving_weights_invalid",
+            "IS4 exact orthogonal weights are frozen",
+        )
+    failure_states = _mapping(contract, "failure_states")
+    _require_fields(
+        failure_states,
+        {
+            "contract": "REPAIR_PREREGISTRATION_CONTRACT",
+            "generator": "REPAIR_INJECTED_SIGNAL_GENERATOR",
+            "calibration": "REPAIR_INJECTED_SIGNAL_CALIBRATION",
+        },
+        code="calibration_failure_states_invalid",
+    )
+
+
 def validate_decision_policy(payload: Mapping[str, Any]) -> dict[str, Any]:
     if payload.get("schema_version") != DECISION_POLICY_SCHEMA_VERSION:
         _fail("decision_policy_schema_invalid", "unsupported decision policy schema")
@@ -574,6 +764,13 @@ def validate_preregistration(payload: Mapping[str, Any]) -> dict[str, Any]:
         _validate_resampling_semantics(payload)
         _validate_inference_semantics(payload)
         _validate_seed_domains(payload)
+    if version == "1.0.3":
+        if payload.get("supersedes_digest") != _V1_0_2_DIGEST:
+            _fail("supersedes_digest_invalid", "v1.0.3 must supersede v1.0.2")
+        _validate_resampling_semantics(payload)
+        _validate_inference_semantics(payload)
+        _validate_seed_domains(payload)
+        _validate_injected_signal_calibration(payload)
 
     expected_digest = preregistration_digest(payload)
     supplied = payload.get("artifact_digest")
