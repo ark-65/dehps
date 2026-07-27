@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dehps-m4-p2-injected-signal-calibration-run.v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "artifact_digest",
+    "phase",
+    "status",
+    "preregistration_digest",
+    "decision_policy_digest",
+    "synthetic_manifest_digest",
+    "metric_kernel_digest",
+    "walk_forward_harness_digest",
+    "information_binding",
+    "scenario_ids",
+    "strengths_bits_per_issue",
+    "mechanisms",
+    "calibration",
+    "monte_carlo_truth_audit",
+    "seed_policy",
+    "smoke_execution",
+    "dataset_flags",
+    "completion_requirements",
+    "forbidden",
+    "production_action"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "dehps-m4-p2-injected-signal-calibration-run.v1"
+    },
+    "artifact_type": {
+      "const": "injected_signal_calibration_run_manifest"
+    },
+    "artifact_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "phase": {"const": "M4-P2.4"},
+    "status": {"const": "FROZEN"},
+    "information_binding": {
+      "const": "joint_draw_information_bits_per_issue"
+    },
+    "scenario_ids": {"type": "array", "minItems": 12, "maxItems": 12},
+    "strengths_bits_per_issue": {
+      "const": [0.001, 0.01, 0.05]
+    },
+    "mechanisms": {"type": "array", "minItems": 4, "maxItems": 4},
+    "calibration": {"type": "object"},
+    "monte_carlo_truth_audit": {"type": "object"},
+    "seed_policy": {"type": "object"},
+    "smoke_execution": {"type": "object"},
+    "dataset_flags": {"type": "array", "minItems": 5, "maxItems": 5},
+    "production_action": {"const": "none"}
+  }
+}

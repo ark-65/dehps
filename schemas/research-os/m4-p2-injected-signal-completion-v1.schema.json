@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dehps-m4-p2-injected-signal-completion.v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "artifact_digest",
+    "task_key",
+    "status",
+    "requirements",
+    "scenario_count",
+    "truth_artifact_count",
+    "mechanism_smoke_count",
+    "truth_artifact_digests",
+    "calibration_run_artifact_digest",
+    "calibration_run_manifest_digest",
+    "eligible_for_p2_5_input",
+    "eligible_for_power_evidence",
+    "engineering_progress_before",
+    "engineering_progress_after",
+    "evidence_progress_before",
+    "evidence_progress_after",
+    "next_ready_task",
+    "preregistration_digest",
+    "decision_policy_digest",
+    "synthetic_manifest_digest",
+    "git_commit",
+    "working_tree_clean"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "dehps-m4-p2-injected-signal-completion.v1"
+    },
+    "artifact_type": {
+      "const": "injected_signal_calibration_completion"
+    },
+    "artifact_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "task_key": {"const": "m4-p2-injected-signal-calibration"},
+    "status": {"const": "COMPLETE"},
+    "scenario_count": {"const": 12},
+    "truth_artifact_count": {"const": 12},
+    "mechanism_smoke_count": {"const": 4},
+    "eligible_for_p2_5_input": {"const": true},
+    "eligible_for_power_evidence": {"const": false},
+    "engineering_progress_after": {"const": 34},
+    "evidence_progress_after": {"const": 0},
+    "next_ready_task": {"const": "m4-p2-resampling"},
+    "working_tree_clean": {"const": true}
+  }
+}

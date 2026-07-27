@@ -1,0 +1,125 @@
+{
+  "schema_version": "dehps-m4-p2-injected-signal-calibration-run.v1",
+  "artifact_type": "injected_signal_calibration_run_manifest",
+  "artifact_digest": "f30186e3f5aeefb07565d25c4e0de68d955a07e87d1894fdaedbe8bedf4a2317",
+  "phase": "M4-P2.4",
+  "status": "FROZEN",
+  "baseline_commit": "4239615b6da73c8ceaf79bff974ec65f4f83f903",
+  "preregistration_digest": "4fff51c58e4a46d664e414bfe4cc0d7269c8e3712734153faec548648144d0d9",
+  "decision_policy_digest": "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
+  "synthetic_manifest_digest": "f84c2da3565f7eda41c3782517c78211805f57ea8f3bfd00659a93c380826a3c",
+  "metric_kernel_digest": "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
+  "walk_forward_harness_digest": "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca",
+  "information_binding": "joint_draw_information_bits_per_issue",
+  "scenario_ids": [
+    "WEAK_SINGLE_NUMBER",
+    "WEAK_LOCAL_TEMPORAL",
+    "WEAK_PAIR",
+    "WEAK_MARGINAL_PRESERVING",
+    "MEDIUM_PRACTICAL_SINGLE_NUMBER",
+    "MEDIUM_PRACTICAL_LOCAL_TEMPORAL",
+    "MEDIUM_PRACTICAL_PAIR",
+    "MEDIUM_PRACTICAL_MARGINAL_PRESERVING",
+    "STRONG_SINGLE_NUMBER",
+    "STRONG_LOCAL_TEMPORAL",
+    "STRONG_PAIR",
+    "STRONG_MARGINAL_PRESERVING"
+  ],
+  "strengths_bits_per_issue": [
+    0.001,
+    0.01,
+    0.05
+  ],
+  "mechanisms": [
+    "single_number_conditional_shift",
+    "local_temporal_state",
+    "pair_conditional_signal",
+    "marginal_preserving_conditional_signal"
+  ],
+  "calibration": {
+    "method": "exact_analytic_or_deterministic_legal_space_sum",
+    "solver": "deterministic_bisection",
+    "absolute_bits_tolerance": 1e-10,
+    "relative_tolerance": 1e-6,
+    "maximum_iterations": 128,
+    "parameter_width_tolerance": 1e-14,
+    "monotonicity_grid_points": 65,
+    "bracket_required": true,
+    "extrapolation": "forbidden"
+  },
+  "monte_carlo_truth_audit": {
+    "role": "independent_non_calibrating_confirmation",
+    "maximum_standard_error_bits_per_issue": 0.00025,
+    "agreement_standard_errors": 4,
+    "sample_schedule": [
+      262144,
+      524288,
+      1048576,
+      2097152,
+      4194304,
+      8388608
+    ],
+    "maximum_samples": 8388608,
+    "seed_domain": "M4_P2_CALIBRATION",
+    "method_id": "independent_truth_audit"
+  },
+  "seed_policy": {
+    "root_seed_set_digest": "5cb71d66699d48de2f576469528822428d11ecf9896178be1c1c51e3d4905b4f",
+    "seed_domain": "M4_P2_CALIBRATION",
+    "selection_policy": "no_best_seed",
+    "wall_clock_seed": "forbidden",
+    "retry_reuses_child_seed": true,
+    "resume_reuses_child_seed": true,
+    "shard_change_preserves_child_seed": true,
+    "domain_enters_artifact_digest": true
+  },
+  "smoke_execution": {
+    "scenario_ids": [
+      "MEDIUM_PRACTICAL_SINGLE_NUMBER",
+      "MEDIUM_PRACTICAL_LOCAL_TEMPORAL",
+      "MEDIUM_PRACTICAL_PAIR",
+      "MEDIUM_PRACTICAL_MARGINAL_PRESERVING"
+    ],
+    "dataset_issue_count": 902,
+    "minimum_training_issues": 900,
+    "outer_fold_count": 2,
+    "probe_id": "THEORETICAL_BASELINE",
+    "walk_forward_harness": "P2.3_FROZEN",
+    "metric_kernel": "P2.2_FROZEN",
+    "result_interpretation": "PIPELINE_SMOKE_ONLY"
+  },
+  "dataset_flags": [
+    "CALIBRATION_ONLY",
+    "NOT_EVALUATION_DATA",
+    "NOT_POWER_DATA",
+    "NOT_FALSE_POSITIVE_DATA",
+    "NOT_P2_GATE_EVIDENCE"
+  ],
+  "completion_requirements": {
+    "scenario_count": 12,
+    "truth_artifact_count": 12,
+    "mechanism_smoke_count": 4,
+    "all_legal": true,
+    "all_normalized": true,
+    "all_tolerances_passed": true,
+    "all_mc_audits_passed": true,
+    "all_smoke_paths_passed": true,
+    "eligible_for_p2_5_input": true,
+    "eligible_for_power_evidence": false,
+    "evidence_progress_increment": 0
+  },
+  "forbidden": [
+    "evaluation_dataset",
+    "formal_power",
+    "false_positive_run",
+    "bootstrap",
+    "formal_permutation",
+    "mde",
+    "pe2",
+    "real_history",
+    "production_checkpoint",
+    "evidence_creation",
+    "result_driven_recalibration"
+  ],
+  "production_action": "none"
+}

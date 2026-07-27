@@ -17,6 +17,16 @@ from .errors import WalkForwardError
 
 
 SYNTHETIC_DATASET_SCHEMA = "dehps-m4-information-theory-synthetic-dataset.v1"
+CALIBRATION_PREREGISTRATION_DIGEST = (
+    "4fff51c58e4a46d664e414bfe4cc0d7269c8e3712734153faec548648144d0d9"
+)
+CALIBRATION_DATASET_FLAGS = [
+    "CALIBRATION_ONLY",
+    "NOT_EVALUATION_DATA",
+    "NOT_POWER_DATA",
+    "NOT_FALSE_POSITIVE_DATA",
+    "NOT_P2_GATE_EVIDENCE",
+]
 
 
 def load_synthetic_dataset(path: Path) -> SyntheticDataset:
@@ -49,10 +59,35 @@ def validate_synthetic_dataset(payload: Mapping[str, Any]) -> SyntheticDataset:
         raise WalkForwardError(
             "dataset_digest_mismatch", "synthetic dataset artifact changed"
         )
-    if payload.get("preregistration_digest") != FROZEN_PREREGISTRATION_DIGEST:
+    preregistration_digest = payload.get("preregistration_digest")
+    if preregistration_digest not in {
+        FROZEN_PREREGISTRATION_DIGEST,
+        CALIBRATION_PREREGISTRATION_DIGEST,
+    }:
         raise WalkForwardError(
             "preregistration_digest_mismatch", "dataset preregistration changed"
         )
+    if preregistration_digest == CALIBRATION_PREREGISTRATION_DIGEST:
+        if (
+            payload.get("dataset_role") != "calibration_smoke_only"
+            or payload.get("dataset_flags") != CALIBRATION_DATASET_FLAGS
+            or payload.get("calibration_seed_domain") != "M4_P2_CALIBRATION"
+            or payload.get("evaluation_seed_domain_used") is not False
+            or payload.get("eligible_for_evaluation") is not False
+            or payload.get("eligible_for_power_evidence") is not False
+            or payload.get("eligible_for_false_positive_evidence") is not False
+            or payload.get("eligible_for_p2_gate_evidence") is not False
+        ):
+            raise WalkForwardError(
+                "calibration_dataset_boundary_violation",
+                "P2.4 calibration dataset flags or seed domain changed",
+            )
+        truth_digest = str(payload.get("truth_artifact_digest", ""))
+        if len(truth_digest) != 64:
+            raise WalkForwardError(
+                "calibration_truth_identity_missing",
+                "P2.4 calibration dataset requires frozen truth identity",
+            )
     if payload.get("decision_policy_digest") != FROZEN_DECISION_POLICY_DIGEST:
         raise WalkForwardError(
             "decision_policy_digest_mismatch", "dataset decision policy changed"

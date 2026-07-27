@@ -11,6 +11,18 @@ from typing import Any, Callable, Mapping
 from dehps.artifacts import atomic_write_text
 from dehps.config import ROOT_DIR
 from dehps.contracts import canonical_digest
+from dehps.research_os.information_theory.calibration import (
+    CALIBRATION_RUN_MANIFEST_DIGEST,
+    load_calibration_manifest,
+    run_p24_calibration,
+)
+from dehps.research_os.information_theory.calibration.contracts import (
+    DECISION_POLICY_DIGEST as P24_DECISION_POLICY_DIGEST,
+    METRIC_KERNEL_DIGEST as P24_METRIC_KERNEL_DIGEST,
+    PREREGISTRATION_DIGEST as P24_PREREGISTRATION_DIGEST,
+    SYNTHETIC_MANIFEST_DIGEST as P24_SYNTHETIC_MANIFEST_DIGEST,
+    WALK_FORWARD_HARNESS_DIGEST as P24_WALK_FORWARD_HARNESS_DIGEST,
+)
 from dehps.research_os.information_theory.metrics import load_metric_kernel_manifest
 from dehps.research_os.information_theory.progress import build_m4_status
 from dehps.research_os.information_theory.walk_forward import (
@@ -42,6 +54,8 @@ P23_PROBES = (
     "THEORETICAL_BASELINE",
     "REGULARIZED_LOGISTIC_REGRESSION",
 )
+P24_TASK_KEY = "m4-p2-injected-signal-calibration"
+P24_CAPABILITY = "m4_p2_4_injected_signal_calibration"
 MAINLINE_EXECUTION_SCHEMA = "dehps-research-os-mainline-execution.v1"
 
 
@@ -329,6 +343,209 @@ class P23WalkForwardCapability:
         return tuple(by_identity[key] for key in sorted(by_identity))
 
 
+class P24InjectedSignalCalibrationCapability:
+    def __init__(self, *, root_dir: Path = ROOT_DIR) -> None:
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key != P24_TASK_KEY
+            or task.requested_capability != P24_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "P2.4 capability received the wrong task"
+            )
+        expected_inputs = (
+            P24_PREREGISTRATION_DIGEST,
+            P24_DECISION_POLICY_DIGEST,
+            P24_SYNTHETIC_MANIFEST_DIGEST,
+            P24_METRIC_KERNEL_DIGEST,
+            P24_WALK_FORWARD_HARNESS_DIGEST,
+            CALIBRATION_RUN_MANIFEST_DIGEST,
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "P2.4 requires all six frozen input identities in order"
+            )
+        calibration_manifest_path = (
+            self.root_dir
+            / "configs/research-os/"
+            "m4-information-theory-p2-4-calibration-run-manifest-v1.json"
+        )
+        calibration_manifest = load_calibration_manifest(
+            calibration_manifest_path
+        )
+        metric_manifest = load_metric_kernel_manifest(
+            self.root_dir
+            / "configs/research-os/"
+            "m4-information-theory-metric-kernel-v1.json"
+        )
+        if metric_manifest.artifact_digest != P24_METRIC_KERNEL_DIGEST:
+            raise MainlineSupervisorError("P2.2 Metric Kernel identity changed")
+        harness_path = (
+            self.root_dir
+            / "configs/research-os/"
+            "m4-information-theory-walk-forward-harness-v1.json"
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        output_dir = task_dir / "artifacts"
+        run = run_p24_calibration(
+            manifest=calibration_manifest,
+            harness_path=harness_path,
+            output_dir=output_dir,
+            execution_id=execution_id,
+            git_commit=git_commit,
+        )
+        child_payloads = tuple(
+            (path, _load_object(path)) for path in run.artifact_paths
+        )
+        child_identities = {
+            (
+                _artifact_digest(payload),
+                str(payload.get("artifact_type") or "typed_artifact"),
+            )
+            for _, payload in child_payloads
+        }
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "calibration_run_manifest_digest": (
+                calibration_manifest.artifact_digest
+            ),
+            "calibration_run_artifact_digest": run.calibration_artifact[
+                "artifact_digest"
+            ],
+            "completion_artifact_digest": run.completion_artifact[
+                "artifact_digest"
+            ],
+            "truth_artifact_digests": [
+                item["artifact_digest"] for item in run.truth_artifacts
+            ],
+            "truth_artifact_count": len(run.truth_artifacts),
+            "actual_fold_count": run.actual_fold_count,
+            "registered_artifact_count": len(child_identities) + 1,
+            "engineering_progress_before": 30,
+            "engineering_progress_after": 34,
+            "evidence_progress_before": 0,
+            "evidence_progress_after": 0,
+            "downstream_consumer": "m4-p2-resampling",
+            "eligible_for_p2_5_input": True,
+            "eligible_for_power_evidence": False,
+            "formal_power_executed": False,
+            "formal_false_positive_executed": False,
+            "bootstrap_executed": False,
+            "formal_permutation_executed": False,
+            "real_history_used": False,
+            "production_checkpoint_created": False,
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "descriptive_only": True,
+            "eligible_for_p2_gate": False,
+            "evidence_created": False,
+            "production_impact": "none",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                run.calibration_artifact["artifact_digest"],
+                run.completion_artifact["artifact_digest"],
+                *(
+                    item["artifact_digest"]
+                    for item in run.truth_artifacts
+                ),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        registrations = self._registrations(
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(registrations) != execution_payload["registered_artifact_count"]:
+            raise MainlineSupervisorError(
+                "P2.4 registered artifact count changed"
+            )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=registrations,
+        )
+
+    def _registrations(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+        child_payloads: tuple[tuple[Path, Mapping[str, Any]], ...],
+        execution_path: Path,
+        execution_payload: Mapping[str, Any],
+    ) -> tuple[MainlineArtifactRegistration, ...]:
+        by_identity: dict[
+            tuple[str, str], MainlineArtifactRegistration
+        ] = {}
+        for path, payload in (
+            *child_payloads,
+            (execution_path, execution_payload),
+        ):
+            digest = _artifact_digest(payload)
+            artifact_type = str(
+                payload.get("artifact_type") or "typed_artifact"
+            )
+            registration = MainlineArtifactRegistration(
+                execution_id=execution_id,
+                control_plane_key=control_plane_key,
+                task_key=task.task_key,
+                task_digest=task.artifact_digest,
+                artifact_digest=digest,
+                artifact_type=artifact_type,
+                schema_version=str(
+                    payload.get("schema_version") or "unknown"
+                ),
+                artifact_path=str(path.relative_to(self.root_dir)),
+                parent_digests=tuple(
+                    str(value)
+                    for value in payload.get("parent_digests", ())
+                ),
+                git_commit=git_commit,
+            )
+            by_identity[(digest, artifact_type)] = registration
+        return tuple(by_identity[key] for key in sorted(by_identity))
+
+
 class ResearchEvidenceSupervisor:
     def __init__(
         self,
@@ -348,6 +565,9 @@ class ResearchEvidenceSupervisor:
         self.require_clean_tree = require_clean_tree
         self.capabilities = {
             P23_CAPABILITY: P23WalkForwardCapability(root_dir=root_dir),
+            P24_CAPABILITY: P24InjectedSignalCalibrationCapability(
+                root_dir=root_dir
+            ),
         }
 
     @property
@@ -547,6 +767,19 @@ class ResearchEvidenceSupervisor:
                             ],
                             "registered_artifact_count": len(result.registrations),
                             "git_commit": git_commit,
+                            **{
+                                key: result.execution_artifact[key]
+                                for key in (
+                                    "calibration_run_manifest_digest",
+                                    "calibration_run_artifact_digest",
+                                    "completion_artifact_digest",
+                                    "truth_artifact_digests",
+                                    "truth_artifact_count",
+                                    "eligible_for_p2_5_input",
+                                    "eligible_for_power_evidence",
+                                )
+                                if key in result.execution_artifact
+                            },
                         }.items()
                     )
                 ),
@@ -710,6 +943,17 @@ class ResearchEvidenceSupervisor:
             "git_commit": git_commit,
             "heartbeat_at": completed_at,
         }
+        for key in (
+            "calibration_run_manifest_digest",
+            "calibration_run_artifact_digest",
+            "completion_artifact_digest",
+            "truth_artifact_digests",
+            "truth_artifact_count",
+            "eligible_for_p2_5_input",
+            "eligible_for_power_evidence",
+        ):
+            if key in summary:
+                payload[key] = summary[key]
         self._write_state(payload)
         self._write_m4_status(status)
         return payload
