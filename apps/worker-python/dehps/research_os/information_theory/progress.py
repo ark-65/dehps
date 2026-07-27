@@ -26,6 +26,9 @@ M4_PREREGISTRATION_V1_0_3_DIGEST = (
 M4_SYNTHETIC_MANIFEST_V1_0_1_DIGEST = (
     "f84c2da3565f7eda41c3782517c78211805f57ea8f3bfd00659a93c380826a3c"
 )
+M4_P2_4_CALIBRATION_MANIFEST_DIGEST = (
+    "f30186e3f5aeefb07565d25c4e0de68d955a07e87d1894fdaedbe8bedf4a2317"
+)
 M4_MANIFEST_RELATIVE_PATH = Path(
     "configs/research-os/m4-information-theory-evidence-v1.json"
 )
@@ -212,6 +215,7 @@ def build_m4_status(
     p2_1_complete = resolutions[P2_SUBTASK_KEYS[0]].status is TaskStatus.COMPLETED
     p2_2_complete = resolutions[P2_SUBTASK_KEYS[1]].status is TaskStatus.COMPLETED
     p2_3_complete = resolutions[P2_SUBTASK_KEYS[2]].status is TaskStatus.COMPLETED
+    p2_4_complete = resolutions[P2_SUBTASK_KEYS[3]].status is TaskStatus.COMPLETED
     if p2_1_complete:
         completed.extend(
             [
@@ -236,6 +240,17 @@ def build_m4_status(
                 "chronological inner validation and fold-local preprocessing verified",
                 "theoretical and logistic null smoke marked non-Evidence",
                 "unified Research Evidence Supervisor execution and replay verified",
+            ]
+        )
+    if p2_4_complete:
+        completed.extend(
+            [
+                "P2.4 all twelve injected-signal truth calibrations completed",
+                "exact joint/composite/pair information diagnostics verified",
+                "IS1-IS4 legal-space generators and null limits verified",
+                "P2.3 blind checkpoint and P2.2 settlement smoke verified",
+                "calibration datasets excluded from evaluation, power, and Evidence",
+                "P2.4 unified supervisor execution and replay verified",
             ]
         )
     if repair_complete:
@@ -286,6 +301,26 @@ def build_m4_status(
                 if mainline_execution is None
                 else mainline_execution.get("execution_artifact_digest")
             ),
+            "p2_injected_signal_calibration_manifest_digest": (
+                M4_P2_4_CALIBRATION_MANIFEST_DIGEST
+            ),
+            "p2_injected_signal_calibration_run_digest": (
+                None
+                if mainline_execution is None
+                else mainline_execution.get(
+                    "calibration_run_artifact_digest"
+                )
+            ),
+            "p2_injected_signal_completion_digest": (
+                None
+                if mainline_execution is None
+                else mainline_execution.get("completion_artifact_digest")
+            ),
+            "p2_injected_signal_truth_digests": (
+                []
+                if mainline_execution is None
+                else mainline_execution.get("truth_artifact_digests", [])
+            ),
             "control_plane_manifest_digest": manifest.artifact_digest,
             "legacy_settlement_digest": json.loads(
                 legacy_goal.baseline_metric_manifest
@@ -316,7 +351,14 @@ def build_m4_status(
                 "eligibility_rule": "first post-P2 issue with a complete pre-draw checkpoint",
                 "retroactively_ineligible_issues": ["2026085"],
             },
-            "synthetic_scenarios": {"completed": 0, "total": 13},
+            "synthetic_scenarios": {
+                "completed": 13 if p2_4_complete else 0,
+                "total": 13,
+            },
+            "injected_signal_truth_scenarios": {
+                "completed": 12 if p2_4_complete else 0,
+                "total": 12,
+            },
             "negative_controls": {"completed": 0, "total": 6},
             "robustness_sensitivities": {"completed": 0, "total": 5},
             "feature_families": {"completed": 0, "total": 7},
@@ -337,34 +379,54 @@ def build_m4_status(
         },
         "formal_real_data_run": "NOT_STARTED",
         "synthetic_validation": (
-            "P2.3_HARNESS_READY"
-            if p2_3_complete
+            "P2.4_CALIBRATION_READY"
+            if p2_4_complete
             else (
-                "P2.2_KERNEL_READY"
-                if p2_2_complete
-                else ("P2.1_CONTRACT_READY" if p2_1_complete else "NOT_STARTED")
+                "P2.3_HARNESS_READY"
+                if p2_3_complete
+                else (
+                    "P2.2_KERNEL_READY"
+                    if p2_2_complete
+                    else (
+                        "P2.1_CONTRACT_READY"
+                        if p2_1_complete
+                        else "NOT_STARTED"
+                    )
+                )
             )
         ),
         "p2_subphase": {
             "completed": (
-                ["M4-P2.1", "M4-P2.2", "M4-P2.3"]
-                if p2_3_complete
+                ["M4-P2.1", "M4-P2.2", "M4-P2.3", "M4-P2.4"]
+                if p2_4_complete
                 else (
-                    ["M4-P2.1", "M4-P2.2"]
-                    if p2_2_complete
-                    else (["M4-P2.1"] if p2_1_complete else [])
+                    ["M4-P2.1", "M4-P2.2", "M4-P2.3"]
+                    if p2_3_complete
+                    else (
+                        ["M4-P2.1", "M4-P2.2"]
+                        if p2_2_complete
+                        else (["M4-P2.1"] if p2_1_complete else [])
+                    )
                 )
             ),
             "current": (
                 "M4-P1-CONTRACT-REPAIR"
                 if not repair_complete
                 else (
-                    "M4-P2.4"
-                    if p2_3_complete
+                    "M4-P2.5"
+                    if p2_4_complete
                     else (
-                        "M4-P2.3"
-                        if p2_2_complete
-                        else ("M4-P2.2" if p2_1_complete else "M4-P2.1")
+                        "M4-P2.4"
+                        if p2_3_complete
+                        else (
+                            "M4-P2.3"
+                            if p2_2_complete
+                            else (
+                                "M4-P2.2"
+                                if p2_1_complete
+                                else "M4-P2.1"
+                            )
+                        )
                     )
                 )
             ),
@@ -372,11 +434,23 @@ def build_m4_status(
             "completion_classification": (
                 None
                 if task_states[
-                    tasks["m4-p2-walk-forward-probe-harness"].artifact_digest
+                    tasks[
+                        (
+                            "m4-p2-injected-signal-calibration"
+                            if p2_4_complete
+                            else "m4-p2-walk-forward-probe-harness"
+                        )
+                    ].artifact_digest
                 ].completion_classification
                 is None
                 else task_states[
-                    tasks["m4-p2-walk-forward-probe-harness"].artifact_digest
+                    tasks[
+                        (
+                            "m4-p2-injected-signal-calibration"
+                            if p2_4_complete
+                            else "m4-p2-walk-forward-probe-harness"
+                        )
+                    ].artifact_digest
                 ].completion_classification.value
             ),
         },
@@ -384,7 +458,11 @@ def build_m4_status(
             "goal_integration": M4_GOAL_KEY,
             "ready_queue_integration": "PASS",
             "runner_integration": "research_evidence_supervisor",
-            "task_key": "m4-p2-walk-forward-probe-harness",
+            "task_key": (
+                "m4-p2-injected-signal-calibration"
+                if p2_4_complete
+                else "m4-p2-walk-forward-probe-harness"
+            ),
             "actual_fold_count": (
                 None
                 if mainline_execution is None
@@ -400,7 +478,11 @@ def build_m4_status(
                 if mainline_execution is None
                 else mainline_execution.get("execution_artifact_digest")
             ),
-            "downstream_consumer": "m4-p2-injected-signal-calibration",
+            "downstream_consumer": (
+                "m4-p2-resampling"
+                if p2_4_complete
+                else "m4-p2-injected-signal-calibration"
+            ),
             "legacy_manual_path_canonical": False,
         },
         "blocked_by": blocked_by,

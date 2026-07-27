@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dehps-m4-p2-injected-signal-truth.v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "artifact_digest",
+    "scenario_id",
+    "mechanism",
+    "requested_bits_per_issue",
+    "calibrated_bits_per_issue",
+    "joint_draw_information_bits_per_issue",
+    "composite_number_event_information_bits_per_issue",
+    "pair_information_bits_per_issue",
+    "information_definition",
+    "requested_strength_binding",
+    "parameter_name",
+    "parameter_value",
+    "state_definition",
+    "conditional_distribution_digest",
+    "unconditional_distribution_digest",
+    "target_numbers_or_pairs",
+    "marginal_diagnostics",
+    "conditional_kl_bits_per_issue",
+    "unconditional_kl_bits_per_issue",
+    "expected_selected_count",
+    "calibration_method",
+    "calibration_tolerance",
+    "calibration_result",
+    "monte_carlo_truth_audit",
+    "calibration_seed_policy",
+    "dataset_flags",
+    "generator_digest",
+    "calibration_run_manifest_digest",
+    "preregistration_digest",
+    "decision_policy_digest",
+    "synthetic_manifest_digest",
+    "git_commit",
+    "working_tree_clean",
+    "eligible_for_p2_5_input",
+    "eligible_for_power_evidence",
+    "eligible_for_p2_gate_evidence"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "dehps-m4-p2-injected-signal-truth.v1"
+    },
+    "artifact_type": {"const": "injected_signal_truth"},
+    "artifact_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "requested_strength_binding": {
+      "const": "joint_draw_information_bits_per_issue"
+    },
+    "working_tree_clean": {"const": true},
+    "eligible_for_p2_5_input": {"const": true},
+    "eligible_for_power_evidence": {"const": false},
+    "eligible_for_p2_gate_evidence": {"const": false}
+  }
+}
