@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
 from dataclasses import dataclass
@@ -38,6 +39,21 @@ from dehps.research_os.information_theory.resampling.contracts import (
     SYNTHETIC_MANIFEST_DIGEST as P25_SYNTHETIC_MANIFEST_DIGEST,
     WALK_FORWARD_HARNESS_DIGEST as P25_WALK_FORWARD_HARNESS_DIGEST,
 )
+from dehps.research_os.information_theory.measurement_validation import (
+    MEASUREMENT_VALIDATION_MANIFEST_DIGEST,
+    assemble_completion,
+    evaluate_automatic_gate,
+    load_measurement_validation_manifest,
+    locate_truth_artifacts,
+    run_parallel_execution,
+    verify_completion_replay,
+)
+from dehps.research_os.information_theory.measurement_validation.reference import (
+    ReferenceReplicateEvaluator,
+)
+from dehps.research_os.information_theory.synthetic import (
+    load_synthetic_run_manifest,
+)
 from dehps.research_os.information_theory.walk_forward import (
     load_harness_manifest,
     load_synthetic_dataset,
@@ -71,6 +87,11 @@ P24_TASK_KEY = "m4-p2-injected-signal-calibration"
 P24_CAPABILITY = "m4_p2_4_injected_signal_calibration"
 P25_TASK_KEY = "m4-p2-resampling"
 P25_CAPABILITY = "m4_p2_5_resampling_and_negative_controls"
+P26_TASK_KEY = "m4-p2-false-positive-and-power-runs"
+P26_CAPABILITY = "m4_p2_6_false_positive_and_power"
+P27_TASK_KEY = "m4-p2-automatic-gate-and-report"
+P27_CAPABILITY = "m4_p2_7_automatic_measurement_gate"
+P2_UMBRELLA_TASK_KEY = "m4-p2-synthetic-measurement-validation"
 MAINLINE_EXECUTION_SCHEMA = "dehps-research-os-mainline-execution.v1"
 
 
@@ -83,6 +104,8 @@ class CapabilityResult:
     execution_artifact: Mapping[str, Any]
     execution_artifact_path: Path
     registrations: tuple[MainlineArtifactRegistration, ...]
+    completion_facts: tuple[str, ...] = ()
+    additional_completed_task_keys: tuple[str, ...] = ()
 
 
 def _load_object(path: Path) -> dict[str, Any]:
@@ -700,6 +723,465 @@ class P25ResamplingCapability:
         )
 
 
+class P26MeasurementValidationCapability:
+    def __init__(self, *, root_dir: Path = ROOT_DIR) -> None:
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if task.task_key != P26_TASK_KEY or task.requested_capability != P26_CAPABILITY:
+            raise MainlineSupervisorError("P2.6 capability received the wrong task")
+        contract_path = (
+            self.root_dir
+            / "configs/research-os/"
+            "m4-information-theory-p2-6-measurement-validation-v1.json"
+        )
+        manifest = load_measurement_validation_manifest(contract_path)
+        upstream = manifest.payload["upstream_identities"]
+        expected_inputs = (
+            str(upstream["preregistration_digest"]),
+            str(upstream["decision_policy_digest"]),
+            str(upstream["synthetic_manifest_digest"]),
+            str(upstream["metric_kernel_digest"]),
+            str(upstream["walk_forward_harness_digest"]),
+            str(upstream["injected_signal_completion_digest"]),
+            str(upstream["resampling_kernel_digest"]),
+            manifest.artifact_digest,
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "P2.6 requires all accepted P2.1-P2.6 identities in order"
+            )
+        synthetic = load_synthetic_run_manifest(
+            self.root_dir
+            / "configs/research-os/"
+            "m4-information-theory-p2-synthetic-run-manifest-v1.0.1.json"
+        )
+        resampling_path = (
+            self.root_dir
+            / "configs/research-os/"
+            "m4-information-theory-p2-5-resampling-kernel-v1.json"
+        )
+        resampling = load_resampling_manifest(resampling_path)
+        truths = locate_truth_artifacts(
+            self.root_dir,
+            required_digests=resampling.truth_artifact_digests,
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        output_dir = task_dir / "artifacts"
+        evaluator = ReferenceReplicateEvaluator.from_paths(
+            manifest=manifest,
+            synthetic=synthetic,
+            preregistration_path=(
+                self.root_dir
+                / "configs/research-os/"
+                "m4-information-theory-preregistration-v1.0.3.json"
+            ),
+            walk_forward_harness_path=(
+                self.root_dir
+                / "configs/research-os/"
+                "m4-information-theory-walk-forward-harness-v1.json"
+            ),
+            resampling_path=resampling_path,
+            truth_by_scenario=truths,
+            git_commit=git_commit,
+            output_dir=output_dir,
+        )
+        configured_workers = int(
+            os.environ.get(
+                "DEHPS_P26_WORKERS",
+                str(max(1, min(20, (os.cpu_count() or 2) - 2))),
+            )
+        )
+        coordinator = run_parallel_execution(
+            manifest=manifest,
+            synthetic=synthetic,
+            parent_execution_id=execution_id,
+            output_dir=output_dir,
+            evaluator=evaluator,
+            worker_count=configured_workers,
+            progress_projection_path=(
+                self.root_dir
+                / "runtime/logs/"
+                "m4-p2-6-measurement-validation-progress.json"
+            ),
+        )
+        completion = assemble_completion(
+            manifest=manifest,
+            synthetic=synthetic,
+            parent_execution_id=execution_id,
+            output_dir=output_dir,
+            git_commit=git_commit,
+        )
+        child_paths = (
+            coordinator.execution_plan_path,
+            *completion.replicate_paths,
+            *completion.aggregate_paths,
+            completion.mde_summary_path,
+            completion.completion_artifact_path,
+        )
+        child_payloads = tuple(
+            (path, _load_object(path)) for path in child_paths
+        )
+        child_identities = {
+            (
+                _artifact_digest(payload),
+                str(payload.get("artifact_type") or "typed_artifact"),
+            )
+            for _, payload in child_payloads
+        }
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "measurement_validation_manifest_digest": manifest.artifact_digest,
+            "execution_plan_digest": coordinator.execution_plan["artifact_digest"],
+            "completion_artifact_digest": completion.completion_artifact[
+                "artifact_digest"
+            ],
+            "completion_artifact_path": str(
+                completion.completion_artifact_path.relative_to(self.root_dir)
+            ),
+            "aggregate_digests": [
+                item["artifact_digest"] for item in completion.aggregate_artifacts
+            ],
+            "mde_summary_digest": completion.mde_summary_artifact[
+                "artifact_digest"
+            ],
+            "decision_policy_mde_at_61_bits_per_issue": (
+                completion.mde_summary_artifact[
+                    "decision_policy_mde_at_61_bits_per_issue"
+                ]
+            ),
+            "replicate_count": len(completion.replicate_paths),
+            "aggregate_count": len(completion.aggregate_artifacts),
+            "actual_fold_count": manifest.outer_issue_predictions,
+            "all_probe_outer_fold_count": manifest.outer_issue_predictions * 4,
+            "number_probability_predictions": (
+                manifest.outer_issue_predictions * 33 * 4
+            ),
+            "bootstrap_replicate_count": (
+                manifest.scenario_replicates * manifest.bootstrap_replicates
+            ),
+            "permutation_replicate_count": (
+                manifest.scenario_replicates * manifest.permutation_replicates
+            ),
+            "negative_control_id": "NC6_SYNTHETIC_NULL",
+            "negative_control_cell_count": 3,
+            "negative_control_replicates_per_cell": (
+                manifest.negative_control_replicates
+            ),
+            "negative_control_replicate_count": 3000,
+            "registered_artifact_count": len(child_identities) + 1,
+            "engineering_progress_before": 37,
+            "engineering_progress_after": 39,
+            "evidence_progress_before": 0,
+            "evidence_progress_after": 25,
+            "downstream_consumer": P27_TASK_KEY,
+            "eligible_for_formal_inference": True,
+            "formal_power_executed": True,
+            "formal_false_positive_executed": True,
+            "mde_computed": True,
+            "pe2_finalized": True,
+            "real_history_used": False,
+            "production_checkpoint_created": False,
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "evidence_created": True,
+            "production_impact": "none",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                coordinator.execution_plan["artifact_digest"],
+                completion.completion_artifact["artifact_digest"],
+                completion.mde_summary_artifact["artifact_digest"],
+                *(
+                    item["artifact_digest"]
+                    for item in completion.aggregate_artifacts
+                ),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(registrations) != execution_payload["registered_artifact_count"]:
+            raise MainlineSupervisorError("P2.6 registered artifact count changed")
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=registrations,
+        )
+
+
+class P27AutomaticMeasurementGateCapability:
+    def __init__(self, *, root_dir: Path = ROOT_DIR) -> None:
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if task.task_key != P27_TASK_KEY or task.requested_capability != P27_CAPABILITY:
+            raise MainlineSupervisorError("P2.7 capability received the wrong task")
+        manifest = load_measurement_validation_manifest(
+            self.root_dir
+            / "configs/research-os/"
+            "m4-information-theory-p2-6-measurement-validation-v1.json"
+        )
+        if task.input_artifact_digests != (
+            P25_DECISION_POLICY_DIGEST,
+            MEASUREMENT_VALIDATION_MANIFEST_DIGEST,
+        ):
+            raise MainlineSupervisorError("P2.7 frozen inputs changed")
+        synthetic = load_synthetic_run_manifest(
+            self.root_dir
+            / "configs/research-os/"
+            "m4-information-theory-p2-synthetic-run-manifest-v1.0.1.json"
+        )
+        p26_root = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / P26_TASK_KEY
+        )
+        candidates = sorted(p26_root.glob("*/execution.json"))
+        completed = [
+            (path, _load_object(path))
+            for path in candidates
+            if _load_object(path).get("status") == "COMPLETE"
+        ]
+        if len(completed) != 1:
+            raise MainlineSupervisorError(
+                "P2.7 requires exactly one completed P2.6 execution artifact"
+            )
+        p26_execution_path, p26_execution = completed[0]
+        p26_execution_id = str(p26_execution["execution_id"])
+        p26_output = p26_execution_path.parent / "artifacts"
+        replay = verify_completion_replay(
+            manifest=manifest,
+            synthetic=synthetic,
+            parent_execution_id=p26_execution_id,
+            output_dir=p26_output,
+            git_commit=str(p26_execution["git_commit"]),
+            expected_completion_digest=str(
+                p26_execution["completion_artifact_digest"]
+            ),
+        )
+        completion_path = (
+            self.root_dir / str(p26_execution["completion_artifact_path"])
+        )
+        completion = _load_object(completion_path)
+        aggregate_paths = sorted(p26_output.glob("aggregates/*/*.json"))
+        aggregates = [_load_object(path) for path in aggregate_paths]
+        gate = evaluate_automatic_gate(
+            manifest=manifest,
+            completion=completion,
+            aggregates=aggregates,
+            deterministic_replay_passed=replay["status"] == "REPLAY_VERIFIED",
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        mde = dict(gate["mde_summary"])
+        mde_path = task_dir / "artifacts/mde" / mde["artifact_digest"] / "mde.json"
+        gate_path = (
+            task_dir
+            / "artifacts/gate"
+            / str(gate["artifact_digest"])
+            / "gate.json"
+        )
+        _persist_immutable(mde_path, mde)
+        _persist_immutable(gate_path, gate)
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "measurement_validation_manifest_digest": manifest.artifact_digest,
+            "p26_execution_artifact_digest": p26_execution["artifact_digest"],
+            "execution_plan_digest": p26_execution["execution_plan_digest"],
+            "completion_artifact_digest": completion["artifact_digest"],
+            "aggregate_digests": p26_execution["aggregate_digests"],
+            "automatic_gate_digest": gate["artifact_digest"],
+            "mde_summary_digest": mde["artifact_digest"],
+            "decision": gate["decision"],
+            "decision_fact": gate["decision_fact"],
+            "decision_policy_mde_at_61_bits_per_issue": mde[
+                "decision_policy_mde_at_61_bits_per_issue"
+            ],
+            "false_positive_by_scale": [
+                {
+                    "scale_id": item["scale_id"],
+                    "false_positive_rate": item["false_positive_rate"],
+                    "wilson_95_upper": item["wilson_95_interval"]["upper"],
+                    "point_gate_pass": item[
+                        "false_positive_point_gate_pass"
+                    ],
+                    "wilson_gate_pass": item[
+                        "false_positive_wilson_gate_pass"
+                    ],
+                }
+                for item in aggregates
+                if item["scenario_id"] == "NULL_UNIFORM"
+            ],
+            "power_by_cell": [
+                {
+                    "scale_id": item["scale_id"],
+                    "scenario_id": item["scenario_id"],
+                    "signal_strength": item["signal_strength"],
+                    "truth_bits_per_issue": item["truth_bits_per_issue"],
+                    "empirical_power": item["empirical_power"],
+                }
+                for item in aggregates
+                if item["scenario_id"] != "NULL_UNIFORM"
+            ],
+            "estimator_quality_by_cell": [
+                {
+                    "scale_id": item["scale_id"],
+                    "scenario_id": item["scenario_id"],
+                    "bias_bits_per_issue": item["bias_bits_per_issue"],
+                    "rmse_bits_per_issue": item["rmse_bits_per_issue"],
+                    "PE2_coverage_rate": item["PE2_coverage_rate"],
+                    "bias_gate_pass": item["bias_gate_pass"],
+                    "coverage_gate_pass": item["coverage_gate_pass"],
+                    "rmse_finite_gate_pass": item[
+                        "rmse_finite_gate_pass"
+                    ],
+                }
+                for item in aggregates
+                if item["scenario_id"] != "NULL_UNIFORM"
+            ],
+            "completion_facts": [gate["decision_fact"]],
+            "additional_completed_task_keys": (
+                [P2_UMBRELLA_TASK_KEY]
+                if gate["decision"] == "PASS_TO_P3"
+                else []
+            ),
+            "failed_requirements": gate["failed_requirements"],
+            "replay_status": replay["status"],
+            "replicate_count": completion["replicate_count"],
+            "aggregate_count": completion["cell_aggregate_count"],
+            "bootstrap_replicate_count": p26_execution[
+                "bootstrap_replicate_count"
+            ],
+            "permutation_replicate_count": p26_execution[
+                "permutation_replicate_count"
+            ],
+            "negative_control_id": p26_execution["negative_control_id"],
+            "negative_control_cell_count": p26_execution[
+                "negative_control_cell_count"
+            ],
+            "negative_control_replicates_per_cell": p26_execution[
+                "negative_control_replicates_per_cell"
+            ],
+            "negative_control_replicate_count": p26_execution[
+                "negative_control_replicate_count"
+            ],
+            "actual_fold_count": 0,
+            "registered_artifact_count": 3,
+            "engineering_progress_before": 39,
+            "engineering_progress_after": 40,
+            "evidence_progress_before": 25,
+            "evidence_progress_after": 25,
+            "downstream_consumer": (
+                "m4-p3-strict-historical-walk-forward"
+                if gate["decision"] == "PASS_TO_P3"
+                else "m4-p2-repair-measurement-system"
+            ),
+            "eligible_for_formal_inference": True,
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "production_impact": "none",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                p26_execution["artifact_digest"],
+                completion["artifact_digest"],
+                gate["artifact_digest"],
+                mde["artifact_digest"],
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        child_payloads = ((mde_path, mde), (gate_path, gate))
+        registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=registrations,
+            completion_facts=(str(gate["decision_fact"]),),
+            additional_completed_task_keys=(
+                (P2_UMBRELLA_TASK_KEY,)
+                if gate["decision"] == "PASS_TO_P3"
+                else ()
+            ),
+        )
+
+
 class ResearchEvidenceSupervisor:
     def __init__(
         self,
@@ -723,6 +1205,10 @@ class ResearchEvidenceSupervisor:
                 root_dir=root_dir
             ),
             P25_CAPABILITY: P25ResamplingCapability(root_dir=root_dir),
+            P26_CAPABILITY: P26MeasurementValidationCapability(root_dir=root_dir),
+            P27_CAPABILITY: P27AutomaticMeasurementGateCapability(
+                root_dir=root_dir
+            ),
         }
 
     @property
@@ -783,6 +1269,15 @@ class ResearchEvidenceSupervisor:
                 "heartbeat_at": self.now().isoformat(),
             }
             self._write_state(payload)
+            latest_summary = self._latest_completed_summary(snapshot)
+            self._write_m4_status(
+                build_m4_status(
+                    manifest,
+                    snapshot=snapshot,
+                    mainline_execution=latest_summary,
+                    dispatch_performed=False,
+                )
+            )
             return payload
 
         item = (running or ready)[0]
@@ -883,6 +1378,39 @@ class ResearchEvidenceSupervisor:
                 manifest_digest=running_manifest_digest,
                 git_commit=git_commit,
             )
+        running_snapshot = self.repository.control_plane.resolve(running_manifest)
+        running_status = build_m4_status(
+            running_manifest,
+            snapshot=running_snapshot,
+            dispatch_performed=True,
+        )
+        self._write_state(
+            {
+                "schema_version": "dehps-research-evidence-supervisor-state.v1",
+                "status": "RUNNING",
+                "control_plane_key": self.control_plane_key,
+                "task_key": task.task_key,
+                "task_digest": task.artifact_digest,
+                "execution_id": execution_id,
+                "capability": capability,
+                "manifest_digest": running_manifest_digest,
+                "snapshot_digest": running_snapshot.snapshot_digest,
+                "dispatch_performed": True,
+                "git_commit": git_commit,
+                "heartbeat_at": self.now().isoformat(),
+                **(
+                    {
+                        "progress_projection_path": (
+                            "runtime/logs/"
+                            "m4-p2-6-measurement-validation-progress.json"
+                        )
+                    }
+                    if task.task_key == P26_TASK_KEY
+                    else {}
+                ),
+            }
+        )
+        self._write_m4_status(running_status)
         completed_recorded = False
         try:
             result = self.capabilities[capability].execute(
@@ -922,6 +1450,10 @@ class ResearchEvidenceSupervisor:
                             ],
                             "registered_artifact_count": len(result.registrations),
                             "git_commit": git_commit,
+                            "completion_facts": list(result.completion_facts),
+                            "additional_completed_task_keys": list(
+                                result.additional_completed_task_keys
+                            ),
                             **{
                                 key: result.execution_artifact[key]
                                 for key in (
@@ -940,6 +1472,24 @@ class ResearchEvidenceSupervisor:
                                     "replicate_count",
                                     "aggregate_count",
                                     "eligible_for_formal_inference",
+                                    "measurement_validation_manifest_digest",
+                                    "execution_plan_digest",
+                                    "automatic_gate_digest",
+                                    "mde_summary_digest",
+                                    "decision",
+                                    "decision_fact",
+                                    "failed_requirements",
+                                    "replay_status",
+                                    "bootstrap_replicate_count",
+                                    "permutation_replicate_count",
+                                    "negative_control_id",
+                                    "negative_control_cell_count",
+                                    "negative_control_replicates_per_cell",
+                                    "negative_control_replicate_count",
+                                    "decision_policy_mde_at_61_bits_per_issue",
+                                    "false_positive_by_scale",
+                                    "power_by_cell",
+                                    "estimator_quality_by_cell",
                                 )
                                 if key in result.execution_artifact
                             },
@@ -1018,6 +1568,35 @@ class ResearchEvidenceSupervisor:
             }
         )
 
+    def _latest_completed_summary(
+        self,
+        snapshot: Any,
+    ) -> dict[str, Any] | None:
+        resolutions = {
+            item.task_key: item.status for item in snapshot.resolutions
+        }
+        for candidate in (
+            P27_TASK_KEY,
+            P26_TASK_KEY,
+            P25_TASK_KEY,
+            P24_TASK_KEY,
+            P23_TASK_KEY,
+        ):
+            if resolutions.get(candidate) is not TaskStatus.COMPLETED:
+                continue
+            events = self.repository.list_mainline_execution_events(
+                control_plane_key=self.control_plane_key,
+                task_key=candidate,
+            )
+            completed = [
+                event
+                for event in events
+                if event.get("event_type") == "completed"
+            ]
+            if len(completed) == 1:
+                return _event_payload(completed[0])
+        return None
+
     def _record_started_event(
         self,
         *,
@@ -1061,12 +1640,21 @@ class ResearchEvidenceSupervisor:
             task=task,
             execution_id=execution_id,
         )
+        extra_facts = tuple(
+            str(value) for value in summary.get("completion_facts", ())
+        )
+        additional_completed = tuple(
+            str(value)
+            for value in summary.get("additional_completed_task_keys", ())
+        )
         completed_manifest = self._transition_manifest(
             manifest,
             task_key=task.task_key,
             status=TaskStatus.COMPLETED,
             classification=CompletionClassification.COMPLETE,
             completion_fact=completion_fact,
+            completion_facts=extra_facts,
+            additional_completed_task_keys=additional_completed,
         )
         completed_import = self.repository.import_manifest(
             control_plane_key=self.control_plane_key,
@@ -1122,6 +1710,24 @@ class ResearchEvidenceSupervisor:
             "replicate_count",
             "aggregate_count",
             "eligible_for_formal_inference",
+            "measurement_validation_manifest_digest",
+            "execution_plan_digest",
+            "automatic_gate_digest",
+            "mde_summary_digest",
+            "decision",
+            "decision_fact",
+            "failed_requirements",
+            "replay_status",
+            "bootstrap_replicate_count",
+            "permutation_replicate_count",
+            "negative_control_id",
+            "negative_control_cell_count",
+            "negative_control_replicates_per_cell",
+            "negative_control_replicate_count",
+            "decision_policy_mde_at_61_bits_per_issue",
+            "false_positive_by_scale",
+            "power_by_cell",
+            "estimator_quality_by_cell",
         ):
             if key in summary:
                 payload[key] = summary[key]
@@ -1166,6 +1772,112 @@ class ResearchEvidenceSupervisor:
             raise MainlineSupervisorError(
                 "registered mainline artifacts are missing: " + ", ".join(missing)
             )
+        capability_replay: dict[str, Any] | None = None
+        if task_key == P26_TASK_KEY:
+            measurement_manifest = load_measurement_validation_manifest(
+                self.root_dir
+                / "configs/research-os/"
+                "m4-information-theory-p2-6-measurement-validation-v1.json"
+            )
+            synthetic = load_synthetic_run_manifest(
+                self.root_dir
+                / "configs/research-os/"
+                "m4-information-theory-p2-synthetic-run-manifest-v1.0.1.json"
+            )
+            capability_replay = verify_completion_replay(
+                manifest=measurement_manifest,
+                synthetic=synthetic,
+                parent_execution_id=resolved_execution_id,
+                output_dir=artifact_path.parent / "artifacts",
+                git_commit=str(artifact["git_commit"]),
+                expected_completion_digest=str(
+                    artifact["completion_artifact_digest"]
+                ),
+            )
+        elif task_key == P27_TASK_KEY:
+            measurement_manifest = load_measurement_validation_manifest(
+                self.root_dir
+                / "configs/research-os/"
+                "m4-information-theory-p2-6-measurement-validation-v1.json"
+            )
+            synthetic = load_synthetic_run_manifest(
+                self.root_dir
+                / "configs/research-os/"
+                "m4-information-theory-p2-synthetic-run-manifest-v1.0.1.json"
+            )
+            p26_candidates = [
+                (path, _load_object(path))
+                for path in (
+                    self.root_dir
+                    / "runtime/research-os/mainline/tasks"
+                    / P26_TASK_KEY
+                ).glob("*/execution.json")
+            ]
+            p26_matches = [
+                (path, payload)
+                for path, payload in p26_candidates
+                if payload.get("artifact_digest")
+                == artifact.get("p26_execution_artifact_digest")
+            ]
+            if len(p26_matches) != 1:
+                raise MainlineSupervisorError(
+                    "P2.7 replay cannot resolve its unique P2.6 parent"
+                )
+            p26_path, p26_execution = p26_matches[0]
+            p26_output = p26_path.parent / "artifacts"
+            completion = _load_object(
+                self.root_dir
+                / str(p26_execution["completion_artifact_path"])
+            )
+            completion_replay = verify_completion_replay(
+                manifest=measurement_manifest,
+                synthetic=synthetic,
+                parent_execution_id=str(p26_execution["execution_id"]),
+                output_dir=p26_output,
+                git_commit=str(p26_execution["git_commit"]),
+                expected_completion_digest=str(
+                    p26_execution["completion_artifact_digest"]
+                ),
+            )
+            aggregates = [
+                _load_object(path)
+                for path in sorted(p26_output.glob("aggregates/*/*.json"))
+            ]
+            reconstructed_gate = evaluate_automatic_gate(
+                manifest=measurement_manifest,
+                completion=completion,
+                aggregates=aggregates,
+                deterministic_replay_passed=(
+                    completion_replay["status"] == "REPLAY_VERIFIED"
+                ),
+            )
+            if (
+                reconstructed_gate["artifact_digest"]
+                != artifact.get("automatic_gate_digest")
+                or reconstructed_gate["mde_summary"]["artifact_digest"]
+                != artifact.get("mde_summary_digest")
+                or reconstructed_gate["decision"] != artifact.get("decision")
+                or reconstructed_gate["decision_fact"]
+                != artifact.get("decision_fact")
+            ):
+                raise MainlineSupervisorError(
+                    "P2.7 automatic gate or MDE replay identity changed"
+                )
+            capability_replay = {
+                "status": "REPLAY_VERIFIED",
+                "completion_artifact_digest": completion[
+                    "artifact_digest"
+                ],
+                "automatic_gate_digest": reconstructed_gate[
+                    "artifact_digest"
+                ],
+                "mde_summary_digest": reconstructed_gate["mde_summary"][
+                    "artifact_digest"
+                ],
+                "decision": reconstructed_gate["decision"],
+                "decision_fact": reconstructed_gate["decision_fact"],
+                "manual_input_assembly": False,
+            }
         payload = {
             "schema_version": "dehps-research-evidence-supervisor-replay.v1",
             "status": "REPLAY_VERIFIED",
@@ -1181,6 +1893,8 @@ class ResearchEvidenceSupervisor:
             "manual_input_assembly": False,
             "dispatch_performed": False,
         }
+        if capability_replay is not None:
+            payload["capability_replay"] = capability_replay
         self._write_state(payload)
         return payload
 
@@ -1230,20 +1944,38 @@ class ResearchEvidenceSupervisor:
         status: TaskStatus,
         classification: CompletionClassification,
         completion_fact: str | None = None,
+        completion_facts: tuple[str, ...] = (),
+        additional_completed_task_keys: tuple[str, ...] = (),
     ) -> dict[str, Any]:
         payload = manifest.to_dict(include_digest=False)
         found = False
+        additional = set(additional_completed_task_keys)
+        located_additional: set[str] = set()
         for task in payload["tasks"]:
-            if task["task_key"] != task_key:
-                continue
-            found = True
-            task["status"] = status.value
-            task["completion_classification"] = classification.value
+            if task["task_key"] == task_key:
+                found = True
+                task["status"] = status.value
+                task["completion_classification"] = classification.value
+            elif task["task_key"] in additional:
+                located_additional.add(str(task["task_key"]))
+                task["status"] = TaskStatus.COMPLETED.value
+                task["completion_classification"] = (
+                    CompletionClassification.COMPLETE.value
+                )
         if not found:
             raise ResearchOSValidationError(f"task not found: {task_key}")
+        missing_additional = additional - located_additional
+        if missing_additional:
+            raise ResearchOSValidationError(
+                "additional completed tasks not found: "
+                + ", ".join(sorted(missing_additional))
+            )
+        all_facts = set(completion_facts)
         if completion_fact is not None:
+            all_facts.add(completion_fact)
+        if all_facts:
             facts = set(payload["facts"]["artifacts"])
-            facts.add(completion_fact)
+            facts.update(all_facts)
             payload["facts"]["artifacts"] = sorted(facts)
         return payload
 

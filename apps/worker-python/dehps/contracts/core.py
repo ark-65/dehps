@@ -17,6 +17,15 @@ _DIGEST_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _canonical_value(value: Any) -> Any:
+    # Primitive values dominate large numerical evidence artifacts. Resolve
+    # them before the comparatively expensive dataclass and ABC checks while
+    # preserving the exact canonical JSON representation.
+    if value is None or isinstance(value, (str, int, bool)):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("canonical payloads require finite floats")
+        return value
     if is_dataclass(value) and not isinstance(value, type):
         return {item.name: _canonical_value(getattr(value, item.name)) for item in fields(value)}
     if isinstance(value, Enum):
@@ -39,12 +48,6 @@ def _canonical_value(value: Any) -> Any:
         raise TypeError("canonical payloads may not contain unordered collections")
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         return [_canonical_value(item) for item in value]
-    if isinstance(value, float):
-        if not math.isfinite(value):
-            raise ValueError("canonical payloads require finite floats")
-        return value
-    if value is None or isinstance(value, (str, int, bool)):
-        return value
     raise TypeError(f"unsupported canonical payload type: {type(value).__name__}")
 
 
@@ -65,6 +68,30 @@ def canonical_digest(value: Any, *, domain: str) -> str:
         raise ValueError("digest domain must be non-empty")
     encoded = f"{domain}\x00{canonical_json(value)}".encode("utf-8")
     return sha256(encoded).hexdigest()
+
+
+def canonical_digest_prevalidated_primitives(
+    value: Any,
+    *,
+    domain: str,
+) -> str:
+    """Digest an internally generated primitive JSON tree without renormalizing.
+
+    Callers must supply only string-keyed mappings, sequences, finite floats,
+    strings, integers, booleans, and ``None``. The serialized bytes are
+    identical to ``canonical_digest`` for that input.
+    """
+
+    if not domain.strip():
+        raise ValueError("digest domain must be non-empty")
+    serialized = json.dumps(
+        value,
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+    return sha256(f"{domain}\x00{serialized}".encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)

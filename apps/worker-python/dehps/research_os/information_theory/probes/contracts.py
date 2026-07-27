@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Callable, Protocol
 
 from dehps.research_os.information_theory.walk_forward.contracts import (
     BlindTestFeatureView,
     ProbeState,
+    TrainingDatasetView,
+    TrainFeatureView,
 )
+
+TrainViewBuilder = Callable[
+    [TrainingDatasetView, tuple[int, ...]],
+    TrainFeatureView,
+]
 
 
 class PreparedProbe(Protocol):

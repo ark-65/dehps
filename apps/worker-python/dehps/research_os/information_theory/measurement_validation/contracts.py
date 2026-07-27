@@ -48,6 +48,7 @@ class MeasurementValidationManifest:
     outer_issue_predictions: int
     bootstrap_replicates: int
     permutation_replicates: int
+    negative_control_replicates: int
     coverage_lower: float
     coverage_upper: float
     practical_power_min: float
@@ -346,6 +347,9 @@ def validate_measurement_validation_manifest(
         outer_issue_predictions=int(workload["outer_issue_predictions"]),
         bootstrap_replicates=int(resampling["bootstrap_replicates"]),
         permutation_replicates=int(resampling["permutation_replicates"]),
+        negative_control_replicates=int(
+            resampling["negative_control_replicates"]
+        ),
         coverage_lower=float(interval["coverage_acceptance_interval"][0]),
         coverage_upper=float(interval["coverage_acceptance_interval"][1]),
         practical_power_min=float(power["practical_0_01_bits_per_issue_min"]),

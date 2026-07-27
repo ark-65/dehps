@@ -777,6 +777,8 @@ def test_formal_probe_registry_excludes_canary_and_post_result_models() -> None:
         "THEORETICAL_BASELINE",
         "EMPIRICAL_BASELINE",
         "REGULARIZED_LOGISTIC_REGRESSION",
+        "NAIVE_BAYES",
+        "SHALLOW_CALIBRATED_TREE",
     )
 
 

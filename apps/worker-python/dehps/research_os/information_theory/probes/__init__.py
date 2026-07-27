@@ -10,7 +10,9 @@ from .convergence import (
 )
 from .empirical_baseline import prepare_empirical_baseline
 from .logistic_regression import prepare_logistic_probe
+from .naive_bayes import prepare_naive_bayes_probe
 from .registry import FORMAL_PROBE_REGISTRY, prepare_probe
+from .shallow_calibrated_tree import prepare_shallow_calibrated_tree
 from .theoretical_baseline import prepare_theoretical_baseline
 
 __all__ = [
@@ -24,6 +26,8 @@ __all__ = [
     "ProbePrediction",
     "prepare_empirical_baseline",
     "prepare_logistic_probe",
+    "prepare_naive_bayes_probe",
     "prepare_probe",
+    "prepare_shallow_calibrated_tree",
     "prepare_theoretical_baseline",
 ]

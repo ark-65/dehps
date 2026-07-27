@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from dehps.contracts import canonical_digest
 from dehps.research_os.control_plane import ResearchOSControlPlane
 from dehps.research_os.information_theory.synthetic import (
     generate_null_dataset,
@@ -25,14 +26,20 @@ from dehps.research_os.information_theory.resampling.contracts import (
 from dehps.research_os.mainline import mainline_completion_fact
 from dehps.research_os.models import (
     ControlPlaneManifest,
+    MainlineArtifactRegistration,
     ResearchOSValidationError,
     TaskStatus,
 )
 from dehps.research_os.repository import PostgresResearchOSRepository
 from dehps.research_os.supervisor import (
+    CapabilityResult,
     P23_TASK_KEY,
     P24_TASK_KEY,
     P25_TASK_KEY,
+    P26_CAPABILITY,
+    P26_TASK_KEY,
+    P27_CAPABILITY,
+    P27_TASK_KEY,
     ResearchEvidenceSupervisor,
 )
 
@@ -224,6 +231,91 @@ class MemoryMainlineRepository:
             and item["execution_id"] == execution_id
         )
 
+
+class _ProjectedCapability:
+    def __init__(
+        self,
+        *,
+        root: Path,
+        task_key: str,
+        summary: dict,
+        completion_facts: tuple[str, ...] = (),
+    ) -> None:
+        self.root = root
+        self.task_key = task_key
+        self.summary = summary
+        self.completion_facts = completion_facts
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        assert task.task_key == self.task_key
+        path = (
+            self.root
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+            / "execution.json"
+        )
+        payload = {
+            "schema_version": "dehps-research-os-mainline-execution.v1",
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "actual_fold_count": self.summary.get("actual_fold_count", 0),
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "parent_digests": list(task.input_artifact_digests),
+            **self.summary,
+        }
+        identity = dict(payload)
+        identity.pop("artifact_digest")
+        payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        registration = MainlineArtifactRegistration(
+            execution_id=execution_id,
+            control_plane_key=control_plane_key,
+            task_key=task.task_key,
+            task_digest=task.artifact_digest,
+            artifact_digest=payload["artifact_digest"],
+            artifact_type=payload["artifact_type"],
+            schema_version=payload["schema_version"],
+            artifact_path=str(path.relative_to(self.root)),
+            parent_digests=tuple(payload["parent_digests"]),
+            git_commit=git_commit,
+        )
+        return CapabilityResult(
+            execution_artifact=payload,
+            execution_artifact_path=path,
+            registrations=(registration,),
+            completion_facts=self.completion_facts,
+        )
 
 def prepare_root(tmp_path: Path) -> Path:
     for relative in (
@@ -571,3 +663,103 @@ def test_supervisor_executes_p2_5_unlocks_p2_6_and_replays(
         "started",
         "completed",
     ]
+
+
+def test_supervisor_projects_p2_6_and_fail_closed_p2_7_repair_branch(
+    tmp_path: Path,
+) -> None:
+    repository = MemoryMainlineRepository(p25_source_manifest_payload())
+    root = prepare_root(tmp_path)
+    prepare_formal_p24_artifacts(root)
+    supervisor = ResearchEvidenceSupervisor(
+        repository=repository,  # type: ignore[arg-type]
+        control_plane_key="test-mainline",
+        root_dir=root,
+        now=lambda: datetime(2026, 7, 27, 10, 0, tzinfo=timezone.utc),
+        git_commit=TEST_COMMIT,
+        require_clean_tree=False,
+    )
+    supervisor.run_once()
+    supervisor.capabilities[P26_CAPABILITY] = _ProjectedCapability(
+        root=root,
+        task_key=P26_TASK_KEY,
+        summary={
+            "actual_fold_count": 64_656_000,
+            "measurement_validation_manifest_digest": "9" * 64,
+            "execution_plan_digest": "8" * 64,
+            "completion_artifact_digest": "7" * 64,
+            "mde_summary_digest": "6" * 64,
+            "decision_policy_mde_at_61_bits_per_issue": 0.05,
+            "aggregate_digests": ["5" * 64] * 31,
+            "replicate_count": 31_000,
+            "aggregate_count": 31,
+            "eligible_for_formal_inference": True,
+            "bootstrap_replicate_count": 62_000_000,
+            "permutation_replicate_count": 62_000_000,
+            "negative_control_id": "NC6_SYNTHETIC_NULL",
+            "negative_control_cell_count": 3,
+            "negative_control_replicates_per_cell": 1000,
+            "negative_control_replicate_count": 3000,
+        },
+    )
+    p26 = supervisor.run_once()
+    snapshot = repository.control_plane.resolve(repository.manifest)
+    states = {item.task_key: item.status for item in snapshot.resolutions}
+
+    assert p26["status"] == "COMPLETE"
+    assert p26["engineering_progress_percent"] == 39
+    assert p26["evidence_progress_percent"] == 25
+    assert states[P26_TASK_KEY] is TaskStatus.COMPLETED
+    assert states[P27_TASK_KEY] is TaskStatus.READY
+
+    repair_fact = (
+        "m4-p2-measurement-decision:REPAIR_MEASUREMENT_SYSTEM"
+    )
+    supervisor.capabilities[P27_CAPABILITY] = _ProjectedCapability(
+        root=root,
+        task_key=P27_TASK_KEY,
+        summary={
+            "actual_fold_count": 0,
+            "measurement_validation_manifest_digest": "9" * 64,
+            "execution_plan_digest": "8" * 64,
+            "completion_artifact_digest": "7" * 64,
+            "automatic_gate_digest": "4" * 64,
+            "mde_summary_digest": "6" * 64,
+            "decision": "REPAIR_MEASUREMENT_SYSTEM",
+            "decision_fact": repair_fact,
+            "failed_requirements": [
+                "all_practical_strength_cell_power_gates_pass"
+            ],
+            "replay_status": "REPLAY_VERIFIED",
+            "replicate_count": 31_000,
+            "aggregate_count": 31,
+            "decision_policy_mde_at_61_bits_per_issue": 0.05,
+            "false_positive_by_scale": [],
+            "power_by_cell": [],
+            "estimator_quality_by_cell": [],
+        },
+        completion_facts=(repair_fact,),
+    )
+    p27 = supervisor.run_once()
+    snapshot = repository.control_plane.resolve(repository.manifest)
+    states = {item.task_key: item.status for item in snapshot.resolutions}
+
+    assert p27["status"] == "COMPLETE"
+    assert p27["next_ready_task"] == "m4-p2-repair-measurement-system"
+    assert states[P27_TASK_KEY] is TaskStatus.COMPLETED
+    assert states["m4-p2-repair-measurement-system"] is TaskStatus.READY
+    assert states["m4-p3-strict-historical-walk-forward"] is not TaskStatus.READY
+    assert repair_fact in repository.manifest.facts.artifacts
+
+    waiting = supervisor.run_once()
+    projected = json.loads(
+        (root / "runtime/logs/m4-information-theory-status.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert waiting["status"] == "WAITING_FOR_CAPABILITY"
+    assert projected["synthetic_validation"] == "REPAIR_MEASUREMENT_SYSTEM"
+    assert projected["current_state"] == "REPAIR_REQUIRED"
+    assert projected["p2_subphase"]["current"] == "M4-P2-REPAIR"
+    assert projected["mainline_integration"]["task_key"] == P27_TASK_KEY
+    assert projected["current_statistics"]["power"] == "EVALUATED"
