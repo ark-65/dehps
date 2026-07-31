@@ -237,3 +237,76 @@ Final training-mainline conclusion for this pre-merge round:
 ```text
 NO — implementation remains INTEGRATION_PENDING
 ```
+
+## Post-merge canonical validation and operator cutover
+
+PR `#232` passed the Worker Python Tests check and was merged with the
+repository's squash method as commit
+`e6dedaf9c835672a5e17007653ee6e8fe55b67d9`.
+
+The clean `main` checkout imported source DAG
+`eab2583985b389dc8ee000fba74ee965fb75da131c2e709a05067a1cbfdbb9cc`,
+then executed the repair through the unified Research Evidence Supervisor:
+
+| Binding | Canonical result |
+| --- | --- |
+| Repair task digest | `1f1329a7932f707516547a71ccfdae6a221504cf3dcc8b53d8df90b85245f285` |
+| Execution id | `38725967d60cbd8cac21991b92a4ebf207a2ef2089182e5bd0497c827101e9b8` |
+| Execution artifact | `5c35c8f3aa92c178a08128483cb214d9c0be08cd51599773357176395b7a0d33` |
+| Completion artifact | `05bd2c43b000be675ca989e0c6f8720bc20e125d540df16be6350410f26d1f78` |
+| Identifiability confirmation | `770e9ee229fb60a3dd16942f7b29a5563cafcfb70e5ed2624c44e4a808f2230c` |
+| Development selection | `90459ebf8b88afcc60ee1177043e436b90b71c00b557f15e9e4d7026f37586f2` |
+| Registered artifacts | 16 |
+| Repair folds | 0 |
+| Evidence increment | 0 |
+| Old partial outcomes inspected | No |
+| Old execution resumable | No |
+| Replay | `REPLAY_VERIFIED`; same execution, contract, development, truth, and artifact identities |
+| Next Ready task | `m4-p2-false-positive-and-power-runs` |
+
+The repaired P2.6.1 research lane then started from the updated commit:
+
+| Runtime item | Value |
+| --- | --- |
+| P2.6.1 task digest | `80068e22f5e1c343fd86213faa0d9a411d71f92ad2750fed10449a10151de8fa` |
+| Parent execution id | `cd64aacc48c5e1dac4f84d7f644e92384b50f37299b1643631b7ee872ab452b3` |
+| Execution plan | `b5b0e48febcab8d4b5550eafa9586bee890095d91b853c3e711023083b3372a6` |
+| Progress path | `runtime/logs/m4-p2-6-1-measurement-validation-progress.json` |
+| Service | unified supervisor `active` |
+| Legacy independent validator | `disabled` and `inactive` |
+| Old equivalent-resume drop-in | removed from active systemd configuration and preserved in the superseded runtime archive |
+| Research-lane budget | 8 workers, `Nice=10`, idle I/O, 800% CPU quota |
+| Restart/recovery check | same execution id; 40 complete artifacts reused |
+| Post-restart live check | 45 complete, 0 failed, 0 retried; five new artifacts completed under the bounded lane |
+
+Partial P2.6.1 statistical outcomes are not used to revise the frozen
+measurement contract, tune a threshold, or make an early Gate decision.
+P2.6.1 remains `RUNNING`; P2.7 and P3 correctly remain dependency-gated until
+the full formal workload and automatic Gate complete. Engineering work may
+continue independently while the bounded research lane runs.
+
+## Final integration matrix
+
+| Integration item | Canonical evidence |
+| --- | --- |
+| Canonical Goal | `M4_INFORMATION_THEORY_EVIDENCE` |
+| Dependency Graph | Repair completed between preflight and P2.6.1 |
+| Ready Queue | Repair was sole Ready; P2.6.1 became sole Ready afterward |
+| Unified Runner | Repair execution `38725967…`; P2.6.1 execution `cd64aacc…` |
+| Upstream artifacts | Five ordered repair identities verified |
+| Downstream artifacts | 16 repair artifacts registered |
+| Status projection | `P2.6.1_REPAIRED_CONTRACT_READY`, then P2.6.1 `RUNNING` |
+| Engineering Progress | 38% to 40% |
+| Evidence Progress | 0% to 0% |
+| Downstream consumer | P2.6.1 false-positive/power run |
+| End-to-end replay | Repair replay verified without manual input assembly |
+| No old bypass | Old resume path archived; legacy validator disabled |
+
+Final training-mainline conclusion for the Measurement Contract Repair:
+
+```text
+YES — validated by unified mainline execution and replay
+```
+
+P2.6.1 itself is intentionally not classified COMPLETE; it is an active,
+bounded research-lane execution awaiting all formal replicates and P2.7.
