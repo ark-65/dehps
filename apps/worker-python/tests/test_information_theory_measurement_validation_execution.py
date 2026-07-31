@@ -4,8 +4,8 @@ import json
 from copy import deepcopy
 from pathlib import Path
 
-import pytest
 import numpy as np
+import pytest
 
 from dehps.research_os.information_theory.measurement_validation import (
     PASS_FACT,
@@ -29,33 +29,33 @@ from dehps.research_os.information_theory.measurement_validation import (
     type7_quantile,
     wilson_interval,
 )
-from dehps.research_os.information_theory.synthetic import (
-    load_synthetic_run_manifest,
-)
-from dehps.research_os.information_theory.resampling import (
-    load_resampling_manifest,
+from dehps.research_os.information_theory.measurement_validation.journal import (
+    StrictPriorCheckpointJournal,
+    verify_checkpoint_journal,
 )
 from dehps.research_os.information_theory.measurement_validation.reference import (
     ReferenceReplicateEvaluator,
     vectorized_p2_pe1,
 )
-from dehps.research_os.information_theory.measurement_validation.journal import (
-    StrictPriorCheckpointJournal,
-    verify_checkpoint_journal,
-)
 from dehps.research_os.information_theory.metrics import (
     evaluate_issue,
     probe_log_loss_bits_per_issue_batch,
+    probe_log_loss_bits_per_issue_batch_exact_native,
 )
-from dehps.research_os.information_theory.walk_forward.contracts import (
-    THEORETICAL_PROBABILITY,
+from dehps.research_os.information_theory.resampling import (
+    load_resampling_manifest,
+)
+from dehps.research_os.information_theory.synthetic import (
+    load_synthetic_run_manifest,
 )
 from dehps.research_os.information_theory.walk_forward import (
     build_blind_test_feature_view,
     build_train_feature_view,
     restrict_to_training_history,
 )
-
+from dehps.research_os.information_theory.walk_forward.contracts import (
+    THEORETICAL_PROBABILITY,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
 CONTRACT_PATH = (
@@ -67,8 +67,7 @@ SYNTHETIC_PATH = (
     / "configs/research-os/m4-information-theory-p2-synthetic-run-manifest-v1.0.1.json"
 )
 RESAMPLING_PATH = (
-    ROOT
-    / "configs/research-os/m4-information-theory-p2-5-resampling-kernel-v1.json"
+    ROOT / "configs/research-os/m4-information-theory-p2-5-resampling-kernel-v1.json"
 )
 EXECUTION_ID = "a" * 64
 PROBES = (
@@ -77,9 +76,7 @@ PROBES = (
     "NAIVE_BAYES",
     "SHALLOW_CALIBRATED_TREE",
 )
-P24_EXECUTION_ID = (
-    "772b5063f1a3578c7e8f8a2cd9f102357828608de8fbd80c2c1fb2c82b79afa2"
-)
+P24_EXECUTION_ID = "772b5063f1a3578c7e8f8a2cd9f102357828608de8fbd80c2c1fb2c82b79afa2"
 P24_TRUTH_SPECS = {
     "WEAK_SINGLE_NUMBER": (
         "23a41f005f369e762f26c728eb13a5fa4888b9c04590d6e0d2410506956c7e2f",
@@ -166,15 +163,13 @@ def _synthetic():
 
 def _materialize_frozen_truths(root: Path) -> dict[str, dict]:
     resampling = load_resampling_manifest(RESAMPLING_PATH)
-    assert tuple(
-        spec[0] for spec in P24_TRUTH_SPECS.values()
-    ) == resampling.truth_artifact_digests
+    assert (
+        tuple(spec[0] for spec in P24_TRUTH_SPECS.values())
+        == resampling.truth_artifact_digests
+    )
     truth_root = (
-        root
-        / "runtime/research-os/mainline/tasks/"
-        "m4-p2-injected-signal-calibration"
-        / P24_EXECUTION_ID
-        / "artifacts/truth"
+        root / "runtime/research-os/mainline/tasks/"
+        "m4-p2-injected-signal-calibration" / P24_EXECUTION_ID / "artifacts/truth"
     )
     for scenario_id, (
         digest,
@@ -232,9 +227,7 @@ def _replicate_payload(
         "artifact_digest": f"{replicate_index + 1:064x}",
         **cell.to_dict(),
         "replicate_index": replicate_index,
-        "evaluation_dataset_seed_digest": (
-            identity.evaluation_dataset_seed_digest
-        ),
+        "evaluation_dataset_seed_digest": (identity.evaluation_dataset_seed_digest),
         "status": "COMPLETE",
         "truth_bits_per_issue": truth,
         "PE2": estimate,
@@ -285,9 +278,10 @@ def test_execution_plan_materializes_all_31000_unique_identities() -> None:
     assert plan["replicate_count"] == 31_000
     assert plan["outer_issue_predictions"] == 64_656_000
     assert sum(plan["replicate_count_by_shard"]) == 31_000
-    assert max(plan["replicate_count_by_shard"]) - min(
-        plan["replicate_count_by_shard"]
-    ) < 150
+    assert (
+        max(plan["replicate_count_by_shard"]) - min(plan["replicate_count_by_shard"])
+        < 150
+    )
     assert len(plan["artifact_digest"]) == 64
     assert len(plan["seed_set_digest"]) == 64
 
@@ -299,8 +293,7 @@ def test_evaluation_dataset_uses_separate_seed_domain_and_p24_truth(
     cell = next(
         item
         for item in cells
-        if item.scale_id == "FORWARD_61"
-        and item.scenario_id == "WEAK_SINGLE_NUMBER"
+        if item.scale_id == "FORWARD_61" and item.scenario_id == "WEAK_SINGLE_NUMBER"
     )
     replicate = build_replicate(
         cell=cell,
@@ -324,12 +317,14 @@ def test_evaluation_dataset_uses_separate_seed_domain_and_p24_truth(
     assert first.outer_evaluation_length == 61
     assert first.raw_payload["evaluation_seed_domain"] == "M4_P2_EVALUATION_DATASET"
     assert first.raw_payload["calibration_seed_domain_used"] is False
-    assert first.raw_payload["truth_artifact_digest"] == truths[cell.scenario_id][
-        "artifact_digest"
-    ]
-    assert first.raw_payload["truth"][
-        "joint_draw_information_bits_per_issue"
-    ] == truths[cell.scenario_id]["joint_draw_information_bits_per_issue"]
+    assert (
+        first.raw_payload["truth_artifact_digest"]
+        == truths[cell.scenario_id]["artifact_digest"]
+    )
+    assert (
+        first.raw_payload["truth"]["joint_draw_information_bits_per_issue"]
+        == truths[cell.scenario_id]["joint_draw_information_bits_per_issue"]
+    )
 
 
 def test_reference_evaluator_loads_all_frozen_p2_1_through_p2_5_inputs(
@@ -340,13 +335,11 @@ def test_reference_evaluator_loads_all_frozen_p2_1_through_p2_5_inputs(
         manifest=_contract(),
         synthetic=_synthetic(),
         preregistration_path=(
-            ROOT
-            / "configs/research-os/"
+            ROOT / "configs/research-os/"
             "m4-information-theory-preregistration-v1.0.3.json"
         ),
         walk_forward_harness_path=(
-            ROOT
-            / "configs/research-os/"
+            ROOT / "configs/research-os/"
             "m4-information-theory-walk-forward-harness-v1.json"
         ),
         resampling_path=RESAMPLING_PATH,
@@ -357,9 +350,7 @@ def test_reference_evaluator_loads_all_frozen_p2_1_through_p2_5_inputs(
     assert evaluator.manifest.artifact_digest == _contract().artifact_digest
     assert (
         evaluator.inputs.walk_forward_harness.artifact_digest
-        == _contract().payload["upstream_identities"][
-            "walk_forward_harness_digest"
-        ]
+        == _contract().payload["upstream_identities"]["walk_forward_harness_digest"]
     )
 
 
@@ -369,8 +360,7 @@ def test_strict_prior_feature_cache_is_digest_equivalent_without_future_access(
     cell = next(
         item
         for item in build_cells(_contract(), _synthetic())
-        if item.scale_id == "FORWARD_61"
-        and item.scenario_id == "WEAK_SINGLE_NUMBER"
+        if item.scale_id == "FORWARD_61" and item.scenario_id == "WEAK_SINGLE_NUMBER"
     )
     replicate = build_replicate(
         cell=cell,
@@ -469,7 +459,30 @@ def test_vectorized_permutation_metric_is_numerically_equivalent_to_p22() -> Non
     )
 
 
-def test_primary_inference_requires_both_holm_endpoints_and_positive_intervals() -> None:
+def test_native_nested_metric_is_bit_exact_for_frozen_positive_fsum() -> None:
+    generator = np.random.default_rng(817263)
+    probabilities = generator.uniform(1e-9, 1.0 - 1e-9, size=(1000, 33))
+    targets = np.zeros((1000, 33), dtype=np.int8)
+    for row in targets:
+        row[generator.choice(np.arange(33), 6, replace=False)] = 1
+    literal = np.asarray(
+        probe_log_loss_bits_per_issue_batch(
+            target_vectors=targets,
+            probe_probability_vectors=probabilities,
+        )
+    )
+    native = np.asarray(
+        probe_log_loss_bits_per_issue_batch_exact_native(
+            target_vectors=targets,
+            probe_probability_vectors=probabilities,
+        )
+    )
+    assert np.array_equal(literal.view(np.uint64), native.view(np.uint64))
+
+
+def test_primary_inference_requires_both_holm_endpoints_and_positive_intervals() -> (
+    None
+):
     issue_values = [0.02 + (index % 7) * 0.0001 for index in range(61)]
     null = [-0.01 + index * 0.000005 for index in range(2000)]
     bootstrap = [0.018 + index * 0.000002 for index in range(2000)]
@@ -491,8 +504,7 @@ def test_checkpoint_journal_is_persisted_before_target_and_replayable(
     cell = next(
         item
         for item in build_cells(_contract(), _synthetic())
-        if item.scale_id == "FORWARD_61"
-        and item.scenario_id == "NULL_UNIFORM"
+        if item.scale_id == "FORWARD_61" and item.scenario_id == "NULL_UNIFORM"
     )
     replicate = build_replicate(
         cell=cell,
@@ -528,8 +540,7 @@ def test_checkpoint_journal_is_persisted_before_target_and_replayable(
         fold_index=0,
         test_issue=901,
         checkpoint_digests={
-            probe: f"{index + 1:064x}"
-            for index, probe in enumerate(PROBES)
+            probe: f"{index + 1:064x}" for index, probe in enumerate(PROBES)
         },
     )
 
@@ -646,15 +657,12 @@ class _FakeEvaluator:
             "dataset_digest": "1" * 64,
             "truth_artifact_digest": "2" * 64,
             "probe_run_digests": {
-                probe: f"{index + 3:064x}"
-                for index, probe in enumerate(PROBES)
+                probe: f"{index + 3:064x}" for index, probe in enumerate(PROBES)
             },
             "ordered_outer_checkpoint_digest": "7" * 64,
             "ordered_settlement_digest": "8" * 64,
             "checkpoint_journal_digest": "b" * 64,
-            "checkpoint_journal_entry_count": (
-                replicate.cell.outer_issue_count
-            ),
+            "checkpoint_journal_entry_count": (replicate.cell.outer_issue_count),
             "checkpoint_journal_path": (
                 "checkpoint-journals/"
                 f"{replicate.cell.scale_id}/"

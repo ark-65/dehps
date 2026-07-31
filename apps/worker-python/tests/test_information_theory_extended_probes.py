@@ -6,6 +6,18 @@ from pathlib import Path
 
 import numpy as np
 
+from dehps.research_os.information_theory.measurement_validation import (
+    StrictPriorFeatureCache,
+)
+from dehps.research_os.information_theory.probes import (
+    FORMAL_PROBE_REGISTRY,
+    prepare_naive_bayes_probe,
+    prepare_probe,
+    prepare_shallow_calibrated_tree,
+)
+from dehps.research_os.information_theory.probes.runtime_cache import (
+    ExactProbeRuntimeCache,
+)
 from dehps.research_os.information_theory.synthetic import (
     generate_null_dataset,
     load_synthetic_run_manifest,
@@ -16,29 +28,16 @@ from dehps.research_os.information_theory.walk_forward import (
     restrict_to_training_history,
     validate_synthetic_dataset,
 )
-from dehps.research_os.information_theory.probes import (
-    FORMAL_PROBE_REGISTRY,
-    prepare_probe,
-    prepare_naive_bayes_probe,
-    prepare_shallow_calibrated_tree,
-)
-from dehps.research_os.information_theory.measurement_validation import (
-    StrictPriorFeatureCache,
-)
-
 
 ROOT = Path(__file__).resolve().parents[3]
 SYNTHETIC_MANIFEST = (
-    ROOT
-    / "configs/research-os/"
-    "m4-information-theory-p2-synthetic-run-manifest-v1.json"
+    ROOT / "configs/research-os/m4-information-theory-p2-synthetic-run-manifest-v1.json"
 )
 PREREGISTRATION = (
     ROOT / "configs/research-os/m4-information-theory-preregistration-v1.0.3.json"
 )
 HARNESS = (
-    ROOT
-    / "configs/research-os/m4-information-theory-walk-forward-harness-v1.json"
+    ROOT / "configs/research-os/m4-information-theory-walk-forward-harness-v1.json"
 )
 
 
@@ -55,9 +54,9 @@ def _fixture():
     training = restrict_to_training_history(dataset, available_through_issue=900)
     train_view = build_train_feature_view(training, tuple(range(1, 901)))
     blind = build_blind_test_feature_view(dataset, target_issue=901)
-    configs = json.loads(PREREGISTRATION.read_text(encoding="utf-8"))[
-        "probe_models"
-    ]["hyperparameters"]
+    configs = json.loads(PREREGISTRATION.read_text(encoding="utf-8"))["probe_models"][
+        "hyperparameters"
+    ]
     configs["REGULARIZED_LOGISTIC_REGRESSION"] = json.loads(
         HARNESS.read_text(encoding="utf-8")
     )["probes"]["REGULARIZED_LOGISTIC_REGRESSION"]
@@ -109,7 +108,9 @@ def test_shallow_tree_uses_frozen_platt_holdout_and_prior_only_prediction() -> N
     assert prepared.state.hyperparameters["outer_test_metrics_used"] is False
 
 
-def test_cached_and_literal_feature_paths_produce_identical_four_probe_outputs() -> None:
+def test_cached_and_literal_feature_paths_produce_identical_four_probe_outputs() -> (
+    None
+):
     dataset, training, train_view, blind, configs = _fixture()
     cache = StrictPriorFeatureCache(dataset)
     cache.reveal_training_history(training, through_issue=900)
@@ -121,6 +122,7 @@ def test_cached_and_literal_feature_paths_produce_identical_four_probe_outputs()
     assert cached_train == train_view
     assert cached_blind == blind
 
+    runtime_cache = ExactProbeRuntimeCache()
     for probe_id in (
         "EMPIRICAL_BASELINE",
         "REGULARIZED_LOGISTIC_REGRESSION",
@@ -142,6 +144,7 @@ def test_cached_and_literal_feature_paths_produce_identical_four_probe_outputs()
             probe_config=config,
             outer_test_issue=901,
             train_view_builder=cache.build_train_feature_view,
+            runtime_cache=runtime_cache,
         )
         assert cached.state.state_digest == literal.state.state_digest
         assert cached.predict(cached_blind) == literal.predict(blind)

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 from dehps.research_os.information_theory.walk_forward.contracts import (
-    TrainingDatasetView,
     TrainFeatureView,
+    TrainingDatasetView,
 )
 from dehps.research_os.information_theory.walk_forward.errors import WalkForwardError
 
@@ -12,9 +13,9 @@ from .contracts import PreparedProbe, TrainViewBuilder
 from .empirical_baseline import prepare_empirical_baseline
 from .logistic_regression import prepare_logistic_probe
 from .naive_bayes import prepare_naive_bayes_probe
+from .runtime_cache import ExactProbeRuntimeCache
 from .shallow_calibrated_tree import prepare_shallow_calibrated_tree
 from .theoretical_baseline import prepare_theoretical_baseline
-
 
 FORMAL_PROBE_REGISTRY = (
     "THEORETICAL_BASELINE",
@@ -33,6 +34,7 @@ def prepare_probe(
     probe_config: Mapping[str, Any],
     outer_test_issue: int,
     train_view_builder: TrainViewBuilder | None = None,
+    runtime_cache: ExactProbeRuntimeCache | None = None,
 ) -> PreparedProbe:
     if probe_id not in FORMAL_PROBE_REGISTRY:
         raise WalkForwardError(
@@ -51,6 +53,7 @@ def prepare_probe(
             config=probe_config,
             outer_test_issue=outer_test_issue,
             train_view_builder=train_view_builder,
+            runtime_cache=runtime_cache,
         )
     if probe_id == "NAIVE_BAYES":
         return prepare_naive_bayes_probe(
@@ -59,6 +62,7 @@ def prepare_probe(
             config=probe_config,
             outer_test_issue=outer_test_issue,
             train_view_builder=train_view_builder,
+            runtime_cache=runtime_cache,
         )
     return prepare_shallow_calibrated_tree(
         dataset,
@@ -66,4 +70,5 @@ def prepare_probe(
         config=probe_config,
         outer_test_issue=outer_test_issue,
         train_view_builder=train_view_builder,
+        runtime_cache=runtime_cache,
     )

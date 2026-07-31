@@ -28,7 +28,11 @@ from .contracts import (
 )
 from .errors import MetricKernelError
 from .information_gain import ObservedLogLossGain, observed_log_loss_gain
-from .kernel import evaluate_issue, probe_log_loss_bits_per_issue_batch
+from .kernel import (
+    evaluate_issue,
+    probe_log_loss_bits_per_issue_batch,
+    probe_log_loss_bits_per_issue_batch_exact_native,
+)
 from .log_loss import (
     bernoulli_log_loss_nats,
     bits_to_nats,
@@ -67,11 +71,12 @@ __all__ = [
     "build_metric_artifact",
     "clip_probabilities",
     "evaluate_issue",
-    "probe_log_loss_bits_per_issue_batch",
     "joint_uniform_code_length",
     "load_metric_kernel_manifest",
     "nats_to_bits",
     "observed_log_loss_gain",
+    "probe_log_loss_bits_per_issue_batch",
+    "probe_log_loss_bits_per_issue_batch_exact_native",
     "reject_marginal_product_as_joint",
     "show_metric_artifact",
     "theoretical_baseline_loss",

@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from hashlib import sha256
 
-from dehps.contracts import canonical_digest_prevalidated_primitives
+import orjson
+
 from dehps.research_os.information_theory.walk_forward.contracts import (
     BlindTestFeatureView,
     SyntheticDataset,
-    TrainingDatasetView,
     TrainFeatureView,
+    TrainingDatasetView,
 )
 from dehps.research_os.information_theory.walk_forward.errors import (
     WalkForwardError,
@@ -16,6 +18,16 @@ from dehps.research_os.information_theory.walk_forward.feature_view import (
     FEATURE_MANIFEST_DIGEST,
     FEATURE_NAMES,
 )
+
+_TRAIN_FEATURE_VIEW_DOMAIN = "dehps.m4.walk-forward.train-feature-view.v1"
+_BLIND_FEATURE_VIEW_DOMAIN = "dehps.m4.walk-forward.blind-feature-view.v1"
+
+
+def _exact_feature_digest(value: object, *, domain: str) -> str:
+    """Serialize the internal ASCII primitive tree with canonical JSON bytes."""
+
+    serialized = orjson.dumps(value, option=orjson.OPT_SORT_KEYS)
+    return sha256(domain.encode("ascii") + b"\x00" + serialized).hexdigest()
 
 
 class StrictPriorFeatureCache:
@@ -113,19 +125,11 @@ class StrictPriorFeatureCache:
             self._training_views.move_to_end(issue_ids)
             return cached
         red_numbers = tuple(
-            red_number
-            for _issue_id in issue_ids
-            for red_number in range(1, 34)
+            red_number for _issue_id in issue_ids for red_number in range(1, 34)
         )
-        rows = tuple(
-            row
-            for issue_id in issue_ids
-            for row in self._rows[issue_id]
-        )
+        rows = tuple(row for issue_id in issue_ids for row in self._rows[issue_id])
         targets = tuple(
-            value
-            for issue_id in issue_ids
-            for value in self._targets[issue_id]
+            value for issue_id in issue_ids for value in self._targets[issue_id]
         )
         availability = tuple((issue_id, issue_id - 1) for issue_id in issue_ids)
         identity = {
@@ -149,9 +153,9 @@ class StrictPriorFeatureCache:
             construction_start_issue=1,
             construction_end_issue=issue_ids[-1] - 1,
             feature_manifest_digest=FEATURE_MANIFEST_DIGEST,
-            feature_view_digest=canonical_digest_prevalidated_primitives(
+            feature_view_digest=_exact_feature_digest(
                 identity,
-                domain="dehps.m4.walk-forward.train-feature-view.v1",
+                domain=_TRAIN_FEATURE_VIEW_DOMAIN,
             ),
         )
         self._training_views[issue_ids] = view
@@ -184,11 +188,7 @@ class StrictPriorFeatureCache:
             rows.append(
                 (
                     float(self._previous_target[offset]),
-                    (
-                        self._counts[offset] / history_count
-                        if history_count
-                        else 0.0
-                    ),
+                    (self._counts[offset] / history_count if history_count else 0.0),
                     float(gap),
                     red_number / 33.0,
                 )
@@ -216,8 +216,8 @@ class StrictPriorFeatureCache:
             construction_start_issue=1,
             construction_end_issue=history_count,
             feature_manifest_digest=FEATURE_MANIFEST_DIGEST,
-            feature_view_digest=canonical_digest_prevalidated_primitives(
+            feature_view_digest=_exact_feature_digest(
                 identity,
-                domain="dehps.m4.walk-forward.blind-feature-view.v1",
+                domain=_BLIND_FEATURE_VIEW_DOMAIN,
             ),
         )

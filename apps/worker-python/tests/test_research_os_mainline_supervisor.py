@@ -25,6 +25,7 @@ from dehps.research_os.information_theory.resampling.contracts import (
 )
 from dehps.research_os.mainline import mainline_completion_fact
 from dehps.research_os.models import (
+    CompletionClassification,
     ControlPlaneManifest,
     MainlineArtifactRegistration,
     ResearchOSValidationError,
@@ -573,6 +574,92 @@ def test_supervisor_resumes_after_completed_event_before_status_projection(
         for item in snapshot.ready_queue
         if item.goal_key == "M4_INFORMATION_THEORY_EVIDENCE"
     ] == ["m4-p2-injected-signal-calibration"]
+
+
+def test_supervisor_records_explicit_p2_6_equivalent_runtime_migration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = MemoryMainlineRepository(p25_source_manifest_payload())
+    root = prepare_root(tmp_path)
+    prepare_formal_p24_artifacts(root)
+    original = ResearchEvidenceSupervisor(
+        repository=repository,  # type: ignore[arg-type]
+        control_plane_key="test-mainline",
+        root_dir=root,
+        now=lambda: datetime(2026, 7, 31, 8, 0, tzinfo=timezone.utc),
+        git_commit=TEST_COMMIT,
+        require_clean_tree=False,
+    )
+    original.run_once()
+    manifest = repository.load_manifest(control_plane_key="test-mainline")
+    task = next(item for item in manifest.tasks if item.task_key == P26_TASK_KEY)
+    running_payload = original._transition_manifest(
+        manifest,
+        task_key=P26_TASK_KEY,
+        status=TaskStatus.RUNNING,
+        classification=CompletionClassification.INTEGRATED,
+    )
+    running_import = repository.import_manifest(
+        control_plane_key="test-mainline",
+        payload=running_payload,
+        source="research-evidence-supervisor-running",
+    )
+    execution_id = "e" * 64
+    original._record_started_event(
+        task=task,
+        capability=P26_CAPABILITY,
+        execution_id=execution_id,
+        manifest_digest=running_import.manifest_digest,
+        git_commit=TEST_COMMIT,
+    )
+    report = (
+        root
+        / "docs/experiments/2026-07-31-m4-p2-6-exact-runtime-acceleration.md"
+    )
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text("exact replay evidence\n", encoding="utf-8")
+    runtime_commit = "b" * 40
+    monkeypatch.setenv("DEHPS_P26_EQUIVALENT_RESUME_FROM_COMMIT", TEST_COMMIT)
+    resumed = ResearchEvidenceSupervisor(
+        repository=repository,  # type: ignore[arg-type]
+        control_plane_key="test-mainline",
+        root_dir=root,
+        now=lambda: datetime(2026, 7, 31, 9, 0, tzinfo=timezone.utc),
+        git_commit=runtime_commit,
+        require_clean_tree=False,
+    )
+    resumed.capabilities[P26_CAPABILITY] = _ProjectedCapability(
+        root=root,
+        task_key=P26_TASK_KEY,
+        summary={"actual_fold_count": 64_656_000},
+    )
+
+    result = resumed.run_once()
+    migration_paths = tuple(
+        (
+            root
+            / "runtime/research-os/mainline/tasks"
+            / P26_TASK_KEY
+            / execution_id
+            / "runtime-migrations"
+        ).glob("*/migration.json")
+    )
+
+    assert result["status"] == "COMPLETE"
+    assert len(migration_paths) == 1
+    migration = json.loads(migration_paths[0].read_text(encoding="utf-8"))
+    assert migration["execution_git_commit"] == TEST_COMMIT
+    assert migration["runtime_git_commit"] == runtime_commit
+    assert migration["statistical_contract_changed"] is False
+    assert migration["workload_changed"] is False
+    assert migration["equivalence_evidence_sha256"]
+    completed = next(
+        item
+        for item in repository.events
+        if item["event_type"] == "completed" and item["task_key"] == P26_TASK_KEY
+    )
+    assert dict(completed["payload"])["git_commit"] == TEST_COMMIT
 
 
 def test_supervisor_executes_p2_4_unlocks_p2_5_and_replays(

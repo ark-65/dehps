@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from math import log2
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 import numpy as np
 
@@ -13,6 +14,10 @@ from dehps.research_os.information_theory.digest import (
     preregistration_digest,
 )
 from dehps.research_os.information_theory.metrics import evaluate_issue
+from dehps.research_os.information_theory.probes import prepare_probe
+from dehps.research_os.information_theory.probes.runtime_cache import (
+    ExactProbeRuntimeCache,
+)
 from dehps.research_os.information_theory.resampling import (
     ResamplingKernelManifest,
     load_resampling_manifest,
@@ -27,15 +32,14 @@ from dehps.research_os.information_theory.walk_forward import (
     validate_outer_fold,
 )
 from dehps.research_os.information_theory.walk_forward.contracts import (
-    HarnessManifest,
     THEORETICAL_PROBABILITY,
+    HarnessManifest,
 )
 from dehps.research_os.information_theory.walk_forward.leakage import (
     guard_feature_timestamp,
     guard_number_event_rows,
     guard_train_test_overlap,
 )
-from dehps.research_os.information_theory.probes import prepare_probe
 
 from .contracts import (
     MEASUREMENT_VALIDATION_MANIFEST_DIGEST,
@@ -56,7 +60,6 @@ from .statistics import (
     primary_inference,
     seed_set_digest,
 )
-
 
 PROBES = (
     "EMPIRICAL_BASELINE",
@@ -92,13 +95,11 @@ def vectorized_p2_pe1(
         1.0 - PROBABILITY_EPSILON,
     )
     probe_loss = -np.sum(
-        target * np.log2(clipped)
-        + (1 - target) * np.log2(1.0 - clipped),
+        target * np.log2(clipped) + (1 - target) * np.log2(1.0 - clipped),
         axis=1,
     )
     baseline_loss = -(
-        6 * log2(THEORETICAL_PROBABILITY)
-        + 27 * log2(1.0 - THEORETICAL_PROBABILITY)
+        6 * log2(THEORETICAL_PROBABILITY) + 27 * log2(1.0 - THEORETICAL_PROBABILITY)
     )
     return baseline_loss - probe_loss
 
@@ -153,19 +154,14 @@ class ReferenceReplicateEvaluator:
                 "measurement_validation_resampling_invalid",
                 "reference evaluator requires the accepted P2.5 kernel",
             )
-        if (
-            inputs.walk_forward_harness.artifact_digest
-            != WALK_FORWARD_HARNESS_DIGEST
-        ):
+        if inputs.walk_forward_harness.artifact_digest != WALK_FORWARD_HARNESS_DIGEST:
             raise MeasurementValidationContractError(
                 "measurement_validation_walk_forward_invalid",
                 "reference evaluator requires the accepted P2.3 harness",
             )
         if (
-            inputs.preregistration.get("artifact_digest")
-            != PREREGISTRATION_DIGEST
-            or preregistration_digest(inputs.preregistration)
-            != PREREGISTRATION_DIGEST
+            inputs.preregistration.get("artifact_digest") != PREREGISTRATION_DIGEST
+            or preregistration_digest(inputs.preregistration) != PREREGISTRATION_DIGEST
         ):
             raise MeasurementValidationContractError(
                 "measurement_validation_preregistration_invalid",
@@ -195,9 +191,7 @@ class ReferenceReplicateEvaluator:
             synthetic=synthetic,
             inputs=ReferenceInputs(
                 preregistration=_load_json(preregistration_path),
-                walk_forward_harness=load_harness_manifest(
-                    walk_forward_harness_path
-                ),
+                walk_forward_harness=load_harness_manifest(walk_forward_harness_path),
                 resampling=load_resampling_manifest(resampling_path),
                 truth_by_scenario=truth_by_scenario,
                 git_commit=git_commit,
@@ -219,12 +213,8 @@ class ReferenceReplicateEvaluator:
                 "P2.3 expanding split did not produce the frozen outer count",
             )
         configs = self.inputs.preregistration["probe_models"]["hyperparameters"]
-        checkpoint_digests: dict[str, list[str]] = {
-            probe: [] for probe in PROBES
-        }
-        settlement_digests: dict[str, list[str]] = {
-            probe: [] for probe in PROBES
-        }
+        checkpoint_digests: dict[str, list[str]] = {probe: [] for probe in PROBES}
+        settlement_digests: dict[str, list[str]] = {probe: [] for probe in PROBES}
         state_digests: dict[str, list[str]] = {probe: [] for probe in PROBES}
         issue_gains: dict[str, list[float]] = {probe: [] for probe in PROBES}
         gate_probabilities: list[tuple[float, ...]] = []
@@ -236,6 +226,7 @@ class ReferenceReplicateEvaluator:
         )
 
         for fold_index, fold in enumerate(folds):
+            probe_runtime_cache = ExactProbeRuntimeCache()
             validate_outer_fold(
                 fold,
                 minimum_training_issues=dataset.minimum_training_length,
@@ -277,9 +268,8 @@ class ReferenceReplicateEvaluator:
                     train_view=train_view,
                     probe_config=config,
                     outer_test_issue=fold.test_issue,
-                    train_view_builder=(
-                        feature_cache.build_train_feature_view
-                    ),
+                    train_view_builder=(feature_cache.build_train_feature_view),
+                    runtime_cache=probe_runtime_cache,
                 )
                 probability = prepared.predict(blind)
                 checkpoint_identity = {
@@ -311,8 +301,7 @@ class ReferenceReplicateEvaluator:
                 fold_index=fold_index,
                 test_issue=fold.test_issue,
                 checkpoint_digests={
-                    probe_id: checkpoint_digests[probe_id][-1]
-                    for probe_id in PROBES
+                    probe_id: checkpoint_digests[probe_id][-1] for probe_id in PROBES
                 },
             )
             # First target access is deliberately below all four immutable
@@ -328,9 +317,7 @@ class ReferenceReplicateEvaluator:
                     probe_probability_vector=predictions[probe_id],
                 )
                 settlement_identity = {
-                    "prediction_checkpoint_digest": checkpoint_digests[
-                        probe_id
-                    ][-1],
+                    "prediction_checkpoint_digest": checkpoint_digests[probe_id][-1],
                     "target_digest": canonical_digest(
                         list(target),
                         domain="dehps.m4-p2.formal-fold-target.v1",
@@ -425,13 +412,9 @@ class ReferenceReplicateEvaluator:
         return {
             **replicate.to_dict(),
             "status": "COMPLETE",
-            "measurement_validation_manifest_digest": (
-                self.manifest.artifact_digest
-            ),
+            "measurement_validation_manifest_digest": (self.manifest.artifact_digest),
             "dataset_digest": dataset.artifact_digest,
-            "truth_artifact_digest": dataset.raw_payload[
-                "truth_artifact_digest"
-            ],
+            "truth_artifact_digest": dataset.raw_payload["truth_artifact_digest"],
             "truth_bits_per_issue": truth_bits,
             "negative_control_id": (
                 "NC6_SYNTHETIC_NULL" if is_negative_control else None

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from math import ceil, fsum
-from typing import Any, Mapping
+from typing import Any
 
 import numpy as np
 import sklearn
@@ -12,13 +13,13 @@ from sklearn.tree import DecisionTreeClassifier
 
 from dehps.contracts import canonical_digest
 from dehps.research_os.information_theory.metrics import (
-    probe_log_loss_bits_per_issue_batch,
+    probe_log_loss_bits_per_issue_batch_exact_native,
 )
 from dehps.research_os.information_theory.walk_forward.contracts import (
     BlindTestFeatureView,
     ProbeState,
-    TrainingDatasetView,
     TrainFeatureView,
+    TrainingDatasetView,
 )
 from dehps.research_os.information_theory.walk_forward.errors import WalkForwardError
 from dehps.research_os.information_theory.walk_forward.feature_view import (
@@ -37,7 +38,7 @@ from dehps.research_os.information_theory.walk_forward.preprocessing import (
 
 from .contracts import TrainViewBuilder
 from .convergence import CONVERGED, INSUFFICIENT_CLASS_VARIATION, INVALID_FEATURE_MATRIX
-
+from .runtime_cache import ExactProbeRuntimeCache
 
 MINIMUM_CALIBRATION_ISSUES = 120
 
@@ -87,6 +88,7 @@ def _fit_calibrated(
     min_samples_leaf: int,
     train_view_builder: TrainViewBuilder | None = None,
     fitted_by_view: dict[str, FittedPreprocessor] | None = None,
+    runtime_cache: ExactProbeRuntimeCache | None = None,
 ) -> tuple[CalibratedClassifierCV, FittedPreprocessor, dict[str, Any]]:
     model_issues, calibration_issues = _split_model_calibration(issue_ids)
     build_view = train_view_builder or build_train_feature_view
@@ -94,29 +96,40 @@ def _fit_calibrated(
     calibration_view = build_view(dataset, calibration_issues)
     if fitted_by_view is None:
         fitted_by_view = {}
-    fitted = fitted_by_view.get(model_view.feature_view_digest)
-    if fitted is None:
-        fitted = fit_preprocessor(
-            model_view,
-            outer_train_end=max(model_issues),
+    if runtime_cache is not None:
+        fitted = runtime_cache.fitted(model_view)
+        matrix, tree_targets = runtime_cache.tree_inputs(fitted, model_view)
+        targets = runtime_cache.targets(model_view)
+        calibration_matrix = runtime_cache.transformed(
+            fitted,
+            calibration_view,
         )
-        fitted_by_view[model_view.feature_view_digest] = fitted
-    matrix = transform_train(fitted, model_view)
-    targets = np.asarray(model_view.targets, dtype=np.int8)
-    calibration_matrix = fitted.scaler.transform(
-        np.asarray(calibration_view.values, dtype=np.float64)
-    )
-    calibration_targets = np.asarray(calibration_view.targets, dtype=np.int8)
+        calibration_targets = runtime_cache.targets(calibration_view)
+    else:
+        fitted = fitted_by_view.get(model_view.feature_view_digest)
+        if fitted is None:
+            fitted = fit_preprocessor(
+                model_view,
+                outer_train_end=max(model_issues),
+            )
+            fitted_by_view[model_view.feature_view_digest] = fitted
+        matrix = transform_train(fitted, model_view)
+        targets = np.asarray(model_view.targets, dtype=np.int8)
+        calibration_matrix = fitted.scaler.transform(
+            np.asarray(calibration_view.values, dtype=np.float64)
+        )
+        calibration_targets = np.asarray(calibration_view.targets, dtype=np.int8)
+        tree_targets = targets
     if (
         matrix.ndim != 2
         or not np.isfinite(matrix).all()
         or not np.isfinite(calibration_matrix).all()
     ):
         raise WalkForwardError(INVALID_FEATURE_MATRIX, "invalid tree feature matrix")
-    if (
-        set(np.unique(targets)) != {0, 1}
-        or set(np.unique(calibration_targets)) != {0, 1}
-    ):
+    if set(np.unique(targets)) != {0, 1} or set(np.unique(calibration_targets)) != {
+        0,
+        1,
+    }:
         raise WalkForwardError(
             INSUFFICIENT_CLASS_VARIATION,
             "tree fit and calibration targets require both classes",
@@ -127,7 +140,11 @@ def _fit_calibrated(
         min_samples_leaf=min_samples_leaf,
         random_state=dataset.replicate_seed,
     )
-    tree.fit(matrix, targets)
+    tree.fit(
+        matrix,
+        tree_targets,
+        check_input=runtime_cache is None,
+    )
     calibrated = CalibratedClassifierCV(
         FrozenEstimator(tree),
         method="sigmoid",
@@ -171,6 +188,7 @@ def prepare_shallow_calibrated_tree(
     config: Mapping[str, Any],
     outer_test_issue: int,
     train_view_builder: TrainViewBuilder | None = None,
+    runtime_cache: ExactProbeRuntimeCache | None = None,
 ) -> PreparedShallowCalibratedTree:
     if not isinstance(dataset, TrainingDatasetView):
         raise WalkForwardError(
@@ -211,18 +229,22 @@ def prepare_shallow_calibrated_tree(
                 min_samples_leaf=leaf,
                 train_view_builder=train_view_builder,
                 fitted_by_view=fitted_by_view,
+                runtime_cache=runtime_cache,
             )
             build_view = train_view_builder or build_train_feature_view
             validation = build_view(
                 dataset,
                 inner.validation_issues,
             )
-            predictions = model.predict_proba(
-                fitted.scaler.transform(
+            validation_matrix = (
+                runtime_cache.transformed(fitted, validation)
+                if runtime_cache is not None
+                else fitted.scaler.transform(
                     np.asarray(validation.values, dtype=np.float64)
                 )
-            )[:, 1]
-            losses = probe_log_loss_bits_per_issue_batch(
+            )
+            predictions = model.predict_proba(validation_matrix)[:, 1]
+            losses = probe_log_loss_bits_per_issue_batch_exact_native(
                 target_vectors=tuple(
                     dataset.issue(issue_id).target_vector
                     for issue_id in inner.validation_issues
@@ -268,6 +290,7 @@ def prepare_shallow_calibrated_tree(
         min_samples_leaf=selected_leaf,
         train_view_builder=train_view_builder,
         fitted_by_view=fitted_by_view,
+        runtime_cache=runtime_cache,
     )
     model_payload = {
         **_tree_payload(model),
