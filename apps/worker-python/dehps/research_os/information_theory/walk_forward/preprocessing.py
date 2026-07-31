@@ -27,10 +27,15 @@ def fit_preprocessor(
     *,
     outer_train_end: int,
     claimed_fit_end_issue: int | None = None,
+    prepared_matrix: np.ndarray | None = None,
 ) -> FittedPreprocessor:
     if not view.issue_ids:
         raise WalkForwardError("invalid_feature_matrix", "train view is empty")
-    matrix = np.asarray(view.values, dtype=np.float64)
+    matrix = (
+        np.asarray(view.values, dtype=np.float64)
+        if prepared_matrix is None
+        else np.asarray(prepared_matrix, dtype=np.float64)
+    )
     if matrix.ndim != 2 or not np.isfinite(matrix).all():
         raise WalkForwardError(
             "invalid_feature_matrix", "features must be a finite matrix"
@@ -73,6 +78,7 @@ def transform_train(
             "invalid_feature_matrix", "transformed train matrix is non-finite"
         )
     return matrix
+
 
 def transform_blind(
     fitted: FittedPreprocessor,

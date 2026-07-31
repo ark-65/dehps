@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from math import fsum
-from typing import Any, Mapping
+from typing import Any
 
 import numpy as np
 import sklearn
@@ -10,13 +11,13 @@ from sklearn.naive_bayes import BernoulliNB
 
 from dehps.contracts import canonical_digest
 from dehps.research_os.information_theory.metrics import (
-    probe_log_loss_bits_per_issue_batch,
+    probe_log_loss_bits_per_issue_batch_exact_native,
 )
 from dehps.research_os.information_theory.walk_forward.contracts import (
     BlindTestFeatureView,
     ProbeState,
-    TrainingDatasetView,
     TrainFeatureView,
+    TrainingDatasetView,
 )
 from dehps.research_os.information_theory.walk_forward.errors import WalkForwardError
 from dehps.research_os.information_theory.walk_forward.feature_view import (
@@ -35,6 +36,7 @@ from dehps.research_os.information_theory.walk_forward.preprocessing import (
 
 from .contracts import TrainViewBuilder
 from .convergence import CONVERGED, INSUFFICIENT_CLASS_VARIATION, INVALID_FEATURE_MATRIX
+from .runtime_cache import ExactProbeRuntimeCache
 
 
 @dataclass(frozen=True)
@@ -77,6 +79,7 @@ def prepare_naive_bayes_probe(
     config: Mapping[str, Any],
     outer_test_issue: int,
     train_view_builder: TrainViewBuilder | None = None,
+    runtime_cache: ExactProbeRuntimeCache | None = None,
 ) -> PreparedNaiveBayesProbe:
     if not isinstance(dataset, TrainingDatasetView):
         raise WalkForwardError(
@@ -96,6 +99,8 @@ def prepare_naive_bayes_probe(
     fitted_by_view: dict[str, FittedPreprocessor] = {}
 
     def fitted_for(view: TrainFeatureView) -> FittedPreprocessor:
+        if runtime_cache is not None:
+            return runtime_cache.fitted(view)
         cached = fitted_by_view.get(view.feature_view_digest)
         if cached is None:
             cached = fit_preprocessor(
@@ -104,6 +109,20 @@ def prepare_naive_bayes_probe(
             )
             fitted_by_view[view.feature_view_digest] = cached
         return cached
+
+    def transformed_for(
+        fitted: FittedPreprocessor,
+        view: TrainFeatureView,
+    ) -> np.ndarray:
+        if runtime_cache is not None:
+            return runtime_cache.transformed(fitted, view)
+        return transform_train(fitted, view)
+
+    def targets_for(view: TrainFeatureView) -> np.ndarray:
+        if runtime_cache is not None:
+            return runtime_cache.targets(view)
+        return np.asarray(view.targets, dtype=np.int8)
+
     scores_by_candidate: dict[str, tuple[float, ...]] = {}
     alpha_by_candidate: dict[str, float] = {}
     for raw_alpha in config["alpha"]:
@@ -113,22 +132,23 @@ def prepare_naive_bayes_probe(
         fold_scores: list[float] = []
         for inner in inner_folds:
             inner_train = build_view(dataset, inner.train_issues)
-            inner_validation = build_view(
-                dataset, inner.validation_issues
-            )
+            inner_validation = build_view(dataset, inner.validation_issues)
             fitted = fitted_for(inner_train)
             model = BernoulliNB(alpha=alpha, binarize=0.0)
             _fit(
                 model,
-                transform_train(fitted, inner_train),
-                np.asarray(inner_train.targets, dtype=np.int8),
+                transformed_for(fitted, inner_train),
+                targets_for(inner_train),
             )
-            predictions = model.predict_proba(
-                fitted.scaler.transform(
+            validation_matrix = (
+                runtime_cache.transformed(fitted, inner_validation)
+                if runtime_cache is not None
+                else fitted.scaler.transform(
                     np.asarray(inner_validation.values, dtype=np.float64)
                 )
-            )[:, 1]
-            issue_losses = probe_log_loss_bits_per_issue_batch(
+            )
+            predictions = model.predict_proba(validation_matrix)[:, 1]
+            issue_losses = probe_log_loss_bits_per_issue_batch_exact_native(
                 target_vectors=tuple(
                     dataset.issue(issue_id).target_vector
                     for issue_id in inner.validation_issues
@@ -166,8 +186,8 @@ def prepare_naive_bayes_probe(
     model = BernoulliNB(alpha=alpha_by_candidate[selected], binarize=0.0)
     _fit(
         model,
-        transform_train(fitted, train_view),
-        np.asarray(train_view.targets, dtype=np.int8),
+        transformed_for(fitted, train_view),
+        targets_for(train_view),
     )
     model_payload = {
         "class_count": model.class_count_.tolist(),

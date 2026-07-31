@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import warnings
+from collections.abc import Mapping
 from dataclasses import dataclass
 from math import fsum
-from typing import Any, Mapping
+from typing import Any
 
 import numpy as np
 import sklearn
@@ -12,13 +13,13 @@ from sklearn.linear_model import LogisticRegression
 
 from dehps.contracts import canonical_digest
 from dehps.research_os.information_theory.metrics import (
-    probe_log_loss_bits_per_issue_batch,
+    probe_log_loss_bits_per_issue_batch_exact_native,
 )
 from dehps.research_os.information_theory.walk_forward.contracts import (
     BlindTestFeatureView,
     ProbeState,
-    TrainingDatasetView,
     TrainFeatureView,
+    TrainingDatasetView,
 )
 from dehps.research_os.information_theory.walk_forward.errors import WalkForwardError
 from dehps.research_os.information_theory.walk_forward.feature_view import (
@@ -42,6 +43,7 @@ from .convergence import (
     INSUFFICIENT_CLASS_VARIATION,
     INVALID_FEATURE_MATRIX,
 )
+from .runtime_cache import ExactProbeRuntimeCache
 
 
 @dataclass(frozen=True)
@@ -64,7 +66,9 @@ class PreparedLogisticProbe:
         return tuple(float(value) for value in probabilities)
 
 
-def _new_model(config: Mapping[str, Any], *, c_value: float, seed: int) -> LogisticRegression:
+def _new_model(
+    config: Mapping[str, Any], *, c_value: float, seed: int
+) -> LogisticRegression:
     return LogisticRegression(
         penalty="l2",
         C=c_value,
@@ -82,7 +86,9 @@ def _fit_model(
     targets: np.ndarray,
 ) -> None:
     if matrix.ndim != 2 or not np.isfinite(matrix).all():
-        raise WalkForwardError(INVALID_FEATURE_MATRIX, "invalid logistic feature matrix")
+        raise WalkForwardError(
+            INVALID_FEATURE_MATRIX, "invalid logistic feature matrix"
+        )
     if set(np.unique(targets)) != {0, 1}:
         raise WalkForwardError(
             INSUFFICIENT_CLASS_VARIATION, "logistic targets require both classes"
@@ -113,6 +119,7 @@ def prepare_logistic_probe(
     config: Mapping[str, Any],
     outer_test_issue: int,
     train_view_builder: TrainViewBuilder | None = None,
+    runtime_cache: ExactProbeRuntimeCache | None = None,
 ) -> PreparedLogisticProbe:
     if not isinstance(dataset, TrainingDatasetView):
         raise WalkForwardError(
@@ -142,6 +149,8 @@ def prepare_logistic_probe(
     fitted_by_view: dict[str, FittedPreprocessor] = {}
 
     def fitted_for(view: TrainFeatureView) -> FittedPreprocessor:
+        if runtime_cache is not None:
+            return runtime_cache.fitted(view)
         cached = fitted_by_view.get(view.feature_view_digest)
         if cached is None:
             cached = fit_preprocessor(
@@ -150,6 +159,20 @@ def prepare_logistic_probe(
             )
             fitted_by_view[view.feature_view_digest] = cached
         return cached
+
+    def transformed_for(
+        fitted: FittedPreprocessor,
+        view: TrainFeatureView,
+    ) -> np.ndarray:
+        if runtime_cache is not None:
+            return runtime_cache.transformed(fitted, view)
+        return transform_train(fitted, view)
+
+    def targets_for(view: TrainFeatureView) -> np.ndarray:
+        if runtime_cache is not None:
+            return runtime_cache.targets(view)
+        return np.asarray(view.targets, dtype=np.int8)
+
     candidate_scores: dict[str, tuple[float, ...]] = {}
     candidate_values: dict[str, float] = {}
     for c_value in config["C"]:
@@ -158,23 +181,25 @@ def prepare_logistic_probe(
         scores: list[float] = []
         for inner in inner_folds:
             inner_train = build_view(dataset, inner.train_issues)
-            inner_validation = build_view(
-                dataset, inner.validation_issues
-            )
+            inner_validation = build_view(dataset, inner.validation_issues)
             fitted = fitted_for(inner_train)
             model = _new_model(
                 config, c_value=float(c_value), seed=dataset.replicate_seed
             )
             _fit_model(
                 model,
-                transform_train(fitted, inner_train),
-                np.asarray(inner_train.targets, dtype=np.int8),
+                transformed_for(fitted, inner_train),
+                targets_for(inner_train),
             )
-            validation_matrix = fitted.scaler.transform(
-                np.asarray(inner_validation.values, dtype=np.float64)
+            validation_matrix = (
+                runtime_cache.transformed(fitted, inner_validation)
+                if runtime_cache is not None
+                else fitted.scaler.transform(
+                    np.asarray(inner_validation.values, dtype=np.float64)
+                )
             )
             predictions = model.predict_proba(validation_matrix)[:, 1]
-            issue_losses = probe_log_loss_bits_per_issue_batch(
+            issue_losses = probe_log_loss_bits_per_issue_batch_exact_native(
                 target_vectors=tuple(
                     dataset.issue(issue_id).target_vector
                     for issue_id in inner.validation_issues
@@ -215,8 +240,8 @@ def prepare_logistic_probe(
     )
     _fit_model(
         model,
-        transform_train(fitted, train_view),
-        np.asarray(train_view.targets, dtype=np.int8),
+        transformed_for(fitted, train_view),
+        targets_for(train_view),
     )
     model_payload = {
         "classes": model.classes_.tolist(),
@@ -266,9 +291,7 @@ def prepare_logistic_probe(
             "selected_config_id": selected_id,
             "outer_test_metrics_used": False,
         },
-        state_digest=canonical_digest(
-            state_payload, domain="dehps.m4.probe-state.v1"
-        ),
+        state_digest=canonical_digest(state_payload, domain="dehps.m4.probe-state.v1"),
         seed_policy={
             "mode": "dataset_replicate_seed",
             "seed": dataset.replicate_seed,

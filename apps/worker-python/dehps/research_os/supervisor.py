@@ -6,6 +6,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -93,6 +94,11 @@ P27_TASK_KEY = "m4-p2-automatic-gate-and-report"
 P27_CAPABILITY = "m4_p2_7_automatic_measurement_gate"
 P2_UMBRELLA_TASK_KEY = "m4-p2-synthetic-measurement-validation"
 MAINLINE_EXECUTION_SCHEMA = "dehps-research-os-mainline-execution.v1"
+P26_EQUIVALENT_RESUME_ENV = "DEHPS_P26_EQUIVALENT_RESUME_FROM_COMMIT"
+P26_EQUIVALENT_RESUME_REPORT_ENV = "DEHPS_P26_EQUIVALENT_RESUME_REPORT"
+P26_EQUIVALENT_RESUME_REPORT = (
+    "docs/experiments/2026-07-31-m4-p2-6-exact-runtime-acceleration.md"
+)
 
 
 class MainlineSupervisorError(RuntimeError):
@@ -578,7 +584,7 @@ class P24InjectedSignalCalibrationCapability:
                     str(value)
                     for value in payload.get("parent_digests", ())
                 ),
-                git_commit=git_commit,
+                git_commit=str(payload.get("runtime_git_commit") or git_commit),
             )
             by_identity[(digest, artifact_type)] = registration
         return tuple(by_identity[key] for key in sorted(by_identity))
@@ -781,6 +787,9 @@ class P26MeasurementValidationCapability:
             / execution_id
         )
         output_dir = task_dir / "artifacts"
+        runtime_migration_paths = tuple(
+            sorted((task_dir / "runtime-migrations").glob("*/migration.json"))
+        )
         evaluator = ReferenceReplicateEvaluator.from_paths(
             manifest=manifest,
             synthetic=synthetic,
@@ -831,6 +840,7 @@ class P26MeasurementValidationCapability:
             *completion.aggregate_paths,
             completion.mde_summary_path,
             completion.completion_artifact_path,
+            *runtime_migration_paths,
         )
         child_payloads = tuple(
             (path, _load_object(path)) for path in child_paths
@@ -893,6 +903,14 @@ class P26MeasurementValidationCapability:
                 manifest.negative_control_replicates
             ),
             "negative_control_replicate_count": 3000,
+            "runtime_migration_digests": [
+                _artifact_digest(_load_object(path))
+                for path in runtime_migration_paths
+            ],
+            "runtime_git_commits": [
+                str(_load_object(path)["runtime_git_commit"])
+                for path in runtime_migration_paths
+            ],
             "registered_artifact_count": len(child_identities) + 1,
             "engineering_progress_before": 37,
             "engineering_progress_after": 39,
@@ -915,6 +933,10 @@ class P26MeasurementValidationCapability:
                 coordinator.execution_plan["artifact_digest"],
                 completion.completion_artifact["artifact_digest"],
                 completion.mde_summary_artifact["artifact_digest"],
+                *(
+                    _artifact_digest(_load_object(path))
+                    for path in runtime_migration_paths
+                ),
                 *(
                     item["artifact_digest"]
                     for item in completion.aggregate_artifacts
@@ -1217,7 +1239,9 @@ class ResearchEvidenceSupervisor:
 
     def run_once(self, *, task_key: str | None = None) -> dict[str, Any]:
         self.repository.ensure_schema()
-        git_commit = self.git_commit or resolve_git_commit(self.root_dir)
+        runtime_git_commit = self.git_commit or resolve_git_commit(self.root_dir)
+        git_commit = runtime_git_commit
+        runtime_migration: Mapping[str, Any] | None = None
         if self.require_clean_tree:
             dirty = subprocess.run(
                 ["git", "status", "--porcelain"],
@@ -1326,9 +1350,22 @@ class ResearchEvidenceSupervisor:
                 execution_id = str(started[0]["execution_id"])
                 original_commit = str(_event_payload(started[0]).get("git_commit") or "")
                 if original_commit != git_commit:
-                    raise MainlineSupervisorError(
-                        "running execution git commit differs from the current clean tree"
+                    allowed_origin = os.environ.get(P26_EQUIVALENT_RESUME_ENV, "")
+                    if (
+                        task.task_key != P26_TASK_KEY
+                        or not allowed_origin
+                        or allowed_origin != original_commit
+                    ):
+                        raise MainlineSupervisorError(
+                            "running execution git commit differs from the current clean tree"
+                        )
+                    runtime_migration = self._record_p26_runtime_migration(
+                        task=task,
+                        execution_id=execution_id,
+                        execution_git_commit=original_commit,
+                        runtime_git_commit=runtime_git_commit,
                     )
+                    git_commit = original_commit
             else:
                 execution_id = self._execution_id(
                     task=task,
@@ -1397,6 +1434,16 @@ class ResearchEvidenceSupervisor:
                 "snapshot_digest": running_snapshot.snapshot_digest,
                 "dispatch_performed": True,
                 "git_commit": git_commit,
+                "runtime_git_commit": runtime_git_commit,
+                **(
+                    {
+                        "runtime_migration_digest": runtime_migration[
+                            "artifact_digest"
+                        ]
+                    }
+                    if runtime_migration is not None
+                    else {}
+                ),
                 "heartbeat_at": self.now().isoformat(),
                 **(
                     {
@@ -1490,6 +1537,8 @@ class ResearchEvidenceSupervisor:
                                     "false_positive_by_scale",
                                     "power_by_cell",
                                     "estimator_quality_by_cell",
+                                    "runtime_migration_digests",
+                                    "runtime_git_commits",
                                 )
                                 if key in result.execution_artifact
                             },
@@ -1728,11 +1777,76 @@ class ResearchEvidenceSupervisor:
             "false_positive_by_scale",
             "power_by_cell",
             "estimator_quality_by_cell",
+            "runtime_migration_digests",
+            "runtime_git_commits",
         ):
             if key in summary:
                 payload[key] = summary[key]
         self._write_state(payload)
         self._write_m4_status(status)
+        return payload
+
+    def _record_p26_runtime_migration(
+        self,
+        *,
+        task: Task,
+        execution_id: str,
+        execution_git_commit: str,
+        runtime_git_commit: str,
+    ) -> Mapping[str, Any]:
+        report_relative = os.environ.get(
+            P26_EQUIVALENT_RESUME_REPORT_ENV,
+            P26_EQUIVALENT_RESUME_REPORT,
+        )
+        report_path = self.root_dir / report_relative
+        if not report_path.is_file():
+            raise MainlineSupervisorError(
+                "P2.6 equivalent resume evidence report is missing"
+            )
+        try:
+            normalized_report_path = str(report_path.relative_to(self.root_dir))
+        except ValueError as exc:
+            raise MainlineSupervisorError(
+                "P2.6 equivalent resume evidence report must be inside the repository"
+            ) from exc
+        report_digest = sha256(report_path.read_bytes()).hexdigest()
+        payload: dict[str, Any] = {
+            "schema_version": "dehps-p2-6-runtime-migration.v1",
+            "artifact_type": "measurement_validation_runtime_migration",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "execution_git_commit": execution_git_commit,
+            "runtime_git_commit": runtime_git_commit,
+            "equivalence_evidence_path": normalized_report_path,
+            "equivalence_evidence_sha256": report_digest,
+            "compatibility_claim": (
+                "byte_identical_result_artifact_and_checkpoint_replay"
+            ),
+            "statistical_contract_changed": False,
+            "workload_changed": False,
+            "parent_digests": [
+                task.artifact_digest,
+                report_digest,
+            ],
+        }
+        identity = dict(payload)
+        identity.pop("artifact_digest")
+        payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.p2-6.runtime-migration.v1",
+        )
+        path = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+            / "runtime-migrations"
+            / payload["artifact_digest"]
+            / "migration.json"
+        )
+        _persist_immutable(path, payload)
         return payload
 
     def replay(self, *, task_key: str, execution_id: str | None = None) -> dict[str, Any]:
