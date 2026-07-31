@@ -1,0 +1,76 @@
+{
+  "schema_version": "dehps-m4-p2-identifiability-preflight-manifest.v1",
+  "artifact_type": "measurement_identifiability_preflight_manifest",
+  "artifact_digest": "5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3",
+  "phase": "M4-P2.6-PREFLIGHT",
+  "status": "FROZEN",
+  "production_action": "none",
+  "result_blind_freeze": {
+    "p2_6_partial_statistical_results_inspected": false,
+    "decision_uses_only_frozen_contracts_and_p2_4_truth": true,
+    "decision_frozen_before_repaired_p2_6_execution": true
+  },
+  "upstream_identities": {
+    "old_measurement_validation_manifest_digest": "953ae76e2e28523b7d067c2b73dac8bec63ff2417db283fd516fe900e52402f8",
+    "p2_4_completion_digest": "328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353",
+    "p2_4_truth_artifact_digests": [
+      "23a41f005f369e762f26c728eb13a5fa4888b9c04590d6e0d2410506956c7e2f",
+      "709133b116c40ba95d10018c94160786c554186b94a0fc9dfaeef539d30eb58e",
+      "6c8a2c30941255e617205f4a59e594e4ac894dd8057accaa6b538026263654e2",
+      "a3516898188a0e8b22d0cd61f9a8b1412e4f14e80096f34a437ad720731cd179",
+      "97e126b5ec61cb8bc8599f35754b3968fec037cc1349a419196238849eef87ab",
+      "0a04a7251b982c80af0c8944ecf96f6faa224ad408a2f92207c4fe5fbf603e06",
+      "dbc2f7a58f5b506fc911f6b9d1f27a4b3fb18215db961b50ea519baf3668b3be",
+      "9623cdf111538f1883f1ed1b2b2f33ca852517744812e16e9f4f2fb4acf51f97",
+      "dee510d7ebee2e3a8248657f2c71c984250a842626d3c3e3e29e917ff5025320",
+      "025befa6028bb19f9cf79ea368a214f1228242ce6e05009845c6621332bc2537",
+      "1a5401cbe3acd347a0a617dc3b8b153db61b995f759e229cbab77e4a4f45e44c",
+      "0ce5a4353051ab8dd6e033e33508f050274a5b0166f9169a4c90f0124f7a2e5d"
+    ],
+    "metric_kernel_digest": "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
+    "walk_forward_harness_digest": "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca",
+    "feature_manifest_digest": "38bfbb983f65e4d800cb3e177fc6bbb65ac13a38496ab8ffdd9afdea10897134",
+    "superseded_run_archive_digest": "d2d959f6c326e42f80bf92ae652087c941c77e0bacbe22f29e04d4cf8c9f4d6d"
+  },
+  "measurement_contract": {
+    "current_truth_estimand": "I(Y_vector; state)",
+    "current_metric_estimand": "sum_n I(Y_n; state)",
+    "current_metric_observation_unit": "33_independent_Bernoulli_events",
+    "approved_repair_strategy": "SCHEME_A_MARGINAL_TRUTH_TO_MARGINAL_METRIC",
+    "repaired_truth_estimand": "sum_n I(Y_n; state)",
+    "joint_only_mechanisms": "negative_control_not_power_target"
+  },
+  "decision_rules": {
+    "joint_signal_epsilon_bits": 1e-12,
+    "comparison_tolerance_bits": 0.0025,
+    "joint_positive_marginal_zero": "NOT_IDENTIFIABLE_BY_CURRENT_METRIC",
+    "absolute_estimand_gap_above_tolerance": "TRUTH_METRIC_ESTIMAND_MISMATCH",
+    "required_conditioning_state_not_representable": "STATE_NOT_EXPOSED_TO_PROBE",
+    "any_failure": "MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
+    "all_pass": "MEASUREMENT_CONTRACT_IDENTIFIABLE"
+  },
+  "automatic_decision_facts": {
+    "identifiable": "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_IDENTIFIABLE",
+    "repair_required": "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
+    "mutual_exclusion": "exactly_one"
+  },
+  "mainline_integration": {
+    "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+    "ready_condition": "P2.5 COMPLETE, frozen preflight contract, and paused-run archive available",
+    "runner": "research_evidence_supervisor",
+    "upstream_artifacts": [
+      "P2.4 truth and completion artifacts",
+      "P2.2 metric kernel",
+      "P2.3 feature manifest",
+      "superseded P2.6 run archive"
+    ],
+    "downstream_artifacts": [
+      "per-scenario joint-vs-marginal identifiability report",
+      "mutually exclusive automatic decision fact"
+    ],
+    "status_projection": "unified_m4_status",
+    "downstream_consumer": "m4-p2-repair-measurement-system",
+    "evidence_progress_rule": "zero_for_contract_diagnosis",
+    "decision_consumer": "Scheme A measurement-contract repair"
+  }
+}

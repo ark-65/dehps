@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import json
 import shutil
 from datetime import datetime, timezone
@@ -8,13 +7,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 from dehps.contracts import canonical_digest
 from dehps.research_os.control_plane import ResearchOSControlPlane
-from dehps.research_os.information_theory.synthetic import (
-    generate_null_dataset,
-    load_synthetic_run_manifest,
-)
 from dehps.research_os.information_theory.calibration import (
     load_calibration_manifest,
     run_p24_calibration,
@@ -23,9 +17,12 @@ from dehps.research_os.information_theory.resampling.contracts import (
     P24_COMPLETION_DIGEST,
     P24_EXECUTION_ID,
 )
+from dehps.research_os.information_theory.synthetic import (
+    generate_null_dataset,
+    load_synthetic_run_manifest,
+)
 from dehps.research_os.mainline import mainline_completion_fact
 from dehps.research_os.models import (
-    CompletionClassification,
     ControlPlaneManifest,
     MainlineArtifactRegistration,
     ResearchOSValidationError,
@@ -33,17 +30,16 @@ from dehps.research_os.models import (
 )
 from dehps.research_os.repository import PostgresResearchOSRepository
 from dehps.research_os.supervisor import (
-    CapabilityResult,
     P23_TASK_KEY,
     P24_TASK_KEY,
     P25_TASK_KEY,
-    P26_CAPABILITY,
+    P26_PREFLIGHT_CAPABILITY,
+    P26_PREFLIGHT_TASK_KEY,
     P26_TASK_KEY,
-    P27_CAPABILITY,
     P27_TASK_KEY,
+    CapabilityResult,
     ResearchEvidenceSupervisor,
 )
-
 
 ROOT = Path(__file__).resolve().parents[3]
 MANIFEST_PATH = ROOT / "configs/research-os/m4-information-theory-evidence-v1.json"
@@ -85,6 +81,11 @@ def manifest_payload() -> dict:
     p24["metric_contract"]["mainline_integration"]["upstream_artifacts"] = [
         "P2.3 mainline execution artifact"
     ]
+    p25 = next(
+        task for task in value["tasks"] if task["task_key"] == P25_TASK_KEY
+    )
+    p25["status"] = "draft"
+    p25["completion_classification"] = "INTEGRATION_PENDING"
     value["facts"]["artifacts"] = [
         fact
         for fact in value["facts"]["artifacts"]
@@ -98,6 +99,9 @@ def manifest_payload() -> dict:
         != "m4-preregistration:4fff51c58e4a46d664e414bfe4cc0d7269c8e3712734153faec548648144d0d9"
         and fact
         != "m4-p2-1-synthetic-run-manifest:f84c2da3565f7eda41c3782517c78211805f57ea8f3bfd00659a93c380826a3c"
+        and not fact.startswith(
+            "mainline-execution:m4-p2-resampling:"
+        )
     ]
     return value
 
@@ -113,11 +117,19 @@ def source_manifest_payload() -> dict:
     )
     p24["status"] = "draft"
     p24["completion_classification"] = "INTEGRATION_PENDING"
+    p25 = next(
+        task for task in value["tasks"] if task["task_key"] == P25_TASK_KEY
+    )
+    p25["status"] = "draft"
+    p25["completion_classification"] = "INTEGRATION_PENDING"
     value["facts"]["artifacts"] = [
         fact
         for fact in value["facts"]["artifacts"]
         if not fact.startswith(
             "mainline-execution:m4-p2-injected-signal-calibration:"
+        )
+        and not fact.startswith(
+            "mainline-execution:m4-p2-resampling:"
         )
     ]
     return value
@@ -127,6 +139,18 @@ def p25_source_manifest_payload() -> dict:
     value = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     assert isinstance(value, dict)
     value.pop("manifest_digest", None)
+    p25 = next(
+        task for task in value["tasks"] if task["task_key"] == P25_TASK_KEY
+    )
+    p25["status"] = "draft"
+    p25["completion_classification"] = "INTEGRATION_PENDING"
+    value["facts"]["artifacts"] = [
+        fact
+        for fact in value["facts"]["artifacts"]
+        if not fact.startswith(
+            "mainline-execution:m4-p2-resampling:"
+        )
+    ]
     return value
 
 
@@ -576,14 +600,13 @@ def test_supervisor_resumes_after_completed_event_before_status_projection(
     ] == ["m4-p2-injected-signal-calibration"]
 
 
-def test_supervisor_records_explicit_p2_6_equivalent_runtime_migration(
+def test_revised_p2_6_definition_cannot_resume_superseded_execution(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repository = MemoryMainlineRepository(p25_source_manifest_payload())
     root = prepare_root(tmp_path)
     prepare_formal_p24_artifacts(root)
-    original = ResearchEvidenceSupervisor(
+    supervisor = ResearchEvidenceSupervisor(
         repository=repository,  # type: ignore[arg-type]
         control_plane_key="test-mainline",
         root_dir=root,
@@ -591,75 +614,23 @@ def test_supervisor_records_explicit_p2_6_equivalent_runtime_migration(
         git_commit=TEST_COMMIT,
         require_clean_tree=False,
     )
-    original.run_once()
-    manifest = repository.load_manifest(control_plane_key="test-mainline")
-    task = next(item for item in manifest.tasks if item.task_key == P26_TASK_KEY)
-    running_payload = original._transition_manifest(
-        manifest,
-        task_key=P26_TASK_KEY,
-        status=TaskStatus.RUNNING,
-        classification=CompletionClassification.INTEGRATED,
-    )
-    running_import = repository.import_manifest(
-        control_plane_key="test-mainline",
-        payload=running_payload,
-        source="research-evidence-supervisor-running",
-    )
-    execution_id = "e" * 64
-    original._record_started_event(
-        task=task,
-        capability=P26_CAPABILITY,
-        execution_id=execution_id,
-        manifest_digest=running_import.manifest_digest,
-        git_commit=TEST_COMMIT,
-    )
-    report = (
-        root
-        / "docs/experiments/2026-07-31-m4-p2-6-exact-runtime-acceleration.md"
-    )
-    report.parent.mkdir(parents=True, exist_ok=True)
-    report.write_text("exact replay evidence\n", encoding="utf-8")
-    runtime_commit = "b" * 40
-    monkeypatch.setenv("DEHPS_P26_EQUIVALENT_RESUME_FROM_COMMIT", TEST_COMMIT)
-    resumed = ResearchEvidenceSupervisor(
-        repository=repository,  # type: ignore[arg-type]
-        control_plane_key="test-mainline",
-        root_dir=root,
-        now=lambda: datetime(2026, 7, 31, 9, 0, tzinfo=timezone.utc),
-        git_commit=runtime_commit,
-        require_clean_tree=False,
-    )
-    resumed.capabilities[P26_CAPABILITY] = _ProjectedCapability(
-        root=root,
-        task_key=P26_TASK_KEY,
-        summary={"actual_fold_count": 64_656_000},
+    supervisor.run_once()
+    snapshot = repository.control_plane.resolve(repository.manifest)
+    states = {item.task_key: item.status for item in snapshot.resolutions}
+    task = next(
+        item for item in repository.manifest.tasks
+        if item.task_key == P26_TASK_KEY
     )
 
-    result = resumed.run_once()
-    migration_paths = tuple(
-        (
-            root
-            / "runtime/research-os/mainline/tasks"
-            / P26_TASK_KEY
-            / execution_id
-            / "runtime-migrations"
-        ).glob("*/migration.json")
+    assert task.artifact_digest != (
+        "975a8e0bf859bad1e7f5f33411471878dd731134ee1f3b81948bd8c8503dc4c0"
     )
-
-    assert result["status"] == "COMPLETE"
-    assert len(migration_paths) == 1
-    migration = json.loads(migration_paths[0].read_text(encoding="utf-8"))
-    assert migration["execution_git_commit"] == TEST_COMMIT
-    assert migration["runtime_git_commit"] == runtime_commit
-    assert migration["statistical_contract_changed"] is False
-    assert migration["workload_changed"] is False
-    assert migration["equivalence_evidence_sha256"]
-    completed = next(
-        item
-        for item in repository.events
-        if item["event_type"] == "completed" and item["task_key"] == P26_TASK_KEY
+    assert task.requested_capability == "m4_p2_6_1_false_positive_and_power"
+    assert states[P26_PREFLIGHT_TASK_KEY] is TaskStatus.READY
+    assert states[P26_TASK_KEY] is TaskStatus.DEPENDENCY_WAIT
+    assert not any(
+        item["task_key"] == P26_TASK_KEY for item in repository.events
     )
-    assert dict(completed["payload"])["git_commit"] == TEST_COMMIT
 
 
 def test_supervisor_executes_p2_4_unlocks_p2_5_and_replays(
@@ -712,7 +683,7 @@ def test_supervisor_executes_p2_4_unlocks_p2_5_and_replays(
     assert len(repository.artifacts) == artifact_count
 
 
-def test_supervisor_executes_p2_5_unlocks_p2_6_and_replays(
+def test_supervisor_executes_p2_5_unlocks_identifiability_preflight_and_replays(
     tmp_path: Path,
 ) -> None:
     repository = MemoryMainlineRepository(p25_source_manifest_payload())
@@ -739,10 +710,11 @@ def test_supervisor_executes_p2_5_unlocks_p2_6_and_replays(
     assert result["aggregate_count"] == 9
     assert result["engineering_progress_percent"] == 37
     assert result["evidence_progress_percent"] == 0
-    assert result["next_ready_task"] == "m4-p2-false-positive-and-power-runs"
+    assert result["next_ready_task"] == P26_PREFLIGHT_TASK_KEY
     assert result["eligible_for_formal_inference"] is False
     assert states[P25_TASK_KEY] is TaskStatus.COMPLETED
-    assert states["m4-p2-false-positive-and-power-runs"] is TaskStatus.READY
+    assert states[P26_PREFLIGHT_TASK_KEY] is TaskStatus.READY
+    assert states[P26_TASK_KEY] is TaskStatus.DEPENDENCY_WAIT
     assert replay["status"] == "REPLAY_VERIFIED"
     assert replay["manual_input_assembly"] is False
     assert replay["registered_artifact_count"] == result["registered_artifact_count"]
@@ -752,7 +724,7 @@ def test_supervisor_executes_p2_5_unlocks_p2_6_and_replays(
     ]
 
 
-def test_supervisor_projects_p2_6_and_fail_closed_p2_7_repair_branch(
+def test_supervisor_projects_preflight_and_fail_closed_repair_branch_with_replay(
     tmp_path: Path,
 ) -> None:
     repository = MemoryMainlineRepository(p25_source_manifest_payload())
@@ -767,76 +739,49 @@ def test_supervisor_projects_p2_6_and_fail_closed_p2_7_repair_branch(
         require_clean_tree=False,
     )
     supervisor.run_once()
-    supervisor.capabilities[P26_CAPABILITY] = _ProjectedCapability(
-        root=root,
-        task_key=P26_TASK_KEY,
-        summary={
-            "actual_fold_count": 64_656_000,
-            "measurement_validation_manifest_digest": "9" * 64,
-            "execution_plan_digest": "8" * 64,
-            "completion_artifact_digest": "7" * 64,
-            "mde_summary_digest": "6" * 64,
-            "decision_policy_mde_at_61_bits_per_issue": 0.05,
-            "aggregate_digests": ["5" * 64] * 31,
-            "replicate_count": 31_000,
-            "aggregate_count": 31,
-            "eligible_for_formal_inference": True,
-            "bootstrap_replicate_count": 62_000_000,
-            "permutation_replicate_count": 62_000_000,
-            "negative_control_id": "NC6_SYNTHETIC_NULL",
-            "negative_control_cell_count": 3,
-            "negative_control_replicates_per_cell": 1000,
-            "negative_control_replicate_count": 3000,
-        },
-    )
-    p26 = supervisor.run_once()
-    snapshot = repository.control_plane.resolve(repository.manifest)
-    states = {item.task_key: item.status for item in snapshot.resolutions}
-
-    assert p26["status"] == "COMPLETE"
-    assert p26["engineering_progress_percent"] == 39
-    assert p26["evidence_progress_percent"] == 25
-    assert states[P26_TASK_KEY] is TaskStatus.COMPLETED
-    assert states[P27_TASK_KEY] is TaskStatus.READY
-
     repair_fact = (
-        "m4-p2-measurement-decision:REPAIR_MEASUREMENT_SYSTEM"
+        "m4-p2-identifiability-decision:"
+        "MEASUREMENT_CONTRACT_REPAIR_REQUIRED"
     )
-    supervisor.capabilities[P27_CAPABILITY] = _ProjectedCapability(
+    supervisor.capabilities[P26_PREFLIGHT_CAPABILITY] = _ProjectedCapability(
         root=root,
-        task_key=P27_TASK_KEY,
+        task_key=P26_PREFLIGHT_TASK_KEY,
         summary={
             "actual_fold_count": 0,
-            "measurement_validation_manifest_digest": "9" * 64,
-            "execution_plan_digest": "8" * 64,
-            "completion_artifact_digest": "7" * 64,
-            "automatic_gate_digest": "4" * 64,
-            "mde_summary_digest": "6" * 64,
-            "decision": "REPAIR_MEASUREMENT_SYSTEM",
+            "identifiability_preflight_manifest_digest": "9" * 64,
+            "identifiability_preflight_report_digest": "8" * 64,
+            "superseded_run_archive_digest": "7" * 64,
+            "decision": "MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
             "decision_fact": repair_fact,
             "failed_requirements": [
-                "all_practical_strength_cell_power_gates_pass"
+                "NOT_IDENTIFIABLE_BY_CURRENT_METRIC",
+                "STATE_NOT_EXPOSED_TO_PROBE",
+                "TRUTH_METRIC_ESTIMAND_MISMATCH",
             ],
-            "replay_status": "REPLAY_VERIFIED",
-            "replicate_count": 31_000,
-            "aggregate_count": 31,
-            "decision_policy_mde_at_61_bits_per_issue": 0.05,
-            "false_positive_by_scale": [],
-            "power_by_cell": [],
-            "estimator_quality_by_cell": [],
+            "scenario_count": 12,
+            "p2_6_partial_statistical_results_inspected": False,
+            "old_p2_6_execution_resumable": False,
+            "replay_status": "DETERMINISTIC",
         },
         completion_facts=(repair_fact,),
     )
-    p27 = supervisor.run_once()
+    preflight = supervisor.run_once()
     snapshot = repository.control_plane.resolve(repository.manifest)
     states = {item.task_key: item.status for item in snapshot.resolutions}
+    replay = supervisor.replay(task_key=P26_PREFLIGHT_TASK_KEY)
 
-    assert p27["status"] == "COMPLETE"
-    assert p27["next_ready_task"] == "m4-p2-repair-measurement-system"
-    assert states[P27_TASK_KEY] is TaskStatus.COMPLETED
+    assert preflight["status"] == "COMPLETE"
+    assert preflight["next_ready_task"] == "m4-p2-repair-measurement-system"
+    assert preflight["engineering_progress_percent"] == 38
+    assert preflight["evidence_progress_percent"] == 0
+    assert states[P26_PREFLIGHT_TASK_KEY] is TaskStatus.COMPLETED
+    assert states[P26_TASK_KEY] is TaskStatus.DEPENDENCY_WAIT
+    assert states[P27_TASK_KEY] is TaskStatus.DEPENDENCY_WAIT
     assert states["m4-p2-repair-measurement-system"] is TaskStatus.READY
     assert states["m4-p3-strict-historical-walk-forward"] is not TaskStatus.READY
     assert repair_fact in repository.manifest.facts.artifacts
+    assert replay["status"] == "REPLAY_VERIFIED"
+    assert replay["execution_id"] == preflight["execution_id"]
 
     waiting = supervisor.run_once()
     projected = json.loads(
@@ -845,8 +790,15 @@ def test_supervisor_projects_p2_6_and_fail_closed_p2_7_repair_branch(
         )
     )
     assert waiting["status"] == "WAITING_FOR_CAPABILITY"
-    assert projected["synthetic_validation"] == "REPAIR_MEASUREMENT_SYSTEM"
+    assert (
+        projected["synthetic_validation"]
+        == "MEASUREMENT_CONTRACT_REPAIR_REQUIRED"
+    )
     assert projected["current_state"] == "REPAIR_REQUIRED"
     assert projected["p2_subphase"]["current"] == "M4-P2-REPAIR"
-    assert projected["mainline_integration"]["task_key"] == P27_TASK_KEY
-    assert projected["current_statistics"]["power"] == "EVALUATED"
+    assert (
+        projected["mainline_integration"]["task_key"]
+        == P26_PREFLIGHT_TASK_KEY
+    )
+    assert projected["current_statistics"]["power"] == "NOT_EVALUATED"
+    assert projected["current_statistics"]["runtime_progress_path"] is None
