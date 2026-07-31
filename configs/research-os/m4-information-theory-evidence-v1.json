@@ -1,6 +1,6 @@
 {
   "schema_version": "research-os-control-plane-v1",
-  "manifest_digest": "ad719631406ce033a3fcd409a3ba6ba10c733f95d2a1110d960daa4865b79844",
+  "manifest_digest": "a21c30d9c56c51205c399d90a095b94b84a69acbcce94d6a7fc6be5a471a8518",
   "goals": [
     {
       "goal_key": "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION",
@@ -510,6 +510,8 @@
       "lane": "research",
       "priority": 103,
       "requested_capability": "m4_p2_5_resampling_and_negative_controls",
+      "status": "completed",
+      "completion_classification": "COMPLETE",
       "input_artifact_digests": [
         "4fff51c58e4a46d664e414bfe4cc0d7269c8e3712734153faec548648144d0d9",
         "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
@@ -565,21 +567,20 @@
       }
     },
     {
-      "task_key": "m4-p2-false-positive-and-power-runs",
+      "task_key": "m4-p2-measurement-identifiability-preflight",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
-      "task_type": "synthetic_power_run",
+      "task_type": "measurement_identifiability_preflight",
       "lane": "research",
-      "priority": 102,
-      "requested_capability": "m4_p2_6_false_positive_and_power",
+      "priority": 105,
+      "requested_capability": "m4_p2_6_identifiability_preflight",
       "input_artifact_digests": [
-        "4fff51c58e4a46d664e414bfe4cc0d7269c8e3712734153faec548648144d0d9",
-        "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
-        "f84c2da3565f7eda41c3782517c78211805f57ea8f3bfd00659a93c380826a3c",
+        "328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353",
         "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
         "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca",
-        "328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353",
-        "1cde473524d7d6dcafba64ab7b0a1d2862b56149d5f6f198c73d88b406c3071b",
-        "953ae76e2e28523b7d067c2b73dac8bec63ff2417db283fd516fe900e52402f8"
+        "38bfbb983f65e4d800cb3e177fc6bbb65ac13a38496ab8ffdd9afdea10897134",
+        "953ae76e2e28523b7d067c2b73dac8bec63ff2417db283fd516fe900e52402f8",
+        "d2d959f6c326e42f80bf92ae652087c941c77e0bacbe22f29e04d4cf8c9f4d6d",
+        "5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3"
       ],
       "dependencies": [
         {
@@ -589,42 +590,94 @@
         },
         {
           "dependency_type": "artifact",
-          "target_key": "m4-p2-6-measurement-validation-manifest:953ae76e2e28523b7d067c2b73dac8bec63ff2417db283fd516fe900e52402f8",
+          "target_key": "m4-p2-identifiability-preflight-manifest:5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p2-superseded-run-archive:d2d959f6c326e42f80bf92ae652087c941c77e0bacbe22f29e04d4cf8c9f4d6d",
           "required_status": "available"
         }
       ],
       "metric_contract": {
-        "phase": "M4-P2.6",
+        "phase": "M4-P2.6-PREFLIGHT",
+        "engineering_increment_percent": 1,
+        "engineering_complete": false,
+        "evidence_increment_percent": 0,
+        "evidence_complete": false,
+        "approved_repair_strategy": "SCHEME_A_MARGINAL_TRUTH_TO_MARGINAL_METRIC",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "P2.5 COMPLETE and immutable result-blind preflight plus paused-run archive available",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "P2.4 truth and completion artifacts",
+            "P2.2 metric kernel",
+            "P2.3 feature manifest",
+            "superseded P2.6 run archive"
+          ],
+          "downstream_artifacts": [
+            "per-scenario joint-vs-marginal identifiability report",
+            "exactly one identifiability decision fact"
+          ],
+          "status_projection": "unified_m4_status",
+          "downstream_consumer": "m4-p2-repair-measurement-system",
+          "evidence_progress_rule": "zero_for_contract_diagnosis",
+          "decision_consumer": "Scheme A measurement-contract repair"
+        }
+      }
+    },
+    {
+      "task_key": "m4-p2-false-positive-and-power-runs",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "repaired_synthetic_power_run",
+      "lane": "research",
+      "priority": 102,
+      "requested_capability": "m4_p2_6_1_false_positive_and_power",
+      "input_artifact_digests": [
+        "5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3"
+      ],
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-p2-measurement-identifiability-preflight",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_IDENTIFIABLE",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p2-repaired-measurement-contract:AVAILABLE",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "phase": "M4-P2.6.1",
         "engineering_increment_percent": 2,
         "engineering_complete": false,
         "evidence_increment_percent": 25,
         "evidence_complete": false,
-        "measurement_validation_manifest_digest": "953ae76e2e28523b7d067c2b73dac8bec63ff2417db283fd516fe900e52402f8",
-        "coverage_tolerance": [
-          0.925,
-          0.975
-        ],
+        "approved_repair_strategy": "SCHEME_A_MARGINAL_TRUTH_TO_MARGINAL_METRIC",
+        "old_execution_status": "SUPERSEDED",
         "mainline_integration": {
           "goal": "M4_INFORMATION_THEORY_EVIDENCE",
-          "ready_condition": "P2.5 COMPLETE and immutable P2.6 measurement-validation manifest available",
+          "ready_condition": "identifiability preflight passed and separately frozen repaired measurement contract available",
           "runner": "research_evidence_supervisor",
           "upstream_artifacts": [
-            "P2.1 synthetic run manifest",
-            "P2.2 metric kernel",
-            "P2.3 walk-forward harness",
-            "P2.4 injected-signal truth artifacts",
-            "P2.5 resampling kernel",
-            "P2.6 measurement-validation manifest"
+            "identifiability preflight report",
+            "future P2.4.1 marginal truth calibration",
+            "future frozen-development hyperparameters",
+            "future P2.6.1 measurement-validation manifest"
           ],
           "downstream_artifacts": [
-            "31000 analysis replicate artifacts",
-            "cell aggregates",
-            "false-positive power bias RMSE coverage and MDE summary",
-            "P2.6 formal completion artifact"
+            "future repaired P2.6.1 formal completion artifact"
           ],
           "status_projection": "unified_m4_status",
           "downstream_consumer": "m4-p2-automatic-gate-and-report",
-          "evidence_progress_rule": "25_percent_only_after_complete_formal_workload",
+          "evidence_progress_rule": "zero_until_repaired_complete_formal_workload",
           "decision_consumer": "P2.7 automatic PASS_TO_P3 or REPAIR_MEASUREMENT_SYSTEM gate"
         }
       }
@@ -689,8 +742,13 @@
       "requested_capability": "m4_p2_measurement_system_repair",
       "dependencies": [
         {
+          "dependency_type": "task",
+          "target_key": "m4-p2-measurement-identifiability-preflight",
+          "required_status": "completed"
+        },
+        {
           "dependency_type": "artifact",
-          "target_key": "m4-p2-measurement-decision:REPAIR_MEASUREMENT_SYSTEM",
+          "target_key": "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
           "required_status": "available"
         }
       ],
@@ -698,21 +756,25 @@
         "phase": "M4-P2-REPAIR",
         "engineering_complete": false,
         "evidence_complete": false,
-        "ready_only_when": "REPAIR_MEASUREMENT_SYSTEM",
+        "ready_only_when": "MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
         "P3_reachable": false,
+        "approved_repair_strategy": "SCHEME_A_MARGINAL_TRUTH_TO_MARGINAL_METRIC",
         "mainline_integration": {
           "goal": "M4_INFORMATION_THEORY_EVIDENCE",
-          "ready_condition": "P2.7 emitted REPAIR_MEASUREMENT_SYSTEM",
+          "ready_condition": "result-blind identifiability preflight emitted MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
           "runner": "research_evidence_supervisor",
           "upstream_artifacts": [
-            "P2.7 automatic gate decision artifact",
-            "REPAIR_MEASUREMENT_SYSTEM fact"
+            "identifiability preflight report",
+            "MEASUREMENT_CONTRACT_REPAIR_REQUIRED fact",
+            "superseded P2.6 run archive"
           ],
           "downstream_artifacts": [
-            "future separately approved measurement-system repair contract"
+            "P2.4.1 marginal truth calibration",
+            "frozen development hyperparameters",
+            "P2.6.1 measurement-validation manifest"
           ],
           "status_projection": "unified_m4_status",
-          "downstream_consumer": "future repaired P2 validation task",
+          "downstream_consumer": "m4-p2-false-positive-and-power-runs revised P2.6.1 definition",
           "evidence_progress_rule": "no_new_evidence_during_repair_definition",
           "decision_consumer": "future independent Reviewer"
         }
@@ -871,11 +933,14 @@
       "m4-p2-4-injected-signal-completion:328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353",
       "m4-p2-5-resampling-kernel-manifest:1cde473524d7d6dcafba64ab7b0a1d2862b56149d5f6f198c73d88b406c3071b",
       "m4-p2-6-measurement-validation-manifest:953ae76e2e28523b7d067c2b73dac8bec63ff2417db283fd516fe900e52402f8",
+      "m4-p2-identifiability-preflight-manifest:5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3",
+      "m4-p2-superseded-run-archive:d2d959f6c326e42f80bf92ae652087c941c77e0bacbe22f29e04d4cf8c9f4d6d",
       "m4-p2-1-synthetic-dataset:5354b9f7f6c72996cff16d6c161b03ff49922bf92589bd43b823d107019ebd86",
       "m4-p2-2-metric-kernel-manifest:56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
       "m4-p2-3-walk-forward-harness-manifest:177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca",
       "mainline-execution:m4-p2-walk-forward-probe-harness:0a493b3618f2b180719b360b17702d7587c25a8c6c59a577a0c099fccce01a62:de52c376117bf308e0608b75e1418d58acf6b5a1e5cf4a66925fe06b8219d3cb:completed",
-      "mainline-execution:m4-p2-injected-signal-calibration:60ac1df68a112c671682116a30db1b01eae18e7a0cd5c2e0dcd0e13183893a83:772b5063f1a3578c7e8f8a2cd9f102357828608de8fbd80c2c1fb2c82b79afa2:completed"
+      "mainline-execution:m4-p2-injected-signal-calibration:60ac1df68a112c671682116a30db1b01eae18e7a0cd5c2e0dcd0e13183893a83:772b5063f1a3578c7e8f8a2cd9f102357828608de8fbd80c2c1fb2c82b79afa2:completed",
+      "mainline-execution:m4-p2-resampling:7a74fbe800bb9b8e24b4e3863150bcc28128dd30ba5bbe7dfe57feddb022fd5f:596d7745e8733239417d2b05c39f99cf645843d63842dad7ba850e9f165f1a33:completed"
     ],
     "evidence": [
       "research-hypothesis:seven-red-compound-top10-walk-forward-v1:rejected"

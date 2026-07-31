@@ -4,11 +4,12 @@ import json
 import os
 import subprocess
 import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any
 
 from dehps.artifacts import atomic_write_text
 from dehps.config import ROOT_DIR
@@ -20,25 +21,25 @@ from dehps.research_os.information_theory.calibration import (
 )
 from dehps.research_os.information_theory.calibration.contracts import (
     DECISION_POLICY_DIGEST as P24_DECISION_POLICY_DIGEST,
+)
+from dehps.research_os.information_theory.calibration.contracts import (
     METRIC_KERNEL_DIGEST as P24_METRIC_KERNEL_DIGEST,
+)
+from dehps.research_os.information_theory.calibration.contracts import (
     PREREGISTRATION_DIGEST as P24_PREREGISTRATION_DIGEST,
+)
+from dehps.research_os.information_theory.calibration.contracts import (
     SYNTHETIC_MANIFEST_DIGEST as P24_SYNTHETIC_MANIFEST_DIGEST,
+)
+from dehps.research_os.information_theory.calibration.contracts import (
     WALK_FORWARD_HARNESS_DIGEST as P24_WALK_FORWARD_HARNESS_DIGEST,
 )
-from dehps.research_os.information_theory.metrics import load_metric_kernel_manifest
-from dehps.research_os.information_theory.progress import build_m4_status
-from dehps.research_os.information_theory.resampling import (
-    KERNEL_MANIFEST_DIGEST,
-    load_resampling_manifest,
-    run_p25_resampling,
-)
-from dehps.research_os.information_theory.resampling.contracts import (
-    DECISION_POLICY_DIGEST as P25_DECISION_POLICY_DIGEST,
-    METRIC_KERNEL_DIGEST as P25_METRIC_KERNEL_DIGEST,
-    P24_COMPLETION_DIGEST as P25_P24_COMPLETION_DIGEST,
-    PREREGISTRATION_DIGEST as P25_PREREGISTRATION_DIGEST,
-    SYNTHETIC_MANIFEST_DIGEST as P25_SYNTHETIC_MANIFEST_DIGEST,
-    WALK_FORWARD_HARNESS_DIGEST as P25_WALK_FORWARD_HARNESS_DIGEST,
+from dehps.research_os.information_theory.identifiability import (
+    IDENTIFIABILITY_PREFLIGHT_MANIFEST_DIGEST,
+    SUPERSEDED_RUN_ARCHIVE_DIGEST,
+    load_identifiability_preflight_manifest,
+    load_superseded_run_archive,
+    run_identifiability_preflight,
 )
 from dehps.research_os.information_theory.measurement_validation import (
     MEASUREMENT_VALIDATION_MANIFEST_DIGEST,
@@ -51,6 +52,31 @@ from dehps.research_os.information_theory.measurement_validation import (
 )
 from dehps.research_os.information_theory.measurement_validation.reference import (
     ReferenceReplicateEvaluator,
+)
+from dehps.research_os.information_theory.metrics import load_metric_kernel_manifest
+from dehps.research_os.information_theory.progress import build_m4_status
+from dehps.research_os.information_theory.resampling import (
+    KERNEL_MANIFEST_DIGEST,
+    load_resampling_manifest,
+    run_p25_resampling,
+)
+from dehps.research_os.information_theory.resampling.contracts import (
+    DECISION_POLICY_DIGEST as P25_DECISION_POLICY_DIGEST,
+)
+from dehps.research_os.information_theory.resampling.contracts import (
+    METRIC_KERNEL_DIGEST as P25_METRIC_KERNEL_DIGEST,
+)
+from dehps.research_os.information_theory.resampling.contracts import (
+    P24_COMPLETION_DIGEST as P25_P24_COMPLETION_DIGEST,
+)
+from dehps.research_os.information_theory.resampling.contracts import (
+    PREREGISTRATION_DIGEST as P25_PREREGISTRATION_DIGEST,
+)
+from dehps.research_os.information_theory.resampling.contracts import (
+    SYNTHETIC_MANIFEST_DIGEST as P25_SYNTHETIC_MANIFEST_DIGEST,
+)
+from dehps.research_os.information_theory.resampling.contracts import (
+    WALK_FORWARD_HARNESS_DIGEST as P25_WALK_FORWARD_HARNESS_DIGEST,
 )
 from dehps.research_os.information_theory.synthetic import (
     load_synthetic_run_manifest,
@@ -77,7 +103,6 @@ from dehps.research_os.models import (
 from dehps.research_os.repository import PostgresResearchOSRepository
 from dehps.source_version import resolve_git_commit
 
-
 P23_TASK_KEY = "m4-p2-walk-forward-probe-harness"
 P23_CAPABILITY = "m4_p2_3_walk_forward_harness"
 P23_PROBES = (
@@ -88,6 +113,8 @@ P24_TASK_KEY = "m4-p2-injected-signal-calibration"
 P24_CAPABILITY = "m4_p2_4_injected_signal_calibration"
 P25_TASK_KEY = "m4-p2-resampling"
 P25_CAPABILITY = "m4_p2_5_resampling_and_negative_controls"
+P26_PREFLIGHT_TASK_KEY = "m4-p2-measurement-identifiability-preflight"
+P26_PREFLIGHT_CAPABILITY = "m4_p2_6_identifiability_preflight"
 P26_TASK_KEY = "m4-p2-false-positive-and-power-runs"
 P26_CAPABILITY = "m4_p2_6_false_positive_and_power"
 P27_TASK_KEY = "m4-p2-automatic-gate-and-report"
@@ -729,6 +756,145 @@ class P25ResamplingCapability:
         )
 
 
+class P26IdentifiabilityPreflightCapability:
+    def __init__(self, *, root_dir: Path = ROOT_DIR) -> None:
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key != P26_PREFLIGHT_TASK_KEY
+            or task.requested_capability != P26_PREFLIGHT_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "P2.6 identifiability preflight received the wrong task"
+            )
+        expected_inputs = (
+            P25_P24_COMPLETION_DIGEST,
+            P25_METRIC_KERNEL_DIGEST,
+            P25_WALK_FORWARD_HARNESS_DIGEST,
+            "38bfbb983f65e4d800cb3e177fc6bbb65ac13a38496ab8ffdd9afdea10897134",
+            MEASUREMENT_VALIDATION_MANIFEST_DIGEST,
+            SUPERSEDED_RUN_ARCHIVE_DIGEST,
+            IDENTIFIABILITY_PREFLIGHT_MANIFEST_DIGEST,
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "P2.6 identifiability preflight requires all seven frozen "
+                "input identities in order"
+            )
+        manifest = load_identifiability_preflight_manifest(
+            self.root_dir
+            / "configs/research-os/"
+            "m4-information-theory-p2-6-identifiability-preflight-v1.json"
+        )
+        archive = load_superseded_run_archive(
+            self.root_dir
+            / "configs/research-os/"
+            "m4-information-theory-p2-6-superseded-run-archive-v1.json"
+        )
+        if archive["artifact_digest"] != SUPERSEDED_RUN_ARCHIVE_DIGEST:
+            raise MainlineSupervisorError(
+                "P2.6 superseded run archive identity changed"
+            )
+        run = run_identifiability_preflight(
+            manifest=manifest,
+            root_dir=self.root_dir,
+            execution_id=execution_id,
+            git_commit=git_commit,
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        report_path = task_dir / "artifacts/preflight-report.json"
+        _persist_immutable(report_path, run.report)
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "identifiability_preflight_manifest_digest": (
+                manifest.artifact_digest
+            ),
+            "identifiability_preflight_report_digest": (
+                run.report["artifact_digest"]
+            ),
+            "superseded_run_archive_digest": (
+                archive["artifact_digest"]
+            ),
+            "decision": run.report["decision"],
+            "decision_fact": run.decision_fact,
+            "failed_requirements": run.report["failed_classifications"],
+            "scenario_count": run.report["scenario_count"],
+            "actual_fold_count": 0,
+            "registered_artifact_count": 2,
+            "engineering_progress_before": 37,
+            "engineering_progress_after": 38,
+            "evidence_progress_before": 0,
+            "evidence_progress_after": 0,
+            "downstream_consumer": "m4-p2-repair-measurement-system",
+            "p2_6_partial_statistical_results_inspected": False,
+            "old_p2_6_execution_resumable": False,
+            "eligible_for_formal_inference": False,
+            "eligible_for_p2_gate": False,
+            "evidence_created": False,
+            "production_impact": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "replay_status": "DETERMINISTIC",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                run.report["artifact_digest"],
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=((report_path, run.report),),
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(registrations) != execution_payload["registered_artifact_count"]:
+            raise MainlineSupervisorError(
+                "P2.6 identifiability preflight registered artifact count changed"
+            )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=registrations,
+            completion_facts=(run.decision_fact,),
+        )
+
+
 class P26MeasurementValidationCapability:
     def __init__(self, *, root_dir: Path = ROOT_DIR) -> None:
         self.root_dir = root_dir
@@ -1227,6 +1393,9 @@ class ResearchEvidenceSupervisor:
                 root_dir=root_dir
             ),
             P25_CAPABILITY: P25ResamplingCapability(root_dir=root_dir),
+            P26_PREFLIGHT_CAPABILITY: P26IdentifiabilityPreflightCapability(
+                root_dir=root_dir
+            ),
             P26_CAPABILITY: P26MeasurementValidationCapability(root_dir=root_dir),
             P27_CAPABILITY: P27AutomaticMeasurementGateCapability(
                 root_dir=root_dir
@@ -1520,12 +1689,18 @@ class ResearchEvidenceSupervisor:
                                     "aggregate_count",
                                     "eligible_for_formal_inference",
                                     "measurement_validation_manifest_digest",
+                                    "identifiability_preflight_manifest_digest",
+                                    "identifiability_preflight_report_digest",
+                                    "superseded_run_archive_digest",
                                     "execution_plan_digest",
                                     "automatic_gate_digest",
                                     "mde_summary_digest",
                                     "decision",
                                     "decision_fact",
                                     "failed_requirements",
+                                    "scenario_count",
+                                    "p2_6_partial_statistical_results_inspected",
+                                    "old_p2_6_execution_resumable",
                                     "replay_status",
                                     "bootstrap_replicate_count",
                                     "permutation_replicate_count",
@@ -1627,6 +1802,7 @@ class ResearchEvidenceSupervisor:
         for candidate in (
             P27_TASK_KEY,
             P26_TASK_KEY,
+            P26_PREFLIGHT_TASK_KEY,
             P25_TASK_KEY,
             P24_TASK_KEY,
             P23_TASK_KEY,
@@ -1760,12 +1936,18 @@ class ResearchEvidenceSupervisor:
             "aggregate_count",
             "eligible_for_formal_inference",
             "measurement_validation_manifest_digest",
+            "identifiability_preflight_manifest_digest",
+            "identifiability_preflight_report_digest",
+            "superseded_run_archive_digest",
             "execution_plan_digest",
             "automatic_gate_digest",
             "mde_summary_digest",
             "decision",
             "decision_fact",
             "failed_requirements",
+            "scenario_count",
+            "p2_6_partial_statistical_results_inspected",
+            "old_p2_6_execution_resumable",
             "replay_status",
             "bootstrap_replicate_count",
             "permutation_replicate_count",

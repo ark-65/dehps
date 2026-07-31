@@ -391,24 +391,27 @@ def test_contract_repair_pending_blocks_p24_and_is_unique_ready() -> None:
     assert (status["current_phase"], status["current_state"]) == ("M4-P1", "BLOCKED")
 
 
-def test_completed_repair_and_p24_completion_restore_only_p25_ready() -> None:
+def test_completed_p25_restores_only_identifiability_preflight_ready() -> None:
     manifest = load_m4_manifest(MANIFEST_PATH)
     snapshot = ResearchOSControlPlane().resolve(manifest)
     states = _resolutions(manifest)
     status = build_m4_status(manifest, snapshot=snapshot)
     assert [item.task_key for item in snapshot.ready_queue] == [
-        "m4-p2-resampling"
+        "m4-p2-measurement-identifiability-preflight"
     ]
     assert states["m4-p1-repair-injected-signal-preregistration-contract"] is (
         TaskStatus.COMPLETED
     )
     assert states["m4-p2-injected-signal-calibration"] is TaskStatus.COMPLETED
-    assert states["m4-p2-resampling"] is TaskStatus.READY
+    assert states["m4-p2-resampling"] is TaskStatus.COMPLETED
+    assert states["m4-p2-measurement-identifiability-preflight"] is (
+        TaskStatus.READY
+    )
     assert states["m4-p2-false-positive-and-power-runs"] is (
         TaskStatus.DEPENDENCY_WAIT
     )
     assert status["preregistration"] == {"status": "FROZEN", "version": "1.0.3"}
-    assert status["progress"]["engineering_percent"] == 34
+    assert status["progress"]["engineering_percent"] == 37
     assert status["progress"]["evidence_percent"] == 0
 
 

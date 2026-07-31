@@ -13,7 +13,6 @@ from dehps.research_os.models import (
     TaskStatus,
 )
 
-
 M4_GOAL_KEY = "M4_INFORMATION_THEORY_EVIDENCE"
 LEGACY_GOAL_KEY = "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION"
 M4_FORWARD_EVENT_KEY = "draw:2026085"
@@ -74,8 +73,19 @@ P2_SUBTASK_KEYS = (
     "m4-p2-walk-forward-probe-harness",
     "m4-p2-injected-signal-calibration",
     "m4-p2-resampling",
+    "m4-p2-measurement-identifiability-preflight",
     "m4-p2-false-positive-and-power-runs",
     "m4-p2-automatic-gate-and-report",
+)
+P2_SUBPHASE_LABELS = (
+    "M4-P2.1",
+    "M4-P2.2",
+    "M4-P2.3",
+    "M4-P2.4",
+    "M4-P2.5",
+    "M4-P2.6-PREFLIGHT",
+    "M4-P2.6.1",
+    "M4-P2.7",
 )
 
 
@@ -116,11 +126,21 @@ def manifest_with_contract_repair_pending(
     )
     p24["status"] = "draft"
     p24["completion_classification"] = "INTEGRATION_PENDING"
+    p25 = next(
+        task
+        for task in payload["tasks"]
+        if task["task_key"] == "m4-p2-resampling"
+    )
+    p25["status"] = "draft"
+    p25["completion_classification"] = "INTEGRATION_PENDING"
     payload["facts"]["artifacts"] = [
         fact
         for fact in payload["facts"]["artifacts"]
         if not fact.startswith(
             "mainline-execution:m4-p2-injected-signal-calibration:"
+        )
+        and not fact.startswith(
+            "mainline-execution:m4-p2-resampling:"
         )
         and fact not in {
             f"m4-preregistration:{M4_PREREGISTRATION_V1_0_3_DIGEST}",
@@ -178,6 +198,11 @@ def build_m4_status(
     )
     measurement_repair_required = (
         "m4-p2-measurement-decision:REPAIR_MEASUREMENT_SYSTEM"
+        in manifest.facts.artifacts
+        or (
+            "m4-p2-identifiability-decision:"
+            "MEASUREMENT_CONTRACT_REPAIR_REQUIRED"
+        )
         in manifest.facts.artifacts
     )
     if measurement_repair_required and current_phase == "M4-P2":
@@ -278,24 +303,20 @@ def build_m4_status(
     p2_3_complete = resolutions[P2_SUBTASK_KEYS[2]].status is TaskStatus.COMPLETED
     p2_4_complete = resolutions[P2_SUBTASK_KEYS[3]].status is TaskStatus.COMPLETED
     p2_5_complete = resolutions[P2_SUBTASK_KEYS[4]].status is TaskStatus.COMPLETED
-    p2_6_complete = resolutions[P2_SUBTASK_KEYS[5]].status is TaskStatus.COMPLETED
-    p2_7_complete = resolutions[P2_SUBTASK_KEYS[6]].status is TaskStatus.COMPLETED
+    p2_preflight_complete = (
+        resolutions[P2_SUBTASK_KEYS[5]].status is TaskStatus.COMPLETED
+    )
+    p2_6_complete = resolutions[P2_SUBTASK_KEYS[6]].status is TaskStatus.COMPLETED
+    p2_7_complete = resolutions[P2_SUBTASK_KEYS[7]].status is TaskStatus.COMPLETED
+    completed_p2_task_keys = [
+        task_key
+        for task_key in P2_SUBTASK_KEYS
+        if resolutions[task_key].status is TaskStatus.COMPLETED
+    ]
     latest_p2_task_key = (
-        P2_SUBTASK_KEYS[6]
-        if p2_7_complete
-        else (
-            P2_SUBTASK_KEYS[5]
-            if p2_6_complete
-            else (
-                P2_SUBTASK_KEYS[4]
-                if p2_5_complete
-                else (
-                    P2_SUBTASK_KEYS[3]
-                    if p2_4_complete
-                    else P2_SUBTASK_KEYS[2]
-                )
-            )
-        )
+        completed_p2_task_keys[-1]
+        if completed_p2_task_keys
+        else P2_SUBTASK_KEYS[0]
     )
     if p2_1_complete:
         completed.extend(
@@ -343,6 +364,16 @@ def build_m4_status(
                 "plus-one tail, percentile, aggregate, and sharding contracts frozen",
                 "P2.5 smoke artifacts explicitly excluded from formal inference",
                 "P2.5 unified supervisor execution and replay verified",
+            ]
+        )
+    if p2_preflight_complete:
+        completed.extend(
+            [
+                "P2.6 identifiability preflight validated in unified mainline",
+                "joint truth versus composite marginal metric estimands compared",
+                "old P2.6 execution archived as superseded without result inspection",
+                "exactly one identifiability decision fact emitted",
+                "preflight Evidence increment held at zero",
             ]
         )
     if p2_6_complete:
@@ -463,6 +494,27 @@ def build_m4_status(
                 if mainline_execution is None
                 else mainline_execution.get("aggregate_digests", [])
             ),
+            "p2_identifiability_preflight_manifest_digest": (
+                None
+                if mainline_execution is None
+                else mainline_execution.get(
+                    "identifiability_preflight_manifest_digest"
+                )
+            ),
+            "p2_identifiability_preflight_report_digest": (
+                None
+                if mainline_execution is None
+                else mainline_execution.get(
+                    "identifiability_preflight_report_digest"
+                )
+            ),
+            "p2_superseded_run_archive_digest": (
+                None
+                if mainline_execution is None
+                else mainline_execution.get(
+                    "superseded_run_archive_digest"
+                )
+            ),
             "p2_measurement_validation_manifest_digest": (
                 None
                 if mainline_execution is None
@@ -579,7 +631,11 @@ def build_m4_status(
             "runtime_progress_path": (
                 "runtime/logs/"
                 "m4-p2-6-measurement-validation-progress.json"
-                if p2_5_complete and not p2_6_complete
+                if (
+                    p2_5_complete
+                    and not p2_6_complete
+                    and not measurement_repair_required
+                )
                 else None
             ),
             "power": (
@@ -603,6 +659,9 @@ def build_m4_status(
         },
         "formal_real_data_run": "NOT_STARTED",
         "synthetic_validation": (
+            "MEASUREMENT_CONTRACT_REPAIR_REQUIRED"
+            if measurement_repair_required
+            else
             (
                 "PASS_TO_P3"
                 if "m4-p2-measurement-decision:PASS_TO_P3"
@@ -635,82 +694,37 @@ def build_m4_status(
             )
         ),
         "p2_subphase": {
-            "completed": (
-                [
-                    "M4-P2.1",
-                    "M4-P2.2",
-                    "M4-P2.3",
-                    "M4-P2.4",
-                    "M4-P2.5",
-                    "M4-P2.6",
-                    "M4-P2.7",
-                ]
-                if p2_7_complete
-                else (
-                    [
-                        "M4-P2.1",
-                        "M4-P2.2",
-                        "M4-P2.3",
-                        "M4-P2.4",
-                        "M4-P2.5",
-                        "M4-P2.6",
-                    ]
-                    if p2_6_complete
-                    else (
-                        ["M4-P2.1", "M4-P2.2", "M4-P2.3", "M4-P2.4", "M4-P2.5"]
-                        if p2_5_complete
-                        else (
-                            ["M4-P2.1", "M4-P2.2", "M4-P2.3", "M4-P2.4"]
-                            if p2_4_complete
-                            else (
-                                ["M4-P2.1", "M4-P2.2", "M4-P2.3"]
-                                if p2_3_complete
-                                else (
-                                    ["M4-P2.1", "M4-P2.2"]
-                                    if p2_2_complete
-                                    else (["M4-P2.1"] if p2_1_complete else [])
-                                )
-                            )
-                        )
-                    )
+            "completed": [
+                label
+                for label, task_key in zip(
+                    P2_SUBPHASE_LABELS,
+                    P2_SUBTASK_KEYS,
+                    strict=True,
                 )
-            ),
+                if resolutions[task_key].status is TaskStatus.COMPLETED
+            ],
             "current": (
                 "M4-P1-CONTRACT-REPAIR"
                 if not repair_complete
-                else (
-                    (
-                        "M4-P2-REPAIR"
-                        if measurement_repair_required
-                        else "M4-P2-COMPLETE"
-                    )
-                    if p2_7_complete
-                    else (
-                        "M4-P2.7"
-                        if p2_6_complete
-                        else (
-                            "M4-P2.6"
-                            if p2_5_complete
-                            else (
-                                "M4-P2.5"
-                                if p2_4_complete
-                                else (
-                                    "M4-P2.4"
-                                    if p2_3_complete
-                                    else (
-                                        "M4-P2.3"
-                                        if p2_2_complete
-                                        else (
-                                            "M4-P2.2"
-                                            if p2_1_complete
-                                            else "M4-P2.1"
-                                        )
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
+                else "M4-P2-REPAIR"
+                if measurement_repair_required
+                else "M4-P2-COMPLETE"
+                if p2_7_complete
+                else "M4-P2.7"
+                if p2_6_complete
+                else "M4-P2.6.1"
+                if p2_preflight_complete
+                else "M4-P2.6-PREFLIGHT"
+                if p2_5_complete
+                else "M4-P2.5"
+                if p2_4_complete
+                else "M4-P2.4"
+                if p2_3_complete
+                else "M4-P2.3"
+                if p2_2_complete
+                else "M4-P2.2"
+                if p2_1_complete
+                else "M4-P2.1"
             ),
             "gate": (
                 "PASS_TO_P3"
@@ -720,7 +734,11 @@ def build_m4_status(
                     "REPAIR_MEASUREMENT_SYSTEM"
                     if "m4-p2-measurement-decision:REPAIR_MEASUREMENT_SYSTEM"
                     in manifest.facts.artifacts
-                    else "NOT_EVALUATED"
+                    else (
+                        "MEASUREMENT_CONTRACT_REPAIR_REQUIRED"
+                        if measurement_repair_required
+                        else "NOT_EVALUATED"
+                    )
                 )
             ),
             "completion_classification": (
@@ -755,6 +773,9 @@ def build_m4_status(
                 else mainline_execution.get("execution_artifact_digest")
             ),
             "downstream_consumer": (
+                "m4-p2-repair-measurement-system"
+                if measurement_repair_required
+                else
                 (
                     "m4-p3-strict-historical-walk-forward"
                     if "m4-p2-measurement-decision:PASS_TO_P3"
@@ -767,11 +788,15 @@ def build_m4_status(
                     if p2_6_complete
                     else (
                         "m4-p2-false-positive-and-power-runs"
-                        if p2_5_complete
+                        if p2_preflight_complete
                         else (
-                            "m4-p2-resampling"
-                            if p2_4_complete
-                            else "m4-p2-injected-signal-calibration"
+                            "m4-p2-measurement-identifiability-preflight"
+                            if p2_5_complete
+                            else (
+                                "m4-p2-resampling"
+                                if p2_4_complete
+                                else "m4-p2-injected-signal-calibration"
+                            )
                         )
                     )
                 )

@@ -1,9 +1,7 @@
 import json
-from copy import deepcopy
 from pathlib import Path
 
 import pytest
-
 from dehps.research_os.control_plane import ResearchOSControlPlane
 from dehps.research_os.information_theory import load_m4_manifest
 from dehps.research_os.information_theory.digest import config_digest
@@ -16,7 +14,6 @@ from dehps.research_os.information_theory.measurement_validation import (
 from dehps.research_os.mainline import mainline_completion_fact
 from dehps.research_os.models import ControlPlaneManifest, ResearchOSValidationError
 
-
 ROOT = Path(__file__).resolve().parents[3]
 CONTRACT_PATH = (
     ROOT
@@ -25,6 +22,14 @@ CONTRACT_PATH = (
 MANIFEST_PATH = ROOT / "configs/research-os/m4-information-theory-evidence-v1.json"
 PASS_FACT = "m4-p2-measurement-decision:PASS_TO_P3"
 REPAIR_FACT = "m4-p2-measurement-decision:REPAIR_MEASUREMENT_SYSTEM"
+IDENTIFIABLE_FACT = (
+    "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_IDENTIFIABLE"
+)
+IDENTIFIABILITY_REPAIR_FACT = (
+    "m4-p2-identifiability-decision:"
+    "MEASUREMENT_CONTRACT_REPAIR_REQUIRED"
+)
+PREFLIGHT_TASK = "m4-p2-measurement-identifiability-preflight"
 
 
 def _contract() -> dict:
@@ -97,7 +102,7 @@ def test_contract_mutations_fail_even_with_recomputed_self_digest(
         validate_measurement_validation_manifest(payload)
 
 
-def test_p26_task_binds_the_frozen_contract_and_full_mainline_matrix() -> None:
+def test_revised_p26_waits_for_identifiable_repaired_contract() -> None:
     manifest = load_m4_manifest(MANIFEST_PATH)
     task = next(
         item
@@ -105,9 +110,16 @@ def test_p26_task_binds_the_frozen_contract_and_full_mainline_matrix() -> None:
         if item.task_key == "m4-p2-false-positive-and-power-runs"
     )
     metric = json.loads(task.metric_contract)
-    assert task.requested_capability == "m4_p2_6_false_positive_and_power"
-    assert MEASUREMENT_VALIDATION_MANIFEST_DIGEST in task.input_artifact_digests
-    assert metric["coverage_tolerance"] == [0.925, 0.975]
+    assert task.requested_capability == "m4_p2_6_1_false_positive_and_power"
+    assert (
+        MEASUREMENT_VALIDATION_MANIFEST_DIGEST
+        not in task.input_artifact_digests
+    )
+    assert (
+        metric["approved_repair_strategy"]
+        == "SCHEME_A_MARGINAL_TRUTH_TO_MARGINAL_METRIC"
+    )
+    assert metric["old_execution_status"] == "SUPERSEDED"
     assert set(metric["mainline_integration"]) == {
         "goal",
         "ready_condition",
@@ -121,15 +133,11 @@ def test_p26_task_binds_the_frozen_contract_and_full_mainline_matrix() -> None:
     }
 
 
-def test_p26_is_unique_ready_after_completed_p25_runtime_overlay() -> None:
+def test_preflight_is_unique_ready_after_completed_p25() -> None:
     payload = _payload()
-    _set_task_complete(
-        payload,
-        "m4-p2-resampling",
-        "596d7745e8733239417d2b05c39f99cf645843d63842dad7ba850e9f165f1a33",
-    )
     ready, states = _states(payload)
-    assert ready == ["m4-p2-false-positive-and-power-runs"]
+    assert ready == [PREFLIGHT_TASK]
+    assert states["m4-p2-false-positive-and-power-runs"] == "dependency_wait"
     assert states["m4-p2-automatic-gate-and-report"] == "dependency_wait"
     assert states["m4-p2-repair-measurement-system"] == "dependency_wait"
     assert states["m4-p3-strict-historical-walk-forward"] == "dependency_wait"
@@ -137,10 +145,12 @@ def test_p26_is_unique_ready_after_completed_p25_runtime_overlay() -> None:
 
 def test_pass_fact_opens_only_p3_branch_after_p2_completion() -> None:
     payload = _payload()
-    _set_task_complete(
-        payload,
-        "m4-p2-resampling",
-        "596d7745e8733239417d2b05c39f99cf645843d63842dad7ba850e9f165f1a33",
+    _set_task_complete(payload, PREFLIGHT_TASK, "0" * 64)
+    payload["facts"]["artifacts"].extend(
+        [
+            IDENTIFIABLE_FACT,
+            "m4-p2-repaired-measurement-contract:AVAILABLE",
+        ]
     )
     _set_task_complete(payload, "m4-p2-false-positive-and-power-runs", "1" * 64)
     _set_task_complete(payload, "m4-p2-automatic-gate-and-report", "2" * 64)
@@ -157,16 +167,10 @@ def test_pass_fact_opens_only_p3_branch_after_p2_completion() -> None:
     assert "m4-p3-strict-historical-walk-forward" in ready
 
 
-def test_repair_fact_opens_only_repair_and_keeps_p3_closed() -> None:
+def test_identifiability_repair_fact_opens_only_repair_and_keeps_p3_closed() -> None:
     payload = _payload()
-    _set_task_complete(
-        payload,
-        "m4-p2-resampling",
-        "596d7745e8733239417d2b05c39f99cf645843d63842dad7ba850e9f165f1a33",
-    )
-    _set_task_complete(payload, "m4-p2-false-positive-and-power-runs", "3" * 64)
-    _set_task_complete(payload, "m4-p2-automatic-gate-and-report", "4" * 64)
-    payload["facts"]["artifacts"].append(REPAIR_FACT)
+    _set_task_complete(payload, PREFLIGHT_TASK, "3" * 64)
+    payload["facts"]["artifacts"].append(IDENTIFIABILITY_REPAIR_FACT)
     ready, states = _states(payload)
     assert ready == ["m4-p2-repair-measurement-system"]
     assert states["m4-p3-strict-historical-walk-forward"] == "dependency_wait"
@@ -176,6 +180,18 @@ def test_repair_fact_opens_only_repair_and_keeps_p3_closed() -> None:
 def test_pass_and_repair_facts_cannot_coexist() -> None:
     payload = _payload()
     payload["facts"]["artifacts"].extend([PASS_FACT, REPAIR_FACT])
+    with pytest.raises(
+        ResearchOSValidationError,
+        match="mutually exclusive",
+    ):
+        ControlPlaneManifest.from_dict(payload)
+
+
+def test_identifiability_facts_cannot_coexist() -> None:
+    payload = _payload()
+    payload["facts"]["artifacts"].extend(
+        [IDENTIFIABLE_FACT, IDENTIFIABILITY_REPAIR_FACT]
+    )
     with pytest.raises(
         ResearchOSValidationError,
         match="mutually exclusive",

@@ -554,7 +554,7 @@ def test_48_kernel_source_uses_no_rng_or_real_history_import() -> None:
     assert "get_connection" not in source
 
 
-def test_49_research_os_has_completed_p2_4_and_unlocks_only_p2_5() -> None:
+def test_49_research_os_has_completed_p2_5_and_unlocks_only_preflight() -> None:
     manifest = load_m4_manifest(CONTROL_PATH)
     snapshot = ResearchOSControlPlane().resolve(manifest)
     resolutions = {item.task_key: item for item in snapshot.resolutions}
@@ -566,16 +566,20 @@ def test_49_research_os_has_completed_p2_4_and_unlocks_only_p2_5() -> None:
         is TaskStatus.COMPLETED
     )
     assert [item.task_key for item in snapshot.ready_queue] == [
-        "m4-p2-resampling"
+        "m4-p2-measurement-identifiability-preflight"
     ]
     assert status["p2_subphase"]["completed"] == [
         "M4-P2.1",
         "M4-P2.2",
         "M4-P2.3",
         "M4-P2.4",
+        "M4-P2.5",
     ]
-    assert status["next_ready_task"] == "m4-p2-resampling"
-    assert status["progress"]["engineering_percent"] == 34
+    assert (
+        status["next_ready_task"]
+        == "m4-p2-measurement-identifiability-preflight"
+    )
+    assert status["progress"]["engineering_percent"] == 37
     assert status["progress"]["evidence_percent"] == 0
 
 

@@ -1,0 +1,46 @@
+{
+  "schema_version": "dehps-m4-p2-superseded-run-archive.v1",
+  "artifact_type": "measurement_validation_superseded_run_archive",
+  "artifact_digest": "d2d959f6c326e42f80bf92ae652087c941c77e0bacbe22f29e04d4cf8c9f4d6d",
+  "phase": "M4-P2.6",
+  "status": "SUPERSEDED",
+  "production_action": "none",
+  "reason": "measurement_contract_not_identifiable_by_current_metric",
+  "old_task": {
+    "task_key": "m4-p2-false-positive-and-power-runs",
+    "task_digest": "975a8e0bf859bad1e7f5f33411471878dd731134ee1f3b81948bd8c8503dc4c0",
+    "parent_execution_id": "8e1c601233833b60442b45ebaeeaea53679c34eef1d00de5480827f415d517fd",
+    "measurement_validation_manifest_digest": "953ae76e2e28523b7d067c2b73dac8bec63ff2417db283fd516fe900e52402f8",
+    "execution_plan_digest": "4b6d1b5d3a72f09188adb844d9aacb4addfee68afd3bb5d6efe8f396694f5e3e"
+  },
+  "checkpoint": {
+    "paused_at": "2026-07-31T14:32:22+08:00",
+    "total_replicates": 31000,
+    "complete_replicate_artifacts": 13223,
+    "checkpoint_journal_files": 13243,
+    "in_flight_partial_journals": 20,
+    "failed_replicates": 0,
+    "artifact_tree_bytes": 978493712,
+    "coordinator_state_sha256": "e272c9ff509ce37bf418e81a60b4fe57f10f99abc507c34d9da68a8d02df24fb",
+    "artifacts_deleted": false,
+    "checkpoint_preserved": true
+  },
+  "result_blindness": {
+    "partial_statistical_results_inspected": false,
+    "result_selection_used": false,
+    "partial_results_eligible_for_evidence": false,
+    "evidence_progress_increment": 0
+  },
+  "operator_authorization": {
+    "request_id": "operator-pause-m4-p2-6-measurement-contract-repair-20260731",
+    "approved_by_user": true,
+    "service": "dehps-research-evidence-supervisor.service",
+    "final_service_state": "inactive"
+  },
+  "successor": {
+    "task_key": "m4-p2-measurement-identifiability-preflight",
+    "repair_strategy": "SCHEME_A_MARGINAL_TRUTH_TO_MARGINAL_METRIC",
+    "old_execution_resumable": false,
+    "old_execution_evidence_eligible": false
+  }
+}

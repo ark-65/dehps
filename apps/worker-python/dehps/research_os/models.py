@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from hashlib import sha256
-from typing import Any, Mapping
-
+from typing import Any
 
 RESEARCH_OS_SCHEMA_VERSION = "research-os-control-plane-v1"
 
@@ -506,6 +506,22 @@ class ControlPlaneManifest:
         if p2_measurement_outcomes.issubset(manifest.facts.artifacts):
             raise ResearchOSValidationError(
                 "P2 measurement decision facts are mutually exclusive"
+            )
+        p2_identifiability_outcomes = {
+            (
+                "m4-p2-identifiability-decision:"
+                "MEASUREMENT_CONTRACT_IDENTIFIABLE"
+            ),
+            (
+                "m4-p2-identifiability-decision:"
+                "MEASUREMENT_CONTRACT_REPAIR_REQUIRED"
+            ),
+        }
+        if p2_identifiability_outcomes.issubset(
+            manifest.facts.artifacts
+        ):
+            raise ResearchOSValidationError(
+                "P2 identifiability decision facts are mutually exclusive"
             )
         expected_digest = value.get("manifest_digest")
         if expected_digest and str(expected_digest) != manifest.artifact_digest:
