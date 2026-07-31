@@ -112,6 +112,124 @@ def _candidate_id(c_value: float) -> str:
     return f"L2_LIBLINEAR_C_{c_value:g}"
 
 
+def _prepare_frozen_logistic_probe(
+    dataset: TrainingDatasetView,
+    train_view: TrainFeatureView,
+    *,
+    config: Mapping[str, Any],
+    runtime_cache: ExactProbeRuntimeCache | None,
+) -> PreparedLogisticProbe:
+    selected_c = config.get("selected_C")
+    if (
+        not isinstance(selected_c, (int, float))
+        or float(selected_c) not in {0.01, 0.1, 1.0}
+        or config.get("C") != [float(selected_c)]
+        or len(str(config.get("development_selection_digest") or "")) != 64
+    ):
+        raise WalkForwardError(
+            "missing_probe_hyperparameter_contract",
+            "frozen logistic development selection changed",
+        )
+    fitted = (
+        runtime_cache.fitted(train_view)
+        if runtime_cache is not None
+        else fit_preprocessor(
+            train_view,
+            outer_train_end=max(train_view.issue_ids),
+        )
+    )
+    matrix = (
+        runtime_cache.transformed(fitted, train_view)
+        if runtime_cache is not None
+        else transform_train(fitted, train_view)
+    )
+    targets = (
+        runtime_cache.targets(train_view)
+        if runtime_cache is not None
+        else np.asarray(train_view.targets, dtype=np.int8)
+    )
+    model = _new_model(
+        config,
+        c_value=float(selected_c),
+        seed=dataset.replicate_seed,
+    )
+    _fit_model(model, matrix, targets)
+    selected_id = _candidate_id(float(selected_c))
+    selection_payload = {
+        "method": "frozen_development_selection",
+        "development_selection_digest": config["development_selection_digest"],
+        "selected_config_id": selected_id,
+        "outer_test_metrics_used": False,
+        "fit_count_per_outer_fold": 1,
+    }
+    selection_digest = canonical_digest(
+        selection_payload,
+        domain="dehps.m4.probe.inner-selection.v1",
+    )
+    model_payload = {
+        "classes": model.classes_.tolist(),
+        "coef": model.coef_.tolist(),
+        "intercept": model.intercept_.tolist(),
+        "n_iter": model.n_iter_.tolist(),
+        "implementation": f"scikit-learn=={sklearn.__version__}",
+        "selected_config_id": selected_id,
+        "selected_C": float(selected_c),
+    }
+    model_digest = canonical_digest(
+        model_payload,
+        domain="dehps.m4.probe.logistic-parameters.v1",
+    )
+    state_identity = {
+        "probe_id": "REGULARIZED_LOGISTIC_REGRESSION",
+        "training_start_issue": min(train_view.issue_ids),
+        "training_end_issue": max(train_view.issue_ids),
+        "feature_manifest_digest": train_view.feature_manifest_digest,
+        "preprocessing_state_digest": fitted.state.state_digest,
+        "hyperparameter_selection_digest": selection_digest,
+        "model_parameters_digest": model_digest,
+        "seed": dataset.replicate_seed,
+    }
+    state = ProbeState(
+        probe_id="REGULARIZED_LOGISTIC_REGRESSION",
+        probe_type="regularized_logistic_regression",
+        training_start_issue=min(train_view.issue_ids),
+        training_end_issue=max(train_view.issue_ids),
+        training_issue_count=len(train_view.issue_ids),
+        training_row_count=len(train_view.targets),
+        feature_manifest_digest=train_view.feature_manifest_digest,
+        preprocessing_state_digest=fitted.state.state_digest,
+        hyperparameter_selection_digest=selection_digest,
+        model_parameters_digest=model_digest,
+        convergence_status=CONVERGED,
+        hyperparameters={
+            "penalty": "l2",
+            "C": float(selected_c),
+            "class_weight": None,
+            "solver": config["solver"],
+            "max_iter": config["max_iter"],
+            "tol": config["tol"],
+            "implementation": f"scikit-learn=={sklearn.__version__}",
+            "selected_config_id": selected_id,
+            "selection_mode": "frozen_development",
+            "outer_test_metrics_used": False,
+            "fit_count_per_outer_fold": 1,
+        },
+        state_digest=canonical_digest(
+            state_identity,
+            domain="dehps.m4.probe-state.v1",
+        ),
+        seed_policy={
+            "mode": "dataset_replicate_seed",
+            "seed": dataset.replicate_seed,
+        },
+    )
+    return PreparedLogisticProbe(
+        state=state,
+        model=model,
+        preprocessor=fitted,
+    )
+
+
 def prepare_logistic_probe(
     dataset: TrainingDatasetView,
     train_view: TrainFeatureView,
@@ -126,7 +244,10 @@ def prepare_logistic_probe(
             "target_access_boundary_violation",
             "logistic probe requires a training-only dataset view",
         )
-    if config.get("penalty") != ["l2"] or config.get("C") != [0.01, 0.1, 1.0]:
+    frozen_selection = config.get("selection_mode") == "frozen_development"
+    if config.get("penalty") != ["l2"] or (
+        not frozen_selection and config.get("C") != [0.01, 0.1, 1.0]
+    ):
         raise WalkForwardError(
             "missing_probe_hyperparameter_contract",
             "logistic candidates must match frozen preregistration",
@@ -141,6 +262,13 @@ def prepare_logistic_probe(
         raise WalkForwardError(
             "missing_probe_hyperparameter_contract",
             "logistic solver contract changed",
+        )
+    if frozen_selection:
+        return _prepare_frozen_logistic_probe(
+            dataset,
+            train_view,
+            config=config,
+            runtime_cache=runtime_cache,
         )
     inner_folds = expanding_inner_folds(
         train_view.issue_ids, outer_test_issue=outer_test_issue

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from math import fsum, isfinite, sqrt
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 from dehps.contracts import canonical_digest
 
 from .contracts import MeasurementValidationContractError, MeasurementValidationManifest
 from .statistics import wilson_interval
-
 
 PASS_FACT = "m4-p2-measurement-decision:PASS_TO_P3"
 REPAIR_FACT = "m4-p2-measurement-decision:REPAIR_MEASUREMENT_SYSTEM"
@@ -44,6 +44,13 @@ def aggregate_cell(
         "outer_issue_count",
     )
     identity = {key: first[key] for key in keys}
+    if "scenario_role" in first:
+        identity.update(
+            {
+                "scenario_role": first["scenario_role"],
+                "formal_power_eligible": first["formal_power_eligible"],
+            }
+        )
     truth_values = {
         float(item["truth_bits_per_issue"]) for item in replicates
     }
@@ -107,6 +114,14 @@ def aggregate_cell(
     )
     coverage = covered / EXPECTED_REPLICATES_PER_CELL
     null_cell = identity["scenario_id"] == "NULL_UNIFORM"
+    joint_only_control = (
+        identity.get("scenario_role") == "JOINT_ONLY_NEGATIVE_CONTROL"
+    )
+    formal_power = (
+        not null_cell
+        if "formal_power_eligible" not in identity
+        else identity["formal_power_eligible"] is True
+    )
     wilson_lower, wilson_upper = wilson_interval(
         positive_count,
         EXPECTED_REPLICATES_PER_CELL,
@@ -139,7 +154,10 @@ def aggregate_cell(
         ),
         "positive_signal_count": positive_count,
         "false_positive_rate": power if null_cell else None,
-        "empirical_power": None if null_cell else power,
+        "joint_only_control_false_positive_rate": (
+            power if joint_only_control else None
+        ),
+        "empirical_power": power if formal_power else None,
         "wilson_95_interval": {
             "lower": wilson_lower,
             "upper": wilson_upper,
@@ -156,23 +174,30 @@ def aggregate_cell(
         "false_positive_wilson_gate_pass": (
             wilson_upper <= 0.09 if null_cell else None
         ),
+        "joint_only_control_point_gate_pass": (
+            power <= 0.075 if joint_only_control else None
+        ),
+        "joint_only_control_wilson_gate_pass": (
+            wilson_upper <= 0.09 if joint_only_control else None
+        ),
         "practical_power_gate_pass": (
             power >= manifest.practical_power_min
-            if identity["signal_strength"] == "MEDIUM_PRACTICAL"
+            if formal_power
+            and identity["signal_strength"] == "MEDIUM_PRACTICAL"
             else None
         ),
         "strong_power_gate_pass": (
             power >= manifest.strong_power_min
-            if identity["signal_strength"] == "STRONG"
+            if formal_power and identity["signal_strength"] == "STRONG"
             else None
         ),
         "bias_gate_pass": (
-            abs(bias) <= 0.0025 if not null_cell else True
+            abs(bias) <= 0.0025 if formal_power else True
         ),
         "rmse_finite_gate_pass": isfinite(rmse),
         "coverage_gate_pass": (
             manifest.coverage_lower <= coverage <= manifest.coverage_upper
-            if not null_cell
+            if formal_power
             else True
         ),
         "parent_digests": digests,
@@ -200,11 +225,18 @@ def build_mde_summary(
         (str(item["scale_id"]), str(item["scenario_id"])): item
         for item in aggregates
     }
+    repaired = any(
+        "formal_power_eligible" in item for item in aggregates
+    )
     mechanisms = (
-        "SINGLE_NUMBER",
-        "LOCAL_TEMPORAL",
-        "PAIR",
-        "MARGINAL_PRESERVING",
+        ("SINGLE_NUMBER", "LOCAL_TEMPORAL", "PAIR")
+        if repaired
+        else (
+            "SINGLE_NUMBER",
+            "LOCAL_TEMPORAL",
+            "PAIR",
+            "MARGINAL_PRESERVING",
+        )
     )
     strengths = (
         (0.001, "WEAK"),
@@ -219,7 +251,10 @@ def build_mde_summary(
             tested: list[dict[str, Any]] = []
             for strength, prefix in strengths:
                 item = by_identity.get((scale, f"{prefix}_{mechanism}"))
-                if item is not None:
+                if item is not None and (
+                    not repaired
+                    or item.get("formal_power_eligible") is True
+                ):
                     tested.append(
                         {
                             "strength_bits_per_issue": strength,
@@ -242,7 +277,9 @@ def build_mde_summary(
                     "tested_grid": tested,
                     "mde_conservative_upper_bits_per_issue": upper,
                     "mde_bracket": (
-                        f"<= {upper:g}" if upper is not None else "> 0.05"
+                        f"<= {upper:g}"
+                        if upper is not None
+                        else f"> {tested[-1]['strength_bits_per_issue']:g}"
                     ),
                     "interpolation_used": False,
                 }
@@ -252,10 +289,10 @@ def build_mde_summary(
         for item in per_mechanism_scale
         if item["scale_id"] == "FORWARD_61"
     ]
-    if len(forward) != 4:
+    if len(forward) != len(mechanisms):
         raise MeasurementValidationContractError(
             "measurement_validation_mde_incomplete",
-            "FORWARD_61 requires four mechanism MDE results",
+            "FORWARD_61 mechanism MDE scope is incomplete",
         )
     forward_upper = [
         item["mde_conservative_upper_bits_per_issue"] for item in forward
@@ -272,7 +309,10 @@ def build_mde_summary(
             scheduled = []
             for scale in scales:
                 item = by_identity.get((scale, f"{prefix}_{mechanism}"))
-                if item is not None:
+                if item is not None and (
+                    not repaired
+                    or item.get("formal_power_eligible") is True
+                ):
                     scheduled.append(
                         (
                             issue_counts[scale],
@@ -342,19 +382,54 @@ def evaluate_automatic_gate(
     injected = [
         item for item in aggregates if item["scenario_id"] != "NULL_UNIFORM"
     ]
+    repaired = manifest.payload.get("phase") == "M4-P2.6.1"
+    formal_power = (
+        [
+            item
+            for item in injected
+            if item.get("formal_power_eligible") is True
+        ]
+        if repaired
+        else injected
+    )
+    joint_only_controls = (
+        [
+            item
+            for item in injected
+            if item.get("scenario_role")
+            == "JOINT_ONLY_NEGATIVE_CONTROL"
+        ]
+        if repaired
+        else []
+    )
+    sentinels = (
+        [
+            item
+            for item in injected
+            if item.get("scenario_role")
+            == "MARGINAL_FEASIBILITY_SENTINEL"
+        ]
+        if repaired
+        else []
+    )
     practical = [
         item
-        for item in injected
+        for item in formal_power
         if item["signal_strength"] == "MEDIUM_PRACTICAL"
     ]
     strong = [
-        item for item in injected if item["signal_strength"] == "STRONG"
+        item
+        for item in formal_power
+        if item["signal_strength"] == "STRONG"
     ]
     if (
         len(null_cells) != 3
         or len(injected) != EXPECTED_INJECTED_CELL_COUNT
-        or len(practical) != 12
-        or len(strong) != 8
+        or len(practical) != (9 if repaired else 12)
+        or len(strong) != (4 if repaired else 8)
+        or (repaired and len(formal_power) != 19)
+        or (repaired and len(joint_only_controls) != 7)
+        or (repaired and len(sentinels) != 2)
     ):
         raise MeasurementValidationContractError(
             "measurement_validation_gate_scope_incomplete",
@@ -385,6 +460,17 @@ def evaluate_automatic_gate(
             and item["false_positive_wilson_gate_pass"]
             for item in null_cells
         ),
+        **(
+            {
+                "all_joint_only_marginal_controls_false_positive_gates_pass": all(
+                    item["joint_only_control_point_gate_pass"]
+                    and item["joint_only_control_wilson_gate_pass"]
+                    for item in joint_only_controls
+                )
+            }
+            if repaired
+            else {}
+        ),
         "all_practical_strength_cell_power_gates_pass": all(
             item["practical_power_gate_pass"] for item in practical
         ),
@@ -392,13 +478,13 @@ def evaluate_automatic_gate(
             item["strong_power_gate_pass"] for item in strong
         ),
         "all_primary_PE2_absolute_bias_cell_gates_pass": all(
-            item["bias_gate_pass"] for item in injected
+            item["bias_gate_pass"] for item in formal_power
         ),
         "all_primary_PE2_coverage_cell_gates_pass": all(
-            item["coverage_gate_pass"] for item in injected
+            item["coverage_gate_pass"] for item in formal_power
         ),
         "all_RMSE_outputs_finite": all(
-            item["rmse_finite_gate_pass"] for item in injected
+            item["rmse_finite_gate_pass"] for item in formal_power
         ),
         "all_leakage_checks_pass": completion.get("leakage_failure_count") == 0,
         "deterministic_replay_passes": deterministic_replay_passed,

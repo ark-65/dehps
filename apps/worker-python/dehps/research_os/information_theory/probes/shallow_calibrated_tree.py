@@ -181,6 +181,114 @@ def _tree_payload(model: CalibratedClassifierCV) -> dict[str, Any]:
     }
 
 
+def _prepare_frozen_shallow_calibrated_tree(
+    dataset: TrainingDatasetView,
+    train_view: TrainFeatureView,
+    *,
+    config: Mapping[str, Any],
+    train_view_builder: TrainViewBuilder | None,
+    runtime_cache: ExactProbeRuntimeCache | None,
+) -> PreparedShallowCalibratedTree:
+    selected_depth = config.get("selected_max_depth")
+    selected_leaf = config.get("selected_min_samples_leaf")
+    if (
+        not isinstance(selected_depth, int)
+        or selected_depth not in {2, 3}
+        or not isinstance(selected_leaf, int)
+        or selected_leaf not in {50, 100}
+        or config.get("max_depth") != [selected_depth]
+        or config.get("min_samples_leaf") != [selected_leaf]
+        or len(str(config.get("development_selection_digest") or "")) != 64
+    ):
+        raise WalkForwardError(
+            "missing_probe_hyperparameter_contract",
+            "frozen tree development selection changed",
+        )
+    selected = _candidate_id(selected_depth, selected_leaf)
+    selection_payload = {
+        "method": "frozen_development_selection",
+        "development_selection_digest": config["development_selection_digest"],
+        "selected_config_id": selected,
+        "outer_test_metrics_used": False,
+        "fit_count_per_outer_fold": 2,
+    }
+    selection_digest = canonical_digest(
+        selection_payload,
+        domain="dehps.m4.probe.inner-selection.v1",
+    )
+    model, fitted, split = _fit_calibrated(
+        dataset,
+        issue_ids=train_view.issue_ids,
+        max_depth=selected_depth,
+        min_samples_leaf=selected_leaf,
+        train_view_builder=train_view_builder,
+        fitted_by_view={},
+        runtime_cache=runtime_cache,
+    )
+    model_payload = {
+        **_tree_payload(model),
+        **split,
+        "implementation": f"scikit-learn=={sklearn.__version__}",
+        "selected_config_id": selected,
+        "max_depth": selected_depth,
+        "min_samples_leaf": selected_leaf,
+        "criterion": "log_loss",
+        "calibration": "platt",
+    }
+    model_digest = canonical_digest(
+        model_payload,
+        domain="dehps.m4.probe.shallow-calibrated-tree-parameters.v1",
+    )
+    state_identity = {
+        "probe_id": "SHALLOW_CALIBRATED_TREE",
+        "training_start_issue": min(train_view.issue_ids),
+        "training_end_issue": max(train_view.issue_ids),
+        "feature_manifest_digest": train_view.feature_manifest_digest,
+        "preprocessing_state_digest": fitted.state.state_digest,
+        "hyperparameter_selection_digest": selection_digest,
+        "model_parameters_digest": model_digest,
+        "seed": dataset.replicate_seed,
+    }
+    state = ProbeState(
+        probe_id="SHALLOW_CALIBRATED_TREE",
+        probe_type="shallow_calibrated_decision_tree",
+        training_start_issue=min(train_view.issue_ids),
+        training_end_issue=max(train_view.issue_ids),
+        training_issue_count=len(train_view.issue_ids),
+        training_row_count=len(train_view.targets),
+        feature_manifest_digest=train_view.feature_manifest_digest,
+        preprocessing_state_digest=fitted.state.state_digest,
+        hyperparameter_selection_digest=selection_digest,
+        model_parameters_digest=model_digest,
+        convergence_status=CONVERGED,
+        hyperparameters={
+            "max_depth": selected_depth,
+            "min_samples_leaf": selected_leaf,
+            "criterion": "log_loss",
+            "calibration": "platt",
+            **split,
+            "implementation": f"scikit-learn=={sklearn.__version__}",
+            "selected_config_id": selected,
+            "selection_mode": "frozen_development",
+            "outer_test_metrics_used": False,
+            "fit_count_per_outer_fold": 2,
+        },
+        state_digest=canonical_digest(
+            state_identity,
+            domain="dehps.m4.probe-state.v1",
+        ),
+        seed_policy={
+            "mode": "dataset_replicate_seed",
+            "seed": dataset.replicate_seed,
+        },
+    )
+    return PreparedShallowCalibratedTree(
+        state=state,
+        model=model,
+        preprocessor=fitted,
+    )
+
+
 def prepare_shallow_calibrated_tree(
     dataset: TrainingDatasetView,
     train_view: TrainFeatureView,
@@ -195,9 +303,15 @@ def prepare_shallow_calibrated_tree(
             "target_access_boundary_violation",
             "calibrated tree requires a training-only dataset view",
         )
+    frozen_selection = config.get("selection_mode") == "frozen_development"
     if (
-        config.get("max_depth") != [2, 3]
-        or config.get("min_samples_leaf") != [50, 100]
+        (
+            not frozen_selection
+            and (
+                config.get("max_depth") != [2, 3]
+                or config.get("min_samples_leaf") != [50, 100]
+            )
+        )
         or config.get("criterion") != ["log_loss"]
         or config.get("calibration") != ["platt"]
         or config.get("calibration_split") != "last_20_percent_of_inner_training"
@@ -206,6 +320,14 @@ def prepare_shallow_calibrated_tree(
         raise WalkForwardError(
             "missing_probe_hyperparameter_contract",
             "shallow calibrated tree candidates changed",
+        )
+    if frozen_selection:
+        return _prepare_frozen_shallow_calibrated_tree(
+            dataset,
+            train_view,
+            config=config,
+            train_view_builder=train_view_builder,
+            runtime_cache=runtime_cache,
         )
     candidates = [
         (int(depth), int(leaf))

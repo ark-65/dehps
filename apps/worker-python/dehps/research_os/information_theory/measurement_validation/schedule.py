@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
 
 from dehps.contracts import canonical_digest
 from dehps.research_os.information_theory.seed_domains import (
@@ -12,7 +13,6 @@ from dehps.research_os.information_theory.synthetic.contracts import (
 )
 
 from .contracts import MeasurementValidationContractError, MeasurementValidationManifest
-
 
 ROOT_SEED_SET_DIGEST = (
     "b7fe8fab4e6fbb6387823d8354e6a9ac6da15b03f26ba0dc2ce7756f296e73b7"
@@ -28,13 +28,15 @@ class AnalysisCell:
     signal_strength: str
     target_bits_per_issue: float
     outer_issue_count: int
+    scenario_role: str | None = None
+    formal_power_eligible: bool | None = None
 
     @property
     def cell_id(self) -> str:
         return f"{self.scale_id}:{self.scenario_id}"
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "cell_id": self.cell_id,
             "scale_id": self.scale_id,
             "scenario_id": self.scenario_id,
@@ -44,6 +46,14 @@ class AnalysisCell:
             "outer_issue_count": self.outer_issue_count,
             "replicates": REPLICATES_PER_CELL,
         }
+        if self.scenario_role is not None:
+            payload.update(
+                {
+                    "scenario_role": self.scenario_role,
+                    "formal_power_eligible": self.formal_power_eligible,
+                }
+            )
+        return payload
 
 
 @dataclass(frozen=True)
@@ -107,6 +117,10 @@ def build_cells(
     synthetic: SyntheticRunManifest,
 ) -> tuple[AnalysisCell, ...]:
     schedule = manifest.payload["workload"]["schedule"]
+    repaired_contracts = {
+        str(item["scenario_id"]): item
+        for item in manifest.payload.get("scenario_contracts", [])
+    }
     cells: list[AnalysisCell] = []
     for entry in schedule:
         scale_id = str(entry["scale_id"])
@@ -119,14 +133,31 @@ def build_cells(
             )
         for scenario_id in _scenario_ids(dict(entry), synthetic):
             scenario = synthetic.scenario(scenario_id)
+            repaired = repaired_contracts.get(scenario_id)
             cells.append(
                 AnalysisCell(
                     scale_id=scale_id,
                     scenario_id=scenario.scenario_id,
                     mechanism=scenario.mechanism,
                     signal_strength=scenario.signal_strength,
-                    target_bits_per_issue=scenario.target_bits_per_issue,
+                    target_bits_per_issue=(
+                        scenario.target_bits_per_issue
+                        if repaired is None
+                        else float(
+                            repaired[
+                                "marginal_information_bits_per_issue"
+                            ]
+                        )
+                    ),
                     outer_issue_count=outer_issue_count,
+                    scenario_role=(
+                        None if repaired is None else str(repaired["role"])
+                    ),
+                    formal_power_eligible=(
+                        None
+                        if repaired is None
+                        else repaired["role"] == "FORMAL_POWER_TARGET"
+                    ),
                 )
             )
     if len(cells) != 31 or len({item.cell_id for item in cells}) != 31:
@@ -176,6 +207,14 @@ def build_replicate(
         "evaluation_dataset_seed_digest": evaluation["seed_digest"],
         "parent_execution_id": parent_execution_id,
     }
+    if cell.scenario_role is not None:
+        identity.update(
+            {
+                "scenario_role": cell.scenario_role,
+                "formal_power_eligible": cell.formal_power_eligible,
+                "target_bits_per_issue": cell.target_bits_per_issue,
+            }
+        )
     digest = canonical_digest(
         identity,
         domain="dehps.m4-p2.analysis-replicate-identity.v1",
