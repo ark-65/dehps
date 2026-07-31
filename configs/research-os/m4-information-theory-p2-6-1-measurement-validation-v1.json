@@ -1,0 +1,154 @@
+{
+  "schema_version": "dehps-m4-p2-repaired-measurement-validation-manifest.v1",
+  "artifact_type": "repaired_measurement_validation_manifest",
+  "artifact_digest": "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58",
+  "phase": "M4-P2.6.1",
+  "status": "FROZEN",
+  "created_at": "2026-07-31T18:30:00+08:00",
+  "approved_strategy": "SCHEME_A_MARGINAL_TRUTH_TO_MARGINAL_METRIC",
+  "base_measurement_validation_manifest_digest": "953ae76e2e28523b7d067c2b73dac8bec63ff2417db283fd516fe900e52402f8",
+  "measurement_repair_manifest_digest": "5e41910553643e6559e78aa401fdcdd1e661b5709eaf55f0e73e694fb5a61355",
+  "development_selection_artifact_digest": "90459ebf8b88afcc60ee1177043e436b90b71c00b557f15e9e4d7026f37586f2",
+  "state_visible_feature_manifest_digest": "1a76f46d7a47a134c1688657749bc040290f65a03dbc7c860e38144e02005981",
+  "result_blind_freeze": {
+    "old_P2_6_partial_statistical_result_used": false,
+    "formal_P2_6_1_dataset_created_before_freeze": false,
+    "formal_false_positive_result_used": false,
+    "formal_power_result_used": false,
+    "formal_bias_rmse_or_coverage_result_used": false,
+    "mde_result_used": false,
+    "real_history_used": false,
+    "evidence_created": false
+  },
+  "truth_artifacts": [
+    {
+      "scenario_id": "WEAK_SINGLE_NUMBER",
+      "artifact_digest": "42e9ab014ca479f7b46f360cebc556dae6eb4bbc9df81a9e07e9217689ba9f20",
+      "role": "FORMAL_POWER_TARGET"
+    },
+    {
+      "scenario_id": "MEDIUM_PRACTICAL_SINGLE_NUMBER",
+      "artifact_digest": "978dafa53fe70f53ba70ac6e73c5e172b690a8baf4d4f2bcf71a0fe0cb324067",
+      "role": "FORMAL_POWER_TARGET"
+    },
+    {
+      "scenario_id": "STRONG_SINGLE_NUMBER",
+      "artifact_digest": "035d73c8d8042caa93d7a144126df988daf6190b43e9a0587e03025f31b5ca35",
+      "role": "FORMAL_POWER_TARGET"
+    },
+    {
+      "scenario_id": "WEAK_LOCAL_TEMPORAL",
+      "artifact_digest": "872d7d3c00ccc6b9cb0d26db446c10f7eeaa56a35d7f6bc10ce094647f09bd62",
+      "role": "FORMAL_POWER_TARGET"
+    },
+    {
+      "scenario_id": "MEDIUM_PRACTICAL_LOCAL_TEMPORAL",
+      "artifact_digest": "c36688ab71b6461c0b0fa5323c64a1574eb1b0a055e0317b5207ff91f2b9dfaa",
+      "role": "FORMAL_POWER_TARGET"
+    },
+    {
+      "scenario_id": "STRONG_LOCAL_TEMPORAL",
+      "artifact_digest": "a6f1a403cc9ae7023906cd24abfff3be0c5e4f2c9def8ad1162512ff288b8584",
+      "role": "FORMAL_POWER_TARGET"
+    },
+    {
+      "scenario_id": "WEAK_PAIR",
+      "artifact_digest": "3cbacd0f475f7d02b85638e2602ccde1a5d958255480ebaf52a78ff571e4f2de",
+      "role": "FORMAL_POWER_TARGET"
+    },
+    {
+      "scenario_id": "MEDIUM_PRACTICAL_PAIR",
+      "artifact_digest": "56b26a72cacfae8e2af9e29a6a756e5a7ac1e38503c65102448687892205f981",
+      "role": "FORMAL_POWER_TARGET"
+    },
+    {
+      "scenario_id": "STRONG_PAIR",
+      "artifact_digest": "54d8ca9be4ceea92a3c1cbc94dadd697b459bd957f763f72295b1bf5098906db",
+      "role": "MARGINAL_FEASIBILITY_SENTINEL"
+    },
+    {
+      "scenario_id": "WEAK_MARGINAL_PRESERVING",
+      "artifact_digest": "7a1e9b1b9b3e0156c9ed1efd5cb48cd75678720bf32143d81932d50935fe6d3c",
+      "role": "JOINT_ONLY_NEGATIVE_CONTROL"
+    },
+    {
+      "scenario_id": "MEDIUM_PRACTICAL_MARGINAL_PRESERVING",
+      "artifact_digest": "10d53d393d3fa89d8ab4eaadc27f6fbfe574cf86f06784acc0944022b1e0723e",
+      "role": "JOINT_ONLY_NEGATIVE_CONTROL"
+    },
+    {
+      "scenario_id": "STRONG_MARGINAL_PRESERVING",
+      "artifact_digest": "7ac36e46c5edee150fa65e376782e1a72931501a199de4802b1c2737e9cbb74b",
+      "role": "JOINT_ONLY_NEGATIVE_CONTROL"
+    }
+  ],
+  "workload_binding": {
+    "base_schedule_reused_exactly": true,
+    "scenario_replicates": 31000,
+    "outer_issue_predictions": 64656000,
+    "formal_seed_domain": "M4_P2_EVALUATION_DATASET",
+    "development_seed_reuse": "forbidden",
+    "partial_aggregation": "forbidden"
+  },
+  "estimator_contract": {
+    "truth_target": "marginal_information_bits_per_issue_and_zero_for_NULL_UNIFORM",
+    "metric": "sum_number_event_log_loss_gain_bits_per_issue",
+    "unit": "bits_per_issue",
+    "joint_information_role": "diagnostic_only",
+    "absolute_bias_max_bits_per_issue": 0.0025
+  },
+  "synthetic_instrument": {
+    "feature_manifest_digest": "1a76f46d7a47a134c1688657749bc040290f65a03dbc7c860e38144e02005981",
+    "prior_state_available_strictly_before_target": true,
+    "state_number_interaction_count": 33,
+    "joint_or_pair_features": "forbidden",
+    "real_history_access": "forbidden"
+  },
+  "frozen_probe_configs": {
+    "REGULARIZED_LOGISTIC_REGRESSION": {
+      "selection_mode": "frozen_development",
+      "selected_C": 0.1,
+      "fit_count_per_outer_fold": 1
+    },
+    "NAIVE_BAYES": {
+      "selection_mode": "frozen_development",
+      "selected_alpha": 2.0,
+      "fit_count_per_outer_fold": 1
+    },
+    "SHALLOW_CALIBRATED_TREE": {
+      "selection_mode": "frozen_development",
+      "selected_max_depth": 2,
+      "selected_min_samples_leaf": 50,
+      "fit_count_per_outer_fold": 2
+    },
+    "inner_model_selection_per_outer_fold": 0,
+    "total_estimator_and_calibrator_fits_per_outer_fold": 4
+  },
+  "gate_scope": {
+    "formal_power_scenarios": [
+      "WEAK_SINGLE_NUMBER",
+      "MEDIUM_PRACTICAL_SINGLE_NUMBER",
+      "STRONG_SINGLE_NUMBER",
+      "WEAK_LOCAL_TEMPORAL",
+      "MEDIUM_PRACTICAL_LOCAL_TEMPORAL",
+      "STRONG_LOCAL_TEMPORAL",
+      "WEAK_PAIR",
+      "MEDIUM_PRACTICAL_PAIR"
+    ],
+    "practical_0_01_power_min": 0.8,
+    "strong_0_05_power_min": 0.95,
+    "strong_pair_excluded_as_unreachable": true,
+    "joint_only_controls_excluded_from_power_gate": true,
+    "joint_only_controls_expected_marginal_false_positive_max": 0.075,
+    "null_false_positive_rate_max": 0.075,
+    "null_wilson_upper_95_max": 0.09,
+    "manual_override": "forbidden"
+  },
+  "branch_contract": {
+    "pass_fact": "m4-p2-measurement-decision:PASS_TO_P3",
+    "repair_fact": "m4-p2-measurement-decision:REPAIR_MEASUREMENT_SYSTEM",
+    "mutually_exclusive": true,
+    "P3_default": "closed"
+  },
+  "production_action": "none"
+}

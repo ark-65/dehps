@@ -22,12 +22,9 @@ CONTRACT_PATH = (
 MANIFEST_PATH = ROOT / "configs/research-os/m4-information-theory-evidence-v1.json"
 PASS_FACT = "m4-p2-measurement-decision:PASS_TO_P3"
 REPAIR_FACT = "m4-p2-measurement-decision:REPAIR_MEASUREMENT_SYSTEM"
-IDENTIFIABLE_FACT = (
-    "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_IDENTIFIABLE"
-)
+IDENTIFIABLE_FACT = "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_IDENTIFIABLE"
 IDENTIFIABILITY_REPAIR_FACT = (
-    "m4-p2-identifiability-decision:"
-    "MEASUREMENT_CONTRACT_REPAIR_REQUIRED"
+    "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED"
 )
 PREFLIGHT_TASK = "m4-p2-measurement-identifiability-preflight"
 
@@ -111,10 +108,7 @@ def test_revised_p26_waits_for_identifiable_repaired_contract() -> None:
     )
     metric = json.loads(task.metric_contract)
     assert task.requested_capability == "m4_p2_6_1_false_positive_and_power"
-    assert (
-        MEASUREMENT_VALIDATION_MANIFEST_DIGEST
-        not in task.input_artifact_digests
-    )
+    assert MEASUREMENT_VALIDATION_MANIFEST_DIGEST not in task.input_artifact_digests
     assert (
         metric["approved_repair_strategy"]
         == "SCHEME_A_MARGINAL_TRUTH_TO_MARGINAL_METRIC"
@@ -133,24 +127,26 @@ def test_revised_p26_waits_for_identifiable_repaired_contract() -> None:
     }
 
 
-def test_preflight_is_unique_ready_after_completed_p25() -> None:
+def test_measurement_repair_is_unique_ready_after_completed_preflight() -> None:
     payload = _payload()
     ready, states = _states(payload)
-    assert ready == [PREFLIGHT_TASK]
+    assert ready == ["m4-p2-repair-measurement-system"]
+    assert states[PREFLIGHT_TASK] == "completed"
     assert states["m4-p2-false-positive-and-power-runs"] == "dependency_wait"
     assert states["m4-p2-automatic-gate-and-report"] == "dependency_wait"
-    assert states["m4-p2-repair-measurement-system"] == "dependency_wait"
+    assert states["m4-p2-repair-measurement-system"] == "ready"
     assert states["m4-p3-strict-historical-walk-forward"] == "dependency_wait"
 
 
 def test_pass_fact_opens_only_p3_branch_after_p2_completion() -> None:
     payload = _payload()
-    _set_task_complete(payload, PREFLIGHT_TASK, "0" * 64)
-    payload["facts"]["artifacts"].extend(
-        [
-            IDENTIFIABLE_FACT,
-            "m4-p2-repaired-measurement-contract:AVAILABLE",
-        ]
+    _set_task_complete(
+        payload,
+        "m4-p2-repair-measurement-system",
+        "0" * 64,
+    )
+    payload["facts"]["artifacts"].append(
+        "m4-p2-repaired-measurement-contract:AVAILABLE"
     )
     _set_task_complete(payload, "m4-p2-false-positive-and-power-runs", "1" * 64)
     _set_task_complete(payload, "m4-p2-automatic-gate-and-report", "2" * 64)
@@ -163,14 +159,12 @@ def test_pass_fact_opens_only_p3_branch_after_p2_completion() -> None:
     umbrella["status"] = "completed"
     ready, states = _states(payload)
     assert states["m4-p3-strict-historical-walk-forward"] == "ready"
-    assert states["m4-p2-repair-measurement-system"] == "dependency_wait"
+    assert states["m4-p2-repair-measurement-system"] == "completed"
     assert "m4-p3-strict-historical-walk-forward" in ready
 
 
 def test_identifiability_repair_fact_opens_only_repair_and_keeps_p3_closed() -> None:
     payload = _payload()
-    _set_task_complete(payload, PREFLIGHT_TASK, "3" * 64)
-    payload["facts"]["artifacts"].append(IDENTIFIABILITY_REPAIR_FACT)
     ready, states = _states(payload)
     assert ready == ["m4-p2-repair-measurement-system"]
     assert states["m4-p3-strict-historical-walk-forward"] == "dependency_wait"
@@ -189,9 +183,7 @@ def test_pass_and_repair_facts_cannot_coexist() -> None:
 
 def test_identifiability_facts_cannot_coexist() -> None:
     payload = _payload()
-    payload["facts"]["artifacts"].extend(
-        [IDENTIFIABLE_FACT, IDENTIFIABILITY_REPAIR_FACT]
-    )
+    payload["facts"]["artifacts"].append(IDENTIFIABLE_FACT)
     with pytest.raises(
         ResearchOSValidationError,
         match="mutually exclusive",

@@ -1,0 +1,250 @@
+{
+  "schema_version": "dehps-m4-p2-measurement-contract-repair-manifest.v1",
+  "artifact_type": "measurement_contract_repair_manifest",
+  "artifact_digest": "5e41910553643e6559e78aa401fdcdd1e661b5709eaf55f0e73e694fb5a61355",
+  "phase": "M4-P2-REPAIR",
+  "status": "FROZEN",
+  "created_at": "2026-07-31T18:00:00+08:00",
+  "approved_strategy": "SCHEME_A_MARGINAL_TRUTH_TO_MARGINAL_METRIC",
+  "result_blind_freeze": {
+    "old_P2_6_partial_statistical_result_used": false,
+    "formal_P2_6_1_dataset_created_before_freeze": false,
+    "formal_false_positive_result_used": false,
+    "formal_power_result_used": false,
+    "real_history_used": false,
+    "evidence_created": false
+  },
+  "upstream_identities": {
+    "identifiability_preflight_manifest_digest": "5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3",
+    "identifiability_preflight_report_digest": "79ba9b17b0e620e2a06e5fcfe96603351843d7e17510a3ca1ae5a9a1eba7986a",
+    "identifiability_preflight_execution_id": "127924d8a31a9631b45964f9dc650889c08e01c942e52a743ca6284c95d46106",
+    "identifiability_decision_fact": "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
+    "superseded_run_archive_digest": "d2d959f6c326e42f80bf92ae652087c941c77e0bacbe22f29e04d4cf8c9f4d6d",
+    "old_measurement_validation_manifest_digest": "953ae76e2e28523b7d067c2b73dac8bec63ff2417db283fd516fe900e52402f8",
+    "synthetic_manifest_digest": "f84c2da3565f7eda41c3782517c78211805f57ea8f3bfd00659a93c380826a3c",
+    "metric_kernel_digest": "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
+    "walk_forward_harness_digest": "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca"
+  },
+  "estimand_binding": {
+    "truth": "sum_number_event_mutual_information_with_prior_state",
+    "metric": "sum_number_event_log_loss_gain_bits_per_issue",
+    "unit": "bits_per_issue",
+    "joint_draw_information_role": "diagnostic_only",
+    "joint_only_scenario_role": "negative_control_not_power_target",
+    "strong_pair_0_05_role": "unreachable_feasibility_sentinel_not_power_target"
+  },
+  "boundaries": {
+    "joint_probe_or_kernel_added": false,
+    "real_history_prior_state_available": false,
+    "synthetic_prior_state_instrument_only": true,
+    "state_number_interactions_synthetic_only": true,
+    "old_partial_statistical_results_inspected": false,
+    "evidence_created_during_repair": false,
+    "P3_opened_during_repair": false
+  },
+  "state_visible_feature_contract": {
+    "feature_manifest_digest": "1a76f46d7a47a134c1688657749bc040290f65a03dbc7c860e38144e02005981",
+    "prior_state_available_strictly_before_target": true,
+    "state_number_interaction_count": 33,
+    "real_history_access": "forbidden",
+    "scope": "P2.6.1 synthetic measurement validation only"
+  },
+  "scenario_contracts": [
+    {
+      "scenario_id": "WEAK_SINGLE_NUMBER",
+      "mechanism": "single_number_conditional_shift",
+      "role": "FORMAL_POWER_TARGET",
+      "requested_marginal_bits_per_issue": 0.001,
+      "parameter_value": 0.014135575623089196,
+      "marginal_information_bits_per_issue": 0.0010000000000644355,
+      "joint_information_bits_per_issue": 0.0009697214705072909
+    },
+    {
+      "scenario_id": "MEDIUM_PRACTICAL_SINGLE_NUMBER",
+      "mechanism": "single_number_conditional_shift",
+      "role": "FORMAL_POWER_TARGET",
+      "requested_marginal_bits_per_issue": 0.01,
+      "parameter_value": 0.044536089757412835,
+      "marginal_information_bits_per_issue": 0.010000000000077901,
+      "joint_information_bits_per_issue": 0.00969943728478671
+    },
+    {
+      "scenario_id": "STRONG_SINGLE_NUMBER",
+      "mechanism": "single_number_conditional_shift",
+      "role": "FORMAL_POWER_TARGET",
+      "requested_marginal_bits_per_issue": 0.05,
+      "parameter_value": 0.09786345951900215,
+      "marginal_information_bits_per_issue": 0.05000000000019795,
+      "joint_information_bits_per_issue": 0.04854867225021094
+    },
+    {
+      "scenario_id": "WEAK_LOCAL_TEMPORAL",
+      "mechanism": "local_temporal_state",
+      "role": "FORMAL_POWER_TARGET",
+      "requested_marginal_bits_per_issue": 0.001,
+      "parameter_value": 0.02127751035730089,
+      "marginal_information_bits_per_issue": 0.0009999999999944417,
+      "joint_information_bits_per_issue": 0.0013067042706930605
+    },
+    {
+      "scenario_id": "MEDIUM_PRACTICAL_LOCAL_TEMPORAL",
+      "mechanism": "local_temporal_state",
+      "role": "FORMAL_POWER_TARGET",
+      "requested_marginal_bits_per_issue": 0.01,
+      "parameter_value": 0.06721910819753801,
+      "marginal_information_bits_per_issue": 0.009999999999709262,
+      "joint_information_bits_per_issue": 0.013076929899621864
+    },
+    {
+      "scenario_id": "STRONG_LOCAL_TEMPORAL",
+      "mechanism": "local_temporal_state",
+      "role": "FORMAL_POWER_TARGET",
+      "requested_marginal_bits_per_issue": 0.05,
+      "parameter_value": 0.14963661635541525,
+      "marginal_information_bits_per_issue": 0.049999999999297204,
+      "joint_information_bits_per_issue": 0.06560783084082411
+    },
+    {
+      "scenario_id": "WEAK_PAIR",
+      "mechanism": "pair_conditional_signal",
+      "role": "FORMAL_POWER_TARGET",
+      "requested_marginal_bits_per_issue": 0.001,
+      "parameter_value": 0.01671768739257371,
+      "marginal_information_bits_per_issue": 0.001000000000084945,
+      "joint_information_bits_per_issue": 0.003839050650351993
+    },
+    {
+      "scenario_id": "MEDIUM_PRACTICAL_PAIR",
+      "mechanism": "pair_conditional_signal",
+      "role": "FORMAL_POWER_TARGET",
+      "requested_marginal_bits_per_issue": 0.01,
+      "parameter_value": 0.052826252531192414,
+      "marginal_information_bits_per_issue": 0.009999999999721088,
+      "joint_information_bits_per_issue": 0.047021087845974946
+    },
+    {
+      "scenario_id": "STRONG_PAIR",
+      "mechanism": "pair_conditional_signal",
+      "role": "MARGINAL_FEASIBILITY_SENTINEL",
+      "requested_marginal_bits_per_issue": 0.05,
+      "parameter_value": 0.05645161290316936,
+      "marginal_information_bits_per_issue": 0.011422379570594537,
+      "joint_information_bits_per_issue": 0.05888938142286739
+    },
+    {
+      "scenario_id": "WEAK_MARGINAL_PRESERVING",
+      "mechanism": "marginal_preserving_conditional_signal",
+      "role": "JOINT_ONLY_NEGATIVE_CONTROL",
+      "requested_marginal_bits_per_issue": 0,
+      "parameter_value": 0.03725493326779454,
+      "marginal_information_bits_per_issue": 0,
+      "joint_information_bits_per_issue": 0.0010000000066530295
+    },
+    {
+      "scenario_id": "MEDIUM_PRACTICAL_MARGINAL_PRESERVING",
+      "mechanism": "marginal_preserving_conditional_signal",
+      "role": "JOINT_ONLY_NEGATIVE_CONTROL",
+      "requested_marginal_bits_per_issue": 0,
+      "parameter_value": 0.11768773291248236,
+      "marginal_information_bits_per_issue": 0,
+      "joint_information_bits_per_issue": 0.010000000043814683
+    },
+    {
+      "scenario_id": "STRONG_MARGINAL_PRESERVING",
+      "mechanism": "marginal_preserving_conditional_signal",
+      "role": "JOINT_ONLY_NEGATIVE_CONTROL",
+      "requested_marginal_bits_per_issue": 0,
+      "parameter_value": 0.2619290994477633,
+      "marginal_information_bits_per_issue": 0,
+      "joint_information_bits_per_issue": 0.0500000000670463
+    }
+  ],
+  "development_selection": {
+    "contract_digest": "6801bdf6b339bf154c57fa89e77496a11550e25d07e601f0b1c6f5a776000890",
+    "expected_selection_artifact_digest": "90459ebf8b88afcc60ee1177043e436b90b71c00b557f15e9e4d7026f37586f2",
+    "dataset_role": "P2_6_1_HYPERPARAMETER_DEVELOPMENT",
+    "train_issues": [
+      1,
+      900
+    ],
+    "validation_issues": [
+      901,
+      960
+    ],
+    "scenario_ids": [
+      "NULL_UNIFORM",
+      "WEAK_SINGLE_NUMBER",
+      "MEDIUM_PRACTICAL_SINGLE_NUMBER",
+      "STRONG_SINGLE_NUMBER",
+      "WEAK_LOCAL_TEMPORAL",
+      "MEDIUM_PRACTICAL_LOCAL_TEMPORAL",
+      "STRONG_LOCAL_TEMPORAL",
+      "WEAK_PAIR",
+      "MEDIUM_PRACTICAL_PAIR"
+    ],
+    "selection_metric": "mean_issue_log_loss_across_all_development_scenarios",
+    "selection_policy": "no_best_seed",
+    "formal_evaluation_seed_reuse": "forbidden",
+    "candidates": {
+      "REGULARIZED_LOGISTIC_REGRESSION": {
+        "C": [
+          0.01,
+          0.1,
+          1.0
+        ]
+      },
+      "NAIVE_BAYES": {
+        "alpha": [
+          0.5,
+          1.0,
+          2.0
+        ]
+      },
+      "SHALLOW_CALIBRATED_TREE": {
+        "max_depth": [
+          2,
+          3
+        ],
+        "min_samples_leaf": [
+          50,
+          100
+        ]
+      }
+    }
+  },
+  "frozen_probe_configs": {
+    "development_selection_artifact_digest": "90459ebf8b88afcc60ee1177043e436b90b71c00b557f15e9e4d7026f37586f2",
+    "REGULARIZED_LOGISTIC_REGRESSION": {
+      "selection_mode": "frozen_development",
+      "selected_C": 0.1
+    },
+    "NAIVE_BAYES": {
+      "selection_mode": "frozen_development",
+      "selected_alpha": 2.0
+    },
+    "SHALLOW_CALIBRATED_TREE": {
+      "selection_mode": "frozen_development",
+      "selected_max_depth": 2,
+      "selected_min_samples_leaf": 50
+    }
+  },
+  "outer_fold_fit_contract": {
+    "EMPIRICAL_BASELINE": 0,
+    "REGULARIZED_LOGISTIC_REGRESSION": 1,
+    "NAIVE_BAYES": 1,
+    "SHALLOW_CALIBRATED_TREE": 2,
+    "total_estimator_and_calibrator_fits": 4,
+    "inner_model_selection_per_outer_fold": 0
+  },
+  "completion_contract": {
+    "truth_artifact_count": 12,
+    "formal_power_target_count": 8,
+    "joint_only_negative_control_count": 3,
+    "feasibility_sentinel_count": 1,
+    "completion_fact": "m4-p2-repaired-measurement-contract:AVAILABLE",
+    "downstream_consumer": "m4-p2-false-positive-and-power-runs",
+    "evidence_progress_increment": 0,
+    "deterministic_replay_required": true
+  },
+  "production_action": "none"
+}

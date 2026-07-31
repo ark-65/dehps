@@ -1,6 +1,6 @@
 {
   "schema_version": "research-os-control-plane-v1",
-  "manifest_digest": "a21c30d9c56c51205c399d90a095b94b84a69acbcce94d6a7fc6be5a471a8518",
+  "manifest_digest": "eab2583985b389dc8ee000fba74ee965fb75da131c2e709a05067a1cbfdbb9cc",
   "goals": [
     {
       "goal_key": "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION",
@@ -573,6 +573,8 @@
       "lane": "research",
       "priority": 105,
       "requested_capability": "m4_p2_6_identifiability_preflight",
+      "status": "completed",
+      "completion_classification": "COMPLETE",
       "input_artifact_digests": [
         "328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353",
         "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
@@ -635,18 +637,31 @@
       "priority": 102,
       "requested_capability": "m4_p2_6_1_false_positive_and_power",
       "input_artifact_digests": [
-        "5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3"
+        "5e41910553643e6559e78aa401fdcdd1e661b5709eaf55f0e73e694fb5a61355",
+        "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58",
+        "90459ebf8b88afcc60ee1177043e436b90b71c00b557f15e9e4d7026f37586f2",
+        "1a76f46d7a47a134c1688657749bc040290f65a03dbc7c860e38144e02005981",
+        "1cde473524d7d6dcafba64ab7b0a1d2862b56149d5f6f198c73d88b406c3071b",
+        "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
+        "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca",
+        "42e9ab014ca479f7b46f360cebc556dae6eb4bbc9df81a9e07e9217689ba9f20",
+        "978dafa53fe70f53ba70ac6e73c5e172b690a8baf4d4f2bcf71a0fe0cb324067",
+        "035d73c8d8042caa93d7a144126df988daf6190b43e9a0587e03025f31b5ca35",
+        "872d7d3c00ccc6b9cb0d26db446c10f7eeaa56a35d7f6bc10ce094647f09bd62",
+        "c36688ab71b6461c0b0fa5323c64a1574eb1b0a055e0317b5207ff91f2b9dfaa",
+        "a6f1a403cc9ae7023906cd24abfff3be0c5e4f2c9def8ad1162512ff288b8584",
+        "3cbacd0f475f7d02b85638e2602ccde1a5d958255480ebaf52a78ff571e4f2de",
+        "56b26a72cacfae8e2af9e29a6a756e5a7ac1e38503c65102448687892205f981",
+        "54d8ca9be4ceea92a3c1cbc94dadd697b459bd957f763f72295b1bf5098906db",
+        "7a1e9b1b9b3e0156c9ed1efd5cb48cd75678720bf32143d81932d50935fe6d3c",
+        "10d53d393d3fa89d8ab4eaadc27f6fbfe574cf86f06784acc0944022b1e0723e",
+        "7ac36e46c5edee150fa65e376782e1a72931501a199de4802b1c2737e9cbb74b"
       ],
       "dependencies": [
         {
           "dependency_type": "task",
-          "target_key": "m4-p2-measurement-identifiability-preflight",
+          "target_key": "m4-p2-repair-measurement-system",
           "required_status": "completed"
-        },
-        {
-          "dependency_type": "artifact",
-          "target_key": "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_IDENTIFIABLE",
-          "required_status": "available"
         },
         {
           "dependency_type": "artifact",
@@ -664,16 +679,16 @@
         "old_execution_status": "SUPERSEDED",
         "mainline_integration": {
           "goal": "M4_INFORMATION_THEORY_EVIDENCE",
-          "ready_condition": "identifiability preflight passed and separately frozen repaired measurement contract available",
+          "ready_condition": "Scheme A repair COMPLETE and repaired measurement contract fact available",
           "runner": "research_evidence_supervisor",
           "upstream_artifacts": [
-            "identifiability preflight report",
-            "future P2.4.1 marginal truth calibration",
-            "future frozen-development hyperparameters",
-            "future P2.6.1 measurement-validation manifest"
+            "P2.4.1 marginal truth calibration",
+            "frozen development hyperparameters",
+            "P2.6.1 measurement-validation manifest",
+            "synthetic-only state-number feature manifest"
           ],
           "downstream_artifacts": [
-            "future repaired P2.6.1 formal completion artifact"
+            "repaired P2.6.1 formal completion artifact"
           ],
           "status_projection": "unified_m4_status",
           "downstream_consumer": "m4-p2-automatic-gate-and-report",
@@ -691,7 +706,7 @@
       "requested_capability": "m4_p2_7_automatic_measurement_gate",
       "input_artifact_digests": [
         "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
-        "953ae76e2e28523b7d067c2b73dac8bec63ff2417db283fd516fe900e52402f8"
+        "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58"
       ],
       "dependencies": [
         {
@@ -740,6 +755,13 @@
       "lane": "research",
       "priority": 104,
       "requested_capability": "m4_p2_measurement_system_repair",
+      "input_artifact_digests": [
+        "79ba9b17b0e620e2a06e5fcfe96603351843d7e17510a3ca1ae5a9a1eba7986a",
+        "d2d959f6c326e42f80bf92ae652087c941c77e0bacbe22f29e04d4cf8c9f4d6d",
+        "5e41910553643e6559e78aa401fdcdd1e661b5709eaf55f0e73e694fb5a61355",
+        "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58",
+        "1a76f46d7a47a134c1688657749bc040290f65a03dbc7c860e38144e02005981"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
@@ -750,10 +772,27 @@
           "dependency_type": "artifact",
           "target_key": "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
           "required_status": "available"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p2-measurement-repair-manifest:5e41910553643e6559e78aa401fdcdd1e661b5709eaf55f0e73e694fb5a61355",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p2-6-1-measurement-validation-manifest:a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p2-state-visible-feature-manifest:1a76f46d7a47a134c1688657749bc040290f65a03dbc7c860e38144e02005981",
+          "required_status": "available"
         }
       ],
       "metric_contract": {
         "phase": "M4-P2-REPAIR",
+        "engineering_increment_percent": 2,
+        "evidence_increment_percent": 0,
         "engineering_complete": false,
         "evidence_complete": false,
         "ready_only_when": "MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
@@ -937,8 +976,13 @@
       "m4-p2-superseded-run-archive:d2d959f6c326e42f80bf92ae652087c941c77e0bacbe22f29e04d4cf8c9f4d6d",
       "m4-p2-1-synthetic-dataset:5354b9f7f6c72996cff16d6c161b03ff49922bf92589bd43b823d107019ebd86",
       "m4-p2-2-metric-kernel-manifest:56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
-      "m4-p2-3-walk-forward-harness-manifest:177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca",
-      "mainline-execution:m4-p2-walk-forward-probe-harness:0a493b3618f2b180719b360b17702d7587c25a8c6c59a577a0c099fccce01a62:de52c376117bf308e0608b75e1418d58acf6b5a1e5cf4a66925fe06b8219d3cb:completed",
+    "m4-p2-3-walk-forward-harness-manifest:177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca",
+    "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
+    "m4-p2-measurement-repair-manifest:5e41910553643e6559e78aa401fdcdd1e661b5709eaf55f0e73e694fb5a61355",
+    "m4-p2-6-1-measurement-validation-manifest:a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58",
+    "m4-p2-state-visible-feature-manifest:1a76f46d7a47a134c1688657749bc040290f65a03dbc7c860e38144e02005981",
+    "mainline-execution:m4-p2-measurement-identifiability-preflight:e0f59f90c975b72c327089e03ff8ffd5729b9e6d40920b929708dcdcb3ffa0f4:127924d8a31a9631b45964f9dc650889c08e01c942e52a743ca6284c95d46106:completed",
+    "mainline-execution:m4-p2-walk-forward-probe-harness:0a493b3618f2b180719b360b17702d7587c25a8c6c59a577a0c099fccce01a62:de52c376117bf308e0608b75e1418d58acf6b5a1e5cf4a66925fe06b8219d3cb:completed",
       "mainline-execution:m4-p2-injected-signal-calibration:60ac1df68a112c671682116a30db1b01eae18e7a0cd5c2e0dcd0e13183893a83:772b5063f1a3578c7e8f8a2cd9f102357828608de8fbd80c2c1fb2c82b79afa2:completed",
       "mainline-execution:m4-p2-resampling:7a74fbe800bb9b8e24b4e3863150bcc28128dd30ba5bbe7dfe57feddb022fd5f:596d7745e8733239417d2b05c39f99cf645843d63842dad7ba850e9f165f1a33:completed"
     ],

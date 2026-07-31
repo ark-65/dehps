@@ -183,3 +183,29 @@ Final training-mainline conclusion for this pre-merge round:
 ```text
 NO — implementation remains INTEGRATION_PENDING
 ```
+
+## Post-merge canonical validation addendum
+
+Round 1 was subsequently merged as commit
+`859e053febeda0d0ac5ed7e442de9c566420650a` in PR `#231`. The clean `main`
+checkout then executed the preflight through the unified Research Evidence
+Supervisor.
+
+| Binding | Canonical result |
+| --- | --- |
+| Task digest | `e0f59f90c975b72c327089e03ff8ffd5729b9e6d40920b929708dcdcb3ffa0f4` |
+| Execution id | `127924d8a31a9631b45964f9dc650889c08e01c942e52a743ca6284c95d46106` |
+| Preflight report | `79ba9b17b0e620e2a06e5fcfe96603351843d7e17510a3ca1ae5a9a1eba7986a` |
+| Archive | `d2d959f6c326e42f80bf92ae652087c941c77e0bacbe22f29e04d4cf8c9f4d6d` |
+| Decision fact | `m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED` |
+| Registered artifacts | 2 |
+| Formal folds | 0 |
+| Evidence increment | 0 |
+| Replay | `REPLAY_VERIFIED` with the same execution and artifact identities |
+| Next Ready task | `m4-p2-repair-measurement-system` |
+
+Updated training-mainline conclusion for Round 1:
+
+```text
+YES — validated by unified mainline execution and replay
+```

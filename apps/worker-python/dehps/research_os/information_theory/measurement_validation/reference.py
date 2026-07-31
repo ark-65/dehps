@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from copy import deepcopy
 from dataclasses import dataclass
 from math import log2
 from pathlib import Path
@@ -144,10 +145,13 @@ class ReferenceReplicateEvaluator:
         self.synthetic = synthetic
         self.inputs = inputs
         self.output_dir = output_dir
-        if manifest.artifact_digest != MEASUREMENT_VALIDATION_MANIFEST_DIGEST:
+        if (
+            manifest.artifact_digest != MEASUREMENT_VALIDATION_MANIFEST_DIGEST
+            and manifest.payload.get("phase") != "M4-P2.6.1"
+        ):
             raise MeasurementValidationContractError(
                 "measurement_validation_manifest_digest_mismatch",
-                "reference evaluator requires the frozen P2.6 manifest",
+                "reference evaluator requires a frozen P2.6 manifest",
             )
         if inputs.resampling.artifact_digest != RESAMPLING_KERNEL_DIGEST:
             raise MeasurementValidationContractError(
@@ -200,11 +204,13 @@ class ReferenceReplicateEvaluator:
         )
 
     def evaluate(self, replicate: AnalysisReplicate) -> Mapping[str, Any]:
+        repaired = self.manifest.payload.get("phase") == "M4-P2.6.1"
         truth = self.inputs.truth_by_scenario.get(replicate.cell.scenario_id)
         dataset = generate_evaluation_dataset(
             replicate,
             synthetic=self.synthetic,
             truth_artifact=truth,
+            expose_prior_state=repaired,
         )
         folds = expanding_outer_folds(dataset)
         if len(folds) != replicate.cell.outer_issue_count:
@@ -212,14 +218,65 @@ class ReferenceReplicateEvaluator:
                 "measurement_validation_outer_fold_count_mismatch",
                 "P2.3 expanding split did not produce the frozen outer count",
             )
-        configs = self.inputs.preregistration["probe_models"]["hyperparameters"]
+        configs = deepcopy(
+            self.inputs.preregistration["probe_models"]["hyperparameters"]
+        )
+        if repaired:
+            frozen = self.manifest.payload["frozen_probe_configs"]
+            selection_digest = self.manifest.payload[
+                "development_selection_artifact_digest"
+            ]
+            configs["REGULARIZED_LOGISTIC_REGRESSION"] = dict(
+                self.inputs.walk_forward_harness.probe(
+                    "REGULARIZED_LOGISTIC_REGRESSION"
+                )
+            )
+            configs["REGULARIZED_LOGISTIC_REGRESSION"].update(
+                {
+                    "selection_mode": "frozen_development",
+                    "selected_C": frozen["REGULARIZED_LOGISTIC_REGRESSION"][
+                        "selected_C"
+                    ],
+                    "C": [frozen["REGULARIZED_LOGISTIC_REGRESSION"]["selected_C"]],
+                    "development_selection_digest": selection_digest,
+                }
+            )
+            configs["NAIVE_BAYES"].update(
+                {
+                    "selection_mode": "frozen_development",
+                    "selected_alpha": frozen["NAIVE_BAYES"]["selected_alpha"],
+                    "alpha": [frozen["NAIVE_BAYES"]["selected_alpha"]],
+                    "development_selection_digest": selection_digest,
+                }
+            )
+            configs["SHALLOW_CALIBRATED_TREE"].update(
+                {
+                    "selection_mode": "frozen_development",
+                    "selected_max_depth": frozen["SHALLOW_CALIBRATED_TREE"][
+                        "selected_max_depth"
+                    ],
+                    "selected_min_samples_leaf": frozen["SHALLOW_CALIBRATED_TREE"][
+                        "selected_min_samples_leaf"
+                    ],
+                    "max_depth": [
+                        frozen["SHALLOW_CALIBRATED_TREE"]["selected_max_depth"]
+                    ],
+                    "min_samples_leaf": [
+                        frozen["SHALLOW_CALIBRATED_TREE"]["selected_min_samples_leaf"]
+                    ],
+                    "development_selection_digest": selection_digest,
+                }
+            )
         checkpoint_digests: dict[str, list[str]] = {probe: [] for probe in PROBES}
         settlement_digests: dict[str, list[str]] = {probe: [] for probe in PROBES}
         state_digests: dict[str, list[str]] = {probe: [] for probe in PROBES}
         issue_gains: dict[str, list[float]] = {probe: [] for probe in PROBES}
         gate_probabilities: list[tuple[float, ...]] = []
         ordered_targets: list[tuple[int, ...]] = []
-        feature_cache = StrictPriorFeatureCache(dataset)
+        feature_cache = StrictPriorFeatureCache(
+            dataset,
+            include_prior_state=repaired,
+        )
         checkpoint_journal = StrictPriorCheckpointJournal(
             output_dir=self.output_dir,
             replicate=replicate,
@@ -259,7 +316,11 @@ class ReferenceReplicateEvaluator:
                 if probe_id == "EMPIRICAL_BASELINE":
                     config = {}
                 elif probe_id == "REGULARIZED_LOGISTIC_REGRESSION":
-                    config = self.inputs.walk_forward_harness.probe(probe_id)
+                    config = (
+                        configs[probe_id]
+                        if repaired
+                        else self.inputs.walk_forward_harness.probe(probe_id)
+                    )
                 else:
                     config = configs[probe_id]
                 prepared = prepare_probe(
@@ -403,7 +464,15 @@ class ReferenceReplicateEvaluator:
         truth_bits = (
             0.0
             if truth is None
-            else float(truth["joint_draw_information_bits_per_issue"])
+            else float(
+                truth[
+                    (
+                        "marginal_information_bits_per_issue"
+                        if repaired
+                        else "joint_draw_information_bits_per_issue"
+                    )
+                ]
+            )
         )
         journal_digest, journal_count = checkpoint_journal.finalize(
             expected_fold_count=len(folds)
@@ -416,6 +485,13 @@ class ReferenceReplicateEvaluator:
             "dataset_digest": dataset.artifact_digest,
             "truth_artifact_digest": dataset.raw_payload["truth_artifact_digest"],
             "truth_bits_per_issue": truth_bits,
+            "truth_estimand": (
+                "marginal_information_bits_per_issue"
+                if repaired
+                else "joint_draw_information_bits_per_issue"
+            ),
+            "scenario_role": replicate.cell.scenario_role,
+            "formal_power_eligible": replicate.cell.formal_power_eligible,
             "negative_control_id": (
                 "NC6_SYNTHETIC_NULL" if is_negative_control else None
             ),

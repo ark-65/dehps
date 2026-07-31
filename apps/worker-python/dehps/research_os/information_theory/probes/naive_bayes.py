@@ -72,6 +72,117 @@ def _candidate_id(alpha: float) -> str:
     return f"BERNOULLI_NB_ALPHA_{alpha:g}"
 
 
+def _prepare_frozen_naive_bayes_probe(
+    dataset: TrainingDatasetView,
+    train_view: TrainFeatureView,
+    *,
+    config: Mapping[str, Any],
+    runtime_cache: ExactProbeRuntimeCache | None,
+) -> PreparedNaiveBayesProbe:
+    selected_alpha = config.get("selected_alpha")
+    if (
+        not isinstance(selected_alpha, (int, float))
+        or float(selected_alpha) not in {0.5, 1.0, 2.0}
+        or config.get("alpha") != [float(selected_alpha)]
+        or len(str(config.get("development_selection_digest") or "")) != 64
+    ):
+        raise WalkForwardError(
+            "missing_probe_hyperparameter_contract",
+            "frozen naive Bayes development selection changed",
+        )
+    fitted = (
+        runtime_cache.fitted(train_view)
+        if runtime_cache is not None
+        else fit_preprocessor(
+            train_view,
+            outer_train_end=max(train_view.issue_ids),
+        )
+    )
+    matrix = (
+        runtime_cache.transformed(fitted, train_view)
+        if runtime_cache is not None
+        else transform_train(fitted, train_view)
+    )
+    targets = (
+        runtime_cache.targets(train_view)
+        if runtime_cache is not None
+        else np.asarray(train_view.targets, dtype=np.int8)
+    )
+    model = BernoulliNB(
+        alpha=float(selected_alpha),
+        binarize=0.0,
+    )
+    _fit(model, matrix, targets)
+    selected = _candidate_id(float(selected_alpha))
+    selection_payload = {
+        "method": "frozen_development_selection",
+        "development_selection_digest": config["development_selection_digest"],
+        "selected_config_id": selected,
+        "outer_test_metrics_used": False,
+        "fit_count_per_outer_fold": 1,
+    }
+    selection_digest = canonical_digest(
+        selection_payload,
+        domain="dehps.m4.probe.inner-selection.v1",
+    )
+    model_payload = {
+        "class_count": model.class_count_.tolist(),
+        "class_log_prior": model.class_log_prior_.tolist(),
+        "feature_count": model.feature_count_.tolist(),
+        "feature_log_prob": model.feature_log_prob_.tolist(),
+        "implementation": f"scikit-learn=={sklearn.__version__}",
+        "selected_config_id": selected,
+        "selected_alpha": float(selected_alpha),
+        "binarize": 0.0,
+    }
+    model_digest = canonical_digest(
+        model_payload,
+        domain="dehps.m4.probe.naive-bayes-parameters.v1",
+    )
+    state_identity = {
+        "probe_id": "NAIVE_BAYES",
+        "training_start_issue": min(train_view.issue_ids),
+        "training_end_issue": max(train_view.issue_ids),
+        "feature_manifest_digest": train_view.feature_manifest_digest,
+        "preprocessing_state_digest": fitted.state.state_digest,
+        "hyperparameter_selection_digest": selection_digest,
+        "model_parameters_digest": model_digest,
+        "seed": dataset.replicate_seed,
+    }
+    state = ProbeState(
+        probe_id="NAIVE_BAYES",
+        probe_type="bernoulli_naive_bayes",
+        training_start_issue=min(train_view.issue_ids),
+        training_end_issue=max(train_view.issue_ids),
+        training_issue_count=len(train_view.issue_ids),
+        training_row_count=len(train_view.targets),
+        feature_manifest_digest=train_view.feature_manifest_digest,
+        preprocessing_state_digest=fitted.state.state_digest,
+        hyperparameter_selection_digest=selection_digest,
+        model_parameters_digest=model_digest,
+        convergence_status=CONVERGED,
+        hyperparameters={
+            "alpha": float(selected_alpha),
+            "binarize": 0.0,
+            "implementation": f"scikit-learn=={sklearn.__version__}",
+            "selected_config_id": selected,
+            "selection_mode": "frozen_development",
+            "outer_test_metrics_used": False,
+            "fit_count_per_outer_fold": 1,
+        },
+        state_digest=canonical_digest(
+            state_identity,
+            domain="dehps.m4.probe-state.v1",
+        ),
+        seed_policy={"mode": "none"},
+    )
+    return PreparedNaiveBayesProbe(
+        state=state,
+        model=model,
+        preprocessor=fitted,
+    )
+
+
 def prepare_naive_bayes_probe(
     dataset: TrainingDatasetView,
     train_view: TrainFeatureView,
@@ -86,10 +197,20 @@ def prepare_naive_bayes_probe(
             "target_access_boundary_violation",
             "naive Bayes requires a training-only dataset view",
         )
-    if config.get("type") != "bernoulli" or config.get("alpha") != [0.5, 1.0, 2.0]:
+    frozen_selection = config.get("selection_mode") == "frozen_development"
+    if config.get("type") != "bernoulli" or (
+        not frozen_selection and config.get("alpha") != [0.5, 1.0, 2.0]
+    ):
         raise WalkForwardError(
             "missing_probe_hyperparameter_contract",
             "naive Bayes candidates changed",
+        )
+    if frozen_selection:
+        return _prepare_frozen_naive_bayes_probe(
+            dataset,
+            train_view,
+            config=config,
+            runtime_cache=runtime_cache,
         )
     inner_folds = expanding_inner_folds(
         train_view.issue_ids,

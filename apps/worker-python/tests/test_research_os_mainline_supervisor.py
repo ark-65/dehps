@@ -35,6 +35,7 @@ from dehps.research_os.supervisor import (
     P25_TASK_KEY,
     P26_PREFLIGHT_CAPABILITY,
     P26_PREFLIGHT_TASK_KEY,
+    P26_REPAIR_TASK_KEY,
     P26_TASK_KEY,
     P27_TASK_KEY,
     CapabilityResult,
@@ -47,6 +48,23 @@ DATASET_DIGEST = "5354b9f7f6c72996cff16d6c161b03ff49922bf92589bd43b823d107019ebd
 TEST_COMMIT = "a" * 40
 
 
+def reset_preflight_to_pending(value: dict) -> None:
+    preflight = next(
+        task for task in value["tasks"] if task["task_key"] == P26_PREFLIGHT_TASK_KEY
+    )
+    preflight["status"] = "draft"
+    preflight["completion_classification"] = "INTEGRATION_PENDING"
+    value["facts"]["artifacts"] = [
+        fact
+        for fact in value["facts"]["artifacts"]
+        if not fact.startswith(
+            "mainline-execution:m4-p2-measurement-identifiability-preflight:"
+        )
+        and fact
+        != ("m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED")
+    ]
+
+
 def manifest_payload() -> dict:
     value = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     assert isinstance(value, dict)
@@ -54,7 +72,8 @@ def manifest_payload() -> dict:
     value["tasks"] = [
         task
         for task in value["tasks"]
-        if task["task_key"] not in {
+        if task["task_key"]
+        not in {
             "m4-p1-repair-resampling-preregistration-contract",
             "m4-p1-repair-injected-signal-preregistration-contract",
         }
@@ -81,28 +100,23 @@ def manifest_payload() -> dict:
     p24["metric_contract"]["mainline_integration"]["upstream_artifacts"] = [
         "P2.3 mainline execution artifact"
     ]
-    p25 = next(
-        task for task in value["tasks"] if task["task_key"] == P25_TASK_KEY
-    )
+    p25 = next(task for task in value["tasks"] if task["task_key"] == P25_TASK_KEY)
     p25["status"] = "draft"
     p25["completion_classification"] = "INTEGRATION_PENDING"
     value["facts"]["artifacts"] = [
         fact
         for fact in value["facts"]["artifacts"]
         if not fact.startswith("mainline-execution:m4-p2-walk-forward-probe-harness:")
-        and not fact.startswith(
-            "mainline-execution:m4-p2-injected-signal-calibration:"
-        )
+        and not fact.startswith("mainline-execution:m4-p2-injected-signal-calibration:")
         and fact
         != "m4-preregistration:a8da6bf2404d3bf213ac74d331917d5308195b7c3174b002378e1bbd849f6dfa"
         and fact
         != "m4-preregistration:4fff51c58e4a46d664e414bfe4cc0d7269c8e3712734153faec548648144d0d9"
         and fact
         != "m4-p2-1-synthetic-run-manifest:f84c2da3565f7eda41c3782517c78211805f57ea8f3bfd00659a93c380826a3c"
-        and not fact.startswith(
-            "mainline-execution:m4-p2-resampling:"
-        )
+        and not fact.startswith("mainline-execution:m4-p2-resampling:")
     ]
+    reset_preflight_to_pending(value)
     return value
 
 
@@ -110,28 +124,19 @@ def source_manifest_payload() -> dict:
     value = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     assert isinstance(value, dict)
     value.pop("manifest_digest", None)
-    p24 = next(
-        task
-        for task in value["tasks"]
-        if task["task_key"] == P24_TASK_KEY
-    )
+    p24 = next(task for task in value["tasks"] if task["task_key"] == P24_TASK_KEY)
     p24["status"] = "draft"
     p24["completion_classification"] = "INTEGRATION_PENDING"
-    p25 = next(
-        task for task in value["tasks"] if task["task_key"] == P25_TASK_KEY
-    )
+    p25 = next(task for task in value["tasks"] if task["task_key"] == P25_TASK_KEY)
     p25["status"] = "draft"
     p25["completion_classification"] = "INTEGRATION_PENDING"
     value["facts"]["artifacts"] = [
         fact
         for fact in value["facts"]["artifacts"]
-        if not fact.startswith(
-            "mainline-execution:m4-p2-injected-signal-calibration:"
-        )
-        and not fact.startswith(
-            "mainline-execution:m4-p2-resampling:"
-        )
+        if not fact.startswith("mainline-execution:m4-p2-injected-signal-calibration:")
+        and not fact.startswith("mainline-execution:m4-p2-resampling:")
     ]
+    reset_preflight_to_pending(value)
     return value
 
 
@@ -139,18 +144,15 @@ def p25_source_manifest_payload() -> dict:
     value = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     assert isinstance(value, dict)
     value.pop("manifest_digest", None)
-    p25 = next(
-        task for task in value["tasks"] if task["task_key"] == P25_TASK_KEY
-    )
+    p25 = next(task for task in value["tasks"] if task["task_key"] == P25_TASK_KEY)
     p25["status"] = "draft"
     p25["completion_classification"] = "INTEGRATION_PENDING"
     value["facts"]["artifacts"] = [
         fact
         for fact in value["facts"]["artifacts"]
-        if not fact.startswith(
-            "mainline-execution:m4-p2-resampling:"
-        )
+        if not fact.startswith("mainline-execution:m4-p2-resampling:")
     ]
+    reset_preflight_to_pending(value)
     return value
 
 
@@ -342,6 +344,7 @@ class _ProjectedCapability:
             completion_facts=self.completion_facts,
         )
 
+
 def prepare_root(tmp_path: Path) -> Path:
     for relative in (
         "configs/research-os/m4-information-theory-metric-kernel-v1.json",
@@ -350,9 +353,23 @@ def prepare_root(tmp_path: Path) -> Path:
             "configs/research-os/"
             "m4-information-theory-p2-4-calibration-run-manifest-v1.json"
         ),
+        ("configs/research-os/m4-information-theory-p2-5-resampling-kernel-v1.json"),
+        ("configs/research-os/m4-information-theory-preregistration-v1.0.3.json"),
         (
             "configs/research-os/"
-            "m4-information-theory-p2-5-resampling-kernel-v1.json"
+            "m4-information-theory-p2-synthetic-run-manifest-v1.0.1.json"
+        ),
+        (
+            "configs/research-os/"
+            "m4-information-theory-p2-6-measurement-validation-v1.json"
+        ),
+        (
+            "configs/research-os/"
+            "m4-information-theory-p2-6-1-measurement-contract-repair-v1.json"
+        ),
+        (
+            "configs/research-os/"
+            "m4-information-theory-p2-6-1-measurement-validation-v1.json"
         ),
     ):
         destination = tmp_path / relative
@@ -383,20 +400,15 @@ def prepare_root(tmp_path: Path) -> Path:
 
 def prepare_formal_p24_artifacts(root: Path) -> None:
     task_dir = (
-        root
-        / "runtime/research-os/mainline/tasks"
-        / P24_TASK_KEY
-        / P24_EXECUTION_ID
+        root / "runtime/research-os/mainline/tasks" / P24_TASK_KEY / P24_EXECUTION_ID
     )
     run = run_p24_calibration(
         manifest=load_calibration_manifest(
-            root
-            / "configs/research-os/"
+            root / "configs/research-os/"
             "m4-information-theory-p2-4-calibration-run-manifest-v1.json"
         ),
         harness_path=(
-            root
-            / "configs/research-os/"
+            root / "configs/research-os/"
             "m4-information-theory-walk-forward-harness-v1.json"
         ),
         output_dir=task_dir / "artifacts",
@@ -411,9 +423,9 @@ def prepare_formal_p24_artifacts(root: Path) -> None:
                 "execution_id": P24_EXECUTION_ID,
                 "status": "COMPLETE",
                 "completion_artifact_digest": P24_COMPLETION_DIGEST,
-                    "truth_artifact_digests": [
-                        item["artifact_digest"] for item in run.truth_artifacts
-                    ],
+                "truth_artifact_digests": [
+                    item["artifact_digest"] for item in run.truth_artifacts
+                ],
             },
             ensure_ascii=False,
             sort_keys=True,
@@ -429,9 +441,11 @@ def test_p2_3_is_integration_pending_and_ready_before_mainline_execution() -> No
     snapshot = ResearchOSControlPlane().resolve(manifest)
     states = {item.task_key: item.status for item in snapshot.resolutions}
 
-    assert [item.task_key for item in snapshot.ready_queue if item.goal_key == "M4_INFORMATION_THEORY_EVIDENCE"] == [
-        P23_TASK_KEY
-    ]
+    assert [
+        item.task_key
+        for item in snapshot.ready_queue
+        if item.goal_key == "M4_INFORMATION_THEORY_EVIDENCE"
+    ] == [P23_TASK_KEY]
     assert states[P23_TASK_KEY] is TaskStatus.READY
     assert states["m4-p2-injected-signal-calibration"] is TaskStatus.DEPENDENCY_WAIT
     task = next(item for item in manifest.tasks if item.task_key == P23_TASK_KEY)
@@ -456,7 +470,9 @@ def test_repository_requires_physical_execution_and_artifact_records() -> None:
     payload = manifest_payload()
     initial = ControlPlaneManifest.from_dict(payload)
     task = next(item for item in initial.tasks if item.task_key == P23_TASK_KEY)
-    raw_task = next(item for item in payload["tasks"] if item["task_key"] == P23_TASK_KEY)
+    raw_task = next(
+        item for item in payload["tasks"] if item["task_key"] == P23_TASK_KEY
+    )
     raw_task["status"] = "completed"
     raw_task["completion_classification"] = "COMPLETE"
     payload["facts"]["artifacts"].append(
@@ -547,10 +563,7 @@ def test_supervisor_executes_p2_3_updates_status_unlocks_p2_4_and_replays(
     ]
     assert replay["status"] == "REPLAY_VERIFIED"
     assert replay["execution_id"] == result["execution_id"]
-    assert (
-        replay["execution_artifact_digest"]
-        == result["execution_artifact_digest"]
-    )
+    assert replay["execution_artifact_digest"] == result["execution_artifact_digest"]
     assert replay["manual_input_assembly"] is False
     assert replay["registered_artifact_count"] == result["registered_artifact_count"]
     assert (root / "runtime/logs/m4-information-theory-status.json").is_file()
@@ -618,8 +631,7 @@ def test_revised_p2_6_definition_cannot_resume_superseded_execution(
     snapshot = repository.control_plane.resolve(repository.manifest)
     states = {item.task_key: item.status for item in snapshot.resolutions}
     task = next(
-        item for item in repository.manifest.tasks
-        if item.task_key == P26_TASK_KEY
+        item for item in repository.manifest.tasks if item.task_key == P26_TASK_KEY
     )
 
     assert task.artifact_digest != (
@@ -628,9 +640,7 @@ def test_revised_p2_6_definition_cannot_resume_superseded_execution(
     assert task.requested_capability == "m4_p2_6_1_false_positive_and_power"
     assert states[P26_PREFLIGHT_TASK_KEY] is TaskStatus.READY
     assert states[P26_TASK_KEY] is TaskStatus.DEPENDENCY_WAIT
-    assert not any(
-        item["task_key"] == P26_TASK_KEY for item in repository.events
-    )
+    assert not any(item["task_key"] == P26_TASK_KEY for item in repository.events)
 
 
 def test_supervisor_executes_p2_4_unlocks_p2_5_and_replays(
@@ -674,10 +684,7 @@ def test_supervisor_executes_p2_4_unlocks_p2_5_and_replays(
     ]
     assert replay["status"] == "REPLAY_VERIFIED"
     assert replay["execution_id"] == result["execution_id"]
-    assert (
-        replay["execution_artifact_digest"]
-        == result["execution_artifact_digest"]
-    )
+    assert replay["execution_artifact_digest"] == result["execution_artifact_digest"]
     assert replay["registered_artifact_count"] == result["registered_artifact_count"]
     assert len(repository.events) == event_count
     assert len(repository.artifacts) == artifact_count
@@ -739,10 +746,7 @@ def test_supervisor_projects_preflight_and_fail_closed_repair_branch_with_replay
         require_clean_tree=False,
     )
     supervisor.run_once()
-    repair_fact = (
-        "m4-p2-identifiability-decision:"
-        "MEASUREMENT_CONTRACT_REPAIR_REQUIRED"
-    )
+    repair_fact = "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED"
     supervisor.capabilities[P26_PREFLIGHT_CAPABILITY] = _ProjectedCapability(
         root=root,
         task_key=P26_PREFLIGHT_TASK_KEY,
@@ -783,22 +787,25 @@ def test_supervisor_projects_preflight_and_fail_closed_repair_branch_with_replay
     assert replay["status"] == "REPLAY_VERIFIED"
     assert replay["execution_id"] == preflight["execution_id"]
 
-    waiting = supervisor.run_once()
+    repair = supervisor.run_once()
+    repair_replay = supervisor.replay(task_key=P26_REPAIR_TASK_KEY)
     projected = json.loads(
         (root / "runtime/logs/m4-information-theory-status.json").read_text(
             encoding="utf-8"
         )
     )
-    assert waiting["status"] == "WAITING_FOR_CAPABILITY"
-    assert (
-        projected["synthetic_validation"]
-        == "MEASUREMENT_CONTRACT_REPAIR_REQUIRED"
-    )
-    assert projected["current_state"] == "REPAIR_REQUIRED"
-    assert projected["p2_subphase"]["current"] == "M4-P2-REPAIR"
-    assert (
-        projected["mainline_integration"]["task_key"]
-        == P26_PREFLIGHT_TASK_KEY
-    )
+    assert repair["status"] == "COMPLETE"
+    assert repair["next_ready_task"] == P26_TASK_KEY
+    assert repair["engineering_progress_percent"] == 40
+    assert repair["evidence_progress_percent"] == 0
+    assert repair["old_p2_6_partial_statistical_results_inspected"] is False
+    assert repair["outer_fold_fit_count_before"] == 46
+    assert repair["outer_fold_fit_count_after"] == 4
+    assert repair_replay["status"] == "REPLAY_VERIFIED"
+    assert repair_replay["capability_replay"]["status"] == "REPLAY_VERIFIED"
+    assert projected["synthetic_validation"] == "P2.6.1_REPAIRED_CONTRACT_READY"
+    assert projected["current_state"] == "RUNNING"
+    assert projected["p2_subphase"]["current"] == "M4-P2.6.1"
+    assert projected["mainline_integration"]["task_key"] == P26_REPAIR_TASK_KEY
     assert projected["current_statistics"]["power"] == "NOT_EVALUATED"
     assert projected["current_statistics"]["runtime_progress_path"] is None

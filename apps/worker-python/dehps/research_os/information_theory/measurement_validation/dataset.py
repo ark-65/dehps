@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 import numpy as np
 
@@ -30,12 +31,9 @@ from .contracts import (
     SYNTHETIC_MANIFEST_DIGEST,
     MeasurementValidationContractError,
 )
-from .schedule import AnalysisReplicate, ROOT_SEED_SET_DIGEST
+from .schedule import ROOT_SEED_SET_DIGEST, AnalysisReplicate
 
-
-P24_EXECUTION_ID = (
-    "772b5063f1a3578c7e8f8a2cd9f102357828608de8fbd80c2c1fb2c82b79afa2"
-)
+P24_EXECUTION_ID = "772b5063f1a3578c7e8f8a2cd9f102357828608de8fbd80c2c1fb2c82b79afa2"
 EVALUATION_FLAGS = (
     "FORMAL_P2_6_EVALUATION",
     "POWER_EVIDENCE_ELIGIBLE",
@@ -43,9 +41,13 @@ EVALUATION_FLAGS = (
     "NOT_CALIBRATION_DATA",
     "SYNTHETIC_ONLY",
 )
-NULL_TRUTH_DIGEST = (
-    "126f0a19596a5f6aadb0f468861c4af022d415a7344a6c10a71076b501a470b3"
+DEVELOPMENT_FLAGS = (
+    "HYPERPARAMETER_DEVELOPMENT_ONLY",
+    "NOT_FORMAL_EVALUATION",
+    "NOT_EVIDENCE_ELIGIBLE",
+    "SYNTHETIC_ONLY",
 )
+NULL_TRUTH_DIGEST = "126f0a19596a5f6aadb0f468861c4af022d415a7344a6c10a71076b501a470b3"
 
 
 def _load_object(path: Path) -> dict[str, Any]:
@@ -70,11 +72,8 @@ def locate_truth_artifacts(
     required_digests: tuple[str, ...],
 ) -> dict[str, dict[str, Any]]:
     truth_root = (
-        root_dir
-        / "runtime/research-os/mainline/tasks/"
-        "m4-p2-injected-signal-calibration"
-        / P24_EXECUTION_ID
-        / "artifacts/truth"
+        root_dir / "runtime/research-os/mainline/tasks/"
+        "m4-p2-injected-signal-calibration" / P24_EXECUTION_ID / "artifacts/truth"
     )
     by_scenario: dict[str, dict[str, Any]] = {}
     located: set[str] = set()
@@ -109,6 +108,61 @@ def locate_truth_artifacts(
     return by_scenario
 
 
+def locate_repaired_truth_artifacts(
+    root_dir: Path,
+    *,
+    required_digests: tuple[str, ...],
+    repair_manifest_digest: str,
+) -> dict[str, dict[str, Any]]:
+    repair_root = (
+        root_dir
+        / "runtime/research-os/mainline/tasks/"
+        "m4-p2-repair-measurement-system"
+    )
+    by_scenario: dict[str, dict[str, Any]] = {}
+    for digest in required_digests:
+        paths = sorted(
+            repair_root.glob(f"*/artifacts/truth/{digest}/truth.json")
+        )
+        if not paths:
+            raise MeasurementValidationContractError(
+                "repaired_measurement_validation_truth_missing",
+                f"repaired truth is unavailable: {digest}",
+            )
+        payloads = [_load_object(path) for path in paths]
+        first = payloads[0]
+        if any(payload != first for payload in payloads[1:]):
+            raise MeasurementValidationContractError(
+                "repaired_measurement_validation_truth_duplicate",
+                f"conflicting repaired truth copies: {digest}",
+            )
+        if (
+            first.get("artifact_digest") != digest
+            or first.get("artifact_type") != "repaired_marginal_truth"
+            or first.get("measurement_repair_manifest_digest")
+            != repair_manifest_digest
+            or first.get("truth_estimand")
+            != "sum_number_event_mutual_information_with_prior_state"
+        ):
+            raise MeasurementValidationContractError(
+                "repaired_measurement_validation_truth_invalid",
+                f"repaired truth identity changed: {digest}",
+            )
+        scenario_id = str(first.get("scenario_id") or "")
+        if not scenario_id or scenario_id in by_scenario:
+            raise MeasurementValidationContractError(
+                "repaired_measurement_validation_truth_duplicate",
+                f"duplicate repaired truth scenario: {scenario_id}",
+            )
+        by_scenario[scenario_id] = first
+    if len(by_scenario) != 12:
+        raise MeasurementValidationContractError(
+            "repaired_measurement_validation_truth_incomplete",
+            "all twelve repaired truth dispositions are required",
+        )
+    return by_scenario
+
+
 def _issue(
     issue_index: int,
     numbers: tuple[int, ...],
@@ -127,7 +181,14 @@ def generate_evaluation_dataset(
     *,
     synthetic: SyntheticRunManifest,
     truth_artifact: Mapping[str, Any] | None,
+    expose_prior_state: bool = False,
+    development_only: bool = False,
 ) -> SyntheticDataset:
+    if development_only and not expose_prior_state:
+        raise MeasurementValidationContractError(
+            "measurement_validation_development_boundary_invalid",
+            "development data requires the synthetic-only state instrument",
+        )
     cell = replicate.cell
     scale = synthetic.scale(cell.scale_id)
     generator = np.random.default_rng(replicate.evaluation_dataset_seed)
@@ -157,18 +218,28 @@ def generate_evaluation_dataset(
                 f"wrong P2.4 truth for {cell.scenario_id}",
             )
         truth_digest = str(truth_artifact["artifact_digest"])
-        truth_bits = float(
-            truth_artifact["joint_draw_information_bits_per_issue"]
-        )
+        if "marginal_information_bits_per_issue" in truth_artifact:
+            truth_bits = float(
+                truth_artifact["marginal_information_bits_per_issue"]
+            )
+            joint_truth_bits = float(
+                truth_artifact["joint_information_bits_per_issue"]
+            )
+        else:
+            truth_bits = float(
+                truth_artifact["joint_draw_information_bits_per_issue"]
+            )
+            joint_truth_bits = truth_bits
         parameter = float(truth_artifact["parameter_value"])
+    if cell.scenario_id == "NULL_UNIFORM":
+        joint_truth_bits = 0.0
 
     for issue_index in range(1, scale.sequence_length + 1):
         state = (initial_state + issue_index - 1) % 2
         if cell.scenario_id == "NULL_UNIFORM":
             numbers = tuple(
                 sorted(
-                    int(value)
-                    for value in generator.choice(legal, 6, replace=False)
+                    int(value) for value in generator.choice(legal, 6, replace=False)
                 )
             )
             prior_states.append(None)
@@ -236,11 +307,13 @@ def generate_evaluation_dataset(
     )
     seed_policy = {
         "root_seed_set_digest": ROOT_SEED_SET_DIGEST,
-        "seed_domain": "M4_P2_EVALUATION_DATASET",
-        "power_replicate_seed_digest": replicate.power_replicate_seed_digest,
-        "evaluation_dataset_seed_digest": (
-            replicate.evaluation_dataset_seed_digest
+        "seed_domain": (
+            "M4_P2_6_1_HYPERPARAMETER_DEVELOPMENT_DATASET"
+            if development_only
+            else "M4_P2_EVALUATION_DATASET"
         ),
+        "power_replicate_seed_digest": replicate.power_replicate_seed_digest,
+        "evaluation_dataset_seed_digest": (replicate.evaluation_dataset_seed_digest),
         "selection_policy": "no_best_seed",
         "wall_clock_seed": "forbidden",
         "calibration_seed_reuse": False,
@@ -254,8 +327,14 @@ def generate_evaluation_dataset(
         "artifact_type": "synthetic_dataset",
         "artifact_digest": "",
         "data_source": "synthetic_only",
-        "dataset_role": "formal_P2_6_evaluation",
-        "dataset_flags": list(EVALUATION_FLAGS),
+        "dataset_role": (
+            "P2_6_1_HYPERPARAMETER_DEVELOPMENT"
+            if development_only
+            else "formal_P2_6_evaluation"
+        ),
+        "dataset_flags": list(
+            DEVELOPMENT_FLAGS if development_only else EVALUATION_FLAGS
+        ),
         "scenario": {
             **synthetic.scenario(cell.scenario_id).to_dict(),
             "implemented": True,
@@ -263,7 +342,20 @@ def generate_evaluation_dataset(
         "scale": scale.to_dict(),
         "truth": {
             "truth_artifact_digest": truth_digest,
-            "joint_draw_information_bits_per_issue": truth_bits,
+            "truth_estimand": (
+                "marginal_information_bits_per_issue"
+                if truth_artifact is not None
+                and "marginal_information_bits_per_issue" in truth_artifact
+                else "joint_draw_information_bits_per_issue"
+            ),
+            "truth_bits_per_issue": truth_bits,
+            "joint_draw_information_bits_per_issue": joint_truth_bits,
+            "marginal_information_bits_per_issue": (
+                truth_bits
+                if truth_artifact is not None
+                and "marginal_information_bits_per_issue" in truth_artifact
+                else None
+            ),
             "requested_bits_per_issue": cell.target_bits_per_issue,
             "parameter_value": parameter,
         },
@@ -279,16 +371,29 @@ def generate_evaluation_dataset(
         "preregistration_digest": PREREGISTRATION_DIGEST,
         "decision_policy_digest": DECISION_POLICY_DIGEST,
         "config_digest": SYNTHETIC_MANIFEST_DIGEST,
-        "injected_signal_completion_digest": (
-            INJECTED_SIGNAL_COMPLETION_DIGEST
-        ),
-        "evaluation_seed_domain": "M4_P2_EVALUATION_DATASET",
+        "injected_signal_completion_digest": (INJECTED_SIGNAL_COMPLETION_DIGEST),
+        "evaluation_seed_domain": seed_policy["seed_domain"],
         "calibration_seed_domain_used": False,
-        "eligible_for_evaluation": True,
-        "eligible_for_power_evidence": True,
-        "eligible_for_false_positive_evidence": True,
-        "eligible_for_p2_gate_evidence": True,
+        "eligible_for_evaluation": not development_only,
+        "eligible_for_power_evidence": not development_only,
+        "eligible_for_false_positive_evidence": not development_only,
+        "eligible_for_p2_gate_evidence": not development_only,
     }
+    if expose_prior_state:
+        raw.update(
+            {
+                "dataset_role": (
+                    "P2_6_1_HYPERPARAMETER_DEVELOPMENT"
+                    if development_only
+                    else "P2_6_1_STATE_VISIBLE_SYNTHETIC_INSTRUMENT"
+                ),
+                "prior_states": prior_states,
+                "prior_state_access": (
+                    "synthetic_instrument_only_strictly_before_target"
+                ),
+                "prior_state_for_real_history": "forbidden",
+            }
+        )
     identity = dict(raw)
     identity.pop("artifact_digest")
     raw["artifact_digest"] = canonical_digest(

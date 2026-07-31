@@ -6,7 +6,11 @@ from .contracts import (
     validate_measurement_validation_manifest,
 )
 from .coordinator import CoordinatorResult, run_parallel_execution
-from .dataset import generate_evaluation_dataset, locate_truth_artifacts
+from .dataset import (
+    generate_evaluation_dataset,
+    locate_repaired_truth_artifacts,
+    locate_truth_artifacts,
+)
 from .executor import (
     CompletionResult,
     ReplicateEvaluator,
@@ -22,6 +26,10 @@ from .gate import (
     aggregate_cell,
     build_mde_summary,
     evaluate_automatic_gate,
+)
+from .repaired_contracts import (
+    REPAIRED_MEASUREMENT_VALIDATION_MANIFEST_DIGEST,
+    load_repaired_measurement_validation_manifest,
 )
 from .schedule import (
     AnalysisCell,
@@ -46,19 +54,20 @@ from .statistics import (
 )
 
 __all__ = [
+    "MEASUREMENT_VALIDATION_MANIFEST_DIGEST",
+    "PASS_FACT",
+    "REPAIRED_MEASUREMENT_VALIDATION_MANIFEST_DIGEST",
+    "REPAIR_FACT",
     "AnalysisCell",
     "AnalysisReplicate",
     "CompletionResult",
     "CoordinatorResult",
-    "MEASUREMENT_VALIDATION_MANIFEST_DIGEST",
-    "PASS_FACT",
-    "REPAIR_FACT",
+    "MeasurementValidationContractError",
+    "MeasurementValidationManifest",
     "ReplicateEvaluator",
     "ShardAssignment",
     "ShardRunResult",
     "StrictPriorFeatureCache",
-    "MeasurementValidationContractError",
-    "MeasurementValidationManifest",
     "aggregate_cell",
     "assemble_completion",
     "assign_shard",
@@ -74,11 +83,13 @@ __all__ = [
     "holm_adjust",
     "iter_replicates",
     "load_measurement_validation_manifest",
+    "load_repaired_measurement_validation_manifest",
+    "locate_repaired_truth_artifacts",
     "locate_truth_artifacts",
     "moving_block_bootstrap_statistics",
     "primary_inference",
-    "run_shard",
     "run_parallel_execution",
+    "run_shard",
     "seed_set_digest",
     "type7_quantile",
     "validate_measurement_validation_manifest",

@@ -43,10 +43,11 @@ from dehps.research_os.information_theory.identifiability import (
 )
 from dehps.research_os.information_theory.measurement_validation import (
     MEASUREMENT_VALIDATION_MANIFEST_DIGEST,
+    REPAIRED_MEASUREMENT_VALIDATION_MANIFEST_DIGEST,
     assemble_completion,
     evaluate_automatic_gate,
-    load_measurement_validation_manifest,
-    locate_truth_artifacts,
+    load_repaired_measurement_validation_manifest,
+    locate_repaired_truth_artifacts,
     run_parallel_execution,
     verify_completion_replay,
 )
@@ -55,6 +56,13 @@ from dehps.research_os.information_theory.measurement_validation.reference impor
 )
 from dehps.research_os.information_theory.metrics import load_metric_kernel_manifest
 from dehps.research_os.information_theory.progress import build_m4_status
+from dehps.research_os.information_theory.repair.contracts import (
+    MEASUREMENT_REPAIR_MANIFEST_DIGEST,
+)
+from dehps.research_os.information_theory.repair.execution import (
+    REPAIRED_FACT,
+    run_measurement_contract_repair,
+)
 from dehps.research_os.information_theory.resampling import (
     KERNEL_MANIFEST_DIGEST,
     load_resampling_manifest,
@@ -115,8 +123,10 @@ P25_TASK_KEY = "m4-p2-resampling"
 P25_CAPABILITY = "m4_p2_5_resampling_and_negative_controls"
 P26_PREFLIGHT_TASK_KEY = "m4-p2-measurement-identifiability-preflight"
 P26_PREFLIGHT_CAPABILITY = "m4_p2_6_identifiability_preflight"
+P26_REPAIR_TASK_KEY = "m4-p2-repair-measurement-system"
+P26_REPAIR_CAPABILITY = "m4_p2_measurement_system_repair"
 P26_TASK_KEY = "m4-p2-false-positive-and-power-runs"
-P26_CAPABILITY = "m4_p2_6_false_positive_and_power"
+P26_CAPABILITY = "m4_p2_6_1_false_positive_and_power"
 P27_TASK_KEY = "m4-p2-automatic-gate-and-report"
 P27_CAPABILITY = "m4_p2_7_automatic_measurement_gate"
 P2_UMBRELLA_TASK_KEY = "m4-p2-synthetic-measurement-validation"
@@ -895,6 +905,179 @@ class P26IdentifiabilityPreflightCapability:
         )
 
 
+class P26MeasurementSystemRepairCapability:
+    def __init__(self, *, root_dir: Path = ROOT_DIR) -> None:
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key != P26_REPAIR_TASK_KEY
+            or task.requested_capability != P26_REPAIR_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "P2 measurement repair received the wrong task"
+            )
+        expected_inputs = (
+            "79ba9b17b0e620e2a06e5fcfe96603351843d7e17510a3ca1ae5a9a1eba7986a",
+            SUPERSEDED_RUN_ARCHIVE_DIGEST,
+            MEASUREMENT_REPAIR_MANIFEST_DIGEST,
+            REPAIRED_MEASUREMENT_VALIDATION_MANIFEST_DIGEST,
+            "1a76f46d7a47a134c1688657749bc040290f65a03dbc7c860e38144e02005981",
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "P2 measurement repair requires all five frozen repair "
+                "identities in order"
+            )
+        run = run_measurement_contract_repair(
+            root_dir=self.root_dir,
+            execution_id=execution_id,
+            git_commit=git_commit,
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        development_path = (
+            task_dir
+            / "artifacts/development-selection"
+            / str(run.development_selection["artifact_digest"])
+            / "selection.json"
+        )
+        _persist_immutable(development_path, run.development_selection)
+        truth_payloads: list[tuple[Path, Mapping[str, Any]]] = []
+        for truth in run.truth_artifacts:
+            path = (
+                task_dir
+                / "artifacts/truth"
+                / str(truth["artifact_digest"])
+                / "truth.json"
+            )
+            _persist_immutable(path, truth)
+            truth_payloads.append((path, truth))
+        confirmation_path = (
+            task_dir
+            / "artifacts/identifiability"
+            / str(run.identifiability_confirmation["artifact_digest"])
+            / "confirmation.json"
+        )
+        _persist_immutable(
+            confirmation_path,
+            run.identifiability_confirmation,
+        )
+        completion_path = (
+            task_dir
+            / "artifacts/completion"
+            / str(run.completion["artifact_digest"])
+            / "completion.json"
+        )
+        _persist_immutable(completion_path, run.completion)
+        child_payloads = (
+            (development_path, run.development_selection),
+            *truth_payloads,
+            (confirmation_path, run.identifiability_confirmation),
+            (completion_path, run.completion),
+        )
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "measurement_repair_manifest_digest": (
+                run.manifest.artifact_digest
+            ),
+            "repaired_measurement_validation_manifest_digest": (
+                REPAIRED_MEASUREMENT_VALIDATION_MANIFEST_DIGEST
+            ),
+            "development_selection_artifact_digest": (
+                run.development_selection["artifact_digest"]
+            ),
+            "truth_artifact_digests": [
+                item["artifact_digest"] for item in run.truth_artifacts
+            ],
+            "identifiability_confirmation_digest": (
+                run.identifiability_confirmation["artifact_digest"]
+            ),
+            "completion_artifact_digest": run.completion[
+                "artifact_digest"
+            ],
+            "completion_fact": REPAIRED_FACT,
+            "actual_fold_count": 0,
+            "registered_artifact_count": len(child_payloads) + 1,
+            "engineering_progress_before": 38,
+            "engineering_progress_after": 40,
+            "evidence_progress_before": 0,
+            "evidence_progress_after": 0,
+            "outer_fold_fit_count_before": 46,
+            "outer_fold_fit_count_after": 4,
+            "inner_model_selection_per_outer_fold": 0,
+            "formal_power_target_count": 8,
+            "joint_only_negative_control_count": 3,
+            "feasibility_sentinel_count": 1,
+            "downstream_consumer": P26_TASK_KEY,
+            "old_p2_6_partial_statistical_results_inspected": False,
+            "old_p2_6_execution_resumable": False,
+            "eligible_for_formal_inference": False,
+            "evidence_created": False,
+            "production_impact": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "replay_status": "DETERMINISTIC",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                *(str(payload["artifact_digest"]) for _, payload in child_payloads),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(registrations) != execution_payload[
+            "registered_artifact_count"
+        ]:
+            raise MainlineSupervisorError(
+                "P2 measurement repair registered artifact count changed"
+            )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=registrations,
+            completion_facts=(REPAIRED_FACT,),
+        )
+
+
 class P26MeasurementValidationCapability:
     def __init__(self, *, root_dir: Path = ROOT_DIR) -> None:
         self.root_dir = root_dir
@@ -913,23 +1096,29 @@ class P26MeasurementValidationCapability:
         contract_path = (
             self.root_dir
             / "configs/research-os/"
-            "m4-information-theory-p2-6-measurement-validation-v1.json"
+            "m4-information-theory-p2-6-1-measurement-validation-v1.json"
         )
-        manifest = load_measurement_validation_manifest(contract_path)
-        upstream = manifest.payload["upstream_identities"]
+        manifest = load_repaired_measurement_validation_manifest(
+            contract_path
+        )
+        truth_digests = tuple(
+            str(item["artifact_digest"])
+            for item in manifest.payload["truth_artifacts"]
+        )
         expected_inputs = (
-            str(upstream["preregistration_digest"]),
-            str(upstream["decision_policy_digest"]),
-            str(upstream["synthetic_manifest_digest"]),
-            str(upstream["metric_kernel_digest"]),
-            str(upstream["walk_forward_harness_digest"]),
-            str(upstream["injected_signal_completion_digest"]),
-            str(upstream["resampling_kernel_digest"]),
-            manifest.artifact_digest,
+            MEASUREMENT_REPAIR_MANIFEST_DIGEST,
+            REPAIRED_MEASUREMENT_VALIDATION_MANIFEST_DIGEST,
+            "90459ebf8b88afcc60ee1177043e436b90b71c00b557f15e9e4d7026f37586f2",
+            "1a76f46d7a47a134c1688657749bc040290f65a03dbc7c860e38144e02005981",
+            KERNEL_MANIFEST_DIGEST,
+            P25_METRIC_KERNEL_DIGEST,
+            P25_WALK_FORWARD_HARNESS_DIGEST,
+            *truth_digests,
         )
         if task.input_artifact_digests != expected_inputs:
             raise MainlineSupervisorError(
-                "P2.6 requires all accepted P2.1-P2.6 identities in order"
+                "P2.6.1 requires the repaired contract, four-fit probe "
+                "instrument, resampling kernel, and all marginal truths"
             )
         synthetic = load_synthetic_run_manifest(
             self.root_dir
@@ -941,10 +1130,10 @@ class P26MeasurementValidationCapability:
             / "configs/research-os/"
             "m4-information-theory-p2-5-resampling-kernel-v1.json"
         )
-        resampling = load_resampling_manifest(resampling_path)
-        truths = locate_truth_artifacts(
+        truths = locate_repaired_truth_artifacts(
             self.root_dir,
-            required_digests=resampling.truth_artifact_digests,
+            required_digests=truth_digests,
+            repair_manifest_digest=MEASUREMENT_REPAIR_MANIFEST_DIGEST,
         )
         task_dir = (
             self.root_dir
@@ -990,7 +1179,7 @@ class P26MeasurementValidationCapability:
             progress_projection_path=(
                 self.root_dir
                 / "runtime/logs/"
-                "m4-p2-6-measurement-validation-progress.json"
+                "m4-p2-6-1-measurement-validation-progress.json"
             ),
         )
         completion = assemble_completion(
@@ -1054,6 +1243,13 @@ class P26MeasurementValidationCapability:
             "aggregate_count": len(completion.aggregate_artifacts),
             "actual_fold_count": manifest.outer_issue_predictions,
             "all_probe_outer_fold_count": manifest.outer_issue_predictions * 4,
+            "estimator_and_calibrator_fit_count": (
+                manifest.outer_issue_predictions * 4
+            ),
+            "inner_model_selection_fit_count": 0,
+            "superseded_outer_fold_fit_count": (
+                manifest.outer_issue_predictions * 46
+            ),
             "number_probability_predictions": (
                 manifest.outer_issue_predictions * 33 * 4
             ),
@@ -1151,14 +1347,14 @@ class P27AutomaticMeasurementGateCapability:
         integration_contract(task)
         if task.task_key != P27_TASK_KEY or task.requested_capability != P27_CAPABILITY:
             raise MainlineSupervisorError("P2.7 capability received the wrong task")
-        manifest = load_measurement_validation_manifest(
+        manifest = load_repaired_measurement_validation_manifest(
             self.root_dir
             / "configs/research-os/"
-            "m4-information-theory-p2-6-measurement-validation-v1.json"
+            "m4-information-theory-p2-6-1-measurement-validation-v1.json"
         )
         if task.input_artifact_digests != (
             P25_DECISION_POLICY_DIGEST,
-            MEASUREMENT_VALIDATION_MANIFEST_DIGEST,
+            REPAIRED_MEASUREMENT_VALIDATION_MANIFEST_DIGEST,
         ):
             raise MainlineSupervisorError("P2.7 frozen inputs changed")
         synthetic = load_synthetic_run_manifest(
@@ -1396,6 +1592,9 @@ class ResearchEvidenceSupervisor:
             P26_PREFLIGHT_CAPABILITY: P26IdentifiabilityPreflightCapability(
                 root_dir=root_dir
             ),
+            P26_REPAIR_CAPABILITY: P26MeasurementSystemRepairCapability(
+                root_dir=root_dir
+            ),
             P26_CAPABILITY: P26MeasurementValidationCapability(root_dir=root_dir),
             P27_CAPABILITY: P27AutomaticMeasurementGateCapability(
                 root_dir=root_dir
@@ -1618,7 +1817,7 @@ class ResearchEvidenceSupervisor:
                     {
                         "progress_projection_path": (
                             "runtime/logs/"
-                            "m4-p2-6-measurement-validation-progress.json"
+                            "m4-p2-6-1-measurement-validation-progress.json"
                         )
                     }
                     if task.task_key == P26_TASK_KEY
@@ -1701,6 +1900,17 @@ class ResearchEvidenceSupervisor:
                                     "scenario_count",
                                     "p2_6_partial_statistical_results_inspected",
                                     "old_p2_6_execution_resumable",
+                                    "old_p2_6_partial_statistical_results_inspected",
+                                    "measurement_repair_manifest_digest",
+                                    "repaired_measurement_validation_manifest_digest",
+                                    "development_selection_artifact_digest",
+                                    "identifiability_confirmation_digest",
+                                    "outer_fold_fit_count_before",
+                                    "outer_fold_fit_count_after",
+                                    "inner_model_selection_per_outer_fold",
+                                    "formal_power_target_count",
+                                    "joint_only_negative_control_count",
+                                    "feasibility_sentinel_count",
                                     "replay_status",
                                     "bootstrap_replicate_count",
                                     "permutation_replicate_count",
@@ -1948,6 +2158,17 @@ class ResearchEvidenceSupervisor:
             "scenario_count",
             "p2_6_partial_statistical_results_inspected",
             "old_p2_6_execution_resumable",
+            "old_p2_6_partial_statistical_results_inspected",
+            "measurement_repair_manifest_digest",
+            "repaired_measurement_validation_manifest_digest",
+            "development_selection_artifact_digest",
+            "identifiability_confirmation_digest",
+            "outer_fold_fit_count_before",
+            "outer_fold_fit_count_after",
+            "inner_model_selection_per_outer_fold",
+            "formal_power_target_count",
+            "joint_only_negative_control_count",
+            "feasibility_sentinel_count",
             "replay_status",
             "bootstrap_replicate_count",
             "permutation_replicate_count",
@@ -2069,11 +2290,52 @@ class ResearchEvidenceSupervisor:
                 "registered mainline artifacts are missing: " + ", ".join(missing)
             )
         capability_replay: dict[str, Any] | None = None
-        if task_key == P26_TASK_KEY:
-            measurement_manifest = load_measurement_validation_manifest(
-                self.root_dir
-                / "configs/research-os/"
-                "m4-information-theory-p2-6-measurement-validation-v1.json"
+        if task_key == P26_REPAIR_TASK_KEY:
+            repair = run_measurement_contract_repair(
+                root_dir=self.root_dir,
+                execution_id=resolved_execution_id,
+                git_commit=str(artifact["git_commit"]),
+            )
+            if (
+                repair.completion["artifact_digest"]
+                != artifact["completion_artifact_digest"]
+                or repair.development_selection["artifact_digest"]
+                != artifact["development_selection_artifact_digest"]
+                or repair.identifiability_confirmation["artifact_digest"]
+                != artifact["identifiability_confirmation_digest"]
+                or [
+                    item["artifact_digest"]
+                    for item in repair.truth_artifacts
+                ]
+                != artifact["truth_artifact_digests"]
+            ):
+                raise MainlineSupervisorError(
+                    "measurement repair deterministic replay changed"
+                )
+            capability_replay = {
+                "schema_version": (
+                    "dehps-m4-p2-measurement-repair-replay.v1"
+                ),
+                "status": "REPLAY_VERIFIED",
+                "completion_artifact_digest": repair.completion[
+                    "artifact_digest"
+                ],
+                "development_selection_artifact_digest": (
+                    repair.development_selection["artifact_digest"]
+                ),
+                "truth_artifact_count": len(repair.truth_artifacts),
+                "same_contract_identity": True,
+                "same_development_selection": True,
+                "same_truth_identities": True,
+                "manual_input_assembly": False,
+            }
+        elif task_key == P26_TASK_KEY:
+            measurement_manifest = (
+                load_repaired_measurement_validation_manifest(
+                    self.root_dir
+                    / "configs/research-os/"
+                    "m4-information-theory-p2-6-1-measurement-validation-v1.json"
+                )
             )
             synthetic = load_synthetic_run_manifest(
                 self.root_dir
@@ -2091,10 +2353,12 @@ class ResearchEvidenceSupervisor:
                 ),
             )
         elif task_key == P27_TASK_KEY:
-            measurement_manifest = load_measurement_validation_manifest(
-                self.root_dir
-                / "configs/research-os/"
-                "m4-information-theory-p2-6-measurement-validation-v1.json"
+            measurement_manifest = (
+                load_repaired_measurement_validation_manifest(
+                    self.root_dir
+                    / "configs/research-os/"
+                    "m4-information-theory-p2-6-1-measurement-validation-v1.json"
+                )
             )
             synthetic = load_synthetic_run_manifest(
                 self.root_dir

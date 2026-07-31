@@ -4,7 +4,6 @@ from typing import Any
 
 from dehps.contracts import canonical_digest
 
-
 SEED_DERIVATION_DOMAIN = "dehps.m4-p2.seed-domain.v1"
 M4_P2_SEED_DOMAINS = frozenset(
     {
@@ -19,6 +18,8 @@ M4_P2_SEED_DOMAINS = frozenset(
         "M4_P2_RANDOM_SCORE",
         "M4_P2_POWER_REPLICATE",
         "M4_P2_SHARD_ASSIGNMENT",
+        "M4_P2_6_1_HYPERPARAMETER_DEVELOPMENT",
+        "M4_P2_6_1_HYPERPARAMETER_DEVELOPMENT_DATASET",
     }
 )
 
