@@ -106,6 +106,12 @@
       "superseded_by_digest": "eab2583985b389dc8ee000fba74ee965fb75da131c2e709a05067a1cbfdbb9cc"
     },
     "eab2583985b389dc8ee000fba74ee965fb75da131c2e709a05067a1cbfdbb9cc": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "source_commit": "4926dd8090b46a5c77889e7ed92cea197dba2a0c",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "superseded_by_digest": "c8fbdd8523b0a14e18d6828535b90f7f56c3d1beaf059bf2e4ec687a2465748d"
+    },
+    "c8fbdd8523b0a14e18d6828535b90f7f56c3d1beaf059bf2e4ec687a2465748d": {
       "artifact_type": "research_os_control_plane_manifest",
       "path": "configs/research-os/m4-information-theory-evidence-v1.json"
     },
@@ -155,6 +161,10 @@
     "1a76f46d7a47a134c1688657749bc040290f65a03dbc7c860e38144e02005981": {
       "artifact_type": "state_visible_synthetic_feature_manifest",
       "path": "configs/research-os/m4-information-theory-p2-6-1-state-visible-feature-v1.json"
+    },
+    "a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b": {
+      "artifact_type": "hierarchical_information_measurement_contract",
+      "path": "configs/research-os/m4-measurement-contract-v2.json"
     },
     "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2": {
       "artifact_type": "information_theory_p2_metric_kernel_manifest",

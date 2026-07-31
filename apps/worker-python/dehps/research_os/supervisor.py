@@ -54,6 +54,15 @@ from dehps.research_os.information_theory.measurement_validation import (
 from dehps.research_os.information_theory.measurement_validation.reference import (
     ReferenceReplicateEvaluator,
 )
+from dehps.research_os.information_theory.measurement_system_v2 import (
+    MEASUREMENT_CONTRACT_V2_DIGEST,
+    MEASUREMENT_CONTRACT_V2_PATH,
+    build_design_artifacts,
+    load_measurement_contract_v2,
+)
+from dehps.research_os.information_theory.measurement_system_v2.execution import (
+    DESIGN_COMPLETION_FACT,
+)
 from dehps.research_os.information_theory.metrics import load_metric_kernel_manifest
 from dehps.research_os.information_theory.progress import build_m4_status
 from dehps.research_os.information_theory.repair.contracts import (
@@ -129,6 +138,8 @@ P26_TASK_KEY = "m4-p2-false-positive-and-power-runs"
 P26_CAPABILITY = "m4_p2_6_1_false_positive_and_power"
 P27_TASK_KEY = "m4-p2-automatic-gate-and-report"
 P27_CAPABILITY = "m4_p2_7_automatic_measurement_gate"
+M4_V2_DESIGN_TASK_KEY = "m4-v2-measurement-contract-design"
+M4_V2_DESIGN_CAPABILITY = "m4_v2_measurement_contract_design"
 P2_UMBRELLA_TASK_KEY = "m4-p2-synthetic-measurement-validation"
 MAINLINE_EXECUTION_SCHEMA = "dehps-research-os-mainline-execution.v1"
 P26_EQUIVALENT_RESUME_ENV = "DEHPS_P26_EQUIVALENT_RESUME_FROM_COMMIT"
@@ -167,6 +178,42 @@ def _persist_immutable(path: Path, payload: Mapping[str, Any]) -> None:
         path,
         json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
     )
+
+
+def _verify_v2_registered_artifacts(
+    *,
+    root_dir: Path,
+    registrations: list[Mapping[str, Any]],
+    expected_payloads: tuple[Mapping[str, Any], ...],
+) -> None:
+    expected_by_digest = {
+        str(payload["artifact_digest"]): dict(payload)
+        for payload in expected_payloads
+    }
+    registered_digests = {
+        str(item.get("artifact_digest") or "") for item in registrations
+    }
+    if (
+        len(expected_by_digest) != len(expected_payloads)
+        or registered_digests != set(expected_by_digest)
+    ):
+        raise MainlineSupervisorError(
+            "M4 Measurement Contract v2 registered artifact set changed"
+        )
+    for registration in registrations:
+        digest = str(registration.get("artifact_digest") or "")
+        path = root_dir / str(registration.get("artifact_path") or "")
+        actual = _load_object(path)
+        expected = expected_by_digest[digest]
+        if (
+            actual != expected
+            or actual.get("artifact_digest") != digest
+            or actual.get("artifact_type")
+            != registration.get("artifact_type")
+        ):
+            raise MainlineSupervisorError(
+                "M4 Measurement Contract v2 registered artifact content changed"
+            )
 
 
 def _artifact_digest(payload: Mapping[str, Any]) -> str:
@@ -1078,6 +1125,153 @@ class P26MeasurementSystemRepairCapability:
         )
 
 
+class M4MeasurementContractV2DesignCapability:
+    def __init__(self, *, root_dir: Path = ROOT_DIR) -> None:
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key != M4_V2_DESIGN_TASK_KEY
+            or task.requested_capability != M4_V2_DESIGN_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "M4 Measurement Contract v2 design received the wrong task"
+            )
+        expected_inputs = (
+            MEASUREMENT_CONTRACT_V2_DIGEST,
+            "ae4e741cfc55547785ca9cf57b5b49f37a3d8c4f2bd53daeff9228982f797a69",
+            "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
+            "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca",
+            MEASUREMENT_REPAIR_MANIFEST_DIGEST,
+            REPAIRED_MEASUREMENT_VALIDATION_MANIFEST_DIGEST,
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "M4 v2 design requires the six frozen source-only identities"
+            )
+        contract = load_measurement_contract_v2(
+            self.root_dir / MEASUREMENT_CONTRACT_V2_PATH
+        )
+        run = build_design_artifacts(
+            contract,
+            execution_id=execution_id,
+            git_commit=git_commit,
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        child_paths = (
+            task_dir
+            / "artifacts/estimand-contract"
+            / str(run.estimand_contract["artifact_digest"])
+            / "contract.json",
+            task_dir
+            / "artifacts/mechanism-role-contract"
+            / str(run.mechanism_role_contract["artifact_digest"])
+            / "contract.json",
+            task_dir
+            / "artifacts/gate-compiler-contract"
+            / str(run.gate_compiler_contract["artifact_digest"])
+            / "contract.json",
+            task_dir
+            / "artifacts/completion"
+            / str(run.completion["artifact_digest"])
+            / "completion.json",
+        )
+        child_payloads = tuple(zip(child_paths, run.artifacts, strict=True))
+        for path, payload in child_payloads:
+            _persist_immutable(path, payload)
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "measurement_contract_v2_digest": contract.artifact_digest,
+            "estimand_contract_digest": run.estimand_contract[
+                "artifact_digest"
+            ],
+            "mechanism_role_contract_digest": run.mechanism_role_contract[
+                "artifact_digest"
+            ],
+            "gate_compiler_contract_digest": run.gate_compiler_contract[
+                "artifact_digest"
+            ],
+            "completion_artifact_digest": run.completion["artifact_digest"],
+            "completion_fact": DESIGN_COMPLETION_FACT,
+            "actual_fold_count": 0,
+            "registered_artifact_count": len(child_payloads) + 1,
+            "formal_branch_runs_executed": 0,
+            "historical_outcomes_read": False,
+            "p2_6_1_partial_statistical_results_read": False,
+            "evidence_created": False,
+            "evidence_progress_before": 0,
+            "evidence_progress_after": 0,
+            "downstream_consumer": (
+                "m4-v2-branch-identifiability-preflight-design"
+            ),
+            "production_impact": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "replay_status": "DETERMINISTIC",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                *(
+                    str(payload["artifact_digest"])
+                    for _, payload in child_payloads
+                ),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(registrations) != execution_payload[
+            "registered_artifact_count"
+        ]:
+            raise MainlineSupervisorError(
+                "M4 v2 design registered artifact count changed"
+            )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=registrations,
+            completion_facts=(DESIGN_COMPLETION_FACT,),
+        )
+
+
 class P26MeasurementValidationCapability:
     def __init__(self, *, root_dir: Path = ROOT_DIR) -> None:
         self.root_dir = root_dir
@@ -1599,6 +1793,9 @@ class ResearchEvidenceSupervisor:
             P27_CAPABILITY: P27AutomaticMeasurementGateCapability(
                 root_dir=root_dir
             ),
+            M4_V2_DESIGN_CAPABILITY: M4MeasurementContractV2DesignCapability(
+                root_dir=root_dir
+            ),
         }
 
     @property
@@ -1662,11 +1859,13 @@ class ResearchEvidenceSupervisor:
             }
             self._write_state(payload)
             latest_summary = self._latest_completed_summary(snapshot)
+            latest_v2_summary = self._latest_completed_v2_summary(snapshot)
             self._write_m4_status(
                 build_m4_status(
                     manifest,
                     snapshot=snapshot,
                     mainline_execution=latest_summary,
+                    measurement_v2_execution=latest_v2_summary,
                     dispatch_performed=False,
                 )
             )
@@ -1784,9 +1983,13 @@ class ResearchEvidenceSupervisor:
                 git_commit=git_commit,
             )
         running_snapshot = self.repository.control_plane.resolve(running_manifest)
+        latest_summary = self._latest_completed_summary(running_snapshot)
+        latest_v2_summary = self._latest_completed_v2_summary(running_snapshot)
         running_status = build_m4_status(
             running_manifest,
             snapshot=running_snapshot,
+            mainline_execution=latest_summary,
+            measurement_v2_execution=latest_v2_summary,
             dispatch_performed=True,
         )
         self._write_state(
@@ -1924,6 +2127,13 @@ class ResearchEvidenceSupervisor:
                                     "estimator_quality_by_cell",
                                     "runtime_migration_digests",
                                     "runtime_git_commits",
+                                    "measurement_contract_v2_digest",
+                                    "estimand_contract_digest",
+                                    "mechanism_role_contract_digest",
+                                    "gate_compiler_contract_digest",
+                                    "formal_branch_runs_executed",
+                                    "historical_outcomes_read",
+                                    "p2_6_1_partial_statistical_results_read",
                                 )
                                 if key in result.execution_artifact
                             },
@@ -2006,17 +2216,37 @@ class ResearchEvidenceSupervisor:
         self,
         snapshot: Any,
     ) -> dict[str, Any] | None:
+        return self._latest_completed_summary_for_tasks(
+            snapshot,
+            (
+                P27_TASK_KEY,
+                P26_TASK_KEY,
+                P26_REPAIR_TASK_KEY,
+                P26_PREFLIGHT_TASK_KEY,
+                P25_TASK_KEY,
+                P24_TASK_KEY,
+                P23_TASK_KEY,
+            ),
+        )
+
+    def _latest_completed_v2_summary(
+        self,
+        snapshot: Any,
+    ) -> dict[str, Any] | None:
+        return self._latest_completed_summary_for_tasks(
+            snapshot,
+            (M4_V2_DESIGN_TASK_KEY,),
+        )
+
+    def _latest_completed_summary_for_tasks(
+        self,
+        snapshot: Any,
+        task_keys: tuple[str, ...],
+    ) -> dict[str, Any] | None:
         resolutions = {
             item.task_key: item.status for item in snapshot.resolutions
         }
-        for candidate in (
-            P27_TASK_KEY,
-            P26_TASK_KEY,
-            P26_PREFLIGHT_TASK_KEY,
-            P25_TASK_KEY,
-            P24_TASK_KEY,
-            P23_TASK_KEY,
-        ):
+        for candidate in task_keys:
             if resolutions.get(candidate) is not TaskStatus.COMPLETED:
                 continue
             events = self.repository.list_mainline_execution_events(
@@ -2029,7 +2259,10 @@ class ResearchEvidenceSupervisor:
                 if event.get("event_type") == "completed"
             ]
             if len(completed) == 1:
-                return _event_payload(completed[0])
+                return {
+                    **_event_payload(completed[0]),
+                    "execution_task_key": candidate,
+                }
         return None
 
     def _record_started_event(
@@ -2070,7 +2303,10 @@ class ResearchEvidenceSupervisor:
         git_commit: str,
     ) -> dict[str, Any]:
         execution_id = str(event["execution_id"])
-        summary = _event_payload(event)
+        summary = {
+            **_event_payload(event),
+            "execution_task_key": task.task_key,
+        }
         completion_fact = mainline_completion_fact(
             task=task,
             execution_id=execution_id,
@@ -2100,10 +2336,17 @@ class ResearchEvidenceSupervisor:
             control_plane_key=self.control_plane_key
         )
         final_snapshot = self.repository.control_plane.resolve(final_manifest)
+        latest_summary = self._latest_completed_summary(final_snapshot)
+        latest_v2_summary = self._latest_completed_v2_summary(final_snapshot)
+        if task.task_key == M4_V2_DESIGN_TASK_KEY:
+            latest_v2_summary = summary
+        else:
+            latest_summary = summary
         status = build_m4_status(
             final_manifest,
             snapshot=final_snapshot,
-            mainline_execution=summary,
+            mainline_execution=latest_summary,
+            measurement_v2_execution=latest_v2_summary,
             dispatch_performed=True,
         )
         completed_at = str(event.get("recorded_at") or self.now().isoformat())
@@ -2182,6 +2425,13 @@ class ResearchEvidenceSupervisor:
             "estimator_quality_by_cell",
             "runtime_migration_digests",
             "runtime_git_commits",
+            "measurement_contract_v2_digest",
+            "estimand_contract_digest",
+            "mechanism_role_contract_digest",
+            "gate_compiler_contract_digest",
+            "formal_branch_runs_executed",
+            "historical_outcomes_read",
+            "p2_6_1_partial_statistical_results_read",
         ):
             if key in summary:
                 payload[key] = summary[key]
@@ -2290,7 +2540,59 @@ class ResearchEvidenceSupervisor:
                 "registered mainline artifacts are missing: " + ", ".join(missing)
             )
         capability_replay: dict[str, Any] | None = None
-        if task_key == P26_REPAIR_TASK_KEY:
+        if task_key == M4_V2_DESIGN_TASK_KEY:
+            contract = load_measurement_contract_v2(
+                self.root_dir / MEASUREMENT_CONTRACT_V2_PATH
+            )
+            reconstructed = build_design_artifacts(
+                contract,
+                execution_id=resolved_execution_id,
+                git_commit=str(artifact["git_commit"]),
+            )
+            if (
+                reconstructed.estimand_contract["artifact_digest"]
+                != artifact["estimand_contract_digest"]
+                or reconstructed.mechanism_role_contract["artifact_digest"]
+                != artifact["mechanism_role_contract_digest"]
+                or reconstructed.gate_compiler_contract["artifact_digest"]
+                != artifact["gate_compiler_contract_digest"]
+                or reconstructed.completion["artifact_digest"]
+                != artifact["completion_artifact_digest"]
+            ):
+                raise MainlineSupervisorError(
+                    "M4 Measurement Contract v2 deterministic replay changed"
+                )
+            _verify_v2_registered_artifacts(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                expected_payloads=(
+                    *reconstructed.artifacts,
+                    artifact,
+                ),
+            )
+            capability_replay = {
+                "schema_version": (
+                    "dehps-m4-measurement-v2-design-replay.v1"
+                ),
+                "status": "REPLAY_VERIFIED",
+                "measurement_contract_v2_digest": contract.artifact_digest,
+                "estimand_contract_digest": reconstructed.estimand_contract[
+                    "artifact_digest"
+                ],
+                "mechanism_role_contract_digest": (
+                    reconstructed.mechanism_role_contract["artifact_digest"]
+                ),
+                "gate_compiler_contract_digest": (
+                    reconstructed.gate_compiler_contract["artifact_digest"]
+                ),
+                "completion_artifact_digest": reconstructed.completion[
+                    "artifact_digest"
+                ],
+                "formal_branch_runs_executed": 0,
+                "historical_outcomes_read": False,
+                "manual_input_assembly": False,
+            }
+        elif task_key == P26_REPAIR_TASK_KEY:
             repair = run_measurement_contract_repair(
                 root_dir=self.root_dir,
                 execution_id=resolved_execution_id,

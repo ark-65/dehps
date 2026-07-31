@@ -1,0 +1,564 @@
+{
+  "schema_version": "dehps-m4-measurement-contract.v2",
+  "artifact_type": "hierarchical_information_measurement_contract",
+  "artifact_digest": "a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b",
+  "contract_key": "M4_MEASUREMENT_CONTRACT_V2",
+  "semantic_version": "2.0.0",
+  "status": "FROZEN_SOURCE_INTEGRATION_PENDING",
+  "frozen_at": "2026-07-31T17:00:00+08:00",
+  "purpose": "hierarchical_incremental_information_measurement",
+  "legal_domain": {
+    "domain": "SSQ_RED_BALL",
+    "outcome_representation": "binary_vector_length_33_with_exactly_6_ones",
+    "legal_combination_count": 1107568,
+    "legal_combination_formula": "C(33,6)",
+    "uniform_draw_probability": "1/C(33,6)",
+    "uniform_number_marginal": "6/33",
+    "sampling": "without_replacement",
+    "illegal_draw_probability": 0
+  },
+  "upstream_source_identities": {
+    "information_theory_contract_digest": "ae4e741cfc55547785ca9cf57b5b49f37a3d8c4f2bd53daeff9228982f797a69",
+    "metric_kernel_digest": "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
+    "walk_forward_harness_digest": "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca",
+    "measurement_repair_manifest_digest": "5e41910553643e6559e78aa401fdcdd1e661b5709eaf55f0e73e694fb5a61355",
+    "p2_6_1_measurement_validation_manifest_digest": "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58",
+    "p2_6_1_state_visible_feature_manifest_digest": "1a76f46d7a47a134c1688657749bc040290f65a03dbc7c860e38144e02005981"
+  },
+  "result_blind_freeze": {
+    "p2_6_1_partial_replicates_read": false,
+    "p2_6_1_partial_aggregates_read": false,
+    "p2_6_1_gate_outputs_read": false,
+    "real_history_outcomes_read": false,
+    "formal_v2_results_existed_before_freeze": false,
+    "thresholds_selected_from_results": false,
+    "frozen_source_contract_identities_used": true,
+    "exact_synthetic_truth_definitions_used": true
+  },
+  "p2_6_1_lineage_boundary": {
+    "task_key": "m4-p2-false-positive-and-power-runs",
+    "task_digest": "80068e22f5e1c343fd86213faa0d9a411d71f92ad2750fed10449a10151de8fa",
+    "measurement_validation_manifest_digest": "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58",
+    "immutable_task_identity_changed": false,
+    "immutable_manifest_identity_changed": false,
+    "runtime_operation_allowed": false,
+    "semantic_purpose": "MARGINAL_OUTPUT_MEASUREMENT_ACCEPTANCE_BASELINE",
+    "output_geometry": "NUMBER_EVENT_MARGINAL",
+    "conditioning_set": "SYNTHETIC_PRE_TARGET_INSTRUMENT",
+    "v2_historical_branch_evidence_credit": "NONE",
+    "reason": "P2.6.1 validates 33 marginal outputs under a synthetic-only prior-state instrument; it is neither static marginal historical evidence nor strict-history temporal evidence."
+  },
+  "information_axes": {
+    "output_geometry": [
+      "NUMBER_EVENT_MARGINAL",
+      "LEGAL_FIXED_CARDINALITY_JOINT"
+    ],
+    "conditioning_set": [
+      "STATIONARY_NO_HISTORY",
+      "STRICT_PRIOR_HISTORY_H_LT",
+      "SYNTHETIC_PRE_TARGET_INSTRUMENT_HEALTH_ONLY"
+    ],
+    "formal_historical_conditioning_set": "STRICT_PRIOR_HISTORY_H_LT",
+    "synthetic_instrument_historical_evidence": "FORBIDDEN",
+    "axis_conflation": "FAIL_CLOSED"
+  },
+  "estimand_contract": {
+    "unit": "bits_per_issue",
+    "required_branch_order": [
+      "MARGINAL_STATIC",
+      "TEMPORAL_MARGINAL_INCREMENT",
+      "JOINT_RESIDUAL_INCREMENT"
+    ],
+    "branches": [
+      {
+        "branch_id": "MARGINAL_STATIC",
+        "level": 1,
+        "target_geometry": "NUMBER_EVENT_MARGINAL",
+        "conditioning_set": "STATIONARY_NO_HISTORY",
+        "candidate": "outer_train_only_stationary_number_event_probabilities_q_M_t_i",
+        "baseline": {
+          "baseline_id": "LEGAL_UNIFORM_NUMBER_EVENT_BASELINE",
+          "definition": "q_0_i=6/33 for i=1..33",
+          "legal_draw_space": "C(33,6)"
+        },
+        "incremental_estimand": "sum_i E_t[log2 Bern(Y_t_i;q_M_t_i)-log2 Bern(Y_t_i;6/33)]",
+        "score_geometry": "SUM_33_BINARY_LOG_SCORES",
+        "primary_output": "stationary_composite_marginal_gain_bits_per_issue",
+        "next_baseline_consumer": "TEMPORAL_MARGINAL_INCREMENT",
+        "historical_feature_boundary": "number_identity_and_outer_training_data_only",
+        "oracle_state_allowed": false
+      },
+      {
+        "branch_id": "TEMPORAL_MARGINAL_INCREMENT",
+        "level": 2,
+        "target_geometry": "NUMBER_EVENT_MARGINAL",
+        "conditioning_set": "STRICT_PRIOR_HISTORY_H_LT",
+        "candidate": "q_T_t_i=P(Y_t_i=1|H_lt_t)_estimated_outer_train_only",
+        "baseline": {
+          "baseline_id": "ACCEPTED_MARGINAL_STATIC_FOLD_BASELINE",
+          "source_branch_id": "MARGINAL_STATIC",
+          "artifact_identity": "DIRECT_REUSE_OF_ACCEPTED_MARGINAL_MODEL_ARTIFACT",
+          "fallback": "FORBIDDEN",
+          "same_fold_and_same_33_event_score_required": true
+        },
+        "incremental_estimand": "sum_i E_t[log2 Bern(Y_t_i;q_T_t_i(H_lt_t))-log2 Bern(Y_t_i;q_M_t_i)]",
+        "score_geometry": "SUM_33_BINARY_LOG_SCORES",
+        "primary_output": "strict_history_incremental_marginal_gain_bits_per_issue",
+        "next_baseline_consumer": "JOINT_RESIDUAL_INCREMENT",
+        "history_boundary": "target_issue_and_all_future_issues_forbidden",
+        "synthetic_oracle_state_allowed": false
+      },
+      {
+        "branch_id": "JOINT_RESIDUAL_INCREMENT",
+        "level": 3,
+        "target_geometry": "LEGAL_FIXED_CARDINALITY_JOINT",
+        "conditioning_set": "STRICT_PRIOR_HISTORY_H_LT",
+        "candidate": "Q_J_t(Y_t|H_lt_t)_on_legal_six_of_33_space",
+        "baseline": {
+          "baseline_id": "MAXIMUM_ENTROPY_LEGAL_DISTRIBUTION_MATCHING_ACCEPTED_TEMPORAL_MARGINALS",
+          "source_branch_id": "TEMPORAL_MARGINAL_INCREMENT",
+          "artifact_identity": "DISTINCT_DERIVED_BASELINE_ARTIFACT_WITH_PARENT_TEMPORAL_MODEL_DIGEST",
+          "definition": "Q_base(y|h)=1[y_in_Omega]*exp(sum_i lambda_i(h)*y_i)/Z(h)",
+          "constraints": [
+            "support_is_exactly_Omega_sum_y_i_equals_6",
+            "E_Q_base[Y_i|h]=q_T_t_i(h)_for_all_i",
+            "sum_i_q_T_t_i(h)=6",
+            "0_less_than_q_T_t_i(h)_less_than_1"
+          ],
+          "independent_bernoulli_product": "FORBIDDEN",
+          "uniform_fallback": "FORBIDDEN",
+          "solver_and_boundary_policy": "UNRESOLVED_PENDING_PREFLIGHT"
+        },
+        "incremental_estimand": "E_t[log2 Q_J_t(Y_t|H_lt_t)-log2 Q_base_t(Y_t|H_lt_t)]",
+        "score_geometry": "LEGAL_JOINT_LOG_SCORE",
+        "primary_output": "strict_history_residual_joint_gain_bits_per_issue",
+        "history_boundary": "target_issue_and_all_future_issues_forbidden",
+        "synthetic_oracle_state_allowed": false
+      }
+    ],
+    "no_duplicate_credit_invariants": [
+      "Temporal baseline must be the accepted same-fold Marginal artifact, never legal uniform.",
+      "Joint baseline must be a distinct derived marginal-matched legal distribution whose baseline_source_model_artifact_digest equals the accepted same-fold Temporal model artifact; it is never the Temporal model artifact itself, legal uniform, or a Bernoulli product.",
+      "One canonical primary endpoint artifact digest may belong to exactly one branch.",
+      "Leakage sentinels have decision_credit=false.",
+      "P2.6.1 outputs have v2_historical_branch_evidence_credit=NONE.",
+      "Branch estimates may not be summed into a primary total-information claim.",
+      "A missing upstream baseline makes the dependent branch NOT_RUN and MeasurementHealth INCONCLUSIVE."
+    ]
+  },
+  "mechanism_role_contract": {
+    "role_values": [
+      "POSITIVE_CONTROL",
+      "NEGATIVE_CONTROL",
+      "LEAKAGE_SENTINEL",
+      "OUT_OF_SCOPE",
+      "UNRESOLVED_PENDING_PREFLIGHT"
+    ],
+    "branch_ids": [
+      "MARGINAL_STATIC",
+      "TEMPORAL_MARGINAL_INCREMENT",
+      "JOINT_RESIDUAL_INCREMENT"
+    ],
+    "role_is_relative_to_estimand": true,
+    "synthetic_roles_can_create_historical_evidence": false,
+    "matrix": [
+      {
+        "mechanism_id": "NULL_UNIFORM_LEGAL_SIX_OF_33",
+        "implementation_status": "IMPLEMENTED",
+        "legacy_p2_6_1_role": "NULL_FALSE_POSITIVE_CONTROL",
+        "roles": {
+          "MARGINAL_STATIC": {
+            "role": "NEGATIVE_CONTROL",
+            "conditioning_mode": "NONE",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "exact_uniform_C_33_6"
+          },
+          "TEMPORAL_MARGINAL_INCREMENT": {
+            "role": "NEGATIVE_CONTROL",
+            "conditioning_mode": "HISTORY_ONLY",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "iid_uniform_has_zero_history_increment"
+          },
+          "JOINT_RESIDUAL_INCREMENT": {
+            "role": "NEGATIVE_CONTROL",
+            "conditioning_mode": "HISTORY_ONLY",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "uniform_equals_legal_joint_baseline"
+          }
+        }
+      },
+      {
+        "mechanism_id": "IS1_SINGLE_NUMBER_CONDITIONAL_SHIFT",
+        "implementation_status": "IMPLEMENTED_P2_6_1_ONLY",
+        "legacy_p2_6_1_role": "FORMAL_MARGINAL_OUTPUT_POWER_TARGET",
+        "roles": {
+          "MARGINAL_STATIC": {
+            "role": "NEGATIVE_CONTROL",
+            "conditioning_mode": "NONE",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "balanced_conditional_mixture_is_uniform"
+          },
+          "TEMPORAL_MARGINAL_INCREMENT": {
+            "role": "OUT_OF_SCOPE",
+            "conditioning_mode": "SYNTHETIC_PRE_TARGET_INSTRUMENT",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "current_positive_signal_requires_forbidden_synthetic_state_instrument"
+          },
+          "JOINT_RESIDUAL_INCREMENT": {
+            "role": "OUT_OF_SCOPE",
+            "conditioning_mode": "SYNTHETIC_PRE_TARGET_INSTRUMENT",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "not_a_joint_residual_control"
+          }
+        }
+      },
+      {
+        "mechanism_id": "IS2_LOCAL_TEMPORAL_STATE",
+        "implementation_status": "IMPLEMENTED_REQUIRES_V2_PREFLIGHT",
+        "legacy_p2_6_1_role": "FORMAL_MARGINAL_OUTPUT_POWER_TARGET",
+        "roles": {
+          "MARGINAL_STATIC": {
+            "role": "NEGATIVE_CONTROL",
+            "conditioning_mode": "NONE",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "balanced_unconditional_distribution_is_uniform"
+          },
+          "TEMPORAL_MARGINAL_INCREMENT": {
+            "role": "POSITIVE_CONTROL",
+            "conditioning_mode": "HISTORY_ONLY",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "state_is_lexicographic_half_of_Y_t_minus_1"
+          },
+          "JOINT_RESIDUAL_INCREMENT": {
+            "role": "UNRESOLVED_PENDING_PREFLIGHT",
+            "conditioning_mode": "HISTORY_ONLY",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "requires_exact_residual_against_marginal_matched_legal_baseline"
+          }
+        }
+      },
+      {
+        "mechanism_id": "IS3_PAIR_CONDITIONAL",
+        "implementation_status": "IMPLEMENTED_P2_6_1_ONLY",
+        "legacy_p2_6_1_role": "MARGINAL_LEAKAGE_POWER_TARGET_AND_FEASIBILITY_SENTINEL",
+        "roles": {
+          "MARGINAL_STATIC": {
+            "role": "NEGATIVE_CONTROL",
+            "conditioning_mode": "NONE",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "balanced_conditional_mixture_is_uniform"
+          },
+          "TEMPORAL_MARGINAL_INCREMENT": {
+            "role": "LEAKAGE_SENTINEL",
+            "conditioning_mode": "SYNTHETIC_PRE_TARGET_INSTRUMENT",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "pair_signal_projects_into_conditional_number_marginals"
+          },
+          "JOINT_RESIDUAL_INCREMENT": {
+            "role": "UNRESOLVED_PENDING_PREFLIGHT",
+            "conditioning_mode": "SYNTHETIC_PRE_TARGET_INSTRUMENT",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "requires_exact_residual_against_marginal_matched_legal_baseline"
+          }
+        }
+      },
+      {
+        "mechanism_id": "IS4_MARGINAL_PRESERVING_CONDITIONAL",
+        "implementation_status": "IMPLEMENTED_REQUIRES_JOINT_PREFLIGHT",
+        "legacy_p2_6_1_role": "JOINT_ONLY_NEGATIVE_CONTROL_FOR_MARGINAL_OUTPUT",
+        "roles": {
+          "MARGINAL_STATIC": {
+            "role": "NEGATIVE_CONTROL",
+            "conditioning_mode": "NONE",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "exact_number_marginals_equal_6_over_33"
+          },
+          "TEMPORAL_MARGINAL_INCREMENT": {
+            "role": "NEGATIVE_CONTROL",
+            "conditioning_mode": "SYNTHETIC_PRE_TARGET_INSTRUMENT",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "exact_conditional_number_marginals_equal_6_over_33"
+          },
+          "JOINT_RESIDUAL_INCREMENT": {
+            "role": "POSITIVE_CONTROL",
+            "conditioning_mode": "SYNTHETIC_PRE_TARGET_INSTRUMENT",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "positive_conditional_joint_change_with_exactly_preserved_number_marginals_requires_new_joint_baseline_preflight"
+          }
+        }
+      },
+      {
+        "mechanism_id": "V2_M1_STATIONARY_MARGINAL_SHIFT",
+        "implementation_status": "DESIGN_ONLY_NOT_IMPLEMENTED",
+        "legacy_p2_6_1_role": "NONE",
+        "roles": {
+          "MARGINAL_STATIC": {
+            "role": "POSITIVE_CONTROL",
+            "conditioning_mode": "NONE",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "to_be_frozen_exact_stationary_marginal_shift"
+          },
+          "TEMPORAL_MARGINAL_INCREMENT": {
+            "role": "NEGATIVE_CONTROL",
+            "conditioning_mode": "HISTORY_ONLY",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "stationary_generator_has_zero_history_increment"
+          },
+          "JOINT_RESIDUAL_INCREMENT": {
+            "role": "NEGATIVE_CONTROL",
+            "conditioning_mode": "HISTORY_ONLY",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "generator_must_equal_maximum_entropy_legal_distribution_matching_its_marginals"
+          }
+        }
+      },
+      {
+        "mechanism_id": "V2_T1_HISTORY_CONDITIONAL_MARGINAL_SHIFT",
+        "implementation_status": "DESIGN_ONLY_NOT_IMPLEMENTED",
+        "legacy_p2_6_1_role": "NONE",
+        "roles": {
+          "MARGINAL_STATIC": {
+            "role": "NEGATIVE_CONTROL",
+            "conditioning_mode": "NONE",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "balanced_unconditional_marginals_equal_uniform"
+          },
+          "TEMPORAL_MARGINAL_INCREMENT": {
+            "role": "POSITIVE_CONTROL",
+            "conditioning_mode": "HISTORY_ONLY",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "strict_history_visible_state_changes_number_marginals"
+          },
+          "JOINT_RESIDUAL_INCREMENT": {
+            "role": "NEGATIVE_CONTROL",
+            "conditioning_mode": "HISTORY_ONLY",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "conditional_generator_must_equal_maximum_entropy_legal_distribution_matching_conditional_marginals"
+          }
+        }
+      },
+      {
+        "mechanism_id": "V2_J1_HISTORY_CONDITIONAL_JOINT_SHIFT",
+        "implementation_status": "DESIGN_ONLY_NOT_IMPLEMENTED",
+        "legacy_p2_6_1_role": "NONE",
+        "roles": {
+          "MARGINAL_STATIC": {
+            "role": "NEGATIVE_CONTROL",
+            "conditioning_mode": "NONE",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "stationary_number_marginals_equal_uniform"
+          },
+          "TEMPORAL_MARGINAL_INCREMENT": {
+            "role": "NEGATIVE_CONTROL",
+            "conditioning_mode": "HISTORY_ONLY",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "conditional_number_marginals_equal_temporal_baseline"
+          },
+          "JOINT_RESIDUAL_INCREMENT": {
+            "role": "POSITIVE_CONTROL",
+            "conditioning_mode": "HISTORY_ONLY",
+            "historical_evidence_eligible": false,
+            "decision_credit": false,
+            "truth_basis": "strict_history_visible_joint_change_beyond_matched_conditional_marginals"
+          }
+        }
+      }
+    ]
+  },
+  "gate_compiler_contract": {
+    "measurement_health_values": [
+      "PASS",
+      "REPAIR",
+      "INCONCLUSIVE"
+    ],
+    "historical_evidence_values": [
+      "POSITIVE",
+      "NEGATIVE",
+      "INCONCLUSIVE",
+      "NOT_RUN"
+    ],
+    "global_coverage_values": [
+      "FULL",
+      "PARTIAL"
+    ],
+    "global_evidence_values": [
+      "CANDIDATE_INFORMATION_FOUND",
+      "NO_DETECTABLE_INFORMATION",
+      "INCONCLUSIVE"
+    ],
+    "required_branch_ids": [
+      "MARGINAL_STATIC",
+      "TEMPORAL_MARGINAL_INCREMENT",
+      "JOINT_RESIDUAL_INCREMENT"
+    ],
+    "validity_checks": [
+      "estimand_alignment",
+      "legal_sample_space",
+      "strict_prior_only",
+      "negative_controls",
+      "leakage_boundary",
+      "deterministic_replay"
+    ],
+    "measurement_acceptance_checks": [
+      "positive_controls",
+      "false_positive_control",
+      "target_power",
+      "bias",
+      "coverage",
+      "mde"
+    ],
+    "check_values": [
+      "PASS",
+      "FAIL",
+      "NOT_EVALUATED"
+    ],
+    "health_rules": {
+      "REPAIR": "identifiability preflight FAIL, any validity check FAIL, or any completed measurement acceptance check FAIL",
+      "INCONCLUSIVE": "run incomplete, required check NOT_EVALUATED, upstream baseline absent or mismatched, or identifiability preflight UNRESOLVED",
+      "PASS": "identifiability preflight PASS, run complete, adjacent baseline provenance valid, and every required validity and measurement acceptance check PASS"
+    },
+    "branch_report_provenance_contract": {
+      "identifiability_preflight_status_values": [
+        "PASS",
+        "FAIL",
+        "UNRESOLVED"
+      ],
+      "identifiability_preflight_artifact_digest": "required for PASS or FAIL; absent for UNRESOLVED",
+      "accepted_for_downstream_baseline": "explicit boolean; effective only when branch MeasurementHealth is PASS and accepted_model_artifact_digest exists",
+      "accepted_model_artifact_digest": "candidate model artifact identity; nullable before acceptance",
+      "baseline_artifact_digest": "actual scored baseline artifact identity; nullable when unavailable",
+      "baseline_source_model_artifact_digest": "parent accepted-model identity used to construct or select the baseline; null only for the level-1 legal baseline",
+      "temporal_baseline_identity": "baseline_artifact_digest equals the accepted Marginal model artifact digest",
+      "joint_baseline_identity": "baseline_artifact_digest is distinct from the accepted Temporal model artifact and baseline_source_model_artifact_digest equals that Temporal model digest",
+      "equivalence_upper_bound_bits_per_issue": "separate one-sided Bonferroni simultaneous upper bound at per-branch alpha 0.05/3; it is not the upper endpoint of the two-sided interval",
+      "equivalence_upper_bound_provenance_artifact_digest": "required with the upper bound for NEGATIVE evidence",
+      "interval_source_endpoint_digest": "must equal endpoint_digest whenever an interval provenance artifact is used",
+      "equivalence_source_endpoint_digest": "must equal endpoint_digest whenever an equivalence upper-bound provenance artifact is used",
+      "missing_or_mismatched_dependency": "compile the dependent branch as MeasurementHealth INCONCLUSIVE and HistoricalEvidence NOT_RUN"
+    },
+    "multiplicity": {
+      "family": "fixed_three_primary_branch_endpoints",
+      "method": "HOLM",
+      "familywise_alpha": 0.05,
+      "not_run_or_invalid_branch_p_value": 1,
+      "partial_family_redefinition": "FORBIDDEN"
+    },
+    "practical_threshold_bits_per_issue": 0.01,
+    "simultaneous_confidence_level": 0.95,
+    "statistical_input_contract": {
+      "canonical_primary_endpoint": {
+        "effect": "mean outer-fold candidate-minus-adjacent-baseline log-score gain",
+        "unit": "bits_per_issue",
+        "direction": "higher_is_better",
+        "null": "Delta_branch<=0.01",
+        "alternative": "Delta_branch>0.01",
+        "p_value_tail": "ONE_SIDED_UPPER",
+        "frozen_before_results": true
+      },
+      "simultaneous_interval": {
+        "fixed_family": "three_required_branch_endpoints",
+        "family_coverage": 0.95,
+        "construction": "BONFERRONI_TWO_SIDED",
+        "per_branch_total_two_sided_alpha": "0.05/3",
+        "per_tail_alpha": "0.05/6",
+        "interval_provenance_artifact_digest_required": true
+      },
+      "minimum_detectable_effect": {
+        "definition": "smallest nonnegative gain versus zero with at least 0.80 design-stage power under one-sided alpha 0.05/3",
+        "minimum_power": 0.8,
+        "must_be_nonnegative": true,
+        "computed_from_design_only": true,
+        "mde_provenance_artifact_digest_required_for_negative": true
+      },
+      "equivalence": {
+        "null": "Delta_branch>=0.01",
+        "alternative": "Delta_branch<0.01",
+        "test": "ONE_SIDED_UPPER_BOUND",
+        "per_branch_alpha": "0.05/3",
+        "upper_bound_input": "equivalence_upper_bound_bits_per_issue",
+        "upper_bound_provenance_artifact_digest_required": true,
+        "minimum_power_at_zero": 0.8,
+        "equivalence_power_artifact_digest_required_for_negative": true
+      }
+    },
+    "historical_evidence_rules": {
+      "POSITIVE": "MeasurementHealth PASS, historical run COMPLETE, canonical endpoint and interval provenance present, Holm-adjusted p<=0.05, and simultaneous lower bound>0.01 bits/issue; MDE is not required",
+      "NEGATIVE": "MeasurementHealth PASS, historical run COMPLETE, Holm-adjusted primary p>0.05, interval/MDE/equivalence provenance present, equivalence power sufficient, nonnegative MDE<=0.01, and the separate one-sided Bonferroni simultaneous equivalence upper bound<=0.01 bits/issue",
+      "INCONCLUSIVE": "historical run incomplete or completed evidence satisfies neither POSITIVE nor NEGATIVE",
+      "NOT_RUN": "formal historical branch run not started"
+    },
+    "global_rules": {
+      "FULL": "all required branches have MeasurementHealth PASS and historical run COMPLETE",
+      "PARTIAL": "otherwise",
+      "CANDIDATE_INFORMATION_FOUND": "at least one branch has MeasurementHealth PASS and HistoricalEvidence POSITIVE",
+      "NO_DETECTABLE_INFORMATION": "GlobalCoverage FULL and every required branch has HistoricalEvidence NEGATIVE",
+      "INCONCLUSIVE": "neither candidate-found nor full-coverage all-negative",
+      "branch_local_damage": "a damaged branch lowers coverage and is listed for repair; it does not erase a healthy positive branch"
+    },
+    "fail_closed_rules": [
+      "Non-significance without equivalence power is INCONCLUSIVE, never NEGATIVE.",
+      "A missing or mismatched upstream baseline makes the dependent branch INCONCLUSIVE and NOT_RUN.",
+      "Duplicate endpoint digests across branches are forbidden.",
+      "A missing canonical endpoint digest or primary p-value remains in the fixed Holm family with p=1 and cannot create POSITIVE evidence.",
+      "A missing accepted candidate-model artifact prevents both POSITIVE and NEGATIVE historical evidence.",
+      "Both POSITIVE and NEGATIVE evidence require the accepted candidate-model artifact identity to differ from the scored baseline artifact identity; a baseline compared with itself is INCONCLUSIVE.",
+      "The two-sided interval and one-sided equivalence upper bound must bind the same endpoint digest and satisfy interval_lower<=equivalence_upper<=interval_upper.",
+      "A Holm-significant primary test that does not also satisfy the positive simultaneous-lower-bound rule is INCONCLUSIVE and can never compile as NEGATIVE.",
+      "An unresolved identifiability preflight makes the branch INCONCLUSIVE and NOT_RUN.",
+      "Leakage sentinels and synthetic controls never create historical evidence.",
+      "Only multiplicity-adjusted primary endpoints can create POSITIVE evidence.",
+      "No compiler outcome changes production strategy or opens the Promotion Gate."
+    ]
+  },
+  "mainline_integration": {
+    "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+    "task_key": "m4-v2-measurement-contract-design",
+    "ready_condition": "frozen source contract available and external event m4-runtime-slot:p2-6-1-released available after the synchronous P2.6.1 process exits",
+    "runner": "research_evidence_supervisor",
+    "upstream_artifacts": [
+      "M4 Measurement Contract v2 source artifact",
+      "legal six-of-33 domain contract",
+      "P2.2 Metric Kernel",
+      "P2.3 strict walk-forward harness",
+      "P2.6.1 Scheme A repair and immutable lineage"
+    ],
+    "downstream_artifacts": [
+      "branch estimand contract artifact",
+      "mechanism-role matrix artifact",
+      "Gate Compiler contract artifact",
+      "design completion artifact"
+    ],
+    "status_projection": "unified_m4_status.measurement_system_v2",
+    "evidence_progress_rule": "zero; design artifacts are not Evidence",
+    "decision_consumer": "future branch identifiability preflight and hierarchical Gate Compiler",
+    "downstream_consumer": "m4-v2-branch-identifiability-preflight-design",
+    "completion_fact": "m4-measurement-contract-v2-design:FROZEN",
+    "deterministic_replay_required": true,
+    "live_import_while_p2_6_1_running": "FORBIDDEN",
+    "current_completion_classification": "INTEGRATION_PENDING"
+  },
+  "production_action": "none"
+}

@@ -16,6 +16,14 @@ from dehps.research_os.models import (
 M4_GOAL_KEY = "M4_INFORMATION_THEORY_EVIDENCE"
 LEGACY_GOAL_KEY = "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION"
 M4_FORWARD_EVENT_KEY = "draw:2026085"
+M4_V2_DESIGN_TASK_KEY = "m4-v2-measurement-contract-design"
+M4_V2_PREFLIGHT_DESIGN_TASK_KEY = (
+    "m4-v2-branch-identifiability-preflight-design"
+)
+M4_V2_CONTRACT_DIGEST = (
+    "a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b"
+)
+M4_V2_RUNTIME_RELEASE_EVENT = "m4-runtime-slot:p2-6-1-released"
 M4_CONTRACT_REPAIR_TASK_KEY = "m4-p1-repair-injected-signal-preregistration-contract"
 M4_PREREGISTRATION_V1_0_3_DIGEST = (
     "4fff51c58e4a46d664e414bfe4cc0d7269c8e3712734153faec548648144d0d9"
@@ -167,8 +175,17 @@ def build_m4_status(
     *,
     snapshot: ResolutionSnapshot | None = None,
     mainline_execution: dict[str, Any] | None = None,
+    measurement_v2_execution: dict[str, Any] | None = None,
     dispatch_performed: bool = False,
 ) -> dict[str, Any]:
+    if (
+        measurement_v2_execution is None
+        and mainline_execution is not None
+        and mainline_execution.get("measurement_contract_v2_digest")
+        == M4_V2_CONTRACT_DIGEST
+    ):
+        measurement_v2_execution = mainline_execution
+        mainline_execution = None
     snapshot = snapshot or ResearchOSControlPlane().resolve(manifest)
     goals = {goal.goal_key: goal for goal in manifest.goals}
     if M4_GOAL_KEY not in goals or LEGACY_GOAL_KEY not in goals:
@@ -182,6 +199,8 @@ def build_m4_status(
     tasks = {task.task_key: task for task in manifest.tasks}
     task_states = manifest.task_state_by_digest
     resolutions = {item.task_key: item for item in snapshot.resolutions}
+    measurement_v2_task = tasks.get(M4_V2_DESIGN_TASK_KEY)
+    measurement_v2_resolution = resolutions.get(M4_V2_DESIGN_TASK_KEY)
     repair_resolution = resolutions.get(M4_CONTRACT_REPAIR_TASK_KEY)
     repair_complete = (
         repair_resolution is not None
@@ -318,6 +337,14 @@ def build_m4_status(
     )
     if p2_measurement_repair_complete and not p2_6_complete:
         latest_p2_task_key = "m4-p2-repair-measurement-system"
+    projected_execution_task_key = (
+        latest_p2_task_key
+        if mainline_execution is None
+        else str(
+            mainline_execution.get("execution_task_key")
+            or latest_p2_task_key
+        )
+    )
     if p2_1_complete:
         completed.extend(
             [
@@ -751,11 +778,74 @@ def build_m4_status(
                 ].completion_classification.value
             ),
         },
+        "measurement_system_v2": (
+            {
+                "phase": "DESIGN",
+                "purpose": "hierarchical_information_measurement",
+                "contract_digest": M4_V2_CONTRACT_DIGEST,
+                "source_contract_status": "FROZEN",
+                "task_key": M4_V2_DESIGN_TASK_KEY,
+                "resolver_status": measurement_v2_resolution.status.value,
+                "completion_classification": (
+                    None
+                    if task_states[
+                        measurement_v2_task.artifact_digest
+                    ].completion_classification
+                    is None
+                    else task_states[
+                        measurement_v2_task.artifact_digest
+                    ].completion_classification.value
+                ),
+                "live_mainline_status": (
+                    "VALIDATED_IN_MAINLINE"
+                    if measurement_v2_resolution.status is TaskStatus.COMPLETED
+                    else "INTEGRATION_PENDING"
+                ),
+                "runtime_release_event": M4_V2_RUNTIME_RELEASE_EVENT,
+                "runtime_release_available": (
+                    M4_V2_RUNTIME_RELEASE_EVENT
+                    in manifest.facts.external_events
+                ),
+                "p2_6_1_semantic_purpose": (
+                    "MARGINAL_OUTPUT_MEASUREMENT_ACCEPTANCE_BASELINE"
+                ),
+                "p2_6_1_identity_changed": False,
+                "p2_6_1_runtime_operation": "none",
+                "formal_temporal_or_joint_execution": "NOT_AUTHORIZED",
+                "evidence_progress_increment": 0,
+                "next_consumer": M4_V2_PREFLIGHT_DESIGN_TASK_KEY,
+                "mainline_execution": (
+                    None
+                    if measurement_v2_execution is None
+                    else {
+                        "execution_artifact_digest": (
+                            measurement_v2_execution.get(
+                                "execution_artifact_digest"
+                            )
+                        ),
+                        "registered_artifact_count": (
+                            measurement_v2_execution.get(
+                                "registered_artifact_count"
+                            )
+                        ),
+                        "actual_fold_count": measurement_v2_execution.get(
+                            "actual_fold_count"
+                        ),
+                    }
+                ),
+            }
+            if measurement_v2_task is not None
+            and measurement_v2_resolution is not None
+            else {
+                "phase": "NOT_DECLARED",
+                "live_mainline_status": "NOT_DECLARED",
+            }
+        ),
         "mainline_integration": {
             "goal_integration": M4_GOAL_KEY,
             "ready_queue_integration": "PASS",
             "runner_integration": "research_evidence_supervisor",
-            "task_key": latest_p2_task_key,
+            "task_key": projected_execution_task_key,
             "actual_fold_count": (
                 None
                 if mainline_execution is None
