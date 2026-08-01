@@ -112,6 +112,12 @@
       "superseded_by_digest": "c8fbdd8523b0a14e18d6828535b90f7f56c3d1beaf059bf2e4ec687a2465748d"
     },
     "c8fbdd8523b0a14e18d6828535b90f7f56c3d1beaf059bf2e4ec687a2465748d": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "source_commit": "2161dc9b4c6700a9ad3c03eaab398e75456cb272",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "superseded_by_digest": "830cb10a322d033d8091907215f2a2b7396233455353ed9d22bc81e53cb3b08a"
+    },
+    "830cb10a322d033d8091907215f2a2b7396233455353ed9d22bc81e53cb3b08a": {
       "artifact_type": "research_os_control_plane_manifest",
       "path": "configs/research-os/m4-information-theory-evidence-v1.json"
     },
@@ -165,6 +171,18 @@
     "a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b": {
       "artifact_type": "hierarchical_information_measurement_contract",
       "path": "configs/research-os/m4-measurement-contract-v2.json"
+    },
+    "dc45c140226a30d30f371f34628c05fa158b7dca86579f33431d2280a2987487": {
+      "artifact_type": "p261_marginal_binding_contract",
+      "path": "configs/research-os/m4-p2-6-1-marginal-binding-contract-v1.json"
+    },
+    "92dddbf3528e61eb5997131c161b1ccb8c4d8bd20974d961d6f19c22b396300e": {
+      "artifact_type": "measurement_contract_v2_gate_replay_fixture",
+      "path": "configs/research-os/m4-measurement-contract-v2-replay-fixture-v1.json"
+    },
+    "c34836c3464bafd408c3eef1c87505040a69f79a5323bbb7d803bce9565be674": {
+      "artifact_type": "measurement_runtime_benchmark_plan",
+      "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.json"
     },
     "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2": {
       "artifact_type": "information_theory_p2_metric_kernel_manifest",

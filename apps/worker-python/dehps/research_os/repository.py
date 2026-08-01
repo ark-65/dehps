@@ -11,13 +11,13 @@ from psycopg.rows import dict_row
 
 from dehps.db import get_connection
 from dehps.research_os.control_plane import ResearchOSControlPlane
+from dehps.research_os.mainline import completion_execution_ids
 from dehps.research_os.models import (
-    MainlineArtifactRegistration,
-    MainlineExecutionEvent,
     ControlPlaneManifest,
-    DependencyType,
     ExternalExecutorObservation,
     Goal,
+    MainlineArtifactRegistration,
+    MainlineExecutionEvent,
     ResearchOSValidationError,
     ResolutionSnapshot,
     Task,
@@ -25,9 +25,7 @@ from dehps.research_os.models import (
     jsonable,
     stable_json,
 )
-from dehps.research_os.mainline import completion_execution_ids
 from dehps.storage.postgres_store import ensure_research_os_schema
-
 
 ConnectionFactory = Callable[[], AbstractContextManager[Connection[Any]]]
 
@@ -615,6 +613,47 @@ class PostgresResearchOSRepository:
             ).fetchall()
         return tuple(
             {"event_digest": str(row["event_digest"]), **dict(row["event_json"])}
+            for row in rows
+        )
+
+    def list_mainline_execution_event_metadata(
+        self,
+        *,
+        control_plane_key: str,
+        task_keys: tuple[str, ...] = (),
+    ) -> tuple[dict[str, Any], ...]:
+        """Return a result-blind event projection without loading event payload."""
+
+        clauses = ["control_plane_key = %s"]
+        params: list[Any] = [self._key(control_plane_key)]
+        if task_keys:
+            clauses.append("task_key = ANY(%s)")
+            params.append([self._key(item) for item in task_keys])
+        with self.connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
+            rows = cursor.execute(
+                f"""
+                SELECT event_digest, execution_id, control_plane_key,
+                       manifest_digest, task_digest, task_key, capability,
+                       event_type, sequence, recorded_at
+                FROM research_os_mainline_execution_events
+                WHERE {' AND '.join(clauses)}
+                ORDER BY recorded_at, sequence, event_digest
+                """,
+                tuple(params),
+            ).fetchall()
+        return tuple(
+            {
+                "event_digest": str(row["event_digest"]),
+                "execution_id": str(row["execution_id"]),
+                "control_plane_key": str(row["control_plane_key"]),
+                "manifest_digest": str(row["manifest_digest"]),
+                "task_digest": str(row["task_digest"]),
+                "task_key": str(row["task_key"]),
+                "capability": str(row["capability"]),
+                "event_type": str(row["event_type"]),
+                "sequence": int(row["sequence"]),
+                "recorded_at": row["recorded_at"].isoformat(),
+            }
             for row in rows
         )
 

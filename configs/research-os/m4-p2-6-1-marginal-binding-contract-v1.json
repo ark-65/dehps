@@ -1,0 +1,81 @@
+{
+  "schema_version": "dehps-m4-p2-6-1-marginal-binding-contract.v1",
+  "artifact_type": "p261_marginal_binding_contract",
+  "artifact_digest": "dc45c140226a30d30f371f34628c05fa158b7dca86579f33431d2280a2987487",
+  "contract_key": "P261MarginalBindingContract.v1",
+  "semantic_version": "1.0.0",
+  "status": "FROZEN_RESULT_BLIND",
+  "frozen_at": "2026-08-01T09:30:00+08:00",
+  "purpose": "bind synthetic P2.6.1 measurement acceptance to Marginal Measurement Health without creating historical evidence",
+  "source_identities": {
+    "measurement_contract_v2_digest": "a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b",
+    "p2_6_1_task_key": "m4-p2-false-positive-and-power-runs",
+    "p2_6_1_task_digest": "80068e22f5e1c343fd86213faa0d9a411d71f92ad2750fed10449a10151de8fa",
+    "p2_6_1_execution_id": "cd64aacc48c5e1dac4f84d7f644e92384b50f37299b1643631b7ee872ab452b3",
+    "p2_6_1_measurement_validation_manifest_digest": "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58",
+    "p2_7_task_key": "m4-p2-automatic-gate-and-report"
+  },
+  "result_blind_freeze": {
+    "partial_replicates_read": false,
+    "partial_aggregates_read": false,
+    "partial_statistical_results_read": false,
+    "final_gate_result_read_before_freeze": false,
+    "historical_outcomes_read": false,
+    "thresholds_selected_from_results": false
+  },
+  "input_allowlist": {
+    "p2_6_1_raw_replay": [
+      "schema_version",
+      "status",
+      "task_key",
+      "task_digest",
+      "execution_id",
+      "execution_artifact_digest",
+      "measurement_validation_manifest_digest",
+      "completion_artifact_digest",
+      "completion_event_digest",
+      "registered_artifact_count",
+      "same_execution_identity",
+      "same_artifact_identity",
+      "manual_input_assembly"
+    ],
+    "p2_7_gate_replay": [
+      "schema_version",
+      "status",
+      "task_key",
+      "task_digest",
+      "execution_id",
+      "execution_artifact_digest",
+      "parent_p2_6_1_execution_id",
+      "parent_p2_6_1_execution_artifact_digest",
+      "automatic_gate_digest",
+      "decision",
+      "decision_fact",
+      "same_execution_identity",
+      "same_artifact_identity",
+      "manual_input_assembly"
+    ]
+  },
+  "decision_mapping": {
+    "PASS_TO_P3": "PASS",
+    "REPAIR_MEASUREMENT_SYSTEM": "REPAIR"
+  },
+  "failure_conditions": [
+    "missing_or_nonterminal_raw_execution",
+    "raw_execution_replay_not_verified",
+    "task_execution_or_manifest_identity_drift",
+    "missing_partial_or_unverified_p2_7_replay",
+    "wrong_p2_6_1_parent",
+    "unrecognized_gate_decision",
+    "input_contains_non_allowlisted_fields"
+  ],
+  "failure_mapping": "INCONCLUSIVE",
+  "historical_evidence": "NOT_RUN",
+  "formal_branch_program_eligibility": {
+    "PASS": true,
+    "REPAIR": false,
+    "INCONCLUSIVE": false
+  },
+  "production_action": "none",
+  "promotion_gate_opened": false
+}

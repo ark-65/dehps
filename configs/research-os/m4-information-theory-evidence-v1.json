@@ -1,6 +1,6 @@
 {
   "schema_version": "research-os-control-plane-v1",
-  "manifest_digest": "c8fbdd8523b0a14e18d6828535b90f7f56c3d1beaf059bf2e4ec687a2465748d",
+  "manifest_digest": "830cb10a322d033d8091907215f2a2b7396233455353ed9d22bc81e53cb3b08a",
   "goals": [
     {
       "goal_key": "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION",
@@ -99,6 +99,36 @@
         "no_automatic_tuning",
         "training_capability_complete_requires_validated_mainline_execution",
         "implemented_without_downstream_consumption_is_integration_pending"
+      ]
+    },
+    {
+      "goal_key": "M4_MEASUREMENT_RUNTIME_AUDIT",
+      "semantic_version": "1.0.0",
+      "objective_class": "maintenance_integrity",
+      "status": "active",
+      "success_evidence": [
+        "BenchmarkPlanArtifact",
+        "RuntimeObservationArtifact",
+        "EquivalenceAttestationArtifact"
+      ],
+      "owner_lane": "maintenance",
+      "question": "Where does the frozen P2.6.1 measurement runtime spend resources without changing statistical output?",
+      "baseline_metric_manifest": {
+        "reference_evaluator": "python_reference",
+        "formal_benchmark": "not_started"
+      },
+      "target_metric_manifest": {
+        "exact_output_equivalence": true,
+        "bottleneck_observation": true,
+        "backend_change": false
+      },
+      "guardrails": [
+        "evidence_progress_zero",
+        "single_worker_only_while_p2_6_1_running",
+        "formal_benchmark_requires_runtime_slot_release",
+        "reference_evaluator_is_oracle",
+        "no_backend_modification",
+        "promotion_gate_closed"
       ]
     }
   ],
@@ -886,11 +916,16 @@
       "completion_classification": "INTEGRATION_PENDING"
     },
     {
-      "task_key": "m4-v2-branch-identifiability-preflight-design",
+      "task_key": "m4-v2-measurement-contract-design-replay",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
-      "task_type": "measurement_branch_preflight_design",
+      "task_type": "measurement_contract_design_physical_replay",
       "lane": "research",
       "priority": 94,
+      "requested_capability": "m4_v2_measurement_contract_design_replay",
+      "input_artifact_digests": [
+        "a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b",
+        "92dddbf3528e61eb5997131c161b1ccb8c4d8bd20974d961d6f19c22b396300e"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
@@ -900,6 +935,57 @@
         {
           "dependency_type": "artifact",
           "target_key": "m4-measurement-contract-v2-design:FROZEN",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-measurement-contract-v2-replay-fixture:92dddbf3528e61eb5997131c161b1ccb8c4d8bd20974d961d6f19c22b396300e",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "phase": "M4-V2-DESIGN-REPLAY",
+        "engineering_increment_percent": 0,
+        "evidence_increment_percent": 0,
+        "engineering_complete": false,
+        "evidence_complete": false,
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "design execution completed and frozen replay fixture available",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "design execution artifact",
+            "four registered design child artifacts",
+            "Gate Compiler replay fixture"
+          ],
+          "downstream_artifacts": [
+            "MeasurementContractV2ReplayArtifact",
+            "GateCompilerReplayArtifact"
+          ],
+          "status_projection": "unified_m4_status.measurement_system_v2.design_replay",
+          "downstream_consumer": "m4-v2-branch-identifiability-preflight-design",
+          "evidence_progress_rule": "zero_replay_attestation_is_not_evidence",
+          "decision_consumer": "branch preflight resolver"
+        }
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "m4-v2-branch-identifiability-preflight-design",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "measurement_branch_preflight_design",
+      "lane": "research",
+      "priority": 94,
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-v2-measurement-contract-design-replay",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-measurement-contract-v2-design-replay:VERIFIED",
           "required_status": "available"
         }
       ],
@@ -915,6 +1001,275 @@
       "status": "draft"
     },
     {
+      "task_key": "m4-v2-p2-6-1-raw-execution-replay",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "synthetic_measurement_raw_execution_replay",
+      "lane": "research",
+      "priority": 93,
+      "requested_capability": "m4_v2_p2_6_1_raw_execution_replay",
+      "input_artifact_digests": [
+        "dc45c140226a30d30f371f34628c05fa158b7dca86579f33431d2280a2987487",
+        "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58"
+      ],
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-p2-false-positive-and-power-runs",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "task",
+          "target_key": "m4-v2-measurement-contract-design-replay",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-measurement-contract-v2-design-replay:VERIFIED",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "phase": "M4-V2-P261-RAW-REPLAY",
+        "engineering_increment_percent": 0,
+        "evidence_increment_percent": 0,
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "unique P2.6.1 completed event and design replay verification exist",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": ["P2.6.1 raw execution and immutable completion"],
+          "downstream_artifacts": ["P261RawExecutionReplayArtifact"],
+          "status_projection": "unified_m4_status.measurement_system_v2.marginal_binding",
+          "downstream_consumer": "m4-v2-p2-7-measurement-gate-replay",
+          "evidence_progress_rule": "zero_replay_only",
+          "decision_consumer": "P2.7 gate replay"
+        }
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "m4-v2-p2-7-measurement-gate-replay",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "synthetic_measurement_gate_replay",
+      "lane": "research",
+      "priority": 92,
+      "requested_capability": "m4_v2_p2_7_measurement_gate_replay",
+      "input_artifact_digests": [
+        "dc45c140226a30d30f371f34628c05fa158b7dca86579f33431d2280a2987487"
+      ],
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-p2-automatic-gate-and-report",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "task",
+          "target_key": "m4-v2-p2-6-1-raw-execution-replay",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p2-6-1-raw-execution-replay:VERIFIED",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "phase": "M4-V2-P27-GATE-REPLAY",
+        "engineering_increment_percent": 0,
+        "evidence_increment_percent": 0,
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "P2.7 completed and its unique P2.6.1 parent replay is verified",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": ["P2.7 gate execution", "P261RawExecutionReplayArtifact"],
+          "downstream_artifacts": ["P27MeasurementGateReplayArtifact"],
+          "status_projection": "unified_m4_status.measurement_system_v2.marginal_binding",
+          "downstream_consumer": "m4-v2-p2-6-1-marginal-binding",
+          "evidence_progress_rule": "zero_replay_only",
+          "decision_consumer": "P261MarginalBindingContract.v1"
+        }
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "m4-v2-p2-6-1-marginal-binding",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "marginal_measurement_acceptance_binding",
+      "lane": "research",
+      "priority": 91,
+      "requested_capability": "m4_v2_p2_6_1_marginal_binding",
+      "input_artifact_digests": [
+        "dc45c140226a30d30f371f34628c05fa158b7dca86579f33431d2280a2987487"
+      ],
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-v2-p2-6-1-raw-execution-replay",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "task",
+          "target_key": "m4-v2-p2-7-measurement-gate-replay",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p2-7-measurement-gate-replay:VERIFIED",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "phase": "M4-V2-MARGINAL-BINDING",
+        "engineering_increment_percent": 0,
+        "evidence_increment_percent": 0,
+        "historical_evidence": "NOT_RUN",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "raw and gate replay artifacts are verified under the pre-frozen binding contract",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": ["P261RawExecutionReplayArtifact", "P27MeasurementGateReplayArtifact"],
+          "downstream_artifacts": ["MarginalMeasurementAcceptanceDecision.v1"],
+          "status_projection": "unified_m4_status.measurement_system_v2.marginal_binding",
+          "downstream_consumer": "m4-v2-p2-6-1-marginal-decision-replay",
+          "evidence_progress_rule": "zero_synthetic_health_is_not_historical_evidence",
+          "decision_consumer": "Marginal branch program resolver"
+        }
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "m4-v2-p2-6-1-marginal-decision-replay",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "marginal_measurement_acceptance_decision_replay",
+      "lane": "research",
+      "priority": 90,
+      "requested_capability": "m4_v2_p2_6_1_marginal_decision_replay",
+      "input_artifact_digests": [
+        "dc45c140226a30d30f371f34628c05fa158b7dca86579f33431d2280a2987487"
+      ],
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-v2-p2-6-1-marginal-binding",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-v2-marginal-measurement-acceptance-decision:BOUND",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "phase": "M4-V2-MARGINAL-DECISION-REPLAY",
+        "engineering_increment_percent": 0,
+        "evidence_increment_percent": 0,
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "Marginal acceptance Decision Object is bound",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": ["MarginalMeasurementAcceptanceDecision.v1"],
+          "downstream_artifacts": ["BranchDecisionReplayArtifact"],
+          "status_projection": "unified_m4_status.measurement_system_v2.marginal_binding",
+          "downstream_consumer": "m4-v2-marginal-historical-measurement",
+          "evidence_progress_rule": "zero_replay_attestation_is_not_evidence",
+          "decision_consumer": "formal Marginal branch Research contract"
+        }
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "m4-p2-9-measurement-runtime-audit",
+      "goal_key": "M4_MEASUREMENT_RUNTIME_AUDIT",
+      "task_type": "measurement_runtime_audit",
+      "lane": "maintenance",
+      "priority": 40,
+      "requested_capability": "m4_p2_9_measurement_runtime_audit",
+      "input_artifact_digests": [
+        "c34836c3464bafd408c3eef1c87505040a69f79a5323bbb7d803bce9565be674"
+      ],
+      "dependencies": [
+        {
+          "dependency_type": "external_event",
+          "target_key": "m4-runtime-slot:p2-6-1-released",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p2-9-runtime-audit-plan:c34836c3464bafd408c3eef1c87505040a69f79a5323bbb7d803bce9565be674",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "phase": "M4-P2.9",
+        "engineering_increment_percent": 0,
+        "evidence_increment_percent": 0,
+        "agent_authority": "engineering",
+        "formal_benchmark_before_slot_release": false,
+        "downstream_artifacts": [
+          "BenchmarkPlanArtifact",
+          "RuntimeObservationArtifact",
+          "EquivalenceAttestationArtifact"
+        ],
+        "mainline_integration": {
+          "goal": "M4_MEASUREMENT_RUNTIME_AUDIT",
+          "ready_condition": "runtime slot released and frozen audit plan available",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": ["P2.6.1 reference evaluator", "frozen runtime audit plan"],
+          "downstream_artifacts": ["BenchmarkPlanArtifact", "RuntimeObservationArtifact", "EquivalenceAttestationArtifact"],
+          "status_projection": "unified_m4_status.measurement_runtime_audit",
+          "downstream_consumer": "future independent backend optimization Engineering Request",
+          "evidence_progress_rule": "always_zero_runtime_observation_is_not_research_evidence",
+          "decision_consumer": "runtime bottleneck review"
+        }
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "m4-v2-global-routing",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "hierarchical_measurement_global_routing",
+      "lane": "research",
+      "priority": 89,
+      "dependencies": [
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-v2-branch-decision-replay:MARGINAL_HISTORICAL:VERIFIED",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-v2-branch-decision-replay:TEMPORAL_MARGINAL_INCREMENT:VERIFIED",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-v2-branch-decision-replay:JOINT_RESIDUAL_INCREMENT:VERIFIED",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "phase": "M4-V2-GLOBAL-ROUTING",
+        "global_coverage_required": "FULL",
+        "partial_positive_router_enabled": false,
+        "promotion_gate_opened": false,
+        "allowed_routes": [
+          "ADAPTIVE_RESEARCH_ELIGIBLE",
+          "NO_DETECTABLE_INFORMATION_UNDER_FROZEN_M4_V2_CONTRACT",
+          "DEEPER_VALIDATION_REQUIRED",
+          "MEASUREMENT_REPAIR_REQUIRED"
+        ],
+        "formal_execution_allowed": false,
+        "reason": "awaits three independently replay-verified branch Decision Objects and a later authorized routing capability"
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
       "task_key": "m4-p3-strict-historical-walk-forward",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "task_type": "historical_walk_forward",
@@ -923,12 +1278,12 @@
       "dependencies": [
         {
           "dependency_type": "task",
-          "target_key": "m4-p2-synthetic-measurement-validation",
+          "target_key": "m4-v2-global-routing",
           "required_status": "completed"
         },
         {
           "dependency_type": "artifact",
-          "target_key": "m4-p2-measurement-decision:PASS_TO_P3",
+          "target_key": "m4-v2-routing:ADAPTIVE_RESEARCH_ELIGIBLE",
           "required_status": "available"
         }
       ],
@@ -1076,7 +1431,10 @@
     "m4-p2-measurement-repair-manifest:5e41910553643e6559e78aa401fdcdd1e661b5709eaf55f0e73e694fb5a61355",
     "m4-p2-6-1-measurement-validation-manifest:a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58",
     "m4-p2-state-visible-feature-manifest:1a76f46d7a47a134c1688657749bc040290f65a03dbc7c860e38144e02005981",
-    "m4-measurement-contract-v2:a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b",
+      "m4-measurement-contract-v2:a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b",
+      "m4-p2-6-1-marginal-binding-contract:dc45c140226a30d30f371f34628c05fa158b7dca86579f33431d2280a2987487",
+      "m4-measurement-contract-v2-replay-fixture:92dddbf3528e61eb5997131c161b1ccb8c4d8bd20974d961d6f19c22b396300e",
+      "m4-p2-9-runtime-audit-plan:c34836c3464bafd408c3eef1c87505040a69f79a5323bbb7d803bce9565be674",
     "mainline-execution:m4-p2-measurement-identifiability-preflight:e0f59f90c975b72c327089e03ff8ffd5729b9e6d40920b929708dcdcb3ffa0f4:127924d8a31a9631b45964f9dc650889c08e01c942e52a743ca6284c95d46106:completed",
     "mainline-execution:m4-p2-walk-forward-probe-harness:0a493b3618f2b180719b360b17702d7587c25a8c6c59a577a0c099fccce01a62:de52c376117bf308e0608b75e1418d58acf6b5a1e5cf4a66925fe06b8219d3cb:completed",
       "mainline-execution:m4-p2-injected-signal-calibration:60ac1df68a112c671682116a30db1b01eae18e7a0cd5c2e0dcd0e13183893a83:772b5063f1a3578c7e8f8a2cd9f102357828608de8fbd80c2c1fb2c82b79afa2:completed",
