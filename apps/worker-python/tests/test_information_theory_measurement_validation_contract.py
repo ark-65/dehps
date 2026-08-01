@@ -138,7 +138,7 @@ def test_measurement_repair_is_unique_ready_after_completed_preflight() -> None:
     assert states["m4-p3-strict-historical-walk-forward"] == "dependency_wait"
 
 
-def test_pass_fact_opens_only_p3_branch_after_p2_completion() -> None:
+def test_legacy_pass_fact_cannot_bypass_full_v2_global_routing() -> None:
     payload = _payload()
     _set_task_complete(
         payload,
@@ -158,8 +158,16 @@ def test_pass_fact_opens_only_p3_branch_after_p2_completion() -> None:
     )
     umbrella["status"] = "completed"
     ready, states = _states(payload)
-    assert states["m4-p3-strict-historical-walk-forward"] == "ready"
+    assert states["m4-p3-strict-historical-walk-forward"] == "dependency_wait"
     assert states["m4-p2-repair-measurement-system"] == "completed"
+    assert "m4-p3-strict-historical-walk-forward" not in ready
+
+    _set_task_complete(payload, "m4-v2-global-routing", "3" * 64)
+    payload["facts"]["artifacts"].append(
+        "m4-v2-routing:ADAPTIVE_RESEARCH_ELIGIBLE"
+    )
+    ready, states = _states(payload)
+    assert states["m4-p3-strict-historical-walk-forward"] == "ready"
     assert "m4-p3-strict-historical-walk-forward" in ready
 
 

@@ -1,0 +1,91 @@
+{
+  "schema_version": "dehps-m4-measurement-contract-v2-replay-fixture.v1",
+  "artifact_type": "measurement_contract_v2_gate_replay_fixture",
+  "artifact_digest": "92dddbf3528e61eb5997131c161b1ccb8c4d8bd20974d961d6f19c22b396300e",
+  "fixture_key": "M4_MEASUREMENT_CONTRACT_V2_GATE_REPLAY_HEALTH_ONLY",
+  "status": "FROZEN",
+  "measurement_contract_v2_digest": "a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b",
+  "expected_global_coverage": "PARTIAL",
+  "expected_global_evidence": "INCONCLUSIVE",
+  "expected_output_digest": "fa5820ec6da516e040ee00ef5a0f9543cb9239e97dc5c1d238e78c7fc44bb8bd",
+  "branch_reports": [
+    {
+      "branch_id": "MARGINAL_STATIC",
+      "estimand_digest": "821491eb28b19ebe4ce60d8f7baf7ff7233fec20dc6f25021581437ade56c631",
+      "measurement_run_status": "COMPLETE",
+      "measurement_checks": {
+        "estimand_alignment": "PASS",
+        "legal_sample_space": "PASS",
+        "strict_prior_only": "PASS",
+        "negative_controls": "PASS",
+        "leakage_boundary": "PASS",
+        "deterministic_replay": "PASS",
+        "positive_controls": "PASS",
+        "false_positive_control": "PASS",
+        "target_power": "PASS",
+        "bias": "PASS",
+        "coverage": "PASS",
+        "mde": "PASS"
+      },
+      "historical_run_status": "NOT_RUN",
+      "identifiability_preflight_status": "PASS",
+      "identifiability_preflight_artifact_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "accepted_for_downstream_baseline": true,
+      "accepted_model_artifact_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+      "baseline_artifact_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+      "baseline_source_model_artifact_digest": null
+    },
+    {
+      "branch_id": "TEMPORAL_MARGINAL_INCREMENT",
+      "estimand_digest": "f1bde59f8bb59bc4bb796df8ec5fe3f0a4ba723a6cc3828bb263e747cabd53b3",
+      "measurement_run_status": "COMPLETE",
+      "measurement_checks": {
+        "estimand_alignment": "PASS",
+        "legal_sample_space": "PASS",
+        "strict_prior_only": "PASS",
+        "negative_controls": "PASS",
+        "leakage_boundary": "PASS",
+        "deterministic_replay": "PASS",
+        "positive_controls": "PASS",
+        "false_positive_control": "PASS",
+        "target_power": "PASS",
+        "bias": "PASS",
+        "coverage": "PASS",
+        "mde": "PASS"
+      },
+      "historical_run_status": "NOT_RUN",
+      "identifiability_preflight_status": "PASS",
+      "identifiability_preflight_artifact_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "accepted_for_downstream_baseline": true,
+      "accepted_model_artifact_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+      "baseline_artifact_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+      "baseline_source_model_artifact_digest": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "branch_id": "JOINT_RESIDUAL_INCREMENT",
+      "estimand_digest": "3cff53fe0dc73f442a850c00a8fc37ee64f7a0822cfdd219d7b877784f4e7ff1",
+      "measurement_run_status": "COMPLETE",
+      "measurement_checks": {
+        "estimand_alignment": "PASS",
+        "legal_sample_space": "PASS",
+        "strict_prior_only": "PASS",
+        "negative_controls": "PASS",
+        "leakage_boundary": "PASS",
+        "deterministic_replay": "PASS",
+        "positive_controls": "PASS",
+        "false_positive_control": "PASS",
+        "target_power": "PASS",
+        "bias": "PASS",
+        "coverage": "PASS",
+        "mde": "PASS"
+      },
+      "historical_run_status": "NOT_RUN",
+      "identifiability_preflight_status": "PASS",
+      "identifiability_preflight_artifact_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "accepted_for_downstream_baseline": true,
+      "accepted_model_artifact_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+      "baseline_artifact_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+      "baseline_source_model_artifact_digest": "2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  ]
+}

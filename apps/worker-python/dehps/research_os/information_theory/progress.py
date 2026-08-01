@@ -17,9 +17,15 @@ M4_GOAL_KEY = "M4_INFORMATION_THEORY_EVIDENCE"
 LEGACY_GOAL_KEY = "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION"
 M4_FORWARD_EVENT_KEY = "draw:2026085"
 M4_V2_DESIGN_TASK_KEY = "m4-v2-measurement-contract-design"
+M4_V2_DESIGN_REPLAY_TASK_KEY = "m4-v2-measurement-contract-design-replay"
 M4_V2_PREFLIGHT_DESIGN_TASK_KEY = (
     "m4-v2-branch-identifiability-preflight-design"
 )
+M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
+M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = (
+    "m4-v2-p2-6-1-marginal-decision-replay"
+)
+M4_P29_RUNTIME_AUDIT_TASK_KEY = "m4-p2-9-measurement-runtime-audit"
 M4_V2_CONTRACT_DIGEST = (
     "a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b"
 )
@@ -201,6 +207,16 @@ def build_m4_status(
     resolutions = {item.task_key: item for item in snapshot.resolutions}
     measurement_v2_task = tasks.get(M4_V2_DESIGN_TASK_KEY)
     measurement_v2_resolution = resolutions.get(M4_V2_DESIGN_TASK_KEY)
+    measurement_v2_replay_resolution = resolutions.get(
+        M4_V2_DESIGN_REPLAY_TASK_KEY
+    )
+    marginal_binding_resolution = resolutions.get(
+        M4_V2_MARGINAL_BINDING_TASK_KEY
+    )
+    marginal_decision_replay_resolution = resolutions.get(
+        M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY
+    )
+    runtime_audit_resolution = resolutions.get(M4_P29_RUNTIME_AUDIT_TASK_KEY)
     repair_resolution = resolutions.get(M4_CONTRACT_REPAIR_TASK_KEY)
     repair_complete = (
         repair_resolution is not None
@@ -786,6 +802,16 @@ def build_m4_status(
                 "source_contract_status": "FROZEN",
                 "task_key": M4_V2_DESIGN_TASK_KEY,
                 "resolver_status": measurement_v2_resolution.status.value,
+                "design_replay_task_key": M4_V2_DESIGN_REPLAY_TASK_KEY,
+                "design_replay_resolver_status": (
+                    None
+                    if measurement_v2_replay_resolution is None
+                    else measurement_v2_replay_resolution.status.value
+                ),
+                "design_replay_verified": (
+                    "m4-measurement-contract-v2-design-replay:VERIFIED"
+                    in manifest.facts.artifacts
+                ),
                 "completion_classification": (
                     None
                     if task_states[
@@ -798,8 +824,15 @@ def build_m4_status(
                 ),
                 "live_mainline_status": (
                     "VALIDATED_IN_MAINLINE"
-                    if measurement_v2_resolution.status is TaskStatus.COMPLETED
-                    else "INTEGRATION_PENDING"
+                    if measurement_v2_replay_resolution is not None
+                    and measurement_v2_replay_resolution.status
+                    is TaskStatus.COMPLETED
+                    else (
+                        "DESIGN_EXECUTED_REPLAY_PENDING"
+                        if measurement_v2_resolution.status
+                        is TaskStatus.COMPLETED
+                        else "INTEGRATION_PENDING"
+                    )
                 ),
                 "runtime_release_event": M4_V2_RUNTIME_RELEASE_EVENT,
                 "runtime_release_available": (
@@ -813,7 +846,34 @@ def build_m4_status(
                 "p2_6_1_runtime_operation": "none",
                 "formal_temporal_or_joint_execution": "NOT_AUTHORIZED",
                 "evidence_progress_increment": 0,
-                "next_consumer": M4_V2_PREFLIGHT_DESIGN_TASK_KEY,
+                "marginal_binding": {
+                    "binding_contract_status": "FROZEN_RESULT_BLIND",
+                    "resolver_status": (
+                        None
+                        if marginal_binding_resolution is None
+                        else marginal_binding_resolution.status.value
+                    ),
+                    "decision_replay_resolver_status": (
+                        None
+                        if marginal_decision_replay_resolution is None
+                        else marginal_decision_replay_resolution.status.value
+                    ),
+                    "historical_evidence": (
+                        "NOT_RUN"
+                        if measurement_v2_execution is None
+                        else measurement_v2_execution.get(
+                            "historical_evidence",
+                            "NOT_RUN",
+                        )
+                    ),
+                },
+                "next_consumer": (
+                    M4_V2_PREFLIGHT_DESIGN_TASK_KEY
+                    if measurement_v2_replay_resolution is not None
+                    and measurement_v2_replay_resolution.status
+                    is TaskStatus.COMPLETED
+                    else M4_V2_DESIGN_REPLAY_TASK_KEY
+                ),
                 "mainline_execution": (
                     None
                     if measurement_v2_execution is None
@@ -841,6 +901,19 @@ def build_m4_status(
                 "live_mainline_status": "NOT_DECLARED",
             }
         ),
+        "measurement_runtime_audit": {
+            "task_key": M4_P29_RUNTIME_AUDIT_TASK_KEY,
+            "lane": "maintenance",
+            "agent_authority": "engineering",
+            "resolver_status": (
+                None
+                if runtime_audit_resolution is None
+                else runtime_audit_resolution.status.value
+            ),
+            "formal_benchmark_before_slot_release": False,
+            "evidence_progress_increment": 0,
+            "production_action": "none",
+        },
         "mainline_integration": {
             "goal_integration": M4_GOAL_KEY,
             "ready_queue_integration": "PASS",

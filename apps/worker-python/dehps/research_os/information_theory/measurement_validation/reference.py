@@ -14,6 +14,9 @@ from dehps.contracts import canonical_digest
 from dehps.research_os.information_theory.digest import (
     preregistration_digest,
 )
+from dehps.research_os.information_theory.measurement_system_v2.runtime_audit import (
+    RuntimeAuditObserver,
+)
 from dehps.research_os.information_theory.metrics import evaluate_issue
 from dehps.research_os.information_theory.probes import prepare_probe
 from dehps.research_os.information_theory.probes.runtime_cache import (
@@ -140,11 +143,13 @@ class ReferenceReplicateEvaluator:
         synthetic: SyntheticRunManifest,
         inputs: ReferenceInputs,
         output_dir: Path,
+        audit_observer: RuntimeAuditObserver | None = None,
     ) -> None:
         self.manifest = manifest
         self.synthetic = synthetic
         self.inputs = inputs
         self.output_dir = output_dir
+        self.audit_observer = audit_observer or RuntimeAuditObserver(enabled=False)
         if (
             manifest.artifact_digest != MEASUREMENT_VALIDATION_MANIFEST_DIGEST
             and manifest.payload.get("phase") != "M4-P2.6.1"
@@ -189,6 +194,7 @@ class ReferenceReplicateEvaluator:
         truth_by_scenario: Mapping[str, Mapping[str, Any]],
         git_commit: str,
         output_dir: Path,
+        audit_observer: RuntimeAuditObserver | None = None,
     ) -> ReferenceReplicateEvaluator:
         return cls(
             manifest=manifest,
@@ -201,18 +207,21 @@ class ReferenceReplicateEvaluator:
                 git_commit=git_commit,
             ),
             output_dir=output_dir,
+            audit_observer=audit_observer,
         )
 
     def evaluate(self, replicate: AnalysisReplicate) -> Mapping[str, Any]:
         repaired = self.manifest.payload.get("phase") == "M4-P2.6.1"
         truth = self.inputs.truth_by_scenario.get(replicate.cell.scenario_id)
-        dataset = generate_evaluation_dataset(
-            replicate,
-            synthetic=self.synthetic,
-            truth_artifact=truth,
-            expose_prior_state=repaired,
-        )
-        folds = expanding_outer_folds(dataset)
+        with self.audit_observer.phase("dataset_generation"):
+            dataset = generate_evaluation_dataset(
+                replicate,
+                synthetic=self.synthetic,
+                truth_artifact=truth,
+                expose_prior_state=repaired,
+            )
+        with self.audit_observer.phase("fold_construction"):
+            folds = expanding_outer_folds(dataset)
         if len(folds) != replicate.cell.outer_issue_count:
             raise MeasurementValidationContractError(
                 "measurement_validation_outer_fold_count_mismatch",
@@ -273,16 +282,18 @@ class ReferenceReplicateEvaluator:
         issue_gains: dict[str, list[float]] = {probe: [] for probe in PROBES}
         gate_probabilities: list[tuple[float, ...]] = []
         ordered_targets: list[tuple[int, ...]] = []
-        feature_cache = StrictPriorFeatureCache(
-            dataset,
-            include_prior_state=repaired,
-        )
+        with self.audit_observer.phase("feature_cache"):
+            feature_cache = StrictPriorFeatureCache(
+                dataset,
+                include_prior_state=repaired,
+            )
         checkpoint_journal = StrictPriorCheckpointJournal(
             output_dir=self.output_dir,
             replicate=replicate,
         )
 
         for fold_index, fold in enumerate(folds):
+            self.audit_observer.count_fold()
             probe_runtime_cache = ExactProbeRuntimeCache()
             validate_outer_fold(
                 fold,
@@ -294,17 +305,18 @@ class ReferenceReplicateEvaluator:
                 dataset,
                 available_through_issue=fold.train_issues[-1],
             )
-            feature_cache.reveal_training_history(
-                training,
-                through_issue=fold.train_issues[-1],
-            )
-            train_view = feature_cache.build_train_feature_view(
-                training,
-                fold.train_issues,
-            )
-            blind = feature_cache.build_blind_test_feature_view(
-                target_issue=fold.test_issue,
-            )
+            with self.audit_observer.phase("feature_cache"):
+                feature_cache.reveal_training_history(
+                    training,
+                    through_issue=fold.train_issues[-1],
+                )
+                train_view = feature_cache.build_train_feature_view(
+                    training,
+                    fold.train_issues,
+                )
+                blind = feature_cache.build_blind_test_feature_view(
+                    target_issue=fold.test_issue,
+                )
             guard_feature_timestamp(blind)
             guard_number_event_rows(
                 issue_ids=train_view.issue_ids,
@@ -323,16 +335,19 @@ class ReferenceReplicateEvaluator:
                     )
                 else:
                     config = configs[probe_id]
-                prepared = prepare_probe(
-                    probe_id=probe_id,
-                    dataset=training,
-                    train_view=train_view,
-                    probe_config=config,
-                    outer_test_issue=fold.test_issue,
-                    train_view_builder=(feature_cache.build_train_feature_view),
-                    runtime_cache=probe_runtime_cache,
-                )
-                probability = prepared.predict(blind)
+                with self.audit_observer.phase("estimator_calibrator_fit"):
+                    prepared = prepare_probe(
+                        probe_id=probe_id,
+                        dataset=training,
+                        train_view=train_view,
+                        probe_config=config,
+                        outer_test_issue=fold.test_issue,
+                        train_view_builder=(feature_cache.build_train_feature_view),
+                        runtime_cache=probe_runtime_cache,
+                    )
+                self.audit_observer.count_fit()
+                with self.audit_observer.phase("prediction_metric"):
+                    probability = prepared.predict(blind)
                 checkpoint_identity = {
                     "dataset_digest": dataset.artifact_digest,
                     "scale_id": replicate.cell.scale_id,
@@ -358,25 +373,28 @@ class ReferenceReplicateEvaluator:
                 state_digests[probe_id].append(prepared.state.state_digest)
                 predictions[probe_id] = probability
 
-            checkpoint_journal.record(
-                fold_index=fold_index,
-                test_issue=fold.test_issue,
-                checkpoint_digests={
-                    probe_id: checkpoint_digests[probe_id][-1] for probe_id in PROBES
-                },
-            )
+            with self.audit_observer.phase("checkpoint_artifact_persistence"):
+                checkpoint_journal.record(
+                    fold_index=fold_index,
+                    test_issue=fold.test_issue,
+                    checkpoint_digests={
+                        probe_id: checkpoint_digests[probe_id][-1]
+                        for probe_id in PROBES
+                    },
+                )
             # First target access is deliberately below all four immutable
             # prediction identities and their persisted journal entry.
             target = dataset.issue(fold.test_issue).target_vector
             ordered_targets.append(target)
             for probe_id in PROBES:
-                metric = evaluate_issue(
-                    issue_id=str(fold.test_issue),
-                    cluster_id=str(fold.test_issue),
-                    target_vector=target,
-                    baseline_probability_vector=(THEORETICAL_PROBABILITY,) * 33,
-                    probe_probability_vector=predictions[probe_id],
-                )
+                with self.audit_observer.phase("prediction_metric"):
+                    metric = evaluate_issue(
+                        issue_id=str(fold.test_issue),
+                        cluster_id=str(fold.test_issue),
+                        target_vector=target,
+                        baseline_probability_vector=(THEORETICAL_PROBABILITY,) * 33,
+                        probe_probability_vector=predictions[probe_id],
+                    )
                 settlement_identity = {
                     "prediction_checkpoint_digest": checkpoint_digests[probe_id][-1],
                     "target_digest": canonical_digest(
@@ -434,13 +452,15 @@ class ReferenceReplicateEvaluator:
         )
 
         pe1_values = tuple(issue_gains[GATE_PROBE])
-        bootstrap, bootstrap_seeds = moving_block_bootstrap_statistics(
-            pe1_values,
-            manifest=self.inputs.resampling,
-            scenario_id=replicate.cell.scenario_id,
-            parent_run_digest=replicate.artifact_digest,
-            replicate_count=self.manifest.bootstrap_replicates,
-        )
+        with self.audit_observer.phase("bootstrap"):
+            bootstrap, bootstrap_seeds = moving_block_bootstrap_statistics(
+                pe1_values,
+                manifest=self.inputs.resampling,
+                scenario_id=replicate.cell.scenario_id,
+                parent_run_digest=replicate.artifact_digest,
+                replicate_count=self.manifest.bootstrap_replicates,
+            )
+        self.audit_observer.count_resample(len(bootstrap))
         probability_matrix = np.asarray(gate_probabilities, dtype=np.float64)
         target_matrix = np.asarray(ordered_targets, dtype=np.int8)
 
@@ -448,14 +468,16 @@ class ReferenceReplicateEvaluator:
             permuted = target_matrix[np.asarray(indices, dtype=np.int64)]
             return float(vectorized_p2_pe1(probability_matrix, permuted).mean())
 
-        permutation, permutation_seeds = block_permutation_statistics(
-            issue_count=len(folds),
-            statistic_for_indices=statistic_for_indices,
-            manifest=self.inputs.resampling,
-            scenario_id=replicate.cell.scenario_id,
-            parent_run_digest=replicate.artifact_digest,
-            replicate_count=self.manifest.permutation_replicates,
-        )
+        with self.audit_observer.phase("permutation"):
+            permutation, permutation_seeds = block_permutation_statistics(
+                issue_count=len(folds),
+                statistic_for_indices=statistic_for_indices,
+                manifest=self.inputs.resampling,
+                scenario_id=replicate.cell.scenario_id,
+                parent_run_digest=replicate.artifact_digest,
+                replicate_count=self.manifest.permutation_replicates,
+            )
+        self.audit_observer.count_resample(len(permutation))
         inference = primary_inference(
             pe1_issue_statistics=pe1_values,
             permutation_null_statistics=permutation,
@@ -474,9 +496,10 @@ class ReferenceReplicateEvaluator:
                 ]
             )
         )
-        journal_digest, journal_count = checkpoint_journal.finalize(
-            expected_fold_count=len(folds)
-        )
+        with self.audit_observer.phase("checkpoint_artifact_persistence"):
+            journal_digest, journal_count = checkpoint_journal.finalize(
+                expected_fold_count=len(folds)
+            )
         is_negative_control = replicate.cell.scenario_id == "NULL_UNIFORM"
         return {
             **replicate.to_dict(),
