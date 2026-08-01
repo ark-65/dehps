@@ -73,3 +73,11 @@ Every issue artifact remains `route=BASELINE_ONLY`, `HistoricalEvidence=NOT_RUN`
 `NO — INTEGRATION_PENDING`.
 
 The implementation is source-complete and exercises the full canonical chain with an in-memory control plane, but the capability is intentionally not complete until an independently approved typed Operator Release performs the atomic legacy retirement, additive live import, real issue execution, physical replay, delivery verification, rollback proof, and M4 zero-change audit.
+
+## Post-merge cutover erratum
+
+Read-only live inspection after PR #237 found that the packaged draw-sync unit still declared `Wants=dehps-forward-runtime.service`. That dependency would restart the legacy three-line forward runtime on the first draw-sync timer activation after retirement.
+
+Engineering Request `engineering-prediction-v2-cutover-unit-decoupling-20260801` removes only that source-unit dependency and adds a regression assertion that audited draw ingestion plus the Prediction v2 post consumer remain configured without any `Wants` or `Requires` edge to the legacy forward runtime. Network and PostgreSQL ordering are unchanged. No installed unit or live service was modified by the erratum round.
+
+Erratum validation: focused draw-sync/systemd/Prediction v2 tests `38 passed`; final complete Worker suite `1954 passed, 4 skipped, 4 warnings`; M4 manifest SHA-256 remained `316c8acd7e8d04a92410274600b999e626327bf74a3d256f9c7cc202612a17c0`.

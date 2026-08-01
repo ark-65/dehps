@@ -4,18 +4,29 @@ from copy import deepcopy
 from pathlib import Path
 
 import pytest
-
 from dehps.draw_sync.systemd_deployment import (
     DrawSyncSystemdDeploymentViolation,
     build_draw_sync_systemd_deployment_contract,
     draw_sync_systemd_environment_text,
     load_draw_sync_systemd_deployment_contract,
+    verify_draw_sync_systemd_deployment_contract,
     verify_draw_sync_systemd_environment,
     verify_draw_sync_systemd_sources,
-    verify_draw_sync_systemd_deployment_contract,
     write_draw_sync_systemd_deployment_contract,
     write_draw_sync_systemd_environment,
 )
+
+ROOT = Path(__file__).resolve().parents[3]
+
+
+def test_prediction_v2_draw_sync_source_cannot_restart_legacy_forward_runtime() -> None:
+    source = (ROOT / "deploy/systemd/dehps-draw-sync.service").read_text(encoding="utf-8")
+
+    assert "Wants=network-online.target" in source
+    assert "After=network-online.target postgresql.service" in source
+    assert "--prediction-v2-shadow-notifications" in source
+    assert "Wants=dehps-forward-runtime.service" not in source
+    assert "Requires=dehps-forward-runtime.service" not in source
 
 
 def contract(tmp_path: Path) -> tuple[dict, Path, Path]:
