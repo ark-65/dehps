@@ -16,13 +16,12 @@ from dehps.prediction.v2.contracts import (
     seal_artifact,
 )
 from dehps.prediction.v2.generator import UNIVERSE, generate_shadow_pool
-from dehps.prediction.v2.reports import build_post_draw_report, build_pre_draw_report
 from dehps.prediction.v2.replay import replay_post_draw, replay_pre_draw
+from dehps.prediction.v2.reports import build_post_draw_report, build_pre_draw_report
 from dehps.prediction.v2.retirement import load_cutover_plan, scheduler_cutover_dry_run
 from dehps.prediction.v2.state import encode_state
 from dehps.research_os.mainline import integration_contract
 from dehps.research_os.models import MainlineArtifactRegistration, Task
-
 
 CONTROL_PLANE_KEY = "prediction-v2-shadow"
 REFERENCE_TASK_KEY = "prediction-v2-shadow-reference-execution"
@@ -143,6 +142,7 @@ def _execution_payload(
     child_payloads: tuple[Mapping[str, Any], ...],
     downstream_consumer: str,
     replay_status: str,
+    historical_outcomes_read: bool = False,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "schema_version": MAINLINE_EXECUTION_SCHEMA,
@@ -164,7 +164,7 @@ def _execution_payload(
         "evidence_progress_after": 0,
         "replay_status": replay_status,
         "shadow_only": True,
-        "historical_outcomes_read": False,
+        "historical_outcomes_read": historical_outcomes_read,
         "historical_evidence": "NOT_RUN",
         "promotion_gate_opened": False,
         "production_candidate_created": False,

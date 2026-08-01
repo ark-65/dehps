@@ -3,16 +3,21 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 from dehps.draw_sync.models import DrawSyncResult, DrawSyncStatus
 from dehps.draw_sync.scheduler import DrawSyncWatch
 from dehps.input_contracts.candidate_abi import candidate_unrank
 from dehps.input_contracts.history_window import HistorySnapshotArtifact
 from dehps.notifications.mainline_prediction import compile_mainline_prediction_email
+from dehps.notifications.prediction_v2_shadow import (
+    PredictionV2NotificationError,
+    PredictionV2NotificationLedger,
+    build_notification_envelope,
+)
 from dehps.optimization.next_candidates import refresh_training_prediction_lines_current
 from dehps.prediction.v2.contracts import (
     ACTIVATION_FACT,
@@ -29,25 +34,39 @@ from dehps.prediction.v2.experts import (
     TemporalExpert,
 )
 from dehps.prediction.v2.generator import UNIVERSE, generate_shadow_pool
+from dehps.prediction.v2.issues import (
+    build_history_artifact,
+    build_issue_manifest,
+    issue_facts,
+    issue_task_keys,
+)
 from dehps.prediction.v2.mainline import (
     CONTROL_PLANE_KEY,
     REFERENCE_TASK_KEY,
     REPLAY_COMPLETION_FACT,
     REPLAY_TASK_KEY,
 )
-from dehps.prediction.v2.reports import build_post_draw_report, build_pre_draw_report
 from dehps.prediction.v2.replay import replay_post_draw, replay_pre_draw
+from dehps.prediction.v2.reports import build_post_draw_report, build_pre_draw_report
 from dehps.prediction.v2.retirement import (
     LegacyPredictionRetiredError,
     legacy_retirement_status,
     load_cutover_plan,
     scheduler_cutover_dry_run,
 )
+from dehps.prediction.v2.scheduling import (
+    additive_migration_dry_run,
+    infer_target_issue,
+    materialize_post_draw_extension,
+    materialize_pre_draw_extension,
+)
 from dehps.prediction.v2.state import encode_state
 from dehps.research_os.control_plane import ResearchOSControlPlane
 from dehps.research_os.models import ControlPlaneManifest
-from dehps.research_os.supervisor import MainlineSupervisorError, ResearchEvidenceSupervisor
-
+from dehps.research_os.supervisor import (
+    MainlineSupervisorError,
+    ResearchEvidenceSupervisor,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
 MANIFEST_PATH = ROOT / "configs/prediction-v2/prediction-v2-shadow-mainline-v1.json"
@@ -282,6 +301,7 @@ def test_draw_sync_keeps_ingestion_but_skips_legacy_evaluation_after_activation(
             raise AssertionError("legacy evaluator must not run")
 
     delivered: list[str] = []
+    v2_delivered: list[str] = []
     service = SyncService()
     evaluator = Evaluator()
     monkeypatch.setattr(
@@ -292,6 +312,7 @@ def test_draw_sync_keeps_ingestion_but_skips_legacy_evaluation_after_activation(
         service=service,  # type: ignore[arg-type]
         forward_evaluator=evaluator,
         post_draw_report_notifier=lambda issue: delivered.append(issue) or {"status": "sent"},
+        prediction_v2_shadow_notifier=lambda issue: v2_delivered.append(issue) or {"status": "sent"},
         state_path=tmp_path / "state.json",
         pid_path=tmp_path / "pid",
         code_commit="b" * 40,
@@ -303,11 +324,13 @@ def test_draw_sync_keeps_ingestion_but_skips_legacy_evaluation_after_activation(
     assert service.calls == 1
     assert evaluator.calls == 0
     assert delivered == []
+    assert v2_delivered == ["2026121"]
     assert state["forward_evaluation"]["status"] == "skipped"
     assert state["legacy_prediction_lines"] == {
         "status": "LEGACY_FROZEN",
         "compute_scheduled": False,
     }
+    assert state["prediction_v2_shadow_report"] == {"status": "sent"}
     assert state["resume_result"] is None
 
 
@@ -480,3 +503,215 @@ def test_unified_supervisor_executes_reference_then_replay_and_keeps_m4_absent(
     top100_path.write_text(json.dumps(top100), encoding="utf-8")
     with pytest.raises(MainlineSupervisorError, match="content changed"):
         supervisor.replay(task_key=REFERENCE_TASK_KEY)
+
+
+def test_issue_manifest_is_prior_only_additive_and_idempotent(tmp_path: Path) -> None:
+    history = reference_history()
+    history_artifact = build_history_artifact(history)
+    issue_manifest = build_issue_manifest(
+        history_artifact=history_artifact,
+        target_issue="2026121",
+    )
+    assert issue_manifest["route"] == "BASELINE_ONLY"
+    assert issue_manifest["historical_evidence"] == "NOT_RUN"
+    with pytest.raises(ValueError, match="strictly later"):
+        build_issue_manifest(history_artifact=history_artifact, target_issue="2026120")
+
+    before = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    first, _ = materialize_pre_draw_extension(
+        root_dir=tmp_path,
+        base_manifest=before,
+        history_rows=[record.as_history_draw() for record in history.records],
+        target_issue="2026121",
+    )
+    second, _ = materialize_pre_draw_extension(
+        root_dir=tmp_path,
+        base_manifest=first,
+        history_rows=[record.as_history_draw() for record in history.records],
+        target_issue="2026121",
+    )
+    assert first == second
+    assert additive_migration_dry_run(before=before, after=first)["status"] == "VERIFIED"
+    assert len(first["tasks"]) == len(before["tasks"]) + 4
+
+    dry_root = tmp_path / "dry-run"
+    materialize_pre_draw_extension(
+        root_dir=dry_root,
+        base_manifest=before,
+        history_rows=[record.as_history_draw() for record in history.records],
+        target_issue="2026121",
+        persist=False,
+    )
+    assert not dry_root.exists()
+
+
+def test_target_issue_inference_handles_year_rollover() -> None:
+    rows = [
+        (
+            "2026153",
+            date(2026, 12, 31),
+            candidate_unrank(153, universe=UNIVERSE),
+        )
+    ]
+    assert infer_target_issue(rows) == "2027001"
+
+
+def test_post_draw_materialization_is_idempotent_and_fails_closed_on_identity_drift(
+    tmp_path: Path,
+) -> None:
+    history = reference_history()
+    base = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    pre_payload, _ = materialize_pre_draw_extension(
+        root_dir=tmp_path,
+        base_manifest=base,
+        history_rows=[record.as_history_draw() for record in history.records],
+        target_issue="2026121",
+    )
+    actual = candidate_unrank(121, universe=UNIVERSE)
+    first, _ = materialize_post_draw_extension(
+        root_dir=tmp_path,
+        base_manifest=pre_payload,
+        issue="2026121",
+        red_numbers=actual,
+        durable_event_key="draw-event-a",
+        history_fingerprint="history-a",
+    )
+    second, _ = materialize_post_draw_extension(
+        root_dir=tmp_path,
+        base_manifest=first,
+        issue="2026121",
+        red_numbers=actual,
+        durable_event_key="draw-event-a",
+        history_fingerprint="history-a",
+    )
+    assert first == second
+    with pytest.raises(ValueError, match="immutable artifact collision"):
+        materialize_post_draw_extension(
+            root_dir=tmp_path,
+            base_manifest=first,
+            issue="2026121",
+            red_numbers=candidate_unrank(122, universe=UNIVERSE),
+            durable_event_key="draw-event-b",
+            history_fingerprint="history-b",
+        )
+
+
+def test_notification_envelope_requires_bound_replay_and_ledger_is_idempotent(
+    shadow_bundle: dict,
+    tmp_path: Path,
+) -> None:
+    replay = replay_pre_draw(
+        contract=shadow_bundle["contract"],
+        history=shadow_bundle["history"],
+        expected_state=shadow_bundle["state"],
+        expected_pool=shadow_bundle["pool"],
+        expected_top100=shadow_bundle["top100"],
+        expected_report=shadow_bundle["pre_draw"],
+    )
+    envelope = build_notification_envelope(
+        report=shadow_bundle["pre_draw"],
+        replay_artifact=replay,
+        report_kind="pre_draw",
+    )
+    calls: list[str] = []
+    ledger = PredictionV2NotificationLedger(tmp_path / "ledger.json")
+    first = ledger.deliver(
+        envelope,
+        sender=lambda subject, body: calls.append(subject) or "message-1",
+    )
+    second = ledger.deliver(
+        envelope,
+        sender=lambda subject, body: calls.append(subject) or "message-2",
+    )
+    assert first["status"] == second["status"] == "sent"
+    assert calls == [envelope["subject"]]
+    ledger_payload = json.loads((tmp_path / "ledger.json").read_text(encoding="utf-8"))
+    assert ledger_payload["artifact_type"] == "PredictionV2NotificationDeliveryLedger.v1"
+
+    uncertain_ledger = PredictionV2NotificationLedger(tmp_path / "uncertain.json")
+    with pytest.raises(RuntimeError, match="smtp"):
+        uncertain_ledger.deliver(
+            envelope,
+            sender=lambda subject, body: (_ for _ in ()).throw(RuntimeError("smtp")),
+        )
+    with pytest.raises(PredictionV2NotificationError, match="manual review"):
+        uncertain_ledger.deliver(envelope, sender=lambda subject, body: "must-not-send")
+
+
+def test_unified_supervisor_executes_real_issue_pre_and_post_replay(
+    tmp_path: Path,
+) -> None:
+    copy_prediction_configs(tmp_path)
+    repository = MemoryRepository(json.loads(MANIFEST_PATH.read_text(encoding="utf-8")))
+    supervisor = ResearchEvidenceSupervisor(
+        repository=repository,  # type: ignore[arg-type]
+        control_plane_key=CONTROL_PLANE_KEY,
+        root_dir=tmp_path,
+        git_commit=TEST_COMMIT,
+        require_clean_tree=False,
+    )
+    supervisor.run_once(task_key=REFERENCE_TASK_KEY)
+    supervisor.run_once(task_key=REPLAY_TASK_KEY)
+
+    history = reference_history()
+    before = repository.manifest.to_dict(include_digest=False)
+    pre_payload, _ = materialize_pre_draw_extension(
+        root_dir=tmp_path,
+        base_manifest=before,
+        history_rows=[record.as_history_draw() for record in history.records],
+        target_issue="2026121",
+    )
+    assert additive_migration_dry_run(before=before, after=pre_payload)["status"] == "VERIFIED"
+    repository.manifest = ControlPlaneManifest.from_dict(pre_payload)
+    keys = issue_task_keys("2026121")
+    pre = supervisor.run_once(task_key=keys["pre"])
+    pre_replay_result = supervisor.run_once(task_key=keys["pre_replay"])
+    assert pre["historical_outcomes_read"] is False
+    assert pre_replay_result["replay_status"] == "REPLAY_VERIFIED"
+    assert issue_facts("2026121")["pre_replay"] in repository.manifest.facts.artifacts
+
+    actual = candidate_unrank(
+        (121 * 7_919 + 104_729) % UNIVERSE.cardinality,
+        universe=UNIVERSE,
+    )
+    before_post = repository.manifest.to_dict(include_digest=False)
+    post_payload, _ = materialize_post_draw_extension(
+        root_dir=tmp_path,
+        base_manifest=before_post,
+        issue="2026121",
+        red_numbers=actual,
+        durable_event_key="draw-issue-2026121-test",
+        history_fingerprint="history-fingerprint-test",
+    )
+    assert additive_migration_dry_run(before=before_post, after=post_payload)["status"] == "VERIFIED"
+    repository.manifest = ControlPlaneManifest.from_dict(post_payload)
+    post = supervisor.run_once(task_key=keys["post"])
+    post_replay_result = supervisor.run_once(task_key=keys["post_replay"])
+    assert post["historical_outcomes_read"] is True
+    assert post_replay_result["replay_status"] == "REPLAY_VERIFIED"
+    assert issue_facts("2026121")["post_replay"] in repository.manifest.facts.artifacts
+    assert not repository.manifest.facts.evidence
+    assert all(item.get("promotion_gate_opened") is not True for item in (pre, post))
+    envelopes = [
+        item for item in repository.artifacts
+        if item["artifact_type"] == "PredictionV2NotificationEnvelope.v1"
+    ]
+    assert len(envelopes) == 2
+    registered_types = {item["artifact_type"] for item in repository.artifacts}
+    assert {
+        "PredictionV2IssuePreDrawExecution.v1",
+        "PredictionV2IssuePreDrawReplayArtifact.v1",
+        "PredictionV2IssuePostDrawExecution.v1",
+        "PredictionV2IssuePostDrawReplayArtifact.v1",
+    } <= registered_types
+    assert not (tmp_path / "runtime/logs/m4-information-theory-status.json").exists()
+
+
+def test_prediction_v2_scheduler_sources_are_inactive_until_operator_install() -> None:
+    pre_service = (ROOT / "deploy/systemd/dehps-prediction-v2-shadow-pre-draw.service").read_text(encoding="utf-8")
+    pre_timer = (ROOT / "deploy/systemd/dehps-prediction-v2-shadow-pre-draw.timer").read_text(encoding="utf-8")
+    draw_service = (ROOT / "deploy/systemd/dehps-draw-sync.service").read_text(encoding="utf-8")
+    assert "run_prediction_v2_shadow_issue.py pre --apply --send" in pre_service
+    assert "Tue,Thu,Sun" in pre_timer
+    assert "--prediction-v2-shadow-notifications" in draw_service
+    assert "systemctl" not in pre_service + pre_timer + draw_service

@@ -12,7 +12,7 @@ Type=oneshot
 WorkingDirectory=/home/ark/workspace/dehps/apps/worker-python
 EnvironmentFile=-/home/ark/workspace/dehps/.env
 EnvironmentFile=-/home/ark/.config/dehps/draw-sync.env
-ExecStart=/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python scripts/run_draw_sync_watch.py --once --no-resume-on-event --post-draw-report-notifications --interval-seconds 900 --hot-interval-seconds 300 --cold-interval-seconds 3600 --timezone Asia/Shanghai
+ExecStart=/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python scripts/run_draw_sync_watch.py --once --no-resume-on-event --post-draw-report-notifications --prediction-v2-shadow-notifications --interval-seconds 900 --hot-interval-seconds 300 --cold-interval-seconds 3600 --timezone Asia/Shanghai
 
 [Install]
 WantedBy=default.target

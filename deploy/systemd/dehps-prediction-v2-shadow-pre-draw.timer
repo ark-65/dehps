@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Prediction v2 shadow Top100 on SSQ draw days
+
+[Timer]
+OnCalendar=Tue,Thu,Sun *-*-* 17:00:00 Asia/Shanghai
+Persistent=true
+AccuracySec=1min
+Unit=dehps-prediction-v2-shadow-pre-draw.service
+
+[Install]
+WantedBy=timers.target
