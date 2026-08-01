@@ -1,6 +1,6 @@
 {
   "schema_version": "research-os-control-plane-v1",
-  "manifest_digest": "eab2583985b389dc8ee000fba74ee965fb75da131c2e709a05067a1cbfdbb9cc",
+  "manifest_digest": "c8fbdd8523b0a14e18d6828535b90f7f56c3d1beaf059bf2e4ec687a2465748d",
   "goals": [
     {
       "goal_key": "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION",
@@ -820,6 +820,101 @@
       }
     },
     {
+      "task_key": "m4-v2-measurement-contract-design",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "hierarchical_measurement_contract_design",
+      "lane": "research",
+      "priority": 95,
+      "requested_capability": "m4_v2_measurement_contract_design",
+      "input_artifact_digests": [
+        "a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b",
+        "ae4e741cfc55547785ca9cf57b5b49f37a3d8c4f2bd53daeff9228982f797a69",
+        "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2",
+        "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca",
+        "5e41910553643e6559e78aa401fdcdd1e661b5709eaf55f0e73e694fb5a61355",
+        "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58"
+      ],
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-p2-repair-measurement-system",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-measurement-contract-v2:a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "external_event",
+          "target_key": "m4-runtime-slot:p2-6-1-released",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "phase": "M4-V2-DESIGN",
+        "purpose": "hierarchical_information_measurement",
+        "engineering_increment_percent": 0,
+        "evidence_increment_percent": 0,
+        "engineering_complete": false,
+        "evidence_complete": false,
+        "p2_6_1_relationship": "MARGINAL_OUTPUT_MEASUREMENT_ACCEPTANCE_BASELINE_UNCHANGED",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "v2 source contract available and m4-runtime-slot:p2-6-1-released after the synchronous P2.6.1 process exits",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "M4 Measurement Contract v2 source artifact",
+            "legal six-of-33 domain contract",
+            "P2.2 Metric Kernel",
+            "P2.3 strict walk-forward harness",
+            "P2.6.1 Scheme A source identities"
+          ],
+          "downstream_artifacts": [
+            "branch estimand contract artifact",
+            "mechanism-role matrix artifact",
+            "Gate Compiler contract artifact",
+            "design completion artifact"
+          ],
+          "status_projection": "unified_m4_status.measurement_system_v2",
+          "downstream_consumer": "m4-v2-branch-identifiability-preflight-design",
+          "evidence_progress_rule": "zero_design_artifacts_are_not_evidence",
+          "decision_consumer": "future branch preflight and hierarchical Gate Compiler"
+        }
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "m4-v2-branch-identifiability-preflight-design",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "measurement_branch_preflight_design",
+      "lane": "research",
+      "priority": 94,
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-v2-measurement-contract-design",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-measurement-contract-v2-design:FROZEN",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "phase": "M4-V2-PREFLIGHT-DESIGN",
+        "engineering_increment_percent": 0,
+        "evidence_increment_percent": 0,
+        "engineering_complete": false,
+        "evidence_complete": false,
+        "scope": "future_static_marginal_temporal_and_joint_identifiability_preflight_only",
+        "formal_execution_allowed": false
+      },
+      "status": "draft"
+    },
+    {
       "task_key": "m4-p3-strict-historical-walk-forward",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "task_type": "historical_walk_forward",
@@ -981,6 +1076,7 @@
     "m4-p2-measurement-repair-manifest:5e41910553643e6559e78aa401fdcdd1e661b5709eaf55f0e73e694fb5a61355",
     "m4-p2-6-1-measurement-validation-manifest:a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58",
     "m4-p2-state-visible-feature-manifest:1a76f46d7a47a134c1688657749bc040290f65a03dbc7c860e38144e02005981",
+    "m4-measurement-contract-v2:a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b",
     "mainline-execution:m4-p2-measurement-identifiability-preflight:e0f59f90c975b72c327089e03ff8ffd5729b9e6d40920b929708dcdcb3ffa0f4:127924d8a31a9631b45964f9dc650889c08e01c942e52a743ca6284c95d46106:completed",
     "mainline-execution:m4-p2-walk-forward-probe-harness:0a493b3618f2b180719b360b17702d7587c25a8c6c59a577a0c099fccce01a62:de52c376117bf308e0608b75e1418d58acf6b5a1e5cf4a66925fe06b8219d3cb:completed",
       "mainline-execution:m4-p2-injected-signal-calibration:60ac1df68a112c671682116a30db1b01eae18e7a0cd5c2e0dcd0e13183893a83:772b5063f1a3578c7e8f8a2cd9f102357828608de8fbd80c2c1fb2c82b79afa2:completed",
