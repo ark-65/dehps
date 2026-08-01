@@ -1,0 +1,149 @@
+{
+  "schema_version": "research-os-control-plane-v1",
+  "goals": [
+    {
+      "goal_key": "prediction-v2-shadow-initialization",
+      "semantic_version": "1.0.0",
+      "objective_class": "runtime_capability",
+      "success_evidence": [
+        "prediction-v2-shadow:REFERENCE_REPLAY:VERIFIED",
+        "legacy baseline and scheduler cutover dry-run artifacts registered"
+      ],
+      "owner_lane": "maintenance",
+      "question": "Can a deterministic legal-null Prediction v2 shadow Top100 and pre/post report be generated and physically replayed without changing M4 or creating evidence?",
+      "baseline_metric_manifest": {
+        "legacy_lines": ["static_100", "dynamic_kdj", "dynamic_kdj_near"],
+        "lifecycle_after_operator_activation": "LEGACY_FROZEN"
+      },
+      "target_metric_manifest": {
+        "shadow_top100_count": 100,
+        "pool_count": 10000,
+        "exact_replay": true,
+        "evidence_progress_delta": 0
+      },
+      "guardrails": [
+        "shadow_only",
+        "baseline_only_until_separate_research_authorization",
+        "do_not_read_m4_results",
+        "do_not_modify_m4_control_plane",
+        "do_not_open_promotion_gate",
+        "do_not_execute_scheduler_cutover_without_typed_operator_request"
+      ],
+      "status": "active"
+    }
+  ],
+  "tasks": [
+    {
+      "task_key": "prediction-v2-shadow-reference-execution",
+      "goal_key": "prediction-v2-shadow-initialization",
+      "task_type": "shadow_reference_execution",
+      "lane": "maintenance",
+      "dependencies": [],
+      "priority": 100,
+      "input_artifact_digests": [
+        "48dfc5ca1019a63d6344191e64f70f395b2b3c1db40fbecd3d6c9fb40de36e55",
+        "df39fde45013c10b9c6586662d05353cebe9260788ee200c455e7e5e958e9db7",
+        "520d2389a9ebab1f0ffb6aadce666a4652dd2076b9fc638e66cc05374697d39e"
+      ],
+      "requested_capability": "prediction_v2_shadow_reference_execution",
+      "metric_contract": {
+        "mainline_integration": {
+          "goal": "Generate the deterministic fixture-only Prediction v2 shadow artifacts through the unified supervisor.",
+          "ready_condition": "source contracts loaded and separate prediction-v2-shadow control plane imported",
+          "runner": "unified ResearchEvidenceSupervisor run-once",
+          "upstream_artifacts": ["legacy baseline", "Prediction v2 shadow contract", "scheduler cutover plan"],
+          "downstream_artifacts": ["state", "pool", "Top100", "pre-draw report", "post-draw report", "mainline execution"],
+          "status_projection": "prediction-v2-shadow-status.json",
+          "downstream_consumer": "prediction-v2-shadow-reference-replay",
+          "evidence_progress_rule": "always zero",
+          "decision_consumer": "none; fixture execution cannot authorize production or research claims"
+        },
+        "historical_evidence": "NOT_RUN",
+        "promotion_gate_opened": false
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "prediction-v2-shadow-reference-replay",
+      "goal_key": "prediction-v2-shadow-initialization",
+      "task_type": "physical_replay",
+      "lane": "maintenance",
+      "dependencies": [
+        {
+          "dependency_type": "artifact",
+          "target_key": "prediction-v2-shadow:REFERENCE_EXECUTION:COMPLETED",
+          "required_status": "available"
+        }
+      ],
+      "priority": 90,
+      "input_artifact_digests": [
+        "48dfc5ca1019a63d6344191e64f70f395b2b3c1db40fbecd3d6c9fb40de36e55",
+        "df39fde45013c10b9c6586662d05353cebe9260788ee200c455e7e5e958e9db7",
+        "520d2389a9ebab1f0ffb6aadce666a4652dd2076b9fc638e66cc05374697d39e"
+      ],
+      "requested_capability": "prediction_v2_shadow_reference_replay",
+      "metric_contract": {
+        "mainline_integration": {
+          "goal": "Physically reconstruct every Prediction v2 fixture artifact and compare registered content and identities.",
+          "ready_condition": "reference execution has one durable completed event and registered immutable children",
+          "runner": "unified ResearchEvidenceSupervisor run-once",
+          "upstream_artifacts": ["reference execution", "registered child artifact set"],
+          "downstream_artifacts": ["pre-draw replay artifact", "post-draw replay artifact", "replay execution"],
+          "status_projection": "prediction-v2-shadow-status.json",
+          "downstream_consumer": "future typed Operator scheduler cutover request",
+          "evidence_progress_rule": "always zero",
+          "decision_consumer": "operator authorization boundary only; no implicit cutover"
+        },
+        "historical_evidence": "NOT_RUN",
+        "promotion_gate_opened": false
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "prediction-v2-shadow-scheduler-cutover-operator",
+      "goal_key": "prediction-v2-shadow-initialization",
+      "task_type": "typed_operator_boundary",
+      "lane": "maintenance",
+      "dependencies": [
+        {
+          "dependency_type": "artifact",
+          "target_key": "prediction-v2-shadow:REFERENCE_REPLAY:VERIFIED",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "authority",
+          "target_key": "operator_request:prediction-v2-live-cutover:approved",
+          "required_status": "approved"
+        }
+      ],
+      "priority": 10,
+      "input_artifact_digests": [
+        "520d2389a9ebab1f0ffb6aadce666a4652dd2076b9fc638e66cc05374697d39e"
+      ],
+      "requested_capability": null,
+      "metric_contract": {
+        "mainline_integration": {
+          "goal": "Represent the non-implicit Operator boundary for legacy retirement and shadow scheduler activation.",
+          "ready_condition": "physical replay verified and a separate typed Operator Request approved",
+          "runner": "operator only",
+          "upstream_artifacts": ["replay execution", "scheduler cutover plan"],
+          "downstream_artifacts": ["legacy retirement activation fact", "scheduler cutover execution artifact"],
+          "status_projection": "prediction-v2-shadow-status.json",
+          "downstream_consumer": "shadow pre/post scheduler",
+          "evidence_progress_rule": "always zero",
+          "decision_consumer": "operator governance"
+        }
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    }
+  ],
+  "facts": {
+    "artifacts": [],
+    "evidence": [],
+    "external_events": [],
+    "authorities": []
+  }
+}

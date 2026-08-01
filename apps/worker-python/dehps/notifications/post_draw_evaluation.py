@@ -122,6 +122,9 @@ def load_post_draw_evaluations(
 
 def deliver_post_draw_evaluation_report(issue: str) -> dict[str, Any]:
     """Deliver one accepted issue through the shared idempotent mail contract."""
+    from dehps.prediction.v2.retirement import require_legacy_compute_allowed
+
+    require_legacy_compute_allowed("legacy_three_line_post_draw_report")
     from dehps.db import get_connection
     from dehps.forward_checkpoint import settle_forward_checkpoint_if_available
 
@@ -147,6 +150,9 @@ def compile_post_draw_evaluation_report(
     *,
     recipient: str,
 ) -> PostDrawEvaluationReport:
+    from dehps.prediction.v2.retirement import require_legacy_compute_allowed
+
+    require_legacy_compute_allowed("legacy_three_line_post_draw_report")
     lines = _validate_and_normalize_rows(rows)
     issue = str(lines[0]["predicted_issue"])
     actual_red = list(lines[0]["actual_red_numbers"])

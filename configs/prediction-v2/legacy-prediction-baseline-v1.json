@@ -1,0 +1,38 @@
+{
+  "schema_version": "dehps-legacy-prediction-baseline-manifest.v1",
+  "artifact_type": "LegacyPredictionBaselineManifest.v1",
+  "semantic_version": "1.0.0",
+  "baseline_scope": "legacy_three_prediction_lines",
+  "lines": [
+    {
+      "line_key": "static_100",
+      "line_kind": "static_training",
+      "lifecycle": "LEGACY_FROZEN"
+    },
+    {
+      "line_key": "dynamic_kdj",
+      "line_kind": "dynamic_kdj_training",
+      "lifecycle": "LEGACY_FROZEN"
+    },
+    {
+      "line_key": "dynamic_kdj_near",
+      "line_kind": "dynamic_kdj_near_training",
+      "lifecycle": "LEGACY_FROZEN"
+    }
+  ],
+  "preservation": {
+    "model_artifacts": "IMMUTABLE_READ_ONLY",
+    "configs": "IMMUTABLE_READ_ONLY",
+    "weights": "IMMUTABLE_READ_ONLY",
+    "prediction_history": "IMMUTABLE_READ_ONLY",
+    "report_history": "IMMUTABLE_READ_ONLY",
+    "benchmark_results": "IMMUTABLE_READ_ONLY",
+    "database_deletion": "FORBIDDEN",
+    "artifact_rewrite": "FORBIDDEN"
+  },
+  "compute_after_operator_activation": "FORBIDDEN",
+  "activation_default": "INACTIVE",
+  "historical_evidence": "NOT_RUN",
+  "evidence_progress_delta": 0,
+  "promotion_gate_opened": false
+}

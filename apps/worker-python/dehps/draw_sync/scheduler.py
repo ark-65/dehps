@@ -27,6 +27,7 @@ from dehps.forward_runtime.shadow_attestation import (
 from dehps.notifications.post_draw_evaluation import (
     deliver_post_draw_evaluation_report,
 )
+from dehps.prediction.v2.retirement import legacy_retirement_status
 from dehps.scoring_kernel import seal_shadow_watch_cycle
 from dehps.source_version import resolve_git_commit
 
@@ -171,14 +172,31 @@ class DrawSyncWatch:
                         "deferred_until": deferred_until.isoformat(),
                     }
                     event_key = None
-                evaluation_result = self.forward_evaluator.evaluate_pending()
+                legacy_retired = legacy_retirement_status()["status"] == "ACTIVE"
+                evaluation_result = (
+                    {
+                        "status": "skipped",
+                        "failed_count": 0,
+                        "reason": "legacy_prediction_lines_frozen",
+                    }
+                    if legacy_retired
+                    else self.forward_evaluator.evaluate_pending()
+                )
                 evaluation_failed = int(evaluation_result.get("failed_count") or 0) > 0
                 result_payload = jsonable(result)
                 result_payload = result_payload if isinstance(result_payload, dict) else {}
                 current_issue = str(result_payload.get("current_latest_issue") or "").strip()
-                post_draw_evaluation_mail = self._notify_post_draw_report(
-                    current_issue=current_issue or None,
-                    evaluation_failed=evaluation_failed,
+                post_draw_evaluation_mail = (
+                    {
+                        "status": "skipped",
+                        "issue": current_issue or None,
+                        "reason": "legacy_prediction_lines_frozen",
+                    }
+                    if legacy_retired
+                    else self._notify_post_draw_report(
+                        current_issue=current_issue or None,
+                        evaluation_failed=evaluation_failed,
+                    )
                 )
                 shadow_watch_cycle = None
                 shadow_attestation = {
@@ -186,7 +204,11 @@ class DrawSyncWatch:
                     "status": "disabled",
                     "automatic_promotion_allowed": False,
                 }
-                if self.shadow_attestation_enabled and self.shadow_attestor is not None:
+                if (
+                    not legacy_retired
+                    and self.shadow_attestation_enabled
+                    and self.shadow_attestor is not None
+                ):
                     shadow_watch_cycle = seal_shadow_watch_cycle(
                         watch_code_commit=self.code_commit,
                         watch_started_at=self.started_at,
@@ -218,7 +240,11 @@ class DrawSyncWatch:
                             ),
                             "automatic_promotion_allowed": False,
                         }
-                resume_result = None if evaluation_failed else self._resume_if_event(event_key)
+                resume_result = (
+                    None
+                    if evaluation_failed or legacy_retired
+                    else self._resume_if_event(event_key)
+                )
                 payload = {
                     "status": "error" if evaluation_failed else "ok",
                     "pid": os.getpid(),
@@ -229,6 +255,10 @@ class DrawSyncWatch:
                     "last_result": result,
                     "sync_deferred": deferred_until is not None,
                     "forward_evaluation": evaluation_result,
+                    "legacy_prediction_lines": {
+                        "status": "LEGACY_FROZEN" if legacy_retired else "ACTIVE",
+                        "compute_scheduled": not legacy_retired,
+                    },
                     "post_draw_evaluation_mail": post_draw_evaluation_mail,
                     "shadow_watch_cycle": shadow_watch_cycle,
                     "shadow_attestation": shadow_attestation,

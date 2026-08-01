@@ -146,6 +146,9 @@ def build_settings(args: argparse.Namespace) -> TrainingSupervisorSettings:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
+    from dehps.prediction.v2.retirement import require_legacy_compute_allowed
+
+    require_legacy_compute_allowed("legacy_training_supervisor")
     args = parse_args(argv)
     dependencies = build_training_dependencies(args)
     supervisor = TrainingSupervisor(settings=build_settings(args), dependencies=dependencies)

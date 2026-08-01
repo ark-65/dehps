@@ -83,6 +83,9 @@ class ForwardEvaluationService:
         return [with_effective_ranking_contract(dict(row)) for row in rows]
 
     def evaluate_pending(self, *, write_report: bool = True) -> dict[str, Any]:
+        from dehps.prediction.v2.retirement import require_legacy_compute_allowed
+
+        require_legacy_compute_allowed("legacy_forward_evaluation")
         pending = self.pending_runs()
         results: list[dict[str, Any]] = []
         missing_draw_count = 0

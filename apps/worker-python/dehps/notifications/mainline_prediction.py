@@ -83,6 +83,9 @@ def compile_mainline_prediction_email(
     *,
     recipient: str,
 ) -> MainlinePredictionEmail:
+    from dehps.prediction.v2.retirement import require_legacy_compute_allowed
+
+    require_legacy_compute_allowed("legacy_static_100_pre_draw_mail")
     issue = str(payload.get("issue") or "").strip()
     as_of_issue = str(payload.get("as_of_issue") or "").strip()
     if not issue or not as_of_issue or issue <= as_of_issue:
