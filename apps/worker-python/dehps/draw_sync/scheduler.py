@@ -6,20 +6,22 @@ import math
 import os
 import signal
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, time as day_time
+from datetime import datetime
+from datetime import time as day_time
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from dehps.artifacts import atomic_write_text
 from dehps.config import ROOT_DIR
-from dehps.draw_sync.models import jsonable
-from dehps.draw_sync.service import DrawSyncService
 from dehps.draw_sync.launch_contract import (
     build_draw_sync_watch_launch_contract,
     write_draw_sync_watch_launch_contract,
 )
+from dehps.draw_sync.models import jsonable
+from dehps.draw_sync.service import DrawSyncService
 from dehps.forward_runtime.shadow_attestation import (
     ForwardShadowAttestationService,
     forward_shadow_attestation_enabled,
@@ -30,7 +32,6 @@ from dehps.notifications.post_draw_evaluation import (
 from dehps.prediction.v2.retirement import legacy_retirement_status
 from dehps.scoring_kernel import seal_shadow_watch_cycle
 from dehps.source_version import resolve_git_commit
-
 
 DEFAULT_STATE_PATH = ROOT_DIR / "runtime" / "logs" / "draw-sync-watch.json"
 DEFAULT_PID_PATH = ROOT_DIR / "runtime" / "logs" / "draw-sync-watch.pid"
@@ -97,10 +98,13 @@ class DrawSyncWatch:
         shadow_attestor: Any | None = None,
         shadow_attestation_enabled: bool | None = None,
         post_draw_report_notifier: Callable[[str], dict[str, Any]] | None = None,
+        prediction_v2_shadow_notifier: Callable[[str], dict[str, Any]] | None = None,
     ) -> None:
         self.service = service or DrawSyncService()
         if forward_evaluator is None:
-            from dehps.forward_runtime.evaluation_service import ForwardEvaluationService
+            from dehps.forward_runtime.evaluation_service import (
+                ForwardEvaluationService,
+            )
 
             forward_evaluator = ForwardEvaluationService()
         self.forward_evaluator = forward_evaluator
@@ -138,6 +142,7 @@ class DrawSyncWatch:
             )
         )
         self.post_draw_report_notifier = post_draw_report_notifier
+        self.prediction_v2_shadow_notifier = prediction_v2_shadow_notifier
         self.launch_contract = build_draw_sync_watch_launch_contract(
             code_commit=self.code_commit,
             interval_seconds=self.policy.interval_seconds,
@@ -197,6 +202,15 @@ class DrawSyncWatch:
                         current_issue=current_issue or None,
                         evaluation_failed=evaluation_failed,
                     )
+                )
+                prediction_v2_shadow_report = (
+                    self._notify_prediction_v2_shadow(current_issue=current_issue or None)
+                    if legacy_retired
+                    else {
+                        "status": "inactive",
+                        "issue": current_issue or None,
+                        "reason": "legacy retirement activation not published",
+                    }
                 )
                 shadow_watch_cycle = None
                 shadow_attestation = {
@@ -260,6 +274,7 @@ class DrawSyncWatch:
                         "compute_scheduled": not legacy_retired,
                     },
                     "post_draw_evaluation_mail": post_draw_evaluation_mail,
+                    "prediction_v2_shadow_report": prediction_v2_shadow_report,
                     "shadow_watch_cycle": shadow_watch_cycle,
                     "shadow_attestation": shadow_attestation,
                     "resume_on_event": self.resume_on_event,
@@ -328,7 +343,26 @@ class DrawSyncWatch:
             }
         try:
             return self.post_draw_report_notifier(current_issue)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - failure is isolated from durable sync.
+            return {
+                "status": "failed",
+                "issue": current_issue,
+                "error": {"type": type(exc).__name__, "message": str(exc)},
+            }
+
+    def _notify_prediction_v2_shadow(
+        self,
+        *,
+        current_issue: str | None,
+    ) -> dict[str, Any]:
+        if self.prediction_v2_shadow_notifier is None:
+            return {"status": "disabled", "issue": current_issue}
+        if current_issue is None:
+            return {"status": "not_ready", "reason": "draw sync has no current issue"}
+        try:
+            return self.prediction_v2_shadow_notifier(current_issue)
+        except Exception as exc:  # noqa: BLE001 - failure is isolated from durable sync.
+            # Notification/mainline failure must never replace a successful draw sync.
             return {
                 "status": "failed",
                 "issue": current_issue,
@@ -349,7 +383,17 @@ def main(argv: list[str] | None = None) -> None:
         action=argparse.BooleanOptionalAction,
         default=False,
     )
+    parser.add_argument(
+        "--prediction-v2-shadow-notifications",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
     args = parser.parse_args(argv)
+    prediction_v2_notifier = None
+    if args.prediction_v2_shadow_notifications:
+        from scripts.run_prediction_v2_shadow_issue import settle_synchronized_issue
+
+        prediction_v2_notifier = settle_synchronized_issue
     DrawSyncWatch(
         policy=DrawSyncSchedulePolicy(
             interval_seconds=args.interval_seconds,
@@ -363,4 +407,5 @@ def main(argv: list[str] | None = None) -> None:
             if args.post_draw_report_notifications
             else None
         ),
+        prediction_v2_shadow_notifier=prediction_v2_notifier,
     ).run(once=args.once)

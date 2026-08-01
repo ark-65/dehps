@@ -143,6 +143,18 @@ from dehps.prediction.v2.mainline import (
     build_reference_history,
     build_prediction_v2_status,
 )
+from dehps.prediction.v2.issue_mainline import (
+    PredictionV2IssuePostDrawCapability,
+    PredictionV2IssuePostDrawReplayCapability,
+    PredictionV2IssuePreDrawCapability,
+    PredictionV2IssuePreDrawReplayCapability,
+)
+from dehps.prediction.v2.issues import (
+    POST_CAPABILITY as PREDICTION_V2_POST_CAPABILITY,
+    POST_REPLAY_CAPABILITY as PREDICTION_V2_POST_REPLAY_CAPABILITY,
+    PRE_CAPABILITY as PREDICTION_V2_PRE_CAPABILITY,
+    PRE_REPLAY_CAPABILITY as PREDICTION_V2_PRE_REPLAY_CAPABILITY,
+)
 from dehps.prediction.v2.replay import replay_post_draw as replay_prediction_v2_post_draw
 from dehps.prediction.v2.replay import replay_pre_draw as replay_prediction_v2_pre_draw
 from dehps.research_os.models import (
@@ -2860,6 +2872,21 @@ class ResearchEvidenceSupervisor:
                 root_dir=root_dir
             ),
             PREDICTION_V2_REPLAY_CAPABILITY: PredictionV2ReplayCapability(
+                repository=self.repository,
+                root_dir=root_dir,
+            ),
+            PREDICTION_V2_PRE_CAPABILITY: PredictionV2IssuePreDrawCapability(
+                root_dir=root_dir,
+            ),
+            PREDICTION_V2_PRE_REPLAY_CAPABILITY: PredictionV2IssuePreDrawReplayCapability(
+                repository=self.repository,
+                root_dir=root_dir,
+            ),
+            PREDICTION_V2_POST_CAPABILITY: PredictionV2IssuePostDrawCapability(
+                repository=self.repository,
+                root_dir=root_dir,
+            ),
+            PREDICTION_V2_POST_REPLAY_CAPABILITY: PredictionV2IssuePostDrawReplayCapability(
                 repository=self.repository,
                 root_dir=root_dir,
             ),

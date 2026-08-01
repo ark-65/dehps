@@ -1,0 +1,15 @@
+[Unit]
+Description=Generate, replay, and deliver the DEHPS Prediction v2 shadow Top100
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ark/workspace/dehps/apps/worker-python
+EnvironmentFile=-/home/ark/workspace/dehps/.env
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/ark/workspace/dehps/runtime
+ExecStart=/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python scripts/run_prediction_v2_shadow_issue.py pre --apply --send
