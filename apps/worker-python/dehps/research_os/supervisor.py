@@ -131,6 +131,20 @@ from dehps.research_os.mainline import (
     integration_contract,
     mainline_completion_fact,
 )
+from dehps.prediction.v2.mainline import (
+    CONTROL_PLANE_KEY as PREDICTION_V2_CONTROL_PLANE_KEY,
+    REFERENCE_CAPABILITY as PREDICTION_V2_REFERENCE_CAPABILITY,
+    REFERENCE_TASK_KEY as PREDICTION_V2_REFERENCE_TASK_KEY,
+    REPLAY_CAPABILITY as PREDICTION_V2_REPLAY_CAPABILITY,
+    REPLAY_TASK_KEY as PREDICTION_V2_REPLAY_TASK_KEY,
+    PredictionV2ReferenceCapability,
+    PredictionV2ReplayCapability,
+    build_reference_children,
+    build_reference_history,
+    build_prediction_v2_status,
+)
+from dehps.prediction.v2.replay import replay_post_draw as replay_prediction_v2_post_draw
+from dehps.prediction.v2.replay import replay_pre_draw as replay_prediction_v2_pre_draw
 from dehps.research_os.models import (
     CompletionClassification,
     ControlPlaneManifest,
@@ -2842,10 +2856,19 @@ class ResearchEvidenceSupervisor:
             M4_P29_RUNTIME_AUDIT_CAPABILITY: M4P29MeasurementRuntimeAuditCapability(
                 root_dir=root_dir
             ),
+            PREDICTION_V2_REFERENCE_CAPABILITY: PredictionV2ReferenceCapability(
+                root_dir=root_dir
+            ),
+            PREDICTION_V2_REPLAY_CAPABILITY: PredictionV2ReplayCapability(
+                repository=self.repository,
+                root_dir=root_dir,
+            ),
         }
 
     @property
     def state_path(self) -> Path:
+        if self.control_plane_key == PREDICTION_V2_CONTROL_PLANE_KEY:
+            return self.root_dir / "runtime/logs/prediction-v2-shadow-supervisor-state.json"
         return self.root_dir / "runtime/logs/research-evidence-supervisor-state.json"
 
     def run_once(self, *, task_key: str | None = None) -> dict[str, Any]:
@@ -2904,14 +2927,10 @@ class ResearchEvidenceSupervisor:
                 "heartbeat_at": self.now().isoformat(),
             }
             self._write_state(payload)
-            latest_summary = self._latest_completed_summary(snapshot)
-            latest_v2_summary = self._latest_completed_v2_summary(snapshot)
-            self._write_m4_status(
-                build_m4_status(
+            self._write_lane_status(
+                self._build_lane_status(
                     manifest,
                     snapshot=snapshot,
-                    mainline_execution=latest_summary,
-                    measurement_v2_execution=latest_v2_summary,
                     dispatch_performed=False,
                 )
             )
@@ -3029,13 +3048,9 @@ class ResearchEvidenceSupervisor:
                 git_commit=git_commit,
             )
         running_snapshot = self.repository.control_plane.resolve(running_manifest)
-        latest_summary = self._latest_completed_summary(running_snapshot)
-        latest_v2_summary = self._latest_completed_v2_summary(running_snapshot)
-        running_status = build_m4_status(
+        running_status = self._build_lane_status(
             running_manifest,
             snapshot=running_snapshot,
-            mainline_execution=latest_summary,
-            measurement_v2_execution=latest_v2_summary,
             dispatch_performed=True,
         )
         self._write_state(
@@ -3074,7 +3089,7 @@ class ResearchEvidenceSupervisor:
                 ),
             }
         )
-        self._write_m4_status(running_status)
+        self._write_lane_status(running_status)
         completed_recorded = False
         try:
             result = self.capabilities[capability].execute(
@@ -3404,25 +3419,11 @@ class ResearchEvidenceSupervisor:
             control_plane_key=self.control_plane_key
         )
         final_snapshot = self.repository.control_plane.resolve(final_manifest)
-        latest_summary = self._latest_completed_summary(final_snapshot)
-        latest_v2_summary = self._latest_completed_v2_summary(final_snapshot)
-        if task.task_key in {
-            M4_V2_DESIGN_TASK_KEY,
-            M4_V2_DESIGN_REPLAY_TASK_KEY,
-            M4_V2_P261_RAW_REPLAY_TASK_KEY,
-            M4_V2_P27_GATE_REPLAY_TASK_KEY,
-            M4_V2_MARGINAL_BINDING_TASK_KEY,
-            M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY,
-        }:
-            latest_v2_summary = summary
-        else:
-            latest_summary = summary
-        status = build_m4_status(
+        status = self._build_lane_status(
             final_manifest,
             snapshot=final_snapshot,
-            mainline_execution=latest_summary,
-            measurement_v2_execution=latest_v2_summary,
             dispatch_performed=True,
+            completed_summary=summary,
         )
         completed_at = str(event.get("recorded_at") or self.now().isoformat())
         payload = {
@@ -3526,7 +3527,7 @@ class ResearchEvidenceSupervisor:
             if key in summary:
                 payload[key] = summary[key]
         self._write_state(payload)
-        self._write_m4_status(status)
+        self._write_lane_status(status)
         return payload
 
     def _record_p26_runtime_migration(
@@ -3630,7 +3631,91 @@ class ResearchEvidenceSupervisor:
                 "registered mainline artifacts are missing: " + ", ".join(missing)
             )
         capability_replay: dict[str, Any] | None = None
-        if task_key == M4_V2_DESIGN_TASK_KEY:
+        if task_key == PREDICTION_V2_REFERENCE_TASK_KEY:
+            expected_children = build_reference_children(self.root_dir)
+            registered_children = [
+                item
+                for item in registrations
+                if item.get("artifact_type") != "research_os_mainline_execution"
+            ]
+            expected_by_digest = {
+                str(item["artifact_digest"]): item for item in expected_children
+            }
+            if {
+                str(item.get("artifact_digest") or "") for item in registered_children
+            } != set(expected_by_digest):
+                raise MainlineSupervisorError(
+                    "Prediction v2 reference registered artifact set changed"
+                )
+            for registration in registered_children:
+                stored = _load_object(
+                    self.root_dir / str(registration["artifact_path"])
+                )
+                if stored != expected_by_digest[str(registration["artifact_digest"])]:
+                    raise MainlineSupervisorError(
+                        "Prediction v2 reference registered artifact content changed"
+                    )
+            capability_replay = {
+                "status": "REPLAY_VERIFIED",
+                "same_contract_identity": True,
+                "same_fixture_identity": True,
+                "same_pool_identity": True,
+                "same_top100_identity": True,
+                "same_pre_draw_report_identity": True,
+                "same_post_draw_report_identity": True,
+                "historical_evidence": "NOT_RUN",
+                "promotion_gate_opened": False,
+                "manual_input_assembly": False,
+            }
+        elif task_key == PREDICTION_V2_REPLAY_TASK_KEY:
+            expected = build_reference_children(self.root_dir)
+            expected_by_type = {str(item["artifact_type"]): item for item in expected}
+            history, actual = build_reference_history()
+            pre_replay = replay_prediction_v2_pre_draw(
+                contract=expected_by_type["PredictionV2ShadowContract.v1"],
+                history=history,
+                expected_state=expected_by_type["PredictionV2StateArtifact.v1"],
+                expected_pool=expected_by_type["PredictionV2ShadowPoolArtifact.v1"],
+                expected_top100=expected_by_type["PredictionV2ShadowTop100Artifact.v1"],
+                expected_report=expected_by_type["PredictionV2PreDrawReport.v1"],
+            )
+            post_replay = replay_prediction_v2_post_draw(
+                pre_draw_report=expected_by_type["PredictionV2PreDrawReport.v1"],
+                actual_issue="2026121",
+                actual_red_numbers=actual,
+                expected_report=expected_by_type["PredictionV2PostDrawReport.v1"],
+            )
+            expected_replay_by_digest = {
+                str(item["artifact_digest"]): item for item in (pre_replay, post_replay)
+            }
+            registered_children = [
+                item
+                for item in registrations
+                if item.get("artifact_type") != "research_os_mainline_execution"
+            ]
+            if {
+                str(item.get("artifact_digest") or "") for item in registered_children
+            } != set(expected_replay_by_digest):
+                raise MainlineSupervisorError(
+                    "Prediction v2 replay registered artifact set changed"
+                )
+            for registration in registered_children:
+                stored = _load_object(
+                    self.root_dir / str(registration["artifact_path"])
+                )
+                if stored != expected_replay_by_digest[str(registration["artifact_digest"])]:
+                    raise MainlineSupervisorError(
+                        "Prediction v2 replay attestation content changed"
+                    )
+            capability_replay = {
+                "status": "REPLAY_VERIFIED",
+                "same_pre_draw_identity": True,
+                "same_post_draw_identity": True,
+                "historical_evidence": "NOT_RUN",
+                "promotion_gate_opened": False,
+                "manual_input_assembly": False,
+            }
+        elif task_key == M4_V2_DESIGN_TASK_KEY:
             contract = load_measurement_contract_v2(
                 self.root_dir / MEASUREMENT_CONTRACT_V2_PATH
             )
@@ -4035,8 +4120,45 @@ class ResearchEvidenceSupervisor:
             json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         )
 
-    def _write_m4_status(self, payload: Mapping[str, Any]) -> None:
+    def _build_lane_status(
+        self,
+        manifest: ControlPlaneManifest,
+        *,
+        snapshot: Any,
+        dispatch_performed: bool,
+        completed_summary: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if self.control_plane_key == PREDICTION_V2_CONTROL_PLANE_KEY:
+            latest = completed_summary or self._latest_completed_summary_for_tasks(
+                snapshot,
+                (PREDICTION_V2_REPLAY_TASK_KEY, PREDICTION_V2_REFERENCE_TASK_KEY),
+            )
+            status = build_prediction_v2_status(
+                manifest=manifest,
+                snapshot=snapshot,
+                execution=latest,
+                dispatch_performed=dispatch_performed,
+            )
+            status["progress"] = {
+                "engineering_percent": 100 if status["replay_verified"] else 0,
+                "evidence_percent": 0,
+            }
+            return status
+        return build_m4_status(
+            manifest,
+            snapshot=snapshot,
+            mainline_execution=self._latest_completed_summary(snapshot),
+            measurement_v2_execution=self._latest_completed_v2_summary(snapshot),
+            dispatch_performed=dispatch_performed,
+        )
+
+    def _write_lane_status(self, payload: Mapping[str, Any]) -> None:
+        status_name = (
+            "prediction-v2-shadow-status.json"
+            if self.control_plane_key == PREDICTION_V2_CONTROL_PLANE_KEY
+            else "m4-information-theory-status.json"
+        )
         atomic_write_text(
-            self.root_dir / "runtime/logs/m4-information-theory-status.json",
+            self.root_dir / "runtime/logs" / status_name,
             json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         )

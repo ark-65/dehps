@@ -17,6 +17,7 @@ from dehps.notifications.post_draw_evaluation import (
     deliver_post_draw_evaluation_report,
 )
 from dehps.optimization.next_candidates import refresh_training_prediction_lines_current
+from dehps.prediction.v2.retirement import legacy_retirement_status
 from dehps.optimization.weight_kdj import DEFAULT_KDJ_WINDOW
 from dehps.runtime.heavy_job import HeavyJobLock, apply_cpu_thread_env_defaults
 from dehps.storage.postgres_store import (
@@ -122,11 +123,24 @@ def run_pipeline(
         has_synced_changes = is_new_data or sync_summary.get("updated_count", 0) > 0
         summary["sync_run_key"] = sync_summary["run_key"]
         summary["sync"] = sync_summary
+        legacy_retired = legacy_retirement_status()["status"] == "ACTIVE"
+        summary["legacy_prediction_lines"] = {
+            "status": "LEGACY_FROZEN" if legacy_retired else "ACTIVE",
+            "compute_scheduled": not legacy_retired,
+        }
         _heartbeat_heavy_lock(
             heavy_lock,
             context={"sync_run_key": sync_summary["run_key"], "has_synced_changes": has_synced_changes},
         )
-        evaluation_result = (forward_evaluator or ForwardEvaluationService()).evaluate_pending()
+        evaluation_result = (
+            {
+                "status": "skipped",
+                "failed_count": 0,
+                "reason": "legacy_prediction_lines_frozen",
+            }
+            if legacy_retired
+            else (forward_evaluator or ForwardEvaluationService()).evaluate_pending()
+        )
         summary["forward_evaluation"] = evaluation_result
         if int(evaluation_result.get("failed_count") or 0) > 0:
             raise RuntimeError(
@@ -139,7 +153,7 @@ def run_pipeline(
             context={"forward_evaluation": evaluation_result},
         )
 
-        if has_synced_changes and post_draw_report_notifier is not None:
+        if has_synced_changes and post_draw_report_notifier is not None and not legacy_retired:
             synced_issue = str((sync_summary.get("latest_draw") or {}).get("issue") or "")
             if not synced_issue:
                 summary["post_draw_evaluation_mail"] = {
@@ -189,7 +203,7 @@ def run_pipeline(
             summary["experiment_key"] = experiment_key
             summary["experiment_report_path"] = str(experiment_path)
 
-        if has_synced_changes and not skip_weight_kdj_signals:
+        if has_synced_changes and not skip_weight_kdj_signals and not legacy_retired:
             summary["weight_kdj"] = generate_signals(
                 signal_run_id=CANONICAL_SIGNAL_RUN_ID,
                 mode="incremental",
@@ -209,7 +223,7 @@ def run_pipeline(
             )
             _heartbeat_heavy_lock(heavy_lock, context={"weight_kdj": summary["weight_kdj"]})
 
-        if has_synced_changes:
+        if has_synced_changes and not legacy_retired:
             try:
                 with get_connection() as conn:
                     summary["training_next_candidates"] = refresh_training_prediction_lines_current(conn, top_n=10000)

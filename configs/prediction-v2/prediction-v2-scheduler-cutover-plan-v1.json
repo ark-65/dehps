@@ -1,0 +1,40 @@
+{
+  "schema_version": "dehps-prediction-v2-scheduler-cutover-plan.v1",
+  "artifact_type": "PredictionV2SchedulerCutoverPlan.v1",
+  "semantic_version": "1.0.0",
+  "mode": "DRY_RUN_ONLY",
+  "requires_typed_operator_request": true,
+  "activation_fact": "prediction-v2:legacy-three-lines:RETIREMENT_ACTIVATED",
+  "stop_or_disable": [
+    "legacy_training_supervisor",
+    "legacy_training_watch_refresh",
+    "legacy_forward_runtime",
+    "legacy_static_100_pre_draw_mail"
+  ],
+  "preserve": [
+    "draw_sync_ingestion",
+    "legacy_database_rows",
+    "legacy_model_artifacts",
+    "legacy_prediction_history",
+    "legacy_report_history",
+    "legacy_benchmark_results",
+    "m4_credibility_first_lane"
+  ],
+  "replace_after_live_mainline_validation": [
+    "prediction_v2_shadow_pre_draw_task",
+    "prediction_v2_shadow_pre_draw_replay",
+    "prediction_v2_shadow_post_draw_task",
+    "prediction_v2_shadow_post_draw_replay"
+  ],
+  "fail_closed_conditions": [
+    "activation_digest_mismatch",
+    "legacy_baseline_digest_mismatch",
+    "prediction_v2_contract_digest_mismatch",
+    "missing_operator_request_identity",
+    "m4_state_change_detected"
+  ],
+  "messages_sent_during_dry_run": false,
+  "service_operations_during_dry_run": false,
+  "live_state_changes_during_dry_run": false,
+  "promotion_gate_opened": false
+}

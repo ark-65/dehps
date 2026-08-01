@@ -1557,6 +1557,9 @@ def refresh_training_next_candidates_current(
     top_n: int = 10000,
     ranked_universe: Any | None = None,
 ) -> dict[str, Any]:
+    from dehps.prediction.v2.retirement import require_legacy_compute_allowed
+
+    require_legacy_compute_allowed("refresh_static_100")
     snapshot = build_training_next_candidate_snapshot(conn, run_id=run_id, top_n=top_n, ranked_universe=ranked_universe)
     replace_training_next_candidates_current(
         conn,
@@ -1575,6 +1578,9 @@ def refresh_dynamic_kdj_next_candidates_current(
     signal_run_id: str | None = None,
     dynamic_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    from dehps.prediction.v2.retirement import require_legacy_compute_allowed
+
+    require_legacy_compute_allowed("refresh_dynamic_kdj")
     snapshot = build_dynamic_kdj_next_candidate_snapshot(
         conn,
         run_id=run_id,
@@ -1633,6 +1639,9 @@ def refresh_near_dynamic_kdj_next_candidates_current(
     dynamic_policy: dict[str, Any] | None = None,
     sealed: bool = False,
 ) -> dict[str, Any]:
+    from dehps.prediction.v2.retirement import require_legacy_compute_allowed
+
+    require_legacy_compute_allowed("refresh_dynamic_kdj_near")
     snapshot = build_near_dynamic_kdj_next_candidate_snapshot(
         conn,
         run_id=run_id,
@@ -1661,6 +1670,9 @@ def refresh_training_prediction_lines_current(
     near_dynamic_policy: dict[str, Any] | None = None,
     near_dynamic_sealed: bool = False,
 ) -> dict[str, Any]:
+    from dehps.prediction.v2.retirement import require_legacy_compute_allowed
+
+    require_legacy_compute_allowed("refresh_legacy_three_lines")
     matrix = ranked_universe or build_ranked_universe()
     static_snapshot = build_training_next_candidate_snapshot(
         conn,

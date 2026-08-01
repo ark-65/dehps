@@ -1,0 +1,31 @@
+{
+  "schema_version": "dehps-prediction-v2-shadow-contract.v1",
+  "artifact_type": "PredictionV2ShadowContract.v1",
+  "semantic_version": "1.0.0",
+  "mode": "SHADOW_ONLY",
+  "domain": "ssq_red_six_of_33",
+  "legal_sample_space": 1107568,
+  "history_boundary": "snapshot_must_end_at_as_of_issue_and_target_must_be_later",
+  "state_windows": [30, 60, 120],
+  "experts": {
+    "marginal": "NOT_AUTHORIZED",
+    "temporal": "NOT_AUTHORIZED",
+    "diversity": "OBSERVATION_ONLY"
+  },
+  "route": "BASELINE_ONLY",
+  "route_release_condition": "separate_research_request_plus_replay_verified_historical_eligibility",
+  "pool_size": 10000,
+  "top_size": 100,
+  "candidate_generation": "deterministic_cryptographic_sampling_without_replacement",
+  "ranking_semantics": "deterministic_legal_null_order",
+  "null_guard": "forced_baseline_until_signal_bearing_experts_are_authorized",
+  "historical_evidence": "NOT_RUN",
+  "evidence_progress_delta": 0,
+  "promotion_gate_opened": false,
+  "production_candidate": false,
+  "claims": {
+    "prediction_advantage": "NOT_CLAIMED",
+    "betting_recommendation": "NOT_AUTHORIZED",
+    "measurement_health": "NOT_APPLICABLE"
+  }
+}

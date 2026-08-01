@@ -1781,6 +1781,9 @@ def build_production_training_session(
     max_rounds: int | None = None,
     observability_only: bool = False,
 ) -> ProductionTrainingSession:
+    from dehps.prediction.v2.retirement import require_legacy_compute_allowed
+
+    require_legacy_compute_allowed("legacy_training_supervisor")
     if observability_only and (max_rounds is None or max_rounds < 1):
         raise ValueError("observability-only mode requires --max-rounds >= 1")
     frozen_plateau_patience = validate_frozen_plateau_patience(
