@@ -518,6 +518,7 @@ def test_issue_manifest_is_prior_only_additive_and_idempotent(tmp_path: Path) ->
         build_issue_manifest(history_artifact=history_artifact, target_issue="2026120")
 
     before = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    before["manifest_digest"] = ControlPlaneManifest.from_dict(before).artifact_digest
     first, _ = materialize_pre_draw_extension(
         root_dir=tmp_path,
         base_manifest=before,
@@ -531,6 +532,8 @@ def test_issue_manifest_is_prior_only_additive_and_idempotent(tmp_path: Path) ->
         target_issue="2026121",
     )
     assert first == second
+    assert "manifest_digest" not in first
+    ControlPlaneManifest.from_dict(first)
     assert additive_migration_dry_run(before=before, after=first)["status"] == "VERIFIED"
     assert len(first["tasks"]) == len(before["tasks"]) + 4
 
@@ -567,6 +570,7 @@ def test_post_draw_materialization_is_idempotent_and_fails_closed_on_identity_dr
         history_rows=[record.as_history_draw() for record in history.records],
         target_issue="2026121",
     )
+    pre_payload["manifest_digest"] = ControlPlaneManifest.from_dict(pre_payload).artifact_digest
     actual = candidate_unrank(121, universe=UNIVERSE)
     first, _ = materialize_post_draw_extension(
         root_dir=tmp_path,
@@ -576,6 +580,8 @@ def test_post_draw_materialization_is_idempotent_and_fails_closed_on_identity_dr
         durable_event_key="draw-event-a",
         history_fingerprint="history-a",
     )
+    assert "manifest_digest" not in first
+    ControlPlaneManifest.from_dict(first)
     second, _ = materialize_post_draw_extension(
         root_dir=tmp_path,
         base_manifest=first,
