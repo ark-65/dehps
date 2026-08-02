@@ -13,6 +13,14 @@ PRE_CAPABILITY = "prediction_v2_shadow_issue_pre_draw"
 PRE_REPLAY_CAPABILITY = "prediction_v2_shadow_issue_pre_draw_replay"
 POST_CAPABILITY = "prediction_v2_shadow_issue_post_draw"
 POST_REPLAY_CAPABILITY = "prediction_v2_shadow_issue_post_draw_replay"
+_TASK_PROJECTION_FIELDS = frozenset(
+    {
+        "status",
+        "completion_classification",
+        "goal_digest",
+        "superseded_by_task_digest",
+    }
+)
 
 
 def issue_task_keys(issue: str) -> dict[str, str]:
@@ -182,6 +190,15 @@ def _task(
     }
 
 
+def _source_task_identity(task: Mapping[str, Any]) -> dict[str, Any]:
+    """Return only fields owned by the immutable source task definition."""
+    return {
+        key: value
+        for key, value in task.items()
+        if key not in _TASK_PROJECTION_FIELDS
+    }
+
+
 def extend_manifest_for_issue(
     base_payload: Mapping[str, Any],
     *,
@@ -269,16 +286,8 @@ def extend_manifest_for_issue(
     for definition in definitions:
         current = existing.get(definition["task_key"])
         if current is not None:
-            immutable_current = {
-                key: value
-                for key, value in current.items()
-                if key not in {"status", "completion_classification"}
-            }
-            immutable_definition = {
-                key: value
-                for key, value in definition.items()
-                if key not in {"status", "completion_classification"}
-            }
+            immutable_current = _source_task_identity(current)
+            immutable_definition = _source_task_identity(definition)
             if immutable_current != immutable_definition:
                 raise ValueError(f"issue task identity collision: {definition['task_key']}")
         if current is None:
