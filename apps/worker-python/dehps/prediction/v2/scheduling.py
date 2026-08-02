@@ -145,6 +145,7 @@ def materialize_post_draw_extension(
         persist_immutable_json(root_dir / paths["actual_draw"], actual)
     payload = json.loads(json.dumps(base_manifest))
     payload.pop("artifact_digest", None)
+    payload.pop("manifest_digest", None)
     facts = payload.setdefault("facts", {})
     events = facts.setdefault("external_events", [])
     draw_fact = issue_facts(issue)["draw_synced"]

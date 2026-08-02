@@ -198,6 +198,7 @@ def extend_manifest_for_issue(
     )
     payload = json.loads(json.dumps(base_payload))
     payload.pop("artifact_digest", None)
+    payload.pop("manifest_digest", None)
     goals = payload.setdefault("goals", [])
     if not any(item.get("goal_key") == ISSUE_GOAL_KEY for item in goals):
         goals.append(
