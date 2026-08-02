@@ -81,3 +81,9 @@ Read-only live inspection after PR #237 found that the packaged draw-sync unit s
 Engineering Request `engineering-prediction-v2-cutover-unit-decoupling-20260801` removes only that source-unit dependency and adds a regression assertion that audited draw ingestion plus the Prediction v2 post consumer remain configured without any `Wants` or `Requires` edge to the legacy forward runtime. Network and PostgreSQL ordering are unchanged. No installed unit or live service was modified by the erratum round.
 
 Erratum validation: focused draw-sync/systemd/Prediction v2 tests `38 passed`; final complete Worker suite `1954 passed, 4 skipped, 4 warnings`; M4 manifest SHA-256 remained `316c8acd7e8d04a92410274600b999e626327bf74a3d256f9c7cc202612a17c0`.
+
+## Live import incident and recovery
+
+The first approved live activation reached the merged draw-sync unit but failed before synchronization or notification delivery. `dehps.draw_sync.scheduler` attempted to import `scripts.run_prediction_v2_shadow_issue`; when Python executes `scripts/run_draw_sync_watch.py`, the scripts directory itself is on `sys.path`, not its parent as a `scripts` package. The resulting `ModuleNotFoundError` was recorded under Operator execution `155`, both Prediction v2 timers were stopped, legacy compute remained disabled, and the M4 service identity remained unchanged.
+
+Engineering Request `engineering-prediction-v2-draw-sync-import-runtime-fix-20260801` changes only that loader to the canonical sibling-script import and adds a subprocess regression using the same scripts-directory import context. No draw-sync logic, Prediction v2 artifact, estimator, route, evidence rule, Promotion Gate, live service, cron, database, activation, or M4 state is changed by the repair.

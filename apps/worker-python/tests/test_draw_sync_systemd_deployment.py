@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 from copy import deepcopy
 from pathlib import Path
 
@@ -27,6 +29,27 @@ def test_prediction_v2_draw_sync_source_cannot_restart_legacy_forward_runtime() 
     assert "--prediction-v2-shadow-notifications" in source
     assert "Wants=dehps-forward-runtime.service" not in source
     assert "Requires=dehps-forward-runtime.service" not in source
+
+
+def test_prediction_v2_notifier_imports_in_systemd_script_context() -> None:
+    script_dir = ROOT / "apps/worker-python/scripts"
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "from run_prediction_v2_shadow_issue import settle_synchronized_issue; "
+                "assert callable(settle_synchronized_issue)"
+            ),
+        ],
+        cwd=script_dir,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
 
 
 def contract(tmp_path: Path) -> tuple[dict, Path, Path]:
