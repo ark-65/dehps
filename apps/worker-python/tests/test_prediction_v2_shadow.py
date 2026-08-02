@@ -537,6 +537,38 @@ def test_issue_manifest_is_prior_only_additive_and_idempotent(tmp_path: Path) ->
     assert additive_migration_dry_run(before=before, after=first)["status"] == "VERIFIED"
     assert len(first["tasks"]) == len(before["tasks"]) + 4
 
+    durable = ControlPlaneManifest.from_dict(first).to_dict(include_digest=False)
+    for task in durable["tasks"]:
+        if task["task_key"].startswith("prediction-v2-shadow-2026121-"):
+            task["status"] = "completed"
+            task["completion_classification"] = "COMPLETE"
+    durable = ControlPlaneManifest.from_dict(durable).to_dict(include_digest=True)
+    from_durable, _ = materialize_pre_draw_extension(
+        root_dir=tmp_path,
+        base_manifest=durable,
+        history_rows=[record.as_history_draw() for record in history.records],
+        target_issue="2026121",
+    )
+    expected_durable = json.loads(json.dumps(durable))
+    expected_durable.pop("manifest_digest")
+    assert from_durable == expected_durable
+    ControlPlaneManifest.from_dict(from_durable)
+
+    drifted = json.loads(json.dumps(durable))
+    drifted_task = next(
+        item
+        for item in drifted["tasks"]
+        if item["task_key"] == "prediction-v2-shadow-2026121-pre-draw"
+    )
+    drifted_task["priority"] += 1
+    with pytest.raises(ValueError, match="issue task identity collision"):
+        materialize_pre_draw_extension(
+            root_dir=tmp_path,
+            base_manifest=drifted,
+            history_rows=[record.as_history_draw() for record in history.records],
+            target_issue="2026121",
+        )
+
     dry_root = tmp_path / "dry-run"
     materialize_pre_draw_extension(
         root_dir=dry_root,
