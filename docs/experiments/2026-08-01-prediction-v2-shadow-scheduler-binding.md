@@ -91,3 +91,20 @@ Engineering Request `engineering-prediction-v2-draw-sync-import-runtime-fix-2026
 The next recovery pre-draw attempt exposed a second fail-closed integration gap before control-plane import or mail delivery: durable repository exports identify themselves with `manifest_digest`, while the per-issue extension removed only the source-only `artifact_digest` spelling. Engineering Request `engineering-prediction-v2-live-manifest-digest-fix-20260802` clears both derived identity spellings before pre/post additive extension and validates exported-manifest-shaped fixtures. Existing goals, tasks and facts remain subject to the same zero-delete/zero-rewrite migration check.
 
 After that repair, the manually authorized 2026088 pre-draw task and replay completed and the replay-bound notification was delivered exactly once. The first Persistent timer catch-up then failed before dispatch because a durable repository export includes derived task projection fields (`goal_digest` and `superseded_by_task_digest`) that are absent from a source task declaration. Engineering Request `engineering-prediction-v2-existing-issue-idempotence-fix-20260802` excludes only those repository-derived fields, together with runtime status fields, from the source-definition identity comparison. All source-owned fields remain exact and any drift still fails closed. This makes an exact already-imported issue a no-op without weakening artifact, fact, task, or goal identity validation.
+
+## Live activation status-binding follow-up
+
+Operator execution `161` completed the physical legacy retirement and Prediction v2 shadow cutover, but the isolated control plane still projected the scheduler boundary as `approval_wait`. Consequently, the status artifact continued to say `NOT_PUBLISHED` even though the old services were stopped and disabled, the replacement timers were active, issue `2026088` had completed all four tasks and replays, and its pre/post notifications had each been delivered exactly once.
+
+Engineering Request `engineering-prediction-v2-live-activation-status-binding-20260803` closes only that canonical status-chain gap:
+
+- the existing scheduler boundary becomes a maintenance activation-attestation capability under the unified Supervisor;
+- an allowlisted migration may revise only that task definition and add only the frozen Operator authority fact;
+- the task binds the sealed retirement activation, immutable Operator completion payload, and cutover plan as three exact input identities;
+- the capability emits an immutable `PredictionV2LiveActivationAttestation.v1` and a completion fact;
+- physical replay reconstructs the attestation from the same activation and completion inputs, checks registered content and execution child identity, and fails closed on tampering;
+- `legacy_retirement_activation=VERIFIED` and `legacy_compute_state=STOPPED_AND_DISABLED` are projected only from the replayable mainline completion fact.
+
+This source round does not import the live manifest, publish the canonical completion copy, execute the capability, operate services or timers, send notifications, or touch M4. Those actions remain a separate typed Operator execution after merge. `HistoricalEvidence=NOT_RUN`, Evidence Progress `0`, and `promotion_gate_opened=false` remain invariant.
+
+Source validation for the follow-up: the focused activation migration/replay tests pass (`2 passed`), the complete Prediction v2 shadow suite passes (`19 passed`), and the complete Worker suite in a clean detached worktree passes (`1957 passed, 4 skipped, 4 pre-existing Python 3.14 fork warnings`) in `362.94s`. The final live integration matrix is recorded at the accepted commit/Operator boundary rather than inferred from source availability.

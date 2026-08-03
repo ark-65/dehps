@@ -10,6 +10,13 @@ from dehps.artifacts import atomic_write_text
 from dehps.contracts import canonical_digest
 from dehps.input_contracts.candidate_abi import candidate_unrank
 from dehps.input_contracts.history_window import HistorySnapshotArtifact
+from dehps.prediction.v2.activation_binding import (
+    CUTOVER_CAPABILITY,
+    CUTOVER_TASK_KEY,
+    LIVE_ACTIVATION_COMPLETION_FACT,
+    PredictionV2ActivationBindingError,
+    build_live_activation_attestation,
+)
 from dehps.prediction.v2.contracts import (
     load_legacy_baseline,
     load_shadow_contract,
@@ -372,6 +379,76 @@ class PredictionV2ReplayCapability:
         )
 
 
+class PredictionV2LiveActivationCapability:
+    def __init__(self, *, root_dir: Path) -> None:
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> PredictionV2CapabilityResult:
+        integration_contract(task)
+        if control_plane_key != CONTROL_PLANE_KEY:
+            raise PredictionV2MainlineError(
+                "Prediction v2 must use its isolated control-plane key"
+            )
+        if (
+            task.task_key != CUTOVER_TASK_KEY
+            or task.requested_capability != CUTOVER_CAPABILITY
+        ):
+            raise PredictionV2MainlineError(
+                "live activation capability received the wrong task"
+            )
+        contract = json.loads(task.metric_contract)
+        try:
+            attestation = build_live_activation_attestation(
+                root_dir=self.root_dir,
+                activation_path=str(contract["activation_path"]),
+                completion_path=str(contract["operator_completion_path"]),
+            )
+        except (KeyError, PredictionV2ActivationBindingError) as exc:
+            raise PredictionV2MainlineError(
+                "live activation input contract is not verifiable"
+            ) from exc
+        required_inputs = {
+            str(attestation["cutover_plan_digest"]),
+            str(attestation["retirement_activation_digest"]),
+            str(attestation["operator_completion_payload_digest"]),
+        }
+        if set(task.input_artifact_digests) != required_inputs:
+            raise PredictionV2MainlineError(
+                "live activation task input identities changed"
+            )
+        execution = _execution_payload(
+            task=task,
+            execution_id=execution_id,
+            control_plane_key=control_plane_key,
+            git_commit=git_commit,
+            child_payloads=(attestation,),
+            downstream_consumer="prediction-v2-shadow-issue-scheduler",
+            replay_status="ACTIVATION_VERIFIED",
+        )
+        execution_path, registrations = _persist_and_register(
+            root_dir=self.root_dir,
+            task=task,
+            execution_id=execution_id,
+            control_plane_key=control_plane_key,
+            git_commit=git_commit,
+            children=(attestation,),
+            execution=execution,
+        )
+        return PredictionV2CapabilityResult(
+            execution_artifact=execution,
+            execution_artifact_path=execution_path,
+            registrations=registrations,
+            completion_facts=(LIVE_ACTIVATION_COMPLETION_FACT,),
+        )
+
+
 def build_prediction_v2_status(
     *,
     manifest: Any,
@@ -381,6 +458,7 @@ def build_prediction_v2_status(
 ) -> dict[str, Any]:
     states = {item.task_key: item.status.value for item in snapshot.resolutions}
     replay_verified = REPLAY_COMPLETION_FACT in manifest.facts.artifacts
+    activation_verified = LIVE_ACTIVATION_COMPLETION_FACT in manifest.facts.artifacts
     return {
         "schema_version": "dehps-prediction-v2-shadow-status.v1",
         "control_plane_key": CONTROL_PLANE_KEY,
@@ -391,8 +469,15 @@ def build_prediction_v2_status(
         "next_ready_task": snapshot.ready_queue[0].task_key if snapshot.ready_queue else None,
         "reference_execution": None if execution is None else dict(execution),
         "replay_verified": replay_verified,
-        "legacy_retirement_activation": "NOT_PUBLISHED",
-        "legacy_compute_state": "UNCHANGED_UNTIL_OPERATOR_ACTIVATION",
+        "legacy_retirement_activation": (
+            "VERIFIED" if activation_verified else "NOT_PUBLISHED"
+        ),
+        "legacy_compute_state": (
+            "STOPPED_AND_DISABLED"
+            if activation_verified
+            else "UNCHANGED_UNTIL_OPERATOR_ACTIVATION"
+        ),
+        "live_activation_verified": activation_verified,
         "historical_evidence": "NOT_RUN",
         "evidence_progress_percent": 0,
         "promotion_gate_opened": False,
