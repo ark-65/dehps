@@ -1,8 +1,6 @@
 import json
 from pathlib import Path
 
-from typer.testing import CliRunner
-
 from dehps import cli
 from dehps.research_os.control_plane import ResearchOSControlPlane
 from dehps.research_os.information_theory import (
@@ -18,7 +16,7 @@ from dehps.research_os.mainline import (
     mainline_completion_fact,
 )
 from dehps.research_os.models import GoalStatus, TaskStatus
-
+from typer.testing import CliRunner
 
 ROOT = Path(__file__).resolve().parents[3]
 MANIFEST_PATH = ROOT / "configs/research-os/m4-information-theory-evidence-v1.json"
@@ -40,8 +38,12 @@ def test_m4_manifest_freezes_legacy_mainline_and_selects_p2() -> None:
     assert legacy_target["research_status"] == "rejected"
     assert legacy_target["mainline_status"] == "frozen"
     assert [item.task_key for item in snapshot.ready_queue] == [
-        "m4-p2-repair-measurement-system"
+        "m4-p2-repair-measurement-system",
     ]
+    assert (
+        _by_task(snapshot)["m4-p2-9-golden-reference-freeze"].status
+        is TaskStatus.EXTERNAL_WAIT
+    )
     assert (
         _by_task(snapshot)["m4-p1-contract-and-preregistration"].status
         is TaskStatus.COMPLETED
@@ -74,8 +76,12 @@ def test_m4_p2_ready_queue_does_not_unblock_formal_run() -> None:
     snapshot = ResearchOSControlPlane().resolve(manifest)
 
     assert [item.task_key for item in snapshot.ready_queue] == [
-        "m4-p2-repair-measurement-system"
+        "m4-p2-repair-measurement-system",
     ]
+    assert (
+        _by_task(snapshot)["m4-p2-9-measurement-runtime-audit"].status
+        is TaskStatus.EXTERNAL_WAIT
+    )
     assert (
         _by_task(snapshot)["m4-p2-synthetic-measurement-validation"].status
         is TaskStatus.DEPENDENCY_WAIT

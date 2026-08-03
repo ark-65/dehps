@@ -144,12 +144,14 @@ class ReferenceReplicateEvaluator:
         inputs: ReferenceInputs,
         output_dir: Path,
         audit_observer: RuntimeAuditObserver | None = None,
+        trace_records: list[dict[str, Any]] | None = None,
     ) -> None:
         self.manifest = manifest
         self.synthetic = synthetic
         self.inputs = inputs
         self.output_dir = output_dir
         self.audit_observer = audit_observer or RuntimeAuditObserver(enabled=False)
+        self.trace_records = trace_records
         if (
             manifest.artifact_digest != MEASUREMENT_VALIDATION_MANIFEST_DIGEST
             and manifest.payload.get("phase") != "M4-P2.6.1"
@@ -195,6 +197,7 @@ class ReferenceReplicateEvaluator:
         git_commit: str,
         output_dir: Path,
         audit_observer: RuntimeAuditObserver | None = None,
+        trace_records: list[dict[str, Any]] | None = None,
     ) -> ReferenceReplicateEvaluator:
         return cls(
             manifest=manifest,
@@ -208,6 +211,7 @@ class ReferenceReplicateEvaluator:
             ),
             output_dir=output_dir,
             audit_observer=audit_observer,
+            trace_records=trace_records,
         )
 
     def evaluate(self, replicate: AnalysisReplicate) -> Mapping[str, Any]:
@@ -324,6 +328,9 @@ class ReferenceReplicateEvaluator:
             )
 
             predictions: dict[str, tuple[float, ...]] = {}
+            probe_state_payloads: dict[str, dict[str, Any]] | None = (
+                {} if self.trace_records is not None else None
+            )
             for probe_id in PROBES:
                 if probe_id == "EMPIRICAL_BASELINE":
                     config = {}
@@ -371,6 +378,8 @@ class ReferenceReplicateEvaluator:
                 )
                 checkpoint_digests[probe_id].append(checkpoint_digest)
                 state_digests[probe_id].append(prepared.state.state_digest)
+                if probe_state_payloads is not None:
+                    probe_state_payloads[probe_id] = prepared.state.to_dict()
                 predictions[probe_id] = probability
 
             with self.audit_observer.phase("checkpoint_artifact_persistence"):
@@ -386,6 +395,9 @@ class ReferenceReplicateEvaluator:
             # prediction identities and their persisted journal entry.
             target = dataset.issue(fold.test_issue).target_vector
             ordered_targets.append(target)
+            trace_probe_payloads: dict[str, dict[str, Any]] | None = (
+                {} if self.trace_records is not None else None
+            )
             for probe_id in PROBES:
                 with self.audit_observer.phase("prediction_metric"):
                     metric = evaluate_issue(
@@ -414,6 +426,39 @@ class ReferenceReplicateEvaluator:
                 )
                 issue_gains[probe_id].append(
                     metric.observed_log_loss_gain_bits_per_issue
+                )
+                if trace_probe_payloads is not None:
+                    if probe_state_payloads is None:
+                        raise AssertionError(
+                            "trace probe state capture was not initialized"
+                        )
+                    trace_probe_payloads[probe_id] = {
+                        "probe_state": probe_state_payloads[probe_id],
+                        "probabilities": list(predictions[probe_id]),
+                        "issue_metric": metric.to_dict(),
+                        "prediction_checkpoint_digest": checkpoint_digests[probe_id][
+                            -1
+                        ],
+                        "settlement_digest": settlement_digests[probe_id][-1],
+                    }
+            if self.trace_records is not None:
+                if trace_probe_payloads is None:
+                    raise AssertionError("trace capture was not initialized")
+                self.trace_records.append(
+                    {
+                        "fold_index": fold_index,
+                        "train_start_issue": fold.train_issues[0],
+                        "train_end_issue": fold.train_issues[-1],
+                        "test_issue": fold.test_issue,
+                        "train_feature_view_digest": train_view.feature_view_digest,
+                        "blind_feature_view_digest": blind.feature_view_digest,
+                        "target_digest": canonical_digest(
+                            list(target),
+                            domain="dehps.m4-p2.formal-fold-target.v1",
+                        ),
+                        "target_vector": list(target),
+                        "probes": trace_probe_payloads,
+                    }
                 )
             gate_probabilities.append(predictions[GATE_PROBE])
 
