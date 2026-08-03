@@ -196,11 +196,23 @@
       "path": "configs/research-os/m4-information-theory-walk-forward-harness-v1.json"
     },
     "5d6eafd399bc6a0fc87a2fa0fce4830824776194566aab4a8ab2299379646aff": {
-      "artifact_type": "measurement_runtime_benchmark_plan",
+      "artifact_type": "superseded_measurement_runtime_benchmark_plan",
       "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.json",
-      "supersedes_digest": "c34836c3464bafd408c3eef1c87505040a69f79a5323bbb7d803bce9565be674"
+      "supersedes_digest": "c34836c3464bafd408c3eef1c87505040a69f79a5323bbb7d803bce9565be674",
+      "superseded_by_digest": "eef5e18f6ffb342f264ef47913892efa91d92dfec0a32a51d2f1d0cb2711cbd5"
+    },
+    "eef5e18f6ffb342f264ef47913892efa91d92dfec0a32a51d2f1d0cb2711cbd5": {
+      "artifact_type": "measurement_runtime_benchmark_plan",
+      "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.1.json",
+      "supersedes_digest": "5d6eafd399bc6a0fc87a2fa0fce4830824776194566aab4a8ab2299379646aff"
     },
     "4ae6aadbf1c9df861266c014ab58f4870d84fef4949fd93931a7ccd2c3da1fd8": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "source_commit": "b71de485d3251496cff964be0a2251dfa6272e29",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "superseded_by_digest": "e09aa5e52f7b21e159fef78d7c0b87666caa09d84ee407fd8161c8b9396169a2"
+    },
+    "e09aa5e52f7b21e159fef78d7c0b87666caa09d84ee407fd8161c8b9396169a2": {
       "artifact_type": "research_os_control_plane_manifest",
       "path": "configs/research-os/m4-information-theory-evidence-v1.json"
     }

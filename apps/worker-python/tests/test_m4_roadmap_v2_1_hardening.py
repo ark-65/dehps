@@ -112,7 +112,7 @@ FIXTURE_PATH = (
     ROOT / "configs/research-os/m4-measurement-contract-v2-replay-fixture-v1.json"
 )
 AUDIT_PATH = (
-    ROOT / "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.json"
+    ROOT / "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.1.json"
 )
 MANIFEST_PATH = ROOT / "configs/research-os/m4-information-theory-evidence-v1.json"
 
@@ -1152,7 +1152,7 @@ def test_design_replay_is_a_formal_capability_with_immutable_artifacts(
     replay_task = tasks["m4-v2-measurement-contract-design-replay"]
     design_id = "a" * 64
     design = M4MeasurementContractV2DesignCapability(root_dir=tmp_path).execute(
-        control_plane_key="test-mainline",
+        control_plane_key=EXPECTED_CONTROL_PLANE_KEY,
         task=design_task,
         execution_id=design_id,
         git_commit="b" * 40,
@@ -1175,7 +1175,7 @@ def test_design_replay_is_a_formal_capability_with_immutable_artifacts(
         repository=repository,
         root_dir=tmp_path,
     ).execute(
-        control_plane_key="test-mainline",
+        control_plane_key=EXPECTED_CONTROL_PLANE_KEY,
         task=replay_task,
         execution_id="c" * 64,
         git_commit="d" * 40,
@@ -1206,7 +1206,7 @@ def test_design_replay_is_a_formal_capability_with_immutable_artifacts(
             repository=repository,
             root_dir=tmp_path,
         ).execute(
-            control_plane_key="test-mainline",
+            control_plane_key=EXPECTED_CONTROL_PLANE_KEY,
             task=replay_task,
             execution_id="e" * 64,
             git_commit="d" * 40,
@@ -1584,7 +1584,7 @@ def test_runtime_commit_marker_recovers_registrations_without_rerun(
         "artifact_type": "research_os_mainline_execution",
         "artifact_digest": "",
         "execution_id": execution_id,
-        "control_plane_key": "test-mainline",
+        "control_plane_key": EXPECTED_CONTROL_PLANE_KEY,
         "goal_key": task.goal_key,
         "task_key": task.task_key,
         "task_digest": task.artifact_digest,
@@ -1703,7 +1703,7 @@ def test_runtime_commit_marker_recovers_registrations_without_rerun(
     kwargs = {
         "root_dir": tmp_path,
         "owner": SimpleNamespace(root_dir=tmp_path),
-        "control_plane_key": "test-mainline",
+        "control_plane_key": EXPECTED_CONTROL_PLANE_KEY,
         "task": task,
         "execution_id": execution_id,
         "git_commit": git_commit,

@@ -22,7 +22,7 @@ from dehps.research_os.supervisor import (
 
 ROOT = Path(__file__).resolve().parents[3]
 MANIFEST_PATH = ROOT / "configs/research-os/m4-information-theory-evidence-v1.json"
-CONTROL_PLANE_KEY = "test-mainline"
+CONTROL_PLANE_KEY = "m4-information-theory-mainline"
 
 
 class _StaticControlPlane:
@@ -63,10 +63,7 @@ class _CompletedExecutionRepository:
             event
             for event in self.events
             if (task_key is None or event["task_key"] == task_key)
-            and (
-                execution_id is None
-                or event.get("execution_id") == execution_id
-            )
+            and (execution_id is None or event.get("execution_id") == execution_id)
         )
 
 
@@ -89,9 +86,11 @@ def test_idle_heartbeat_retains_legacy_and_v2_execution_summaries(
     snapshot = replace(
         resolved,
         resolutions=tuple(
-            replace(item, status=TaskStatus.COMPLETED)
-            if item.task_key in completed_keys
-            else item
+            (
+                replace(item, status=TaskStatus.COMPLETED)
+                if item.task_key in completed_keys
+                else item
+            )
             for item in resolved.resolutions
         ),
         ready_queue=(),
@@ -132,9 +131,9 @@ def test_idle_heartbeat_retains_legacy_and_v2_execution_summaries(
 
     assert heartbeat["status"] == "IDLE"
     status = json.loads(
-        (
-            tmp_path / "runtime/logs/m4-information-theory-status.json"
-        ).read_text(encoding="utf-8")
+        (tmp_path / "runtime/logs/m4-information-theory-status.json").read_text(
+            encoding="utf-8"
+        )
     )
     legacy_projection = status["mainline_integration"]
     assert legacy_projection["execution_artifact_digest"] == legacy_digest
@@ -160,9 +159,11 @@ def test_running_projection_uses_repair_execution_not_preflight_summary(
     snapshot = replace(
         resolved,
         resolutions=tuple(
-            replace(item, status=status_by_task[item.task_key])
-            if item.task_key in status_by_task
-            else item
+            (
+                replace(item, status=status_by_task[item.task_key])
+                if item.task_key in status_by_task
+                else item
+            )
             for item in resolved.resolutions
         ),
         ready_queue=(),
@@ -207,6 +208,4 @@ def test_running_projection_uses_repair_execution_not_preflight_summary(
         mainline_execution=summary,
     )
     assert status["mainline_integration"]["task_key"] == P26_REPAIR_TASK_KEY
-    assert status["mainline_integration"][
-        "execution_artifact_digest"
-    ] == repair_digest
+    assert status["mainline_integration"]["execution_artifact_digest"] == repair_digest

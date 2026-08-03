@@ -50,6 +50,7 @@ ROOT = Path(__file__).resolve().parents[3]
 MANIFEST_PATH = ROOT / "configs/research-os/m4-information-theory-evidence-v1.json"
 DATASET_DIGEST = "5354b9f7f6c72996cff16d6c161b03ff49922bf92589bd43b823d107019ebd86"
 TEST_COMMIT = "a" * 40
+TEST_CONTROL_PLANE_KEY = "m4-information-theory-mainline"
 
 
 def reset_preflight_to_pending(value: dict) -> None:
@@ -201,11 +202,11 @@ class MemoryMainlineRepository:
         return None
 
     def load_manifest(self, *, control_plane_key: str) -> ControlPlaneManifest:
-        assert control_plane_key == "test-mainline"
+        assert control_plane_key == TEST_CONTROL_PLANE_KEY
         return self.manifest
 
     def import_manifest(self, *, control_plane_key: str, payload: dict, source: str):
-        assert control_plane_key == "test-mainline"
+        assert control_plane_key == TEST_CONTROL_PLANE_KEY
         assert source.startswith("research-evidence-supervisor")
         if (
             source == "research-evidence-supervisor-completed"
@@ -658,7 +659,7 @@ def test_repository_requires_physical_execution_and_artifact_records() -> None:
     ):
         PostgresResearchOSRepository._verify_mainline_completion_records(
             MissingCursor(),
-            control_plane_key="test-mainline",
+            control_plane_key=TEST_CONTROL_PLANE_KEY,
             manifest=completed,
         )
 
@@ -683,7 +684,7 @@ def test_repository_forbids_reimport_regression_after_mainline_completion() -> N
     ):
         PostgresResearchOSRepository._verify_no_mainline_completion_regression(
             CompletedCursor(),
-            control_plane_key="test-mainline",
+            control_plane_key=TEST_CONTROL_PLANE_KEY,
             manifest=manifest,
             previous_tasks={task.task_key: task.artifact_digest},
         )
@@ -696,7 +697,7 @@ def test_supervisor_executes_p2_3_updates_status_unlocks_p2_4_and_replays(
     root = prepare_root(tmp_path)
     supervisor = ResearchEvidenceSupervisor(
         repository=repository,  # type: ignore[arg-type]
-        control_plane_key="test-mainline",
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
         root_dir=root,
         now=lambda: datetime(2026, 7, 25, 8, 0, tzinfo=timezone.utc),
         git_commit=TEST_COMMIT,
@@ -740,7 +741,7 @@ def test_supervisor_resumes_after_completed_event_before_status_projection(
     repository.fail_completed_import_once = True
     supervisor = ResearchEvidenceSupervisor(
         repository=repository,  # type: ignore[arg-type]
-        control_plane_key="test-mainline",
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
         root_dir=prepare_root(tmp_path),
         now=lambda: datetime(2026, 7, 25, 8, 0, tzinfo=timezone.utc),
         git_commit=TEST_COMMIT,
@@ -784,7 +785,7 @@ def test_supervisor_rejects_stale_completed_event_manifest_on_resume(
     repository.fail_completed_import_once = True
     supervisor = ResearchEvidenceSupervisor(
         repository=repository,  # type: ignore[arg-type]
-        control_plane_key="test-mainline",
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
         root_dir=prepare_root(tmp_path),
         now=lambda: datetime(2026, 7, 25, 8, 0, tzinfo=timezone.utc),
         git_commit=TEST_COMMIT,
@@ -816,7 +817,7 @@ def test_runtime_commit_marker_recovers_after_partial_registration_without_rerun
     root = prepare_root(tmp_path)
     supervisor = ResearchEvidenceSupervisor(
         repository=repository,  # type: ignore[arg-type]
-        control_plane_key="test-mainline",
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
         root_dir=root,
         now=lambda: datetime(2026, 8, 3, 8, 0, tzinfo=timezone.utc),
         git_commit=TEST_COMMIT,
@@ -879,7 +880,7 @@ def test_revised_p2_6_definition_cannot_resume_superseded_execution(
     prepare_formal_p24_artifacts(root)
     supervisor = ResearchEvidenceSupervisor(
         repository=repository,  # type: ignore[arg-type]
-        control_plane_key="test-mainline",
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
         root_dir=root,
         now=lambda: datetime(2026, 7, 31, 8, 0, tzinfo=timezone.utc),
         git_commit=TEST_COMMIT,
@@ -907,7 +908,7 @@ def test_supervisor_executes_p2_4_unlocks_p2_5_and_replays(
     repository = MemoryMainlineRepository(source_manifest_payload())
     supervisor = ResearchEvidenceSupervisor(
         repository=repository,  # type: ignore[arg-type]
-        control_plane_key="test-mainline",
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
         root_dir=prepare_root(tmp_path),
         now=lambda: datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc),
         git_commit=TEST_COMMIT,
@@ -956,7 +957,7 @@ def test_supervisor_executes_p2_5_unlocks_identifiability_preflight_and_replays(
     prepare_formal_p24_artifacts(root)
     supervisor = ResearchEvidenceSupervisor(
         repository=repository,  # type: ignore[arg-type]
-        control_plane_key="test-mainline",
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
         root_dir=root,
         now=lambda: datetime(2026, 7, 27, 9, 0, tzinfo=timezone.utc),
         git_commit=TEST_COMMIT,
@@ -997,7 +998,7 @@ def test_supervisor_projects_preflight_and_fail_closed_repair_branch_with_replay
     prepare_formal_p24_artifacts(root)
     supervisor = ResearchEvidenceSupervisor(
         repository=repository,  # type: ignore[arg-type]
-        control_plane_key="test-mainline",
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
         root_dir=root,
         now=lambda: datetime(2026, 7, 27, 10, 0, tzinfo=timezone.utc),
         git_commit=TEST_COMMIT,

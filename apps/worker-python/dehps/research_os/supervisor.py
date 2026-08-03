@@ -281,6 +281,12 @@ M4_P29_RUNTIME_AUDIT_CAPABILITY = "m4_p2_9_measurement_runtime_audit"
 M4_P29_RUNTIME_AUDIT_COMPLETION_FACT = "m4-p2-9-runtime-audit:VERIFIED"
 M4_P29_ACCELERATION_BOUNDARY_SCOPE = "literal_behavior_path_and_fresh_import_closure"
 P2_UMBRELLA_TASK_KEY = "m4-p2-synthetic-measurement-validation"
+M4_CONTROL_PLANE_KEY = "m4-information-theory-mainline"
+
+_TASK_ARTIFACT_NAMESPACE_BY_CONTROL_PLANE = {
+    M4_CONTROL_PLANE_KEY: "mainline",
+    PREDICTION_V2_CONTROL_PLANE_KEY: "prediction-v2-shadow",
+}
 MAINLINE_EXECUTION_SCHEMA = "dehps-research-os-mainline-execution.v1"
 P26_EQUIVALENT_RESUME_ENV = "DEHPS_P26_EQUIVALENT_RESUME_FROM_COMMIT"
 P26_EQUIVALENT_RESUME_REPORT_ENV = "DEHPS_P26_EQUIVALENT_RESUME_REPORT"
@@ -464,6 +470,7 @@ def _registration_record(
 def _canonical_task_artifact_path(
     *,
     root_dir: Path,
+    control_plane_key: str,
     task_key: str,
     execution_id: str,
     relative_path: str,
@@ -476,10 +483,24 @@ def _canonical_task_artifact_path(
         or raw.as_posix() != relative_path
     ):
         raise MainlineSupervisorError("mainline artifact path is not canonical")
-    task_root = (
-        root_dir / "runtime/research-os/mainline/tasks" / task_key / execution_id
-    ).resolve()
-    path = (root_dir / raw).resolve()
+    try:
+        artifact_namespace = _TASK_ARTIFACT_NAMESPACE_BY_CONTROL_PLANE[
+            control_plane_key
+        ]
+    except KeyError as exc:
+        raise MainlineSupervisorError(
+            "mainline artifact control plane is not registered"
+        ) from exc
+    repository_root = root_dir.resolve()
+    namespace_root = (
+        repository_root / "runtime/research-os" / artifact_namespace / "tasks"
+    )
+    if namespace_root.resolve() != namespace_root:
+        raise MainlineSupervisorError("mainline artifact path escaped task namespace")
+    task_root = namespace_root / task_key / execution_id
+    if task_root.resolve() != task_root:
+        raise MainlineSupervisorError("mainline artifact path escaped task execution")
+    path = (repository_root / raw).resolve()
     if not path.is_relative_to(task_root):
         raise MainlineSupervisorError("mainline artifact path escaped task execution")
     return path
@@ -569,6 +590,7 @@ def _load_single_completed_execution(
     execution_relative_path = str(summary.get("execution_artifact_path") or "")
     path = _canonical_task_artifact_path(
         root_dir=root_dir,
+        control_plane_key=control_plane_key,
         task_key=task_key,
         execution_id=completed_record.execution_id,
         relative_path=execution_relative_path,
@@ -628,7 +650,12 @@ def _load_single_completed_execution(
     ]
     try:
         summary_count = int(summary.get("registered_artifact_count"))
-        execution_count = int(execution.get("registered_artifact_count"))
+        execution_count = (
+            summary_count
+            if control_plane_key == PREDICTION_V2_CONTROL_PLANE_KEY
+            and "registered_artifact_count" not in execution
+            else int(execution.get("registered_artifact_count"))
+        )
     except (TypeError, ValueError) as exc:
         raise MainlineSupervisorError(
             f"completed execution registry count changed: {task_key}"
@@ -655,6 +682,7 @@ def _load_single_completed_execution(
             )
         artifact_path = _canonical_task_artifact_path(
             root_dir=root_dir,
+            control_plane_key=control_plane_key,
             task_key=task_key,
             execution_id=completed_record.execution_id,
             relative_path=record.artifact_path,
@@ -1063,6 +1091,7 @@ def _prepare_fresh_runtime_audit_attempt(
 def _validate_runtime_benchmark_attempt_files(
     *,
     root_dir: Path,
+    control_plane_key: str,
     task_key: str,
     execution_id: str,
     attempt: Mapping[str, Any],
@@ -1085,12 +1114,14 @@ def _validate_runtime_benchmark_attempt_files(
         )
     measured_root = _canonical_task_artifact_path(
         root_dir=root_dir,
+        control_plane_key=control_plane_key,
         task_key=task_key,
         execution_id=execution_id,
         relative_path=expected_measured_path,
     )
     correctness_root = _canonical_task_artifact_path(
         root_dir=root_dir,
+        control_plane_key=control_plane_key,
         task_key=task_key,
         execution_id=execution_id,
         relative_path=expected_correctness_path,
@@ -1913,6 +1944,7 @@ def _recover_runtime_audit_commit_marker(
     )
     measured_journal_bytes = _validate_runtime_benchmark_attempt_files(
         root_dir=root_dir,
+        control_plane_key=control_plane_key,
         task_key=task.task_key,
         execution_id=execution_id,
         attempt=benchmark_attempt,
@@ -4913,12 +4945,16 @@ class ResearchEvidenceSupervisor:
         self,
         *,
         repository: PostgresResearchOSRepository | None = None,
-        control_plane_key: str = "m4-information-theory-mainline",
+        control_plane_key: str = M4_CONTROL_PLANE_KEY,
         root_dir: Path = ROOT_DIR,
         now: Callable[[], datetime] | None = None,
         git_commit: str | None = None,
         require_clean_tree: bool = True,
     ) -> None:
+        if control_plane_key not in _TASK_ARTIFACT_NAMESPACE_BY_CONTROL_PLANE:
+            raise MainlineSupervisorError(
+                "mainline artifact control plane is not registered"
+            )
         self.repository = repository or PostgresResearchOSRepository()
         self.control_plane_key = control_plane_key
         self.root_dir = root_dir
@@ -5874,7 +5910,7 @@ class ResearchEvidenceSupervisor:
     def replay(
         self, *, task_key: str, execution_id: str | None = None
     ) -> dict[str, Any]:
-        if task_key in {
+        if self.control_plane_key == PREDICTION_V2_CONTROL_PLANE_KEY or task_key in {
             M4_P29_GOLDEN_REFERENCE_TASK_KEY,
             M4_P29_RUNTIME_AUDIT_TASK_KEY,
         }:
@@ -6336,6 +6372,7 @@ class ResearchEvidenceSupervisor:
             )
             measured_journal_bytes = _validate_runtime_benchmark_attempt_files(
                 root_dir=self.root_dir,
+                control_plane_key=self.control_plane_key,
                 task_key=M4_P29_RUNTIME_AUDIT_TASK_KEY,
                 execution_id=resolved_execution_id,
                 attempt=benchmark_attempt,
