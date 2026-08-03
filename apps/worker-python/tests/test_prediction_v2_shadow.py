@@ -19,6 +19,15 @@ from dehps.notifications.prediction_v2_shadow import (
     build_notification_envelope,
 )
 from dehps.optimization.next_candidates import refresh_training_prediction_lines_current
+from dehps.prediction.v2.activation_binding import (
+    COMPLETION_RELATIVE_PATH,
+    CUTOVER_AUTHORITY_FACT,
+    CUTOVER_TASK_KEY,
+    LIVE_ACTIVATION_COMPLETION_FACT,
+    PredictionV2ActivationBindingError,
+    materialize_activation_binding_migration,
+    verify_activation_binding_migration,
+)
 from dehps.prediction.v2.contracts import (
     ACTIVATION_FACT,
     ACTIVATION_SCHEMA,
@@ -241,6 +250,41 @@ def valid_activation(path: Path) -> dict:
     )
     path.write_text(json.dumps(activation), encoding="utf-8")
     return activation
+
+
+def valid_operator_completion(path: Path, *, activation: dict) -> dict:
+    completion = {
+        "schema_version": "dehps-prediction-v2-live-cutover-completion.v1",
+        "artifact_type": "PredictionV2LiveCutoverCompletionArtifact.v1",
+        "operator_request": "operator_prediction_v2_live_cutover_test",
+        "operator_execution_id": 123,
+        "completed_at": "2026-08-03T00:00:00+08:00",
+        "source_commit": TEST_COMMIT,
+        "legacy_retirement": {
+            "status": "LEGACY_FROZEN",
+            "activation_digest": activation["artifact_digest"],
+            "compute_allowed": False,
+            "preservation_check": "EXACT_MATCH_TO_PREFLIGHT",
+        },
+        "prediction_v2": {
+            "mode": "SHADOW_ONLY",
+            "route": "BASELINE_ONLY",
+            "pre_draw_timer": "ACTIVE_WAITING_ENABLED",
+            "draw_sync_timer": "ACTIVE_WAITING_ENABLED",
+            "issue_task_state": "ALL_FOUR_TASKS_COMPLETED",
+        },
+        "m4_isolation": {"state_changed": False},
+        "evidence_boundary": {
+            "historical_evidence": "NOT_RUN",
+            "evidence_progress_delta": 0,
+            "promotion_gate_opened": False,
+            "production_candidate_created": False,
+        },
+        "status": "OPERATION_COMPLETE",
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(completion), encoding="utf-8")
+    return completion
 
 
 def test_retirement_is_inactive_by_default_and_valid_activation_blocks_old_entrypoints(
@@ -503,6 +547,117 @@ def test_unified_supervisor_executes_reference_then_replay_and_keeps_m4_absent(
     top100_path.write_text(json.dumps(top100), encoding="utf-8")
     with pytest.raises(MainlineSupervisorError, match="content changed"):
         supervisor.replay(task_key=REFERENCE_TASK_KEY)
+
+
+def test_live_activation_binding_revises_only_operator_boundary_and_replays(
+    tmp_path: Path,
+) -> None:
+    copy_prediction_configs(tmp_path)
+    activation_path = tmp_path / "runtime/prediction-v2/legacy-retirement-activation.json"
+    activation_path.parent.mkdir(parents=True)
+    activation = valid_activation(activation_path)
+    completion_path = tmp_path / COMPLETION_RELATIVE_PATH
+    completion = valid_operator_completion(completion_path, activation=activation)
+    source_manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    legacy_manifest = json.loads(json.dumps(source_manifest))
+    legacy_boundary = next(
+        item
+        for item in legacy_manifest["tasks"]
+        if item["task_key"] == CUTOVER_TASK_KEY
+    )
+    legacy_boundary["requested_capability"] = None
+    legacy_boundary["metric_contract"].pop("activation_path")
+    legacy_boundary["metric_contract"].pop("operator_completion_path")
+    repository = MemoryRepository(legacy_manifest)
+    supervisor = ResearchEvidenceSupervisor(
+        repository=repository,  # type: ignore[arg-type]
+        control_plane_key=CONTROL_PLANE_KEY,
+        root_dir=tmp_path,
+        git_commit=TEST_COMMIT,
+        require_clean_tree=False,
+    )
+    supervisor.run_once(task_key=REFERENCE_TASK_KEY)
+    supervisor.run_once(task_key=REPLAY_TASK_KEY)
+    before = repository.manifest.to_dict(include_digest=True)
+    migrated, migration = materialize_activation_binding_migration(
+        root_dir=tmp_path,
+        base_manifest=before,
+        source_manifest=source_manifest,
+        completion_payload=completion,
+    )
+    assert migration["status"] == "VERIFIED"
+    assert migration["allowlisted_task_revisions"] == [CUTOVER_TASK_KEY]
+    assert migration["previous_task_digest"] != migration["successor_task_digest"]
+    assert CUTOVER_AUTHORITY_FACT in migrated["facts"]["authorities"]
+    before_tasks = {item["task_key"]: item for item in before["tasks"]}
+    after_tasks = {item["task_key"]: item for item in migrated["tasks"]}
+    assert all(
+        before_tasks[key] == after_tasks[key]
+        for key in before_tasks.keys() - {CUTOVER_TASK_KEY}
+    )
+    repository.manifest = ControlPlaneManifest.from_dict(migrated)
+    ready = ResearchOSControlPlane().resolve(repository.manifest).ready_queue
+    assert [item.task_key for item in ready] == [CUTOVER_TASK_KEY]
+
+    result = supervisor.run_once(task_key=CUTOVER_TASK_KEY)
+    assert result["replay_status"] == "ACTIVATION_VERIFIED"
+    assert result["historical_evidence"] == "NOT_RUN"
+    assert result["promotion_gate_opened"] is False
+    assert LIVE_ACTIVATION_COMPLETION_FACT in repository.manifest.facts.artifacts
+    status = json.loads(
+        (tmp_path / "runtime/logs/prediction-v2-shadow-status.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert status["legacy_retirement_activation"] == "VERIFIED"
+    assert status["legacy_compute_state"] == "STOPPED_AND_DISABLED"
+    assert status["live_activation_verified"] is True
+    assert status["evidence_progress_percent"] == 0
+    assert supervisor.replay(task_key=CUTOVER_TASK_KEY)["status"] == "REPLAY_VERIFIED"
+    registered_types = {item["artifact_type"] for item in repository.artifacts}
+    assert "PredictionV2LiveActivationAttestation.v1" in registered_types
+
+    completion["prediction_v2"]["issue_task_state"] = "PARTIAL"
+    completion_path.write_text(json.dumps(completion), encoding="utf-8")
+    with pytest.raises(MainlineSupervisorError):
+        supervisor.replay(task_key=CUTOVER_TASK_KEY)
+
+
+def test_live_activation_binding_migration_fails_closed_on_unallowlisted_drift(
+    tmp_path: Path,
+) -> None:
+    copy_prediction_configs(tmp_path)
+    activation_path = tmp_path / "runtime/prediction-v2/legacy-retirement-activation.json"
+    activation_path.parent.mkdir(parents=True)
+    activation = valid_activation(activation_path)
+    completion = valid_operator_completion(
+        tmp_path / COMPLETION_RELATIVE_PATH,
+        activation=activation,
+    )
+    source_manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    migrated, _ = materialize_activation_binding_migration(
+        root_dir=tmp_path,
+        base_manifest=source_manifest,
+        source_manifest=source_manifest,
+        completion_payload=completion,
+    )
+    drifted = json.loads(json.dumps(migrated))
+    reference = next(
+        item for item in drifted["tasks"] if item["task_key"] == REFERENCE_TASK_KEY
+    )
+    reference["priority"] += 1
+    successor = next(
+        item for item in migrated["tasks"] if item["task_key"] == CUTOVER_TASK_KEY
+    )
+    with pytest.raises(
+        PredictionV2ActivationBindingError,
+        match="changed existing task",
+    ):
+        verify_activation_binding_migration(
+            original=source_manifest,
+            migrated=drifted,
+            source_successor=successor,
+        )
 
 
 def test_issue_manifest_is_prior_only_additive_and_idempotent(tmp_path: Path) -> None:

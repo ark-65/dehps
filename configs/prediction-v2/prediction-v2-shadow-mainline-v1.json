@@ -122,19 +122,23 @@
       "input_artifact_digests": [
         "520d2389a9ebab1f0ffb6aadce666a4652dd2076b9fc638e66cc05374697d39e"
       ],
-      "requested_capability": null,
+      "requested_capability": "prediction_v2_shadow_live_activation_attestation",
       "metric_contract": {
+        "activation_path": "runtime/prediction-v2/legacy-retirement-activation.json",
+        "operator_completion_path": "runtime/prediction-v2/live-cutover-completion.json",
         "mainline_integration": {
-          "goal": "Represent the non-implicit Operator boundary for legacy retirement and shadow scheduler activation.",
-          "ready_condition": "physical replay verified and a separate typed Operator Request approved",
-          "runner": "operator only",
-          "upstream_artifacts": ["replay execution", "scheduler cutover plan"],
-          "downstream_artifacts": ["legacy retirement activation fact", "scheduler cutover execution artifact"],
+          "goal": "Attest an independently completed Operator cutover through the unified mainline without performing the cutover itself.",
+          "ready_condition": "physical replay verified, frozen authority fact present, and immutable Operator activation/completion artifacts bound",
+          "runner": "unified ResearchEvidenceSupervisor run-once after separate Operator migration",
+          "upstream_artifacts": ["replay execution", "scheduler cutover plan", "retirement activation", "Operator completion artifact"],
+          "downstream_artifacts": ["live activation attestation", "activation-binding mainline execution"],
           "status_projection": "prediction-v2-shadow-status.json",
           "downstream_consumer": "shadow pre/post scheduler",
           "evidence_progress_rule": "always zero",
-          "decision_consumer": "operator governance"
-        }
+          "decision_consumer": "operator governance status only; cannot authorize evidence or promotion"
+        },
+        "historical_evidence": "NOT_RUN",
+        "promotion_gate_opened": false
       },
       "status": "draft",
       "completion_classification": "INTEGRATION_PENDING"

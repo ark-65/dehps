@@ -14,6 +14,61 @@ from typing import Any
 from dehps.artifacts import atomic_write_text
 from dehps.config import ROOT_DIR
 from dehps.contracts import canonical_digest
+from dehps.prediction.v2.activation_binding import (
+    CUTOVER_TASK_KEY as PREDICTION_V2_CUTOVER_TASK_KEY,
+)
+from dehps.prediction.v2.activation_binding import (
+    PredictionV2ActivationBindingError,
+    build_live_activation_attestation,
+)
+from dehps.prediction.v2.issue_mainline import (
+    PredictionV2IssuePostDrawCapability,
+    PredictionV2IssuePostDrawReplayCapability,
+    PredictionV2IssuePreDrawCapability,
+    PredictionV2IssuePreDrawReplayCapability,
+)
+from dehps.prediction.v2.issues import (
+    POST_CAPABILITY as PREDICTION_V2_POST_CAPABILITY,
+)
+from dehps.prediction.v2.issues import (
+    POST_REPLAY_CAPABILITY as PREDICTION_V2_POST_REPLAY_CAPABILITY,
+)
+from dehps.prediction.v2.issues import (
+    PRE_CAPABILITY as PREDICTION_V2_PRE_CAPABILITY,
+)
+from dehps.prediction.v2.issues import (
+    PRE_REPLAY_CAPABILITY as PREDICTION_V2_PRE_REPLAY_CAPABILITY,
+)
+from dehps.prediction.v2.mainline import (
+    CONTROL_PLANE_KEY as PREDICTION_V2_CONTROL_PLANE_KEY,
+)
+from dehps.prediction.v2.mainline import (
+    CUTOVER_CAPABILITY as PREDICTION_V2_CUTOVER_CAPABILITY,
+)
+from dehps.prediction.v2.mainline import (
+    REFERENCE_CAPABILITY as PREDICTION_V2_REFERENCE_CAPABILITY,
+)
+from dehps.prediction.v2.mainline import (
+    REFERENCE_TASK_KEY as PREDICTION_V2_REFERENCE_TASK_KEY,
+)
+from dehps.prediction.v2.mainline import (
+    REPLAY_CAPABILITY as PREDICTION_V2_REPLAY_CAPABILITY,
+)
+from dehps.prediction.v2.mainline import (
+    REPLAY_TASK_KEY as PREDICTION_V2_REPLAY_TASK_KEY,
+)
+from dehps.prediction.v2.mainline import (
+    PredictionV2LiveActivationCapability,
+    PredictionV2ReferenceCapability,
+    PredictionV2ReplayCapability,
+    build_prediction_v2_status,
+    build_reference_children,
+    build_reference_history,
+)
+from dehps.prediction.v2.replay import (
+    replay_post_draw as replay_prediction_v2_post_draw,
+)
+from dehps.prediction.v2.replay import replay_pre_draw as replay_prediction_v2_pre_draw
 from dehps.research_os.information_theory.calibration import (
     CALIBRATION_RUN_MANIFEST_DIGEST,
     load_calibration_manifest,
@@ -131,32 +186,6 @@ from dehps.research_os.mainline import (
     integration_contract,
     mainline_completion_fact,
 )
-from dehps.prediction.v2.mainline import (
-    CONTROL_PLANE_KEY as PREDICTION_V2_CONTROL_PLANE_KEY,
-    REFERENCE_CAPABILITY as PREDICTION_V2_REFERENCE_CAPABILITY,
-    REFERENCE_TASK_KEY as PREDICTION_V2_REFERENCE_TASK_KEY,
-    REPLAY_CAPABILITY as PREDICTION_V2_REPLAY_CAPABILITY,
-    REPLAY_TASK_KEY as PREDICTION_V2_REPLAY_TASK_KEY,
-    PredictionV2ReferenceCapability,
-    PredictionV2ReplayCapability,
-    build_reference_children,
-    build_reference_history,
-    build_prediction_v2_status,
-)
-from dehps.prediction.v2.issue_mainline import (
-    PredictionV2IssuePostDrawCapability,
-    PredictionV2IssuePostDrawReplayCapability,
-    PredictionV2IssuePreDrawCapability,
-    PredictionV2IssuePreDrawReplayCapability,
-)
-from dehps.prediction.v2.issues import (
-    POST_CAPABILITY as PREDICTION_V2_POST_CAPABILITY,
-    POST_REPLAY_CAPABILITY as PREDICTION_V2_POST_REPLAY_CAPABILITY,
-    PRE_CAPABILITY as PREDICTION_V2_PRE_CAPABILITY,
-    PRE_REPLAY_CAPABILITY as PREDICTION_V2_PRE_REPLAY_CAPABILITY,
-)
-from dehps.prediction.v2.replay import replay_post_draw as replay_prediction_v2_post_draw
-from dehps.prediction.v2.replay import replay_pre_draw as replay_prediction_v2_pre_draw
 from dehps.research_os.models import (
     CompletionClassification,
     ControlPlaneManifest,
@@ -2875,6 +2904,9 @@ class ResearchEvidenceSupervisor:
                 repository=self.repository,
                 root_dir=root_dir,
             ),
+            PREDICTION_V2_CUTOVER_CAPABILITY: PredictionV2LiveActivationCapability(
+                root_dir=root_dir,
+            ),
             PREDICTION_V2_PRE_CAPABILITY: PredictionV2IssuePreDrawCapability(
                 root_dir=root_dir,
             ),
@@ -3234,6 +3266,9 @@ class ResearchEvidenceSupervisor:
                                     "branch_decision_replay_artifact_digest",
                                     "measurement_health",
                                     "historical_evidence",
+                                    "promotion_gate_opened",
+                                    "production_candidate_created",
+                                    "m4_state_changed",
                                     "formal_branch_runs_executed",
                                     "historical_outcomes_read",
                                     "p2_6_1_partial_statistical_results_read",
@@ -3547,6 +3582,9 @@ class ResearchEvidenceSupervisor:
             "branch_decision_replay_artifact_digest",
             "measurement_health",
             "historical_evidence",
+            "promotion_gate_opened",
+            "production_candidate_created",
+            "m4_state_changed",
             "formal_branch_runs_executed",
             "historical_outcomes_read",
             "p2_6_1_partial_statistical_results_read",
@@ -3738,6 +3776,54 @@ class ResearchEvidenceSupervisor:
                 "status": "REPLAY_VERIFIED",
                 "same_pre_draw_identity": True,
                 "same_post_draw_identity": True,
+                "historical_evidence": "NOT_RUN",
+                "promotion_gate_opened": False,
+                "manual_input_assembly": False,
+            }
+        elif task_key == PREDICTION_V2_CUTOVER_TASK_KEY:
+            task = next(
+                item for item in self.repository.load_manifest(
+                    control_plane_key=self.control_plane_key
+                ).tasks
+                if item.task_key == PREDICTION_V2_CUTOVER_TASK_KEY
+            )
+            contract = json.loads(task.metric_contract)
+            try:
+                reconstructed = build_live_activation_attestation(
+                    root_dir=self.root_dir,
+                    activation_path=str(contract["activation_path"]),
+                    completion_path=str(contract["operator_completion_path"]),
+                )
+            except (KeyError, PredictionV2ActivationBindingError) as exc:
+                raise MainlineSupervisorError(
+                    "Prediction v2 activation replay inputs changed"
+                ) from exc
+            registered_children = [
+                item
+                for item in registrations
+                if item.get("artifact_type") != "research_os_mainline_execution"
+            ]
+            if len(registered_children) != 1:
+                raise MainlineSupervisorError(
+                    "Prediction v2 activation replay child set changed"
+                )
+            registered = registered_children[0]
+            stored = _load_object(self.root_dir / str(registered["artifact_path"]))
+            if (
+                stored != reconstructed
+                or registered.get("artifact_digest")
+                != reconstructed["artifact_digest"]
+                or artifact.get("child_artifact_digests")
+                != [reconstructed["artifact_digest"]]
+            ):
+                raise MainlineSupervisorError(
+                    "Prediction v2 activation replay identity changed"
+                )
+            capability_replay = {
+                "status": "REPLAY_VERIFIED",
+                "same_activation_identity": True,
+                "same_operator_completion_identity": True,
+                "same_attestation_identity": True,
                 "historical_evidence": "NOT_RUN",
                 "promotion_gate_opened": False,
                 "manual_input_assembly": False,
