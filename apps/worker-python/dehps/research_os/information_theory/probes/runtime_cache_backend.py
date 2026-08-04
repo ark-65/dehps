@@ -267,10 +267,12 @@ class ExactProbeRuntimeCache:
         children_right = structure.children_right
         features = structure.feature
 
-        def restore(node: int, indices: np.ndarray) -> None:
+        pending = [(0, np.arange(raw32.shape[0], dtype=np.intp))]
+        while pending:
+            node, indices = pending.pop()
             left_node = int(children_left[node])
             if left_node < 0:
-                return
+                continue
             feature = int(features[node])
             left_mask = raw32[indices, feature] <= raw_thresholds[node]
             left_indices = indices[left_mask]
@@ -289,9 +291,8 @@ class ExactProbeRuntimeCache:
             restored_thresholds[node] = (
                 float(left_max) / 2.0 + float(right_min) / 2.0
             )
-            restore(left_node, left_indices)
-            restore(int(children_right[node]), right_indices)
+            pending.append((int(children_right[node]), right_indices))
+            pending.append((left_node, left_indices))
 
-        restore(0, np.arange(raw32.shape[0], dtype=np.intp))
         structure.threshold[:] = restored_thresholds
         return tree

@@ -27,7 +27,7 @@ from dehps.research_os.information_theory.measurement_validation.source_integrit
 )
 
 RUNTIME_AUDIT_PLAN_PATH = Path(
-    "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.2.json"
+    "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.3.json"
 )
 UNAVAILABLE = "UNAVAILABLE"
 _DIGEST_PATTERN = re.compile(r"[0-9a-f]{64}")
@@ -194,9 +194,9 @@ def load_runtime_audit_plan(path: Path) -> dict[str, Any]:
         or payload.get("agent_authority") != "engineering"
         or payload.get("evidence_progress_increment") != 0
         or payload.get("promotion_gate_opened") is not False
-        or payload.get("semantic_version") != "1.1.2"
+        or payload.get("semantic_version") != "1.1.3"
         or payload.get("supersedes_artifact_digest")
-        != "eef5e18f6ffb342f264ef47913892efa91d92dfec0a32a51d2f1d0cb2711cbd5"
+        != "ee8c6afd84299f8976ea3949959dba3180d487d4ed487e098ec7b778caa04e52"
         or payload.get("source_measurement_manifest_digest")
         != "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58"
     ):
