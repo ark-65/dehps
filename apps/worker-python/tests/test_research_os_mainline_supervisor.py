@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
+import dehps.research_os.supervisor as supervisor_module
 import pytest
 from dehps.contracts import canonical_digest
 from dehps.research_os.control_plane import ResearchOSControlPlane
@@ -25,6 +26,7 @@ from dehps.research_os.mainline import mainline_completion_fact
 from dehps.research_os.models import (
     ControlPlaneManifest,
     MainlineArtifactRegistration,
+    MainlineExecutionEvent,
     ResearchOSValidationError,
     TaskStatus,
 )
@@ -36,6 +38,11 @@ from dehps.research_os.supervisor import (
     P23_TASK_KEY,
     P24_TASK_KEY,
     P25_TASK_KEY,
+    P26_CAPABILITY,
+    P26_FAILED_RECOVERY_ERROR,
+    P26_FAILED_RECOVERY_EVENT_DIGEST,
+    P26_FAILED_RECOVERY_EXECUTION_ID,
+    P26_FAILED_RECOVERY_RUNNING_MANIFEST_DIGEST,
     P26_PREFLIGHT_CAPABILITY,
     P26_PREFLIGHT_TASK_KEY,
     P26_REPAIR_TASK_KEY,
@@ -185,6 +192,18 @@ def runtime_recovery_manifest_payload() -> dict:
             canonical_executor_event,
         }
     )
+    return value
+
+
+def p26_failed_manifest_payload() -> dict:
+    value = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    assert isinstance(value, dict)
+    value.pop("manifest_digest", None)
+    task = next(
+        task for task in value["tasks"] if task["task_key"] == P26_TASK_KEY
+    )
+    task["status"] = "failed"
+    task["completion_classification"] = "INTEGRATED"
     return value
 
 
@@ -807,6 +826,269 @@ def test_supervisor_rejects_stale_completed_event_manifest_on_resume(
         match="mainline parent event provenance changed",
     ):
         supervisor.run_once()
+
+
+def test_supervisor_recovers_only_pinned_p26_pre_dispatch_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = p26_failed_manifest_payload()
+    monkeypatch.setenv(
+        supervisor_module.P26_FAILED_RECOVERY_EVENT_ENV,
+        P26_FAILED_RECOVERY_EVENT_DIGEST,
+    )
+    repository = MemoryMainlineRepository(payload)
+    task = next(
+        item for item in repository.manifest.tasks if item.task_key == P26_TASK_KEY
+    )
+    started = MainlineExecutionEvent(
+        execution_id=P26_FAILED_RECOVERY_EXECUTION_ID,
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
+        manifest_digest=P26_FAILED_RECOVERY_RUNNING_MANIFEST_DIGEST,
+        task_key=P26_TASK_KEY,
+        task_digest=task.artifact_digest,
+        capability=P26_CAPABILITY,
+        event_type="started",
+        sequence=0,
+        recorded_at="2026-07-31T08:10:59.912185+00:00",
+        payload=(
+            ("input_artifact_digests", list(task.input_artifact_digests)),
+            ("git_commit", "e6dedaf9c835672a5e17007653ee6e8fe55b67d9"),
+        ),
+    )
+    failed = MainlineExecutionEvent(
+        execution_id=P26_FAILED_RECOVERY_EXECUTION_ID,
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
+        manifest_digest=P26_FAILED_RECOVERY_RUNNING_MANIFEST_DIGEST,
+        task_key=P26_TASK_KEY,
+        task_digest=task.artifact_digest,
+        capability=P26_CAPABILITY,
+        event_type="failed",
+        sequence=1,
+        recorded_at="2026-08-04T09:23:06.717682+00:00",
+        payload=(
+            ("error", P26_FAILED_RECOVERY_ERROR),
+            ("git_commit", "e6dedaf9c835672a5e17007653ee6e8fe55b67d9"),
+        ),
+    )
+    assert failed.artifact_digest == P26_FAILED_RECOVERY_EVENT_DIGEST
+    repository.record_mainline_execution_event(event=started)
+    repository.record_mainline_execution_event(event=failed)
+    original_import = repository.import_manifest
+
+    def import_with_production_running_digest(
+        *, control_plane_key: str, payload: dict, source: str
+    ):
+        result = original_import(
+            control_plane_key=control_plane_key,
+            payload=payload,
+            source=source,
+        )
+        if source.endswith("recoverable-pre-dispatch-failure"):
+            return SimpleNamespace(
+                manifest_digest=P26_FAILED_RECOVERY_RUNNING_MANIFEST_DIGEST,
+                snapshot_digest=result.snapshot_digest,
+            )
+        return result
+
+    monkeypatch.setattr(repository, "import_manifest", import_with_production_running_digest)
+    root = prepare_root(tmp_path)
+    supervisor = ResearchEvidenceSupervisor(
+        repository=repository,  # type: ignore[arg-type]
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
+        root_dir=root,
+        now=lambda: datetime(2026, 8, 4, 10, 0, tzinfo=timezone.utc),
+        git_commit="e6dedaf9c835672a5e17007653ee6e8fe55b67d9",
+        require_clean_tree=False,
+    )
+    supervisor.capabilities[P26_CAPABILITY] = _ProjectedCapability(
+        root=root,
+        task_key=P26_TASK_KEY,
+        summary={"actual_fold_count": 61},
+    )
+    monkeypatch.setattr(
+        supervisor,
+        "_record_p26_failed_recovery",
+        lambda **_: {"artifact_digest": "9" * 64},
+    )
+
+    result = supervisor.run_once(task_key=P26_TASK_KEY)
+    completed_task = next(
+        item for item in repository.manifest.tasks if item.task_key == P26_TASK_KEY
+    )
+
+    assert result["status"] == "COMPLETE"
+    assert [event["event_type"] for event in repository.events] == [
+        "started",
+        "failed",
+        "completed",
+    ]
+    assert repository.events[-1]["sequence"] == 2
+    assert repository.events[-1]["execution_id"] == P26_FAILED_RECOVERY_EXECUTION_ID
+    assert (
+        repository.manifest.task_state_by_digest[
+            completed_task.artifact_digest
+        ].declared_status
+        is TaskStatus.COMPLETED
+    )
+
+
+def test_supervisor_rejects_wrong_p26_failed_recovery_token(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = p26_failed_manifest_payload()
+    repository = MemoryMainlineRepository(payload)
+    task = next(
+        item for item in repository.manifest.tasks if item.task_key == P26_TASK_KEY
+    )
+    repository.events.append(
+        {
+            "event_digest": P26_FAILED_RECOVERY_EVENT_DIGEST,
+            "execution_id": P26_FAILED_RECOVERY_EXECUTION_ID,
+            "control_plane_key": TEST_CONTROL_PLANE_KEY,
+            "manifest_digest": "2" * 64,
+            "task_key": P26_TASK_KEY,
+            "task_digest": task.artifact_digest,
+            "capability": P26_CAPABILITY,
+            "event_type": "failed",
+            "sequence": 1,
+            "recorded_at": "2026-08-04T09:23:06+00:00",
+            "payload": [["error", P26_FAILED_RECOVERY_ERROR]],
+        }
+    )
+    monkeypatch.setenv(supervisor_module.P26_FAILED_RECOVERY_EVENT_ENV, "f" * 64)
+    supervisor = ResearchEvidenceSupervisor(
+        repository=repository,  # type: ignore[arg-type]
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
+        root_dir=prepare_root(tmp_path),
+        git_commit=TEST_COMMIT,
+        require_clean_tree=False,
+    )
+
+    with pytest.raises(
+        MainlineSupervisorError,
+        match="authorization does not match the incident",
+    ):
+        supervisor.run_once(task_key=P26_TASK_KEY)
+
+
+def test_p26_failed_recovery_artifact_requires_and_binds_preserved_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = prepare_root(tmp_path)
+    manifest = ControlPlaneManifest.from_dict(p26_failed_manifest_payload())
+    task = next(item for item in manifest.tasks if item.task_key == P26_TASK_KEY)
+    contract = json.loads(
+        (
+            root
+            / "configs/research-os/"
+            "m4-information-theory-p2-6-1-measurement-validation-v1.json"
+        ).read_text(encoding="utf-8")
+    )
+    repair_root = (
+        root
+        / "runtime/research-os/mainline/tasks/"
+        "m4-p2-repair-measurement-system/test-repair/artifacts/truth"
+    )
+    for truth in contract["truth_artifacts"]:
+        path = repair_root / truth["artifact_digest"] / "truth.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "artifact_digest": truth["artifact_digest"],
+                    "artifact_type": "repaired_marginal_truth",
+                    "measurement_repair_manifest_digest": task.input_artifact_digests[
+                        0
+                    ],
+                    "truth_estimand": (
+                        "sum_number_event_mutual_information_with_prior_state"
+                    ),
+                    "scenario_id": truth["scenario_id"],
+                },
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    task_dir = (
+        root
+        / "runtime/research-os/mainline/tasks"
+        / P26_TASK_KEY
+        / P26_FAILED_RECOVERY_EXECUTION_ID
+    )
+    for path in (
+        task_dir / "artifacts/checkpoint-journals",
+        task_dir / "artifacts/replicates",
+    ):
+        path.mkdir(parents=True, exist_ok=True)
+    (task_dir / "artifacts/checkpoint-journals/preserved.jsonl").write_text(
+        "{}\n", encoding="utf-8"
+    )
+    (task_dir / "artifacts/replicates/preserved.json").write_text(
+        "{}\n", encoding="utf-8"
+    )
+    coordinator = task_dir / "artifacts/coordinator-state.json"
+    coordinator.write_text(
+        json.dumps(
+            {
+                "schema_version": "dehps-m4-p2-analysis-coordinator-state.v1",
+                "parent_execution_id": P26_FAILED_RECOVERY_EXECUTION_ID,
+                "measurement_validation_manifest_digest": contract[
+                    "artifact_digest"
+                ],
+                "total_replicates": 31_000,
+                "status": "RUNNING",
+                "failed_replicates": 0,
+                "result_selection_used": False,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    report = root / "docs/experiments/p26-recovery-test.md"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text("result-blind incident recovery\n", encoding="utf-8")
+    monkeypatch.setenv(
+        supervisor_module.P26_FAILED_RECOVERY_REPORT_ENV,
+        str(report.relative_to(root)),
+    )
+    supervisor = ResearchEvidenceSupervisor(
+        repository=MemoryMainlineRepository(p26_failed_manifest_payload()),  # type: ignore[arg-type]
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
+        root_dir=root,
+        git_commit=TEST_COMMIT,
+        require_clean_tree=False,
+    )
+
+    recovered = supervisor._record_p26_failed_recovery(
+        task=task,
+        execution_id=P26_FAILED_RECOVERY_EXECUTION_ID,
+        failed_event={"event_digest": P26_FAILED_RECOVERY_EVENT_DIGEST},
+        runtime_git_commit=TEST_COMMIT,
+    )
+    replayed = supervisor._record_p26_failed_recovery(
+        task=task,
+        execution_id=P26_FAILED_RECOVERY_EXECUTION_ID,
+        failed_event={"event_digest": P26_FAILED_RECOVERY_EVENT_DIGEST},
+        runtime_git_commit=TEST_COMMIT,
+    )
+
+    assert replayed == recovered
+    assert recovered["repaired_truth_count"] == 12
+    assert recovered["failed_event_digest"] == P26_FAILED_RECOVERY_EVENT_DIGEST
+    assert recovered["next_terminal_sequence"] == 2
+    assert recovered["statistical_results_read"] is False
+    recovery_path = (
+        task_dir
+        / "incident-recoveries"
+        / recovered["artifact_digest"]
+        / "recovery.json"
+    )
+    assert json.loads(recovery_path.read_text(encoding="utf-8")) == recovered
 
 
 def test_runtime_commit_marker_recovers_after_partial_registration_without_rerun(
