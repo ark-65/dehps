@@ -9,6 +9,14 @@ Agent Request:
 
 Outcome before publication and live migration: `INTEGRATION_PENDING`
 
+Round 10 audit correction: the original exact-owner totals in this report were
+computed with the unit-test parent execution id (`"a" * 64`) and were not the
+live P2.6.1 totals. Recomputing the repaired manifest with the immutable live
+execution id gives 15,525 and 15,475. The remaining-work table was already
+computed from the live artifact paths and remains unchanged. The partition
+algorithm, shard indexes, child seeds, and 31,000-identity coverage are
+unchanged.
+
 ## Round contract
 
 The primary goal is to split the unchanged P2.6.1 execution between the
@@ -81,14 +89,15 @@ For two executor shards the frozen hash assignment is:
 
 | Executor shard | All replicate identities |
 | ---: | ---: |
-| 0 | 15,430 |
-| 1 | 15,570 |
+| 0 | 15,525 |
+| 1 | 15,475 |
 | Union | 31,000 |
 
 Each replicate is assigned exactly once, so the intersection is empty and the
-union is the complete schedule. Replicate identity and both child seeds are
-constructed before assignment and therefore do not change when the executor
-count changes.
+union is the complete schedule. The live plan digest is
+`808b9a0b804b9c0919a4a299304d4449eb0ec9c370fbdfef2c0af2b043661d79`.
+Replicate identity and both child seeds are constructed before assignment and
+therefore do not change when the executor count changes.
 
 Using only artifact-path existence, without reading statistical payloads, the
 remaining work at the measurement snapshot was:
