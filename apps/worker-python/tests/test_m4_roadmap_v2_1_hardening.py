@@ -66,6 +66,13 @@ from dehps.research_os.information_theory.measurement_validation import (
     PythonReferenceEvaluation,
     golden_boundary_identity_contract,
 )
+from dehps.research_os.information_theory.measurement_validation.source_compatibility import (
+    REVIEWED_SHARED_COMPATIBILITY_FIXTURE_PATH,
+    REVIEWED_SHARED_COMPATIBILITY_PATHS,
+    SourceCompatibilityError,
+    load_reviewed_shared_compatibility_fixture,
+    validate_reviewed_shared_compatibility_fixture,
+)
 from dehps.research_os.information_theory.measurement_validation.source_integrity import (
     APPROVED_ACCELERATION_SOURCE_PATHS,
     AUDIT_ORCHESTRATION_SOURCE_PATHS,
@@ -78,6 +85,7 @@ from dehps.research_os.information_theory.measurement_validation.source_integrit
     construction_source_integrity_identity,
     content_sha256,
     git_blob_sha1,
+    golden_source_integrity_identity,
     preflight_source_integrity,
     source_set_digest,
     validate_registered_source_integrity_attestation,
@@ -113,7 +121,7 @@ FIXTURE_PATH = (
     ROOT / "configs/research-os/m4-measurement-contract-v2-replay-fixture-v1.json"
 )
 AUDIT_PATH = (
-    ROOT / "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.1.json"
+    ROOT / "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.2.json"
 )
 MANIFEST_PATH = ROOT / "configs/research-os/m4-information-theory-evidence-v1.json"
 
@@ -137,6 +145,9 @@ def _current_source_contract() -> dict:
     acceleration = _source_entries(APPROVED_ACCELERATION_SOURCE_PATHS)
     oracle = _source_entries(INDEPENDENT_ORACLE_SOURCE_PATHS)
     audit = _source_entries(AUDIT_ORCHESTRATION_SOURCE_PATHS)
+    compatibility_fixture = load_reviewed_shared_compatibility_fixture(
+        ROOT / REVIEWED_SHARED_COMPATIBILITY_FIXTURE_PATH
+    )
     return {
         "baseline_git_commit": BASELINE_GIT_COMMIT,
         "git_object_format": "sha1",
@@ -159,11 +170,65 @@ def _current_source_contract() -> dict:
         "audit_orchestration_source_set_digest": source_set_digest(
             audit, kind="audit-orchestration"
         ),
+        "reviewed_shared_compatibility_fixture_path": (
+            REVIEWED_SHARED_COMPATIBILITY_FIXTURE_PATH.as_posix()
+        ),
+        "reviewed_shared_compatibility_fixture_digest": compatibility_fixture[
+            "artifact_digest"
+        ],
+        "reviewed_shared_compatibility_paths": list(
+            REVIEWED_SHARED_COMPATIBILITY_PATHS
+        ),
         "shared_change_policy": "FAIL_CLOSED_REQUIRES_NEW_REVIEWED_FIXTURE",
         "oracle_change_policy": "FAIL_CLOSED_REQUIRES_NEW_REVIEWED_FIXTURE",
         "acceleration_change_policy": ("PINNED_FOR_PHASE0_REQUIRES_SUPERSEDING_PLAN"),
         "audit_change_policy": ("PINNED_PER_RUNTIME_PLAN_REQUIRES_SUPERSEDING_PLAN"),
     }
+
+
+def test_reviewed_sparse_tree_compatibility_fixture_binds_current_plan() -> None:
+    plan = load_runtime_audit_plan(AUDIT_PATH)
+    fixture = load_reviewed_shared_compatibility_fixture(
+        ROOT / REVIEWED_SHARED_COMPATIBILITY_FIXTURE_PATH
+    )
+    contract = plan["source_integrity_contract"]
+
+    assert contract["reviewed_shared_compatibility_fixture_path"] == (
+        REVIEWED_SHARED_COMPATIBILITY_FIXTURE_PATH.as_posix()
+    )
+    assert contract["reviewed_shared_compatibility_fixture_digest"] == fixture[
+        "artifact_digest"
+    ]
+    assert fixture["changed_paths"] == list(REVIEWED_SHARED_COMPATIBILITY_PATHS)
+    assert fixture["candidate_source_entries"] == _source_entries(
+        REVIEWED_SHARED_COMPATIBILITY_PATHS
+    )
+    assert fixture["candidate_golden_source_integrity_identity"] == (
+        golden_source_integrity_identity(plan)
+    )
+    assert validate_reviewed_shared_compatibility_fixture(
+        fixture,
+        expected_artifact_digest=fixture["artifact_digest"],
+        expected_candidate_golden_identity=golden_source_integrity_identity(plan),
+    ) == fixture
+
+
+def test_reviewed_sparse_tree_compatibility_fixture_rejects_semantic_tamper() -> None:
+    fixture = load_reviewed_shared_compatibility_fixture(
+        ROOT / REVIEWED_SHARED_COMPATIBILITY_FIXTURE_PATH
+    )
+    tampered = copy.deepcopy(fixture)
+    tampered["exact_replay"]["probability_bits_exact"] = False
+    tampered["artifact_digest"] = canonical_digest(
+        {key: value for key, value in tampered.items() if key != "artifact_digest"},
+        domain="dehps.m4-information-theory.config.v1",
+    )
+
+    with pytest.raises(
+        SourceCompatibilityError,
+        match="shared_compatibility_replay_changed",
+    ):
+        validate_reviewed_shared_compatibility_fixture(tampered)
 
 
 def _mutate_source_set(
@@ -369,7 +434,7 @@ def test_source_partition_covers_worker_python_and_operational_entrypoints() -> 
         65,
         4,
         11,
-        369,
+        371,
     )
     assert not shared & acceleration
     assert not shared & oracle
@@ -378,7 +443,7 @@ def test_source_partition_covers_worker_python_and_operational_entrypoints() -> 
     assert not acceleration & audit
     assert not oracle & audit
     classified = shared | acceleration | oracle | audit
-    assert len(classified) == 449
+    assert len(classified) == 451
     worker_python = {
         path.relative_to(ROOT).as_posix()
         for path in (ROOT / "apps/worker-python/dehps").rglob("*.py")
@@ -424,6 +489,19 @@ def test_source_preflight_rejects_actual_byte_tamper(
     }
     original_read_bytes = Path.read_bytes
     target = (ROOT / path).resolve()
+    baseline_compatibility_bytes = {
+        compatibility_path: subprocess.run(
+            (
+                "git",
+                "show",
+                f"{BASELINE_GIT_COMMIT}:{compatibility_path}",
+            ),
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+        ).stdout
+        for compatibility_path in REVIEWED_SHARED_COMPATIBILITY_PATHS
+    }
 
     def read_bytes_with_tamper(candidate: Path) -> bytes:
         value = original_read_bytes(candidate)
@@ -433,7 +511,9 @@ def test_source_preflight_rejects_actual_byte_tamper(
     monkeypatch.setattr(
         source_integrity_module,
         "_baseline_bytes",
-        lambda root_dir, *, commit, path: original_read_bytes(ROOT / path),
+        lambda root_dir, *, commit, path: baseline_compatibility_bytes.get(
+            path, original_read_bytes(ROOT / path)
+        ),
     )
 
     def fake_git(root_dir: Path, *args: str) -> bytes:
@@ -452,6 +532,29 @@ def test_source_preflight_rejects_actual_byte_tamper(
         fake_git,
     )
     with pytest.raises(SourceIntegrityError, match=f"{error_prefix}:{path}"):
+        preflight_source_integrity(root_dir=ROOT, runtime_plan=plan)
+
+
+def test_source_preflight_rejects_reviewed_sparse_tree_candidate_byte_tamper(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = REVIEWED_SHARED_COMPATIBILITY_PATHS[0]
+    plan = {
+        "artifact_digest": "1" * 64,
+        "source_integrity_contract": _current_source_contract(),
+    }
+    original_read_bytes = Path.read_bytes
+    target = (ROOT / path).resolve()
+
+    def read_bytes_with_tamper(candidate: Path) -> bytes:
+        value = original_read_bytes(candidate)
+        return value + b"candidate-tamper" if candidate.resolve() == target else value
+
+    monkeypatch.setattr(Path, "read_bytes", read_bytes_with_tamper)
+    with pytest.raises(
+        SourceIntegrityError,
+        match=f"shared_frozen_source_modified:{path}",
+    ):
         preflight_source_integrity(root_dir=ROOT, runtime_plan=plan)
 
 
@@ -497,6 +600,19 @@ def test_source_attestation_rejects_execution_commit_byte_drift(
     }
     git_commit = "2" * 40
     target = AUDIT_ORCHESTRATION_SOURCE_PATHS[0]
+    baseline_compatibility_bytes = {
+        compatibility_path: subprocess.run(
+            (
+                "git",
+                "show",
+                f"{BASELINE_GIT_COMMIT}:{compatibility_path}",
+            ),
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+        ).stdout
+        for compatibility_path in REVIEWED_SHARED_COMPATIBILITY_PATHS
+    }
 
     def fake_git(root_dir: Path, *args: str) -> bytes:
         if args == ("rev-parse", "HEAD"):
@@ -506,6 +622,8 @@ def test_source_attestation_rejects_execution_commit_byte_drift(
         return b""
 
     def fake_commit_bytes(root_dir: Path, *, commit: str, path: str) -> bytes:
+        if commit == BASELINE_GIT_COMMIT and path in baseline_compatibility_bytes:
+            return baseline_compatibility_bytes[path]
         value = (ROOT / path).read_bytes()
         if commit == git_commit and path == target:
             return value + b"commit-drift"

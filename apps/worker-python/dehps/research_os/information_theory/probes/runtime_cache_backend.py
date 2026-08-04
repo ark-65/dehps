@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import numpy as np
+from scipy import sparse
+from sklearn.tree import DecisionTreeClassifier
 
 from dehps.contracts import canonical_digest
 from dehps.research_os.information_theory.walk_forward.contracts import (
@@ -223,3 +225,73 @@ class ExactProbeRuntimeCache:
             )
             self._tree_inputs[key] = cached
         return cached
+
+    def fit_exact_sparse_tree(
+        self,
+        fitted: FittedPreprocessor,
+        view: TrainFeatureView,
+        *,
+        max_depth: int,
+        min_samples_leaf: int,
+        random_state: int,
+    ) -> DecisionTreeClassifier:
+        """Fit the frozen tree on sparse raw values and restore exact thresholds.
+
+        A decision tree depends on feature order, not affine location or scale.
+        The frozen matrix has 33 structurally sparse interaction columns which
+        become dense after centering. Fitting on raw CSC values avoids that
+        dense scan. The chosen partitions are then projected back through the
+        accepted scaler with sklearn's float32 midpoint rule so the public tree
+        identity and prediction boundary remain the standardized ones.
+        """
+        raw64 = self.values(view)
+        raw32 = np.asarray(raw64, dtype=np.float32, order="C")
+        tree_targets = np.asarray(
+            self.targets(view),
+            dtype=np.float64,
+            order="C",
+        ).reshape(-1, 1)
+        raw_csc = sparse.csc_matrix(raw32)
+        tree = DecisionTreeClassifier(
+            criterion="log_loss",
+            max_depth=max_depth,
+            min_samples_leaf=min_samples_leaf,
+            random_state=random_state,
+        )
+        tree.fit(raw_csc, tree_targets)
+
+        structure = tree.tree_
+        raw_thresholds = structure.threshold.copy()
+        restored_thresholds = structure.threshold.copy()
+        children_left = structure.children_left
+        children_right = structure.children_right
+        features = structure.feature
+
+        def restore(node: int, indices: np.ndarray) -> None:
+            left_node = int(children_left[node])
+            if left_node < 0:
+                return
+            feature = int(features[node])
+            left_mask = raw32[indices, feature] <= raw_thresholds[node]
+            left_indices = indices[left_mask]
+            right_indices = indices[~left_mask]
+            standardized = raw64[indices, feature].copy()
+            standardized -= fitted.scaler.mean_[feature]
+            standardized /= fitted.scaler.scale_[feature]
+            standardized32 = standardized.astype(np.float32)
+            left_max = np.max(standardized32[left_mask])
+            right_min = np.min(standardized32[~left_mask])
+            if not left_max < right_min:
+                raise WalkForwardError(
+                    "invalid_feature_matrix",
+                    "sparse tree split is not affine-order compatible",
+                )
+            restored_thresholds[node] = (
+                float(left_max) / 2.0 + float(right_min) / 2.0
+            )
+            restore(left_node, left_indices)
+            restore(int(children_right[node]), right_indices)
+
+        restore(0, np.arange(raw32.shape[0], dtype=np.intp))
+        structure.threshold[:] = restored_thresholds
+        return tree

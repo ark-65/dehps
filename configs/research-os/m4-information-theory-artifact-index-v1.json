@@ -202,9 +202,19 @@
       "superseded_by_digest": "eef5e18f6ffb342f264ef47913892efa91d92dfec0a32a51d2f1d0cb2711cbd5"
     },
     "eef5e18f6ffb342f264ef47913892efa91d92dfec0a32a51d2f1d0cb2711cbd5": {
-      "artifact_type": "measurement_runtime_benchmark_plan",
+      "artifact_type": "superseded_measurement_runtime_benchmark_plan",
       "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.1.json",
-      "supersedes_digest": "5d6eafd399bc6a0fc87a2fa0fce4830824776194566aab4a8ab2299379646aff"
+      "supersedes_digest": "5d6eafd399bc6a0fc87a2fa0fce4830824776194566aab4a8ab2299379646aff",
+      "superseded_by_digest": "ee8c6afd84299f8976ea3949959dba3180d487d4ed487e098ec7b778caa04e52"
+    },
+    "ee8c6afd84299f8976ea3949959dba3180d487d4ed487e098ec7b778caa04e52": {
+      "artifact_type": "measurement_runtime_benchmark_plan",
+      "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.2.json",
+      "supersedes_digest": "eef5e18f6ffb342f264ef47913892efa91d92dfec0a32a51d2f1d0cb2711cbd5"
+    },
+    "e8149632b3a2f507fdb7adbd2980d4217ce06fca45913273bedc4cbe61c431c9": {
+      "artifact_type": "reviewed_shared_source_compatibility_fixture",
+      "path": "configs/research-os/m4-p2-6-1-sparse-tree-source-compatibility-fixture-v1.json"
     },
     "4ae6aadbf1c9df861266c014ab58f4870d84fef4949fd93931a7ccd2c3da1fd8": {
       "artifact_type": "superseded_research_os_control_plane_manifest",
@@ -213,6 +223,12 @@
       "superseded_by_digest": "e09aa5e52f7b21e159fef78d7c0b87666caa09d84ee407fd8161c8b9396169a2"
     },
     "e09aa5e52f7b21e159fef78d7c0b87666caa09d84ee407fd8161c8b9396169a2": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "source_commit": "5c3778a9004041aee2ca707e7b4cc24f338ab3ed",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "superseded_by_digest": "078337d9fcc172777d37f06e570181cf803f080e0805832b5964cef31117fb40"
+    },
+    "078337d9fcc172777d37f06e570181cf803f080e0805832b5964cef31117fb40": {
       "artifact_type": "research_os_control_plane_manifest",
       "path": "configs/research-os/m4-information-theory-evidence-v1.json"
     }

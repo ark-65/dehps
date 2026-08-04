@@ -1262,13 +1262,13 @@
         },
         {
           "dependency_type": "artifact",
-          "target_key": "m4-p2-9-runtime-audit-plan:eef5e18f6ffb342f264ef47913892efa91d92dfec0a32a51d2f1d0cb2711cbd5",
+          "target_key": "m4-p2-9-runtime-audit-plan:ee8c6afd84299f8976ea3949959dba3180d487d4ed487e098ec7b778caa04e52",
           "required_status": "available"
         }
       ],
       "priority": 41,
       "input_artifact_digests": [
-        "eef5e18f6ffb342f264ef47913892efa91d92dfec0a32a51d2f1d0cb2711cbd5",
+        "ee8c6afd84299f8976ea3949959dba3180d487d4ed487e098ec7b778caa04e52",
         "80068e22f5e1c343fd86213faa0d9a411d71f92ad2750fed10449a10151de8fa",
         "5e41910553643e6559e78aa401fdcdd1e661b5709eaf55f0e73e694fb5a61355",
         "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58",
@@ -1342,7 +1342,7 @@
       "priority": 40,
       "requested_capability": "m4_p2_9_measurement_runtime_audit",
       "input_artifact_digests": [
-        "eef5e18f6ffb342f264ef47913892efa91d92dfec0a32a51d2f1d0cb2711cbd5"
+        "ee8c6afd84299f8976ea3949959dba3180d487d4ed487e098ec7b778caa04e52"
       ],
       "dependencies": [
         {
@@ -1367,7 +1367,7 @@
         },
         {
           "dependency_type": "artifact",
-          "target_key": "m4-p2-9-runtime-audit-plan:eef5e18f6ffb342f264ef47913892efa91d92dfec0a32a51d2f1d0cb2711cbd5",
+          "target_key": "m4-p2-9-runtime-audit-plan:ee8c6afd84299f8976ea3949959dba3180d487d4ed487e098ec7b778caa04e52",
           "required_status": "available"
         }
       ],
@@ -1606,7 +1606,7 @@
       "m4-p2-6-1-marginal-binding-contract:dc45c140226a30d30f371f34628c05fa158b7dca86579f33431d2280a2987487",
       "m4-p2-6-1-measurement-validation-manifest:a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58",
       "m4-p2-6-measurement-validation-manifest:953ae76e2e28523b7d067c2b73dac8bec63ff2417db283fd516fe900e52402f8",
-      "m4-p2-9-runtime-audit-plan:eef5e18f6ffb342f264ef47913892efa91d92dfec0a32a51d2f1d0cb2711cbd5",
+      "m4-p2-9-runtime-audit-plan:ee8c6afd84299f8976ea3949959dba3180d487d4ed487e098ec7b778caa04e52",
       "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
       "m4-p2-identifiability-preflight-manifest:5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3",
       "m4-p2-input:0911059971a27faf9887ddf07c668e0c9eb8210e49859f3540a4f3f739d3d56e",
@@ -1627,5 +1627,5 @@
     "external_events": [],
     "authorities": []
   },
-  "manifest_digest": "e09aa5e52f7b21e159fef78d7c0b87666caa09d84ee407fd8161c8b9396169a2"
+  "manifest_digest": "078337d9fcc172777d37f06e570181cf803f080e0805832b5964cef31117fb40"
 }

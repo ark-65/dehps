@@ -15,6 +15,13 @@ from dehps.golden_source_identity import (
 )
 
 from .float_identity import encode_float64_tree
+from .source_compatibility import (
+    REVIEWED_SHARED_COMPATIBILITY_FIXTURE_PATH,
+    REVIEWED_SHARED_COMPATIBILITY_PATHS,
+    SourceCompatibilityError,
+    load_reviewed_shared_compatibility_fixture,
+    validate_reviewed_shared_compatibility_fixture,
+)
 
 SOURCE_INTEGRITY_SCHEMA = "dehps-m4-p2-9-source-integrity-attestation.v1"
 BASELINE_GIT_COMMIT = "70f83a5400c6207cbe3806e69329a233e461e311"
@@ -238,6 +245,10 @@ AUDIT_ORCHESTRATION_SOURCE_PATHS = tuple(
                 and path not in INDEPENDENT_ORACLE_SOURCE_PATHS
             ),
             "apps/worker-python/scripts/build_m4_v2_additive_manifest.py",
+            (
+                "apps/worker-python/scripts/"
+                "run_m4_p261_sparse_tree_compatibility_replay.py"
+            ),
             "apps/worker-python/scripts/run_research_evidence_supervisor.py",
             "infra/systemd/dehps-research-evidence-supervisor.service",
         }
@@ -470,6 +481,9 @@ def validate_source_integrity_contract(
         "independent_oracle_source_set_digest",
         "audit_orchestration_source_allowlist",
         "audit_orchestration_source_set_digest",
+        "reviewed_shared_compatibility_fixture_path",
+        "reviewed_shared_compatibility_fixture_digest",
+        "reviewed_shared_compatibility_paths",
         "shared_change_policy",
         "oracle_change_policy",
         "acceleration_change_policy",
@@ -489,6 +503,14 @@ def validate_source_integrity_contract(
         != "PINNED_FOR_PHASE0_REQUIRES_SUPERSEDING_PLAN"
         or contract.get("audit_change_policy")
         != "PINNED_PER_RUNTIME_PLAN_REQUIRES_SUPERSEDING_PLAN"
+        or contract.get("reviewed_shared_compatibility_fixture_path")
+        != REVIEWED_SHARED_COMPATIBILITY_FIXTURE_PATH.as_posix()
+        or _SHA256_PATTERN.fullmatch(
+            str(contract.get("reviewed_shared_compatibility_fixture_digest") or "")
+        )
+        is None
+        or contract.get("reviewed_shared_compatibility_paths")
+        != list(REVIEWED_SHARED_COMPATIBILITY_PATHS)
     ):
         raise SourceIntegrityError("source_integrity_contract_shape_changed")
     shared = _entry_by_path(
@@ -596,17 +618,61 @@ def verify_approved_source_bytes(
     acceleration_entries = contract["approved_acceleration_source_allowlist"]
     oracle_entries = contract["independent_oracle_source_allowlist"]
     orchestration_entries = contract["audit_orchestration_source_allowlist"]
+    try:
+        compatibility_fixture = load_reviewed_shared_compatibility_fixture(
+            root_dir / str(contract["reviewed_shared_compatibility_fixture_path"])
+        )
+        validate_reviewed_shared_compatibility_fixture(
+            compatibility_fixture,
+            expected_artifact_digest=str(
+                contract["reviewed_shared_compatibility_fixture_digest"]
+            ),
+            expected_candidate_golden_identity=golden_source_integrity_identity(
+                runtime_plan
+            ),
+        )
+    except SourceCompatibilityError as exc:
+        raise SourceIntegrityError(
+            f"reviewed_shared_compatibility_fixture_invalid:{exc}"
+        ) from exc
+    compatibility_paths = set(REVIEWED_SHARED_COMPATIBILITY_PATHS)
+    baseline_fixture_entries = {
+        str(entry["path"]): dict(entry)
+        for entry in compatibility_fixture["baseline_source_entries"]
+    }
+    candidate_fixture_entries = {
+        str(entry["path"]): dict(entry)
+        for entry in compatibility_fixture["candidate_source_entries"]
+    }
     for entry in shared_entries:
         path = str(entry["path"])
         current = (root_dir / path).read_bytes()
         baseline_content = _baseline_bytes(root_dir, commit=baseline, path=path)
         expected_sha = str(entry["content_sha256"])
         expected_blob = str(entry["git_blob_oid"])
+        current_identity = {
+            "path": path,
+            "content_sha256": content_sha256(current),
+            "git_blob_oid": git_blob_sha1(current),
+        }
+        baseline_identity = {
+            "path": path,
+            "content_sha256": content_sha256(baseline_content),
+            "git_blob_oid": git_blob_sha1(baseline_content),
+        }
+        fixture_changed_source_invalid = path in compatibility_paths and (
+            current_identity != candidate_fixture_entries.get(path)
+            or baseline_identity != baseline_fixture_entries.get(path)
+        )
+        unchanged_source_invalid = path not in compatibility_paths and (
+            baseline_identity["content_sha256"] != expected_sha
+            or baseline_identity["git_blob_oid"] != expected_blob
+        )
         if (
-            content_sha256(current) != expected_sha
-            or git_blob_sha1(current) != expected_blob
-            or content_sha256(baseline_content) != expected_sha
-            or git_blob_sha1(baseline_content) != expected_blob
+            current_identity["content_sha256"] != expected_sha
+            or current_identity["git_blob_oid"] != expected_blob
+            or fixture_changed_source_invalid
+            or unchanged_source_invalid
             or (
                 git_commit is not None
                 and _baseline_bytes(root_dir, commit=git_commit, path=path) != current
