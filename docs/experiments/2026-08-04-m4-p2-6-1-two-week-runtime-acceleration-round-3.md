@@ -7,6 +7,8 @@ Agent Request:
 `engineering-m4-p2-6-1-two-week-runtime-acceleration-round-3-20260804`
 (request 252, execution 173)
 
+Outcome: `REJECTED_BY_SOURCE_INTEGRITY`
+
 ## Round contract
 
 The primary goal is to reduce the late-prefix cost that makes the frozen
@@ -18,7 +20,7 @@ boundary, four probe families, hyperparameters, seeds, fold order, metrics,
 resampling, workload size, Gate policy, result schema, immutable task identity,
 or the currently executing Supervisor. No partial statistical result was read.
 
-The accepted equivalence obligation was:
+The candidate equivalence obligation was:
 
 ```text
 same prefix rows and order
@@ -49,7 +51,8 @@ The exact definitions and invariants were checked before implementation:
   literal implementation.
 
 The smallest defensible conclusion is limited to computational equivalence and
-measured runtime reduction. It does not claim new predictive evidence.
+measured runtime reduction in an isolated candidate. It does not claim new
+predictive evidence or an accepted runtime capability.
 
 ## Profile decisions
 
@@ -59,7 +62,7 @@ and probability bits, but removed only about 26 ms from a terminal HISTORICAL
 fit (roughly three percent of that logistic fit). This was too small to justify
 adding another private runtime boundary.
 
-Two larger exact operators were accepted:
+Two larger exact operator candidates were benchmarked:
 
 1. The runtime Bernoulli operator builds the exact sklearn estimator state from
    binary sufficient counts instead of materializing a dense float64 binarized
@@ -68,7 +71,7 @@ Two larger exact operators were accepted:
    that exact response to sklearn's Platt kernel instead of dispatching the
    same frozen tree through five redundant CV slices.
 
-The independent literal/golden path still uses the public sklearn fit paths.
+The independent literal/golden path used the public sklearn fit paths.
 
 ## Measurements
 
@@ -90,7 +93,7 @@ preprocessing and prediction:
 | Path | Median wall seconds | Relative |
 | --- | ---: | ---: |
 | Round 1 runtime with public NB/calibration operators | 2.673088 | 1.000x |
-| Round 3 exact operators | 2.442709 | 1.094x |
+| Round 3 exact-operator candidate | 2.442709 | 1.094x |
 
 Every A/B repetition produced the same state digests and probability bits.
 The cold pair was excluded from the ratio because the optimized member ran
@@ -102,13 +105,13 @@ literal path and 51.73 seconds on the optimized path. That 6.38x difference
 includes all prior accepted acceleration, especially Round 1, and is not
 attributed to Round 3 alone.
 
-Round 3 improves the exact single-host path but still does not prove the
-14-day capacity threshold. Applying 1.094x mechanically to Round 1's 8.316
+The candidate improved the exact single-host path but did not prove the 14-day
+capacity threshold. Applying 1.094x mechanically to Round 1's 8.316
 folds/second would be about 9.10 folds/second, still far below the required
 51.44 folds/second; this extrapolation is diagnostic, not a new capacity
 measurement or completion promise.
 
-## Exactness evidence
+## Candidate exactness evidence
 
 - Optimized/literal probe and golden-reference test files: `18 passed`.
 - Ruff on all changed Python surfaces: PASS.
@@ -121,22 +124,58 @@ measurement or completion promise.
 - Literal golden reference remains import-independent from the optimized
   runtime backend: PASS.
 
+Exact numerical replay was necessary but not sufficient. The repository's
+full Worker suite then executed the source-integrity proof that was missing
+from the focused set.
+
+## Source-integrity rejection and incident correction
+
+PR 245 was opened ready for review with `gh pr merge --auto --squash`. Because
+the repository did not mark the Worker check as required, GitHub merged commit
+`065f50f7e66f75531ec8c4414616b6ba567bc9a1` while the check was still pending.
+No production migration or Supervisor restart followed that merge.
+
+The post-merge Worker run `30893471018` completed with `2008 passed, 6 skipped,
+1 failed`. The failure was:
+
+```text
+test_source_preflight_accepts_new_acceleration_path_absent_at_baseline
+SourceIntegrityError:
+shared_frozen_source_modified:
+apps/worker-python/dehps/research_os/information_theory/probes/naive_bayes.py
+```
+
+The same candidate also changed
+`shallow_calibrated_tree.py`, another shared frozen probe source, and
+`runtime_cache_backend.py`, whose accepted bytes are pinned by the Phase 0
+runtime plan. The governing policies require a new reviewed fixture for the
+probe core and a superseding plan for the acceleration backend. This round had
+neither and therefore rejects the candidate regardless of numerical equality.
+
+Engineering incident request 253 restores all protected code exactly to commit
+`e60452d`, removes the rejected operator test, retains this report as
+rejected-candidate evidence, and forbids a production operation. The live
+Supervisor continued to run the already accepted e60452d implementation
+throughout.
+
 ## Mainline integration matrix
 
 | Requirement | State |
 | --- | --- |
 | Goal and frozen scientific contract | PASS, unchanged |
-| Exact operator proof | PASS |
+| Exact candidate proof | PASS, but insufficient for acceptance |
 | Literal full-replicate replay | PASS, 61 of 61 folds |
 | Result / trace / journal-byte equality | PASS |
-| Resolver / Ready Queue / Supervisor | Existing canonical P2.6.1 path unchanged during Engineering work |
-| Accepted PR merged to `main` | PENDING |
-| Fresh Supervisor on merged source | PENDING |
-| One to two fresh completed replicates | PENDING |
-| Downstream completion guard and P2.9 consumer | Existing canonical consumer, pending fresh runtime proof |
+| Shared frozen source integrity | FAIL; candidate rejected |
+| Pinned acceleration source integrity | FAIL; candidate rejected |
+| PR 245 | Merged before non-required CI completed; post-merge CI failed |
+| Production migration | NOT PERFORMED |
+| Resolver / Ready Queue / Supervisor | Existing e60452d canonical path unchanged |
+| Incident correction | Request 253, restoring protected bytes to e60452d |
+| Downstream completion guard and P2.9 consumer | Existing canonical consumer unchanged |
 
 Current completion answer:
 
 ```text
-NO — INTEGRATION_PENDING
+NO — INTEGRATION_PENDING (ROUND 3 CANDIDATE REJECTED BY SOURCE INTEGRITY)
 ```
