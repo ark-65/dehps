@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import shutil
 from datetime import date
@@ -71,10 +70,14 @@ from dehps.prediction.v2.scheduling import (
 )
 from dehps.prediction.v2.state import encode_state
 from dehps.research_os.control_plane import ResearchOSControlPlane
-from dehps.research_os.models import ControlPlaneManifest
+from dehps.research_os.models import (
+    ControlPlaneManifest,
+    MainlineArtifactRegistration,
+)
 from dehps.research_os.supervisor import (
     MainlineSupervisorError,
     ResearchEvidenceSupervisor,
+    _canonical_task_artifact_path,
 )
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -138,12 +141,18 @@ def test_state_encoder_enforces_prior_only_30_60_120_boundary() -> None:
     state = encode_state(history, as_of_issue="2026120", target_issue="2026121")
 
     assert state["state_windows"] == [30, 60, 120]
-    assert [state["windows"][str(size)]["draw_count"] for size in (30, 60, 120)] == [30, 60, 120]
+    assert [state["windows"][str(size)]["draw_count"] for size in (30, 60, 120)] == [
+        30,
+        60,
+        120,
+    ]
     assert state["historical_evidence"] == "NOT_RUN"
     with pytest.raises(ValueError, match="strictly after"):
         encode_state(history, as_of_issue="2026120", target_issue="2026120")
     with pytest.raises(ValueError, match="at least 120"):
-        encode_state(reference_history(count=119), as_of_issue="2026119", target_issue="2026120")
+        encode_state(
+            reference_history(count=119), as_of_issue="2026119", target_issue="2026120"
+        )
     with pytest.raises(ValueError, match="end exactly"):
         encode_state(history, as_of_issue="2026119", target_issue="2026121")
 
@@ -177,16 +186,24 @@ def test_shadow_identity_changes_with_target_or_history(shadow_bundle: dict) -> 
         as_of_issue="2026120",
         target_issue="2026122",
     )
-    target_pool, _ = generate_shadow_pool(contract=shadow_bundle["contract"], state=target_state)
+    target_pool, _ = generate_shadow_pool(
+        contract=shadow_bundle["contract"], state=target_state
+    )
     changed_history = reference_history(salt=1)
-    changed_state = encode_state(changed_history, as_of_issue="2026120", target_issue="2026121")
-    history_pool, _ = generate_shadow_pool(contract=shadow_bundle["contract"], state=changed_state)
+    changed_state = encode_state(
+        changed_history, as_of_issue="2026120", target_issue="2026121"
+    )
+    history_pool, _ = generate_shadow_pool(
+        contract=shadow_bundle["contract"], state=changed_state
+    )
 
     assert target_pool["artifact_digest"] != shadow_bundle["pool"]["artifact_digest"]
     assert history_pool["artifact_digest"] != shadow_bundle["pool"]["artifact_digest"]
 
 
-def test_pre_and_post_reports_bind_time_boundary_and_physically_replay(shadow_bundle: dict) -> None:
+def test_pre_and_post_reports_bind_time_boundary_and_physically_replay(
+    shadow_bundle: dict,
+) -> None:
     pre_replay = replay_pre_draw(
         contract=shadow_bundle["contract"],
         history=shadow_bundle["history"],
@@ -195,7 +212,9 @@ def test_pre_and_post_reports_bind_time_boundary_and_physically_replay(shadow_bu
         expected_top100=shadow_bundle["top100"],
         expected_report=shadow_bundle["pre_draw"],
     )
-    actual = candidate_unrank((121 * 7_919 + 104_729) % UNIVERSE.cardinality, universe=UNIVERSE)
+    actual = candidate_unrank(
+        (121 * 7_919 + 104_729) % UNIVERSE.cardinality, universe=UNIVERSE
+    )
     post = build_post_draw_report(
         pre_draw_report=shadow_bundle["pre_draw"],
         actual_issue="2026121",
@@ -209,7 +228,9 @@ def test_pre_and_post_reports_bind_time_boundary_and_physically_replay(shadow_bu
     )
 
     assert pre_replay["status"] == post_replay["status"] == "REPLAY_VERIFIED"
-    assert post["pre_draw_report_digest"] == shadow_bundle["pre_draw"]["artifact_digest"]
+    assert (
+        post["pre_draw_report_digest"] == shadow_bundle["pre_draw"]["artifact_digest"]
+    )
     assert post["historical_evidence"] == "NOT_RUN"
     assert post["promotion_gate_opened"] is False
     with pytest.raises(ValueError, match="does not match"):
@@ -292,17 +313,27 @@ def test_retirement_is_inactive_by_default_and_valid_activation_blocks_old_entry
     tmp_path: Path,
 ) -> None:
     activation_path = tmp_path / "activation.json"
-    assert legacy_retirement_status(activation_path=activation_path)["compute_allowed"] is True
+    assert (
+        legacy_retirement_status(activation_path=activation_path)["compute_allowed"]
+        is True
+    )
     valid_activation(activation_path)
-    assert legacy_retirement_status(activation_path=activation_path)["compute_allowed"] is False
+    assert (
+        legacy_retirement_status(activation_path=activation_path)["compute_allowed"]
+        is False
+    )
     monkeypatch.setattr(
         "dehps.prediction.v2.retirement.DEFAULT_ACTIVATION_PATH",
         activation_path,
     )
 
-    with pytest.raises(LegacyPredictionRetiredError, match="legacy_prediction_line_retired"):
+    with pytest.raises(
+        LegacyPredictionRetiredError, match="legacy_prediction_line_retired"
+    ):
         refresh_training_prediction_lines_current(object(), ranked_universe=[object()])
-    with pytest.raises(LegacyPredictionRetiredError, match="legacy_prediction_line_retired"):
+    with pytest.raises(
+        LegacyPredictionRetiredError, match="legacy_prediction_line_retired"
+    ):
         compile_mainline_prediction_email({}, recipient="test@example.com")
 
 
@@ -355,8 +386,10 @@ def test_draw_sync_keeps_ingestion_but_skips_legacy_evaluation_after_activation(
     watch = DrawSyncWatch(
         service=service,  # type: ignore[arg-type]
         forward_evaluator=evaluator,
-        post_draw_report_notifier=lambda issue: delivered.append(issue) or {"status": "sent"},
-        prediction_v2_shadow_notifier=lambda issue: v2_delivered.append(issue) or {"status": "sent"},
+        post_draw_report_notifier=lambda issue: delivered.append(issue)
+        or {"status": "sent"},
+        prediction_v2_shadow_notifier=lambda issue: v2_delivered.append(issue)
+        or {"status": "sent"},
         state_path=tmp_path / "state.json",
         pid_path=tmp_path / "pid",
         code_commit="b" * 40,
@@ -394,6 +427,8 @@ def test_scheduler_cutover_plan_is_non_mutating() -> None:
 
 
 def test_prediction_v2_control_plane_starts_ready_without_touching_m4() -> None:
+    m4_path = ROOT / "configs/research-os/m4-information-theory-evidence-v1.json"
+    m4_before = m4_path.read_bytes()
     payload = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     manifest = ControlPlaneManifest.from_dict(payload)
     snapshot = ResearchOSControlPlane().resolve(manifest)
@@ -402,10 +437,7 @@ def test_prediction_v2_control_plane_starts_ready_without_touching_m4() -> None:
     state = {item.task_key: item.status.value for item in snapshot.resolutions}
     assert state[REPLAY_TASK_KEY] == "dependency_wait"
     assert state["prediction-v2-shadow-scheduler-cutover-operator"] == "approval_wait"
-    m4_path = ROOT / "configs/research-os/m4-information-theory-evidence-v1.json"
-    assert hashlib.sha256(m4_path.read_bytes()).hexdigest() == (
-        "316c8acd7e8d04a92410274600b999e626327bf74a3d256f9c7cc202612a17c0"
-    )
+    assert m4_path.read_bytes() == m4_before
 
 
 class MemoryRepository:
@@ -465,7 +497,10 @@ class MemoryRepository:
             "parent_digests": list(registration.parent_digests),
             "git_commit": registration.git_commit,
         }
-        if any(item["registration_digest"] == value["registration_digest"] for item in self.artifacts):
+        if any(
+            item["registration_digest"] == value["registration_digest"]
+            for item in self.artifacts
+        ):
             return False
         self.artifacts.append(value)
         return True
@@ -507,6 +542,122 @@ def copy_prediction_configs(destination: Path) -> None:
         shutil.copy2(path, target / path.name)
 
 
+def test_canonical_task_artifact_path_binds_control_plane_namespace(
+    tmp_path: Path,
+) -> None:
+    execution_id = "e" * 64
+    shadow_relative = (
+        "runtime/research-os/prediction-v2-shadow/tasks/"
+        f"{REFERENCE_TASK_KEY}/{execution_id}/execution.json"
+    )
+    mainline_relative = (
+        "runtime/research-os/mainline/tasks/"
+        f"{REFERENCE_TASK_KEY}/{execution_id}/execution.json"
+    )
+
+    assert (
+        _canonical_task_artifact_path(
+            root_dir=tmp_path,
+            control_plane_key=CONTROL_PLANE_KEY,
+            task_key=REFERENCE_TASK_KEY,
+            execution_id=execution_id,
+            relative_path=shadow_relative,
+        )
+        == (tmp_path / shadow_relative).resolve()
+    )
+
+    for control_plane_key, relative_path in (
+        (CONTROL_PLANE_KEY, mainline_relative),
+        ("m4-information-theory-mainline", shadow_relative),
+    ):
+        with pytest.raises(MainlineSupervisorError, match="escaped task execution"):
+            _canonical_task_artifact_path(
+                root_dir=tmp_path,
+                control_plane_key=control_plane_key,
+                task_key=REFERENCE_TASK_KEY,
+                execution_id=execution_id,
+                relative_path=relative_path,
+            )
+
+    with pytest.raises(MainlineSupervisorError, match="not registered"):
+        _canonical_task_artifact_path(
+            root_dir=tmp_path,
+            control_plane_key="unknown-control-plane",
+            task_key=REFERENCE_TASK_KEY,
+            execution_id=execution_id,
+            relative_path=mainline_relative,
+        )
+    with pytest.raises(MainlineSupervisorError, match="escaped task execution"):
+        _canonical_task_artifact_path(
+            root_dir=tmp_path,
+            control_plane_key=CONTROL_PLANE_KEY,
+            task_key=REFERENCE_TASK_KEY,
+            execution_id="f" * 64,
+            relative_path=shadow_relative,
+        )
+    with pytest.raises(MainlineSupervisorError, match="not canonical"):
+        _canonical_task_artifact_path(
+            root_dir=tmp_path,
+            control_plane_key=CONTROL_PLANE_KEY,
+            task_key=REFERENCE_TASK_KEY,
+            execution_id=execution_id,
+            relative_path="../escaped.json",
+        )
+
+    task_root = (
+        tmp_path
+        / "runtime/research-os/prediction-v2-shadow/tasks"
+        / REFERENCE_TASK_KEY
+        / execution_id
+    )
+    task_root.mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (task_root / "linked").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(MainlineSupervisorError, match="escaped task execution"):
+        _canonical_task_artifact_path(
+            root_dir=tmp_path,
+            control_plane_key=CONTROL_PLANE_KEY,
+            task_key=REFERENCE_TASK_KEY,
+            execution_id=execution_id,
+            relative_path=f"{shadow_relative.rsplit('/', 1)[0]}/linked/artifact.json",
+        )
+
+    symlink_execution_id = "a" * 64
+    symlink_execution_root = task_root.parent / symlink_execution_id
+    symlink_execution_root.symlink_to(outside, target_is_directory=True)
+    with pytest.raises(MainlineSupervisorError, match="escaped task execution"):
+        _canonical_task_artifact_path(
+            root_dir=tmp_path,
+            control_plane_key=CONTROL_PLANE_KEY,
+            task_key=REFERENCE_TASK_KEY,
+            execution_id=symlink_execution_id,
+            relative_path=(
+                "runtime/research-os/prediction-v2-shadow/tasks/"
+                f"{REFERENCE_TASK_KEY}/{symlink_execution_id}/artifact.json"
+            ),
+        )
+
+
+def test_supervisor_rejects_unknown_control_plane_before_side_effects(
+    tmp_path: Path,
+) -> None:
+    repository = MemoryRepository(json.loads(MANIFEST_PATH.read_text(encoding="utf-8")))
+
+    with pytest.raises(MainlineSupervisorError, match="not registered"):
+        ResearchEvidenceSupervisor(
+            repository=repository,  # type: ignore[arg-type]
+            control_plane_key="unknown-control-plane",
+            root_dir=tmp_path,
+            git_commit=TEST_COMMIT,
+            require_clean_tree=False,
+        )
+
+    assert repository.events == []
+    assert repository.artifacts == []
+    assert not (tmp_path / "runtime").exists()
+
+
 def test_unified_supervisor_executes_reference_then_replay_and_keeps_m4_absent(
     tmp_path: Path,
 ) -> None:
@@ -530,16 +681,67 @@ def test_unified_supervisor_executes_reference_then_replay_and_keeps_m4_absent(
     assert (tmp_path / "runtime/logs/prediction-v2-shadow-status.json").is_file()
     assert not (tmp_path / "runtime/logs/m4-information-theory-status.json").exists()
     status = json.loads(
-        (tmp_path / "runtime/logs/prediction-v2-shadow-status.json").read_text(encoding="utf-8")
+        (tmp_path / "runtime/logs/prediction-v2-shadow-status.json").read_text(
+            encoding="utf-8"
+        )
     )
     assert status["replay_verified"] is True
     assert status["historical_evidence"] == "NOT_RUN"
     assert status["promotion_gate_opened"] is False
+
+    removed_index = next(
+        index
+        for index, item in enumerate(repository.artifacts)
+        if item["task_key"] == REFERENCE_TASK_KEY
+        and item["artifact_type"] != "research_os_mainline_execution"
+    )
+    removed_registration = repository.artifacts.pop(removed_index)
+    with pytest.raises(MainlineSupervisorError, match="registry.*changed"):
+        supervisor.replay(task_key=REFERENCE_TASK_KEY)
+    repository.artifacts.insert(removed_index, removed_registration)
+
+    original_path = str(removed_registration["artifact_path"])
+    escaped_registration = MainlineArtifactRegistration(
+        execution_id=str(removed_registration["execution_id"]),
+        control_plane_key=str(removed_registration["control_plane_key"]),
+        task_key=str(removed_registration["task_key"]),
+        task_digest=str(removed_registration["task_digest"]),
+        artifact_digest=str(removed_registration["artifact_digest"]),
+        artifact_type=str(removed_registration["artifact_type"]),
+        schema_version=str(removed_registration["schema_version"]),
+        artifact_path=f"{original_path.rsplit('/', 1)[0]}/../escaped.json",
+        parent_digests=tuple(removed_registration["parent_digests"]),
+        git_commit=str(removed_registration["git_commit"]),
+    )
+    removed_registration.update(
+        artifact_path=escaped_registration.artifact_path,
+        registration_digest=escaped_registration.registration_digest,
+    )
+    with pytest.raises(MainlineSupervisorError, match="not canonical"):
+        supervisor.replay(task_key=REFERENCE_TASK_KEY)
+    removed_registration.update(
+        artifact_path=original_path,
+        registration_digest=MainlineArtifactRegistration(
+            execution_id=str(removed_registration["execution_id"]),
+            control_plane_key=str(removed_registration["control_plane_key"]),
+            task_key=str(removed_registration["task_key"]),
+            task_digest=str(removed_registration["task_digest"]),
+            artifact_digest=str(removed_registration["artifact_digest"]),
+            artifact_type=str(removed_registration["artifact_type"]),
+            schema_version=str(removed_registration["schema_version"]),
+            artifact_path=original_path,
+            parent_digests=tuple(removed_registration["parent_digests"]),
+            git_commit=str(removed_registration["git_commit"]),
+        ).registration_digest,
+    )
+
     assert supervisor.replay(task_key=REFERENCE_TASK_KEY)["status"] == "REPLAY_VERIFIED"
     assert supervisor.replay(task_key=REPLAY_TASK_KEY)["status"] == "REPLAY_VERIFIED"
 
     top100_registration = next(
-        item for item in repository.artifacts if item["artifact_type"] == "PredictionV2ShadowTop100Artifact.v1"
+        item
+        for item in repository.artifacts
+        if item["artifact_type"] == "PredictionV2ShadowTop100Artifact.v1"
     )
     top100_path = tmp_path / top100_registration["artifact_path"]
     top100 = json.loads(top100_path.read_text(encoding="utf-8"))
@@ -553,7 +755,9 @@ def test_live_activation_binding_revises_only_operator_boundary_and_replays(
     tmp_path: Path,
 ) -> None:
     copy_prediction_configs(tmp_path)
-    activation_path = tmp_path / "runtime/prediction-v2/legacy-retirement-activation.json"
+    activation_path = (
+        tmp_path / "runtime/prediction-v2/legacy-retirement-activation.json"
+    )
     activation_path.parent.mkdir(parents=True)
     activation = valid_activation(activation_path)
     completion_path = tmp_path / COMPLETION_RELATIVE_PATH
@@ -627,7 +831,9 @@ def test_live_activation_binding_migration_fails_closed_on_unallowlisted_drift(
     tmp_path: Path,
 ) -> None:
     copy_prediction_configs(tmp_path)
-    activation_path = tmp_path / "runtime/prediction-v2/legacy-retirement-activation.json"
+    activation_path = (
+        tmp_path / "runtime/prediction-v2/legacy-retirement-activation.json"
+    )
     activation_path.parent.mkdir(parents=True)
     activation = valid_activation(activation_path)
     completion = valid_operator_completion(
@@ -689,7 +895,9 @@ def test_issue_manifest_is_prior_only_additive_and_idempotent(tmp_path: Path) ->
     assert first == second
     assert "manifest_digest" not in first
     ControlPlaneManifest.from_dict(first)
-    assert additive_migration_dry_run(before=before, after=first)["status"] == "VERIFIED"
+    assert (
+        additive_migration_dry_run(before=before, after=first)["status"] == "VERIFIED"
+    )
     assert len(first["tasks"]) == len(before["tasks"]) + 4
 
     durable = ControlPlaneManifest.from_dict(first).to_dict(include_digest=False)
@@ -757,7 +965,9 @@ def test_post_draw_materialization_is_idempotent_and_fails_closed_on_identity_dr
         history_rows=[record.as_history_draw() for record in history.records],
         target_issue="2026121",
     )
-    pre_payload["manifest_digest"] = ControlPlaneManifest.from_dict(pre_payload).artifact_digest
+    pre_payload["manifest_digest"] = ControlPlaneManifest.from_dict(
+        pre_payload
+    ).artifact_digest
     actual = candidate_unrank(121, universe=UNIVERSE)
     first, _ = materialize_post_draw_extension(
         root_dir=tmp_path,
@@ -819,7 +1029,9 @@ def test_notification_envelope_requires_bound_replay_and_ledger_is_idempotent(
     assert first["status"] == second["status"] == "sent"
     assert calls == [envelope["subject"]]
     ledger_payload = json.loads((tmp_path / "ledger.json").read_text(encoding="utf-8"))
-    assert ledger_payload["artifact_type"] == "PredictionV2NotificationDeliveryLedger.v1"
+    assert (
+        ledger_payload["artifact_type"] == "PredictionV2NotificationDeliveryLedger.v1"
+    )
 
     uncertain_ledger = PredictionV2NotificationLedger(tmp_path / "uncertain.json")
     with pytest.raises(RuntimeError, match="smtp"):
@@ -854,7 +1066,10 @@ def test_unified_supervisor_executes_real_issue_pre_and_post_replay(
         history_rows=[record.as_history_draw() for record in history.records],
         target_issue="2026121",
     )
-    assert additive_migration_dry_run(before=before, after=pre_payload)["status"] == "VERIFIED"
+    assert (
+        additive_migration_dry_run(before=before, after=pre_payload)["status"]
+        == "VERIFIED"
+    )
     repository.manifest = ControlPlaneManifest.from_dict(pre_payload)
     keys = issue_task_keys("2026121")
     pre = supervisor.run_once(task_key=keys["pre"])
@@ -876,7 +1091,10 @@ def test_unified_supervisor_executes_real_issue_pre_and_post_replay(
         durable_event_key="draw-issue-2026121-test",
         history_fingerprint="history-fingerprint-test",
     )
-    assert additive_migration_dry_run(before=before_post, after=post_payload)["status"] == "VERIFIED"
+    assert (
+        additive_migration_dry_run(before=before_post, after=post_payload)["status"]
+        == "VERIFIED"
+    )
     repository.manifest = ControlPlaneManifest.from_dict(post_payload)
     post = supervisor.run_once(task_key=keys["post"])
     post_replay_result = supervisor.run_once(task_key=keys["post_replay"])
@@ -886,7 +1104,8 @@ def test_unified_supervisor_executes_real_issue_pre_and_post_replay(
     assert not repository.manifest.facts.evidence
     assert all(item.get("promotion_gate_opened") is not True for item in (pre, post))
     envelopes = [
-        item for item in repository.artifacts
+        item
+        for item in repository.artifacts
         if item["artifact_type"] == "PredictionV2NotificationEnvelope.v1"
     ]
     assert len(envelopes) == 2
@@ -901,9 +1120,15 @@ def test_unified_supervisor_executes_real_issue_pre_and_post_replay(
 
 
 def test_prediction_v2_scheduler_sources_are_inactive_until_operator_install() -> None:
-    pre_service = (ROOT / "deploy/systemd/dehps-prediction-v2-shadow-pre-draw.service").read_text(encoding="utf-8")
-    pre_timer = (ROOT / "deploy/systemd/dehps-prediction-v2-shadow-pre-draw.timer").read_text(encoding="utf-8")
-    draw_service = (ROOT / "deploy/systemd/dehps-draw-sync.service").read_text(encoding="utf-8")
+    pre_service = (
+        ROOT / "deploy/systemd/dehps-prediction-v2-shadow-pre-draw.service"
+    ).read_text(encoding="utf-8")
+    pre_timer = (
+        ROOT / "deploy/systemd/dehps-prediction-v2-shadow-pre-draw.timer"
+    ).read_text(encoding="utf-8")
+    draw_service = (ROOT / "deploy/systemd/dehps-draw-sync.service").read_text(
+        encoding="utf-8"
+    )
     assert "run_prediction_v2_shadow_issue.py pre --apply --send" in pre_service
     assert "Tue,Thu,Sun" in pre_timer
     assert "--prediction-v2-shadow-notifications" in draw_service

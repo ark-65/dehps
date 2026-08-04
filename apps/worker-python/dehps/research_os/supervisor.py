@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import subprocess
+import tempfile
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -14,6 +16,12 @@ from typing import Any
 from dehps.artifacts import atomic_write_text
 from dehps.config import ROOT_DIR
 from dehps.contracts import canonical_digest
+from dehps.golden_source_identity import (
+    golden_source_identity_from_contract,
+    require_golden_source_compatibility,
+    validate_golden_source_integrity_contract,
+    validate_golden_source_integrity_identity,
+)
 from dehps.prediction.v2.activation_binding import (
     CUTOVER_TASK_KEY as PREDICTION_V2_CUTOVER_TASK_KEY,
 )
@@ -124,13 +132,32 @@ from dehps.research_os.information_theory.measurement_system_v2.runtime_audit im
     RuntimeAuditObserver,
     build_benchmark_plan_artifact,
     build_equivalence_attestation,
+    build_runtime_benchmark_attempt_artifact,
     load_runtime_audit_plan,
+    validate_runtime_benchmark_attempt_artifact,
 )
 from dehps.research_os.information_theory.measurement_validation import (
+    FIXTURE_GIT_COMMIT,
+    FIXTURE_PARENT_EXECUTION_ID,
     MEASUREMENT_VALIDATION_MANIFEST_DIGEST,
     REPAIRED_MEASUREMENT_VALIDATION_MANIFEST_DIGEST,
+    PythonReferenceEvaluation,
+    PythonReferenceReplicateEvaluator,
+    StrictPriorFeatureCache,
     assemble_completion,
+    build_canonical_executor_fingerprint,
+    build_cells,
+    build_exact_golden_attestation,
+    build_golden_fixture_artifact,
+    build_golden_reference_plan_artifact,
+    build_reference_boundary_snapshots,
+    build_replicate,
     evaluate_automatic_gate,
+    full_blind_feature_view_payload_digest,
+    full_train_feature_view_payload_digest,
+    generate_evaluation_dataset,
+    golden_boundary_identity_contract,
+    golden_full_replicate,
     load_repaired_measurement_validation_manifest,
     locate_repaired_truth_artifacts,
     run_parallel_execution,
@@ -139,8 +166,16 @@ from dehps.research_os.information_theory.measurement_validation import (
 from dehps.research_os.information_theory.measurement_validation.reference import (
     ReferenceReplicateEvaluator,
 )
-from dehps.research_os.information_theory.measurement_validation.schedule import (
-    iter_replicates,
+from dehps.research_os.information_theory.measurement_validation.source_integrity import (
+    build_source_integrity_attestation,
+    construction_source_integrity_identity,
+    float64_tree_digest,
+    golden_source_integrity_contract,
+    golden_source_integrity_identity,
+    preflight_source_integrity,
+    validate_construction_source_integrity_identity,
+    validate_registered_source_integrity_attestation,
+    validate_source_integrity_attestation,
 )
 from dehps.research_os.information_theory.metrics import load_metric_kernel_manifest
 from dehps.research_os.information_theory.progress import build_m4_status
@@ -178,8 +213,10 @@ from dehps.research_os.information_theory.synthetic import (
     load_synthetic_run_manifest,
 )
 from dehps.research_os.information_theory.walk_forward import (
+    OuterFold,
     load_harness_manifest,
     load_synthetic_dataset,
+    restrict_to_training_history,
     run_walk_forward,
 )
 from dehps.research_os.mainline import (
@@ -227,22 +264,29 @@ M4_V2_P27_GATE_REPLAY_TASK_KEY = "m4-v2-p2-7-measurement-gate-replay"
 M4_V2_P27_GATE_REPLAY_CAPABILITY = "m4_v2_p2_7_measurement_gate_replay"
 M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
 M4_V2_MARGINAL_BINDING_CAPABILITY = "m4_v2_p2_6_1_marginal_binding"
-M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = (
-    "m4-v2-p2-6-1-marginal-decision-replay"
-)
-M4_V2_MARGINAL_DECISION_REPLAY_CAPABILITY = (
-    "m4_v2_p2_6_1_marginal_decision_replay"
-)
+M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = "m4-v2-p2-6-1-marginal-decision-replay"
+M4_V2_MARGINAL_DECISION_REPLAY_CAPABILITY = "m4_v2_p2_6_1_marginal_decision_replay"
 MARGINAL_BINDING_COMPLETION_FACT = (
     "m4-v2-marginal-measurement-acceptance-decision:BOUND"
 )
-MARGINAL_DECISION_REPLAY_FACT = (
-    "m4-v2-branch-decision-replay:MARGINAL_STATIC:VERIFIED"
+MARGINAL_DECISION_REPLAY_FACT = "m4-v2-branch-decision-replay:MARGINAL_STATIC:VERIFIED"
+M4_P29_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
+M4_P29_GOLDEN_REFERENCE_CAPABILITY = "m4_p2_9_golden_reference_freeze"
+M4_P29_GOLDEN_REFERENCE_COMPLETION_FACT = "m4-p2-9-golden-reference:VERIFIED"
+M4_P261_FROZEN_TASK_DIGEST = (
+    "80068e22f5e1c343fd86213faa0d9a411d71f92ad2750fed10449a10151de8fa"
 )
 M4_P29_RUNTIME_AUDIT_TASK_KEY = "m4-p2-9-measurement-runtime-audit"
 M4_P29_RUNTIME_AUDIT_CAPABILITY = "m4_p2_9_measurement_runtime_audit"
 M4_P29_RUNTIME_AUDIT_COMPLETION_FACT = "m4-p2-9-runtime-audit:VERIFIED"
+M4_P29_ACCELERATION_BOUNDARY_SCOPE = "literal_behavior_path_and_fresh_import_closure"
 P2_UMBRELLA_TASK_KEY = "m4-p2-synthetic-measurement-validation"
+M4_CONTROL_PLANE_KEY = "m4-information-theory-mainline"
+
+_TASK_ARTIFACT_NAMESPACE_BY_CONTROL_PLANE = {
+    M4_CONTROL_PLANE_KEY: "mainline",
+    PREDICTION_V2_CONTROL_PLANE_KEY: "prediction-v2-shadow",
+}
 MAINLINE_EXECUTION_SCHEMA = "dehps-research-os-mainline-execution.v1"
 P26_EQUIVALENT_RESUME_ENV = "DEHPS_P26_EQUIVALENT_RESUME_FROM_COMMIT"
 P26_EQUIVALENT_RESUME_REPORT_ENV = "DEHPS_P26_EQUIVALENT_RESUME_REPORT"
@@ -289,15 +333,13 @@ def _verify_v2_registered_artifacts(
     expected_payloads: tuple[Mapping[str, Any], ...],
 ) -> None:
     expected_by_digest = {
-        str(payload["artifact_digest"]): dict(payload)
-        for payload in expected_payloads
+        str(payload["artifact_digest"]): dict(payload) for payload in expected_payloads
     }
     registered_digests = {
         str(item.get("artifact_digest") or "") for item in registrations
     }
-    if (
-        len(expected_by_digest) != len(expected_payloads)
-        or registered_digests != set(expected_by_digest)
+    if len(expected_by_digest) != len(expected_payloads) or registered_digests != set(
+        expected_by_digest
     ):
         raise MainlineSupervisorError(
             "M4 Measurement Contract v2 registered artifact set changed"
@@ -310,8 +352,7 @@ def _verify_v2_registered_artifacts(
         if (
             actual != expected
             or actual.get("artifact_digest") != digest
-            or actual.get("artifact_type")
-            != registration.get("artifact_type")
+            or actual.get("artifact_type") != registration.get("artifact_type")
         ):
             raise MainlineSupervisorError(
                 "M4 Measurement Contract v2 registered artifact content changed"
@@ -350,38 +391,252 @@ def _typed_artifact(
     return artifact
 
 
+def _event_record(event: Mapping[str, Any]) -> MainlineExecutionEvent:
+    raw_payload = event.get("payload")
+    if not isinstance(raw_payload, (list, tuple)) or any(
+        not isinstance(item, (list, tuple)) or len(item) != 2 for item in raw_payload
+    ):
+        raise MainlineSupervisorError("mainline execution event payload changed")
+    expected_fields = {
+        "event_digest",
+        "execution_id",
+        "control_plane_key",
+        "manifest_digest",
+        "task_key",
+        "task_digest",
+        "capability",
+        "event_type",
+        "sequence",
+        "recorded_at",
+        "payload",
+    }
+    if set(event) != expected_fields:
+        raise MainlineSupervisorError("mainline execution event shape changed")
+    record = MainlineExecutionEvent(
+        execution_id=str(event.get("execution_id") or ""),
+        control_plane_key=str(event.get("control_plane_key") or ""),
+        manifest_digest=str(event.get("manifest_digest") or ""),
+        task_key=str(event.get("task_key") or ""),
+        task_digest=str(event.get("task_digest") or ""),
+        capability=str(event.get("capability") or ""),
+        event_type=str(event.get("event_type") or ""),
+        sequence=int(event.get("sequence", -1)),
+        recorded_at=str(event.get("recorded_at") or ""),
+        payload=tuple((str(item[0]), item[1]) for item in raw_payload),
+    )
+    if event.get("event_digest") != record.artifact_digest:
+        raise MainlineSupervisorError("mainline execution event digest changed")
+    return record
+
+
+def _registration_record(
+    registration: Mapping[str, Any],
+) -> MainlineArtifactRegistration:
+    expected_fields = {
+        "registration_digest",
+        "execution_id",
+        "control_plane_key",
+        "task_key",
+        "task_digest",
+        "artifact_digest",
+        "artifact_type",
+        "schema_version",
+        "artifact_path",
+        "parent_digests",
+        "git_commit",
+    }
+    raw_parents = registration.get("parent_digests")
+    if set(registration) != expected_fields or not isinstance(
+        raw_parents, (list, tuple)
+    ):
+        raise MainlineSupervisorError("mainline artifact registration shape changed")
+    record = MainlineArtifactRegistration(
+        execution_id=str(registration.get("execution_id") or ""),
+        control_plane_key=str(registration.get("control_plane_key") or ""),
+        task_key=str(registration.get("task_key") or ""),
+        task_digest=str(registration.get("task_digest") or ""),
+        artifact_digest=str(registration.get("artifact_digest") or ""),
+        artifact_type=str(registration.get("artifact_type") or ""),
+        schema_version=str(registration.get("schema_version") or ""),
+        artifact_path=str(registration.get("artifact_path") or ""),
+        parent_digests=tuple(str(value) for value in raw_parents),
+        git_commit=str(registration.get("git_commit") or ""),
+    )
+    if registration.get("registration_digest") != record.registration_digest:
+        raise MainlineSupervisorError("mainline artifact registration digest changed")
+    return record
+
+
+def _canonical_task_artifact_path(
+    *,
+    root_dir: Path,
+    control_plane_key: str,
+    task_key: str,
+    execution_id: str,
+    relative_path: str,
+) -> Path:
+    raw = Path(relative_path)
+    if (
+        not relative_path
+        or raw.is_absolute()
+        or ".." in raw.parts
+        or raw.as_posix() != relative_path
+    ):
+        raise MainlineSupervisorError("mainline artifact path is not canonical")
+    try:
+        artifact_namespace = _TASK_ARTIFACT_NAMESPACE_BY_CONTROL_PLANE[
+            control_plane_key
+        ]
+    except KeyError as exc:
+        raise MainlineSupervisorError(
+            "mainline artifact control plane is not registered"
+        ) from exc
+    repository_root = root_dir.resolve()
+    namespace_root = (
+        repository_root / "runtime/research-os" / artifact_namespace / "tasks"
+    )
+    if namespace_root.resolve() != namespace_root:
+        raise MainlineSupervisorError("mainline artifact path escaped task namespace")
+    task_root = namespace_root / task_key / execution_id
+    if task_root.resolve() != task_root:
+        raise MainlineSupervisorError("mainline artifact path escaped task execution")
+    path = (repository_root / raw).resolve()
+    if not path.is_relative_to(task_root):
+        raise MainlineSupervisorError("mainline artifact path escaped task execution")
+    return path
+
+
 def _load_single_completed_execution(
     *,
     repository: PostgresResearchOSRepository,
     root_dir: Path,
     control_plane_key: str,
     task_key: str,
+    require_manifest_complete: bool = True,
 ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    manifest = repository.load_manifest(control_plane_key=control_plane_key)
+    matching_tasks = [task for task in manifest.tasks if task.task_key == task_key]
+    if len(matching_tasks) != 1:
+        raise MainlineSupervisorError(
+            f"mainline parent is not in the current manifest: {task_key}"
+        )
+    task = matching_tasks[0]
+    state = manifest.task_state_by_digest[task.artifact_digest]
+    state_is_valid = (
+        state.declared_status is TaskStatus.COMPLETED
+        and state.completion_classification is CompletionClassification.COMPLETE
+        if require_manifest_complete
+        else state.declared_status is TaskStatus.RUNNING
+        and state.completion_classification
+        in {
+            CompletionClassification.INTEGRATED,
+            CompletionClassification.VALIDATED_IN_MAINLINE,
+        }
+    )
+    if task.requested_capability is None or not state_is_valid:
+        raise MainlineSupervisorError(
+            f"mainline parent is not canonically complete: {task_key}"
+        )
     events = repository.list_mainline_execution_events(
         control_plane_key=control_plane_key,
         task_key=task_key,
     )
     completed = [
-        dict(event)
-        for event in events
-        if event.get("event_type") == "completed"
+        dict(event) for event in events if event.get("event_type") == "completed"
     ]
     if len(completed) != 1:
         raise MainlineSupervisorError(
             f"mainline parent requires one completed execution: {task_key}"
         )
     event = completed[0]
+    completed_record = _event_record(event)
+    matching_started = [
+        dict(candidate)
+        for candidate in events
+        if candidate.get("event_type") == "started"
+        and candidate.get("execution_id") == completed_record.execution_id
+    ]
+    if len(matching_started) != 1:
+        raise MainlineSupervisorError(
+            f"mainline parent requires one matching started event: {task_key}"
+        )
+    started = matching_started[0]
+    started_record = _event_record(started)
+    if (
+        completed_record.control_plane_key != control_plane_key
+        or completed_record.task_key != task_key
+        or completed_record.task_digest != task.artifact_digest
+        or completed_record.capability != task.requested_capability
+        or completed_record.event_type != "completed"
+        or completed_record.sequence != 1
+        or (
+            not require_manifest_complete
+            and completed_record.manifest_digest != manifest.artifact_digest
+        )
+        or started_record.execution_id != completed_record.execution_id
+        or started_record.control_plane_key != control_plane_key
+        or started_record.manifest_digest != completed_record.manifest_digest
+        or started_record.task_key != task_key
+        or started_record.task_digest != task.artifact_digest
+        or started_record.capability != task.requested_capability
+        or started_record.event_type != "started"
+        or started_record.sequence != 0
+    ):
+        raise MainlineSupervisorError(
+            f"mainline parent event provenance changed: {task_key}"
+        )
     summary = _event_payload(event)
-    path = root_dir / str(summary["execution_artifact_path"])
+    started_summary = _event_payload(started)
+    execution_relative_path = str(summary.get("execution_artifact_path") or "")
+    path = _canonical_task_artifact_path(
+        root_dir=root_dir,
+        control_plane_key=control_plane_key,
+        task_key=task_key,
+        execution_id=completed_record.execution_id,
+        relative_path=execution_relative_path,
+    )
     execution = _load_object(path)
     expected = canonical_digest(
         {key: value for key, value in execution.items() if key != "artifact_digest"},
         domain="dehps.research-os.mainline-execution.v1",
     )
+    expected_execution_id = stable_hash(
+        {
+            "schema": MAINLINE_EXECUTION_SCHEMA,
+            "control_plane_key": control_plane_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "input_artifact_digests": task.input_artifact_digests,
+            "git_commit": execution.get("git_commit"),
+        }
+    )
     if (
         execution.get("artifact_digest") != expected
         or execution.get("task_key") != task_key
-        or execution.get("execution_id") != event.get("execution_id")
+        or execution.get("task_digest") != task.artifact_digest
+        or execution.get("goal_key") != task.goal_key
+        or execution.get("capability") != task.requested_capability
+        or execution.get("control_plane_key") != control_plane_key
+        or execution.get("execution_id") != completed_record.execution_id
+        or execution.get("execution_id") != expected_execution_id
+        or execution.get("status") != "COMPLETE"
+        or execution.get("completion_classification") != "VALIDATED_IN_MAINLINE"
+        or execution.get("input_artifact_digests") != list(task.input_artifact_digests)
+        or summary.get("execution_artifact_digest") != execution.get("artifact_digest")
+        or summary.get("execution_artifact_path") != execution_relative_path
+        or summary.get("git_commit") != execution.get("git_commit")
+        or started_summary.get("git_commit") != execution.get("git_commit")
+        or started_summary.get("input_artifact_digests")
+        != list(task.input_artifact_digests)
+        or summary.get("actual_fold_count") != execution.get("actual_fold_count")
+        or (
+            require_manifest_complete
+            and mainline_completion_fact(
+                task=task,
+                execution_id=completed_record.execution_id,
+            )
+            not in manifest.facts.artifacts
+        )
     ):
         raise MainlineSupervisorError(
             f"completed execution identity changed: {task_key}"
@@ -393,13 +648,77 @@ def _load_single_completed_execution(
             execution_id=str(execution["execution_id"]),
         )
     ]
-    if len(registrations) != int(summary["registered_artifact_count"]):
+    try:
+        summary_count = int(summary.get("registered_artifact_count"))
+        execution_count = (
+            summary_count
+            if control_plane_key == PREDICTION_V2_CONTROL_PLANE_KEY
+            and "registered_artifact_count" not in execution
+            else int(execution.get("registered_artifact_count"))
+        )
+    except (TypeError, ValueError) as exc:
+        raise MainlineSupervisorError(
+            f"completed execution registry count changed: {task_key}"
+        ) from exc
+    if len(registrations) != summary_count or len(registrations) != execution_count:
         raise MainlineSupervisorError(
             f"completed execution registry changed: {task_key}"
         )
-    if any(not (root_dir / str(item["artifact_path"])).is_file() for item in registrations):
+    registration_digests: set[str] = set()
+    registration_paths: set[str] = set()
+    execution_registrations: list[MainlineArtifactRegistration] = []
+    for item in registrations:
+        record = _registration_record(item)
+        if (
+            record.execution_id != completed_record.execution_id
+            or record.control_plane_key != control_plane_key
+            or record.task_key != task_key
+            or record.task_digest != task.artifact_digest
+            or record.registration_digest in registration_digests
+            or record.artifact_path in registration_paths
+        ):
+            raise MainlineSupervisorError(
+                f"completed execution registration provenance changed: {task_key}"
+            )
+        artifact_path = _canonical_task_artifact_path(
+            root_dir=root_dir,
+            control_plane_key=control_plane_key,
+            task_key=task_key,
+            execution_id=completed_record.execution_id,
+            relative_path=record.artifact_path,
+        )
+        if not artifact_path.is_file():
+            raise MainlineSupervisorError(
+                f"completed execution artifact missing: {task_key}"
+            )
+        artifact = _load_object(artifact_path)
+        expected_registration_git = str(
+            artifact.get("runtime_git_commit") or execution.get("git_commit") or ""
+        )
+        if (
+            _artifact_digest(artifact) != record.artifact_digest
+            or str(artifact.get("artifact_type") or "typed_artifact")
+            != record.artifact_type
+            or str(artifact.get("schema_version") or "unknown") != record.schema_version
+            or tuple(str(value) for value in artifact.get("parent_digests", ()))
+            != record.parent_digests
+            or record.git_commit != expected_registration_git
+        ):
+            raise MainlineSupervisorError(
+                f"completed execution registered artifact changed: {task_key}"
+            )
+        registration_digests.add(record.registration_digest)
+        registration_paths.add(record.artifact_path)
+        if record.artifact_type == "research_os_mainline_execution":
+            execution_registrations.append(record)
+    if (
+        len(execution_registrations) != 1
+        or execution_registrations[0].artifact_digest
+        != execution.get("artifact_digest")
+        or execution_registrations[0].artifact_path != execution_relative_path
+    ):
         raise MainlineSupervisorError(
-            f"completed execution artifact missing: {task_key}"
+            f"completed execution artifact registration changed: {task_key}"
         )
     return event, execution, registrations
 
@@ -411,19 +730,16 @@ def _load_registered_type(
     artifact_type: str,
 ) -> dict[str, Any]:
     matches = [
-        item
-        for item in registrations
-        if item.get("artifact_type") == artifact_type
+        item for item in registrations if item.get("artifact_type") == artifact_type
     ]
     if len(matches) != 1:
         raise MainlineSupervisorError(
             f"registered artifact type is not unique: {artifact_type}"
         )
     payload = _load_object(root_dir / str(matches[0]["artifact_path"]))
-    if (
-        payload.get("artifact_type") != artifact_type
-        or payload.get("artifact_digest") != matches[0].get("artifact_digest")
-    ):
+    if payload.get("artifact_type") != artifact_type or payload.get(
+        "artifact_digest"
+    ) != matches[0].get("artifact_digest"):
         raise MainlineSupervisorError(
             f"registered artifact content identity changed: {artifact_type}"
         )
@@ -446,10 +762,7 @@ def _persist_small_capability(
     extra_execution: Mapping[str, Any],
 ) -> CapabilityResult:
     task_dir = (
-        root_dir
-        / "runtime/research-os/mainline/tasks"
-        / task.task_key
-        / execution_id
+        root_dir / "runtime/research-os/mainline/tasks" / task.task_key / execution_id
     )
     child_path = (
         task_dir
@@ -545,6 +858,1480 @@ def _runtime_audit_child_identities(
     return children
 
 
+@dataclass(frozen=True)
+class _GoldenReferenceBundle:
+    plan: Mapping[str, Any]
+    fixture: Mapping[str, Any]
+    replay: Mapping[str, Any]
+    runtime_audit_plan: Mapping[str, Any]
+    expected_input_digests: tuple[str, ...]
+    reference_fold_count: int
+    observed_fold_count: int
+    reference_boundary_snapshot_count: int
+    observed_boundary_snapshot_count: int
+    equivalence_boundary_case_count: int
+
+
+def _golden_execution_work_counts(
+    bundle: _GoldenReferenceBundle,
+) -> dict[str, int]:
+    counts = (
+        bundle.reference_fold_count,
+        bundle.observed_fold_count,
+        bundle.reference_boundary_snapshot_count,
+        bundle.observed_boundary_snapshot_count,
+        bundle.equivalence_boundary_case_count,
+    )
+    if counts != (61, 61, 45, 45, 45):
+        raise MainlineSupervisorError("golden reference work counts changed")
+    return {
+        "actual_fold_count": (bundle.reference_fold_count + bundle.observed_fold_count),
+        "reference_full_replicate_fold_count": bundle.reference_fold_count,
+        "observed_full_replicate_fold_count": bundle.observed_fold_count,
+        "reference_boundary_snapshot_count": (bundle.reference_boundary_snapshot_count),
+        "observed_boundary_snapshot_count": (bundle.observed_boundary_snapshot_count),
+        "equivalence_boundary_case_count": bundle.equivalence_boundary_case_count,
+    }
+
+
+def _golden_reference_sources(
+    *,
+    root_dir: Path,
+) -> tuple[
+    Mapping[str, Any],
+    Any,
+    Any,
+    Mapping[str, Mapping[str, Any]],
+    tuple[str, ...],
+]:
+    runtime_plan = load_runtime_audit_plan(root_dir / RUNTIME_AUDIT_PLAN_PATH)
+    manifest = load_repaired_measurement_validation_manifest(
+        root_dir / "configs/research-os/"
+        "m4-information-theory-p2-6-1-measurement-validation-v1.json"
+    )
+    synthetic = load_synthetic_run_manifest(
+        root_dir / "configs/research-os/"
+        "m4-information-theory-p2-synthetic-run-manifest-v1.0.1.json"
+    )
+    truth_digests = tuple(
+        str(item["artifact_digest"]) for item in manifest.payload["truth_artifacts"]
+    )
+    truths = locate_repaired_truth_artifacts(
+        root_dir,
+        required_digests=truth_digests,
+        repair_manifest_digest=MEASUREMENT_REPAIR_MANIFEST_DIGEST,
+    )
+    preregistration = _load_object(
+        root_dir
+        / "configs/research-os/m4-information-theory-preregistration-v1.0.3.json"
+    )
+    resampling = _load_object(
+        root_dir / "configs/research-os/"
+        "m4-information-theory-p2-5-resampling-kernel-v1.json"
+    )
+    metric = _load_object(
+        root_dir / "configs/research-os/m4-information-theory-metric-kernel-v1.json"
+    )
+    harness = _load_object(
+        root_dir
+        / "configs/research-os/m4-information-theory-walk-forward-harness-v1.json"
+    )
+    expected_inputs = (
+        str(runtime_plan["artifact_digest"]),
+        M4_P261_FROZEN_TASK_DIGEST,
+        MEASUREMENT_REPAIR_MANIFEST_DIGEST,
+        manifest.artifact_digest,
+        str(manifest.payload["development_selection_artifact_digest"]),
+        str(manifest.payload["state_visible_feature_manifest_digest"]),
+        synthetic.artifact_digest,
+        str(preregistration["artifact_digest"]),
+        str(resampling["artifact_digest"]),
+        str(metric["artifact_digest"]),
+        str(harness["artifact_digest"]),
+        *truth_digests,
+    )
+    if len(set(expected_inputs)) != len(expected_inputs):
+        raise MainlineSupervisorError("golden reference source identities overlap")
+    return runtime_plan, manifest, synthetic, truths, expected_inputs
+
+
+def _observed_reference_evaluation(
+    *,
+    root_dir: Path,
+    output_dir: Path,
+    manifest: Any,
+    synthetic: Any,
+    truths: Mapping[str, Mapping[str, Any]],
+    replicate: Any,
+    observer: RuntimeAuditObserver | None = None,
+    capture_trace: bool = True,
+) -> PythonReferenceEvaluation:
+    trace_records: list[dict[str, Any]] | None = [] if capture_trace else None
+    evaluator = ReferenceReplicateEvaluator.from_paths(
+        manifest=manifest,
+        synthetic=synthetic,
+        preregistration_path=(
+            root_dir
+            / "configs/research-os/m4-information-theory-preregistration-v1.0.3.json"
+        ),
+        walk_forward_harness_path=(
+            root_dir
+            / "configs/research-os/m4-information-theory-walk-forward-harness-v1.json"
+        ),
+        resampling_path=(
+            root_dir / "configs/research-os/"
+            "m4-information-theory-p2-5-resampling-kernel-v1.json"
+        ),
+        truth_by_scenario=truths,
+        git_commit=FIXTURE_GIT_COMMIT,
+        output_dir=output_dir,
+        audit_observer=observer,
+        trace_records=trace_records,
+    )
+    result = dict(evaluator.evaluate(replicate))
+    if observer is not None:
+        observer.stop()
+    journal_relative = Path(str(result["checkpoint_journal_path"]))
+    if journal_relative.is_absolute() or ".." in journal_relative.parts:
+        raise MainlineSupervisorError("golden reference journal path escaped work dir")
+    journal_path = output_dir / journal_relative
+    if not journal_path.is_file():
+        raise MainlineSupervisorError("golden reference observed journal is missing")
+    return PythonReferenceEvaluation(
+        result_payload=result,
+        fold_traces=tuple(trace_records or ()),
+        checkpoint_journal_bytes=journal_path.read_bytes(),
+    )
+
+
+def _require_exact_runtime_correctness_replay(
+    *,
+    measured: PythonReferenceEvaluation,
+    correctness: PythonReferenceEvaluation,
+) -> None:
+    if measured.fold_traces:
+        raise MainlineSupervisorError(
+            "runtime audit measured run unexpectedly captured trace records"
+        )
+    if len(correctness.fold_traces) != 61:
+        raise MainlineSupervisorError(
+            "runtime audit correctness replay trace count changed"
+        )
+    measured_digest = float64_tree_digest(
+        measured.result_payload,
+        domain="dehps.m4.p2-9.measured-correctness-result.v1",
+    )
+    correctness_digest = float64_tree_digest(
+        correctness.result_payload,
+        domain="dehps.m4.p2-9.measured-correctness-result.v1",
+    )
+    if measured_digest != correctness_digest:
+        raise MainlineSupervisorError(
+            "runtime audit production-like result changed during correctness replay"
+        )
+    if measured.checkpoint_journal_bytes != correctness.checkpoint_journal_bytes:
+        raise MainlineSupervisorError(
+            "runtime audit production-like journal changed during correctness replay"
+        )
+
+
+def _prepare_fresh_runtime_audit_attempt(
+    *,
+    task_dir: Path,
+    execution_id: str,
+) -> tuple[str, Path, Path]:
+    legacy_workdir = task_dir / "audited-work"
+    if legacy_workdir.exists():
+        raise MainlineSupervisorError(
+            "runtime audit legacy measured workdir already exists"
+        )
+    attempts_root = task_dir / "benchmark-attempts"
+    existing = (
+        sorted(item for item in attempts_root.iterdir())
+        if attempts_root.exists()
+        else []
+    )
+    if any(not item.is_dir() for item in existing):
+        raise MainlineSupervisorError(
+            "runtime audit attempt root contains a non-directory entry"
+        )
+    expected_existing = {
+        stable_hash(
+            {
+                "schema": "dehps-m4-p2-9-runtime-audit-attempt.v1",
+                "execution_id": execution_id,
+                "attempt_sequence": sequence,
+            }
+        )
+        for sequence in range(len(existing))
+    }
+    if {item.name for item in existing} != expected_existing:
+        raise MainlineSupervisorError("runtime audit existing attempt identity changed")
+    attempt_id = stable_hash(
+        {
+            "schema": "dehps-m4-p2-9-runtime-audit-attempt.v1",
+            "execution_id": execution_id,
+            "attempt_sequence": len(existing),
+        }
+    )
+    attempt_dir = attempts_root / attempt_id
+    measured_workdir = attempt_dir / "production-like-measured"
+    correctness_workdir = attempt_dir / "correctness-replay"
+    if (
+        attempt_dir.exists()
+        or measured_workdir.exists()
+        or correctness_workdir.exists()
+    ):
+        raise MainlineSupervisorError(
+            "runtime audit selected attempt workdir is not fresh"
+        )
+    return attempt_id, measured_workdir, correctness_workdir
+
+
+def _validate_runtime_benchmark_attempt_files(
+    *,
+    root_dir: Path,
+    control_plane_key: str,
+    task_key: str,
+    execution_id: str,
+    attempt: Mapping[str, Any],
+) -> bytes:
+    attempt_id = str(attempt.get("benchmark_attempt_id") or "")
+    expected_attempt_path = (
+        f"runtime/research-os/mainline/tasks/{task_key}/{execution_id}/"
+        f"benchmark-attempts/{attempt_id}"
+    )
+    expected_measured_path = f"{expected_attempt_path}/production-like-measured"
+    expected_correctness_path = f"{expected_attempt_path}/correctness-replay"
+    if (
+        not attempt_id
+        or attempt.get("benchmark_attempt_path") != expected_attempt_path
+        or attempt.get("measured_workdir_path") != expected_measured_path
+        or attempt.get("correctness_replay_workdir_path") != expected_correctness_path
+    ):
+        raise MainlineSupervisorError(
+            "runtime benchmark attempt workdir identity changed"
+        )
+    measured_root = _canonical_task_artifact_path(
+        root_dir=root_dir,
+        control_plane_key=control_plane_key,
+        task_key=task_key,
+        execution_id=execution_id,
+        relative_path=expected_measured_path,
+    )
+    correctness_root = _canonical_task_artifact_path(
+        root_dir=root_dir,
+        control_plane_key=control_plane_key,
+        task_key=task_key,
+        execution_id=execution_id,
+        relative_path=expected_correctness_path,
+    )
+    journal_relative_text = str(
+        attempt.get("measured_checkpoint_journal_relative_path") or ""
+    )
+    journal_relative = Path(journal_relative_text)
+    if (
+        not journal_relative_text
+        or journal_relative.is_absolute()
+        or ".." in journal_relative.parts
+        or journal_relative.as_posix() != journal_relative_text
+    ):
+        raise MainlineSupervisorError(
+            "runtime benchmark attempt journal path is not canonical"
+        )
+    measured_journal_path = measured_root / journal_relative
+    correctness_journal_path = correctness_root / journal_relative
+    try:
+        measured_bytes = measured_journal_path.read_bytes()
+        correctness_bytes = correctness_journal_path.read_bytes()
+    except OSError as exc:
+        raise MainlineSupervisorError(
+            "runtime benchmark attempt journal file is missing"
+        ) from exc
+    if (
+        measured_bytes != correctness_bytes
+        or measured_bytes
+        != str(attempt.get("measured_checkpoint_journal_utf8") or "").encode("utf-8")
+        or sha256(measured_bytes).hexdigest()
+        != attempt.get("measured_checkpoint_journal_sha256")
+    ):
+        raise MainlineSupervisorError("runtime benchmark attempt journal bytes changed")
+    return measured_bytes
+
+
+def _build_observed_boundary_snapshots(
+    *,
+    manifest: Any,
+    synthetic: Any,
+    truths: Mapping[str, Mapping[str, Any]],
+) -> tuple[dict[str, Any], ...]:
+    expected_outer_lengths = {
+        "FORWARD_61": 61,
+        "HISTORICAL": 2581,
+        "LONG": 6062,
+    }
+    cells = {
+        (cell.scale_id, cell.scenario_id): cell
+        for cell in build_cells(manifest, synthetic)
+    }
+    observed: list[dict[str, Any]] = []
+    active_key: tuple[str, str] | None = None
+    active: tuple[Any, Any, Any] | None = None
+    for identity in golden_boundary_identity_contract():
+        key = (str(identity["scale_id"]), str(identity["scenario_id"]))
+        if key not in cells:
+            raise MainlineSupervisorError(
+                "golden observed boundary cell is not in the frozen schedule"
+            )
+        if key != active_key:
+            cell = cells[key]
+            replicate = build_replicate(
+                cell=cell,
+                replicate_index=0,
+                parent_execution_id=FIXTURE_PARENT_EXECUTION_ID,
+            )
+            dataset = generate_evaluation_dataset(
+                replicate,
+                synthetic=synthetic,
+                truth_artifact=truths.get(cell.scenario_id),
+                expose_prior_state=True,
+            )
+            active = (
+                replicate,
+                dataset,
+                StrictPriorFeatureCache(dataset, include_prior_state=True),
+            )
+            active_key = key
+        if active is None:
+            raise MainlineSupervisorError(
+                "golden observed boundary state was not initialized"
+            )
+        replicate, dataset, cache = active
+        fold_index = int(identity["fold_index"])
+        if fold_index < 0 or fold_index >= dataset.outer_evaluation_length:
+            raise MainlineSupervisorError(
+                "golden observed boundary fold escaped the frozen scale"
+            )
+        test_issue = int(identity["test_issue"])
+        expected_test_issue = dataset.minimum_training_length + 1 + fold_index
+        fold = OuterFold(tuple(range(1, test_issue)), test_issue)
+        if (
+            cells[key].mechanism != identity["mechanism"]
+            or cells[key].signal_strength != identity["signal_strength"]
+            or dataset.outer_evaluation_length != expected_outer_lengths.get(key[0])
+        ):
+            raise MainlineSupervisorError(
+                "golden observed boundary scale contract changed"
+            )
+        if (
+            test_issue != expected_test_issue
+            or fold.train_issues[0] != identity["train_start_issue"]
+            or fold.train_issues[-1] != identity["train_end_issue"]
+            or fold.test_issue != identity["test_issue"]
+        ):
+            raise MainlineSupervisorError(
+                "golden observed boundary identity contract changed"
+            )
+        training = restrict_to_training_history(
+            dataset,
+            available_through_issue=fold.train_issues[-1],
+        )
+        cache.reveal_training_history(
+            training,
+            through_issue=fold.train_issues[-1],
+        )
+        train = cache.build_train_feature_view(training, fold.train_issues)
+        blind = cache.build_blind_test_feature_view(target_issue=fold.test_issue)
+        observed.append(
+            {
+                "scale_id": key[0],
+                "scenario_id": key[1],
+                "mechanism": cells[key].mechanism,
+                "signal_strength": cells[key].signal_strength,
+                "replicate_index": replicate.replicate_index,
+                "replicate_digest": replicate.artifact_digest,
+                "dataset_digest": dataset.artifact_digest,
+                "fold_position": identity["fold_position"],
+                "fold_index": fold_index,
+                "train_start_issue": fold.train_issues[0],
+                "train_end_issue": fold.train_issues[-1],
+                "test_issue": fold.test_issue,
+                "train_feature_view_digest": train.feature_view_digest,
+                "blind_feature_view_digest": blind.feature_view_digest,
+                "train_feature_view_payload_digest": (
+                    full_train_feature_view_payload_digest(train)
+                ),
+                "blind_feature_view_payload_digest": (
+                    full_blind_feature_view_payload_digest(blind)
+                ),
+            }
+        )
+    if len(observed) != 45:
+        raise MainlineSupervisorError("golden observed boundary snapshot count changed")
+    return tuple(observed)
+
+
+def _build_golden_reference_bundle(
+    *,
+    root_dir: Path,
+    work_dir: Path,
+    observer: RuntimeAuditObserver | None = None,
+) -> _GoldenReferenceBundle:
+    (
+        runtime_plan,
+        manifest,
+        synthetic,
+        truths,
+        expected_inputs,
+    ) = _golden_reference_sources(root_dir=root_dir)
+    verified_construction_source_identity = preflight_source_integrity(
+        root_dir=root_dir,
+        runtime_plan=runtime_plan,
+    )
+    verified_golden_source_contract = golden_source_integrity_contract(runtime_plan)
+    verified_golden_source_identity = golden_source_integrity_identity(runtime_plan)
+    executor_fingerprint = build_canonical_executor_fingerprint()
+    plan = build_golden_reference_plan_artifact(
+        runtime_plan,
+        executor_fingerprint=executor_fingerprint,
+        construction_source_integrity_identity=(verified_construction_source_identity),
+    )
+    if (
+        plan.get("construction_source_integrity_identity")
+        != verified_construction_source_identity
+        or plan.get("golden_source_integrity_contract")
+        != verified_golden_source_contract
+        or plan.get("golden_source_integrity_identity")
+        != verified_golden_source_identity
+    ):
+        raise MainlineSupervisorError(
+            "golden reference source integrity preflight changed"
+        )
+    replicate = golden_full_replicate(manifest=manifest, synthetic=synthetic)
+    boundaries = build_reference_boundary_snapshots(
+        manifest=manifest,
+        synthetic=synthetic,
+        truth_by_scenario=truths,
+    )
+    reference_evaluation = PythonReferenceReplicateEvaluator.from_paths(
+        manifest=manifest,
+        synthetic=synthetic,
+        preregistration_path=(
+            root_dir
+            / "configs/research-os/m4-information-theory-preregistration-v1.0.3.json"
+        ),
+        walk_forward_harness_path=(
+            root_dir
+            / "configs/research-os/m4-information-theory-walk-forward-harness-v1.json"
+        ),
+        resampling_path=(
+            root_dir / "configs/research-os/"
+            "m4-information-theory-p2-5-resampling-kernel-v1.json"
+        ),
+        truth_by_scenario=truths,
+        fixture_git_commit=FIXTURE_GIT_COMMIT,
+        output_dir=work_dir / "literal-oracle",
+    ).evaluate(replicate)
+    reference_fixture = build_golden_fixture_artifact(
+        plan_digest=str(plan["artifact_digest"]),
+        replicate=replicate,
+        evaluation=reference_evaluation,
+        boundary_snapshots=boundaries,
+        parent_digests=expected_inputs,
+        executor_fingerprint_digest=str(plan["executor_fingerprint_digest"]),
+        golden_source_integrity_identity=verified_golden_source_identity,
+    )
+    observed_evaluation = _observed_reference_evaluation(
+        root_dir=root_dir,
+        output_dir=work_dir / "observed-backend",
+        manifest=manifest,
+        synthetic=synthetic,
+        truths=truths,
+        replicate=replicate,
+        observer=observer,
+    )
+    observed_boundaries = _build_observed_boundary_snapshots(
+        manifest=manifest,
+        synthetic=synthetic,
+        truths=truths,
+    )
+    observed_fixture = build_golden_fixture_artifact(
+        plan_digest=str(plan["artifact_digest"]),
+        replicate=replicate,
+        evaluation=observed_evaluation,
+        boundary_snapshots=observed_boundaries,
+        parent_digests=expected_inputs,
+        executor_fingerprint_digest=str(plan["executor_fingerprint_digest"]),
+        golden_source_integrity_identity=verified_golden_source_identity,
+    )
+    if build_canonical_executor_fingerprint() != plan["executor_fingerprint"]:
+        raise MainlineSupervisorError(
+            "golden reference executor fingerprint changed during construction"
+        )
+    replay = build_exact_golden_attestation(
+        plan_digest=str(plan["artifact_digest"]),
+        reference_payload=reference_fixture,
+        observed_payload=observed_fixture,
+        reference_journal_bytes=reference_evaluation.checkpoint_journal_bytes,
+        observed_journal_bytes=observed_evaluation.checkpoint_journal_bytes,
+    )
+    return _GoldenReferenceBundle(
+        plan=plan,
+        fixture=reference_fixture,
+        replay=replay,
+        runtime_audit_plan=runtime_plan,
+        expected_input_digests=expected_inputs,
+        reference_fold_count=int(
+            reference_evaluation.result_payload["actual_outer_fold_count"]
+        ),
+        observed_fold_count=int(
+            observed_evaluation.result_payload["actual_outer_fold_count"]
+        ),
+        reference_boundary_snapshot_count=len(boundaries),
+        observed_boundary_snapshot_count=len(observed_boundaries),
+        equivalence_boundary_case_count=len(boundaries),
+    )
+
+
+def _verify_typed_digest(
+    payload: Mapping[str, Any],
+    *,
+    artifact_type: str,
+    domain: str,
+) -> None:
+    identity = dict(payload)
+    digest = identity.pop("artifact_digest", None)
+    if payload.get("artifact_type") != artifact_type or digest != canonical_digest(
+        identity, domain=domain
+    ):
+        raise MainlineSupervisorError(
+            f"golden reference artifact identity changed: {artifact_type}"
+        )
+
+
+def _validate_golden_boundary_schedule(plan: Mapping[str, Any]) -> None:
+    boundary_suite = plan.get("boundary_suite")
+    expected_identities = [
+        dict(identity) for identity in golden_boundary_identity_contract()
+    ]
+    expected_schedule_digest = canonical_digest(
+        expected_identities,
+        domain="dehps.m4-p2-9.golden-boundary-identity-schedule.v1",
+    )
+    if (
+        not isinstance(boundary_suite, Mapping)
+        or set(boundary_suite)
+        != {
+            "replicate_index",
+            "scales",
+            "mechanisms",
+            "fold_positions",
+            "identity_count",
+            "identity_schedule_digest",
+            "identities",
+        }
+        or boundary_suite.get("replicate_index") != 0
+        or boundary_suite.get("scales") != ["FORWARD_61", "HISTORICAL", "LONG"]
+        or boundary_suite.get("mechanisms")
+        != [
+            "uniform_choose_6_without_replacement_from_33",
+            "single_number_conditional_shift",
+            "local_temporal_state",
+            "pair_conditional_signal",
+            "marginal_preserving_conditional_signal",
+        ]
+        or boundary_suite.get("fold_positions") != ["first", "middle", "last"]
+        or boundary_suite.get("identities") != expected_identities
+        or boundary_suite.get("identity_count") != len(expected_identities)
+        or len(expected_identities) != 45
+        or boundary_suite.get("identity_schedule_digest") != expected_schedule_digest
+    ):
+        raise MainlineSupervisorError(
+            "golden reference boundary identity schedule changed"
+        )
+
+
+def _validate_golden_artifact_set(
+    *,
+    plan: Mapping[str, Any],
+    fixture: Mapping[str, Any],
+    replay: Mapping[str, Any],
+    expected_source_inputs: tuple[str, ...] | None = None,
+    expected_construction_source_identity: Mapping[str, Any] | None = None,
+    expected_golden_source_identity: Mapping[str, Any] | None = None,
+) -> None:
+    current_executor_fingerprint = build_canonical_executor_fingerprint()
+    oracle_contract = plan.get("oracle_contract")
+    _verify_typed_digest(
+        plan,
+        artifact_type="GoldenReferencePlanArtifact",
+        domain="dehps.m4-p2-9.phase0-golden-plan.v1",
+    )
+    _verify_typed_digest(
+        fixture,
+        artifact_type="Phase0GoldenReferenceFixture.v1",
+        domain="dehps.m4-p2-9.phase0-golden-fixture.v1",
+    )
+    _verify_typed_digest(
+        replay,
+        artifact_type="GoldenReferenceReplayArtifact",
+        domain="dehps.m4-p2-9.phase0-golden-replay.v1",
+    )
+    _validate_golden_boundary_schedule(plan)
+    try:
+        construction_source_identity = validate_construction_source_integrity_identity(
+            plan.get("construction_source_integrity_identity")
+        )
+        embedded_golden_contract = validate_golden_source_integrity_contract(
+            plan.get("golden_source_integrity_contract")
+        )
+        embedded_golden_identity = validate_golden_source_integrity_identity(
+            plan.get("golden_source_integrity_identity")
+        )
+    except RuntimeError as exc:
+        raise MainlineSupervisorError(
+            f"golden reference source contract changed: {exc}"
+        ) from exc
+    if golden_source_identity_from_contract(
+        embedded_golden_contract
+    ) != embedded_golden_identity or any(
+        construction_source_identity[key] != embedded_golden_identity[key]
+        for key in (
+            "shared_frozen_source_set_digest",
+            "independent_oracle_source_set_digest",
+        )
+    ):
+        raise MainlineSupervisorError(
+            "golden reference source identity projection changed"
+        )
+    if (
+        fixture.get("benchmark_plan_digest") != plan.get("artifact_digest")
+        or replay.get("benchmark_plan_digest") != plan.get("artifact_digest")
+        or replay.get("fixture_artifact_digest") != fixture.get("artifact_digest")
+        or replay.get("reference_fixture_digest") != fixture.get("artifact_digest")
+        or replay.get("observed_fixture_digest") != fixture.get("artifact_digest")
+        or plan.get("executor_fingerprint") != current_executor_fingerprint
+        or plan.get("executor_fingerprint_digest")
+        != current_executor_fingerprint["artifact_digest"]
+        or plan.get("exact_replay_scope") != "same_canonical_executor_fingerprint_only"
+        or not isinstance(oracle_contract, Mapping)
+        or oracle_contract.get("acceleration_boundary_independence_scope")
+        != M4_P29_ACCELERATION_BOUNDARY_SCOPE
+        or oracle_contract.get("oracle_construction_process_isolated") is not False
+        or fixture.get("executor_fingerprint_digest")
+        != plan.get("executor_fingerprint_digest")
+        or fixture.get("exact_replay_scope")
+        != "same_canonical_executor_fingerprint_only"
+        or replay.get("executor_fingerprint_digest")
+        != plan.get("executor_fingerprint_digest")
+        or replay.get("exact_replay_scope")
+        != "same_canonical_executor_fingerprint_only"
+        or replay.get("status") != "EXACT_GOLDEN_REPLAY_VERIFIED"
+        or replay.get("immutable_golden_fixture_is_oracle") is not True
+        or replay.get("acceleration_boundary_independent") is not True
+        or replay.get("acceleration_boundary_independence_scope")
+        != M4_P29_ACCELERATION_BOUNDARY_SCOPE
+        or replay.get("oracle_construction_process_isolated") is not False
+        or replay.get("oracle_construction_fully_implementation_independent")
+        is not False
+        or replay.get("payload_exact") is not True
+        or replay.get("float_bits_exact") is not True
+        or replay.get("journal_bytes_exact") is not True
+        or fixture.get("golden_source_integrity_identity") != embedded_golden_identity
+        or replay.get("golden_source_integrity_identity") != embedded_golden_identity
+        or (
+            expected_construction_source_identity is not None
+            and construction_source_identity
+            != dict(expected_construction_source_identity)
+        )
+        or (
+            expected_golden_source_identity is not None
+            and embedded_golden_identity != dict(expected_golden_source_identity)
+        )
+        or fixture.get("immutable_golden_fixture_is_oracle") is not True
+        or fixture.get("acceleration_boundary_independent") is not True
+        or fixture.get("acceleration_boundary_independence_scope")
+        != M4_P29_ACCELERATION_BOUNDARY_SCOPE
+        or fixture.get("oracle_construction_process_isolated") is not False
+        or fixture.get("oracle_construction_fully_implementation_independent")
+        is not False
+        or fixture.get("historical_outcomes_read") is not False
+        or fixture.get("evidence_progress_before") != 0
+        or fixture.get("evidence_progress_after") != 0
+        or fixture.get("production_action") != "none"
+    ):
+        raise MainlineSupervisorError("golden reference verification contract changed")
+    if expected_source_inputs is not None:
+        runtime_plan_digest = expected_source_inputs[0]
+        construction_source_digests = tuple(construction_source_identity.values())
+        golden_source_digests = tuple(embedded_golden_identity.values())
+        expected_fixture_parents = tuple(
+            sorted(
+                {
+                    str(plan["artifact_digest"]),
+                    *expected_source_inputs,
+                    *golden_source_digests,
+                }
+            )
+        )
+        journal_digest = fixture.get("checkpoint_journal_bytes_sha256")
+        if (
+            plan.get("source_runtime_audit_plan_digest") != runtime_plan_digest
+            or plan.get("parent_digests")
+            != sorted(
+                {
+                    runtime_plan_digest,
+                    *construction_source_digests,
+                    *golden_source_digests,
+                }
+            )
+            or tuple(sorted(str(value) for value in fixture.get("parent_digests", ())))
+            != expected_fixture_parents
+            or replay.get("checkpoint_journal_bytes_sha256") != journal_digest
+            or replay.get("parent_digests")
+            != sorted(
+                {
+                    plan.get("artifact_digest"),
+                    fixture.get("artifact_digest"),
+                    journal_digest,
+                    *golden_source_digests,
+                }
+            )
+        ):
+            raise MainlineSupervisorError("golden reference source lineage changed")
+
+
+def _load_verified_golden_parent(
+    *,
+    repository: PostgresResearchOSRepository,
+    root_dir: Path,
+    control_plane_key: str,
+) -> tuple[
+    dict[str, Any],
+    list[dict[str, Any]],
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+]:
+    event, execution, registrations = _load_single_completed_execution(
+        repository=repository,
+        root_dir=root_dir,
+        control_plane_key=control_plane_key,
+        task_key=M4_P29_GOLDEN_REFERENCE_TASK_KEY,
+    )
+    summary = _event_payload(event)
+    manifest = repository.load_manifest(control_plane_key=control_plane_key)
+    golden_tasks = [
+        task
+        for task in manifest.tasks
+        if task.task_key == M4_P29_GOLDEN_REFERENCE_TASK_KEY
+    ]
+    if len(golden_tasks) != 1:
+        raise MainlineSupervisorError(
+            "golden reference task is not unique in the current manifest"
+        )
+    execution_completion_fact = mainline_completion_fact(
+        task=golden_tasks[0],
+        execution_id=str(execution["execution_id"]),
+    )
+    if (
+        M4_P29_GOLDEN_REFERENCE_COMPLETION_FACT
+        not in tuple(str(value) for value in summary.get("completion_facts", ()))
+        or M4_P29_GOLDEN_REFERENCE_COMPLETION_FACT not in manifest.facts.artifacts
+        or execution_completion_fact not in manifest.facts.artifacts
+        or execution.get("completion_fact") != M4_P29_GOLDEN_REFERENCE_COMPLETION_FACT
+        or execution.get("immutable_golden_fixture_is_oracle") is not True
+        or execution.get("acceleration_boundary_independent") is not True
+        or execution.get("acceleration_boundary_independence_scope")
+        != M4_P29_ACCELERATION_BOUNDARY_SCOPE
+        or execution.get("oracle_construction_process_isolated") is not False
+        or execution.get("oracle_construction_fully_implementation_independent")
+        is not False
+        or execution.get("exact_replay_verified") is not True
+        or execution.get("historical_outcomes_read") is not False
+        or execution.get("evidence_progress_before") != 0
+        or execution.get("evidence_progress_after") != 0
+        or execution.get("production_action") != "none"
+    ):
+        raise MainlineSupervisorError(
+            "golden reference completion fact is not bound to its execution"
+        )
+    registered_types = {str(item.get("artifact_type") or "") for item in registrations}
+    if registered_types != {
+        "GoldenReferencePlanArtifact",
+        "Phase0GoldenReferenceFixture.v1",
+        "GoldenReferenceReplayArtifact",
+        "SourceIntegrityAttestationArtifact",
+        "research_os_mainline_execution",
+    }:
+        raise MainlineSupervisorError(
+            "golden reference registered artifact set changed"
+        )
+    plan = _load_registered_type(
+        root_dir=root_dir,
+        registrations=registrations,
+        artifact_type="GoldenReferencePlanArtifact",
+    )
+    fixture = _load_registered_type(
+        root_dir=root_dir,
+        registrations=registrations,
+        artifact_type="Phase0GoldenReferenceFixture.v1",
+    )
+    replay = _load_registered_type(
+        root_dir=root_dir,
+        registrations=registrations,
+        artifact_type="GoldenReferenceReplayArtifact",
+    )
+    source_integrity = _load_registered_type(
+        root_dir=root_dir,
+        registrations=registrations,
+        artifact_type="SourceIntegrityAttestationArtifact",
+    )
+    raw_expected_inputs = execution.get("input_artifact_digests")
+    if not isinstance(raw_expected_inputs, list) or not raw_expected_inputs:
+        raise MainlineSupervisorError(
+            "golden reference execution source inputs changed"
+        )
+    expected_inputs = tuple(str(value) for value in raw_expected_inputs)
+    _validate_golden_artifact_set(
+        plan=plan,
+        fixture=fixture,
+        replay=replay,
+        expected_source_inputs=expected_inputs,
+    )
+    validate_registered_source_integrity_attestation(
+        source_integrity,
+        source_runtime_audit_plan_digest=str(plan["source_runtime_audit_plan_digest"]),
+        construction_source_identity=plan["construction_source_integrity_identity"],
+        golden_source_identity=plan["golden_source_integrity_identity"],
+        execution_id=str(execution["execution_id"]),
+        git_commit=str(execution["git_commit"]),
+        baseline_git_commit=str(
+            plan["golden_source_integrity_contract"]["baseline_git_commit"]
+        ),
+        exact_fixture_replay_artifact_digest=str(replay["artifact_digest"]),
+    )
+    if (
+        execution.get("source_integrity_attestation_artifact_digest")
+        != source_integrity["artifact_digest"]
+        or execution.get("shared_frozen_source_modified") is not False
+        or execution.get("backend_source_modified")
+        is not source_integrity["backend_source_modified"]
+        or execution.get("acceleration_changed_paths")
+        != source_integrity["acceleration_changed_paths"]
+        or execution.get("backend_optimization_applied") is not False
+        or execution.get("statistical_semantics_modified") is not False
+        or execution.get("input_artifact_digests") != list(expected_inputs)
+        or execution.get("golden_reference_plan_artifact_digest")
+        != plan["artifact_digest"]
+        or execution.get("golden_reference_fixture_artifact_digest")
+        != fixture["artifact_digest"]
+        or execution.get("golden_reference_replay_artifact_digest")
+        != replay["artifact_digest"]
+    ):
+        raise MainlineSupervisorError("golden reference execution lineage changed")
+    return execution, registrations, plan, fixture, replay, source_integrity
+
+
+def _build_runtime_golden_equivalence(
+    *,
+    benchmark_plan: Mapping[str, Any],
+    golden_execution: Mapping[str, Any],
+    golden_plan: Mapping[str, Any],
+    golden_fixture: Mapping[str, Any],
+    golden_replay: Mapping[str, Any],
+    observed_fixture: Mapping[str, Any],
+    audited_payload: Mapping[str, Any],
+    benchmark_attempt: Mapping[str, Any],
+    source_integrity: Mapping[str, Any],
+    golden_source_integrity: Mapping[str, Any],
+) -> dict[str, Any]:
+    reference_children = _runtime_audit_child_identities(
+        dict(golden_fixture["replicate_result"])
+    )
+    audited_children = _runtime_audit_child_identities(audited_payload)
+    equivalence = build_equivalence_attestation(
+        plan_digest=str(benchmark_plan["artifact_digest"]),
+        reference_payload=golden_fixture,
+        audited_payload=observed_fixture,
+        reference_child_artifacts=reference_children,
+        audited_child_artifacts=audited_children,
+    )
+    identity = dict(equivalence)
+    identity.pop("artifact_digest")
+    identity.update(
+        {
+            "reference_evaluator_is_oracle": False,
+            "immutable_golden_fixture_is_oracle": True,
+            "acceleration_boundary_independent": True,
+            "acceleration_boundary_independence_scope": (
+                M4_P29_ACCELERATION_BOUNDARY_SCOPE
+            ),
+            "oracle_construction_process_isolated": False,
+            "oracle_construction_fully_implementation_independent": False,
+            "golden_reference_execution_artifact_digest": golden_execution[
+                "artifact_digest"
+            ],
+            "golden_reference_plan_artifact_digest": golden_plan["artifact_digest"],
+            "golden_reference_fixture_artifact_digest": golden_fixture[
+                "artifact_digest"
+            ],
+            "golden_reference_replay_artifact_digest": golden_replay["artifact_digest"],
+            "golden_source_integrity_attestation_artifact_digest": (
+                golden_source_integrity["artifact_digest"]
+            ),
+            "golden_source_integrity_identity": golden_fixture[
+                "golden_source_integrity_identity"
+            ],
+            "exact_golden_replay_verified": True,
+            "runtime_benchmark_attempt_artifact_digest": benchmark_attempt[
+                "artifact_digest"
+            ],
+            "measured_result_float64_tree_digest": benchmark_attempt[
+                "measured_result_float64_tree_digest"
+            ],
+            "measured_checkpoint_journal_sha256": benchmark_attempt[
+                "measured_checkpoint_journal_sha256"
+            ],
+            "source_integrity_attestation_artifact_digest": source_integrity[
+                "artifact_digest"
+            ],
+            "shared_frozen_source_set_digest": source_integrity[
+                "shared_frozen_source_set_digest"
+            ],
+            "approved_acceleration_source_set_digest": source_integrity[
+                "approved_acceleration_source_set_digest"
+            ],
+            "parent_digests": [
+                benchmark_plan["artifact_digest"],
+                golden_execution["artifact_digest"],
+                golden_plan["artifact_digest"],
+                golden_fixture["artifact_digest"],
+                golden_replay["artifact_digest"],
+                golden_source_integrity["artifact_digest"],
+                benchmark_attempt["artifact_digest"],
+                source_integrity["artifact_digest"],
+            ],
+        }
+    )
+    return {
+        **identity,
+        "artifact_digest": canonical_digest(
+            identity,
+            domain="dehps.m4.p2-9.equivalence-attestation.v1",
+        ),
+    }
+
+
+def _recover_runtime_audit_commit_marker(
+    *,
+    root_dir: Path,
+    owner: Any,
+    control_plane_key: str,
+    task: Task,
+    execution_id: str,
+    git_commit: str,
+    task_dir: Path,
+    runtime_plan: Mapping[str, Any],
+    golden_execution: Mapping[str, Any],
+    golden_plan: Mapping[str, Any],
+    golden_fixture: Mapping[str, Any],
+    golden_replay: Mapping[str, Any],
+    golden_source_integrity: Mapping[str, Any],
+    compatible_golden_source_identity: Mapping[str, Any],
+) -> CapabilityResult | None:
+    """Recover the durable result after execution.json crossed commit boundary."""
+
+    execution_path = task_dir / "execution.json"
+    if not execution_path.exists():
+        return None
+    execution = _load_object(execution_path)
+    _verify_typed_digest(
+        execution,
+        artifact_type="research_os_mainline_execution",
+        domain="dehps.research-os.mainline-execution.v1",
+    )
+
+    def load_child(
+        *,
+        directory: str,
+        filename: str,
+        digest_field: str,
+        artifact_type: str,
+    ) -> tuple[Path, dict[str, Any]]:
+        digest = str(execution.get(digest_field) or "")
+        path = task_dir / "artifacts" / directory / digest / filename
+        if not path.is_file():
+            raise MainlineSupervisorError(
+                f"runtime audit commit marker child missing: {artifact_type}"
+            )
+        payload = _load_object(path)
+        if (
+            payload.get("artifact_type") != artifact_type
+            or payload.get("artifact_digest") != digest
+        ):
+            raise MainlineSupervisorError(
+                f"runtime audit commit marker child changed: {artifact_type}"
+            )
+        return path, payload
+
+    benchmark_plan_path, benchmark_plan = load_child(
+        directory="benchmark-plan",
+        filename="plan.json",
+        digest_field="benchmark_plan_artifact_digest",
+        artifact_type="BenchmarkPlanArtifact",
+    )
+    observation_path, observation = load_child(
+        directory="runtime-observation",
+        filename="observation.json",
+        digest_field="runtime_observation_artifact_digest",
+        artifact_type="RuntimeObservationArtifact",
+    )
+    attempt_path, benchmark_attempt = load_child(
+        directory="runtime-benchmark-attempt",
+        filename="attempt.json",
+        digest_field="runtime_benchmark_attempt_artifact_digest",
+        artifact_type="RuntimeBenchmarkAttemptArtifact",
+    )
+    equivalence_path, equivalence = load_child(
+        directory="equivalence-attestation",
+        filename="attestation.json",
+        digest_field="equivalence_attestation_artifact_digest",
+        artifact_type="EquivalenceAttestationArtifact",
+    )
+    source_path, source_integrity = load_child(
+        directory="source-integrity-attestation",
+        filename="attestation.json",
+        digest_field="source_integrity_attestation_artifact_digest",
+        artifact_type="SourceIntegrityAttestationArtifact",
+    )
+    child_payloads: tuple[tuple[Path, Mapping[str, Any]], ...] = (
+        (benchmark_plan_path, benchmark_plan),
+        (observation_path, observation),
+        (attempt_path, benchmark_attempt),
+        (equivalence_path, equivalence),
+        (source_path, source_integrity),
+    )
+
+    expected_benchmark_plan = build_benchmark_plan_artifact(runtime_plan)
+    current_fingerprint = build_canonical_executor_fingerprint()
+    if (
+        benchmark_plan != expected_benchmark_plan
+        or current_fingerprint != golden_plan.get("executor_fingerprint")
+    ):
+        raise MainlineSupervisorError("runtime audit commit marker environment changed")
+    _validate_runtime_observation(
+        observation,
+        benchmark_plan=benchmark_plan,
+        execution_id=execution_id,
+        git_commit=git_commit,
+        executor_fingerprint_digest=str(golden_plan["executor_fingerprint_digest"]),
+        benchmark_attempt_id=str(benchmark_attempt["benchmark_attempt_id"]),
+        measured_result_float64_tree_digest=str(
+            benchmark_attempt["measured_result_float64_tree_digest"]
+        ),
+        measured_checkpoint_journal_sha256=str(
+            benchmark_attempt["measured_checkpoint_journal_sha256"]
+        ),
+    )
+    validate_runtime_benchmark_attempt_artifact(
+        benchmark_attempt,
+        benchmark_plan_digest=str(benchmark_plan["artifact_digest"]),
+        observation=observation,
+        execution_id=execution_id,
+        git_commit=git_commit,
+    )
+    measured_journal_bytes = _validate_runtime_benchmark_attempt_files(
+        root_dir=root_dir,
+        control_plane_key=control_plane_key,
+        task_key=task.task_key,
+        execution_id=execution_id,
+        attempt=benchmark_attempt,
+    )
+    reconstructed_source = build_source_integrity_attestation(
+        root_dir=root_dir,
+        runtime_plan=runtime_plan,
+        execution_id=execution_id,
+        git_commit=git_commit,
+        exact_fixture_replay_artifact_digest=str(golden_replay["artifact_digest"]),
+        golden_reference_execution_artifact_digest=str(
+            golden_execution["artifact_digest"]
+        ),
+        golden_source_identity=compatible_golden_source_identity,
+    )
+    validate_source_integrity_attestation(
+        source_integrity,
+        runtime_plan=runtime_plan,
+        execution_id=execution_id,
+        git_commit=git_commit,
+        exact_fixture_replay_artifact_digest=str(golden_replay["artifact_digest"]),
+        golden_reference_execution_artifact_digest=str(
+            golden_execution["artifact_digest"]
+        ),
+        golden_source_identity=compatible_golden_source_identity,
+    )
+    reconstructed_equivalence = _build_runtime_golden_equivalence(
+        benchmark_plan=benchmark_plan,
+        golden_execution=golden_execution,
+        golden_plan=golden_plan,
+        golden_fixture=golden_fixture,
+        golden_replay=golden_replay,
+        observed_fixture=golden_fixture,
+        audited_payload=dict(benchmark_attempt["measured_result_payload"]),
+        benchmark_attempt=benchmark_attempt,
+        source_integrity=source_integrity,
+        golden_source_integrity=golden_source_integrity,
+    )
+    expected_parent_digests = [
+        *task.input_artifact_digests,
+        golden_execution["artifact_digest"],
+        golden_plan["artifact_digest"],
+        golden_fixture["artifact_digest"],
+        golden_replay["artifact_digest"],
+        golden_source_integrity["artifact_digest"],
+        *(str(payload["artifact_digest"]) for _, payload in child_payloads),
+    ]
+    expected_execution_fields = {
+        "schema_version",
+        "artifact_type",
+        "artifact_digest",
+        "execution_id",
+        "control_plane_key",
+        "goal_key",
+        "task_key",
+        "task_digest",
+        "capability",
+        "status",
+        "completion_classification",
+        "input_artifact_digests",
+        "benchmark_plan_artifact_digest",
+        "runtime_observation_artifact_digest",
+        "runtime_benchmark_attempt_artifact_digest",
+        "source_integrity_attestation_artifact_digest",
+        "golden_source_integrity_attestation_artifact_digest",
+        "runtime_executor_fingerprint_digest_before",
+        "runtime_executor_fingerprint_digest_after",
+        "equivalence_attestation_artifact_digest",
+        "completion_fact",
+        "actual_fold_count",
+        "audited_fold_count",
+        "correctness_replay_fold_count",
+        "total_execution_fold_count",
+        "correctness_boundary_snapshot_count",
+        "frozen_reference_fold_count",
+        "registered_artifact_count",
+        "benchmark_attempt_id",
+        "benchmark_attempt_path",
+        "measured_workdir_path",
+        "correctness_replay_workdir_path",
+        "journal_reused",
+        "fresh_workdir",
+        "worker_count",
+        "formal_benchmark_after_slot_release",
+        "reference_evaluator_is_oracle",
+        "immutable_golden_fixture_is_oracle",
+        "acceleration_boundary_independent",
+        "acceleration_boundary_independence_scope",
+        "oracle_construction_process_isolated",
+        "oracle_construction_fully_implementation_independent",
+        "golden_reference_execution_artifact_digest",
+        "golden_reference_plan_artifact_digest",
+        "golden_reference_fixture_artifact_digest",
+        "golden_reference_replay_artifact_digest",
+        "exact_golden_replay_verified",
+        "shared_frozen_source_modified",
+        "backend_source_modified",
+        "acceleration_changed_paths",
+        "backend_optimization_applied",
+        "statistical_semantics_modified",
+        "historical_outcomes_read",
+        "p2_6_1_partial_statistical_results_read",
+        "evidence_created",
+        "evidence_progress_before",
+        "evidence_progress_after",
+        "downstream_consumer",
+        "production_action",
+        "production_impact",
+        "git_commit",
+        "working_tree_clean",
+        "parent_digests",
+    }
+    if (
+        set(execution) != expected_execution_fields
+        or source_integrity != reconstructed_source
+        or equivalence != reconstructed_equivalence
+        or benchmark_attempt.get("measured_result_float64_tree")
+        != golden_fixture.get("replicate_result")
+        or measured_journal_bytes
+        != str(golden_fixture["checkpoint_journal_utf8"]).encode("utf-8")
+        or execution.get("schema_version") != MAINLINE_EXECUTION_SCHEMA
+        or execution.get("execution_id") != execution_id
+        or execution.get("control_plane_key") != control_plane_key
+        or execution.get("goal_key") != task.goal_key
+        or execution.get("task_key") != task.task_key
+        or execution.get("task_digest") != task.artifact_digest
+        or execution.get("capability") != task.requested_capability
+        or execution.get("status") != "COMPLETE"
+        or execution.get("completion_classification") != "VALIDATED_IN_MAINLINE"
+        or execution.get("input_artifact_digests") != list(task.input_artifact_digests)
+        or execution.get("completion_fact") != M4_P29_RUNTIME_AUDIT_COMPLETION_FACT
+        or execution.get("runtime_executor_fingerprint_digest_before")
+        != golden_plan["executor_fingerprint_digest"]
+        or execution.get("runtime_executor_fingerprint_digest_after")
+        != golden_plan["executor_fingerprint_digest"]
+        or execution.get("actual_fold_count") != 61
+        or execution.get("audited_fold_count") != 61
+        or execution.get("correctness_replay_fold_count") != 61
+        or execution.get("total_execution_fold_count") != 122
+        or execution.get("correctness_boundary_snapshot_count") != 45
+        or execution.get("frozen_reference_fold_count") != 61
+        or execution.get("registered_artifact_count") != 6
+        or execution.get("worker_count") != 1
+        or execution.get("formal_benchmark_after_slot_release") is not True
+        or execution.get("reference_evaluator_is_oracle") is not False
+        or execution.get("immutable_golden_fixture_is_oracle") is not True
+        or execution.get("acceleration_boundary_independent") is not True
+        or execution.get("acceleration_boundary_independence_scope")
+        != M4_P29_ACCELERATION_BOUNDARY_SCOPE
+        or execution.get("oracle_construction_process_isolated") is not False
+        or execution.get("oracle_construction_fully_implementation_independent")
+        is not False
+        or execution.get("benchmark_attempt_id")
+        != benchmark_attempt["benchmark_attempt_id"]
+        or execution.get("benchmark_attempt_path")
+        != benchmark_attempt["benchmark_attempt_path"]
+        or execution.get("measured_workdir_path")
+        != benchmark_attempt["measured_workdir_path"]
+        or execution.get("correctness_replay_workdir_path")
+        != benchmark_attempt["correctness_replay_workdir_path"]
+        or execution.get("journal_reused") is not False
+        or execution.get("fresh_workdir") is not True
+        or execution.get("golden_reference_execution_artifact_digest")
+        != golden_execution["artifact_digest"]
+        or execution.get("golden_reference_plan_artifact_digest")
+        != golden_plan["artifact_digest"]
+        or execution.get("golden_reference_fixture_artifact_digest")
+        != golden_fixture["artifact_digest"]
+        or execution.get("golden_reference_replay_artifact_digest")
+        != golden_replay["artifact_digest"]
+        or execution.get("golden_source_integrity_attestation_artifact_digest")
+        != golden_source_integrity["artifact_digest"]
+        or execution.get("exact_golden_replay_verified") is not True
+        or execution.get("shared_frozen_source_modified") is not False
+        or execution.get("backend_source_modified")
+        is not source_integrity["backend_source_modified"]
+        or execution.get("acceleration_changed_paths")
+        != source_integrity["acceleration_changed_paths"]
+        or execution.get("backend_optimization_applied") is not False
+        or execution.get("statistical_semantics_modified") is not False
+        or execution.get("historical_outcomes_read") is not False
+        or execution.get("p2_6_1_partial_statistical_results_read") is not False
+        or execution.get("evidence_created") is not False
+        or execution.get("evidence_progress_before") != 0
+        or execution.get("evidence_progress_after") != 0
+        or execution.get("downstream_consumer")
+        != "future independent optimization request"
+        or execution.get("production_action") != "none"
+        or execution.get("production_impact") != "none"
+        or execution.get("git_commit") != git_commit
+        or execution.get("working_tree_clean") is not True
+        or execution.get("parent_digests") != expected_parent_digests
+    ):
+        raise MainlineSupervisorError("runtime audit commit marker identity changed")
+    registrations = P24InjectedSignalCalibrationCapability._registrations(
+        owner,
+        control_plane_key=control_plane_key,
+        task=task,
+        execution_id=execution_id,
+        git_commit=git_commit,
+        child_payloads=child_payloads,
+        execution_path=execution_path,
+        execution_payload=execution,
+    )
+    if len(registrations) != 6:
+        raise MainlineSupervisorError(
+            "runtime audit commit marker registration set changed"
+        )
+    return CapabilityResult(
+        execution_artifact=execution,
+        execution_artifact_path=execution_path,
+        registrations=registrations,
+        completion_facts=(M4_P29_RUNTIME_AUDIT_COMPLETION_FACT,),
+    )
+
+
+_RUNTIME_AUDIT_PHASE_INVOCATIONS = {
+    "dataset_generation": 1,
+    "fold_construction": 1,
+    "feature_cache": 62,
+    "estimator_calibrator_fit": 244,
+    "prediction_metric": 488,
+    "bootstrap": 1,
+    "permutation": 1,
+    "checkpoint_artifact_persistence": 62,
+}
+
+
+def _finite_nonnegative(value: object, *, positive: bool = False) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(float(value))
+        and (float(value) > 0 if positive else float(value) >= 0)
+    )
+
+
+def _unavailable_or_nonnegative_integer(value: object) -> bool:
+    return value == "UNAVAILABLE" or (
+        isinstance(value, int) and not isinstance(value, bool) and value >= 0
+    )
+
+
+def _validate_runtime_observation(
+    observation: Mapping[str, Any],
+    *,
+    benchmark_plan: Mapping[str, Any],
+    execution_id: str,
+    git_commit: str,
+    executor_fingerprint_digest: str,
+    benchmark_attempt_id: str,
+    measured_result_float64_tree_digest: str,
+    measured_checkpoint_journal_sha256: str,
+) -> None:
+    _verify_typed_digest(
+        observation,
+        artifact_type="RuntimeObservationArtifact",
+        domain="dehps.m4.p2-9.runtime-observation.v1",
+    )
+    expected_fields = {
+        "schema_version",
+        "artifact_type",
+        "artifact_digest",
+        "benchmark_plan_digest",
+        "execution_id",
+        "git_commit",
+        "executor_fingerprint_digest_before",
+        "executor_fingerprint_digest_after",
+        "executor_fingerprint_stable",
+        "benchmark_attempt_id",
+        "workload_kind",
+        "trace_capture_enabled",
+        "fresh_workdir",
+        "journal_reused",
+        "measured_result_float64_tree_digest",
+        "measured_checkpoint_journal_sha256",
+        "environmental_observation",
+        "replay_timing_equality_required",
+        "worker_count",
+        "fold_count",
+        "fit_count",
+        "resample_count",
+        "folds_per_second",
+        "fits_per_second",
+        "resamples_per_second",
+        "wall_time_seconds",
+        "process_cpu_time_seconds",
+        "process_cpu_utilization_percent",
+        "process_lifetime_peak_rss_bytes",
+        "process_lifetime_peak_rss_attribution",
+        "process_io_read_bytes",
+        "process_io_write_bytes",
+        "host_iowait_ticks_unattributed",
+        "host_iowait_attribution",
+        "artifact_write_latency_ms_p50",
+        "artifact_write_latency_ms_p95",
+        "artifact_write_latency_ms_max",
+        "phase_wall_time_seconds",
+        "phase_invocation_counts",
+        "missing_metric_policy",
+        "evidence_created",
+        "evidence_progress_increment",
+        "production_action",
+        "promotion_gate_opened",
+        "parent_digests",
+    }
+    phases = observation.get("phase_wall_time_seconds")
+    phase_counts = observation.get("phase_invocation_counts")
+    expected_phases = tuple(str(value) for value in benchmark_plan["observed_phases"])
+    wall = observation.get("wall_time_seconds")
+    cpu = observation.get("process_cpu_time_seconds")
+    p50 = observation.get("artifact_write_latency_ms_p50")
+    p95 = observation.get("artifact_write_latency_ms_p95")
+    maximum = observation.get("artifact_write_latency_ms_max")
+    if (
+        set(observation) != expected_fields
+        or observation.get("schema_version") != "dehps-m4-p2-9-runtime-observation.v1"
+        or observation.get("benchmark_plan_digest")
+        != benchmark_plan.get("artifact_digest")
+        or observation.get("execution_id") != execution_id
+        or observation.get("git_commit") != git_commit
+        or observation.get("executor_fingerprint_digest_before")
+        != executor_fingerprint_digest
+        or observation.get("executor_fingerprint_digest_after")
+        != executor_fingerprint_digest
+        or observation.get("executor_fingerprint_stable") is not True
+        or observation.get("benchmark_attempt_id") != benchmark_attempt_id
+        or observation.get("workload_kind") != "production_like_trace_capture_disabled"
+        or observation.get("trace_capture_enabled") is not False
+        or observation.get("fresh_workdir") is not True
+        or observation.get("journal_reused") is not False
+        or observation.get("measured_result_float64_tree_digest")
+        != measured_result_float64_tree_digest
+        or observation.get("measured_checkpoint_journal_sha256")
+        != measured_checkpoint_journal_sha256
+        or observation.get("environmental_observation") is not True
+        or observation.get("replay_timing_equality_required") is not False
+        or observation.get("worker_count") != 1
+        or observation.get("fold_count") != 61
+        or observation.get("fit_count") != 244
+        or observation.get("resample_count") != 4000
+        or not isinstance(phases, Mapping)
+        or set(phases) != set(expected_phases)
+        or any(not _finite_nonnegative(phases[name]) for name in expected_phases)
+        or phase_counts != _RUNTIME_AUDIT_PHASE_INVOCATIONS
+        or not _finite_nonnegative(wall, positive=True)
+        or not _finite_nonnegative(cpu)
+        or not _finite_nonnegative(observation.get("process_cpu_utilization_percent"))
+        or not _finite_nonnegative(observation.get("process_lifetime_peak_rss_bytes"))
+        or observation.get("process_lifetime_peak_rss_attribution")
+        != "PROCESS_LIFETIME_HIGH_WATER_MARK_NOT_AUDIT_WORKLOAD_ATTRIBUTABLE"
+        or not _unavailable_or_nonnegative_integer(
+            observation.get("process_io_read_bytes")
+        )
+        or not _unavailable_or_nonnegative_integer(
+            observation.get("process_io_write_bytes")
+        )
+        or not _unavailable_or_nonnegative_integer(
+            observation.get("host_iowait_ticks_unattributed")
+        )
+        or observation.get("host_iowait_attribution")
+        != "HOST_LEVEL_NOT_PROCESS_ATTRIBUTABLE"
+        or not _finite_nonnegative(p50)
+        or not _finite_nonnegative(p95)
+        or not _finite_nonnegative(maximum)
+        or not float(p50) <= float(p95) <= float(maximum)
+        or observation.get("missing_metric_policy") != "UNAVAILABLE"
+        or observation.get("evidence_created") is not False
+        or observation.get("evidence_progress_increment") != 0
+        or observation.get("production_action") != "none"
+        or observation.get("promotion_gate_opened") is not False
+        or observation.get("parent_digests") != [benchmark_plan.get("artifact_digest")]
+    ):
+        raise MainlineSupervisorError(
+            "runtime audit registered observation contract changed"
+        )
+    assert isinstance(wall, (int, float))
+    assert isinstance(cpu, (int, float))
+    if (
+        observation.get("folds_per_second") != 61 / wall
+        or observation.get("fits_per_second") != 244 / wall
+        or observation.get("resamples_per_second") != 4000 / wall
+        or observation.get("process_cpu_utilization_percent") != 100.0 * cpu / wall
+    ):
+        raise MainlineSupervisorError("runtime audit observation arithmetic changed")
+
+
 def _event_payload(event: Mapping[str, Any]) -> dict[str, Any]:
     raw = event.get("payload", ())
     if isinstance(raw, dict):
@@ -570,7 +2357,9 @@ class P23WalkForwardCapability:
         if task.task_key != P23_TASK_KEY or task.requested_capability != P23_CAPABILITY:
             raise MainlineSupervisorError("P2.3 capability received the wrong task")
         if len(task.input_artifact_digests) != 3:
-            raise MainlineSupervisorError("P2.3 requires exactly three frozen input digests")
+            raise MainlineSupervisorError(
+                "P2.3 requires exactly three frozen input digests"
+            )
         dataset_digest, metric_digest, harness_digest = task.input_artifact_digests
         dataset_path = (
             self.root_dir
@@ -711,7 +2500,9 @@ class P23WalkForwardCapability:
     ) -> set[Path]:
         paths: set[Path] = set()
         for run in run_artifacts:
-            paths.add(output_dir / "runs" / str(run["run_digest"]) / "run-artifact.json")
+            paths.add(
+                output_dir / "runs" / str(run["run_digest"]) / "run-artifact.json"
+            )
             for digest in run["fold_digests"]:
                 fold_path = output_dir / "folds" / str(digest) / "fold-manifest.json"
                 paths.add(fold_path)
@@ -724,10 +2515,7 @@ class P23WalkForwardCapability:
                 )
             for digest in run["probe_state_digests"]:
                 paths.add(
-                    output_dir
-                    / "probe-states"
-                    / str(digest)
-                    / "probe-state.json"
+                    output_dir / "probe-states" / str(digest) / "probe-state.json"
                 )
             for digest in run["preprocessing_state_digests"]:
                 paths.add(
@@ -737,13 +2525,9 @@ class P23WalkForwardCapability:
                     / "preprocessing-state.json"
                 )
             for digest in run["prediction_checkpoint_digests"]:
-                paths.add(
-                    output_dir / "predictions" / str(digest) / "prediction.json"
-                )
+                paths.add(output_dir / "predictions" / str(digest) / "prediction.json")
             for digest in run["settlement_digests"]:
-                paths.add(
-                    output_dir / "settlements" / str(digest) / "settlement.json"
-                )
+                paths.add(output_dir / "settlements" / str(digest) / "settlement.json")
         missing = sorted(str(path) for path in paths if not path.is_file())
         if missing:
             raise MainlineSupervisorError(
@@ -800,13 +2584,8 @@ class P24InjectedSignalCalibrationCapability:
         git_commit: str,
     ) -> CapabilityResult:
         integration_contract(task)
-        if (
-            task.task_key != P24_TASK_KEY
-            or task.requested_capability != P24_CAPABILITY
-        ):
-            raise MainlineSupervisorError(
-                "P2.4 capability received the wrong task"
-            )
+        if task.task_key != P24_TASK_KEY or task.requested_capability != P24_CAPABILITY:
+            raise MainlineSupervisorError("P2.4 capability received the wrong task")
         expected_inputs = (
             P24_PREREGISTRATION_DIGEST,
             P24_DECISION_POLICY_DIGEST,
@@ -820,23 +2599,18 @@ class P24InjectedSignalCalibrationCapability:
                 "P2.4 requires all six frozen input identities in order"
             )
         calibration_manifest_path = (
-            self.root_dir
-            / "configs/research-os/"
+            self.root_dir / "configs/research-os/"
             "m4-information-theory-p2-4-calibration-run-manifest-v1.json"
         )
-        calibration_manifest = load_calibration_manifest(
-            calibration_manifest_path
-        )
+        calibration_manifest = load_calibration_manifest(calibration_manifest_path)
         metric_manifest = load_metric_kernel_manifest(
-            self.root_dir
-            / "configs/research-os/"
+            self.root_dir / "configs/research-os/"
             "m4-information-theory-metric-kernel-v1.json"
         )
         if metric_manifest.artifact_digest != P24_METRIC_KERNEL_DIGEST:
             raise MainlineSupervisorError("P2.2 Metric Kernel identity changed")
         harness_path = (
-            self.root_dir
-            / "configs/research-os/"
+            self.root_dir / "configs/research-os/"
             "m4-information-theory-walk-forward-harness-v1.json"
         )
         task_dir = (
@@ -876,15 +2650,11 @@ class P24InjectedSignalCalibrationCapability:
             "status": "COMPLETE",
             "completion_classification": "VALIDATED_IN_MAINLINE",
             "input_artifact_digests": list(task.input_artifact_digests),
-            "calibration_run_manifest_digest": (
-                calibration_manifest.artifact_digest
-            ),
+            "calibration_run_manifest_digest": (calibration_manifest.artifact_digest),
             "calibration_run_artifact_digest": run.calibration_artifact[
                 "artifact_digest"
             ],
-            "completion_artifact_digest": run.completion_artifact[
-                "artifact_digest"
-            ],
+            "completion_artifact_digest": run.completion_artifact["artifact_digest"],
             "truth_artifact_digests": [
                 item["artifact_digest"] for item in run.truth_artifacts
             ],
@@ -914,10 +2684,7 @@ class P24InjectedSignalCalibrationCapability:
                 *task.input_artifact_digests,
                 run.calibration_artifact["artifact_digest"],
                 run.completion_artifact["artifact_digest"],
-                *(
-                    item["artifact_digest"]
-                    for item in run.truth_artifacts
-                ),
+                *(item["artifact_digest"] for item in run.truth_artifacts),
             ],
         }
         identity = dict(execution_payload)
@@ -938,9 +2705,7 @@ class P24InjectedSignalCalibrationCapability:
             execution_payload=execution_payload,
         )
         if len(registrations) != execution_payload["registered_artifact_count"]:
-            raise MainlineSupervisorError(
-                "P2.4 registered artifact count changed"
-            )
+            raise MainlineSupervisorError("P2.4 registered artifact count changed")
         return CapabilityResult(
             execution_artifact=execution_payload,
             execution_artifact_path=execution_path,
@@ -958,17 +2723,13 @@ class P24InjectedSignalCalibrationCapability:
         execution_path: Path,
         execution_payload: Mapping[str, Any],
     ) -> tuple[MainlineArtifactRegistration, ...]:
-        by_identity: dict[
-            tuple[str, str], MainlineArtifactRegistration
-        ] = {}
+        by_identity: dict[tuple[str, str], MainlineArtifactRegistration] = {}
         for path, payload in (
             *child_payloads,
             (execution_path, execution_payload),
         ):
             digest = _artifact_digest(payload)
-            artifact_type = str(
-                payload.get("artifact_type") or "typed_artifact"
-            )
+            artifact_type = str(payload.get("artifact_type") or "typed_artifact")
             registration = MainlineArtifactRegistration(
                 execution_id=execution_id,
                 control_plane_key=control_plane_key,
@@ -976,13 +2737,10 @@ class P24InjectedSignalCalibrationCapability:
                 task_digest=task.artifact_digest,
                 artifact_digest=digest,
                 artifact_type=artifact_type,
-                schema_version=str(
-                    payload.get("schema_version") or "unknown"
-                ),
+                schema_version=str(payload.get("schema_version") or "unknown"),
                 artifact_path=str(path.relative_to(self.root_dir)),
                 parent_digests=tuple(
-                    str(value)
-                    for value in payload.get("parent_digests", ())
+                    str(value) for value in payload.get("parent_digests", ())
                 ),
                 git_commit=str(payload.get("runtime_git_commit") or git_commit),
             )
@@ -1003,10 +2761,7 @@ class P25ResamplingCapability:
         git_commit: str,
     ) -> CapabilityResult:
         integration_contract(task)
-        if (
-            task.task_key != P25_TASK_KEY
-            or task.requested_capability != P25_CAPABILITY
-        ):
+        if task.task_key != P25_TASK_KEY or task.requested_capability != P25_CAPABILITY:
             raise MainlineSupervisorError("P2.5 capability received the wrong task")
         expected_inputs = (
             P25_PREREGISTRATION_DIGEST,
@@ -1022,8 +2777,7 @@ class P25ResamplingCapability:
                 "P2.5 requires all seven frozen input identities in order"
             )
         manifest = load_resampling_manifest(
-            self.root_dir
-            / "configs/research-os/"
+            self.root_dir / "configs/research-os/"
             "m4-information-theory-p2-5-resampling-kernel-v1.json"
         )
         task_dir = (
@@ -1065,9 +2819,7 @@ class P25ResamplingCapability:
             "input_artifact_digests": list(task.input_artifact_digests),
             "resampling_kernel_digest": manifest.artifact_digest,
             "resampling_run_digest": run.run_artifact["artifact_digest"],
-            "resampling_completion_digest": run.completion_artifact[
-                "artifact_digest"
-            ],
+            "resampling_completion_digest": run.completion_artifact["artifact_digest"],
             "child_replicate_digests": [
                 item["artifact_digest"] for item in run.child_artifacts
             ],
@@ -1164,13 +2916,11 @@ class P26IdentifiabilityPreflightCapability:
                 "input identities in order"
             )
         manifest = load_identifiability_preflight_manifest(
-            self.root_dir
-            / "configs/research-os/"
+            self.root_dir / "configs/research-os/"
             "m4-information-theory-p2-6-identifiability-preflight-v1.json"
         )
         archive = load_superseded_run_archive(
-            self.root_dir
-            / "configs/research-os/"
+            self.root_dir / "configs/research-os/"
             "m4-information-theory-p2-6-superseded-run-archive-v1.json"
         )
         if archive["artifact_digest"] != SUPERSEDED_RUN_ARCHIVE_DIGEST:
@@ -1204,15 +2954,9 @@ class P26IdentifiabilityPreflightCapability:
             "status": "COMPLETE",
             "completion_classification": "VALIDATED_IN_MAINLINE",
             "input_artifact_digests": list(task.input_artifact_digests),
-            "identifiability_preflight_manifest_digest": (
-                manifest.artifact_digest
-            ),
-            "identifiability_preflight_report_digest": (
-                run.report["artifact_digest"]
-            ),
-            "superseded_run_archive_digest": (
-                archive["artifact_digest"]
-            ),
+            "identifiability_preflight_manifest_digest": (manifest.artifact_digest),
+            "identifiability_preflight_report_digest": (run.report["artifact_digest"]),
+            "superseded_run_archive_digest": (archive["artifact_digest"]),
             "decision": run.report["decision"],
             "decision_fact": run.decision_fact,
             "failed_requirements": run.report["failed_classifications"],
@@ -1364,9 +3108,7 @@ class P26MeasurementSystemRepairCapability:
             "status": "COMPLETE",
             "completion_classification": "VALIDATED_IN_MAINLINE",
             "input_artifact_digests": list(task.input_artifact_digests),
-            "measurement_repair_manifest_digest": (
-                run.manifest.artifact_digest
-            ),
+            "measurement_repair_manifest_digest": (run.manifest.artifact_digest),
             "repaired_measurement_validation_manifest_digest": (
                 REPAIRED_MEASUREMENT_VALIDATION_MANIFEST_DIGEST
             ),
@@ -1379,9 +3121,7 @@ class P26MeasurementSystemRepairCapability:
             "identifiability_confirmation_digest": (
                 run.identifiability_confirmation["artifact_digest"]
             ),
-            "completion_artifact_digest": run.completion[
-                "artifact_digest"
-            ],
+            "completion_artifact_digest": run.completion["artifact_digest"],
             "completion_fact": REPAIRED_FACT,
             "actual_fold_count": 0,
             "registered_artifact_count": len(child_payloads) + 1,
@@ -1427,9 +3167,7 @@ class P26MeasurementSystemRepairCapability:
             execution_path=execution_path,
             execution_payload=execution_payload,
         )
-        if len(registrations) != execution_payload[
-            "registered_artifact_count"
-        ]:
+        if len(registrations) != execution_payload["registered_artifact_count"]:
             raise MainlineSupervisorError(
                 "P2 measurement repair registered artifact count changed"
             )
@@ -1522,9 +3260,7 @@ class M4MeasurementContractV2DesignCapability:
             "completion_classification": "VALIDATED_IN_MAINLINE",
             "input_artifact_digests": list(task.input_artifact_digests),
             "measurement_contract_v2_digest": contract.artifact_digest,
-            "estimand_contract_digest": run.estimand_contract[
-                "artifact_digest"
-            ],
+            "estimand_contract_digest": run.estimand_contract["artifact_digest"],
             "mechanism_role_contract_digest": run.mechanism_role_contract[
                 "artifact_digest"
             ],
@@ -1541,19 +3277,14 @@ class M4MeasurementContractV2DesignCapability:
             "evidence_created": False,
             "evidence_progress_before": 0,
             "evidence_progress_after": 0,
-            "downstream_consumer": (
-                "m4-v2-branch-identifiability-preflight-design"
-            ),
+            "downstream_consumer": ("m4-v2-branch-identifiability-preflight-design"),
             "production_impact": "none",
             "git_commit": git_commit,
             "working_tree_clean": True,
             "replay_status": "DETERMINISTIC",
             "parent_digests": [
                 *task.input_artifact_digests,
-                *(
-                    str(payload["artifact_digest"])
-                    for _, payload in child_payloads
-                ),
+                *(str(payload["artifact_digest"]) for _, payload in child_payloads),
             ],
         }
         identity = dict(execution_payload)
@@ -1574,9 +3305,7 @@ class M4MeasurementContractV2DesignCapability:
             execution_path=execution_path,
             execution_payload=execution_payload,
         )
-        if len(registrations) != execution_payload[
-            "registered_artifact_count"
-        ]:
+        if len(registrations) != execution_payload["registered_artifact_count"]:
             raise MainlineSupervisorError(
                 "M4 v2 design registered artifact count changed"
             )
@@ -1614,9 +3343,7 @@ class M4MeasurementContractV2DesignReplayCapability:
             raise MainlineSupervisorError(
                 "M4 Measurement Contract v2 design replay received the wrong task"
             )
-        fixture = load_gate_replay_fixture(
-            self.root_dir / GATE_REPLAY_FIXTURE_PATH
-        )
+        fixture = load_gate_replay_fixture(self.root_dir / GATE_REPLAY_FIXTURE_PATH)
         if task.input_artifact_digests != (
             MEASUREMENT_CONTRACT_V2_DIGEST,
             fixture.artifact_digest,
@@ -1650,8 +3377,7 @@ class M4MeasurementContractV2DesignReplayCapability:
         if (
             parent_execution.get("artifact_digest") != expected_parent_digest
             or parent_execution.get("task_key") != M4_V2_DESIGN_TASK_KEY
-            or parent_execution.get("execution_id")
-            != parent_event.get("execution_id")
+            or parent_execution.get("execution_id") != parent_event.get("execution_id")
         ):
             raise MainlineSupervisorError(
                 "M4 v2 design replay parent execution identity changed"
@@ -1682,8 +3408,7 @@ class M4MeasurementContractV2DesignReplayCapability:
             design_child_digests=[
                 str(item["artifact_digest"])
                 for item in parent_registrations
-                if item.get("artifact_type")
-                != "research_os_mainline_execution"
+                if item.get("artifact_type") != "research_os_mainline_execution"
             ],
             registration_payloads=parent_registrations,
         )
@@ -1721,9 +3446,7 @@ class M4MeasurementContractV2DesignReplayCapability:
             "input_artifact_digests": list(task.input_artifact_digests),
             "measurement_contract_v2_digest": contract.artifact_digest,
             "design_execution_id": parent_execution["execution_id"],
-            "design_execution_artifact_digest": parent_execution[
-                "artifact_digest"
-            ],
+            "design_execution_artifact_digest": parent_execution["artifact_digest"],
             "measurement_contract_replay_digest": (
                 replay.measurement_contract_replay["artifact_digest"]
             ),
@@ -1739,9 +3462,7 @@ class M4MeasurementContractV2DesignReplayCapability:
             "evidence_created": False,
             "evidence_progress_before": 0,
             "evidence_progress_after": 0,
-            "downstream_consumer": (
-                "m4-v2-branch-identifiability-preflight-design"
-            ),
+            "downstream_consumer": ("m4-v2-branch-identifiability-preflight-design"),
             "production_impact": "none",
             "git_commit": git_commit,
             "working_tree_clean": True,
@@ -1986,7 +3707,9 @@ class M4P261MarginalBindingCapability:
             task.task_key != M4_V2_MARGINAL_BINDING_TASK_KEY
             or task.requested_capability != M4_V2_MARGINAL_BINDING_CAPABILITY
         ):
-            raise MainlineSupervisorError("P2.6.1 Marginal binding received the wrong task")
+            raise MainlineSupervisorError(
+                "P2.6.1 Marginal binding received the wrong task"
+            )
         contract = load_p261_marginal_binding_contract(
             self.root_dir / P261_MARGINAL_BINDING_CONTRACT_PATH
         )
@@ -2073,10 +3796,11 @@ class M4P261MarginalDecisionReplayCapability:
         integration_contract(task)
         if (
             task.task_key != M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY
-            or task.requested_capability
-            != M4_V2_MARGINAL_DECISION_REPLAY_CAPABILITY
+            or task.requested_capability != M4_V2_MARGINAL_DECISION_REPLAY_CAPABILITY
         ):
-            raise MainlineSupervisorError("Marginal decision replay received the wrong task")
+            raise MainlineSupervisorError(
+                "Marginal decision replay received the wrong task"
+            )
         contract = load_p261_marginal_binding_contract(
             self.root_dir / P261_MARGINAL_BINDING_CONTRACT_PATH
         )
@@ -2157,8 +3881,203 @@ class M4P261MarginalDecisionReplayCapability:
         )
 
 
-class M4P29MeasurementRuntimeAuditCapability:
+class M4P29GoldenReferenceCapability:
     def __init__(self, *, root_dir: Path = ROOT_DIR) -> None:
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key != M4_P29_GOLDEN_REFERENCE_TASK_KEY
+            or task.requested_capability != M4_P29_GOLDEN_REFERENCE_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "M4-P2.9 golden reference received the wrong task"
+            )
+        _, _, _, _, expected_inputs = _golden_reference_sources(root_dir=self.root_dir)
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "M4-P2.9 golden reference source identities changed"
+            )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        bundle = _build_golden_reference_bundle(
+            root_dir=self.root_dir,
+            work_dir=task_dir / "phase0-work",
+        )
+        if bundle.expected_input_digests != task.input_artifact_digests:
+            raise MainlineSupervisorError(
+                "M4-P2.9 golden reference source replay changed"
+            )
+        _validate_golden_artifact_set(
+            plan=bundle.plan,
+            fixture=bundle.fixture,
+            replay=bundle.replay,
+            expected_source_inputs=expected_inputs,
+            expected_construction_source_identity=(
+                construction_source_integrity_identity(bundle.runtime_audit_plan)
+            ),
+            expected_golden_source_identity=golden_source_integrity_identity(
+                bundle.runtime_audit_plan
+            ),
+        )
+        source_integrity = build_source_integrity_attestation(
+            root_dir=self.root_dir,
+            runtime_plan=bundle.runtime_audit_plan,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            exact_fixture_replay_artifact_digest=str(bundle.replay["artifact_digest"]),
+        )
+        validate_source_integrity_attestation(
+            source_integrity,
+            runtime_plan=bundle.runtime_audit_plan,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            exact_fixture_replay_artifact_digest=str(bundle.replay["artifact_digest"]),
+        )
+        child_payloads: tuple[tuple[Path, Mapping[str, Any]], ...] = (
+            (
+                task_dir
+                / "artifacts/golden-reference-plan"
+                / str(bundle.plan["artifact_digest"])
+                / "plan.json",
+                bundle.plan,
+            ),
+            (
+                task_dir
+                / "artifacts/phase0-golden-fixture"
+                / str(bundle.fixture["artifact_digest"])
+                / "fixture.json",
+                bundle.fixture,
+            ),
+            (
+                task_dir
+                / "artifacts/golden-reference-replay"
+                / str(bundle.replay["artifact_digest"])
+                / "replay.json",
+                bundle.replay,
+            ),
+            (
+                task_dir
+                / "artifacts/source-integrity-attestation"
+                / str(source_integrity["artifact_digest"])
+                / "attestation.json",
+                source_integrity,
+            ),
+        )
+        for path, payload in child_payloads:
+            _persist_immutable(path, payload)
+        work_counts = _golden_execution_work_counts(bundle)
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "golden_reference_plan_artifact_digest": bundle.plan["artifact_digest"],
+            "golden_reference_fixture_artifact_digest": bundle.fixture[
+                "artifact_digest"
+            ],
+            "golden_reference_replay_artifact_digest": bundle.replay["artifact_digest"],
+            "source_integrity_attestation_artifact_digest": source_integrity[
+                "artifact_digest"
+            ],
+            "completion_fact": M4_P29_GOLDEN_REFERENCE_COMPLETION_FACT,
+            **work_counts,
+            "registered_artifact_count": 5,
+            "worker_count": 1,
+            "immutable_golden_fixture_is_oracle": True,
+            "acceleration_boundary_independent": True,
+            "acceleration_boundary_independence_scope": (
+                M4_P29_ACCELERATION_BOUNDARY_SCOPE
+            ),
+            "oracle_construction_process_isolated": False,
+            "oracle_construction_fully_implementation_independent": False,
+            "exact_replay_verified": True,
+            "shared_frozen_source_modified": False,
+            "backend_source_modified": source_integrity["backend_source_modified"],
+            "acceleration_changed_paths": source_integrity[
+                "acceleration_changed_paths"
+            ],
+            "backend_optimization_applied": False,
+            "statistical_semantics_modified": False,
+            "replay_status": "EXACT_GOLDEN_REPLAY_VERIFIED",
+            "engineering_progress_before": 0,
+            "engineering_progress_after": 100,
+            "evidence_created": False,
+            "evidence_progress_before": 0,
+            "evidence_progress_after": 0,
+            "historical_outcomes_read": False,
+            "p2_6_1_partial_statistical_results_read": False,
+            "formal_benchmark_after_slot_release": False,
+            "downstream_consumer": M4_P29_RUNTIME_AUDIT_TASK_KEY,
+            "production_action": "none",
+            "production_impact": "none",
+            "git_commit": git_commit,
+            "fixture_source_git_commit": bundle.plan["fixture_source_git_commit"],
+            "fixture_parent_execution_id": bundle.plan["fixture_parent_execution_id"],
+            "working_tree_clean": True,
+            "parent_digests": [
+                *task.input_artifact_digests,
+                *(str(payload["artifact_digest"]) for _, payload in child_payloads),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(registrations) != execution_payload["registered_artifact_count"]:
+            raise MainlineSupervisorError(
+                "M4-P2.9 golden reference artifact registration changed"
+            )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=registrations,
+            completion_facts=(M4_P29_GOLDEN_REFERENCE_COMPLETION_FACT,),
+        )
+
+
+class M4P29MeasurementRuntimeAuditCapability:
+    def __init__(
+        self,
+        *,
+        repository: PostgresResearchOSRepository,
+        root_dir: Path = ROOT_DIR,
+    ) -> None:
+        self.repository = repository
         self.root_dir = root_dir
 
     def execute(
@@ -2174,33 +4093,61 @@ class M4P29MeasurementRuntimeAuditCapability:
             task.task_key != M4_P29_RUNTIME_AUDIT_TASK_KEY
             or task.requested_capability != M4_P29_RUNTIME_AUDIT_CAPABILITY
         ):
-            raise MainlineSupervisorError("M4-P2.9 runtime audit received the wrong task")
+            raise MainlineSupervisorError(
+                "M4-P2.9 runtime audit received the wrong task"
+            )
         plan = load_runtime_audit_plan(self.root_dir / RUNTIME_AUDIT_PLAN_PATH)
         if task.input_artifact_digests != (str(plan["artifact_digest"]),):
             raise MainlineSupervisorError("M4-P2.9 runtime audit plan changed")
-        manifest = load_repaired_measurement_validation_manifest(
-            self.root_dir
-            / "configs/research-os/m4-information-theory-p2-6-1-measurement-validation-v1.json"
+        (
+            golden_execution,
+            _,
+            golden_plan,
+            golden_fixture,
+            golden_replay,
+            golden_source_integrity,
+        ) = _load_verified_golden_parent(
+            repository=self.repository,
+            root_dir=self.root_dir,
+            control_plane_key=control_plane_key,
         )
-        synthetic = load_synthetic_run_manifest(
-            self.root_dir
-            / "configs/research-os/m4-information-theory-p2-synthetic-run-manifest-v1.0.1.json"
+        (
+            source_runtime_plan,
+            manifest,
+            synthetic,
+            truths,
+            _expected_inputs,
+        ) = _golden_reference_sources(root_dir=self.root_dir)
+        if source_runtime_plan != plan:
+            raise MainlineSupervisorError("M4-P2.9 runtime audit source plan changed")
+        verified_construction_source_identity = preflight_source_integrity(
+            root_dir=self.root_dir,
+            runtime_plan=plan,
         )
-        truth_digests = tuple(
-            str(item["artifact_digest"])
-            for item in manifest.payload["truth_artifacts"]
-        )
-        truths = locate_repaired_truth_artifacts(
-            self.root_dir,
-            required_digests=truth_digests,
-            repair_manifest_digest=MEASUREMENT_REPAIR_MANIFEST_DIGEST,
-        )
-        replicate = next(
-            iter_replicates(
-                manifest=manifest,
-                synthetic=synthetic,
-                parent_execution_id=execution_id,
+        if (
+            construction_source_integrity_identity(plan)
+            != verified_construction_source_identity
+        ):
+            raise MainlineSupervisorError(
+                "M4-P2.9 runtime source integrity preflight changed"
             )
+        try:
+            compatible_golden_source_identity = require_golden_source_compatibility(
+                registered_golden_contract=golden_plan[
+                    "golden_source_integrity_contract"
+                ],
+                registered_golden_identity=golden_plan[
+                    "golden_source_integrity_identity"
+                ],
+                new_full_source_contract=plan["source_integrity_contract"],
+            )
+        except RuntimeError as exc:
+            raise MainlineSupervisorError(
+                f"M4-P2.9 runtime golden source compatibility changed: {exc}"
+            ) from exc
+        replicate = golden_full_replicate(
+            manifest=manifest,
+            synthetic=synthetic,
         )
         task_dir = (
             self.root_dir
@@ -2208,53 +4155,193 @@ class M4P29MeasurementRuntimeAuditCapability:
             / task.task_key
             / execution_id
         )
-
-        def evaluator(
-            output_dir: Path,
-            observer: RuntimeAuditObserver | None = None,
-        ) -> ReferenceReplicateEvaluator:
-            return ReferenceReplicateEvaluator.from_paths(
-                manifest=manifest,
-                synthetic=synthetic,
-                preregistration_path=(
-                    self.root_dir
-                    / "configs/research-os/m4-information-theory-preregistration-v1.0.3.json"
-                ),
-                walk_forward_harness_path=(
-                    self.root_dir
-                    / "configs/research-os/m4-information-theory-walk-forward-harness-v1.json"
-                ),
-                resampling_path=(
-                    self.root_dir
-                    / "configs/research-os/m4-information-theory-p2-5-resampling-kernel-v1.json"
-                ),
-                truth_by_scenario=truths,
-                git_commit=git_commit,
-                output_dir=output_dir,
-                audit_observer=observer,
-            )
-
-        reference_payload = evaluator(task_dir / "reference-work").evaluate(replicate)
-        observer = RuntimeAuditObserver(enabled=True)
-        audited_payload = evaluator(
-            task_dir / "audited-work",
-            observer,
-        ).evaluate(replicate)
+        recovered = _recover_runtime_audit_commit_marker(
+            root_dir=self.root_dir,
+            owner=self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            task_dir=task_dir,
+            runtime_plan=plan,
+            golden_execution=golden_execution,
+            golden_plan=golden_plan,
+            golden_fixture=golden_fixture,
+            golden_replay=golden_replay,
+            golden_source_integrity=golden_source_integrity,
+            compatible_golden_source_identity=(compatible_golden_source_identity),
+        )
+        if recovered is not None:
+            return recovered
         benchmark_plan = build_benchmark_plan_artifact(plan)
+        (
+            benchmark_attempt_id,
+            measured_workdir,
+            correctness_workdir,
+        ) = _prepare_fresh_runtime_audit_attempt(
+            task_dir=task_dir,
+            execution_id=execution_id,
+        )
+        pre_observation_fingerprint = build_canonical_executor_fingerprint()
+        if pre_observation_fingerprint != golden_plan["executor_fingerprint"]:
+            raise MainlineSupervisorError(
+                "M4-P2.9 runtime executor fingerprint changed before observation"
+            )
+        observer = RuntimeAuditObserver(enabled=True)
+        measured_evaluation = _observed_reference_evaluation(
+            root_dir=self.root_dir,
+            output_dir=measured_workdir,
+            manifest=manifest,
+            synthetic=synthetic,
+            truths=truths,
+            replicate=replicate,
+            observer=observer,
+            capture_trace=False,
+        )
+        post_observation_fingerprint = build_canonical_executor_fingerprint()
+        if post_observation_fingerprint != pre_observation_fingerprint:
+            raise MainlineSupervisorError(
+                "M4-P2.9 runtime executor fingerprint changed during observation"
+            )
+        measured_result_float64_tree_digest = float64_tree_digest(
+            measured_evaluation.result_payload,
+            domain="dehps.m4.p2-9.measured-result-float64-tree.v1",
+        )
+        measured_checkpoint_journal_sha256 = sha256(
+            measured_evaluation.checkpoint_journal_bytes
+        ).hexdigest()
         observation = observer.observation(
             plan_digest=str(benchmark_plan["artifact_digest"]),
             execution_id=execution_id,
             git_commit=git_commit,
+            executor_fingerprint_digest_before=str(
+                pre_observation_fingerprint["artifact_digest"]
+            ),
+            executor_fingerprint_digest_after=str(
+                post_observation_fingerprint["artifact_digest"]
+            ),
+            benchmark_attempt_id=benchmark_attempt_id,
+            measured_result_float64_tree_digest=(measured_result_float64_tree_digest),
+            measured_checkpoint_journal_sha256=(measured_checkpoint_journal_sha256),
         )
-        reference_children = _runtime_audit_child_identities(reference_payload)
-        audited_children = _runtime_audit_child_identities(audited_payload)
-        equivalence = build_equivalence_attestation(
-            plan_digest=str(benchmark_plan["artifact_digest"]),
-            reference_payload=reference_payload,
+        _validate_runtime_observation(
+            observation,
+            benchmark_plan=benchmark_plan,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            executor_fingerprint_digest=str(golden_plan["executor_fingerprint_digest"]),
+            benchmark_attempt_id=benchmark_attempt_id,
+            measured_result_float64_tree_digest=(measured_result_float64_tree_digest),
+            measured_checkpoint_journal_sha256=(measured_checkpoint_journal_sha256),
+        )
+        benchmark_attempt_path = str(measured_workdir.parent.relative_to(self.root_dir))
+        measured_workdir_relative = str(measured_workdir.relative_to(self.root_dir))
+        correctness_workdir_relative = str(
+            correctness_workdir.relative_to(self.root_dir)
+        )
+        benchmark_attempt = build_runtime_benchmark_attempt_artifact(
+            benchmark_plan_digest=str(benchmark_plan["artifact_digest"]),
+            observation=observation,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            benchmark_attempt_id=benchmark_attempt_id,
+            benchmark_attempt_path=benchmark_attempt_path,
+            measured_workdir_path=measured_workdir_relative,
+            correctness_replay_workdir_path=correctness_workdir_relative,
+            measured_result_payload=measured_evaluation.result_payload,
+            measured_checkpoint_journal_bytes=(
+                measured_evaluation.checkpoint_journal_bytes
+            ),
+        )
+        validate_runtime_benchmark_attempt_artifact(
+            benchmark_attempt,
+            benchmark_plan_digest=str(benchmark_plan["artifact_digest"]),
+            observation=observation,
+            execution_id=execution_id,
+            git_commit=git_commit,
+        )
+        correctness_evaluation = _observed_reference_evaluation(
+            root_dir=self.root_dir,
+            output_dir=correctness_workdir,
+            manifest=manifest,
+            synthetic=synthetic,
+            truths=truths,
+            replicate=replicate,
+            capture_trace=True,
+        )
+        _require_exact_runtime_correctness_replay(
+            measured=measured_evaluation,
+            correctness=correctness_evaluation,
+        )
+        audited_payload = dict(measured_evaluation.result_payload)
+        observed_boundaries = _build_observed_boundary_snapshots(
+            manifest=manifest,
+            synthetic=synthetic,
+            truths=truths,
+        )
+        observed_fixture = build_golden_fixture_artifact(
+            plan_digest=str(golden_plan["artifact_digest"]),
+            replicate=replicate,
+            evaluation=correctness_evaluation,
+            boundary_snapshots=observed_boundaries,
+            parent_digests=tuple(
+                str(value) for value in golden_fixture["parent_digests"]
+            ),
+            executor_fingerprint_digest=str(golden_plan["executor_fingerprint_digest"]),
+            golden_source_integrity_identity=(compatible_golden_source_identity),
+        )
+        reconstructed_golden_replay = build_exact_golden_attestation(
+            plan_digest=str(golden_plan["artifact_digest"]),
+            reference_payload=golden_fixture,
+            observed_payload=observed_fixture,
+            reference_journal_bytes=str(
+                golden_fixture["checkpoint_journal_utf8"]
+            ).encode("utf-8"),
+            observed_journal_bytes=correctness_evaluation.checkpoint_journal_bytes,
+        )
+        if reconstructed_golden_replay != golden_replay:
+            raise MainlineSupervisorError(
+                "M4-P2.9 frozen golden replay identity changed"
+            )
+        source_integrity = build_source_integrity_attestation(
+            root_dir=self.root_dir,
+            runtime_plan=plan,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            exact_fixture_replay_artifact_digest=str(golden_replay["artifact_digest"]),
+            golden_reference_execution_artifact_digest=str(
+                golden_execution["artifact_digest"]
+            ),
+            golden_source_identity=compatible_golden_source_identity,
+        )
+        validate_source_integrity_attestation(
+            source_integrity,
+            runtime_plan=plan,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            exact_fixture_replay_artifact_digest=str(golden_replay["artifact_digest"]),
+            golden_reference_execution_artifact_digest=str(
+                golden_execution["artifact_digest"]
+            ),
+            golden_source_identity=compatible_golden_source_identity,
+        )
+        equivalence = _build_runtime_golden_equivalence(
+            benchmark_plan=benchmark_plan,
+            golden_execution=golden_execution,
+            golden_plan=golden_plan,
+            golden_fixture=golden_fixture,
+            golden_replay=golden_replay,
+            observed_fixture=observed_fixture,
             audited_payload=audited_payload,
-            reference_child_artifacts=reference_children,
-            audited_child_artifacts=audited_children,
+            benchmark_attempt=benchmark_attempt,
+            source_integrity=source_integrity,
+            golden_source_integrity=golden_source_integrity,
         )
+        final_executor_fingerprint = build_canonical_executor_fingerprint()
+        if final_executor_fingerprint != pre_observation_fingerprint:
+            raise MainlineSupervisorError(
+                "M4-P2.9 runtime executor fingerprint changed before attestation"
+            )
         child_payloads: tuple[tuple[Path, Mapping[str, Any]], ...] = (
             (
                 task_dir
@@ -2272,10 +4359,24 @@ class M4P29MeasurementRuntimeAuditCapability:
             ),
             (
                 task_dir
+                / "artifacts/runtime-benchmark-attempt"
+                / str(benchmark_attempt["artifact_digest"])
+                / "attempt.json",
+                benchmark_attempt,
+            ),
+            (
+                task_dir
                 / "artifacts/equivalence-attestation"
                 / str(equivalence["artifact_digest"])
                 / "attestation.json",
                 equivalence,
+            ),
+            (
+                task_dir
+                / "artifacts/source-integrity-attestation"
+                / str(source_integrity["artifact_digest"])
+                / "attestation.json",
+                source_integrity,
             ),
         )
         for path, payload in child_payloads:
@@ -2295,26 +4396,81 @@ class M4P29MeasurementRuntimeAuditCapability:
             "input_artifact_digests": list(task.input_artifact_digests),
             "benchmark_plan_artifact_digest": benchmark_plan["artifact_digest"],
             "runtime_observation_artifact_digest": observation["artifact_digest"],
-            "equivalence_attestation_artifact_digest": equivalence[
+            "runtime_benchmark_attempt_artifact_digest": benchmark_attempt[
                 "artifact_digest"
             ],
+            "source_integrity_attestation_artifact_digest": source_integrity[
+                "artifact_digest"
+            ],
+            "golden_source_integrity_attestation_artifact_digest": (
+                golden_source_integrity["artifact_digest"]
+            ),
+            "runtime_executor_fingerprint_digest_before": observation[
+                "executor_fingerprint_digest_before"
+            ],
+            "runtime_executor_fingerprint_digest_after": observation[
+                "executor_fingerprint_digest_after"
+            ],
+            "equivalence_attestation_artifact_digest": equivalence["artifact_digest"],
             "completion_fact": M4_P29_RUNTIME_AUDIT_COMPLETION_FACT,
-            "actual_fold_count": replicate.cell.outer_issue_count * 2,
-            "registered_artifact_count": 4,
+            "actual_fold_count": replicate.cell.outer_issue_count,
+            "audited_fold_count": replicate.cell.outer_issue_count,
+            "correctness_replay_fold_count": replicate.cell.outer_issue_count,
+            "total_execution_fold_count": 2 * replicate.cell.outer_issue_count,
+            "correctness_boundary_snapshot_count": len(observed_boundaries),
+            "frozen_reference_fold_count": int(
+                golden_fixture["replicate_result"]["actual_outer_fold_count"]
+            ),
+            "registered_artifact_count": 6,
+            "benchmark_attempt_id": benchmark_attempt_id,
+            "benchmark_attempt_path": benchmark_attempt_path,
+            "measured_workdir_path": measured_workdir_relative,
+            "correctness_replay_workdir_path": correctness_workdir_relative,
+            "journal_reused": False,
+            "fresh_workdir": True,
             "worker_count": 1,
             "formal_benchmark_after_slot_release": True,
-            "reference_evaluator_is_oracle": True,
-            "backend_modified": False,
+            "reference_evaluator_is_oracle": False,
+            "immutable_golden_fixture_is_oracle": True,
+            "acceleration_boundary_independent": True,
+            "acceleration_boundary_independence_scope": (
+                M4_P29_ACCELERATION_BOUNDARY_SCOPE
+            ),
+            "oracle_construction_process_isolated": False,
+            "oracle_construction_fully_implementation_independent": False,
+            "golden_reference_execution_artifact_digest": golden_execution[
+                "artifact_digest"
+            ],
+            "golden_reference_plan_artifact_digest": golden_plan["artifact_digest"],
+            "golden_reference_fixture_artifact_digest": golden_fixture[
+                "artifact_digest"
+            ],
+            "golden_reference_replay_artifact_digest": golden_replay["artifact_digest"],
+            "exact_golden_replay_verified": True,
+            "shared_frozen_source_modified": False,
+            "backend_source_modified": source_integrity["backend_source_modified"],
+            "acceleration_changed_paths": source_integrity[
+                "acceleration_changed_paths"
+            ],
+            "backend_optimization_applied": False,
+            "statistical_semantics_modified": False,
             "historical_outcomes_read": False,
+            "p2_6_1_partial_statistical_results_read": False,
             "evidence_created": False,
             "evidence_progress_before": 0,
             "evidence_progress_after": 0,
             "downstream_consumer": "future independent optimization request",
+            "production_action": "none",
             "production_impact": "none",
             "git_commit": git_commit,
             "working_tree_clean": True,
             "parent_digests": [
                 *task.input_artifact_digests,
+                golden_execution["artifact_digest"],
+                golden_plan["artifact_digest"],
+                golden_fixture["artifact_digest"],
+                golden_replay["artifact_digest"],
+                golden_source_integrity["artifact_digest"],
                 *(str(payload["artifact_digest"]) for _, payload in child_payloads),
             ],
         }
@@ -2360,16 +4516,12 @@ class P26MeasurementValidationCapability:
         if task.task_key != P26_TASK_KEY or task.requested_capability != P26_CAPABILITY:
             raise MainlineSupervisorError("P2.6 capability received the wrong task")
         contract_path = (
-            self.root_dir
-            / "configs/research-os/"
+            self.root_dir / "configs/research-os/"
             "m4-information-theory-p2-6-1-measurement-validation-v1.json"
         )
-        manifest = load_repaired_measurement_validation_manifest(
-            contract_path
-        )
+        manifest = load_repaired_measurement_validation_manifest(contract_path)
         truth_digests = tuple(
-            str(item["artifact_digest"])
-            for item in manifest.payload["truth_artifacts"]
+            str(item["artifact_digest"]) for item in manifest.payload["truth_artifacts"]
         )
         expected_inputs = (
             MEASUREMENT_REPAIR_MANIFEST_DIGEST,
@@ -2387,13 +4539,11 @@ class P26MeasurementValidationCapability:
                 "instrument, resampling kernel, and all marginal truths"
             )
         synthetic = load_synthetic_run_manifest(
-            self.root_dir
-            / "configs/research-os/"
+            self.root_dir / "configs/research-os/"
             "m4-information-theory-p2-synthetic-run-manifest-v1.0.1.json"
         )
         resampling_path = (
-            self.root_dir
-            / "configs/research-os/"
+            self.root_dir / "configs/research-os/"
             "m4-information-theory-p2-5-resampling-kernel-v1.json"
         )
         truths = locate_repaired_truth_artifacts(
@@ -2415,13 +4565,11 @@ class P26MeasurementValidationCapability:
             manifest=manifest,
             synthetic=synthetic,
             preregistration_path=(
-                self.root_dir
-                / "configs/research-os/"
+                self.root_dir / "configs/research-os/"
                 "m4-information-theory-preregistration-v1.0.3.json"
             ),
             walk_forward_harness_path=(
-                self.root_dir
-                / "configs/research-os/"
+                self.root_dir / "configs/research-os/"
                 "m4-information-theory-walk-forward-harness-v1.json"
             ),
             resampling_path=resampling_path,
@@ -2443,8 +4591,7 @@ class P26MeasurementValidationCapability:
             evaluator=evaluator,
             worker_count=configured_workers,
             progress_projection_path=(
-                self.root_dir
-                / "runtime/logs/"
+                self.root_dir / "runtime/logs/"
                 "m4-p2-6-1-measurement-validation-progress.json"
             ),
         )
@@ -2463,9 +4610,7 @@ class P26MeasurementValidationCapability:
             completion.completion_artifact_path,
             *runtime_migration_paths,
         )
-        child_payloads = tuple(
-            (path, _load_object(path)) for path in child_paths
-        )
+        child_payloads = tuple((path, _load_object(path)) for path in child_paths)
         child_identities = {
             (
                 _artifact_digest(payload),
@@ -2497,9 +4642,7 @@ class P26MeasurementValidationCapability:
             "aggregate_digests": [
                 item["artifact_digest"] for item in completion.aggregate_artifacts
             ],
-            "mde_summary_digest": completion.mde_summary_artifact[
-                "artifact_digest"
-            ],
+            "mde_summary_digest": completion.mde_summary_artifact["artifact_digest"],
             "decision_policy_mde_at_61_bits_per_issue": (
                 completion.mde_summary_artifact[
                     "decision_policy_mde_at_61_bits_per_issue"
@@ -2513,9 +4656,7 @@ class P26MeasurementValidationCapability:
                 manifest.outer_issue_predictions * 4
             ),
             "inner_model_selection_fit_count": 0,
-            "superseded_outer_fold_fit_count": (
-                manifest.outer_issue_predictions * 46
-            ),
+            "superseded_outer_fold_fit_count": (manifest.outer_issue_predictions * 46),
             "number_probability_predictions": (
                 manifest.outer_issue_predictions * 33 * 4
             ),
@@ -2532,8 +4673,7 @@ class P26MeasurementValidationCapability:
             ),
             "negative_control_replicate_count": 3000,
             "runtime_migration_digests": [
-                _artifact_digest(_load_object(path))
-                for path in runtime_migration_paths
+                _artifact_digest(_load_object(path)) for path in runtime_migration_paths
             ],
             "runtime_git_commits": [
                 str(_load_object(path)["runtime_git_commit"])
@@ -2565,10 +4705,7 @@ class P26MeasurementValidationCapability:
                     _artifact_digest(_load_object(path))
                     for path in runtime_migration_paths
                 ),
-                *(
-                    item["artifact_digest"]
-                    for item in completion.aggregate_artifacts
-                ),
+                *(item["artifact_digest"] for item in completion.aggregate_artifacts),
             ],
         }
         identity = dict(execution_payload)
@@ -2614,8 +4751,7 @@ class P27AutomaticMeasurementGateCapability:
         if task.task_key != P27_TASK_KEY or task.requested_capability != P27_CAPABILITY:
             raise MainlineSupervisorError("P2.7 capability received the wrong task")
         manifest = load_repaired_measurement_validation_manifest(
-            self.root_dir
-            / "configs/research-os/"
+            self.root_dir / "configs/research-os/"
             "m4-information-theory-p2-6-1-measurement-validation-v1.json"
         )
         if task.input_artifact_digests != (
@@ -2624,15 +4760,10 @@ class P27AutomaticMeasurementGateCapability:
         ):
             raise MainlineSupervisorError("P2.7 frozen inputs changed")
         synthetic = load_synthetic_run_manifest(
-            self.root_dir
-            / "configs/research-os/"
+            self.root_dir / "configs/research-os/"
             "m4-information-theory-p2-synthetic-run-manifest-v1.0.1.json"
         )
-        p26_root = (
-            self.root_dir
-            / "runtime/research-os/mainline/tasks"
-            / P26_TASK_KEY
-        )
+        p26_root = self.root_dir / "runtime/research-os/mainline/tasks" / P26_TASK_KEY
         candidates = sorted(p26_root.glob("*/execution.json"))
         completed = [
             (path, _load_object(path))
@@ -2652,13 +4783,9 @@ class P27AutomaticMeasurementGateCapability:
             parent_execution_id=p26_execution_id,
             output_dir=p26_output,
             git_commit=str(p26_execution["git_commit"]),
-            expected_completion_digest=str(
-                p26_execution["completion_artifact_digest"]
-            ),
+            expected_completion_digest=str(p26_execution["completion_artifact_digest"]),
         )
-        completion_path = (
-            self.root_dir / str(p26_execution["completion_artifact_path"])
-        )
+        completion_path = self.root_dir / str(p26_execution["completion_artifact_path"])
         completion = _load_object(completion_path)
         aggregate_paths = sorted(p26_output.glob("aggregates/*/*.json"))
         aggregates = [_load_object(path) for path in aggregate_paths]
@@ -2677,10 +4804,7 @@ class P27AutomaticMeasurementGateCapability:
         mde = dict(gate["mde_summary"])
         mde_path = task_dir / "artifacts/mde" / mde["artifact_digest"] / "mde.json"
         gate_path = (
-            task_dir
-            / "artifacts/gate"
-            / str(gate["artifact_digest"])
-            / "gate.json"
+            task_dir / "artifacts/gate" / str(gate["artifact_digest"]) / "gate.json"
         )
         _persist_immutable(mde_path, mde)
         _persist_immutable(gate_path, gate)
@@ -2714,12 +4838,8 @@ class P27AutomaticMeasurementGateCapability:
                     "scale_id": item["scale_id"],
                     "false_positive_rate": item["false_positive_rate"],
                     "wilson_95_upper": item["wilson_95_interval"]["upper"],
-                    "point_gate_pass": item[
-                        "false_positive_point_gate_pass"
-                    ],
-                    "wilson_gate_pass": item[
-                        "false_positive_wilson_gate_pass"
-                    ],
+                    "point_gate_pass": item["false_positive_point_gate_pass"],
+                    "wilson_gate_pass": item["false_positive_wilson_gate_pass"],
                 }
                 for item in aggregates
                 if item["scenario_id"] == "NULL_UNIFORM"
@@ -2744,33 +4864,23 @@ class P27AutomaticMeasurementGateCapability:
                     "PE2_coverage_rate": item["PE2_coverage_rate"],
                     "bias_gate_pass": item["bias_gate_pass"],
                     "coverage_gate_pass": item["coverage_gate_pass"],
-                    "rmse_finite_gate_pass": item[
-                        "rmse_finite_gate_pass"
-                    ],
+                    "rmse_finite_gate_pass": item["rmse_finite_gate_pass"],
                 }
                 for item in aggregates
                 if item["scenario_id"] != "NULL_UNIFORM"
             ],
             "completion_facts": [gate["decision_fact"]],
             "additional_completed_task_keys": (
-                [P2_UMBRELLA_TASK_KEY]
-                if gate["decision"] == "PASS_TO_P3"
-                else []
+                [P2_UMBRELLA_TASK_KEY] if gate["decision"] == "PASS_TO_P3" else []
             ),
             "failed_requirements": gate["failed_requirements"],
             "replay_status": replay["status"],
             "replicate_count": completion["replicate_count"],
             "aggregate_count": completion["cell_aggregate_count"],
-            "bootstrap_replicate_count": p26_execution[
-                "bootstrap_replicate_count"
-            ],
-            "permutation_replicate_count": p26_execution[
-                "permutation_replicate_count"
-            ],
+            "bootstrap_replicate_count": p26_execution["bootstrap_replicate_count"],
+            "permutation_replicate_count": p26_execution["permutation_replicate_count"],
             "negative_control_id": p26_execution["negative_control_id"],
-            "negative_control_cell_count": p26_execution[
-                "negative_control_cell_count"
-            ],
+            "negative_control_cell_count": p26_execution["negative_control_cell_count"],
             "negative_control_replicates_per_cell": p26_execution[
                 "negative_control_replicates_per_cell"
             ],
@@ -2825,9 +4935,7 @@ class P27AutomaticMeasurementGateCapability:
             registrations=registrations,
             completion_facts=(str(gate["decision_fact"]),),
             additional_completed_task_keys=(
-                (P2_UMBRELLA_TASK_KEY,)
-                if gate["decision"] == "PASS_TO_P3"
-                else ()
+                (P2_UMBRELLA_TASK_KEY,) if gate["decision"] == "PASS_TO_P3" else ()
             ),
         )
 
@@ -2837,12 +4945,16 @@ class ResearchEvidenceSupervisor:
         self,
         *,
         repository: PostgresResearchOSRepository | None = None,
-        control_plane_key: str = "m4-information-theory-mainline",
+        control_plane_key: str = M4_CONTROL_PLANE_KEY,
         root_dir: Path = ROOT_DIR,
         now: Callable[[], datetime] | None = None,
         git_commit: str | None = None,
         require_clean_tree: bool = True,
     ) -> None:
+        if control_plane_key not in _TASK_ARTIFACT_NAMESPACE_BY_CONTROL_PLANE:
+            raise MainlineSupervisorError(
+                "mainline artifact control plane is not registered"
+            )
         self.repository = repository or PostgresResearchOSRepository()
         self.control_plane_key = control_plane_key
         self.root_dir = root_dir
@@ -2851,9 +4963,7 @@ class ResearchEvidenceSupervisor:
         self.require_clean_tree = require_clean_tree
         self.capabilities = {
             P23_CAPABILITY: P23WalkForwardCapability(root_dir=root_dir),
-            P24_CAPABILITY: P24InjectedSignalCalibrationCapability(
-                root_dir=root_dir
-            ),
+            P24_CAPABILITY: P24InjectedSignalCalibrationCapability(root_dir=root_dir),
             P25_CAPABILITY: P25ResamplingCapability(root_dir=root_dir),
             P26_PREFLIGHT_CAPABILITY: P26IdentifiabilityPreflightCapability(
                 root_dir=root_dir
@@ -2862,9 +4972,7 @@ class ResearchEvidenceSupervisor:
                 root_dir=root_dir
             ),
             P26_CAPABILITY: P26MeasurementValidationCapability(root_dir=root_dir),
-            P27_CAPABILITY: P27AutomaticMeasurementGateCapability(
-                root_dir=root_dir
-            ),
+            P27_CAPABILITY: P27AutomaticMeasurementGateCapability(root_dir=root_dir),
             M4_V2_DESIGN_CAPABILITY: M4MeasurementContractV2DesignCapability(
                 root_dir=root_dir
             ),
@@ -2894,8 +5002,11 @@ class ResearchEvidenceSupervisor:
                     root_dir=root_dir,
                 )
             ),
-            M4_P29_RUNTIME_AUDIT_CAPABILITY: M4P29MeasurementRuntimeAuditCapability(
+            M4_P29_GOLDEN_REFERENCE_CAPABILITY: M4P29GoldenReferenceCapability(
                 root_dir=root_dir
+            ),
+            M4_P29_RUNTIME_AUDIT_CAPABILITY: M4P29MeasurementRuntimeAuditCapability(
+                repository=self.repository, root_dir=root_dir
             ),
             PREDICTION_V2_REFERENCE_CAPABILITY: PredictionV2ReferenceCapability(
                 root_dir=root_dir
@@ -2927,7 +5038,10 @@ class ResearchEvidenceSupervisor:
     @property
     def state_path(self) -> Path:
         if self.control_plane_key == PREDICTION_V2_CONTROL_PLANE_KEY:
-            return self.root_dir / "runtime/logs/prediction-v2-shadow-supervisor-state.json"
+            return (
+                self.root_dir
+                / "runtime/logs/prediction-v2-shadow-supervisor-state.json"
+            )
         return self.root_dir / "runtime/logs/research-evidence-supervisor-state.json"
 
     def run_once(self, *, task_key: str | None = None) -> dict[str, Any]:
@@ -2971,7 +5085,8 @@ class ResearchEvidenceSupervisor:
             unsupported = [
                 item.task_key
                 for item in snapshot.ready_queue
-                if task_by_key[item.task_key].requested_capability not in self.capabilities
+                if task_by_key[item.task_key].requested_capability
+                not in self.capabilities
             ]
             payload = {
                 "schema_version": "dehps-research-evidence-supervisor-state.v1",
@@ -3039,7 +5154,9 @@ class ResearchEvidenceSupervisor:
                 )
             if started:
                 execution_id = str(started[0]["execution_id"])
-                original_commit = str(_event_payload(started[0]).get("git_commit") or "")
+                original_commit = str(
+                    _event_payload(started[0]).get("git_commit") or ""
+                )
                 if original_commit != git_commit:
                     allowed_origin = os.environ.get(P26_EQUIVALENT_RESUME_ENV, "")
                     if (
@@ -3127,11 +5244,7 @@ class ResearchEvidenceSupervisor:
                 "git_commit": git_commit,
                 "runtime_git_commit": runtime_git_commit,
                 **(
-                    {
-                        "runtime_migration_digest": runtime_migration[
-                            "artifact_digest"
-                        ]
-                    }
+                    {"runtime_migration_digest": runtime_migration["artifact_digest"]}
                     if runtime_migration is not None
                     else {}
                 ),
@@ -3158,9 +5271,7 @@ class ResearchEvidenceSupervisor:
                 git_commit=git_commit,
             )
             for registration in result.registrations:
-                self.repository.register_mainline_artifact(
-                    registration=registration
-                )
+                self.repository.register_mainline_artifact(registration=registration)
             completed_at = self.now().isoformat()
             completed = MainlineExecutionEvent(
                 execution_id=execution_id,
@@ -3272,6 +5383,47 @@ class ResearchEvidenceSupervisor:
                                     "formal_branch_runs_executed",
                                     "historical_outcomes_read",
                                     "p2_6_1_partial_statistical_results_read",
+                                    "production_action",
+                                    "benchmark_plan_artifact_digest",
+                                    "runtime_observation_artifact_digest",
+                                    "runtime_benchmark_attempt_artifact_digest",
+                                    "source_integrity_attestation_artifact_digest",
+                                    "golden_source_integrity_attestation_artifact_digest",
+                                    "runtime_executor_fingerprint_digest_before",
+                                    "runtime_executor_fingerprint_digest_after",
+                                    "equivalence_attestation_artifact_digest",
+                                    "golden_reference_execution_artifact_digest",
+                                    "golden_reference_plan_artifact_digest",
+                                    "golden_reference_fixture_artifact_digest",
+                                    "golden_reference_replay_artifact_digest",
+                                    "immutable_golden_fixture_is_oracle",
+                                    "acceleration_boundary_independent",
+                                    "acceleration_boundary_independence_scope",
+                                    "oracle_construction_process_isolated",
+                                    "oracle_construction_fully_implementation_independent",
+                                    "exact_replay_verified",
+                                    "reference_evaluator_is_oracle",
+                                    "exact_golden_replay_verified",
+                                    "audited_fold_count",
+                                    "correctness_replay_fold_count",
+                                    "total_execution_fold_count",
+                                    "correctness_boundary_snapshot_count",
+                                    "frozen_reference_fold_count",
+                                    "benchmark_attempt_id",
+                                    "benchmark_attempt_path",
+                                    "measured_workdir_path",
+                                    "correctness_replay_workdir_path",
+                                    "journal_reused",
+                                    "fresh_workdir",
+                                    "shared_frozen_source_modified",
+                                    "backend_source_modified",
+                                    "acceleration_changed_paths",
+                                    "backend_optimization_applied",
+                                    "statistical_semantics_modified",
+                                    "engineering_progress_before",
+                                    "engineering_progress_after",
+                                    "evidence_progress_before",
+                                    "evidence_progress_after",
                                 )
                                 if key in result.execution_artifact
                             },
@@ -3293,6 +5445,37 @@ class ResearchEvidenceSupervisor:
             )
         except Exception as exc:
             if completed_recorded:
+                raise
+            runtime_commit_marker = (
+                self.root_dir
+                / "runtime/research-os/mainline/tasks"
+                / task.task_key
+                / execution_id
+                / "execution.json"
+            )
+            if (
+                task.task_key == M4_P29_RUNTIME_AUDIT_TASK_KEY
+                and runtime_commit_marker.is_file()
+            ):
+                # execution.json is the capability commit boundary.  A crash
+                # or database failure after it exists must remain resumable;
+                # the next turn validates the marker and reconstructs the
+                # exact registrations without rerunning timed work.
+                payload = {
+                    "schema_version": ("dehps-research-evidence-supervisor-state.v1"),
+                    "status": "RECOVERY_REQUIRED",
+                    "control_plane_key": self.control_plane_key,
+                    "task_key": task.task_key,
+                    "execution_id": execution_id,
+                    "commit_marker_path": str(
+                        runtime_commit_marker.relative_to(self.root_dir)
+                    ),
+                    "error": str(exc),
+                    "dispatch_performed": True,
+                    "git_commit": git_commit,
+                    "heartbeat_at": self.now().isoformat(),
+                }
+                self._write_state(payload)
                 raise
             failed = MainlineExecutionEvent(
                 execution_id=execution_id,
@@ -3388,20 +5571,30 @@ class ResearchEvidenceSupervisor:
         snapshot: Any,
         task_keys: tuple[str, ...],
     ) -> dict[str, Any] | None:
-        resolutions = {
-            item.task_key: item.status for item in snapshot.resolutions
-        }
+        resolutions = {item.task_key: item.status for item in snapshot.resolutions}
         for candidate in task_keys:
             if resolutions.get(candidate) is not TaskStatus.COMPLETED:
                 continue
+            if candidate in {
+                M4_P29_GOLDEN_REFERENCE_TASK_KEY,
+                M4_P29_RUNTIME_AUDIT_TASK_KEY,
+            }:
+                event, _, _ = _load_single_completed_execution(
+                    repository=self.repository,
+                    root_dir=self.root_dir,
+                    control_plane_key=self.control_plane_key,
+                    task_key=candidate,
+                )
+                return {
+                    **_event_payload(event),
+                    "execution_task_key": candidate,
+                }
             events = self.repository.list_mainline_execution_events(
                 control_plane_key=self.control_plane_key,
                 task_key=candidate,
             )
             completed = [
-                event
-                for event in events
-                if event.get("event_type") == "completed"
+                event for event in events if event.get("event_type") == "completed"
             ]
             if len(completed) == 1:
                 return {
@@ -3447,7 +5640,27 @@ class ResearchEvidenceSupervisor:
         event: Mapping[str, Any],
         git_commit: str,
     ) -> dict[str, Any]:
-        execution_id = str(event["execution_id"])
+        requested_execution_id = str(event.get("execution_id") or "")
+        persisted_event, persisted_execution, _ = _load_single_completed_execution(
+            repository=self.repository,
+            root_dir=self.root_dir,
+            control_plane_key=self.control_plane_key,
+            task_key=task.task_key,
+            require_manifest_complete=False,
+        )
+        current_manifest = self.repository.load_manifest(
+            control_plane_key=self.control_plane_key
+        )
+        execution_id = str(persisted_execution["execution_id"])
+        if (
+            requested_execution_id != execution_id
+            or persisted_execution.get("git_commit") != git_commit
+            or manifest.artifact_digest != current_manifest.artifact_digest
+        ):
+            raise MainlineSupervisorError(
+                f"completed execution cannot be finalized: {task.task_key}"
+            )
+        event = persisted_event
         summary = {
             **_event_payload(event),
             "execution_task_key": task.task_key,
@@ -3456,12 +5669,9 @@ class ResearchEvidenceSupervisor:
             task=task,
             execution_id=execution_id,
         )
-        extra_facts = tuple(
-            str(value) for value in summary.get("completion_facts", ())
-        )
+        extra_facts = tuple(str(value) for value in summary.get("completion_facts", ()))
         additional_completed = tuple(
-            str(value)
-            for value in summary.get("additional_completed_task_keys", ())
+            str(value) for value in summary.get("additional_completed_task_keys", ())
         )
         completed_manifest = self._transition_manifest(
             manifest,
@@ -3502,9 +5712,7 @@ class ResearchEvidenceSupervisor:
             "manifest_digest": completed_import.manifest_digest,
             "snapshot_digest": final_snapshot.snapshot_digest,
             "next_ready_task": status["next_ready_task"],
-            "engineering_progress_percent": status["progress"][
-                "engineering_percent"
-            ],
+            "engineering_progress_percent": status["progress"]["engineering_percent"],
             "evidence_progress_percent": status["progress"]["evidence_percent"],
             "dispatch_performed": True,
             "git_commit": git_commit,
@@ -3588,6 +5796,47 @@ class ResearchEvidenceSupervisor:
             "formal_branch_runs_executed",
             "historical_outcomes_read",
             "p2_6_1_partial_statistical_results_read",
+            "production_action",
+            "benchmark_plan_artifact_digest",
+            "runtime_observation_artifact_digest",
+            "runtime_benchmark_attempt_artifact_digest",
+            "source_integrity_attestation_artifact_digest",
+            "golden_source_integrity_attestation_artifact_digest",
+            "runtime_executor_fingerprint_digest_before",
+            "runtime_executor_fingerprint_digest_after",
+            "equivalence_attestation_artifact_digest",
+            "golden_reference_execution_artifact_digest",
+            "golden_reference_plan_artifact_digest",
+            "golden_reference_fixture_artifact_digest",
+            "golden_reference_replay_artifact_digest",
+            "immutable_golden_fixture_is_oracle",
+            "acceleration_boundary_independent",
+            "acceleration_boundary_independence_scope",
+            "oracle_construction_process_isolated",
+            "oracle_construction_fully_implementation_independent",
+            "exact_replay_verified",
+            "reference_evaluator_is_oracle",
+            "exact_golden_replay_verified",
+            "audited_fold_count",
+            "correctness_replay_fold_count",
+            "total_execution_fold_count",
+            "correctness_boundary_snapshot_count",
+            "frozen_reference_fold_count",
+            "benchmark_attempt_id",
+            "benchmark_attempt_path",
+            "measured_workdir_path",
+            "correctness_replay_workdir_path",
+            "journal_reused",
+            "fresh_workdir",
+            "shared_frozen_source_modified",
+            "backend_source_modified",
+            "acceleration_changed_paths",
+            "backend_optimization_applied",
+            "statistical_semantics_modified",
+            "engineering_progress_before",
+            "engineering_progress_after",
+            "evidence_progress_before",
+            "evidence_progress_after",
         ):
             if key in summary:
                 payload[key] = summary[key]
@@ -3658,43 +5907,75 @@ class ResearchEvidenceSupervisor:
         _persist_immutable(path, payload)
         return payload
 
-    def replay(self, *, task_key: str, execution_id: str | None = None) -> dict[str, Any]:
-        events = self.repository.list_mainline_execution_events(
-            control_plane_key=self.control_plane_key,
-            task_key=task_key,
-            execution_id=execution_id,
-        )
-        completed = [event for event in events if event.get("event_type") == "completed"]
-        if len(completed) != 1:
-            raise MainlineSupervisorError(
-                f"mainline replay requires one completed execution: {task_key}"
+    def replay(
+        self, *, task_key: str, execution_id: str | None = None
+    ) -> dict[str, Any]:
+        if self.control_plane_key == PREDICTION_V2_CONTROL_PLANE_KEY or task_key in {
+            M4_P29_GOLDEN_REFERENCE_TASK_KEY,
+            M4_P29_RUNTIME_AUDIT_TASK_KEY,
+        }:
+            event, artifact, verified_registrations = _load_single_completed_execution(
+                repository=self.repository,
+                root_dir=self.root_dir,
+                control_plane_key=self.control_plane_key,
+                task_key=task_key,
             )
-        event = completed[0]
-        resolved_execution_id = str(event["execution_id"])
+            resolved_execution_id = str(artifact["execution_id"])
+            if execution_id is not None and execution_id != resolved_execution_id:
+                raise MainlineSupervisorError(
+                    f"mainline replay execution identity changed: {task_key}"
+                )
+            registrations = list(verified_registrations)
+        else:
+            events = self.repository.list_mainline_execution_events(
+                control_plane_key=self.control_plane_key,
+                task_key=task_key,
+                execution_id=execution_id,
+            )
+            completed = [
+                item for item in events if item.get("event_type") == "completed"
+            ]
+            if len(completed) != 1:
+                raise MainlineSupervisorError(
+                    f"mainline replay requires one completed execution: {task_key}"
+                )
+            event = completed[0]
+            resolved_execution_id = str(event["execution_id"])
+            summary = _event_payload(event)
+            artifact_path = self.root_dir / str(summary["execution_artifact_path"])
+            artifact = _load_object(artifact_path)
+            expected = canonical_digest(
+                {
+                    key: value
+                    for key, value in artifact.items()
+                    if key != "artifact_digest"
+                },
+                domain="dehps.research-os.mainline-execution.v1",
+            )
+            if expected != artifact.get("artifact_digest"):
+                raise MainlineSupervisorError(
+                    "mainline execution artifact digest changed"
+                )
+            registrations = list(
+                self.repository.list_mainline_artifacts(
+                    control_plane_key=self.control_plane_key,
+                    execution_id=resolved_execution_id,
+                )
+            )
+            if len(registrations) != int(summary["registered_artifact_count"]):
+                raise MainlineSupervisorError(
+                    "mainline artifact registry count changed"
+                )
+            missing = [
+                item["artifact_path"]
+                for item in registrations
+                if not (self.root_dir / str(item["artifact_path"])).is_file()
+            ]
+            if missing:
+                raise MainlineSupervisorError(
+                    "registered mainline artifacts are missing: " + ", ".join(missing)
+                )
         summary = _event_payload(event)
-        artifact_path = self.root_dir / str(summary["execution_artifact_path"])
-        artifact = _load_object(artifact_path)
-        expected = canonical_digest(
-            {key: value for key, value in artifact.items() if key != "artifact_digest"},
-            domain="dehps.research-os.mainline-execution.v1",
-        )
-        if expected != artifact.get("artifact_digest"):
-            raise MainlineSupervisorError("mainline execution artifact digest changed")
-        registrations = self.repository.list_mainline_artifacts(
-            control_plane_key=self.control_plane_key,
-            execution_id=resolved_execution_id,
-        )
-        if len(registrations) != int(summary["registered_artifact_count"]):
-            raise MainlineSupervisorError("mainline artifact registry count changed")
-        missing = [
-            item["artifact_path"]
-            for item in registrations
-            if not (self.root_dir / str(item["artifact_path"])).is_file()
-        ]
-        if missing:
-            raise MainlineSupervisorError(
-                "registered mainline artifacts are missing: " + ", ".join(missing)
-            )
         capability_replay: dict[str, Any] | None = None
         if task_key == PREDICTION_V2_REFERENCE_TASK_KEY:
             expected_children = build_reference_children(self.root_dir)
@@ -3768,7 +6049,10 @@ class ResearchEvidenceSupervisor:
                 stored = _load_object(
                     self.root_dir / str(registration["artifact_path"])
                 )
-                if stored != expected_replay_by_digest[str(registration["artifact_digest"])]:
+                if (
+                    stored
+                    != expected_replay_by_digest[str(registration["artifact_digest"])]
+                ):
                     raise MainlineSupervisorError(
                         "Prediction v2 replay attestation content changed"
                     )
@@ -3782,7 +6066,8 @@ class ResearchEvidenceSupervisor:
             }
         elif task_key == PREDICTION_V2_CUTOVER_TASK_KEY:
             task = next(
-                item for item in self.repository.load_manifest(
+                item
+                for item in self.repository.load_manifest(
                     control_plane_key=self.control_plane_key
                 ).tasks
                 if item.task_key == PREDICTION_V2_CUTOVER_TASK_KEY
@@ -3811,8 +6096,7 @@ class ResearchEvidenceSupervisor:
             stored = _load_object(self.root_dir / str(registered["artifact_path"]))
             if (
                 stored != reconstructed
-                or registered.get("artifact_digest")
-                != reconstructed["artifact_digest"]
+                or registered.get("artifact_digest") != reconstructed["artifact_digest"]
                 or artifact.get("child_artifact_digests")
                 != [reconstructed["artifact_digest"]]
             ):
@@ -3826,6 +6110,428 @@ class ResearchEvidenceSupervisor:
                 "same_attestation_identity": True,
                 "historical_evidence": "NOT_RUN",
                 "promotion_gate_opened": False,
+                "manual_input_assembly": False,
+            }
+        elif task_key == M4_P29_GOLDEN_REFERENCE_TASK_KEY:
+            task = next(
+                item
+                for item in self.repository.load_manifest(
+                    control_plane_key=self.control_plane_key
+                ).tasks
+                if item.task_key == M4_P29_GOLDEN_REFERENCE_TASK_KEY
+            )
+            with tempfile.TemporaryDirectory(
+                prefix="dehps-golden-reference-replay-"
+            ) as temporary:
+                reconstructed = _build_golden_reference_bundle(
+                    root_dir=self.root_dir,
+                    work_dir=Path(temporary),
+                )
+            registered_source_integrity = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=list(registrations),
+                artifact_type="SourceIntegrityAttestationArtifact",
+            )
+            reconstructed_source_integrity = build_source_integrity_attestation(
+                root_dir=self.root_dir,
+                runtime_plan=reconstructed.runtime_audit_plan,
+                execution_id=resolved_execution_id,
+                git_commit=str(artifact["git_commit"]),
+                exact_fixture_replay_artifact_digest=str(
+                    reconstructed.replay["artifact_digest"]
+                ),
+            )
+            expected_work_counts = _golden_execution_work_counts(reconstructed)
+            if (
+                task.input_artifact_digests != reconstructed.expected_input_digests
+                or artifact.get("input_artifact_digests")
+                != list(reconstructed.expected_input_digests)
+                or artifact.get("golden_reference_plan_artifact_digest")
+                != reconstructed.plan["artifact_digest"]
+                or artifact.get("golden_reference_fixture_artifact_digest")
+                != reconstructed.fixture["artifact_digest"]
+                or artifact.get("golden_reference_replay_artifact_digest")
+                != reconstructed.replay["artifact_digest"]
+                or artifact.get("immutable_golden_fixture_is_oracle") is not True
+                or artifact.get("acceleration_boundary_independent") is not True
+                or artifact.get("acceleration_boundary_independence_scope")
+                != M4_P29_ACCELERATION_BOUNDARY_SCOPE
+                or artifact.get("oracle_construction_process_isolated") is not False
+                or artifact.get("oracle_construction_fully_implementation_independent")
+                is not False
+                or artifact.get("exact_replay_verified") is not True
+                or artifact.get("historical_outcomes_read") is not False
+                or artifact.get("p2_6_1_partial_statistical_results_read") is not False
+                or artifact.get("evidence_progress_before") != 0
+                or artifact.get("evidence_progress_after") != 0
+                or artifact.get("production_action") != "none"
+                or any(
+                    artifact.get(key) != value
+                    for key, value in expected_work_counts.items()
+                )
+                or registered_source_integrity != reconstructed_source_integrity
+                or artifact.get("source_integrity_attestation_artifact_digest")
+                != registered_source_integrity["artifact_digest"]
+            ):
+                raise MainlineSupervisorError(
+                    "golden reference physical replay execution changed"
+                )
+            _validate_golden_artifact_set(
+                plan=reconstructed.plan,
+                fixture=reconstructed.fixture,
+                replay=reconstructed.replay,
+                expected_source_inputs=reconstructed.expected_input_digests,
+                expected_construction_source_identity=(
+                    construction_source_integrity_identity(
+                        reconstructed.runtime_audit_plan
+                    )
+                ),
+                expected_golden_source_identity=golden_source_integrity_identity(
+                    reconstructed.runtime_audit_plan
+                ),
+            )
+            _verify_v2_registered_artifacts(
+                root_dir=self.root_dir,
+                registrations=list(registrations),
+                expected_payloads=(
+                    reconstructed.plan,
+                    reconstructed.fixture,
+                    reconstructed.replay,
+                    reconstructed_source_integrity,
+                    artifact,
+                ),
+            )
+            capability_replay = {
+                "schema_version": ("dehps-m4-p2-9-golden-reference-physical-replay.v1"),
+                "status": "REPLAY_VERIFIED",
+                "same_plan_identity": True,
+                "same_fixture_identity": True,
+                "same_full_replicate_payload": True,
+                "same_full_fold_trace_payload": True,
+                "same_boundary_snapshot_payload": True,
+                "same_checkpoint_journal_bytes": True,
+                "same_replay_attestation_identity": True,
+                "immutable_golden_fixture_is_oracle": True,
+                "acceleration_boundary_independent": True,
+                "acceleration_boundary_independence_scope": (
+                    M4_P29_ACCELERATION_BOUNDARY_SCOPE
+                ),
+                "oracle_construction_process_isolated": False,
+                "oracle_construction_fully_implementation_independent": False,
+                "historical_outcomes_read": False,
+                "p2_6_1_partial_statistical_results_read": False,
+                "manual_input_assembly": False,
+            }
+        elif task_key == M4_P29_RUNTIME_AUDIT_TASK_KEY:
+            (
+                golden_execution,
+                _,
+                golden_plan,
+                golden_fixture,
+                golden_replay,
+                golden_source_integrity,
+            ) = _load_verified_golden_parent(
+                repository=self.repository,
+                root_dir=self.root_dir,
+                control_plane_key=self.control_plane_key,
+            )
+            source_plan = load_runtime_audit_plan(
+                self.root_dir / RUNTIME_AUDIT_PLAN_PATH
+            )
+            verified_construction_source_identity = preflight_source_integrity(
+                root_dir=self.root_dir,
+                runtime_plan=source_plan,
+            )
+            if (
+                construction_source_integrity_identity(source_plan)
+                != verified_construction_source_identity
+            ):
+                raise MainlineSupervisorError(
+                    "runtime audit replay source preflight changed"
+                )
+            try:
+                compatible_golden_source_identity = require_golden_source_compatibility(
+                    registered_golden_contract=golden_plan[
+                        "golden_source_integrity_contract"
+                    ],
+                    registered_golden_identity=golden_plan[
+                        "golden_source_integrity_identity"
+                    ],
+                    new_full_source_contract=source_plan["source_integrity_contract"],
+                )
+            except RuntimeError as exc:
+                raise MainlineSupervisorError(
+                    f"runtime audit replay golden source changed: {exc}"
+                ) from exc
+            (
+                replay_source_plan,
+                replay_manifest,
+                replay_synthetic,
+                replay_truths,
+                _,
+            ) = _golden_reference_sources(root_dir=self.root_dir)
+            if replay_source_plan != source_plan:
+                raise MainlineSupervisorError(
+                    "runtime audit replay source plan changed"
+                )
+            replay_replicate = golden_full_replicate(
+                manifest=replay_manifest,
+                synthetic=replay_synthetic,
+            )
+            with tempfile.TemporaryDirectory(
+                prefix="dehps-runtime-correctness-replay-"
+            ) as temporary:
+                replay_correctness = _observed_reference_evaluation(
+                    root_dir=self.root_dir,
+                    output_dir=Path(temporary),
+                    manifest=replay_manifest,
+                    synthetic=replay_synthetic,
+                    truths=replay_truths,
+                    replicate=replay_replicate,
+                    capture_trace=True,
+                )
+            replay_boundaries = _build_observed_boundary_snapshots(
+                manifest=replay_manifest,
+                synthetic=replay_synthetic,
+                truths=replay_truths,
+            )
+            replay_observed_fixture = build_golden_fixture_artifact(
+                plan_digest=str(golden_plan["artifact_digest"]),
+                replicate=replay_replicate,
+                evaluation=replay_correctness,
+                boundary_snapshots=replay_boundaries,
+                parent_digests=tuple(
+                    str(value) for value in golden_fixture["parent_digests"]
+                ),
+                executor_fingerprint_digest=str(
+                    golden_plan["executor_fingerprint_digest"]
+                ),
+                golden_source_integrity_identity=(compatible_golden_source_identity),
+            )
+            replay_golden_attestation = build_exact_golden_attestation(
+                plan_digest=str(golden_plan["artifact_digest"]),
+                reference_payload=golden_fixture,
+                observed_payload=replay_observed_fixture,
+                reference_journal_bytes=str(
+                    golden_fixture["checkpoint_journal_utf8"]
+                ).encode("utf-8"),
+                observed_journal_bytes=(replay_correctness.checkpoint_journal_bytes),
+            )
+            if replay_golden_attestation != golden_replay:
+                raise MainlineSupervisorError(
+                    "runtime audit current correctness replay changed"
+                )
+            benchmark_plan = build_benchmark_plan_artifact(source_plan)
+            registered_plan = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=list(registrations),
+                artifact_type="BenchmarkPlanArtifact",
+            )
+            observation = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=list(registrations),
+                artifact_type="RuntimeObservationArtifact",
+            )
+            benchmark_attempt = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=list(registrations),
+                artifact_type="RuntimeBenchmarkAttemptArtifact",
+            )
+            source_integrity = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=list(registrations),
+                artifact_type="SourceIntegrityAttestationArtifact",
+            )
+            registered_equivalence = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=list(registrations),
+                artifact_type="EquivalenceAttestationArtifact",
+            )
+            _validate_runtime_observation(
+                observation,
+                benchmark_plan=benchmark_plan,
+                execution_id=resolved_execution_id,
+                git_commit=str(artifact["git_commit"]),
+                executor_fingerprint_digest=str(
+                    golden_plan["executor_fingerprint_digest"]
+                ),
+                benchmark_attempt_id=str(benchmark_attempt["benchmark_attempt_id"]),
+                measured_result_float64_tree_digest=str(
+                    benchmark_attempt["measured_result_float64_tree_digest"]
+                ),
+                measured_checkpoint_journal_sha256=str(
+                    benchmark_attempt["measured_checkpoint_journal_sha256"]
+                ),
+            )
+            validate_runtime_benchmark_attempt_artifact(
+                benchmark_attempt,
+                benchmark_plan_digest=str(benchmark_plan["artifact_digest"]),
+                observation=observation,
+                execution_id=resolved_execution_id,
+                git_commit=str(artifact["git_commit"]),
+            )
+            measured_journal_bytes = _validate_runtime_benchmark_attempt_files(
+                root_dir=self.root_dir,
+                control_plane_key=self.control_plane_key,
+                task_key=M4_P29_RUNTIME_AUDIT_TASK_KEY,
+                execution_id=resolved_execution_id,
+                attempt=benchmark_attempt,
+            )
+            reconstructed_source_integrity = build_source_integrity_attestation(
+                root_dir=self.root_dir,
+                runtime_plan=source_plan,
+                execution_id=resolved_execution_id,
+                git_commit=str(artifact["git_commit"]),
+                exact_fixture_replay_artifact_digest=str(
+                    golden_replay["artifact_digest"]
+                ),
+                golden_reference_execution_artifact_digest=str(
+                    golden_execution["artifact_digest"]
+                ),
+                golden_source_identity=compatible_golden_source_identity,
+            )
+            validate_source_integrity_attestation(
+                source_integrity,
+                runtime_plan=source_plan,
+                execution_id=resolved_execution_id,
+                git_commit=str(artifact["git_commit"]),
+                exact_fixture_replay_artifact_digest=str(
+                    golden_replay["artifact_digest"]
+                ),
+                golden_reference_execution_artifact_digest=str(
+                    golden_execution["artifact_digest"]
+                ),
+                golden_source_identity=compatible_golden_source_identity,
+            )
+            golden_result_digest = float64_tree_digest(
+                golden_fixture["replicate_result"],
+                domain="dehps.m4.p2-9.measured-result-float64-tree.v1",
+            )
+            if (
+                reconstructed_source_integrity != source_integrity
+                or benchmark_attempt["measured_result_float64_tree_digest"]
+                != golden_result_digest
+                or measured_journal_bytes
+                != str(golden_fixture["checkpoint_journal_utf8"]).encode("utf-8")
+            ):
+                raise MainlineSupervisorError(
+                    "runtime audit measured attempt physical evidence changed"
+                )
+            if (
+                registered_plan != benchmark_plan
+                or artifact.get("benchmark_plan_artifact_digest")
+                != benchmark_plan["artifact_digest"]
+                or artifact.get("runtime_observation_artifact_digest")
+                != observation["artifact_digest"]
+                or artifact.get("runtime_benchmark_attempt_artifact_digest")
+                != benchmark_attempt["artifact_digest"]
+                or artifact.get("source_integrity_attestation_artifact_digest")
+                != source_integrity["artifact_digest"]
+                or artifact.get("golden_source_integrity_attestation_artifact_digest")
+                != golden_source_integrity["artifact_digest"]
+                or artifact.get("runtime_executor_fingerprint_digest_before")
+                != golden_plan["executor_fingerprint_digest"]
+                or artifact.get("runtime_executor_fingerprint_digest_after")
+                != golden_plan["executor_fingerprint_digest"]
+                or artifact.get("actual_fold_count") != 61
+                or artifact.get("audited_fold_count") != 61
+                or artifact.get("correctness_replay_fold_count") != 61
+                or artifact.get("total_execution_fold_count") != 122
+                or artifact.get("correctness_boundary_snapshot_count") != 45
+                or artifact.get("frozen_reference_fold_count") != 61
+                or artifact.get("benchmark_attempt_id")
+                != benchmark_attempt["benchmark_attempt_id"]
+                or artifact.get("benchmark_attempt_path")
+                != benchmark_attempt["benchmark_attempt_path"]
+                or artifact.get("measured_workdir_path")
+                != benchmark_attempt["measured_workdir_path"]
+                or artifact.get("correctness_replay_workdir_path")
+                != benchmark_attempt["correctness_replay_workdir_path"]
+                or artifact.get("journal_reused") is not False
+                or artifact.get("fresh_workdir") is not True
+            ):
+                raise MainlineSupervisorError(
+                    "runtime audit registered observation contract changed"
+                )
+            reconstructed_equivalence = _build_runtime_golden_equivalence(
+                benchmark_plan=benchmark_plan,
+                golden_execution=golden_execution,
+                golden_plan=golden_plan,
+                golden_fixture=golden_fixture,
+                golden_replay=golden_replay,
+                observed_fixture=replay_observed_fixture,
+                audited_payload=dict(benchmark_attempt["measured_result_payload"]),
+                benchmark_attempt=benchmark_attempt,
+                source_integrity=source_integrity,
+                golden_source_integrity=golden_source_integrity,
+            )
+            if reconstructed_equivalence != registered_equivalence:
+                raise MainlineSupervisorError(
+                    "runtime audit golden equivalence replay changed"
+                )
+            _verify_v2_registered_artifacts(
+                root_dir=self.root_dir,
+                registrations=list(registrations),
+                expected_payloads=(
+                    benchmark_plan,
+                    observation,
+                    benchmark_attempt,
+                    reconstructed_equivalence,
+                    source_integrity,
+                    artifact,
+                ),
+            )
+            if (
+                artifact.get("golden_reference_execution_artifact_digest")
+                != golden_execution["artifact_digest"]
+                or artifact.get("golden_reference_plan_artifact_digest")
+                != golden_plan["artifact_digest"]
+                or artifact.get("golden_reference_fixture_artifact_digest")
+                != golden_fixture["artifact_digest"]
+                or artifact.get("golden_reference_replay_artifact_digest")
+                != golden_replay["artifact_digest"]
+                or artifact.get("golden_source_integrity_attestation_artifact_digest")
+                != golden_source_integrity["artifact_digest"]
+                or artifact.get("equivalence_attestation_artifact_digest")
+                != reconstructed_equivalence["artifact_digest"]
+                or artifact.get("shared_frozen_source_modified") is not False
+                or artifact.get("backend_source_modified")
+                is not source_integrity["backend_source_modified"]
+                or artifact.get("acceleration_changed_paths")
+                != source_integrity["acceleration_changed_paths"]
+                or artifact.get("backend_optimization_applied") is not False
+                or artifact.get("statistical_semantics_modified") is not False
+                or artifact.get("reference_evaluator_is_oracle") is not False
+                or artifact.get("immutable_golden_fixture_is_oracle") is not True
+                or artifact.get("acceleration_boundary_independent") is not True
+                or artifact.get("acceleration_boundary_independence_scope")
+                != M4_P29_ACCELERATION_BOUNDARY_SCOPE
+                or artifact.get("oracle_construction_process_isolated") is not False
+                or artifact.get("oracle_construction_fully_implementation_independent")
+                is not False
+                or artifact.get("exact_golden_replay_verified") is not True
+            ):
+                raise MainlineSupervisorError(
+                    "runtime audit execution golden lineage changed"
+                )
+            capability_replay = {
+                "schema_version": ("dehps-m4-p2-9-runtime-audit-physical-replay.v1"),
+                "status": "REPLAY_VERIFIED",
+                "same_registered_golden_parent_content": True,
+                "current_correctness_replay_matches_registered_golden": True,
+                "acceleration_boundary_independence_scope": (
+                    M4_P29_ACCELERATION_BOUNDARY_SCOPE
+                ),
+                "oracle_construction_process_isolated": False,
+                "same_benchmark_plan_identity": True,
+                "same_runtime_benchmark_attempt_identity": True,
+                "same_source_integrity_attestation_identity": True,
+                "same_equivalence_attestation_identity": True,
+                "measured_attempt_physical_evidence_verified": True,
+                "runtime_observation_identity_verified": True,
+                "timing_values_equal_required": False,
+                "historical_outcomes_read": False,
+                "p2_6_1_partial_statistical_results_read": False,
                 "manual_input_assembly": False,
             }
         elif task_key == M4_V2_DESIGN_TASK_KEY:
@@ -3859,9 +6565,7 @@ class ResearchEvidenceSupervisor:
                 ),
             )
             capability_replay = {
-                "schema_version": (
-                    "dehps-m4-measurement-v2-design-replay.v1"
-                ),
+                "schema_version": ("dehps-m4-measurement-v2-design-replay.v1"),
                 "status": "REPLAY_VERIFIED",
                 "measurement_contract_v2_digest": contract.artifact_digest,
                 "estimand_contract_digest": reconstructed.estimand_contract[
@@ -3889,17 +6593,14 @@ class ResearchEvidenceSupervisor:
                 item
                 for item in parent_events
                 if item.get("event_type") == "completed"
-                and item.get("execution_id")
-                == artifact.get("design_execution_id")
+                and item.get("execution_id") == artifact.get("design_execution_id")
             ]
             if len(parent_completed) != 1:
                 raise MainlineSupervisorError(
                     "M4 v2 design replay cannot resolve its design parent"
                 )
             parent_summary = _event_payload(parent_completed[0])
-            parent_path = self.root_dir / str(
-                parent_summary["execution_artifact_path"]
-            )
+            parent_path = self.root_dir / str(parent_summary["execution_artifact_path"])
             parent_execution = _load_object(parent_path)
             parent_registrations = list(
                 self.repository.list_mainline_artifacts(
@@ -3923,9 +6624,7 @@ class ResearchEvidenceSupervisor:
                     parent_execution,
                 ),
             )
-            fixture = load_gate_replay_fixture(
-                self.root_dir / GATE_REPLAY_FIXTURE_PATH
-            )
+            fixture = load_gate_replay_fixture(self.root_dir / GATE_REPLAY_FIXTURE_PATH)
             reconstructed_replay = build_design_replay_artifacts(
                 contract,
                 fixture=fixture,
@@ -3933,20 +6632,18 @@ class ResearchEvidenceSupervisor:
                 design_child_digests=[
                     str(item["artifact_digest"])
                     for item in parent_registrations
-                    if item.get("artifact_type")
-                    != "research_os_mainline_execution"
+                    if item.get("artifact_type") != "research_os_mainline_execution"
                 ],
                 registration_payloads=parent_registrations,
             )
-            if (
-                reconstructed_replay.measurement_contract_replay[
-                    "artifact_digest"
-                ]
-                != artifact.get("measurement_contract_replay_digest")
-                or reconstructed_replay.gate_compiler_replay[
-                    "artifact_digest"
-                ]
-                != artifact.get("gate_compiler_replay_digest")
+            if reconstructed_replay.measurement_contract_replay[
+                "artifact_digest"
+            ] != artifact.get(
+                "measurement_contract_replay_digest"
+            ) or reconstructed_replay.gate_compiler_replay[
+                "artifact_digest"
+            ] != artifact.get(
+                "gate_compiler_replay_digest"
             ):
                 raise MainlineSupervisorError(
                     "M4 Measurement Contract v2 replay attestation changed"
@@ -3963,14 +6660,10 @@ class ResearchEvidenceSupervisor:
                 "status": "REPLAY_VERIFIED",
                 "design_execution_id": parent_execution["execution_id"],
                 "measurement_contract_replay_digest": (
-                    reconstructed_replay.measurement_contract_replay[
-                        "artifact_digest"
-                    ]
+                    reconstructed_replay.measurement_contract_replay["artifact_digest"]
                 ),
                 "gate_compiler_replay_digest": (
-                    reconstructed_replay.gate_compiler_replay[
-                        "artifact_digest"
-                    ]
+                    reconstructed_replay.gate_compiler_replay["artifact_digest"]
                 ),
                 "same_registered_content": True,
                 "same_gate_fixture_output": True,
@@ -3991,23 +6684,16 @@ class ResearchEvidenceSupervisor:
                 != artifact["development_selection_artifact_digest"]
                 or repair.identifiability_confirmation["artifact_digest"]
                 != artifact["identifiability_confirmation_digest"]
-                or [
-                    item["artifact_digest"]
-                    for item in repair.truth_artifacts
-                ]
+                or [item["artifact_digest"] for item in repair.truth_artifacts]
                 != artifact["truth_artifact_digests"]
             ):
                 raise MainlineSupervisorError(
                     "measurement repair deterministic replay changed"
                 )
             capability_replay = {
-                "schema_version": (
-                    "dehps-m4-p2-measurement-repair-replay.v1"
-                ),
+                "schema_version": ("dehps-m4-p2-measurement-repair-replay.v1"),
                 "status": "REPLAY_VERIFIED",
-                "completion_artifact_digest": repair.completion[
-                    "artifact_digest"
-                ],
+                "completion_artifact_digest": repair.completion["artifact_digest"],
                 "development_selection_artifact_digest": (
                     repair.development_selection["artifact_digest"]
                 ),
@@ -4018,16 +6704,12 @@ class ResearchEvidenceSupervisor:
                 "manual_input_assembly": False,
             }
         elif task_key == P26_TASK_KEY:
-            measurement_manifest = (
-                load_repaired_measurement_validation_manifest(
-                    self.root_dir
-                    / "configs/research-os/"
-                    "m4-information-theory-p2-6-1-measurement-validation-v1.json"
-                )
+            measurement_manifest = load_repaired_measurement_validation_manifest(
+                self.root_dir / "configs/research-os/"
+                "m4-information-theory-p2-6-1-measurement-validation-v1.json"
             )
             synthetic = load_synthetic_run_manifest(
-                self.root_dir
-                / "configs/research-os/"
+                self.root_dir / "configs/research-os/"
                 "m4-information-theory-p2-synthetic-run-manifest-v1.0.1.json"
             )
             capability_replay = verify_completion_replay(
@@ -4036,29 +6718,21 @@ class ResearchEvidenceSupervisor:
                 parent_execution_id=resolved_execution_id,
                 output_dir=artifact_path.parent / "artifacts",
                 git_commit=str(artifact["git_commit"]),
-                expected_completion_digest=str(
-                    artifact["completion_artifact_digest"]
-                ),
+                expected_completion_digest=str(artifact["completion_artifact_digest"]),
             )
         elif task_key == P27_TASK_KEY:
-            measurement_manifest = (
-                load_repaired_measurement_validation_manifest(
-                    self.root_dir
-                    / "configs/research-os/"
-                    "m4-information-theory-p2-6-1-measurement-validation-v1.json"
-                )
+            measurement_manifest = load_repaired_measurement_validation_manifest(
+                self.root_dir / "configs/research-os/"
+                "m4-information-theory-p2-6-1-measurement-validation-v1.json"
             )
             synthetic = load_synthetic_run_manifest(
-                self.root_dir
-                / "configs/research-os/"
+                self.root_dir / "configs/research-os/"
                 "m4-information-theory-p2-synthetic-run-manifest-v1.0.1.json"
             )
             p26_candidates = [
                 (path, _load_object(path))
                 for path in (
-                    self.root_dir
-                    / "runtime/research-os/mainline/tasks"
-                    / P26_TASK_KEY
+                    self.root_dir / "runtime/research-os/mainline/tasks" / P26_TASK_KEY
                 ).glob("*/execution.json")
             ]
             p26_matches = [
@@ -4074,8 +6748,7 @@ class ResearchEvidenceSupervisor:
             p26_path, p26_execution = p26_matches[0]
             p26_output = p26_path.parent / "artifacts"
             completion = _load_object(
-                self.root_dir
-                / str(p26_execution["completion_artifact_path"])
+                self.root_dir / str(p26_execution["completion_artifact_path"])
             )
             completion_replay = verify_completion_replay(
                 manifest=measurement_manifest,
@@ -4105,20 +6778,15 @@ class ResearchEvidenceSupervisor:
                 or reconstructed_gate["mde_summary"]["artifact_digest"]
                 != artifact.get("mde_summary_digest")
                 or reconstructed_gate["decision"] != artifact.get("decision")
-                or reconstructed_gate["decision_fact"]
-                != artifact.get("decision_fact")
+                or reconstructed_gate["decision_fact"] != artifact.get("decision_fact")
             ):
                 raise MainlineSupervisorError(
                     "P2.7 automatic gate or MDE replay identity changed"
                 )
             capability_replay = {
                 "status": "REPLAY_VERIFIED",
-                "completion_artifact_digest": completion[
-                    "artifact_digest"
-                ],
-                "automatic_gate_digest": reconstructed_gate[
-                    "artifact_digest"
-                ],
+                "completion_artifact_digest": completion["artifact_digest"],
+                "automatic_gate_digest": reconstructed_gate["artifact_digest"],
                 "mde_summary_digest": reconstructed_gate["mde_summary"][
                     "artifact_digest"
                 ],
@@ -4162,7 +6830,9 @@ class ResearchEvidenceSupervisor:
         while True:
             try:
                 self.run_once()
-            except Exception as exc:
+            except (
+                Exception  # noqa: BLE001 - resident service must keep reporting.
+            ) as exc:
                 payload = {
                     "schema_version": "dehps-research-evidence-supervisor-state.v1",
                     "status": "FAILED",
@@ -4179,7 +6849,9 @@ class ResearchEvidenceSupervisor:
             control_plane_key=self.control_plane_key,
             execution_id=execution_id,
         )
-        completed = [event for event in events if event.get("event_type") == "completed"]
+        completed = [
+            event for event in events if event.get("event_type") == "completed"
+        ]
         if len(completed) > 1:
             raise MainlineSupervisorError("duplicate completed execution events")
         return None if not completed else completed[0]
@@ -4262,6 +6934,14 @@ class ResearchEvidenceSupervisor:
             snapshot=snapshot,
             mainline_execution=self._latest_completed_summary(snapshot),
             measurement_v2_execution=self._latest_completed_v2_summary(snapshot),
+            golden_reference_execution=self._latest_completed_summary_for_tasks(
+                snapshot,
+                (M4_P29_GOLDEN_REFERENCE_TASK_KEY,),
+            ),
+            runtime_audit_execution=self._latest_completed_summary_for_tasks(
+                snapshot,
+                (M4_P29_RUNTIME_AUDIT_TASK_KEY,),
+            ),
             dispatch_performed=dispatch_performed,
         )
 

@@ -18,14 +18,18 @@ LEGACY_GOAL_KEY = "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION"
 M4_FORWARD_EVENT_KEY = "draw:2026085"
 M4_V2_DESIGN_TASK_KEY = "m4-v2-measurement-contract-design"
 M4_V2_DESIGN_REPLAY_TASK_KEY = "m4-v2-measurement-contract-design-replay"
-M4_V2_PREFLIGHT_DESIGN_TASK_KEY = (
-    "m4-v2-branch-identifiability-preflight-design"
-)
+M4_V2_PREFLIGHT_DESIGN_TASK_KEY = "m4-v2-branch-identifiability-preflight-design"
 M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
-M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = (
-    "m4-v2-p2-6-1-marginal-decision-replay"
-)
+M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = "m4-v2-p2-6-1-marginal-decision-replay"
+M4_P29_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
 M4_P29_RUNTIME_AUDIT_TASK_KEY = "m4-p2-9-measurement-runtime-audit"
+M4_P29_CANONICAL_EXECUTOR_FINGERPRINT_DIGEST = (
+    "e804e4eedf3c67ad9d35207367a096f6b830a6ab2ac29cc03501392d8430af32"
+)
+M4_P29_CANONICAL_EXECUTOR_EVENT = (
+    "m4-canonical-executor:" f"{M4_P29_CANONICAL_EXECUTOR_FINGERPRINT_DIGEST}"
+)
+M4_P29_ACCELERATION_BOUNDARY_SCOPE = "literal_behavior_path_and_fresh_import_closure"
 M4_V2_CONTRACT_DIGEST = (
     "a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b"
 )
@@ -104,7 +108,7 @@ P2_SUBPHASE_LABELS = (
 def load_m4_manifest(path: Path) -> ControlPlaneManifest:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
-        raise ValueError("M4 manifest root must be an object")
+        raise TypeError("M4 manifest root must be an object")
     return ControlPlaneManifest.from_dict(payload)
 
 
@@ -167,10 +171,7 @@ def manifest_with_contract_repair_pending(
                 "328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353"
             ),
             (f"m4-p2-5-resampling-kernel-manifest:{M4_P2_5_RESAMPLING_KERNEL_DIGEST}"),
-            (
-                "m4-p2-identifiability-decision:"
-                "MEASUREMENT_CONTRACT_REPAIR_REQUIRED"
-            ),
+            ("m4-p2-identifiability-decision:" "MEASUREMENT_CONTRACT_REPAIR_REQUIRED"),
         }
     ]
     return ControlPlaneManifest.from_dict(payload)
@@ -182,6 +183,8 @@ def build_m4_status(
     snapshot: ResolutionSnapshot | None = None,
     mainline_execution: dict[str, Any] | None = None,
     measurement_v2_execution: dict[str, Any] | None = None,
+    golden_reference_execution: dict[str, Any] | None = None,
+    runtime_audit_execution: dict[str, Any] | None = None,
     dispatch_performed: bool = False,
 ) -> dict[str, Any]:
     if (
@@ -207,16 +210,105 @@ def build_m4_status(
     resolutions = {item.task_key: item for item in snapshot.resolutions}
     measurement_v2_task = tasks.get(M4_V2_DESIGN_TASK_KEY)
     measurement_v2_resolution = resolutions.get(M4_V2_DESIGN_TASK_KEY)
-    measurement_v2_replay_resolution = resolutions.get(
-        M4_V2_DESIGN_REPLAY_TASK_KEY
-    )
-    marginal_binding_resolution = resolutions.get(
-        M4_V2_MARGINAL_BINDING_TASK_KEY
-    )
+    measurement_v2_replay_resolution = resolutions.get(M4_V2_DESIGN_REPLAY_TASK_KEY)
+    marginal_binding_resolution = resolutions.get(M4_V2_MARGINAL_BINDING_TASK_KEY)
     marginal_decision_replay_resolution = resolutions.get(
         M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY
     )
+    golden_reference_resolution = resolutions.get(M4_P29_GOLDEN_REFERENCE_TASK_KEY)
     runtime_audit_resolution = resolutions.get(M4_P29_RUNTIME_AUDIT_TASK_KEY)
+    canonical_executor_available = (
+        M4_P29_CANONICAL_EXECUTOR_EVENT in manifest.facts.external_events
+    )
+    if golden_reference_execution is not None and (
+        golden_reference_execution.get("evidence_progress_before") != 0
+        or golden_reference_execution.get("evidence_progress_after") != 0
+        or golden_reference_execution.get("historical_outcomes_read") is not False
+        or golden_reference_execution.get("production_action") != "none"
+        or golden_reference_execution.get("immutable_golden_fixture_is_oracle")
+        is not True
+        or golden_reference_execution.get("acceleration_boundary_independent")
+        is not True
+        or golden_reference_execution.get("acceleration_boundary_independence_scope")
+        != M4_P29_ACCELERATION_BOUNDARY_SCOPE
+        or golden_reference_execution.get("oracle_construction_process_isolated")
+        is not False
+        or golden_reference_execution.get(
+            "oracle_construction_fully_implementation_independent"
+        )
+        is not False
+        or len(
+            str(
+                golden_reference_execution.get(
+                    "source_integrity_attestation_artifact_digest"
+                )
+                or ""
+            )
+        )
+        != 64
+        or not canonical_executor_available
+    ):
+        raise ValueError("golden reference execution governance changed")
+    if runtime_audit_execution is not None and (
+        runtime_audit_execution.get("evidence_progress_before") != 0
+        or runtime_audit_execution.get("evidence_progress_after") != 0
+        or runtime_audit_execution.get("historical_outcomes_read") is not False
+        or runtime_audit_execution.get("production_action") != "none"
+        or runtime_audit_execution.get("reference_evaluator_is_oracle") is not False
+        or runtime_audit_execution.get("immutable_golden_fixture_is_oracle") is not True
+        or runtime_audit_execution.get("acceleration_boundary_independent") is not True
+        or runtime_audit_execution.get("acceleration_boundary_independence_scope")
+        != M4_P29_ACCELERATION_BOUNDARY_SCOPE
+        or runtime_audit_execution.get("oracle_construction_process_isolated")
+        is not False
+        or runtime_audit_execution.get(
+            "oracle_construction_fully_implementation_independent"
+        )
+        is not False
+        or runtime_audit_execution.get("exact_golden_replay_verified") is not True
+        or runtime_audit_execution.get("actual_fold_count") != 61
+        or runtime_audit_execution.get("audited_fold_count") != 61
+        or runtime_audit_execution.get("correctness_replay_fold_count") != 61
+        or runtime_audit_execution.get("total_execution_fold_count") != 122
+        or runtime_audit_execution.get("correctness_boundary_snapshot_count") != 45
+        or len(
+            str(
+                runtime_audit_execution.get("runtime_benchmark_attempt_artifact_digest")
+                or ""
+            )
+        )
+        != 64
+        or len(
+            str(
+                runtime_audit_execution.get(
+                    "source_integrity_attestation_artifact_digest"
+                )
+                or ""
+            )
+        )
+        != 64
+        or len(
+            str(
+                runtime_audit_execution.get(
+                    "golden_source_integrity_attestation_artifact_digest"
+                )
+                or ""
+            )
+        )
+        != 64
+        or not runtime_audit_execution.get("benchmark_attempt_id")
+        or runtime_audit_execution.get("journal_reused") is not False
+        or runtime_audit_execution.get("fresh_workdir") is not True
+        or runtime_audit_execution.get("shared_frozen_source_modified") is not False
+        or type(runtime_audit_execution.get("backend_source_modified")) is not bool
+        or not isinstance(
+            runtime_audit_execution.get("acceleration_changed_paths"), list
+        )
+        or runtime_audit_execution.get("backend_optimization_applied") is not False
+        or runtime_audit_execution.get("statistical_semantics_modified") is not False
+        or not canonical_executor_available
+    ):
+        raise ValueError("runtime audit execution governance changed")
     repair_resolution = resolutions.get(M4_CONTRACT_REPAIR_TASK_KEY)
     repair_complete = (
         repair_resolution is not None
@@ -356,10 +448,7 @@ def build_m4_status(
     projected_execution_task_key = (
         latest_p2_task_key
         if mainline_execution is None
-        else str(
-            mainline_execution.get("execution_task_key")
-            or latest_p2_task_key
-        )
+        else str(mainline_execution.get("execution_task_key") or latest_p2_task_key)
     )
     if p2_1_complete:
         completed.extend(
@@ -707,31 +796,40 @@ def build_m4_status(
             "MEASUREMENT_CONTRACT_REPAIR_REQUIRED"
             if measurement_repair_required
             else (
-                "PASS_TO_P3"
-                if "m4-p2-measurement-decision:PASS_TO_P3" in manifest.facts.artifacts
-                else "REPAIR_MEASUREMENT_SYSTEM"
-            )
-            if p2_7_complete
-            else (
-                "P2.6_FORMAL_MEASUREMENT_EVIDENCE_READY"
-                if p2_6_complete
-                else (
-                    "P2.6.1_REPAIRED_CONTRACT_READY"
-                    if measurement_contract_repaired
-                    else "P2.5_RESAMPLING_KERNEL_READY"
+                (
+                    "PASS_TO_P3"
+                    if "m4-p2-measurement-decision:PASS_TO_P3"
+                    in manifest.facts.artifacts
+                    else "REPAIR_MEASUREMENT_SYSTEM"
                 )
-            )
-            if p2_5_complete
-            else (
-                "P2.4_CALIBRATION_READY"
-                if p2_4_complete
+                if p2_7_complete
                 else (
-                    "P2.3_HARNESS_READY"
-                    if p2_3_complete
+                    (
+                        "P2.6_FORMAL_MEASUREMENT_EVIDENCE_READY"
+                        if p2_6_complete
+                        else (
+                            "P2.6.1_REPAIRED_CONTRACT_READY"
+                            if measurement_contract_repaired
+                            else "P2.5_RESAMPLING_KERNEL_READY"
+                        )
+                    )
+                    if p2_5_complete
                     else (
-                        "P2.2_KERNEL_READY"
-                        if p2_2_complete
-                        else ("P2.1_CONTRACT_READY" if p2_1_complete else "NOT_STARTED")
+                        "P2.4_CALIBRATION_READY"
+                        if p2_4_complete
+                        else (
+                            "P2.3_HARNESS_READY"
+                            if p2_3_complete
+                            else (
+                                "P2.2_KERNEL_READY"
+                                if p2_2_complete
+                                else (
+                                    "P2.1_CONTRACT_READY"
+                                    if p2_1_complete
+                                    else "NOT_STARTED"
+                                )
+                            )
+                        )
                     )
                 )
             )
@@ -749,25 +847,43 @@ def build_m4_status(
             "current": (
                 "M4-P1-CONTRACT-REPAIR"
                 if not repair_complete
-                else "M4-P2-REPAIR"
-                if measurement_repair_required
-                else "M4-P2-COMPLETE"
-                if p2_7_complete
-                else "M4-P2.7"
-                if p2_6_complete
-                else "M4-P2.6.1"
-                if p2_preflight_complete
-                else "M4-P2.6-PREFLIGHT"
-                if p2_5_complete
-                else "M4-P2.5"
-                if p2_4_complete
-                else "M4-P2.4"
-                if p2_3_complete
-                else "M4-P2.3"
-                if p2_2_complete
-                else "M4-P2.2"
-                if p2_1_complete
-                else "M4-P2.1"
+                else (
+                    "M4-P2-REPAIR"
+                    if measurement_repair_required
+                    else (
+                        "M4-P2-COMPLETE"
+                        if p2_7_complete
+                        else (
+                            "M4-P2.7"
+                            if p2_6_complete
+                            else (
+                                "M4-P2.6.1"
+                                if p2_preflight_complete
+                                else (
+                                    "M4-P2.6-PREFLIGHT"
+                                    if p2_5_complete
+                                    else (
+                                        "M4-P2.5"
+                                        if p2_4_complete
+                                        else (
+                                            "M4-P2.4"
+                                            if p2_3_complete
+                                            else (
+                                                "M4-P2.3"
+                                                if p2_2_complete
+                                                else (
+                                                    "M4-P2.2"
+                                                    if p2_1_complete
+                                                    else "M4-P2.1"
+                                                )
+                                            )
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
             ),
             "gate": (
                 "PASS_TO_P3"
@@ -825,19 +941,16 @@ def build_m4_status(
                 "live_mainline_status": (
                     "VALIDATED_IN_MAINLINE"
                     if measurement_v2_replay_resolution is not None
-                    and measurement_v2_replay_resolution.status
-                    is TaskStatus.COMPLETED
+                    and measurement_v2_replay_resolution.status is TaskStatus.COMPLETED
                     else (
                         "DESIGN_EXECUTED_REPLAY_PENDING"
-                        if measurement_v2_resolution.status
-                        is TaskStatus.COMPLETED
+                        if measurement_v2_resolution.status is TaskStatus.COMPLETED
                         else "INTEGRATION_PENDING"
                     )
                 ),
                 "runtime_release_event": M4_V2_RUNTIME_RELEASE_EVENT,
                 "runtime_release_available": (
-                    M4_V2_RUNTIME_RELEASE_EVENT
-                    in manifest.facts.external_events
+                    M4_V2_RUNTIME_RELEASE_EVENT in manifest.facts.external_events
                 ),
                 "p2_6_1_semantic_purpose": (
                     "MARGINAL_OUTPUT_MEASUREMENT_ACCEPTANCE_BASELINE"
@@ -870,8 +983,7 @@ def build_m4_status(
                 "next_consumer": (
                     M4_V2_PREFLIGHT_DESIGN_TASK_KEY
                     if measurement_v2_replay_resolution is not None
-                    and measurement_v2_replay_resolution.status
-                    is TaskStatus.COMPLETED
+                    and measurement_v2_replay_resolution.status is TaskStatus.COMPLETED
                     else M4_V2_DESIGN_REPLAY_TASK_KEY
                 ),
                 "mainline_execution": (
@@ -879,14 +991,10 @@ def build_m4_status(
                     if measurement_v2_execution is None
                     else {
                         "execution_artifact_digest": (
-                            measurement_v2_execution.get(
-                                "execution_artifact_digest"
-                            )
+                            measurement_v2_execution.get("execution_artifact_digest")
                         ),
                         "registered_artifact_count": (
-                            measurement_v2_execution.get(
-                                "registered_artifact_count"
-                            )
+                            measurement_v2_execution.get("registered_artifact_count")
                         ),
                         "actual_fold_count": measurement_v2_execution.get(
                             "actual_fold_count"
@@ -894,8 +1002,7 @@ def build_m4_status(
                     }
                 ),
             }
-            if measurement_v2_task is not None
-            and measurement_v2_resolution is not None
+            if measurement_v2_task is not None and measurement_v2_resolution is not None
             else {
                 "phase": "NOT_DECLARED",
                 "live_mainline_status": "NOT_DECLARED",
@@ -905,14 +1012,347 @@ def build_m4_status(
             "task_key": M4_P29_RUNTIME_AUDIT_TASK_KEY,
             "lane": "maintenance",
             "agent_authority": "engineering",
+            "required_fingerprint_digest": (
+                M4_P29_CANONICAL_EXECUTOR_FINGERPRINT_DIGEST
+            ),
+            "canonical_executor_event": M4_P29_CANONICAL_EXECUTOR_EVENT,
+            "canonical_executor_available": canonical_executor_available,
+            "golden_reference": {
+                "task_key": M4_P29_GOLDEN_REFERENCE_TASK_KEY,
+                "execution_status": (
+                    "NOT_RUN"
+                    if golden_reference_execution is None
+                    else (
+                        "REPLAY_VERIFIED"
+                        if golden_reference_execution.get("exact_replay_verified")
+                        is True
+                        else "INCONCLUSIVE"
+                    )
+                ),
+                "resolver_status": (
+                    None
+                    if golden_reference_resolution is None
+                    else golden_reference_resolution.status.value
+                ),
+                "resolver_reason_code": (
+                    None
+                    if golden_reference_resolution is None
+                    else golden_reference_resolution.reason_code
+                ),
+                "resolver_unsatisfied_dependencies": (
+                    []
+                    if golden_reference_resolution is None
+                    else [
+                        item.target_key
+                        for item in golden_reference_resolution.unsatisfied_dependencies
+                    ]
+                ),
+                "plan_artifact_digest": (
+                    None
+                    if golden_reference_execution is None
+                    else golden_reference_execution.get(
+                        "golden_reference_plan_artifact_digest"
+                    )
+                ),
+                "fixture_artifact_digest": (
+                    None
+                    if golden_reference_execution is None
+                    else golden_reference_execution.get(
+                        "golden_reference_fixture_artifact_digest"
+                    )
+                ),
+                "replay_artifact_digest": (
+                    None
+                    if golden_reference_execution is None
+                    else golden_reference_execution.get(
+                        "golden_reference_replay_artifact_digest"
+                    )
+                ),
+                "source_integrity_attestation_artifact_digest": (
+                    None
+                    if golden_reference_execution is None
+                    else golden_reference_execution.get(
+                        "source_integrity_attestation_artifact_digest"
+                    )
+                ),
+                "immutable_golden_fixture_is_oracle": (
+                    None
+                    if golden_reference_execution is None
+                    else golden_reference_execution.get(
+                        "immutable_golden_fixture_is_oracle"
+                    )
+                ),
+                "acceleration_boundary_independent": (
+                    None
+                    if golden_reference_execution is None
+                    else golden_reference_execution.get(
+                        "acceleration_boundary_independent"
+                    )
+                ),
+                "acceleration_boundary_independence_scope": (
+                    None
+                    if golden_reference_execution is None
+                    else golden_reference_execution.get(
+                        "acceleration_boundary_independence_scope"
+                    )
+                ),
+                "oracle_construction_process_isolated": (
+                    None
+                    if golden_reference_execution is None
+                    else golden_reference_execution.get(
+                        "oracle_construction_process_isolated"
+                    )
+                ),
+                "oracle_construction_fully_implementation_independent": (
+                    None
+                    if golden_reference_execution is None
+                    else golden_reference_execution.get(
+                        "oracle_construction_fully_implementation_independent"
+                    )
+                ),
+                "exact_replay_verified": (
+                    None
+                    if golden_reference_execution is None
+                    else golden_reference_execution.get("exact_replay_verified")
+                ),
+                "engineering_progress_before": (
+                    None
+                    if golden_reference_execution is None
+                    else golden_reference_execution.get("engineering_progress_before")
+                ),
+                "engineering_progress_after": (
+                    None
+                    if golden_reference_execution is None
+                    else golden_reference_execution.get("engineering_progress_after")
+                ),
+                "evidence_progress_before": (
+                    None
+                    if golden_reference_execution is None
+                    else golden_reference_execution.get("evidence_progress_before")
+                ),
+                "evidence_progress_after": (
+                    None
+                    if golden_reference_execution is None
+                    else golden_reference_execution.get("evidence_progress_after")
+                ),
+                "historical_outcomes_read": (
+                    None
+                    if golden_reference_execution is None
+                    else golden_reference_execution.get("historical_outcomes_read")
+                ),
+                "production_action": (
+                    None
+                    if golden_reference_execution is None
+                    else golden_reference_execution.get("production_action")
+                ),
+                "next_consumer": M4_P29_RUNTIME_AUDIT_TASK_KEY,
+            },
             "resolver_status": (
                 None
                 if runtime_audit_resolution is None
                 else runtime_audit_resolution.status.value
             ),
+            "resolver_reason_code": (
+                None
+                if runtime_audit_resolution is None
+                else runtime_audit_resolution.reason_code
+            ),
+            "resolver_unsatisfied_dependencies": (
+                []
+                if runtime_audit_resolution is None
+                else [
+                    item.target_key
+                    for item in runtime_audit_resolution.unsatisfied_dependencies
+                ]
+            ),
+            "execution_status": (
+                "NOT_RUN"
+                if runtime_audit_execution is None
+                else "EXACT_GOLDEN_EQUIVALENCE_VERIFIED"
+            ),
+            "golden_prerequisite_verified": bool(
+                runtime_audit_execution is not None
+                and runtime_audit_execution.get("golden_reference_plan_artifact_digest")
+                and runtime_audit_execution.get(
+                    "golden_reference_fixture_artifact_digest"
+                )
+                and runtime_audit_execution.get(
+                    "golden_reference_replay_artifact_digest"
+                )
+                and runtime_audit_execution.get("exact_golden_replay_verified") is True
+            ),
+            "golden_reference_execution_artifact_digest": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get(
+                    "golden_reference_execution_artifact_digest"
+                )
+            ),
+            "golden_reference_plan_artifact_digest": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get(
+                    "golden_reference_plan_artifact_digest"
+                )
+            ),
+            "golden_reference_fixture_artifact_digest": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get(
+                    "golden_reference_fixture_artifact_digest"
+                )
+            ),
+            "golden_reference_replay_artifact_digest": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get(
+                    "golden_reference_replay_artifact_digest"
+                )
+            ),
+            "benchmark_plan_artifact_digest": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get("benchmark_plan_artifact_digest")
+            ),
+            "runtime_observation_artifact_digest": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get("runtime_observation_artifact_digest")
+            ),
+            "runtime_benchmark_attempt_artifact_digest": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get(
+                    "runtime_benchmark_attempt_artifact_digest"
+                )
+            ),
+            "source_integrity_attestation_artifact_digest": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get(
+                    "source_integrity_attestation_artifact_digest"
+                )
+            ),
+            "golden_source_integrity_attestation_artifact_digest": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get(
+                    "golden_source_integrity_attestation_artifact_digest"
+                )
+            ),
+            "equivalence_attestation_artifact_digest": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get(
+                    "equivalence_attestation_artifact_digest"
+                )
+            ),
+            "immutable_golden_fixture_is_oracle": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get("immutable_golden_fixture_is_oracle")
+            ),
+            "acceleration_boundary_independent": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get("acceleration_boundary_independent")
+            ),
+            "acceleration_boundary_independence_scope": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get(
+                    "acceleration_boundary_independence_scope"
+                )
+            ),
+            "oracle_construction_process_isolated": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get("oracle_construction_process_isolated")
+            ),
+            "oracle_construction_fully_implementation_independent": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get(
+                    "oracle_construction_fully_implementation_independent"
+                )
+            ),
+            "exact_golden_replay_verified": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get("exact_golden_replay_verified")
+            ),
+            "production_like_measured_fold_count": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get("audited_fold_count")
+            ),
+            "correctness_replay_fold_count": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get("correctness_replay_fold_count")
+            ),
+            "total_execution_fold_count": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get("total_execution_fold_count")
+            ),
+            "correctness_boundary_snapshot_count": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get("correctness_boundary_snapshot_count")
+            ),
+            "benchmark_attempt_id": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get("benchmark_attempt_id")
+            ),
+            "journal_reused": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get("journal_reused")
+            ),
+            "fresh_workdir": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get("fresh_workdir")
+            ),
+            "shared_frozen_source_modified": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get("shared_frozen_source_modified")
+            ),
+            "backend_source_modified": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get("backend_source_modified")
+            ),
+            "acceleration_changed_paths": (
+                []
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get("acceleration_changed_paths", [])
+            ),
+            "backend_optimization_applied": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get("backend_optimization_applied")
+            ),
+            "statistical_semantics_modified": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get("statistical_semantics_modified")
+            ),
             "formal_benchmark_before_slot_release": False,
             "evidence_progress_increment": 0,
-            "production_action": "none",
+            "historical_outcomes_read": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get("historical_outcomes_read")
+            ),
+            "production_action": (
+                None
+                if runtime_audit_execution is None
+                else runtime_audit_execution.get("production_action")
+            ),
         },
         "mainline_integration": {
             "goal_integration": M4_GOAL_KEY,
@@ -938,25 +1378,27 @@ def build_m4_status(
                 "m4-p2-repair-measurement-system"
                 if measurement_repair_required
                 else (
-                    "m4-p3-strict-historical-walk-forward"
-                    if "m4-p2-measurement-decision:PASS_TO_P3"
-                    in manifest.facts.artifacts
-                    else "m4-p2-repair-measurement-system"
-                )
-                if p2_7_complete
-                else (
-                    "m4-p2-automatic-gate-and-report"
-                    if p2_6_complete
+                    (
+                        "m4-p3-strict-historical-walk-forward"
+                        if "m4-p2-measurement-decision:PASS_TO_P3"
+                        in manifest.facts.artifacts
+                        else "m4-p2-repair-measurement-system"
+                    )
+                    if p2_7_complete
                     else (
-                        "m4-p2-false-positive-and-power-runs"
-                        if p2_preflight_complete
+                        "m4-p2-automatic-gate-and-report"
+                        if p2_6_complete
                         else (
-                            "m4-p2-measurement-identifiability-preflight"
-                            if p2_5_complete
+                            "m4-p2-false-positive-and-power-runs"
+                            if p2_preflight_complete
                             else (
-                                "m4-p2-resampling"
-                                if p2_4_complete
-                                else "m4-p2-injected-signal-calibration"
+                                "m4-p2-measurement-identifiability-preflight"
+                                if p2_5_complete
+                                else (
+                                    "m4-p2-resampling"
+                                    if p2_4_complete
+                                    else "m4-p2-injected-signal-calibration"
+                                )
                             )
                         )
                     )

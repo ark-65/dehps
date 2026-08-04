@@ -6,15 +6,16 @@ from dataclasses import asdict
 from pathlib import Path
 
 import pytest
-
+from dehps.research_os.information_theory.progress import load_m4_manifest
 from dehps.research_os.supervisor import (
-    M4MeasurementContractV2DesignCapability,
     M4_V2_DESIGN_TASK_KEY,
+    M4MeasurementContractV2DesignCapability,
     MainlineSupervisorError,
     ResearchEvidenceSupervisor,
     _verify_v2_registered_artifacts,
 )
-from dehps.research_os.information_theory.progress import load_m4_manifest
+
+CONTROL_PLANE_KEY = "m4-information-theory-mainline"
 
 
 def _write(path: Path, payload: dict) -> None:
@@ -91,10 +92,7 @@ class _ReplayRepository:
     ) -> tuple[dict, ...]:
         if task_key is not None and task_key != self.event["task_key"]:
             return ()
-        if (
-            execution_id is not None
-            and execution_id != self.event["execution_id"]
-        ):
+        if execution_id is not None and execution_id != self.event["execution_id"]:
             return ()
         return (self.event,)
 
@@ -112,29 +110,20 @@ def test_supervisor_v2_replay_rejects_tampered_registered_child(
     tmp_path: Path,
 ) -> None:
     root = Path(__file__).resolve().parents[3]
-    source_contract = (
-        root / "configs/research-os/m4-measurement-contract-v2.json"
-    )
+    source_contract = root / "configs/research-os/m4-measurement-contract-v2.json"
     source_manifest = (
-        root
-        / "configs/research-os/m4-information-theory-evidence-v1.json"
+        root / "configs/research-os/m4-information-theory-evidence-v1.json"
     )
-    target_contract = (
-        tmp_path / "configs/research-os/m4-measurement-contract-v2.json"
-    )
+    target_contract = tmp_path / "configs/research-os/m4-measurement-contract-v2.json"
     target_contract.parent.mkdir(parents=True)
     shutil.copy2(source_contract, target_contract)
     manifest = load_m4_manifest(source_manifest)
     task = next(
-        item
-        for item in manifest.tasks
-        if item.task_key == M4_V2_DESIGN_TASK_KEY
+        item for item in manifest.tasks if item.task_key == M4_V2_DESIGN_TASK_KEY
     )
     execution_id = "5" * 64
-    result = M4MeasurementContractV2DesignCapability(
-        root_dir=tmp_path
-    ).execute(
-        control_plane_key="test-mainline",
+    result = M4MeasurementContractV2DesignCapability(root_dir=tmp_path).execute(
+        control_plane_key=CONTROL_PLANE_KEY,
         task=task,
         execution_id=execution_id,
         git_commit="6" * 40,
@@ -148,9 +137,7 @@ def test_supervisor_v2_replay_rejects_tampered_registered_child(
             "execution_artifact_path": str(
                 result.execution_artifact_path.relative_to(tmp_path)
             ),
-            "execution_artifact_digest": result.execution_artifact[
-                "artifact_digest"
-            ],
+            "execution_artifact_digest": result.execution_artifact["artifact_digest"],
             "registered_artifact_count": len(registrations),
             "actual_fold_count": 0,
         },
@@ -161,14 +148,12 @@ def test_supervisor_v2_replay_rejects_tampered_registered_child(
     )
     supervisor = ResearchEvidenceSupervisor(
         repository=repository,
-        control_plane_key="test-mainline",
+        control_plane_key=CONTROL_PLANE_KEY,
         root_dir=tmp_path,
         git_commit="6" * 40,
         require_clean_tree=False,
     )
-    assert supervisor.replay(task_key=task.task_key)["status"] == (
-        "REPLAY_VERIFIED"
-    )
+    assert supervisor.replay(task_key=task.task_key)["status"] == ("REPLAY_VERIFIED")
 
     child = next(
         item

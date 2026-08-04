@@ -30,6 +30,9 @@ from dehps.research_os.models import (
 )
 from dehps.research_os.repository import PostgresResearchOSRepository
 from dehps.research_os.supervisor import (
+    M4_P29_RUNTIME_AUDIT_CAPABILITY,
+    M4_P29_RUNTIME_AUDIT_COMPLETION_FACT,
+    M4_P29_RUNTIME_AUDIT_TASK_KEY,
     P23_TASK_KEY,
     P24_TASK_KEY,
     P25_TASK_KEY,
@@ -39,6 +42,7 @@ from dehps.research_os.supervisor import (
     P26_TASK_KEY,
     P27_TASK_KEY,
     CapabilityResult,
+    MainlineSupervisorError,
     ResearchEvidenceSupervisor,
 )
 
@@ -46,6 +50,7 @@ ROOT = Path(__file__).resolve().parents[3]
 MANIFEST_PATH = ROOT / "configs/research-os/m4-information-theory-evidence-v1.json"
 DATASET_DIGEST = "5354b9f7f6c72996cff16d6c161b03ff49922bf92589bd43b823d107019ebd86"
 TEST_COMMIT = "a" * 40
+TEST_CONTROL_PLANE_KEY = "m4-information-theory-mainline"
 
 
 def reset_preflight_to_pending(value: dict) -> None:
@@ -94,9 +99,9 @@ def manifest_payload() -> dict:
     p24["completion_classification"] = "INTEGRATION_PENDING"
     p24["dependencies"] = [p24["dependencies"][0]]
     p24["input_artifact_digests"] = []
-    p24["metric_contract"]["mainline_integration"]["ready_condition"] = (
-        "P2.3 mainline execution completed"
-    )
+    p24["metric_contract"]["mainline_integration"][
+        "ready_condition"
+    ] = "P2.3 mainline execution completed"
     p24["metric_contract"]["mainline_integration"]["upstream_artifacts"] = [
         "P2.3 mainline execution artifact"
     ]
@@ -156,6 +161,33 @@ def p25_source_manifest_payload() -> dict:
     return value
 
 
+def runtime_recovery_manifest_payload() -> dict:
+    value = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    assert isinstance(value, dict)
+    value.pop("manifest_digest", None)
+    runtime = next(
+        task
+        for task in value["tasks"]
+        if task["task_key"] == M4_P29_RUNTIME_AUDIT_TASK_KEY
+    )
+    canonical_executor_event = next(
+        dependency["target_key"]
+        for dependency in runtime["dependencies"]
+        if dependency["dependency_type"] == "external_event"
+        and dependency["target_key"].startswith("m4-canonical-executor:")
+    )
+    runtime["status"] = "draft"
+    runtime["completion_classification"] = "INTEGRATION_PENDING"
+    runtime["dependencies"] = []
+    value["facts"]["external_events"] = sorted(
+        {
+            *value["facts"]["external_events"],
+            canonical_executor_event,
+        }
+    )
+    return value
+
+
 class MemoryMainlineRepository:
     def __init__(self, payload: dict) -> None:
         self.control_plane = ResearchOSControlPlane()
@@ -163,16 +195,18 @@ class MemoryMainlineRepository:
         self.events: list[dict] = []
         self.artifacts: list[dict] = []
         self.fail_completed_import_once = False
+        self.fail_registration_after: int | None = None
+        self.registration_failure_triggered = False
 
     def ensure_schema(self) -> None:
         return None
 
     def load_manifest(self, *, control_plane_key: str) -> ControlPlaneManifest:
-        assert control_plane_key == "test-mainline"
+        assert control_plane_key == TEST_CONTROL_PLANE_KEY
         return self.manifest
 
     def import_manifest(self, *, control_plane_key: str, payload: dict, source: str):
-        assert control_plane_key == "test-mainline"
+        assert control_plane_key == TEST_CONTROL_PLANE_KEY
         assert source.startswith("research-evidence-supervisor")
         if (
             source == "research-evidence-supervisor-completed"
@@ -190,18 +224,16 @@ class MemoryMainlineRepository:
     def record_mainline_execution_event(self, *, event) -> bool:
         payload = {
             "event_digest": event.artifact_digest,
-            **{
-                "execution_id": event.execution_id,
-                "control_plane_key": event.control_plane_key,
-                "manifest_digest": event.manifest_digest,
-                "task_key": event.task_key,
-                "task_digest": event.task_digest,
-                "capability": event.capability,
-                "event_type": event.event_type,
-                "sequence": event.sequence,
-                "recorded_at": event.recorded_at,
-                "payload": [list(item) for item in event.payload],
-            },
+            "execution_id": event.execution_id,
+            "control_plane_key": event.control_plane_key,
+            "manifest_digest": event.manifest_digest,
+            "task_key": event.task_key,
+            "task_digest": event.task_digest,
+            "capability": event.capability,
+            "event_type": event.event_type,
+            "sequence": event.sequence,
+            "recorded_at": event.recorded_at,
+            "payload": [list(item) for item in event.payload],
         }
         if any(item["event_digest"] == event.artifact_digest for item in self.events):
             return False
@@ -209,6 +241,13 @@ class MemoryMainlineRepository:
         return True
 
     def register_mainline_artifact(self, *, registration) -> bool:
+        if (
+            self.fail_registration_after is not None
+            and not self.registration_failure_triggered
+            and len(self.artifacts) >= self.fail_registration_after
+        ):
+            self.registration_failure_triggered = True
+            raise RuntimeError("simulated crash during artifact registration")
         payload = {
             "registration_digest": registration.registration_digest,
             "execution_id": registration.execution_id,
@@ -303,6 +342,7 @@ class _ProjectedCapability:
             "completion_classification": "VALIDATED_IN_MAINLINE",
             "input_artifact_digests": list(task.input_artifact_digests),
             "actual_fold_count": self.summary.get("actual_fold_count", 0),
+            "registered_artifact_count": 1,
             "git_commit": git_commit,
             "working_tree_clean": True,
             "parent_digests": list(task.input_artifact_digests),
@@ -342,6 +382,131 @@ class _ProjectedCapability:
             execution_artifact_path=path,
             registrations=(registration,),
             completion_facts=self.completion_facts,
+        )
+
+
+class _CommitMarkerRecoveryCapability:
+    def __init__(self, *, root: Path) -> None:
+        self.root = root
+        self.timed_runs = 0
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        task_dir = (
+            self.root
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        execution_path = task_dir / "execution.json"
+        child_payload = {
+            "schema_version": "dehps-test-runtime-child.v1",
+            "artifact_type": "test_runtime_child",
+            "artifact_digest": "1" * 64,
+            "parent_digests": list(task.input_artifact_digests),
+        }
+        child_path = task_dir / "artifacts/test-child/child.json"
+        if execution_path.is_file():
+            execution_payload = json.loads(execution_path.read_text(encoding="utf-8"))
+        else:
+            self.timed_runs += 1
+            child_path.parent.mkdir(parents=True, exist_ok=True)
+            child_path.write_text(
+                json.dumps(child_payload, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            execution_payload = {
+                "schema_version": "dehps-research-os-mainline-execution.v1",
+                "artifact_type": "research_os_mainline_execution",
+                "artifact_digest": "",
+                "execution_id": execution_id,
+                "control_plane_key": control_plane_key,
+                "goal_key": task.goal_key,
+                "task_key": task.task_key,
+                "task_digest": task.artifact_digest,
+                "capability": task.requested_capability,
+                "status": "COMPLETE",
+                "completion_classification": "VALIDATED_IN_MAINLINE",
+                "input_artifact_digests": list(task.input_artifact_digests),
+                "actual_fold_count": 61,
+                "audited_fold_count": 61,
+                "correctness_replay_fold_count": 61,
+                "total_execution_fold_count": 122,
+                "correctness_boundary_snapshot_count": 45,
+                "registered_artifact_count": 2,
+                "runtime_benchmark_attempt_artifact_digest": "2" * 64,
+                "source_integrity_attestation_artifact_digest": "3" * 64,
+                "golden_source_integrity_attestation_artifact_digest": "4" * 64,
+                "benchmark_attempt_id": "5" * 64,
+                "reference_evaluator_is_oracle": False,
+                "immutable_golden_fixture_is_oracle": True,
+                "acceleration_boundary_independent": True,
+                "acceleration_boundary_independence_scope": (
+                    "literal_behavior_path_and_fresh_import_closure"
+                ),
+                "oracle_construction_process_isolated": False,
+                "oracle_construction_fully_implementation_independent": False,
+                "exact_golden_replay_verified": True,
+                "journal_reused": False,
+                "fresh_workdir": True,
+                "shared_frozen_source_modified": False,
+                "backend_source_modified": False,
+                "acceleration_changed_paths": [],
+                "backend_optimization_applied": False,
+                "statistical_semantics_modified": False,
+                "historical_outcomes_read": False,
+                "evidence_progress_before": 0,
+                "evidence_progress_after": 0,
+                "production_action": "none",
+                "git_commit": git_commit,
+                "working_tree_clean": True,
+                "parent_digests": [
+                    *task.input_artifact_digests,
+                    child_payload["artifact_digest"],
+                ],
+            }
+            execution_payload["artifact_digest"] = canonical_digest(
+                {
+                    key: value
+                    for key, value in execution_payload.items()
+                    if key != "artifact_digest"
+                },
+                domain="dehps.research-os.mainline-execution.v1",
+            )
+            execution_path.parent.mkdir(parents=True, exist_ok=True)
+            execution_path.write_text(
+                json.dumps(execution_payload, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+        registrations = tuple(
+            MainlineArtifactRegistration(
+                execution_id=execution_id,
+                control_plane_key=control_plane_key,
+                task_key=task.task_key,
+                task_digest=task.artifact_digest,
+                artifact_digest=str(payload["artifact_digest"]),
+                artifact_type=str(payload["artifact_type"]),
+                schema_version=str(payload["schema_version"]),
+                artifact_path=str(path.relative_to(self.root)),
+                parent_digests=tuple(payload.get("parent_digests", ())),
+                git_commit=git_commit,
+            )
+            for path, payload in (
+                (child_path, child_payload),
+                (execution_path, execution_payload),
+            )
+        )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=registrations,
+            completion_facts=(M4_P29_RUNTIME_AUDIT_COMPLETION_FACT,),
         )
 
 
@@ -494,7 +659,7 @@ def test_repository_requires_physical_execution_and_artifact_records() -> None:
     ):
         PostgresResearchOSRepository._verify_mainline_completion_records(
             MissingCursor(),
-            control_plane_key="test-mainline",
+            control_plane_key=TEST_CONTROL_PLANE_KEY,
             manifest=completed,
         )
 
@@ -519,7 +684,7 @@ def test_repository_forbids_reimport_regression_after_mainline_completion() -> N
     ):
         PostgresResearchOSRepository._verify_no_mainline_completion_regression(
             CompletedCursor(),
-            control_plane_key="test-mainline",
+            control_plane_key=TEST_CONTROL_PLANE_KEY,
             manifest=manifest,
             previous_tasks={task.task_key: task.artifact_digest},
         )
@@ -532,7 +697,7 @@ def test_supervisor_executes_p2_3_updates_status_unlocks_p2_4_and_replays(
     root = prepare_root(tmp_path)
     supervisor = ResearchEvidenceSupervisor(
         repository=repository,  # type: ignore[arg-type]
-        control_plane_key="test-mainline",
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
         root_dir=root,
         now=lambda: datetime(2026, 7, 25, 8, 0, tzinfo=timezone.utc),
         git_commit=TEST_COMMIT,
@@ -576,7 +741,7 @@ def test_supervisor_resumes_after_completed_event_before_status_projection(
     repository.fail_completed_import_once = True
     supervisor = ResearchEvidenceSupervisor(
         repository=repository,  # type: ignore[arg-type]
-        control_plane_key="test-mainline",
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
         root_dir=prepare_root(tmp_path),
         now=lambda: datetime(2026, 7, 25, 8, 0, tzinfo=timezone.utc),
         git_commit=TEST_COMMIT,
@@ -613,6 +778,100 @@ def test_supervisor_resumes_after_completed_event_before_status_projection(
     ] == ["m4-p2-injected-signal-calibration"]
 
 
+def test_supervisor_rejects_stale_completed_event_manifest_on_resume(
+    tmp_path: Path,
+) -> None:
+    repository = MemoryMainlineRepository(manifest_payload())
+    repository.fail_completed_import_once = True
+    supervisor = ResearchEvidenceSupervisor(
+        repository=repository,  # type: ignore[arg-type]
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
+        root_dir=prepare_root(tmp_path),
+        now=lambda: datetime(2026, 7, 25, 8, 0, tzinfo=timezone.utc),
+        git_commit=TEST_COMMIT,
+        require_clean_tree=False,
+    )
+
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        supervisor.run_once()
+    stale_event_manifest_digest = repository.manifest.artifact_digest
+    evolved = repository.manifest.to_dict(include_digest=False)
+    evolved["facts"]["external_events"].append(
+        "test-only:manifest-evolved-after-completed-event"
+    )
+    repository.manifest = ControlPlaneManifest.from_dict(evolved)
+    assert repository.manifest.artifact_digest != stale_event_manifest_digest
+
+    with pytest.raises(
+        MainlineSupervisorError,
+        match="mainline parent event provenance changed",
+    ):
+        supervisor.run_once()
+
+
+def test_runtime_commit_marker_recovers_after_partial_registration_without_rerun(
+    tmp_path: Path,
+) -> None:
+    repository = MemoryMainlineRepository(runtime_recovery_manifest_payload())
+    repository.fail_registration_after = 1
+    root = prepare_root(tmp_path)
+    supervisor = ResearchEvidenceSupervisor(
+        repository=repository,  # type: ignore[arg-type]
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
+        root_dir=root,
+        now=lambda: datetime(2026, 8, 3, 8, 0, tzinfo=timezone.utc),
+        git_commit=TEST_COMMIT,
+        require_clean_tree=False,
+    )
+    capability = _CommitMarkerRecoveryCapability(root=root)
+    supervisor.capabilities[M4_P29_RUNTIME_AUDIT_CAPABILITY] = capability
+
+    with pytest.raises(
+        RuntimeError,
+        match="simulated crash during artifact registration",
+    ):
+        supervisor.run_once(task_key=M4_P29_RUNTIME_AUDIT_TASK_KEY)
+
+    runtime_task = next(
+        task
+        for task in repository.manifest.tasks
+        if task.task_key == M4_P29_RUNTIME_AUDIT_TASK_KEY
+    )
+    state = json.loads(supervisor.state_path.read_text(encoding="utf-8"))
+    assert capability.timed_runs == 1
+    assert len(repository.artifacts) == 1
+    assert [event["event_type"] for event in repository.events] == ["started"]
+    assert (
+        repository.manifest.task_state_by_digest[
+            runtime_task.artifact_digest
+        ].declared_status
+        is TaskStatus.RUNNING
+    )
+    assert state["status"] == "RECOVERY_REQUIRED"
+    assert state["task_key"] == M4_P29_RUNTIME_AUDIT_TASK_KEY
+    assert state["commit_marker_path"].endswith("/execution.json")
+
+    resumed = supervisor.run_once(task_key=M4_P29_RUNTIME_AUDIT_TASK_KEY)
+    completed_task = next(
+        task
+        for task in repository.manifest.tasks
+        if task.task_key == M4_P29_RUNTIME_AUDIT_TASK_KEY
+    )
+    assert resumed["status"] == "COMPLETE"
+    assert capability.timed_runs == 1
+    assert len(repository.artifacts) == 2
+    assert [event["event_type"] for event in repository.events] == [
+        "started",
+        "completed",
+    ]
+    assert (
+        repository.manifest.task_state_by_digest[
+            completed_task.artifact_digest
+        ].declared_status
+        is TaskStatus.COMPLETED
+    )
+
+
 def test_revised_p2_6_definition_cannot_resume_superseded_execution(
     tmp_path: Path,
 ) -> None:
@@ -621,7 +880,7 @@ def test_revised_p2_6_definition_cannot_resume_superseded_execution(
     prepare_formal_p24_artifacts(root)
     supervisor = ResearchEvidenceSupervisor(
         repository=repository,  # type: ignore[arg-type]
-        control_plane_key="test-mainline",
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
         root_dir=root,
         now=lambda: datetime(2026, 7, 31, 8, 0, tzinfo=timezone.utc),
         git_commit=TEST_COMMIT,
@@ -649,7 +908,7 @@ def test_supervisor_executes_p2_4_unlocks_p2_5_and_replays(
     repository = MemoryMainlineRepository(source_manifest_payload())
     supervisor = ResearchEvidenceSupervisor(
         repository=repository,  # type: ignore[arg-type]
-        control_plane_key="test-mainline",
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
         root_dir=prepare_root(tmp_path),
         now=lambda: datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc),
         git_commit=TEST_COMMIT,
@@ -698,7 +957,7 @@ def test_supervisor_executes_p2_5_unlocks_identifiability_preflight_and_replays(
     prepare_formal_p24_artifacts(root)
     supervisor = ResearchEvidenceSupervisor(
         repository=repository,  # type: ignore[arg-type]
-        control_plane_key="test-mainline",
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
         root_dir=root,
         now=lambda: datetime(2026, 7, 27, 9, 0, tzinfo=timezone.utc),
         git_commit=TEST_COMMIT,
@@ -739,7 +998,7 @@ def test_supervisor_projects_preflight_and_fail_closed_repair_branch_with_replay
     prepare_formal_p24_artifacts(root)
     supervisor = ResearchEvidenceSupervisor(
         repository=repository,  # type: ignore[arg-type]
-        control_plane_key="test-mainline",
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
         root_dir=root,
         now=lambda: datetime(2026, 7, 27, 10, 0, tzinfo=timezone.utc),
         git_commit=TEST_COMMIT,
