@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import json
 from functools import cache
 from pathlib import Path
@@ -105,6 +106,40 @@ def test_shallow_tree_uses_frozen_platt_holdout_and_prior_only_prediction() -> N
     assert prepared.state.hyperparameters["calibration_issue_count"] == 180
     assert prepared.state.hyperparameters["calibration_end_issue"] == 900
     assert prepared.state.hyperparameters["outer_test_metrics_used"] is False
+
+
+def test_sparse_tree_runtime_fit_does_not_leave_unreachable_cycles() -> None:
+    dataset, training, _train_view, _blind, _configs = _fixture()
+    feature_cache = StrictPriorFeatureCache(dataset)
+    feature_cache.reveal_training_history(training, through_issue=900)
+    outer = feature_cache.build_runtime_train_feature_view(
+        training,
+        tuple(range(1, 901)),
+    )
+    runtime_cache = ExactProbeRuntimeCache(
+        feature_cache=feature_cache,
+        outer_train_view=outer,
+    )
+    model_view = runtime_cache.contiguous_subview(
+        outer,
+        tuple(range(1, 721)),
+    )
+    fitted = runtime_cache.fitted(model_view)
+
+    gc.collect()
+    gc.disable()
+    try:
+        tree = runtime_cache.fit_exact_sparse_tree(
+            fitted,
+            model_view,
+            max_depth=3,
+            min_samples_leaf=24,
+            random_state=dataset.replicate_seed,
+        )
+        del tree
+        assert gc.collect() == 0
+    finally:
+        gc.enable()
 
 
 def test_cached_and_literal_feature_paths_produce_identical_four_probe_outputs() -> (
