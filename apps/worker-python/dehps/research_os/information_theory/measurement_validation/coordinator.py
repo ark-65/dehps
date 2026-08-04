@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Mapping
 from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from dehps.artifacts import atomic_write_text
 from dehps.research_os.information_theory.synthetic.contracts import (
@@ -16,13 +17,17 @@ from dehps.research_os.information_theory.synthetic.contracts import (
 from .contracts import MeasurementValidationContractError, MeasurementValidationManifest
 from .executor import (
     ReplicateEvaluator,
-    _load_object,
     _replicate_path,
+    _validate_persisted_replicate,
     _validate_replicate_result,
     persist_immutable,
 )
-from .schedule import AnalysisReplicate, execution_plan_summary, iter_replicates
-
+from .schedule import (
+    AnalysisReplicate,
+    assign_shard,
+    execution_plan_summary,
+    iter_replicates,
+)
 
 _WORKER_EVALUATOR: ReplicateEvaluator | None = None
 
@@ -67,16 +72,32 @@ def run_parallel_execution(
     maximum_retries: int = 2,
     progress_projection_path: Path | None = None,
     stop_after_new_replicates: int | None = None,
+    executor_shard_index: int | None = None,
+    executor_shard_count: int | None = None,
 ) -> CoordinatorResult:
     if worker_count < 1:
         raise ValueError("worker_count must be positive")
     if stop_after_new_replicates is not None and stop_after_new_replicates < 1:
         raise ValueError("stop_after_new_replicates must be positive")
+    if (executor_shard_index is None) != (executor_shard_count is None):
+        raise ValueError(
+            "executor_shard_index and executor_shard_count must be set together"
+        )
+    executor_sharding = executor_shard_count is not None
+    if executor_sharding and (
+        executor_shard_count < 1
+        or executor_shard_index < 0
+        or executor_shard_index >= executor_shard_count
+    ):
+        raise ValueError("executor_shard_index must be in [0, executor_shard_count)")
+    plan_shard_count = (
+        executor_shard_count if executor_sharding else worker_count
+    )
     plan = execution_plan_summary(
         manifest=manifest,
         synthetic=synthetic,
         parent_execution_id=parent_execution_id,
-        shard_count=worker_count,
+        shard_count=plan_shard_count,
     )
     plan_path = (
         output_dir
@@ -99,20 +120,33 @@ def run_parallel_execution(
             parent_execution_id=parent_execution_id,
         )
     )
+    owned_replicate_digests = {
+        replicate.artifact_digest
+        for replicate in all_replicates
+        if not executor_sharding
+        or assign_shard(
+            replicate,
+            shard_count=executor_shard_count,
+        ).shard_index
+        == executor_shard_index
+    }
     pending: list[AnalysisReplicate] = []
     reused = 0
+    reused_owned = 0
     for replicate in all_replicates:
         path = _replicate_path(output_dir, replicate)
         if path.is_file():
-            payload = _load_object(path)
-            if payload.get("identity_artifact_digest") != replicate.artifact_digest:
-                raise MeasurementValidationContractError(
-                    "measurement_validation_resume_identity_mismatch",
-                    f"resume identity changed: {path}",
-                )
+            _validate_persisted_replicate(
+                output_dir=output_dir,
+                replicate=replicate,
+                manifest=manifest,
+            )
             reused += 1
-        else:
+            if replicate.artifact_digest in owned_replicate_digests:
+                reused_owned += 1
+        elif replicate.artifact_digest in owned_replicate_digests:
             pending.append(replicate)
+    owned_missing_replicates = len(pending)
     pending.sort(
         key=lambda item: (
             item.cell.outer_issue_count,
@@ -124,6 +158,7 @@ def run_parallel_execution(
         pending = pending[:stop_after_new_replicates]
     target_completed = reused + len(pending)
     completed = reused
+    completed_owned = reused_owned
     retried = 0
     started_monotonic = time.monotonic()
     completed_this_run = 0
@@ -135,6 +170,13 @@ def run_parallel_execution(
         "measurement_validation_manifest_digest": manifest.artifact_digest,
         "execution_plan_digest": plan["artifact_digest"],
         "worker_count": worker_count,
+        "executor_shard_index": executor_shard_index,
+        "executor_shard_count": executor_shard_count,
+        "assigned_replicates": len(owned_replicate_digests),
+        "assigned_completed_replicates": completed_owned,
+        "unassigned_missing_replicates": (
+            len(all_replicates) - reused - owned_missing_replicates
+        ),
         "total_replicates": len(all_replicates),
         "completed_replicates": completed,
         "reused_replicates": reused,
@@ -142,6 +184,7 @@ def run_parallel_execution(
         "failed_replicates": 0,
         "execution_order": (
             "shortest_outer_scale_first_then_cell_then_replicate"
+            + ("_within_executor_shard" if executor_sharding else "")
         ),
         "result_selection_used": False,
         "elapsed_seconds": 0.0,
@@ -151,7 +194,11 @@ def run_parallel_execution(
     }
     project_state(state)
     if not pending:
-        state["status"] = "COMPLETE"
+        state["status"] = (
+            "COMPLETE"
+            if completed == len(all_replicates)
+            else "SHARD_COMPLETE"
+        )
         project_state(state)
         return CoordinatorResult(
             execution_plan=plan,
@@ -160,7 +207,7 @@ def run_parallel_execution(
             completed_replicates=completed,
             reused_replicates=reused,
             retried_replicates=retried,
-            status="COMPLETE",
+            status=str(state["status"]),
         )
 
     queue_limit = max(worker_count, worker_count * 2)
@@ -206,6 +253,7 @@ def run_parallel_execution(
                     )
                     persist_immutable(_replicate_path(output_dir, replicate), result)
                     completed += 1
+                    completed_owned += 1
                     completed_this_run += 1
                 except Exception:
                     count = retry_count.get(replicate.artifact_digest, 0)
@@ -238,6 +286,7 @@ def run_parallel_execution(
                 state.update(
                     {
                         "completed_replicates": completed,
+                        "assigned_completed_replicates": completed_owned,
                         "retried_replicates": retried,
                         "failed_replicates": 0,
                         "elapsed_seconds": (
@@ -250,7 +299,7 @@ def run_parallel_execution(
                         "estimated_remaining_seconds": (
                             (time.monotonic() - started_monotonic)
                             / completed_this_run
-                            * (len(all_replicates) - completed)
+                            * (target_completed - completed)
                         ),
                         "heartbeat_at": datetime.now(timezone.utc).isoformat(),
                     }
@@ -261,16 +310,19 @@ def run_parallel_execution(
             "measurement_validation_workload_incomplete",
             f"coordinator completed {completed} of target {target_completed}",
         )
-    final_status = (
-        "INTERRUPTED"
-        if stop_after_new_replicates is not None
-        and completed != len(all_replicates)
-        else "COMPLETE"
-    )
+    if stop_after_new_replicates is not None and completed != len(all_replicates):
+        final_status = "INTERRUPTED"
+    elif completed == len(all_replicates):
+        final_status = "COMPLETE"
+    elif executor_sharding:
+        final_status = "SHARD_COMPLETE"
+    else:
+        final_status = "COMPLETE"
     state.update(
         {
             "status": final_status,
             "completed_replicates": completed,
+            "assigned_completed_replicates": completed_owned,
             "retried_replicates": retried,
             "failed_replicates": 0,
             "elapsed_seconds": time.monotonic() - started_monotonic,
