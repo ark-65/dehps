@@ -4,6 +4,10 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import numpy as np
+from sklearn.calibration import CalibratedClassifierCV, _fit_calibrator
+from sklearn.frozen import FrozenEstimator
+from sklearn.naive_bayes import BernoulliNB
+from sklearn.tree import DecisionTreeClassifier
 
 from dehps.contracts import canonical_digest
 from dehps.research_os.information_theory.walk_forward.contracts import (
@@ -12,7 +16,11 @@ from dehps.research_os.information_theory.walk_forward.contracts import (
     TrainingDatasetView,
 )
 
-from .convergence import CONVERGED
+from .convergence import (
+    CONVERGED,
+    INSUFFICIENT_CLASS_VARIATION,
+    INVALID_FEATURE_MATRIX,
+)
 from .empirical_baseline import PreparedEmpiricalBaseline
 
 if TYPE_CHECKING:
@@ -223,3 +231,102 @@ class ExactProbeRuntimeCache:
             )
             self._tree_inputs[key] = cached
         return cached
+
+    def fit_frozen_bernoulli_nb(
+        self,
+        *,
+        matrix: np.ndarray,
+        targets: np.ndarray,
+        alpha: float,
+    ) -> BernoulliNB:
+        """Fit the frozen Bernoulli model from exact binary sufficient counts.
+
+        ``BernoulliNB.fit`` materializes a full binarized float64 matrix and a
+        two-column label indicator before multiplying them.  The frozen model
+        has exactly two unweighted classes, so those intermediates reduce to
+        integer class counts and integer counts of ``matrix > 0``.  Integers in
+        this workload are below the exact float64 range; assigning the counts
+        and then calling sklearn's own probability updates therefore produces
+        the same public estimator state without rescanning two dense float64
+        temporaries.
+        """
+        # ``transformed`` established finiteness before this trusted operator.
+        if matrix.ndim != 2:
+            raise WalkForwardError(
+                INVALID_FEATURE_MATRIX,
+                "invalid naive Bayes matrix",
+            )
+        if targets.ndim != 1 or targets.shape[0] != matrix.shape[0]:
+            raise WalkForwardError(
+                INSUFFICIENT_CLASS_VARIATION,
+                "naive Bayes targets require both classes",
+            )
+        class_count = np.bincount(targets, minlength=2)
+        if class_count.shape != (2,) or np.any(class_count == 0):
+            raise WalkForwardError(
+                INSUFFICIENT_CLASS_VARIATION,
+                "naive Bayes targets require both classes",
+            )
+
+        positive = matrix > 0.0
+        positive_class_one = np.count_nonzero(
+            positive[targets == 1],
+            axis=0,
+        )
+        positive_all = np.count_nonzero(positive, axis=0)
+
+        model = BernoulliNB(alpha=alpha, binarize=0.0)
+        model.n_features_in_ = matrix.shape[1]
+        model.classes_ = np.asarray((0, 1), dtype=targets.dtype)
+        model.class_count_ = class_count.astype(np.float64)
+        model.feature_count_ = np.asarray(
+            (positive_all - positive_class_one, positive_class_one),
+            dtype=np.float64,
+        )
+        checked_alpha = model._check_alpha()
+        model._update_feature_log_prob(checked_alpha)
+        model._update_class_log_prior(class_prior=model.class_prior)
+        return model
+
+    def calibrate_frozen_binary_tree(
+        self,
+        *,
+        tree: DecisionTreeClassifier,
+        matrix: np.ndarray,
+        targets: np.ndarray,
+    ) -> CalibratedClassifierCV:
+        """Run the exact frozen-estimator Platt fit without redundant CV slices.
+
+        sklearn's public frozen-estimator path sends the already-fitted tree
+        through ``cross_val_predict``.  Every clone is the same frozen object,
+        so the five test slices are exactly one prediction of the full matrix
+        in their original row order.  Supplying that identical response to
+        sklearn's own calibrator removes the slicing and dispatch overhead but
+        leaves the fitted tree, sigmoid kernel, classes, and prediction wrapper
+        unchanged.
+        """
+        # The caller already applies the frozen finite/class-variation guards.
+        if matrix.ndim != 2:
+            raise WalkForwardError(
+                INVALID_FEATURE_MATRIX,
+                "invalid tree calibration matrix",
+            )
+        classes = np.asarray((0, 1), dtype=targets.dtype)
+
+        frozen = FrozenEstimator(tree)
+        responses = tree.predict_proba(matrix)[:, 1].reshape(-1, 1)
+        calibrated = CalibratedClassifierCV(frozen, method="sigmoid")
+        calibrated.classes_ = classes
+        calibrated.calibrated_classifiers_ = [
+            _fit_calibrator(
+                frozen,
+                responses,
+                targets,
+                classes,
+                "sigmoid",
+                xp=np,
+                sample_weight=None,
+            )
+        ]
+        calibrated.n_features_in_ = tree.n_features_in_
+        return calibrated

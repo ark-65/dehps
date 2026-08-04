@@ -5,7 +5,6 @@ from functools import cache
 from pathlib import Path
 
 import numpy as np
-
 from dehps.research_os.information_theory.measurement_validation import (
     StrictPriorFeatureCache,
 )
@@ -28,6 +27,7 @@ from dehps.research_os.information_theory.walk_forward import (
     restrict_to_training_history,
     validate_synthetic_dataset,
 )
+from sklearn.naive_bayes import BernoulliNB
 
 ROOT = Path(__file__).resolve().parents[3]
 SYNTHETIC_MANIFEST = (
@@ -162,3 +162,39 @@ def test_cached_and_literal_feature_paths_produce_identical_four_probe_outputs()
         )
         assert cached.state.state_digest == literal.state.state_digest
         assert cached.predict(cached_blind) == literal.predict(blind)
+
+
+def test_exact_runtime_bernoulli_operator_matches_sklearn_parameter_bits() -> None:
+    dataset, training, _train_view, _blind, _configs = _fixture()
+    cache = StrictPriorFeatureCache(dataset)
+    cache.reveal_training_history(training, through_issue=900)
+    runtime_train = cache.build_runtime_train_feature_view(
+        training,
+        tuple(range(1, 901)),
+    )
+    runtime_cache = ExactProbeRuntimeCache(
+        feature_cache=cache,
+        outer_train_view=runtime_train,
+    )
+    fitted = runtime_cache.fitted(runtime_train)
+    matrix = runtime_cache.transformed(fitted, runtime_train)
+    targets = runtime_cache.targets(runtime_train)
+    for alpha in (0.5, 1.0, 2.0):
+        expected = BernoulliNB(alpha=alpha, binarize=0.0).fit(matrix, targets)
+        observed = runtime_cache.fit_frozen_bernoulli_nb(
+            matrix=matrix,
+            targets=targets,
+            alpha=alpha,
+        )
+
+        for attribute in (
+            "classes_",
+            "class_count_",
+            "class_log_prior_",
+            "feature_count_",
+            "feature_log_prob_",
+        ):
+            assert np.array_equal(
+                getattr(observed, attribute),
+                getattr(expected, attribute),
+            )
