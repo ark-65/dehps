@@ -6,7 +6,7 @@ import os
 import subprocess
 import tempfile
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
@@ -293,6 +293,21 @@ P26_EQUIVALENT_RESUME_REPORT_ENV = "DEHPS_P26_EQUIVALENT_RESUME_REPORT"
 P26_EQUIVALENT_RESUME_REPORT = (
     "docs/experiments/2026-07-31-m4-p2-6-exact-runtime-acceleration.md"
 )
+P26_FAILED_RECOVERY_EVENT_ENV = "DEHPS_P26_RECOVER_FAILED_EVENT_DIGEST"
+P26_FAILED_RECOVERY_REPORT_ENV = "DEHPS_P26_FAILED_RECOVERY_REPORT"
+P26_FAILED_RECOVERY_EVENT_DIGEST = (
+    "c003525e63c6570f74dbde06c2cb8ed67e79886829c7a4be52f13f2bede9544e"
+)
+P26_FAILED_RECOVERY_EXECUTION_ID = (
+    "cd64aacc48c5e1dac4f84d7f644e92384b50f37299b1643631b7ee872ab452b3"
+)
+P26_FAILED_RECOVERY_RUNNING_MANIFEST_DIGEST = (
+    "dd9a2a0106fe17787cb57a6293bd1e9eea9cb8c30771f6a7e27b0ecc30c18ce3"
+)
+P26_FAILED_RECOVERY_ERROR = (
+    "repaired_measurement_validation_truth_missing: repaired truth is unavailable: "
+    "42e9ab014ca479f7b46f360cebc556dae6eb4bbc9df81a9e07e9217689ba9f20"
+)
 
 
 class MainlineSupervisorError(RuntimeError):
@@ -556,6 +571,25 @@ def _load_single_completed_execution(
         if candidate.get("event_type") == "started"
         and candidate.get("execution_id") == completed_record.execution_id
     ]
+    matching_failed = [
+        dict(candidate)
+        for candidate in events
+        if candidate.get("event_type") == "failed"
+        and candidate.get("execution_id") == completed_record.execution_id
+    ]
+    recovered_p26_failure = (
+        task_key == P26_TASK_KEY
+        and len(matching_failed) == 1
+        and str(matching_failed[0].get("event_digest") or "")
+        == P26_FAILED_RECOVERY_EVENT_DIGEST
+        and _event_record(matching_failed[0]).sequence == 1
+        and _event_payload(matching_failed[0])
+        == {
+            "error": P26_FAILED_RECOVERY_ERROR,
+            "git_commit": "e6dedaf9c835672a5e17007653ee6e8fe55b67d9",
+        }
+    )
+    expected_completed_sequence = 2 if recovered_p26_failure else 1
     if len(matching_started) != 1:
         raise MainlineSupervisorError(
             f"mainline parent requires one matching started event: {task_key}"
@@ -568,10 +602,16 @@ def _load_single_completed_execution(
         or completed_record.task_digest != task.artifact_digest
         or completed_record.capability != task.requested_capability
         or completed_record.event_type != "completed"
-        or completed_record.sequence != 1
+        or completed_record.sequence != expected_completed_sequence
+        or (matching_failed and not recovered_p26_failure)
         or (
             not require_manifest_complete
-            and completed_record.manifest_digest != manifest.artifact_digest
+            and completed_record.manifest_digest
+            != (
+                P26_FAILED_RECOVERY_RUNNING_MANIFEST_DIGEST
+                if recovered_p26_failure
+                else manifest.artifact_digest
+            )
         )
         or started_record.execution_id != completed_record.execution_id
         or started_record.control_plane_key != control_plane_key
@@ -4561,6 +4601,9 @@ class P26MeasurementValidationCapability:
         runtime_migration_paths = tuple(
             sorted((task_dir / "runtime-migrations").glob("*/migration.json"))
         )
+        incident_recovery_paths = tuple(
+            sorted((task_dir / "incident-recoveries").glob("*/recovery.json"))
+        )
         evaluator = ReferenceReplicateEvaluator.from_paths(
             manifest=manifest,
             synthetic=synthetic,
@@ -4609,6 +4652,7 @@ class P26MeasurementValidationCapability:
             completion.mde_summary_path,
             completion.completion_artifact_path,
             *runtime_migration_paths,
+            *incident_recovery_paths,
         )
         child_payloads = tuple((path, _load_object(path)) for path in child_paths)
         child_identities = {
@@ -4679,6 +4723,10 @@ class P26MeasurementValidationCapability:
                 str(_load_object(path)["runtime_git_commit"])
                 for path in runtime_migration_paths
             ],
+            "incident_recovery_digests": [
+                _artifact_digest(_load_object(path))
+                for path in incident_recovery_paths
+            ],
             "registered_artifact_count": len(child_identities) + 1,
             "engineering_progress_before": 37,
             "engineering_progress_after": 39,
@@ -4704,6 +4752,10 @@ class P26MeasurementValidationCapability:
                 *(
                     _artifact_digest(_load_object(path))
                     for path in runtime_migration_paths
+                ),
+                *(
+                    _artifact_digest(_load_object(path))
+                    for path in incident_recovery_paths
                 ),
                 *(item["artifact_digest"] for item in completion.aggregate_artifacts),
             ],
@@ -5068,6 +5120,7 @@ class ResearchEvidenceSupervisor:
         snapshot = self.repository.control_plane.resolve(manifest)
         task_by_key = {task.task_key: task for task in manifest.tasks}
         task_states = manifest.task_state_by_digest
+        failed_recovery_token = os.environ.get(P26_FAILED_RECOVERY_EVENT_ENV, "")
         running = [
             item
             for item in snapshot.resolutions
@@ -5081,7 +5134,16 @@ class ResearchEvidenceSupervisor:
             if (task_key is None or item.task_key == task_key)
             and task_by_key[item.task_key].requested_capability in self.capabilities
         ]
-        if not running and not ready:
+        failed_recovery = [
+            item
+            for item in snapshot.resolutions
+            if failed_recovery_token
+            and item.status is TaskStatus.FAILED
+            and item.task_key == P26_TASK_KEY
+            and (task_key is None or item.task_key == task_key)
+            and task_by_key[item.task_key].requested_capability in self.capabilities
+        ]
+        if not running and not ready and not failed_recovery:
             unsupported = [
                 item.task_key
                 for item in snapshot.ready_queue
@@ -5110,12 +5172,14 @@ class ResearchEvidenceSupervisor:
             )
             return payload
 
-        item = (running or ready)[0]
+        item = (running or ready or failed_recovery)[0]
         task = task_by_key[item.task_key]
         capability = str(task.requested_capability)
-        is_resume = (
-            task_states[task.artifact_digest].declared_status is TaskStatus.RUNNING
-        )
+        declared_status = task_states[task.artifact_digest].declared_status
+        is_failed_recovery = declared_status is TaskStatus.FAILED
+        is_resume = declared_status in {TaskStatus.RUNNING, TaskStatus.FAILED}
+        terminal_sequence = 1
+        incident_recovery: Mapping[str, Any] | None = None
         if is_resume:
             running_manifest = manifest
             running_manifest_digest = manifest.artifact_digest
@@ -5134,7 +5198,9 @@ class ResearchEvidenceSupervisor:
                     manifest=manifest,
                     task=task,
                     event=completed[0],
-                    git_commit=git_commit,
+                    git_commit=str(
+                        _event_payload(completed[0]).get("git_commit") or git_commit
+                    ),
                 )
             started = [
                 event
@@ -5148,12 +5214,59 @@ class ResearchEvidenceSupervisor:
                 if event.get("task_digest") == task.artifact_digest
                 and event.get("event_type") == "failed"
             ]
-            if failed or len(started) > 1 or len(completed) > 1:
+            recovered_failure = self._validated_p26_failed_recovery_event(
+                task=task,
+                events=events,
+                token=failed_recovery_token,
+            )
+            if (
+                (failed and recovered_failure is None)
+                or len(started) > 1
+                or len(completed) > 1
+            ):
                 raise MainlineSupervisorError(
                     f"inconsistent persisted execution state for running task: {task.task_key}"
                 )
             if started:
                 execution_id = str(started[0]["execution_id"])
+                if recovered_failure is not None:
+                    if execution_id != P26_FAILED_RECOVERY_EXECUTION_ID:
+                        raise MainlineSupervisorError(
+                            "P2.6 failed recovery execution identity changed"
+                        )
+                    terminal_sequence = 2
+                    if is_failed_recovery:
+                        incident_recovery = self._record_p26_failed_recovery(
+                            task=task,
+                            execution_id=execution_id,
+                            failed_event=recovered_failure,
+                            runtime_git_commit=runtime_git_commit,
+                        )
+                        running_payload = self._transition_manifest(
+                            manifest,
+                            task_key=task.task_key,
+                            status=TaskStatus.RUNNING,
+                            classification=CompletionClassification.INTEGRATED,
+                        )
+                        running_import = self.repository.import_manifest(
+                            control_plane_key=self.control_plane_key,
+                            payload=running_payload,
+                            source=(
+                                "research-evidence-supervisor-"
+                                "recoverable-pre-dispatch-failure"
+                            ),
+                        )
+                        running_manifest = self.repository.load_manifest(
+                            control_plane_key=self.control_plane_key
+                        )
+                        running_manifest_digest = running_import.manifest_digest
+                        if (
+                            running_manifest_digest
+                            != P26_FAILED_RECOVERY_RUNNING_MANIFEST_DIGEST
+                        ):
+                            raise MainlineSupervisorError(
+                                "P2.6 failed recovery running manifest changed"
+                            )
                 original_commit = str(
                     _event_payload(started[0]).get("git_commit") or ""
                 )
@@ -5248,6 +5361,15 @@ class ResearchEvidenceSupervisor:
                     if runtime_migration is not None
                     else {}
                 ),
+                **(
+                    {
+                        "incident_recovery_digest": incident_recovery[
+                            "artifact_digest"
+                        ]
+                    }
+                    if incident_recovery is not None
+                    else {}
+                ),
                 "heartbeat_at": self.now().isoformat(),
                 **(
                     {
@@ -5281,7 +5403,7 @@ class ResearchEvidenceSupervisor:
                 task_digest=task.artifact_digest,
                 capability=capability,
                 event_type="completed",
-                sequence=1,
+                sequence=terminal_sequence,
                 recorded_at=completed_at,
                 payload=tuple(
                     sorted(
@@ -5358,6 +5480,7 @@ class ResearchEvidenceSupervisor:
                                     "estimator_quality_by_cell",
                                     "runtime_migration_digests",
                                     "runtime_git_commits",
+                                    "incident_recovery_digests",
                                     "measurement_contract_v2_digest",
                                     "estimand_contract_digest",
                                     "mechanism_role_contract_digest",
@@ -5485,7 +5608,7 @@ class ResearchEvidenceSupervisor:
                 task_digest=task.artifact_digest,
                 capability=capability,
                 event_type="failed",
-                sequence=1,
+                sequence=terminal_sequence,
                 recorded_at=self.now().isoformat(),
                 payload=(("error", str(exc)), ("git_commit", git_commit)),
             )
@@ -5771,6 +5894,7 @@ class ResearchEvidenceSupervisor:
             "estimator_quality_by_cell",
             "runtime_migration_digests",
             "runtime_git_commits",
+            "incident_recovery_digests",
             "measurement_contract_v2_digest",
             "estimand_contract_digest",
             "mechanism_role_contract_digest",
@@ -5903,6 +6027,187 @@ class ResearchEvidenceSupervisor:
             / "runtime-migrations"
             / payload["artifact_digest"]
             / "migration.json"
+        )
+        _persist_immutable(path, payload)
+        return payload
+
+    @staticmethod
+    def _validated_p26_failed_recovery_event(
+        *,
+        task: Task,
+        events: Sequence[Mapping[str, Any]],
+        token: str,
+    ) -> Mapping[str, Any] | None:
+        failed = [item for item in events if item.get("event_type") == "failed"]
+        if not failed:
+            return None
+        if (
+            task.task_key != P26_TASK_KEY
+            or task.artifact_digest != M4_P261_FROZEN_TASK_DIGEST
+            or token != P26_FAILED_RECOVERY_EVENT_DIGEST
+            or len(failed) != 1
+        ):
+            raise MainlineSupervisorError(
+                "P2.6 failed recovery authorization does not match the incident"
+            )
+        event = failed[0]
+        record = _event_record(event)
+        if (
+            str(event.get("event_digest") or "")
+            != P26_FAILED_RECOVERY_EVENT_DIGEST
+            or record.execution_id != P26_FAILED_RECOVERY_EXECUTION_ID
+            or record.control_plane_key != M4_CONTROL_PLANE_KEY
+            or record.manifest_digest
+            != P26_FAILED_RECOVERY_RUNNING_MANIFEST_DIGEST
+            or record.task_key != P26_TASK_KEY
+            or record.task_digest != M4_P261_FROZEN_TASK_DIGEST
+            or record.capability != P26_CAPABILITY
+            or record.event_type != "failed"
+            or record.sequence != 1
+            or _event_payload(event)
+            != {
+                "error": P26_FAILED_RECOVERY_ERROR,
+                "git_commit": "e6dedaf9c835672a5e17007653ee6e8fe55b67d9",
+            }
+        ):
+            raise MainlineSupervisorError(
+                "P2.6 failed recovery event provenance changed"
+            )
+        return event
+
+    def _record_p26_failed_recovery(
+        self,
+        *,
+        task: Task,
+        execution_id: str,
+        failed_event: Mapping[str, Any],
+        runtime_git_commit: str,
+    ) -> Mapping[str, Any]:
+        report_relative = os.environ.get(P26_FAILED_RECOVERY_REPORT_ENV, "")
+        relative_report_path = Path(report_relative)
+        if (
+            not report_relative
+            or relative_report_path.is_absolute()
+            or ".." in relative_report_path.parts
+        ):
+            raise MainlineSupervisorError(
+                "P2.6 failed recovery incident report path is invalid"
+            )
+        report_path = (self.root_dir / relative_report_path).resolve()
+        if not report_path.is_file():
+            raise MainlineSupervisorError(
+                "P2.6 failed recovery incident report is missing"
+            )
+        try:
+            normalized_report_path = str(
+                report_path.relative_to(self.root_dir.resolve())
+            )
+        except ValueError as exc:
+            raise MainlineSupervisorError(
+                "P2.6 failed recovery report must be inside the repository"
+            ) from exc
+
+        measurement_manifest = load_repaired_measurement_validation_manifest(
+            self.root_dir
+            / "configs/research-os/"
+            "m4-information-theory-p2-6-1-measurement-validation-v1.json"
+        )
+        truth_digests = tuple(
+            str(item["artifact_digest"])
+            for item in measurement_manifest.payload["truth_artifacts"]
+        )
+        truths = locate_repaired_truth_artifacts(
+            self.root_dir,
+            required_digests=truth_digests,
+            repair_manifest_digest=MEASUREMENT_REPAIR_MANIFEST_DIGEST,
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        required_paths = (
+            task_dir / "artifacts/coordinator-state.json",
+            task_dir / "artifacts/checkpoint-journals",
+            task_dir / "artifacts/replicates",
+        )
+        missing = [path for path in required_paths if not path.exists()]
+        if missing:
+            raise MainlineSupervisorError(
+                "P2.6 failed recovery runtime preflight missing: "
+                + ", ".join(str(path.relative_to(self.root_dir)) for path in missing)
+            )
+        coordinator = _load_object(required_paths[0])
+        if (
+            coordinator.get("schema_version")
+            != "dehps-m4-p2-analysis-coordinator-state.v1"
+            or coordinator.get("parent_execution_id") != execution_id
+            or coordinator.get("measurement_validation_manifest_digest")
+            != measurement_manifest.artifact_digest
+            or coordinator.get("total_replicates") != 31_000
+            or coordinator.get("status") != "RUNNING"
+            or coordinator.get("failed_replicates") != 0
+            or coordinator.get("result_selection_used") is not False
+        ):
+            raise MainlineSupervisorError(
+                "P2.6 failed recovery coordinator identity changed"
+            )
+        if not any(required_paths[1].rglob("*.jsonl")) or not any(
+            required_paths[2].rglob("*.json")
+        ):
+            raise MainlineSupervisorError(
+                "P2.6 failed recovery preserved checkpoint prefix is empty"
+            )
+        if (task_dir / "execution.json").exists():
+            raise MainlineSupervisorError(
+                "P2.6 failed recovery found an unregistered completion marker"
+            )
+
+        report_digest = sha256(report_path.read_bytes()).hexdigest()
+        payload: dict[str, Any] = {
+            "schema_version": "dehps-p2-6-failed-execution-recovery.v1",
+            "artifact_type": "measurement_validation_failed_execution_recovery",
+            "artifact_digest": "",
+            "control_plane_key": self.control_plane_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "execution_id": execution_id,
+            "failed_event_digest": str(failed_event["event_digest"]),
+            "failed_event_sequence": 1,
+            "next_terminal_sequence": 2,
+            "incident_class": "pre_dispatch_runtime_root_missing",
+            "incident_report_path": normalized_report_path,
+            "incident_report_sha256": report_digest,
+            "runtime_git_commit": runtime_git_commit,
+            "coordinator_state_present": True,
+            "checkpoint_journal_root_present": True,
+            "replicate_root_present": True,
+            "checkpoint_journal_present": True,
+            "replicate_artifact_present": True,
+            "repaired_truth_count": len(truths),
+            "task_identity_changed": False,
+            "execution_identity_changed": False,
+            "checkpoint_bytes_rewritten": False,
+            "statistical_contract_changed": False,
+            "statistical_results_read": False,
+            "parent_digests": [
+                task.artifact_digest,
+                str(failed_event["event_digest"]),
+                report_digest,
+            ],
+        }
+        identity = dict(payload)
+        identity.pop("artifact_digest")
+        payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.p2-6.failed-execution-recovery.v1",
+        )
+        path = (
+            task_dir
+            / "incident-recoveries"
+            / payload["artifact_digest"]
+            / "recovery.json"
         )
         _persist_immutable(path, payload)
         return payload

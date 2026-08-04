@@ -26,6 +26,9 @@ EXPECTED_P261_RUNNING_CONTROL_PLANE_MANIFEST_DIGEST = (
     "dd9a2a0106fe17787cb57a6293bd1e9eea9cb8c30771f6a7e27b0ecc30c18ce3"
 )
 EXPECTED_P261_CAPABILITY = "m4_p2_6_1_false_positive_and_power"
+EXPECTED_P261_RECOVERED_FAILED_EVENT_DIGEST = (
+    "c003525e63c6570f74dbde06c2cb8ed67e79886829c7a4be52f13f2bede9544e"
+)
 EXPECTED_CONTROL_PLANE_KEY = "m4-information-theory-mainline"
 EXPECTED_P261_COMPLETION_SCHEMA = "dehps-m4-p2-measurement-validation-completion.v1"
 GUARD_DECISION_SCHEMA = "dehps-m4-p2-6-1-completion-guard-decision.v1"
@@ -45,6 +48,9 @@ _GUARD_CONTRACT = {
         EXPECTED_P261_RUNNING_CONTROL_PLANE_MANIFEST_DIGEST
     ),
     "p261_capability": EXPECTED_P261_CAPABILITY,
+    "p261_recovered_failed_event_digest": (
+        EXPECTED_P261_RECOVERED_FAILED_EVENT_DIGEST
+    ),
     "slot_release_event": RUNTIME_SLOT_RELEASE_EVENT,
 }
 GUARD_CONTRACT_DIGEST = canonical_digest(
@@ -171,6 +177,14 @@ def evaluate_terminal_boundary(
         "sequence",
         "recorded_at",
     }
+    recovered_failures = [
+        event
+        for event in p261_events
+        if event.get("event_type") == "failed"
+        and event.get("event_digest")
+        == EXPECTED_P261_RECOVERED_FAILED_EVENT_DIGEST
+    ]
+    recovered_history = len(recovered_failures) == 1
     invalid_p261_metadata = [
         event
         for event in p261_events
@@ -180,7 +194,13 @@ def evaluate_terminal_boundary(
             or _SHA256_PATTERN.fullmatch(str(event.get("event_digest") or "")) is None
             or not str(event.get("recorded_at") or "")
             or event.get("sequence")
-            != (0 if event.get("event_type") == "started" else 1)
+            != (
+                0
+                if event.get("event_type") == "started"
+                else 2
+                if event.get("event_type") == "completed" and recovered_history
+                else 1
+            )
         )
     ]
     if invalid_p261_metadata:
@@ -224,7 +244,11 @@ def evaluate_terminal_boundary(
             reason="P261_IDENTITY_DRIFT",
         )
     failed = [event for event in matching if event.get("event_type") == "failed"]
-    if failed:
+    if failed and not (
+        len(failed) == 1
+        and failed[0].get("event_digest")
+        == EXPECTED_P261_RECOVERED_FAILED_EVENT_DIGEST
+    ):
         return GuardDecision(
             state="GOVERNANCE_INCIDENT",
             stop_service=True,

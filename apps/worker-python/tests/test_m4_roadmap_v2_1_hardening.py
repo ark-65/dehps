@@ -50,6 +50,7 @@ from dehps.research_os.information_theory.measurement_system_v2.runtime_audit im
 from dehps.research_os.information_theory.measurement_system_v2.terminal_guard import (
     EXPECTED_CONTROL_PLANE_KEY,
     EXPECTED_P261_EXECUTION_ID,
+    EXPECTED_P261_RECOVERED_FAILED_EVENT_DIGEST,
     EXPECTED_P261_RUNNING_CONTROL_PLANE_MANIFEST_DIGEST,
     EXPECTED_P261_TASK_DIGEST,
     LEGACY_P3_TASK_KEY,
@@ -932,6 +933,60 @@ def test_completion_guard_rejects_running_manifest_drift() -> None:
     )
     assert decision.state == "GOVERNANCE_INCIDENT"
     assert decision.reason == "P261_COMPLETION_MANIFEST_IDENTITY_MISSING"
+
+
+def test_completion_guard_accepts_only_pinned_recovered_failure_history(
+    tmp_path: Path,
+) -> None:
+    completion_relative = (
+        Path("runtime/research-os/mainline/tasks")
+        / P261_TASK_KEY
+        / EXPECTED_P261_EXECUTION_ID
+        / "completion.json"
+    )
+    completion_path = tmp_path / completion_relative
+    completion_path.parent.mkdir(parents=True)
+    completion_path.write_text("opaque-final-artifact\n", encoding="utf-8")
+    started = _event("started")
+    failed = {
+        **_event("failed"),
+        "event_digest": EXPECTED_P261_RECOVERED_FAILED_EVENT_DIGEST,
+    }
+    waiting = evaluate_terminal_boundary(
+        p261_events=(started, failed),
+        all_events=(started, failed),
+        registrations=(),
+        root_dir=tmp_path,
+    )
+    assert waiting.state == "WAITING"
+    assert waiting.reason == "P261_TERMINAL_EVENT_NOT_AVAILABLE"
+
+    completed = {**_event("completed"), "sequence": 2}
+    registered = MainlineArtifactRegistration(
+        execution_id=EXPECTED_P261_EXECUTION_ID,
+        control_plane_key=EXPECTED_CONTROL_PLANE_KEY,
+        task_key=P261_TASK_KEY,
+        task_digest=EXPECTED_P261_TASK_DIGEST,
+        artifact_digest="6" * 64,
+        artifact_type="measurement_validation_completion",
+        schema_version="dehps-m4-p2-measurement-validation-completion.v1",
+        artifact_path=completion_relative.as_posix(),
+        parent_digests=("9" * 64,),
+        git_commit="a" * 40,
+    )
+    registration = {
+        "registration_digest": registered.registration_digest,
+        **asdict(registered),
+        "parent_digests": list(registered.parent_digests),
+    }
+    recovered = evaluate_terminal_boundary(
+        p261_events=(started, failed, completed),
+        all_events=(started, failed, completed),
+        registrations=(registration,),
+        root_dir=tmp_path,
+    )
+    assert recovered.state == "STOP_REQUIRED"
+    assert recovered.stop_service is True
 
 
 def test_completion_guard_rejects_self_digested_registration_path_escape(
