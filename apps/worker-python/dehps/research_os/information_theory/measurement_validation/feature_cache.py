@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from hashlib import sha256
 
+import numpy as np
 import orjson
 
 from dehps.contracts import canonical_digest
@@ -94,6 +95,15 @@ class StrictPriorFeatureCache:
             STATE_VISIBLE_FEATURE_MANIFEST_DIGEST
             if include_prior_state
             else FEATURE_MANIFEST_DIGEST
+        )
+        feature_count = len(self._feature_names)
+        self._runtime_values = np.empty(
+            (self._issue_count, 33, feature_count),
+            dtype=np.float64,
+        )
+        self._runtime_targets = np.empty(
+            (self._issue_count, 33),
+            dtype=np.int8,
         )
         raw_states = dataset.raw_payload.get("prior_states")
         if include_prior_state:
@@ -190,14 +200,45 @@ class StrictPriorFeatureCache:
                     )
                 )
             target = dataset.issue(issue_index).target_vector
-            self._rows[issue_index] = tuple(rows)
+            frozen_rows = tuple(rows)
+            self._rows[issue_index] = frozen_rows
             self._targets[issue_index] = target
+            self._runtime_values[issue_index - 1] = frozen_rows
+            self._runtime_targets[issue_index - 1] = target
             for offset, value in enumerate(target):
                 if value:
                     self._counts[offset] += 1
                     self._last_seen[offset] = issue_index
             self._previous_target = list(target)
             self._revealed_through = issue_index
+
+    def _runtime_issue_slice(self, issue_ids: tuple[int, ...]) -> slice:
+        if (
+            not issue_ids
+            or issue_ids != tuple(range(issue_ids[0], issue_ids[-1] + 1))
+            or issue_ids[0] < 1
+            or issue_ids[-1] > self._revealed_through
+        ):
+            raise WalkForwardError(
+                "target_access_boundary_violation",
+                "runtime feature slices must be contiguous and already revealed",
+            )
+        return slice(issue_ids[0] - 1, issue_ids[-1])
+
+    def runtime_values(self, issue_ids: tuple[int, ...]) -> np.ndarray:
+        """Return the immutable, already revealed number-event matrix as a view."""
+
+        issue_slice = self._runtime_issue_slice(issue_ids)
+        return self._runtime_values[issue_slice].reshape(
+            len(issue_ids) * 33,
+            len(self._feature_names),
+        )
+
+    def runtime_targets(self, issue_ids: tuple[int, ...]) -> np.ndarray:
+        """Return the immutable, already revealed target vector as a view."""
+
+        issue_slice = self._runtime_issue_slice(issue_ids)
+        return self._runtime_targets[issue_slice].reshape(len(issue_ids) * 33)
 
     def build_train_feature_view(
         self,
@@ -258,6 +299,62 @@ class StrictPriorFeatureCache:
         while len(self._training_views) > 32:
             self._training_views.popitem(last=False)
         return view
+
+    def build_runtime_train_feature_view(
+        self,
+        dataset: TrainingDatasetView,
+        issue_ids: tuple[int, ...],
+    ) -> TrainFeatureView:
+        """Build the exact public identity with compact array-backed payloads.
+
+        The canonical digest is still computed from the same immutable tuple
+        tree.  Only the ephemeral evaluator view uses the already revealed
+        NumPy buffers, avoiding 32 retained copies of expanding prefix tuples
+        per worker.
+        """
+
+        if (
+            not issue_ids
+            or tuple(sorted(set(issue_ids))) != issue_ids
+            or dataset.artifact_digest != self._dataset_digest
+            or max(issue_ids) > self._revealed_through
+            or max(issue_ids) > dataset.available_through_issue
+        ):
+            raise WalkForwardError(
+                "target_access_boundary_violation",
+                "runtime train rows must be ordered and already revealed",
+            )
+        red_numbers = tuple(
+            red_number for _issue_id in issue_ids for red_number in range(1, 34)
+        )
+        rows = tuple(row for issue_id in issue_ids for row in self._rows[issue_id])
+        availability = tuple((issue_id, issue_id - 1) for issue_id in issue_ids)
+        identity = {
+            "dataset_digest": dataset.artifact_digest,
+            "issue_ids": issue_ids,
+            "available_through_by_issue": availability,
+            "construction_start_issue": 1,
+            "construction_end_issue": issue_ids[-1] - 1,
+            "feature_manifest_digest": self._feature_manifest_digest,
+            "feature_names": self._feature_names,
+            "values": rows,
+            "target_access": "outer_training_targets_only",
+        }
+        return TrainFeatureView(  # type: ignore[arg-type]
+            issue_ids=issue_ids,
+            red_numbers=red_numbers,
+            feature_names=self._feature_names,
+            values=self.runtime_values(issue_ids),
+            targets=self.runtime_targets(issue_ids),
+            available_through_by_issue=availability,
+            construction_start_issue=1,
+            construction_end_issue=issue_ids[-1] - 1,
+            feature_manifest_digest=self._feature_manifest_digest,
+            feature_view_digest=_exact_feature_digest(
+                identity,
+                domain=_TRAIN_FEATURE_VIEW_DOMAIN,
+            ),
+        )
 
     def build_blind_test_feature_view(
         self,

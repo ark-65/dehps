@@ -298,7 +298,6 @@ class ReferenceReplicateEvaluator:
 
         for fold_index, fold in enumerate(folds):
             self.audit_observer.count_fold()
-            probe_runtime_cache = ExactProbeRuntimeCache()
             validate_outer_fold(
                 fold,
                 minimum_training_issues=dataset.minimum_training_length,
@@ -314,13 +313,17 @@ class ReferenceReplicateEvaluator:
                     training,
                     through_issue=fold.train_issues[-1],
                 )
-                train_view = feature_cache.build_train_feature_view(
+                train_view = feature_cache.build_runtime_train_feature_view(
                     training,
                     fold.train_issues,
                 )
                 blind = feature_cache.build_blind_test_feature_view(
                     target_issue=fold.test_issue,
                 )
+            probe_runtime_cache = ExactProbeRuntimeCache(
+                feature_cache=feature_cache,
+                outer_train_view=train_view,
+            )
             guard_feature_timestamp(blind)
             guard_number_event_rows(
                 issue_ids=train_view.issue_ids,
@@ -343,14 +346,20 @@ class ReferenceReplicateEvaluator:
                 else:
                     config = configs[probe_id]
                 with self.audit_observer.phase("estimator_calibrator_fit"):
-                    prepared = prepare_probe(
-                        probe_id=probe_id,
-                        dataset=training,
-                        train_view=train_view,
-                        probe_config=config,
-                        outer_test_issue=fold.test_issue,
-                        train_view_builder=(feature_cache.build_train_feature_view),
-                        runtime_cache=probe_runtime_cache,
+                    prepared = (
+                        probe_runtime_cache.prepare_empirical_baseline(train_view)
+                        if probe_id == "EMPIRICAL_BASELINE"
+                        else prepare_probe(
+                            probe_id=probe_id,
+                            dataset=training,
+                            train_view=train_view,
+                            probe_config=config,
+                            outer_test_issue=fold.test_issue,
+                            train_view_builder=(
+                                probe_runtime_cache.build_train_feature_view
+                            ),
+                            runtime_cache=probe_runtime_cache,
+                        )
                     )
                 self.audit_observer.count_fit()
                 with self.audit_observer.phase("prediction_metric"):

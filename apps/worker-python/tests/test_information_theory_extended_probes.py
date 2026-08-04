@@ -121,8 +121,18 @@ def test_cached_and_literal_feature_paths_produce_identical_four_probe_outputs()
     cached_blind = cache.build_blind_test_feature_view(target_issue=901)
     assert cached_train == train_view
     assert cached_blind == blind
+    runtime_train = cache.build_runtime_train_feature_view(
+        training,
+        tuple(range(1, 901)),
+    )
+    assert runtime_train.feature_view_digest == train_view.feature_view_digest
+    assert np.array_equal(runtime_train.values, np.asarray(train_view.values))
+    assert np.array_equal(runtime_train.targets, np.asarray(train_view.targets))
 
-    runtime_cache = ExactProbeRuntimeCache()
+    runtime_cache = ExactProbeRuntimeCache(
+        feature_cache=cache,
+        outer_train_view=runtime_train,
+    )
     for probe_id in (
         "EMPIRICAL_BASELINE",
         "REGULARIZED_LOGISTIC_REGRESSION",
@@ -137,14 +147,18 @@ def test_cached_and_literal_feature_paths_produce_identical_four_probe_outputs()
             probe_config=config,
             outer_test_issue=901,
         )
-        cached = prepare_probe(
-            probe_id=probe_id,
-            dataset=training,
-            train_view=cached_train,
-            probe_config=config,
-            outer_test_issue=901,
-            train_view_builder=cache.build_train_feature_view,
-            runtime_cache=runtime_cache,
+        cached = (
+            runtime_cache.prepare_empirical_baseline(runtime_train)
+            if probe_id == "EMPIRICAL_BASELINE"
+            else prepare_probe(
+                probe_id=probe_id,
+                dataset=training,
+                train_view=runtime_train,
+                probe_config=config,
+                outer_test_issue=901,
+                train_view_builder=runtime_cache.build_train_feature_view,
+                runtime_cache=runtime_cache,
+            )
         )
         assert cached.state.state_digest == literal.state.state_digest
         assert cached.predict(cached_blind) == literal.predict(blind)
