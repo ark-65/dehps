@@ -1,0 +1,84 @@
+{
+  "schema_version": "dehps-m4-p2-6-1-reviewed-sparse-tree-source-compatibility-fixture.v1",
+  "artifact_type": "ReviewedSharedSourceCompatibilityFixture",
+  "artifact_digest": "e8149632b3a2f507fdb7adbd2980d4217ce06fca45913273bedc4cbe61c431c9",
+  "fixture_key": "M4-P2.6.1_EXACT_SPARSE_TREE_ROUND_6",
+  "status": "REVIEWED_EXACT_COMPATIBILITY",
+  "baseline_git_commit": "70f83a5400c6207cbe3806e69329a233e461e311",
+  "baseline_runtime_commit": "5c3778a9004041aee2ca707e7b4cc24f338ab3ed",
+  "candidate_round": 6,
+  "changed_paths": [
+    "apps/worker-python/dehps/research_os/information_theory/probes/shallow_calibrated_tree.py"
+  ],
+  "baseline_source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/probes/shallow_calibrated_tree.py",
+      "content_sha256": "e6d5a622a56d39e4db36c2a02b963c8266711f5432b46e5c3391afaea4bc743a",
+      "git_blob_oid": "c4ee1d77085f084456fa52a32a8ef515125343d4"
+    }
+  ],
+  "candidate_source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/probes/shallow_calibrated_tree.py",
+      "content_sha256": "32b5426eb6f7aaad0c570454e677bf3214a1f47a8e74547fe5f528271618b94d",
+      "git_blob_oid": "e73197b64b85fe6faf9051a667641020acded9c0"
+    }
+  ],
+  "registered_golden_source_integrity_identity": {
+    "golden_source_contract_digest": "37028c1b92eb16048d0ed4f19148bcd2f0b8ddfbe4a4aaf1cb7444c42b0b13b9",
+    "shared_frozen_source_set_digest": "53bc9f4d33f751e87fa74669a829c6578d31f72255a675b96b26a554a2ff5175",
+    "independent_oracle_source_set_digest": "3df0dee1cbb4140cfe78ceda01a7de12aeb943a479b26681e572ab23fc7c1a5b"
+  },
+  "candidate_golden_source_integrity_identity": {
+    "golden_source_contract_digest": "78794b92a06a8d17a8fbcf3cbb699a6b2edba458815721bf76a32a10d5010d06",
+    "shared_frozen_source_set_digest": "75c124ba95c3ec0913f597b48a58a292a471fd1a00d8d9246e255ecd7f35715b",
+    "independent_oracle_source_set_digest": "3df0dee1cbb4140cfe78ceda01a7de12aeb943a479b26681e572ab23fc7c1a5b"
+  },
+  "exact_replay": {
+    "scale_id": "FORWARD_61",
+    "fold_count": 61,
+    "result_float64_tree_digest": "e239c79849894d269dc8d33997c8a13ec1e6dc75f40c7f1bbd614105de9370b4",
+    "trace_set_digest": "47ba09c16ffa7d965edc5c2adaf15487066d60b9506d0aef6427edc4d94d539f",
+    "checkpoint_journal_sha256": "5ad68b8a9b6e97067d692fdf82f101520e261d2451262591e5ee178b4966db24",
+    "checkpoint_journal_byte_count": 40250,
+    "result_object_exact": true,
+    "probability_bits_exact": true,
+    "probe_state_trees_exact": true,
+    "fold_traces_exact": true,
+    "checkpoint_and_settlement_exact": true,
+    "journal_bytes_exact": true
+  },
+  "prefix_spot_replay": {
+    "case_count": 7,
+    "historical_fold_indices": [0, 1290, 2580],
+    "long_fold_indices": [0, 3030, 6061],
+    "scenario_ids": ["NULL_UNIFORM", "MEDIUM_PRACTICAL_PAIR"],
+    "state_exact": true,
+    "probability_bits_exact": true
+  },
+  "performance": {
+    "scale_id": "LONG",
+    "fold_index": 6061,
+    "training_issue_count": 6961,
+    "sample_count_per_path": 4,
+    "before_median_seconds": 6.194529174506897,
+    "after_median_seconds": 5.613162287481828,
+    "speedup": 1.1035720788478898,
+    "minimum_speedup": 1.1,
+    "state_and_probability_exact": true
+  },
+  "independent_reference": {
+    "literal_runtime_cache_used": false,
+    "literal_acceleration_backend_imported": false,
+    "observed_acceleration_backend_imported": true,
+    "source_identity_checked_before_replay": true,
+    "old_and_new_paths_executed_in_separate_processes": true
+  },
+  "governance": {
+    "reviewed": true,
+    "scientific_contract_changed": false,
+    "statistical_results_read": false,
+    "evidence_progress_increment": 0,
+    "production_action": "none"
+  }
+}

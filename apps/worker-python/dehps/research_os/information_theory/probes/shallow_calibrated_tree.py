@@ -98,7 +98,8 @@ def _fit_calibrated(
         fitted_by_view = {}
     if runtime_cache is not None:
         fitted = runtime_cache.fitted(model_view)
-        matrix, tree_targets = runtime_cache.tree_inputs(fitted, model_view)
+        matrix = None
+        tree_targets = runtime_cache.targets(model_view)
         targets = runtime_cache.targets(model_view)
         calibration_matrix = runtime_cache.transformed(
             fitted,
@@ -120,10 +121,9 @@ def _fit_calibrated(
         )
         calibration_targets = np.asarray(calibration_view.targets, dtype=np.int8)
         tree_targets = targets
-    if (
-        matrix.ndim != 2
-        or not np.isfinite(matrix).all()
-        or not np.isfinite(calibration_matrix).all()
+    if not np.isfinite(calibration_matrix).all() or (
+        matrix is not None
+        and (matrix.ndim != 2 or not np.isfinite(matrix).all())
     ):
         raise WalkForwardError(INVALID_FEATURE_MATRIX, "invalid tree feature matrix")
     if set(np.unique(targets)) != {0, 1} or set(np.unique(calibration_targets)) != {
@@ -134,17 +134,22 @@ def _fit_calibrated(
             INSUFFICIENT_CLASS_VARIATION,
             "tree fit and calibration targets require both classes",
         )
-    tree = DecisionTreeClassifier(
-        criterion="log_loss",
-        max_depth=max_depth,
-        min_samples_leaf=min_samples_leaf,
-        random_state=dataset.replicate_seed,
-    )
-    tree.fit(
-        matrix,
-        tree_targets,
-        check_input=runtime_cache is None,
-    )
+    if runtime_cache is not None:
+        tree = runtime_cache.fit_exact_sparse_tree(
+            fitted,
+            model_view,
+            max_depth=max_depth,
+            min_samples_leaf=min_samples_leaf,
+            random_state=dataset.replicate_seed,
+        )
+    else:
+        tree = DecisionTreeClassifier(
+            criterion="log_loss",
+            max_depth=max_depth,
+            min_samples_leaf=min_samples_leaf,
+            random_state=dataset.replicate_seed,
+        )
+        tree.fit(matrix, tree_targets)
     calibrated = CalibratedClassifierCV(
         FrozenEstimator(tree),
         method="sigmoid",
