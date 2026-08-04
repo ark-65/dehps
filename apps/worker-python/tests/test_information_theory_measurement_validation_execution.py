@@ -22,6 +22,7 @@ from dehps.research_os.information_theory.measurement_validation import (
     generate_evaluation_dataset,
     holm_adjust,
     load_measurement_validation_manifest,
+    load_repaired_measurement_validation_manifest,
     locate_truth_artifacts,
     primary_inference,
     run_parallel_execution,
@@ -62,6 +63,10 @@ CONTRACT_PATH = (
     ROOT
     / "configs/research-os/m4-information-theory-p2-6-measurement-validation-v1.json"
 )
+P261_CONTRACT_PATH = (
+    ROOT
+    / "configs/research-os/m4-information-theory-p2-6-1-measurement-validation-v1.json"
+)
 SYNTHETIC_PATH = (
     ROOT
     / "configs/research-os/m4-information-theory-p2-synthetic-run-manifest-v1.0.1.json"
@@ -70,6 +75,9 @@ RESAMPLING_PATH = (
     ROOT / "configs/research-os/m4-information-theory-p2-5-resampling-kernel-v1.json"
 )
 EXECUTION_ID = "a" * 64
+LIVE_P261_EXECUTION_ID = (
+    "cd64aacc48c5e1dac4f84d7f644e92384b50f37299b1643631b7ee872ab452b3"
+)
 PROBES = (
     "EMPIRICAL_BASELINE",
     "REGULARIZED_LOGISTIC_REGRESSION",
@@ -814,7 +822,7 @@ def test_parallel_coordinator_materializes_plan_and_projects_resumable_progress(
     assert projected["result_selection_used"] is False
 
 
-def test_parallel_coordinator_separates_executor_shard_from_local_workers(
+def test_fixture_parallel_coordinator_separates_shard_from_local_workers(
     tmp_path: Path,
 ) -> None:
     progress = tmp_path / "progress.json"
@@ -842,6 +850,24 @@ def test_parallel_coordinator_separates_executor_shard_from_local_workers(
     assert projected["assigned_replicates"] == 15_570
     assert projected["assigned_completed_replicates"] == 2
     assert projected["unassigned_missing_replicates"] == 15_430
+
+
+def test_live_p261_two_executor_plan_binds_real_execution_identity() -> None:
+    plan = execution_plan_summary(
+        manifest=load_repaired_measurement_validation_manifest(P261_CONTRACT_PATH),
+        synthetic=_synthetic(),
+        parent_execution_id=LIVE_P261_EXECUTION_ID,
+        shard_count=2,
+    )
+    assert plan["parent_execution_id"] == LIVE_P261_EXECUTION_ID
+    assert plan["measurement_validation_manifest_digest"] == (
+        "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58"
+    )
+    assert plan["artifact_digest"] == (
+        "808b9a0b804b9c0919a4a299304d4449eb0ec9c370fbdfef2c0af2b043661d79"
+    )
+    assert plan["replicate_count_by_shard"] == [15_525, 15_475]
+    assert sum(plan["replicate_count_by_shard"]) == 31_000
 
 
 @pytest.mark.parametrize(
