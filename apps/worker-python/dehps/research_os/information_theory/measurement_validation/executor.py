@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Protocol
+from typing import Any, Protocol
 
 from dehps.artifacts import atomic_write_text
 from dehps.contracts import canonical_digest
@@ -207,6 +208,32 @@ def _validate_replicate_result(
     return payload
 
 
+def _validate_persisted_replicate(
+    *,
+    output_dir: Path,
+    replicate: AnalysisReplicate,
+    manifest: MeasurementValidationManifest,
+) -> dict[str, Any]:
+    path = _replicate_path(output_dir, replicate)
+    payload = _load_object(path)
+    if payload != _validate_replicate_result(
+        payload,
+        replicate=replicate,
+        manifest=manifest,
+    ):
+        raise MeasurementValidationContractError(
+            "measurement_validation_replicate_digest_mismatch",
+            f"stored replicate changed: {path}",
+        )
+    verify_checkpoint_journal(
+        output_dir=output_dir,
+        replicate=replicate,
+        expected_digest=str(payload["checkpoint_journal_digest"]),
+        expected_fold_count=replicate.cell.outer_issue_count,
+    )
+    return payload
+
+
 def run_shard(
     *,
     manifest: MeasurementValidationManifest,
@@ -236,12 +263,11 @@ def run_shard(
         assigned += 1
         path = _replicate_path(output_dir, replicate)
         if path.is_file():
-            existing = _load_object(path)
-            if existing.get("identity_artifact_digest") != replicate.artifact_digest:
-                raise MeasurementValidationContractError(
-                    "measurement_validation_resume_identity_mismatch",
-                    f"resume identity changed: {path}",
-                )
+            existing = _validate_persisted_replicate(
+                output_dir=output_dir,
+                replicate=replicate,
+                manifest=manifest,
+            )
             reused += 1
             completed += 1
             ordered_result_digests.append(str(existing["artifact_digest"]))

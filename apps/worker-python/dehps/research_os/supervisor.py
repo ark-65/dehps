@@ -4626,6 +4626,28 @@ class P26MeasurementValidationCapability:
                 str(max(1, min(20, (os.cpu_count() or 2) - 2))),
             )
         )
+        executor_shard_count_raw = os.environ.get(
+            "DEHPS_P26_EXECUTOR_SHARD_COUNT"
+        )
+        executor_shard_index_raw = os.environ.get(
+            "DEHPS_P26_EXECUTOR_SHARD_INDEX"
+        )
+        if (executor_shard_count_raw is None) != (
+            executor_shard_index_raw is None
+        ):
+            raise MainlineSupervisorError(
+                "P2.6 executor shard count and index must be configured together"
+            )
+        executor_shard_count = (
+            None
+            if executor_shard_count_raw is None
+            else int(executor_shard_count_raw)
+        )
+        executor_shard_index = (
+            None
+            if executor_shard_index_raw is None
+            else int(executor_shard_index_raw)
+        )
         coordinator = run_parallel_execution(
             manifest=manifest,
             synthetic=synthetic,
@@ -4637,6 +4659,8 @@ class P26MeasurementValidationCapability:
                 self.root_dir / "runtime/logs/"
                 "m4-p2-6-1-measurement-validation-progress.json"
             ),
+            executor_shard_index=executor_shard_index,
+            executor_shard_count=executor_shard_count,
         )
         completion = assemble_completion(
             manifest=manifest,

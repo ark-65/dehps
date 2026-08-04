@@ -6,10 +6,10 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-
 from dehps.research_os.information_theory.measurement_validation import (
     PASS_FACT,
     REPAIR_FACT,
+    MeasurementValidationContractError,
     StrictPriorFeatureCache,
     aggregate_cell,
     assign_shard,
@@ -698,7 +698,32 @@ class _FakeEvaluator:
         }
 
 
+class _JournalFakeEvaluator(_FakeEvaluator):
+    def __init__(self, output_dir: Path) -> None:
+        self.output_dir = output_dir
+
+    def evaluate(self, replicate):
+        result = super().evaluate(replicate)
+        journal = StrictPriorCheckpointJournal(
+            output_dir=self.output_dir,
+            replicate=replicate,
+        )
+        for fold_index in range(replicate.cell.outer_issue_count):
+            journal.record(
+                fold_index=fold_index,
+                test_issue=901 + fold_index,
+                checkpoint_digests={probe: "1" * 64 for probe in PROBES},
+            )
+        digest, count = journal.finalize(
+            expected_fold_count=replicate.cell.outer_issue_count
+        )
+        result["checkpoint_journal_digest"] = digest
+        result["checkpoint_journal_entry_count"] = count
+        return result
+
+
 def test_shard_resume_reuses_immutable_replicate_and_child_seed(tmp_path: Path) -> None:
+    evaluator = _JournalFakeEvaluator(tmp_path)
     first = run_shard(
         manifest=_contract(),
         synthetic=_synthetic(),
@@ -706,7 +731,7 @@ def test_shard_resume_reuses_immutable_replicate_and_child_seed(tmp_path: Path) 
         output_dir=tmp_path,
         shard_index=0,
         shard_count=1,
-        evaluator=_FakeEvaluator(),
+        evaluator=evaluator,
         stop_after=1,
     )
     assert first.completed_replicates == 1
@@ -717,10 +742,46 @@ def test_shard_resume_reuses_immutable_replicate_and_child_seed(tmp_path: Path) 
         output_dir=tmp_path,
         shard_index=0,
         shard_count=1,
-        evaluator=_FakeEvaluator(),
+        evaluator=evaluator,
         stop_after=1,
     )
     assert second.reused_replicates >= 1
+
+
+def test_shard_resume_rejects_changed_imported_replicate(tmp_path: Path) -> None:
+    evaluator = _JournalFakeEvaluator(tmp_path)
+    run_shard(
+        manifest=_contract(),
+        synthetic=_synthetic(),
+        parent_execution_id=EXECUTION_ID,
+        output_dir=tmp_path,
+        shard_index=0,
+        shard_count=1,
+        evaluator=evaluator,
+        stop_after=1,
+    )
+    result_path = next((tmp_path / "replicates").rglob("*.json"))
+    changed = json.loads(result_path.read_text(encoding="utf-8"))
+    changed["PE1"] = float(changed["PE1"]) + 1.0
+    result_path.write_text(
+        json.dumps(changed, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        MeasurementValidationContractError,
+        match="stored replicate changed",
+    ):
+        run_shard(
+            manifest=_contract(),
+            synthetic=_synthetic(),
+            parent_execution_id=EXECUTION_ID,
+            output_dir=tmp_path,
+            shard_index=0,
+            shard_count=1,
+            evaluator=evaluator,
+            stop_after=1,
+        )
 
 
 def test_parallel_coordinator_materializes_plan_and_projects_resumable_progress(
@@ -738,9 +799,69 @@ def test_parallel_coordinator_materializes_plan_and_projects_resumable_progress(
         stop_after_new_replicates=2,
     )
     projected = json.loads(progress.read_text(encoding="utf-8"))
+    expected_plan = execution_plan_summary(
+        manifest=_contract(),
+        synthetic=_synthetic(),
+        parent_execution_id=EXECUTION_ID,
+        shard_count=2,
+    )
     assert result.status == "INTERRUPTED"
     assert result.completed_replicates == 2
     assert result.execution_plan["replicate_count"] == 31_000
+    assert result.execution_plan == expected_plan
     assert projected["status"] == "INTERRUPTED"
     assert projected["completed_replicates"] == 2
     assert projected["result_selection_used"] is False
+
+
+def test_parallel_coordinator_separates_executor_shard_from_local_workers(
+    tmp_path: Path,
+) -> None:
+    progress = tmp_path / "progress.json"
+    result = run_parallel_execution(
+        manifest=_contract(),
+        synthetic=_synthetic(),
+        parent_execution_id=EXECUTION_ID,
+        output_dir=tmp_path / "execution",
+        evaluator=_FakeEvaluator(),
+        worker_count=3,
+        executor_shard_index=1,
+        executor_shard_count=2,
+        progress_projection_path=progress,
+        stop_after_new_replicates=2,
+    )
+    projected = json.loads(progress.read_text(encoding="utf-8"))
+    assert result.execution_plan["shard_count"] == 2
+    assert result.execution_plan["replicate_count_by_shard"] == [
+        15_430,
+        15_570,
+    ]
+    assert projected["worker_count"] == 3
+    assert projected["executor_shard_index"] == 1
+    assert projected["executor_shard_count"] == 2
+    assert projected["assigned_replicates"] == 15_570
+    assert projected["assigned_completed_replicates"] == 2
+    assert projected["unassigned_missing_replicates"] == 15_430
+
+
+@pytest.mark.parametrize(
+    ("executor_shard_index", "executor_shard_count"),
+    ((0, None), (None, 2), (-1, 2), (2, 2), (0, 0)),
+)
+def test_parallel_coordinator_rejects_partial_or_invalid_executor_shard(
+    tmp_path: Path,
+    executor_shard_index: int | None,
+    executor_shard_count: int | None,
+) -> None:
+    with pytest.raises(ValueError, match="executor_shard"):
+        run_parallel_execution(
+            manifest=_contract(),
+            synthetic=_synthetic(),
+            parent_execution_id=EXECUTION_ID,
+            output_dir=tmp_path / "execution",
+            evaluator=_FakeEvaluator(),
+            worker_count=2,
+            executor_shard_index=executor_shard_index,
+            executor_shard_count=executor_shard_count,
+            stop_after_new_replicates=1,
+        )

@@ -1,0 +1,2534 @@
+{
+  "schema_version": "dehps-m4-p2-9-measurement-runtime-audit-plan.v1",
+  "artifact_type": "measurement_runtime_benchmark_plan",
+  "artifact_digest": "4d0669386fc32b27b5345995bdaf5e902aaa63109e73472804fd6b6ba06fcf15",
+  "plan_key": "M4-P2.9_MEASUREMENT_RUNTIME_AUDIT",
+  "semantic_version": "1.1.4",
+  "status": "FROZEN_SOURCE_INTEGRATION_PENDING",
+  "supersedes_artifact_digest": "bf5a8728d355e0b83ab1a173cd656b8a2f23abce1a1b9036664af617a1d1b47e",
+  "lane": "maintenance",
+  "agent_authority": "engineering",
+  "evidence_progress_increment": 0,
+  "source_measurement_manifest_digest": "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58",
+  "execution_policy": {
+    "while_p2_6_1_running": "SINGLE_WORKER_CORRECTNESS_SMOKE_ONLY",
+    "formal_benchmark": "AFTER_M4_RUNTIME_SLOT_P2_6_1_RELEASED",
+    "worker_count": 1,
+    "reference_evaluator_is_oracle": false,
+    "immutable_golden_fixture_is_oracle": true,
+    "oracle_construction_fully_implementation_independent": false,
+    "acceleration_boundary_independent": true,
+    "acceleration_boundary_independence_scope": "literal_behavior_path_and_fresh_import_closure",
+    "oracle_construction_process_isolated": false,
+    "exact_replay_scope": "same_canonical_executor_fingerprint_only",
+    "cross_executor_policy": "requires_new_reviewed_fixture_before_exact_claim",
+    "optimization_backend_modification_allowed": false,
+    "measured_workload": "production_like_trace_capture_disabled",
+    "correctness_replay": "out_of_band_trace_capture_enabled",
+    "benchmark_attempt_policy": "fresh_attempt_scoped_workdirs_no_journal_reuse"
+  },
+  "oracle_contract": {
+    "effective_oracle": "registered_replay_verified_Phase0GoldenReferenceFixture.v1",
+    "shared_frozen_components": [
+      "synthetic_dataset_generator",
+      "probe_model_core",
+      "issue_metric_kernel",
+      "bootstrap_kernel",
+      "block_permutation_schedule",
+      "primary_inference_kernel"
+    ],
+    "independent_components": [
+      "outer_fold_orchestration",
+      "state_visible_feature_construction",
+      "probe_runtime_cache",
+      "replicate_evaluator",
+      "permutation_pe1_arithmetic",
+      "checkpoint_journal_serialization"
+    ],
+    "canonical_executor_fingerprint": {
+      "required_dimensions": [
+        "python_implementation_version_cache_tag_byteorder",
+        "CPython_build_ABI_and_binary_sha256",
+        "exact_numerical_runtime_packages_versions_joblib_llvmlite_narwhals_numba_numpy_orjson_scipy_scikit_learn_threadpoolctl",
+        "distribution_RECORD_sha256_for_nine_exact_numerical_runtime_packages",
+        "installed_tree_digest_for_nine_exact_numerical_runtime_packages_excluding_pyc",
+        "critical_numeric_ML_JIT_native_extension_cluster_sha256",
+        "LLVM_version_triples_host_cpu_and_features",
+        "Numba_codegen_configuration",
+        "NUMBA_LLVMLITE_environment_unset",
+        "sklearn_config_and_joblib_active_backend_effective_n_jobs",
+        "JOBLIB_LOKY_SKLEARN_environment_unset",
+        "numeric_environment_exactly_canonical_thread_environment",
+        "linux_machine_libc",
+        "loaded_libc_libm_libstdcxx_libgcc_binary_sha256",
+        "numpy_blas_host_simd_identity",
+        "OMP_OPENBLAS_MKL_NUMEXPR_thread_environment",
+        "PYTHONHASHSEED_zero_at_process_start",
+        "runtime_hash_secret_probe",
+        "threadpoolctl_runtime_pool_identity_and_num_threads",
+        "threadpool_binary_sha256"
+      ],
+      "required_thread_value": "1",
+      "worker_count": 1,
+      "required_fingerprint_digest": "e804e4eedf3c67ad9d35207367a096f6b830a6ab2ac29cc03501392d8430af32"
+    },
+    "superseded_policy": "v1.0_reference_evaluator_is_oracle_true"
+  },
+  "source_integrity_contract": {
+    "baseline_git_commit": "70f83a5400c6207cbe3806e69329a233e461e311",
+    "git_object_format": "sha1",
+    "shared_component_source_paths": {
+      "synthetic_dataset_generator": [
+        "apps/worker-python/dehps/artifacts.py",
+        "apps/worker-python/dehps/contracts/__init__.py",
+        "apps/worker-python/dehps/contracts/core.py",
+        "apps/worker-python/dehps/ranking_contract.py",
+        "apps/worker-python/dehps/research_os/information_theory/artifact_contracts.py",
+        "apps/worker-python/dehps/research_os/information_theory/calibration/contracts.py",
+        "apps/worker-python/dehps/research_os/information_theory/calibration/mechanisms.py",
+        "apps/worker-python/dehps/research_os/information_theory/digest.py",
+        "apps/worker-python/dehps/research_os/information_theory/measurement_validation/contracts.py",
+        "apps/worker-python/dehps/research_os/information_theory/measurement_validation/dataset.py",
+        "apps/worker-python/dehps/research_os/information_theory/measurement_validation/repaired_contracts.py",
+        "apps/worker-python/dehps/research_os/information_theory/measurement_validation/schedule.py",
+        "apps/worker-python/dehps/research_os/information_theory/metrics/contracts.py",
+        "apps/worker-python/dehps/research_os/information_theory/probes/contracts.py",
+        "apps/worker-python/dehps/research_os/information_theory/resampling/contracts.py",
+        "apps/worker-python/dehps/research_os/information_theory/seed_domains.py",
+        "apps/worker-python/dehps/research_os/information_theory/synthetic/__init__.py",
+        "apps/worker-python/dehps/research_os/information_theory/synthetic/contracts.py",
+        "apps/worker-python/dehps/research_os/information_theory/synthetic/generator.py",
+        "apps/worker-python/dehps/research_os/information_theory/synthetic/validation.py",
+        "apps/worker-python/dehps/research_os/information_theory/walk_forward/contracts.py",
+        "apps/worker-python/dehps/research_os/information_theory/walk_forward/errors.py",
+        "configs/research-os/m4-information-theory-p2-6-1-measurement-contract-repair-v1.json",
+        "configs/research-os/m4-information-theory-p2-6-1-measurement-validation-v1.json",
+        "configs/research-os/m4-information-theory-p2-6-1-state-visible-feature-v1.json",
+        "configs/research-os/m4-information-theory-p2-synthetic-run-manifest-v1.0.1.json"
+      ],
+      "probe_model_core": [
+        "apps/worker-python/dehps/artifacts.py",
+        "apps/worker-python/dehps/contracts/__init__.py",
+        "apps/worker-python/dehps/contracts/core.py",
+        "apps/worker-python/dehps/ranking_contract.py",
+        "apps/worker-python/dehps/research_os/information_theory/artifact_contracts.py",
+        "apps/worker-python/dehps/research_os/information_theory/probes/__init__.py",
+        "apps/worker-python/dehps/research_os/information_theory/probes/contracts.py",
+        "apps/worker-python/dehps/research_os/information_theory/probes/convergence.py",
+        "apps/worker-python/dehps/research_os/information_theory/probes/empirical_baseline.py",
+        "apps/worker-python/dehps/research_os/information_theory/probes/logistic_regression.py",
+        "apps/worker-python/dehps/research_os/information_theory/probes/naive_bayes.py",
+        "apps/worker-python/dehps/research_os/information_theory/probes/registry.py",
+        "apps/worker-python/dehps/research_os/information_theory/probes/shallow_calibrated_tree.py",
+        "apps/worker-python/dehps/research_os/information_theory/probes/theoretical_baseline.py",
+        "apps/worker-python/dehps/research_os/information_theory/walk_forward/artifacts.py",
+        "apps/worker-python/dehps/research_os/information_theory/walk_forward/contracts.py",
+        "apps/worker-python/dehps/research_os/information_theory/walk_forward/dataset.py",
+        "apps/worker-python/dehps/research_os/information_theory/walk_forward/errors.py",
+        "apps/worker-python/dehps/research_os/information_theory/walk_forward/feature_view.py",
+        "apps/worker-python/dehps/research_os/information_theory/walk_forward/harness.py",
+        "apps/worker-python/dehps/research_os/information_theory/walk_forward/inner_validation.py",
+        "apps/worker-python/dehps/research_os/information_theory/walk_forward/leakage.py",
+        "apps/worker-python/dehps/research_os/information_theory/walk_forward/manifest.py",
+        "apps/worker-python/dehps/research_os/information_theory/walk_forward/preprocessing.py",
+        "apps/worker-python/dehps/research_os/information_theory/walk_forward/split.py",
+        "configs/research-os/m4-information-theory-p2-6-1-state-visible-feature-v1.json",
+        "configs/research-os/m4-information-theory-preregistration-v1.0.3.json",
+        "configs/research-os/m4-information-theory-walk-forward-harness-v1.json"
+      ],
+      "issue_metric_kernel": [
+        "apps/worker-python/dehps/artifacts.py",
+        "apps/worker-python/dehps/contracts/__init__.py",
+        "apps/worker-python/dehps/contracts/core.py",
+        "apps/worker-python/dehps/ranking_contract.py",
+        "apps/worker-python/dehps/research_os/information_theory/artifact_contracts.py",
+        "apps/worker-python/dehps/research_os/information_theory/metrics/__init__.py",
+        "apps/worker-python/dehps/research_os/information_theory/metrics/aggregation.py",
+        "apps/worker-python/dehps/research_os/information_theory/metrics/artifacts.py",
+        "apps/worker-python/dehps/research_os/information_theory/metrics/brier.py",
+        "apps/worker-python/dehps/research_os/information_theory/metrics/calibration.py",
+        "apps/worker-python/dehps/research_os/information_theory/metrics/code_length.py",
+        "apps/worker-python/dehps/research_os/information_theory/metrics/contracts.py",
+        "apps/worker-python/dehps/research_os/information_theory/metrics/errors.py",
+        "apps/worker-python/dehps/research_os/information_theory/metrics/information_gain.py",
+        "apps/worker-python/dehps/research_os/information_theory/metrics/kernel.py",
+        "apps/worker-python/dehps/research_os/information_theory/metrics/log_loss.py",
+        "apps/worker-python/dehps/research_os/information_theory/metrics/probability.py",
+        "apps/worker-python/dehps/training/research_fingerprint.py",
+        "configs/research-os/m4-information-theory-metric-kernel-v1.json"
+      ],
+      "bootstrap_kernel": [
+        "apps/worker-python/dehps/artifacts.py",
+        "apps/worker-python/dehps/contracts/__init__.py",
+        "apps/worker-python/dehps/contracts/core.py",
+        "apps/worker-python/dehps/ranking_contract.py",
+        "apps/worker-python/dehps/research_os/information_theory/artifact_contracts.py",
+        "apps/worker-python/dehps/research_os/information_theory/measurement_validation/statistics.py",
+        "apps/worker-python/dehps/research_os/information_theory/resampling/__init__.py",
+        "apps/worker-python/dehps/research_os/information_theory/resampling/contracts.py",
+        "apps/worker-python/dehps/research_os/information_theory/resampling/controls.py",
+        "apps/worker-python/dehps/research_os/information_theory/resampling/plans.py",
+        "apps/worker-python/dehps/research_os/information_theory/resampling/runner.py",
+        "apps/worker-python/dehps/research_os/information_theory/resampling/statistics.py",
+        "apps/worker-python/dehps/research_os/information_theory/seed_domains.py",
+        "configs/research-os/m4-information-theory-p2-5-resampling-kernel-v1.json"
+      ],
+      "block_permutation_schedule": [
+        "apps/worker-python/dehps/artifacts.py",
+        "apps/worker-python/dehps/contracts/__init__.py",
+        "apps/worker-python/dehps/contracts/core.py",
+        "apps/worker-python/dehps/ranking_contract.py",
+        "apps/worker-python/dehps/research_os/information_theory/artifact_contracts.py",
+        "apps/worker-python/dehps/research_os/information_theory/measurement_validation/statistics.py",
+        "apps/worker-python/dehps/research_os/information_theory/resampling/__init__.py",
+        "apps/worker-python/dehps/research_os/information_theory/resampling/contracts.py",
+        "apps/worker-python/dehps/research_os/information_theory/resampling/controls.py",
+        "apps/worker-python/dehps/research_os/information_theory/resampling/plans.py",
+        "apps/worker-python/dehps/research_os/information_theory/resampling/runner.py",
+        "apps/worker-python/dehps/research_os/information_theory/resampling/statistics.py",
+        "apps/worker-python/dehps/research_os/information_theory/seed_domains.py",
+        "configs/research-os/m4-information-theory-p2-5-resampling-kernel-v1.json"
+      ],
+      "primary_inference_kernel": [
+        "apps/worker-python/dehps/artifacts.py",
+        "apps/worker-python/dehps/contracts/__init__.py",
+        "apps/worker-python/dehps/contracts/core.py",
+        "apps/worker-python/dehps/ranking_contract.py",
+        "apps/worker-python/dehps/research_os/information_theory/artifact_contracts.py",
+        "apps/worker-python/dehps/research_os/information_theory/measurement_validation/statistics.py",
+        "apps/worker-python/dehps/research_os/information_theory/resampling/contracts.py",
+        "apps/worker-python/dehps/research_os/information_theory/resampling/statistics.py",
+        "configs/research-os/m4-information-theory-p2-5-resampling-kernel-v1.json"
+      ]
+    },
+    "shared_frozen_source_allowlist": [
+      {
+        "path": "apps/worker-python/dehps/artifacts.py",
+        "content_sha256": "f9d32afeed71ca3bfaf737b9f157e14a89809f5d9c81931627bda2e58ceeb63a",
+        "git_blob_oid": "fe73c3da79115971d4f6e5143ac575e5b40ca4dc"
+      },
+      {
+        "path": "apps/worker-python/dehps/contracts/__init__.py",
+        "content_sha256": "50b7c093f56ac8ca1fc1d93adc064be01570083cd80e59de8bb4a77f4c822cdd",
+        "git_blob_oid": "33f28ad3f6eb61e5d8a3adfc51e4fc36d65a5cd8"
+      },
+      {
+        "path": "apps/worker-python/dehps/contracts/core.py",
+        "content_sha256": "5b2fe580609e6f9b2c3a43ca75a681fdcc216e3b2eff80084382ad7a92483390",
+        "git_blob_oid": "2196cba10cf86dee6d5b6c33039c3a73e33de30f"
+      },
+      {
+        "path": "apps/worker-python/dehps/ranking_contract.py",
+        "content_sha256": "397962d32760d7e8418de868df82acd179bbd7c7649d0521ed7ede3f388a8bc1",
+        "git_blob_oid": "51f00177d526a5a55b470a21218eff94d0d60a15"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/artifact_contracts.py",
+        "content_sha256": "07e469d3bac8025defc142d7fbc8fc49c9e04d9129b62cf6feff308336a2b40d",
+        "git_blob_oid": "379181ba72846e29ecedb43a3e8e3d6a4f319aec"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/calibration/contracts.py",
+        "content_sha256": "81f7ee81daf074b4a03bbbdb3b5f04aac9bf67bd4cad547ac83fbb309ba42b72",
+        "git_blob_oid": "08da6c569db3ab0cc44708f3a8d137a47701dc79"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/calibration/mechanisms.py",
+        "content_sha256": "6d0a74b13225996ab907d60c6876ad23658a076f6e4acd5d85e9fc30c5f801ab",
+        "git_blob_oid": "977126278e32dee411412dbcfb93bfd8cc81ec46"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/digest.py",
+        "content_sha256": "358ef50256a3bef995aad1f7709f45b8dde5f6bd430c31e2446feec9759ef7bf",
+        "git_blob_oid": "fbf570268d618b3923a99ed41de01a049206deec"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_validation/contracts.py",
+        "content_sha256": "d48d9bf2d1cf13d3133250b6df3011b9ff942857a6f6d3d9d71d730ec6950dfe",
+        "git_blob_oid": "122fec73d7eaa6d0fe9d5ef6d610a4d0a949eaa3"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_validation/dataset.py",
+        "content_sha256": "73b1406645d0b0f7ede545bc79fa9a26d9a9db4008a7d647403424c0ac0ce181",
+        "git_blob_oid": "c97f8c65653fbfa300f4289bd493234f36bfc013"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_validation/repaired_contracts.py",
+        "content_sha256": "4e6584099f80ee070d9ce8c4680bf50e16c99f17550b99e9e2ee2c9738296c62",
+        "git_blob_oid": "371a3ce846ca7d34eaa49842618297762025de66"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_validation/schedule.py",
+        "content_sha256": "1fffde49a52811a653dff6741f5b43a1a978c65b9e625aa45241e9993138622e",
+        "git_blob_oid": "d15b3c6717975011fb4bdc47ae2997458130d10d"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_validation/statistics.py",
+        "content_sha256": "891e3bc9c337a7927b95472c73fb63dedd87caaca88e8f668d149a85d956d0de",
+        "git_blob_oid": "96fcb044d1dcb200a713c0af614b4caed493e468"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/metrics/__init__.py",
+        "content_sha256": "29c6590a65f8a7c0fee88d19130b8d07ffe3574c976f35558b26ad628de6ab94",
+        "git_blob_oid": "2862a5894eaa0a5cdf3694f4307798df238b42cd"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/metrics/aggregation.py",
+        "content_sha256": "bf862e6f204e5f4bbd91fbdf190986975a83e431d22ce77a736269680b12521a",
+        "git_blob_oid": "1ed3f9116f3047479ea567a376e38a70781838c9"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/metrics/artifacts.py",
+        "content_sha256": "1f08d11e004ea37e2b766a2175995f47265a098ff7971dd7452a9f6d6870d4e2",
+        "git_blob_oid": "a23f261d904544fa6d31bfb4acd9130aaf82baff"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/metrics/brier.py",
+        "content_sha256": "12a26ce2e7e5d68890328698a85d5b51ea85d845b177fe234a3177adafbb12b2",
+        "git_blob_oid": "b9c1ff98cff9157a4a75f9a65393146a073928b1"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/metrics/calibration.py",
+        "content_sha256": "50e3a87f71cba622c68e232aadeb36d94b0f8b565f9907c11ef0be5a3c607266",
+        "git_blob_oid": "9b21977830b14773105c02758179406129b42f23"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/metrics/code_length.py",
+        "content_sha256": "1ff1dacc884498c7a8e0e6c1af946a73ec4b36c74bf3f2b89c8e9467f2420ec3",
+        "git_blob_oid": "69428054f5a776dee1f8bf312b5a40ce7c235c98"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/metrics/contracts.py",
+        "content_sha256": "fac89d1092793ed8a4423587262dfde1d59a8a936633d274df51ba31a82d07a9",
+        "git_blob_oid": "c263c7c0bda7818ef0b15419520d1c1f43d5e220"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/metrics/errors.py",
+        "content_sha256": "ff15bc319bff5d7162cf363eaa31220c1e5051566a77ff3f716e33ff5ac6225a",
+        "git_blob_oid": "3c1cb9ebd3c929e5121796233d3d2dd91c7b5bdc"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/metrics/information_gain.py",
+        "content_sha256": "5c47cb3a5af61a3a3213a1eafcb8f19f2d1170499ef312a8c5a2363f6f7d20e0",
+        "git_blob_oid": "01a0f3d9ddb9d8eeb0eb15142ecce45d82773fc0"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/metrics/kernel.py",
+        "content_sha256": "a1b31164aeb46caebab70e12dbdedc4e5bc59c5868a000c23b8a635159555e89",
+        "git_blob_oid": "f1efb37e84d1134c900965fad1b1f2cd39a70007"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/metrics/log_loss.py",
+        "content_sha256": "682cfb696fc0e9cee0a24b491ec495cf87ce9b5f870e412d80cffb47a6351c70",
+        "git_blob_oid": "c451fc1c9f433c0c729bca823c77ea55e54d6ba7"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/metrics/probability.py",
+        "content_sha256": "7471a059769724a4f7c230ee1e481010f1461c1d8e7f34ba03cdbe2a12fd4b68",
+        "git_blob_oid": "6f1eddde42d9d4dc836f774515c2427610d3175a"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/probes/__init__.py",
+        "content_sha256": "bb2d4f9fee6390dc0f27ef8d1ab330b2dd2433ad2e53953526722c6a8d7d46d7",
+        "git_blob_oid": "c847fe084147b23e8ffd7d75f9d1f05d8d0118cc"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/probes/contracts.py",
+        "content_sha256": "21caec01e6f8288eadb946324f73f266a4048de2d3693d23451065c37b89c9af",
+        "git_blob_oid": "8ff562ac1d6e0af9938969c4cc6ec71ff895d040"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/probes/convergence.py",
+        "content_sha256": "52d04c509d9dba99c7e2ff8998db34103103806a50a669ca2fd1c1af0c9580a6",
+        "git_blob_oid": "e3808f9040e3ffe0af16bb598480f47f649bb76c"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/probes/empirical_baseline.py",
+        "content_sha256": "106accaeb86ab93d79d80d67411041dee1183d84cfa40a6e542720e6be80d471",
+        "git_blob_oid": "1b6edba80bfc9ef974b11b68fb3f0bfa384fa966"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/probes/logistic_regression.py",
+        "content_sha256": "86f362d42d10b897302eaf3389b194266289148dd80d1370c3931b99cdf9d80b",
+        "git_blob_oid": "5709f385d95432b3c64ea159eeebcb825745d3d2"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/probes/naive_bayes.py",
+        "content_sha256": "fdd4d9edfa7de29e783d5a8132a904e7b6110659a8708682760a75169d80eb8e",
+        "git_blob_oid": "d7018236ae7ba1dbaa210e2506aa782092ee9751"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/probes/registry.py",
+        "content_sha256": "cdcd219a608c26f46ffc1dced4737ebaf6b3f4c93dfaccafc6f428b457ba505f",
+        "git_blob_oid": "4d36d6f374f81bd32a5744c4cd4d17bcfd96d6cd"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/probes/shallow_calibrated_tree.py",
+        "content_sha256": "32b5426eb6f7aaad0c570454e677bf3214a1f47a8e74547fe5f528271618b94d",
+        "git_blob_oid": "e73197b64b85fe6faf9051a667641020acded9c0"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/probes/theoretical_baseline.py",
+        "content_sha256": "b9dccc591cecc8cfa0d8826adf2b7b864a2bc407c8d12fd87d182f388c7faf86",
+        "git_blob_oid": "03944a470b4395ff7a53dea962dda25de6955272"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/resampling/__init__.py",
+        "content_sha256": "f510b76c9a80dee3540fa29f0db8cade7de8f9875559ea41e7c0c128694f0544",
+        "git_blob_oid": "5090c65de476b17dfb6ffa036c0657f6f1e4569e"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/resampling/contracts.py",
+        "content_sha256": "bc065ce7d405dc477d345623aa147a0809471759d803f01ea9839756508231f7",
+        "git_blob_oid": "111e1a3e57e25d6d2d76a5829a5e852562d926ab"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/resampling/controls.py",
+        "content_sha256": "b500a76d5ade1a53b62292027b09bfe107ea5680ce95b297208d6ba6068a0638",
+        "git_blob_oid": "971529e7ad1ad83c9b329991193016686174d0ae"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/resampling/plans.py",
+        "content_sha256": "b7c330d70368e70344510a582e395787defbfa32fe612fee9bb80f4b28e2effd",
+        "git_blob_oid": "a20544e0a76d66a1b53baa640cb7160e0e0e2a23"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/resampling/runner.py",
+        "content_sha256": "3e7cd47766a831b5e3ca1cc49edadff74caeafda3bc5f3fe824fdd448d183bec",
+        "git_blob_oid": "1cee3a2a6710070d80a72b64690fc294de332ee3"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/resampling/statistics.py",
+        "content_sha256": "a4842a25c100d87bf3caa7dc0aa0e20fc9da674ffbbc77e2b2d481faceea0ad2",
+        "git_blob_oid": "3f71e22e46e5d2b0d898866f8abc240e19c1fa94"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/seed_domains.py",
+        "content_sha256": "06b70dc2905374cbda1ff59e01b6b8260bec353cfde248bb549ef9b21cce666c",
+        "git_blob_oid": "9c759fe138c1a3f958ba660fe74aeed4ab1543e8"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/synthetic/__init__.py",
+        "content_sha256": "edd5806038047d55a4dd649508ee2c0bb9c4b238687df80e860828ff9347f466",
+        "git_blob_oid": "6525e3cbfede3b57923df66a4bed9fe149086535"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/synthetic/contracts.py",
+        "content_sha256": "7dfab6750bf9b0dacb1a3654d25cdcff11c8111ffdd60113b2a17207329925bf",
+        "git_blob_oid": "fe36485646ae495b1c0e9ddaf211a760e77a8d71"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/synthetic/generator.py",
+        "content_sha256": "3dc50fea56f57d0d12dbe7c62483f5f681734bd295ff52b653da276e26b7af89",
+        "git_blob_oid": "aa17e25b532e5cd9766b1a02cc775382822bb73c"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/synthetic/validation.py",
+        "content_sha256": "2b92956cac2f4bc92b5c629cbc2b5ae0e2dc6253d63a6d6ff907d5580475b5e2",
+        "git_blob_oid": "fcec2b8f701f4ac6f246a37389b2cc9de5244eda"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/walk_forward/artifacts.py",
+        "content_sha256": "94b0904a173ee36e6a3246b1ec862b687d0ad82a6e4590ee541afd7179c1ccd7",
+        "git_blob_oid": "006134815132647dd0e67a6df2d6fbf2122556d7"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/walk_forward/contracts.py",
+        "content_sha256": "b7d20b241c7e764c25c12e4e6fdbb219bfe0f1afe4a57cda11e41f6f05134d47",
+        "git_blob_oid": "0abab9f8f0c9a3afa703e94212d19500141327f2"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/walk_forward/dataset.py",
+        "content_sha256": "879f05c00a9a98a6150e346e7c7737772871cdc9c4c2db724a7ecb8233bc7713",
+        "git_blob_oid": "d3043111c38e5c0ecc9396d79c10412fda8158ed"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/walk_forward/errors.py",
+        "content_sha256": "f4dd3010830be3d72308dbd6273646cee4c7629b401512ea797a70149f7147f1",
+        "git_blob_oid": "ace47f63cb144a16222e4074e8d19d77553b5345"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/walk_forward/feature_view.py",
+        "content_sha256": "0fb8e93dd0fba9df2993a597245e52e70ff1b6b0917ceaf53d77ecd0efc850d9",
+        "git_blob_oid": "6bb3eb2cd22bfc5c929aa70b79fdf033c2b01027"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/walk_forward/harness.py",
+        "content_sha256": "b8db4142d4eba48de540a3488a59be1f717babd84e55f7e9e63a3dfc542d1a64",
+        "git_blob_oid": "a0a63e5c9c8da910e5c73b7a263cec910e6079d0"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/walk_forward/inner_validation.py",
+        "content_sha256": "813628fb59e839c0bfafc8a5eec369f8c5e582d2825a05a4d68882c42adb67d3",
+        "git_blob_oid": "e57e941a8a51bf3e1d5bac43a81e945125556c97"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/walk_forward/leakage.py",
+        "content_sha256": "144871af8856821019afd5eebba76620f52960d640eb8fe8884613c0d6248698",
+        "git_blob_oid": "bb54f52f14f401ee0aefd17eef69b7146925575f"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/walk_forward/manifest.py",
+        "content_sha256": "4255e29f52e7d010825df82eb008a076ce285278bfbd7bd07959abc683ad7aa9",
+        "git_blob_oid": "179725a509e68619a8784961ebfed3d7ee171432"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/walk_forward/preprocessing.py",
+        "content_sha256": "cc18ab8c6e4ded91916b3201e1b9dc28dbb4a2f6be7d19b63f72ebcc269daea1",
+        "git_blob_oid": "a58abe53486c42caf9c34489e6bb778a26e21f14"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/walk_forward/split.py",
+        "content_sha256": "3b779ae086a366a0ae408f7b4578c04462067bf76322a03fb9bb80c93e0b7272",
+        "git_blob_oid": "122d8fb15c2a503e7cbf332f025c7397a3abde9a"
+      },
+      {
+        "path": "apps/worker-python/dehps/training/research_fingerprint.py",
+        "content_sha256": "61f218e1cfc5c43be08c8a48adb335f0f85cbf078f03e46b6b688e722c1e6b69",
+        "git_blob_oid": "318df41ed5e5973aeef0f3394a73e1c74258ccf7"
+      },
+      {
+        "path": "configs/research-os/m4-information-theory-metric-kernel-v1.json",
+        "content_sha256": "4e1d69b00c599b600bdab8fe3990745f0500a154624ac879bddf895fdcf14be3",
+        "git_blob_oid": "0f042aedadd50e9bf4655a54ae5424aff79143ef"
+      },
+      {
+        "path": "configs/research-os/m4-information-theory-p2-5-resampling-kernel-v1.json",
+        "content_sha256": "d6a793de0e532f11f96416564a59b4eba57f0ab56cf2a2b27424f6070d1543e7",
+        "git_blob_oid": "6417f177d12e63190c1f9c9a6fd7e997b7713e90"
+      },
+      {
+        "path": "configs/research-os/m4-information-theory-p2-6-1-measurement-contract-repair-v1.json",
+        "content_sha256": "59a85e29ac5be1fe0291474ebdbdc91fda0af1daa17e5e3812d88e4650563f42",
+        "git_blob_oid": "ad7c32a8ec2c36ff330ff421c98cb9168838f48d"
+      },
+      {
+        "path": "configs/research-os/m4-information-theory-p2-6-1-measurement-validation-v1.json",
+        "content_sha256": "ed4509b3ddb0125f3b410f9cc8986782e01fdad7ac5940e5c0d55a222baf6812",
+        "git_blob_oid": "b5f9e7bfc50b03663b6ed333a60a10c0451bd1ae"
+      },
+      {
+        "path": "configs/research-os/m4-information-theory-p2-6-1-state-visible-feature-v1.json",
+        "content_sha256": "edced4069241d8dc6838ea516bf0017a5c5ab478c3ab3be02b86c76c98167a85",
+        "git_blob_oid": "f82ebae587cafc780e9e052dd1c00871d711c531"
+      },
+      {
+        "path": "configs/research-os/m4-information-theory-p2-synthetic-run-manifest-v1.0.1.json",
+        "content_sha256": "02c3bafbfe44a0ae289050306cc6b67b3877630f535a3d7365c945b446d00f76",
+        "git_blob_oid": "70919881c545126c9ebdb24a3b9d20100ec6d00a"
+      },
+      {
+        "path": "configs/research-os/m4-information-theory-preregistration-v1.0.3.json",
+        "content_sha256": "cfa0cac56a9aa48aa88de4f4a0b215eeb503d508a38deceb3f0ab59a8fa6b049",
+        "git_blob_oid": "819340e15caffbf796312623afdb434a377af181"
+      },
+      {
+        "path": "configs/research-os/m4-information-theory-walk-forward-harness-v1.json",
+        "content_sha256": "90c6fc88e5375296da7374d239a9cc819281833581f016da32b9674e78454b4d",
+        "git_blob_oid": "ab15cffa2e11f3b9fa6ab7f109d30b9c73c72eb1"
+      }
+    ],
+    "shared_frozen_source_set_digest": "75c124ba95c3ec0913f597b48a58a292a471fd1a00d8d9246e255ecd7f35715b",
+    "approved_acceleration_source_allowlist": [
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_validation/feature_cache.py",
+        "content_sha256": "92cd5d47fe05c26e9a13ddde00871072cef5cc97b46b32ac4240308c80d48c4b",
+        "git_blob_oid": "783903bb0b22687bd18ea49ee2e132864da32916"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_validation/journal.py",
+        "content_sha256": "adaf1c3fc840c4c293453f80026391d69ed44a8da60bbb5f0344c47349cecc6c",
+        "git_blob_oid": "a0b8a367991385291224dc441acd82789dead4f4"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_validation/reference.py",
+        "content_sha256": "065a37d2385de485511173a56526c2acd22919ba4339c00813850b2e5abe44b1",
+        "git_blob_oid": "416642b08cb4a24bfdc85528f80da45bd3891f5b"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/probes/runtime_cache_backend.py",
+        "content_sha256": "6854c7b180bfb42061dee7703f40ae3a50522d37997f9b6a3f96879dc4931fe4",
+        "git_blob_oid": "02b705928825c4176f7e05766f6e6cd2ddc8f2ad"
+      }
+    ],
+    "approved_acceleration_source_set_digest": "41ce7c0e4586c23a7722dd9f5cb9d7cbd129564b57545d0d537005c8d6fc20e9",
+    "independent_oracle_source_allowlist": [
+      {
+        "path": "apps/worker-python/dehps/__init__.py",
+        "content_sha256": "2515233a0cdac6c5447c9dbd6b0d54c89284f191d8cb41473d89b347ee296ae7",
+        "git_blob_oid": "84b62171efd1feeacf8148addaeb1edca2da87e8"
+      },
+      {
+        "path": "apps/worker-python/dehps/golden_source_identity.py",
+        "content_sha256": "1e7eddbd70802424245d51a9d2ef9712b2fbbd45d13ef66ee27a17fd26e8e1ba",
+        "git_blob_oid": "080d2754e2854090fcddb1132a9e27bb9e7f56e9"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/__init__.py",
+        "content_sha256": "82428be6ad134dcb71f05f452c53d28f16487c0996ca89e9d7a3a3ce17bb450f",
+        "git_blob_oid": "9031fe29493d62f17228eb5a591a36734c69b998"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/__init__.py",
+        "content_sha256": "6ea79d06de4880c2560e3b8174f717093a371032f0310df535e5f225899263ca",
+        "git_blob_oid": "5fc6727e9943070d73befedf98b3c3a64d0333c3"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/calibration/__init__.py",
+        "content_sha256": "bd96ab729a74915b3842c5a85aa08d34ce801f20b29ad932ca11631b68fddbbd",
+        "git_blob_oid": "3dc0b86a39f7aa482bd98da9f8f9068bc8bf4d93"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_validation/__init__.py",
+        "content_sha256": "7969dfa42985f26a49e7796ef94827b49e5d417ebd5164c703a532d1b066e4a4",
+        "git_blob_oid": "5db1fe199933d1cc7b35e7a3f74676e92b0afedf"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_validation/float_identity.py",
+        "content_sha256": "87ec8d7c9930ddd21c3f2635665a2e9975f3e471bb809a5585ad1dbaedc600a6",
+        "git_blob_oid": "8aadaa22fc3d8399c8def6ab46e16bbd6a75f054"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_validation/golden_reference.py",
+        "content_sha256": "04950ba25c69b424d0cb54120158eaa71791bc4da27a6f724f4b3ea515de8825",
+        "git_blob_oid": "c8061ee114e4ef7c28a16dd0c4224eb153feb27f"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/probes/runtime_cache.py",
+        "content_sha256": "f685d696b438f5067bc81189bea51ea1a885d51742de0e2ac4e2c85ae01509e1",
+        "git_blob_oid": "a03c69b02d73efcf9c07d20465ae9b39258e293b"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/walk_forward/__init__.py",
+        "content_sha256": "cad9d0fda61d8677c33ab12e98f74f31b71cfdc60700d29d98d664a93f145d04",
+        "git_blob_oid": "970f172da4ad8d3014f027fb875c1ae0fdeca0bf"
+      },
+      {
+        "path": "apps/worker-python/dehps/training/__init__.py",
+        "content_sha256": "d174b21187242c3cbfeae517d88ffbe0495156ba374a9103300ae1fd1b7afad5",
+        "git_blob_oid": "73aeffaa552d08bd9c0d1f15bdb6f40728a95491"
+      }
+    ],
+    "independent_oracle_source_set_digest": "3df0dee1cbb4140cfe78ceda01a7de12aeb943a479b26681e572ab23fc7c1a5b",
+    "audit_orchestration_source_allowlist": [
+      {
+        "path": "apps/worker-python/dehps/advisors/__init__.py",
+        "content_sha256": "8ffb066cf5462b2ccb8fe4a4aeb5f8367034e9cc526f3764c284d13fece73b38",
+        "git_blob_oid": "f19cb9cdbd5461d6b4f5a3803ae01e10fea84efb"
+      },
+      {
+        "path": "apps/worker-python/dehps/advisors/neural_kdj_adapter.py",
+        "content_sha256": "9dd2b0d75002a8f43699133aac357a09810a99643dd4a085742216a483c1308f",
+        "git_blob_oid": "f653eeb89d2a67ccbe61c56a12e7f833130320f0"
+      },
+      {
+        "path": "apps/worker-python/dehps/advisors/protocol.py",
+        "content_sha256": "382f668ba257f75141d373508e3a1e910fa429a0c28251ee08b46eb727f456c8",
+        "git_blob_oid": "3be93fac7b48b028ce01c6b1044044f75e1c52ba"
+      },
+      {
+        "path": "apps/worker-python/dehps/advisors/registry.py",
+        "content_sha256": "479040ea93e0f04c8694d607ffc4266f78ec06405ead1eb53490704beb8d8e8e",
+        "git_blob_oid": "a591670a676b7136cfeff9fc116408f671bef47a"
+      },
+      {
+        "path": "apps/worker-python/dehps/advisors/ridge_kdj_adapter.py",
+        "content_sha256": "15455cab32a7f454e269ac34b6212ea7d5fa6622f0bf414f3b78272ffcba0d45",
+        "git_blob_oid": "c3b1e5c6b44bf6b1bb1d73a2917d38ad3f753a4e"
+      },
+      {
+        "path": "apps/worker-python/dehps/advisors/target_weight_inversion_adapter.py",
+        "content_sha256": "3cc0197c1ab5ea087a2074aea1c873d8d37b21cead92ff56da74011fa00f405a",
+        "git_blob_oid": "d9b9c7307c3b44acb620744aa6b23f89fb01b3e8"
+      },
+      {
+        "path": "apps/worker-python/dehps/advisors/weight_kdj_adapter.py",
+        "content_sha256": "304f15e4793bf6e68e88e90e153f65dbf89a509629d6579fb7027a19cdede2ed",
+        "git_blob_oid": "391c46892230f3c050c5b33adce1a9eeca8c8648"
+      },
+      {
+        "path": "apps/worker-python/dehps/agents/__init__.py",
+        "content_sha256": "4305b66d5777de97c07426d778bd93a78d3a124849f516ec344bf6171858ce74",
+        "git_blob_oid": "4827dbefd9db965c9f7d06d7de904abbcccab40f"
+      },
+      {
+        "path": "apps/worker-python/dehps/agents/actions.py",
+        "content_sha256": "d0006f0859d4e65baf4437d6d0377df9d1e5883c8ee6da2b9f4bbbec2c26a450",
+        "git_blob_oid": "0089b9116aaa53fcaf9cccc69150e93c7c3672ee"
+      },
+      {
+        "path": "apps/worker-python/dehps/agents/decisions.py",
+        "content_sha256": "bbb53c40927255466128242408891a2cd5d1b93eb79eced8fb09b9d9760c526a",
+        "git_blob_oid": "93cfa5ed298109631139e871dd622d5e4f4fcff5"
+      },
+      {
+        "path": "apps/worker-python/dehps/agents/errors.py",
+        "content_sha256": "367609afbee55988f08899a635bb2234e02deb95e2e426779c6be818661d6dbf",
+        "git_blob_oid": "17f98f3090a2b7b2ebc6eff6a85f2eef0337be5d"
+      },
+      {
+        "path": "apps/worker-python/dehps/agents/handoffs.py",
+        "content_sha256": "9b7222cb7ba204e6778e5090cd244f9cc1af61b741a32cd6917e5194e785812b",
+        "git_blob_oid": "cc946da31c5232fab272026052d2943d975b90f9"
+      },
+      {
+        "path": "apps/worker-python/dehps/agents/permissions.py",
+        "content_sha256": "829f97b9327a0187c236d7581dbdde4078f0c3177e62d1ffdbc8d6e0e5905565",
+        "git_blob_oid": "222d7852f00c35cf60a9ad4349ddf3a71be2e022"
+      },
+      {
+        "path": "apps/worker-python/dehps/agents/policy.py",
+        "content_sha256": "78a21e950a28ec7cd391c288d7e6d2922d43adcd37ce5a4ee366c87bdabde5ca",
+        "git_blob_oid": "b9ef59da1f0329520c03a1940e9678eee39ed72f"
+      },
+      {
+        "path": "apps/worker-python/dehps/agents/report_reader.py",
+        "content_sha256": "928004bf6ec9d63c25156c657b0b9442ca15cc65be491ced63ac7a86b26e12bb",
+        "git_blob_oid": "e57bdd9eb7c6efcd6443bea19eea24605a495a74"
+      },
+      {
+        "path": "apps/worker-python/dehps/agents/repository.py",
+        "content_sha256": "e9e9285481ff991a0fcef4e9cdbdffbfad8efd27f23a390946d497bae4ca531b",
+        "git_blob_oid": "56e76cf2306f32884e6e2f3d336475d6d8a6ceef"
+      },
+      {
+        "path": "apps/worker-python/dehps/agents/requests.py",
+        "content_sha256": "7ee8467f831829164c9e84547ffac74f7da9c3be0d8f848a501bfcee85796442",
+        "git_blob_oid": "6fb4ad88ce5d06edde00548b5e0ee9a9fa99d9a9"
+      },
+      {
+        "path": "apps/worker-python/dehps/agents/roles.py",
+        "content_sha256": "8ceeef1eb898548fe23ccd9e3ac729c6b7d2357a0b4727fad4d0c89cd761930a",
+        "git_blob_oid": "168070b1b2fbc2b5047b157c293c2e5efa98eeb4"
+      },
+      {
+        "path": "apps/worker-python/dehps/agents/service.py",
+        "content_sha256": "4b44db397e90c60971950e678566ff3897c7ce5871eb2344f9e45fcfd7470577",
+        "git_blob_oid": "2e51a5e256c35baad7304969d3eecaa557b1be84"
+      },
+      {
+        "path": "apps/worker-python/dehps/agents/strategy_suggestion.py",
+        "content_sha256": "c02c820574f2fe8d1392d961c44d933c6bde0e0cf972956aa326683baf5a3a7d",
+        "git_blob_oid": "0399bbdcadd590f19fcfc1c548589a2a98c6a667"
+      },
+      {
+        "path": "apps/worker-python/dehps/backtest/__init__.py",
+        "content_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+        "git_blob_oid": "8b137891791fe96927ad78e64b0aad7bded08bdc"
+      },
+      {
+        "path": "apps/worker-python/dehps/backtest/coverage.py",
+        "content_sha256": "c6658c8d7814f3817d94356d21e31eb09197545946715e0770f23a86909aeb68",
+        "git_blob_oid": "ba29788cc83ea271887da9acc546445423da95d0"
+      },
+      {
+        "path": "apps/worker-python/dehps/backtest/report.py",
+        "content_sha256": "6b84f7acfcf2d28e54258c656310529daf00b63ba8353da2c7397654046d263b",
+        "git_blob_oid": "35843df2688aca4c811d0d1f7d8ffd4d01e1e591"
+      },
+      {
+        "path": "apps/worker-python/dehps/candidates/__init__.py",
+        "content_sha256": "5c47ca4f875f4faa49657c9cc56bae6bb8cde991224186ddb750fb7156c2ebfb",
+        "git_blob_oid": "95b9ccc6a99dd92a6c1694ad4ee7cc7efc728a21"
+      },
+      {
+        "path": "apps/worker-python/dehps/candidates/generator.py",
+        "content_sha256": "34d6f9b132ae379523a1ca0fede45f8d7221acd1816fd6239bc6f9c69a7372f5",
+        "git_blob_oid": "7b65080be39d0d1c2003c7b7bcdbeb17c3a9e964"
+      },
+      {
+        "path": "apps/worker-python/dehps/candidates/leakage.py",
+        "content_sha256": "93e97e667af54ce9c5d35507d793d3bd61561dcbb072fa26f1709f65eff8bb72",
+        "git_blob_oid": "3929911d9b43b4b9ca5374c3ab20594a705c9da9"
+      },
+      {
+        "path": "apps/worker-python/dehps/candidates/null_model.py",
+        "content_sha256": "2aed109115b1fcc6fd69e806a81765bb16c1d35b7cac5012d58bd9b44e5c49f9",
+        "git_blob_oid": "48e6798ae306704860e5c5ce697b60c22035d67a"
+      },
+      {
+        "path": "apps/worker-python/dehps/cli.py",
+        "content_sha256": "7eeff71c7248a1a6a619afdb2fc39f3056a9a9d44010691ca2c49498835735dc",
+        "git_blob_oid": "278c1fd9bbcbd1daa2619be4a5e45858277965e8"
+      },
+      {
+        "path": "apps/worker-python/dehps/config.py",
+        "content_sha256": "eea6900dfe53f871b8807178d15c67f720a0776a2340d9f2d255fb717c7adfa7",
+        "git_blob_oid": "0aa68fc3499870b3dbe190dbefcebf249157f3f7"
+      },
+      {
+        "path": "apps/worker-python/dehps/crawler/__init__.py",
+        "content_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+        "git_blob_oid": "8b137891791fe96927ad78e64b0aad7bded08bdc"
+      },
+      {
+        "path": "apps/worker-python/dehps/crawler/ssq_client.py",
+        "content_sha256": "6721a9aac1f10e11451ee3655ad86c5a9c49ef092f2dd0f8eae18f90677ca307",
+        "git_blob_oid": "ade9fe8c541f7a1fa8f518d280887c7a3f7e66f5"
+      },
+      {
+        "path": "apps/worker-python/dehps/crawler/ssq_conflict_resolution.py",
+        "content_sha256": "40390a19e8992854557b68f05ee02b63511c079b95e5797eb1a558d756cef92b",
+        "git_blob_oid": "1c8c923b5f08829d7c98f191c194a02c39262e6d"
+      },
+      {
+        "path": "apps/worker-python/dehps/crawler/ssq_parser.py",
+        "content_sha256": "818d6aaeac18fb64b28348926dbfe59af4e94f8ebdf42311ba0147eeac0c40cb",
+        "git_blob_oid": "9ccb4ecee574a9078f4659f128e9162bc2fe2edd"
+      },
+      {
+        "path": "apps/worker-python/dehps/crawler/ssq_sync.py",
+        "content_sha256": "097d931086a16819f99bc9b6eaf8f45fa4030f99bec94818f9322bc898af3c14",
+        "git_blob_oid": "5cbaaa1051d601f35ce360297811b46c8063d244"
+      },
+      {
+        "path": "apps/worker-python/dehps/db.py",
+        "content_sha256": "831396e39f8c79c856e8e910af4810a45f29ea7c16f35e90e138bcfa5db72884",
+        "git_blob_oid": "5b74a70cf876b4e96ba617bc1c6ae4ce933e68ea"
+      },
+      {
+        "path": "apps/worker-python/dehps/domain/__init__.py",
+        "content_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+        "git_blob_oid": "8b137891791fe96927ad78e64b0aad7bded08bdc"
+      },
+      {
+        "path": "apps/worker-python/dehps/domain/combination.py",
+        "content_sha256": "f2425a2003107c6a97b9bf3402aac26aadb89d8dd8fe6662d374e50951330c92",
+        "git_blob_oid": "607ed78fb52024844af30859bd75e65bfff37721"
+      },
+      {
+        "path": "apps/worker-python/dehps/domain/lottery.py",
+        "content_sha256": "2798bfa40cadbf72d21dff9fbaeec2e40751c628b22795b2bc6ea3cd6ec054c2",
+        "git_blob_oid": "673b4b86901dca9d0bd278ff82123ed50f891fc5"
+      },
+      {
+        "path": "apps/worker-python/dehps/draw_sync/__init__.py",
+        "content_sha256": "67d81e0f9628b172672edbf10777b977a626fb6fd0a38a0c33f13726f7e2d2e1",
+        "git_blob_oid": "dfca678112260cf0b8ecaaa4f30522a5288af19a"
+      },
+      {
+        "path": "apps/worker-python/dehps/draw_sync/audit.py",
+        "content_sha256": "85257b86ecdbe69eec46548a0e8f03b8d054ffc40ccb0e4896bede38623d270a",
+        "git_blob_oid": "f541e0ce3cd66c07f5105abbc3b4780cf0286484"
+      },
+      {
+        "path": "apps/worker-python/dehps/draw_sync/events.py",
+        "content_sha256": "4935e506ea97f74e07be3d01fc25f084031e8486e713a47b5b65b91edd3d5201",
+        "git_blob_oid": "3d7212c153d2e47e906f9548633d8f3df401e9bd"
+      },
+      {
+        "path": "apps/worker-python/dehps/draw_sync/issue_detector.py",
+        "content_sha256": "65e7e8cafbf48fa0ee43e12b82dba6200fa823f7279ff45c81b25d74492bbf80",
+        "git_blob_oid": "188bfc0b91455bf607c221dfe026528b04e5c4b7"
+      },
+      {
+        "path": "apps/worker-python/dehps/draw_sync/launch_contract.py",
+        "content_sha256": "ffc08b1ab6caeca98e64961f6bef772fcbec995d966ee816a2b7eeda0f714023",
+        "git_blob_oid": "e67b5949d8af2fd95be19ef49891c07d9d6550c1"
+      },
+      {
+        "path": "apps/worker-python/dehps/draw_sync/lock.py",
+        "content_sha256": "ab1aeee1ad9d97bbbaba9fcd831078e47c6210bb9861be3776841e6a10dfbe30",
+        "git_blob_oid": "a382984822648950c971f7cb16be4e303c726bbc"
+      },
+      {
+        "path": "apps/worker-python/dehps/draw_sync/models.py",
+        "content_sha256": "7a21e5489b7c75a911dbdd4f94f48201c72abef90fd76381e26984e3582138c8",
+        "git_blob_oid": "b5a2d6c0c0a11d8727a97758b74b0a49668f1d1b"
+      },
+      {
+        "path": "apps/worker-python/dehps/draw_sync/repository.py",
+        "content_sha256": "e9a22aff5926e4cd87db19b6e2c00adb88ed202ca3cbbeb96104c611f4348600",
+        "git_blob_oid": "14fcb15d2448711dc58687558515a3c757f3a59f"
+      },
+      {
+        "path": "apps/worker-python/dehps/draw_sync/scheduler.py",
+        "content_sha256": "31ee4d1c696dad28a2bc4091fcaad05cc8b99ffb1e60d12ba4032e521a1cdd89",
+        "git_blob_oid": "9c01ae85b6ac7fc9a843fbc9f11e34c8f6766e48"
+      },
+      {
+        "path": "apps/worker-python/dehps/draw_sync/service.py",
+        "content_sha256": "2648784ba5faecbd41e219dbdcd0af2b4d66aadaed11b3672ffa5c0e2aa2101a",
+        "git_blob_oid": "0a12776544754c36d7de5ece0cb37de1e11d786b"
+      },
+      {
+        "path": "apps/worker-python/dehps/draw_sync/supervisor_ownership.py",
+        "content_sha256": "ba4c762453a8e6128c7e6cfe4a6bee512a3e2b42a0aa4f5a4994d313a1dfdeb9",
+        "git_blob_oid": "266b5dd41c41f60f478402b2d0b9a1aee167cd9f"
+      },
+      {
+        "path": "apps/worker-python/dehps/draw_sync/synchronizer.py",
+        "content_sha256": "e71b54bbc2d281a6980506128932d3b1096b90c3ccdaeda937ff2632101a9cfe",
+        "git_blob_oid": "787420daa9264c8e4dff6d7b92f4cc5bb16cb030"
+      },
+      {
+        "path": "apps/worker-python/dehps/draw_sync/systemd_deployment.py",
+        "content_sha256": "a23078aec355a3d39b51fca50546d1384a0cd907aac3c100ada65c19c0da22b3",
+        "git_blob_oid": "f328449e42b9412c6b50267aa62591162ce448cf"
+      },
+      {
+        "path": "apps/worker-python/dehps/engineering/__init__.py",
+        "content_sha256": "b3cfcea8224badc6c1420222c22e4cb6acae2fb7b3280886ddc2dd39258e6221",
+        "git_blob_oid": "71957254576e40a2570777d47aa05e4e4e0d5196"
+      },
+      {
+        "path": "apps/worker-python/dehps/engineering/change_plan.py",
+        "content_sha256": "4de34c621c598ef54dc908098818b7ca91d897b553bdc900a92f6d45b32c25c0",
+        "git_blob_oid": "95fdd19b7905e10706a81678a85f1b7b4d1c5bdc"
+      },
+      {
+        "path": "apps/worker-python/dehps/engineering/code_graph.py",
+        "content_sha256": "4456ac807289766ee2a894c8db2449cf17132c412b84a656467ad4056a16e27b",
+        "git_blob_oid": "4abb1ec5ccde4a4a7498c047456df229e5fe65e1"
+      },
+      {
+        "path": "apps/worker-python/dehps/engineering/contracts.py",
+        "content_sha256": "67c28f1d23d57980e528a9e0d54b9e6c4058ea4ff2a7da922ebd989d9f0d3559",
+        "git_blob_oid": "6f414a325366c37d8d60a93226641e8491d25395"
+      },
+      {
+        "path": "apps/worker-python/dehps/engineering/locator.py",
+        "content_sha256": "ae677639b73ed1b1e0c2a028748c4f137a56b747e0a3d43792d5b867c1fb8b03",
+        "git_blob_oid": "f73a97ce3f467dca90da58874c751e14326a2fd0"
+      },
+      {
+        "path": "apps/worker-python/dehps/engineering/planner.py",
+        "content_sha256": "13d4bd68a7b6ba4494999f792d9b4041b66064c5f75f91d02c3aee585892d602",
+        "git_blob_oid": "21393c2745e73b3e25df28c79d308b7fa1cbe56b"
+      },
+      {
+        "path": "apps/worker-python/dehps/engineering/service.py",
+        "content_sha256": "4fbf16141f5591d8c645eacce06f3df83e6f34e0de29683d341a0730e9d8a03e",
+        "git_blob_oid": "b6b43e45c4cb0ce66f4f72d24f682a1752d7e53a"
+      },
+      {
+        "path": "apps/worker-python/dehps/engineering/tests.py",
+        "content_sha256": "0bba82422be04e3cfbee2e514c91731853d0f05131a2dde4234ce64218cf7d08",
+        "git_blob_oid": "6767df796fec46a68dc8d2420f509a4b741c7277"
+      },
+      {
+        "path": "apps/worker-python/dehps/engineering/validator.py",
+        "content_sha256": "1d3a32da16f2bfded2dbd49e7100fd98fa73adc9342ff8dc36bb962bad68b903",
+        "git_blob_oid": "264691dfcc18763855d6822bf8e80bc99b57f884"
+      },
+      {
+        "path": "apps/worker-python/dehps/evaluation/__init__.py",
+        "content_sha256": "868df34ee0acc0310c0a81d1f0fefc39ef7f4e004c5bbb16ba8cfc94164e1f3d",
+        "git_blob_oid": "9dcc222d27249055b5510a47be2fbdaeb3d0a8cc"
+      },
+      {
+        "path": "apps/worker-python/dehps/evaluation/artifact.py",
+        "content_sha256": "3e6fad458445804ee8e6fd665a7ac4a325cb655f60bbda21592d791d2903fbed",
+        "git_blob_oid": "0b2243ceb3f8cff323310e9160465307c87521ef"
+      },
+      {
+        "path": "apps/worker-python/dehps/evaluation/models.py",
+        "content_sha256": "cd346a7b1f61179c84562da976f4a59fd54ba90ae42cb34f2968cdb6984374c9",
+        "git_blob_oid": "4c4359630eb266f48b21d06f24918039cf613901"
+      },
+      {
+        "path": "apps/worker-python/dehps/evaluation/objective.py",
+        "content_sha256": "2a0aed7da84bf4c2359843e1653f5cf902df81ec40176a14bc6a5d017d12e808",
+        "git_blob_oid": "ccdecfca2450f1011b1f7e33c0a242f58770b089"
+      },
+      {
+        "path": "apps/worker-python/dehps/evaluation/objective_policy.py",
+        "content_sha256": "5e645ff6d2cefe392c20d05f739b83baa8d83f06483fe38c12b76c6e9b25fcc0",
+        "git_blob_oid": "562a6458238ec438a747f4aabd535c53d0e13900"
+      },
+      {
+        "path": "apps/worker-python/dehps/evaluation/pipeline.py",
+        "content_sha256": "baf5067bdd5c8a7a2fa519d3c919c7ab866d12365f4c7ee08d5073cd3a845d6b",
+        "git_blob_oid": "5d9169833abac4a9b18b943e14f652a63c0e377f"
+      },
+      {
+        "path": "apps/worker-python/dehps/evaluation/promotion.py",
+        "content_sha256": "73a55bcee46dbc2f048403bdfdcda711979e3f33052758a790c9199209c63433",
+        "git_blob_oid": "d77eebac73bab501ba68d0f51e11ef0dded86367"
+      },
+      {
+        "path": "apps/worker-python/dehps/evaluation/tail_risk.py",
+        "content_sha256": "5f717ba35cae0fc38a53396a3f6fd06f277936436781a049c3c5cd20466e16f9",
+        "git_blob_oid": "73343b9e5a36431d65d24743eb79e6f3848bdc3f"
+      },
+      {
+        "path": "apps/worker-python/dehps/experiments/frozen_future_30/__init__.py",
+        "content_sha256": "65d63c295ca7a47cb58fb6f5a7399f2e38ee41ec761931ff0f073e526dd8f364",
+        "git_blob_oid": "6457599227c901a695d4b136854bb17ebd72b535"
+      },
+      {
+        "path": "apps/worker-python/dehps/experiments/frozen_future_30/artifact.py",
+        "content_sha256": "73d8560704fae97bf17b2783a8b6c4b5cd90c53466ad575ac4e1ef013d367f44",
+        "git_blob_oid": "c8f61318587cde2b34942eba089ed693702838bd"
+      },
+      {
+        "path": "apps/worker-python/dehps/experiments/ranking_disagreement/__init__.py",
+        "content_sha256": "d65496769d37470d81e5ec98d78deb34e576eee11f1d3e694a1212f628606fa2",
+        "git_blob_oid": "040ca3e83be2165ff9086a6b4ba85183e5ef7f95"
+      },
+      {
+        "path": "apps/worker-python/dehps/experiments/ranking_disagreement/artifacts.py",
+        "content_sha256": "8ad57fb923a8e811da30243aba8780f8cd615c1deba0b725ab64672b9d4c0e5c",
+        "git_blob_oid": "bde575363546e22a966d56bdc5fe0ae4de2e52b6"
+      },
+      {
+        "path": "apps/worker-python/dehps/experiments/ranking_disagreement/baselines.py",
+        "content_sha256": "676680293724cfa64511a7f893bd398fb305db695fc69f420c029a256dacf0d8",
+        "git_blob_oid": "0f96c91ef19d40b4039b0d1d115bd0bc478715dc"
+      },
+      {
+        "path": "apps/worker-python/dehps/experiments/ranking_disagreement/cli.py",
+        "content_sha256": "b0e96f5f87287c6d3bfccb7546131eec07cb600f557c2457dd27d857e02ae577",
+        "git_blob_oid": "21c2da15173b4d658ad763fb200f6fde89399686"
+      },
+      {
+        "path": "apps/worker-python/dehps/experiments/ranking_disagreement/executor.py",
+        "content_sha256": "f53bc283051c7824ba1dafde9a939b68f83d6b51479360301b599e45ecd11286",
+        "git_blob_oid": "6e134fa86485b8b67c43b6abbd8540675ab50858"
+      },
+      {
+        "path": "apps/worker-python/dehps/experiments/ranking_disagreement/features.py",
+        "content_sha256": "d03aa06ba59bcbc821319dec1c2684a5bdf2afa277ed20662c8519ba9305c66b",
+        "git_blob_oid": "3752dacd2169974ecdee440b4b7340356a774593"
+      },
+      {
+        "path": "apps/worker-python/dehps/experiments/ranking_disagreement/metrics.py",
+        "content_sha256": "e971f8e6ecd86edf49c9d3c3dc4274d4f767e96c4c8c8e4ca887cfb5c9b0ba87",
+        "git_blob_oid": "59ad272388c66a27f0ea718da93b7d7fcddd48f6"
+      },
+      {
+        "path": "apps/worker-python/dehps/experiments/ranking_disagreement/models.py",
+        "content_sha256": "8b95310033fa28822afab960a065fe49be2eaa7e1960ecd313e3af2edd547a3f",
+        "git_blob_oid": "cacc4f63e886fe42db43093198b750db3a6cf7da"
+      },
+      {
+        "path": "apps/worker-python/dehps/experiments/ranking_disagreement/rank_matrix.py",
+        "content_sha256": "67db62d36af93a1187b1d5cfcd40925773e91eeb59635a59c1af9c09dfab07eb",
+        "git_blob_oid": "cb7e2ed85124230a808518d47e0f85e9d7f63fd1"
+      },
+      {
+        "path": "apps/worker-python/dehps/experiments/ranking_disagreement/ranker_adapter.py",
+        "content_sha256": "b912d36d28db73fd9d80f7224b6f7e8caea107f620ebb0ce404114b5b9c0d3d0",
+        "git_blob_oid": "716fa82d296310923073a7d48c810446410aeff3"
+      },
+      {
+        "path": "apps/worker-python/dehps/experiments/ranking_disagreement/statistics.py",
+        "content_sha256": "d86422bcec9339d31b16867bb569484b4609ae0ce15d470f9c7ed6ee84024297",
+        "git_blob_oid": "c67444d4618b7bf568912151abb6dfdcaa25852c"
+      },
+      {
+        "path": "apps/worker-python/dehps/experiments/ranking_disagreement/strata.py",
+        "content_sha256": "6dcc826e8d7f172af90dce7c1e1abbffc143c4adb0f1e5001ecfd0e0ad3f102e",
+        "git_blob_oid": "dd96de82296ce9fa464bc4650cc23934c53c8985"
+      },
+      {
+        "path": "apps/worker-python/dehps/experiments/ranking_disagreement/validation.py",
+        "content_sha256": "b19e59644d0ed827c0954c8bf01b9907907f28fff87dc0e90c53946af0b24af0",
+        "git_blob_oid": "4c1b81936783ff1ac66b634489add9867c327a76"
+      },
+      {
+        "path": "apps/worker-python/dehps/experiments/ranking_disagreement/windows.py",
+        "content_sha256": "7be2f033ee3c00c5bea2f3cc3a07c8caa532b158e0b638ab7c1fb3e494940bf0",
+        "git_blob_oid": "712c138bd6d05fe029f845f67c049fca7c4a20ec"
+      },
+      {
+        "path": "apps/worker-python/dehps/feature_runtime/__init__.py",
+        "content_sha256": "5e4b85166a01b3cd325969a40f8e235470c44af4483278926d93799a2e72f017",
+        "git_blob_oid": "28718b8d6ad880ffd93fddb6a4c32e7ecfd832d3"
+      },
+      {
+        "path": "apps/worker-python/dehps/feature_runtime/abi.py",
+        "content_sha256": "e0a8d3beb3901bfbf86c8fffc0a5c16fd98bbd35d44c6a02aa06d1eda329c49f",
+        "git_blob_oid": "826b08970c9840434a1aecce6619f0ddc0c17e5d"
+      },
+      {
+        "path": "apps/worker-python/dehps/feature_runtime/cache.py",
+        "content_sha256": "25af0fd87d405bdb94fafb05d63c9d94275f8d30f2653f0d6c736d6ae5268c9f",
+        "git_blob_oid": "24e3a7d40bcd750ecfadcb791cc9b22091afcd58"
+      },
+      {
+        "path": "apps/worker-python/dehps/feature_runtime/compiler.py",
+        "content_sha256": "9755fc807a9fcd003209f69054d98a55c4565da5b6b2ead9cbf5c3d7104d084a",
+        "git_blob_oid": "cca7ade015159f6f6bc46ef4e33ce8342927c940"
+      },
+      {
+        "path": "apps/worker-python/dehps/feature_runtime/producer.py",
+        "content_sha256": "0b0ed1a0e64b8cf7d50b1df4df3e97e098e4592735e68723d23c0b4b0b86589a",
+        "git_blob_oid": "c1ebd4fb15d5f1c61b98b1658ed6b8591691b3b5"
+      },
+      {
+        "path": "apps/worker-python/dehps/feature_runtime/runtime.py",
+        "content_sha256": "de32faf1179479ce827e57fa7921246f8fdb1447d3a63f382431c5b494892608",
+        "git_blob_oid": "e38b730ce2b76e6ef4ab881096ea129956d78359"
+      },
+      {
+        "path": "apps/worker-python/dehps/features/__init__.py",
+        "content_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+        "git_blob_oid": "8b137891791fe96927ad78e64b0aad7bded08bdc"
+      },
+      {
+        "path": "apps/worker-python/dehps/features/gua_encoder.py",
+        "content_sha256": "30283e722199b3906de3eb241d67659c94964623e553d4b2e06b70226859ad10",
+        "git_blob_oid": "b2c8dbaff255f0dd5a21e4998a01422e5ca40a16"
+      },
+      {
+        "path": "apps/worker-python/dehps/features/pattern_complexity.py",
+        "content_sha256": "bb07a92632a6aff57926bb1327dcaa8bd80fc418d30fdfbaa4c7916049858a28",
+        "git_blob_oid": "91ffda15bf58d7f849c73f94185775305ff5b1ac"
+      },
+      {
+        "path": "apps/worker-python/dehps/features/qian_kun.py",
+        "content_sha256": "112d3e19f6582f206339c85c01baa1b4f2f7d584e0907d700ffc22a3e74de04a",
+        "git_blob_oid": "63562ac4aed400d2121970ebbb7d5e2dbb69b68d"
+      },
+      {
+        "path": "apps/worker-python/dehps/features/red_ball_features.py",
+        "content_sha256": "5e314fa9a1d5055535e8fbc91db0cfd8ccf8161c5ea4b723ea5affc8a9bf5729",
+        "git_blob_oid": "787ad0630910012d5b2967ed5eebf07abbc9478c"
+      },
+      {
+        "path": "apps/worker-python/dehps/forward_checkpoint/__init__.py",
+        "content_sha256": "38d8196cd9faad64efa510bd05515672804000360dfef5086c2c6e69acca1df9",
+        "git_blob_oid": "bfa680a1ea7e7d469cf3f470e73a2b266d15282f"
+      },
+      {
+        "path": "apps/worker-python/dehps/forward_checkpoint/issue_2026084.py",
+        "content_sha256": "bb80a3433beed6651354dadfc530c2f612c45787eca4bbf26cd08bbdef19084b",
+        "git_blob_oid": "f2fe84625b302ddbf18f5ae7c528c71b6fcf1fdd"
+      },
+      {
+        "path": "apps/worker-python/dehps/forward_promotion/__init__.py",
+        "content_sha256": "b474139b77642dbb1f7827a32c60f14e9be8e4e7d2bdbc1c32f42e2d042f7624",
+        "git_blob_oid": "a377abb4e8bf6eac807d03d60f5595659fed6232"
+      },
+      {
+        "path": "apps/worker-python/dehps/forward_promotion/gate.py",
+        "content_sha256": "861caa4bc3c04749902418e344e4519a71de321211db8b0a54617b1001ad8586",
+        "git_blob_oid": "7ab7e6025d9fe24d4581729eedbb9a43e680c74b"
+      },
+      {
+        "path": "apps/worker-python/dehps/forward_promotion/service.py",
+        "content_sha256": "2212a7b0ed591eabc4ca40ba353ddf9c573c2c49de912cde46be50d766f6c3b8",
+        "git_blob_oid": "3e4290480154374ffdd8b44b6e411b670afe8115"
+      },
+      {
+        "path": "apps/worker-python/dehps/forward_promotion/storage.py",
+        "content_sha256": "85647c0bc9fa82079296ec05d2d780f8e414824286c30d83825a9d44f0a17214",
+        "git_blob_oid": "fbdebb227f1e2c77c8f0eff1e371be7d50237b51"
+      },
+      {
+        "path": "apps/worker-python/dehps/forward_runtime/__init__.py",
+        "content_sha256": "52d7aa694b62491576840f413c00f395aa7110924c86d1b55062a72d9dbf3a63",
+        "git_blob_oid": "6aae2f06d46f66cc1ea904c93f3aee16376d0ff9"
+      },
+      {
+        "path": "apps/worker-python/dehps/forward_runtime/evaluation_artifact.py",
+        "content_sha256": "657c75fae334c48408dd8e9b919b4718fd0f98a6c3737e4de454ff8bb35162f5",
+        "git_blob_oid": "f55936b81c52eb9ca991523ca11e103862360650"
+      },
+      {
+        "path": "apps/worker-python/dehps/forward_runtime/evaluation_service.py",
+        "content_sha256": "284c20ed78d6f60021b5010de3f575348dbd6717e3669e852aa332520ffd1224",
+        "git_blob_oid": "4fd3f70713aaccad1ef319c218bae85686561686"
+      },
+      {
+        "path": "apps/worker-python/dehps/forward_runtime/latest_prediction.py",
+        "content_sha256": "7a33ffdecaafc0273b1292c0a72bad24f644e3ab8feae9c338723d7967a9759f",
+        "git_blob_oid": "9b4cf35ef886e9509ae5cfcdec6d384b04e20e5a"
+      },
+      {
+        "path": "apps/worker-python/dehps/forward_runtime/models.py",
+        "content_sha256": "b8d98c2ae4da1540635e20646f53711b25b6532bca2f4a2ab3b6db4c88363510",
+        "git_blob_oid": "13888d220b1ec4fd50deb588ef8cac879f158aca"
+      },
+      {
+        "path": "apps/worker-python/dehps/forward_runtime/queue.py",
+        "content_sha256": "f418c969a86f9dce084f4dc8584ce6448b3f8685d144e6bed7c0c122d649ff4d",
+        "git_blob_oid": "839f3ef501edf79360cd4e9d965499f22abedcb3"
+      },
+      {
+        "path": "apps/worker-python/dehps/forward_runtime/resident.py",
+        "content_sha256": "adf0f669eba7c20beaa25ef6d02e5f73e6263ba48586a69ac3e3cccdf1ecf7f1",
+        "git_blob_oid": "f157dd119c1b9838d735889828cf1dfc51b61e76"
+      },
+      {
+        "path": "apps/worker-python/dehps/forward_runtime/runtime.py",
+        "content_sha256": "950ec0e94bbfe0c0e1660295df1efa6600a166fa5d71001bfe3103f53c409bdf",
+        "git_blob_oid": "10a4d7a62def2ca3cf1342a06036d1fca0392aa1"
+      },
+      {
+        "path": "apps/worker-python/dehps/forward_runtime/service.py",
+        "content_sha256": "6a1856d1239da33eb47fe9868b32d9faf045f2beadcadad1104de9061654ef41",
+        "git_blob_oid": "5b87d9a5e514a04ff4d3a7eec59b7b99c619acff"
+      },
+      {
+        "path": "apps/worker-python/dehps/forward_runtime/shadow_adapter.py",
+        "content_sha256": "beb5fff980574cc7798d027bae730b7d6929e6a8e132de1a978251411cbd5bd1",
+        "git_blob_oid": "19558b169b5672aa07e6bf291a807997068381e6"
+      },
+      {
+        "path": "apps/worker-python/dehps/forward_runtime/shadow_attestation.py",
+        "content_sha256": "e44ffa7eff562a333a73521b737d9b17d7066611557d4a6ae58b774dfa931b46",
+        "git_blob_oid": "870bc22a316d5dca8298d27f66dc3e23ad06e35d"
+      },
+      {
+        "path": "apps/worker-python/dehps/forward_runtime/shadow_capture.py",
+        "content_sha256": "c3a55a4ccf76cae5dcebfbce08e829974a40ca3021cb6f47bd79d1e69bc8bfa7",
+        "git_blob_oid": "5dcf367bfeaf02f68b09a18ba03d17cc631556df"
+      },
+      {
+        "path": "apps/worker-python/dehps/forward_state/__init__.py",
+        "content_sha256": "f1678880e3d864b48a51314c517ad74684170f5dcec6df9f339ee745f2bd36ce",
+        "git_blob_oid": "ab12813cb3ef718abada5320a3b5067e88e28b0a"
+      },
+      {
+        "path": "apps/worker-python/dehps/forward_state/models.py",
+        "content_sha256": "0f51166c2e0680bc3b0d1a1108740a56d4cd80efbcf3cf0c52ce715e8943e5ca",
+        "git_blob_oid": "8639bad4602cb191a5992b4786fbd51048bda57e"
+      },
+      {
+        "path": "apps/worker-python/dehps/forward_state/reconciler.py",
+        "content_sha256": "da6dc73b199222f725099c90729bead3fac80c965e548ee4dddec8c71817f336",
+        "git_blob_oid": "5d76738ef846f68497b535b3db7e2ea06cb7e406"
+      },
+      {
+        "path": "apps/worker-python/dehps/forward_state/repository.py",
+        "content_sha256": "228517ced97e44fec623daae11ea2d7f4184a07071fe22863eac27900f2f3946",
+        "git_blob_oid": "127c8b0c98209a8d95c16f68efe38afdf1d0112b"
+      },
+      {
+        "path": "apps/worker-python/dehps/forward_state/service.py",
+        "content_sha256": "2d304f8907ad794c3218a5f4f14c4c84f76e8953c5b8ca167ff9c2cae04a9e03",
+        "git_blob_oid": "0bc3bc233e8c203d88909f2abb52e348106f760b"
+      },
+      {
+        "path": "apps/worker-python/dehps/input_contracts/__init__.py",
+        "content_sha256": "8c1f467872ded730622ee525fccf7f3db1a9025bc31f8ecc6a5dd0737a72c1cf",
+        "git_blob_oid": "b2aade24e4f7f5e6ab2284f6fe28eb4c5e7625b2"
+      },
+      {
+        "path": "apps/worker-python/dehps/input_contracts/candidate_abi.py",
+        "content_sha256": "699b6ceafe6c5b4f5bfd0fe5bce1effd0b9529410edc7caa9ffc22e7491eff32",
+        "git_blob_oid": "e1ae2bda753deb4a811d8a0f4034da930ad8a800"
+      },
+      {
+        "path": "apps/worker-python/dehps/input_contracts/evaluation_contract.py",
+        "content_sha256": "435aa57d4fe0d40f01ce2548dfffd10febf134f707e11bc2f15720d27bd41422",
+        "git_blob_oid": "c8f46e3ed0261788ef23028497e94f23469c5433"
+      },
+      {
+        "path": "apps/worker-python/dehps/input_contracts/feature_contract.py",
+        "content_sha256": "24a3ed65c2495ccf45377c4971067e22a2be00a6802e75bd40fc331e7bfc661d",
+        "git_blob_oid": "f86bdd997b0676eb19bee68484542a70353dd5d4"
+      },
+      {
+        "path": "apps/worker-python/dehps/input_contracts/history_window.py",
+        "content_sha256": "3f65c1413562f519779c67f598336688004ac6c77bc621310183c2f8dc1db0fe",
+        "git_blob_oid": "f0540321b48a3c24555ecf242b89024e11870a10"
+      },
+      {
+        "path": "apps/worker-python/dehps/models/__init__.py",
+        "content_sha256": "c208681f920a746123bbf814ea15b565ee00ab16acdc82dd14ccb6cecbadd00b",
+        "git_blob_oid": "b5c427c19ba99799acd02660338e31b0ead35b9b"
+      },
+      {
+        "path": "apps/worker-python/dehps/models/frequency_ranker.py",
+        "content_sha256": "28694b92534d9878dee73eebfb3e2341282eeee1bb8729ecee9a0988fea9fecd",
+        "git_blob_oid": "77622f95af18deb1b6da32562c4b2f64f1bb0f86"
+      },
+      {
+        "path": "apps/worker-python/dehps/models/prediction_input_boundary.py",
+        "content_sha256": "266d9fb0c58316992dfcd7af5df3e15c419c45c029d83b898589da1064146ede",
+        "git_blob_oid": "362eeec0aebae5d041034f91155fdd47c1fc7ce7"
+      },
+      {
+        "path": "apps/worker-python/dehps/notifications/__init__.py",
+        "content_sha256": "32ac841fdfb6c20dbcdc09f01f04d1af88e7303106e5c136a4d5ff09a0df12e6",
+        "git_blob_oid": "a35f71a1d04b00ebe72a4228731adc65f8dce2a9"
+      },
+      {
+        "path": "apps/worker-python/dehps/notifications/mail.py",
+        "content_sha256": "f54a2766dad303bed0092d128918eceaa2e223e8acf05f33ae6374bda280ad8c",
+        "git_blob_oid": "2f0f07e0acf2e06c94d4c528dbbfa7b23159943f"
+      },
+      {
+        "path": "apps/worker-python/dehps/notifications/mainline_prediction.py",
+        "content_sha256": "a9ea021dd04f6bebbf8f393c6b86bd8160a44f3eac0031bcaf6ab8bd73b5ed2f",
+        "git_blob_oid": "bbed79440bbfcaf5bef2f8d391f2f8f159907eb6"
+      },
+      {
+        "path": "apps/worker-python/dehps/notifications/post_draw_evaluation.py",
+        "content_sha256": "b6e2373cf735b39ca380fa1f973339795c528b3fad89d9b8cd9007961e3d0c66",
+        "git_blob_oid": "b6020b05b093e7b5b175c5a3b4dae3e1756fd881"
+      },
+      {
+        "path": "apps/worker-python/dehps/notifications/prediction_v2_shadow.py",
+        "content_sha256": "80f86415fd037a96aa75c18243d60385d456778346bd06b2a4499060e1d4bfad",
+        "git_blob_oid": "0d06b8c3c4f3bf9e225bd14dd67ae9da8683d1ea"
+      },
+      {
+        "path": "apps/worker-python/dehps/optimization/__init__.py",
+        "content_sha256": "89b96bc57a501e993bffd051d0a12c147b7ead1dfeb21637ede90ee3bc77b3d9",
+        "git_blob_oid": "63b11a8d8a044597feb2247aef6658654bfbcdf7"
+      },
+      {
+        "path": "apps/worker-python/dehps/optimization/champion_collapse_audit.py",
+        "content_sha256": "16d86b1d4c4dcbdd8c3f7ef8f27702e2f40f7a8cb879a59d1bb11bed6acf8c2b",
+        "git_blob_oid": "ebeb7211eccbbbc7d707eb1a95932e68b13a22ea"
+      },
+      {
+        "path": "apps/worker-python/dehps/optimization/config_io.py",
+        "content_sha256": "14e5017c4b91e71b6d87854ef848f46eb6d58c4d20e1d399cb75e5c585251457",
+        "git_blob_oid": "94da35b941b95fb3513ce2e52aea1eb27bb70878"
+      },
+      {
+        "path": "apps/worker-python/dehps/optimization/control_experiments.py",
+        "content_sha256": "2321d096bbf4e268e355558844c010807c916735f4f74c6707cc52a132a5ef52",
+        "git_blob_oid": "8c84c2edb9608240caaf6d3b1ed4614ac5e19eee"
+      },
+      {
+        "path": "apps/worker-python/dehps/optimization/dynamic_kdj_backtest.py",
+        "content_sha256": "1cbdd86fa428423fb35eeeaf9869aa36c392b2ed11c33620d95b096cad1b94f8",
+        "git_blob_oid": "c6229ae3153ec0591684a68523b7da6999702016"
+      },
+      {
+        "path": "apps/worker-python/dehps/optimization/feature_ablation.py",
+        "content_sha256": "c4ecd661200de46af7296a62664c10bc6305efe558387377361903747ec4d75c",
+        "git_blob_oid": "4029693f54bfb742a89da34f936c97d0958d2b69"
+      },
+      {
+        "path": "apps/worker-python/dehps/optimization/forward_evaluation_plan.py",
+        "content_sha256": "b9dc1419cb50235db27ddb89f63885ef8386c0c99d0e69e539630af4c95abd16",
+        "git_blob_oid": "50e2850cb35a6c015b9924553b0d95c4f5dc6f1d"
+      },
+      {
+        "path": "apps/worker-python/dehps/optimization/line_overlap_audit.py",
+        "content_sha256": "b945512e404a671e3f67dcdc9d72c7757d340d902dc979629246d55dc03f4ea1",
+        "git_blob_oid": "87998e164303168b4aa9cb14ea4220e43a448528"
+      },
+      {
+        "path": "apps/worker-python/dehps/optimization/near_dynamic_report.py",
+        "content_sha256": "9f6b26be68ef8d331edb4d5f90ff95a83c9f6bbad3ce886850e622934a86e0fb",
+        "git_blob_oid": "89a2115481ee26f5b755cba9f4c226fe5e81849e"
+      },
+      {
+        "path": "apps/worker-python/dehps/optimization/near_residual.py",
+        "content_sha256": "a36973c002cefd9be251b9105c2d319aefaa3d63d46eae47c7770ee4d73778d5",
+        "git_blob_oid": "780db2a4dacae1677a1a66553e706690fea98683"
+      },
+      {
+        "path": "apps/worker-python/dehps/optimization/neural_kdj_advisor.py",
+        "content_sha256": "458e2cd4e5ac95adfa6458c009219fd6a79b810a2792a9e819eb0c7cb2bf6acc",
+        "git_blob_oid": "f5d99352d92c0dd13c8e437b0d87e657c187169b"
+      },
+      {
+        "path": "apps/worker-python/dehps/optimization/next_candidates.py",
+        "content_sha256": "b2ede2c556681ea62b4ca5abcd83f549552755ad2018e53de7b91959a7dee855",
+        "git_blob_oid": "dfee7b610e3a2756329aa20551e1f2fb0681f53a"
+      },
+      {
+        "path": "apps/worker-python/dehps/optimization/prediction_evaluation.py",
+        "content_sha256": "6cb6526bfb5826332e9afbb32aa605c46fb47b209569d9ddba2b58377f07d581",
+        "git_blob_oid": "4b2132defad1c2290525ff17df50d5a1a5440c02"
+      },
+      {
+        "path": "apps/worker-python/dehps/optimization/ranking_audit.py",
+        "content_sha256": "1d40b2ecc7dc438d970679e557f1464a184664375f09f55e1838f01db16d5761",
+        "git_blob_oid": "d5e70f04065634cad392c0414c6f7144dadc410e"
+      },
+      {
+        "path": "apps/worker-python/dehps/optimization/regime.py",
+        "content_sha256": "a6e00d31ae9d8899dbbfd27fb1bad4143455eab64c6144e2f536ec1408256917",
+        "git_blob_oid": "3bc435c2a162dca55cd38b2f351d16ecc06ecb8b"
+      },
+      {
+        "path": "apps/worker-python/dehps/optimization/ridge_kdj_advisor.py",
+        "content_sha256": "052e656f683ac2583b5b779c4881590cbb4d9c636a81d4d790ebe18ef6b21dc5",
+        "git_blob_oid": "2570cc5b5457e656e82e894d9d67dfabe0ee4577"
+      },
+      {
+        "path": "apps/worker-python/dehps/optimization/self_diagnostics.py",
+        "content_sha256": "0547a735921b477c2a81f4c62adbb34b3c1000f28f79d3299fa4a7bdf4f6db1d",
+        "git_blob_oid": "110c63b7bdcf2374dc2540bd9924979c6316a2b7"
+      },
+      {
+        "path": "apps/worker-python/dehps/optimization/signal_diagnostics.py",
+        "content_sha256": "51983e26cab39fed5f8b3ae359043b44be97decb1956714669b9fcc3bf7feabb",
+        "git_blob_oid": "08da7cefcf8ac191fdd5bf2de5c80c303a809bde"
+      },
+      {
+        "path": "apps/worker-python/dehps/optimization/target_inversion.py",
+        "content_sha256": "5e3a7c0ea971f2af23b5c5e4f227590d2efdd8bb515ee81fb363e7d56d415c33",
+        "git_blob_oid": "bdcb2772c6fce6e8c7c3cdabaa2ded6965487d1a"
+      },
+      {
+        "path": "apps/worker-python/dehps/optimization/walk_forward.py",
+        "content_sha256": "5d0e52ea9ae43103aad6603c38a74c831af87b6dfb1c6c2f7a34416aabbeb6e6",
+        "git_blob_oid": "2cba9abe3f31a691bc79186ab0f436d9529153ac"
+      },
+      {
+        "path": "apps/worker-python/dehps/optimization/weight_kdj.py",
+        "content_sha256": "b157407ec40eee6e74ac0eb6ddc9cc4b6ce1e2c194a304a8c692e9e359fdfc24",
+        "git_blob_oid": "dc2a7ce0faedf1e10c068aa1b53d81e5f3b1e9f4"
+      },
+      {
+        "path": "apps/worker-python/dehps/pattern_discovery/__init__.py",
+        "content_sha256": "049cff9a4b77eda5af1f39063c8d852715436d004d57a2fc8554114141d8df58",
+        "git_blob_oid": "b19874c00957c726c275ae3c79b5975a39ae519a"
+      },
+      {
+        "path": "apps/worker-python/dehps/pattern_discovery/arithmetic.py",
+        "content_sha256": "e43b2852771d53c2405f2006cc4a6fd6ffeb340dba3a202fb63443c32f6dd642",
+        "git_blob_oid": "5fa83b85c475a891474623bb27e62eca3e123fbb"
+      },
+      {
+        "path": "apps/worker-python/dehps/pattern_discovery/catalog.py",
+        "content_sha256": "ef676d961e34b26691edd5c36b59c28d3d4aa222a5be453e321618abd0c2977b",
+        "git_blob_oid": "02ebaf938e893d990c322aabacc6b94202341d3a"
+      },
+      {
+        "path": "apps/worker-python/dehps/pattern_discovery/cooccurrence.py",
+        "content_sha256": "16738e46a5cbbd509abe7a38cb63d64333a4cc18c1cbbfe3f4136c262a8c5ec1",
+        "git_blob_oid": "633c239ee6ae9a05c9d6518fd48efd1aedd8cc99"
+      },
+      {
+        "path": "apps/worker-python/dehps/pattern_discovery/extractors.py",
+        "content_sha256": "f61a740fbe93ad2a0a29bc678f2331bbc80418257631d8365b9d0f543cb53ffb",
+        "git_blob_oid": "bc7afc1d5250690e9a33e81ac2660cde15e06f5f"
+      },
+      {
+        "path": "apps/worker-python/dehps/pattern_discovery/models.py",
+        "content_sha256": "5c881924ea4e934d43e56e9b0177beed47c4a5831a5b4683b1c5630f2e21e07d",
+        "git_blob_oid": "46aba99abb2687b8b9f72c8c47cf723d281a9ac6"
+      },
+      {
+        "path": "apps/worker-python/dehps/pattern_discovery/modular.py",
+        "content_sha256": "419bfa7056a7aefbc019e939d6b3a5f16a9b49713c2a73cd59375c8baf5e1de9",
+        "git_blob_oid": "d9e20bfb2e897470d4d3aa7b9b839f47c8fdaf1d"
+      },
+      {
+        "path": "apps/worker-python/dehps/pattern_discovery/novelty.py",
+        "content_sha256": "dd5d41283f750ece2fdc3c62534d72678e7ae47be615c742328d8f02756d34ac",
+        "git_blob_oid": "b56730cadc469087b13fe33d85d56013bdb3fa52"
+      },
+      {
+        "path": "apps/worker-python/dehps/pattern_discovery/repository.py",
+        "content_sha256": "153dec74f9e259aeb947568abb5100fc8382d12ea3db57077b612a21dfbd60a0",
+        "git_blob_oid": "713543e1c8aa257fecf83df3ba8eea4c6e5406cd"
+      },
+      {
+        "path": "apps/worker-python/dehps/pattern_discovery/residual.py",
+        "content_sha256": "f20240b7c598199b3f166cb015529a642389d4e0f05e0ee825021bd00568b769",
+        "git_blob_oid": "6612aaf5f24bc0cf504eb8fab69cfc90b42182e3"
+      },
+      {
+        "path": "apps/worker-python/dehps/pattern_discovery/service.py",
+        "content_sha256": "7941dcc4526c635de98aaecbca2653b1588604ce549e629ae2d6edd2c886087d",
+        "git_blob_oid": "9d28fb2a40c2774e0634942b63252143364b6e8d"
+      },
+      {
+        "path": "apps/worker-python/dehps/pattern_discovery/significance.py",
+        "content_sha256": "17daf6adc34150337321c99f93128a286689145f2a10bf85ec4c7951a0e9c696",
+        "git_blob_oid": "f7111143852104a87828b265fefea79330e16234"
+      },
+      {
+        "path": "apps/worker-python/dehps/pattern_discovery/spacing.py",
+        "content_sha256": "28d98b463599f73943c1a070a359458e124c51cd52a6b640b6220ada7f360796",
+        "git_blob_oid": "e8f3f82eb49faee5f5176a96ffeffb06f8063595"
+      },
+      {
+        "path": "apps/worker-python/dehps/pattern_discovery/stability.py",
+        "content_sha256": "1032316426e4f4b37210a2a0226fe3b64805aeed556cd13b3f4cd907f0026dc9",
+        "git_blob_oid": "b791cbe8ccfd1ff907fe49d272aba1bc26a31ba2"
+      },
+      {
+        "path": "apps/worker-python/dehps/pattern_discovery/structural.py",
+        "content_sha256": "afa3e39c4f43f00eb3640a6f0a977430f45f221ce63b00ccceb8090986e63d3b",
+        "git_blob_oid": "ee151aa97d9444d98208e013f02b2392eff50d4e"
+      },
+      {
+        "path": "apps/worker-python/dehps/pattern_discovery/temporal.py",
+        "content_sha256": "ba52e6206cfb35918501f08ef5abf27f56aaa07bb4f961578975cc70f4df3287",
+        "git_blob_oid": "f25ee2d2fb7418870243466e8d9643b0c2bb8d04"
+      },
+      {
+        "path": "apps/worker-python/dehps/pattern_discovery/validation.py",
+        "content_sha256": "3bea7fb960041cecd434c12fe0308aea562af9b7211e5fd755e65ea7693b308c",
+        "git_blob_oid": "b560cd665303db364554e044df13ee6c935cacf5"
+      },
+      {
+        "path": "apps/worker-python/dehps/portfolio/__init__.py",
+        "content_sha256": "a3e882b95b8da2cca84cd774c346845691865db4c20a975cb14a22418bc95db4",
+        "git_blob_oid": "7e62ec00867064c44195844067ffb9ef9f34fc66"
+      },
+      {
+        "path": "apps/worker-python/dehps/portfolio/artifact.py",
+        "content_sha256": "b8dfff1bf9da97ec450fc931cbec28fe30860d59bfb2b6370a88cf22db6296ca",
+        "git_blob_oid": "3b11f661142322aa5e480dee1b6afdc09c84656b"
+      },
+      {
+        "path": "apps/worker-python/dehps/portfolio/audit.py",
+        "content_sha256": "5e0c34164aa6186d60ec4ab01aab24d4d8d97c722892ca18c0461e4e5c2d7d5b",
+        "git_blob_oid": "a5b866c457f3696435962ff3421a24acc35e0fb4"
+      },
+      {
+        "path": "apps/worker-python/dehps/portfolio/cluster_quota.py",
+        "content_sha256": "da6abf2646a7cef19f54c71ca59335d73c6d14db7f0b9a1fa9d39ed512191a1f",
+        "git_blob_oid": "02203dc06d61cfccfdffdb4de5619c6bd7ed0650"
+      },
+      {
+        "path": "apps/worker-python/dehps/portfolio/greedy.py",
+        "content_sha256": "86ba0cc8fe96d88cd27da56670c1a23c040925a3ba3270361b2864bc06595d22",
+        "git_blob_oid": "44e643529fe84a5f2f3aaf64cfc0b57f74c7ead3"
+      },
+      {
+        "path": "apps/worker-python/dehps/portfolio/models.py",
+        "content_sha256": "ffbd5fead2992ffedb16ba13b96b8fd4a7b58c6f359c748238bddd075838fcd0",
+        "git_blob_oid": "713b152c8378dca5b67d904b20ab9bc7709b97d3"
+      },
+      {
+        "path": "apps/worker-python/dehps/portfolio/random_pool.py",
+        "content_sha256": "a647975bdf071a4dfd1fbdcd86f599853f7a57b77503fcf96e549220aff1332e",
+        "git_blob_oid": "291e00a8432f20c35d028b9793fd24a4ce9ae092"
+      },
+      {
+        "path": "apps/worker-python/dehps/portfolio/repository.py",
+        "content_sha256": "e6628be059a7434a201ecf2cc691da89517b434ff77b0e7014325c2266831b6c",
+        "git_blob_oid": "699d5e6eb5ce4853483e31e0be86930164691f0c"
+      },
+      {
+        "path": "apps/worker-python/dehps/portfolio/score_topk.py",
+        "content_sha256": "66542520a3943494287f7edf973233e2b335745fd92c8a64a5f0ed0ab6183f80",
+        "git_blob_oid": "5a62f74681c25a2ac8d626d8052476d6c96be9ab"
+      },
+      {
+        "path": "apps/worker-python/dehps/portfolio/selectors.py",
+        "content_sha256": "305aa15d5f2799e59d1fcebd7b1e44505e5cd4f6b7f36c265e968e2e31472ec3",
+        "git_blob_oid": "4a85cb05ae00b42b3f9f4775609c46a61f049106"
+      },
+      {
+        "path": "apps/worker-python/dehps/prediction/__init__.py",
+        "content_sha256": "b21f0fc07e7f6d44319708ecb73a6889a8611699e6a1400181c092e1849f4f9e",
+        "git_blob_oid": "62837d66e516b64f852cf686844bbecf7818828c"
+      },
+      {
+        "path": "apps/worker-python/dehps/prediction/v2/__init__.py",
+        "content_sha256": "64c74a0985681dc0087b953d0d55ec307c520b91ebf984d309b4f8711ae1085e",
+        "git_blob_oid": "9a6fee4e2d6724a1dc882fb44df31f12bc203d3f"
+      },
+      {
+        "path": "apps/worker-python/dehps/prediction/v2/activation_binding.py",
+        "content_sha256": "5bcad79ebe495cada7c3a4f0b118123dca4045fb6f6f5d1708c4bd71d6afb551",
+        "git_blob_oid": "1f10c091f256cda9a1e364988cdac119c7241de2"
+      },
+      {
+        "path": "apps/worker-python/dehps/prediction/v2/contracts.py",
+        "content_sha256": "3fdbae9029dd6ef426505db8a98dfc31327130411a8af0a556ba70aeec6affd4",
+        "git_blob_oid": "b3e7a17399192c25e172b342505aeec7c30c9643"
+      },
+      {
+        "path": "apps/worker-python/dehps/prediction/v2/experts.py",
+        "content_sha256": "39f61be3b55004770a0a77e3da7952455706522a45b3b79fd4618f9842568b81",
+        "git_blob_oid": "18362b99b6fce27152c7ce4eeeedbebddd51425a"
+      },
+      {
+        "path": "apps/worker-python/dehps/prediction/v2/generator.py",
+        "content_sha256": "49689110d984d560a0dae4b3648df609c630b10536cf559c236c29b18ac0fad1",
+        "git_blob_oid": "1182ed4e5441e461d0a8abf23ef0508bf91e14c5"
+      },
+      {
+        "path": "apps/worker-python/dehps/prediction/v2/issue_mainline.py",
+        "content_sha256": "0a8044d7efdb300857264030008277130fa27cb23d0374bdb7de547c9c6afe2d",
+        "git_blob_oid": "cb638c2f8d34c8beed8a927999b15d169eaf6798"
+      },
+      {
+        "path": "apps/worker-python/dehps/prediction/v2/issues.py",
+        "content_sha256": "3687817c2a639f5639654837ca2d04c121ed98e9b7ea379fc1657c0562e0ad3a",
+        "git_blob_oid": "64296222a9a744b30afc0b7dc0206d198eaac376"
+      },
+      {
+        "path": "apps/worker-python/dehps/prediction/v2/mainline.py",
+        "content_sha256": "fb499d62932c7703b041e4b72cfe0c2fae7f9e5ed86e6f4a4643389cf4879391",
+        "git_blob_oid": "5f5e27b8eabb7abbd8e4df1b79d1422aa87cc95e"
+      },
+      {
+        "path": "apps/worker-python/dehps/prediction/v2/replay.py",
+        "content_sha256": "8667fb0b9cce2a17f1f3f75c5021772969121ca52f9dfd99f130f1ff2ae59ba7",
+        "git_blob_oid": "90c382d8318ccf0fd38e16025d435016f27943b8"
+      },
+      {
+        "path": "apps/worker-python/dehps/prediction/v2/reports.py",
+        "content_sha256": "23e3cfafacbde78ea738a758da0c2efc552bdbc363a0607cda5b216ef9f8626d",
+        "git_blob_oid": "5f6ae20f30fd609d765947180e38cc20ca5867f8"
+      },
+      {
+        "path": "apps/worker-python/dehps/prediction/v2/retirement.py",
+        "content_sha256": "183a3200a894272240c797950333e9cfbf8c3060c6ec079fe25cfaf562e953ee",
+        "git_blob_oid": "f9a36bc2d1abe526b837d1e6757a9ce9f60397a3"
+      },
+      {
+        "path": "apps/worker-python/dehps/prediction/v2/runtime.py",
+        "content_sha256": "1e229f91ba6b9cbd04163658b18c8e487518ef905070dfb44c0de2b9aecc4154",
+        "git_blob_oid": "6bce92ec7ad5b99abd1bc1941b686a8c2ccb32b0"
+      },
+      {
+        "path": "apps/worker-python/dehps/prediction/v2/scheduling.py",
+        "content_sha256": "b7850dafd7f3c19fee492c1cf353e83910c3100b7a7ced99fc3c300d35b22968",
+        "git_blob_oid": "89f87eefc86657bf02305280fd7f13fbd27dd123"
+      },
+      {
+        "path": "apps/worker-python/dehps/prediction/v2/state.py",
+        "content_sha256": "d03ee72f2c7b1c81d5bfe476405ae28568eecf3d35570195967bbbfc4c76aaf6",
+        "git_blob_oid": "479f39bc527d185eede26232a207a46b70838846"
+      },
+      {
+        "path": "apps/worker-python/dehps/research/__init__.py",
+        "content_sha256": "ee85a03eb4976b129d0306128e2fe12fbead904273007778d0ff445650b040a7",
+        "git_blob_oid": "cdbee84ffed2b70da3f42882e02aaa99f144cb86"
+      },
+      {
+        "path": "apps/worker-python/dehps/research/errors.py",
+        "content_sha256": "b74703434d7048d23c0c5085c5ebd13136916fd40ad15b0c016dd9b2490112d4",
+        "git_blob_oid": "3dbe1e914f18e5ae44d4b9e5c258b7e040bb68c7"
+      },
+      {
+        "path": "apps/worker-python/dehps/research/models.py",
+        "content_sha256": "8c7ed4b0fce585cb5724e7c3907959e3dadfbd3308111bf838c23cb8efa597dd",
+        "git_blob_oid": "912ef7b5b17129fc828ed9a4535461664711744a"
+      },
+      {
+        "path": "apps/worker-python/dehps/research/repository.py",
+        "content_sha256": "20e97b87f7f6f68346968f7bb40cd1dd460934fd8f0105e3225bdf011634d80a",
+        "git_blob_oid": "ec2427dc4f1724ce040185fbceba48fb586d7e9e"
+      },
+      {
+        "path": "apps/worker-python/dehps/research/service.py",
+        "content_sha256": "392cb9ef1e8eb8d693bcd00dda1b965f7b25d7e81c9ba33dd40491c42d2fb3bc",
+        "git_blob_oid": "f2fb9aa99e237300296316bb20935bceb6a93692"
+      },
+      {
+        "path": "apps/worker-python/dehps/research/status.py",
+        "content_sha256": "0404d55476b81b5a53d4a51ba4ade45b9690abc927ae2ef44d70c9f1dad12ad0",
+        "git_blob_oid": "3387a73ba8b5a32c8e4eb2efd7efcf82b1487a18"
+      },
+      {
+        "path": "apps/worker-python/dehps/research/transitions.py",
+        "content_sha256": "12444636da83d825a02a3258a2ac1b3a2e6d802ab4920693e0f05c17fcd1fe43",
+        "git_blob_oid": "2d0c4dca10fdbbd29d06542a704264dfb654cad2"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_autonomy/__init__.py",
+        "content_sha256": "61cd50fb9368671a1e18ec42a2a56ac1ab3497fc42f329254a3f9bed14b09b94",
+        "git_blob_oid": "4fb793d32c93d9ab8193bc3530b000d1089ac368"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_autonomy/context.py",
+        "content_sha256": "86282986d00ad012d96ca8c89ea5cc7bdd7e735c7254ac8382ec2159e84cac8b",
+        "git_blob_oid": "8cac10537fe26875b084ab6876d8802249104a45"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_autonomy/evidence_reader.py",
+        "content_sha256": "30612191d455a1df7aee4279b60b76fd8829c13deece6f33c24b8fbfacfd2fe8",
+        "git_blob_oid": "862134483a06f2e57969f9b96a71f652bd73ba53"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_autonomy/feature_catalog.py",
+        "content_sha256": "c454eb5daaede45cac9e16ed1a4ce53ea4d291b39cc19c50d8e4479ff3f19c31",
+        "git_blob_oid": "8c826de9d2d2e219945d0fa23a151e8639b6ede6"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_autonomy/generators.py",
+        "content_sha256": "624bf439837b7dea775a06fc7b2a5ec1bc09b3e976749f6fcc7c9f6dce210612",
+        "git_blob_oid": "fb484a35f8a4f1038b45c8ab1c511eb8283f2f6d"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_autonomy/mechanism_catalog.py",
+        "content_sha256": "5b9a2642810b0e4e66e8a125fc07e47d95bc74cc52228bcc7e004ef82b8279ce",
+        "git_blob_oid": "37251797fbff65b63155a6653c7a42c4a96bdefe"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_autonomy/novelty.py",
+        "content_sha256": "0795e11633e4e0b18706d7fed0aea2e920ac97ca99c912339396949991dd35bc",
+        "git_blob_oid": "f712cd31ec330052e1db675b6be5d25fb84c5b7e"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_autonomy/proposal_engine.py",
+        "content_sha256": "4f0b6753c4b7c13fde309f21b85d056f1c0b7cfff552776d97016d7805e0ea1f",
+        "git_blob_oid": "c63189980065f5c9bfb9aa812b4c81493c789602"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_autonomy/proposal_models.py",
+        "content_sha256": "8975e56e88d2a1c896514cb227cc3e6c7a815f44f8ff9792a70cc8487d595200",
+        "git_blob_oid": "e3ede7e3f15f784a1beaeb7366a007462b078f0d"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_autonomy/ranking.py",
+        "content_sha256": "b01ea33aec2923e064a0a9278b8733b164bf544f0d2727cf1bb82b8113a92ea3",
+        "git_blob_oid": "ce13f4ce5c0c674f90bd884ef1a20fc5bf7007a2"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_autonomy/repository.py",
+        "content_sha256": "3e0c65db5fd919e9742cf186421bcaab3bd1e66f5d524cfbf03d218807ab2ef8",
+        "git_blob_oid": "e8c0ff468c5ce0ce97377bb5821c2180865c2a61"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_autonomy/submission.py",
+        "content_sha256": "2f2b0fc599beb5e5355e3e13fec664efee09e09711318991880b28033733c51e",
+        "git_blob_oid": "3e3f7a6931d294d92d064fe517c6e9b9e9450644"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_autonomy/validation.py",
+        "content_sha256": "9880dbbfea4194c4e3f2a0218ac3ab9c4d005fe907c1cd286abe4aa1e7867892",
+        "git_blob_oid": "fbb3d542f2fe53e76cebbcc45b39821027efc030"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_evidence/__init__.py",
+        "content_sha256": "7a8f8f9dd1a8da1b3cd9322db15d000ec2949600a0027d6fea960bd4dc07262d",
+        "git_blob_oid": "1fc8447e560cfe68c47fde75476263f7c54f6a76"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_evidence/artifact_reader.py",
+        "content_sha256": "792a0f5c937456ee72ead9ad88b2f8097652144dc1a31ab1e3a76d6f7be0f03d",
+        "git_blob_oid": "fb653044af363f5bffa05d38aebcd71949773dfa"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_evidence/decision_builder.py",
+        "content_sha256": "c6e1d7ee407c5a0b03caa1394f72e3db0611201b680923d3b9ea3298bb08fd28",
+        "git_blob_oid": "13c41ca0205c0f13769daa7b740f74a3956af361"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_evidence/evidence_builder.py",
+        "content_sha256": "70c65b7fbef3f93b13656826c01bfcd20c2601dcbf1d283b42a1abdd748874bb",
+        "git_blob_oid": "5ab7aa4eb346691c866a31a7997355038b640f15"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_evidence/evidence_repository.py",
+        "content_sha256": "ebf988c39516e0c39c0edf52aaa6268dd38bd84e82bb7c9064019c4d926d4418",
+        "git_blob_oid": "bb067191d1ac1f32c36cf2589472982cca6e22e2"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_evidence/family_updater.py",
+        "content_sha256": "ed634a356c3ed28ff10185360e262a28c61912db8020d57e14b73b31453dff1d",
+        "git_blob_oid": "446f70abf534e20ca5d69c145bf629044303030d"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_evidence/hypothesis_updater.py",
+        "content_sha256": "01fd093666501034182489eabe806cc877500fbefb0d816a693f5cda83cfe139",
+        "git_blob_oid": "db11717521bf6b59b5952c14f9c640f26b07d9fd"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_evidence/metrics_loader.py",
+        "content_sha256": "f27675b88d094e1f5c023a3dfc74228b9c27b4407fc3b8450bb3e3ea8a0ea1c4",
+        "git_blob_oid": "b74913f9af04f9fa3e3f1cede31e1e4497a2f778"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_evidence/models.py",
+        "content_sha256": "0ca9ac681c40d01546c02aeaaaf73e5a8f3d9bde36cc12eaf887ff05d0ffa2aa",
+        "git_blob_oid": "362a82a398963d22af52ab45e8bb7649e26c0887"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_evidence/service.py",
+        "content_sha256": "6426b315a585844b1301f2511f88922a321f7a9b52a766cf83687e08ff34b5e4",
+        "git_blob_oid": "c97eb99e946ed071ff2993432835742cff894676"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_evidence/statistical_review.py",
+        "content_sha256": "1bac443e88d3386f9b477607844a1fa4d3db588b493fad286db9b8d512c73fab",
+        "git_blob_oid": "44b06bcf2fccbf34f8cbdfaeafd0567b5c8721a2"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_evidence/validation.py",
+        "content_sha256": "01dd3955a5eac099c51100eceb03ea0eb26522cd992e7b84ea85abb522b33f56",
+        "git_blob_oid": "8e962e7d87d2466aa67389d543cc578ebd121f2f"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/compatibility.py",
+        "content_sha256": "6a1e35688a2c563a4e25e41da64b643aa6c16b14a5c35d36909ea62cf0c1b88e",
+        "git_blob_oid": "aacd552ad2fd17249c8bd527849368ed60f773fc"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/control_plane.py",
+        "content_sha256": "4440b4f08380e8d635af76351acbc486a1a7297dba7f268b95fa8abd4e4bda18",
+        "git_blob_oid": "ba83a8377a56d3e11544a1da9cb2eacb8c65d087"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/calibration/runner.py",
+        "content_sha256": "87d2b52ae16f6d34d40bb2ec6aceafdcfc51a2aa40e8e04cf018bd8702937302",
+        "git_blob_oid": "4fbc18c42e173ae0cedf1d78b7009a3ba8686f83"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/contracts.py",
+        "content_sha256": "eb83663659cf7b83a972f64df8bd507c18aadfd897c74927b14a7810b5389af8",
+        "git_blob_oid": "c13d242c1227bfe3415b43423af23bf3418823d6"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/decision_policy.py",
+        "content_sha256": "64cc4d33e5fb8c5d8f293a4db86dd457b995ef282e6b8709c09601527dc68a63",
+        "git_blob_oid": "0e4a218e2a7669aa24fe5920c5d2c70b2474ecbd"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/enums.py",
+        "content_sha256": "2e4264b19ebabc6ca872152f889f8f386f2740c1dba6763c11d510bc9bf9d0f2",
+        "git_blob_oid": "c2bb38af95c59d52af01cd1bd36f14e63f330e98"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/identifiability/__init__.py",
+        "content_sha256": "87f29a74485e05f39eaed2d1e244032250b0111c88336ac0a06cd0a4a246b02e",
+        "git_blob_oid": "1cdb37fe33ab40cc9f55a2887ec54ca05c938d77"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/identifiability/contracts.py",
+        "content_sha256": "bde9ec756b64acbbfec7e4fcad9fbd5c7b8b48c9ab90f7d5b36a11a5f767213c",
+        "git_blob_oid": "c229228801e3321d0435a16a23397d6121a43d59"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/identifiability/preflight.py",
+        "content_sha256": "f95ed7f85c2c75ed7a4cced5009582aa60fd9e667ba1d245f50053ee40de5024",
+        "git_blob_oid": "9b50d1c17e9777bb142c048802a4b6b3f5c0dbd3"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/__init__.py",
+        "content_sha256": "066a16597d89644cccb80ba9136a3fe6380dcc712cf6d119fe68302219a3eeb9",
+        "git_blob_oid": "f12f74a324ec079dcce32437cb5121260cd52851"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/binding.py",
+        "content_sha256": "e5fdeb5a5568d32a23679fb43e4ab483b001385a8fd713580abb12d0a8ef0d63",
+        "git_blob_oid": "221fe695a9f782e6b5cc65337287a11823f584dc"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/contracts.py",
+        "content_sha256": "80f11b0e27c39a9d73f255e5b0e604fa2d077f19d2d9c973585116d1f233cfff",
+        "git_blob_oid": "4d8968ed44b450f6c8f59c38f1353eb7b92431f8"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/execution.py",
+        "content_sha256": "4bac66b83223f37f94b8583c9405a24e37357db8db96406d9d02bf51d1eca393",
+        "git_blob_oid": "53bea57e370678501a491569786a1c2c594089e8"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/gate.py",
+        "content_sha256": "03d4bf56dd4d50784ea2acf12b59057b2939a8cc7664ccb4d99b0589ac51efdb",
+        "git_blob_oid": "25349fc7b8e232697116aba2e294b08628d67ff5"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/migration.py",
+        "content_sha256": "e2b177b9b87eb718f7c2c8a7c4e458626525ba51f859b47858d54774dd5c40af",
+        "git_blob_oid": "1d51ab472182555907d3ea37dbf9274b6ce0759d"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/replay.py",
+        "content_sha256": "f7439eb9a4128e2d0300f59168dee2b2715265fd642c2f17fee0b819c1688bf7",
+        "git_blob_oid": "53e86efe22a93483e22196384de721095a6b9c6e"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/routing.py",
+        "content_sha256": "2d522e5d0f554b246975e18867d0b9f3c8ecfb2eb3b317d641bf37f3980ed9f4",
+        "git_blob_oid": "3da19c3781e7e5f602e0bd910f079c36dc63496b"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/runtime_audit.py",
+        "content_sha256": "fa2b91b77e5fe39618b9b09853662224e9a39f1150ee7cabde8ff617354e2db8",
+        "git_blob_oid": "4cef0c29add3b81290dd104b2b7414dfd69293ed"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/terminal_guard.py",
+        "content_sha256": "a440773d66e3b5f4d4c7035d23a0febcecc05e138eb35b7833e13c2199c4e0e4",
+        "git_blob_oid": "34c48b4e013d6e83833ff8d241b53b2290f66927"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_validation/coordinator.py",
+        "content_sha256": "db8888fcc53fa3dc91de6f4521fe6d1c33c4d80808c16078606146ad504179af",
+        "git_blob_oid": "d68e207b55646e4be85b93e973c569a13e08978a"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_validation/executor.py",
+        "content_sha256": "2eddb28d49a4163e3ace19bd165df7d2dc59163a4e5bb521e5c8b676a8db9a52",
+        "git_blob_oid": "6e6cfc450c27ca86a597c799714c44b6fcdd9af0"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_validation/gate.py",
+        "content_sha256": "140e6435986ab704b3fe574cb245f8eb0202592f17cd48412c12cd5dc52d25c3",
+        "git_blob_oid": "009d3662e2625a7863ad4397baff77eac54bfa33"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_validation/source_compatibility.py",
+        "content_sha256": "e8d1da0e69a244f39a7262affe97585dcd9a5c1fe44dbbc3439e7e5e7848bb4c",
+        "git_blob_oid": "3718ad739856ffa8d01ac92bb287aa3295b7edfb"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/measurement_validation/source_integrity.py",
+        "content_sha256": "723b420168642ad941dd7c27a7cc7a0e9c30ca44a96c0a58fe8affbc5c19b64f",
+        "git_blob_oid": "e3ab3c4ee9ce9240e0f8a7f040673bf2e419fd8c"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/preregistration.py",
+        "content_sha256": "60507cf54dfaed5059c1386fa7f1884d61eb4220b5e7be6099698497b337ccc0",
+        "git_blob_oid": "e587c2ea92de24877d2a933ede783a735601d40a"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/progress.py",
+        "content_sha256": "ea8e1509a4c6c87dfde28a1df9f908374613a4b5322b06098dfe6345efd29358",
+        "git_blob_oid": "5c45991f1524eab2c35e656b48e2cb5b967a479a"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/repair/__init__.py",
+        "content_sha256": "a9f8873dfff7920b9535e53da4664d0a15d6321a0a097991c2d96130ee3a20ae",
+        "git_blob_oid": "806f4e025dec06f350e58f38d7dfdeefc6bf5547"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/repair/calibration.py",
+        "content_sha256": "9bf7abc842143966d614ff2a86e326e3227009343781ffd3c779ca4ebe421940",
+        "git_blob_oid": "90f29038c9cf5eabc516e86794eeb718255f13a9"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/repair/contracts.py",
+        "content_sha256": "621bd759abac550a35b903d56aab4195aa27e8eceda42e11ff61a092714c6bac",
+        "git_blob_oid": "dcb9d7652516dda630c31cee52879b22bef65fb3"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/repair/development.py",
+        "content_sha256": "520e561a4ea022d0a564600a7100b8f5cc11751d9e2fb69b0b778d4bace5ac5b",
+        "git_blob_oid": "bbacf6d12347c9f3b5dcef87db3ba19151e2fe41"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/repair/execution.py",
+        "content_sha256": "5e5841dcf90945d9137dd3cf8e826d07747a00af06861859df26404f88191b32",
+        "git_blob_oid": "a999ec28e234d472195ed47a776409fc901252f8"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/validation.py",
+        "content_sha256": "c862db5fcd887b161e2f312480aa0fcefee7e3131b83df620e74dbdcae3b697f",
+        "git_blob_oid": "e02c883c4d24deabaf175eb2c57b8a53ad1ea926"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/information_theory/walk_forward/checkpoint.py",
+        "content_sha256": "6ecd31072d009517edf96b29825ba3d1c2cd8864be266a34e8c92212e4190ee4",
+        "git_blob_oid": "a997eb87099c156e99f98f1e0b720ba407e59b04"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/mainline.py",
+        "content_sha256": "f99b17b0f57d20fb3f7ffd3f844f6a23404e77e33b3f9eef283b57e410a215f3",
+        "git_blob_oid": "eb834e76eaf2e4926eb09d3ad0c582d4b606c9df"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/models.py",
+        "content_sha256": "5933295ed3b742b55c401ca450f8676537c8025abe33769a38225e224f1f47d5",
+        "git_blob_oid": "95082f1cdc17a04e2e76685efaab29485ede7a54"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/ready_queue.py",
+        "content_sha256": "44a1c1b95e722bb8b1af9f684fc4b805deb607f943264202e189e42fd3cfb01d",
+        "git_blob_oid": "564b91849f9d0c50e1207f22c22bdcedd5beedc9"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/repository.py",
+        "content_sha256": "a5756df9523a500d402120a3678cf26457b14b207cf391fde6d861c33e033abc",
+        "git_blob_oid": "0c0b1a64a9bf810aea9fcdd8d01177bf4d1c6a6c"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/resolver.py",
+        "content_sha256": "c1641a88278ffa9fc8af5521ec85e73380e0b3c3629b807bd5c85edb953544ed",
+        "git_blob_oid": "8f54c1f39ac5734aad0d0c6f051c623d2cf74f21"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/shadow.py",
+        "content_sha256": "6130077797b51f302edf4fad1eefc216074e20e2b5273ce47d3e864a6f61a629",
+        "git_blob_oid": "eca10f5353f05f1b1ab6050f85026ac46b2373aa"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_os/supervisor.py",
+        "content_sha256": "a3859e381268c52c5f51f0efb3a95ce1767813a582246f5d4a2612c1ef794934",
+        "git_blob_oid": "2f8e87ad8f990cc4677428ef875299ad583e08c9"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_planning/__init__.py",
+        "content_sha256": "750b642e77ea6412ecf11dcbf288a1776facfeee0d36caf57c8fab1767e00f7a",
+        "git_blob_oid": "6c90a0e1946c3f11e14551cfa38b8ecb61f9b470"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_planning/execution_contract.py",
+        "content_sha256": "6c145524914791de7c12fa0041ee63b49584b33ffce22cbbfa3ab067bcb72819",
+        "git_blob_oid": "3f349c0feb6d3b7dd790268db9410e45f6166866"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_planning/fingerprint.py",
+        "content_sha256": "ff78e5bf24d77c11933f602add655ba2e4790deda883ac17875d0ad4d5281a00",
+        "git_blob_oid": "7df171c3331903108427acb220a876ce7e7523f0"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_planning/implementation_contract.py",
+        "content_sha256": "985a5557140355e001014dc9793a2e32bc076289699b228280740ca37ca95179",
+        "git_blob_oid": "7e60c58fd048b9f2f2e8bfc9b72058a4aa3aea0f"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_planning/models.py",
+        "content_sha256": "144b13274ef989378df61435fee1f72a52069cfae2bfd3dafd5e8eed2b89b2ab",
+        "git_blob_oid": "b86053b82a749a245624eadc75b68868dcfbd7c6"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_planning/planner.py",
+        "content_sha256": "0b3b7688f09ad82395ef465ec01b3525d7e3b4e005babac99e6ede7a61320099",
+        "git_blob_oid": "8ccbd49c24ae32dcf1586dd3db9755c738775118"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_planning/proposal_reader.py",
+        "content_sha256": "ed01181afccd6200bbbd052ffc7c01ee1a65487d1de7772b7d1a83133674ffc9",
+        "git_blob_oid": "a6903d315c5b22510e3cd89137b140668197ca34"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_planning/protocol_builder.py",
+        "content_sha256": "25164ee0da732b409b4a604f7fffb984d58895c254e4d863e7eccbf5cff861a0",
+        "git_blob_oid": "bc6f47730c377bcb18b07401f791e43e69ec940f"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_planning/repository.py",
+        "content_sha256": "fb5029e11ae096e0d6528e1b7f8968b7615300e5fcc580693ef44f9b429d8279",
+        "git_blob_oid": "2da646c3efef31eef7f08c3a8621247db5ed39ff"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_planning/resource_estimator.py",
+        "content_sha256": "9aed07dba9b94a885258eedfec7caecee08d613d3bb79505ad12efd53ed290ca",
+        "git_blob_oid": "7f1ac384c5967a036ac6c58c78b32a151df86aca"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_planning/service.py",
+        "content_sha256": "ebb0c0be418761a2ba6a5687718fc5412c538e441ff9ac94b2928a36863fa9d2",
+        "git_blob_oid": "10399f7b32774e90d275da205963c2830968a755"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_planning/validation.py",
+        "content_sha256": "1f066ae41ee0f99ffc2643470d400b81d5473a9af9e77fd69ca23bcca3b38ca8",
+        "git_blob_oid": "ced1986a1cd0f2e1a863486ab5f68cc97213e994"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_runtime/__init__.py",
+        "content_sha256": "87868da16adcc0227825792477bfdcfe6532f2993a8626fa3a2b8743567be1e6",
+        "git_blob_oid": "15310922da1c63432df0bee836193e3bca4eace5"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_runtime/budget.py",
+        "content_sha256": "3cfd5462c2bb4057f005274a8aa34bc79869d298cb61d1a8362d7aecd6d0aee2",
+        "git_blob_oid": "d1721ea4949bf8fa9a2067d8fb858327f0846c11"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_runtime/executor.py",
+        "content_sha256": "21f90bf5e0962fe237a91804b0f933886330572b70a3f9f01948c26b6692619d",
+        "git_blob_oid": "09ff3c0798e580a5217df6d988e147be73d308b8"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_runtime/models.py",
+        "content_sha256": "bf8b7493c677acc75ff60e9f2879332ea7c892499a208541e8b517b3bdd0af0c",
+        "git_blob_oid": "6568b8a49a4083f97de76e96a349bd549338db64"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_runtime/queue.py",
+        "content_sha256": "407332c1db29ddac4d57c579fe45664830683e0fbab02e2860c4b664dd7b0584",
+        "git_blob_oid": "fae2729196bf58f8013e132b3e55f2748bc7b693"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_runtime/resident.py",
+        "content_sha256": "d1c9d13b3d476773021ae298d6bc382e0c443c7c21e735a6580b0877d8cbebfa",
+        "git_blob_oid": "419cf2aa6926acba86bd33fe6a0db39d6f4e7606"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_runtime/runtime.py",
+        "content_sha256": "e6954572ae96e886fab80f9e3349148e38bba5b574d1384ed4d5a528ca5a3fea",
+        "git_blob_oid": "cdfceaab4f885fd1beb2e96a7a0a4b187530ed84"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_runtime/scheduler.py",
+        "content_sha256": "02cc7c6110bcf742a0e1324dbc3216967ad63f60ac03139660bffac85b54e0f9",
+        "git_blob_oid": "3fb4149a1e33a923851d26dc81d4873a0d707cca"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_runtime/snapshot.py",
+        "content_sha256": "d9ebfc555af2965f47bbdf6de79c949b6a614704ee6d9503e2c773a29338cc7a",
+        "git_blob_oid": "e86176901e00f14705e5c1cb1da7d256bdfbf5e5"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_runtime/worker.py",
+        "content_sha256": "1c5791cc204fb80ea2584f08bbb4e50d66be18eb2c2c77059d3d9e8800b42d76",
+        "git_blob_oid": "7f2f40902b372c7d5cc9a1c8bb44c56518635ab3"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_scheduler/__init__.py",
+        "content_sha256": "fb40f561fbd9bffe0a626c85a1fafcb677dec96b2659eea94e3d92e9701a4267",
+        "git_blob_oid": "914c37feceaca8efd9be13e230a8e4cd58cba441"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_scheduler/budget.py",
+        "content_sha256": "4c41fcf461e5015d637616c3b20bc4c85f1e9f8f5957a41ae811ec5590036a2f",
+        "git_blob_oid": "0649e2cbbac38923fa0d3831681c8c538beb5e03"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_scheduler/planner.py",
+        "content_sha256": "1ab7daf1d67d08be50ce46a9dde79ad6d2a49d8febdb8b14a43eccad82bf1df9",
+        "git_blob_oid": "b29d0b2f92d82e69e92c21e18d6ff107262ac4bf"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_scheduler/policy.py",
+        "content_sha256": "23d614badbb4c32da7279653b6c3ea4dba4c7f3500d505cf4352ef97020c6fe6",
+        "git_blob_oid": "416aa89e75c213703bbade8f579883ed3d9e8073"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_scheduler/priority.py",
+        "content_sha256": "bdb2b90bdbb97fd4e096704357869fd1f1f99eca6439db17012e35d56530a089",
+        "git_blob_oid": "bdf50e09debea91c5c6714c31dc10d897ec0fb71"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_scheduler/queue.py",
+        "content_sha256": "1e4fefdb39efcd2d933ed4b05a0a475780f279a0592407a080d7ce37a55a65f8",
+        "git_blob_oid": "dcf6937827f7b39aee36df94f5cb2008538007a6"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_scheduler/repository.py",
+        "content_sha256": "3a0d3a49876603b101654216ffcc2ece125d543cc302e547e07cadaec11c098a",
+        "git_blob_oid": "1b68b10dce926fd2ee9d2362fcce3e22a68bd63f"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_scheduler/scheduler.py",
+        "content_sha256": "567b85c2304467857bcf814b2eef8e8ad3199f54bab05c1be76b746e7df9e451",
+        "git_blob_oid": "6af57d2ac61030c768ca74374043bac3efea6a94"
+      },
+      {
+        "path": "apps/worker-python/dehps/research_scheduler/state.py",
+        "content_sha256": "c6c64d86dbb6a2989aa53fb210d12916af0bca04c705a1e385a8535c065705fd",
+        "git_blob_oid": "42d0480bfbab91c7d8daa3c81cc7d196e2d2532e"
+      },
+      {
+        "path": "apps/worker-python/dehps/runtime/__init__.py",
+        "content_sha256": "c7c1dbf434101457defe9e696becc8065b250198fba03f9e7201a5847c1c414d",
+        "git_blob_oid": "d8623a95d33a00d4b0069dc9ac83941371f10a48"
+      },
+      {
+        "path": "apps/worker-python/dehps/runtime/compute_capability.py",
+        "content_sha256": "6acf6ab9cf4c1143bf8fd1d9627048d1e64ec6f37b87689678300a69cad188f3",
+        "git_blob_oid": "adebc92fc6145dd3ac23820d228ed1afc9a6b09a"
+      },
+      {
+        "path": "apps/worker-python/dehps/runtime/heavy_job.py",
+        "content_sha256": "11c97a0a628dd9fed539465e2fd3170abbec24fcc8976db4e1158a6c8bf34a3c",
+        "git_blob_oid": "c439365de002bf5ca9b4a9da6fc09d6684dd02d8"
+      },
+      {
+        "path": "apps/worker-python/dehps/runtime/remote_sync_schedule.py",
+        "content_sha256": "dfb2c8dd7ab817b97341eace5b9d443721566ce70d457a88ffedadcd33a94b3a",
+        "git_blob_oid": "bed178a0e3070baa5dff2b1205980c5f0882385f"
+      },
+      {
+        "path": "apps/worker-python/dehps/runtime/storage_capacity.py",
+        "content_sha256": "a99001dd9d4e4edccf5218a3f3415477f541ddcfb3e3f3130eb99e68bdfb80fb",
+        "git_blob_oid": "4b032a262bf46c91409b1195d843f3f8653d36c5"
+      },
+      {
+        "path": "apps/worker-python/dehps/runtime_envelope.py",
+        "content_sha256": "e09d7d696445c8d029b8de54513d2fda02b2d31477fcc65a6a4f2b3ec5b0965b",
+        "git_blob_oid": "ef482c4ce53f931987cf068060cdbc76f1c0de3f"
+      },
+      {
+        "path": "apps/worker-python/dehps/runtime_provenance.py",
+        "content_sha256": "38c56cb35a1d3db2a74336cac207c061e3a5f66e770975c02f8dd8bbd648dd35",
+        "git_blob_oid": "267232c5c0f2259c9b649e45b45f1e7399b439a4"
+      },
+      {
+        "path": "apps/worker-python/dehps/scoring/__init__.py",
+        "content_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+        "git_blob_oid": "8b137891791fe96927ad78e64b0aad7bded08bdc"
+      },
+      {
+        "path": "apps/worker-python/dehps/scoring/formula.py",
+        "content_sha256": "0de6df6777e74e9d8a091119200b8b45069a38905f38433b5fa030e2422e5b55",
+        "git_blob_oid": "c23e0191b6f36bfc25205bef76d1e2ee44744067"
+      },
+      {
+        "path": "apps/worker-python/dehps/scoring/strategy.py",
+        "content_sha256": "311742952d901f9156a032086b29f9db3445b743327c5f3e5f99040a06d91281",
+        "git_blob_oid": "a803ab73807725c3c58870a7ce0bbb30e803c31d"
+      },
+      {
+        "path": "apps/worker-python/dehps/scoring_kernel/__init__.py",
+        "content_sha256": "fd65daf27774990c5aa602c14e78d8b28189e0fd3e961c32b569927fe589b18b",
+        "git_blob_oid": "007443c0acdfb797ea727c683fdc231641788e4e"
+      },
+      {
+        "path": "apps/worker-python/dehps/scoring_kernel/contracts.py",
+        "content_sha256": "2a57a74331a42775ea672bac980d18f9f851a7fbe733ce4d8937a260490f6a36",
+        "git_blob_oid": "639f24f3c2c78d3346010eda01cd68d6cae1dd06"
+      },
+      {
+        "path": "apps/worker-python/dehps/scoring_kernel/feature_abi_backend.py",
+        "content_sha256": "a22a182cf9882b30a1ff1b5c950c8d1591228f6905ad1594299c2fc10d3dcc47",
+        "git_blob_oid": "9a58c5cdbc68dc052f3a2a761c6f4fac59f8e193"
+      },
+      {
+        "path": "apps/worker-python/dehps/scoring_kernel/feature_abi_numba_backend.py",
+        "content_sha256": "9e3c923ecee5014bb14616a297a738f8b9b183052f467da9a4c0713bbd3c494a",
+        "git_blob_oid": "b6ce69edd0b85fa5bcf6242c6902ea792897f6c7"
+      },
+      {
+        "path": "apps/worker-python/dehps/scoring_kernel/feature_abi_opencl_backend.py",
+        "content_sha256": "565280644c5a2dd6b58176eadc9a248dfbe87b9cb89e0c0e3d63bf808892bc67",
+        "git_blob_oid": "2001f98652e3c733a219e636860c2002530318ba"
+      },
+      {
+        "path": "apps/worker-python/dehps/scoring_kernel/full_score_artifact.py",
+        "content_sha256": "17ba202a37d12504e5be9d940cb70097c55196166cc44e4b485ba5f4a331a547",
+        "git_blob_oid": "59bc39050d7dcc75378e774097b23e49a8055b31"
+      },
+      {
+        "path": "apps/worker-python/dehps/scoring_kernel/numba_backend.py",
+        "content_sha256": "d5abf024ba8e81f52e50a3922582c19a121a812cb8cccd283f7488ce5a76558b",
+        "git_blob_oid": "72b46df91fe1a93624ce9fb6ef0e11c56251e669"
+      },
+      {
+        "path": "apps/worker-python/dehps/scoring_kernel/numpy_backend.py",
+        "content_sha256": "4e80e07e21940ea2d3a25764649bb0b6d9620d9881bd76aa92732c463c05d720",
+        "git_blob_oid": "5696ab62b679b3d9126e3c9e4fb79652fb16c793"
+      },
+      {
+        "path": "apps/worker-python/dehps/scoring_kernel/packing.py",
+        "content_sha256": "0084c49afc730f94db4b32a07f010bda9da00be98fffe9915286320c407db2e3",
+        "git_blob_oid": "f5f9eef75f25e9d7729999c1c0973a86f0240fed"
+      },
+      {
+        "path": "apps/worker-python/dehps/scoring_kernel/planner.py",
+        "content_sha256": "17d276121f78586e8b3e7793cc8a600759691762f632977d9049ccb1d60c5399",
+        "git_blob_oid": "43e96b2327b45c69277b1b6bc4c88e30bf54fd22"
+      },
+      {
+        "path": "apps/worker-python/dehps/scoring_kernel/runtime_input.py",
+        "content_sha256": "f80c9b7f3fedcf966649763793bd0fb13b8eef0f602d0fe10ecdbf1d4acf7a19",
+        "git_blob_oid": "eeb49899f7129893afab342212ec28cf0df14435"
+      },
+      {
+        "path": "apps/worker-python/dehps/scoring_kernel/shadow.py",
+        "content_sha256": "57d43971e9ba5244185da72d6e2bf5f67a75bdb6506669ebac889fde613b8413",
+        "git_blob_oid": "f8832caa50233cd517eeea038179401acf98b34a"
+      },
+      {
+        "path": "apps/worker-python/dehps/scoring_kernel/telemetry.py",
+        "content_sha256": "f3fdb06475cbe3ff02a523f2ff701c1bb39aff3505f1eaee4eb5fc929e7da95f",
+        "git_blob_oid": "7f12c862b3bd75e75b988d2b3f51ddc1127fb405"
+      },
+      {
+        "path": "apps/worker-python/dehps/scoring_kernel/topk_reducer.py",
+        "content_sha256": "eac9dadd94cb71856465846a489c3667b46afe5457b9b91c0f30d719c7d105da",
+        "git_blob_oid": "33e78d85373543e6c326c85af2e1835bfd5572c6"
+      },
+      {
+        "path": "apps/worker-python/dehps/search/__init__.py",
+        "content_sha256": "302c0cc1d0ed8b8a2b0eafedd686a677dd73699a1a038f32c6a6d5a9121b722e",
+        "git_blob_oid": "f37a642c5144110753b087cbed185a3481e047fe"
+      },
+      {
+        "path": "apps/worker-python/dehps/search/budget.py",
+        "content_sha256": "9e4a3eee1b472345b699665f33940b6090a3e9ec16a2300d380167b7216f63a0",
+        "git_blob_oid": "1edc5f7b33493f097ffb5f57b233fe3d8d4e5fab"
+      },
+      {
+        "path": "apps/worker-python/dehps/search/candidate_sources.py",
+        "content_sha256": "99f8b00e7131d65e9c216489335d011140ec340a8bcb85e86f21c90be7443a0b",
+        "git_blob_oid": "d4ab2b329334be3438372ea7fc2ae2c31ec1921e"
+      },
+      {
+        "path": "apps/worker-python/dehps/search/fields.py",
+        "content_sha256": "f3888a181d2b47b21d97addbb99b00558e14edc53a8c705cf23efe37967bdc03",
+        "git_blob_oid": "e3e218063425bf2378fd991f713720b3260a02e1"
+      },
+      {
+        "path": "apps/worker-python/dehps/search/phases.py",
+        "content_sha256": "453028447c3f2fadfd8ada0a3699459f6cad84d2df842855cc9c9a9bcacd96cb",
+        "git_blob_oid": "d6e4605f489d8617cff103f456702255bff7ae95"
+      },
+      {
+        "path": "apps/worker-python/dehps/search/stagnation.py",
+        "content_sha256": "b5ef87b36e708c980b3341f59abdc0a63f7d996df58ab832cdf0b8b82227d132",
+        "git_blob_oid": "539dc02a23996f88eb1d64d80e4408793b56142f"
+      },
+      {
+        "path": "apps/worker-python/dehps/seven_red/__init__.py",
+        "content_sha256": "7ede2571058ed371aac3225fb0a5c0b473079d1d5f5ea62cbd3c6b2971413c54",
+        "git_blob_oid": "b270b4550c547e17f182c3e0e5d65a0bf49c29e4"
+      },
+      {
+        "path": "apps/worker-python/dehps/seven_red/diversified.py",
+        "content_sha256": "b03fb4b0d32a06494696985794e4fc59bf25d47b3b058d631fa53c03dbf16c38",
+        "git_blob_oid": "7e4a49588c8456de9f76cf7885721d31ee80340d"
+      },
+      {
+        "path": "apps/worker-python/dehps/seven_red/diversity.py",
+        "content_sha256": "4b78886854f3cf24bb7cfb4404872840fe4269f4cd54f814393d78fd6203bd0b",
+        "git_blob_oid": "ec5236a6440452bbd35499867374f7190e476897"
+      },
+      {
+        "path": "apps/worker-python/dehps/seven_red/domain.py",
+        "content_sha256": "265a514656535cbe295c263a9d3421f068d9c4e79bc108824b20c8756f6f2c1b",
+        "git_blob_oid": "68e94d45f8318c583f2fbc1f8edb1b57e2a73a35"
+      },
+      {
+        "path": "apps/worker-python/dehps/seven_red/inner_selection.py",
+        "content_sha256": "c341bafdb243e1d5af12b8f9d49af98b877c2b2db63112ffd4a3f1cf846db96f",
+        "git_blob_oid": "206939edf961a7de9479953c32dcb28a6f3f4e08"
+      },
+      {
+        "path": "apps/worker-python/dehps/seven_red/portfolio.py",
+        "content_sha256": "1ba6cc5d08d6571127743a5335e608771771ed3641ec177394892e33d3d0d62e",
+        "git_blob_oid": "c03a0efb1d96bdca3e2fc9b21b9033800f6a0f32"
+      },
+      {
+        "path": "apps/worker-python/dehps/seven_red/random_control.py",
+        "content_sha256": "de70f21ed5e6a2c29832a5afb9055d6c15088573eaa62b374171579867cfa69d",
+        "git_blob_oid": "220e56b204c27ca7ca8bb8dc430f84da1f294bd6"
+      },
+      {
+        "path": "apps/worker-python/dehps/seven_red/raw_top10.py",
+        "content_sha256": "ad58a7dc7d6590adac012f4e4607ff2a703553298121b58a692aef4ba9f55aab",
+        "git_blob_oid": "e158896bcee0c1590916a602937f78098f9e4dcc"
+      },
+      {
+        "path": "apps/worker-python/dehps/seven_red/run_walk_forward.py",
+        "content_sha256": "a07f8186153c2d8fd8eb79fdc20d00d38a01d89903015c190c8869d4a2753e7a",
+        "git_blob_oid": "f66046ab53803d204023406a03f6d729a4596b4c"
+      },
+      {
+        "path": "apps/worker-python/dehps/seven_red/scoring.py",
+        "content_sha256": "abce2268d7929fe4ae3cff5365366d5c76ff54be28857a28690423f747df99b8",
+        "git_blob_oid": "0875c8cb5c37a2104ed5275a1994f94eee73ba1d"
+      },
+      {
+        "path": "apps/worker-python/dehps/seven_red/statistics.py",
+        "content_sha256": "954b196e4604aadefbcb10a20ffcbf0a704e1bddebe5e960f56ff2ecb45c45be",
+        "git_blob_oid": "968d2f5ee55e417f9c5df69aa46825c6431c8f4d"
+      },
+      {
+        "path": "apps/worker-python/dehps/seven_red/walk_forward.py",
+        "content_sha256": "95767be5ed7479ce6e441b2ae34eb277d0873b5f69ea819a1734edeac1931aed",
+        "git_blob_oid": "128538f09e9c8f49a92f8e7996c57d8ccad5c011"
+      },
+      {
+        "path": "apps/worker-python/dehps/source_version.py",
+        "content_sha256": "506db97bf05f10d98e2efd02f55b8b85d8eb5286ea52287ea112c702f0b6f5c3",
+        "git_blob_oid": "a47a399d3782d823e8582d0a252adfcdc546db17"
+      },
+      {
+        "path": "apps/worker-python/dehps/storage/__init__.py",
+        "content_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+        "git_blob_oid": "8b137891791fe96927ad78e64b0aad7bded08bdc"
+      },
+      {
+        "path": "apps/worker-python/dehps/storage/postgres_store.py",
+        "content_sha256": "b4b68fc79ca365ed4008f6589338b58a577f3c53503c676ff653ef8224466920",
+        "git_blob_oid": "91f3e9acc025631dce123dab9f6765cf8ea857b5"
+      },
+      {
+        "path": "apps/worker-python/dehps/training/candidate_composition.py",
+        "content_sha256": "68c907be37d8a553951f7e6b7bcd51bf66046e4e324dd49605862713973ed41b",
+        "git_blob_oid": "f43b5c460c3e175c0e445c80529cd46535f46eee"
+      },
+      {
+        "path": "apps/worker-python/dehps/training/cli.py",
+        "content_sha256": "416736d563509cb25ddf42a9f3d9857fee29e5b3335f7d16eb1ae5c3ee0e1103",
+        "git_blob_oid": "a68879fea82d2f20a09f2ff0481a4bcee1cf7480"
+      },
+      {
+        "path": "apps/worker-python/dehps/training/context.py",
+        "content_sha256": "5412d6e1d9efd30921b84580ce039f5b584f2d5725c1f8292efa71f5e027b1cf",
+        "git_blob_oid": "21cba3f636e3d20747124d2585378d72e3df92a8"
+      },
+      {
+        "path": "apps/worker-python/dehps/training/dependencies.py",
+        "content_sha256": "d615f12a229b534f0159399e344679f2bf1ae45187d36293347b55a9ebc4c052",
+        "git_blob_oid": "d613c2001e1582eb0ce2096d96514df60b014670"
+      },
+      {
+        "path": "apps/worker-python/dehps/training/frozen_plateau.py",
+        "content_sha256": "3b152a8d4660b1e8109f95fe5437eb7e22666fd608c913978882caa4f0f1c960",
+        "git_blob_oid": "bc7918b4a7b8f997bc0ad46aa52decc32c451864"
+      },
+      {
+        "path": "apps/worker-python/dehps/training/lifecycle.py",
+        "content_sha256": "69a56cede81fa1b697a31c73444658ca58525a1f130e2eef4d6d6f27df996aff",
+        "git_blob_oid": "09cba5cbb1df24334c48e07123bc28b988b564e1"
+      },
+      {
+        "path": "apps/worker-python/dehps/training/models.py",
+        "content_sha256": "b0245b6f037e08363f7ced76761cd221b87173241bafba3890e7f89f8ab7ad29",
+        "git_blob_oid": "d34d9fffec57fd1593db20761549e0614acbdd35"
+      },
+      {
+        "path": "apps/worker-python/dehps/training/orchestration_state.py",
+        "content_sha256": "4227d2f054c0507860beb9de81e074998749bea9f881385220cd1147b4516757",
+        "git_blob_oid": "e46e545993c8ded4013d5a94ac5a6d4f39e37c54"
+      },
+      {
+        "path": "apps/worker-python/dehps/training/persistence_policy.py",
+        "content_sha256": "779a4dcf1301db74841d3b00af80b9d1c108964366653929968ff2dba9a759c9",
+        "git_blob_oid": "31c46321ee8795c7f21ac4bec23d0a72464cbb01"
+      },
+      {
+        "path": "apps/worker-python/dehps/training/production_runtime.py",
+        "content_sha256": "64eeaf7adf1aa42c1a8bee164831a8da2894f1335f7ba56cb9a2ab32f10c1333",
+        "git_blob_oid": "86bbcdb7d0b14e8f7e9d30cd597294a5156aa71a"
+      },
+      {
+        "path": "apps/worker-python/dehps/training/round_observability.py",
+        "content_sha256": "662481fed18b0c2b701f5c0b2ae3595db5e0cc492a616b580d0b36e143707094",
+        "git_blob_oid": "2ab35033cee203971c7a62983172b8c0881ce3c8"
+      },
+      {
+        "path": "apps/worker-python/dehps/training/round_runner.py",
+        "content_sha256": "48226c592c5a9ae4e2432d1107f3cc978070092c53efb7344886da8a55447751",
+        "git_blob_oid": "bd547857a0007d632a6de19c61d44a0deaf81074"
+      },
+      {
+        "path": "apps/worker-python/dehps/training/runtime.py",
+        "content_sha256": "ce6fd1635261f70071af38d7498f1a7bf2821b81119f562a1592e1b37ebce5b9",
+        "git_blob_oid": "01743dc7d2f85e990d227405b59242d1ef81a24c"
+      },
+      {
+        "path": "apps/worker-python/dehps/training/runtime_advisors.py",
+        "content_sha256": "dc8f30f94dc55cc83cbeb414bee725ad458cf19b6ba39958bc0ceb321be167f9",
+        "git_blob_oid": "ef5f21bffda5050ee5ede24e8d401fcc048d13cf"
+      },
+      {
+        "path": "apps/worker-python/dehps/training/runtime_evaluation.py",
+        "content_sha256": "8063a1de510bf57849bc3531e760d72cda9cec8c5a7511c172aa943106bf00e2",
+        "git_blob_oid": "49a84f49b0e6f3fe7069fb970962ca35eeb6407b"
+      },
+      {
+        "path": "apps/worker-python/dehps/training/runtime_round_executor.py",
+        "content_sha256": "e2fab5967668f21e6ee31c00dfc45243c9008d78fcdca51e10d8d94ace27bf07",
+        "git_blob_oid": "6e6706104f3e0a970398e10ad117e9bc92dc5f98"
+      },
+      {
+        "path": "apps/worker-python/dehps/training/supervisor.py",
+        "content_sha256": "805f6b38c7c4b7684df474b830052fca5378052444860e802277a474a1e364b5",
+        "git_blob_oid": "0c21188762fe6ad2650ab4dc57f82065e03a0917"
+      },
+      {
+        "path": "apps/worker-python/dehps/training_resume/__init__.py",
+        "content_sha256": "2b2cdd49e3e2e3ba6cccaa41e528f5901645ece7f7dc27c55ddcab49f3ce5e79",
+        "git_blob_oid": "cd2a84ea5e47508e8a6d1b771455b00dce38ee2a"
+      },
+      {
+        "path": "apps/worker-python/dehps/training_resume/controller.py",
+        "content_sha256": "37349b8eb94034e9284b23a91b4c99d5351c5185c87ca15c2679d5b5e5a214ab",
+        "git_blob_oid": "1750fd6658bf188bdc5e6d925cfda914854483a1"
+      },
+      {
+        "path": "apps/worker-python/dehps/training_resume/launcher.py",
+        "content_sha256": "60a1584c6965e362435556f998e6de05be4c19cf085417e68ef8306761d25c7a",
+        "git_blob_oid": "9bf85e2bb89ec7d8dd36d62761bae81de3ead1f1"
+      },
+      {
+        "path": "apps/worker-python/dehps/training_resume/lock.py",
+        "content_sha256": "dc593d3e200a36816527ed4f171657e1555bb385df38e8cc8567ea244d7ae31b",
+        "git_blob_oid": "dd0d5249b2c6b6a6a3a6a816bf9faa87a6158612"
+      },
+      {
+        "path": "apps/worker-python/dehps/training_resume/policy.py",
+        "content_sha256": "183a9a767feb49cf97d960247f3eb28dd4a7463300e57f942674d18abb695e29",
+        "git_blob_oid": "b389fb59663ad5bf48f9debed56966421bd8b1f3"
+      },
+      {
+        "path": "apps/worker-python/dehps/training_resume/repository.py",
+        "content_sha256": "9fed831fb2ee1068468155b7158456899c8089067c08c3f884e39ce06a8216af",
+        "git_blob_oid": "9ee0d768f443cf4ab76ac647e2c8eed69080ae53"
+      },
+      {
+        "path": "apps/worker-python/dehps/training_resume/service.py",
+        "content_sha256": "43fbdd1ca6c194ff1727951f9b682ce32e00803b904c11bdc61add795484ae56",
+        "git_blob_oid": "451d9de0e046c60d64a59148e4b805ed4bd9779f"
+      },
+      {
+        "path": "apps/worker-python/dehps/unified_runtime.py",
+        "content_sha256": "1d27039a67ad6340c7597e2ed8797eaf2c1e8c5d2f5c7b01ba81051e0cd6f9ab",
+        "git_blob_oid": "e4121e54b4f5d643d570aa827a82df9701b61230"
+      },
+      {
+        "path": "apps/worker-python/scripts/build_m4_v2_additive_manifest.py",
+        "content_sha256": "e02ffc1b57d78c8782135be243005b9db466010d02a3094372a015f500a6f224",
+        "git_blob_oid": "8e4f2fed6272f75538c68267c56cee57681a9fda"
+      },
+      {
+        "path": "apps/worker-python/scripts/run_m4_p261_sparse_tree_compatibility_replay.py",
+        "content_sha256": "7ebe36980cf9e8aed0077b17f3954d73135747d403f8f3fa4036e6123e222f71",
+        "git_blob_oid": "8d36146c89609023b686fe301603aeab8cdd8fb2"
+      },
+      {
+        "path": "apps/worker-python/scripts/run_research_evidence_supervisor.py",
+        "content_sha256": "8eba0be0699b1c1d8bd06a683a342c58a2aa7fcdd6d6086123bbc2def38d4f17",
+        "git_blob_oid": "2dde0cef8bc458e8a38cd9f034433ee6ddfdf0ec"
+      },
+      {
+        "path": "infra/systemd/dehps-research-evidence-supervisor.service",
+        "content_sha256": "a51cd5acb7f2abafc234869b5ca931a0945f356b1bdadeaac2ae9f3e781fecb0",
+        "git_blob_oid": "ba5e8918abebf2f3b99fa8bdd0f83503547d388a"
+      }
+    ],
+    "audit_orchestration_source_set_digest": "5f44e29a3e877f2e8136e1a0541ea18079cd51174280a9aaa750f3018f9196d8",
+    "reviewed_shared_compatibility_fixture_path": "configs/research-os/m4-p2-6-1-sparse-tree-source-compatibility-fixture-v1.json",
+    "reviewed_shared_compatibility_fixture_digest": "e8149632b3a2f507fdb7adbd2980d4217ce06fca45913273bedc4cbe61c431c9",
+    "reviewed_shared_compatibility_paths": [
+      "apps/worker-python/dehps/research_os/information_theory/probes/shallow_calibrated_tree.py"
+    ],
+    "shared_change_policy": "FAIL_CLOSED_REQUIRES_NEW_REVIEWED_FIXTURE",
+    "oracle_change_policy": "FAIL_CLOSED_REQUIRES_NEW_REVIEWED_FIXTURE",
+    "acceleration_change_policy": "PINNED_FOR_PHASE0_REQUIRES_SUPERSEDING_PLAN",
+    "audit_change_policy": "PINNED_PER_RUNTIME_PLAN_REQUIRES_SUPERSEDING_PLAN"
+  },
+  "observed_phases": [
+    "dataset_generation",
+    "fold_construction",
+    "feature_cache",
+    "estimator_calibrator_fit",
+    "prediction_metric",
+    "bootstrap",
+    "permutation",
+    "checkpoint_artifact_persistence"
+  ],
+  "metrics": [
+    "folds_per_second",
+    "fits_per_second",
+    "resamples_per_second",
+    "wall_time_seconds",
+    "process_cpu_time_seconds",
+    "process_cpu_utilization_percent",
+    "process_lifetime_peak_rss_bytes",
+    "process_io_read_bytes",
+    "process_io_write_bytes",
+    "host_iowait_ticks_unattributed",
+    "artifact_write_latency_ms_p50",
+    "artifact_write_latency_ms_p95",
+    "artifact_write_latency_ms_max"
+  ],
+  "metric_attribution": {
+    "process_lifetime_peak_rss_bytes": "PROCESS_LIFETIME_HIGH_WATER_MARK_NOT_AUDIT_WORKLOAD_ATTRIBUTABLE",
+    "host_iowait_ticks_unattributed": "HOST_LEVEL_NOT_PROCESS_ATTRIBUTABLE"
+  },
+  "required_artifacts": [
+    "BenchmarkPlanArtifact",
+    "RuntimeObservationArtifact",
+    "RuntimeBenchmarkAttemptArtifact",
+    "EquivalenceAttestationArtifact",
+    "SourceIntegrityAttestationArtifact"
+  ],
+  "equivalence_contract": {
+    "immutable_golden_fixture_payload": "EXACT",
+    "replicate_payload": "EXACT",
+    "child_artifact_set": "EXACT",
+    "child_artifact_digests": "EXACT",
+    "boundary_full_feature_view_payloads": "EXACT_CANONICAL_PAYLOAD_DIGEST",
+    "measured_result_payload_float64_tree": "EXACT",
+    "measured_checkpoint_journal_bytes": "EXACT_UTF8_LF",
+    "measured_to_correctness_replay": "EXACT_BEFORE_ATTESTATION",
+    "float_bits": "EXACT_BINARY64",
+    "checkpoint_journal_bytes": "EXACT_UTF8_LF",
+    "timing_values": "ENVIRONMENTAL_NOT_REPLAY_EQUAL"
+  },
+  "missing_proc_metric": "UNAVAILABLE",
+  "host_iowait_attribution": "HOST_LEVEL_NOT_PROCESS_ATTRIBUTABLE",
+  "production_action": "none",
+  "promotion_gate_opened": false
+}
