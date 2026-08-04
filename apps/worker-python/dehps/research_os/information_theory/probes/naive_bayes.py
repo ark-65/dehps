@@ -108,11 +108,20 @@ def _prepare_frozen_naive_bayes_probe(
         if runtime_cache is not None
         else np.asarray(train_view.targets, dtype=np.int8)
     )
-    model = BernoulliNB(
-        alpha=float(selected_alpha),
-        binarize=0.0,
+    model = (
+        runtime_cache.fit_frozen_bernoulli_nb(
+            matrix=matrix,
+            targets=targets,
+            alpha=float(selected_alpha),
+        )
+        if runtime_cache is not None
+        else BernoulliNB(
+            alpha=float(selected_alpha),
+            binarize=0.0,
+        )
     )
-    _fit(model, matrix, targets)
+    if runtime_cache is None:
+        _fit(model, matrix, targets)
     selected = _candidate_id(float(selected_alpha))
     selection_payload = {
         "method": "frozen_development_selection",

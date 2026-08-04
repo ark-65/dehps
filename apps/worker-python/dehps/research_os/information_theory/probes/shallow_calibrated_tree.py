@@ -145,11 +145,18 @@ def _fit_calibrated(
         tree_targets,
         check_input=runtime_cache is None,
     )
-    calibrated = CalibratedClassifierCV(
-        FrozenEstimator(tree),
-        method="sigmoid",
-    )
-    calibrated.fit(calibration_matrix, calibration_targets)
+    if runtime_cache is not None:
+        calibrated = runtime_cache.calibrate_frozen_binary_tree(
+            tree=tree,
+            matrix=calibration_matrix,
+            targets=calibration_targets,
+        )
+    else:
+        calibrated = CalibratedClassifierCV(
+            FrozenEstimator(tree),
+            method="sigmoid",
+        )
+        calibrated.fit(calibration_matrix, calibration_targets)
     split = {
         "model_training_start_issue": min(model_issues),
         "model_training_end_issue": max(model_issues),
