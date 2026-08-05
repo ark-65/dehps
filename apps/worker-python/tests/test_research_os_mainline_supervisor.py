@@ -228,6 +228,7 @@ def p26_failed_manifest_payload() -> dict:
     )
     task["metric_contract"].pop("p2_6_1_execution_status")
     task["metric_contract"].pop("failed_p2_6_2_candidate_status")
+    task["metric_contract"].pop("failed_p2_6_3_startup_status")
     task["metric_contract"].update(
         {"old_execution_status": "SUPERSEDED", "phase": "M4-P2.6.1"}
     )

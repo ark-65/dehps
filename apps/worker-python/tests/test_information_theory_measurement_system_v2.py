@@ -569,7 +569,7 @@ def test_source_dag_supersedes_p2_6_1_compute_without_mutating_v2_lineage(
     states = manifest.task_state_by_digest
     assert (
         tasks["m4-p2-false-positive-and-power-runs"].artifact_digest
-        == "2b7e42f7046dbffe1e0f1dacf6d0ccc2a2b56740ed826b22493067a63551caef"
+        == "85a08402a4a0c37f75ee1675f4970ef00a7a0b0992b4204251c0c2cc79324de4"
     )
     assert (
         contract.payload["p2_6_1_lineage_boundary"]["task_digest"]

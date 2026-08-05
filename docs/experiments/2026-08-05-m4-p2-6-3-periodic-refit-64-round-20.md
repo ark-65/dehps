@@ -96,6 +96,22 @@ utilization allowance covers scheduler and persistence overhead; the resulting
 The benchmark artifact is intentionally kept under ignored runtime state at
 `runtime/benchmarks/m4-p2-6-3-periodic-refit.json`.
 
+## Result-empty startup incident
+
+The first post-merge Operator attempt used a clean detached worktree whose
+empty, worktree-local `runtime` directory could not see the canonical P2.4 truth
+artifacts already present on this host. Execution
+`fca8f9cc0656f25b04743ffb12424993e5e6bf9f582ceeb46159a022d22f2075`
+failed before dispatch with event
+`09b57d599fdaf2d552f24d4dcda2dcb5e99165ecbf994f3d57c40368aee3dc9f`.
+It created zero replicate results and no statistical result was read.
+
+That failed identity is immutable and superseded rather than retried or
+deleted. The next Operator request must bind its clean code worktree to the
+canonical local runtime artifact root before starting a newly digest-addressed
+P2.6.3 task and execution. This is a same-host path correction only; policy,
+algorithms, workload, and the 7.525-day forecast are unchanged.
+
 ## Workload accounting
 
 The formal workload remains 31,000 replicates and 64,656,000 outer-fold
