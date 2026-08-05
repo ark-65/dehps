@@ -741,6 +741,7 @@
         },
         "p2_6_1_execution_status": "SUPERSEDED_BY_P2_6_3_WITHOUT_RESULT_REUSE",
         "failed_p2_6_2_candidate_status": "REJECTED_BY_CAPACITY_GATE_WITHOUT_RESULT_GENERATION",
+        "failed_p2_6_3_startup_status": "SUPERSEDED_RESULT_EMPTY_PRE_DISPATCH_MISSING_SHARED_RUNTIME_ARTIFACT_ROOT_EVENT_09b57d599fdaf2d552f24d4dcda2dcb5e99165ecbf994f3d57c40368aee3dc9f",
         "phase": "M4-P2.6.3"
       }
     },
@@ -1638,5 +1639,5 @@
     "external_events": [],
     "authorities": []
   },
-  "manifest_digest": "98a9c6dd32d24ff3719ab4308452040a12a2803666ff9dba5bc5089ec49d0e7f"
+  "manifest_digest": "39435df4057f0df747f2b56c48282d6fc4ad9a266fbb8f31262e3984ece712ba"
 }
