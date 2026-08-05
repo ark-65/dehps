@@ -87,6 +87,10 @@ class StrictPriorFeatureCache:
             tuple[int, ...],
             TrainFeatureView,
         ] = OrderedDict()
+        self._runtime_acceleration: dict[
+            str,
+            OrderedDict[tuple[object, ...], object],
+        ] = {}
         self._include_prior_state = include_prior_state
         self._feature_names = (
             STATE_VISIBLE_FEATURE_NAMES if include_prior_state else FEATURE_NAMES
@@ -240,6 +244,45 @@ class StrictPriorFeatureCache:
         issue_slice = self._runtime_issue_slice(issue_ids)
         return self._runtime_targets[issue_slice].reshape(len(issue_ids) * 33)
 
+    def runtime_acceleration_get(
+        self,
+        namespace: str,
+        key: tuple[object, ...],
+    ) -> object | None:
+        """Return an ephemeral exact artifact shared by folds of one replicate.
+
+        These objects are deliberately outside every public artifact identity.
+        The feature cache owns them so their lifetime cannot cross a synthetic
+        dataset or replicate boundary.
+        """
+
+        cache = self._runtime_acceleration.get(namespace)
+        if cache is None:
+            return None
+        value = cache.get(key)
+        if value is not None:
+            cache.move_to_end(key)
+        return value
+
+    def runtime_acceleration_put(
+        self,
+        namespace: str,
+        key: tuple[object, ...],
+        value: object,
+        *,
+        max_entries: int | None = None,
+    ) -> None:
+        """Retain an ephemeral exact artifact with an optional LRU bound."""
+
+        if max_entries is not None and max_entries < 1:
+            raise ValueError("max_entries must be positive")
+        cache = self._runtime_acceleration.setdefault(namespace, OrderedDict())
+        cache[key] = value
+        cache.move_to_end(key)
+        if max_entries is not None:
+            while len(cache) > max_entries:
+                cache.popitem(last=False)
+
     def build_train_feature_view(
         self,
         dataset: TrainingDatasetView,
@@ -304,13 +347,18 @@ class StrictPriorFeatureCache:
         self,
         dataset: TrainingDatasetView,
         issue_ids: tuple[int, ...],
+        *,
+        exact_identity: bool = True,
     ) -> TrainFeatureView:
         """Build the exact public identity with compact array-backed payloads.
 
         The canonical digest is still computed from the same immutable tuple
         tree.  Only the ephemeral evaluator view uses the already revealed
         NumPy buffers, avoiding 32 retained copies of expanding prefix tuples
-        per worker.
+        per worker. Production execution may set ``exact_identity=False`` when
+        no fold trace consumes that public view identity. The resulting compact
+        digest is internal-only; probe, checkpoint, settlement, journal, and
+        result identities do not contain it.
         """
 
         if (
@@ -323,6 +371,30 @@ class StrictPriorFeatureCache:
             raise WalkForwardError(
                 "target_access_boundary_violation",
                 "runtime train rows must be ordered and already revealed",
+            )
+        if not exact_identity:
+            digest = canonical_digest(
+                {
+                    "dataset_digest": dataset.artifact_digest,
+                    "issue_start": issue_ids[0],
+                    "issue_end": issue_ids[-1],
+                    "issue_count": len(issue_ids),
+                    "feature_manifest_digest": self._feature_manifest_digest,
+                    "scope": "internal_exact_runtime_outer_view",
+                },
+                domain="dehps.m4-p2.internal-exact-runtime-outer-view.v1",
+            )
+            return TrainFeatureView(  # type: ignore[arg-type]
+                issue_ids=issue_ids,
+                red_numbers=(),
+                feature_names=self._feature_names,
+                values=self.runtime_values(issue_ids),
+                targets=self.runtime_targets(issue_ids),
+                available_through_by_issue=(),
+                construction_start_issue=1,
+                construction_end_issue=issue_ids[-1] - 1,
+                feature_manifest_digest=self._feature_manifest_digest,
+                feature_view_digest=digest,
             )
         red_numbers = tuple(
             red_number for _issue_id in issue_ids for red_number in range(1, 34)
@@ -355,6 +427,31 @@ class StrictPriorFeatureCache:
                 domain=_TRAIN_FEATURE_VIEW_DOMAIN,
             ),
         )
+
+    def guard_runtime_number_event_rows(self, view: TrainFeatureView) -> None:
+        """Validate compact runtime row order without materializing a tuple."""
+
+        expected_rows = len(view.issue_ids) * 33
+        values = np.asarray(view.values)
+        targets = np.asarray(view.targets)
+        if (
+            view.red_numbers
+            or view.available_through_by_issue
+            or values.shape != (expected_rows, len(self._feature_names))
+            or targets.shape != (expected_rows,)
+            or not np.shares_memory(values, self._runtime_values)
+            or not np.shares_memory(targets, self._runtime_targets)
+        ):
+            raise WalkForwardError(
+                "invalid_number_event_rows",
+                "compact runtime view must use the authorized feature-cache buffers",
+            )
+        expected = np.arange(1, 34, dtype=np.float64) / 33.0
+        if not np.equal(values[:, 3].reshape(-1, 33), expected).all():
+            raise WalkForwardError(
+                "invalid_number_event_rows",
+                "compact runtime red numbers must be 1..33 once per issue",
+            )
 
     def build_blind_test_feature_view(
         self,
