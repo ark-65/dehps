@@ -30,8 +30,13 @@ from dehps.research_os.information_theory.measurement_validation import (
     type7_quantile,
     wilson_interval,
 )
+from dehps.research_os.information_theory.measurement_validation import (
+    reference as reference_module,
+)
 from dehps.research_os.information_theory.measurement_validation.journal import (
+    SettledFoldResumeJournal,
     StrictPriorCheckpointJournal,
+    settled_fold_resume_journal_path,
     verify_checkpoint_journal,
 )
 from dehps.research_os.information_theory.measurement_validation.reference import (
@@ -551,6 +556,176 @@ def test_checkpoint_journal_is_persisted_before_target_and_replayable(
             probe: f"{index + 1:064x}" for index, probe in enumerate(PROBES)
         },
     )
+
+
+def test_settled_fold_resume_journal_is_exact_and_fails_closed_on_tamper(
+    tmp_path: Path,
+) -> None:
+    cell = next(
+        item
+        for item in build_cells(_contract(), _synthetic())
+        if item.scale_id == "FORWARD_61" and item.scenario_id == "NULL_UNIFORM"
+    )
+    replicate = build_replicate(
+        cell=cell,
+        replicate_index=4,
+        parent_execution_id=EXECUTION_ID,
+    )
+    checkpoint = StrictPriorCheckpointJournal(
+        output_dir=tmp_path,
+        replicate=replicate,
+    )
+    checkpoint.record(
+        fold_index=0,
+        test_issue=901,
+        checkpoint_digests={
+            probe: f"{index + 1:064x}" for index, probe in enumerate(PROBES)
+        },
+    )
+    probabilities = {
+        probe: tuple(
+            0.01 + index * 0.0001 + probe_index * 0.00001 for index in range(33)
+        )
+        for probe_index, probe in enumerate(PROBES)
+    }
+    state_digests = {probe: f"{index + 11:064x}" for index, probe in enumerate(PROBES)}
+    target = (1, 1, 1, 1, 1, 1, *((0,) * 27))
+    journal = SettledFoldResumeJournal(
+        output_dir=tmp_path,
+        replicate=replicate,
+    )
+    journal.record(
+        fold_index=0,
+        test_issue=901,
+        checkpoint_entry=checkpoint.entry(0),
+        probe_state_digests=state_digests,
+        probabilities=probabilities,
+        target_vector=target,
+    )
+    restored_states, restored_probabilities, restored_target = journal.restored_fold(
+        0,
+        checkpoint_entry=checkpoint.entry(0),
+    )
+    assert restored_states == state_digests
+    assert restored_target == target
+    for probe in PROBES:
+        expected = np.asarray(probabilities[probe], dtype=np.float64)
+        actual = np.asarray(restored_probabilities[probe], dtype=np.float64)
+        assert np.array_equal(expected.view(np.uint64), actual.view(np.uint64))
+
+    changed_checkpoint = checkpoint.entry(0)
+    changed_checkpoint["test_issue"] = 902
+    with pytest.raises(
+        MeasurementValidationContractError,
+        match="settled_fold_checkpoint_mismatch",
+    ):
+        journal.restored_fold(0, checkpoint_entry=changed_checkpoint)
+    with pytest.raises(
+        MeasurementValidationContractError,
+        match="settled_fold_resume_gap",
+    ):
+        gap_checkpoint = {
+            **checkpoint.entry(0),
+            "fold_index": 2,
+            "test_issue": 903,
+        }
+        journal.record(
+            fold_index=2,
+            test_issue=903,
+            checkpoint_entry=gap_checkpoint,
+            probe_state_digests=state_digests,
+            probabilities=probabilities,
+            target_vector=target,
+        )
+
+    path = settled_fold_resume_journal_path(tmp_path, replicate)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["test_issue"] = 902
+    path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    with pytest.raises(
+        MeasurementValidationContractError,
+        match="settled_fold_resume_invalid",
+    ):
+        SettledFoldResumeJournal(output_dir=tmp_path, replicate=replicate)
+
+
+def test_reference_resume_skips_settled_fits_and_preserves_exact_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    truths = _materialize_frozen_truths(tmp_path / "truth-inputs")
+    cell = next(
+        item
+        for item in build_cells(_contract(), _synthetic())
+        if item.scale_id == "FORWARD_61" and item.scenario_id == "WEAK_SINGLE_NUMBER"
+    )
+    replicate = build_replicate(
+        cell=cell,
+        replicate_index=23,
+        parent_execution_id=EXECUTION_ID,
+    )
+
+    def evaluator(output_dir: Path) -> ReferenceReplicateEvaluator:
+        return ReferenceReplicateEvaluator.from_paths(
+            manifest=_contract(),
+            synthetic=_synthetic(),
+            preregistration_path=(
+                ROOT / "configs/research-os/"
+                "m4-information-theory-preregistration-v1.0.3.json"
+            ),
+            walk_forward_harness_path=(
+                ROOT / "configs/research-os/"
+                "m4-information-theory-walk-forward-harness-v1.json"
+            ),
+            resampling_path=RESAMPLING_PATH,
+            truth_by_scenario=truths,
+            git_commit="f" * 40,
+            output_dir=output_dir,
+        )
+
+    baseline_dir = tmp_path / "baseline"
+    baseline = dict(evaluator(baseline_dir).evaluate(replicate))
+
+    resume_dir = tmp_path / "resume"
+    original_record = SettledFoldResumeJournal.record
+
+    def interrupt_after_five(self, **kwargs):
+        original_record(self, **kwargs)
+        if kwargs["fold_index"] == 4:
+            raise RuntimeError("injected_after_settled_fold")
+
+    monkeypatch.setattr(SettledFoldResumeJournal, "record", interrupt_after_five)
+    with pytest.raises(RuntimeError, match="injected_after_settled_fold"):
+        evaluator(resume_dir).evaluate(replicate)
+    monkeypatch.setattr(SettledFoldResumeJournal, "record", original_record)
+
+    original_prepare = reference_module.prepare_probe
+    fit_calls = 0
+
+    def count_prepare(*args, **kwargs):
+        nonlocal fit_calls
+        fit_calls += 1
+        return original_prepare(*args, **kwargs)
+
+    monkeypatch.setattr(reference_module, "prepare_probe", count_prepare)
+    resumed = dict(evaluator(resume_dir).evaluate(replicate))
+
+    assert fit_calls == (cell.outer_issue_count - 5) * 3
+    assert resumed == baseline
+    baseline_checkpoint = StrictPriorCheckpointJournal(
+        output_dir=baseline_dir,
+        replicate=replicate,
+    ).path.read_bytes()
+    resumed_checkpoint = StrictPriorCheckpointJournal(
+        output_dir=resume_dir,
+        replicate=replicate,
+    ).path.read_bytes()
+    assert resumed_checkpoint == baseline_checkpoint
+
+    fit_calls = 0
+    fully_restored = dict(evaluator(resume_dir).evaluate(replicate))
+    assert fit_calls == 0
+    assert fully_restored == baseline
 
 
 def test_cell_aggregate_is_local_and_enforces_all_1000_replicates() -> None:
