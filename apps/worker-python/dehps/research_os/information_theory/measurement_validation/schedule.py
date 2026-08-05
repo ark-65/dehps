@@ -98,7 +98,9 @@ class ShardAssignment:
         }
 
 
-def _scenario_ids(entry: dict[str, Any], synthetic: SyntheticRunManifest) -> tuple[str, ...]:
+def _scenario_ids(
+    entry: dict[str, Any], synthetic: SyntheticRunManifest
+) -> tuple[str, ...]:
     declared = entry["scenario_ids"]
     if declared == "ALL_13_FROZEN_SCENARIOS":
         values = tuple(item.scenario_id for item in synthetic.scenarios)
@@ -143,16 +145,10 @@ def build_cells(
                     target_bits_per_issue=(
                         scenario.target_bits_per_issue
                         if repaired is None
-                        else float(
-                            repaired[
-                                "marginal_information_bits_per_issue"
-                            ]
-                        )
+                        else float(repaired["marginal_information_bits_per_issue"])
                     ),
                     outer_issue_count=outer_issue_count,
-                    scenario_role=(
-                        None if repaired is None else str(repaired["role"])
-                    ),
+                    scenario_role=(None if repaired is None else str(repaired["role"])),
                     formal_power_eligible=(
                         None
                         if repaired is None
@@ -271,6 +267,7 @@ def execution_plan_summary(
     synthetic: SyntheticRunManifest,
     parent_execution_id: str,
     shard_count: int,
+    update_policy_digest: str | None = None,
 ) -> dict[str, Any]:
     cells = build_cells(manifest, synthetic)
     counts = [0] * shard_count
@@ -306,6 +303,11 @@ def execution_plan_summary(
         "artifact_type": "analysis_execution_plan",
         "artifact_digest": "",
         "measurement_validation_manifest_digest": manifest.artifact_digest,
+        **(
+            {"measurement_update_policy_digest": update_policy_digest}
+            if update_policy_digest is not None
+            else {}
+        ),
         "parent_execution_id": parent_execution_id,
         "cell_count": len(cells),
         "replicate_count": len(replicate_digests),

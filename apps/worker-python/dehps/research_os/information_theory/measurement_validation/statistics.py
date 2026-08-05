@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from math import fsum, isfinite, sqrt
 from statistics import NormalDist
-from typing import Any, Callable, Sequence
+from typing import Any
 
 import numpy as np
 
@@ -18,7 +19,7 @@ from dehps.research_os.information_theory.resampling.plans import (
 from dehps.research_os.information_theory.resampling.statistics import (
     plus_one_p_value,
 )
-
+from dehps.research_os.information_theory.seed_domains import derive_m4_p2_seed
 
 PRIMARY_BLOCK_SIZE = 5
 CONFIDENCE_LEVEL = 0.95
@@ -43,7 +44,9 @@ def type7_quantile(values: Sequence[float], probability: float) -> float:
 def holm_adjust(p_values: dict[str, float]) -> dict[str, float]:
     if not p_values:
         raise ValueError("Holm family cannot be empty")
-    if any(not isfinite(value) or value < 0.0 or value > 1.0 for value in p_values.values()):
+    if any(
+        not isfinite(value) or value < 0.0 or value > 1.0 for value in p_values.values()
+    ):
         raise ValueError("p-values must be finite and in [0,1]")
     ordered = sorted(p_values.items(), key=lambda item: (item[1], item[0]))
     family_size = len(ordered)
@@ -93,7 +96,7 @@ def delete_contiguous_block_jackknife(
     retained = values.size - block_size
     result = [
         (total - float(values[start : start + block_size].sum())) / retained
-        for start in range(0, values.size - block_size + 1)
+        for start in range(values.size - block_size + 1)
     ]
     return tuple(result)
 
@@ -135,18 +138,10 @@ def bca_interval(
         for probability in (0.025, 0.975):
             z_alpha = NORMAL.inv_cdf(probability)
             transform_denominator = 1.0 - acceleration * (z0 + z_alpha)
-            if (
-                not isfinite(transform_denominator)
-                or transform_denominator == 0.0
-            ):
+            if not isfinite(transform_denominator) or transform_denominator == 0.0:
                 raw.append(float("nan"))
             else:
-                raw.append(
-                    NORMAL.cdf(
-                        z0
-                        + (z0 + z_alpha) / transform_denominator
-                    )
-                )
+                raw.append(NORMAL.cdf(z0 + (z0 + z_alpha) / transform_denominator))
         lower_bound = 1.0 / (replicate_count + 1.0)
         upper_bound = replicate_count / (replicate_count + 1.0)
         if (
@@ -240,10 +235,135 @@ def block_permutation_statistics(
         )
         value = float(statistic_for_indices(plan.source_indices))
         if not isfinite(value):
-            raise ResamplingError("nan_statistic", "permutation statistic is non-finite")
+            raise ResamplingError(
+                "nan_statistic", "permutation statistic is non-finite"
+            )
         statistics.append(value)
         assert plan.seed_digest is not None
         seed_digests.append(plan.seed_digest)
+    if len(set(seed_digests)) != replicate_count:
+        raise ResamplingError("duplicate_seed", "permutation seed set is not unique")
+    return tuple(statistics), tuple(seed_digests)
+
+
+def _runtime_rng_and_seed_digest(
+    *,
+    manifest: ResamplingKernelManifest,
+    seed_domain: str,
+    scenario_id: str,
+    method_id: str,
+    replicate_index: int,
+    parent_run_digest: str,
+) -> tuple[np.random.Generator, str]:
+    derived = derive_m4_p2_seed(
+        root_seed_set_digest=manifest.root_seed_set_digest,
+        seed_domain=seed_domain,
+        scenario_id=scenario_id,
+        method_id=method_id,
+        replicate_index=replicate_index,
+        parent_run_digest=parent_run_digest,
+    )
+    return np.random.default_rng(int(derived["seed"])), str(derived["seed_digest"])
+
+
+def moving_block_bootstrap_statistics_exact_runtime(
+    issue_statistics: Sequence[float],
+    *,
+    manifest: ResamplingKernelManifest,
+    scenario_id: str,
+    parent_run_digest: str,
+    replicate_count: int,
+    block_size: int = PRIMARY_BLOCK_SIZE,
+) -> tuple[tuple[float, ...], tuple[str, ...]]:
+    """Exact bootstrap without constructing unused immutable plan artifacts."""
+
+    values = _finite(issue_statistics, name="issue statistics")
+    issue_count = int(values.size)
+    if issue_count < block_size or block_size < 1:
+        raise ResamplingError(
+            "insufficient_issues_for_block_size",
+            "non-circular moving block requires N >= L >= 1",
+        )
+    statistics: list[float] = []
+    seed_digests: list[str] = []
+    for replicate_index in range(replicate_count):
+        rng, seed_digest = _runtime_rng_and_seed_digest(
+            manifest=manifest,
+            seed_domain="M4_P2_BOOTSTRAP",
+            scenario_id=scenario_id,
+            method_id=f"moving_block_L{block_size}",
+            replicate_index=replicate_index,
+            parent_run_digest=parent_run_digest,
+        )
+        block_count = (issue_count + block_size - 1) // block_size
+        starts = rng.integers(
+            0,
+            issue_count - block_size + 1,
+            size=block_count,
+        )
+        indices = (
+            starts[:, None] + np.arange(block_size, dtype=np.int64)[None, :]
+        ).reshape(-1)[:issue_count]
+        statistics.append(float(values[indices].mean()))
+        seed_digests.append(seed_digest)
+    if len(set(seed_digests)) != replicate_count:
+        raise ResamplingError("duplicate_seed", "bootstrap seed set is not unique")
+    return tuple(statistics), tuple(seed_digests)
+
+
+def block_permutation_statistics_exact_runtime(
+    *,
+    issue_count: int,
+    statistic_for_indices: Callable[[Sequence[int]], float],
+    manifest: ResamplingKernelManifest,
+    scenario_id: str,
+    parent_run_digest: str,
+    replicate_count: int,
+    block_size: int = PRIMARY_BLOCK_SIZE,
+) -> tuple[tuple[float, ...], tuple[str, ...]]:
+    """Exact block permutations without hashing unused full plan payloads."""
+
+    block_count = (issue_count + block_size - 1) // block_size
+    if block_count < 2:
+        raise ResamplingError(
+            "insufficient_blocks_for_permutation",
+            "block permutation requires at least two blocks",
+        )
+    identity_order = np.arange(block_count, dtype=np.int64)
+    padded_blocks = (
+        identity_order[:, None] * block_size
+        + np.arange(block_size, dtype=np.int64)[None, :]
+    )
+    padded_blocks[padded_blocks >= issue_count] = -1
+    statistics: list[float] = []
+    seed_digests: list[str] = []
+    for replicate_index in range(replicate_count):
+        rng, seed_digest = _runtime_rng_and_seed_digest(
+            manifest=manifest,
+            seed_domain="M4_P2_ISSUE_PERMUTATION",
+            scenario_id=scenario_id,
+            method_id=f"block_permutation_L{block_size}",
+            replicate_index=replicate_index,
+            parent_run_digest=parent_run_digest,
+        )
+        for _ in range(32):
+            order = rng.permutation(block_count)
+            if not np.array_equal(order, identity_order):
+                break
+        else:
+            raise ResamplingError(
+                "identity_permutation_forbidden",
+                "could not draw non-identity block order",
+            )
+        flattened = padded_blocks[order].reshape(-1)
+        indices = flattened[flattened >= 0]
+        value = float(statistic_for_indices(indices))
+        if not isfinite(value):
+            raise ResamplingError(
+                "nan_statistic", "permutation statistic is non-finite"
+            )
+        statistics.append(value)
+        seed_digests.append(seed_digest)
     if len(set(seed_digests)) != replicate_count:
         raise ResamplingError("duplicate_seed", "permutation seed set is not unique")
     return tuple(statistics), tuple(seed_digests)

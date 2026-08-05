@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from dehps.research_os.information_theory.digest import config_digest
 from dehps.research_os.information_theory.measurement_validation import (
     PASS_FACT,
     REPAIR_FACT,
@@ -22,6 +23,7 @@ from dehps.research_os.information_theory.measurement_validation import (
     generate_evaluation_dataset,
     holm_adjust,
     load_measurement_validation_manifest,
+    load_periodic_refit_contract,
     load_repaired_measurement_validation_manifest,
     locate_truth_artifacts,
     primary_inference,
@@ -41,7 +43,14 @@ from dehps.research_os.information_theory.measurement_validation.journal import 
 )
 from dehps.research_os.information_theory.measurement_validation.reference import (
     ReferenceReplicateEvaluator,
+    prepare_vectorized_p2_pe1_permutation_statistic,
     vectorized_p2_pe1,
+)
+from dehps.research_os.information_theory.measurement_validation.statistics import (
+    block_permutation_statistics,
+    block_permutation_statistics_exact_runtime,
+    moving_block_bootstrap_statistics,
+    moving_block_bootstrap_statistics_exact_runtime,
 )
 from dehps.research_os.information_theory.metrics import (
     evaluate_issue,
@@ -71,6 +80,9 @@ CONTRACT_PATH = (
 P261_CONTRACT_PATH = (
     ROOT
     / "configs/research-os/m4-information-theory-p2-6-1-measurement-validation-v1.json"
+)
+P263_POLICY_PATH = (
+    ROOT / "configs/research-os/m4-information-theory-p2-6-3-periodic-refit-v1.json"
 )
 SYNTHETIC_PATH = (
     ROOT
@@ -172,6 +184,84 @@ def _contract():
 
 def _synthetic():
     return load_synthetic_run_manifest(SYNTHETIC_PATH)
+
+
+def _p261_contract():
+    return load_repaired_measurement_validation_manifest(P261_CONTRACT_PATH)
+
+
+def _p263_policy():
+    return load_periodic_refit_contract(P263_POLICY_PATH)
+
+
+def test_periodic_refit_contract_rejects_cadence_tampering(
+    tmp_path: Path,
+) -> None:
+    payload = json.loads(P263_POLICY_PATH.read_text(encoding="utf-8"))
+    payload["update_policy"]["learned_probe_refit_interval_folds"] = 17
+    payload["artifact_digest"] = config_digest(payload)
+    path = tmp_path / "tampered-periodic-refit.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(
+        MeasurementValidationContractError,
+        match="frozen P2.6.3 update policy changed",
+    ):
+        load_periodic_refit_contract(path)
+
+
+@pytest.mark.parametrize("issue_count", (16, 61, 257))
+def test_exact_runtime_resampling_matches_frozen_plan_artifacts(
+    issue_count: int,
+) -> None:
+    manifest = load_resampling_manifest(RESAMPLING_PATH)
+    values = tuple(np.linspace(-0.25, 0.75, issue_count, dtype=np.float64))
+    bootstrap_kwargs = {
+        "manifest": manifest,
+        "scenario_id": "NULL_UNIFORM",
+        "parent_run_digest": "d" * 64,
+        "replicate_count": 31,
+    }
+    assert moving_block_bootstrap_statistics_exact_runtime(
+        values,
+        **bootstrap_kwargs,
+    ) == moving_block_bootstrap_statistics(values, **bootstrap_kwargs)
+
+    probabilities = np.linspace(
+        0.05,
+        0.95,
+        issue_count * 33,
+        dtype=np.float64,
+    ).reshape(issue_count, 33)
+    targets = np.zeros((issue_count, 33), dtype=np.int8)
+    for issue_index in range(issue_count):
+        targets[issue_index, (np.arange(6) + issue_index) % 33] = 1
+
+    def statistic(indices) -> float:
+        return float(
+            vectorized_p2_pe1(
+                probabilities,
+                targets[np.asarray(indices, dtype=np.int64)],
+            ).mean()
+        )
+
+    prepared_statistic = prepare_vectorized_p2_pe1_permutation_statistic(
+        probabilities,
+        targets,
+    )
+    generator = np.random.default_rng(9917 + issue_count)
+    for _ in range(11):
+        indices = generator.permutation(issue_count)
+        assert prepared_statistic(indices) == statistic(indices)
+
+    permutation_kwargs = {
+        "issue_count": issue_count,
+        "statistic_for_indices": statistic,
+        **bootstrap_kwargs,
+    }
+    assert block_permutation_statistics_exact_runtime(
+        **permutation_kwargs,
+    ) == block_permutation_statistics(**permutation_kwargs)
 
 
 def _materialize_frozen_truths(root: Path) -> dict[str, dict]:
@@ -726,6 +816,166 @@ def test_reference_resume_skips_settled_fits_and_preserves_exact_result(
     fully_restored = dict(evaluator(resume_dir).evaluate(replicate))
     assert fit_calls == 0
     assert fully_restored == baseline
+
+
+def test_periodic_refit_predicts_every_fold_from_fixed_strict_prior_states(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = _p261_contract()
+    cell = next(
+        item
+        for item in build_cells(manifest, _synthetic())
+        if item.scale_id == "FORWARD_61" and item.scenario_id == "NULL_UNIFORM"
+    )
+    replicate = build_replicate(
+        cell=cell,
+        replicate_index=31,
+        parent_execution_id="b" * 64,
+    )
+    traces: list[dict] = []
+    evaluator = ReferenceReplicateEvaluator.from_paths(
+        manifest=manifest,
+        synthetic=_synthetic(),
+        preregistration_path=(
+            ROOT
+            / "configs/research-os/m4-information-theory-preregistration-v1.0.3.json"
+        ),
+        walk_forward_harness_path=(
+            ROOT
+            / "configs/research-os/m4-information-theory-walk-forward-harness-v1.json"
+        ),
+        resampling_path=RESAMPLING_PATH,
+        truth_by_scenario={},
+        git_commit="1" * 40,
+        output_dir=tmp_path,
+        periodic_refit_contract=_p263_policy(),
+        trace_records=traces,
+    )
+    original_prepare = reference_module.prepare_probe
+    fit_calls: list[tuple[str, int]] = []
+
+    def count_prepare(*args, **kwargs):
+        fit_calls.append((kwargs["probe_id"], kwargs["outer_test_issue"]))
+        return original_prepare(*args, **kwargs)
+
+    monkeypatch.setattr(reference_module, "prepare_probe", count_prepare)
+    result = evaluator.evaluate(replicate)
+
+    assert len(traces) == 61
+    assert len(fit_calls) == 3
+    fit_calls.clear()
+    fast_result = ReferenceReplicateEvaluator.from_paths(
+        manifest=manifest,
+        synthetic=_synthetic(),
+        preregistration_path=(
+            ROOT
+            / "configs/research-os/m4-information-theory-preregistration-v1.0.3.json"
+        ),
+        walk_forward_harness_path=(
+            ROOT
+            / "configs/research-os/m4-information-theory-walk-forward-harness-v1.json"
+        ),
+        resampling_path=RESAMPLING_PATH,
+        truth_by_scenario={},
+        git_commit="1" * 40,
+        output_dir=tmp_path / "fast",
+        periodic_refit_contract=_p263_policy(),
+    ).evaluate(replicate)
+    assert len(fit_calls) == 3
+    assert fast_result == result
+    assert result["actual_outer_fold_count"] == 61
+    assert result["number_probability_predictions"] == 61 * 33 * 4
+    assert result["learned_probe_refit_interval_folds"] == 64
+    assert result["learned_probe_refit_boundary_count"] == 1
+    assert result["empirical_baseline_update_count"] == 61
+    assert result["measurement_update_policy_digest"] == _p263_policy().artifact_digest
+    for fold_index, trace in enumerate(traces):
+        boundary = fold_index - fold_index % 64
+        assert trace["learned_probe_refit_boundary_fold_index"] == boundary
+        for probe_id in PROBES[1:]:
+            current = trace["probes"][probe_id]["probe_state"]
+            boundary_state = traces[boundary]["probes"][probe_id]["probe_state"]
+            assert current["state_digest"] == boundary_state["state_digest"]
+            assert current["training_end_issue"] == traces[boundary]["train_end_issue"]
+        if fold_index % 64:
+            assert (
+                trace["probes"]["EMPIRICAL_BASELINE"]["probe_state"][
+                    "training_end_issue"
+                ]
+                == trace["train_end_issue"]
+            )
+
+
+def test_periodic_refit_resume_reconstructs_only_latest_boundary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = _p261_contract()
+    cell = next(
+        item
+        for item in build_cells(manifest, _synthetic())
+        if item.scale_id == "FORWARD_61" and item.scenario_id == "NULL_UNIFORM"
+    )
+    replicate = build_replicate(
+        cell=cell,
+        replicate_index=32,
+        parent_execution_id="c" * 64,
+    )
+
+    def evaluator(output_dir: Path) -> ReferenceReplicateEvaluator:
+        return ReferenceReplicateEvaluator.from_paths(
+            manifest=manifest,
+            synthetic=_synthetic(),
+            preregistration_path=(
+                ROOT / "configs/research-os/"
+                "m4-information-theory-preregistration-v1.0.3.json"
+            ),
+            walk_forward_harness_path=(
+                ROOT / "configs/research-os/"
+                "m4-information-theory-walk-forward-harness-v1.json"
+            ),
+            resampling_path=RESAMPLING_PATH,
+            truth_by_scenario={},
+            git_commit="2" * 40,
+            output_dir=output_dir,
+            periodic_refit_contract=_p263_policy(),
+        )
+
+    baseline = dict(evaluator(tmp_path / "baseline").evaluate(replicate))
+    resume_dir = tmp_path / "resume"
+    original_record = SettledFoldResumeJournal.record
+
+    def interrupt_after_twenty_one(self, **kwargs):
+        original_record(self, **kwargs)
+        if kwargs["fold_index"] == 20:
+            raise RuntimeError("injected_periodic_refit_crash")
+
+    monkeypatch.setattr(
+        SettledFoldResumeJournal,
+        "record",
+        interrupt_after_twenty_one,
+    )
+    with pytest.raises(RuntimeError, match="injected_periodic_refit_crash"):
+        evaluator(resume_dir).evaluate(replicate)
+    monkeypatch.setattr(SettledFoldResumeJournal, "record", original_record)
+
+    original_prepare = reference_module.prepare_probe
+    fit_calls = 0
+
+    def count_prepare(*args, **kwargs):
+        nonlocal fit_calls
+        fit_calls += 1
+        return original_prepare(*args, **kwargs)
+
+    monkeypatch.setattr(reference_module, "prepare_probe", count_prepare)
+    resumed = dict(evaluator(resume_dir).evaluate(replicate))
+    assert fit_calls == 3
+    assert resumed == baseline
+
+    fit_calls = 0
+    assert dict(evaluator(resume_dir).evaluate(replicate)) == baseline
+    assert fit_calls == 0
 
 
 def test_cell_aggregate_is_local_and_enforces_all_1000_replicates() -> None:

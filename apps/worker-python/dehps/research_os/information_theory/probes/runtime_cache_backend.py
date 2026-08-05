@@ -97,7 +97,7 @@ class ExactProbeRuntimeCache:
         if (
             self.feature_cache is None
             or not issue_ids
-            or issue_ids != tuple(range(issue_ids[0], issue_ids[-1] + 1))
+            or len(issue_ids) != issue_ids[-1] - issue_ids[0] + 1
             or issue_ids[0] < parent.issue_ids[0]
             or issue_ids[-1] > parent.issue_ids[-1]
         ):
@@ -148,8 +148,11 @@ class ExactProbeRuntimeCache:
         view: TrainFeatureView,
     ) -> PreparedEmpiricalBaseline:
         issue_ids = view.issue_ids
-        counts_array = self.targets(view).reshape(len(issue_ids), 33).sum(axis=0)
-        counts = [int(value) for value in counts_array]
+        if self.feature_cache is not None and not len(view.targets):
+            counts = list(self.feature_cache.runtime_target_counts(issue_ids))
+        else:
+            counts_array = self.targets(view).reshape(len(issue_ids), 33).sum(axis=0)
+            counts = [int(value) for value in counts_array]
         denominator = len(issue_ids) + 1.0
         probabilities = tuple((count + 0.5) / denominator for count in counts)
         model_digest = canonical_digest(
@@ -347,9 +350,7 @@ class ExactProbeRuntimeCache:
                     "invalid_feature_matrix",
                     "sparse tree split is not affine-order compatible",
                 )
-            restored_thresholds[node] = (
-                float(left_max) / 2.0 + float(right_min) / 2.0
-            )
+            restored_thresholds[node] = float(left_max) / 2.0 + float(right_min) / 2.0
             pending.append((int(children_right[node]), right_indices))
             pending.append((left_node, left_indices))
 

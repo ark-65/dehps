@@ -74,6 +74,7 @@ def run_parallel_execution(
     stop_after_new_replicates: int | None = None,
     executor_shard_index: int | None = None,
     executor_shard_count: int | None = None,
+    expected_update_policy_digest: str | None = None,
 ) -> CoordinatorResult:
     if worker_count < 1:
         raise ValueError("worker_count must be positive")
@@ -90,20 +91,16 @@ def run_parallel_execution(
         or executor_shard_index >= executor_shard_count
     ):
         raise ValueError("executor_shard_index must be in [0, executor_shard_count)")
-    plan_shard_count = (
-        executor_shard_count if executor_sharding else worker_count
-    )
+    plan_shard_count = executor_shard_count if executor_sharding else worker_count
     plan = execution_plan_summary(
         manifest=manifest,
         synthetic=synthetic,
         parent_execution_id=parent_execution_id,
         shard_count=plan_shard_count,
+        update_policy_digest=expected_update_policy_digest,
     )
     plan_path = (
-        output_dir
-        / "plan"
-        / str(plan["artifact_digest"])
-        / "execution-plan.json"
+        output_dir / "plan" / str(plan["artifact_digest"]) / "execution-plan.json"
     )
     persist_immutable(plan_path, plan)
     state_path = output_dir / "coordinator-state.json"
@@ -140,6 +137,7 @@ def run_parallel_execution(
                 output_dir=output_dir,
                 replicate=replicate,
                 manifest=manifest,
+                expected_update_policy_digest=expected_update_policy_digest,
             )
             reused += 1
             if replicate.artifact_digest in owned_replicate_digests:
@@ -168,6 +166,11 @@ def run_parallel_execution(
         "status": "RUNNING",
         "parent_execution_id": parent_execution_id,
         "measurement_validation_manifest_digest": manifest.artifact_digest,
+        **(
+            {"measurement_update_policy_digest": (expected_update_policy_digest)}
+            if expected_update_policy_digest is not None
+            else {}
+        ),
         "execution_plan_digest": plan["artifact_digest"],
         "worker_count": worker_count,
         "executor_shard_index": executor_shard_index,
@@ -195,9 +198,7 @@ def run_parallel_execution(
     project_state(state)
     if not pending:
         state["status"] = (
-            "COMPLETE"
-            if completed == len(all_replicates)
-            else "SHARD_COMPLETE"
+            "COMPLETE" if completed == len(all_replicates) else "SHARD_COMPLETE"
         )
         project_state(state)
         return CoordinatorResult(
@@ -232,12 +233,8 @@ def run_parallel_execution(
             if not done:
                 state.update(
                     {
-                        "elapsed_seconds": (
-                            time.monotonic() - started_monotonic
-                        ),
-                        "heartbeat_at": datetime.now(
-                            timezone.utc
-                        ).isoformat(),
+                        "elapsed_seconds": (time.monotonic() - started_monotonic),
+                        "heartbeat_at": datetime.now(timezone.utc).isoformat(),
                     }
                 )
                 project_state(state)
@@ -250,6 +247,7 @@ def run_parallel_execution(
                         raw,
                         replicate=replicate,
                         manifest=manifest,
+                        expected_update_policy_digest=(expected_update_policy_digest),
                     )
                     persist_immutable(_replicate_path(output_dir, replicate), result)
                     completed += 1
@@ -289,12 +287,9 @@ def run_parallel_execution(
                         "assigned_completed_replicates": completed_owned,
                         "retried_replicates": retried,
                         "failed_replicates": 0,
-                        "elapsed_seconds": (
-                            time.monotonic() - started_monotonic
-                        ),
+                        "elapsed_seconds": (time.monotonic() - started_monotonic),
                         "mean_seconds_per_new_replicate": (
-                            (time.monotonic() - started_monotonic)
-                            / completed_this_run
+                            (time.monotonic() - started_monotonic) / completed_this_run
                         ),
                         "estimated_remaining_seconds": (
                             (time.monotonic() - started_monotonic)
