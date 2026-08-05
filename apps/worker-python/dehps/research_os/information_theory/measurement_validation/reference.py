@@ -56,7 +56,7 @@ from .contracts import (
 )
 from .dataset import generate_evaluation_dataset
 from .feature_cache import StrictPriorFeatureCache
-from .journal import StrictPriorCheckpointJournal
+from .journal import SettledFoldResumeJournal, StrictPriorCheckpointJournal
 from .schedule import AnalysisReplicate
 from .statistics import (
     block_permutation_statistics,
@@ -73,6 +73,70 @@ PROBES = (
 )
 GATE_PROBE = "REGULARIZED_LOGISTIC_REGRESSION"
 PROBABILITY_EPSILON = 0.000001
+
+
+def _prediction_checkpoint_digest(
+    *,
+    dataset_digest: str,
+    replicate: AnalysisReplicate,
+    probe_id: str,
+    train_start_issue: int,
+    train_end_issue: int,
+    test_issue: int,
+    probe_state_digest: str,
+    probability: tuple[float, ...],
+    git_commit: str,
+) -> str:
+    return canonical_digest(
+        {
+            "dataset_digest": dataset_digest,
+            "scale_id": replicate.cell.scale_id,
+            "scenario_id": replicate.cell.scenario_id,
+            "replicate_index": replicate.replicate_index,
+            "probe_id": probe_id,
+            "train_start_issue": train_start_issue,
+            "train_end_issue": train_end_issue,
+            "test_issue": test_issue,
+            "probe_state_digest": probe_state_digest,
+            "probabilities": list(probability),
+            "probability_order": "red_numbers_1_to_33",
+            "target_access": "forbidden_before_this_checkpoint",
+            "metric_kernel_digest": METRIC_KERNEL_DIGEST,
+            "walk_forward_harness_digest": WALK_FORWARD_HARNESS_DIGEST,
+            "git_commit": git_commit,
+        },
+        domain="dehps.m4-p2.formal-prediction-checkpoint.v1",
+    )
+
+
+def _settle_prediction(
+    *,
+    checkpoint_digest: str,
+    test_issue: int,
+    target: tuple[int, ...],
+    probability: tuple[float, ...],
+) -> tuple[str, float, Any]:
+    metric = evaluate_issue(
+        issue_id=str(test_issue),
+        cluster_id=str(test_issue),
+        target_vector=target,
+        baseline_probability_vector=(THEORETICAL_PROBABILITY,) * 33,
+        probe_probability_vector=probability,
+    )
+    gain = metric.observed_log_loss_gain_bits_per_issue
+    settlement_digest = canonical_digest(
+        {
+            "prediction_checkpoint_digest": checkpoint_digest,
+            "target_digest": canonical_digest(
+                list(target),
+                domain="dehps.m4-p2.formal-fold-target.v1",
+            ),
+            "metric_kernel_digest": METRIC_KERNEL_DIGEST,
+            "PE1_bits_per_issue": gain,
+        },
+        domain="dehps.m4-p2.formal-fold-settlement.v1",
+    )
+    return settlement_digest, gain, metric
 
 
 def vectorized_p2_pe1(
@@ -295,6 +359,25 @@ class ReferenceReplicateEvaluator:
             output_dir=self.output_dir,
             replicate=replicate,
         )
+        settlement_resume_journal = SettledFoldResumeJournal(
+            output_dir=self.output_dir,
+            replicate=replicate,
+        )
+        if len(settlement_resume_journal) > len(folds):
+            raise MeasurementValidationContractError(
+                "measurement_validation_settled_fold_resume_overflow",
+                "settled fold prefix exceeds the frozen fold schedule",
+            )
+        if len(settlement_resume_journal) > len(checkpoint_journal):
+            raise MeasurementValidationContractError(
+                "measurement_validation_settled_fold_checkpoint_gap",
+                "settled fold prefix exceeds the strict-prior checkpoint prefix",
+            )
+        resume_prefix_length = (
+            len(settlement_resume_journal)
+            if self.trace_records is None and not self.audit_observer.enabled
+            else 0
+        )
 
         for fold_index, fold in enumerate(folds):
             self.audit_observer.count_fold()
@@ -304,6 +387,73 @@ class ReferenceReplicateEvaluator:
                 dataset_issue_count=dataset.issue_count,
             )
             guard_train_test_overlap(fold)
+            if fold_index < resume_prefix_length:
+                checkpoint_entry = checkpoint_journal.entry(fold_index)
+                if (
+                    checkpoint_entry.get("fold_index") != fold_index
+                    or checkpoint_entry.get("test_issue") != fold.test_issue
+                    or checkpoint_entry.get("probe_order") != list(PROBES)
+                    or checkpoint_entry.get("target_access")
+                    != "forbidden_before_this_persisted_entry"
+                ):
+                    raise MeasurementValidationContractError(
+                        "measurement_validation_settled_fold_checkpoint_mismatch",
+                        f"strict-prior checkpoint identity changed at fold {fold_index}",
+                    )
+                (
+                    restored_state_digests,
+                    predictions,
+                    restored_target,
+                ) = settlement_resume_journal.restored_fold(
+                    fold_index,
+                    checkpoint_entry=checkpoint_entry,
+                )
+                checkpoint_entry_digests = checkpoint_entry.get("checkpoint_digests")
+                if not isinstance(checkpoint_entry_digests, Mapping):
+                    raise MeasurementValidationContractError(
+                        "measurement_validation_settled_fold_checkpoint_mismatch",
+                        f"strict-prior checkpoint digests are missing at fold {fold_index}",
+                    )
+                for probe_id in PROBES:
+                    checkpoint_digest = _prediction_checkpoint_digest(
+                        dataset_digest=dataset.artifact_digest,
+                        replicate=replicate,
+                        probe_id=probe_id,
+                        train_start_issue=fold.train_issues[0],
+                        train_end_issue=fold.train_issues[-1],
+                        test_issue=fold.test_issue,
+                        probe_state_digest=restored_state_digests[probe_id],
+                        probability=predictions[probe_id],
+                        git_commit=self.inputs.git_commit,
+                    )
+                    if checkpoint_entry_digests.get(probe_id) != checkpoint_digest:
+                        raise MeasurementValidationContractError(
+                            "measurement_validation_settled_fold_checkpoint_mismatch",
+                            f"restored prediction changed at fold {fold_index}",
+                        )
+                    checkpoint_digests[probe_id].append(checkpoint_digest)
+                    state_digests[probe_id].append(restored_state_digests[probe_id])
+                # Target access is allowed only after every restored prediction
+                # has reproduced its already-persisted strict-prior identity.
+                target = dataset.issue(fold.test_issue).target_vector
+                if target != restored_target:
+                    raise MeasurementValidationContractError(
+                        "measurement_validation_settled_fold_target_mismatch",
+                        f"restored target changed at fold {fold_index}",
+                    )
+                ordered_targets.append(target)
+                for probe_id in PROBES:
+                    with self.audit_observer.phase("prediction_metric"):
+                        settlement_digest, gain, _ = _settle_prediction(
+                            checkpoint_digest=checkpoint_digests[probe_id][-1],
+                            test_issue=fold.test_issue,
+                            target=target,
+                            probability=predictions[probe_id],
+                        )
+                    settlement_digests[probe_id].append(settlement_digest)
+                    issue_gains[probe_id].append(gain)
+                gate_probabilities.append(predictions[GATE_PROBE])
+                continue
             training = restrict_to_training_history(
                 dataset,
                 available_through_issue=fold.train_issues[-1],
@@ -368,26 +518,16 @@ class ReferenceReplicateEvaluator:
                 self.audit_observer.count_fit()
                 with self.audit_observer.phase("prediction_metric"):
                     probability = prepared.predict(blind)
-                checkpoint_identity = {
-                    "dataset_digest": dataset.artifact_digest,
-                    "scale_id": replicate.cell.scale_id,
-                    "scenario_id": replicate.cell.scenario_id,
-                    "replicate_index": replicate.replicate_index,
-                    "probe_id": probe_id,
-                    "train_start_issue": fold.train_issues[0],
-                    "train_end_issue": fold.train_issues[-1],
-                    "test_issue": fold.test_issue,
-                    "probe_state_digest": prepared.state.state_digest,
-                    "probabilities": list(probability),
-                    "probability_order": "red_numbers_1_to_33",
-                    "target_access": "forbidden_before_this_checkpoint",
-                    "metric_kernel_digest": METRIC_KERNEL_DIGEST,
-                    "walk_forward_harness_digest": WALK_FORWARD_HARNESS_DIGEST,
-                    "git_commit": self.inputs.git_commit,
-                }
-                checkpoint_digest = canonical_digest(
-                    checkpoint_identity,
-                    domain="dehps.m4-p2.formal-prediction-checkpoint.v1",
+                checkpoint_digest = _prediction_checkpoint_digest(
+                    dataset_digest=dataset.artifact_digest,
+                    replicate=replicate,
+                    probe_id=probe_id,
+                    train_start_issue=fold.train_issues[0],
+                    train_end_issue=fold.train_issues[-1],
+                    test_issue=fold.test_issue,
+                    probe_state_digest=prepared.state.state_digest,
+                    probability=probability,
+                    git_commit=self.inputs.git_commit,
                 )
                 checkpoint_digests[probe_id].append(checkpoint_digest)
                 state_digests[probe_id].append(prepared.state.state_digest)
@@ -413,33 +553,14 @@ class ReferenceReplicateEvaluator:
             )
             for probe_id in PROBES:
                 with self.audit_observer.phase("prediction_metric"):
-                    metric = evaluate_issue(
-                        issue_id=str(fold.test_issue),
-                        cluster_id=str(fold.test_issue),
-                        target_vector=target,
-                        baseline_probability_vector=(THEORETICAL_PROBABILITY,) * 33,
-                        probe_probability_vector=predictions[probe_id],
+                    settlement_digest, gain, metric = _settle_prediction(
+                        checkpoint_digest=checkpoint_digests[probe_id][-1],
+                        test_issue=fold.test_issue,
+                        target=target,
+                        probability=predictions[probe_id],
                     )
-                settlement_identity = {
-                    "prediction_checkpoint_digest": checkpoint_digests[probe_id][-1],
-                    "target_digest": canonical_digest(
-                        list(target),
-                        domain="dehps.m4-p2.formal-fold-target.v1",
-                    ),
-                    "metric_kernel_digest": METRIC_KERNEL_DIGEST,
-                    "PE1_bits_per_issue": (
-                        metric.observed_log_loss_gain_bits_per_issue
-                    ),
-                }
-                settlement_digests[probe_id].append(
-                    canonical_digest(
-                        settlement_identity,
-                        domain="dehps.m4-p2.formal-fold-settlement.v1",
-                    )
-                )
-                issue_gains[probe_id].append(
-                    metric.observed_log_loss_gain_bits_per_issue
-                )
+                settlement_digests[probe_id].append(settlement_digest)
+                issue_gains[probe_id].append(gain)
                 if trace_probe_payloads is not None:
                     if probe_state_payloads is None:
                         raise AssertionError(
@@ -454,6 +575,17 @@ class ReferenceReplicateEvaluator:
                         ],
                         "settlement_digest": settlement_digests[probe_id][-1],
                     }
+            with self.audit_observer.phase("checkpoint_artifact_persistence"):
+                settlement_resume_journal.record(
+                    fold_index=fold_index,
+                    test_issue=fold.test_issue,
+                    checkpoint_entry=checkpoint_journal.entry(fold_index),
+                    probe_state_digests={
+                        probe_id: state_digests[probe_id][-1] for probe_id in PROBES
+                    },
+                    probabilities=predictions,
+                    target_vector=target,
+                )
             if self.trace_records is not None:
                 if trace_probe_payloads is None:
                     raise AssertionError("trace capture was not initialized")
