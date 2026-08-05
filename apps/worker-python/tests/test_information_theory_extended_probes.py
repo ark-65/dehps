@@ -142,6 +142,68 @@ def test_sparse_tree_runtime_fit_does_not_leave_unreachable_cycles() -> None:
         gc.enable()
 
 
+def test_fold_shared_cache_reuses_exact_prefix_scaler_and_tree() -> None:
+    dataset, training_900, _train_view, _blind, _configs = _fixture()
+    feature_cache = StrictPriorFeatureCache(dataset)
+    feature_cache.reveal_training_history(training_900, through_issue=900)
+    outer_900 = feature_cache.build_runtime_train_feature_view(
+        training_900,
+        tuple(range(1, 901)),
+    )
+    runtime_900 = ExactProbeRuntimeCache(
+        feature_cache=feature_cache,
+        outer_train_view=outer_900,
+    )
+    fitted_outer_900 = runtime_900.fitted(outer_900)
+    model_720 = runtime_900.contiguous_subview(
+        outer_900,
+        tuple(range(1, 721)),
+    )
+    fitted_model_720 = runtime_900.fitted(model_720)
+    tree_720 = runtime_900.fit_exact_sparse_tree(
+        fitted_model_720,
+        model_720,
+        max_depth=3,
+        min_samples_leaf=24,
+        random_state=dataset.replicate_seed,
+    )
+
+    training_901 = restrict_to_training_history(
+        dataset,
+        available_through_issue=901,
+    )
+    feature_cache.reveal_training_history(training_901, through_issue=901)
+    outer_901 = feature_cache.build_runtime_train_feature_view(
+        training_901,
+        tuple(range(1, 902)),
+    )
+    runtime_901 = ExactProbeRuntimeCache(
+        feature_cache=feature_cache,
+        outer_train_view=outer_901,
+    )
+    earlier_outer_prefix = runtime_901.contiguous_subview(
+        outer_901,
+        tuple(range(1, 901)),
+    )
+    repeated_model_prefix = runtime_901.contiguous_subview(
+        outer_901,
+        tuple(range(1, 721)),
+    )
+
+    assert runtime_901.fitted(earlier_outer_prefix) is fitted_outer_900
+    assert runtime_901.fitted(repeated_model_prefix) is fitted_model_720
+    assert (
+        runtime_901.fit_exact_sparse_tree(
+            fitted_model_720,
+            repeated_model_prefix,
+            max_depth=3,
+            min_samples_leaf=24,
+            random_state=dataset.replicate_seed,
+        )
+        is tree_720
+    )
+
+
 def test_cached_and_literal_feature_paths_produce_identical_four_probe_outputs() -> (
     None
 ):
@@ -196,3 +258,53 @@ def test_cached_and_literal_feature_paths_produce_identical_four_probe_outputs()
         )
         assert cached.state.state_digest == literal.state.state_digest
         assert cached.predict(cached_blind) == literal.predict(blind)
+
+
+def test_compact_runtime_view_preserves_exact_four_probe_outputs() -> None:
+    dataset, training, train_view, blind, configs = _fixture()
+    cache = StrictPriorFeatureCache(dataset)
+    cache.reveal_training_history(training, through_issue=900)
+    compact = cache.build_runtime_train_feature_view(
+        training,
+        tuple(range(1, 901)),
+        exact_identity=False,
+    )
+    cache.guard_runtime_number_event_rows(compact)
+    assert compact.red_numbers == ()
+    assert compact.available_through_by_issue == ()
+    assert compact.feature_view_digest != train_view.feature_view_digest
+
+    runtime_cache = ExactProbeRuntimeCache(
+        feature_cache=cache,
+        outer_train_view=compact,
+    )
+    compact_blind = cache.build_blind_test_feature_view(target_issue=901)
+    for probe_id in (
+        "EMPIRICAL_BASELINE",
+        "REGULARIZED_LOGISTIC_REGRESSION",
+        "NAIVE_BAYES",
+        "SHALLOW_CALIBRATED_TREE",
+    ):
+        config = {} if probe_id == "EMPIRICAL_BASELINE" else configs[probe_id]
+        literal = prepare_probe(
+            probe_id=probe_id,
+            dataset=training,
+            train_view=train_view,
+            probe_config=config,
+            outer_test_issue=901,
+        )
+        observed = (
+            runtime_cache.prepare_empirical_baseline(compact)
+            if probe_id == "EMPIRICAL_BASELINE"
+            else prepare_probe(
+                probe_id=probe_id,
+                dataset=training,
+                train_view=compact,
+                probe_config=config,
+                outer_test_issue=901,
+                train_view_builder=runtime_cache.build_train_feature_view,
+                runtime_cache=runtime_cache,
+            )
+        )
+        assert observed.state.to_dict() == literal.state.to_dict()
+        assert observed.predict(compact_blind) == literal.predict(blind)

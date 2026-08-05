@@ -121,7 +121,7 @@ FIXTURE_PATH = (
     ROOT / "configs/research-os/m4-measurement-contract-v2-replay-fixture-v1.json"
 )
 AUDIT_PATH = (
-    ROOT / "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.4.json"
+    ROOT / "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.5.json"
 )
 MANIFEST_PATH = ROOT / "configs/research-os/m4-information-theory-evidence-v1.json"
 

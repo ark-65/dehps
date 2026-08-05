@@ -44,6 +44,24 @@ class ExactProbeRuntimeCache:
         default_factory=dict
     )
 
+    def _persistent_prefix_key(
+        self,
+        view: TrainFeatureView,
+    ) -> tuple[object, ...] | None:
+        issue_ids = view.issue_ids
+        if (
+            self.feature_cache is None
+            or not issue_ids
+            or issue_ids[-1] - issue_ids[0] + 1 != len(issue_ids)
+        ):
+            return None
+        return (
+            issue_ids[0],
+            issue_ids[-1],
+            len(issue_ids),
+            view.feature_manifest_digest,
+        )
+
     def values(self, view: TrainFeatureView) -> np.ndarray:
         cached = self._values.get(view.feature_view_digest)
         if cached is None:
@@ -173,11 +191,29 @@ class ExactProbeRuntimeCache:
     def fitted(self, view: TrainFeatureView) -> FittedPreprocessor:
         cached = self._preprocessors.get(view.feature_view_digest)
         if cached is None:
-            cached = fit_preprocessor(
-                view,
-                outer_train_end=max(view.issue_ids),
-                prepared_matrix=self.values(view),
+            persistent_key = self._persistent_prefix_key(view)
+            persistent = (
+                None
+                if persistent_key is None or self.feature_cache is None
+                else self.feature_cache.runtime_acceleration_get(
+                    "fitted_preprocessor",
+                    persistent_key,
+                )
             )
+            if isinstance(persistent, FittedPreprocessor):
+                cached = persistent
+            else:
+                cached = fit_preprocessor(
+                    view,
+                    outer_train_end=max(view.issue_ids),
+                    prepared_matrix=self.values(view),
+                )
+                if persistent_key is not None and self.feature_cache is not None:
+                    self.feature_cache.runtime_acceleration_put(
+                        "fitted_preprocessor",
+                        persistent_key,
+                        cached,
+                    )
             self._preprocessors[view.feature_view_digest] = cached
         return cached
 
@@ -244,6 +280,29 @@ class ExactProbeRuntimeCache:
         accepted scaler with sklearn's float32 midpoint rule so the public tree
         identity and prediction boundary remain the standardized ones.
         """
+        persistent_prefix = self._persistent_prefix_key(view)
+        persistent_key = (
+            None
+            if persistent_prefix is None
+            else (
+                *persistent_prefix,
+                fitted.state.state_digest,
+                max_depth,
+                min_samples_leaf,
+                random_state,
+            )
+        )
+        persistent = (
+            None
+            if persistent_key is None or self.feature_cache is None
+            else self.feature_cache.runtime_acceleration_get(
+                "fitted_sparse_tree",
+                persistent_key,
+            )
+        )
+        if isinstance(persistent, DecisionTreeClassifier):
+            return persistent
+
         raw64 = self.values(view)
         raw32 = np.asarray(raw64, dtype=np.float32, order="C")
         tree_targets = np.asarray(
@@ -295,4 +354,11 @@ class ExactProbeRuntimeCache:
             pending.append((left_node, left_indices))
 
         structure.threshold[:] = restored_thresholds
+        if persistent_key is not None and self.feature_cache is not None:
+            self.feature_cache.runtime_acceleration_put(
+                "fitted_sparse_tree",
+                persistent_key,
+                tree,
+                max_entries=8,
+            )
         return tree

@@ -316,6 +316,7 @@ class ReferenceReplicateEvaluator:
                 train_view = feature_cache.build_runtime_train_feature_view(
                     training,
                     fold.train_issues,
+                    exact_identity=self.trace_records is not None,
                 )
                 blind = feature_cache.build_blind_test_feature_view(
                     target_issue=fold.test_issue,
@@ -325,10 +326,13 @@ class ReferenceReplicateEvaluator:
                 outer_train_view=train_view,
             )
             guard_feature_timestamp(blind)
-            guard_number_event_rows(
-                issue_ids=train_view.issue_ids,
-                red_numbers=train_view.red_numbers,
-            )
+            if train_view.red_numbers:
+                guard_number_event_rows(
+                    issue_ids=train_view.issue_ids,
+                    red_numbers=train_view.red_numbers,
+                )
+            else:
+                feature_cache.guard_runtime_number_event_rows(train_view)
 
             predictions: dict[str, tuple[float, ...]] = {}
             probe_state_payloads: dict[str, dict[str, Any]] | None = (
