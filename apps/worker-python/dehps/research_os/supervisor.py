@@ -140,6 +140,7 @@ from dehps.research_os.information_theory.measurement_validation import (
     FIXTURE_GIT_COMMIT,
     FIXTURE_PARENT_EXECUTION_ID,
     MEASUREMENT_VALIDATION_MANIFEST_DIGEST,
+    PERIODIC_REFIT_CONTRACT_DIGEST,
     REPAIRED_MEASUREMENT_VALIDATION_MANIFEST_DIGEST,
     PythonReferenceEvaluation,
     PythonReferenceReplicateEvaluator,
@@ -158,6 +159,7 @@ from dehps.research_os.information_theory.measurement_validation import (
     generate_evaluation_dataset,
     golden_boundary_identity_contract,
     golden_full_replicate,
+    load_periodic_refit_contract,
     load_repaired_measurement_validation_manifest,
     locate_repaired_truth_artifacts,
     run_parallel_execution,
@@ -251,7 +253,8 @@ P26_PREFLIGHT_CAPABILITY = "m4_p2_6_identifiability_preflight"
 P26_REPAIR_TASK_KEY = "m4-p2-repair-measurement-system"
 P26_REPAIR_CAPABILITY = "m4_p2_measurement_system_repair"
 P26_TASK_KEY = "m4-p2-false-positive-and-power-runs"
-P26_CAPABILITY = "m4_p2_6_1_false_positive_and_power"
+P26_LEGACY_CAPABILITY = "m4_p2_6_1_false_positive_and_power"
+P26_CAPABILITY = "m4_p2_6_3_periodic_refit_false_positive_and_power"
 P27_TASK_KEY = "m4-p2-automatic-gate-and-report"
 P27_CAPABILITY = "m4_p2_7_automatic_measurement_gate"
 M4_V2_DESIGN_TASK_KEY = "m4-v2-measurement-contract-design"
@@ -4560,12 +4563,17 @@ class P26MeasurementValidationCapability:
             "m4-information-theory-p2-6-1-measurement-validation-v1.json"
         )
         manifest = load_repaired_measurement_validation_manifest(contract_path)
+        update_policy = load_periodic_refit_contract(
+            self.root_dir / "configs/research-os/"
+            "m4-information-theory-p2-6-3-periodic-refit-v1.json"
+        )
         truth_digests = tuple(
             str(item["artifact_digest"]) for item in manifest.payload["truth_artifacts"]
         )
         expected_inputs = (
             MEASUREMENT_REPAIR_MANIFEST_DIGEST,
             REPAIRED_MEASUREMENT_VALIDATION_MANIFEST_DIGEST,
+            PERIODIC_REFIT_CONTRACT_DIGEST,
             "90459ebf8b88afcc60ee1177043e436b90b71c00b557f15e9e4d7026f37586f2",
             "1a76f46d7a47a134c1688657749bc040290f65a03dbc7c860e38144e02005981",
             KERNEL_MANIFEST_DIGEST,
@@ -4575,8 +4583,8 @@ class P26MeasurementValidationCapability:
         )
         if task.input_artifact_digests != expected_inputs:
             raise MainlineSupervisorError(
-                "P2.6.1 requires the repaired contract, four-fit probe "
-                "instrument, resampling kernel, and all marginal truths"
+                "P2.6.3 requires the repaired contract, fixed periodic-refit "
+                "policy, frozen probes, resampling kernel, and all marginal truths"
             )
         synthetic = load_synthetic_run_manifest(
             self.root_dir / "configs/research-os/"
@@ -4619,6 +4627,7 @@ class P26MeasurementValidationCapability:
             truth_by_scenario=truths,
             git_commit=git_commit,
             output_dir=output_dir,
+            periodic_refit_contract=update_policy,
         )
         configured_workers = int(
             os.environ.get(
@@ -4626,27 +4635,17 @@ class P26MeasurementValidationCapability:
                 str(max(1, min(20, (os.cpu_count() or 2) - 2))),
             )
         )
-        executor_shard_count_raw = os.environ.get(
-            "DEHPS_P26_EXECUTOR_SHARD_COUNT"
-        )
-        executor_shard_index_raw = os.environ.get(
-            "DEHPS_P26_EXECUTOR_SHARD_INDEX"
-        )
-        if (executor_shard_count_raw is None) != (
-            executor_shard_index_raw is None
-        ):
+        executor_shard_count_raw = os.environ.get("DEHPS_P26_EXECUTOR_SHARD_COUNT")
+        executor_shard_index_raw = os.environ.get("DEHPS_P26_EXECUTOR_SHARD_INDEX")
+        if (executor_shard_count_raw is None) != (executor_shard_index_raw is None):
             raise MainlineSupervisorError(
                 "P2.6 executor shard count and index must be configured together"
             )
         executor_shard_count = (
-            None
-            if executor_shard_count_raw is None
-            else int(executor_shard_count_raw)
+            None if executor_shard_count_raw is None else int(executor_shard_count_raw)
         )
         executor_shard_index = (
-            None
-            if executor_shard_index_raw is None
-            else int(executor_shard_index_raw)
+            None if executor_shard_index_raw is None else int(executor_shard_index_raw)
         )
         coordinator = run_parallel_execution(
             manifest=manifest,
@@ -4657,10 +4656,11 @@ class P26MeasurementValidationCapability:
             worker_count=configured_workers,
             progress_projection_path=(
                 self.root_dir / "runtime/logs/"
-                "m4-p2-6-1-measurement-validation-progress.json"
+                "m4-p2-6-3-measurement-validation-progress.json"
             ),
             executor_shard_index=executor_shard_index,
             executor_shard_count=executor_shard_count,
+            expected_update_policy_digest=update_policy.artifact_digest,
         )
         completion = assemble_completion(
             manifest=manifest,
@@ -4668,6 +4668,19 @@ class P26MeasurementValidationCapability:
             parent_execution_id=execution_id,
             output_dir=output_dir,
             git_commit=git_commit,
+            expected_update_policy_digest=update_policy.artifact_digest,
+        )
+        schedule = manifest.payload["workload"]["schedule"]
+        boundary_count = sum(
+            int(item["scenario_count"])
+            * int(item["replicates_per_scenario"])
+            * (
+                int(item["outer_issue_count"])
+                + update_policy.learned_probe_refit_interval_folds
+                - 1
+            )
+            // update_policy.learned_probe_refit_interval_folds
+            for item in schedule
         )
         child_paths = (
             coordinator.execution_plan_path,
@@ -4700,6 +4713,7 @@ class P26MeasurementValidationCapability:
             "completion_classification": "VALIDATED_IN_MAINLINE",
             "input_artifact_digests": list(task.input_artifact_digests),
             "measurement_validation_manifest_digest": manifest.artifact_digest,
+            "measurement_update_policy_digest": update_policy.artifact_digest,
             "execution_plan_digest": coordinator.execution_plan["artifact_digest"],
             "completion_artifact_digest": completion.completion_artifact[
                 "artifact_digest"
@@ -4720,11 +4734,18 @@ class P26MeasurementValidationCapability:
             "aggregate_count": len(completion.aggregate_artifacts),
             "actual_fold_count": manifest.outer_issue_predictions,
             "all_probe_outer_fold_count": manifest.outer_issue_predictions * 4,
-            "estimator_and_calibrator_fit_count": (
-                manifest.outer_issue_predictions * 4
+            "estimator_and_calibrator_fit_count": boundary_count * 3,
+            "learned_probe_fit_count": boundary_count * 3,
+            "learned_probe_refit_boundary_count": boundary_count,
+            "learned_probe_refit_interval_folds": (
+                update_policy.learned_probe_refit_interval_folds
+            ),
+            "empirical_baseline_update_count": manifest.outer_issue_predictions,
+            "probe_preparation_count": (
+                manifest.outer_issue_predictions + boundary_count * 3
             ),
             "inner_model_selection_fit_count": 0,
-            "superseded_outer_fold_fit_count": (manifest.outer_issue_predictions * 46),
+            "superseded_every_fold_fit_count": (manifest.outer_issue_predictions * 4),
             "number_probability_predictions": (
                 manifest.outer_issue_predictions * 33 * 4
             ),
@@ -4748,8 +4769,7 @@ class P26MeasurementValidationCapability:
                 for path in runtime_migration_paths
             ],
             "incident_recovery_digests": [
-                _artifact_digest(_load_object(path))
-                for path in incident_recovery_paths
+                _artifact_digest(_load_object(path)) for path in incident_recovery_paths
             ],
             "registered_artifact_count": len(child_identities) + 1,
             "engineering_progress_before": 37,
@@ -4830,9 +4850,14 @@ class P27AutomaticMeasurementGateCapability:
             self.root_dir / "configs/research-os/"
             "m4-information-theory-p2-6-1-measurement-validation-v1.json"
         )
+        update_policy = load_periodic_refit_contract(
+            self.root_dir / "configs/research-os/"
+            "m4-information-theory-p2-6-3-periodic-refit-v1.json"
+        )
         if task.input_artifact_digests != (
             P25_DECISION_POLICY_DIGEST,
             REPAIRED_MEASUREMENT_VALIDATION_MANIFEST_DIGEST,
+            PERIODIC_REFIT_CONTRACT_DIGEST,
         ):
             raise MainlineSupervisorError("P2.7 frozen inputs changed")
         synthetic = load_synthetic_run_manifest(
@@ -4851,6 +4876,13 @@ class P27AutomaticMeasurementGateCapability:
                 "P2.7 requires exactly one completed P2.6 execution artifact"
             )
         p26_execution_path, p26_execution = completed[0]
+        if (
+            p26_execution.get("measurement_update_policy_digest")
+            != update_policy.artifact_digest
+        ):
+            raise MainlineSupervisorError(
+                "P2.7 requires the frozen P2.6.3 update policy"
+            )
         p26_execution_id = str(p26_execution["execution_id"])
         p26_output = p26_execution_path.parent / "artifacts"
         replay = verify_completion_replay(
@@ -4860,6 +4892,7 @@ class P27AutomaticMeasurementGateCapability:
             output_dir=p26_output,
             git_commit=str(p26_execution["git_commit"]),
             expected_completion_digest=str(p26_execution["completion_artifact_digest"]),
+            expected_update_policy_digest=update_policy.artifact_digest,
         )
         completion_path = self.root_dir / str(p26_execution["completion_artifact_path"])
         completion = _load_object(completion_path)
@@ -4898,6 +4931,7 @@ class P27AutomaticMeasurementGateCapability:
             "completion_classification": "VALIDATED_IN_MAINLINE",
             "input_artifact_digests": list(task.input_artifact_digests),
             "measurement_validation_manifest_digest": manifest.artifact_digest,
+            "measurement_update_policy_digest": update_policy.artifact_digest,
             "p26_execution_artifact_digest": p26_execution["artifact_digest"],
             "execution_plan_digest": p26_execution["execution_plan_digest"],
             "completion_artifact_digest": completion["artifact_digest"],
@@ -5386,11 +5420,7 @@ class ResearchEvidenceSupervisor:
                     else {}
                 ),
                 **(
-                    {
-                        "incident_recovery_digest": incident_recovery[
-                            "artifact_digest"
-                        ]
-                    }
+                    {"incident_recovery_digest": incident_recovery["artifact_digest"]}
                     if incident_recovery is not None
                     else {}
                 ),
@@ -5399,7 +5429,7 @@ class ResearchEvidenceSupervisor:
                     {
                         "progress_projection_path": (
                             "runtime/logs/"
-                            "m4-p2-6-1-measurement-validation-progress.json"
+                            "m4-p2-6-3-measurement-validation-progress.json"
                         )
                     }
                     if task.task_key == P26_TASK_KEY
@@ -5468,6 +5498,7 @@ class ResearchEvidenceSupervisor:
                                     "aggregate_count",
                                     "eligible_for_formal_inference",
                                     "measurement_validation_manifest_digest",
+                                    "measurement_update_policy_digest",
                                     "identifiability_preflight_manifest_digest",
                                     "identifiability_preflight_report_digest",
                                     "superseded_run_archive_digest",
@@ -5487,6 +5518,13 @@ class ResearchEvidenceSupervisor:
                                     "identifiability_confirmation_digest",
                                     "outer_fold_fit_count_before",
                                     "outer_fold_fit_count_after",
+                                    "estimator_and_calibrator_fit_count",
+                                    "learned_probe_fit_count",
+                                    "learned_probe_refit_boundary_count",
+                                    "learned_probe_refit_interval_folds",
+                                    "empirical_baseline_update_count",
+                                    "probe_preparation_count",
+                                    "superseded_every_fold_fit_count",
                                     "inner_model_selection_per_outer_fold",
                                     "formal_power_target_count",
                                     "joint_only_negative_control_count",
@@ -6077,15 +6115,13 @@ class ResearchEvidenceSupervisor:
         event = failed[0]
         record = _event_record(event)
         if (
-            str(event.get("event_digest") or "")
-            != P26_FAILED_RECOVERY_EVENT_DIGEST
+            str(event.get("event_digest") or "") != P26_FAILED_RECOVERY_EVENT_DIGEST
             or record.execution_id != P26_FAILED_RECOVERY_EXECUTION_ID
             or record.control_plane_key != M4_CONTROL_PLANE_KEY
-            or record.manifest_digest
-            != P26_FAILED_RECOVERY_RUNNING_MANIFEST_DIGEST
+            or record.manifest_digest != P26_FAILED_RECOVERY_RUNNING_MANIFEST_DIGEST
             or record.task_key != P26_TASK_KEY
             or record.task_digest != M4_P261_FROZEN_TASK_DIGEST
-            or record.capability != P26_CAPABILITY
+            or record.capability != P26_LEGACY_CAPABILITY
             or record.event_type != "failed"
             or record.sequence != 1
             or _event_payload(event)
@@ -6132,8 +6168,7 @@ class ResearchEvidenceSupervisor:
             ) from exc
 
         measurement_manifest = load_repaired_measurement_validation_manifest(
-            self.root_dir
-            / "configs/research-os/"
+            self.root_dir / "configs/research-os/"
             "m4-information-theory-p2-6-1-measurement-validation-v1.json"
         )
         truth_digests = tuple(
@@ -7041,6 +7076,15 @@ class ResearchEvidenceSupervisor:
                 self.root_dir / "configs/research-os/"
                 "m4-information-theory-p2-synthetic-run-manifest-v1.0.1.json"
             )
+            update_policy = load_periodic_refit_contract(
+                self.root_dir / "configs/research-os/"
+                "m4-information-theory-p2-6-3-periodic-refit-v1.json"
+            )
+            if (
+                artifact.get("measurement_update_policy_digest")
+                != update_policy.artifact_digest
+            ):
+                raise MainlineSupervisorError("P2.6.3 replay update policy changed")
             capability_replay = verify_completion_replay(
                 manifest=measurement_manifest,
                 synthetic=synthetic,
@@ -7048,6 +7092,7 @@ class ResearchEvidenceSupervisor:
                 output_dir=artifact_path.parent / "artifacts",
                 git_commit=str(artifact["git_commit"]),
                 expected_completion_digest=str(artifact["completion_artifact_digest"]),
+                expected_update_policy_digest=update_policy.artifact_digest,
             )
         elif task_key == P27_TASK_KEY:
             measurement_manifest = load_repaired_measurement_validation_manifest(
@@ -7057,6 +7102,10 @@ class ResearchEvidenceSupervisor:
             synthetic = load_synthetic_run_manifest(
                 self.root_dir / "configs/research-os/"
                 "m4-information-theory-p2-synthetic-run-manifest-v1.0.1.json"
+            )
+            update_policy = load_periodic_refit_contract(
+                self.root_dir / "configs/research-os/"
+                "m4-information-theory-p2-6-3-periodic-refit-v1.json"
             )
             p26_candidates = [
                 (path, _load_object(path))
@@ -7088,6 +7137,7 @@ class ResearchEvidenceSupervisor:
                 expected_completion_digest=str(
                     p26_execution["completion_artifact_digest"]
                 ),
+                expected_update_policy_digest=update_policy.artifact_digest,
             )
             aggregates = [
                 _load_object(path)

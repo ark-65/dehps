@@ -1,0 +1,56 @@
+{
+  "schema_version": "dehps-m4-p2-periodic-refit-contract.v1",
+  "artifact_type": "measurement_validation_update_policy",
+  "artifact_digest": "ad58b9abcd90c5e7ee7b9892ac8c209b8033f7a50e603b58c043685b0c7d6f99",
+  "phase": "M4-P2.6.3",
+  "status": "FROZEN",
+  "created_at": "2026-08-05T21:58:33+08:00",
+  "base_measurement_validation_manifest_digest": "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58",
+  "hypothesis_key": "m4-p2-6-3-fixed-strict-prior-learned-refit-64",
+  "research_preregistration_request_id": 282,
+  "selection_basis": "result_blind_computational_capacity_only",
+  "update_policy": {
+    "policy_id": "FIXED_STRICT_PRIOR_LEARNED_REFIT_64",
+    "outer_prediction_schedule": "EVERY_FOLD",
+    "learned_probe_ids": [
+      "REGULARIZED_LOGISTIC_REGRESSION",
+      "NAIVE_BAYES",
+      "SHALLOW_CALIBRATED_TREE"
+    ],
+    "learned_probe_refit_interval_folds": 64,
+    "learned_probe_refit_rule": "fold_index_mod_interval_equals_zero",
+    "empirical_baseline_update_schedule": "EVERY_FOLD",
+    "first_fold_refit_required": true,
+    "adaptive_cadence": false,
+    "result_dependent_refit": false,
+    "future_target_access": false,
+    "restart_reconstructs_latest_boundary_only": true
+  },
+  "preserved_contract": {
+    "scenario_replicates": 31000,
+    "outer_issue_predictions": 64656000,
+    "workload_models_features_seeds_resampling_thresholds_and_gate": "UNCHANGED_FROM_P2_6_1",
+    "partial_scale_or_scenario_aggregation": "forbidden"
+  },
+  "execution_identity": {
+    "new_task_digest_required": true,
+    "new_execution_id_required": true,
+    "p2_6_1_results_reused": false,
+    "p2_6_1_checkpoints_reused": false,
+    "p2_6_1_results_mixed": false,
+    "p2_6_1_execution_deleted": false
+  },
+  "capacity_gate": {
+    "weighted_speedup_min": 8.0,
+    "single_host_worker_count": 22,
+    "single_host_forecast_days_max": 12.0
+  },
+  "result_blind_freeze": {
+    "p2_6_1_statistical_results_read": false,
+    "formal_power_result_used": false,
+    "formal_false_positive_result_used": false,
+    "formal_bias_rmse_or_coverage_result_used": false,
+    "mde_result_used": false
+  },
+  "production_action": "none"
+}

@@ -219,7 +219,7 @@ class StrictPriorFeatureCache:
     def _runtime_issue_slice(self, issue_ids: tuple[int, ...]) -> slice:
         if (
             not issue_ids
-            or issue_ids != tuple(range(issue_ids[0], issue_ids[-1] + 1))
+            or len(issue_ids) != issue_ids[-1] - issue_ids[0] + 1
             or issue_ids[0] < 1
             or issue_ids[-1] > self._revealed_through
         ):
@@ -243,6 +243,21 @@ class StrictPriorFeatureCache:
 
         issue_slice = self._runtime_issue_slice(issue_ids)
         return self._runtime_targets[issue_slice].reshape(len(issue_ids) * 33)
+
+    def runtime_target_counts(self, issue_ids: tuple[int, ...]) -> tuple[int, ...]:
+        """Return exact cumulative target counts for the revealed prefix in O(33)."""
+
+        if (
+            not issue_ids
+            or issue_ids[0] != 1
+            or issue_ids[-1] != self._revealed_through
+            or len(issue_ids) != self._revealed_through
+        ):
+            raise WalkForwardError(
+                "target_access_boundary_violation",
+                "runtime target counts require the complete revealed prefix",
+            )
+        return tuple(self._counts)
 
     def runtime_acceleration_get(
         self,
@@ -427,6 +442,68 @@ class StrictPriorFeatureCache:
                 domain=_TRAIN_FEATURE_VIEW_DOMAIN,
             ),
         )
+
+    def build_runtime_empirical_prefix_view(
+        self,
+        dataset: TrainingDatasetView,
+        issue_ids: tuple[int, ...],
+    ) -> TrainFeatureView:
+        """Build an O(1) prefix identity for the count-only empirical probe."""
+
+        if (
+            dataset.artifact_digest != self._dataset_digest
+            or not issue_ids
+            or issue_ids[0] != 1
+            or issue_ids[-1] != self._revealed_through
+            or len(issue_ids) != self._revealed_through
+            or issue_ids[-1] > dataset.available_through_issue
+        ):
+            raise WalkForwardError(
+                "target_access_boundary_violation",
+                "empirical runtime view requires the complete authorized prefix",
+            )
+        digest = canonical_digest(
+            {
+                "dataset_digest": dataset.artifact_digest,
+                "issue_start": 1,
+                "issue_end": issue_ids[-1],
+                "issue_count": len(issue_ids),
+                "feature_manifest_digest": self._feature_manifest_digest,
+                "scope": "internal_exact_runtime_empirical_prefix",
+            },
+            domain="dehps.m4-p2.internal-exact-runtime-empirical-prefix.v1",
+        )
+        return TrainFeatureView(  # type: ignore[arg-type]
+            issue_ids=issue_ids,
+            red_numbers=(),
+            feature_names=self._feature_names,
+            values=(),
+            targets=(),
+            available_through_by_issue=(),
+            construction_start_issue=1,
+            construction_end_issue=issue_ids[-1] - 1,
+            feature_manifest_digest=self._feature_manifest_digest,
+            feature_view_digest=digest,
+        )
+
+    def guard_runtime_empirical_prefix(self, view: TrainFeatureView) -> None:
+        """Validate that a count-only view names exactly the revealed prefix."""
+
+        if (
+            not view.issue_ids
+            or view.issue_ids[0] != 1
+            or view.issue_ids[-1] != self._revealed_through
+            or len(view.issue_ids) != self._revealed_through
+            or view.red_numbers
+            or view.available_through_by_issue
+            or len(view.values)
+            or len(view.targets)
+            or view.feature_manifest_digest != self._feature_manifest_digest
+        ):
+            raise WalkForwardError(
+                "invalid_number_event_rows",
+                "empirical runtime view must name the authorized revealed prefix",
+            )
 
     def guard_runtime_number_event_rows(self, view: TrainFeatureView) -> None:
         """Validate compact runtime row order without materializing a tuple."""

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from math import log2
@@ -57,10 +57,13 @@ from .contracts import (
 from .dataset import generate_evaluation_dataset
 from .feature_cache import StrictPriorFeatureCache
 from .journal import SettledFoldResumeJournal, StrictPriorCheckpointJournal
+from .periodic_refit import LEARNED_PROBES, PeriodicRefitContract
 from .schedule import AnalysisReplicate
 from .statistics import (
     block_permutation_statistics,
+    block_permutation_statistics_exact_runtime,
     moving_block_bootstrap_statistics,
+    moving_block_bootstrap_statistics_exact_runtime,
     primary_inference,
     seed_set_digest,
 )
@@ -172,6 +175,48 @@ def vectorized_p2_pe1(
     return baseline_loss - probe_loss
 
 
+def prepare_vectorized_p2_pe1_permutation_statistic(
+    probabilities: np.ndarray,
+    targets: np.ndarray,
+) -> Callable[[Sequence[int]], float]:
+    """Precompute invariant log terms while preserving the frozen row reduction."""
+
+    probability = np.asarray(probabilities, dtype=np.float64)
+    target = np.asarray(targets, dtype=np.int8)
+    if (
+        probability.ndim != 2
+        or probability.shape != target.shape
+        or probability.shape[1] != 33
+        or not np.isfinite(probability).all()
+        or not np.isin(target, (0, 1)).all()
+        or not np.all(target.sum(axis=1) == 6)
+    ):
+        raise MeasurementValidationContractError(
+            "measurement_validation_metric_input_invalid",
+            "formal metric arrays must be aligned N x 33 predictions and legal targets",
+        )
+    clipped = np.clip(
+        probability,
+        PROBABILITY_EPSILON,
+        1.0 - PROBABILITY_EPSILON,
+    )
+    positive_log2 = np.log2(clipped)
+    negative_log2 = np.log2(1.0 - clipped)
+    baseline_loss = -(
+        6 * log2(THEORETICAL_PROBABILITY) + 27 * log2(1.0 - THEORETICAL_PROBABILITY)
+    )
+
+    def statistic_for_indices(indices: Sequence[int]) -> float:
+        permuted = target[np.asarray(indices, dtype=np.int64)]
+        probe_loss = -np.sum(
+            permuted * positive_log2 + (1 - permuted) * negative_log2,
+            axis=1,
+        )
+        return float((baseline_loss - probe_loss).mean())
+
+    return statistic_for_indices
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -207,6 +252,7 @@ class ReferenceReplicateEvaluator:
         synthetic: SyntheticRunManifest,
         inputs: ReferenceInputs,
         output_dir: Path,
+        periodic_refit_contract: PeriodicRefitContract | None = None,
         audit_observer: RuntimeAuditObserver | None = None,
         trace_records: list[dict[str, Any]] | None = None,
     ) -> None:
@@ -214,6 +260,7 @@ class ReferenceReplicateEvaluator:
         self.synthetic = synthetic
         self.inputs = inputs
         self.output_dir = output_dir
+        self.periodic_refit_contract = periodic_refit_contract
         self.audit_observer = audit_observer or RuntimeAuditObserver(enabled=False)
         self.trace_records = trace_records
         if (
@@ -260,6 +307,7 @@ class ReferenceReplicateEvaluator:
         truth_by_scenario: Mapping[str, Mapping[str, Any]],
         git_commit: str,
         output_dir: Path,
+        periodic_refit_contract: PeriodicRefitContract | None = None,
         audit_observer: RuntimeAuditObserver | None = None,
         trace_records: list[dict[str, Any]] | None = None,
     ) -> ReferenceReplicateEvaluator:
@@ -274,6 +322,7 @@ class ReferenceReplicateEvaluator:
                 git_commit=git_commit,
             ),
             output_dir=output_dir,
+            periodic_refit_contract=periodic_refit_contract,
             audit_observer=audit_observer,
             trace_records=trace_records,
         )
@@ -350,7 +399,10 @@ class ReferenceReplicateEvaluator:
         issue_gains: dict[str, list[float]] = {probe: [] for probe in PROBES}
         gate_probabilities: list[tuple[float, ...]] = []
         ordered_targets: list[tuple[int, ...]] = []
-        with self.audit_observer.phase("feature_cache"):
+        with (
+            self.audit_observer.phase("feature_cache"),
+            self.audit_observer.phase("feature_cache_initialization"),
+        ):
             feature_cache = StrictPriorFeatureCache(
                 dataset,
                 include_prior_state=repaired,
@@ -378,6 +430,8 @@ class ReferenceReplicateEvaluator:
             if self.trace_records is None and not self.audit_observer.enabled
             else 0
         )
+        prepared_learned: dict[str, Any] = {}
+        prepared_boundary_fold_index: int | None = None
 
         for fold_index, fold in enumerate(folds):
             self.audit_observer.count_fold()
@@ -458,15 +512,36 @@ class ReferenceReplicateEvaluator:
                 dataset,
                 available_through_issue=fold.train_issues[-1],
             )
+            policy = self.periodic_refit_contract
+            boundary_fold_index = (
+                fold_index if policy is None else policy.boundary_fold_index(fold_index)
+            )
+            refit_learned = (
+                policy is None
+                or not prepared_learned
+                or policy.is_refit_boundary(fold_index)
+            )
+            needs_full_current_view = (
+                policy is None
+                or policy.is_refit_boundary(fold_index)
+                or self.trace_records is not None
+            )
             with self.audit_observer.phase("feature_cache"):
                 feature_cache.reveal_training_history(
                     training,
                     through_issue=fold.train_issues[-1],
                 )
-                train_view = feature_cache.build_runtime_train_feature_view(
-                    training,
-                    fold.train_issues,
-                    exact_identity=self.trace_records is not None,
+                train_view = (
+                    feature_cache.build_runtime_train_feature_view(
+                        training,
+                        fold.train_issues,
+                        exact_identity=self.trace_records is not None,
+                    )
+                    if needs_full_current_view
+                    else feature_cache.build_runtime_empirical_prefix_view(
+                        training,
+                        fold.train_issues,
+                    )
                 )
                 blind = feature_cache.build_blind_test_feature_view(
                     target_issue=fold.test_issue,
@@ -475,14 +550,36 @@ class ReferenceReplicateEvaluator:
                 feature_cache=feature_cache,
                 outer_train_view=train_view,
             )
+            boundary_training = training
+            boundary_train_view = train_view
+            boundary_runtime_cache = probe_runtime_cache
+            if refit_learned and boundary_fold_index != fold_index:
+                boundary_fold = folds[boundary_fold_index]
+                boundary_training = restrict_to_training_history(
+                    dataset,
+                    available_through_issue=boundary_fold.train_issues[-1],
+                )
+                boundary_train_view = feature_cache.build_runtime_train_feature_view(
+                    boundary_training,
+                    boundary_fold.train_issues,
+                    exact_identity=self.trace_records is not None,
+                )
+                boundary_runtime_cache = ExactProbeRuntimeCache(
+                    feature_cache=feature_cache,
+                    outer_train_view=boundary_train_view,
+                )
             guard_feature_timestamp(blind)
             if train_view.red_numbers:
                 guard_number_event_rows(
                     issue_ids=train_view.issue_ids,
                     red_numbers=train_view.red_numbers,
                 )
-            else:
+            elif needs_full_current_view:
                 feature_cache.guard_runtime_number_event_rows(train_view)
+            else:
+                feature_cache.guard_runtime_empirical_prefix(train_view)
+            if boundary_train_view is not train_view:
+                feature_cache.guard_runtime_number_event_rows(boundary_train_view)
 
             predictions: dict[str, tuple[float, ...]] = {}
             probe_state_payloads: dict[str, dict[str, Any]] | None = (
@@ -499,23 +596,30 @@ class ReferenceReplicateEvaluator:
                     )
                 else:
                     config = configs[probe_id]
-                with self.audit_observer.phase("estimator_calibrator_fit"):
-                    prepared = (
-                        probe_runtime_cache.prepare_empirical_baseline(train_view)
-                        if probe_id == "EMPIRICAL_BASELINE"
-                        else prepare_probe(
-                            probe_id=probe_id,
-                            dataset=training,
-                            train_view=train_view,
-                            probe_config=config,
-                            outer_test_issue=fold.test_issue,
-                            train_view_builder=(
-                                probe_runtime_cache.build_train_feature_view
-                            ),
-                            runtime_cache=probe_runtime_cache,
+                if probe_id == "EMPIRICAL_BASELINE":
+                    with self.audit_observer.phase("estimator_calibrator_fit"):
+                        prepared = probe_runtime_cache.prepare_empirical_baseline(
+                            train_view
                         )
-                    )
-                self.audit_observer.count_fit()
+                    self.audit_observer.count_fit()
+                elif refit_learned:
+                    boundary_fold = folds[boundary_fold_index]
+                    with self.audit_observer.phase("estimator_calibrator_fit"):
+                        prepared = prepare_probe(
+                            probe_id=probe_id,
+                            dataset=boundary_training,
+                            train_view=boundary_train_view,
+                            probe_config=config,
+                            outer_test_issue=boundary_fold.test_issue,
+                            train_view_builder=(
+                                boundary_runtime_cache.build_train_feature_view
+                            ),
+                            runtime_cache=boundary_runtime_cache,
+                        )
+                    prepared_learned[probe_id] = prepared
+                    self.audit_observer.count_fit()
+                else:
+                    prepared = prepared_learned[probe_id]
                 with self.audit_observer.phase("prediction_metric"):
                     probability = prepared.predict(blind)
                 checkpoint_digest = _prediction_checkpoint_digest(
@@ -534,6 +638,19 @@ class ReferenceReplicateEvaluator:
                 if probe_state_payloads is not None:
                     probe_state_payloads[probe_id] = prepared.state.to_dict()
                 predictions[probe_id] = probability
+            if refit_learned:
+                if tuple(prepared_learned) != LEARNED_PROBES:
+                    raise AssertionError("periodic learned-probe state is incomplete")
+                prepared_boundary_fold_index = boundary_fold_index
+            if (
+                policy is not None
+                and prepared_boundary_fold_index
+                != policy.boundary_fold_index(fold_index)
+            ):
+                raise MeasurementValidationContractError(
+                    "periodic_refit_boundary_mismatch",
+                    f"learned state boundary changed at fold {fold_index}",
+                )
 
             with self.audit_observer.phase("checkpoint_artifact_persistence"):
                 checkpoint_journal.record(
@@ -595,6 +712,15 @@ class ReferenceReplicateEvaluator:
                         "train_start_issue": fold.train_issues[0],
                         "train_end_issue": fold.train_issues[-1],
                         "test_issue": fold.test_issue,
+                        **(
+                            {
+                                "learned_probe_refit_boundary_fold_index": (
+                                    prepared_boundary_fold_index
+                                )
+                            }
+                            if policy is not None
+                            else {}
+                        ),
                         "train_feature_view_digest": train_view.feature_view_digest,
                         "blind_feature_view_digest": blind.feature_view_digest,
                         "target_digest": canonical_digest(
@@ -642,8 +768,13 @@ class ReferenceReplicateEvaluator:
         )
 
         pe1_values = tuple(issue_gains[GATE_PROBE])
+        bootstrap_runner = (
+            moving_block_bootstrap_statistics
+            if self.periodic_refit_contract is None
+            else moving_block_bootstrap_statistics_exact_runtime
+        )
         with self.audit_observer.phase("bootstrap"):
-            bootstrap, bootstrap_seeds = moving_block_bootstrap_statistics(
+            bootstrap, bootstrap_seeds = bootstrap_runner(
                 pe1_values,
                 manifest=self.inputs.resampling,
                 scenario_id=replicate.cell.scenario_id,
@@ -654,12 +785,25 @@ class ReferenceReplicateEvaluator:
         probability_matrix = np.asarray(gate_probabilities, dtype=np.float64)
         target_matrix = np.asarray(ordered_targets, dtype=np.int8)
 
-        def statistic_for_indices(indices: tuple[int, ...]) -> float:
-            permuted = target_matrix[np.asarray(indices, dtype=np.int64)]
-            return float(vectorized_p2_pe1(probability_matrix, permuted).mean())
+        if self.periodic_refit_contract is None:
 
+            def statistic_for_indices(indices: Sequence[int]) -> float:
+                permuted = target_matrix[np.asarray(indices, dtype=np.int64)]
+                return float(vectorized_p2_pe1(probability_matrix, permuted).mean())
+
+        else:
+            statistic_for_indices = prepare_vectorized_p2_pe1_permutation_statistic(
+                probability_matrix,
+                target_matrix,
+            )
+
+        permutation_runner = (
+            block_permutation_statistics
+            if self.periodic_refit_contract is None
+            else block_permutation_statistics_exact_runtime
+        )
         with self.audit_observer.phase("permutation"):
-            permutation, permutation_seeds = block_permutation_statistics(
+            permutation, permutation_seeds = permutation_runner(
                 issue_count=len(folds),
                 statistic_for_indices=statistic_for_indices,
                 manifest=self.inputs.resampling,
@@ -733,6 +877,27 @@ class ReferenceReplicateEvaluator:
             "leakage_status": "PASS",
             "actual_outer_fold_count": len(folds),
             "number_probability_predictions": len(folds) * 33 * len(PROBES),
+            **(
+                {
+                    "measurement_update_policy_digest": (
+                        self.periodic_refit_contract.artifact_digest
+                    ),
+                    "learned_probe_refit_interval_folds": (
+                        self.periodic_refit_contract.learned_probe_refit_interval_folds
+                    ),
+                    "learned_probe_refit_boundary_count": (
+                        (
+                            len(folds)
+                            + self.periodic_refit_contract.learned_probe_refit_interval_folds
+                            - 1
+                        )
+                        // self.periodic_refit_contract.learned_probe_refit_interval_folds
+                    ),
+                    "empirical_baseline_update_count": len(folds),
+                }
+                if self.periodic_refit_contract is not None
+                else {}
+            ),
             "gate_probe": GATE_PROBE,
             "metric_kernel_digest": METRIC_KERNEL_DIGEST,
             "walk_forward_harness_digest": WALK_FORWARD_HARNESS_DIGEST,

@@ -19,6 +19,9 @@ _FEATURE_CACHE = (
 )
 _GATE = "dehps.research_os.information_theory.measurement_validation.gate"
 _GOLDEN = "dehps.research_os.information_theory.measurement_validation.golden_reference"
+_PERIODIC_REFIT = (
+    "dehps.research_os.information_theory.measurement_validation.periodic_refit"
+)
 _REPAIRED = (
     "dehps.research_os.information_theory.measurement_validation.repaired_contracts"
 )
@@ -116,6 +119,15 @@ _EXPORTS = {
     "journal_bytes_sha256": (_GOLDEN, "journal_bytes_sha256"),
     "literal_outer_folds": (_GOLDEN, "literal_outer_folds"),
     "literal_training_view": (_GOLDEN, "literal_training_view"),
+    "PERIODIC_REFIT_CONTRACT_DIGEST": (
+        _PERIODIC_REFIT,
+        "PERIODIC_REFIT_CONTRACT_DIGEST",
+    ),
+    "PeriodicRefitContract": (_PERIODIC_REFIT, "PeriodicRefitContract"),
+    "load_periodic_refit_contract": (
+        _PERIODIC_REFIT,
+        "load_periodic_refit_contract",
+    ),
     "REPAIRED_MEASUREMENT_VALIDATION_MANIFEST_DIGEST": (
         _REPAIRED,
         "REPAIRED_MEASUREMENT_VALIDATION_MANIFEST_DIGEST",
@@ -155,6 +167,7 @@ __all__ = [
     "FLOAT64_ENCODING",
     "MEASUREMENT_VALIDATION_MANIFEST_DIGEST",
     "PASS_FACT",
+    "PERIODIC_REFIT_CONTRACT_DIGEST",
     "REPAIRED_MEASUREMENT_VALIDATION_MANIFEST_DIGEST",
     "REPAIR_FACT",
     "AnalysisCell",
@@ -165,6 +178,7 @@ __all__ = [
     "LiteralCheckpointJournal",
     "MeasurementValidationContractError",
     "MeasurementValidationManifest",
+    "PeriodicRefitContract",
     "PythonReferenceBackend",
     "PythonReferenceEvaluation",
     "PythonReferenceInputs",
@@ -205,6 +219,7 @@ __all__ = [
     "literal_outer_folds",
     "literal_training_view",
     "load_measurement_validation_manifest",
+    "load_periodic_refit_contract",
     "load_repaired_measurement_validation_manifest",
     "locate_repaired_truth_artifacts",
     "locate_truth_artifacts",

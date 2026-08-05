@@ -89,6 +89,7 @@ def _validate_replicate_result(
     *,
     replicate: AnalysisReplicate,
     manifest: MeasurementValidationManifest,
+    expected_update_policy_digest: str | None = None,
 ) -> dict[str, Any]:
     payload = dict(result)
     required_identity = replicate.to_dict()
@@ -112,10 +113,8 @@ def _validate_replicate_result(
             )
     if (
         payload.get("status") != "COMPLETE"
-        or payload.get("bootstrap_replicate_count")
-        != manifest.bootstrap_replicates
-        or payload.get("permutation_replicate_count")
-        != manifest.permutation_replicates
+        or payload.get("bootstrap_replicate_count") != manifest.bootstrap_replicates
+        or payload.get("permutation_replicate_count") != manifest.permutation_replicates
         or payload.get("leakage_status") != "PASS"
     ):
         raise MeasurementValidationContractError(
@@ -151,15 +150,12 @@ def _validate_replicate_result(
                 "measurement_validation_replicate_incomplete",
                 f"{key} is missing",
             )
-    if (
-        payload.get("checkpoint_journal_entry_count")
-        != replicate.cell.outer_issue_count
-        or payload.get("checkpoint_journal_path")
-        != str(
-            checkpoint_journal_path(Path("."), replicate).relative_to(
-                Path(".")
-            )
-        )
+    if payload.get(
+        "checkpoint_journal_entry_count"
+    ) != replicate.cell.outer_issue_count or payload.get(
+        "checkpoint_journal_path"
+    ) != str(
+        checkpoint_journal_path(Path("."), replicate).relative_to(Path("."))
     ):
         raise MeasurementValidationContractError(
             "measurement_validation_checkpoint_journal_incomplete",
@@ -178,11 +174,10 @@ def _validate_replicate_result(
             "P2.4 truth value is missing",
         )
     is_negative_control = replicate.cell.scenario_id == "NULL_UNIFORM"
-    if (
-        payload.get("negative_control_id")
-        != ("NC6_SYNTHETIC_NULL" if is_negative_control else None)
-        or payload.get("negative_control_replicate_index")
-        != (replicate.replicate_index if is_negative_control else None)
+    if payload.get("negative_control_id") != (
+        "NC6_SYNTHETIC_NULL" if is_negative_control else None
+    ) or payload.get("negative_control_replicate_index") != (
+        replicate.replicate_index if is_negative_control else None
     ):
         raise MeasurementValidationContractError(
             "measurement_validation_negative_control_identity_mismatch",
@@ -192,6 +187,13 @@ def _validate_replicate_result(
         raise MeasurementValidationContractError(
             "measurement_validation_replicate_incomplete",
             "confidence intervals are missing",
+        )
+    if payload.get("measurement_update_policy_digest") != (
+        expected_update_policy_digest
+    ):
+        raise MeasurementValidationContractError(
+            "measurement_validation_update_policy_mismatch",
+            "replicate update policy does not match its task execution",
         )
 
     payload["schema_version"] = "dehps-m4-p2-analysis-replicate.v1"
@@ -213,6 +215,7 @@ def _validate_persisted_replicate(
     output_dir: Path,
     replicate: AnalysisReplicate,
     manifest: MeasurementValidationManifest,
+    expected_update_policy_digest: str | None = None,
 ) -> dict[str, Any]:
     path = _replicate_path(output_dir, replicate)
     payload = _load_object(path)
@@ -220,6 +223,7 @@ def _validate_persisted_replicate(
         payload,
         replicate=replicate,
         manifest=manifest,
+        expected_update_policy_digest=expected_update_policy_digest,
     ):
         raise MeasurementValidationContractError(
             "measurement_validation_replicate_digest_mismatch",
@@ -243,6 +247,7 @@ def run_shard(
     shard_index: int,
     shard_count: int,
     evaluator: ReplicateEvaluator,
+    expected_update_policy_digest: str | None = None,
     stop_after: int | None = None,
 ) -> ShardRunResult:
     if not 0 <= shard_index < shard_count:
@@ -267,6 +272,7 @@ def run_shard(
                 output_dir=output_dir,
                 replicate=replicate,
                 manifest=manifest,
+                expected_update_policy_digest=expected_update_policy_digest,
             )
             reused += 1
             completed += 1
@@ -276,6 +282,7 @@ def run_shard(
             evaluator.evaluate(replicate),
             replicate=replicate,
             manifest=manifest,
+            expected_update_policy_digest=expected_update_policy_digest,
         )
         persist_immutable(path, result)
         completed += 1
@@ -325,6 +332,7 @@ def assemble_completion(
     parent_execution_id: str,
     output_dir: Path,
     git_commit: str,
+    expected_update_policy_digest: str | None = None,
 ) -> CompletionResult:
     replicate_paths: list[Path] = []
     replicates_by_cell: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -348,7 +356,12 @@ def assemble_completion(
                 "measurement_validation_workload_incomplete",
                 f"missing formal replicate: {replicate.artifact_digest}",
             )
-        payload = _load_object(path)
+        payload = _validate_persisted_replicate(
+            output_dir=output_dir,
+            replicate=replicate,
+            manifest=manifest,
+            expected_update_policy_digest=expected_update_policy_digest,
+        )
         if payload.get("identity_artifact_digest") != replicate.artifact_digest:
             raise MeasurementValidationContractError(
                 "measurement_validation_replicate_identity_mismatch",
@@ -374,9 +387,7 @@ def assemble_completion(
         except MeasurementValidationContractError:
             checkpoint_journal_failure_count += 1
             raise
-        checkpoint_journal_digests.append(
-            str(payload["checkpoint_journal_digest"])
-        )
+        checkpoint_journal_digests.append(str(payload["checkpoint_journal_digest"]))
         result_digest = str(payload.get("artifact_digest") or "")
         if result_digest in seen_result_digests:
             duplicate_count += 1
@@ -427,8 +438,7 @@ def assemble_completion(
     if (
         len(negative_control_aggregates) != 3
         or negative_control_replicate_count
-        != len(negative_control_aggregates)
-        * manifest.negative_control_replicates
+        != len(negative_control_aggregates) * manifest.negative_control_replicates
         or any(
             item.get("negative_control_replicate_count")
             != manifest.negative_control_replicates
@@ -441,10 +451,7 @@ def assemble_completion(
         )
     mde_summary = build_mde_summary(aggregate_artifacts)
     mde_summary_path = (
-        output_dir
-        / "mde"
-        / str(mde_summary["artifact_digest"])
-        / "mde.json"
+        output_dir / "mde" / str(mde_summary["artifact_digest"]) / "mde.json"
     )
     persist_immutable(mde_summary_path, mde_summary)
 
@@ -458,6 +465,11 @@ def assemble_completion(
         "status": "COMPLETE",
         "parent_execution_id": parent_execution_id,
         "measurement_validation_manifest_digest": manifest.artifact_digest,
+        **(
+            {"measurement_update_policy_digest": (expected_update_policy_digest)}
+            if expected_update_policy_digest is not None
+            else {}
+        ),
         "replicate_count": len(replicate_paths),
         "cell_aggregate_count": len(aggregate_artifacts),
         "outer_issue_predictions": manifest.outer_issue_predictions,
@@ -467,12 +479,8 @@ def assemble_completion(
         "permutation_seed_count": permutation_seed_count,
         "negative_control_id": "NC6_SYNTHETIC_NULL",
         "negative_control_cell_count": len(negative_control_aggregates),
-        "negative_control_replicates_per_cell": (
-            manifest.negative_control_replicates
-        ),
-        "negative_control_replicate_count": (
-            negative_control_replicate_count
-        ),
+        "negative_control_replicates_per_cell": (manifest.negative_control_replicates),
+        "negative_control_replicate_count": (negative_control_replicate_count),
         "negative_control_seed_set_digests": [
             item["negative_control_seed_set_digest"]
             for item in negative_control_aggregates
@@ -487,9 +495,7 @@ def assemble_completion(
         ),
         "leakage_failure_count": leakage_failure_count,
         "checkpoint_journal_count": len(checkpoint_journal_digests),
-        "checkpoint_journal_failure_count": (
-            checkpoint_journal_failure_count
-        ),
+        "checkpoint_journal_failure_count": (checkpoint_journal_failure_count),
         "ordered_checkpoint_journal_digest_root": canonical_digest(
             checkpoint_journal_digests,
             domain="dehps.m4-p2.ordered-checkpoint-journals.v1",
@@ -498,9 +504,7 @@ def assemble_completion(
             ordered_replicate_digests,
             domain="dehps.m4-p2.ordered-formal-replicate-results.v1",
         ),
-        "aggregate_digests": [
-            item["artifact_digest"] for item in aggregate_artifacts
-        ],
+        "aggregate_digests": [item["artifact_digest"] for item in aggregate_artifacts],
         "mde_summary_digest": mde_summary["artifact_digest"],
         "decision_policy_mde_at_61_bits_per_issue": mde_summary[
             "decision_policy_mde_at_61_bits_per_issue"
@@ -526,10 +530,7 @@ def assemble_completion(
         domain="dehps.m4-p2.measurement-validation-completion.v1",
     )
     completion_path = (
-        output_dir
-        / "completion"
-        / str(payload["artifact_digest"])
-        / "completion.json"
+        output_dir / "completion" / str(payload["artifact_digest"]) / "completion.json"
     )
     persist_immutable(completion_path, payload)
     return CompletionResult(
@@ -551,6 +552,7 @@ def verify_completion_replay(
     output_dir: Path,
     git_commit: str,
     expected_completion_digest: str,
+    expected_update_policy_digest: str | None = None,
 ) -> dict[str, Any]:
     replay = assemble_completion(
         manifest=manifest,
@@ -558,6 +560,7 @@ def verify_completion_replay(
         parent_execution_id=parent_execution_id,
         output_dir=output_dir,
         git_commit=git_commit,
+        expected_update_policy_digest=expected_update_policy_digest,
     )
     actual = str(replay.completion_artifact["artifact_digest"])
     if actual != expected_completion_digest:
@@ -572,9 +575,7 @@ def verify_completion_replay(
         "completion_artifact_digest": actual,
         "replicate_count": len(replay.replicate_paths),
         "aggregate_count": len(replay.aggregate_artifacts),
-        "mde_summary_digest": replay.mde_summary_artifact[
-            "artifact_digest"
-        ],
+        "mde_summary_digest": replay.mde_summary_artifact["artifact_digest"],
         "same_replicate_identity": True,
         "same_aggregate_identity": True,
         "same_mde_identity": True,

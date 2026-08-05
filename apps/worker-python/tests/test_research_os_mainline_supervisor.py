@@ -14,6 +14,9 @@ from dehps.research_os.information_theory.calibration import (
     load_calibration_manifest,
     run_p24_calibration,
 )
+from dehps.research_os.information_theory.measurement_validation.periodic_refit import (
+    PERIODIC_REFIT_CONTRACT_DIGEST,
+)
 from dehps.research_os.information_theory.resampling.contracts import (
     P24_COMPLETION_DIGEST,
     P24_EXECUTION_ID,
@@ -38,11 +41,11 @@ from dehps.research_os.supervisor import (
     P23_TASK_KEY,
     P24_TASK_KEY,
     P25_TASK_KEY,
-    P26_CAPABILITY,
     P26_FAILED_RECOVERY_ERROR,
     P26_FAILED_RECOVERY_EVENT_DIGEST,
     P26_FAILED_RECOVERY_EXECUTION_ID,
     P26_FAILED_RECOVERY_RUNNING_MANIFEST_DIGEST,
+    P26_LEGACY_CAPABILITY,
     P26_PREFLIGHT_CAPABILITY,
     P26_PREFLIGHT_TASK_KEY,
     P26_REPAIR_TASK_KEY,
@@ -199,8 +202,34 @@ def p26_failed_manifest_payload() -> dict:
     value = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     assert isinstance(value, dict)
     value.pop("manifest_digest", None)
-    task = next(
-        task for task in value["tasks"] if task["task_key"] == P26_TASK_KEY
+    task = next(task for task in value["tasks"] if task["task_key"] == P26_TASK_KEY)
+    task["task_type"] = "repaired_synthetic_power_run"
+    task["requested_capability"] = P26_LEGACY_CAPABILITY
+    task["input_artifact_digests"].remove(PERIODIC_REFIT_CONTRACT_DIGEST)
+    task["dependencies"] = [
+        dependency
+        for dependency in task["dependencies"]
+        if not dependency["target_key"].startswith("m4-p2-6-3-periodic-refit-contract:")
+    ]
+    task["metric_contract"]["mainline_integration"].update(
+        {
+            "downstream_artifacts": ["repaired P2.6.1 formal completion artifact"],
+            "ready_condition": (
+                "Scheme A repair COMPLETE and repaired measurement contract "
+                "fact available"
+            ),
+            "upstream_artifacts": [
+                "P2.4.1 marginal truth calibration",
+                "frozen development hyperparameters",
+                "P2.6.1 measurement-validation manifest",
+                "synthetic-only state-number feature manifest",
+            ],
+        }
+    )
+    task["metric_contract"].pop("p2_6_1_execution_status")
+    task["metric_contract"].pop("failed_p2_6_2_candidate_status")
+    task["metric_contract"].update(
+        {"old_execution_status": "SUPERSEDED", "phase": "M4-P2.6.1"}
     )
     task["status"] = "failed"
     task["completion_classification"] = "INTEGRATED"
@@ -555,6 +584,7 @@ def prepare_root(tmp_path: Path) -> Path:
             "configs/research-os/"
             "m4-information-theory-p2-6-1-measurement-validation-v1.json"
         ),
+        ("configs/research-os/" "m4-information-theory-p2-6-3-periodic-refit-v1.json"),
     ):
         destination = tmp_path / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -847,7 +877,7 @@ def test_supervisor_recovers_only_pinned_p26_pre_dispatch_failure(
         manifest_digest=P26_FAILED_RECOVERY_RUNNING_MANIFEST_DIGEST,
         task_key=P26_TASK_KEY,
         task_digest=task.artifact_digest,
-        capability=P26_CAPABILITY,
+        capability=P26_LEGACY_CAPABILITY,
         event_type="started",
         sequence=0,
         recorded_at="2026-07-31T08:10:59.912185+00:00",
@@ -862,7 +892,7 @@ def test_supervisor_recovers_only_pinned_p26_pre_dispatch_failure(
         manifest_digest=P26_FAILED_RECOVERY_RUNNING_MANIFEST_DIGEST,
         task_key=P26_TASK_KEY,
         task_digest=task.artifact_digest,
-        capability=P26_CAPABILITY,
+        capability=P26_LEGACY_CAPABILITY,
         event_type="failed",
         sequence=1,
         recorded_at="2026-08-04T09:23:06.717682+00:00",
@@ -891,7 +921,9 @@ def test_supervisor_recovers_only_pinned_p26_pre_dispatch_failure(
             )
         return result
 
-    monkeypatch.setattr(repository, "import_manifest", import_with_production_running_digest)
+    monkeypatch.setattr(
+        repository, "import_manifest", import_with_production_running_digest
+    )
     root = prepare_root(tmp_path)
     supervisor = ResearchEvidenceSupervisor(
         repository=repository,  # type: ignore[arg-type]
@@ -901,7 +933,7 @@ def test_supervisor_recovers_only_pinned_p26_pre_dispatch_failure(
         git_commit="e6dedaf9c835672a5e17007653ee6e8fe55b67d9",
         require_clean_tree=False,
     )
-    supervisor.capabilities[P26_CAPABILITY] = _ProjectedCapability(
+    supervisor.capabilities[P26_LEGACY_CAPABILITY] = _ProjectedCapability(
         root=root,
         task_key=P26_TASK_KEY,
         summary={"actual_fold_count": 61},
@@ -950,7 +982,7 @@ def test_supervisor_rejects_wrong_p26_failed_recovery_token(
             "manifest_digest": "2" * 64,
             "task_key": P26_TASK_KEY,
             "task_digest": task.artifact_digest,
-            "capability": P26_CAPABILITY,
+            "capability": P26_LEGACY_CAPABILITY,
             "event_type": "failed",
             "sequence": 1,
             "recorded_at": "2026-08-04T09:23:06+00:00",
@@ -965,12 +997,34 @@ def test_supervisor_rejects_wrong_p26_failed_recovery_token(
         git_commit=TEST_COMMIT,
         require_clean_tree=False,
     )
+    supervisor.capabilities[P26_LEGACY_CAPABILITY] = _ProjectedCapability(
+        root=tmp_path,
+        task_key=P26_TASK_KEY,
+        summary={"actual_fold_count": 61},
+    )
 
     with pytest.raises(
         MainlineSupervisorError,
         match="authorization does not match the incident",
     ):
         supervisor.run_once(task_key=P26_TASK_KEY)
+
+
+def test_p2_6_3_task_cannot_consume_p2_6_1_failed_recovery_token() -> None:
+    manifest = ControlPlaneManifest.from_dict(
+        json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    )
+    task = next(item for item in manifest.tasks if item.task_key == P26_TASK_KEY)
+
+    with pytest.raises(
+        MainlineSupervisorError,
+        match="authorization does not match the incident",
+    ):
+        ResearchEvidenceSupervisor._validated_p26_failed_recovery_event(
+            task=task,
+            events=[{"event_type": "failed"}],
+            token=P26_FAILED_RECOVERY_EVENT_DIGEST,
+        )
 
 
 def test_p26_failed_recovery_artifact_requires_and_binds_preserved_runtime(
@@ -982,14 +1036,12 @@ def test_p26_failed_recovery_artifact_requires_and_binds_preserved_runtime(
     task = next(item for item in manifest.tasks if item.task_key == P26_TASK_KEY)
     contract = json.loads(
         (
-            root
-            / "configs/research-os/"
+            root / "configs/research-os/"
             "m4-information-theory-p2-6-1-measurement-validation-v1.json"
         ).read_text(encoding="utf-8")
     )
     repair_root = (
-        root
-        / "runtime/research-os/mainline/tasks/"
+        root / "runtime/research-os/mainline/tasks/"
         "m4-p2-repair-measurement-system/test-repair/artifacts/truth"
     )
     for truth in contract["truth_artifacts"]:
@@ -1036,9 +1088,7 @@ def test_p26_failed_recovery_artifact_requires_and_binds_preserved_runtime(
             {
                 "schema_version": "dehps-m4-p2-analysis-coordinator-state.v1",
                 "parent_execution_id": P26_FAILED_RECOVERY_EXECUTION_ID,
-                "measurement_validation_manifest_digest": contract[
-                    "artifact_digest"
-                ],
+                "measurement_validation_manifest_digest": contract["artifact_digest"],
                 "total_replicates": 31_000,
                 "status": "RUNNING",
                 "failed_replicates": 0,
@@ -1178,7 +1228,9 @@ def test_revised_p2_6_definition_cannot_resume_superseded_execution(
     assert task.artifact_digest != (
         "975a8e0bf859bad1e7f5f33411471878dd731134ee1f3b81948bd8c8503dc4c0"
     )
-    assert task.requested_capability == "m4_p2_6_1_false_positive_and_power"
+    assert (
+        task.requested_capability == "m4_p2_6_3_periodic_refit_false_positive_and_power"
+    )
     assert states[P26_PREFLIGHT_TASK_KEY] is TaskStatus.READY
     assert states[P26_TASK_KEY] is TaskStatus.DEPENDENCY_WAIT
     assert not any(item["task_key"] == P26_TASK_KEY for item in repository.events)
@@ -1344,9 +1396,9 @@ def test_supervisor_projects_preflight_and_fail_closed_repair_branch_with_replay
     assert repair["outer_fold_fit_count_after"] == 4
     assert repair_replay["status"] == "REPLAY_VERIFIED"
     assert repair_replay["capability_replay"]["status"] == "REPLAY_VERIFIED"
-    assert projected["synthetic_validation"] == "P2.6.1_REPAIRED_CONTRACT_READY"
+    assert projected["synthetic_validation"] == "P2.6.3_PERIODIC_REFIT_CONTRACT_READY"
     assert projected["current_state"] == "RUNNING"
-    assert projected["p2_subphase"]["current"] == "M4-P2.6.1"
+    assert projected["p2_subphase"]["current"] == "M4-P2.6.3"
     assert projected["mainline_integration"]["task_key"] == P26_REPAIR_TASK_KEY
     assert projected["current_statistics"]["power"] == "NOT_EVALUATED"
     assert projected["current_statistics"]["runtime_progress_path"] is None

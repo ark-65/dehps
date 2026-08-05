@@ -671,13 +671,14 @@
     {
       "task_key": "m4-p2-false-positive-and-power-runs",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
-      "task_type": "repaired_synthetic_power_run",
+      "task_type": "periodic_refit_synthetic_power_run",
       "lane": "research",
       "priority": 102,
-      "requested_capability": "m4_p2_6_1_false_positive_and_power",
+      "requested_capability": "m4_p2_6_3_periodic_refit_false_positive_and_power",
       "input_artifact_digests": [
         "5e41910553643e6559e78aa401fdcdd1e661b5709eaf55f0e73e694fb5a61355",
         "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58",
+        "ad58b9abcd90c5e7ee7b9892ac8c209b8033f7a50e603b58c043685b0c7d6f99",
         "90459ebf8b88afcc60ee1177043e436b90b71c00b557f15e9e4d7026f37586f2",
         "1a76f46d7a47a134c1688657749bc040290f65a03dbc7c860e38144e02005981",
         "1cde473524d7d6dcafba64ab7b0a1d2862b56149d5f6f198c73d88b406c3071b",
@@ -706,6 +707,11 @@
           "dependency_type": "artifact",
           "target_key": "m4-p2-repaired-measurement-contract:AVAILABLE",
           "required_status": "available"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p2-6-3-periodic-refit-contract:ad58b9abcd90c5e7ee7b9892ac8c209b8033f7a50e603b58c043685b0c7d6f99",
+          "required_status": "available"
         }
       ],
       "metric_contract": {
@@ -717,23 +723,25 @@
         "mainline_integration": {
           "decision_consumer": "P2.7 automatic PASS_TO_P3 or REPAIR_MEASUREMENT_SYSTEM gate",
           "downstream_artifacts": [
-            "repaired P2.6.1 formal completion artifact"
+            "P2.6.3 periodic-refit formal completion artifact"
           ],
           "downstream_consumer": "m4-p2-automatic-gate-and-report",
           "evidence_progress_rule": "zero_until_repaired_complete_formal_workload",
           "goal": "M4_INFORMATION_THEORY_EVIDENCE",
-          "ready_condition": "Scheme A repair COMPLETE and repaired measurement contract fact available",
+          "ready_condition": "Scheme A repair COMPLETE and the result-blind P2.6.3 periodic-refit contract is available",
           "runner": "research_evidence_supervisor",
           "status_projection": "unified_m4_status",
           "upstream_artifacts": [
             "P2.4.1 marginal truth calibration",
             "frozen development hyperparameters",
             "P2.6.1 measurement-validation manifest",
+            "P2.6.3 fixed 64-fold learned-probe update policy",
             "synthetic-only state-number feature manifest"
           ]
         },
-        "old_execution_status": "SUPERSEDED",
-        "phase": "M4-P2.6.1"
+        "p2_6_1_execution_status": "SUPERSEDED_BY_P2_6_3_WITHOUT_RESULT_REUSE",
+        "failed_p2_6_2_candidate_status": "REJECTED_BY_CAPACITY_GATE_WITHOUT_RESULT_GENERATION",
+        "phase": "M4-P2.6.3"
       }
     },
     {
@@ -745,7 +753,8 @@
       "requested_capability": "m4_p2_7_automatic_measurement_gate",
       "input_artifact_digests": [
         "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
-        "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58"
+        "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58",
+        "ad58b9abcd90c5e7ee7b9892ac8c209b8033f7a50e603b58c043685b0c7d6f99"
       ],
       "dependencies": [
         {
@@ -781,7 +790,8 @@
             "P2.6 replicate graph",
             "P2.6 cell aggregates",
             "P2.6 formal completion artifact",
-            "P2.6 measurement-validation manifest"
+            "P2.6 measurement-validation manifest",
+            "P2.6.3 periodic-refit update policy"
           ]
         },
         "phase": "M4-P2.7"
@@ -1605,6 +1615,7 @@
       "m4-p2-5-resampling-kernel-manifest:1cde473524d7d6dcafba64ab7b0a1d2862b56149d5f6f198c73d88b406c3071b",
       "m4-p2-6-1-marginal-binding-contract:dc45c140226a30d30f371f34628c05fa158b7dca86579f33431d2280a2987487",
       "m4-p2-6-1-measurement-validation-manifest:a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58",
+      "m4-p2-6-3-periodic-refit-contract:ad58b9abcd90c5e7ee7b9892ac8c209b8033f7a50e603b58c043685b0c7d6f99",
       "m4-p2-6-measurement-validation-manifest:953ae76e2e28523b7d067c2b73dac8bec63ff2417db283fd516fe900e52402f8",
       "m4-p2-9-runtime-audit-plan:e2bfb82be29bedac51be6905e6049b4a10e5c0cde0198995e12279bf969714ca",
       "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
@@ -1627,5 +1638,5 @@
     "external_events": [],
     "authorities": []
   },
-  "manifest_digest": "b1f72ebe01daf38c39724f2b6b2beaa1e0be391974e708ba1be65e8cf12ae3be"
+  "manifest_digest": "98a9c6dd32d24ff3719ab4308452040a12a2803666ff9dba5bc5089ec49d0e7f"
 }

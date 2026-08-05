@@ -100,7 +100,7 @@ P2_SUBPHASE_LABELS = (
     "M4-P2.4",
     "M4-P2.5",
     "M4-P2.6-PREFLIGHT",
-    "M4-P2.6.1",
+    "M4-P2.6.3",
     "M4-P2.7",
 )
 
@@ -768,7 +768,7 @@ def build_m4_status(
                 else mainline_execution.get("estimator_quality_by_cell", [])
             ),
             "runtime_progress_path": (
-                "runtime/logs/m4-p2-6-1-measurement-validation-progress.json"
+                "runtime/logs/m4-p2-6-3-measurement-validation-progress.json"
                 if resolutions[P2_SUBTASK_KEYS[6]].status is TaskStatus.RUNNING
                 else None
             ),
@@ -808,7 +808,7 @@ def build_m4_status(
                         "P2.6_FORMAL_MEASUREMENT_EVIDENCE_READY"
                         if p2_6_complete
                         else (
-                            "P2.6.1_REPAIRED_CONTRACT_READY"
+                            "P2.6.3_PERIODIC_REFIT_CONTRACT_READY"
                             if measurement_contract_repaired
                             else "P2.5_RESAMPLING_KERNEL_READY"
                         )
@@ -857,7 +857,7 @@ def build_m4_status(
                             "M4-P2.7"
                             if p2_6_complete
                             else (
-                                "M4-P2.6.1"
+                                "M4-P2.6.3"
                                 if p2_preflight_complete
                                 else (
                                     "M4-P2.6-PREFLIGHT"
