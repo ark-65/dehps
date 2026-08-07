@@ -510,9 +510,13 @@ def _canonical_task_artifact_path(
             "mainline artifact control plane is not registered"
         ) from exc
     repository_root = root_dir.resolve()
-    namespace_root = (
-        repository_root / "runtime/research-os" / artifact_namespace / "tasks"
-    )
+    # A clean code worktree may intentionally bind its top-level runtime entry
+    # to the canonical same-host runtime root.  Resolve that one boundary first,
+    # then keep every namespace, task, execution, and artifact check anchored to
+    # the resulting real path.  Symlinks below the bound runtime root remain
+    # forbidden by the existing equality and containment checks.
+    runtime_root = (repository_root / "runtime").resolve()
+    namespace_root = runtime_root / "research-os" / artifact_namespace / "tasks"
     if namespace_root.resolve() != namespace_root:
         raise MainlineSupervisorError("mainline artifact path escaped task namespace")
     task_root = namespace_root / task_key / execution_id

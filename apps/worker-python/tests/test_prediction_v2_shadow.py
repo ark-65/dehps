@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
 from dehps.draw_sync.models import DrawSyncResult, DrawSyncStatus
 from dehps.draw_sync.scheduler import DrawSyncWatch
 from dehps.input_contracts.candidate_abi import candidate_unrank
@@ -635,6 +636,51 @@ def test_canonical_task_artifact_path_binds_control_plane_namespace(
             relative_path=(
                 "runtime/research-os/prediction-v2-shadow/tasks/"
                 f"{REFERENCE_TASK_KEY}/{symlink_execution_id}/artifact.json"
+            ),
+        )
+
+
+def test_canonical_task_artifact_path_allows_bound_runtime_root_symlink(
+    tmp_path: Path,
+) -> None:
+    execution_id = "e" * 64
+    relative_path = (
+        "runtime/research-os/prediction-v2-shadow/tasks/"
+        f"{REFERENCE_TASK_KEY}/{execution_id}/execution.json"
+    )
+    canonical_runtime = tmp_path / "canonical-runtime"
+    task_root = (
+        canonical_runtime
+        / "research-os/prediction-v2-shadow/tasks"
+        / REFERENCE_TASK_KEY
+        / execution_id
+    )
+    task_root.mkdir(parents=True)
+    (tmp_path / "runtime").symlink_to(canonical_runtime, target_is_directory=True)
+
+    assert (
+        _canonical_task_artifact_path(
+            root_dir=tmp_path,
+            control_plane_key=CONTROL_PLANE_KEY,
+            task_key=REFERENCE_TASK_KEY,
+            execution_id=execution_id,
+            relative_path=relative_path,
+        )
+        == task_root / "execution.json"
+    )
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (task_root / "linked").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(MainlineSupervisorError, match="escaped task execution"):
+        _canonical_task_artifact_path(
+            root_dir=tmp_path,
+            control_plane_key=CONTROL_PLANE_KEY,
+            task_key=REFERENCE_TASK_KEY,
+            execution_id=execution_id,
+            relative_path=(
+                "runtime/research-os/prediction-v2-shadow/tasks/"
+                f"{REFERENCE_TASK_KEY}/{execution_id}/linked/artifact.json"
             ),
         )
 
