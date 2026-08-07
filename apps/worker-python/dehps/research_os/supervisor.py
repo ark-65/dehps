@@ -161,6 +161,9 @@ from dehps.research_os.information_theory.measurement_system_v2.marginal_static_
     verify_marginal_static_source_bytes,
 )
 from dehps.research_os.information_theory.measurement_system_v2.marginal_static_fixtures import (
+    FIXTURE_ORDER as MARGINAL_STATIC_FIXTURE_ORDER,
+)
+from dehps.research_os.information_theory.measurement_system_v2.marginal_static_fixtures import (
     MARGINAL_STATIC_FIXTURE_FREEZE_CAPABILITY,
     MARGINAL_STATIC_FIXTURE_FREEZE_COMPLETION_FACT,
     MARGINAL_STATIC_FIXTURE_FREEZE_TASK_KEY,
@@ -5186,6 +5189,21 @@ class M4MarginalStaticFixtureFreezeCapability:
         )
 
 
+def _ordered_marginal_static_fixture_contracts(
+    fixtures: tuple[dict[str, Any], ...],
+) -> tuple[dict[str, Any], ...]:
+    by_id = {str(item.get("fixture_id") or ""): item for item in fixtures}
+    if (
+        len(fixtures) != len(MARGINAL_STATIC_FIXTURE_ORDER)
+        or len(by_id) != len(fixtures)
+        or set(by_id) != set(MARGINAL_STATIC_FIXTURE_ORDER)
+    ):
+        raise MainlineSupervisorError(
+            "M4 v2 marginal-static fixture registration identities changed"
+        )
+    return tuple(by_id[fixture_id] for fixture_id in MARGINAL_STATIC_FIXTURE_ORDER)
+
+
 class M4MarginalStaticHealthDesignCapability:
     def __init__(
         self,
@@ -5225,10 +5243,12 @@ class M4MarginalStaticHealthDesignCapability:
             control_plane_key=control_plane_key,
             task_key=MARGINAL_STATIC_FIXTURE_FREEZE_TASK_KEY,
         )
-        fixture_contracts = _load_registered_type_group(
-            root_dir=self.root_dir,
-            registrations=fixture_registrations,
-            artifact_type="m4_v2_marginal_static_fixture",
+        fixture_contracts = _ordered_marginal_static_fixture_contracts(
+            _load_registered_type_group(
+                root_dir=self.root_dir,
+                registrations=fixture_registrations,
+                artifact_type="m4_v2_marginal_static_measurement_fixture",
+            )
         )
         fixture_bundle = _load_registered_type(
             root_dir=self.root_dir,
@@ -9998,10 +10018,12 @@ class ResearchEvidenceSupervisor:
                     task_key=MARGINAL_STATIC_FIXTURE_FREEZE_TASK_KEY,
                 )
             )
-            fixture_contracts = _load_registered_type_group(
-                root_dir=self.root_dir,
-                registrations=fixture_registrations,
-                artifact_type="m4_v2_marginal_static_fixture",
+            fixture_contracts = _ordered_marginal_static_fixture_contracts(
+                _load_registered_type_group(
+                    root_dir=self.root_dir,
+                    registrations=fixture_registrations,
+                    artifact_type="m4_v2_marginal_static_measurement_fixture",
+                )
             )
             fixture_bundle = _load_registered_type(
                 root_dir=self.root_dir,

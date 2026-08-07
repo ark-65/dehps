@@ -59,7 +59,7 @@ def _inputs() -> tuple[dict, tuple[dict, ...], dict, dict]:
     source = load_marginal_static_health_design_source_contract(SOURCE_CONTRACT_PATH)
     fixtures = tuple(
         {
-            "artifact_type": "m4_v2_marginal_static_fixture",
+            "artifact_type": "m4_v2_marginal_static_measurement_fixture",
             "artifact_digest": str(index) * 64,
             "fixture_id": fixture_id,
         }
@@ -218,10 +218,18 @@ def test_health_design_capability_materializes_four_artifacts(
         "_load_single_completed_execution",
         lambda **_: ({}, fixture_execution, "fixture-registrations"),
     )
+
+    def fake_registered_type_group(**kwargs: object) -> tuple[dict, ...]:
+        assert (
+            kwargs["artifact_type"]
+            == "m4_v2_marginal_static_measurement_fixture"
+        )
+        return tuple(reversed(fixtures))
+
     monkeypatch.setattr(
         supervisor_module,
         "_load_registered_type_group",
-        lambda **_: fixtures,
+        fake_registered_type_group,
     )
 
     def fake_registered_type(**kwargs: object) -> dict:
