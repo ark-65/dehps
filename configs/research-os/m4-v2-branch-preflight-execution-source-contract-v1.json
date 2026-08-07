@@ -1,0 +1,87 @@
+{
+  "schema_version": "dehps-m4-v2-branch-preflight-execution-source-contract.v1",
+  "artifact_type": "m4_v2_branch_preflight_execution_source_contract",
+  "artifact_digest": "7da905d15249813e44bcf57b4e107fac15bb2d02587c4c68134ca5c834aac5c1",
+  "contract_key": "M4_V2_BRANCH_PREFLIGHT_EXECUTION_SOURCE",
+  "research_request_key": "research-m4-v2-branch-preflight-execution-round-38-20260807",
+  "research_request_id": 309,
+  "research_execution_id": 230,
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/preflight_execution.py",
+      "content_sha256": "074c2a582f8a64d5da04e86cab8de80a4b392703f999d79735684896bbce3f3b"
+    }
+  ],
+  "source_set_digest": "3e93cff9950e5e1a4c1b314203e08af283c194d9988731d0456aa0f508742904",
+  "source_dependencies": {
+    "fixture_freeze_source_contract_digest": "391acc6a04518389f841e94a640a14dcaf98bd2c36614d31a0e713446980b06d"
+  },
+  "frozen_contract": {
+    "execution_kind": "deterministic_analytic_fixture_execution",
+    "branch_order": [
+      "MARGINAL_STATIC",
+      "TEMPORAL_MARGINAL_INCREMENT",
+      "JOINT_RESIDUAL_INCREMENT"
+    ],
+    "control_order": [
+      "V2_M1_GROUP_ODDS_2_STATIONARY",
+      "V2_T1_OVERLAP_ODDS_2_MARKOV",
+      "V2_J1_HISTORY_IS4_LAMBDA_HALF",
+      "NULL_UNIFORM_LEGAL_SIX_OF_33"
+    ],
+    "expected_positive_map": {
+      "MARGINAL_STATIC": "V2_M1_GROUP_ODDS_2_STATIONARY",
+      "TEMPORAL_MARGINAL_INCREMENT": "V2_T1_OVERLAP_ODDS_2_MARKOV",
+      "JOINT_RESIDUAL_INCREMENT": "V2_J1_HISTORY_IS4_LAMBDA_HALF"
+    },
+    "solver_acceptance": {
+      "maximum_marginal_residual": 1e-12,
+      "maximum_gauge_parameter_absolute_error": 1e-9,
+      "maximum_partition_relative_error": 1e-10,
+      "permutation_maximum_marginal_error": 1e-12,
+      "permutation_maximum_gauge_parameter_error": 1e-9,
+      "permutation_maximum_log_partition_error": 1e-10,
+      "invalid_boundary_case_count": 5,
+      "fallback_allowed": false
+    },
+    "endpoint_acceptance": {
+      "positive_floor_bits": 0.001,
+      "negative_absolute_tolerance_bits": 1e-10,
+      "maximum_truth_anchor_absolute_error": 5e-13,
+      "endpoint_count": 12
+    },
+    "legacy_acceptance": {
+      "minimum_positive_residual_bits": 0.001,
+      "maximum_truth_anchor_absolute_error": 5e-13,
+      "fixture_count": 2,
+      "state_result_count": 4,
+      "is3_decision_credit": false
+    },
+    "artifact_counts": {
+      "solver_result_artifacts": 1,
+      "orthogonal_matrix_artifacts": 1,
+      "legacy_role_result_artifacts": 1,
+      "branch_health_result_artifacts": 3,
+      "completion_artifacts": 1,
+      "mainline_execution_artifacts": 1,
+      "preflight_branch_result_count": 3
+    },
+    "formal_branch_runs": 0,
+    "monte_carlo_replicates": 0,
+    "historical_outcomes_read": false,
+    "statistical_results_read": false,
+    "evidence_created": false,
+    "execution_completion_fact": "m4-v2-branch-identifiability-preflight-execution:EXECUTED",
+    "overall_pass_fact": "m4-v2-branch-identifiability-preflight-execution:ALL_BRANCHES_PASS",
+    "next_consumer": "m4-v2-marginal-static-measurement-contract-freeze"
+  },
+  "result_blind": true,
+  "formal_branch_execution_allowed": false,
+  "historical_outcomes_read": false,
+  "statistical_results_read": false,
+  "monte_carlo_replicates": 0,
+  "evidence_created": false,
+  "evidence_progress_increment": 0,
+  "promotion_gate_opened": false,
+  "production_action": "none"
+}

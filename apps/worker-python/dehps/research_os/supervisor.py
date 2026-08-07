@@ -147,7 +147,6 @@ from dehps.research_os.information_theory.measurement_system_v2.fixture_freeze i
     FIXTURE_FREEZE_COMPLETION_FACT,
     FIXTURE_FREEZE_SOURCE_CONTRACT_PATH,
     FIXTURE_FREEZE_TASK_KEY,
-    PREFLIGHT_EXECUTION_TASK_KEY,
     build_fixture_freeze_artifacts,
     load_fixture_freeze_source_contract,
     verify_fixture_freeze_source_bytes,
@@ -161,6 +160,17 @@ from dehps.research_os.information_theory.measurement_system_v2.preflight_design
     build_branch_preflight_design_artifacts,
     load_preflight_source_contract,
     verify_preflight_source_bytes,
+)
+from dehps.research_os.information_theory.measurement_system_v2.preflight_execution import (
+    MARGINAL_CONTRACT_FREEZE_TASK_KEY,
+    PREFLIGHT_EXECUTION_CAPABILITY,
+    PREFLIGHT_EXECUTION_COMPLETION_FACT,
+    PREFLIGHT_EXECUTION_PASS_FACT,
+    PREFLIGHT_EXECUTION_SOURCE_CONTRACT_PATH,
+    PREFLIGHT_EXECUTION_TASK_KEY,
+    build_preflight_execution_artifacts,
+    load_preflight_execution_source_contract,
+    verify_preflight_execution_source_bytes,
 )
 from dehps.research_os.information_theory.measurement_system_v2.replay import (
     P27_GATE_REPLAY_FACT,
@@ -855,6 +865,34 @@ def _load_registered_type(
             f"registered artifact content identity changed: {artifact_type}"
         )
     return payload
+
+
+def _load_registered_type_group(
+    *,
+    root_dir: Path,
+    registrations: list[dict[str, Any]],
+    artifact_type: str,
+) -> tuple[dict[str, Any], ...]:
+    matches = [
+        item for item in registrations if item.get("artifact_type") == artifact_type
+    ]
+    if not matches:
+        raise MainlineSupervisorError(
+            f"registered artifact type is missing: {artifact_type}"
+        )
+    payloads = tuple(
+        _load_object(root_dir / str(item["artifact_path"]))
+        for item in matches
+    )
+    if any(
+        payload.get("artifact_type") != artifact_type
+        or payload.get("artifact_digest") != registration.get("artifact_digest")
+        for payload, registration in zip(payloads, matches, strict=True)
+    ):
+        raise MainlineSupervisorError(
+            f"registered artifact group content identity changed: {artifact_type}"
+        )
+    return payloads
 
 
 def _persist_small_capability(
@@ -4247,6 +4285,313 @@ class M4BranchIdentifiabilityFixtureFreezeCapability:
         )
 
 
+class M4BranchIdentifiabilityPreflightExecutionCapability:
+    def __init__(
+        self,
+        *,
+        repository: PostgresResearchOSRepository,
+        root_dir: Path = ROOT_DIR,
+    ) -> None:
+        self.repository = repository
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key != PREFLIGHT_EXECUTION_TASK_KEY
+            or task.requested_capability != PREFLIGHT_EXECUTION_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "M4 v2 branch preflight execution received the wrong task"
+            )
+        source_contract = load_preflight_execution_source_contract(
+            self.root_dir / PREFLIGHT_EXECUTION_SOURCE_CONTRACT_PATH
+        )
+        verify_preflight_execution_source_bytes(
+            root_dir=self.root_dir,
+            contract=source_contract,
+        )
+        _, fixture_execution, fixture_registrations = (
+            _load_single_completed_execution(
+                repository=self.repository,
+                root_dir=self.root_dir,
+                control_plane_key=control_plane_key,
+                task_key=FIXTURE_FREEZE_TASK_KEY,
+            )
+        )
+        solver_fixture = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=fixture_registrations,
+            artifact_type="m4_v2_joint_maxent_fixture_contract",
+        )
+        orthogonal_fixture = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=fixture_registrations,
+            artifact_type="m4_v2_orthogonal_control_fixture_contract",
+        )
+        legacy_fixture = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=fixture_registrations,
+            artifact_type="m4_v2_legacy_role_resolution_fixture_contract",
+        )
+        fixture_completion = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=fixture_registrations,
+            artifact_type="m4_v2_branch_fixture_freeze_completion",
+        )
+        _, _, design_registrations = _load_single_completed_execution(
+            repository=self.repository,
+            root_dir=self.root_dir,
+            control_plane_key=control_plane_key,
+            task_key=PREFLIGHT_DESIGN_TASK_KEY,
+        )
+        branch_designs = tuple(
+            sorted(
+                _load_registered_type_group(
+                    root_dir=self.root_dir,
+                    registrations=design_registrations,
+                    artifact_type=(
+                        "m4_v2_branch_identifiability_preflight_design"
+                    ),
+                ),
+                key=lambda item: int(item["branch_order_index"]),
+            )
+        )
+        cross_branch_design = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=design_registrations,
+            artifact_type="m4_v2_cross_branch_preflight_design",
+        )
+        expected_inputs = (
+            str(source_contract["artifact_digest"]),
+            str(fixture_execution["artifact_digest"]),
+            str(solver_fixture["artifact_digest"]),
+            str(orthogonal_fixture["artifact_digest"]),
+            str(legacy_fixture["artifact_digest"]),
+            str(fixture_completion["artifact_digest"]),
+            *(str(item["artifact_digest"]) for item in branch_designs),
+            str(cross_branch_design["artifact_digest"]),
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "M4 v2 branch preflight execution source identities changed"
+            )
+        if (
+            fixture_execution.get("completion_fact")
+            != FIXTURE_FREEZE_COMPLETION_FACT
+            or fixture_execution.get("fixture_contract_count") != 3
+            or fixture_execution.get("formal_branch_runs_executed") != 0
+            or fixture_execution.get("preflight_result_count") != 0
+            or fixture_execution.get("historical_outcomes_read") is not False
+            or fixture_execution.get("p2_6_3_statistical_results_read") is not False
+            or fixture_execution.get("evidence_created") is not False
+            or fixture_completion.get("next_consumer")
+            != PREFLIGHT_EXECUTION_TASK_KEY
+        ):
+            raise MainlineSupervisorError(
+                "M4 v2 branch preflight execution parent lineage changed"
+            )
+        run = build_preflight_execution_artifacts(
+            source_contract=source_contract,
+            fixture_execution_artifact_digest=str(
+                fixture_execution["artifact_digest"]
+            ),
+            solver_fixture=solver_fixture,
+            orthogonal_fixture=orthogonal_fixture,
+            legacy_fixture=legacy_fixture,
+            fixture_completion=fixture_completion,
+            branch_designs=branch_designs,
+            cross_branch_design=cross_branch_design,
+            execution_id=execution_id,
+            git_commit=git_commit,
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        solver_path = (
+            task_dir
+            / "artifacts/joint-solver-preflight"
+            / str(run.solver_result["artifact_digest"])
+            / "result.json"
+        )
+        orthogonal_path = (
+            task_dir
+            / "artifacts/orthogonal-endpoint-preflight"
+            / str(run.orthogonal_result["artifact_digest"])
+            / "result.json"
+        )
+        legacy_path = (
+            task_dir
+            / "artifacts/legacy-role-preflight"
+            / str(run.legacy_result["artifact_digest"])
+            / "result.json"
+        )
+        branch_paths = tuple(
+            task_dir
+            / "artifacts/branch-health-preflight"
+            / str(payload["branch_id"])
+            / str(payload["artifact_digest"])
+            / "result.json"
+            for payload in run.branch_results
+        )
+        completion_path = (
+            task_dir
+            / "artifacts/completion"
+            / str(run.completion["artifact_digest"])
+            / "completion.json"
+        )
+        child_payloads = (
+            (solver_path, run.solver_result),
+            (orthogonal_path, run.orthogonal_result),
+            (legacy_path, run.legacy_result),
+            *zip(branch_paths, run.branch_results, strict=True),
+            (completion_path, run.completion),
+        )
+        for path, payload in child_payloads:
+            _persist_immutable(path, payload)
+        branch_statuses = {
+            str(item["branch_id"]): str(item["status"])
+            for item in run.branch_results
+        }
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "preflight_execution_source_contract_digest": source_contract[
+                "artifact_digest"
+            ],
+            "preflight_execution_source_set_digest": source_contract[
+                "source_set_digest"
+            ],
+            "research_request_key": source_contract["research_request_key"],
+            "research_request_id": source_contract["research_request_id"],
+            "research_execution_id": source_contract["research_execution_id"],
+            "fixture_execution_id": fixture_execution["execution_id"],
+            "fixture_execution_artifact_digest": fixture_execution[
+                "artifact_digest"
+            ],
+            "solver_fixture_contract_digest": solver_fixture["artifact_digest"],
+            "orthogonal_control_fixture_contract_digest": (
+                orthogonal_fixture["artifact_digest"]
+            ),
+            "legacy_role_resolution_fixture_contract_digest": (
+                legacy_fixture["artifact_digest"]
+            ),
+            "fixture_freeze_completion_digest": fixture_completion[
+                "artifact_digest"
+            ],
+            "branch_preflight_design_digests": [
+                item["artifact_digest"] for item in branch_designs
+            ],
+            "cross_branch_preflight_design_digest": cross_branch_design[
+                "artifact_digest"
+            ],
+            "solver_preflight_result_digest": run.solver_result[
+                "artifact_digest"
+            ],
+            "orthogonal_endpoint_result_digest": run.orthogonal_result[
+                "artifact_digest"
+            ],
+            "legacy_role_preflight_result_digest": run.legacy_result[
+                "artifact_digest"
+            ],
+            "branch_preflight_result_digests": [
+                item["artifact_digest"] for item in run.branch_results
+            ],
+            "preflight_execution_completion_digest": run.completion[
+                "artifact_digest"
+            ],
+            "preflight_execution_status": run.completion["preflight_status"],
+            "branch_preflight_statuses": branch_statuses,
+            "solver_preflight_status": run.solver_result["status"],
+            "orthogonal_endpoint_status": run.orthogonal_result["status"],
+            "legacy_role_resolution_status": run.legacy_result["status"],
+            "all_branches_pass": run.all_branches_pass,
+            "completion_fact": PREFLIGHT_EXECUTION_COMPLETION_FACT,
+            "all_branches_pass_fact": (
+                PREFLIGHT_EXECUTION_PASS_FACT if run.all_branches_pass else None
+            ),
+            "actual_fold_count": 0,
+            "registered_artifact_count": len(child_payloads) + 1,
+            "formal_branch_runs_executed": 0,
+            "preflight_execution_count": 1,
+            "preflight_result_count": 3,
+            "orthogonal_endpoint_count": 12,
+            "legacy_state_result_count": 4,
+            "monte_carlo_replicates": 0,
+            "historical_outcomes_read": False,
+            "p2_6_1_partial_statistical_results_read": False,
+            "p2_6_3_statistical_results_read": False,
+            "evidence_created": False,
+            "evidence_progress_before": 0,
+            "evidence_progress_after": 0,
+            "downstream_consumer": (
+                MARGINAL_CONTRACT_FREEZE_TASK_KEY
+                if run.all_branches_pass
+                else None
+            ),
+            "production_impact": "none",
+            "production_action": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "replay_status": "DETERMINISTIC",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                *(str(payload["artifact_digest"]) for _, payload in child_payloads),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(registrations) != execution_payload["registered_artifact_count"]:
+            raise MainlineSupervisorError(
+                "M4 v2 branch preflight execution registration count changed"
+            )
+        facts = [PREFLIGHT_EXECUTION_COMPLETION_FACT]
+        if run.all_branches_pass:
+            facts.append(PREFLIGHT_EXECUTION_PASS_FACT)
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=registrations,
+            completion_facts=tuple(facts),
+        )
+
+
 class M4P261RawExecutionReplayCapability:
     def __init__(
         self,
@@ -6024,6 +6369,12 @@ class ResearchEvidenceSupervisor:
                     root_dir=root_dir,
                 )
             ),
+            PREFLIGHT_EXECUTION_CAPABILITY: (
+                M4BranchIdentifiabilityPreflightExecutionCapability(
+                    repository=self.repository,
+                    root_dir=root_dir,
+                )
+            ),
             M4_V2_P261_RAW_REPLAY_CAPABILITY: (
                 M4P261RawExecutionReplayCapability(
                     repository=self.repository,
@@ -6507,6 +6858,25 @@ class ResearchEvidenceSupervisor:
                                     "legacy_role_resolution_fixture_contract_digest",
                                     "fixture_freeze_completion_digest",
                                     "fixture_contract_count",
+                                    "preflight_execution_source_contract_digest",
+                                    "preflight_execution_source_set_digest",
+                                    "fixture_execution_id",
+                                    "fixture_execution_artifact_digest",
+                                    "solver_preflight_result_digest",
+                                    "orthogonal_endpoint_result_digest",
+                                    "legacy_role_preflight_result_digest",
+                                    "branch_preflight_result_digests",
+                                    "preflight_execution_completion_digest",
+                                    "preflight_execution_status",
+                                    "branch_preflight_statuses",
+                                    "solver_preflight_status",
+                                    "orthogonal_endpoint_status",
+                                    "legacy_role_resolution_status",
+                                    "all_branches_pass",
+                                    "all_branches_pass_fact",
+                                    "orthogonal_endpoint_count",
+                                    "legacy_state_result_count",
+                                    "monte_carlo_replicates",
                                     "p2_6_1_execution_id",
                                     "p2_6_1_execution_artifact_digest",
                                     "raw_replay_artifact_digest",
@@ -6700,6 +7070,7 @@ class ResearchEvidenceSupervisor:
         return self._latest_completed_summary_for_tasks(
             snapshot,
             (
+                PREFLIGHT_EXECUTION_TASK_KEY,
                 FIXTURE_FREEZE_TASK_KEY,
                 PREFLIGHT_DESIGN_TASK_KEY,
                 M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY,
@@ -6943,6 +7314,25 @@ class ResearchEvidenceSupervisor:
             "legacy_role_resolution_fixture_contract_digest",
             "fixture_freeze_completion_digest",
             "fixture_contract_count",
+            "preflight_execution_source_contract_digest",
+            "preflight_execution_source_set_digest",
+            "fixture_execution_id",
+            "fixture_execution_artifact_digest",
+            "solver_preflight_result_digest",
+            "orthogonal_endpoint_result_digest",
+            "legacy_role_preflight_result_digest",
+            "branch_preflight_result_digests",
+            "preflight_execution_completion_digest",
+            "preflight_execution_status",
+            "branch_preflight_statuses",
+            "solver_preflight_status",
+            "orthogonal_endpoint_status",
+            "legacy_role_resolution_status",
+            "all_branches_pass",
+            "all_branches_pass_fact",
+            "orthogonal_endpoint_count",
+            "legacy_state_result_count",
+            "monte_carlo_replicates",
             "p2_6_1_execution_id",
             "p2_6_1_execution_artifact_digest",
             "raw_replay_artifact_digest",
@@ -8280,6 +8670,178 @@ class ResearchEvidenceSupervisor:
                 "same_registered_content": True,
                 "formal_branch_runs_executed": 0,
                 "preflight_result_count": 0,
+                "historical_outcomes_read": False,
+                "statistical_results_read": False,
+                "evidence_created": False,
+                "manual_input_assembly": False,
+            }
+        elif task_key == PREFLIGHT_EXECUTION_TASK_KEY:
+            source_contract = load_preflight_execution_source_contract(
+                self.root_dir / PREFLIGHT_EXECUTION_SOURCE_CONTRACT_PATH
+            )
+            verify_preflight_execution_source_bytes(
+                root_dir=self.root_dir,
+                contract=source_contract,
+            )
+            _, fixture_execution, fixture_registrations = (
+                _load_single_completed_execution(
+                    repository=self.repository,
+                    root_dir=self.root_dir,
+                    control_plane_key=self.control_plane_key,
+                    task_key=FIXTURE_FREEZE_TASK_KEY,
+                )
+            )
+            solver_fixture = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=fixture_registrations,
+                artifact_type="m4_v2_joint_maxent_fixture_contract",
+            )
+            orthogonal_fixture = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=fixture_registrations,
+                artifact_type="m4_v2_orthogonal_control_fixture_contract",
+            )
+            legacy_fixture = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=fixture_registrations,
+                artifact_type="m4_v2_legacy_role_resolution_fixture_contract",
+            )
+            fixture_completion = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=fixture_registrations,
+                artifact_type="m4_v2_branch_fixture_freeze_completion",
+            )
+            _, _, design_registrations = _load_single_completed_execution(
+                repository=self.repository,
+                root_dir=self.root_dir,
+                control_plane_key=self.control_plane_key,
+                task_key=PREFLIGHT_DESIGN_TASK_KEY,
+            )
+            branch_designs = tuple(
+                sorted(
+                    _load_registered_type_group(
+                        root_dir=self.root_dir,
+                        registrations=design_registrations,
+                        artifact_type=(
+                            "m4_v2_branch_identifiability_preflight_design"
+                        ),
+                    ),
+                    key=lambda item: int(item["branch_order_index"]),
+                )
+            )
+            cross_branch_design = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=design_registrations,
+                artifact_type="m4_v2_cross_branch_preflight_design",
+            )
+            reconstructed = build_preflight_execution_artifacts(
+                source_contract=source_contract,
+                fixture_execution_artifact_digest=str(
+                    fixture_execution["artifact_digest"]
+                ),
+                solver_fixture=solver_fixture,
+                orthogonal_fixture=orthogonal_fixture,
+                legacy_fixture=legacy_fixture,
+                fixture_completion=fixture_completion,
+                branch_designs=branch_designs,
+                cross_branch_design=cross_branch_design,
+                execution_id=resolved_execution_id,
+                git_commit=str(artifact["git_commit"]),
+            )
+            branch_statuses = {
+                str(item["branch_id"]): str(item["status"])
+                for item in reconstructed.branch_results
+            }
+            if (
+                artifact.get("preflight_execution_source_contract_digest")
+                != source_contract["artifact_digest"]
+                or artifact.get("preflight_execution_source_set_digest")
+                != source_contract["source_set_digest"]
+                or artifact.get("fixture_execution_artifact_digest")
+                != fixture_execution["artifact_digest"]
+                or artifact.get("solver_fixture_contract_digest")
+                != solver_fixture["artifact_digest"]
+                or artifact.get("orthogonal_control_fixture_contract_digest")
+                != orthogonal_fixture["artifact_digest"]
+                or artifact.get(
+                    "legacy_role_resolution_fixture_contract_digest"
+                )
+                != legacy_fixture["artifact_digest"]
+                or artifact.get("fixture_freeze_completion_digest")
+                != fixture_completion["artifact_digest"]
+                or artifact.get("branch_preflight_design_digests")
+                != [item["artifact_digest"] for item in branch_designs]
+                or artifact.get("cross_branch_preflight_design_digest")
+                != cross_branch_design["artifact_digest"]
+                or artifact.get("solver_preflight_result_digest")
+                != reconstructed.solver_result["artifact_digest"]
+                or artifact.get("orthogonal_endpoint_result_digest")
+                != reconstructed.orthogonal_result["artifact_digest"]
+                or artifact.get("legacy_role_preflight_result_digest")
+                != reconstructed.legacy_result["artifact_digest"]
+                or artifact.get("branch_preflight_result_digests")
+                != [
+                    item["artifact_digest"]
+                    for item in reconstructed.branch_results
+                ]
+                or artifact.get("preflight_execution_completion_digest")
+                != reconstructed.completion["artifact_digest"]
+                or artifact.get("preflight_execution_status")
+                != reconstructed.completion["preflight_status"]
+                or artifact.get("branch_preflight_statuses") != branch_statuses
+                or artifact.get("solver_preflight_status")
+                != reconstructed.solver_result["status"]
+                or artifact.get("orthogonal_endpoint_status")
+                != reconstructed.orthogonal_result["status"]
+                or artifact.get("legacy_role_resolution_status")
+                != reconstructed.legacy_result["status"]
+                or artifact.get("all_branches_pass")
+                is not reconstructed.all_branches_pass
+                or artifact.get("all_branches_pass_fact")
+                != (
+                    PREFLIGHT_EXECUTION_PASS_FACT
+                    if reconstructed.all_branches_pass
+                    else None
+                )
+                or artifact.get("formal_branch_runs_executed") != 0
+                or artifact.get("preflight_result_count") != 3
+                or artifact.get("monte_carlo_replicates") != 0
+                or artifact.get("historical_outcomes_read") is not False
+                or artifact.get("p2_6_3_statistical_results_read") is not False
+                or artifact.get("evidence_created") is not False
+            ):
+                raise MainlineSupervisorError(
+                    "M4 v2 branch preflight execution replay identity changed"
+                )
+            _verify_v2_registered_artifacts(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                expected_payloads=(*reconstructed.artifacts, artifact),
+            )
+            capability_replay = {
+                "schema_version": (
+                    "dehps-m4-v2-branch-preflight-execution-replay.v1"
+                ),
+                "status": "REPLAY_VERIFIED",
+                "preflight_execution_status": reconstructed.completion[
+                    "preflight_status"
+                ],
+                "all_branches_pass": reconstructed.all_branches_pass,
+                "branch_preflight_statuses": branch_statuses,
+                "solver_preflight_status": reconstructed.solver_result["status"],
+                "orthogonal_endpoint_status": reconstructed.orthogonal_result[
+                    "status"
+                ],
+                "legacy_role_resolution_status": reconstructed.legacy_result[
+                    "status"
+                ],
+                "preflight_execution_completion_digest": (
+                    reconstructed.completion["artifact_digest"]
+                ),
+                "same_registered_content": True,
+                "formal_branch_runs_executed": 0,
+                "preflight_result_count": 3,
+                "monte_carlo_replicates": 0,
                 "historical_outcomes_read": False,
                 "statistical_results_read": False,
                 "evidence_created": False,
