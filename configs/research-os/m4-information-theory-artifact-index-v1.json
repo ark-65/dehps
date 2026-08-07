@@ -308,10 +308,23 @@
       "superseded_by_digest": "cdaa540b6fbd92a9e32cdd27edfe059cdd98c585be46a335b8ba37ccd097ecf2"
     },
     "cdaa540b6fbd92a9e32cdd27edfe059cdd98c585be46a335b8ba37ccd097ecf2": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "source_commit": "142e533ec00f3e29c61faec4a1ea5813a1123e3d",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "identity_field": "manifest_digest",
+      "supersedes_digest": "07ef938e3df3b301259c34048cd02123025aad2ab9ad7982efec525b919e8acf",
+      "superseded_by_digest": "7f522941cd05e9a1433b7f887180aed8be8f0dde30bc7170f6dd2a444169dfbb"
+    },
+    "7f522941cd05e9a1433b7f887180aed8be8f0dde30bc7170f6dd2a444169dfbb": {
       "artifact_type": "research_os_control_plane_manifest",
       "path": "configs/research-os/m4-information-theory-evidence-v1.json",
       "identity_field": "manifest_digest",
-      "supersedes_digest": "07ef938e3df3b301259c34048cd02123025aad2ab9ad7982efec525b919e8acf"
+      "supersedes_digest": "cdaa540b6fbd92a9e32cdd27edfe059cdd98c585be46a335b8ba37ccd097ecf2"
+    },
+    "e094f3bd319c63b9ed5a8b14b955f7f64544e30d3b8410cc26b2906b7e56ae67": {
+      "artifact_type": "p263_runtime_slot_governance_source_contract",
+      "path": "configs/research-os/m4-p263-runtime-slot-governance-source-contract-v1.json",
+      "identity_field": "artifact_digest"
     },
     "f9716c799e1e55e58585c7e9acf0730f9d05111ab6e375cfb9bea85ecbdeacc5": {
       "artifact_type": "measurement_source_compatibility_fixture",

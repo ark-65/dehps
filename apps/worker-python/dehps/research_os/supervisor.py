@@ -116,6 +116,10 @@ from dehps.research_os.information_theory.measurement_system_v2 import (
     P261_FROZEN_FIXTURE_PATH,
     P261_MARGINAL_BINDING_CONTRACT_PATH,
     P263_POLICY_DIGEST,
+    P263_SLOT_ELIGIBILITY_CAPABILITY,
+    P263_SLOT_ELIGIBILITY_FACT,
+    P263_SLOT_ELIGIBILITY_TASK_KEY,
+    P263_SLOT_SOURCE_CONTRACT_PATH,
     P263_SUPERSEDING_FIXTURE_DIGEST,
     P263_SUPERSEDING_FIXTURE_PATH,
     bind_p261_marginal_acceptance,
@@ -123,12 +127,17 @@ from dehps.research_os.information_theory.measurement_system_v2 import (
     build_design_artifacts,
     build_design_replay_artifacts,
     build_measurement_compatibility_acceptance,
+    build_p263_slot_eligibility_artifact,
     load_gate_replay_fixture,
     load_measurement_compatibility_fixture,
     load_measurement_compatibility_request,
     load_measurement_contract_v2,
     load_p261_marginal_binding_contract,
+    load_p263_slot_source_contract,
     replay_measurement_source_fixture,
+    replay_p263_slot_eligibility_artifact,
+    validate_p263_slot_eligibility_artifact,
+    verify_p263_slot_source_bytes,
 )
 from dehps.research_os.information_theory.measurement_system_v2.execution import (
     DESIGN_COMPLETION_FACT,
@@ -234,6 +243,7 @@ from dehps.research_os.information_theory.walk_forward import (
     run_walk_forward,
 )
 from dehps.research_os.mainline import (
+    completion_execution_ids,
     integration_contract,
     mainline_completion_fact,
 )
@@ -4793,6 +4803,206 @@ class M4P29MeasurementRuntimeAuditCapability:
         )
 
 
+class M4P263RuntimeSlotEligibilityCapability:
+    def __init__(
+        self,
+        *,
+        repository: PostgresResearchOSRepository,
+        root_dir: Path = ROOT_DIR,
+    ) -> None:
+        self.repository = repository
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            control_plane_key != M4_CONTROL_PLANE_KEY
+            or task.task_key != P263_SLOT_ELIGIBILITY_TASK_KEY
+            or task.requested_capability != P263_SLOT_ELIGIBILITY_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "M4 P2.6.3 slot eligibility received the wrong task"
+            )
+        expected_inputs = (
+            COMPATIBILITY_REQUEST_DIGEST,
+            P261_FROZEN_FIXTURE_DIGEST,
+            P263_SUPERSEDING_FIXTURE_DIGEST,
+            "8c97fd5fdc006cba6a4145dbd56acc566b9507e18279d06437d0aa472adb2cd2",
+        )
+        if (
+            len(task.input_artifact_digests) != 5
+            or task.input_artifact_digests[:4] != expected_inputs
+        ):
+            raise MainlineSupervisorError(
+                "M4 P2.6.3 slot eligibility source identities changed"
+            )
+        source_contract = load_p263_slot_source_contract(
+            self.root_dir / P263_SLOT_SOURCE_CONTRACT_PATH
+        )
+        if source_contract["artifact_digest"] != task.input_artifact_digests[4]:
+            raise MainlineSupervisorError(
+                "M4 P2.6.3 slot eligibility source contract changed"
+            )
+        verify_p263_slot_source_bytes(
+            root_dir=self.root_dir,
+            contract=source_contract,
+        )
+        p261 = load_measurement_compatibility_fixture(
+            self.root_dir / P261_FROZEN_FIXTURE_PATH,
+            expected_phase="M4-P2.6.1",
+        )
+        p263 = load_measurement_compatibility_fixture(
+            self.root_dir / P263_SUPERSEDING_FIXTURE_PATH,
+            expected_phase="M4-P2.6.3",
+        )
+        manifest = self.repository.load_manifest(
+            control_plane_key=control_plane_key
+        )
+        event_task_keys = (
+            M4_P263_COMPATIBILITY_TASK_KEY,
+            M4_P29_GOLDEN_REFERENCE_TASK_KEY,
+            M4_P29_P263_FAILED_RUNTIME_AUDIT_TASK_KEY,
+            M4_P29_RUNTIME_AUDIT_TASK_KEY,
+            P263_SLOT_ELIGIBILITY_TASK_KEY,
+            M4_V2_DESIGN_TASK_KEY,
+            M4_V2_DESIGN_REPLAY_TASK_KEY,
+            "m4-v2-branch-identifiability-preflight-design",
+            "m4-p3-strict-historical-walk-forward",
+        )
+        events = self.repository.list_mainline_execution_event_metadata(
+            control_plane_key=control_plane_key,
+            task_keys=event_task_keys,
+        )
+        registrations_by_execution: dict[
+            str, Sequence[Mapping[str, Any]]
+        ] = {}
+        for task_key in (
+            M4_P263_COMPATIBILITY_TASK_KEY,
+            M4_P29_GOLDEN_REFERENCE_TASK_KEY,
+            M4_P29_RUNTIME_AUDIT_TASK_KEY,
+        ):
+            completed_task = next(
+                item for item in manifest.tasks if item.task_key == task_key
+            )
+            completed_ids = completion_execution_ids(
+                manifest,
+                task=completed_task,
+            )
+            if len(completed_ids) != 1:
+                raise MainlineSupervisorError(
+                    f"M4 P2.6.3 slot prerequisite is not uniquely complete: {task_key}"
+                )
+            completed_id = completed_ids[0]
+            registrations_by_execution[completed_id] = (
+                self.repository.list_mainline_artifacts(
+                    control_plane_key=control_plane_key,
+                    execution_id=completed_id,
+                )
+            )
+        eligibility = build_p263_slot_eligibility_artifact(
+            manifest=manifest,
+            events=events,
+            registrations_by_execution=registrations_by_execution,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            p261_fixture_digest=p261.artifact_digest,
+            p263_fixture_digest=p263.artifact_digest,
+            slot_source_contract_digest=source_contract["artifact_digest"],
+            slot_source_set_digest=source_contract["source_set_digest"],
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        eligibility_path = (
+            task_dir
+            / "artifacts/runtime-slot-eligibility"
+            / str(eligibility["artifact_digest"])
+            / "eligibility.json"
+        )
+        _persist_immutable(eligibility_path, eligibility)
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "slot_eligibility_artifact_digest": eligibility["artifact_digest"],
+            "eligibility_basis_digest": eligibility[
+                "eligibility_basis_digest"
+            ],
+            "slot_governance_source_contract_digest": source_contract[
+                "artifact_digest"
+            ],
+            "slot_governance_source_set_digest": source_contract[
+                "source_set_digest"
+            ],
+            "completion_fact": P263_SLOT_ELIGIBILITY_FACT,
+            "actual_fold_count": 0,
+            "registered_artifact_count": 2,
+            "statistical_results_read": False,
+            "historical_outcomes_read": False,
+            "result_blind": True,
+            "evidence_created": False,
+            "evidence_progress_before": 25,
+            "evidence_progress_after": 25,
+            "prediction_v2_promotion_allowed": False,
+            "promotion_gate_opened": False,
+            "stop_service_required": True,
+            "post_stop_guard_required": True,
+            "downstream_consumer": "operator-p263-runtime-slot-release",
+            "production_action": "none",
+            "production_impact": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "replay_status": "REPLAYABLE_FROM_RESULT_BLIND_METADATA",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                eligibility["artifact_digest"],
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=((eligibility_path, eligibility),),
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=registrations,
+            completion_facts=(P263_SLOT_ELIGIBILITY_FACT,),
+        )
+
+
 class P26MeasurementValidationCapability:
     def __init__(self, *, root_dir: Path = ROOT_DIR) -> None:
         self.root_dir = root_dir
@@ -5370,6 +5580,12 @@ class ResearchEvidenceSupervisor:
             ),
             M4_P29_RUNTIME_AUDIT_CAPABILITY: M4P29MeasurementRuntimeAuditCapability(
                 repository=self.repository, root_dir=root_dir
+            ),
+            P263_SLOT_ELIGIBILITY_CAPABILITY: (
+                M4P263RuntimeSlotEligibilityCapability(
+                    repository=self.repository,
+                    root_dir=root_dir,
+                )
             ),
             PREDICTION_V2_REFERENCE_CAPABILITY: PredictionV2ReferenceCapability(
                 root_dir=root_dir
@@ -7163,6 +7379,68 @@ class ResearchEvidenceSupervisor:
                 "p2_6_3_statistical_results_read": False,
                 "manual_input_assembly": False,
             }
+        elif task_key == P263_SLOT_ELIGIBILITY_TASK_KEY:
+            registered_children = [
+                item
+                for item in registrations
+                if item.get("artifact_type") != "research_os_mainline_execution"
+            ]
+            if len(registered_children) != 1:
+                raise MainlineSupervisorError(
+                    "P2.6.3 slot eligibility registered child set changed"
+                )
+            eligibility = _load_object(
+                self.root_dir / str(registered_children[0]["artifact_path"])
+            )
+            validate_p263_slot_eligibility_artifact(eligibility)
+            current_manifest = self.repository.load_manifest(
+                control_plane_key=self.control_plane_key
+            )
+            event_task_keys = (
+                M4_P263_COMPATIBILITY_TASK_KEY,
+                M4_P29_GOLDEN_REFERENCE_TASK_KEY,
+                M4_P29_P263_FAILED_RUNTIME_AUDIT_TASK_KEY,
+                M4_P29_RUNTIME_AUDIT_TASK_KEY,
+                P263_SLOT_ELIGIBILITY_TASK_KEY,
+                M4_V2_DESIGN_TASK_KEY,
+                M4_V2_DESIGN_REPLAY_TASK_KEY,
+                "m4-v2-branch-identifiability-preflight-design",
+                "m4-p3-strict-historical-walk-forward",
+            )
+            event_metadata = self.repository.list_mainline_execution_event_metadata(
+                control_plane_key=self.control_plane_key,
+                task_keys=event_task_keys,
+            )
+            prerequisite_registrations = {
+                str(item["execution_id"]): self.repository.list_mainline_artifacts(
+                    control_plane_key=self.control_plane_key,
+                    execution_id=str(item["execution_id"]),
+                )
+                for item in eligibility["completed_tasks"]
+            }
+            capability_replay = replay_p263_slot_eligibility_artifact(
+                payload=eligibility,
+                manifest=current_manifest,
+                events=event_metadata,
+                registrations_by_execution=prerequisite_registrations,
+            )
+            if (
+                artifact.get("slot_eligibility_artifact_digest")
+                != eligibility["artifact_digest"]
+                or artifact.get("eligibility_basis_digest")
+                != eligibility["eligibility_basis_digest"]
+                or artifact.get("statistical_results_read") is not False
+                or artifact.get("prediction_v2_promotion_allowed") is not False
+                or artifact.get("promotion_gate_opened") is not False
+            ):
+                raise MainlineSupervisorError(
+                    "P2.6.3 slot eligibility execution lineage changed"
+                )
+            _verify_v2_registered_artifacts(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                expected_payloads=(eligibility, artifact),
+            )
         elif task_key == M4_V2_DESIGN_TASK_KEY:
             contract = load_measurement_contract_v2(
                 self.root_dir / MEASUREMENT_CONTRACT_V2_PATH

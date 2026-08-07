@@ -34,6 +34,12 @@ M4_P29_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-p263-golden-reference-freeze"
 M4_P29_RUNTIME_AUDIT_TASK_KEY = (
     "m4-p2-9-p263-runtime-observation-arithmetic-fix"
 )
+M4_P263_SLOT_ELIGIBILITY_TASK_KEY = (
+    "m4-p2-9-p263-runtime-slot-release-eligibility"
+)
+M4_P263_SLOT_ELIGIBILITY_FACT = (
+    "m4-p263-runtime-slot-release-eligibility:VERIFIED"
+)
 M4_P263_TASK_DIGEST = (
     "85a08402a4a0c37f75ee1675f4970ef00a7a0b0992b4204251c0c2cc79324de4"
 )
@@ -237,6 +243,9 @@ def build_m4_status(
     )
     golden_reference_resolution = resolutions.get(M4_P29_GOLDEN_REFERENCE_TASK_KEY)
     runtime_audit_resolution = resolutions.get(M4_P29_RUNTIME_AUDIT_TASK_KEY)
+    slot_eligibility_resolution = resolutions.get(
+        M4_P263_SLOT_ELIGIBILITY_TASK_KEY
+    )
     p261_golden_resolution = resolutions.get(
         M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY
     )
@@ -1001,13 +1010,58 @@ def build_m4_status(
                     else (
                         "DESIGN_EXECUTED_REPLAY_PENDING"
                         if measurement_v2_resolution.status is TaskStatus.COMPLETED
-                        else "INTEGRATION_PENDING"
+                        else (
+                            "SLOT_RELEASE_OPERATOR_PENDING"
+                            if slot_eligibility_resolution is not None
+                            and slot_eligibility_resolution.status
+                            is TaskStatus.COMPLETED
+                            else (
+                                "SLOT_ELIGIBILITY_PENDING"
+                                if slot_eligibility_resolution is not None
+                                and slot_eligibility_resolution.status
+                                in {
+                                    TaskStatus.READY,
+                                    TaskStatus.RUNNING,
+                                    TaskStatus.DEPENDENCY_WAIT,
+                                }
+                                else "INTEGRATION_PENDING"
+                            )
+                        )
                     )
                 ),
                 "runtime_release_event": M4_V2_RUNTIME_RELEASE_EVENT,
                 "runtime_release_available": (
                     M4_V2_RUNTIME_RELEASE_EVENT in manifest.facts.external_events
                 ),
+                "runtime_slot_eligibility": {
+                    "task_key": M4_P263_SLOT_ELIGIBILITY_TASK_KEY,
+                    "resolver_status": (
+                        None
+                        if slot_eligibility_resolution is None
+                        else slot_eligibility_resolution.status.value
+                    ),
+                    "resolver_reason_code": (
+                        None
+                        if slot_eligibility_resolution is None
+                        else slot_eligibility_resolution.reason_code
+                    ),
+                    "verified": (
+                        M4_P263_SLOT_ELIGIBILITY_FACT
+                        in manifest.facts.artifacts
+                    ),
+                    "p2_6_1_status": "FROZEN_INCOMPLETE",
+                    "p2_6_3_status": "SUPERSEDING_COMPLETE",
+                    "result_blind": True,
+                    "statistical_results_read": False,
+                    "evidence_progress_increment": 0,
+                    "promotion_gate_opened": False,
+                    "next_consumer": (
+                        M4_V2_DESIGN_TASK_KEY
+                        if M4_V2_RUNTIME_RELEASE_EVENT
+                        in manifest.facts.external_events
+                        else "approved_operator_post_stop_guard"
+                    ),
+                },
                 "p2_6_1_semantic_purpose": (
                     "MARGINAL_OUTPUT_MEASUREMENT_ACCEPTANCE_BASELINE"
                 ),

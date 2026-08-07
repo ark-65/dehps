@@ -41,6 +41,9 @@ P261_RUNTIME_AUDIT_PLAN_DIGEST = (
 P263_INITIAL_RUNTIME_AUDIT_PLAN_DIGEST = (
     "ccbed31f36ad9486f5489d5827c6456d1853259eaeb1ab7a61077347c7e06056"
 )
+P263_RUNTIME_AUDIT_PLAN_DIGEST = (
+    "8c97fd5fdc006cba6a4145dbd56acc566b9507e18279d06437d0aa472adb2cd2"
+)
 UNAVAILABLE = "UNAVAILABLE"
 _DIGEST_PATTERN = re.compile(r"[0-9a-f]{64}")
 _REQUIRED_EXECUTOR_FINGERPRINT_DIGEST = (
@@ -274,6 +277,7 @@ def load_runtime_audit_plan(path: Path) -> dict[str, Any]:
     expected_digest = {
         "1.1.5": P261_RUNTIME_AUDIT_PLAN_DIGEST,
         "1.1.6": P263_INITIAL_RUNTIME_AUDIT_PLAN_DIGEST,
+        "1.1.7": P263_RUNTIME_AUDIT_PLAN_DIGEST,
     }.get(version)
     expected_superseded_digest = {
         "1.1.5": "4d0669386fc32b27b5345995bdaf5e902aaa63109e73472804fd6b6ba06fcf15",
@@ -345,10 +349,6 @@ def load_runtime_audit_plan(path: Path) -> dict[str, Any]:
         )
     ):
         raise RuntimeAuditError("runtime_audit_plan_invalid: oracle policy changed")
-    try:
-        validate_source_integrity_contract(payload.get("source_integrity_contract"))
-    except SourceIntegrityError as exc:
-        raise RuntimeAuditError(f"runtime_audit_plan_invalid: {exc}") from exc
     digest = str(payload.get("artifact_digest") or "")
     if (
         len(digest) != 64
@@ -356,6 +356,13 @@ def load_runtime_audit_plan(path: Path) -> dict[str, Any]:
         or (expected_digest is not None and digest != expected_digest)
     ):
         raise RuntimeAuditError("runtime_audit_plan_invalid: digest changed")
+    try:
+        validate_source_integrity_contract(
+            payload.get("source_integrity_contract"),
+            current_partition=False,
+        )
+    except SourceIntegrityError as exc:
+        raise RuntimeAuditError(f"runtime_audit_plan_invalid: {exc}") from exc
     return payload
 
 

@@ -485,6 +485,8 @@ def _entry_by_path(
 
 def validate_source_integrity_contract(
     contract: object,
+    *,
+    current_partition: bool = True,
 ) -> dict[str, Any]:
     if not isinstance(contract, Mapping):
         raise SourceIntegrityError("source_integrity_contract_missing")
@@ -511,12 +513,12 @@ def validate_source_integrity_contract(
     fixture_path = str(contract.get("reviewed_shared_compatibility_fixture_path"))
     if fixture_path == REVIEWED_SHARED_COMPATIBILITY_FIXTURE_PATH.as_posix():
         compatibility_paths = REVIEWED_SHARED_COMPATIBILITY_PATHS
-        current_partition = False
+        use_current_partition = False
     elif fixture_path == (
         P263_REVIEWED_SOURCE_COMPATIBILITY_FIXTURE_PATH.as_posix()
     ):
         compatibility_paths = P263_REVIEWED_SOURCE_COMPATIBILITY_PATHS
-        current_partition = True
+        use_current_partition = current_partition
     else:
         raise SourceIntegrityError("source_integrity_compatibility_profile_changed")
     if (
@@ -561,7 +563,7 @@ def validate_source_integrity_contract(
             INDEPENDENT_ORACLE_SOURCE_PATHS,
             AUDIT_ORCHESTRATION_SOURCE_PATHS,
         )
-        if current_partition
+        if use_current_partition
         else tuple(embedded_paths)
     )
     shared = _entry_by_path(
@@ -595,7 +597,7 @@ def validate_source_integrity_contract(
         != source_set_digest(list(orchestration.values()), kind="audit-orchestration")
     ):
         raise SourceIntegrityError("source_integrity_source_set_digest_changed")
-    if not current_partition and (
+    if fixture_path == REVIEWED_SHARED_COMPATIBILITY_FIXTURE_PATH.as_posix() and (
         tuple(map(len, (shared, acceleration, oracle, orchestration)))
         != _P261_FROZEN_SOURCE_COUNTS
         or any(
@@ -607,11 +609,20 @@ def validate_source_integrity_contract(
     return dict(contract)
 
 
+def _runtime_plan_uses_frozen_partition(runtime_plan: Mapping[str, Any]) -> bool:
+    return str(runtime_plan.get("artifact_digest") or "") in {
+        "e2bfb82be29bedac51be6905e6049b4a10e5c0cde0198995e12279bf969714ca",
+        "ccbed31f36ad9486f5489d5827c6456d1853259eaeb1ab7a61077347c7e06056",
+        "8c97fd5fdc006cba6a4145dbd56acc566b9507e18279d06437d0aa472adb2cd2",
+    }
+
+
 def construction_source_integrity_identity(
     runtime_plan: Mapping[str, Any],
 ) -> dict[str, str]:
     contract = validate_source_integrity_contract(
-        runtime_plan.get("source_integrity_contract")
+        runtime_plan.get("source_integrity_contract"),
+        current_partition=not _runtime_plan_uses_frozen_partition(runtime_plan),
     )
     return {
         "source_integrity_contract_digest": canonical_digest(
@@ -639,7 +650,8 @@ def golden_source_integrity_contract(
     """Return the self-contained contract embedded in the immutable plan."""
 
     contract = validate_source_integrity_contract(
-        runtime_plan.get("source_integrity_contract")
+        runtime_plan.get("source_integrity_contract"),
+        current_partition=not _runtime_plan_uses_frozen_partition(runtime_plan),
     )
     return project_golden_source_integrity_contract(contract)
 
@@ -663,7 +675,8 @@ def verify_approved_source_bytes(
     git_commit: str | None = None,
 ) -> dict[str, Any]:
     contract = validate_source_integrity_contract(
-        runtime_plan.get("source_integrity_contract")
+        runtime_plan.get("source_integrity_contract"),
+        current_partition=not _runtime_plan_uses_frozen_partition(runtime_plan),
     )
     baseline = str(contract["baseline_git_commit"])
     if git_commit is not None:
@@ -920,7 +933,8 @@ def validate_source_integrity_attestation(
     identity = dict(payload)
     digest = identity.pop("artifact_digest", None)
     contract = validate_source_integrity_contract(
-        runtime_plan.get("source_integrity_contract")
+        runtime_plan.get("source_integrity_contract"),
+        current_partition=not _runtime_plan_uses_frozen_partition(runtime_plan),
     )
     construction_identity = construction_source_integrity_identity(runtime_plan)
     expected_golden_identity = (

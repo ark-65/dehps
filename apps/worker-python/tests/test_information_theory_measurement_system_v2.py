@@ -602,7 +602,7 @@ def test_source_dag_supersedes_p2_6_1_compute_without_mutating_v2_lineage(
         **status["measurement_system_v2"],
         "contract_digest": contract.artifact_digest,
         "resolver_status": "external_wait",
-        "live_mainline_status": "INTEGRATION_PENDING",
+        "live_mainline_status": "SLOT_ELIGIBILITY_PENDING",
         "p2_6_1_identity_changed": False,
         "p2_6_1_runtime_operation": "none",
         "formal_temporal_or_joint_execution": "NOT_AUTHORIZED",
