@@ -182,6 +182,19 @@ from dehps.research_os.information_theory.measurement_system_v2.marginal_static_
     load_marginal_static_health_design_source_contract,
     verify_marginal_static_health_design_source_bytes,
 )
+from dehps.research_os.information_theory.measurement_system_v2.marginal_static_health_execution import (
+    MARGINAL_STATIC_HEALTH_DECISION_TASK_KEY,
+    MARGINAL_STATIC_HEALTH_EXECUTION_CAPABILITY,
+    MARGINAL_STATIC_HEALTH_EXECUTION_COMPLETION_FACT,
+    MARGINAL_STATIC_HEALTH_EXECUTION_SOURCE_CONTRACT_PATH,
+    MARGINAL_STATIC_HEALTH_PROGRESS_PATH,
+    build_replicate_specs,
+    execute_health_program,
+    load_marginal_static_health_execution_source_contract,
+    rebuild_health_artifacts_from_index,
+    run_replicate,
+    verify_marginal_static_health_execution_source_bytes,
+)
 from dehps.research_os.information_theory.measurement_system_v2.preflight_design import (
     PREFLIGHT_DESIGN_CAPABILITY,
     PREFLIGHT_DESIGN_COMPLETION_FACT,
@@ -340,12 +353,8 @@ P26_LEGACY_CAPABILITY = "m4_p2_6_1_false_positive_and_power"
 P26_CAPABILITY = "m4_p2_6_3_periodic_refit_false_positive_and_power"
 P27_TASK_KEY = "m4-p2-automatic-gate-and-report"
 P27_CAPABILITY = "m4_p2_7_automatic_measurement_gate"
-M4_P263_COMPATIBILITY_TASK_KEY = (
-    "m4-p2-6-3-superseding-compatibility-acceptance"
-)
-M4_P263_COMPATIBILITY_CAPABILITY = (
-    "m4_p2_6_3_superseding_compatibility_acceptance"
-)
+M4_P263_COMPATIBILITY_TASK_KEY = "m4-p2-6-3-superseding-compatibility-acceptance"
+M4_P263_COMPATIBILITY_CAPABILITY = "m4_p2_6_3_superseding_compatibility_acceptance"
 M4_V2_DESIGN_TASK_KEY = "m4-v2-measurement-contract-design"
 M4_V2_DESIGN_CAPABILITY = "m4_v2_measurement_contract_design"
 M4_V2_DESIGN_REPLAY_TASK_KEY = "m4-v2-measurement-contract-design-replay"
@@ -364,26 +373,16 @@ MARGINAL_BINDING_COMPLETION_FACT = (
 MARGINAL_DECISION_REPLAY_FACT = "m4-v2-branch-decision-replay:MARGINAL_STATIC:VERIFIED"
 M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
 M4_P29_P261_RUNTIME_AUDIT_TASK_KEY = "m4-p2-9-measurement-runtime-audit"
-M4_P29_P263_FAILED_RUNTIME_AUDIT_TASK_KEY = (
-    "m4-p2-9-p263-measurement-runtime-audit"
-)
+M4_P29_P263_FAILED_RUNTIME_AUDIT_TASK_KEY = "m4-p2-9-p263-measurement-runtime-audit"
 M4_P29_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-p263-golden-reference-freeze"
 M4_P29_GOLDEN_REFERENCE_CAPABILITY = "m4_p2_9_p263_golden_reference_freeze"
-M4_P29_GOLDEN_REFERENCE_COMPLETION_FACT = (
-    "m4-p2-9-p263-golden-reference:VERIFIED"
-)
+M4_P29_GOLDEN_REFERENCE_COMPLETION_FACT = "m4-p2-9-p263-golden-reference:VERIFIED"
 M4_P261_FROZEN_TASK_DIGEST = (
     "80068e22f5e1c343fd86213faa0d9a411d71f92ad2750fed10449a10151de8fa"
 )
-M4_P263_TASK_DIGEST = (
-    "85a08402a4a0c37f75ee1675f4970ef00a7a0b0992b4204251c0c2cc79324de4"
-)
-M4_P29_RUNTIME_AUDIT_TASK_KEY = (
-    "m4-p2-9-p263-runtime-observation-arithmetic-fix"
-)
-M4_P29_RUNTIME_AUDIT_CAPABILITY = (
-    "m4_p2_9_p263_runtime_observation_arithmetic_fix"
-)
+M4_P263_TASK_DIGEST = "85a08402a4a0c37f75ee1675f4970ef00a7a0b0992b4204251c0c2cc79324de4"
+M4_P29_RUNTIME_AUDIT_TASK_KEY = "m4-p2-9-p263-runtime-observation-arithmetic-fix"
+M4_P29_RUNTIME_AUDIT_CAPABILITY = "m4_p2_9_p263_runtime_observation_arithmetic_fix"
 M4_P29_RUNTIME_AUDIT_COMPLETION_FACT = (
     "m4-p2-9-p263-runtime-audit-arithmetic-fix:VERIFIED"
 )
@@ -912,8 +911,7 @@ def _load_registered_type_group(
             f"registered artifact type is missing: {artifact_type}"
         )
     payloads = tuple(
-        _load_object(root_dir / str(item["artifact_path"]))
-        for item in matches
+        _load_object(root_dir / str(item["artifact_path"])) for item in matches
     )
     if any(
         payload.get("artifact_type") != artifact_type
@@ -1751,12 +1749,9 @@ def _validate_golden_artifact_set(
         or not isinstance(replicate_result, Mapping)
         or replicate_result.get("measurement_update_policy_digest")
         != PERIODIC_REFIT_CONTRACT_DIGEST
-        or replicate_result.get("learned_probe_refit_interval_folds")
-        != 64
-        or replicate_result.get("learned_probe_refit_boundary_count")
-        != 1
-        or replicate_result.get("empirical_baseline_update_count")
-        != 61
+        or replicate_result.get("learned_probe_refit_interval_folds") != 64
+        or replicate_result.get("learned_probe_refit_boundary_count") != 1
+        or replicate_result.get("empirical_baseline_update_count") != 61
         or fixture.get("evidence_progress_before") != 0
         or fixture.get("evidence_progress_after") != 0
         or fixture.get("production_action") != "none"
@@ -3906,10 +3901,9 @@ class M4BranchIdentifiabilityPreflightDesignCapability:
                 "M4 v2 branch preflight design received the wrong task"
             )
         fixture = load_gate_replay_fixture(self.root_dir / GATE_REPLAY_FIXTURE_PATH)
-        if (
-            len(task.input_artifact_digests) != 3
-            or task.input_artifact_digests[:2]
-            != (MEASUREMENT_CONTRACT_V2_DIGEST, fixture.artifact_digest)
+        if len(task.input_artifact_digests) != 3 or task.input_artifact_digests[:2] != (
+            MEASUREMENT_CONTRACT_V2_DIGEST,
+            fixture.artifact_digest,
         ):
             raise MainlineSupervisorError(
                 "M4 v2 branch preflight design source identities changed"
@@ -3931,13 +3925,11 @@ class M4BranchIdentifiabilityPreflightDesignCapability:
             control_plane_key=control_plane_key,
             task_key=M4_V2_DESIGN_TASK_KEY,
         )
-        _, replay_execution, replay_registrations = (
-            _load_single_completed_execution(
-                repository=self.repository,
-                root_dir=self.root_dir,
-                control_plane_key=control_plane_key,
-                task_key=M4_V2_DESIGN_REPLAY_TASK_KEY,
-            )
+        _, replay_execution, replay_registrations = _load_single_completed_execution(
+            repository=self.repository,
+            root_dir=self.root_dir,
+            control_plane_key=control_plane_key,
+            task_key=M4_V2_DESIGN_REPLAY_TASK_KEY,
         )
         gate_replay = _load_registered_type(
             root_dir=self.root_dir,
@@ -3964,9 +3956,7 @@ class M4BranchIdentifiabilityPreflightDesignCapability:
         )
         run = build_branch_preflight_design_artifacts(
             contract,
-            design_execution_artifact_digest=str(
-                design_execution["artifact_digest"]
-            ),
+            design_execution_artifact_digest=str(design_execution["artifact_digest"]),
             design_replay_execution_artifact_digest=str(
                 replay_execution["artifact_digest"]
             ),
@@ -4025,27 +4015,19 @@ class M4BranchIdentifiabilityPreflightDesignCapability:
             "input_artifact_digests": list(task.input_artifact_digests),
             "measurement_contract_v2_digest": contract.artifact_digest,
             "design_execution_id": design_execution["execution_id"],
-            "design_execution_artifact_digest": design_execution[
-                "artifact_digest"
-            ],
+            "design_execution_artifact_digest": design_execution["artifact_digest"],
             "design_replay_execution_id": replay_execution["execution_id"],
             "design_replay_execution_artifact_digest": replay_execution[
                 "artifact_digest"
             ],
             "gate_compiler_replay_digest": gate_replay["artifact_digest"],
-            "preflight_source_contract_digest": source_contract[
-                "artifact_digest"
-            ],
-            "preflight_source_set_digest": source_contract[
-                "source_set_digest"
-            ],
+            "preflight_source_contract_digest": source_contract["artifact_digest"],
+            "preflight_source_set_digest": source_contract["source_set_digest"],
             "branch_preflight_design_digests": branch_digests,
             "cross_branch_preflight_design_digest": run.cross_branch_contract[
                 "artifact_digest"
             ],
-            "preflight_design_completion_digest": run.completion[
-                "artifact_digest"
-            ],
+            "preflight_design_completion_digest": run.completion["artifact_digest"],
             "completion_fact": PREFLIGHT_DESIGN_COMPLETION_FACT,
             "actual_fold_count": 0,
             "registered_artifact_count": len(child_payloads) + 1,
@@ -4184,9 +4166,7 @@ class M4BranchIdentifiabilityFixtureFreezeCapability:
             preflight_design_completion_digest=str(
                 preflight_completion["artifact_digest"]
             ),
-            cross_branch_preflight_design_digest=str(
-                cross_branch["artifact_digest"]
-            ),
+            cross_branch_preflight_design_digest=str(cross_branch["artifact_digest"]),
             execution_id=execution_id,
             git_commit=git_commit,
         )
@@ -4230,12 +4210,8 @@ class M4BranchIdentifiabilityFixtureFreezeCapability:
             "status": "COMPLETE",
             "completion_classification": "VALIDATED_IN_MAINLINE",
             "input_artifact_digests": list(task.input_artifact_digests),
-            "fixture_freeze_source_contract_digest": source_contract[
-                "artifact_digest"
-            ],
-            "fixture_freeze_source_set_digest": source_contract[
-                "source_set_digest"
-            ],
+            "fixture_freeze_source_contract_digest": source_contract["artifact_digest"],
+            "fixture_freeze_source_set_digest": source_contract["source_set_digest"],
             "research_request_key": source_contract["research_request_key"],
             "research_request_id": source_contract["research_request_id"],
             "research_execution_id": source_contract["research_execution_id"],
@@ -4246,21 +4222,15 @@ class M4BranchIdentifiabilityFixtureFreezeCapability:
             "preflight_design_completion_digest": preflight_completion[
                 "artifact_digest"
             ],
-            "cross_branch_preflight_design_digest": cross_branch[
-                "artifact_digest"
-            ],
-            "solver_fixture_contract_digest": run.solver_contract[
-                "artifact_digest"
-            ],
+            "cross_branch_preflight_design_digest": cross_branch["artifact_digest"],
+            "solver_fixture_contract_digest": run.solver_contract["artifact_digest"],
             "orthogonal_control_fixture_contract_digest": (
                 run.orthogonal_control_contract["artifact_digest"]
             ),
             "legacy_role_resolution_fixture_contract_digest": (
                 run.legacy_role_resolution_contract["artifact_digest"]
             ),
-            "fixture_freeze_completion_digest": run.completion[
-                "artifact_digest"
-            ],
+            "fixture_freeze_completion_digest": run.completion["artifact_digest"],
             "fixture_contract_count": 3,
             "completion_fact": FIXTURE_FREEZE_COMPLETION_FACT,
             "actual_fold_count": 0,
@@ -4349,13 +4319,11 @@ class M4BranchIdentifiabilityPreflightExecutionCapability:
             root_dir=self.root_dir,
             contract=source_contract,
         )
-        _, fixture_execution, fixture_registrations = (
-            _load_single_completed_execution(
-                repository=self.repository,
-                root_dir=self.root_dir,
-                control_plane_key=control_plane_key,
-                task_key=FIXTURE_FREEZE_TASK_KEY,
-            )
+        _, fixture_execution, fixture_registrations = _load_single_completed_execution(
+            repository=self.repository,
+            root_dir=self.root_dir,
+            control_plane_key=control_plane_key,
+            task_key=FIXTURE_FREEZE_TASK_KEY,
         )
         solver_fixture = _load_registered_type(
             root_dir=self.root_dir,
@@ -4388,9 +4356,7 @@ class M4BranchIdentifiabilityPreflightExecutionCapability:
                 _load_registered_type_group(
                     root_dir=self.root_dir,
                     registrations=design_registrations,
-                    artifact_type=(
-                        "m4_v2_branch_identifiability_preflight_design"
-                    ),
+                    artifact_type=("m4_v2_branch_identifiability_preflight_design"),
                 ),
                 key=lambda item: int(item["branch_order_index"]),
             )
@@ -4415,25 +4381,21 @@ class M4BranchIdentifiabilityPreflightExecutionCapability:
                 "M4 v2 branch preflight execution source identities changed"
             )
         if (
-            fixture_execution.get("completion_fact")
-            != FIXTURE_FREEZE_COMPLETION_FACT
+            fixture_execution.get("completion_fact") != FIXTURE_FREEZE_COMPLETION_FACT
             or fixture_execution.get("fixture_contract_count") != 3
             or fixture_execution.get("formal_branch_runs_executed") != 0
             or fixture_execution.get("preflight_result_count") != 0
             or fixture_execution.get("historical_outcomes_read") is not False
             or fixture_execution.get("p2_6_3_statistical_results_read") is not False
             or fixture_execution.get("evidence_created") is not False
-            or fixture_completion.get("next_consumer")
-            != PREFLIGHT_EXECUTION_TASK_KEY
+            or fixture_completion.get("next_consumer") != PREFLIGHT_EXECUTION_TASK_KEY
         ):
             raise MainlineSupervisorError(
                 "M4 v2 branch preflight execution parent lineage changed"
             )
         run = build_preflight_execution_artifacts(
             source_contract=source_contract,
-            fixture_execution_artifact_digest=str(
-                fixture_execution["artifact_digest"]
-            ),
+            fixture_execution_artifact_digest=str(fixture_execution["artifact_digest"]),
             solver_fixture=solver_fixture,
             orthogonal_fixture=orthogonal_fixture,
             legacy_fixture=legacy_fixture,
@@ -4491,8 +4453,7 @@ class M4BranchIdentifiabilityPreflightExecutionCapability:
         for path, payload in child_payloads:
             _persist_immutable(path, payload)
         branch_statuses = {
-            str(item["branch_id"]): str(item["status"])
-            for item in run.branch_results
+            str(item["branch_id"]): str(item["status"]) for item in run.branch_results
         }
         execution_payload: dict[str, Any] = {
             "schema_version": MAINLINE_EXECUTION_SCHEMA,
@@ -4517,9 +4478,7 @@ class M4BranchIdentifiabilityPreflightExecutionCapability:
             "research_request_id": source_contract["research_request_id"],
             "research_execution_id": source_contract["research_execution_id"],
             "fixture_execution_id": fixture_execution["execution_id"],
-            "fixture_execution_artifact_digest": fixture_execution[
-                "artifact_digest"
-            ],
+            "fixture_execution_artifact_digest": fixture_execution["artifact_digest"],
             "solver_fixture_contract_digest": solver_fixture["artifact_digest"],
             "orthogonal_control_fixture_contract_digest": (
                 orthogonal_fixture["artifact_digest"]
@@ -4527,30 +4486,22 @@ class M4BranchIdentifiabilityPreflightExecutionCapability:
             "legacy_role_resolution_fixture_contract_digest": (
                 legacy_fixture["artifact_digest"]
             ),
-            "fixture_freeze_completion_digest": fixture_completion[
-                "artifact_digest"
-            ],
+            "fixture_freeze_completion_digest": fixture_completion["artifact_digest"],
             "branch_preflight_design_digests": [
                 item["artifact_digest"] for item in branch_designs
             ],
             "cross_branch_preflight_design_digest": cross_branch_design[
                 "artifact_digest"
             ],
-            "solver_preflight_result_digest": run.solver_result[
-                "artifact_digest"
-            ],
+            "solver_preflight_result_digest": run.solver_result["artifact_digest"],
             "orthogonal_endpoint_result_digest": run.orthogonal_result[
                 "artifact_digest"
             ],
-            "legacy_role_preflight_result_digest": run.legacy_result[
-                "artifact_digest"
-            ],
+            "legacy_role_preflight_result_digest": run.legacy_result["artifact_digest"],
             "branch_preflight_result_digests": [
                 item["artifact_digest"] for item in run.branch_results
             ],
-            "preflight_execution_completion_digest": run.completion[
-                "artifact_digest"
-            ],
+            "preflight_execution_completion_digest": run.completion["artifact_digest"],
             "preflight_execution_status": run.completion["preflight_status"],
             "branch_preflight_statuses": branch_statuses,
             "solver_preflight_status": run.solver_result["status"],
@@ -4576,9 +4527,7 @@ class M4BranchIdentifiabilityPreflightExecutionCapability:
             "evidence_progress_before": 0,
             "evidence_progress_after": 0,
             "downstream_consumer": (
-                MARGINAL_CONTRACT_FREEZE_TASK_KEY
-                if run.all_branches_pass
-                else None
+                MARGINAL_CONTRACT_FREEZE_TASK_KEY if run.all_branches_pass else None
             ),
             "production_impact": "none",
             "production_action": "none",
@@ -4644,8 +4593,7 @@ class M4MarginalStaticContractFreezeCapability:
         integration_contract(task)
         if (
             task.task_key != MARGINAL_STATIC_CONTRACT_FREEZE_TASK_KEY
-            or task.requested_capability
-            != MARGINAL_STATIC_CONTRACT_FREEZE_CAPABILITY
+            or task.requested_capability != MARGINAL_STATIC_CONTRACT_FREEZE_CAPABILITY
         ):
             raise MainlineSupervisorError(
                 "M4 v2 marginal-static contract freeze received the wrong task"
@@ -4698,9 +4646,7 @@ class M4MarginalStaticContractFreezeCapability:
                 for item in _load_registered_type_group(
                     root_dir=self.root_dir,
                     registrations=design_registrations,
-                    artifact_type=(
-                        "m4_v2_branch_identifiability_preflight_design"
-                    ),
+                    artifact_type=("m4_v2_branch_identifiability_preflight_design"),
                 )
                 if item.get("branch_id") == "MARGINAL_STATIC"
             ),
@@ -4812,9 +4758,7 @@ class M4MarginalStaticContractFreezeCapability:
             "marginal_static_source_contract_digest": source_contract[
                 "artifact_digest"
             ],
-            "marginal_static_source_set_digest": source_contract[
-                "source_set_digest"
-            ],
+            "marginal_static_source_set_digest": source_contract["source_set_digest"],
             "research_request_key": source_contract["research_request_key"],
             "research_request_id": source_contract["research_request_id"],
             "research_execution_id": source_contract["research_execution_id"],
@@ -4827,9 +4771,7 @@ class M4MarginalStaticContractFreezeCapability:
             "preflight_execution_completion_digest": preflight_completion[
                 "artifact_digest"
             ],
-            "legacy_marginal_decision_digest": legacy_decision[
-                "artifact_digest"
-            ],
+            "legacy_marginal_decision_digest": legacy_decision["artifact_digest"],
             "legacy_decision_replay_digest": legacy_replay["artifact_digest"],
             "marginal_static_measurement_contract_digest": run.measurement_contract[
                 "artifact_digest"
@@ -5096,12 +5038,8 @@ class M4MarginalStaticFixtureFreezeCapability:
             "marginal_static_contract_completion_digest": marginal_completion[
                 "artifact_digest"
             ],
-            "orthogonal_fixture_contract_digest": orthogonal_fixture[
-                "artifact_digest"
-            ],
-            "branch_fixture_completion_digest": fixture_completion[
-                "artifact_digest"
-            ],
+            "orthogonal_fixture_contract_digest": orthogonal_fixture["artifact_digest"],
+            "branch_fixture_completion_digest": fixture_completion["artifact_digest"],
             "marginal_branch_health_digest": marginal_health["artifact_digest"],
             "preflight_execution_completion_digest": preflight_completion[
                 "artifact_digest"
@@ -5153,10 +5091,7 @@ class M4MarginalStaticFixtureFreezeCapability:
             "replay_status": "DETERMINISTIC",
             "parent_digests": [
                 *task.input_artifact_digests,
-                *(
-                    str(payload["artifact_digest"])
-                    for _, payload in child_payloads
-                ),
+                *(str(payload["artifact_digest"]) for _, payload in child_payloads),
             ],
         }
         identity = dict(execution_payload)
@@ -5450,6 +5385,255 @@ class M4MarginalStaticHealthDesignCapability:
             execution_artifact_path=execution_path,
             registrations=registrations,
             completion_facts=(MARGINAL_STATIC_HEALTH_DESIGN_COMPLETION_FACT,),
+        )
+
+
+class M4MarginalStaticHealthExecutionCapability:
+    def __init__(
+        self,
+        *,
+        repository: PostgresResearchOSRepository,
+        root_dir: Path = ROOT_DIR,
+    ) -> None:
+        self.repository = repository
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key != MARGINAL_STATIC_HEALTH_EXECUTION_TASK_KEY
+            or task.requested_capability != MARGINAL_STATIC_HEALTH_EXECUTION_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static health execution received the wrong task"
+            )
+        source_contract = load_marginal_static_health_execution_source_contract(
+            self.root_dir / MARGINAL_STATIC_HEALTH_EXECUTION_SOURCE_CONTRACT_PATH
+        )
+        verify_marginal_static_health_execution_source_bytes(
+            root_dir=self.root_dir,
+            contract=source_contract,
+        )
+        _, design_execution, design_registrations = _load_single_completed_execution(
+            repository=self.repository,
+            root_dir=self.root_dir,
+            control_plane_key=control_plane_key,
+            task_key=MARGINAL_STATIC_HEALTH_DESIGN_TASK_KEY,
+        )
+        workload = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=design_registrations,
+            artifact_type="m4_v2_marginal_static_health_workload",
+        )
+        inference = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=design_registrations,
+            artifact_type="m4_v2_marginal_static_health_inference",
+        )
+        design_completion = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=design_registrations,
+            artifact_type="m4_v2_marginal_static_health_design_completion",
+        )
+        expected_inputs = (
+            str(source_contract["artifact_digest"]),
+            str(design_execution["artifact_digest"]),
+            str(workload["artifact_digest"]),
+            str(inference["artifact_digest"]),
+            str(design_completion["artifact_digest"]),
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static health execution source identities changed"
+            )
+        if (
+            design_execution.get("completion_fact")
+            != MARGINAL_STATIC_HEALTH_DESIGN_COMPLETION_FACT
+            or design_execution.get("generated_issues") != 0
+            or design_execution.get("synthetic_replicates") != 0
+            or design_execution.get("historical_outcomes_read") is not False
+            or design_execution.get("evidence_created") is not False
+            or design_execution.get("duplicate_raw_replay") is not False
+            or design_execution.get("routine_physical_checkpoint_scan") is not False
+        ):
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static health execution parent changed"
+            )
+        run = execute_health_program(
+            root_dir=self.root_dir,
+            task_key=task.task_key,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            task_digest=task.artifact_digest,
+            source_contract=source_contract,
+            workload_artifact=workload,
+            inference_artifact=inference,
+            design_completion=design_completion,
+            design_execution_artifact_digest=str(design_execution["artifact_digest"]),
+            progress_path=self.root_dir / MARGINAL_STATIC_HEALTH_PROGRESS_PATH,
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        index_path = (
+            task_dir
+            / "artifacts/completion-index"
+            / str(run.index_artifact["artifact_digest"])
+            / "index.json"
+        )
+        health_path = (
+            task_dir
+            / "artifacts/measurement-health"
+            / str(run.health_result["artifact_digest"])
+            / "result.json"
+        )
+        completion_path = (
+            task_dir
+            / "artifacts/completion"
+            / str(run.completion["artifact_digest"])
+            / "completion.json"
+        )
+        child_payloads = (
+            (index_path, run.index_artifact),
+            (health_path, run.health_result),
+            (completion_path, run.completion),
+        )
+        for path, payload in child_payloads:
+            _persist_immutable(path, payload)
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "marginal_static_health_execution_source_contract_digest": (
+                source_contract["artifact_digest"]
+            ),
+            "marginal_static_health_execution_source_set_digest": source_contract[
+                "source_set_digest"
+            ],
+            "research_request_key": source_contract["research_request_key"],
+            "research_request_id": source_contract["research_request_id"],
+            "research_execution_id": source_contract["research_execution_id"],
+            "engineering_request_key": source_contract["engineering_request_key"],
+            "engineering_request_id": source_contract["engineering_request_id"],
+            "design_execution_id": design_execution["execution_id"],
+            "design_execution_artifact_digest": design_execution["artifact_digest"],
+            "marginal_static_health_workload_digest": workload["artifact_digest"],
+            "marginal_static_health_inference_digest": inference["artifact_digest"],
+            "marginal_static_health_design_completion_digest": design_completion[
+                "artifact_digest"
+            ],
+            "marginal_static_fixture_bundle_digest": design_execution.get(
+                "marginal_static_fixture_bundle_digest"
+            ),
+            "marginal_static_fixture_completion_digest": design_execution.get(
+                "marginal_static_fixture_completion_digest"
+            ),
+            "fixture_count": design_execution.get("fixture_count", 4),
+            "positive_fixture_count": design_execution.get("positive_fixture_count", 1),
+            "negative_fixture_count": design_execution.get("negative_fixture_count", 3),
+            "runtime_state": design_execution.get(
+                "runtime_state",
+                "issue_count plus ordered signed_int64[33] number-event counts",
+            ),
+            "marginal_static_health_completion_index_digest": run.index_artifact[
+                "artifact_digest"
+            ],
+            "marginal_static_health_result_digest": run.health_result[
+                "artifact_digest"
+            ],
+            "marginal_static_health_execution_completion_digest": run.completion[
+                "artifact_digest"
+            ],
+            "branch_id": "MARGINAL_STATIC",
+            "estimator_id": "EXPANDING_LEGAL_MARGINAL_ALPHA_1",
+            "identifiability_preflight_status": "PASS",
+            "legacy_measurement_health": "REPAIR",
+            "legacy_repair_overridden": False,
+            "measurement_health": run.health_result["measurement_health"],
+            "replicate_count": run.health_result["replicate_count"],
+            "generated_issues": run.health_result["generated_issues"],
+            "outer_evaluation_issues": run.health_result["outer_evaluation_issues"],
+            "completed_replicates_before_run": run.completed_before_run,
+            "completed_replicates_during_run": run.completed_during_run,
+            "execution_runtime_seconds": run.runtime_seconds,
+            "worker_count": run.worker_count,
+            "planned_execution_shards": 112,
+            "execution_shard_size": 64,
+            "bootstrap_replicates_per_interval": 511,
+            "primary_block_size": 5,
+            "sensitivity_block_sizes": [3, 8, 13],
+            "completion_index_loads": 1,
+            "database_reads_during_replicate": 0,
+            "database_writes_during_replicate": 0,
+            "csv_materialized": False,
+            "duplicate_raw_replay": False,
+            "routine_physical_checkpoint_scan": False,
+            "historical_execution_status": "NOT_AUTHORIZED",
+            "historical_outcomes_read": False,
+            "statistical_results_read": False,
+            "evidence_created": False,
+            "accepted_model_artifact_digest": None,
+            "completion_fact": MARGINAL_STATIC_HEALTH_EXECUTION_COMPLETION_FACT,
+            "actual_fold_count": 0,
+            "registered_artifact_count": len(child_payloads) + 1,
+            "formal_branch_runs_executed": 1,
+            "downstream_consumer": MARGINAL_STATIC_HEALTH_DECISION_TASK_KEY,
+            "production_impact": "none",
+            "production_action": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "replay_status": "COMPACT_INDEX_PLUS_SENTINEL",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                *(str(payload["artifact_digest"]) for _, payload in child_payloads),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(registrations) != execution_payload["registered_artifact_count"]:
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static health execution registration count changed"
+            )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=registrations,
+            completion_facts=(MARGINAL_STATIC_HEALTH_EXECUTION_COMPLETION_FACT,),
         )
 
 
@@ -6525,9 +6709,7 @@ class M4P263RuntimeSlotEligibilityCapability:
             self.root_dir / P263_SUPERSEDING_FIXTURE_PATH,
             expected_phase="M4-P2.6.3",
         )
-        manifest = self.repository.load_manifest(
-            control_plane_key=control_plane_key
-        )
+        manifest = self.repository.load_manifest(control_plane_key=control_plane_key)
         event_task_keys = (
             M4_P263_COMPATIBILITY_TASK_KEY,
             M4_P29_GOLDEN_REFERENCE_TASK_KEY,
@@ -6543,9 +6725,7 @@ class M4P263RuntimeSlotEligibilityCapability:
             control_plane_key=control_plane_key,
             task_keys=event_task_keys,
         )
-        registrations_by_execution: dict[
-            str, Sequence[Mapping[str, Any]]
-        ] = {}
+        registrations_by_execution: dict[str, Sequence[Mapping[str, Any]]] = {}
         for task_key in (
             M4_P263_COMPATIBILITY_TASK_KEY,
             M4_P29_GOLDEN_REFERENCE_TASK_KEY,
@@ -6607,15 +6787,11 @@ class M4P263RuntimeSlotEligibilityCapability:
             "completion_classification": "VALIDATED_IN_MAINLINE",
             "input_artifact_digests": list(task.input_artifact_digests),
             "slot_eligibility_artifact_digest": eligibility["artifact_digest"],
-            "eligibility_basis_digest": eligibility[
-                "eligibility_basis_digest"
-            ],
+            "eligibility_basis_digest": eligibility["eligibility_basis_digest"],
             "slot_governance_source_contract_digest": source_contract[
                 "artifact_digest"
             ],
-            "slot_governance_source_set_digest": source_contract[
-                "source_set_digest"
-            ],
+            "slot_governance_source_set_digest": source_contract["source_set_digest"],
             "completion_fact": P263_SLOT_ELIGIBILITY_FACT,
             "actual_fold_count": 0,
             "registered_artifact_count": 2,
@@ -7254,6 +7430,12 @@ class ResearchEvidenceSupervisor:
                     root_dir=root_dir,
                 )
             ),
+            MARGINAL_STATIC_HEALTH_EXECUTION_CAPABILITY: (
+                M4MarginalStaticHealthExecutionCapability(
+                    repository=self.repository,
+                    root_dir=root_dir,
+                )
+            ),
             M4_V2_P261_RAW_REPLAY_CAPABILITY: (
                 M4P261RawExecutionReplayCapability(
                     repository=self.repository,
@@ -7603,6 +7785,15 @@ class ResearchEvidenceSupervisor:
                     if task.task_key == P26_TASK_KEY
                     else {}
                 ),
+                **(
+                    {
+                        "progress_projection_path": str(
+                            MARGINAL_STATIC_HEALTH_PROGRESS_PATH
+                        )
+                    }
+                    if task.task_key == MARGINAL_STATIC_HEALTH_EXECUTION_TASK_KEY
+                    else {}
+                ),
             }
         )
         self._write_lane_status(running_status)
@@ -7713,6 +7904,11 @@ class ResearchEvidenceSupervisor:
                                     "marginal_static_health_workload_digest",
                                     "marginal_static_health_inference_digest",
                                     "marginal_static_health_design_completion_digest",
+                                    "marginal_static_health_execution_source_contract_digest",
+                                    "marginal_static_health_execution_source_set_digest",
+                                    "marginal_static_health_completion_index_digest",
+                                    "marginal_static_health_result_digest",
+                                    "marginal_static_health_execution_completion_digest",
                                     "planned_total_replicates",
                                     "planned_total_generated_issues",
                                     "planned_total_outer_evaluation_issues",
@@ -7813,6 +8009,11 @@ class ResearchEvidenceSupervisor:
                                     "routine_physical_checkpoint_scan",
                                     "sampled_workload_status",
                                     "generated_issues",
+                                    "outer_evaluation_issues",
+                                    "completed_replicates_before_run",
+                                    "completed_replicates_during_run",
+                                    "execution_runtime_seconds",
+                                    "worker_count",
                                     "p2_6_1_execution_id",
                                     "p2_6_1_execution_artifact_digest",
                                     "raw_replay_artifact_digest",
@@ -8006,6 +8207,7 @@ class ResearchEvidenceSupervisor:
         return self._latest_completed_summary_for_tasks(
             snapshot,
             (
+                MARGINAL_STATIC_HEALTH_EXECUTION_TASK_KEY,
                 MARGINAL_STATIC_HEALTH_DESIGN_TASK_KEY,
                 MARGINAL_STATIC_FIXTURE_FREEZE_TASK_KEY,
                 MARGINAL_STATIC_CONTRACT_FREEZE_TASK_KEY,
@@ -9442,9 +9644,7 @@ class ResearchEvidenceSupervisor:
                 "measurement_contract_replay_digest"
             ) or reconstructed_replay.gate_compiler_replay[
                 "artifact_digest"
-            ] != artifact.get(
-                "gate_compiler_replay_digest"
-            ):
+            ] != artifact.get("gate_compiler_replay_digest"):
                 raise MainlineSupervisorError(
                     "M4 Measurement Contract v2 replay attestation changed"
                 )
@@ -9523,10 +9723,7 @@ class ResearchEvidenceSupervisor:
                 or artifact.get("design_replay_execution_artifact_digest")
                 != design_replay_execution["artifact_digest"]
                 or artifact.get("branch_preflight_design_digests")
-                != [
-                    item["artifact_digest"]
-                    for item in reconstructed.branch_contracts
-                ]
+                != [item["artifact_digest"] for item in reconstructed.branch_contracts]
                 or artifact.get("cross_branch_preflight_design_digest")
                 != reconstructed.cross_branch_contract["artifact_digest"]
                 or artifact.get("preflight_design_completion_digest")
@@ -9546,9 +9743,7 @@ class ResearchEvidenceSupervisor:
                 expected_payloads=(*reconstructed.artifacts, artifact),
             )
             capability_replay = {
-                "schema_version": (
-                    "dehps-m4-v2-branch-preflight-design-replay.v1"
-                ),
+                "schema_version": ("dehps-m4-v2-branch-preflight-design-replay.v1"),
                 "status": "REPLAY_VERIFIED",
                 "branch_design_count": len(reconstructed.branch_contracts),
                 "cross_branch_preflight_design_digest": (
@@ -9620,12 +9815,8 @@ class ResearchEvidenceSupervisor:
                 != reconstructed.solver_contract["artifact_digest"]
                 or artifact.get("orthogonal_control_fixture_contract_digest")
                 != reconstructed.orthogonal_control_contract["artifact_digest"]
-                or artifact.get(
-                    "legacy_role_resolution_fixture_contract_digest"
-                )
-                != reconstructed.legacy_role_resolution_contract[
-                    "artifact_digest"
-                ]
+                or artifact.get("legacy_role_resolution_fixture_contract_digest")
+                != reconstructed.legacy_role_resolution_contract["artifact_digest"]
                 or artifact.get("fixture_freeze_completion_digest")
                 != reconstructed.completion["artifact_digest"]
                 or artifact.get("fixture_contract_count") != 3
@@ -9644,9 +9835,7 @@ class ResearchEvidenceSupervisor:
                 expected_payloads=(*reconstructed.artifacts, artifact),
             )
             capability_replay = {
-                "schema_version": (
-                    "dehps-m4-v2-branch-fixture-freeze-replay.v1"
-                ),
+                "schema_version": ("dehps-m4-v2-branch-fixture-freeze-replay.v1"),
                 "status": "REPLAY_VERIFIED",
                 "fixture_contract_count": 3,
                 "solver_fixture_contract_digest": reconstructed.solver_contract[
@@ -9656,9 +9845,7 @@ class ResearchEvidenceSupervisor:
                     reconstructed.orthogonal_control_contract["artifact_digest"]
                 ),
                 "legacy_role_resolution_fixture_contract_digest": (
-                    reconstructed.legacy_role_resolution_contract[
-                        "artifact_digest"
-                    ]
+                    reconstructed.legacy_role_resolution_contract["artifact_digest"]
                 ),
                 "fixture_freeze_completion_digest": reconstructed.completion[
                     "artifact_digest"
@@ -9718,9 +9905,7 @@ class ResearchEvidenceSupervisor:
                     _load_registered_type_group(
                         root_dir=self.root_dir,
                         registrations=design_registrations,
-                        artifact_type=(
-                            "m4_v2_branch_identifiability_preflight_design"
-                        ),
+                        artifact_type=("m4_v2_branch_identifiability_preflight_design"),
                     ),
                     key=lambda item: int(item["branch_order_index"]),
                 )
@@ -9759,9 +9944,7 @@ class ResearchEvidenceSupervisor:
                 != solver_fixture["artifact_digest"]
                 or artifact.get("orthogonal_control_fixture_contract_digest")
                 != orthogonal_fixture["artifact_digest"]
-                or artifact.get(
-                    "legacy_role_resolution_fixture_contract_digest"
-                )
+                or artifact.get("legacy_role_resolution_fixture_contract_digest")
                 != legacy_fixture["artifact_digest"]
                 or artifact.get("fixture_freeze_completion_digest")
                 != fixture_completion["artifact_digest"]
@@ -9776,10 +9959,7 @@ class ResearchEvidenceSupervisor:
                 or artifact.get("legacy_role_preflight_result_digest")
                 != reconstructed.legacy_result["artifact_digest"]
                 or artifact.get("branch_preflight_result_digests")
-                != [
-                    item["artifact_digest"]
-                    for item in reconstructed.branch_results
-                ]
+                != [item["artifact_digest"] for item in reconstructed.branch_results]
                 or artifact.get("preflight_execution_completion_digest")
                 != reconstructed.completion["artifact_digest"]
                 or artifact.get("preflight_execution_status")
@@ -9815,9 +9995,7 @@ class ResearchEvidenceSupervisor:
                 expected_payloads=(*reconstructed.artifacts, artifact),
             )
             capability_replay = {
-                "schema_version": (
-                    "dehps-m4-v2-branch-preflight-execution-replay.v1"
-                ),
+                "schema_version": ("dehps-m4-v2-branch-preflight-execution-replay.v1"),
                 "status": "REPLAY_VERIFIED",
                 "preflight_execution_status": reconstructed.completion[
                     "preflight_status"
@@ -9825,12 +10003,8 @@ class ResearchEvidenceSupervisor:
                 "all_branches_pass": reconstructed.all_branches_pass,
                 "branch_preflight_statuses": branch_statuses,
                 "solver_preflight_status": reconstructed.solver_result["status"],
-                "orthogonal_endpoint_status": reconstructed.orthogonal_result[
-                    "status"
-                ],
-                "legacy_role_resolution_status": reconstructed.legacy_result[
-                    "status"
-                ],
+                "orthogonal_endpoint_status": reconstructed.orthogonal_result["status"],
+                "legacy_role_resolution_status": reconstructed.legacy_result["status"],
                 "preflight_execution_completion_digest": (
                     reconstructed.completion["artifact_digest"]
                 ),
@@ -9867,9 +10041,7 @@ class ResearchEvidenceSupervisor:
             marginal_completion = _load_registered_type(
                 root_dir=self.root_dir,
                 registrations=marginal_registrations,
-                artifact_type=(
-                    "m4_v2_marginal_static_contract_freeze_completion"
-                ),
+                artifact_type=("m4_v2_marginal_static_contract_freeze_completion"),
             )
             _, _, fixture_registrations = _load_single_completed_execution(
                 repository=self.repository,
@@ -9943,8 +10115,7 @@ class ResearchEvidenceSupervisor:
                 != marginal_health["artifact_digest"]
                 or artifact.get("preflight_execution_completion_digest")
                 != preflight_completion["artifact_digest"]
-                or artifact.get("marginal_static_fixture_digests")
-                != fixture_digests
+                or artifact.get("marginal_static_fixture_digests") != fixture_digests
                 or artifact.get("marginal_static_fixture_bundle_digest")
                 != reconstructed.bundle["artifact_digest"]
                 or artifact.get("marginal_static_fixture_completion_digest")
@@ -10000,6 +10171,147 @@ class ResearchEvidenceSupervisor:
                 "historical_outcomes_read": False,
                 "statistical_results_read": False,
                 "evidence_created": False,
+                "manual_input_assembly": False,
+            }
+        elif task_key == MARGINAL_STATIC_HEALTH_EXECUTION_TASK_KEY:
+            source_contract = load_marginal_static_health_execution_source_contract(
+                self.root_dir / MARGINAL_STATIC_HEALTH_EXECUTION_SOURCE_CONTRACT_PATH
+            )
+            verify_marginal_static_health_execution_source_bytes(
+                root_dir=self.root_dir,
+                contract=source_contract,
+            )
+            _, design_execution, design_registrations = (
+                _load_single_completed_execution(
+                    repository=self.repository,
+                    root_dir=self.root_dir,
+                    control_plane_key=self.control_plane_key,
+                    task_key=MARGINAL_STATIC_HEALTH_DESIGN_TASK_KEY,
+                )
+            )
+            workload = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=design_registrations,
+                artifact_type="m4_v2_marginal_static_health_workload",
+            )
+            inference = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=design_registrations,
+                artifact_type="m4_v2_marginal_static_health_inference",
+            )
+            design_completion = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=design_registrations,
+                artifact_type="m4_v2_marginal_static_health_design_completion",
+            )
+            index_artifact = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                artifact_type="m4_v2_marginal_static_health_completion_index",
+            )
+            health_result = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                artifact_type="m4_v2_marginal_static_measurement_health_result",
+            )
+            health_completion = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                artifact_type="m4_v2_marginal_static_health_execution_completion",
+            )
+            rebuilt_index, rebuilt_health, rebuilt_completion = (
+                rebuild_health_artifacts_from_index(
+                    root_dir=self.root_dir,
+                    index_artifact=index_artifact,
+                    workload_digest=str(workload["artifact_digest"]),
+                    inference_digest=str(inference["artifact_digest"]),
+                    execution_id=resolved_execution_id,
+                    git_commit=str(artifact["git_commit"]),
+                )
+            )
+            specs = build_replicate_specs(
+                workload=workload["workload"],
+                source_contract_digest=str(source_contract["artifact_digest"]),
+            )
+            sentinel = run_replicate(specs[0])
+            index_path = self.root_dir / str(index_artifact["index_path"])
+            first_entry = json.loads(
+                index_path.read_text(encoding="utf-8").splitlines()[0]
+            )
+            if (
+                first_entry.get("summary") != sentinel
+                or index_artifact != rebuilt_index
+                or health_result != rebuilt_health
+                or health_completion != rebuilt_completion
+                or artifact.get(
+                    "marginal_static_health_execution_source_contract_digest"
+                )
+                != source_contract["artifact_digest"]
+                or artifact.get("marginal_static_health_execution_source_set_digest")
+                != source_contract["source_set_digest"]
+                or artifact.get("design_execution_artifact_digest")
+                != design_execution["artifact_digest"]
+                or artifact.get("marginal_static_health_workload_digest")
+                != workload["artifact_digest"]
+                or artifact.get("marginal_static_health_inference_digest")
+                != inference["artifact_digest"]
+                or artifact.get("marginal_static_health_design_completion_digest")
+                != design_completion["artifact_digest"]
+                or artifact.get("marginal_static_health_completion_index_digest")
+                != rebuilt_index["artifact_digest"]
+                or artifact.get("marginal_static_health_result_digest")
+                != rebuilt_health["artifact_digest"]
+                or artifact.get("marginal_static_health_execution_completion_digest")
+                != rebuilt_completion["artifact_digest"]
+                or artifact.get("replicate_count") != 7168
+                or artifact.get("generated_issues") != 15920128
+                or artifact.get("outer_evaluation_issues") != 9468928
+                or artifact.get("completion_index_loads") != 1
+                or artifact.get("database_reads_during_replicate") != 0
+                or artifact.get("database_writes_during_replicate") != 0
+                or artifact.get("csv_materialized") is not False
+                or artifact.get("duplicate_raw_replay") is not False
+                or artifact.get("routine_physical_checkpoint_scan") is not False
+                or artifact.get("historical_outcomes_read") is not False
+                or artifact.get("statistical_results_read") is not False
+                or artifact.get("evidence_created") is not False
+                or artifact.get("completion_fact")
+                != MARGINAL_STATIC_HEALTH_EXECUTION_COMPLETION_FACT
+                or artifact.get("downstream_consumer")
+                != MARGINAL_STATIC_HEALTH_DECISION_TASK_KEY
+            ):
+                raise MainlineSupervisorError(
+                    "M4 v2 marginal-static health execution replay identity changed"
+                )
+            _verify_v2_registered_artifacts(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                expected_payloads=(
+                    rebuilt_index,
+                    rebuilt_health,
+                    rebuilt_completion,
+                    artifact,
+                ),
+            )
+            capability_replay = {
+                "schema_version": (
+                    "dehps-m4-v2-marginal-static-health-execution-replay.v1"
+                ),
+                "status": "REPLAY_VERIFIED",
+                "completion_index_digest": rebuilt_index["artifact_digest"],
+                "health_result_digest": rebuilt_health["artifact_digest"],
+                "completion_digest": rebuilt_completion["artifact_digest"],
+                "measurement_health": rebuilt_health["measurement_health"],
+                "aggregate_rebuilt_from_compact_index": True,
+                "sentinel_replicates_recomputed": 1,
+                "same_registered_content": True,
+                "replicate_count": 7168,
+                "generated_issues_during_replay": 961,
+                "historical_outcomes_read": False,
+                "statistical_results_read": False,
+                "evidence_created": False,
+                "duplicate_raw_replay": False,
+                "routine_physical_checkpoint_scan": False,
                 "manual_input_assembly": False,
             }
         elif task_key == MARGINAL_STATIC_HEALTH_DESIGN_TASK_KEY:
@@ -10160,9 +10472,7 @@ class ResearchEvidenceSupervisor:
                 for item in _load_registered_type_group(
                     root_dir=self.root_dir,
                     registrations=design_registrations,
-                    artifact_type=(
-                        "m4_v2_branch_identifiability_preflight_design"
-                    ),
+                    artifact_type=("m4_v2_branch_identifiability_preflight_design"),
                 )
                 if item.get("branch_id") == "MARGINAL_STATIC"
             )
@@ -10229,8 +10539,7 @@ class ResearchEvidenceSupervisor:
                 or artifact.get("accepted_model_artifact_digest") is not None
                 or artifact.get("sampled_synthetic_execution_status")
                 != "NOT_AUTHORIZED"
-                or artifact.get("historical_execution_status")
-                != "NOT_AUTHORIZED"
+                or artifact.get("historical_execution_status") != "NOT_AUTHORIZED"
                 or artifact.get("formal_branch_runs_executed") != 0
                 or artifact.get("synthetic_replicates") != 0
                 or artifact.get("historical_outcomes_read") is not False
@@ -10431,7 +10740,19 @@ class ResearchEvidenceSupervisor:
 
     def status(self) -> dict[str, Any]:
         if self.state_path.is_file():
-            return _load_object(self.state_path)
+            payload = _load_object(self.state_path)
+            relative = payload.get("progress_projection_path")
+            if payload.get("status") == "RUNNING" and isinstance(relative, str):
+                progress_path = (self.root_dir / relative).resolve()
+                if progress_path.is_relative_to(self.root_dir.resolve()) and (
+                    progress_path.is_file()
+                ):
+                    progress = _load_object(progress_path)
+                    if progress.get("execution_id") == payload.get(
+                        "execution_id"
+                    ) and progress.get("task_digest") == payload.get("task_digest"):
+                        payload["progress"] = progress
+            return payload
         return {
             "schema_version": "dehps-research-evidence-supervisor-state.v1",
             "status": "NOT_STARTED",
