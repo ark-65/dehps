@@ -27,8 +27,8 @@ from dehps.research_os.information_theory.contracts import (
     DeterministicTaskContract,
     RandomizedTaskContract,
 )
+from dehps.research_os.information_theory.digest import config_digest
 from dehps.research_os.models import TaskStatus
-
 
 ROOT = Path(__file__).resolve().parents[3]
 PREREG_PATH = ROOT / "configs/research-os/m4-information-theory-preregistration-v1.json"
@@ -287,9 +287,25 @@ def test_30_artifact_index_keeps_every_p1_identity_replayable() -> None:
     for digest, entry in index["artifacts"].items():
         if "path" in entry:
             artifact = _load(ROOT / entry["path"])
-            identity = artifact.get("artifact_digest") or artifact.get(
-                "manifest_digest"
-            )
+            identity_field = entry.get("identity_field", "artifact_digest")
+            if identity_field == "manifest_digest":
+                if entry["artifact_type"] == (
+                    "measurement_source_compatibility_fixture"
+                ):
+                    assert artifact["artifact_type"] == (
+                        "measurement_source_compatibility_fixture"
+                    )
+                    assert entry["fixture_artifact_digest"] == artifact[
+                        "artifact_digest"
+                    ]
+                    assert config_digest(artifact) == artifact["artifact_digest"]
+                else:
+                    assert entry["artifact_type"] == (
+                        "research_os_control_plane_manifest"
+                    )
+            else:
+                assert identity_field == "artifact_digest"
+            identity = artifact.get(identity_field)
             assert identity == digest
         elif "path_at_source" in entry:
             assert len(entry["source_commit"]) == 40

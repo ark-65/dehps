@@ -1,0 +1,52 @@
+{
+  "schema_version": "dehps-m4-p2-measurement-supersession-fixture.v1",
+  "artifact_type": "measurement_source_compatibility_fixture",
+  "artifact_digest": "53f9a4b7d92944dfd6a46d317b018bdc6b434fc69bb977d72ae6d1f177e0c73b",
+  "manifest_digest": "39435df4057f0df747f2b56c48282d6fc4ad9a266fbb8f31262e3984ece712ba",
+  "fixture_key": "M4-P2.6.3_SUPERSEDING_PERIODIC_REFIT_64",
+  "status": "SUPERSEDING_IMPLEMENTATION_COMPLETE",
+  "phase": "M4-P2.6.3",
+  "source": {
+    "git_commit": "947c7b4d8c040fa0d7351a2bf6859c33fa428411",
+    "manifest_path": "configs/research-os/m4-information-theory-evidence-v1.json",
+    "manifest_content_sha256": "840c91381be8eedb8e89e076da8c0bc6ed046a941b88dec13270015b86d7bfed",
+    "task_key": "m4-p2-false-positive-and-power-runs",
+    "task_digest": "85a08402a4a0c37f75ee1675f4970ef00a7a0b0992b4204251c0c2cc79324de4",
+    "requested_capability": "m4_p2_6_3_periodic_refit_false_positive_and_power",
+    "measurement_validation_manifest_digest": "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58",
+    "measurement_update_policy_digest": "ad58b9abcd90c5e7ee7b9892ac8c209b8033f7a50e603b58c043685b0c7d6f99"
+  },
+  "runtime_identity": {
+    "classification": "SUPERSEDING_COMPLETED_MEASUREMENT_IMPLEMENTATION",
+    "execution_ids": [
+      "7de420e96e495f357a75860249cf1529a0d14a8d272177cacb0eb6f04b556c0d"
+    ],
+    "execution_artifact_digest": "948a44109cf31eb01ee4edad5363b4ecfc605bd9103813d32e021603268f76bc",
+    "completion_artifact_digest": "448444ad70ff1af46edae795dc516f13fede062cfec6879a2db27b639095c092",
+    "formal_completion_present": true,
+    "results_or_checkpoints_reusable_by_superseding_execution": false,
+    "runtime_roots_deleted": false
+  },
+  "evidence_boundary": {
+    "synthetic_measurement_execution": "COMPLETE",
+    "historical_evidence": "NOT_RUN",
+    "prediction_promotion_eligible": false,
+    "research_conclusion_created": false
+  },
+  "result_blind": {
+    "score_read": false,
+    "prediction_read": false,
+    "ranking_read": false,
+    "power_read": false,
+    "false_positive_read": false,
+    "bias_rmse_coverage_read": false,
+    "mde_read": false
+  },
+  "governance": {
+    "change_classification": "MEASUREMENT_CONTRACT_EVOLUTION",
+    "immutable": true,
+    "in_place_rewrite_allowed": false,
+    "evidence_progress_increment": 0,
+    "production_action": "none"
+  }
+}

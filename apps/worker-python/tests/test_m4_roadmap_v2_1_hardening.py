@@ -9,9 +9,10 @@ from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 import dehps.research_os.information_theory.measurement_validation.source_integrity as source_integrity_module
 import dehps.research_os.supervisor as supervisor_module
-import pytest
 from dehps.contracts import canonical_digest
 from dehps.golden_source_identity import (
     GoldenSourceIdentityError,
@@ -22,10 +23,13 @@ from dehps.golden_source_identity import (
 from dehps.research_os.control_plane import ResearchOSControlPlane
 from dehps.research_os.information_theory.measurement_system_v2 import (
     NO_DETECTABLE_INFORMATION,
+    P261_FROZEN_FIXTURE_PATH,
+    P263_TASK_DIGEST,
     bind_p261_marginal_acceptance,
     build_branch_decision_replay_artifact,
     compile_m4_v2_routing_decision,
     load_gate_replay_fixture,
+    load_measurement_compatibility_fixture,
     load_measurement_contract_v2,
     load_p261_marginal_binding_contract,
 )
@@ -1920,9 +1924,30 @@ def test_manifest_wires_replay_before_preflight_and_disconnects_legacy_p3() -> N
     assert "m4-p2-measurement-decision:PASS_TO_P3" not in p3_dependencies
     assert "m4-v2-routing:ADAPTIVE_RESEARCH_ELIGIBLE" in p3_dependencies
     p261 = tasks["m4-p2-false-positive-and-power-runs"]
-    assert p261.artifact_digest == EXPECTED_P261_TASK_DIGEST
+    assert p261.artifact_digest == P263_TASK_DIGEST
     assert "m4-p2-repair-measurement-system" in {
         item.target_key for item in p261.dependencies
+    }
+    frozen = load_measurement_compatibility_fixture(
+        ROOT / P261_FROZEN_FIXTURE_PATH,
+        expected_phase="M4-P2.6.1",
+    )
+    assert frozen.payload["source"]["task_digest"] == EXPECTED_P261_TASK_DIGEST
+    compatibility = tasks[
+        "m4-p2-6-3-superseding-compatibility-acceptance"
+    ]
+    assert {
+        item.target_key for item in compatibility.dependencies
+    } >= {
+        "m4-p2-false-positive-and-power-runs",
+        "m4-p2-automatic-gate-and-report",
+    }
+    design = tasks["m4-v2-measurement-contract-design"]
+    assert {
+        item.target_key for item in design.dependencies
+    } >= {
+        "m4-p2-6-3-superseding-compatibility-acceptance",
+        "m4-p2-6-3-compatibility:VERIFIED",
     }
     golden = tasks["m4-p2-9-golden-reference-freeze"]
     runtime = tasks["m4-p2-9-measurement-runtime-audit"]

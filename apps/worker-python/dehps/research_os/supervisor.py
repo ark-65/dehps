@@ -105,18 +105,30 @@ from dehps.research_os.information_theory.identifiability import (
     run_identifiability_preflight,
 )
 from dehps.research_os.information_theory.measurement_system_v2 import (
+    COMPATIBILITY_COMPLETION_FACT,
+    COMPATIBILITY_REQUEST_DIGEST,
+    COMPATIBILITY_REQUEST_PATH,
     DESIGN_REPLAY_COMPLETION_FACT,
     GATE_REPLAY_FIXTURE_PATH,
     MEASUREMENT_CONTRACT_V2_DIGEST,
     MEASUREMENT_CONTRACT_V2_PATH,
+    P261_FROZEN_FIXTURE_DIGEST,
+    P261_FROZEN_FIXTURE_PATH,
     P261_MARGINAL_BINDING_CONTRACT_PATH,
+    P263_POLICY_DIGEST,
+    P263_SUPERSEDING_FIXTURE_DIGEST,
+    P263_SUPERSEDING_FIXTURE_PATH,
     bind_p261_marginal_acceptance,
     build_branch_decision_replay_artifact,
     build_design_artifacts,
     build_design_replay_artifacts,
+    build_measurement_compatibility_acceptance,
     load_gate_replay_fixture,
+    load_measurement_compatibility_fixture,
+    load_measurement_compatibility_request,
     load_measurement_contract_v2,
     load_p261_marginal_binding_contract,
+    replay_measurement_source_fixture,
 )
 from dehps.research_os.information_theory.measurement_system_v2.execution import (
     DESIGN_COMPLETION_FACT,
@@ -257,6 +269,12 @@ P26_LEGACY_CAPABILITY = "m4_p2_6_1_false_positive_and_power"
 P26_CAPABILITY = "m4_p2_6_3_periodic_refit_false_positive_and_power"
 P27_TASK_KEY = "m4-p2-automatic-gate-and-report"
 P27_CAPABILITY = "m4_p2_7_automatic_measurement_gate"
+M4_P263_COMPATIBILITY_TASK_KEY = (
+    "m4-p2-6-3-superseding-compatibility-acceptance"
+)
+M4_P263_COMPATIBILITY_CAPABILITY = (
+    "m4_p2_6_3_superseding_compatibility_acceptance"
+)
 M4_V2_DESIGN_TASK_KEY = "m4-v2-measurement-contract-design"
 M4_V2_DESIGN_CAPABILITY = "m4_v2_measurement_contract_design"
 M4_V2_DESIGN_REPLAY_TASK_KEY = "m4-v2-measurement-contract-design-replay"
@@ -3226,6 +3244,171 @@ class P26MeasurementSystemRepairCapability:
         )
 
 
+class M4P263SupersedingCompatibilityCapability:
+    def __init__(
+        self,
+        *,
+        root_dir: Path = ROOT_DIR,
+        source_repository_dir: Path | None = None,
+    ) -> None:
+        self.root_dir = root_dir
+        self.source_repository_dir = source_repository_dir or root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key != M4_P263_COMPATIBILITY_TASK_KEY
+            or task.requested_capability != M4_P263_COMPATIBILITY_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "M4 P2.6.3 compatibility received the wrong task"
+            )
+        expected_inputs = (
+            COMPATIBILITY_REQUEST_DIGEST,
+            P261_FROZEN_FIXTURE_DIGEST,
+            P263_SUPERSEDING_FIXTURE_DIGEST,
+            P263_POLICY_DIGEST,
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "M4 P2.6.3 compatibility source identities changed"
+            )
+        p261 = load_measurement_compatibility_fixture(
+            self.root_dir / P261_FROZEN_FIXTURE_PATH,
+            expected_phase="M4-P2.6.1",
+        )
+        p263 = load_measurement_compatibility_fixture(
+            self.root_dir / P263_SUPERSEDING_FIXTURE_PATH,
+            expected_phase="M4-P2.6.3",
+        )
+        request = load_measurement_compatibility_request(
+            self.root_dir / COMPATIBILITY_REQUEST_PATH,
+            p261=p261,
+            p263=p263,
+        )
+        p261_replay = replay_measurement_source_fixture(
+            root_dir=self.source_repository_dir,
+            fixture=p261,
+        )
+        p263_replay = replay_measurement_source_fixture(
+            root_dir=self.source_repository_dir,
+            fixture=p263,
+        )
+        acceptance = build_measurement_compatibility_acceptance(
+            request=request,
+            p261=p261,
+            p263=p263,
+            p261_replay=p261_replay,
+            p263_replay=p263_replay,
+            execution_id=execution_id,
+            git_commit=git_commit,
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        child_paths = (
+            task_dir
+            / "artifacts/source-fixture-replay"
+            / str(p261_replay["artifact_digest"])
+            / "p2.6.1-replay.json",
+            task_dir
+            / "artifacts/source-fixture-replay"
+            / str(p263_replay["artifact_digest"])
+            / "p2.6.3-replay.json",
+            task_dir
+            / "artifacts/compatibility-acceptance"
+            / str(acceptance["artifact_digest"])
+            / "acceptance.json",
+        )
+        child_payloads = tuple(
+            zip(
+                child_paths,
+                (p261_replay, p263_replay, acceptance),
+                strict=True,
+            )
+        )
+        for path, payload in child_payloads:
+            _persist_immutable(path, payload)
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "compatibility_request_digest": request.artifact_digest,
+            "p2_6_1_fixture_digest": p261.artifact_digest,
+            "p2_6_1_source_replay_digest": p261_replay["artifact_digest"],
+            "p2_6_3_fixture_digest": p263.artifact_digest,
+            "p2_6_3_source_replay_digest": p263_replay["artifact_digest"],
+            "compatibility_acceptance_digest": acceptance["artifact_digest"],
+            "completion_fact": COMPATIBILITY_COMPLETION_FACT,
+            "actual_fold_count": 0,
+            "registered_artifact_count": 4,
+            "historical_outcomes_read": False,
+            "p2_6_1_partial_statistical_results_read": False,
+            "old_results_or_checkpoints_reused": False,
+            "evidence_created": False,
+            "evidence_progress_before": 25,
+            "evidence_progress_after": 25,
+            "prediction_v2_promotion_allowed": False,
+            "downstream_consumer": M4_V2_DESIGN_TASK_KEY,
+            "production_action": "none",
+            "production_impact": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "replay_status": "REPLAY_VERIFIED",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                *(str(payload["artifact_digest"]) for _, payload in child_payloads),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(registrations) != execution_payload["registered_artifact_count"]:
+            raise MainlineSupervisorError(
+                "M4 P2.6.3 compatibility registered artifact count changed"
+            )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=registrations,
+            completion_facts=(COMPATIBILITY_COMPLETION_FACT,),
+        )
+
+
 class M4MeasurementContractV2DesignCapability:
     def __init__(self, *, root_dir: Path = ROOT_DIR) -> None:
         self.root_dir = root_dir
@@ -3253,10 +3436,11 @@ class M4MeasurementContractV2DesignCapability:
             "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca",
             MEASUREMENT_REPAIR_MANIFEST_DIGEST,
             REPAIRED_MEASUREMENT_VALIDATION_MANIFEST_DIGEST,
+            COMPATIBILITY_REQUEST_DIGEST,
         )
         if task.input_artifact_digests != expected_inputs:
             raise MainlineSupervisorError(
-                "M4 v2 design requires the six frozen source-only identities"
+                "M4 v2 design requires the seven frozen source-only identities"
             )
         contract = load_measurement_contract_v2(
             self.root_dir / MEASUREMENT_CONTRACT_V2_PATH
@@ -5087,6 +5271,9 @@ class ResearchEvidenceSupervisor:
             ),
             P26_CAPABILITY: P26MeasurementValidationCapability(root_dir=root_dir),
             P27_CAPABILITY: P27AutomaticMeasurementGateCapability(root_dir=root_dir),
+            M4_P263_COMPATIBILITY_CAPABILITY: (
+                M4P263SupersedingCompatibilityCapability(root_dir=root_dir)
+            ),
             M4_V2_DESIGN_CAPABILITY: M4MeasurementContractV2DesignCapability(
                 root_dir=root_dir
             ),

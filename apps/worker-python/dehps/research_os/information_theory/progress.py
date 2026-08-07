@@ -18,6 +18,10 @@ LEGACY_GOAL_KEY = "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION"
 M4_FORWARD_EVENT_KEY = "draw:2026085"
 M4_V2_DESIGN_TASK_KEY = "m4-v2-measurement-contract-design"
 M4_V2_DESIGN_REPLAY_TASK_KEY = "m4-v2-measurement-contract-design-replay"
+M4_P263_COMPATIBILITY_TASK_KEY = (
+    "m4-p2-6-3-superseding-compatibility-acceptance"
+)
+M4_P263_COMPATIBILITY_FACT = "m4-p2-6-3-compatibility:VERIFIED"
 M4_V2_PREFLIGHT_DESIGN_TASK_KEY = "m4-v2-branch-identifiability-preflight-design"
 M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
 M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = "m4-v2-p2-6-1-marginal-decision-replay"
@@ -211,6 +215,9 @@ def build_m4_status(
     measurement_v2_task = tasks.get(M4_V2_DESIGN_TASK_KEY)
     measurement_v2_resolution = resolutions.get(M4_V2_DESIGN_TASK_KEY)
     measurement_v2_replay_resolution = resolutions.get(M4_V2_DESIGN_REPLAY_TASK_KEY)
+    measurement_compatibility_resolution = resolutions.get(
+        M4_P263_COMPATIBILITY_TASK_KEY
+    )
     marginal_binding_resolution = resolutions.get(M4_V2_MARGINAL_BINDING_TASK_KEY)
     marginal_decision_replay_resolution = resolutions.get(
         M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY
@@ -916,6 +923,22 @@ def build_m4_status(
                 "purpose": "hierarchical_information_measurement",
                 "contract_digest": M4_V2_CONTRACT_DIGEST,
                 "source_contract_status": "FROZEN",
+                "compatibility": {
+                    "task_key": M4_P263_COMPATIBILITY_TASK_KEY,
+                    "resolver_status": (
+                        None
+                        if measurement_compatibility_resolution is None
+                        else measurement_compatibility_resolution.status.value
+                    ),
+                    "verified": (
+                        M4_P263_COMPATIBILITY_FACT in manifest.facts.artifacts
+                    ),
+                    "p2_6_1_role": "FROZEN_HISTORICAL_BASELINE",
+                    "p2_6_3_role": "SUPERSEDING_MEASUREMENT_IMPLEMENTATION",
+                    "same_task_identity": False,
+                    "result_blind": True,
+                    "evidence_progress_increment": 0,
+                },
                 "task_key": M4_V2_DESIGN_TASK_KEY,
                 "resolver_status": measurement_v2_resolution.status.value,
                 "design_replay_task_key": M4_V2_DESIGN_REPLAY_TASK_KEY,

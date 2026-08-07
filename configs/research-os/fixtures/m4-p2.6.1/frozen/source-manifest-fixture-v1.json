@@ -1,0 +1,53 @@
+{
+  "schema_version": "dehps-m4-p2-measurement-supersession-fixture.v1",
+  "artifact_type": "measurement_source_compatibility_fixture",
+  "artifact_digest": "f9716c799e1e55e58585c7e9acf0730f9d05111ab6e375cfb9bea85ecbdeacc5",
+  "manifest_digest": "b1f72ebe01daf38c39724f2b6b2beaa1e0be391974e708ba1be65e8cf12ae3be",
+  "fixture_key": "M4-P2.6.1_FROZEN_INCOMPLETE_BASELINE",
+  "status": "FROZEN_HISTORICAL_BASELINE",
+  "phase": "M4-P2.6.1",
+  "source": {
+    "git_commit": "5714688cf50545fd125f4dc8422ac7e5f0bfec1f",
+    "manifest_path": "configs/research-os/m4-information-theory-evidence-v1.json",
+    "manifest_content_sha256": "47145fcc36b84a49c3494eedd67121328cce1bd33a14659fcac28b6dc3ddf557",
+    "task_key": "m4-p2-false-positive-and-power-runs",
+    "task_digest": "80068e22f5e1c343fd86213faa0d9a411d71f92ad2750fed10449a10151de8fa",
+    "requested_capability": "m4_p2_6_1_false_positive_and_power",
+    "measurement_validation_manifest_digest": "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58",
+    "measurement_update_policy_digest": null
+  },
+  "runtime_identity": {
+    "classification": "INCOMPLETE_HISTORICAL_RUNTIME_BASELINE",
+    "execution_ids": [
+      "8e1c601233833b60442b45ebaeeaea53679c34eef1d00de5480827f415d517fd",
+      "cd64aacc48c5e1dac4f84d7f644e92384b50f37299b1643631b7ee872ab452b3"
+    ],
+    "execution_artifact_digest": null,
+    "completion_artifact_digest": null,
+    "formal_completion_present": false,
+    "results_or_checkpoints_reusable_by_superseding_execution": false,
+    "runtime_roots_deleted": false
+  },
+  "evidence_boundary": {
+    "synthetic_measurement_execution": "INCOMPLETE",
+    "historical_evidence": "NOT_RUN",
+    "prediction_promotion_eligible": false,
+    "research_conclusion_created": false
+  },
+  "result_blind": {
+    "score_read": false,
+    "prediction_read": false,
+    "ranking_read": false,
+    "power_read": false,
+    "false_positive_read": false,
+    "bias_rmse_coverage_read": false,
+    "mde_read": false
+  },
+  "governance": {
+    "change_classification": "HISTORICAL_FROZEN_BOUNDARY",
+    "immutable": true,
+    "in_place_rewrite_allowed": false,
+    "evidence_progress_increment": 0,
+    "production_action": "none"
+  }
+}
