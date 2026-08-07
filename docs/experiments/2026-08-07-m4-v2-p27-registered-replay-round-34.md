@@ -48,6 +48,12 @@ normal automatic consumer and is reserved for a requested corruption audit.
 - Focused replay guards: `4 passed`.
 - Measurement validation + unified Supervisor + M4 hardening + P2.6.3 source
   governance: `127 passed in 106.06s`.
+- Full Worker suite in a clean detached worktree at implementation commit:
+  `2061 passed, 4 skipped, 4 warnings in 217.24s`.
+- The first full-suite run in the live development root produced 42 unrelated
+  legacy-pipeline failures because the existing untracked Prediction v2
+  activation runtime retires those legacy paths. The clean detached rerun above
+  contains no runtime state and passes all 2,061 tests.
 - Ruff on the touched Python surface: passed.
 - `git diff --check`: passed.
 - Read-only replay against the completed local mainline P2.7 execution:
