@@ -105,18 +105,30 @@ from dehps.research_os.information_theory.identifiability import (
     run_identifiability_preflight,
 )
 from dehps.research_os.information_theory.measurement_system_v2 import (
+    COMPATIBILITY_COMPLETION_FACT,
+    COMPATIBILITY_REQUEST_DIGEST,
+    COMPATIBILITY_REQUEST_PATH,
     DESIGN_REPLAY_COMPLETION_FACT,
     GATE_REPLAY_FIXTURE_PATH,
     MEASUREMENT_CONTRACT_V2_DIGEST,
     MEASUREMENT_CONTRACT_V2_PATH,
+    P261_FROZEN_FIXTURE_DIGEST,
+    P261_FROZEN_FIXTURE_PATH,
     P261_MARGINAL_BINDING_CONTRACT_PATH,
+    P263_POLICY_DIGEST,
+    P263_SUPERSEDING_FIXTURE_DIGEST,
+    P263_SUPERSEDING_FIXTURE_PATH,
     bind_p261_marginal_acceptance,
     build_branch_decision_replay_artifact,
     build_design_artifacts,
     build_design_replay_artifacts,
+    build_measurement_compatibility_acceptance,
     load_gate_replay_fixture,
+    load_measurement_compatibility_fixture,
+    load_measurement_compatibility_request,
     load_measurement_contract_v2,
     load_p261_marginal_binding_contract,
+    replay_measurement_source_fixture,
 )
 from dehps.research_os.information_theory.measurement_system_v2.execution import (
     DESIGN_COMPLETION_FACT,
@@ -257,6 +269,12 @@ P26_LEGACY_CAPABILITY = "m4_p2_6_1_false_positive_and_power"
 P26_CAPABILITY = "m4_p2_6_3_periodic_refit_false_positive_and_power"
 P27_TASK_KEY = "m4-p2-automatic-gate-and-report"
 P27_CAPABILITY = "m4_p2_7_automatic_measurement_gate"
+M4_P263_COMPATIBILITY_TASK_KEY = (
+    "m4-p2-6-3-superseding-compatibility-acceptance"
+)
+M4_P263_COMPATIBILITY_CAPABILITY = (
+    "m4_p2_6_3_superseding_compatibility_acceptance"
+)
 M4_V2_DESIGN_TASK_KEY = "m4-v2-measurement-contract-design"
 M4_V2_DESIGN_CAPABILITY = "m4_v2_measurement_contract_design"
 M4_V2_DESIGN_REPLAY_TASK_KEY = "m4-v2-measurement-contract-design-replay"
@@ -273,15 +291,22 @@ MARGINAL_BINDING_COMPLETION_FACT = (
     "m4-v2-marginal-measurement-acceptance-decision:BOUND"
 )
 MARGINAL_DECISION_REPLAY_FACT = "m4-v2-branch-decision-replay:MARGINAL_STATIC:VERIFIED"
-M4_P29_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
-M4_P29_GOLDEN_REFERENCE_CAPABILITY = "m4_p2_9_golden_reference_freeze"
-M4_P29_GOLDEN_REFERENCE_COMPLETION_FACT = "m4-p2-9-golden-reference:VERIFIED"
+M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
+M4_P29_P261_RUNTIME_AUDIT_TASK_KEY = "m4-p2-9-measurement-runtime-audit"
+M4_P29_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-p263-golden-reference-freeze"
+M4_P29_GOLDEN_REFERENCE_CAPABILITY = "m4_p2_9_p263_golden_reference_freeze"
+M4_P29_GOLDEN_REFERENCE_COMPLETION_FACT = (
+    "m4-p2-9-p263-golden-reference:VERIFIED"
+)
 M4_P261_FROZEN_TASK_DIGEST = (
     "80068e22f5e1c343fd86213faa0d9a411d71f92ad2750fed10449a10151de8fa"
 )
-M4_P29_RUNTIME_AUDIT_TASK_KEY = "m4-p2-9-measurement-runtime-audit"
-M4_P29_RUNTIME_AUDIT_CAPABILITY = "m4_p2_9_measurement_runtime_audit"
-M4_P29_RUNTIME_AUDIT_COMPLETION_FACT = "m4-p2-9-runtime-audit:VERIFIED"
+M4_P263_TASK_DIGEST = (
+    "85a08402a4a0c37f75ee1675f4970ef00a7a0b0992b4204251c0c2cc79324de4"
+)
+M4_P29_RUNTIME_AUDIT_TASK_KEY = "m4-p2-9-p263-measurement-runtime-audit"
+M4_P29_RUNTIME_AUDIT_CAPABILITY = "m4_p2_9_p263_measurement_runtime_audit"
+M4_P29_RUNTIME_AUDIT_COMPLETION_FACT = "m4-p2-9-p263-runtime-audit:VERIFIED"
 M4_P29_ACCELERATION_BOUNDARY_SCOPE = "literal_behavior_path_and_fresh_import_closure"
 P2_UMBRELLA_TASK_KEY = "m4-p2-synthetic-measurement-validation"
 M4_CONTROL_PLANE_KEY = "m4-information-theory-mainline"
@@ -985,7 +1010,10 @@ def _golden_reference_sources(
     )
     expected_inputs = (
         str(runtime_plan["artifact_digest"]),
-        M4_P261_FROZEN_TASK_DIGEST,
+        M4_P263_TASK_DIGEST,
+        PERIODIC_REFIT_CONTRACT_DIGEST,
+        COMPATIBILITY_REQUEST_DIGEST,
+        P263_SUPERSEDING_FIXTURE_DIGEST,
         MEASUREMENT_REPAIR_MANIFEST_DIGEST,
         manifest.artifact_digest,
         str(manifest.payload["development_selection_artifact_digest"]),
@@ -1010,6 +1038,7 @@ def _observed_reference_evaluation(
     synthetic: Any,
     truths: Mapping[str, Mapping[str, Any]],
     replicate: Any,
+    periodic_refit_contract: Any | None = None,
     observer: RuntimeAuditObserver | None = None,
     capture_trace: bool = True,
 ) -> PythonReferenceEvaluation:
@@ -1032,6 +1061,7 @@ def _observed_reference_evaluation(
         truth_by_scenario=truths,
         git_commit=FIXTURE_GIT_COMMIT,
         output_dir=output_dir,
+        periodic_refit_contract=periodic_refit_contract,
         audit_observer=observer,
         trace_records=trace_records,
     )
@@ -1331,6 +1361,10 @@ def _build_golden_reference_bundle(
         truths,
         expected_inputs,
     ) = _golden_reference_sources(root_dir=root_dir)
+    periodic_refit_contract = load_periodic_refit_contract(
+        root_dir
+        / "configs/research-os/m4-information-theory-p2-6-3-periodic-refit-v1.json"
+    )
     verified_construction_source_identity = preflight_source_integrity(
         root_dir=root_dir,
         runtime_plan=runtime_plan,
@@ -1378,6 +1412,7 @@ def _build_golden_reference_bundle(
         truth_by_scenario=truths,
         fixture_git_commit=FIXTURE_GIT_COMMIT,
         output_dir=work_dir / "literal-oracle",
+        periodic_refit_contract=periodic_refit_contract,
     ).evaluate(replicate)
     reference_fixture = build_golden_fixture_artifact(
         plan_digest=str(plan["artifact_digest"]),
@@ -1395,6 +1430,7 @@ def _build_golden_reference_bundle(
         synthetic=synthetic,
         truths=truths,
         replicate=replicate,
+        periodic_refit_contract=periodic_refit_contract,
         observer=observer,
     )
     observed_boundaries = _build_observed_boundary_snapshots(
@@ -1509,6 +1545,7 @@ def _validate_golden_artifact_set(
 ) -> None:
     current_executor_fingerprint = build_canonical_executor_fingerprint()
     oracle_contract = plan.get("oracle_contract")
+    replicate_result = fixture.get("replicate_result")
     _verify_typed_digest(
         plan,
         artifact_type="GoldenReferencePlanArtifact",
@@ -1603,6 +1640,15 @@ def _validate_golden_artifact_set(
         or fixture.get("oracle_construction_fully_implementation_independent")
         is not False
         or fixture.get("historical_outcomes_read") is not False
+        or not isinstance(replicate_result, Mapping)
+        or replicate_result.get("measurement_update_policy_digest")
+        != PERIODIC_REFIT_CONTRACT_DIGEST
+        or replicate_result.get("learned_probe_refit_interval_folds")
+        != 64
+        or replicate_result.get("learned_probe_refit_boundary_count")
+        != 1
+        or replicate_result.get("empirical_baseline_update_count")
+        != 61
         or fixture.get("evidence_progress_before") != 0
         or fixture.get("evidence_progress_after") != 0
         or fixture.get("production_action") != "none"
@@ -1697,6 +1743,9 @@ def _load_verified_golden_parent(
         is not False
         or execution.get("exact_replay_verified") is not True
         or execution.get("historical_outcomes_read") is not False
+        or execution.get("measurement_update_policy_digest")
+        != PERIODIC_REFIT_CONTRACT_DIGEST
+        or execution.get("p2_6_3_task_digest") != M4_P263_TASK_DIGEST
         or execution.get("evidence_progress_before") != 0
         or execution.get("evidence_progress_after") != 0
         or execution.get("production_action") != "none"
@@ -2075,7 +2124,7 @@ def _recover_runtime_audit_commit_marker(
         "journal_reused",
         "fresh_workdir",
         "worker_count",
-        "formal_benchmark_after_slot_release",
+        "formal_benchmark_after_p263_compatibility",
         "reference_evaluator_is_oracle",
         "immutable_golden_fixture_is_oracle",
         "acceleration_boundary_independent",
@@ -2094,6 +2143,9 @@ def _recover_runtime_audit_commit_marker(
         "statistical_semantics_modified",
         "historical_outcomes_read",
         "p2_6_1_partial_statistical_results_read",
+        "p2_6_3_statistical_results_read",
+        "measurement_update_policy_digest",
+        "p2_6_3_task_digest",
         "evidence_created",
         "evidence_progress_before",
         "evidence_progress_after",
@@ -2135,7 +2187,7 @@ def _recover_runtime_audit_commit_marker(
         or execution.get("frozen_reference_fold_count") != 61
         or execution.get("registered_artifact_count") != 6
         or execution.get("worker_count") != 1
-        or execution.get("formal_benchmark_after_slot_release") is not True
+        or execution.get("formal_benchmark_after_p263_compatibility") is not True
         or execution.get("reference_evaluator_is_oracle") is not False
         or execution.get("immutable_golden_fixture_is_oracle") is not True
         or execution.get("acceleration_boundary_independent") is not True
@@ -2174,6 +2226,10 @@ def _recover_runtime_audit_commit_marker(
         or execution.get("statistical_semantics_modified") is not False
         or execution.get("historical_outcomes_read") is not False
         or execution.get("p2_6_1_partial_statistical_results_read") is not False
+        or execution.get("p2_6_3_statistical_results_read") is not False
+        or execution.get("measurement_update_policy_digest")
+        != PERIODIC_REFIT_CONTRACT_DIGEST
+        or execution.get("p2_6_3_task_digest") != M4_P263_TASK_DIGEST
         or execution.get("evidence_created") is not False
         or execution.get("evidence_progress_before") != 0
         or execution.get("evidence_progress_after") != 0
@@ -2212,11 +2268,12 @@ _RUNTIME_AUDIT_PHASE_INVOCATIONS = {
     "dataset_generation": 1,
     "fold_construction": 1,
     "feature_cache": 62,
-    "estimator_calibrator_fit": 244,
+    "feature_cache_initialization": 1,
+    "estimator_calibrator_fit": 64,
     "prediction_metric": 488,
     "bootstrap": 1,
     "permutation": 1,
-    "checkpoint_artifact_persistence": 62,
+    "checkpoint_artifact_persistence": 123,
 }
 
 
@@ -2331,7 +2388,7 @@ def _validate_runtime_observation(
         or observation.get("replay_timing_equality_required") is not False
         or observation.get("worker_count") != 1
         or observation.get("fold_count") != 61
-        or observation.get("fit_count") != 244
+        or observation.get("fit_count") != 64
         or observation.get("resample_count") != 4000
         or not isinstance(phases, Mapping)
         or set(phases) != set(expected_phases)
@@ -3226,6 +3283,171 @@ class P26MeasurementSystemRepairCapability:
         )
 
 
+class M4P263SupersedingCompatibilityCapability:
+    def __init__(
+        self,
+        *,
+        root_dir: Path = ROOT_DIR,
+        source_repository_dir: Path | None = None,
+    ) -> None:
+        self.root_dir = root_dir
+        self.source_repository_dir = source_repository_dir or root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key != M4_P263_COMPATIBILITY_TASK_KEY
+            or task.requested_capability != M4_P263_COMPATIBILITY_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "M4 P2.6.3 compatibility received the wrong task"
+            )
+        expected_inputs = (
+            COMPATIBILITY_REQUEST_DIGEST,
+            P261_FROZEN_FIXTURE_DIGEST,
+            P263_SUPERSEDING_FIXTURE_DIGEST,
+            P263_POLICY_DIGEST,
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "M4 P2.6.3 compatibility source identities changed"
+            )
+        p261 = load_measurement_compatibility_fixture(
+            self.root_dir / P261_FROZEN_FIXTURE_PATH,
+            expected_phase="M4-P2.6.1",
+        )
+        p263 = load_measurement_compatibility_fixture(
+            self.root_dir / P263_SUPERSEDING_FIXTURE_PATH,
+            expected_phase="M4-P2.6.3",
+        )
+        request = load_measurement_compatibility_request(
+            self.root_dir / COMPATIBILITY_REQUEST_PATH,
+            p261=p261,
+            p263=p263,
+        )
+        p261_replay = replay_measurement_source_fixture(
+            root_dir=self.source_repository_dir,
+            fixture=p261,
+        )
+        p263_replay = replay_measurement_source_fixture(
+            root_dir=self.source_repository_dir,
+            fixture=p263,
+        )
+        acceptance = build_measurement_compatibility_acceptance(
+            request=request,
+            p261=p261,
+            p263=p263,
+            p261_replay=p261_replay,
+            p263_replay=p263_replay,
+            execution_id=execution_id,
+            git_commit=git_commit,
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        child_paths = (
+            task_dir
+            / "artifacts/source-fixture-replay"
+            / str(p261_replay["artifact_digest"])
+            / "p2.6.1-replay.json",
+            task_dir
+            / "artifacts/source-fixture-replay"
+            / str(p263_replay["artifact_digest"])
+            / "p2.6.3-replay.json",
+            task_dir
+            / "artifacts/compatibility-acceptance"
+            / str(acceptance["artifact_digest"])
+            / "acceptance.json",
+        )
+        child_payloads = tuple(
+            zip(
+                child_paths,
+                (p261_replay, p263_replay, acceptance),
+                strict=True,
+            )
+        )
+        for path, payload in child_payloads:
+            _persist_immutable(path, payload)
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "compatibility_request_digest": request.artifact_digest,
+            "p2_6_1_fixture_digest": p261.artifact_digest,
+            "p2_6_1_source_replay_digest": p261_replay["artifact_digest"],
+            "p2_6_3_fixture_digest": p263.artifact_digest,
+            "p2_6_3_source_replay_digest": p263_replay["artifact_digest"],
+            "compatibility_acceptance_digest": acceptance["artifact_digest"],
+            "completion_fact": COMPATIBILITY_COMPLETION_FACT,
+            "actual_fold_count": 0,
+            "registered_artifact_count": 4,
+            "historical_outcomes_read": False,
+            "p2_6_1_partial_statistical_results_read": False,
+            "old_results_or_checkpoints_reused": False,
+            "evidence_created": False,
+            "evidence_progress_before": 25,
+            "evidence_progress_after": 25,
+            "prediction_v2_promotion_allowed": False,
+            "downstream_consumer": M4_V2_DESIGN_TASK_KEY,
+            "production_action": "none",
+            "production_impact": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "replay_status": "REPLAY_VERIFIED",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                *(str(payload["artifact_digest"]) for _, payload in child_payloads),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(registrations) != execution_payload["registered_artifact_count"]:
+            raise MainlineSupervisorError(
+                "M4 P2.6.3 compatibility registered artifact count changed"
+            )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=registrations,
+            completion_facts=(COMPATIBILITY_COMPLETION_FACT,),
+        )
+
+
 class M4MeasurementContractV2DesignCapability:
     def __init__(self, *, root_dir: Path = ROOT_DIR) -> None:
         self.root_dir = root_dir
@@ -3253,10 +3475,11 @@ class M4MeasurementContractV2DesignCapability:
             "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca",
             MEASUREMENT_REPAIR_MANIFEST_DIGEST,
             REPAIRED_MEASUREMENT_VALIDATION_MANIFEST_DIGEST,
+            COMPATIBILITY_REQUEST_DIGEST,
         )
         if task.input_artifact_digests != expected_inputs:
             raise MainlineSupervisorError(
-                "M4 v2 design requires the six frozen source-only identities"
+                "M4 v2 design requires the seven frozen source-only identities"
             )
         contract = load_measurement_contract_v2(
             self.root_dir / MEASUREMENT_CONTRACT_V2_PATH
@@ -4074,7 +4297,10 @@ class M4P29GoldenReferenceCapability:
             "evidence_progress_after": 0,
             "historical_outcomes_read": False,
             "p2_6_1_partial_statistical_results_read": False,
-            "formal_benchmark_after_slot_release": False,
+            "p2_6_3_statistical_results_read": False,
+            "measurement_update_policy_digest": PERIODIC_REFIT_CONTRACT_DIGEST,
+            "p2_6_3_task_digest": M4_P263_TASK_DIGEST,
+            "formal_benchmark_after_p263_compatibility": False,
             "downstream_consumer": M4_P29_RUNTIME_AUDIT_TASK_KEY,
             "production_action": "none",
             "production_impact": "none",
@@ -4144,6 +4370,10 @@ class M4P29MeasurementRuntimeAuditCapability:
                 "M4-P2.9 runtime audit received the wrong task"
             )
         plan = load_runtime_audit_plan(self.root_dir / RUNTIME_AUDIT_PLAN_PATH)
+        periodic_refit_contract = load_periodic_refit_contract(
+            self.root_dir
+            / "configs/research-os/m4-information-theory-p2-6-3-periodic-refit-v1.json"
+        )
         if task.input_artifact_digests != (str(plan["artifact_digest"]),):
             raise MainlineSupervisorError("M4-P2.9 runtime audit plan changed")
         (
@@ -4242,6 +4472,7 @@ class M4P29MeasurementRuntimeAuditCapability:
             synthetic=synthetic,
             truths=truths,
             replicate=replicate,
+            periodic_refit_contract=periodic_refit_contract,
             observer=observer,
             capture_trace=False,
         )
@@ -4314,6 +4545,7 @@ class M4P29MeasurementRuntimeAuditCapability:
             synthetic=synthetic,
             truths=truths,
             replicate=replicate,
+            periodic_refit_contract=periodic_refit_contract,
             capture_trace=True,
         )
         _require_exact_runtime_correctness_replay(
@@ -4476,7 +4708,7 @@ class M4P29MeasurementRuntimeAuditCapability:
             "journal_reused": False,
             "fresh_workdir": True,
             "worker_count": 1,
-            "formal_benchmark_after_slot_release": True,
+            "formal_benchmark_after_p263_compatibility": True,
             "reference_evaluator_is_oracle": False,
             "immutable_golden_fixture_is_oracle": True,
             "acceleration_boundary_independent": True,
@@ -4503,6 +4735,9 @@ class M4P29MeasurementRuntimeAuditCapability:
             "statistical_semantics_modified": False,
             "historical_outcomes_read": False,
             "p2_6_1_partial_statistical_results_read": False,
+            "p2_6_3_statistical_results_read": False,
+            "measurement_update_policy_digest": PERIODIC_REFIT_CONTRACT_DIGEST,
+            "p2_6_3_task_digest": M4_P263_TASK_DIGEST,
             "evidence_created": False,
             "evidence_progress_before": 0,
             "evidence_progress_after": 0,
@@ -5087,6 +5322,9 @@ class ResearchEvidenceSupervisor:
             ),
             P26_CAPABILITY: P26MeasurementValidationCapability(root_dir=root_dir),
             P27_CAPABILITY: P27AutomaticMeasurementGateCapability(root_dir=root_dir),
+            M4_P263_COMPATIBILITY_CAPABILITY: (
+                M4P263SupersedingCompatibilityCapability(root_dir=root_dir)
+            ),
             M4_V2_DESIGN_CAPABILITY: M4MeasurementContractV2DesignCapability(
                 root_dir=root_dir
             ),
@@ -5572,6 +5810,8 @@ class ResearchEvidenceSupervisor:
                                     "formal_branch_runs_executed",
                                     "historical_outcomes_read",
                                     "p2_6_1_partial_statistical_results_read",
+                                    "p2_6_3_statistical_results_read",
+                                    "p2_6_3_task_digest",
                                     "production_action",
                                     "benchmark_plan_artifact_digest",
                                     "runtime_observation_artifact_digest",
@@ -5986,6 +6226,8 @@ class ResearchEvidenceSupervisor:
             "formal_branch_runs_executed",
             "historical_outcomes_read",
             "p2_6_1_partial_statistical_results_read",
+            "p2_6_3_statistical_results_read",
+            "p2_6_3_task_digest",
             "production_action",
             "benchmark_plan_artifact_digest",
             "runtime_observation_artifact_digest",
@@ -6530,6 +6772,7 @@ class ResearchEvidenceSupervisor:
                 or artifact.get("exact_replay_verified") is not True
                 or artifact.get("historical_outcomes_read") is not False
                 or artifact.get("p2_6_1_partial_statistical_results_read") is not False
+                or artifact.get("p2_6_3_statistical_results_read") is not False
                 or artifact.get("evidence_progress_before") != 0
                 or artifact.get("evidence_progress_after") != 0
                 or artifact.get("production_action") != "none"
@@ -6588,6 +6831,7 @@ class ResearchEvidenceSupervisor:
                 "oracle_construction_fully_implementation_independent": False,
                 "historical_outcomes_read": False,
                 "p2_6_1_partial_statistical_results_read": False,
+                "p2_6_3_statistical_results_read": False,
                 "manual_input_assembly": False,
             }
         elif task_key == M4_P29_RUNTIME_AUDIT_TASK_KEY:
@@ -6646,6 +6890,10 @@ class ResearchEvidenceSupervisor:
                 manifest=replay_manifest,
                 synthetic=replay_synthetic,
             )
+            periodic_refit_contract = load_periodic_refit_contract(
+                self.root_dir
+                / "configs/research-os/m4-information-theory-p2-6-3-periodic-refit-v1.json"
+            )
             with tempfile.TemporaryDirectory(
                 prefix="dehps-runtime-correctness-replay-"
             ) as temporary:
@@ -6656,6 +6904,7 @@ class ResearchEvidenceSupervisor:
                     synthetic=replay_synthetic,
                     truths=replay_truths,
                     replicate=replay_replicate,
+                    periodic_refit_contract=periodic_refit_contract,
                     capture_trace=True,
                 )
             replay_boundaries = _build_observed_boundary_snapshots(
@@ -6900,6 +7149,7 @@ class ResearchEvidenceSupervisor:
                 "timing_values_equal_required": False,
                 "historical_outcomes_read": False,
                 "p2_6_1_partial_statistical_results_read": False,
+                "p2_6_3_statistical_results_read": False,
                 "manual_input_assembly": False,
             }
         elif task_key == M4_V2_DESIGN_TASK_KEY:

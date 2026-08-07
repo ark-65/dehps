@@ -1,0 +1,102 @@
+{
+  "schema_version": "dehps-m4-p2-measurement-v2-compatibility-request.v1",
+  "artifact_type": "measurement_contract_compatibility_request",
+  "artifact_digest": "42d9583d2b333e171b99dfde27732b687e2deec2359a423d20d5d295103d1cec",
+  "request_key": "m4-p2-measurement-v2-compatibility-request",
+  "semantic_version": "1.0.0",
+  "status": "FROZEN_SOURCE_INTEGRATION_PENDING",
+  "change_classification": {
+    "type": "MEASUREMENT_CONTRACT_EVOLUTION",
+    "impact": "HIGH",
+    "affected": [
+      "MATHEMATICAL_KERNEL",
+      "INDEPENDENT_ORACLE",
+      "ACCELERATION_BACKEND",
+      "RUNTIME_ORCHESTRATION"
+    ]
+  },
+  "frozen_boundary": {
+    "phase": "M4-P2.6.1",
+    "semantic_role": "HISTORICAL_INCOMPLETE_MEASUREMENT_BASELINE",
+    "fixture_path": "configs/research-os/fixtures/m4-p2.6.1/frozen/source-manifest-fixture-v1.json",
+    "fixture_digest": "f9716c799e1e55e58585c7e9acf0730f9d05111ab6e375cfb9bea85ecbdeacc5",
+    "task_digest": "80068e22f5e1c343fd86213faa0d9a411d71f92ad2750fed10449a10151de8fa",
+    "manifest_digest": "b1f72ebe01daf38c39724f2b6b2beaa1e0be391974e708ba1be65e8cf12ae3be",
+    "immutable": true,
+    "formal_completion_present": false,
+    "historical_evidence": "NOT_RUN"
+  },
+  "superseding_boundary": {
+    "phase": "M4-P2.6.3",
+    "semantic_role": "SUPERSEDING_SYNTHETIC_MEASUREMENT_IMPLEMENTATION",
+    "fixture_path": "configs/research-os/fixtures/m4-p2.6.3/superseding/source-manifest-fixture-v1.json",
+    "fixture_digest": "53f9a4b7d92944dfd6a46d317b018bdc6b434fc69bb977d72ae6d1f177e0c73b",
+    "task_digest": "85a08402a4a0c37f75ee1675f4970ef00a7a0b0992b4204251c0c2cc79324de4",
+    "manifest_digest": "39435df4057f0df747f2b56c48282d6fc4ad9a266fbb8f31262e3984ece712ba",
+    "periodic_refit_policy_digest": "ad58b9abcd90c5e7ee7b9892ac8c209b8033f7a50e603b58c043685b0c7d6f99",
+    "immutable": true,
+    "formal_completion_present": true,
+    "historical_evidence": "NOT_RUN"
+  },
+  "compatibility_semantics": {
+    "relationship": "P2.6.3_SUPERSEDES_P2.6.1_FOR_FUTURE_MEASUREMENT_EXECUTION",
+    "same_task_key_reused_in_source_history": true,
+    "same_task_identity": false,
+    "in_place_identity_rewrite_allowed": false,
+    "old_runtime_artifacts_deleted": false,
+    "old_results_or_checkpoints_reused": false,
+    "old_and_new_results_mixed": false,
+    "both_fixture_replays_required": true,
+    "digest_expectation_rebind_without_fixture": "FORBIDDEN"
+  },
+  "result_blind_freeze": {
+    "score_read": false,
+    "prediction_read": false,
+    "ranking_read": false,
+    "power_read": false,
+    "false_positive_read": false,
+    "bias_rmse_coverage_read": false,
+    "mde_read": false,
+    "threshold_selected_from_results": false
+  },
+  "mainline_integration": {
+    "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+    "task": "m4-p2-6-3-superseding-compatibility-acceptance",
+    "ready_condition": "P2.6.3 and P2.7 completed, both source fixtures available, and no fixture replay drift",
+    "runner": "research_evidence_supervisor",
+    "upstream_artifacts": [
+      "P2.6.1 frozen source fixture",
+      "P2.6.3 superseding source fixture",
+      "P2.6.3 periodic-refit policy",
+      "P2.6.3 immutable execution metadata",
+      "P2.7 immutable gate execution metadata"
+    ],
+    "downstream_artifacts": [
+      "MeasurementCompatibilityAcceptanceArtifact",
+      "source-fixture replay attestations"
+    ],
+    "status_projection": "unified_m4_status.measurement_system_v2.compatibility",
+    "evidence_rule": "zero_compatibility_and_replay_attestations_are_not_research_evidence",
+    "decision_consumer": "M4 Measurement v2 design and superseding marginal binding",
+    "next_consumer": "m4-v2-measurement-contract-design",
+    "completion_lifecycle": [
+      "CODE_COMPLETE",
+      "INTEGRATION_PENDING",
+      "INTEGRATED",
+      "VALIDATED_IN_MAINLINE",
+      "COMPLETE"
+    ]
+  },
+  "promotion_boundary": {
+    "prediction_v2_promotion_allowed": false,
+    "production_mainline_switch_allowed": false,
+    "p3_allowed": false,
+    "required_next_gate": "MEASUREMENT_V2_RUNTIME_AUDIT_AND_FULL_REPLAY"
+  },
+  "agent_request": {
+    "request_id": 292,
+    "execution_id": 213,
+    "request_key": "engineering-m4-p263-superseding-compatibility-round-24-20260807"
+  },
+  "production_action": "none"
+}

@@ -97,7 +97,9 @@ from .repaired_contracts import STATE_VISIBLE_FEATURE_MANIFEST_DIGEST
 from .schedule import AnalysisReplicate, build_cells, build_replicate
 from .statistics import (
     block_permutation_statistics,
+    block_permutation_statistics_exact_runtime,
     moving_block_bootstrap_statistics,
+    moving_block_bootstrap_statistics_exact_runtime,
     primary_inference,
     seed_set_digest,
 )
@@ -118,6 +120,14 @@ PROBES = (
     "REGULARIZED_LOGISTIC_REGRESSION",
     "NAIVE_BAYES",
     "SHALLOW_CALIBRATED_TREE",
+)
+GOLDEN_LEARNED_PROBES = (
+    "REGULARIZED_LOGISTIC_REGRESSION",
+    "NAIVE_BAYES",
+    "SHALLOW_CALIBRATED_TREE",
+)
+P263_PERIODIC_REFIT_CONTRACT_DIGEST = (
+    "ad58b9abcd90c5e7ee7b9892ac8c209b8033f7a50e603b58c043685b0c7d6f99"
 )
 SHARED_FROZEN_COMPONENTS = (
     "synthetic_dataset_generator",
@@ -687,6 +697,8 @@ class PythonReferenceBackend:
         *,
         fold: OuterFold,
         probe_configs: Mapping[str, Mapping[str, Any]],
+        prepared_learned: dict[str, Any] | None = None,
+        refit_learned: bool = True,
         before_target: Any | None = None,
     ) -> dict[str, Any]:
         validate_outer_fold(
@@ -706,15 +718,27 @@ class PythonReferenceBackend:
         prepared_by_probe: dict[str, Any] = {}
         predictions: dict[str, tuple[float, ...]] = {}
         for probe_id in PROBES:
-            prepared = prepare_probe(
-                probe_id=probe_id,
-                dataset=training,
-                train_view=train,
-                probe_config=probe_configs.get(probe_id, {}),
-                outer_test_issue=fold.test_issue,
-                train_view_builder=self.build_train_feature_view,
-                runtime_cache=None,
-            )
+            if (
+                probe_id in GOLDEN_LEARNED_PROBES
+                and not refit_learned
+                and prepared_learned is not None
+            ):
+                prepared = prepared_learned[probe_id]
+            else:
+                prepared = prepare_probe(
+                    probe_id=probe_id,
+                    dataset=training,
+                    train_view=train,
+                    probe_config=probe_configs.get(probe_id, {}),
+                    outer_test_issue=fold.test_issue,
+                    train_view_builder=self.build_train_feature_view,
+                    runtime_cache=None,
+                )
+                if (
+                    probe_id in GOLDEN_LEARNED_PROBES
+                    and prepared_learned is not None
+                ):
+                    prepared_learned[probe_id] = prepared
             prepared_by_probe[probe_id] = prepared
             predictions[probe_id] = prepared.predict(blind)
         if before_target is not None:
@@ -1939,11 +1963,13 @@ class PythonReferenceReplicateEvaluator:
         synthetic: SyntheticRunManifest,
         inputs: PythonReferenceInputs,
         output_dir: Path,
+        periodic_refit_contract: Any | None = None,
     ) -> None:
         self.manifest = manifest
         self.synthetic = synthetic
         self.inputs = inputs
         self.output_dir = output_dir
+        self.periodic_refit_contract = periodic_refit_contract
         require_repaired_manifest(manifest.payload.get("phase"))
         if inputs.resampling.artifact_digest != RESAMPLING_KERNEL_DIGEST:
             raise GoldenReferenceError("golden_reference_resampling_digest_changed")
@@ -1969,6 +1995,7 @@ class PythonReferenceReplicateEvaluator:
         truth_by_scenario: Mapping[str, Mapping[str, Any]],
         fixture_git_commit: str,
         output_dir: Path,
+        periodic_refit_contract: Any | None = None,
     ) -> PythonReferenceReplicateEvaluator:
         return cls(
             manifest=manifest,
@@ -1981,6 +2008,7 @@ class PythonReferenceReplicateEvaluator:
                 fixture_git_commit=fixture_git_commit,
             ),
             output_dir=output_dir,
+            periodic_refit_contract=periodic_refit_contract,
         )
 
     def evaluate(self, replicate: AnalysisReplicate) -> PythonReferenceEvaluation:
@@ -2015,6 +2043,7 @@ class PythonReferenceReplicateEvaluator:
             output_dir=self.output_dir,
             replicate=replicate,
         )
+        prepared_learned: dict[str, Any] = {}
 
         def checkpoint_callback(
             *,
@@ -2062,10 +2091,18 @@ class PythonReferenceReplicateEvaluator:
 
         for fold_index, fold in enumerate(folds):
             checkpoint_for_fold: dict[str, str] = {}
+            policy = self.periodic_refit_contract
+            refit_learned = (
+                policy is None
+                or not prepared_learned
+                or policy.is_refit_boundary(fold_index)
+            )
 
             trace = backend.evaluate_fold(
                 fold=fold,
                 probe_configs=configs,
+                prepared_learned=prepared_learned,
+                refit_learned=refit_learned,
                 before_target=checkpoint_callback(
                     fold_index_value=fold_index,
                     checkpoint_for_fold=checkpoint_for_fold,
@@ -2103,6 +2140,15 @@ class PythonReferenceReplicateEvaluator:
             fold_traces.append(
                 {
                     "fold_index": fold_index,
+                    **(
+                        {
+                            "learned_probe_refit_boundary_fold_index": (
+                                policy.boundary_fold_index(fold_index)
+                            )
+                        }
+                        if policy is not None
+                        else {}
+                    ),
                     **trace,
                     "target_vector": list(target),
                     "probes": trace_probes,
@@ -2143,7 +2189,12 @@ class PythonReferenceReplicateEvaluator:
             domain="dehps.m4-p2.ordered-formal-settlements.v1",
         )
         pe1_values = tuple(issue_gains["REGULARIZED_LOGISTIC_REGRESSION"])
-        bootstrap, bootstrap_seeds = moving_block_bootstrap_statistics(
+        bootstrap_runner = (
+            moving_block_bootstrap_statistics
+            if self.periodic_refit_contract is None
+            else moving_block_bootstrap_statistics_exact_runtime
+        )
+        bootstrap, bootstrap_seeds = bootstrap_runner(
             pe1_values,
             manifest=self.inputs.resampling,
             scenario_id=replicate.cell.scenario_id,
@@ -2157,7 +2208,12 @@ class PythonReferenceReplicateEvaluator:
             permuted = target_matrix[np.asarray(indices, dtype=np.int64)]
             return float(_literal_permutation_pe1(probability_matrix, permuted).mean())
 
-        permutation, permutation_seeds = block_permutation_statistics(
+        permutation_runner = (
+            block_permutation_statistics
+            if self.periodic_refit_contract is None
+            else block_permutation_statistics_exact_runtime
+        )
+        permutation, permutation_seeds = permutation_runner(
             issue_count=len(folds),
             statistic_for_indices=statistic_for_indices,
             manifest=self.inputs.resampling,
@@ -2210,6 +2266,27 @@ class PythonReferenceReplicateEvaluator:
             "leakage_status": "PASS",
             "actual_outer_fold_count": len(folds),
             "number_probability_predictions": len(folds) * 33 * len(PROBES),
+            **(
+                {
+                    "measurement_update_policy_digest": (
+                        self.periodic_refit_contract.artifact_digest
+                    ),
+                    "learned_probe_refit_interval_folds": (
+                        self.periodic_refit_contract.learned_probe_refit_interval_folds
+                    ),
+                    "learned_probe_refit_boundary_count": (
+                        (
+                            len(folds)
+                            + self.periodic_refit_contract.learned_probe_refit_interval_folds
+                            - 1
+                        )
+                        // self.periodic_refit_contract.learned_probe_refit_interval_folds
+                    ),
+                    "empirical_baseline_update_count": len(folds),
+                }
+                if self.periodic_refit_contract is not None
+                else {}
+            ),
             "gate_probe": "REGULARIZED_LOGISTIC_REGRESSION",
             "metric_kernel_digest": METRIC_KERNEL_DIGEST,
             "walk_forward_harness_digest": WALK_FORWARD_HARNESS_DIGEST,
@@ -2303,16 +2380,16 @@ def _validate_probe_state(
     state: object,
     *,
     probe_id: str,
-    test_issue: int,
+    training_end_issue: int,
 ) -> bool:
     return bool(
         isinstance(state, Mapping)
         and set(state) == PROBE_STATE_KEYS
         and state.get("probe_id") == probe_id
         and state.get("training_start_issue") == 1
-        and state.get("training_end_issue") == test_issue - 1
-        and state.get("training_issue_count") == test_issue - 1
-        and state.get("training_row_count") == (test_issue - 1) * 33
+        and state.get("training_end_issue") == training_end_issue
+        and state.get("training_issue_count") == training_end_issue
+        and state.get("training_row_count") == training_end_issue * 33
         and state.get("feature_manifest_digest")
         == STATE_VISIBLE_FEATURE_MANIFEST_DIGEST
         and _is_lower_hex_digest(state.get("state_digest"))
@@ -2398,6 +2475,15 @@ def _validate_fixture_evaluation(
         or result.get("resampling_kernel_digest") != RESAMPLING_KERNEL_DIGEST
     ):
         raise GoldenReferenceError("golden_reference_fixture_result_incomplete")
+    periodic = "measurement_update_policy_digest" in result
+    if periodic and (
+        result.get("measurement_update_policy_digest")
+        != P263_PERIODIC_REFIT_CONTRACT_DIGEST
+        or result.get("learned_probe_refit_interval_folds") != 64
+        or result.get("learned_probe_refit_boundary_count") != 1
+        or result.get("empirical_baseline_update_count") != 61
+    ):
+        raise GoldenReferenceError("golden_reference_periodic_refit_contract_changed")
     traces = evaluation.fold_traces
     entries = _validated_fixture_journal(evaluation)
     if len(traces) != 61:
@@ -2470,7 +2556,11 @@ def _validate_fixture_evaluation(
                 or not _validate_probe_state(
                     state,
                     probe_id=probe_id,
-                    test_issue=test_issue,
+                    training_end_issue=(
+                        test_issue - 1
+                        if not periodic or probe_id == "EMPIRICAL_BASELINE"
+                        else 900 + fold_index - fold_index % 64
+                    ),
                 )
                 or not _validate_issue_metric(
                     metric,

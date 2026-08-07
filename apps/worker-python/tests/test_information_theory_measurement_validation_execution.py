@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -75,6 +76,8 @@ from dehps.research_os.information_theory.walk_forward import (
 )
 from dehps.research_os.information_theory.walk_forward.contracts import (
     THEORETICAL_PROBABILITY,
+    OuterFold,
+    SyntheticDataset,
 )
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -1008,6 +1011,82 @@ def test_periodic_refit_predicts_every_fold_from_fixed_strict_prior_states(
                 ]
                 == trace["train_end_issue"]
             )
+
+
+def test_periodic_refit_never_reads_the_current_target_before_checkpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = _p261_contract()
+    long_cell = next(
+        item
+        for item in build_cells(manifest, _synthetic())
+        if item.scale_id == "LONG" and item.scenario_id == "NULL_UNIFORM"
+    )
+    cell = replace(long_cell, outer_issue_count=65)
+    replicate = build_replicate(
+        cell=cell,
+        replicate_index=33,
+        parent_execution_id="d" * 64,
+    )
+    first_test_issue = 901
+    test_issues = set(range(first_test_issue, first_test_issue + 65))
+    checkpointed: set[int] = set()
+    original_issue = SyntheticDataset.issue
+    original_record = StrictPriorCheckpointJournal.record
+
+    def strict_target_access(self, issue_index: int):
+        if issue_index in test_issues and issue_index not in checkpointed:
+            raise AssertionError(
+                f"target {issue_index} read before strict-prior checkpoint"
+            )
+        return original_issue(self, issue_index)
+
+    def record_before_target(self, **kwargs):
+        original_record(self, **kwargs)
+        checkpointed.add(int(kwargs["test_issue"]))
+
+    def fixed_65_folds(dataset: SyntheticDataset) -> tuple[OuterFold, ...]:
+        return tuple(
+            OuterFold(tuple(range(1, test_issue)), test_issue)
+            for test_issue in range(first_test_issue, first_test_issue + 65)
+        )
+
+    monkeypatch.setattr(SyntheticDataset, "issue", strict_target_access)
+    monkeypatch.setattr(StrictPriorCheckpointJournal, "record", record_before_target)
+    monkeypatch.setattr(reference_module, "expanding_outer_folds", fixed_65_folds)
+    traces: list[dict] = []
+    result = ReferenceReplicateEvaluator.from_paths(
+        manifest=manifest,
+        synthetic=_synthetic(),
+        preregistration_path=(
+            ROOT
+            / "configs/research-os/m4-information-theory-preregistration-v1.0.3.json"
+        ),
+        walk_forward_harness_path=(
+            ROOT
+            / "configs/research-os/m4-information-theory-walk-forward-harness-v1.json"
+        ),
+        resampling_path=RESAMPLING_PATH,
+        truth_by_scenario={},
+        git_commit="3" * 40,
+        output_dir=tmp_path,
+        periodic_refit_contract=_p263_policy(),
+        trace_records=traces,
+    ).evaluate(replicate)
+
+    assert checkpointed == test_issues
+    assert len(traces) == 65
+    assert result["learned_probe_refit_boundary_count"] == 2
+    for fold_index in (0, 1, 63, 64):
+        trace = traces[fold_index]
+        assert trace["train_end_issue"] == trace["test_issue"] - 1
+        boundary = fold_index - fold_index % 64
+        assert trace["learned_probe_refit_boundary_fold_index"] == boundary
+        for probe_id in PROBES[1:]:
+            assert trace["probes"][probe_id]["probe_state"][
+                "training_end_issue"
+            ] == traces[boundary]["train_end_issue"]
 
 
 def test_periodic_refit_resume_reconstructs_only_latest_boundary(

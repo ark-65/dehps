@@ -6,9 +6,11 @@ import shutil
 from pathlib import Path
 
 import pytest
+
 from dehps.research_os.control_plane import ResearchOSControlPlane
 from dehps.research_os.information_theory.digest import config_digest
 from dehps.research_os.information_theory.measurement_system_v2 import (
+    COMPATIBILITY_COMPLETION_FACT,
     MEASUREMENT_CONTRACT_V2_DIGEST,
     MeasurementContractV2Error,
     build_design_artifacts,
@@ -23,6 +25,8 @@ from dehps.research_os.information_theory.progress import build_m4_status
 from dehps.research_os.mainline import mainline_completion_fact
 from dehps.research_os.models import ControlPlaneManifest, TaskStatus
 from dehps.research_os.supervisor import (
+    M4_P263_COMPATIBILITY_CAPABILITY,
+    M4_P263_COMPATIBILITY_TASK_KEY,
     M4_V2_DESIGN_CAPABILITY,
     M4_V2_DESIGN_TASK_KEY,
     M4MeasurementContractV2DesignCapability,
@@ -586,6 +590,10 @@ def test_source_dag_supersedes_p2_6_1_compute_without_mutating_v2_lineage(
     resolutions = {item.task_key: item for item in snapshot.resolutions}
     assert resolutions[M4_V2_DESIGN_TASK_KEY].status is TaskStatus.EXTERNAL_WAIT
     assert (
+        resolutions[M4_P263_COMPATIBILITY_TASK_KEY].status
+        is TaskStatus.DEPENDENCY_WAIT
+    )
+    assert (
         resolutions["m4-v2-branch-identifiability-preflight-design"].status
         is TaskStatus.DEPENDENCY_WAIT
     )
@@ -600,34 +608,73 @@ def test_source_dag_supersedes_p2_6_1_compute_without_mutating_v2_lineage(
         "formal_temporal_or_joint_execution": "NOT_AUTHORIZED",
         "evidence_progress_increment": 0,
     }
+    assert status["measurement_system_v2"]["compatibility"] == {
+        "task_key": M4_P263_COMPATIBILITY_TASK_KEY,
+        "resolver_status": "dependency_wait",
+        "verified": False,
+        "p2_6_1_role": "FROZEN_HISTORICAL_BASELINE",
+        "p2_6_3_role": "SUPERSEDING_MEASUREMENT_IMPLEMENTATION",
+        "same_task_identity": False,
+        "result_blind": True,
+        "evidence_progress_increment": 0,
+    }
     assert (
         M4_V2_DESIGN_CAPABILITY
         in ResearchEvidenceSupervisor(require_clean_tree=False).capabilities
     )
+    assert (
+        M4_P263_COMPATIBILITY_CAPABILITY
+        in ResearchEvidenceSupervisor(require_clean_tree=False).capabilities
+    )
 
 
-def test_v2_task_becomes_ready_only_after_repair_and_runtime_release() -> None:
+def test_v2_task_becomes_ready_only_after_compatibility_and_runtime_release() -> None:
     payload = json.loads(CONTROL_PLANE_PATH.read_text(encoding="utf-8"))
     payload.pop("manifest_digest")
     initial = ControlPlaneManifest.from_dict(payload)
-    repair_task = next(
-        item
-        for item in initial.tasks
-        if item.task_key == "m4-p2-repair-measurement-system"
-    )
+    tasks = {item.task_key: item for item in initial.tasks}
+    prerequisite_keys = {
+        "m4-p2-false-positive-and-power-runs",
+        "m4-p2-automatic-gate-and-report",
+    }
     for task in payload["tasks"]:
-        if task["task_key"] == repair_task.task_key:
+        if task["task_key"] in prerequisite_keys:
             task["status"] = "completed"
             task["completion_classification"] = "COMPLETE"
-    payload["facts"]["artifacts"].append(
+    payload["facts"]["artifacts"].extend(
         mainline_completion_fact(
-            task=repair_task,
-            execution_id="4" * 64,
+            task=tasks[task_key],
+            execution_id=str(index) * 64,
         )
+        for index, task_key in enumerate(sorted(prerequisite_keys), start=4)
     )
     payload["facts"]["external_events"].append("m4-runtime-slot:p2-6-1-released")
-    released = ControlPlaneManifest.from_dict(payload)
-    snapshot = ResearchOSControlPlane().resolve(released)
+    prerequisites_complete = ControlPlaneManifest.from_dict(payload)
+    snapshot = ResearchOSControlPlane().resolve(prerequisites_complete)
+    resolutions = {item.task_key: item.status for item in snapshot.resolutions}
+    assert resolutions[M4_P263_COMPATIBILITY_TASK_KEY] is TaskStatus.READY
+    assert resolutions[M4_V2_DESIGN_TASK_KEY] is TaskStatus.DEPENDENCY_WAIT
+
+    compatibility_task = next(
+        item
+        for item in prerequisites_complete.tasks
+        if item.task_key == M4_P263_COMPATIBILITY_TASK_KEY
+    )
+    for task in payload["tasks"]:
+        if task["task_key"] == M4_P263_COMPATIBILITY_TASK_KEY:
+            task["status"] = "completed"
+            task["completion_classification"] = "COMPLETE"
+    payload["facts"]["artifacts"].extend(
+        (
+            mainline_completion_fact(
+                task=compatibility_task,
+                execution_id="6" * 64,
+            ),
+            COMPATIBILITY_COMPLETION_FACT,
+        )
+    )
+    compatible = ControlPlaneManifest.from_dict(payload)
+    snapshot = ResearchOSControlPlane().resolve(compatible)
     resolutions = {item.task_key: item.status for item in snapshot.resolutions}
     assert resolutions[M4_V2_DESIGN_TASK_KEY] is TaskStatus.READY
 

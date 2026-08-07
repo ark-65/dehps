@@ -23,6 +23,30 @@ REVIEWED_SHARED_COMPATIBILITY_PATHS = (
         "shallow_calibrated_tree.py"
     ),
 )
+P263_REVIEWED_SOURCE_COMPATIBILITY_FIXTURE_PATH = Path(
+    "configs/research-os/"
+    "m4-p2-6-3-periodic-refit-source-compatibility-fixture-v1.json"
+)
+P263_REVIEWED_SOURCE_COMPATIBILITY_SCHEMA = (
+    "dehps-m4-p2-6-3-reviewed-source-compatibility-fixture.v1"
+)
+P263_REVIEWED_SOURCE_COMPATIBILITY_TYPE = (
+    "ReviewedSupersedingSourceCompatibilityFixture"
+)
+P263_REVIEWED_SOURCE_COMPATIBILITY_PATHS = (
+    (
+        "apps/worker-python/dehps/research_os/information_theory/"
+        "measurement_validation/schedule.py"
+    ),
+    (
+        "apps/worker-python/dehps/research_os/information_theory/"
+        "measurement_validation/statistics.py"
+    ),
+    (
+        "apps/worker-python/dehps/research_os/information_theory/"
+        "probes/shallow_calibrated_tree.py"
+    ),
+)
 
 _SHA1_PATTERN = re.compile(r"[0-9a-f]{40}")
 _SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
@@ -92,6 +116,62 @@ _GOVERNANCE_FIELDS = {
     "statistical_results_read",
     "evidence_progress_increment",
     "production_action",
+}
+_P263_FIXTURE_FIELDS = {
+    "schema_version",
+    "artifact_type",
+    "artifact_digest",
+    "fixture_key",
+    "status",
+    "baseline_git_commit",
+    "candidate_git_commit",
+    "changed_paths",
+    "baseline_source_entries",
+    "candidate_source_entries",
+    "registered_golden_source_integrity_identity",
+    "candidate_golden_source_integrity_identity",
+    "source_roles",
+    "result_blind",
+    "periodic_refit_temporal_contract",
+    "governance",
+}
+_P263_SOURCE_ROLES = {
+    P263_REVIEWED_SOURCE_COMPATIBILITY_PATHS[0]: "FOLD_SCHEDULE",
+    P263_REVIEWED_SOURCE_COMPATIBILITY_PATHS[1]: "INFERENCE_STATISTICS",
+    P263_REVIEWED_SOURCE_COMPATIBILITY_PATHS[2]: "LEARNED_PROBE",
+}
+_P263_RESULT_BLIND = {
+    "historical_outcomes_read": False,
+    "previous_score_read": False,
+    "previous_prediction_read": False,
+    "previous_ranking_read": False,
+    "power_result_read": False,
+    "false_positive_result_read": False,
+    "bias_rmse_coverage_result_read": False,
+    "mde_result_read": False,
+    "threshold_selected_from_results": False,
+}
+_P263_TEMPORAL_CONTRACT = {
+    "policy_digest": (
+        "ad58b9abcd90c5e7ee7b9892ac8c209b8033f7a50e603b58c043685b0c7d6f99"
+    ),
+    "refit_interval_folds": 64,
+    "training_state": "STRICT_PRIOR_THROUGH_T_MINUS_1",
+    "prediction_target": "T",
+    "current_target_available_before_prediction": False,
+    "prediction_checkpoint_written_before_target_read": True,
+    "boundary_refit_uses_current_target": False,
+    "resume_reuses_only_settled_folds": True,
+    "future_fold_state_read": False,
+}
+_P263_GOVERNANCE = {
+    "reviewed": True,
+    "scientific_contract_changed": True,
+    "change_classification": "MEASUREMENT_CONTRACT_EVOLUTION",
+    "statistical_results_read": False,
+    "evidence_progress_increment": 0,
+    "prediction_v2_promotion_allowed": False,
+    "production_action": "none",
 }
 
 
@@ -280,3 +360,90 @@ def load_reviewed_shared_compatibility_fixture(path: Path) -> dict[str, Any]:
             f"shared_compatibility_fixture_invalid:{exc}"
         ) from exc
     return validate_reviewed_shared_compatibility_fixture(payload)
+
+
+def validate_p263_reviewed_source_compatibility_fixture(
+    value: object,
+    *,
+    expected_artifact_digest: str | None = None,
+    expected_candidate_golden_identity: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != _P263_FIXTURE_FIELDS:
+        raise SourceCompatibilityError(
+            "p263_source_compatibility_fixture_shape_changed"
+        )
+    payload = dict(value)
+    digest = str(payload.get("artifact_digest") or "")
+    if (
+        payload.get("schema_version")
+        != P263_REVIEWED_SOURCE_COMPATIBILITY_SCHEMA
+        or payload.get("artifact_type")
+        != P263_REVIEWED_SOURCE_COMPATIBILITY_TYPE
+        or payload.get("fixture_key")
+        != "M4-P2.6.3_PERIODIC_REFIT_SUPERSEDING_SOURCE"
+        or payload.get("status") != "REVIEWED_RESULT_BLIND_COMPATIBILITY"
+        or payload.get("baseline_git_commit")
+        != "70f83a5400c6207cbe3806e69329a233e461e311"
+        or payload.get("candidate_git_commit")
+        != "0842201871aef856b97838c38bb53d536e1e5893"
+        or payload.get("changed_paths")
+        != list(P263_REVIEWED_SOURCE_COMPATIBILITY_PATHS)
+        or _SHA256_PATTERN.fullmatch(digest) is None
+        or config_digest(payload) != digest
+        or (
+            expected_artifact_digest is not None
+            and digest != expected_artifact_digest
+        )
+    ):
+        raise SourceCompatibilityError(
+            "p263_source_compatibility_fixture_identity_changed"
+        )
+    _validated_source_entries(
+        payload.get("baseline_source_entries"),
+        expected_paths=P263_REVIEWED_SOURCE_COMPATIBILITY_PATHS,
+        label="p263_baseline",
+    )
+    _validated_source_entries(
+        payload.get("candidate_source_entries"),
+        expected_paths=P263_REVIEWED_SOURCE_COMPATIBILITY_PATHS,
+        label="p263_candidate",
+    )
+    validate_golden_source_integrity_identity(
+        payload.get("registered_golden_source_integrity_identity")
+    )
+    candidate_identity = validate_golden_source_integrity_identity(
+        payload.get("candidate_golden_source_integrity_identity")
+    )
+    if (
+        expected_candidate_golden_identity is not None
+        and candidate_identity
+        != validate_golden_source_integrity_identity(
+            expected_candidate_golden_identity
+        )
+    ):
+        raise SourceCompatibilityError(
+            "p263_source_compatibility_candidate_identity_changed"
+        )
+    if (
+        payload.get("source_roles") != _P263_SOURCE_ROLES
+        or payload.get("result_blind") != _P263_RESULT_BLIND
+        or payload.get("periodic_refit_temporal_contract")
+        != _P263_TEMPORAL_CONTRACT
+        or payload.get("governance") != _P263_GOVERNANCE
+    ):
+        raise SourceCompatibilityError(
+            "p263_source_compatibility_boundary_changed"
+        )
+    return payload
+
+
+def load_p263_reviewed_source_compatibility_fixture(
+    path: Path,
+) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SourceCompatibilityError(
+            f"p263_source_compatibility_fixture_invalid:{exc}"
+        ) from exc
+    return validate_p263_reviewed_source_compatibility_fixture(payload)

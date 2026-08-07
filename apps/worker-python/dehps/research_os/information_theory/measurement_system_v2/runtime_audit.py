@@ -26,8 +26,14 @@ from dehps.research_os.information_theory.measurement_validation.source_integrit
     validate_source_integrity_contract,
 )
 
-RUNTIME_AUDIT_PLAN_PATH = Path(
+P261_RUNTIME_AUDIT_PLAN_PATH = Path(
     "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.5.json"
+)
+RUNTIME_AUDIT_PLAN_PATH = Path(
+    "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.6.json"
+)
+P261_RUNTIME_AUDIT_PLAN_DIGEST = (
+    "e2bfb82be29bedac51be6905e6049b4a10e5c0cde0198995e12279bf969714ca"
 )
 UNAVAILABLE = "UNAVAILABLE"
 _DIGEST_PATTERN = re.compile(r"[0-9a-f]{64}")
@@ -78,10 +84,26 @@ _EXECUTION_POLICY = {
     "correctness_replay": "out_of_band_trace_capture_enabled",
     "benchmark_attempt_policy": "fresh_attempt_scoped_workdirs_no_journal_reuse",
 }
+_P263_EXECUTION_POLICY = {
+    **_EXECUTION_POLICY,
+    "while_p2_6_1_running": "NOT_APPLICABLE_P2_6_1_FROZEN_INCOMPLETE",
+    "formal_benchmark": "AFTER_M4_P2_6_3_COMPATIBILITY_VERIFIED",
+}
 _OBSERVED_PHASES = (
     "dataset_generation",
     "fold_construction",
     "feature_cache",
+    "estimator_calibrator_fit",
+    "prediction_metric",
+    "bootstrap",
+    "permutation",
+    "checkpoint_artifact_persistence",
+)
+_P263_OBSERVED_PHASES = (
+    "dataset_generation",
+    "fold_construction",
+    "feature_cache",
+    "feature_cache_initialization",
     "estimator_calibrator_fit",
     "prediction_metric",
     "bootstrap",
@@ -166,6 +188,63 @@ _PLAN_FIELDS = {
     "production_action",
     "promotion_gate_opened",
 }
+_P263_PLAN_FIELDS = _PLAN_FIELDS | {
+    "measurement_supersession_contract",
+    "result_blind_contract",
+    "periodic_refit_temporal_contract",
+}
+_P263_MEASUREMENT_SUPERSESSION_CONTRACT = {
+    "compatibility_request_digest": (
+        "42d9583d2b333e171b99dfde27732b687e2deec2359a423d20d5d295103d1cec"
+    ),
+    "p2_6_1_frozen_fixture_digest": (
+        "f9716c799e1e55e58585c7e9acf0730f9d05111ab6e375cfb9bea85ecbdeacc5"
+    ),
+    "p2_6_3_superseding_fixture_digest": (
+        "53f9a4b7d92944dfd6a46d317b018bdc6b434fc69bb977d72ae6d1f177e0c73b"
+    ),
+    "p2_6_3_task_digest": (
+        "85a08402a4a0c37f75ee1675f4970ef00a7a0b0992b4204251c0c2cc79324de4"
+    ),
+    "p2_6_3_policy_digest": (
+        "ad58b9abcd90c5e7ee7b9892ac8c209b8033f7a50e603b58c043685b0c7d6f99"
+    ),
+    "p2_6_3_completion_digest": (
+        "448444ad70ff1af46edae795dc516f13fede062cfec6879a2db27b639095c092"
+    ),
+    "old_results_or_checkpoints_reused": False,
+    "same_task_identity": False,
+}
+_P263_RESULT_BLIND_CONTRACT = {
+    "allowed_inputs": [
+        "source_identity",
+        "synthetic_input_artifact",
+        "preregistered_policy",
+        "strict_prior_fold_state",
+    ],
+    "previous_score_read": False,
+    "previous_prediction_read": False,
+    "previous_ranking_read": False,
+    "power_result_read": False,
+    "false_positive_result_read": False,
+    "bias_rmse_coverage_result_read": False,
+    "mde_result_read": False,
+    "threshold_selected_from_results": False,
+    "historical_outcomes_read": False,
+}
+_P263_PERIODIC_REFIT_TEMPORAL_CONTRACT = {
+    "policy_digest": (
+        "ad58b9abcd90c5e7ee7b9892ac8c209b8033f7a50e603b58c043685b0c7d6f99"
+    ),
+    "refit_interval_folds": 64,
+    "training_state": "STRICT_PRIOR_THROUGH_T_MINUS_1",
+    "prediction_target": "T",
+    "current_target_available_before_prediction": False,
+    "prediction_checkpoint_written_before_target_read": True,
+    "boundary_refit_uses_current_target": False,
+    "resume_reuses_only_settled_folds": True,
+    "future_fold_state_read": False,
+}
 
 
 class RuntimeAuditError(RuntimeError):
@@ -183,8 +262,13 @@ def load_runtime_audit_plan(path: Path) -> dict[str, Any]:
         raise RuntimeAuditError(f"runtime_audit_plan_invalid: {exc}") from exc
     if not isinstance(payload, dict):
         raise RuntimeAuditError("runtime_audit_plan_invalid: root must be an object")
+    version = str(payload.get("semantic_version") or "")
+    is_p263 = version == "1.1.6"
+    expected_fields = _P263_PLAN_FIELDS if is_p263 else _PLAN_FIELDS
+    expected_digest = None if is_p263 else P261_RUNTIME_AUDIT_PLAN_DIGEST
     if (
-        set(payload) != _PLAN_FIELDS
+        version not in {"1.1.5", "1.1.6"}
+        or set(payload) != expected_fields
         or payload.get("schema_version")
         != "dehps-m4-p2-9-measurement-runtime-audit-plan.v1"
         or payload.get("artifact_type") != "measurement_runtime_benchmark_plan"
@@ -194,9 +278,12 @@ def load_runtime_audit_plan(path: Path) -> dict[str, Any]:
         or payload.get("agent_authority") != "engineering"
         or payload.get("evidence_progress_increment") != 0
         or payload.get("promotion_gate_opened") is not False
-        or payload.get("semantic_version") != "1.1.5"
         or payload.get("supersedes_artifact_digest")
-        != "4d0669386fc32b27b5345995bdaf5e902aaa63109e73472804fd6b6ba06fcf15"
+        != (
+            P261_RUNTIME_AUDIT_PLAN_DIGEST
+            if is_p263
+            else "4d0669386fc32b27b5345995bdaf5e902aaa63109e73472804fd6b6ba06fcf15"
+        )
         or payload.get("source_measurement_manifest_digest")
         != "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58"
     ):
@@ -210,7 +297,8 @@ def load_runtime_audit_plan(path: Path) -> dict[str, Any]:
     )
     equivalence_contract = payload.get("equivalence_contract")
     if (
-        execution_policy != _EXECUTION_POLICY
+        execution_policy
+        != (_P263_EXECUTION_POLICY if is_p263 else _EXECUTION_POLICY)
         or oracle_contract != _ORACLE_CONTRACT
         or not isinstance(fingerprint_contract, dict)
         or fingerprint_contract.get("required_dimensions")
@@ -223,7 +311,8 @@ def load_runtime_audit_plan(path: Path) -> dict[str, Any]:
         is None
         or fingerprint_contract.get("required_fingerprint_digest")
         != _REQUIRED_EXECUTOR_FINGERPRINT_DIGEST
-        or payload.get("observed_phases") != list(_OBSERVED_PHASES)
+        or payload.get("observed_phases")
+        != list(_P263_OBSERVED_PHASES if is_p263 else _OBSERVED_PHASES)
         or payload.get("metrics") != list(_METRICS)
         or payload.get("metric_attribution") != _METRIC_ATTRIBUTION
         or payload.get("required_artifacts") != list(_REQUIRED_ARTIFACTS)
@@ -233,6 +322,17 @@ def load_runtime_audit_plan(path: Path) -> dict[str, Any]:
         != "HOST_LEVEL_NOT_PROCESS_ATTRIBUTABLE"
         or payload.get("production_action") != "none"
         or payload.get("promotion_gate_opened") is not False
+        or (
+            is_p263
+            and (
+                payload.get("measurement_supersession_contract")
+                != _P263_MEASUREMENT_SUPERSESSION_CONTRACT
+                or payload.get("result_blind_contract")
+                != _P263_RESULT_BLIND_CONTRACT
+                or payload.get("periodic_refit_temporal_contract")
+                != _P263_PERIODIC_REFIT_TEMPORAL_CONTRACT
+            )
+        )
     ):
         raise RuntimeAuditError("runtime_audit_plan_invalid: oracle policy changed")
     try:
@@ -240,7 +340,11 @@ def load_runtime_audit_plan(path: Path) -> dict[str, Any]:
     except SourceIntegrityError as exc:
         raise RuntimeAuditError(f"runtime_audit_plan_invalid: {exc}") from exc
     digest = str(payload.get("artifact_digest") or "")
-    if len(digest) != 64 or config_digest(payload) != digest:
+    if (
+        len(digest) != 64
+        or config_digest(payload) != digest
+        or (expected_digest is not None and digest != expected_digest)
+    ):
         raise RuntimeAuditError("runtime_audit_plan_invalid: digest changed")
     return payload
 
@@ -620,9 +724,9 @@ def validate_runtime_benchmark_attempt_artifact(
         != result.get("checkpoint_journal_entry_count")
         or payload.get("measured_checkpoint_journal_relative_path")
         != result.get("checkpoint_journal_path")
-        or payload.get("measured_fold_count") != 61
-        or payload.get("measured_fit_count") != 244
-        or payload.get("measured_resample_count") != 4000
+        or payload.get("measured_fold_count") != observation.get("fold_count")
+        or payload.get("measured_fit_count") != observation.get("fit_count")
+        or payload.get("measured_resample_count") != observation.get("resample_count")
         or payload.get("executor_fingerprint_digest_before")
         != observation.get("executor_fingerprint_digest_before")
         or payload.get("executor_fingerprint_digest_after")

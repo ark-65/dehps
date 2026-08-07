@@ -2,9 +2,15 @@ import json
 from pathlib import Path
 
 import pytest
+
 from dehps.research_os.control_plane import ResearchOSControlPlane
 from dehps.research_os.information_theory import load_m4_manifest
 from dehps.research_os.information_theory.digest import config_digest
+from dehps.research_os.information_theory.measurement_system_v2 import (
+    P261_FROZEN_FIXTURE_PATH,
+    P263_POLICY_DIGEST,
+    load_measurement_compatibility_fixture,
+)
 from dehps.research_os.information_theory.measurement_validation import (
     MEASUREMENT_VALIDATION_MANIFEST_DIGEST,
     MeasurementValidationContractError,
@@ -99,7 +105,7 @@ def test_contract_mutations_fail_even_with_recomputed_self_digest(
         validate_measurement_validation_manifest(payload)
 
 
-def test_revised_p26_waits_for_identifiable_repaired_contract() -> None:
+def test_p263_supersedes_compute_while_p261_identity_remains_replayable() -> None:
     manifest = load_m4_manifest(MANIFEST_PATH)
     task = next(
         item
@@ -107,13 +113,28 @@ def test_revised_p26_waits_for_identifiable_repaired_contract() -> None:
         if item.task_key == "m4-p2-false-positive-and-power-runs"
     )
     metric = json.loads(task.metric_contract)
-    assert task.requested_capability == "m4_p2_6_1_false_positive_and_power"
+    assert task.requested_capability == (
+        "m4_p2_6_3_periodic_refit_false_positive_and_power"
+    )
     assert MEASUREMENT_VALIDATION_MANIFEST_DIGEST not in task.input_artifact_digests
+    assert P263_POLICY_DIGEST in task.input_artifact_digests
     assert (
         metric["approved_repair_strategy"]
         == "SCHEME_A_MARGINAL_TRUTH_TO_MARGINAL_METRIC"
     )
-    assert metric["old_execution_status"] == "SUPERSEDED"
+    assert metric["p2_6_1_execution_status"] == (
+        "SUPERSEDED_BY_P2_6_3_WITHOUT_RESULT_REUSE"
+    )
+    frozen = load_measurement_compatibility_fixture(
+        ROOT / P261_FROZEN_FIXTURE_PATH,
+        expected_phase="M4-P2.6.1",
+    )
+    assert frozen.payload["source"]["task_digest"] == (
+        "80068e22f5e1c343fd86213faa0d9a411d71f92ad2750fed10449a10151de8fa"
+    )
+    assert frozen.payload["source"]["requested_capability"] == (
+        "m4_p2_6_1_false_positive_and_power"
+    )
     assert set(metric["mainline_integration"]) == {
         "goal",
         "ready_condition",

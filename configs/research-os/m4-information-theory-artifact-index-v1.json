@@ -260,13 +260,60 @@
       "superseded_by_digest": "b1f72ebe01daf38c39724f2b6b2beaa1e0be391974e708ba1be65e8cf12ae3be"
     },
     "e2bfb82be29bedac51be6905e6049b4a10e5c0cde0198995e12279bf969714ca": {
-      "artifact_type": "measurement_runtime_benchmark_plan",
+      "artifact_type": "superseded_measurement_runtime_benchmark_plan",
       "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.5.json",
-      "supersedes_digest": "4d0669386fc32b27b5345995bdaf5e902aaa63109e73472804fd6b6ba06fcf15"
+      "supersedes_digest": "4d0669386fc32b27b5345995bdaf5e902aaa63109e73472804fd6b6ba06fcf15",
+      "superseded_by_digest": "ccbed31f36ad9486f5489d5827c6456d1853259eaeb1ab7a61077347c7e06056"
+    },
+    "ccbed31f36ad9486f5489d5827c6456d1853259eaeb1ab7a61077347c7e06056": {
+      "artifact_type": "measurement_runtime_benchmark_plan",
+      "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.6.json",
+      "supersedes_digest": "e2bfb82be29bedac51be6905e6049b4a10e5c0cde0198995e12279bf969714ca"
     },
     "b1f72ebe01daf38c39724f2b6b2beaa1e0be391974e708ba1be65e8cf12ae3be": {
+      "artifact_type": "measurement_source_compatibility_fixture",
+      "path": "configs/research-os/fixtures/m4-p2.6.1/frozen/source-manifest-fixture-v1.json",
+      "identity_field": "manifest_digest",
+      "fixture_artifact_digest": "f9716c799e1e55e58585c7e9acf0730f9d05111ab6e375cfb9bea85ecbdeacc5",
+      "superseded_by_digest": "39435df4057f0df747f2b56c48282d6fc4ad9a266fbb8f31262e3984ece712ba"
+    },
+    "39435df4057f0df747f2b56c48282d6fc4ad9a266fbb8f31262e3984ece712ba": {
+      "artifact_type": "measurement_source_compatibility_fixture",
+      "path": "configs/research-os/fixtures/m4-p2.6.3/superseding/source-manifest-fixture-v1.json",
+      "identity_field": "manifest_digest",
+      "fixture_artifact_digest": "53f9a4b7d92944dfd6a46d317b018bdc6b434fc69bb977d72ae6d1f177e0c73b",
+      "supersedes_digest": "b1f72ebe01daf38c39724f2b6b2beaa1e0be391974e708ba1be65e8cf12ae3be",
+      "superseded_by_digest": "bb721c539a9e18250c96cdaa82c8aca719072d49673d8d02de884bceebbf48ae"
+    },
+    "bb721c539a9e18250c96cdaa82c8aca719072d49673d8d02de884bceebbf48ae": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "source_commit": "0842201871aef856b97838c38bb53d536e1e5893",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "identity_field": "manifest_digest",
+      "supersedes_digest": "39435df4057f0df747f2b56c48282d6fc4ad9a266fbb8f31262e3984ece712ba",
+      "superseded_by_digest": "07ef938e3df3b301259c34048cd02123025aad2ab9ad7982efec525b919e8acf"
+    },
+    "07ef938e3df3b301259c34048cd02123025aad2ab9ad7982efec525b919e8acf": {
       "artifact_type": "research_os_control_plane_manifest",
-      "path": "configs/research-os/m4-information-theory-evidence-v1.json"
+      "path": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "identity_field": "manifest_digest",
+      "supersedes_digest": "bb721c539a9e18250c96cdaa82c8aca719072d49673d8d02de884bceebbf48ae"
+    },
+    "f9716c799e1e55e58585c7e9acf0730f9d05111ab6e375cfb9bea85ecbdeacc5": {
+      "artifact_type": "measurement_source_compatibility_fixture",
+      "path": "configs/research-os/fixtures/m4-p2.6.1/frozen/source-manifest-fixture-v1.json"
+    },
+    "53f9a4b7d92944dfd6a46d317b018bdc6b434fc69bb977d72ae6d1f177e0c73b": {
+      "artifact_type": "measurement_source_compatibility_fixture",
+      "path": "configs/research-os/fixtures/m4-p2.6.3/superseding/source-manifest-fixture-v1.json"
+    },
+    "42d9583d2b333e171b99dfde27732b687e2deec2359a423d20d5d295103d1cec": {
+      "artifact_type": "measurement_contract_compatibility_request",
+      "path": "configs/research-os/m4-p2-measurement-v2-compatibility-request-v1.json"
+    },
+    "1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f": {
+      "artifact_type": "p263_periodic_refit_source_compatibility_fixture",
+      "path": "configs/research-os/m4-p2-6-3-periodic-refit-source-compatibility-fixture-v1.json"
     }
   },
   "lookup_rule": "digest_must_equal_the_artifact_identity_at_the_registered_canonical_path",

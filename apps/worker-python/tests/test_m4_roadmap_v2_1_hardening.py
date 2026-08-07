@@ -20,12 +20,16 @@ from dehps.golden_source_identity import (
     require_golden_source_compatibility,
 )
 from dehps.research_os.control_plane import ResearchOSControlPlane
+from dehps.research_os.information_theory.digest import config_digest
 from dehps.research_os.information_theory.measurement_system_v2 import (
     NO_DETECTABLE_INFORMATION,
+    P261_FROZEN_FIXTURE_PATH,
+    P263_TASK_DIGEST,
     bind_p261_marginal_acceptance,
     build_branch_decision_replay_artifact,
     compile_m4_v2_routing_decision,
     load_gate_replay_fixture,
+    load_measurement_compatibility_fixture,
     load_measurement_contract_v2,
     load_p261_marginal_binding_contract,
 )
@@ -39,6 +43,8 @@ from dehps.research_os.information_theory.measurement_system_v2.replay import (
     build_design_replay_artifacts,
 )
 from dehps.research_os.information_theory.measurement_system_v2.runtime_audit import (
+    P261_RUNTIME_AUDIT_PLAN_PATH,
+    RUNTIME_AUDIT_PLAN_PATH,
     UNAVAILABLE,
     AuditedEvaluator,
     RuntimeAuditError,
@@ -67,10 +73,13 @@ from dehps.research_os.information_theory.measurement_validation import (
     golden_boundary_identity_contract,
 )
 from dehps.research_os.information_theory.measurement_validation.source_compatibility import (
+    P263_REVIEWED_SOURCE_COMPATIBILITY_FIXTURE_PATH,
+    P263_REVIEWED_SOURCE_COMPATIBILITY_PATHS,
     REVIEWED_SHARED_COMPATIBILITY_FIXTURE_PATH,
-    REVIEWED_SHARED_COMPATIBILITY_PATHS,
     SourceCompatibilityError,
+    load_p263_reviewed_source_compatibility_fixture,
     load_reviewed_shared_compatibility_fixture,
+    validate_p263_reviewed_source_compatibility_fixture,
     validate_reviewed_shared_compatibility_fixture,
 )
 from dehps.research_os.information_theory.measurement_validation.source_integrity import (
@@ -78,7 +87,6 @@ from dehps.research_os.information_theory.measurement_validation.source_integrit
     AUDIT_ORCHESTRATION_SOURCE_PATHS,
     BASELINE_GIT_COMMIT,
     INDEPENDENT_ORACLE_SOURCE_PATHS,
-    SHARED_COMPONENT_SOURCE_PATHS,
     SHARED_FROZEN_SOURCE_PATHS,
     SourceIntegrityError,
     build_source_integrity_attestation,
@@ -120,9 +128,7 @@ BINDING_PATH = ROOT / "configs/research-os/m4-p2-6-1-marginal-binding-contract-v
 FIXTURE_PATH = (
     ROOT / "configs/research-os/m4-measurement-contract-v2-replay-fixture-v1.json"
 )
-AUDIT_PATH = (
-    ROOT / "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.5.json"
-)
+AUDIT_PATH = ROOT / RUNTIME_AUDIT_PLAN_PATH
 MANIFEST_PATH = ROOT / "configs/research-os/m4-information-theory-evidence-v1.json"
 
 
@@ -141,67 +147,13 @@ def _source_entries(paths: tuple[str, ...]) -> list[dict[str, str]]:
 
 
 def _current_source_contract() -> dict:
-    shared = _source_entries(SHARED_FROZEN_SOURCE_PATHS)
-    acceleration = _source_entries(APPROVED_ACCELERATION_SOURCE_PATHS)
-    oracle = _source_entries(INDEPENDENT_ORACLE_SOURCE_PATHS)
-    audit = _source_entries(AUDIT_ORCHESTRATION_SOURCE_PATHS)
-    compatibility_fixture = load_reviewed_shared_compatibility_fixture(
-        ROOT / REVIEWED_SHARED_COMPATIBILITY_FIXTURE_PATH
-    )
-    return {
-        "baseline_git_commit": BASELINE_GIT_COMMIT,
-        "git_object_format": "sha1",
-        "shared_component_source_paths": {
-            key: list(value) for key, value in SHARED_COMPONENT_SOURCE_PATHS.items()
-        },
-        "shared_frozen_source_allowlist": shared,
-        "shared_frozen_source_set_digest": source_set_digest(
-            shared, kind="shared-frozen"
-        ),
-        "approved_acceleration_source_allowlist": acceleration,
-        "approved_acceleration_source_set_digest": source_set_digest(
-            acceleration, kind="approved-acceleration"
-        ),
-        "independent_oracle_source_allowlist": oracle,
-        "independent_oracle_source_set_digest": source_set_digest(
-            oracle, kind="independent-oracle"
-        ),
-        "audit_orchestration_source_allowlist": audit,
-        "audit_orchestration_source_set_digest": source_set_digest(
-            audit, kind="audit-orchestration"
-        ),
-        "reviewed_shared_compatibility_fixture_path": (
-            REVIEWED_SHARED_COMPATIBILITY_FIXTURE_PATH.as_posix()
-        ),
-        "reviewed_shared_compatibility_fixture_digest": compatibility_fixture[
-            "artifact_digest"
-        ],
-        "reviewed_shared_compatibility_paths": list(
-            REVIEWED_SHARED_COMPATIBILITY_PATHS
-        ),
-        "shared_change_policy": "FAIL_CLOSED_REQUIRES_NEW_REVIEWED_FIXTURE",
-        "oracle_change_policy": "FAIL_CLOSED_REQUIRES_NEW_REVIEWED_FIXTURE",
-        "acceleration_change_policy": ("PINNED_FOR_PHASE0_REQUIRES_SUPERSEDING_PLAN"),
-        "audit_change_policy": ("PINNED_PER_RUNTIME_PLAN_REQUIRES_SUPERSEDING_PLAN"),
-    }
+    return copy.deepcopy(load_runtime_audit_plan(AUDIT_PATH)["source_integrity_contract"])
 
 
-def test_reviewed_sparse_tree_compatibility_fixture_binds_current_plan() -> None:
-    plan = load_runtime_audit_plan(AUDIT_PATH)
+def test_frozen_sparse_tree_compatibility_fixture_remains_replayable() -> None:
+    plan = load_runtime_audit_plan(ROOT / P261_RUNTIME_AUDIT_PLAN_PATH)
     fixture = load_reviewed_shared_compatibility_fixture(
         ROOT / REVIEWED_SHARED_COMPATIBILITY_FIXTURE_PATH
-    )
-    contract = plan["source_integrity_contract"]
-
-    assert contract["reviewed_shared_compatibility_fixture_path"] == (
-        REVIEWED_SHARED_COMPATIBILITY_FIXTURE_PATH.as_posix()
-    )
-    assert contract["reviewed_shared_compatibility_fixture_digest"] == fixture[
-        "artifact_digest"
-    ]
-    assert fixture["changed_paths"] == list(REVIEWED_SHARED_COMPATIBILITY_PATHS)
-    assert fixture["candidate_source_entries"] == _source_entries(
-        REVIEWED_SHARED_COMPATIBILITY_PATHS
     )
     assert fixture["candidate_golden_source_integrity_identity"] == (
         golden_source_integrity_identity(plan)
@@ -211,6 +163,82 @@ def test_reviewed_sparse_tree_compatibility_fixture_binds_current_plan() -> None
         expected_artifact_digest=fixture["artifact_digest"],
         expected_candidate_golden_identity=golden_source_integrity_identity(plan),
     ) == fixture
+
+
+def test_p263_source_compatibility_fixture_binds_current_plan() -> None:
+    plan = load_runtime_audit_plan(AUDIT_PATH)
+    fixture = load_p263_reviewed_source_compatibility_fixture(
+        ROOT / P263_REVIEWED_SOURCE_COMPATIBILITY_FIXTURE_PATH
+    )
+    contract = plan["source_integrity_contract"]
+
+    assert contract["reviewed_shared_compatibility_fixture_path"] == (
+        P263_REVIEWED_SOURCE_COMPATIBILITY_FIXTURE_PATH.as_posix()
+    )
+    assert contract["reviewed_shared_compatibility_fixture_digest"] == fixture[
+        "artifact_digest"
+    ]
+    assert fixture["changed_paths"] == list(
+        P263_REVIEWED_SOURCE_COMPATIBILITY_PATHS
+    )
+    assert fixture["candidate_source_entries"] == _source_entries(
+        P263_REVIEWED_SOURCE_COMPATIBILITY_PATHS
+    )
+    assert fixture["candidate_golden_source_integrity_identity"] == (
+        golden_source_integrity_identity(plan)
+    )
+    assert validate_p263_reviewed_source_compatibility_fixture(
+        fixture,
+        expected_artifact_digest=fixture["artifact_digest"],
+        expected_candidate_golden_identity=golden_source_integrity_identity(plan),
+    ) == fixture
+
+
+def test_p263_runtime_plan_is_result_blind_and_strict_prior(tmp_path: Path) -> None:
+    plan = load_runtime_audit_plan(AUDIT_PATH)
+
+    assert plan["semantic_version"] == "1.1.6"
+    assert plan["supersedes_artifact_digest"] == (
+        "e2bfb82be29bedac51be6905e6049b4a10e5c0cde0198995e12279bf969714ca"
+    )
+    assert plan["result_blind_contract"] == {
+        "allowed_inputs": [
+            "source_identity",
+            "synthetic_input_artifact",
+            "preregistered_policy",
+            "strict_prior_fold_state",
+        ],
+        "previous_score_read": False,
+        "previous_prediction_read": False,
+        "previous_ranking_read": False,
+        "power_result_read": False,
+        "false_positive_result_read": False,
+        "bias_rmse_coverage_result_read": False,
+        "mde_result_read": False,
+        "threshold_selected_from_results": False,
+        "historical_outcomes_read": False,
+    }
+    assert plan["periodic_refit_temporal_contract"] == {
+        "policy_digest": (
+            "ad58b9abcd90c5e7ee7b9892ac8c209b8033f7a50e603b58c043685b0c7d6f99"
+        ),
+        "refit_interval_folds": 64,
+        "training_state": "STRICT_PRIOR_THROUGH_T_MINUS_1",
+        "prediction_target": "T",
+        "current_target_available_before_prediction": False,
+        "prediction_checkpoint_written_before_target_read": True,
+        "boundary_refit_uses_current_target": False,
+        "resume_reuses_only_settled_folds": True,
+        "future_fold_state_read": False,
+    }
+
+    tampered = copy.deepcopy(plan)
+    tampered["result_blind_contract"]["power_result_read"] = True
+    tampered["artifact_digest"] = config_digest(tampered)
+    temporary = tmp_path / "tampered-runtime-plan.json"
+    temporary.write_text(json.dumps(tampered), encoding="utf-8")
+    with pytest.raises(RuntimeAuditError, match="oracle policy changed"):
+        load_runtime_audit_plan(temporary)
 
 
 def test_reviewed_sparse_tree_compatibility_fixture_rejects_semantic_tamper() -> None:
@@ -434,7 +462,7 @@ def test_source_partition_covers_worker_python_and_operational_entrypoints() -> 
         65,
         4,
         11,
-        371,
+        373,
     )
     assert not shared & acceleration
     assert not shared & oracle
@@ -443,7 +471,7 @@ def test_source_partition_covers_worker_python_and_operational_entrypoints() -> 
     assert not acceleration & audit
     assert not oracle & audit
     classified = shared | acceleration | oracle | audit
-    assert len(classified) == 451
+    assert len(classified) == 453
     worker_python = {
         path.relative_to(ROOT).as_posix()
         for path in (ROOT / "apps/worker-python/dehps").rglob("*.py")
@@ -500,7 +528,7 @@ def test_source_preflight_rejects_actual_byte_tamper(
             check=True,
             capture_output=True,
         ).stdout
-        for compatibility_path in REVIEWED_SHARED_COMPATIBILITY_PATHS
+        for compatibility_path in P263_REVIEWED_SOURCE_COMPATIBILITY_PATHS
     }
 
     def read_bytes_with_tamper(candidate: Path) -> bytes:
@@ -535,10 +563,10 @@ def test_source_preflight_rejects_actual_byte_tamper(
         preflight_source_integrity(root_dir=ROOT, runtime_plan=plan)
 
 
-def test_source_preflight_rejects_reviewed_sparse_tree_candidate_byte_tamper(
+def test_source_preflight_rejects_p263_candidate_byte_tamper(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    path = REVIEWED_SHARED_COMPATIBILITY_PATHS[0]
+    path = P263_REVIEWED_SOURCE_COMPATIBILITY_PATHS[0]
     plan = {
         "artifact_digest": "1" * 64,
         "source_integrity_contract": _current_source_contract(),
@@ -611,7 +639,7 @@ def test_source_attestation_rejects_execution_commit_byte_drift(
             check=True,
             capture_output=True,
         ).stdout
-        for compatibility_path in REVIEWED_SHARED_COMPATIBILITY_PATHS
+        for compatibility_path in P263_REVIEWED_SOURCE_COMPATIBILITY_PATHS
     }
 
     def fake_git(root_dir: Path, *args: str) -> bytes:
@@ -1399,6 +1427,8 @@ def test_additive_manifest_migration_preserves_live_truth() -> None:
         "m4-v2-p2-6-1-marginal-decision-replay",
         "m4-p2-9-golden-reference-freeze",
         "m4-p2-9-measurement-runtime-audit",
+        "m4-p2-9-p263-golden-reference-freeze",
+        "m4-p2-9-p263-measurement-runtime-audit",
         "m4-v2-global-routing",
     }
     live = copy.deepcopy(source)
@@ -1674,7 +1704,7 @@ def test_runtime_commit_marker_recovers_registrations_without_rerun(
     task = next(
         item
         for item in manifest.tasks
-        if item.task_key == "m4-p2-9-measurement-runtime-audit"
+        if item.task_key == "m4-p2-9-p263-measurement-runtime-audit"
     )
     execution_id = "e" * 64
     git_commit = "d" * 40
@@ -1775,7 +1805,7 @@ def test_runtime_commit_marker_recovers_registrations_without_rerun(
         "runtime_executor_fingerprint_digest_before": "f" * 64,
         "runtime_executor_fingerprint_digest_after": "f" * 64,
         "equivalence_attestation_artifact_digest": equivalence["artifact_digest"],
-        "completion_fact": "m4-p2-9-runtime-audit:VERIFIED",
+        "completion_fact": "m4-p2-9-p263-runtime-audit:VERIFIED",
         "actual_fold_count": 61,
         "audited_fold_count": 61,
         "correctness_replay_fold_count": 61,
@@ -1790,7 +1820,7 @@ def test_runtime_commit_marker_recovers_registrations_without_rerun(
         "journal_reused": False,
         "fresh_workdir": True,
         "worker_count": 1,
-        "formal_benchmark_after_slot_release": True,
+        "formal_benchmark_after_p263_compatibility": True,
         "reference_evaluator_is_oracle": False,
         "immutable_golden_fixture_is_oracle": True,
         "acceleration_boundary_independent": True,
@@ -1813,6 +1843,11 @@ def test_runtime_commit_marker_recovers_registrations_without_rerun(
         "statistical_semantics_modified": False,
         "historical_outcomes_read": False,
         "p2_6_1_partial_statistical_results_read": False,
+        "p2_6_3_statistical_results_read": False,
+        "measurement_update_policy_digest": (
+            "ad58b9abcd90c5e7ee7b9892ac8c209b8033f7a50e603b58c043685b0c7d6f99"
+        ),
+        "p2_6_3_task_digest": P263_TASK_DIGEST,
         "evidence_created": False,
         "evidence_progress_before": 0,
         "evidence_progress_after": 0,
@@ -1920,12 +1955,36 @@ def test_manifest_wires_replay_before_preflight_and_disconnects_legacy_p3() -> N
     assert "m4-p2-measurement-decision:PASS_TO_P3" not in p3_dependencies
     assert "m4-v2-routing:ADAPTIVE_RESEARCH_ELIGIBLE" in p3_dependencies
     p261 = tasks["m4-p2-false-positive-and-power-runs"]
-    assert p261.artifact_digest == EXPECTED_P261_TASK_DIGEST
+    assert p261.artifact_digest == P263_TASK_DIGEST
     assert "m4-p2-repair-measurement-system" in {
         item.target_key for item in p261.dependencies
     }
-    golden = tasks["m4-p2-9-golden-reference-freeze"]
-    runtime = tasks["m4-p2-9-measurement-runtime-audit"]
+    frozen = load_measurement_compatibility_fixture(
+        ROOT / P261_FROZEN_FIXTURE_PATH,
+        expected_phase="M4-P2.6.1",
+    )
+    assert frozen.payload["source"]["task_digest"] == EXPECTED_P261_TASK_DIGEST
+    compatibility = tasks[
+        "m4-p2-6-3-superseding-compatibility-acceptance"
+    ]
+    assert {
+        item.target_key for item in compatibility.dependencies
+    } >= {
+        "m4-p2-false-positive-and-power-runs",
+        "m4-p2-automatic-gate-and-report",
+    }
+    design = tasks["m4-v2-measurement-contract-design"]
+    assert {
+        item.target_key for item in design.dependencies
+    } >= {
+        "m4-p2-6-3-superseding-compatibility-acceptance",
+        "m4-p2-6-3-compatibility:VERIFIED",
+    }
+    assert tasks["m4-p2-9-golden-reference-freeze"].artifact_digest != tasks[
+        "m4-p2-9-p263-golden-reference-freeze"
+    ].artifact_digest
+    golden = tasks["m4-p2-9-p263-golden-reference-freeze"]
+    runtime = tasks["m4-p2-9-p263-measurement-runtime-audit"]
     assert golden.goal_key == runtime.goal_key == "M4_MEASUREMENT_RUNTIME_AUDIT"
     assert golden.lane.value == "maintenance"
     assert runtime.lane.value == "maintenance"
@@ -1936,22 +1995,26 @@ def test_manifest_wires_replay_before_preflight_and_disconnects_legacy_p3() -> N
     )
     assert executor_event in {item.target_key for item in golden.dependencies}
     assert executor_event in runtime_dependencies
-    assert "m4-p2-9-golden-reference-freeze" in runtime_dependencies
-    assert "m4-p2-9-golden-reference:VERIFIED" in runtime_dependencies
-    assert "m4-runtime-slot:p2-6-1-released" in runtime_dependencies
+    assert "m4-p2-9-p263-golden-reference-freeze" in runtime_dependencies
+    assert "m4-p2-9-p263-golden-reference:VERIFIED" in runtime_dependencies
+    assert "m4-p2-6-3-compatibility:VERIFIED" in runtime_dependencies
+    assert "m4-runtime-slot:p2-6-1-released" not in runtime_dependencies
 
 
-def test_canonical_executor_event_unlocks_golden_then_runtime_slot_unlocks_p29() -> (
-    None
-):
+def test_p263_compatibility_and_executor_unlock_golden_then_runtime() -> None:
     manifest = load_m4_manifest(MANIFEST_PATH)
     control_plane = ResearchOSControlPlane()
     source_snapshot = control_plane.resolve(manifest)
     source_resolutions = {item.task_key: item for item in source_snapshot.resolutions}
     assert source_resolutions["m4-p2-9-golden-reference-freeze"].status is (
-        TaskStatus.EXTERNAL_WAIT
+        TaskStatus.SUPERSEDED
     )
     assert source_resolutions["m4-p2-9-measurement-runtime-audit"].status is (
+        TaskStatus.SUPERSEDED
+    )
+    assert source_resolutions[
+        "m4-p2-9-p263-golden-reference-freeze"
+    ].status is (
         TaskStatus.EXTERNAL_WAIT
     )
 
@@ -1963,24 +2026,30 @@ def test_canonical_executor_event_unlocks_golden_then_runtime_slot_unlocks_p29()
     executor_payload["facts"]["external_events"] = sorted(
         {*executor_payload["facts"]["external_events"], executor_event}
     )
+    executor_payload["facts"]["artifacts"] = sorted(
+        {
+            *executor_payload["facts"]["artifacts"],
+            "m4-p2-6-3-compatibility:VERIFIED",
+        }
+    )
     with_executor = ControlPlaneManifest.from_dict(executor_payload)
     with_executor_snapshot = control_plane.resolve(with_executor)
     assert (
         next(
             item
             for item in with_executor_snapshot.resolutions
-            if item.task_key == "m4-p2-9-golden-reference-freeze"
+            if item.task_key == "m4-p2-9-p263-golden-reference-freeze"
         ).status
         is TaskStatus.READY
     )
     ready_keys = [item.task_key for item in with_executor_snapshot.ready_queue]
-    assert "m4-p2-9-golden-reference-freeze" in ready_keys
-    assert "m4-p2-9-measurement-runtime-audit" not in ready_keys
+    assert "m4-p2-9-p263-golden-reference-freeze" in ready_keys
+    assert "m4-p2-9-p263-measurement-runtime-audit" not in ready_keys
 
     golden_task = next(
         task
         for task in with_executor.tasks
-        if task.task_key == "m4-p2-9-golden-reference-freeze"
+        if task.task_key == "m4-p2-9-p263-golden-reference-freeze"
     )
     payload = with_executor.to_dict(include_digest=False)
     for task in payload["tasks"]:
@@ -1991,7 +2060,7 @@ def test_canonical_executor_event_unlocks_golden_then_runtime_slot_unlocks_p29()
     facts = set(payload["facts"]["artifacts"])
     facts.update(
         {
-            "m4-p2-9-golden-reference:VERIFIED",
+            "m4-p2-9-p263-golden-reference:VERIFIED",
             mainline_completion_fact(task=golden_task, execution_id="e" * 64),
         }
     )
@@ -2001,24 +2070,9 @@ def test_canonical_executor_event_unlocks_golden_then_runtime_slot_unlocks_p29()
     after_golden_resolutions = {
         item.task_key: item for item in after_golden_snapshot.resolutions
     }
-    audit = after_golden_resolutions["m4-p2-9-measurement-runtime-audit"]
-    assert audit.status is TaskStatus.EXTERNAL_WAIT
-    assert [item.target_key for item in audit.unsatisfied_dependencies] == [
-        "m4-runtime-slot:p2-6-1-released"
-    ]
-
-    after_golden_payload = after_golden.to_dict(include_digest=False)
-    events = set(after_golden_payload["facts"]["external_events"])
-    events.add("m4-runtime-slot:p2-6-1-released")
-    after_golden_payload["facts"]["external_events"] = sorted(events)
-    released = ControlPlaneManifest.from_dict(after_golden_payload)
-    released_snapshot = control_plane.resolve(released)
-    released_resolution = next(
-        item
-        for item in released_snapshot.resolutions
-        if item.task_key == "m4-p2-9-measurement-runtime-audit"
-    )
-    assert released_resolution.status is TaskStatus.READY
+    audit = after_golden_resolutions["m4-p2-9-p263-measurement-runtime-audit"]
+    assert audit.status is TaskStatus.READY
+    assert not audit.unsatisfied_dependencies
 
 
 def test_golden_reference_status_projects_only_completed_execution_identity() -> None:
@@ -2041,7 +2095,8 @@ def test_golden_reference_status_projects_only_completed_execution_identity() ->
     assert golden["resolver_status"] == "external_wait"
     assert golden["resolver_reason_code"] == "external_event_dependency_unsatisfied"
     assert golden["resolver_unsatisfied_dependencies"] == [
-        audit_status["canonical_executor_event"]
+        audit_status["canonical_executor_event"],
+        "m4-p2-6-3-compatibility:VERIFIED",
     ]
     assert golden["execution_status"] == "NOT_RUN"
     assert golden["plan_artifact_digest"] is None
@@ -2063,6 +2118,14 @@ def test_golden_reference_status_projects_only_completed_execution_identity() ->
             "e804e4eedf3c67ad9d35207367a096f6b830a6ab2ac29cc03501392d8430af32"
         ),
     )
+    authorized_payload = authorized.to_dict(include_digest=False)
+    authorized_payload["facts"]["artifacts"] = sorted(
+        {
+            *authorized_payload["facts"]["artifacts"],
+            "m4-p2-6-3-compatibility:VERIFIED",
+        }
+    )
+    authorized = ControlPlaneManifest.from_dict(authorized_payload)
     completed = build_m4_status(
         authorized,
         golden_reference_execution={
@@ -2083,6 +2146,11 @@ def test_golden_reference_status_projects_only_completed_execution_identity() ->
             "evidence_progress_before": 0,
             "evidence_progress_after": 0,
             "historical_outcomes_read": False,
+            "p2_6_3_statistical_results_read": False,
+            "measurement_update_policy_digest": (
+                "ad58b9abcd90c5e7ee7b9892ac8c209b8033f7a50e603b58c043685b0c7d6f99"
+            ),
+            "p2_6_3_task_digest": P263_TASK_DIGEST,
             "production_action": "none",
         },
     )
@@ -2264,6 +2332,11 @@ def test_runtime_audit_status_requires_registered_independent_golden_lineage() -
         "evidence_progress_before": 0,
         "evidence_progress_after": 0,
         "historical_outcomes_read": False,
+        "p2_6_3_statistical_results_read": False,
+        "measurement_update_policy_digest": (
+            "ad58b9abcd90c5e7ee7b9892ac8c209b8033f7a50e603b58c043685b0c7d6f99"
+        ),
+        "p2_6_3_task_digest": P263_TASK_DIGEST,
         "production_action": "none",
     }
     status = build_m4_status(authorized, runtime_audit_execution=execution)

@@ -42,6 +42,10 @@ def test_m4_manifest_freezes_legacy_mainline_and_selects_p2() -> None:
     ]
     assert (
         _by_task(snapshot)["m4-p2-9-golden-reference-freeze"].status
+        is TaskStatus.SUPERSEDED
+    )
+    assert (
+        _by_task(snapshot)["m4-p2-9-p263-golden-reference-freeze"].status
         is TaskStatus.EXTERNAL_WAIT
     )
     assert (
@@ -80,6 +84,10 @@ def test_m4_p2_ready_queue_does_not_unblock_formal_run() -> None:
     ]
     assert (
         _by_task(snapshot)["m4-p2-9-measurement-runtime-audit"].status
+        is TaskStatus.SUPERSEDED
+    )
+    assert (
+        _by_task(snapshot)["m4-p2-9-p263-measurement-runtime-audit"].status
         is TaskStatus.EXTERNAL_WAIT
     )
     assert (
@@ -195,6 +203,7 @@ def test_m4_p5_projects_external_wait_as_wait_forward_then_settling() -> None:
         "m4-p2-repair-measurement-system",
         "m4-p2-false-positive-and-power-runs",
         "m4-p2-automatic-gate-and-report",
+        "m4-p2-6-3-superseding-compatibility-acceptance",
     }
     for task in payload["tasks"]:
         if task["task_key"] in phase_keys:
@@ -204,6 +213,9 @@ def test_m4_p5_projects_external_wait_as_wait_forward_then_settling() -> None:
                 task["completion_classification"] = "COMPLETE"
     payload["facts"]["artifacts"].append(
         "m4-p2-repaired-measurement-contract:AVAILABLE"
+    )
+    payload["facts"]["artifacts"].append(
+        "m4-p2-6-3-compatibility:VERIFIED"
     )
     provisional = type(manifest).from_dict(payload)
     for task in provisional.tasks:
