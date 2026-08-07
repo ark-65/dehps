@@ -1,0 +1,49 @@
+{
+  "schema_version": "dehps-m4-p263-runtime-slot-governance-source-contract.v1",
+  "artifact_type": "p263_runtime_slot_governance_source_contract",
+  "artifact_digest": "e094f3bd319c63b9ed5a8b14b955f7f64544e30d3b8410cc26b2906b7e56ae67",
+  "contract_key": "M4-P2.6.3_RUNTIME_SLOT_GOVERNANCE_SOURCE",
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/__init__.py",
+      "content_sha256": "8eb30932578710ee88ba28070ac2a22db79f7f4adb63e9c90aa569b479a5aef7"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/runtime_audit.py",
+      "content_sha256": "bcf8c0ea4bde56efbfa7e5be6e5797637d682aa0750c93900b115b1b3141270c"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/superseding_slot.py",
+      "content_sha256": "1135e6b21b6a6ef6152dd21e66d34e2455e38ffe30b2d55be76e77ea41dd471e"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_validation/source_integrity.py",
+      "content_sha256": "61308504e9c7908317afa6de6f28f621ea1ae2d66fa20332034a495c59a4470b"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/progress.py",
+      "content_sha256": "10d8dc73e460271a8ee029eee1c11d044fdc54ce117cd4b01558f16e5670d853"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/supervisor.py",
+      "content_sha256": "c4263b7121e02c78619ff652ce8e3e19dcdfd2d8910039205fe8b98b4ed5fb54"
+    },
+    {
+      "path": "apps/worker-python/scripts/build_m4_p263_slot_release_manifest.py",
+      "content_sha256": "d21d4228cd7c41aa810ccd859ae868fa615a2d30b0c43bfcf9f0f6f601b56be7"
+    },
+    {
+      "path": "apps/worker-python/scripts/run_m4_p263_slot_release_guard.py",
+      "content_sha256": "f821460b6ac379cc390007c219d20c30137d78e14288c988cc61689ce711caaa"
+    }
+  ],
+  "source_set_digest": "b10076e4da302666d201308a485c3c633aeeb7f45258746f0e93a27718aa161d",
+  "execution_git_commit_required": true,
+  "result_blind": true,
+  "statistical_results_read": false,
+  "historical_outcomes_read": false,
+  "evidence_created": false,
+  "evidence_progress_increment": 0,
+  "promotion_gate_opened": false,
+  "production_action": "none"
+}

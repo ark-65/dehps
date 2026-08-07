@@ -148,7 +148,16 @@ def _source_entries(paths: tuple[str, ...]) -> list[dict[str, str]]:
 
 
 def _current_source_contract() -> dict:
-    return copy.deepcopy(load_runtime_audit_plan(AUDIT_PATH)["source_integrity_contract"])
+    contract = copy.deepcopy(
+        load_runtime_audit_plan(AUDIT_PATH)["source_integrity_contract"]
+    )
+    entries = _source_entries(AUDIT_ORCHESTRATION_SOURCE_PATHS)
+    contract["audit_orchestration_source_allowlist"] = entries
+    contract["audit_orchestration_source_set_digest"] = source_set_digest(
+        entries,
+        kind="audit-orchestration",
+    )
+    return contract
 
 
 def test_frozen_sparse_tree_compatibility_fixture_remains_replayable() -> None:
@@ -466,7 +475,7 @@ def test_source_partition_covers_worker_python_and_operational_entrypoints() -> 
         65,
         4,
         11,
-        373,
+        374,
     )
     assert not shared & acceleration
     assert not shared & oracle
@@ -475,7 +484,7 @@ def test_source_partition_covers_worker_python_and_operational_entrypoints() -> 
     assert not acceleration & audit
     assert not oracle & audit
     classified = shared | acceleration | oracle | audit
-    assert len(classified) == 453
+    assert len(classified) == 454
     worker_python = {
         path.relative_to(ROOT).as_posix()
         for path in (ROOT / "apps/worker-python/dehps").rglob("*.py")
@@ -1433,8 +1442,9 @@ def test_additive_manifest_migration_preserves_live_truth() -> None:
         "m4-p2-9-measurement-runtime-audit",
         "m4-p2-9-p263-golden-reference-freeze",
         "m4-p2-9-p263-measurement-runtime-audit",
-        "m4-p2-9-p263-runtime-observation-arithmetic-fix",
-        "m4-v2-global-routing",
+            "m4-p2-9-p263-runtime-observation-arithmetic-fix",
+            "m4-p2-9-p263-runtime-slot-release-eligibility",
+            "m4-v2-global-routing",
     }
     live = copy.deepcopy(source)
     live["goals"] = [
