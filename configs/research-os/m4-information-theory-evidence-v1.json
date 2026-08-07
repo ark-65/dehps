@@ -1602,6 +1602,14 @@
       "task_type": "marginal_static_measurement_health_decision",
       "lane": "research",
       "priority": 87,
+      "requested_capability": "m4_v2_marginal_static_measurement_health_decision",
+      "input_artifact_digests": [
+        "df89e7785e1ace80b9e967e3c1dba8983d74b93d3e961226daa7ed2c0e023fc8",
+        "a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b",
+        "89cb006231ae0956e70cee67050f0be090eb87c2441b4100d8c86a6cf646233b",
+        "40b449a7abe4ac9fff6eb0e98212f5809e0f0ff76c93f1344b673b4716905e2d",
+        "e77c35c68b6043875c54c1bb06d2c64a70730c026950fe7c813efcfe54d5f8d3"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
@@ -1611,6 +1619,11 @@
         {
           "dependency_type": "artifact",
           "target_key": "m4-v2-marginal-static-measurement-health-execution:COMPLETE",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-v2-marginal-static-health-decision-source:df89e7785e1ace80b9e967e3c1dba8983d74b93d3e961226daa7ed2c0e023fc8",
           "required_status": "available"
         }
       ],
@@ -1622,8 +1635,93 @@
         "phase": "M4-V2-MARGINAL-STATIC-HEALTH-DECISION",
         "scope": "consume_the_replay_verified_health_result_and_apply_the_frozen_pass_or_repair_rule",
         "reason": "execution and decision authority remain separate so sampled results cannot rewrite the preregistered gates",
-        "formal_execution_allowed": false,
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "the exact replay-verified Round-42 execution, health result, completion, frozen v2 contract, and approved Round-43 source contract are available",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "approved result-aware health-decision source",
+            "Measurement Contract v2",
+            "Round-42 health-execution mainline artifact",
+            "registered measurement-health result and completion"
+          ],
+          "downstream_artifacts": [
+            "immutable marginal-static health decision",
+            "mainline execution artifact"
+          ],
+          "status_projection": "unified_m4_status.measurement_system_v2.marginal_static_health_decision",
+          "evidence_progress_rule": "a_health_decision_routes_work_but_does_not_create_historical_evidence",
+          "decision_consumer": "marginal-static measurement repair design",
+          "downstream_consumer": "m4-v2-marginal-static-measurement-repair-design"
+        },
+        "formal_execution_allowed": true,
+        "formal_replicates": 0,
+        "generated_issues": 0,
+        "compact_index_reads": 0,
+        "sentinel_replicates_recomputed": 0,
+        "duplicate_validation": false,
+        "statistical_results_read": true,
         "historical_outcomes_read": false,
+        "evidence_created": false,
+        "promotion_gate_opened": false,
+        "production_action": "none"
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "m4-v2-marginal-static-measurement-repair-design",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "marginal_static_measurement_repair_design",
+      "lane": "research",
+      "priority": 86,
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-v2-marginal-static-measurement-health-decision",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-v2-marginal-static-measurement-health-decision:REPAIR",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "engineering_complete": false,
+        "engineering_increment_percent": 0,
+        "evidence_complete": false,
+        "evidence_increment_percent": 0,
+        "phase": "M4-V2-MARGINAL-STATIC-REPAIR-DESIGN",
+        "scope": "preregister_an_independent_measurement_repair_without_reinterpreting_the_failed_health_result",
+        "reason": "four frozen health cells failed, so the measurement instrument requires a separately authorized repair round rather than a historical model claim",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "the replay-verified REPAIR decision is available and a new result-aware Research request defines the repair boundary",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "Round-43 immutable health decision",
+            "REPAIR decision fact",
+            "failed-cell and failed-gate topology"
+          ],
+          "downstream_artifacts": [
+            "independent repair preregistration",
+            "new seed and acceptance contract"
+          ],
+          "status_projection": "unified_m4_status.measurement_system_v2.marginal_static_repair_design",
+          "evidence_progress_rule": "repair_design_is_not_measurement_or_historical_evidence",
+          "decision_consumer": "marginal-static repair preregistration",
+          "downstream_consumer": "m4-v2-marginal-static-measurement-repair-preregistration"
+        },
+        "formal_execution_allowed": false,
+        "result_aware": true,
+        "new_preregistration_required": true,
+        "independent_seed_required": true,
+        "same_seed_tuning": "forbidden",
+        "posthoc_threshold_change": "forbidden",
+        "historical_outcomes_read": false,
+        "evidence_created": false,
+        "promotion_gate_opened": false,
         "production_action": "none"
       },
       "status": "draft",
@@ -2569,6 +2667,7 @@
       "m4-v2-marginal-static-contract-freeze-source:db8109760e5aeaae30cc765bb60ccd704560a24674a934dff6304026d8b87de1",
       "m4-v2-marginal-static-fixture-freeze-source:65a3b02964d35c8250bde2e6c9858f94c40617b7a60923c77d96541b29982b53",
       "m4-v2-marginal-static-health-design-source:2621e16efa8cf888f06e841c7a89cc72e50bc291ef08e0eaa82458196616047d",
+      "m4-v2-marginal-static-health-decision-source:df89e7785e1ace80b9e967e3c1dba8983d74b93d3e961226daa7ed2c0e023fc8",
       "m4-v2-marginal-static-health-execution-source:5fbeb6ab0533478ac097747ab73fb0188561849505a76cf7a63a3a02061b2354",
       "m4-p2-9-p263-source-compatibility-fixture:1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f",
       "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
@@ -2592,5 +2691,5 @@
     "external_events": [],
     "authorities": []
   },
-  "manifest_digest": "74eacc55bfa97baf8dba7a74c394d05aef2e8425e007695c44acd272b6aed56b"
+  "manifest_digest": "3266936443c2ebeb628773759a583ce7cf1c62e0dca70c2bece53a7ba3720900"
 }

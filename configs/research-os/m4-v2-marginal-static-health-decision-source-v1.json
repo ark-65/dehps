@@ -1,0 +1,68 @@
+{
+  "schema_version": "dehps-m4-v2-marginal-static-health-decision-source.v1",
+  "artifact_type": "m4_v2_marginal_static_health_decision_source",
+  "artifact_digest": "df89e7785e1ace80b9e967e3c1dba8983d74b93d3e961226daa7ed2c0e023fc8",
+  "contract_key": "M4_V2_MARGINAL_STATIC_HEALTH_DECISION_SOURCE",
+  "research_request_key": "research-m4-v2-marginal-static-health-decision-round-43-20260808",
+  "research_request_id": 331,
+  "research_execution_id": 252,
+  "engineering_request_key": "engineering-m4-v2-marginal-static-health-decision-round-43-20260808",
+  "engineering_request_id": 332,
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/marginal_static_health_decision.py",
+      "content_sha256": "9731a3b07e9588c26c1212ff34fb004160ab1a3965c54687d00d14efe22d4537"
+    }
+  ],
+  "source_set_digest": "80228933b294ec5fc1e0a56993b9d2a4864cbd80eb70b10fc98c0fa9ac990227",
+  "frozen_contract": {
+    "task_key": "m4-v2-marginal-static-measurement-health-decision",
+    "capability": "m4_v2_marginal_static_measurement_health_decision",
+    "next_consumer": "m4-v2-marginal-static-measurement-repair-design",
+    "measurement_contract_v2_digest": "a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b",
+    "health_execution_task_digest": "92b38644e97517394be856d7753de1adf7b21d00b0be707a4bbcc02cde03bc7e",
+    "health_execution_id": "cd93e7d08535cbfe0046923d2b3eb90acff367897c4122805fe25cf7fa86baa1",
+    "health_execution_artifact_digest": "89cb006231ae0956e70cee67050f0be090eb87c2441b4100d8c86a6cf646233b",
+    "health_result_digest": "40b449a7abe4ac9fff6eb0e98212f5809e0f0ff76c93f1344b673b4716905e2d",
+    "health_completion_digest": "e77c35c68b6043875c54c1bb06d2c64a70730c026950fe7c813efcfe54d5f8d3",
+    "measurement_health": "REPAIR",
+    "decision": "REPAIR_MEASUREMENT_SYSTEM",
+    "decision_fact": "m4-v2-marginal-static-measurement-health-decision:REPAIR",
+    "failed_gate_map": {
+      "BASE:V2_M1_GROUP_ODDS_2_STATIONARY:FORWARD_61": [
+        "bias",
+        "coverage",
+        "positive_power"
+      ],
+      "LOCAL_M1:0.010:FORWARD_61": [
+        "bias",
+        "coverage",
+        "practical_power"
+      ],
+      "LOCAL_M1:0.010:HISTORICAL_2581": [
+        "practical_power"
+      ],
+      "LOCAL_M1:0.050:FORWARD_61": [
+        "bias",
+        "strong_power"
+      ]
+    },
+    "decision_rule_changed": false,
+    "formal_replicates": 0,
+    "generated_issues": 0,
+    "compact_index_reads": 0,
+    "sentinel_replicates_recomputed": 0,
+    "duplicate_validation": "forbidden",
+    "historical_outcomes_read": false,
+    "evidence_created": false,
+    "promotion_gate_opened": false,
+    "production_action": "none"
+  },
+  "result_aware": true,
+  "formal_replicates_executed": 0,
+  "generated_issues": 0,
+  "historical_outcomes_read": false,
+  "statistical_results_read": true,
+  "evidence_created": false,
+  "production_action": "none"
+}
