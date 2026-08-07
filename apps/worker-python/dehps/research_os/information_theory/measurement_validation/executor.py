@@ -546,59 +546,73 @@ def verify_completion_replay(
     expected_completion_digest: str,
     expected_update_policy_digest: str | None = None,
 ) -> dict[str, Any]:
-    # Measurement v2's lightweight source-binding step has already passed the
-    # canonical parent loader, which verifies every registered artifact path,
-    # digest, and stored payload.  Reassembling all 31,000 replicates here would
-    # repeat the same O(N) content pass immediately before P2.7 performs the one
-    # authoritative deterministic gate replay.  A missing policy argument is
-    # the explicit legacy call shape used by that binding step; verify the
-    # immutable completion identity only and leave statistical reassembly to
-    # the downstream P2.7 replay.
-    if expected_update_policy_digest is None:
-        completion_path = (
-            output_dir
-            / "completion"
-            / expected_completion_digest
-            / "completion.json"
+    # Normal mainline replay consumes an already accepted, digest-addressed
+    # completion. Reassembling 31,000 immutable checkpoint journals here would
+    # repeat execution-time validation and can read roughly 40 GiB before the
+    # small P2.7 gate is reconstructed. Verify the complete signed identity
+    # (which contains the ordered child roots) and exact policy instead.
+    # Deliberate corruption investigations retain the deep-replay API below.
+    del synthetic
+    completion_path = (
+        output_dir / "completion" / expected_completion_digest / "completion.json"
+    )
+    completion = _load_object(completion_path)
+    stored_digest = str(completion.get("artifact_digest") or "")
+    identity = dict(completion)
+    identity.pop("artifact_digest", None)
+    actual_digest = canonical_digest(
+        identity,
+        domain="dehps.m4-p2.measurement-validation-completion.v1",
+    )
+    policy_matches = (
+        expected_update_policy_digest is None
+        or completion.get("measurement_update_policy_digest")
+        == expected_update_policy_digest
+    )
+    if (
+        stored_digest != expected_completion_digest
+        or actual_digest != expected_completion_digest
+        or completion.get("artifact_type")
+        != "measurement_validation_completion"
+        or completion.get("status") != "COMPLETE"
+        or completion.get("parent_execution_id") != parent_execution_id
+        or completion.get("measurement_validation_manifest_digest")
+        != manifest.artifact_digest
+        or completion.get("git_commit") != git_commit
+        or not policy_matches
+    ):
+        raise MeasurementValidationContractError(
+            "measurement_validation_replay_mismatch",
+            "registered completion identity changed",
         )
-        completion = _load_object(completion_path)
-        stored_digest = str(completion.get("artifact_digest") or "")
-        identity = dict(completion)
-        identity.pop("artifact_digest", None)
-        actual_digest = canonical_digest(
-            identity,
-            domain="dehps.m4-p2.measurement-validation-completion.v1",
-        )
-        if (
-            stored_digest != expected_completion_digest
-            or actual_digest != expected_completion_digest
-            or completion.get("artifact_type")
-            != "measurement_validation_completion"
-            or completion.get("status") != "COMPLETE"
-            or completion.get("parent_execution_id") != parent_execution_id
-            or completion.get("measurement_validation_manifest_digest")
-            != manifest.artifact_digest
-            or completion.get("git_commit") != git_commit
-        ):
-            raise MeasurementValidationContractError(
-                "measurement_validation_replay_mismatch",
-                "registered completion identity changed",
-            )
-        return {
-            "schema_version": "dehps-m4-p2-measurement-validation-replay.v1",
-            "status": "REPLAY_VERIFIED",
-            "verification_mode": "REGISTERED_COMPLETION_IDENTITY",
-            "parent_execution_id": parent_execution_id,
-            "completion_artifact_digest": stored_digest,
-            "replicate_count": int(completion["replicate_count"]),
-            "aggregate_count": int(completion["cell_aggregate_count"]),
-            "mde_summary_digest": completion["mde_summary_digest"],
-            "same_replicate_identity": True,
-            "same_aggregate_identity": True,
-            "same_mde_identity": True,
-            "same_completion_identity": True,
-            "manual_input_assembly": False,
-        }
+    return {
+        "schema_version": "dehps-m4-p2-measurement-validation-replay.v1",
+        "status": "REPLAY_VERIFIED",
+        "verification_mode": "REGISTERED_COMPLETION_IDENTITY",
+        "parent_execution_id": parent_execution_id,
+        "completion_artifact_digest": stored_digest,
+        "replicate_count": int(completion["replicate_count"]),
+        "aggregate_count": int(completion["cell_aggregate_count"]),
+        "mde_summary_digest": completion["mde_summary_digest"],
+        "same_replicate_identity": True,
+        "same_aggregate_identity": True,
+        "same_mde_identity": True,
+        "same_completion_identity": True,
+        "manual_input_assembly": False,
+    }
+
+
+def verify_completion_deep_replay(
+    *,
+    manifest: MeasurementValidationManifest,
+    synthetic: SyntheticRunManifest,
+    parent_execution_id: str,
+    output_dir: Path,
+    git_commit: str,
+    expected_completion_digest: str,
+    expected_update_policy_digest: str | None = None,
+) -> dict[str, Any]:
+    """Reassemble every checkpoint journal for an explicit physical audit."""
     replay = assemble_completion(
         manifest=manifest,
         synthetic=synthetic,
@@ -616,6 +630,7 @@ def verify_completion_replay(
     return {
         "schema_version": "dehps-m4-p2-measurement-validation-replay.v1",
         "status": "REPLAY_VERIFIED",
+        "verification_mode": "FULL_CHECKPOINT_REASSEMBLY",
         "parent_execution_id": parent_execution_id,
         "completion_artifact_digest": actual,
         "replicate_count": len(replay.replicate_paths),

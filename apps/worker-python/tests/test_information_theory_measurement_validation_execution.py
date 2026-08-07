@@ -158,6 +158,124 @@ def test_registered_completion_replay_skips_duplicate_replicate_assembly(
     assert replay["aggregate_count"] == 31
 
 
+def test_registered_completion_replay_with_policy_skips_checkpoint_assembly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manifest = SimpleNamespace(artifact_digest="1" * 64)
+    completion: dict[str, object] = {
+        "schema_version": "dehps-m4-p2-measurement-validation-completion.v1",
+        "artifact_type": "measurement_validation_completion",
+        "artifact_digest": "",
+        "status": "COMPLETE",
+        "parent_execution_id": "2" * 64,
+        "measurement_validation_manifest_digest": manifest.artifact_digest,
+        "measurement_update_policy_digest": "3" * 64,
+        "git_commit": "4" * 40,
+        "replicate_count": 31000,
+        "cell_aggregate_count": 31,
+        "mde_summary_digest": "5" * 64,
+    }
+    identity = dict(completion)
+    identity.pop("artifact_digest")
+    completion["artifact_digest"] = canonical_digest(
+        identity,
+        domain="dehps.m4-p2.measurement-validation-completion.v1",
+    )
+    digest = str(completion["artifact_digest"])
+    path = tmp_path / "completion" / digest / "completion.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(completion), encoding="utf-8")
+
+    def fail_duplicate_assembly(**_kwargs: object) -> None:
+        raise AssertionError("checkpoint assembly must not run in normal replay")
+
+    monkeypatch.setattr(executor_module, "assemble_completion", fail_duplicate_assembly)
+    replay = executor_module.verify_completion_replay(
+        manifest=manifest,
+        synthetic=SimpleNamespace(),
+        parent_execution_id="2" * 64,
+        output_dir=tmp_path,
+        git_commit="4" * 40,
+        expected_completion_digest=digest,
+        expected_update_policy_digest="3" * 64,
+    )
+    assert replay["status"] == "REPLAY_VERIFIED"
+    assert replay["verification_mode"] == "REGISTERED_COMPLETION_IDENTITY"
+
+
+def test_registered_completion_replay_rejects_policy_mismatch(
+    tmp_path: Path,
+) -> None:
+    manifest = SimpleNamespace(artifact_digest="1" * 64)
+    completion: dict[str, object] = {
+        "artifact_type": "measurement_validation_completion",
+        "artifact_digest": "",
+        "status": "COMPLETE",
+        "parent_execution_id": "2" * 64,
+        "measurement_validation_manifest_digest": manifest.artifact_digest,
+        "measurement_update_policy_digest": "3" * 64,
+        "git_commit": "4" * 40,
+        "replicate_count": 31000,
+        "cell_aggregate_count": 31,
+        "mde_summary_digest": "5" * 64,
+    }
+    identity = dict(completion)
+    identity.pop("artifact_digest")
+    completion["artifact_digest"] = canonical_digest(
+        identity,
+        domain="dehps.m4-p2.measurement-validation-completion.v1",
+    )
+    digest = str(completion["artifact_digest"])
+    path = tmp_path / "completion" / digest / "completion.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(completion), encoding="utf-8")
+
+    with pytest.raises(
+        MeasurementValidationContractError,
+        match="measurement_validation_replay_mismatch",
+    ):
+        executor_module.verify_completion_replay(
+            manifest=manifest,
+            synthetic=SimpleNamespace(),
+            parent_execution_id="2" * 64,
+            output_dir=tmp_path,
+            git_commit="4" * 40,
+            expected_completion_digest=digest,
+            expected_update_policy_digest="6" * 64,
+        )
+
+
+def test_explicit_deep_completion_replay_retains_physical_assembly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assembled = SimpleNamespace(
+        completion_artifact={"artifact_digest": "6" * 64},
+        replicate_paths=(tmp_path / "replicate.json",),
+        aggregate_artifacts=({"artifact_digest": "7" * 64},),
+        mde_summary_artifact={"artifact_digest": "8" * 64},
+    )
+    calls: list[dict[str, object]] = []
+
+    def record_assembly(**kwargs: object) -> SimpleNamespace:
+        calls.append(kwargs)
+        return assembled
+
+    monkeypatch.setattr(executor_module, "assemble_completion", record_assembly)
+    replay = executor_module.verify_completion_deep_replay(
+        manifest=SimpleNamespace(),
+        synthetic=SimpleNamespace(),
+        parent_execution_id="2" * 64,
+        output_dir=tmp_path,
+        git_commit="4" * 40,
+        expected_completion_digest="6" * 64,
+        expected_update_policy_digest="3" * 64,
+    )
+    assert len(calls) == 1
+    assert replay["verification_mode"] == "FULL_CHECKPOINT_REASSEMBLY"
+
+
 P24_EXECUTION_ID = "772b5063f1a3578c7e8f8a2cd9f102357828608de8fbd80c2c1fb2c82b79afa2"
 P24_TRUTH_SPECS = {
     "WEAK_SINGLE_NUMBER": (
