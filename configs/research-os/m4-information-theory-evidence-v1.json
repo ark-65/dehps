@@ -1204,6 +1204,19 @@
       "task_type": "measurement_branch_identifiability_preflight_execution",
       "lane": "research",
       "priority": 92,
+      "requested_capability": "m4_v2_branch_identifiability_preflight_execution",
+      "input_artifact_digests": [
+        "7da905d15249813e44bcf57b4e107fac15bb2d02587c4c68134ca5c834aac5c1",
+        "6a4a7d9cee5fa498792f8b5d2f64b20483521bb3a92cfb148da0ff4fa89c2b78",
+        "a4775706031471d931fea226b2bcbc1238d4af533722ba56d4b0aa47bc5e1dbe",
+        "3ec4dbee106e02f58480255c953035685cec2b225066d4d9855504b2edbbaea2",
+        "8611d736f5e454b5eb637c5fad2ccfa1f7893feb5b8e67d6c49795fee7addff4",
+        "be19e156b4d565be593ff6e6228f951eca4e4ec3f27b80538491bc54d7337dcb",
+        "11873070901e93096500febda1e94b0db879b746cd2a220a62b6f7d6ecc22a47",
+        "6494b40d2d940ec590e8a04ba7c828d97b95e53d97d035e61cd7c8a58a4b81e9",
+        "731110eaa1d31abc53b0e67408c5ca228189caf081977a4874db00f4317231a7",
+        "3236de2ab7e1030ef57cb7a48f1b53f0f61b6e6d416b0cc5a328ae9cc67ae2bc"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
@@ -1214,6 +1227,11 @@
           "dependency_type": "artifact",
           "target_key": "m4-v2-branch-identifiability-fixture-freeze:FROZEN",
           "required_status": "available"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-v2-branch-preflight-execution-source-contract:7da905d15249813e44bcf57b4e107fac15bb2d02587c4c68134ca5c834aac5c1",
+          "required_status": "available"
         }
       ],
       "metric_contract": {
@@ -1222,9 +1240,75 @@
         "evidence_complete": false,
         "evidence_increment_percent": 0,
         "formal_historical_execution_allowed": false,
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "the exact fixture-freeze execution, three frozen fixture contracts, fixture completion, three branch designs, cross-branch design, and approved result-blind execution source contract are available",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "approved branch preflight execution source contract",
+            "fixture-freeze mainline execution",
+            "joint maximum-entropy solver fixture contract",
+            "orthogonal branch-control fixture contract",
+            "legacy IS2/IS3 role-resolution fixture contract",
+            "fixture-freeze completion artifact",
+            "three branch preflight design contracts",
+            "cross-branch no-duplicate-credit contract"
+          ],
+          "downstream_artifacts": [
+            "joint maximum-entropy solver preflight result",
+            "orthogonal endpoint preflight matrix",
+            "legacy role-resolution preflight result",
+            "three branch-health preflight results",
+            "preflight execution completion artifact",
+            "mainline execution artifact"
+          ],
+          "status_projection": "unified_m4_status.measurement_system_v2.branch_preflight_execution",
+          "evidence_progress_rule": "zero_deterministic_fixture_preflight_is_not_historical_evidence",
+          "decision_consumer": "marginal static measurement contract freezer only after ALL_BRANCHES_PASS",
+          "downstream_consumer": "m4-v2-marginal-static-measurement-contract-freeze"
+        },
         "phase": "M4-V2-PREFLIGHT-EXECUTION",
         "scope": "execute_only_the_frozen_synthetic_identifiability_fixtures_and_resolve_branch_health_without_historical_evidence",
-        "reason": "fixture identities and numerical boundaries must be mainline-frozen before any result-blind synthetic preflight run"
+        "reason": "fixture identities and numerical boundaries must be mainline-frozen before any result-blind synthetic preflight run",
+        "formal_branch_runs": 0,
+        "monte_carlo_replicates": 0,
+        "historical_outcomes_read": false,
+        "statistical_results_read": false,
+        "production_action": "none"
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "m4-v2-marginal-static-measurement-contract-freeze",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "marginal_static_measurement_contract_freeze",
+      "lane": "research",
+      "priority": 91,
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-v2-branch-identifiability-preflight-execution",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-v2-branch-identifiability-preflight-execution:ALL_BRANCHES_PASS",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "engineering_complete": false,
+        "engineering_increment_percent": 0,
+        "evidence_complete": false,
+        "evidence_increment_percent": 0,
+        "phase": "M4-V2-MARGINAL-STATIC-CONTRACT-FREEZE",
+        "scope": "freeze_the_first_formal_measurement_branch_contract_only_after_result_blind_identifiability_preflight_passes",
+        "reason": "the marginal-static branch is the first singular downstream consumer after all three measurement branches prove identifiable without duplicate credit",
+        "formal_execution_allowed": false,
+        "historical_outcomes_read": false,
+        "statistical_results_read": false,
+        "production_action": "none"
       },
       "status": "draft",
       "completion_classification": "INTEGRATION_PENDING"
@@ -2146,6 +2230,7 @@
       "m4-measurement-contract-v2-replay-fixture:92dddbf3528e61eb5997131c161b1ccb8c4d8bd20974d961d6f19c22b396300e",
       "m4-measurement-contract-v2:a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b",
       "m4-v2-branch-preflight-source-contract:6fb3a1e366da129ac460599a391891a49206ccc715b6367cf344e2aa3e9f2a3d",
+      "m4-v2-branch-preflight-execution-source-contract:7da905d15249813e44bcf57b4e107fac15bb2d02587c4c68134ca5c834aac5c1",
       "m4-v2-branch-fixture-freeze-source-contract:391acc6a04518389f841e94a640a14dcaf98bd2c36614d31a0e713446980b06d",
       "m4-p2-1-synthetic-dataset:5354b9f7f6c72996cff16d6c161b03ff49922bf92589bd43b823d107019ebd86",
       "m4-p2-1-synthetic-run-manifest:8493987cc4414414e33fb5c5ea148be1f42a1d9e57609600c4346fb642cbfa08",
@@ -2187,5 +2272,5 @@
     "external_events": [],
     "authorities": []
   },
-  "manifest_digest": "3f27f9af24b9265b99abfd436299b2bdab16119c7880e1790d66101d193b0ea6"
+  "manifest_digest": "4c2b1f44f2c1e20be80e128ab26e47e337989f21d7698b39d48c30391834cbad"
 }
