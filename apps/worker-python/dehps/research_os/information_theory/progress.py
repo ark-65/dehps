@@ -56,6 +56,12 @@ M4_V2_MARGINAL_FIXTURE_FREEZE_COMPLETION_FACT = (
 M4_V2_MARGINAL_HEALTH_DESIGN_TASK_KEY = (
     "m4-v2-marginal-static-measurement-health-design"
 )
+M4_V2_MARGINAL_HEALTH_DESIGN_COMPLETION_FACT = (
+    "m4-v2-marginal-static-measurement-health-design:FROZEN"
+)
+M4_V2_MARGINAL_HEALTH_EXECUTION_TASK_KEY = (
+    "m4-v2-marginal-static-measurement-health-execution"
+)
 M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
 M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = "m4-v2-p2-6-1-marginal-decision-replay"
 M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
@@ -308,6 +314,7 @@ def build_m4_status(
         in {
             M4_V2_MARGINAL_CONTRACT_FREEZE_TASK_KEY,
             M4_V2_MARGINAL_FIXTURE_FREEZE_TASK_KEY,
+            M4_V2_MARGINAL_HEALTH_DESIGN_TASK_KEY,
         }
         else None
     )
@@ -321,7 +328,23 @@ def build_m4_status(
         measurement_v2_execution
         if measurement_v2_execution is not None
         and measurement_v2_execution.get("execution_task_key")
-        == M4_V2_MARGINAL_FIXTURE_FREEZE_TASK_KEY
+        in {
+            M4_V2_MARGINAL_FIXTURE_FREEZE_TASK_KEY,
+            M4_V2_MARGINAL_HEALTH_DESIGN_TASK_KEY,
+        }
+        else None
+    )
+    measurement_v2_marginal_health_design_resolution = resolutions.get(
+        M4_V2_MARGINAL_HEALTH_DESIGN_TASK_KEY
+    )
+    measurement_v2_marginal_health_design_task = tasks.get(
+        M4_V2_MARGINAL_HEALTH_DESIGN_TASK_KEY
+    )
+    measurement_v2_marginal_health_design_execution = (
+        measurement_v2_execution
+        if measurement_v2_execution is not None
+        and measurement_v2_execution.get("execution_task_key")
+        == M4_V2_MARGINAL_HEALTH_DESIGN_TASK_KEY
         else None
     )
     measurement_compatibility_resolution = resolutions.get(
@@ -1052,7 +1075,10 @@ def build_m4_status(
         "measurement_system_v2": (
             {
                 "phase": (
-                    "MARGINAL_STATIC_HEALTH_DESIGN"
+                    "MARGINAL_STATIC_HEALTH_EXECUTION"
+                    if M4_V2_MARGINAL_HEALTH_DESIGN_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "MARGINAL_STATIC_HEALTH_DESIGN"
                     if M4_V2_MARGINAL_FIXTURE_FREEZE_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "MARGINAL_STATIC_FIXTURE_FREEZE"
@@ -1404,6 +1430,103 @@ def build_m4_status(
                     "evidence_progress_increment": 0,
                     "next_consumer": M4_V2_MARGINAL_HEALTH_DESIGN_TASK_KEY,
                 },
+                "marginal_static_health_design": {
+                    "task_key": M4_V2_MARGINAL_HEALTH_DESIGN_TASK_KEY,
+                    "resolver_status": (
+                        None
+                        if measurement_v2_marginal_health_design_resolution is None
+                        else measurement_v2_marginal_health_design_resolution.status.value
+                    ),
+                    "completion_classification": (
+                        None
+                        if measurement_v2_marginal_health_design_task is None
+                        or task_states[
+                            measurement_v2_marginal_health_design_task.artifact_digest
+                        ].completion_classification
+                        is None
+                        else task_states[
+                            measurement_v2_marginal_health_design_task.artifact_digest
+                        ].completion_classification.value
+                    ),
+                    "completed": (
+                        M4_V2_MARGINAL_HEALTH_DESIGN_COMPLETION_FACT
+                        in manifest.facts.artifacts
+                    ),
+                    "workload_digest": (
+                        None
+                        if measurement_v2_marginal_health_design_execution is None
+                        else measurement_v2_marginal_health_design_execution.get(
+                            "marginal_static_health_workload_digest"
+                        )
+                    ),
+                    "inference_digest": (
+                        None
+                        if measurement_v2_marginal_health_design_execution is None
+                        else measurement_v2_marginal_health_design_execution.get(
+                            "marginal_static_health_inference_digest"
+                        )
+                    ),
+                    "planned_total_replicates": (
+                        0
+                        if measurement_v2_marginal_health_design_execution is None
+                        else measurement_v2_marginal_health_design_execution.get(
+                            "planned_total_replicates", 0
+                        )
+                    ),
+                    "planned_total_generated_issues": (
+                        0
+                        if measurement_v2_marginal_health_design_execution is None
+                        else measurement_v2_marginal_health_design_execution.get(
+                            "planned_total_generated_issues", 0
+                        )
+                    ),
+                    "planned_total_outer_evaluation_issues": (
+                        0
+                        if measurement_v2_marginal_health_design_execution is None
+                        else measurement_v2_marginal_health_design_execution.get(
+                            "planned_total_outer_evaluation_issues", 0
+                        )
+                    ),
+                    "planned_execution_shards": (
+                        0
+                        if measurement_v2_marginal_health_design_execution is None
+                        else measurement_v2_marginal_health_design_execution.get(
+                            "planned_execution_shards", 0
+                        )
+                    ),
+                    "execution_shard_size": (
+                        0
+                        if measurement_v2_marginal_health_design_execution is None
+                        else measurement_v2_marginal_health_design_execution.get(
+                            "execution_shard_size", 0
+                        )
+                    ),
+                    "legacy_replicates": 31000,
+                    "legacy_outer_issue_predictions": 64656000,
+                    "legacy_probe_fits_reused": False,
+                    "legacy_results_reused": False,
+                    "database_reads_during_replicate": 0,
+                    "database_writes_during_replicate": 0,
+                    "csv_materialized": False,
+                    "duplicate_raw_replay": False,
+                    "routine_physical_checkpoint_scan": False,
+                    "sampled_workload_status": (
+                        "FROZEN_NOT_EXECUTED"
+                        if M4_V2_MARGINAL_HEALTH_DESIGN_COMPLETION_FACT
+                        in manifest.facts.artifacts
+                        else "NOT_FROZEN"
+                    ),
+                    "generated_issues": 0,
+                    "synthetic_replicates": 0,
+                    "bootstrap_replicates_executed": 0,
+                    "formal_branch_runs_executed": 0,
+                    "actual_fold_count": 0,
+                    "historical_outcomes_read": False,
+                    "statistical_results_read": False,
+                    "evidence_created": False,
+                    "evidence_progress_increment": 0,
+                    "next_consumer": M4_V2_MARGINAL_HEALTH_EXECUTION_TASK_KEY,
+                },
                 "completion_classification": (
                     None
                     if task_states[
@@ -1415,7 +1538,10 @@ def build_m4_status(
                     ].completion_classification.value
                 ),
                 "live_mainline_status": (
-                    "MARGINAL_STATIC_FIXTURES_VALIDATED_IN_MAINLINE"
+                    "MARGINAL_STATIC_HEALTH_DESIGN_VALIDATED_IN_MAINLINE"
+                    if M4_V2_MARGINAL_HEALTH_DESIGN_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "MARGINAL_STATIC_FIXTURES_VALIDATED_IN_MAINLINE"
                     if M4_V2_MARGINAL_FIXTURE_FREEZE_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "MARGINAL_STATIC_CONTRACT_VALIDATED_IN_MAINLINE"
@@ -1523,7 +1649,10 @@ def build_m4_status(
                     ),
                 },
                 "next_consumer": (
-                    M4_V2_MARGINAL_HEALTH_DESIGN_TASK_KEY
+                    M4_V2_MARGINAL_HEALTH_EXECUTION_TASK_KEY
+                    if M4_V2_MARGINAL_HEALTH_DESIGN_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else M4_V2_MARGINAL_HEALTH_DESIGN_TASK_KEY
                     if M4_V2_MARGINAL_FIXTURE_FREEZE_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else M4_V2_MARGINAL_FIXTURE_FREEZE_TASK_KEY
