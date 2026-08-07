@@ -44,6 +44,12 @@ M4_V2_PREFLIGHT_EXECUTION_PASS_FACT = (
 M4_V2_MARGINAL_CONTRACT_FREEZE_TASK_KEY = (
     "m4-v2-marginal-static-measurement-contract-freeze"
 )
+M4_V2_MARGINAL_CONTRACT_FREEZE_COMPLETION_FACT = (
+    "m4-v2-marginal-static-measurement-contract-freeze:FROZEN"
+)
+M4_V2_MARGINAL_FIXTURE_FREEZE_TASK_KEY = (
+    "m4-v2-marginal-static-measurement-fixture-freeze"
+)
 M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
 M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = "m4-v2-p2-6-1-marginal-decision-replay"
 M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
@@ -281,6 +287,19 @@ def build_m4_status(
         if measurement_v2_execution is not None
         and measurement_v2_execution.get("execution_task_key")
         == M4_V2_PREFLIGHT_EXECUTION_TASK_KEY
+        else None
+    )
+    measurement_v2_marginal_contract_resolution = resolutions.get(
+        M4_V2_MARGINAL_CONTRACT_FREEZE_TASK_KEY
+    )
+    measurement_v2_marginal_contract_task = tasks.get(
+        M4_V2_MARGINAL_CONTRACT_FREEZE_TASK_KEY
+    )
+    measurement_v2_marginal_contract_execution = (
+        measurement_v2_execution
+        if measurement_v2_execution is not None
+        and measurement_v2_execution.get("execution_task_key")
+        == M4_V2_MARGINAL_CONTRACT_FREEZE_TASK_KEY
         else None
     )
     measurement_compatibility_resolution = resolutions.get(
@@ -1011,7 +1030,10 @@ def build_m4_status(
         "measurement_system_v2": (
             {
                 "phase": (
-                    "MARGINAL_STATIC_CONTRACT_FREEZE"
+                    "MARGINAL_STATIC_FIXTURE_FREEZE"
+                    if M4_V2_MARGINAL_CONTRACT_FREEZE_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "MARGINAL_STATIC_CONTRACT_FREEZE"
                     if M4_V2_PREFLIGHT_EXECUTION_PASS_FACT
                     in manifest.facts.artifacts
                     else "PREFLIGHT_EXECUTION_RESOLVED"
@@ -1227,6 +1249,63 @@ def build_m4_status(
                         else None
                     ),
                 },
+                "marginal_static_contract_freeze": {
+                    "task_key": M4_V2_MARGINAL_CONTRACT_FREEZE_TASK_KEY,
+                    "resolver_status": (
+                        None
+                        if measurement_v2_marginal_contract_resolution is None
+                        else measurement_v2_marginal_contract_resolution.status.value
+                    ),
+                    "completion_classification": (
+                        None
+                        if measurement_v2_marginal_contract_task is None
+                        or task_states[
+                            measurement_v2_marginal_contract_task.artifact_digest
+                        ].completion_classification
+                        is None
+                        else task_states[
+                            measurement_v2_marginal_contract_task.artifact_digest
+                        ].completion_classification.value
+                    ),
+                    "completed": (
+                        M4_V2_MARGINAL_CONTRACT_FREEZE_COMPLETION_FACT
+                        in manifest.facts.artifacts
+                    ),
+                    "measurement_contract_digest": (
+                        None
+                        if measurement_v2_marginal_contract_execution is None
+                        else measurement_v2_marginal_contract_execution.get(
+                            "marginal_static_measurement_contract_digest"
+                        )
+                    ),
+                    "estimator_id": (
+                        None
+                        if measurement_v2_marginal_contract_execution is None
+                        else measurement_v2_marginal_contract_execution.get(
+                            "estimator_id"
+                        )
+                    ),
+                    "identifiability_preflight_status": (
+                        None
+                        if measurement_v2_marginal_contract_execution is None
+                        else measurement_v2_marginal_contract_execution.get(
+                            "identifiability_preflight_status"
+                        )
+                    ),
+                    "legacy_measurement_health": "REPAIR",
+                    "legacy_repair_overridden": False,
+                    "accepted_model_artifact_digest": None,
+                    "sampled_synthetic_execution_status": "NOT_AUTHORIZED",
+                    "historical_execution_status": "NOT_AUTHORIZED",
+                    "synthetic_replicates": 0,
+                    "formal_branch_runs_executed": 0,
+                    "actual_fold_count": 0,
+                    "historical_outcomes_read": False,
+                    "statistical_results_read": False,
+                    "evidence_created": False,
+                    "evidence_progress_increment": 0,
+                    "next_consumer": M4_V2_MARGINAL_FIXTURE_FREEZE_TASK_KEY,
+                },
                 "completion_classification": (
                     None
                     if task_states[
@@ -1238,7 +1317,10 @@ def build_m4_status(
                     ].completion_classification.value
                 ),
                 "live_mainline_status": (
-                    "BRANCH_PREFLIGHT_VALIDATED_IN_MAINLINE"
+                    "MARGINAL_STATIC_CONTRACT_VALIDATED_IN_MAINLINE"
+                    if M4_V2_MARGINAL_CONTRACT_FREEZE_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "BRANCH_PREFLIGHT_VALIDATED_IN_MAINLINE"
                     if M4_V2_PREFLIGHT_EXECUTION_PASS_FACT
                     in manifest.facts.artifacts
                     else "BRANCH_PREFLIGHT_RESOLVED_IN_MAINLINE"
@@ -1340,7 +1422,10 @@ def build_m4_status(
                     ),
                 },
                 "next_consumer": (
-                    M4_V2_MARGINAL_CONTRACT_FREEZE_TASK_KEY
+                    M4_V2_MARGINAL_FIXTURE_FREEZE_TASK_KEY
+                    if M4_V2_MARGINAL_CONTRACT_FREEZE_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else M4_V2_MARGINAL_CONTRACT_FREEZE_TASK_KEY
                     if M4_V2_PREFLIGHT_EXECUTION_PASS_FACT
                     in manifest.facts.artifacts
                     else None

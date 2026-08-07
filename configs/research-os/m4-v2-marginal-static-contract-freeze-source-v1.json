@@ -1,0 +1,107 @@
+{
+  "schema_version": "dehps-m4-v2-marginal-static-contract-freeze-source.v1",
+  "artifact_type": "m4_v2_marginal_static_contract_freeze_source",
+  "artifact_digest": "db8109760e5aeaae30cc765bb60ccd704560a24674a934dff6304026d8b87de1",
+  "contract_key": "M4_V2_MARGINAL_STATIC_CONTRACT_FREEZE_SOURCE",
+  "research_request_key": "research-m4-v2-marginal-static-contract-freeze-round-39-20260808",
+  "research_request_id": 312,
+  "research_execution_id": 233,
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/marginal_static_contract.py",
+      "content_sha256": "0750f7fec88b11c6a4dbe55cf0ac25d8a0b8def8fc6261dde272d8ab9894f2f2"
+    }
+  ],
+  "source_set_digest": "86599ea83ffa3e88371bec7304560865720b5133db32868269da3dfe8ce164d8",
+  "frozen_contract": {
+    "estimator": {
+      "branch_id": "MARGINAL_STATIC",
+      "estimator_id": "EXPANDING_LEGAL_MARGINAL_ALPHA_1",
+      "input": "only legal outer-training draws strictly before the target issue",
+      "history_features": "forbidden",
+      "target_issue_or_future_read": "forbidden",
+      "number_count": 33,
+      "draw_cardinality": 6,
+      "uniform_marginal": "2/11",
+      "prior_strength_issues_alpha": 1,
+      "per_number_prior_event_count": "2/11",
+      "formula": "q_i=(c_i+2/11)/(n+1)",
+      "exact_sum_identity": "sum_i q_i=(6*n+6)/(n+1)=6",
+      "fit_window": "expanding outer-train-only",
+      "minimum_training_issues": 900,
+      "random_seed": "none",
+      "hyperparameter_search": "none",
+      "clipping": "forbidden",
+      "renormalization": "forbidden because the exact formula already sums to six",
+      "invalid_input_policy": "fail closed as MeasurementHealth INCONCLUSIVE and do not emit an accepted model"
+    },
+    "score": {
+      "baseline_id": "LEGAL_UNIFORM_NUMBER_EVENT_BASELINE",
+      "baseline_q_i": "2/11",
+      "candidate_score": "sum_i log2 Bern(Y_i;q_i)",
+      "baseline_score": "sum_i log2 Bern(Y_i;2/11)",
+      "endpoint": "candidate_score_minus_baseline_score",
+      "unit": "bits_per_issue",
+      "geometry": "SUM_33_BINARY_LOG_SCORES",
+      "joint_information_claim": "forbidden",
+      "next_branch_baseline_rule": "only a future accepted same-fold marginal model artifact may become the temporal baseline"
+    },
+    "model_artifact_contract": {
+      "required_fields": [
+        "branch_id",
+        "estimator_id",
+        "fit_start_issue",
+        "fit_end_issue",
+        "training_issue_count",
+        "number_event_counts_1_to_33",
+        "prior_strength_issues_alpha",
+        "probabilities_q_1_to_33",
+        "probability_sum",
+        "source_dataset_artifact_digest",
+        "source_contract_digest"
+      ],
+      "probability_order": "red number 1 through 33",
+      "accepted_for_downstream_baseline_default": false,
+      "overwrite": "forbidden",
+      "same_inputs_require_same_digest": true
+    },
+    "legacy_boundary": {
+      "p2_6_1_measurement_health": "REPAIR",
+      "p2_6_1_formal_branch_program_eligible": false,
+      "p2_6_1_decision_is_overridden": false,
+      "v2_preflight_pass_meaning": "analytic identifiability only",
+      "historical_execution_allowed_after_contract_freeze": false,
+      "required_before_history": "a separately frozen and executed V2 marginal-static synthetic measurement-health program must PASS"
+    },
+    "next_fixture_obligations": {
+      "positive_control": "V2_M1_GROUP_ODDS_2_STATIONARY",
+      "negative_controls": [
+        "NULL_UNIFORM_LEGAL_SIX_OF_33",
+        "V2_T1_OVERLAP_ODDS_2_MARKOV projected to stationary marginals",
+        "V2_J1_HISTORY_IS4_LAMBDA_HALF projected to stationary marginals"
+      ],
+      "required_checks": [
+        "legal probability sum and bounds",
+        "deterministic estimator replay",
+        "positive-control direction",
+        "negative-control false-positive behavior",
+        "bias",
+        "coverage",
+        "minimum detectable effect"
+      ],
+      "sampled_workload_is_frozen_in_this_round": false,
+      "historical_data_is_allowed": false
+    },
+    "completion_fact": "m4-v2-marginal-static-measurement-contract-freeze:FROZEN",
+    "next_consumer": "m4-v2-marginal-static-measurement-fixture-freeze"
+  },
+  "result_blind": true,
+  "formal_branch_execution_allowed": false,
+  "synthetic_replicates": 0,
+  "historical_outcomes_read": false,
+  "statistical_results_read": false,
+  "evidence_created": false,
+  "evidence_progress_increment": 0,
+  "promotion_gate_opened": false,
+  "production_action": "none"
+}
