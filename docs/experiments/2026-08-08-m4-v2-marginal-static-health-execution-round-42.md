@@ -135,6 +135,40 @@ starts.
   retirement activation is ACTIVE; the same failure reproduces at the prior
   merged runtime commit and is outside this round.
 
+## First-release incident and exact recovery
+
+The first merged-code dispatch failed closed before the first replicate. The
+Round-42 source manifest carried four placeholder-looking parent digests that
+did not equal the immutable Round-41 registered execution, workload, inference,
+and design-completion artifacts. The single provenance check rejected the task
+with `M4 v2 marginal-static health execution source identities changed`.
+
+Immutable failed identity:
+
+- task digest:
+  `3f5a3250aaec1a1e02516734ad8f7ce49c5e8e0c18fafd098cb08bb9f2b103f0`;
+- execution:
+  `d0e5f7ee972ab33d899ca46d8d59cb718c1748888374bccf521273466663bfdf`;
+- started event:
+  `01445142e807fd3d0e996f7bc8818123ded5aa9860b5a28d6f562329bad79919`;
+- failed event:
+  `83cf08c7ef24550d932ef15d4439cac26ca48ff546c445874ef4b19a0db16ddc`;
+- generated replicates, history reads, execution artifacts, database/CSV work,
+  and Evidence: all zero.
+
+The corrected manifest binds the task to the registered Round-41 identities
+listed in that round's integration matrix. The recovery builder is bound to
+the exact failed task, execution, two event digests, error text, failed state,
+and absence of execution artifacts. Its live preflight permits exactly one
+state transition, `failed/INTEGRATED -> draft/INTEGRATION_PENDING`, with zero
+task/event deletion, event rewrite, or completed-task regression.
+
+This does not remove the unique source-provenance check. It removes no safety
+boundary and adds no second result-validation pass: duplicate raw replay,
+database/CSV scanning, and routine physical checkpoint scanning remain off.
+The original failed execution stays immutable and a separately approved
+Operator recovery is still required before formal work can resume.
+
 ## Mainline integration matrix
 
 | Binding | Round-42 status |

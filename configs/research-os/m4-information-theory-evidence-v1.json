@@ -1525,10 +1525,10 @@
       "requested_capability": "m4_v2_marginal_static_measurement_health_execution",
       "input_artifact_digests": [
         "5fbeb6ab0533478ac097747ab73fb0188561849505a76cf7a63a3a02061b2354",
-        "8404a16ddc3523911c62b38fe7f91e2a1d6d143203061377741b8058991f0776",
-        "ec48488730e8c98cf343145d19ebf7a47d0ad7e92aa5679962ed16fbad43528b",
-        "9edf299880a4f572ea515d35dfa88829f03141847c3552bbf58b41678071539e",
-        "4fed70e9e54872fd2ff148e5822c06de467503243790608237363317542c87db"
+        "8404a16dd48c081e9ada61eb1a968dd0df5b3e1a05e9b6529626f4683f91c362",
+        "ec4848874c8883b5e07b72af43a140867e1d3a7e3a865678fde5d3b5a7b1b557",
+        "9edf2998c034631f45c163caf5c14c9d53805e2c125a1df24d5dd6111139baa0",
+        "4fed70e9d81266ab01c9dfaa689470ac870d5f20fb44f96cfa3761d6eb071ef9"
       ],
       "dependencies": [
         {
@@ -2592,5 +2592,5 @@
     "external_events": [],
     "authorities": []
   },
-  "manifest_digest": "4ef7e959d9dd1face4a5321bb30f8754663514d7a008a56b0630e556800263c1"
+  "manifest_digest": "74eacc55bfa97baf8dba7a74c394d05aef2e8425e007695c44acd272b6aed56b"
 }
