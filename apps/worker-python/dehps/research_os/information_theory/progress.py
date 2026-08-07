@@ -29,6 +29,12 @@ PREFLIGHT_DESIGN_COMPLETION_FACT = (
 M4_V2_PREFLIGHT_FIXTURE_TASK_KEY = (
     "m4-v2-branch-identifiability-fixture-freeze"
 )
+M4_V2_PREFLIGHT_FIXTURE_COMPLETION_FACT = (
+    "m4-v2-branch-identifiability-fixture-freeze:FROZEN"
+)
+M4_V2_PREFLIGHT_EXECUTION_TASK_KEY = (
+    "m4-v2-branch-identifiability-preflight-execution"
+)
 M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
 M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = "m4-v2-p2-6-1-marginal-decision-replay"
 M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
@@ -249,6 +255,17 @@ def build_m4_status(
         if measurement_v2_execution is not None
         and measurement_v2_execution.get("execution_task_key")
         == M4_V2_PREFLIGHT_DESIGN_TASK_KEY
+        else None
+    )
+    measurement_v2_fixture_resolution = resolutions.get(
+        M4_V2_PREFLIGHT_FIXTURE_TASK_KEY
+    )
+    measurement_v2_fixture_task = tasks.get(M4_V2_PREFLIGHT_FIXTURE_TASK_KEY)
+    measurement_v2_fixture_execution = (
+        measurement_v2_execution
+        if measurement_v2_execution is not None
+        and measurement_v2_execution.get("execution_task_key")
+        == M4_V2_PREFLIGHT_FIXTURE_TASK_KEY
         else None
     )
     measurement_compatibility_resolution = resolutions.get(
@@ -979,7 +996,11 @@ def build_m4_status(
         "measurement_system_v2": (
             {
                 "phase": (
-                    "PREFLIGHT_FIXTURE_FREEZE"
+                    "PREFLIGHT_EXECUTION"
+                    if measurement_v2_fixture_resolution is not None
+                    and measurement_v2_fixture_resolution.status
+                    is TaskStatus.COMPLETED
+                    else "PREFLIGHT_FIXTURE_FREEZE"
                     if measurement_v2_preflight_resolution is not None
                     and measurement_v2_preflight_resolution.status
                     is TaskStatus.COMPLETED
@@ -1072,6 +1093,42 @@ def build_m4_status(
                     "evidence_progress_increment": 0,
                     "next_consumer": M4_V2_PREFLIGHT_FIXTURE_TASK_KEY,
                 },
+                "branch_preflight_fixture_freeze": {
+                    "task_key": M4_V2_PREFLIGHT_FIXTURE_TASK_KEY,
+                    "resolver_status": (
+                        None
+                        if measurement_v2_fixture_resolution is None
+                        else measurement_v2_fixture_resolution.status.value
+                    ),
+                    "completion_classification": (
+                        None
+                        if measurement_v2_fixture_task is None
+                        or task_states[
+                            measurement_v2_fixture_task.artifact_digest
+                        ].completion_classification
+                        is None
+                        else task_states[
+                            measurement_v2_fixture_task.artifact_digest
+                        ].completion_classification.value
+                    ),
+                    "fixtures_frozen": (
+                        M4_V2_PREFLIGHT_FIXTURE_COMPLETION_FACT
+                        in manifest.facts.artifacts
+                    ),
+                    "fixture_contract_count": (
+                        0
+                        if measurement_v2_fixture_execution is None
+                        else measurement_v2_fixture_execution.get(
+                            "fixture_contract_count", 0
+                        )
+                    ),
+                    "formal_branch_runs_executed": 0,
+                    "preflight_result_count": 0,
+                    "historical_outcomes_read": False,
+                    "statistical_results_read": False,
+                    "evidence_progress_increment": 0,
+                    "next_consumer": M4_V2_PREFLIGHT_EXECUTION_TASK_KEY,
+                },
                 "completion_classification": (
                     None
                     if task_states[
@@ -1083,7 +1140,11 @@ def build_m4_status(
                     ].completion_classification.value
                 ),
                 "live_mainline_status": (
-                    "PREFLIGHT_DESIGN_VALIDATED_IN_MAINLINE"
+                    "PREFLIGHT_FIXTURES_VALIDATED_IN_MAINLINE"
+                    if measurement_v2_fixture_resolution is not None
+                    and measurement_v2_fixture_resolution.status
+                    is TaskStatus.COMPLETED
+                    else "PREFLIGHT_DESIGN_VALIDATED_IN_MAINLINE"
                     if measurement_v2_preflight_resolution is not None
                     and measurement_v2_preflight_resolution.status
                     is TaskStatus.COMPLETED
@@ -1174,7 +1235,11 @@ def build_m4_status(
                     ),
                 },
                 "next_consumer": (
-                    M4_V2_PREFLIGHT_FIXTURE_TASK_KEY
+                    M4_V2_PREFLIGHT_EXECUTION_TASK_KEY
+                    if measurement_v2_fixture_resolution is not None
+                    and measurement_v2_fixture_resolution.status
+                    is TaskStatus.COMPLETED
+                    else M4_V2_PREFLIGHT_FIXTURE_TASK_KEY
                     if measurement_v2_preflight_resolution is not None
                     and measurement_v2_preflight_resolution.status
                     is TaskStatus.COMPLETED

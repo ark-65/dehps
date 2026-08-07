@@ -1141,6 +1141,12 @@
       "task_type": "measurement_branch_preflight_fixture_freeze",
       "lane": "research",
       "priority": 93,
+      "requested_capability": "m4_v2_branch_identifiability_fixture_freeze",
+      "input_artifact_digests": [
+        "391acc6a04518389f841e94a640a14dcaf98bd2c36614d31a0e713446980b06d",
+        "21d63e3331c2ae8bece3cc615f7b0d652537b0315a4b33b76e12321bcbc0dff1",
+        "3236de2ab7e1030ef57cb7a48f1b53f0f61b6e6d416b0cc5a328ae9cc67ae2bc"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
@@ -1151,6 +1157,11 @@
           "dependency_type": "artifact",
           "target_key": "m4-v2-branch-identifiability-preflight-design:FROZEN",
           "required_status": "available"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-v2-branch-fixture-freeze-source-contract:391acc6a04518389f841e94a640a14dcaf98bd2c36614d31a0e713446980b06d",
+          "required_status": "available"
         }
       ],
       "metric_contract": {
@@ -1159,9 +1170,61 @@
         "evidence_complete": false,
         "evidence_increment_percent": 0,
         "formal_execution_allowed": false,
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "preflight design is completed and the approved fixture-freeze source contract is available",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "preflight design execution",
+            "preflight design completion",
+            "cross-branch preflight design",
+            "approved fixture-freeze source contract"
+          ],
+          "downstream_artifacts": [
+            "joint maximum-entropy solver fixture contract",
+            "orthogonal branch-control fixture contract",
+            "legacy IS2/IS3 role-resolution fixture contract",
+            "fixture-freeze completion artifact"
+          ],
+          "status_projection": "unified_m4_status.measurement_system_v2.branch_preflight_fixture_freeze",
+          "evidence_progress_rule": "zero_fixture_design_is_not_evidence",
+          "decision_consumer": "result-blind branch identifiability preflight executor",
+          "downstream_consumer": "m4-v2-branch-identifiability-preflight-execution"
+        },
         "phase": "M4-V2-PREFLIGHT-FIXTURE-FREEZE",
         "scope": "freeze_exact_branch_controls_joint_baseline_solver_and_numerical_boundaries_without_results",
         "reason": "preflight design exposes unresolved implementation and solver obligations before any synthetic or historical branch run"
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "m4-v2-branch-identifiability-preflight-execution",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "measurement_branch_identifiability_preflight_execution",
+      "lane": "research",
+      "priority": 92,
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-v2-branch-identifiability-fixture-freeze",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-v2-branch-identifiability-fixture-freeze:FROZEN",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "engineering_complete": false,
+        "engineering_increment_percent": 0,
+        "evidence_complete": false,
+        "evidence_increment_percent": 0,
+        "formal_historical_execution_allowed": false,
+        "phase": "M4-V2-PREFLIGHT-EXECUTION",
+        "scope": "execute_only_the_frozen_synthetic_identifiability_fixtures_and_resolve_branch_health_without_historical_evidence",
+        "reason": "fixture identities and numerical boundaries must be mainline-frozen before any result-blind synthetic preflight run"
       },
       "status": "draft",
       "completion_classification": "INTEGRATION_PENDING"
@@ -2083,6 +2146,7 @@
       "m4-measurement-contract-v2-replay-fixture:92dddbf3528e61eb5997131c161b1ccb8c4d8bd20974d961d6f19c22b396300e",
       "m4-measurement-contract-v2:a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b",
       "m4-v2-branch-preflight-source-contract:6fb3a1e366da129ac460599a391891a49206ccc715b6367cf344e2aa3e9f2a3d",
+      "m4-v2-branch-fixture-freeze-source-contract:391acc6a04518389f841e94a640a14dcaf98bd2c36614d31a0e713446980b06d",
       "m4-p2-1-synthetic-dataset:5354b9f7f6c72996cff16d6c161b03ff49922bf92589bd43b823d107019ebd86",
       "m4-p2-1-synthetic-run-manifest:8493987cc4414414e33fb5c5ea148be1f42a1d9e57609600c4346fb642cbfa08",
       "m4-p2-1-synthetic-run-manifest:f84c2da3565f7eda41c3782517c78211805f57ea8f3bfd00659a93c380826a3c",
@@ -2123,5 +2187,5 @@
     "external_events": [],
     "authorities": []
   },
-  "manifest_digest": "9d67c07990707e783384386b4c5c09e2a1f5b3c3521d93dcfd38817feddc69f5"
+  "manifest_digest": "3f27f9af24b9265b99abfd436299b2bdab16119c7880e1790d66101d193b0ea6"
 }
