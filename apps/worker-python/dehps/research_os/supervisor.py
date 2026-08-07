@@ -142,6 +142,16 @@ from dehps.research_os.information_theory.measurement_system_v2 import (
 from dehps.research_os.information_theory.measurement_system_v2.execution import (
     DESIGN_COMPLETION_FACT,
 )
+from dehps.research_os.information_theory.measurement_system_v2.preflight_design import (
+    PREFLIGHT_DESIGN_CAPABILITY,
+    PREFLIGHT_DESIGN_COMPLETION_FACT,
+    PREFLIGHT_DESIGN_TASK_KEY,
+    PREFLIGHT_FIXTURE_FREEZE_TASK_KEY,
+    PREFLIGHT_SOURCE_CONTRACT_PATH,
+    build_branch_preflight_design_artifacts,
+    load_preflight_source_contract,
+    verify_preflight_source_bytes,
+)
 from dehps.research_os.information_theory.measurement_system_v2.replay import (
     P27_GATE_REPLAY_FACT,
     P261_RAW_REPLAY_FACT,
@@ -3790,6 +3800,229 @@ class M4MeasurementContractV2DesignReplayCapability:
         )
 
 
+class M4BranchIdentifiabilityPreflightDesignCapability:
+    def __init__(
+        self,
+        *,
+        repository: PostgresResearchOSRepository,
+        root_dir: Path = ROOT_DIR,
+    ) -> None:
+        self.repository = repository
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key != PREFLIGHT_DESIGN_TASK_KEY
+            or task.requested_capability != PREFLIGHT_DESIGN_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "M4 v2 branch preflight design received the wrong task"
+            )
+        fixture = load_gate_replay_fixture(self.root_dir / GATE_REPLAY_FIXTURE_PATH)
+        if (
+            len(task.input_artifact_digests) != 3
+            or task.input_artifact_digests[:2]
+            != (MEASUREMENT_CONTRACT_V2_DIGEST, fixture.artifact_digest)
+        ):
+            raise MainlineSupervisorError(
+                "M4 v2 branch preflight design source identities changed"
+            )
+        source_contract = load_preflight_source_contract(
+            self.root_dir / PREFLIGHT_SOURCE_CONTRACT_PATH
+        )
+        if source_contract["artifact_digest"] != task.input_artifact_digests[2]:
+            raise MainlineSupervisorError(
+                "M4 v2 branch preflight source contract changed"
+            )
+        verify_preflight_source_bytes(
+            root_dir=self.root_dir,
+            contract=source_contract,
+        )
+        _, design_execution, _ = _load_single_completed_execution(
+            repository=self.repository,
+            root_dir=self.root_dir,
+            control_plane_key=control_plane_key,
+            task_key=M4_V2_DESIGN_TASK_KEY,
+        )
+        _, replay_execution, replay_registrations = (
+            _load_single_completed_execution(
+                repository=self.repository,
+                root_dir=self.root_dir,
+                control_plane_key=control_plane_key,
+                task_key=M4_V2_DESIGN_REPLAY_TASK_KEY,
+            )
+        )
+        gate_replay = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=replay_registrations,
+            artifact_type="GateCompilerReplayArtifact",
+        )
+        if (
+            replay_execution.get("measurement_contract_v2_digest")
+            != MEASUREMENT_CONTRACT_V2_DIGEST
+            or replay_execution.get("design_execution_id")
+            != design_execution.get("execution_id")
+            or replay_execution.get("design_execution_artifact_digest")
+            != design_execution.get("artifact_digest")
+            or replay_execution.get("gate_compiler_replay_digest")
+            != gate_replay.get("artifact_digest")
+            or gate_replay.get("status") != "REPLAY_VERIFIED"
+            or gate_replay.get("promotion_gate_opened") is not False
+        ):
+            raise MainlineSupervisorError(
+                "M4 v2 branch preflight design replay lineage changed"
+            )
+        contract = load_measurement_contract_v2(
+            self.root_dir / MEASUREMENT_CONTRACT_V2_PATH
+        )
+        run = build_branch_preflight_design_artifacts(
+            contract,
+            design_execution_artifact_digest=str(
+                design_execution["artifact_digest"]
+            ),
+            design_replay_execution_artifact_digest=str(
+                replay_execution["artifact_digest"]
+            ),
+            gate_compiler_replay_digest=str(gate_replay["artifact_digest"]),
+            execution_id=execution_id,
+            git_commit=git_commit,
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        branch_paths = tuple(
+            task_dir
+            / "artifacts/branch-preflight-design"
+            / str(payload["branch_id"])
+            / str(payload["artifact_digest"])
+            / "contract.json"
+            for payload in run.branch_contracts
+        )
+        cross_path = (
+            task_dir
+            / "artifacts/cross-branch-preflight-design"
+            / str(run.cross_branch_contract["artifact_digest"])
+            / "contract.json"
+        )
+        completion_path = (
+            task_dir
+            / "artifacts/completion"
+            / str(run.completion["artifact_digest"])
+            / "completion.json"
+        )
+        child_payloads = (
+            *zip(branch_paths, run.branch_contracts, strict=True),
+            (cross_path, run.cross_branch_contract),
+            (completion_path, run.completion),
+        )
+        for path, payload in child_payloads:
+            _persist_immutable(path, payload)
+        branch_digests = [
+            str(payload["artifact_digest"]) for payload in run.branch_contracts
+        ]
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "measurement_contract_v2_digest": contract.artifact_digest,
+            "design_execution_id": design_execution["execution_id"],
+            "design_execution_artifact_digest": design_execution[
+                "artifact_digest"
+            ],
+            "design_replay_execution_id": replay_execution["execution_id"],
+            "design_replay_execution_artifact_digest": replay_execution[
+                "artifact_digest"
+            ],
+            "gate_compiler_replay_digest": gate_replay["artifact_digest"],
+            "preflight_source_contract_digest": source_contract[
+                "artifact_digest"
+            ],
+            "preflight_source_set_digest": source_contract[
+                "source_set_digest"
+            ],
+            "branch_preflight_design_digests": branch_digests,
+            "cross_branch_preflight_design_digest": run.cross_branch_contract[
+                "artifact_digest"
+            ],
+            "preflight_design_completion_digest": run.completion[
+                "artifact_digest"
+            ],
+            "completion_fact": PREFLIGHT_DESIGN_COMPLETION_FACT,
+            "actual_fold_count": 0,
+            "registered_artifact_count": len(child_payloads) + 1,
+            "formal_branch_runs_executed": 0,
+            "preflight_execution_count": 0,
+            "preflight_result_count": 0,
+            "historical_outcomes_read": False,
+            "p2_6_1_partial_statistical_results_read": False,
+            "p2_6_3_statistical_results_read": False,
+            "evidence_created": False,
+            "evidence_progress_before": 0,
+            "evidence_progress_after": 0,
+            "downstream_consumer": PREFLIGHT_FIXTURE_FREEZE_TASK_KEY,
+            "production_impact": "none",
+            "production_action": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "replay_status": "DETERMINISTIC",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                str(design_execution["artifact_digest"]),
+                str(replay_execution["artifact_digest"]),
+                str(gate_replay["artifact_digest"]),
+                *(str(payload["artifact_digest"]) for _, payload in child_payloads),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(registrations) != execution_payload["registered_artifact_count"]:
+            raise MainlineSupervisorError(
+                "M4 v2 branch preflight design registration count changed"
+            )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=registrations,
+            completion_facts=(PREFLIGHT_DESIGN_COMPLETION_FACT,),
+        )
+
+
 class M4P261RawExecutionReplayCapability:
     def __init__(
         self,
@@ -5555,6 +5788,12 @@ class ResearchEvidenceSupervisor:
                     root_dir=root_dir,
                 )
             ),
+            PREFLIGHT_DESIGN_CAPABILITY: (
+                M4BranchIdentifiabilityPreflightDesignCapability(
+                    repository=self.repository,
+                    root_dir=root_dir,
+                )
+            ),
             M4_V2_P261_RAW_REPLAY_CAPABILITY: (
                 M4P261RawExecutionReplayCapability(
                     repository=self.repository,
@@ -6020,6 +6259,15 @@ class ResearchEvidenceSupervisor:
                                     "design_execution_artifact_digest",
                                     "measurement_contract_replay_digest",
                                     "gate_compiler_replay_digest",
+                                    "design_replay_execution_id",
+                                    "design_replay_execution_artifact_digest",
+                                    "preflight_source_contract_digest",
+                                    "preflight_source_set_digest",
+                                    "branch_preflight_design_digests",
+                                    "cross_branch_preflight_design_digest",
+                                    "preflight_design_completion_digest",
+                                    "preflight_execution_count",
+                                    "preflight_result_count",
                                     "p2_6_1_execution_id",
                                     "p2_6_1_execution_artifact_digest",
                                     "raw_replay_artifact_digest",
@@ -6213,6 +6461,7 @@ class ResearchEvidenceSupervisor:
         return self._latest_completed_summary_for_tasks(
             snapshot,
             (
+                PREFLIGHT_DESIGN_TASK_KEY,
                 M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY,
                 M4_V2_MARGINAL_BINDING_TASK_KEY,
                 M4_V2_P27_GATE_REPLAY_TASK_KEY,
@@ -6436,6 +6685,15 @@ class ResearchEvidenceSupervisor:
             "design_execution_artifact_digest",
             "measurement_contract_replay_digest",
             "gate_compiler_replay_digest",
+            "design_replay_execution_id",
+            "design_replay_execution_artifact_digest",
+            "preflight_source_contract_digest",
+            "preflight_source_set_digest",
+            "branch_preflight_design_digests",
+            "cross_branch_preflight_design_digest",
+            "preflight_design_completion_digest",
+            "preflight_execution_count",
+            "preflight_result_count",
             "p2_6_1_execution_id",
             "p2_6_1_execution_artifact_digest",
             "raw_replay_artifact_digest",
@@ -7576,6 +7834,100 @@ class ResearchEvidenceSupervisor:
                 "same_gate_fixture_output": True,
                 "formal_branch_runs_executed": 0,
                 "historical_outcomes_read": False,
+                "manual_input_assembly": False,
+            }
+        elif task_key == PREFLIGHT_DESIGN_TASK_KEY:
+            source_contract = load_preflight_source_contract(
+                self.root_dir / PREFLIGHT_SOURCE_CONTRACT_PATH
+            )
+            verify_preflight_source_bytes(
+                root_dir=self.root_dir,
+                contract=source_contract,
+            )
+            _, design_execution, _ = _load_single_completed_execution(
+                repository=self.repository,
+                root_dir=self.root_dir,
+                control_plane_key=self.control_plane_key,
+                task_key=M4_V2_DESIGN_TASK_KEY,
+            )
+            _, design_replay_execution, design_replay_registrations = (
+                _load_single_completed_execution(
+                    repository=self.repository,
+                    root_dir=self.root_dir,
+                    control_plane_key=self.control_plane_key,
+                    task_key=M4_V2_DESIGN_REPLAY_TASK_KEY,
+                )
+            )
+            gate_replay = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=design_replay_registrations,
+                artifact_type="GateCompilerReplayArtifact",
+            )
+            contract = load_measurement_contract_v2(
+                self.root_dir / MEASUREMENT_CONTRACT_V2_PATH
+            )
+            reconstructed = build_branch_preflight_design_artifacts(
+                contract,
+                design_execution_artifact_digest=str(
+                    design_execution["artifact_digest"]
+                ),
+                design_replay_execution_artifact_digest=str(
+                    design_replay_execution["artifact_digest"]
+                ),
+                gate_compiler_replay_digest=str(gate_replay["artifact_digest"]),
+                execution_id=resolved_execution_id,
+                git_commit=str(artifact["git_commit"]),
+            )
+            if (
+                artifact.get("preflight_source_contract_digest")
+                != source_contract["artifact_digest"]
+                or artifact.get("preflight_source_set_digest")
+                != source_contract["source_set_digest"]
+                or artifact.get("design_execution_artifact_digest")
+                != design_execution["artifact_digest"]
+                or artifact.get("design_replay_execution_artifact_digest")
+                != design_replay_execution["artifact_digest"]
+                or artifact.get("branch_preflight_design_digests")
+                != [
+                    item["artifact_digest"]
+                    for item in reconstructed.branch_contracts
+                ]
+                or artifact.get("cross_branch_preflight_design_digest")
+                != reconstructed.cross_branch_contract["artifact_digest"]
+                or artifact.get("preflight_design_completion_digest")
+                != reconstructed.completion["artifact_digest"]
+                or artifact.get("formal_branch_runs_executed") != 0
+                or artifact.get("preflight_result_count") != 0
+                or artifact.get("historical_outcomes_read") is not False
+                or artifact.get("p2_6_3_statistical_results_read") is not False
+                or artifact.get("evidence_created") is not False
+            ):
+                raise MainlineSupervisorError(
+                    "M4 v2 branch preflight design replay identity changed"
+                )
+            _verify_v2_registered_artifacts(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                expected_payloads=(*reconstructed.artifacts, artifact),
+            )
+            capability_replay = {
+                "schema_version": (
+                    "dehps-m4-v2-branch-preflight-design-replay.v1"
+                ),
+                "status": "REPLAY_VERIFIED",
+                "branch_design_count": len(reconstructed.branch_contracts),
+                "cross_branch_preflight_design_digest": (
+                    reconstructed.cross_branch_contract["artifact_digest"]
+                ),
+                "preflight_design_completion_digest": reconstructed.completion[
+                    "artifact_digest"
+                ],
+                "same_registered_content": True,
+                "formal_branch_runs_executed": 0,
+                "preflight_result_count": 0,
+                "historical_outcomes_read": False,
+                "statistical_results_read": False,
+                "evidence_created": False,
                 "manual_input_assembly": False,
             }
         elif task_key == P26_REPAIR_TASK_KEY:

@@ -4,8 +4,6 @@ from copy import deepcopy
 from pathlib import Path
 
 import pytest
-from typer.testing import CliRunner
-
 from dehps import cli
 from dehps.research_os.control_plane import ResearchOSControlPlane
 from dehps.research_os.information_theory import (
@@ -29,6 +27,7 @@ from dehps.research_os.information_theory.contracts import (
 )
 from dehps.research_os.information_theory.digest import config_digest
 from dehps.research_os.models import TaskStatus
+from typer.testing import CliRunner
 
 ROOT = Path(__file__).resolve().parents[3]
 PREREG_PATH = ROOT / "configs/research-os/m4-information-theory-preregistration-v1.json"
@@ -280,7 +279,7 @@ def test_29_contract_itself_is_digest_addressed() -> None:
     assert information_theory_contract_digest(payload) == payload["artifact_digest"]
 
 
-def test_30_artifact_index_keeps_every_p1_identity_replayable() -> None:
+def test_artifact_index_keeps_every_registered_identity_replayable() -> None:
     index = _load(
         ROOT / "configs/research-os/m4-information-theory-artifact-index-v1.json"
     )
