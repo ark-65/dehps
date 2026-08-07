@@ -1,0 +1,47 @@
+{
+  "schema_version": "dehps-m4-v2-marginal-static-health-execution-source.v1",
+  "artifact_type": "m4_v2_marginal_static_health_execution_source",
+  "artifact_digest": "5fbeb6ab0533478ac097747ab73fb0188561849505a76cf7a63a3a02061b2354",
+  "contract_key": "M4_V2_MARGINAL_STATIC_HEALTH_EXECUTION_SOURCE",
+  "research_request_key": "research-m4-v2-marginal-static-health-execution-integration-round-42-20260808",
+  "research_request_id": 325,
+  "research_execution_id": 246,
+  "engineering_request_key": "engineering-m4-v2-marginal-static-health-execution-round-42-20260808",
+  "engineering_request_id": 326,
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/marginal_static_health_execution.py",
+      "content_sha256": "c8c92a3063e9b3a14c2e63e5c5243bb6dabd27c05ac2b2dad9966e0ab39ebb40"
+    }
+  ],
+  "source_set_digest": "2d68b73e6bf5d72656a36026d9beb3c0fc6d7b7e289e1b1880c418b0e178ec2d",
+  "frozen_contract": {
+    "task_key": "m4-v2-marginal-static-measurement-health-execution",
+    "capability": "m4_v2_marginal_static_measurement_health_execution",
+    "next_consumer": "m4-v2-marginal-static-measurement-health-decision",
+    "cell_count": 14,
+    "replicates_per_cell": 512,
+    "total_replicates": 7168,
+    "execution_shards": 112,
+    "execution_shard_size": 64,
+    "total_generated_issues": 15920128,
+    "total_outer_evaluation_issues": 9468928,
+    "minimum_training_issues": 900,
+    "bootstrap_replicates": 511,
+    "primary_block_size": 5,
+    "sensitivity_block_sizes": [3, 8, 13],
+    "database_io_during_replicate": 0,
+    "csv_materialization": "forbidden",
+    "duplicate_raw_replay": "forbidden",
+    "routine_physical_checkpoint_scan": "forbidden",
+    "historical_outcomes_read": false,
+    "evidence_created": false
+  },
+  "result_blind": true,
+  "formal_replicates_executed": 0,
+  "generated_issues": 0,
+  "historical_outcomes_read": false,
+  "statistical_results_read": false,
+  "evidence_created": false,
+  "production_action": "none"
+}

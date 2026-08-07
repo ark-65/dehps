@@ -18,23 +18,17 @@ LEGACY_GOAL_KEY = "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION"
 M4_FORWARD_EVENT_KEY = "draw:2026085"
 M4_V2_DESIGN_TASK_KEY = "m4-v2-measurement-contract-design"
 M4_V2_DESIGN_REPLAY_TASK_KEY = "m4-v2-measurement-contract-design-replay"
-M4_P263_COMPATIBILITY_TASK_KEY = (
-    "m4-p2-6-3-superseding-compatibility-acceptance"
-)
+M4_P263_COMPATIBILITY_TASK_KEY = "m4-p2-6-3-superseding-compatibility-acceptance"
 M4_P263_COMPATIBILITY_FACT = "m4-p2-6-3-compatibility:VERIFIED"
 M4_V2_PREFLIGHT_DESIGN_TASK_KEY = "m4-v2-branch-identifiability-preflight-design"
 PREFLIGHT_DESIGN_COMPLETION_FACT = (
     "m4-v2-branch-identifiability-preflight-design:FROZEN"
 )
-M4_V2_PREFLIGHT_FIXTURE_TASK_KEY = (
-    "m4-v2-branch-identifiability-fixture-freeze"
-)
+M4_V2_PREFLIGHT_FIXTURE_TASK_KEY = "m4-v2-branch-identifiability-fixture-freeze"
 M4_V2_PREFLIGHT_FIXTURE_COMPLETION_FACT = (
     "m4-v2-branch-identifiability-fixture-freeze:FROZEN"
 )
-M4_V2_PREFLIGHT_EXECUTION_TASK_KEY = (
-    "m4-v2-branch-identifiability-preflight-execution"
-)
+M4_V2_PREFLIGHT_EXECUTION_TASK_KEY = "m4-v2-branch-identifiability-preflight-execution"
 M4_V2_PREFLIGHT_EXECUTION_COMPLETION_FACT = (
     "m4-v2-branch-identifiability-preflight-execution:EXECUTED"
 )
@@ -62,26 +56,22 @@ M4_V2_MARGINAL_HEALTH_DESIGN_COMPLETION_FACT = (
 M4_V2_MARGINAL_HEALTH_EXECUTION_TASK_KEY = (
     "m4-v2-marginal-static-measurement-health-execution"
 )
+M4_V2_MARGINAL_HEALTH_EXECUTION_COMPLETION_FACT = (
+    "m4-v2-marginal-static-measurement-health-execution:COMPLETE"
+)
+M4_V2_MARGINAL_HEALTH_DECISION_TASK_KEY = (
+    "m4-v2-marginal-static-measurement-health-decision"
+)
 M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
 M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = "m4-v2-p2-6-1-marginal-decision-replay"
 M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
 M4_P29_P261_RUNTIME_AUDIT_TASK_KEY = "m4-p2-9-measurement-runtime-audit"
-M4_P29_P263_FAILED_RUNTIME_AUDIT_TASK_KEY = (
-    "m4-p2-9-p263-measurement-runtime-audit"
-)
+M4_P29_P263_FAILED_RUNTIME_AUDIT_TASK_KEY = "m4-p2-9-p263-measurement-runtime-audit"
 M4_P29_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-p263-golden-reference-freeze"
-M4_P29_RUNTIME_AUDIT_TASK_KEY = (
-    "m4-p2-9-p263-runtime-observation-arithmetic-fix"
-)
-M4_P263_SLOT_ELIGIBILITY_TASK_KEY = (
-    "m4-p2-9-p263-runtime-slot-release-eligibility"
-)
-M4_P263_SLOT_ELIGIBILITY_FACT = (
-    "m4-p263-runtime-slot-release-eligibility:VERIFIED"
-)
-M4_P263_TASK_DIGEST = (
-    "85a08402a4a0c37f75ee1675f4970ef00a7a0b0992b4204251c0c2cc79324de4"
-)
+M4_P29_RUNTIME_AUDIT_TASK_KEY = "m4-p2-9-p263-runtime-observation-arithmetic-fix"
+M4_P263_SLOT_ELIGIBILITY_TASK_KEY = "m4-p2-9-p263-runtime-slot-release-eligibility"
+M4_P263_SLOT_ELIGIBILITY_FACT = "m4-p263-runtime-slot-release-eligibility:VERIFIED"
+M4_P263_TASK_DIGEST = "85a08402a4a0c37f75ee1675f4970ef00a7a0b0992b4204251c0c2cc79324de4"
 M4_P263_POLICY_DIGEST = (
     "ad58b9abcd90c5e7ee7b9892ac8c209b8033f7a50e603b58c043685b0c7d6f99"
 )
@@ -89,7 +79,7 @@ M4_P29_CANONICAL_EXECUTOR_FINGERPRINT_DIGEST = (
     "e804e4eedf3c67ad9d35207367a096f6b830a6ab2ac29cc03501392d8430af32"
 )
 M4_P29_CANONICAL_EXECUTOR_EVENT = (
-    "m4-canonical-executor:" f"{M4_P29_CANONICAL_EXECUTOR_FINGERPRINT_DIGEST}"
+    f"m4-canonical-executor:{M4_P29_CANONICAL_EXECUTOR_FINGERPRINT_DIGEST}"
 )
 M4_P29_ACCELERATION_BOUNDARY_SCOPE = "literal_behavior_path_and_fresh_import_closure"
 M4_V2_CONTRACT_DIGEST = (
@@ -233,7 +223,7 @@ def manifest_with_contract_repair_pending(
                 "328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353"
             ),
             (f"m4-p2-5-resampling-kernel-manifest:{M4_P2_5_RESAMPLING_KERNEL_DIGEST}"),
-            ("m4-p2-identifiability-decision:" "MEASUREMENT_CONTRACT_REPAIR_REQUIRED"),
+            ("m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED"),
         }
     ]
     return ControlPlaneManifest.from_dict(payload)
@@ -331,6 +321,7 @@ def build_m4_status(
         in {
             M4_V2_MARGINAL_FIXTURE_FREEZE_TASK_KEY,
             M4_V2_MARGINAL_HEALTH_DESIGN_TASK_KEY,
+            M4_V2_MARGINAL_HEALTH_EXECUTION_TASK_KEY,
         }
         else None
     )
@@ -344,7 +335,23 @@ def build_m4_status(
         measurement_v2_execution
         if measurement_v2_execution is not None
         and measurement_v2_execution.get("execution_task_key")
-        == M4_V2_MARGINAL_HEALTH_DESIGN_TASK_KEY
+        in {
+            M4_V2_MARGINAL_HEALTH_DESIGN_TASK_KEY,
+            M4_V2_MARGINAL_HEALTH_EXECUTION_TASK_KEY,
+        }
+        else None
+    )
+    measurement_v2_marginal_health_execution_resolution = resolutions.get(
+        M4_V2_MARGINAL_HEALTH_EXECUTION_TASK_KEY
+    )
+    measurement_v2_marginal_health_execution_task = tasks.get(
+        M4_V2_MARGINAL_HEALTH_EXECUTION_TASK_KEY
+    )
+    measurement_v2_marginal_health_execution = (
+        measurement_v2_execution
+        if measurement_v2_execution is not None
+        and measurement_v2_execution.get("execution_task_key")
+        == M4_V2_MARGINAL_HEALTH_EXECUTION_TASK_KEY
         else None
     )
     measurement_compatibility_resolution = resolutions.get(
@@ -356,15 +363,9 @@ def build_m4_status(
     )
     golden_reference_resolution = resolutions.get(M4_P29_GOLDEN_REFERENCE_TASK_KEY)
     runtime_audit_resolution = resolutions.get(M4_P29_RUNTIME_AUDIT_TASK_KEY)
-    slot_eligibility_resolution = resolutions.get(
-        M4_P263_SLOT_ELIGIBILITY_TASK_KEY
-    )
-    p261_golden_resolution = resolutions.get(
-        M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY
-    )
-    p261_runtime_audit_resolution = resolutions.get(
-        M4_P29_P261_RUNTIME_AUDIT_TASK_KEY
-    )
+    slot_eligibility_resolution = resolutions.get(M4_P263_SLOT_ELIGIBILITY_TASK_KEY)
+    p261_golden_resolution = resolutions.get(M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY)
+    p261_runtime_audit_resolution = resolutions.get(M4_P29_P261_RUNTIME_AUDIT_TASK_KEY)
     p263_failed_runtime_audit_resolution = resolutions.get(
         M4_P29_P263_FAILED_RUNTIME_AUDIT_TASK_KEY
     )
@@ -379,8 +380,7 @@ def build_m4_status(
         is not False
         or golden_reference_execution.get("measurement_update_policy_digest")
         != M4_P263_POLICY_DIGEST
-        or golden_reference_execution.get("p2_6_3_task_digest")
-        != M4_P263_TASK_DIGEST
+        or golden_reference_execution.get("p2_6_3_task_digest") != M4_P263_TASK_DIGEST
         or golden_reference_execution.get("production_action") != "none"
         or golden_reference_execution.get("immutable_golden_fixture_is_oracle")
         is not True
@@ -413,8 +413,7 @@ def build_m4_status(
         or runtime_audit_execution.get("p2_6_3_statistical_results_read") is not False
         or runtime_audit_execution.get("measurement_update_policy_digest")
         != M4_P263_POLICY_DIGEST
-        or runtime_audit_execution.get("p2_6_3_task_digest")
-        != M4_P263_TASK_DIGEST
+        or runtime_audit_execution.get("p2_6_3_task_digest") != M4_P263_TASK_DIGEST
         or runtime_audit_execution.get("production_action") != "none"
         or runtime_audit_execution.get("reference_evaluator_is_oracle") is not False
         or runtime_audit_execution.get("immutable_golden_fixture_is_oracle") is not True
@@ -1075,7 +1074,10 @@ def build_m4_status(
         "measurement_system_v2": (
             {
                 "phase": (
-                    "MARGINAL_STATIC_HEALTH_EXECUTION"
+                    "MARGINAL_STATIC_HEALTH_DECISION"
+                    if M4_V2_MARGINAL_HEALTH_EXECUTION_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "MARGINAL_STATIC_HEALTH_EXECUTION"
                     if M4_V2_MARGINAL_HEALTH_DESIGN_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "MARGINAL_STATIC_HEALTH_DESIGN"
@@ -1085,16 +1087,14 @@ def build_m4_status(
                     if M4_V2_MARGINAL_CONTRACT_FREEZE_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "MARGINAL_STATIC_CONTRACT_FREEZE"
-                    if M4_V2_PREFLIGHT_EXECUTION_PASS_FACT
-                    in manifest.facts.artifacts
+                    if M4_V2_PREFLIGHT_EXECUTION_PASS_FACT in manifest.facts.artifacts
                     else "PREFLIGHT_EXECUTION_RESOLVED"
                     if measurement_v2_preflight_execution_resolution is not None
                     and measurement_v2_preflight_execution_resolution.status
                     is TaskStatus.COMPLETED
                     else "PREFLIGHT_EXECUTION"
                     if measurement_v2_fixture_resolution is not None
-                    and measurement_v2_fixture_resolution.status
-                    is TaskStatus.COMPLETED
+                    and measurement_v2_fixture_resolution.status is TaskStatus.COMPLETED
                     else "PREFLIGHT_FIXTURE_FREEZE"
                     if measurement_v2_preflight_resolution is not None
                     and measurement_v2_preflight_resolution.status
@@ -1157,13 +1157,11 @@ def build_m4_status(
                         ].completion_classification.value
                     ),
                     "design_frozen": (
-                        PREFLIGHT_DESIGN_COMPLETION_FACT
-                        in manifest.facts.artifacts
+                        PREFLIGHT_DESIGN_COMPLETION_FACT in manifest.facts.artifacts
                     ),
                     "branch_design_count": (
                         3
-                        if PREFLIGHT_DESIGN_COMPLETION_FACT
-                        in manifest.facts.artifacts
+                        if PREFLIGHT_DESIGN_COMPLETION_FACT in manifest.facts.artifacts
                         else 0
                     ),
                     "formal_branch_runs_executed": (
@@ -1243,8 +1241,7 @@ def build_m4_status(
                         in manifest.facts.artifacts
                     ),
                     "all_branches_pass": (
-                        M4_V2_PREFLIGHT_EXECUTION_PASS_FACT
-                        in manifest.facts.artifacts
+                        M4_V2_PREFLIGHT_EXECUTION_PASS_FACT in manifest.facts.artifacts
                     ),
                     "preflight_execution_status": (
                         None
@@ -1527,6 +1524,73 @@ def build_m4_status(
                     "evidence_progress_increment": 0,
                     "next_consumer": M4_V2_MARGINAL_HEALTH_EXECUTION_TASK_KEY,
                 },
+                "marginal_static_health_execution": {
+                    "task_key": M4_V2_MARGINAL_HEALTH_EXECUTION_TASK_KEY,
+                    "resolver_status": (
+                        None
+                        if measurement_v2_marginal_health_execution_resolution is None
+                        else measurement_v2_marginal_health_execution_resolution.status.value
+                    ),
+                    "completion_classification": (
+                        None
+                        if measurement_v2_marginal_health_execution_task is None
+                        or task_states[
+                            measurement_v2_marginal_health_execution_task.artifact_digest
+                        ].completion_classification
+                        is None
+                        else task_states[
+                            measurement_v2_marginal_health_execution_task.artifact_digest
+                        ].completion_classification.value
+                    ),
+                    "completed": (
+                        M4_V2_MARGINAL_HEALTH_EXECUTION_COMPLETION_FACT
+                        in manifest.facts.artifacts
+                    ),
+                    "measurement_health": (
+                        None
+                        if measurement_v2_marginal_health_execution is None
+                        else measurement_v2_marginal_health_execution.get(
+                            "measurement_health"
+                        )
+                    ),
+                    "completion_index_digest": (
+                        None
+                        if measurement_v2_marginal_health_execution is None
+                        else measurement_v2_marginal_health_execution.get(
+                            "marginal_static_health_completion_index_digest"
+                        )
+                    ),
+                    "health_result_digest": (
+                        None
+                        if measurement_v2_marginal_health_execution is None
+                        else measurement_v2_marginal_health_execution.get(
+                            "marginal_static_health_result_digest"
+                        )
+                    ),
+                    "replicate_count": (
+                        0
+                        if measurement_v2_marginal_health_execution is None
+                        else measurement_v2_marginal_health_execution.get(
+                            "replicate_count", 0
+                        )
+                    ),
+                    "generated_issues": (
+                        0
+                        if measurement_v2_marginal_health_execution is None
+                        else measurement_v2_marginal_health_execution.get(
+                            "generated_issues", 0
+                        )
+                    ),
+                    "database_reads_during_replicate": 0,
+                    "database_writes_during_replicate": 0,
+                    "csv_materialized": False,
+                    "duplicate_raw_replay": False,
+                    "routine_physical_checkpoint_scan": False,
+                    "historical_outcomes_read": False,
+                    "statistical_results_read": False,
+                    "production_action": "none",
+                    "next_consumer": M4_V2_MARGINAL_HEALTH_DECISION_TASK_KEY,
+                },
                 "completion_classification": (
                     None
                     if task_states[
@@ -1538,7 +1602,10 @@ def build_m4_status(
                     ].completion_classification.value
                 ),
                 "live_mainline_status": (
-                    "MARGINAL_STATIC_HEALTH_DESIGN_VALIDATED_IN_MAINLINE"
+                    "MARGINAL_STATIC_HEALTH_EXECUTION_VALIDATED_IN_MAINLINE"
+                    if M4_V2_MARGINAL_HEALTH_EXECUTION_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "MARGINAL_STATIC_HEALTH_DESIGN_VALIDATED_IN_MAINLINE"
                     if M4_V2_MARGINAL_HEALTH_DESIGN_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "MARGINAL_STATIC_FIXTURES_VALIDATED_IN_MAINLINE"
@@ -1548,16 +1615,14 @@ def build_m4_status(
                     if M4_V2_MARGINAL_CONTRACT_FREEZE_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "BRANCH_PREFLIGHT_VALIDATED_IN_MAINLINE"
-                    if M4_V2_PREFLIGHT_EXECUTION_PASS_FACT
-                    in manifest.facts.artifacts
+                    if M4_V2_PREFLIGHT_EXECUTION_PASS_FACT in manifest.facts.artifacts
                     else "BRANCH_PREFLIGHT_RESOLVED_IN_MAINLINE"
                     if measurement_v2_preflight_execution_resolution is not None
                     and measurement_v2_preflight_execution_resolution.status
                     is TaskStatus.COMPLETED
                     else "PREFLIGHT_FIXTURES_VALIDATED_IN_MAINLINE"
                     if measurement_v2_fixture_resolution is not None
-                    and measurement_v2_fixture_resolution.status
-                    is TaskStatus.COMPLETED
+                    and measurement_v2_fixture_resolution.status is TaskStatus.COMPLETED
                     else "PREFLIGHT_DESIGN_VALIDATED_IN_MAINLINE"
                     if measurement_v2_preflight_resolution is not None
                     and measurement_v2_preflight_resolution.status
@@ -1604,8 +1669,7 @@ def build_m4_status(
                         else slot_eligibility_resolution.reason_code
                     ),
                     "verified": (
-                        M4_P263_SLOT_ELIGIBILITY_FACT
-                        in manifest.facts.artifacts
+                        M4_P263_SLOT_ELIGIBILITY_FACT in manifest.facts.artifacts
                     ),
                     "p2_6_1_status": "FROZEN_INCOMPLETE",
                     "p2_6_3_status": "SUPERSEDING_COMPLETE",
@@ -1615,8 +1679,7 @@ def build_m4_status(
                     "promotion_gate_opened": False,
                     "next_consumer": (
                         M4_V2_DESIGN_TASK_KEY
-                        if M4_V2_RUNTIME_RELEASE_EVENT
-                        in manifest.facts.external_events
+                        if M4_V2_RUNTIME_RELEASE_EVENT in manifest.facts.external_events
                         else "approved_operator_post_stop_guard"
                     ),
                 },
@@ -1649,7 +1712,10 @@ def build_m4_status(
                     ),
                 },
                 "next_consumer": (
-                    M4_V2_MARGINAL_HEALTH_EXECUTION_TASK_KEY
+                    M4_V2_MARGINAL_HEALTH_DECISION_TASK_KEY
+                    if M4_V2_MARGINAL_HEALTH_EXECUTION_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else M4_V2_MARGINAL_HEALTH_EXECUTION_TASK_KEY
                     if M4_V2_MARGINAL_HEALTH_DESIGN_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else M4_V2_MARGINAL_HEALTH_DESIGN_TASK_KEY
@@ -1659,16 +1725,14 @@ def build_m4_status(
                     if M4_V2_MARGINAL_CONTRACT_FREEZE_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else M4_V2_MARGINAL_CONTRACT_FREEZE_TASK_KEY
-                    if M4_V2_PREFLIGHT_EXECUTION_PASS_FACT
-                    in manifest.facts.artifacts
+                    if M4_V2_PREFLIGHT_EXECUTION_PASS_FACT in manifest.facts.artifacts
                     else None
                     if measurement_v2_preflight_execution_resolution is not None
                     and measurement_v2_preflight_execution_resolution.status
                     is TaskStatus.COMPLETED
                     else M4_V2_PREFLIGHT_EXECUTION_TASK_KEY
                     if measurement_v2_fixture_resolution is not None
-                    and measurement_v2_fixture_resolution.status
-                    is TaskStatus.COMPLETED
+                    and measurement_v2_fixture_resolution.status is TaskStatus.COMPLETED
                     else M4_V2_PREFLIGHT_FIXTURE_TASK_KEY
                     if measurement_v2_preflight_resolution is not None
                     and measurement_v2_preflight_resolution.status
@@ -1712,9 +1776,7 @@ def build_m4_status(
                     if p261_golden_resolution is None
                     else p261_golden_resolution.status.value
                 ),
-                "p2_6_1_runtime_audit_task_key": (
-                    M4_P29_P261_RUNTIME_AUDIT_TASK_KEY
-                ),
+                "p2_6_1_runtime_audit_task_key": (M4_P29_P261_RUNTIME_AUDIT_TASK_KEY),
                 "p2_6_1_runtime_audit_resolver_status": (
                     None
                     if p261_runtime_audit_resolution is None
