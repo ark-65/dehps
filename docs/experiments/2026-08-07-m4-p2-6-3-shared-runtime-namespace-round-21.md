@@ -108,15 +108,41 @@ policy; it is the capability that completed all 31,000 replicates.
 | Reproducer and root cause | PASS |
 | Code and regression tests | PASS |
 | P2.6.3 immutable 31,000 artifacts retained | PASS |
-| Accepted PR merged to `main` | PENDING |
-| Fresh clean-worktree Supervisor | PENDING |
-| Completed P2.6.3 parent consumed | PENDING |
-| P2.7 downstream task completed | PENDING |
-| Deterministic replay proof | PENDING |
-| Final status projection | PENDING |
+| Accepted PR merged to `main` | PASS — PR #260 / `3658c12` |
+| Fresh clean-worktree Supervisor | PASS — Operator request 288 / execution 209 |
+| Completed P2.6.3 parent consumed | PASS — reused `7de420e9...`; no replicate recomputation |
+| P2.7 downstream task completed | PASS — `d0e313e2...`, `VALIDATED_IN_MAINLINE` |
+| Deterministic replay proof | PASS — `REPLAY_VERIFIED`, 31,000 replicates / 31 aggregates |
+| Final status projection | PASS — Supervisor `IDLE`, no error; next task is measurement repair |
+
+## Live mainline validation
+
+The production Supervisor restarted from clean runtime worktree commit
+`3658c121ce23d62ff8fceb5ba132793cbc20594b`. It consumed the completed P2.6.3
+execution without recomputing any completed replicate, dispatched P2.7 execution
+`d0e313e2672fae3ae2d8c096d2b24ba399687e01e7654f004767866e0dfa798d`, and
+persisted both immutable `started` and `completed` execution events.
+
+P2.7 completed with `VALIDATED_IN_MAINLINE`, `REPLAY_VERIFIED`, 31,000
+replicates, and 31 aggregates. The unified status projection is now
+`REPAIR_REQUIRED`; its canonical next task is
+`m4-p2-repair-measurement-system`. This is a research-status outcome, not an
+execution failure. The Supervisor remains `IDLE` with no error while that next
+capability is not dispatchable from the current Ready Queue.
+
+The live replay also exposed a separate performance issue: each checkpoint
+journal is currently verified once inside `_validate_persisted_replicate` and
+then immediately verified a second time by `assemble_completion`. The redundant
+pass read roughly another 40 GB and does not strengthen the frozen identity
+check. Removing it belongs in a separate optimization round so it cannot be
+confused with this namespace-recovery fix.
 
 Current completion answer:
 
 ```text
-NO — INTEGRATION_PENDING
+YES — validated by unified mainline execution and replay
 ```
+
+This answer applies to the P2.6.3 namespace-recovery capability and its P2.7
+consumer. It does not reclassify either superseded P2.6.1 partial execution as
+complete, and it does not mark the active M4-P2 research Goal complete.
