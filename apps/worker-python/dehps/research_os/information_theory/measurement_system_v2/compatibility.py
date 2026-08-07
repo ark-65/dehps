@@ -34,6 +34,13 @@ P263_SUPERSEDING_FIXTURE_DIGEST = (
 P261_TASK_DIGEST = "80068e22f5e1c343fd86213faa0d9a411d71f92ad2750fed10449a10151de8fa"
 P263_TASK_DIGEST = "85a08402a4a0c37f75ee1675f4970ef00a7a0b0992b4204251c0c2cc79324de4"
 P263_POLICY_DIGEST = "ad58b9abcd90c5e7ee7b9892ac8c209b8033f7a50e603b58c043685b0c7d6f99"
+P263_EXECUTION_ID = "7de420e96e495f357a75860249cf1529a0d14a8d272177cacb0eb6f04b556c0d"
+P263_EXECUTION_ARTIFACT_DIGEST = (
+    "948a44109cf31eb01ee4edad5363b4ecfc605bd9103813d32e021603268f76bc"
+)
+P263_COMPLETION_ARTIFACT_DIGEST = (
+    "448444ad70ff1af46edae795dc516f13fede062cfec6879a2db27b639095c092"
+)
 COMPATIBILITY_COMPLETION_FACT = "m4-p2-6-3-compatibility:VERIFIED"
 
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
@@ -122,14 +129,10 @@ _EXPECTED_PHASES = {
         "policy_digest": P263_POLICY_DIGEST,
         "classification": "SUPERSEDING_COMPLETED_MEASUREMENT_IMPLEMENTATION",
         "execution_ids": [
-            "7de420e96e495f357a75860249cf1529a0d14a8d272177cacb0eb6f04b556c0d"
+            P263_EXECUTION_ID
         ],
-        "execution_artifact_digest": (
-            "948a44109cf31eb01ee4edad5363b4ecfc605bd9103813d32e021603268f76bc"
-        ),
-        "completion_artifact_digest": (
-            "448444ad70ff1af46edae795dc516f13fede062cfec6879a2db27b639095c092"
-        ),
+        "execution_artifact_digest": P263_EXECUTION_ARTIFACT_DIGEST,
+        "completion_artifact_digest": P263_COMPLETION_ARTIFACT_DIGEST,
         "formal_completion_present": True,
         "synthetic_measurement_execution": "COMPLETE",
         "change_classification": "MEASUREMENT_CONTRACT_EVOLUTION",
