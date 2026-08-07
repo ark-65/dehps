@@ -100,6 +100,41 @@ unallowlisted rewrites:        0
 Only the unstarted fixture-freeze task is revised, only the health-design task
 is added, and only the approved source-contract fact is added.
 
+## Unified mainline execution
+
+Ready PR [#272](https://github.com/ark-65/dehps/pull/272) merged as
+`572ab57c273bf24ba925f545549b7054df070be1`. GitHub Worker CI passed under
+the canonical numeric bootstrap. Approved Operator Release Request 317,
+Execution 238, then installed that exact commit in the clean runtime worktree,
+repeated the additive dry-run, imported `b905e2cc...`, started a fresh unified
+Supervisor, observed two stable heartbeats, and completed exactly one
+fixture-freeze task.
+
+```text
+completed live manifest:       1376992497e89e0b0123ec319b44eeb954b26229eca41457acdb83a432c94928
+execution id:                  92648264de82a151bff86591fce72fadf4ebc2bb72e4fc7bf309abb574f44e56
+execution artifact:            355a341795c09a63d6dcc7c2ce88b51681eaebc060de173f8dc029d75b38fc24
+fixture bundle:                629c7029c7feacd9804c33f8dba931d54f3ce4b473fe734ecc293822b5f7f3bd
+fixture completion:            18a19361f3ad9a73eb667916bfa4cb8d4d06a8ef299c579d663e03eb7b7cad56
+registered artifacts:          7
+fixtures:                      4 = 1 positive + 3 negative
+issues / replicates / folds:   0 / 0 / 0
+database reads / writes:       0 / 0
+CSV materialized:              false
+duplicate raw replay:          false
+routine checkpoint scan:       false
+historical outcomes/results:   false / false
+Evidence / accepted model:     false / null
+replay:                        REPLAY_VERIFIED, same identities and content
+```
+
+Canonical status projects `MARGINAL_STATIC_FIXTURES_VALIDATED_IN_MAINLINE`,
+phase `MARGINAL_STATIC_HEALTH_DESIGN`, and the sole unsupported Ready task
+`m4-v2-marginal-static-measurement-health-design`. The old P2.6.1 boundary
+remains `REPAIR`, `legacy_repair_overridden=false`, and historical execution
+remains `NOT_AUTHORIZED`. The active Supervisor is the merged build, PID
+`1697130`, with `NRestarts=0`.
+
 ## Einstein diagnostic
 
 The smallest falsifiable fixture question is whether the stationary estimator
@@ -151,19 +186,15 @@ system.
 
 | Link | Engineering handoff state | Proof |
 | --- | --- | --- |
-| Goal -> Resolver | Code complete | Exact task and source identity declared |
-| Resolver -> Ready Queue | Dry-run verified | Only fixture freeze becomes executable |
-| Ready Queue -> Supervisor | Code complete | One exact capability registration |
-| Supervisor -> Capability | Code complete | Eight parent identities checked fail-closed |
-| Capability -> Artifacts | Code complete | Six small child artifacts plus execution |
-| Artifacts -> Status | Code complete | Fixture counts and zero-I/O boundary projected |
-| Status -> Next Task | Code complete | Only measurement-health design is named |
-| Deterministic replay | Code complete | Seven small artifacts reconstructed and compared |
+| Goal -> Resolver | Validated | Exact merged task and source identity imported into durable truth |
+| Resolver -> Ready Queue | Validated | Only fixture freeze became executable |
+| Ready Queue -> Supervisor | Validated | Fresh merged Supervisor claimed it exactly once |
+| Supervisor -> Capability | Validated | Eight parent identities checked fail-closed |
+| Capability -> Artifacts | Validated | Six child artifacts plus execution registered immutably |
+| Artifacts -> Status | Validated | Four fixtures and zero-I/O boundary projected from the completed summary |
+| Status -> Next Task | Validated | Only measurement-health design is Ready and unsupported |
+| Deterministic replay | Validated | Seven registered artifacts reproduced with identical identity and content |
 
-Final integration answer at engineering handoff:
+Final integration answer after Operator Execution 238:
 
-`NO — INTEGRATION_PENDING`
-
-The merged commit must be installed under a fresh unified Supervisor, the
-exact additive manifest imported by an approved Operator, the task completed
-once, and deterministic replay verified before this capability is `COMPLETE`.
+`YES — validated by unified mainline execution and replay`
