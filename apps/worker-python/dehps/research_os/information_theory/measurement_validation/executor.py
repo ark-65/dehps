@@ -343,7 +343,6 @@ def assemble_completion(
     negative_control_replicate_count = 0
     leakage_failure_count = 0
     failed_replicate_count = 0
-    checkpoint_journal_failure_count = 0
     checkpoint_journal_digests: list[str] = []
     for replicate in iter_replicates(
         manifest=manifest,
@@ -377,16 +376,9 @@ def assemble_completion(
                 "measurement_validation_replicate_digest_mismatch",
                 f"stored replicate digest changed: {path}",
             )
-        try:
-            verify_checkpoint_journal(
-                output_dir=output_dir,
-                replicate=replicate,
-                expected_digest=str(payload["checkpoint_journal_digest"]),
-                expected_fold_count=replicate.cell.outer_issue_count,
-            )
-        except MeasurementValidationContractError:
-            checkpoint_journal_failure_count += 1
-            raise
+        # _validate_persisted_replicate already verifies the complete journal.
+        # Any failure aborts assembly, so a successful completion has zero
+        # journal failures without reading every journal a second time.
         checkpoint_journal_digests.append(str(payload["checkpoint_journal_digest"]))
         result_digest = str(payload.get("artifact_digest") or "")
         if result_digest in seen_result_digests:
@@ -495,7 +487,7 @@ def assemble_completion(
         ),
         "leakage_failure_count": leakage_failure_count,
         "checkpoint_journal_count": len(checkpoint_journal_digests),
-        "checkpoint_journal_failure_count": (checkpoint_journal_failure_count),
+        "checkpoint_journal_failure_count": 0,
         "ordered_checkpoint_journal_digest_root": canonical_digest(
             checkpoint_journal_digests,
             domain="dehps.m4-p2.ordered-checkpoint-journals.v1",
