@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from dehps.contracts import canonical_digest
 from dehps.research_os.information_theory.digest import config_digest
 from dehps.research_os.information_theory.measurement_validation import (
     PASS_FACT,
@@ -31,6 +33,9 @@ from dehps.research_os.information_theory.measurement_validation import (
     run_shard,
     type7_quantile,
     wilson_interval,
+)
+from dehps.research_os.information_theory.measurement_validation import (
+    executor as executor_module,
 )
 from dehps.research_os.information_theory.measurement_validation import (
     reference as reference_module,
@@ -646,6 +651,104 @@ def test_checkpoint_journal_is_persisted_before_target_and_replayable(
             probe: f"{index + 1:064x}" for index, probe in enumerate(PROBES)
         },
     )
+
+
+def test_completion_assembly_verifies_each_checkpoint_journal_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    replicate = SimpleNamespace(
+        artifact_digest="a" * 64,
+        cell=SimpleNamespace(
+            outer_issue_count=61,
+            cell_id="FORWARD_61:NULL_UNIFORM",
+            scenario_id="NULL_UNIFORM",
+        ),
+    )
+    payload = {
+        "identity_artifact_digest": replicate.artifact_digest,
+        "checkpoint_journal_digest": "b" * 64,
+        "status": "COMPLETE",
+        "leakage_status": "PASS",
+        "bootstrap_replicate_count": 0,
+        "permutation_replicate_count": 0,
+        "negative_control_id": None,
+    }
+    payload["artifact_digest"] = canonical_digest(
+        payload,
+        domain="dehps.m4-p2.measurement-analysis-replicate.v1",
+    )
+    result_path = tmp_path / "replicate.json"
+    result_path.write_text(json.dumps(payload), encoding="utf-8")
+    manifest = SimpleNamespace(scenario_replicates=2)
+
+    monkeypatch.setattr(
+        executor_module,
+        "iter_replicates",
+        lambda **_: (replicate,),
+    )
+    monkeypatch.setattr(
+        executor_module,
+        "_replicate_path",
+        lambda *_: result_path,
+    )
+    monkeypatch.setattr(
+        executor_module,
+        "_validate_replicate_result",
+        lambda value, **_: value,
+    )
+
+    verification_count = 0
+
+    def verify_once(**_: object) -> None:
+        nonlocal verification_count
+        verification_count += 1
+
+    monkeypatch.setattr(
+        executor_module,
+        "verify_checkpoint_journal",
+        verify_once,
+    )
+    with pytest.raises(
+        MeasurementValidationContractError,
+        match="not all 31000 formal replicates were found",
+    ):
+        executor_module.assemble_completion(
+            manifest=manifest,
+            synthetic=object(),
+            parent_execution_id=EXECUTION_ID,
+            output_dir=tmp_path,
+            git_commit="1" * 40,
+        )
+    assert verification_count == 1
+
+    verification_count = 0
+
+    def reject_journal(**_: object) -> None:
+        nonlocal verification_count
+        verification_count += 1
+        raise MeasurementValidationContractError(
+            "measurement_validation_checkpoint_journal_replay_mismatch",
+            "checkpoint journal changed",
+        )
+
+    monkeypatch.setattr(
+        executor_module,
+        "verify_checkpoint_journal",
+        reject_journal,
+    )
+    with pytest.raises(
+        MeasurementValidationContractError,
+        match="checkpoint journal changed",
+    ):
+        executor_module.assemble_completion(
+            manifest=manifest,
+            synthetic=object(),
+            parent_execution_id=EXECUTION_ID,
+            output_dir=tmp_path,
+            git_commit="1" * 40,
+        )
+    assert verification_count == 1
 
 
 def test_settled_fold_resume_journal_is_exact_and_fails_closed_on_tamper(
