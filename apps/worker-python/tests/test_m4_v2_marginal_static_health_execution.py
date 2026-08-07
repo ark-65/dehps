@@ -18,6 +18,9 @@ from dehps.research_os.information_theory.measurement_system_v2.marginal_static_
     J1_FIXTURE_ID,
     T1_FIXTURE_ID,
 )
+from dehps.research_os.information_theory.measurement_system_v2.marginal_static_health_decision import (
+    MARGINAL_STATIC_HEALTH_DECISION_CAPABILITY,
+)
 from dehps.research_os.information_theory.measurement_system_v2.marginal_static_health_design import (
     MARGINAL_STATIC_HEALTH_DESIGN_COMPLETION_FACT,
 )
@@ -480,7 +483,8 @@ def test_manifest_declares_execution_and_separate_decision_consumer() -> None:
     assert metrics["formal_execution_allowed"] is True
     assert metrics["duplicate_raw_replay"] is False
     assert len(execution.input_artifact_digests) == 5
-    assert decision.requested_capability is None
+    assert decision.requested_capability == MARGINAL_STATIC_HEALTH_DECISION_CAPABILITY
+    assert len(decision.input_artifact_digests) == 5
     assert any(
         item.target_key == MARGINAL_STATIC_HEALTH_EXECUTION_COMPLETION_FACT
         for item in decision.dependencies
