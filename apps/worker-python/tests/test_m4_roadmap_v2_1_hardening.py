@@ -33,14 +33,32 @@ from dehps.research_os.information_theory.measurement_system_v2 import (
     load_measurement_contract_v2,
     load_p261_marginal_binding_contract,
 )
+from dehps.research_os.information_theory.measurement_system_v2.compatibility import (
+    P263_COMPLETION_ARTIFACT_DIGEST,
+    P263_EXECUTION_ARTIFACT_DIGEST,
+    P263_EXECUTION_ID,
+    P263_POLICY_DIGEST,
+)
 from dehps.research_os.information_theory.measurement_system_v2.execution import (
     build_design_artifacts,
 )
 from dehps.research_os.information_theory.measurement_system_v2.migration import (
     build_additive_m4_v2_manifest,
 )
+from dehps.research_os.information_theory.measurement_system_v2.raw_replay_recovery import (
+    FAILED_ERROR,
+    FAILED_EXECUTION_ID,
+    FAILED_STARTED_EVENT_DIGEST,
+    FAILED_TASK_DIGEST,
+    FAILED_TERMINAL_EVENT_DIGEST,
+    RAW_REPLAY_TASK_KEY,
+    RawReplayRecoveryError,
+    build_raw_replay_recovery_manifest,
+)
 from dehps.research_os.information_theory.measurement_system_v2.replay import (
     build_design_replay_artifacts,
+    build_p27_gate_replay_artifact,
+    build_p261_raw_replay_artifact,
 )
 from dehps.research_os.information_theory.measurement_system_v2.runtime_audit import (
     P261_RUNTIME_AUDIT_PLAN_PATH,
@@ -475,7 +493,7 @@ def test_source_partition_covers_worker_python_and_operational_entrypoints() -> 
         65,
         4,
         11,
-        374,
+        375,
     )
     assert not shared & acceleration
     assert not shared & oracle
@@ -484,7 +502,7 @@ def test_source_partition_covers_worker_python_and_operational_entrypoints() -> 
     assert not acceleration & audit
     assert not oracle & audit
     classified = shared | acceleration | oracle | audit
-    assert len(classified) == 454
+    assert len(classified) == 455
     worker_python = {
         path.relative_to(ROOT).as_posix()
         for path in (ROOT / "apps/worker-python/dehps").rglob("*.py")
@@ -797,8 +815,8 @@ def _raw_replay() -> dict:
         "schema_version": "dehps-m4-p2-6-1-raw-execution-replay.v1",
         "status": "REPLAY_VERIFIED",
         "task_key": P261_TASK_KEY,
-        "task_digest": EXPECTED_P261_TASK_DIGEST,
-        "execution_id": EXPECTED_P261_EXECUTION_ID,
+        "task_digest": P263_TASK_DIGEST,
+        "execution_id": P263_EXECUTION_ID,
         "execution_artifact_digest": "1" * 64,
         "measurement_validation_manifest_digest": (
             "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58"
@@ -820,7 +838,7 @@ def _gate_replay(decision: str = "PASS_TO_P3") -> dict:
         "task_digest": "4" * 64,
         "execution_id": "5" * 64,
         "execution_artifact_digest": "6" * 64,
-        "parent_p2_6_1_execution_id": EXPECTED_P261_EXECUTION_ID,
+        "parent_p2_6_1_execution_id": P263_EXECUTION_ID,
         "parent_p2_6_1_execution_artifact_digest": "1" * 64,
         "automatic_gate_digest": "7" * 64,
         "decision": decision,
@@ -829,6 +847,123 @@ def _gate_replay(decision: str = "PASS_TO_P3") -> dict:
         "same_artifact_identity": True,
         "manual_input_assembly": False,
     }
+
+
+def test_raw_and_gate_replay_bind_the_completed_p263_superseding_execution() -> None:
+    measurement_manifest_digest = (
+        "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58"
+    )
+    execution = {
+        "task_key": P261_TASK_KEY,
+        "task_digest": P263_TASK_DIGEST,
+        "execution_id": P263_EXECUTION_ID,
+        "artifact_digest": P263_EXECUTION_ARTIFACT_DIGEST,
+        "completion_artifact_digest": P263_COMPLETION_ARTIFACT_DIGEST,
+        "measurement_validation_manifest_digest": measurement_manifest_digest,
+        "measurement_update_policy_digest": P263_POLICY_DIGEST,
+        "status": "COMPLETE",
+    }
+    raw = build_p261_raw_replay_artifact(
+        execution=execution,
+        completion_event={
+            "event_type": "completed",
+            "execution_id": P263_EXECUTION_ID,
+            "event_digest": "a" * 64,
+        },
+        registrations=[
+            {
+                "artifact_type": "measurement_validation_completion",
+                "artifact_digest": P263_COMPLETION_ARTIFACT_DIGEST,
+                "execution_id": P263_EXECUTION_ID,
+            }
+        ],
+        expected_task_key=P261_TASK_KEY,
+        expected_task_digest=EXPECTED_P261_TASK_DIGEST,
+        expected_execution_id=EXPECTED_P261_EXECUTION_ID,
+        expected_manifest_digest=measurement_manifest_digest,
+    )
+    assert raw["task_digest"] == P263_TASK_DIGEST
+    assert raw["execution_id"] == P263_EXECUTION_ID
+    assert raw["completion_artifact_digest"] == P263_COMPLETION_ARTIFACT_DIGEST
+
+    gate_execution = {
+        "task_key": P27_TASK_KEY,
+        "task_digest": "b" * 64,
+        "execution_id": "c" * 64,
+        "artifact_digest": "d" * 64,
+        "p26_execution_artifact_digest": P263_EXECUTION_ARTIFACT_DIGEST,
+        "automatic_gate_digest": "e" * 64,
+        "decision": "REPAIR_MEASUREMENT_SYSTEM",
+        "decision_fact": "m4-p2-measurement-decision:REPAIR_MEASUREMENT_SYSTEM",
+    }
+    gate = build_p27_gate_replay_artifact(
+        execution=gate_execution,
+        replay={
+            "status": "REPLAY_VERIFIED",
+            "capability_replay": {
+                "status": "REPLAY_VERIFIED",
+                "automatic_gate_digest": gate_execution["automatic_gate_digest"],
+                "decision": gate_execution["decision"],
+                "decision_fact": gate_execution["decision_fact"],
+            },
+        },
+        parent_p261_execution_id=EXPECTED_P261_EXECUTION_ID,
+    )
+    assert gate["parent_p2_6_1_execution_id"] == P263_EXECUTION_ID
+    assert (
+        gate["parent_p2_6_1_execution_artifact_digest"]
+        == P263_EXECUTION_ARTIFACT_DIGEST
+    )
+
+
+def test_raw_replay_recovery_resets_only_the_exact_failed_task() -> None:
+    payload = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    payload.pop("manifest_digest")
+    target = next(
+        task for task in payload["tasks"] if task["task_key"] == RAW_REPLAY_TASK_KEY
+    )
+    target["status"] = "failed"
+    target["completion_classification"] = "INTEGRATED"
+    live = ControlPlaneManifest.from_dict(payload)
+    live_target = next(
+        task for task in live.tasks if task.task_key == RAW_REPLAY_TASK_KEY
+    )
+    assert live_target.artifact_digest == FAILED_TASK_DIGEST
+    events = [
+        {
+            "task_digest": FAILED_TASK_DIGEST,
+            "execution_id": FAILED_EXECUTION_ID,
+            "event_type": "started",
+            "event_digest": FAILED_STARTED_EVENT_DIGEST,
+            "payload": [],
+        },
+        {
+            "task_digest": FAILED_TASK_DIGEST,
+            "execution_id": FAILED_EXECUTION_ID,
+            "event_type": "failed",
+            "event_digest": FAILED_TERMINAL_EVENT_DIGEST,
+            "payload": [["error", FAILED_ERROR]],
+        },
+    ]
+    recovered, report = build_raw_replay_recovery_manifest(
+        live_payload=live.to_dict(include_digest=True),
+        execution_events=events,
+    )
+    after = ControlPlaneManifest.from_dict(recovered)
+    state = after.task_state_by_digest[FAILED_TASK_DIGEST]
+    assert state.declared_status is TaskStatus.DRAFT
+    assert state.completion_classification.value == "INTEGRATION_PENDING"
+    assert report["changed_task_count"] == 1
+    assert report["rewritten_event_count"] == 0
+    assert report["statistical_result_payloads_read"] is False
+
+    tampered = copy.deepcopy(events)
+    tampered[-1]["payload"] = [["error", "different"]]
+    with pytest.raises(RawReplayRecoveryError, match="event_history_changed"):
+        build_raw_replay_recovery_manifest(
+            live_payload=live.to_dict(include_digest=True),
+            execution_events=tampered,
+        )
 
 
 @pytest.mark.parametrize(

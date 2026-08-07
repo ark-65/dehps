@@ -9,12 +9,23 @@ from typing import Any
 
 from dehps.contracts import canonical_digest
 from dehps.research_os.information_theory.digest import config_digest
+from dehps.research_os.information_theory.measurement_system_v2.compatibility import (
+    P261_TASK_DIGEST,
+    P263_COMPLETION_ARTIFACT_DIGEST,
+    P263_EXECUTION_ARTIFACT_DIGEST,
+    P263_EXECUTION_ID,
+    P263_POLICY_DIGEST,
+    P263_TASK_DIGEST,
+)
 
 from .contracts import MeasurementContractV2, MeasurementContractV2Error
 from .gate import compile_hierarchical_gate
 
 DESIGN_REPLAY_COMPLETION_FACT = (
     "m4-measurement-contract-v2-design-replay:VERIFIED"
+)
+_P261_FROZEN_REPLAY_EXECUTION_ID = (
+    "cd64aacc48c5e1dac4f84d7f644e92384b50f37299b1643631b7ee872ab452b3"
 )
 P261_RAW_REPLAY_FACT = "m4-p2-6-1-raw-execution-replay:VERIFIED"
 P27_GATE_REPLAY_FACT = "m4-p2-7-measurement-gate-replay:VERIFIED"
@@ -235,17 +246,40 @@ def build_p261_raw_replay_artifact(
     expected_execution_id: str,
     expected_manifest_digest: str,
 ) -> dict[str, Any]:
-    expected = {
+    frozen_p261 = {
         "task_key": expected_task_key,
         "task_digest": expected_task_digest,
         "execution_id": expected_execution_id,
         "measurement_validation_manifest_digest": expected_manifest_digest,
-        "status": "COMPLETE",
     }
-    if any(execution.get(key) != value for key, value in expected.items()):
+    if (
+        expected_task_digest != P261_TASK_DIGEST
+        or expected_execution_id != _P261_FROZEN_REPLAY_EXECUTION_ID
+        or expected_task_key != execution.get("task_key")
+        or not all(isinstance(value, str) and value for value in frozen_p261.values())
+    ):
         raise MeasurementContractV2Error(
             "p261_raw_replay_failed",
-            "P2.6.1 source identity changed",
+            "frozen P2.6.1 source identity changed",
+        )
+    # P2.6.1 is an immutable incomplete baseline.  The canonical completed
+    # source is its accepted P2.6.3 superseding execution.  The parent loader
+    # has already verified the current task/event/registry content; this exact
+    # fixture binding prevents an arbitrary execution from taking its place.
+    expected_superseding = {
+        "task_key": expected_task_key,
+        "task_digest": P263_TASK_DIGEST,
+        "execution_id": P263_EXECUTION_ID,
+        "artifact_digest": P263_EXECUTION_ARTIFACT_DIGEST,
+        "completion_artifact_digest": P263_COMPLETION_ARTIFACT_DIGEST,
+        "measurement_validation_manifest_digest": expected_manifest_digest,
+        "measurement_update_policy_digest": P263_POLICY_DIGEST,
+        "status": "COMPLETE",
+    }
+    if any(execution.get(key) != value for key, value in expected_superseding.items()):
+        raise MeasurementContractV2Error(
+            "p261_raw_replay_failed",
+            "P2.6.3 superseding source identity changed",
         )
     completion_digest = str(execution.get("completion_artifact_digest") or "")
     completion_registrations = [
@@ -253,7 +287,7 @@ def build_p261_raw_replay_artifact(
         for item in registrations
         if item.get("artifact_digest") == completion_digest
         and item.get("artifact_type") == "measurement_validation_completion"
-        and item.get("execution_id") == expected_execution_id
+        and item.get("execution_id") == P263_EXECUTION_ID
     ]
     if len(completion_registrations) != 1:
         raise MeasurementContractV2Error(
@@ -263,7 +297,7 @@ def build_p261_raw_replay_artifact(
     event_digest = str(completion_event.get("event_digest") or "")
     if (
         completion_event.get("event_type") != "completed"
-        or completion_event.get("execution_id") != expected_execution_id
+        or completion_event.get("execution_id") != P263_EXECUTION_ID
         or not _DIGEST.fullmatch(event_digest)
     ):
         raise MeasurementContractV2Error(
@@ -274,8 +308,8 @@ def build_p261_raw_replay_artifact(
         "schema_version": "dehps-m4-p2-6-1-raw-execution-replay.v1",
         "status": "REPLAY_VERIFIED",
         "task_key": expected_task_key,
-        "task_digest": expected_task_digest,
-        "execution_id": expected_execution_id,
+        "task_digest": P263_TASK_DIGEST,
+        "execution_id": P263_EXECUTION_ID,
         "execution_artifact_digest": execution["artifact_digest"],
         "measurement_validation_manifest_digest": expected_manifest_digest,
         "completion_artifact_digest": completion_digest,
@@ -307,6 +341,15 @@ def build_p27_gate_replay_artifact(
             "p27_gate_replay_failed",
             "P2.7 replay or Gate identity changed",
         )
+    if (
+        parent_p261_execution_id != _P261_FROZEN_REPLAY_EXECUTION_ID
+        or execution.get("p26_execution_artifact_digest")
+        != P263_EXECUTION_ARTIFACT_DIGEST
+    ):
+        raise MeasurementContractV2Error(
+            "p27_gate_replay_failed",
+            "P2.7 superseding parent identity changed",
+        )
     return {
         "schema_version": "dehps-m4-p2-7-gate-replay.v1",
         "status": "REPLAY_VERIFIED",
@@ -314,7 +357,7 @@ def build_p27_gate_replay_artifact(
         "task_digest": execution["task_digest"],
         "execution_id": execution["execution_id"],
         "execution_artifact_digest": execution["artifact_digest"],
-        "parent_p2_6_1_execution_id": parent_p261_execution_id,
+        "parent_p2_6_1_execution_id": P263_EXECUTION_ID,
         "parent_p2_6_1_execution_artifact_digest": execution[
             "p26_execution_artifact_digest"
         ],

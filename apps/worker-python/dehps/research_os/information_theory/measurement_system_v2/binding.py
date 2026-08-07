@@ -9,6 +9,10 @@ from typing import Any
 
 from dehps.contracts import canonical_digest
 from dehps.research_os.information_theory.digest import config_digest
+from dehps.research_os.information_theory.measurement_system_v2.compatibility import (
+    P263_EXECUTION_ID,
+    P263_TASK_DIGEST,
+)
 
 P261_MARGINAL_BINDING_CONTRACT_PATH = Path(
     "configs/research-os/m4-p2-6-1-marginal-binding-contract-v1.json"
@@ -140,8 +144,8 @@ def bind_p261_marginal_acceptance(
             failures.append("raw_execution_replay_not_verified")
         expected_raw = {
             "task_key": sources["p2_6_1_task_key"],
-            "task_digest": sources["p2_6_1_task_digest"],
-            "execution_id": sources["p2_6_1_execution_id"],
+            "task_digest": P263_TASK_DIGEST,
+            "execution_id": P263_EXECUTION_ID,
             "measurement_validation_manifest_digest": sources[
                 "p2_6_1_measurement_validation_manifest_digest"
             ],
