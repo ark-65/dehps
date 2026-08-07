@@ -37,6 +37,24 @@ MARGINAL_STATIC_HEALTH_DESIGN_FAILED_EVENT_DIGEST = (
 MARGINAL_STATIC_HEALTH_DESIGN_FAILED_ERROR = (
     "registered artifact type is missing: m4_v2_marginal_static_fixture"
 )
+MARGINAL_STATIC_HEALTH_EXECUTION_TASK_KEY = (
+    "m4-v2-marginal-static-measurement-health-execution"
+)
+MARGINAL_STATIC_HEALTH_EXECUTION_FAILED_TASK_DIGEST = (
+    "3f5a3250aaec1a1e02516734ad8f7ce49c5e8e0c18fafd098cb08bb9f2b103f0"
+)
+MARGINAL_STATIC_HEALTH_EXECUTION_FAILED_EXECUTION_ID = (
+    "d0e5f7ee972ab33d899ca46d8d59cb718c1748888374bccf521273466663bfdf"
+)
+MARGINAL_STATIC_HEALTH_EXECUTION_STARTED_EVENT_DIGEST = (
+    "01445142e807fd3d0e996f7bc8818123ded5aa9860b5a28d6f562329bad79919"
+)
+MARGINAL_STATIC_HEALTH_EXECUTION_FAILED_EVENT_DIGEST = (
+    "83cf08c7ef24550d932ef15d4439cac26ca48ff546c445874ef4b19a0db16ddc"
+)
+MARGINAL_STATIC_HEALTH_EXECUTION_FAILED_ERROR = (
+    "M4 v2 marginal-static health execution source identities changed"
+)
 
 
 class RawReplayRecoveryError(RuntimeError):
@@ -44,6 +62,10 @@ class RawReplayRecoveryError(RuntimeError):
 
 
 class MarginalStaticHealthDesignRecoveryError(RuntimeError):
+    pass
+
+
+class MarginalStaticHealthExecutionRecoveryError(RuntimeError):
     pass
 
 
@@ -221,6 +243,117 @@ def build_marginal_static_health_design_recovery_manifest(
         "evidence_created": False,
         "prediction_v2_promotion": False,
         "sampled_health_execution": False,
+    }
+    return recovered_payload, report
+
+
+def build_marginal_static_health_execution_recovery_manifest(
+    *,
+    live_payload: Mapping[str, Any],
+    execution_events: Sequence[Mapping[str, Any]],
+    execution_artifacts: Sequence[Mapping[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Reset only the exact zero-replicate health-execution failure."""
+
+    live = ControlPlaneManifest.from_dict(dict(live_payload))
+    matching = [
+        task
+        for task in live.tasks
+        if task.task_key == MARGINAL_STATIC_HEALTH_EXECUTION_TASK_KEY
+    ]
+    if (
+        len(matching) != 1
+        or matching[0].artifact_digest
+        != MARGINAL_STATIC_HEALTH_EXECUTION_FAILED_TASK_DIGEST
+    ):
+        raise MarginalStaticHealthExecutionRecoveryError(
+            "marginal_static_health_execution_recovery_task_identity_changed"
+        )
+    state = live.task_state_by_digest[
+        MARGINAL_STATIC_HEALTH_EXECUTION_FAILED_TASK_DIGEST
+    ]
+    if (
+        state.declared_status.value != "failed"
+        or state.completion_classification.value != "INTEGRATED"
+    ):
+        raise MarginalStaticHealthExecutionRecoveryError(
+            "marginal_static_health_execution_recovery_task_is_not_exact_failure"
+        )
+
+    related = [
+        dict(event)
+        for event in execution_events
+        if event.get("task_digest")
+        == MARGINAL_STATIC_HEALTH_EXECUTION_FAILED_TASK_DIGEST
+        and event.get("execution_id")
+        == MARGINAL_STATIC_HEALTH_EXECUTION_FAILED_EXECUTION_ID
+    ]
+    started = [event for event in related if event.get("event_type") == "started"]
+    failed = [event for event in related if event.get("event_type") == "failed"]
+    completed = [event for event in related if event.get("event_type") == "completed"]
+    if (
+        len(related) != 2
+        or len(started) != 1
+        or len(failed) != 1
+        or completed
+        or started[0].get("event_digest")
+        != MARGINAL_STATIC_HEALTH_EXECUTION_STARTED_EVENT_DIGEST
+        or failed[0].get("event_digest")
+        != MARGINAL_STATIC_HEALTH_EXECUTION_FAILED_EVENT_DIGEST
+        or _event_payload(failed[0]).get("error")
+        != MARGINAL_STATIC_HEALTH_EXECUTION_FAILED_ERROR
+    ):
+        raise MarginalStaticHealthExecutionRecoveryError(
+            "marginal_static_health_execution_recovery_event_history_changed"
+        )
+    if execution_artifacts:
+        raise MarginalStaticHealthExecutionRecoveryError(
+            "marginal_static_health_execution_recovery_artifacts_exist"
+        )
+
+    output = live.to_dict(include_digest=False)
+    changed = 0
+    for task in output["tasks"]:
+        if task["task_key"] != MARGINAL_STATIC_HEALTH_EXECUTION_TASK_KEY:
+            continue
+        task["status"] = "draft"
+        task["completion_classification"] = "INTEGRATION_PENDING"
+        changed += 1
+    if changed != 1:
+        raise MarginalStaticHealthExecutionRecoveryError(
+            "marginal_static_health_execution_recovery_transition_count_changed"
+        )
+    recovered = ControlPlaneManifest.from_dict(output)
+    recovered_payload = recovered.to_dict(include_digest=True)
+    report = {
+        "schema_version": ("dehps-m4-v2-marginal-static-health-execution-recovery.v1"),
+        "status": "SAFE_TO_RECOVER",
+        "input_manifest_digest": live.artifact_digest,
+        "output_manifest_digest": recovered.artifact_digest,
+        "task_key": MARGINAL_STATIC_HEALTH_EXECUTION_TASK_KEY,
+        "task_digest": MARGINAL_STATIC_HEALTH_EXECUTION_FAILED_TASK_DIGEST,
+        "failed_execution_id": MARGINAL_STATIC_HEALTH_EXECUTION_FAILED_EXECUTION_ID,
+        "preserved_started_event_digest": (
+            MARGINAL_STATIC_HEALTH_EXECUTION_STARTED_EVENT_DIGEST
+        ),
+        "preserved_failed_event_digest": (
+            MARGINAL_STATIC_HEALTH_EXECUTION_FAILED_EVENT_DIGEST
+        ),
+        "state_transition": "failed/INTEGRATED -> draft/INTEGRATION_PENDING",
+        "changed_task_count": 1,
+        "deleted_task_count": 0,
+        "deleted_event_count": 0,
+        "rewritten_event_count": 0,
+        "completed_task_regression_count": 0,
+        "preexisting_execution_artifact_count": 0,
+        "generated_issues": 0,
+        "synthetic_replicates": 0,
+        "historical_outcomes_read": False,
+        "statistical_result_payloads_read": False,
+        "evidence_created": False,
+        "prediction_v2_promotion": False,
+        "duplicate_raw_replay": False,
+        "physical_checkpoint_scan": False,
     }
     return recovered_payload, report
 
