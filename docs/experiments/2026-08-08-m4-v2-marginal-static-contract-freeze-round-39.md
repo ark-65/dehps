@@ -105,6 +105,22 @@ unallowlisted rewrites:        0
 Only the unstarted marginal-static contract task is revised, only its fixture
 freezer is added, and only the approved source-contract fact is added.
 
+After ready PR [#271](https://github.com/ark-65/dehps/pull/271) merged as
+`297c7e9c1eeba7e064300d88b5f42bd0c56f43b9`, the approved Operator installed a
+fresh Supervisor and completed the durable path:
+
+```text
+imported manifest:             cf9116444515bc470a9f677e6bd0b5150c42299d032b43ab524f65b952707839
+completed live manifest:       96d0b713fc7a535fa3f8872a446dd3c3fcdb59cf02f01a03f6eaa72bc0297620
+execution id:                  cb29070267701d0d53c8fd452874fcb5e4a2be3eb5b457eaeed73b64e3b46de9
+execution artifact:            ab0e17013b5b4b1e30f6a45652f6a9e5269392d525ad41db718f357a8b4bffef
+measurement contract:          26a12fa7ad46ebdeb8b08559e70bc7d6e15f4a1f3c7d3f8be5e16f4865071d5b
+completion:                    bfb3744be2d769c52b04a0c28bf1c120c940e13f0ee97faf7b10f20467ad5f61
+registered artifacts:          3
+folds / replicates / Evidence: 0 / 0 / 0
+replay:                        REPLAY_VERIFIED, same identities and content
+```
+
 ## Validation
 
 - New estimator, contract, fail-closed, source-integrity, capability,
@@ -127,19 +143,15 @@ freezer is added, and only the approved source-contract fact is added.
 
 | Link | Engineering handoff state | Proof |
 | --- | --- | --- |
-| Goal -> Resolver | Code complete | Exact task definition and approved source identity |
-| Resolver -> Ready Queue | Dry-run verified | Only the marginal-static contract task becomes executable |
-| Ready Queue -> Supervisor | Code complete | Capability registered under one exact request key |
-| Supervisor -> Capability | Code complete | Eight ordered parent identities checked fail-closed |
-| Capability -> Artifacts | Code complete | Two child artifacts plus one mainline execution |
-| Artifacts -> Status | Code complete | Contract, legacy REPAIR boundary, and zero-work counters projected |
-| Status -> Next Task | Code complete | Only the synthetic fixture freezer is named |
-| Deterministic replay | Code complete | Small contract reconstruction and registered-byte comparison |
+| Goal -> Resolver | Validated | Exact task definition and approved source identity imported into durable truth |
+| Resolver -> Ready Queue | Validated | Only the marginal-static contract task became executable |
+| Ready Queue -> Supervisor | Validated | Fresh merged Supervisor claimed the task exactly once |
+| Supervisor -> Capability | Validated | Eight ordered parent identities checked fail-closed |
+| Capability -> Artifacts | Validated | Two child artifacts plus one mainline execution registered immutably |
+| Artifacts -> Status | Validated | Contract, legacy REPAIR boundary, and zero-work counters projected from durable truth |
+| Status -> Next Task | Validated | Only the synthetic fixture freezer became Ready |
+| Deterministic replay | Validated | Registered paths, identities, and content reproduced exactly |
 
-Final integration answer at engineering handoff:
+Final integration answer after the approved Operator execution:
 
-`NO — INTEGRATION_PENDING`
-
-The merged commit must be installed under a fresh unified Supervisor, the
-exact additive manifest imported by an approved Operator, the task completed
-once, and deterministic replay verified before this capability is `COMPLETE`.
+`YES — validated by unified mainline execution and replay`

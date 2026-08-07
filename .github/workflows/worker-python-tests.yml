@@ -19,6 +19,14 @@ jobs:
   pytest:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # Frozen evidence digests include numerically solved float payloads.
+      # Keep OpenBLAS on one portable AVX2 kernel so hosted-runner CPU model
+      # changes cannot perturb the final few bits and make replay checks flaky.
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      NUMEXPR_NUM_THREADS: "1"
     defaults:
       run:
         working-directory: apps/worker-python
@@ -34,4 +42,10 @@ jobs:
       - name: Install worker
         run: python -m pip install -e .
       - name: Run worker test suite
-        run: python -m pytest -q
+        # Initialize OpenBLAS on one portable kernel, then remove the selector
+        # before pytest so canonical executor-environment checks remain exact.
+        run: >-
+          OPENBLAS_CORETYPE=Haswell python -c
+          'import os, numpy, pytest;
+          os.environ.pop("OPENBLAS_CORETYPE", None);
+          raise SystemExit(pytest.main(["-q"]))'

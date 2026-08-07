@@ -50,6 +50,12 @@ M4_V2_MARGINAL_CONTRACT_FREEZE_COMPLETION_FACT = (
 M4_V2_MARGINAL_FIXTURE_FREEZE_TASK_KEY = (
     "m4-v2-marginal-static-measurement-fixture-freeze"
 )
+M4_V2_MARGINAL_FIXTURE_FREEZE_COMPLETION_FACT = (
+    "m4-v2-marginal-static-measurement-fixture-freeze:FROZEN"
+)
+M4_V2_MARGINAL_HEALTH_DESIGN_TASK_KEY = (
+    "m4-v2-marginal-static-measurement-health-design"
+)
 M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
 M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = "m4-v2-p2-6-1-marginal-decision-replay"
 M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
@@ -299,7 +305,23 @@ def build_m4_status(
         measurement_v2_execution
         if measurement_v2_execution is not None
         and measurement_v2_execution.get("execution_task_key")
-        == M4_V2_MARGINAL_CONTRACT_FREEZE_TASK_KEY
+        in {
+            M4_V2_MARGINAL_CONTRACT_FREEZE_TASK_KEY,
+            M4_V2_MARGINAL_FIXTURE_FREEZE_TASK_KEY,
+        }
+        else None
+    )
+    measurement_v2_marginal_fixture_resolution = resolutions.get(
+        M4_V2_MARGINAL_FIXTURE_FREEZE_TASK_KEY
+    )
+    measurement_v2_marginal_fixture_task = tasks.get(
+        M4_V2_MARGINAL_FIXTURE_FREEZE_TASK_KEY
+    )
+    measurement_v2_marginal_fixture_execution = (
+        measurement_v2_execution
+        if measurement_v2_execution is not None
+        and measurement_v2_execution.get("execution_task_key")
+        == M4_V2_MARGINAL_FIXTURE_FREEZE_TASK_KEY
         else None
     )
     measurement_compatibility_resolution = resolutions.get(
@@ -1030,7 +1052,10 @@ def build_m4_status(
         "measurement_system_v2": (
             {
                 "phase": (
-                    "MARGINAL_STATIC_FIXTURE_FREEZE"
+                    "MARGINAL_STATIC_HEALTH_DESIGN"
+                    if M4_V2_MARGINAL_FIXTURE_FREEZE_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "MARGINAL_STATIC_FIXTURE_FREEZE"
                     if M4_V2_MARGINAL_CONTRACT_FREEZE_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "MARGINAL_STATIC_CONTRACT_FREEZE"
@@ -1306,6 +1331,79 @@ def build_m4_status(
                     "evidence_progress_increment": 0,
                     "next_consumer": M4_V2_MARGINAL_FIXTURE_FREEZE_TASK_KEY,
                 },
+                "marginal_static_fixture_freeze": {
+                    "task_key": M4_V2_MARGINAL_FIXTURE_FREEZE_TASK_KEY,
+                    "resolver_status": (
+                        None
+                        if measurement_v2_marginal_fixture_resolution is None
+                        else measurement_v2_marginal_fixture_resolution.status.value
+                    ),
+                    "completion_classification": (
+                        None
+                        if measurement_v2_marginal_fixture_task is None
+                        or task_states[
+                            measurement_v2_marginal_fixture_task.artifact_digest
+                        ].completion_classification
+                        is None
+                        else task_states[
+                            measurement_v2_marginal_fixture_task.artifact_digest
+                        ].completion_classification.value
+                    ),
+                    "completed": (
+                        M4_V2_MARGINAL_FIXTURE_FREEZE_COMPLETION_FACT
+                        in manifest.facts.artifacts
+                    ),
+                    "fixture_bundle_digest": (
+                        None
+                        if measurement_v2_marginal_fixture_execution is None
+                        else measurement_v2_marginal_fixture_execution.get(
+                            "marginal_static_fixture_bundle_digest"
+                        )
+                    ),
+                    "fixture_count": (
+                        0
+                        if measurement_v2_marginal_fixture_execution is None
+                        else measurement_v2_marginal_fixture_execution.get(
+                            "fixture_count", 0
+                        )
+                    ),
+                    "positive_fixture_count": (
+                        0
+                        if measurement_v2_marginal_fixture_execution is None
+                        else measurement_v2_marginal_fixture_execution.get(
+                            "positive_fixture_count", 0
+                        )
+                    ),
+                    "negative_fixture_count": (
+                        0
+                        if measurement_v2_marginal_fixture_execution is None
+                        else measurement_v2_marginal_fixture_execution.get(
+                            "negative_fixture_count", 0
+                        )
+                    ),
+                    "runtime_state": (
+                        None
+                        if measurement_v2_marginal_fixture_execution is None
+                        else measurement_v2_marginal_fixture_execution.get(
+                            "runtime_state"
+                        )
+                    ),
+                    "database_reads_during_replicate": 0,
+                    "database_writes_during_replicate": 0,
+                    "csv_materialized": False,
+                    "duplicate_raw_replay": False,
+                    "routine_physical_checkpoint_scan": False,
+                    "sampled_workload_status": "NOT_FROZEN",
+                    "generated_issues": 0,
+                    "synthetic_replicates": 0,
+                    "formal_branch_runs_executed": 0,
+                    "actual_fold_count": 0,
+                    "historical_outcomes_read": False,
+                    "statistical_results_read": False,
+                    "evidence_created": False,
+                    "evidence_progress_increment": 0,
+                    "next_consumer": M4_V2_MARGINAL_HEALTH_DESIGN_TASK_KEY,
+                },
                 "completion_classification": (
                     None
                     if task_states[
@@ -1317,7 +1415,10 @@ def build_m4_status(
                     ].completion_classification.value
                 ),
                 "live_mainline_status": (
-                    "MARGINAL_STATIC_CONTRACT_VALIDATED_IN_MAINLINE"
+                    "MARGINAL_STATIC_FIXTURES_VALIDATED_IN_MAINLINE"
+                    if M4_V2_MARGINAL_FIXTURE_FREEZE_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "MARGINAL_STATIC_CONTRACT_VALIDATED_IN_MAINLINE"
                     if M4_V2_MARGINAL_CONTRACT_FREEZE_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "BRANCH_PREFLIGHT_VALIDATED_IN_MAINLINE"
@@ -1422,7 +1523,10 @@ def build_m4_status(
                     ),
                 },
                 "next_consumer": (
-                    M4_V2_MARGINAL_FIXTURE_FREEZE_TASK_KEY
+                    M4_V2_MARGINAL_HEALTH_DESIGN_TASK_KEY
+                    if M4_V2_MARGINAL_FIXTURE_FREEZE_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else M4_V2_MARGINAL_FIXTURE_FREEZE_TASK_KEY
                     if M4_V2_MARGINAL_CONTRACT_FREEZE_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else M4_V2_MARGINAL_CONTRACT_FREEZE_TASK_KEY
