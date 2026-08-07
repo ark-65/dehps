@@ -1,0 +1,123 @@
+{
+  "schema_version": "dehps-m4-v2-marginal-static-fixture-freeze-source.v1",
+  "artifact_type": "m4_v2_marginal_static_fixture_freeze_source",
+  "artifact_digest": "65a3b02964d35c8250bde2e6c9858f94c40617b7a60923c77d96541b29982b53",
+  "contract_key": "M4_V2_MARGINAL_STATIC_FIXTURE_FREEZE_SOURCE",
+  "research_request_key": "research-m4-v2-marginal-static-fixture-freeze-round-40-20260808",
+  "research_request_id": 315,
+  "research_execution_id": 236,
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/marginal_static_fixtures.py",
+      "content_sha256": "f7b5cebbbde79d17923fc09dbf0508dce643cc522e6b09e46b8b5e19eba868ee"
+    }
+  ],
+  "source_set_digest": "c9e425e67b85be568831d4098ee1382eaf3b21cdabe75d8cad1684a9476b60ce",
+  "frozen_contract": {
+    "fixtures": [
+      {
+        "fixture_id": "V2_M1_GROUP_ODDS_2_STATIONARY",
+        "role": "POSITIVE_CONTROL",
+        "generator": {
+          "process": "iid",
+          "legal_sample_space": "six-element subsets of 1..33",
+          "probability": "proportional to product w_i",
+          "weights": "w_1..w_16=2;w_17..w_33=1",
+          "partition": 11248216,
+          "truth_computation": "elementary symmetric polynomial and exact rational group marginals"
+        },
+        "stationary_marginal_truth": {
+          "group_a_numbers": "1..16",
+          "group_a_q": "47343/200861",
+          "group_b_numbers": "17..33",
+          "group_b_q": "26334/200861",
+          "exact_sum": "16*q_a+17*q_b=6"
+        },
+        "expected_marginal_gain": "strictly_positive"
+      },
+      {
+        "fixture_id": "NULL_UNIFORM_LEGAL_SIX_OF_33",
+        "role": "NEGATIVE_CONTROL",
+        "generator": {
+          "process": "iid",
+          "legal_sample_space": "six-element subsets of 1..33",
+          "probability": "uniform",
+          "truth_computation": "exchangeability on the legal sample space"
+        },
+        "stationary_marginal_truth": {
+          "all_numbers_q": "2/11",
+          "exact_sum": "33*(2/11)=6"
+        },
+        "expected_marginal_gain": "zero"
+      },
+      {
+        "fixture_id": "V2_T1_OVERLAP_ODDS_2_MARKOV",
+        "role": "NEGATIVE_CONTROL",
+        "generator": {
+          "process": "first_order_markov",
+          "legal_sample_space": "six-element subsets of 1..33",
+          "transition_probability": "proportional to 2^intersection_size with previous draw",
+          "history_state": "complete previous legal draw",
+          "stationarity_proof": "symmetric kernel is doubly stochastic on the legal sample space"
+        },
+        "stationary_marginal_truth": {
+          "all_numbers_q": "2/11",
+          "exact_sum": "33*(2/11)=6"
+        },
+        "expected_marginal_gain": "zero"
+      },
+      {
+        "fixture_id": "V2_J1_HISTORY_IS4_LAMBDA_HALF",
+        "role": "NEGATIVE_CONTROL",
+        "generator": {
+          "process": "history_visible_joint_state",
+          "legal_sample_space": "six-element subsets of 1..33",
+          "state_rule": "lexicographic half of previous legal draw selects the frozen IS4 sign",
+          "lambda": "1/2",
+          "stationarity_proof": "both frozen states preserve every one-number marginal at 2/11"
+        },
+        "stationary_marginal_truth": {
+          "all_numbers_q": "2/11",
+          "exact_sum": "33*(2/11)=6"
+        },
+        "expected_marginal_gain": "zero"
+      }
+    ],
+    "required_checks": [
+      "legal probability sum and bounds",
+      "deterministic estimator replay",
+      "positive-control direction",
+      "negative-control false-positive behavior",
+      "bias",
+      "coverage",
+      "minimum detectable effect"
+    ],
+    "runtime_boundary": {
+      "training_state": "issue_count plus ordered signed_int64[33] number-event counts",
+      "database_reads_during_replicate": 0,
+      "database_writes_during_replicate": 0,
+      "csv_materialization": "forbidden",
+      "checkpoint_unit": "completed replicate summary plus deterministic seed-domain identity",
+      "resume": "load compact completion index and skip completed replicate digests",
+      "raw_draw_retention": "forbidden after sufficient-statistic update unless a separately authorized deep audit requests it",
+      "duplicate_raw_replay": "forbidden",
+      "routine_physical_checkpoint_scan": "forbidden"
+    },
+    "sampled_workload_status": "NOT_FROZEN",
+    "generated_issues": 0,
+    "synthetic_replicates": 0,
+    "historical_data_allowed": false,
+    "completion_fact": "m4-v2-marginal-static-measurement-fixture-freeze:FROZEN",
+    "next_consumer": "m4-v2-marginal-static-measurement-health-design"
+  },
+  "result_blind": true,
+  "generated_issues": 0,
+  "synthetic_replicates": 0,
+  "formal_branch_execution_allowed": false,
+  "historical_outcomes_read": false,
+  "statistical_results_read": false,
+  "evidence_created": false,
+  "evidence_progress_increment": 0,
+  "promotion_gate_opened": false,
+  "production_action": "none"
+}
