@@ -16,10 +16,14 @@ from dehps.golden_source_identity import (
 
 from .float_identity import encode_float64_tree
 from .source_compatibility import (
+    P263_REVIEWED_SOURCE_COMPATIBILITY_FIXTURE_PATH,
+    P263_REVIEWED_SOURCE_COMPATIBILITY_PATHS,
     REVIEWED_SHARED_COMPATIBILITY_FIXTURE_PATH,
     REVIEWED_SHARED_COMPATIBILITY_PATHS,
     SourceCompatibilityError,
+    load_p263_reviewed_source_compatibility_fixture,
     load_reviewed_shared_compatibility_fixture,
+    validate_p263_reviewed_source_compatibility_fixture,
     validate_reviewed_shared_compatibility_fixture,
 )
 
@@ -72,6 +76,21 @@ CONSTRUCTION_SOURCE_INTEGRITY_IDENTITY_KEYS = (
 )
 
 _INFORMATION_THEORY_ROOT = "apps/worker-python/dehps/research_os/information_theory"
+_P261_FROZEN_SOURCE_SET_DIGESTS = {
+    "shared_frozen_source_set_digest": (
+        "75c124ba95c3ec0913f597b48a58a292a471fd1a00d8d9246e255ecd7f35715b"
+    ),
+    "approved_acceleration_source_set_digest": (
+        "2616176e39473ac1cfac7a716ee824f46f6012bd61aea6cb1d6d46c13ca8a79f"
+    ),
+    "independent_oracle_source_set_digest": (
+        "3df0dee1cbb4140cfe78ceda01a7de12aeb943a479b26681e572ab23fc7c1a5b"
+    ),
+    "audit_orchestration_source_set_digest": (
+        "6663d1bb8aa31d215f558f9973199b9bb2df4511894e68c6dacf9d3fa5ee8296"
+    ),
+}
+_P261_FROZEN_SOURCE_COUNTS = (65, 4, 11, 371)
 
 
 def _paths(package: str, names: Sequence[str]) -> tuple[str, ...]:
@@ -489,6 +508,17 @@ def validate_source_integrity_contract(
         "acceleration_change_policy",
         "audit_change_policy",
     }
+    fixture_path = str(contract.get("reviewed_shared_compatibility_fixture_path"))
+    if fixture_path == REVIEWED_SHARED_COMPATIBILITY_FIXTURE_PATH.as_posix():
+        compatibility_paths = REVIEWED_SHARED_COMPATIBILITY_PATHS
+        current_partition = False
+    elif fixture_path == (
+        P263_REVIEWED_SOURCE_COMPATIBILITY_FIXTURE_PATH.as_posix()
+    ):
+        compatibility_paths = P263_REVIEWED_SOURCE_COMPATIBILITY_PATHS
+        current_partition = True
+    else:
+        raise SourceIntegrityError("source_integrity_compatibility_profile_changed")
     if (
         set(contract) != expected_fields
         or contract.get("baseline_git_commit") != BASELINE_GIT_COMMIT
@@ -503,34 +533,55 @@ def validate_source_integrity_contract(
         != "PINNED_FOR_PHASE0_REQUIRES_SUPERSEDING_PLAN"
         or contract.get("audit_change_policy")
         != "PINNED_PER_RUNTIME_PLAN_REQUIRES_SUPERSEDING_PLAN"
-        or contract.get("reviewed_shared_compatibility_fixture_path")
-        != REVIEWED_SHARED_COMPATIBILITY_FIXTURE_PATH.as_posix()
         or _SHA256_PATTERN.fullmatch(
             str(contract.get("reviewed_shared_compatibility_fixture_digest") or "")
         )
         is None
         or contract.get("reviewed_shared_compatibility_paths")
-        != list(REVIEWED_SHARED_COMPATIBILITY_PATHS)
+        != list(compatibility_paths)
     ):
         raise SourceIntegrityError("source_integrity_contract_shape_changed")
+    embedded_paths = []
+    for field in (
+        "shared_frozen_source_allowlist",
+        "approved_acceleration_source_allowlist",
+        "independent_oracle_source_allowlist",
+        "audit_orchestration_source_allowlist",
+    ):
+        raw = contract.get(field)
+        if not isinstance(raw, list):
+            raise SourceIntegrityError(f"{field}_missing")
+        if not all(isinstance(item, Mapping) for item in raw):
+            raise SourceIntegrityError(f"{field}_invalid")
+        embedded_paths.append(tuple(str(item.get("path") or "") for item in raw))
+    expected_partitions = (
+        (
+            SHARED_FROZEN_SOURCE_PATHS,
+            APPROVED_ACCELERATION_SOURCE_PATHS,
+            INDEPENDENT_ORACLE_SOURCE_PATHS,
+            AUDIT_ORCHESTRATION_SOURCE_PATHS,
+        )
+        if current_partition
+        else tuple(embedded_paths)
+    )
     shared = _entry_by_path(
         contract.get("shared_frozen_source_allowlist"),
-        expected_paths=SHARED_FROZEN_SOURCE_PATHS,
+        expected_paths=expected_partitions[0],
         label="shared_frozen_source",
     )
     acceleration = _entry_by_path(
         contract.get("approved_acceleration_source_allowlist"),
-        expected_paths=APPROVED_ACCELERATION_SOURCE_PATHS,
+        expected_paths=expected_partitions[1],
         label="approved_acceleration_source",
     )
     oracle = _entry_by_path(
         contract.get("independent_oracle_source_allowlist"),
-        expected_paths=INDEPENDENT_ORACLE_SOURCE_PATHS,
+        expected_paths=expected_partitions[2],
         label="independent_oracle_source",
     )
     orchestration = _entry_by_path(
         contract.get("audit_orchestration_source_allowlist"),
-        expected_paths=AUDIT_ORCHESTRATION_SOURCE_PATHS,
+        expected_paths=expected_partitions[3],
         label="audit_orchestration_source",
     )
     if (
@@ -544,6 +595,15 @@ def validate_source_integrity_contract(
         != source_set_digest(list(orchestration.values()), kind="audit-orchestration")
     ):
         raise SourceIntegrityError("source_integrity_source_set_digest_changed")
+    if not current_partition and (
+        tuple(map(len, (shared, acceleration, oracle, orchestration)))
+        != _P261_FROZEN_SOURCE_COUNTS
+        or any(
+            contract.get(field) != digest
+            for field, digest in _P261_FROZEN_SOURCE_SET_DIGESTS.items()
+        )
+    ):
+        raise SourceIntegrityError("source_integrity_frozen_partition_changed")
     return dict(contract)
 
 
@@ -619,23 +679,40 @@ def verify_approved_source_bytes(
     oracle_entries = contract["independent_oracle_source_allowlist"]
     orchestration_entries = contract["audit_orchestration_source_allowlist"]
     try:
-        compatibility_fixture = load_reviewed_shared_compatibility_fixture(
-            root_dir / str(contract["reviewed_shared_compatibility_fixture_path"])
-        )
-        validate_reviewed_shared_compatibility_fixture(
-            compatibility_fixture,
-            expected_artifact_digest=str(
-                contract["reviewed_shared_compatibility_fixture_digest"]
-            ),
-            expected_candidate_golden_identity=golden_source_integrity_identity(
-                runtime_plan
-            ),
-        )
+        fixture_path = str(contract["reviewed_shared_compatibility_fixture_path"])
+        if fixture_path == REVIEWED_SHARED_COMPATIBILITY_FIXTURE_PATH.as_posix():
+            compatibility_fixture = load_reviewed_shared_compatibility_fixture(
+                root_dir / fixture_path
+            )
+            validate_reviewed_shared_compatibility_fixture(
+                compatibility_fixture,
+                expected_artifact_digest=str(
+                    contract["reviewed_shared_compatibility_fixture_digest"]
+                ),
+                expected_candidate_golden_identity=(
+                    golden_source_integrity_identity(runtime_plan)
+                ),
+            )
+        else:
+            compatibility_fixture = (
+                load_p263_reviewed_source_compatibility_fixture(
+                    root_dir / fixture_path
+                )
+            )
+            validate_p263_reviewed_source_compatibility_fixture(
+                compatibility_fixture,
+                expected_artifact_digest=str(
+                    contract["reviewed_shared_compatibility_fixture_digest"]
+                ),
+                expected_candidate_golden_identity=(
+                    golden_source_integrity_identity(runtime_plan)
+                ),
+            )
     except SourceCompatibilityError as exc:
         raise SourceIntegrityError(
             f"reviewed_shared_compatibility_fixture_invalid:{exc}"
         ) from exc
-    compatibility_paths = set(REVIEWED_SHARED_COMPATIBILITY_PATHS)
+    compatibility_paths = set(contract["reviewed_shared_compatibility_paths"])
     baseline_fixture_entries = {
         str(entry["path"]): dict(entry)
         for entry in compatibility_fixture["baseline_source_entries"]

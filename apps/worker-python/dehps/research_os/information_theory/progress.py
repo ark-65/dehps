@@ -25,8 +25,16 @@ M4_P263_COMPATIBILITY_FACT = "m4-p2-6-3-compatibility:VERIFIED"
 M4_V2_PREFLIGHT_DESIGN_TASK_KEY = "m4-v2-branch-identifiability-preflight-design"
 M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
 M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = "m4-v2-p2-6-1-marginal-decision-replay"
-M4_P29_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
-M4_P29_RUNTIME_AUDIT_TASK_KEY = "m4-p2-9-measurement-runtime-audit"
+M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
+M4_P29_P261_RUNTIME_AUDIT_TASK_KEY = "m4-p2-9-measurement-runtime-audit"
+M4_P29_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-p263-golden-reference-freeze"
+M4_P29_RUNTIME_AUDIT_TASK_KEY = "m4-p2-9-p263-measurement-runtime-audit"
+M4_P263_TASK_DIGEST = (
+    "85a08402a4a0c37f75ee1675f4970ef00a7a0b0992b4204251c0c2cc79324de4"
+)
+M4_P263_POLICY_DIGEST = (
+    "ad58b9abcd90c5e7ee7b9892ac8c209b8033f7a50e603b58c043685b0c7d6f99"
+)
 M4_P29_CANONICAL_EXECUTOR_FINGERPRINT_DIGEST = (
     "e804e4eedf3c67ad9d35207367a096f6b830a6ab2ac29cc03501392d8430af32"
 )
@@ -224,6 +232,12 @@ def build_m4_status(
     )
     golden_reference_resolution = resolutions.get(M4_P29_GOLDEN_REFERENCE_TASK_KEY)
     runtime_audit_resolution = resolutions.get(M4_P29_RUNTIME_AUDIT_TASK_KEY)
+    p261_golden_resolution = resolutions.get(
+        M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY
+    )
+    p261_runtime_audit_resolution = resolutions.get(
+        M4_P29_P261_RUNTIME_AUDIT_TASK_KEY
+    )
     canonical_executor_available = (
         M4_P29_CANONICAL_EXECUTOR_EVENT in manifest.facts.external_events
     )
@@ -231,6 +245,12 @@ def build_m4_status(
         golden_reference_execution.get("evidence_progress_before") != 0
         or golden_reference_execution.get("evidence_progress_after") != 0
         or golden_reference_execution.get("historical_outcomes_read") is not False
+        or golden_reference_execution.get("p2_6_3_statistical_results_read")
+        is not False
+        or golden_reference_execution.get("measurement_update_policy_digest")
+        != M4_P263_POLICY_DIGEST
+        or golden_reference_execution.get("p2_6_3_task_digest")
+        != M4_P263_TASK_DIGEST
         or golden_reference_execution.get("production_action") != "none"
         or golden_reference_execution.get("immutable_golden_fixture_is_oracle")
         is not True
@@ -260,6 +280,11 @@ def build_m4_status(
         runtime_audit_execution.get("evidence_progress_before") != 0
         or runtime_audit_execution.get("evidence_progress_after") != 0
         or runtime_audit_execution.get("historical_outcomes_read") is not False
+        or runtime_audit_execution.get("p2_6_3_statistical_results_read") is not False
+        or runtime_audit_execution.get("measurement_update_policy_digest")
+        != M4_P263_POLICY_DIGEST
+        or runtime_audit_execution.get("p2_6_3_task_digest")
+        != M4_P263_TASK_DIGEST
         or runtime_audit_execution.get("production_action") != "none"
         or runtime_audit_execution.get("reference_evaluator_is_oracle") is not False
         or runtime_audit_execution.get("immutable_golden_fixture_is_oracle") is not True
@@ -1035,6 +1060,26 @@ def build_m4_status(
             "task_key": M4_P29_RUNTIME_AUDIT_TASK_KEY,
             "lane": "maintenance",
             "agent_authority": "engineering",
+            "supersession": {
+                "status": "P2_6_3_SUPERSEDES_FROZEN_INCOMPLETE_P2_6_1",
+                "p2_6_1_golden_task_key": M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY,
+                "p2_6_1_golden_resolver_status": (
+                    None
+                    if p261_golden_resolution is None
+                    else p261_golden_resolution.status.value
+                ),
+                "p2_6_1_runtime_audit_task_key": (
+                    M4_P29_P261_RUNTIME_AUDIT_TASK_KEY
+                ),
+                "p2_6_1_runtime_audit_resolver_status": (
+                    None
+                    if p261_runtime_audit_resolution is None
+                    else p261_runtime_audit_resolution.status.value
+                ),
+                "p2_6_3_task_digest": M4_P263_TASK_DIGEST,
+                "measurement_update_policy_digest": M4_P263_POLICY_DIGEST,
+                "old_results_or_checkpoints_reused": False,
+            },
             "required_fingerprint_digest": (
                 M4_P29_CANONICAL_EXECUTOR_FINGERPRINT_DIGEST
             ),

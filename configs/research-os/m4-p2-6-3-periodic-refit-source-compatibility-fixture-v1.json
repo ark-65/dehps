@@ -1,0 +1,94 @@
+{
+  "schema_version": "dehps-m4-p2-6-3-reviewed-source-compatibility-fixture.v1",
+  "artifact_type": "ReviewedSupersedingSourceCompatibilityFixture",
+  "artifact_digest": "1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f",
+  "fixture_key": "M4-P2.6.3_PERIODIC_REFIT_SUPERSEDING_SOURCE",
+  "status": "REVIEWED_RESULT_BLIND_COMPATIBILITY",
+  "baseline_git_commit": "70f83a5400c6207cbe3806e69329a233e461e311",
+  "candidate_git_commit": "0842201871aef856b97838c38bb53d536e1e5893",
+  "changed_paths": [
+    "apps/worker-python/dehps/research_os/information_theory/measurement_validation/schedule.py",
+    "apps/worker-python/dehps/research_os/information_theory/measurement_validation/statistics.py",
+    "apps/worker-python/dehps/research_os/information_theory/probes/shallow_calibrated_tree.py"
+  ],
+  "baseline_source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_validation/schedule.py",
+      "content_sha256": "1fffde49a52811a653dff6741f5b43a1a978c65b9e625aa45241e9993138622e",
+      "git_blob_oid": "d15b3c6717975011fb4bdc47ae2997458130d10d"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_validation/statistics.py",
+      "content_sha256": "891e3bc9c337a7927b95472c73fb63dedd87caaca88e8f668d149a85d956d0de",
+      "git_blob_oid": "96fcb044d1dcb200a713c0af614b4caed493e468"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/probes/shallow_calibrated_tree.py",
+      "content_sha256": "e6d5a622a56d39e4db36c2a02b963c8266711f5432b46e5c3391afaea4bc743a",
+      "git_blob_oid": "c4ee1d77085f084456fa52a32a8ef515125343d4"
+    }
+  ],
+  "candidate_source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_validation/schedule.py",
+      "content_sha256": "ce773b473864eee66b94e30df0a5364592e9389289ebea73c26916c44b729ae0",
+      "git_blob_oid": "29afba09ddc5b3ef1ac721e231c98333a1419ea5"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_validation/statistics.py",
+      "content_sha256": "1f5c187295fc129c0143b1e24c322852746a2873185d5cfcea9a3c95fd79139b",
+      "git_blob_oid": "345f0bff6b182ef62ee1a59c35ad93120109f697"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/probes/shallow_calibrated_tree.py",
+      "content_sha256": "32b5426eb6f7aaad0c570454e677bf3214a1f47a8e74547fe5f528271618b94d",
+      "git_blob_oid": "e73197b64b85fe6faf9051a667641020acded9c0"
+    }
+  ],
+  "registered_golden_source_integrity_identity": {
+    "golden_source_contract_digest": "78794b92a06a8d17a8fbcf3cbb699a6b2edba458815721bf76a32a10d5010d06",
+    "shared_frozen_source_set_digest": "75c124ba95c3ec0913f597b48a58a292a471fd1a00d8d9246e255ecd7f35715b",
+    "independent_oracle_source_set_digest": "3df0dee1cbb4140cfe78ceda01a7de12aeb943a479b26681e572ab23fc7c1a5b"
+  },
+  "candidate_golden_source_integrity_identity": {
+    "golden_source_contract_digest": "c9e32b8043f39789e524c96392a61605875ae98b30970107c36ec0ec98737d95",
+    "shared_frozen_source_set_digest": "e473e8b87be7506f82bf1beaab0408926055f31c864bba44be24109e6d37d74d",
+    "independent_oracle_source_set_digest": "6e5effaff903bb3ef515f8398260a82db07ac6f9e63e06d1ef880388ef3e2490"
+  },
+  "source_roles": {
+    "apps/worker-python/dehps/research_os/information_theory/measurement_validation/schedule.py": "FOLD_SCHEDULE",
+    "apps/worker-python/dehps/research_os/information_theory/measurement_validation/statistics.py": "INFERENCE_STATISTICS",
+    "apps/worker-python/dehps/research_os/information_theory/probes/shallow_calibrated_tree.py": "LEARNED_PROBE"
+  },
+  "result_blind": {
+    "historical_outcomes_read": false,
+    "previous_score_read": false,
+    "previous_prediction_read": false,
+    "previous_ranking_read": false,
+    "power_result_read": false,
+    "false_positive_result_read": false,
+    "bias_rmse_coverage_result_read": false,
+    "mde_result_read": false,
+    "threshold_selected_from_results": false
+  },
+  "periodic_refit_temporal_contract": {
+    "policy_digest": "ad58b9abcd90c5e7ee7b9892ac8c209b8033f7a50e603b58c043685b0c7d6f99",
+    "refit_interval_folds": 64,
+    "training_state": "STRICT_PRIOR_THROUGH_T_MINUS_1",
+    "prediction_target": "T",
+    "current_target_available_before_prediction": false,
+    "prediction_checkpoint_written_before_target_read": true,
+    "boundary_refit_uses_current_target": false,
+    "resume_reuses_only_settled_folds": true,
+    "future_fold_state_read": false
+  },
+  "governance": {
+    "reviewed": true,
+    "scientific_contract_changed": true,
+    "change_classification": "MEASUREMENT_CONTRACT_EVOLUTION",
+    "statistical_results_read": false,
+    "evidence_progress_increment": 0,
+    "prediction_v2_promotion_allowed": false,
+    "production_action": "none"
+  }
+}
