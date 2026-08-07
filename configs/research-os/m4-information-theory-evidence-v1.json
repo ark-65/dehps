@@ -1596,6 +1596,78 @@
       "superseded_by_task_digest": null
     },
     {
+      "task_key": "m4-p2-9-p263-runtime-observation-arithmetic-fix",
+      "goal_key": "M4_MEASUREMENT_RUNTIME_AUDIT",
+      "goal_digest": "07004567becd6c68785513d37083a28183e3756791befa9ce585f27b015c5b5d",
+      "task_type": "p263_runtime_observation_arithmetic_fix",
+      "lane": "maintenance",
+      "priority": 41,
+      "requested_capability": "m4_p2_9_p263_runtime_observation_arithmetic_fix",
+      "input_artifact_digests": [
+        "8c97fd5fdc006cba6a4145dbd56acc566b9507e18279d06437d0aa472adb2cd2"
+      ],
+      "dependencies": [
+        {
+          "dependency_type": "external_event",
+          "target_key": "m4-canonical-executor:e804e4eedf3c67ad9d35207367a096f6b830a6ab2ac29cc03501392d8430af32",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "task",
+          "target_key": "m4-p2-9-p263-golden-reference-freeze",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p2-9-p263-golden-reference:VERIFIED",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p2-6-3-compatibility:VERIFIED",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p2-9-runtime-audit-plan:8c97fd5fdc006cba6a4145dbd56acc566b9507e18279d06437d0aa472adb2cd2",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "agent_authority": "engineering",
+        "engineering_increment_percent": 0,
+        "evidence_increment_percent": 0,
+        "historical_outcomes_read": false,
+        "result_payloads_read": false,
+        "phase": "M4-P2.9-P263-RUNTIME-FIX",
+        "mainline_integration": {
+          "goal": "M4_MEASUREMENT_RUNTIME_AUDIT",
+          "ready_condition": "completed compatible P2.6.3 golden replay, compatibility fact, canonical executor, and v1.1.7 arithmetic-fix audit plan are available",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "completed P2.6.3 v1.1.6 golden replay",
+            "P2.6.3 compatibility acceptance",
+            "v1.1.7 runtime observation arithmetic-fix plan"
+          ],
+          "downstream_artifacts": [
+            "BenchmarkPlanArtifact",
+            "RuntimeBenchmarkAttemptArtifact",
+            "RuntimeObservationArtifact",
+            "EquivalenceAttestationArtifact",
+            "SourceIntegrityAttestationArtifact",
+            "MainlineExecutionArtifact"
+          ],
+          "status_projection": "unified_m4_status.measurement_runtime_audit",
+          "downstream_consumer": "runtime bottleneck review after arithmetic-correct runtime observation",
+          "evidence_progress_rule": "always_zero_runtime_observation_is_not_research_evidence",
+          "decision_consumer": "runtime bottleneck review"
+        }
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING",
+      "superseded_by_task_digest": null
+    },
+    {
       "task_key": "m4-p2-9-p263-measurement-runtime-audit",
       "goal_key": "M4_MEASUREMENT_RUNTIME_AUDIT",
       "goal_digest": "07004567becd6c68785513d37083a28183e3756791befa9ce585f27b015c5b5d",
@@ -1663,9 +1735,9 @@
           "decision_consumer": "runtime bottleneck review"
         }
       },
-      "status": "draft",
+      "status": "superseded",
       "completion_classification": "INTEGRATION_PENDING",
-      "superseded_by_task_digest": null
+      "superseded_by_task_digest": "d2c81c1afc0986ff48130d745269c57ba809c69ea29267d9c290f09e4026490f"
     },
     {
       "task_key": "m4-v2-global-routing",
@@ -1868,6 +1940,7 @@
       "m4-p2-6-measurement-validation-manifest:953ae76e2e28523b7d067c2b73dac8bec63ff2417db283fd516fe900e52402f8",
       "m4-p2-9-runtime-audit-plan:e2bfb82be29bedac51be6905e6049b4a10e5c0cde0198995e12279bf969714ca",
       "m4-p2-9-runtime-audit-plan:ccbed31f36ad9486f5489d5827c6456d1853259eaeb1ab7a61077347c7e06056",
+      "m4-p2-9-runtime-audit-plan:8c97fd5fdc006cba6a4145dbd56acc566b9507e18279d06437d0aa472adb2cd2",
       "m4-p2-9-p263-source-compatibility-fixture:1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f",
       "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
       "m4-p2-identifiability-preflight-manifest:5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3",
@@ -1890,5 +1963,5 @@
     "external_events": [],
     "authorities": []
   },
-  "manifest_digest": "07ef938e3df3b301259c34048cd02123025aad2ab9ad7982efec525b919e8acf"
+  "manifest_digest": "cdaa540b6fbd92a9e32cdd27edfe059cdd98c585be46a335b8ba37ccd097ecf2"
 }

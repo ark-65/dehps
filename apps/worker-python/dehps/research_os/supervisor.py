@@ -293,6 +293,9 @@ MARGINAL_BINDING_COMPLETION_FACT = (
 MARGINAL_DECISION_REPLAY_FACT = "m4-v2-branch-decision-replay:MARGINAL_STATIC:VERIFIED"
 M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
 M4_P29_P261_RUNTIME_AUDIT_TASK_KEY = "m4-p2-9-measurement-runtime-audit"
+M4_P29_P263_FAILED_RUNTIME_AUDIT_TASK_KEY = (
+    "m4-p2-9-p263-measurement-runtime-audit"
+)
 M4_P29_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-p263-golden-reference-freeze"
 M4_P29_GOLDEN_REFERENCE_CAPABILITY = "m4_p2_9_p263_golden_reference_freeze"
 M4_P29_GOLDEN_REFERENCE_COMPLETION_FACT = (
@@ -304,9 +307,15 @@ M4_P261_FROZEN_TASK_DIGEST = (
 M4_P263_TASK_DIGEST = (
     "85a08402a4a0c37f75ee1675f4970ef00a7a0b0992b4204251c0c2cc79324de4"
 )
-M4_P29_RUNTIME_AUDIT_TASK_KEY = "m4-p2-9-p263-measurement-runtime-audit"
-M4_P29_RUNTIME_AUDIT_CAPABILITY = "m4_p2_9_p263_measurement_runtime_audit"
-M4_P29_RUNTIME_AUDIT_COMPLETION_FACT = "m4-p2-9-p263-runtime-audit:VERIFIED"
+M4_P29_RUNTIME_AUDIT_TASK_KEY = (
+    "m4-p2-9-p263-runtime-observation-arithmetic-fix"
+)
+M4_P29_RUNTIME_AUDIT_CAPABILITY = (
+    "m4_p2_9_p263_runtime_observation_arithmetic_fix"
+)
+M4_P29_RUNTIME_AUDIT_COMPLETION_FACT = (
+    "m4-p2-9-p263-runtime-audit-arithmetic-fix:VERIFIED"
+)
 M4_P29_ACCELERATION_BOUNDARY_SCOPE = "literal_behavior_path_and_fresh_import_closure"
 P2_UMBRELLA_TASK_KEY = "m4-p2-synthetic-measurement-validation"
 M4_CONTROL_PLANE_KEY = "m4-information-theory-mainline"
@@ -2427,9 +2436,11 @@ def _validate_runtime_observation(
         )
     assert isinstance(wall, (int, float))
     assert isinstance(cpu, (int, float))
+    fit_count = observation.get("fit_count")
+    assert isinstance(fit_count, int) and not isinstance(fit_count, bool)
     if (
         observation.get("folds_per_second") != 61 / wall
-        or observation.get("fits_per_second") != 244 / wall
+        or observation.get("fits_per_second") != fit_count / wall
         or observation.get("resamples_per_second") != 4000 / wall
         or observation.get("process_cpu_utilization_percent") != 100.0 * cpu / wall
     ):

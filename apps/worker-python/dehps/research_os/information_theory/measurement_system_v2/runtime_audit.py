@@ -29,11 +29,17 @@ from dehps.research_os.information_theory.measurement_validation.source_integrit
 P261_RUNTIME_AUDIT_PLAN_PATH = Path(
     "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.5.json"
 )
-RUNTIME_AUDIT_PLAN_PATH = Path(
+P263_INITIAL_RUNTIME_AUDIT_PLAN_PATH = Path(
     "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.6.json"
+)
+RUNTIME_AUDIT_PLAN_PATH = Path(
+    "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.7.json"
 )
 P261_RUNTIME_AUDIT_PLAN_DIGEST = (
     "e2bfb82be29bedac51be6905e6049b4a10e5c0cde0198995e12279bf969714ca"
+)
+P263_INITIAL_RUNTIME_AUDIT_PLAN_DIGEST = (
+    "ccbed31f36ad9486f5489d5827c6456d1853259eaeb1ab7a61077347c7e06056"
 )
 UNAVAILABLE = "UNAVAILABLE"
 _DIGEST_PATTERN = re.compile(r"[0-9a-f]{64}")
@@ -263,11 +269,19 @@ def load_runtime_audit_plan(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise RuntimeAuditError("runtime_audit_plan_invalid: root must be an object")
     version = str(payload.get("semantic_version") or "")
-    is_p263 = version == "1.1.6"
+    is_p263 = version in {"1.1.6", "1.1.7"}
     expected_fields = _P263_PLAN_FIELDS if is_p263 else _PLAN_FIELDS
-    expected_digest = None if is_p263 else P261_RUNTIME_AUDIT_PLAN_DIGEST
+    expected_digest = {
+        "1.1.5": P261_RUNTIME_AUDIT_PLAN_DIGEST,
+        "1.1.6": P263_INITIAL_RUNTIME_AUDIT_PLAN_DIGEST,
+    }.get(version)
+    expected_superseded_digest = {
+        "1.1.5": "4d0669386fc32b27b5345995bdaf5e902aaa63109e73472804fd6b6ba06fcf15",
+        "1.1.6": P261_RUNTIME_AUDIT_PLAN_DIGEST,
+        "1.1.7": P263_INITIAL_RUNTIME_AUDIT_PLAN_DIGEST,
+    }.get(version)
     if (
-        version not in {"1.1.5", "1.1.6"}
+        version not in {"1.1.5", "1.1.6", "1.1.7"}
         or set(payload) != expected_fields
         or payload.get("schema_version")
         != "dehps-m4-p2-9-measurement-runtime-audit-plan.v1"
@@ -279,11 +293,7 @@ def load_runtime_audit_plan(path: Path) -> dict[str, Any]:
         or payload.get("evidence_progress_increment") != 0
         or payload.get("promotion_gate_opened") is not False
         or payload.get("supersedes_artifact_digest")
-        != (
-            P261_RUNTIME_AUDIT_PLAN_DIGEST
-            if is_p263
-            else "4d0669386fc32b27b5345995bdaf5e902aaa63109e73472804fd6b6ba06fcf15"
-        )
+        != expected_superseded_digest
         or payload.get("source_measurement_manifest_digest")
         != "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58"
     ):
