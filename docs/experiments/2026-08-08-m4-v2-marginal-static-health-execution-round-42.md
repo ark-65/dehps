@@ -30,6 +30,14 @@ Engineering Request:
 `engineering-m4-v2-marginal-static-health-execution-round-42-20260808`
 (request 326, execution 247).
 
+Identity-recovery Engineering Request:
+`engineering-m4-v2-health-execution-identity-recovery-round-42-20260808`
+(request 328, execution 249).
+
+Merged-code Operator Request:
+`operator-m4-v2-health-execution-identity-recovery-round-42-20260808`
+(request 329, execution 250).
+
 The source contract is
 `M4_V2_MARGINAL_STATIC_HEALTH_EXECUTION_SOURCE`, digest
 `5fbeb6ab0533478ac097747ab73fb0188561849505a76cf7a63a3a02061b2354`.
@@ -117,8 +125,47 @@ Checkpoint creation, index fsync, aggregation, and supervisor/database commit
 add overhead. The operational estimate for the full local run is therefore
 approximately 2–10 minutes under normal availability, not weeks. Even allowing
 large thermal or filesystem variance, the projection is far below the two-week
-limit. The live progress artifact will replace this estimate once formal work
-starts.
+limit.
+
+## Live merged-code execution
+
+The exact recovery and corrected-definition migration changed one task and
+deleted no Goal, task, fact, event, state, checkpoint, or registered artifact.
+The formal run then completed on the current host at merged commit
+`2a947f2778e958891831d130db54c59a230518bf`:
+
+| Live field | Result |
+|---|---:|
+| Workers | 22 |
+| Completed replicates | 7,168 / 7,168 |
+| Completed logical shards | 112 / 112 |
+| Generated synthetic issues | 15,920,128 |
+| Outer evaluation issues | 9,468,928 |
+| Wall time | 22.568348 s |
+| Mean throughput | 317.612934 replicates/s |
+| Database reads during a replicate | 0 |
+| Database writes during a replicate | 0 |
+| CSV materialized | false |
+| Duplicate raw replay | false |
+
+Execution identity:
+
+- corrected task digest:
+  `92b38644e97517394be856d7753de1adf7b21d00b0be707a4bbcc02cde03bc7e`;
+- execution:
+  `cd93e7d08535cbfe0046923d2b3eb90acff367897c4122805fe25cf7fa86baa1`;
+- execution artifact:
+  `89cb006231ae0956e70cee67050f0be090eb87c2441b4100d8c86a6cf646233b`;
+- completion index:
+  `46bb659217da81a4ec668f46848de368ca6eb43ffdf6baf67b1ad14531f3c2a9`;
+- health result:
+  `40b449a7abe4ac9fff6eb0e98212f5809e0f0ff76c93f1344b673b4716905e2d`;
+- execution completion:
+  `e77c35c68b6043875c54c1bb06d2c64a70730c026950fe7c813efcfe54d5f8d3`.
+
+The health-result artifact reports `REPAIR`. This report records that immutable
+output; it does not make or override the separate Research decision. The
+health-decision task is Ready and was intentionally not executed in this round.
 
 ## Validation
 
@@ -127,13 +174,13 @@ starts.
 - Artifact-index replay test: passed after registering the new manifest and
   source contract identities.
 - Ruff and Python byte compilation: passed.
-- Worker full suite at the activated production-v2 runtime boundary:
-  2,077 passed, 4 skipped, 43 failed before the artifact-index correction.
-  One failure was the newly superseded manifest identity and was corrected and
-  revalidated. The remaining 42 failures are existing legacy-line tests whose
-  code intentionally fails closed because the local durable prediction-v2
-  retirement activation is ACTIVE; the same failure reproduces at the prior
-  merged runtime commit and is outside this round.
+- PR 278 merged as `0473cf41c60a2beb909f2ab814c590d5ac2b462f` after its required
+  Worker CI passed.
+- Identity recovery focused validation: 63 passed; targeted hosted-CI
+  diagnostic: 93 passed.
+- PR 279 merged as `2a947f2778e958891831d130db54c59a230518bf`.
+- The exact PR-279 merge commit passed main push Worker CI run `31221946354`:
+  2,123 passed, 6 skipped.
 
 ## First-release incident and exact recovery
 
@@ -166,8 +213,20 @@ task/event deletion, event rewrite, or completed-task regression.
 This does not remove the unique source-provenance check. It removes no safety
 boundary and adds no second result-validation pass: duplicate raw replay,
 database/CSV scanning, and routine physical checkpoint scanning remain off.
-The original failed execution stays immutable and a separately approved
-Operator recovery is still required before formal work can resume.
+The original failed execution stays immutable.
+
+Operator Request 329 first imported the exact recovery manifest
+`dd5a1be3f4cf3f508a95a54d1d84546c4b4085fde69a6a6d4cca79bac06b3b48`,
+then revised only the recovered task to the corrected registered parents. The
+corrected pre-execution manifest was
+`ac356c789166c57069c452f4f05e826c8e69bd53e0b68ad197fa74ac1dbb72f1`.
+No failed event was removed or rewritten.
+
+Deterministic replay did not rerun the sampled program. It loaded the compact
+index, rebuilt the aggregate/index/result/completion artifacts, and recomputed
+exactly one frozen sentinel of 961 issues. All four registered artifacts and
+the execution identity matched. Replay status is `REPLAY_VERIFIED` with
+`sentinel_replicates_recomputed = 1` and `duplicate_raw_replay = false`.
 
 ## Mainline integration matrix
 
@@ -177,23 +236,45 @@ Operator recovery is still required before formal work can resume.
 | Ready condition | Round-41 replay-verified design plus approved execution source |
 | Runner | `research_evidence_supervisor` |
 | Upstream artifacts | source, design execution, workload, inference, design completion |
-| Ready Queue | capability registered; source manifest migration prepared |
-| Supervisor | execution, progress, artifact registration, completion event implemented |
-| Capability | 14 cells, 7,168 replicates, 112 logical shards, 22-worker local default |
+| Ready Queue | corrected execution task resolved Ready, dispatched once, and completed; health decision is now Ready |
+| Supervisor | merged commit `2a947f2`; execution, progress, registration, completion, and replay succeeded |
+| Capability | all 14 cells, 7,168 replicates, 112 logical shards, and 15,920,128 generated issues completed locally |
 | Checkpoint recovery | one compact index load; completed digests skipped directly |
-| Downstream artifacts | completion index, health result, execution completion, mainline execution |
-| Status projection | design, execution, live count/rate/ETA, next consumer |
+| Downstream artifacts | four immutable registrations: completion index, health result, execution completion, mainline execution |
+| Status projection | `MARGINAL_STATIC_HEALTH_EXECUTION_VALIDATED_IN_MAINLINE`; next phase `MARGINAL_STATIC_HEALTH_DECISION` |
 | Evidence rule | synthetic health evidence only after complete registered replay |
-| Decision consumer | separate `m4-v2-marginal-static-measurement-health-decision` task |
+| Decision consumer | separate `m4-v2-marginal-static-measurement-health-decision` task, resolver status Ready, not executed |
 | Next consumer | health decision; historical execution remains unauthorized |
-| Deterministic replay | compact aggregate reconstruction plus one raw sentinel |
-| Formal mainline execution | pending merged-code Operator Request |
+| Deterministic replay | verified compact aggregate reconstruction plus one 961-issue sentinel; no full raw replay |
+| Formal mainline execution | COMPLETE at execution `cd93e7d0...` |
+
+## Canonical mainline state after execution
+
+- Overall M4 progress remains 43% Engineering and 25% Evidence. This synthetic
+  health execution completed an integration capability; it did not create
+  historical Evidence or open the promotion gate.
+- The former three adaptive prediction lines are retired/frozen, not physically
+  deleted. `old_training_mainline = FROZEN`, the previous adaptive Goal lifecycle
+  is `RETIRED`, and its research status is `REJECTED`.
+- P2.6.1 is not completely finished: it remains
+  `FROZEN_INCOMPLETE` with the legacy measurement outcome `REPAIR`.
+- P2.6.3 is `SUPERSEDING_COMPLETE` and supplies the superseding measurement
+  implementation boundary.
+- Prediction v2 is the activated canonical scheduling/model path. Its reference,
+  reference replay, scheduler cutover, and per-issue pre/post draw plus replay
+  tasks through issue 2026089 are complete. This Round-42 M4 research output did
+  not promote or otherwise modify Prediction v2.
+- The promotion gate remains closed and production action remains `none`.
+- The Research Evidence Supervisor was stopped after replay at the explicit
+  health-decision boundary, so no unsupported decision task was dispatched.
 
 ## Completion answer
 
-`NO — INTEGRATION_PENDING`.
+`YES — validated by unified mainline execution and replay` for the Round-42
+health-execution capability.
 
-The code path and source migration are complete, but capability completion
-requires the merged supervisor to run all cells, register the immutable
-artifacts, emit the completion fact, feed the separate decision consumer, and
-pass deterministic replay. A PR or unit test alone is not that proof.
+The merged supervisor ran every frozen cell, registered the immutable artifacts,
+emitted the completion fact, projected status, unlocked the named downstream
+consumer, and passed bounded deterministic replay. The broader M4 research Goal
+is not complete: the health-decision consumer is Ready but remains a separate,
+unexecuted Research/Engineering/Operator round.
