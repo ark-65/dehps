@@ -27,8 +27,13 @@ M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
 M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = "m4-v2-p2-6-1-marginal-decision-replay"
 M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
 M4_P29_P261_RUNTIME_AUDIT_TASK_KEY = "m4-p2-9-measurement-runtime-audit"
+M4_P29_P263_FAILED_RUNTIME_AUDIT_TASK_KEY = (
+    "m4-p2-9-p263-measurement-runtime-audit"
+)
 M4_P29_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-p263-golden-reference-freeze"
-M4_P29_RUNTIME_AUDIT_TASK_KEY = "m4-p2-9-p263-measurement-runtime-audit"
+M4_P29_RUNTIME_AUDIT_TASK_KEY = (
+    "m4-p2-9-p263-runtime-observation-arithmetic-fix"
+)
 M4_P263_TASK_DIGEST = (
     "85a08402a4a0c37f75ee1675f4970ef00a7a0b0992b4204251c0c2cc79324de4"
 )
@@ -237,6 +242,9 @@ def build_m4_status(
     )
     p261_runtime_audit_resolution = resolutions.get(
         M4_P29_P261_RUNTIME_AUDIT_TASK_KEY
+    )
+    p263_failed_runtime_audit_resolution = resolutions.get(
+        M4_P29_P263_FAILED_RUNTIME_AUDIT_TASK_KEY
     )
     canonical_executor_available = (
         M4_P29_CANONICAL_EXECUTOR_EVENT in manifest.facts.external_events
@@ -1075,6 +1083,14 @@ def build_m4_status(
                     None
                     if p261_runtime_audit_resolution is None
                     else p261_runtime_audit_resolution.status.value
+                ),
+                "p2_6_3_failed_runtime_audit_task_key": (
+                    M4_P29_P263_FAILED_RUNTIME_AUDIT_TASK_KEY
+                ),
+                "p2_6_3_failed_runtime_audit_resolver_status": (
+                    None
+                    if p263_failed_runtime_audit_resolution is None
+                    else p263_failed_runtime_audit_resolution.status.value
                 ),
                 "p2_6_3_task_digest": M4_P263_TASK_DIGEST,
                 "measurement_update_policy_digest": M4_P263_POLICY_DIGEST,

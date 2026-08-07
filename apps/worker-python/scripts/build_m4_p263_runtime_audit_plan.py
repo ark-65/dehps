@@ -16,7 +16,6 @@ from dehps.research_os.information_theory.measurement_validation import (
 from dehps.research_os.information_theory.measurement_validation.source_integrity import (
     APPROVED_ACCELERATION_SOURCE_PATHS,
     AUDIT_ORCHESTRATION_SOURCE_PATHS,
-    BASELINE_GIT_COMMIT,
     INDEPENDENT_ORACLE_SOURCE_PATHS,
     SHARED_FROZEN_SOURCE_PATHS,
     content_sha256,
@@ -28,7 +27,7 @@ from dehps.research_os.information_theory.measurement_validation.source_integrit
 ROOT = Path(__file__).resolve().parents[3]
 OLD_PLAN_PATH = (
     ROOT
-    / "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.5.json"
+    / "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.6.json"
 )
 NEW_PLAN_PATH = ROOT / runtime_audit_module.RUNTIME_AUDIT_PLAN_PATH
 FIXTURE_PATH = (
@@ -113,7 +112,7 @@ def build() -> tuple[dict[str, Any], dict[str, Any]]:
 
     new_plan = copy.deepcopy(old_plan)
     new_plan["artifact_digest"] = ""
-    new_plan["semantic_version"] = "1.1.6"
+    new_plan["semantic_version"] = "1.1.7"
     new_plan["supersedes_artifact_digest"] = old_plan["artifact_digest"]
     new_plan["execution_policy"] = copy.deepcopy(
         runtime_audit_module._P263_EXECUTION_POLICY
@@ -136,38 +135,17 @@ def build() -> tuple[dict[str, Any], dict[str, Any]]:
         raise RuntimeError(
             "P2.6.3 reviewed shared sources changed after the compatibility commit"
         )
-    fixture: dict[str, Any] = {
-        "schema_version": (
-            compatibility_module.P263_REVIEWED_SOURCE_COMPATIBILITY_SCHEMA
-        ),
-        "artifact_type": (
-            compatibility_module.P263_REVIEWED_SOURCE_COMPATIBILITY_TYPE
-        ),
-        "artifact_digest": "",
-        "fixture_key": "M4-P2.6.3_PERIODIC_REFIT_SUPERSEDING_SOURCE",
-        "status": "REVIEWED_RESULT_BLIND_COMPATIBILITY",
-        "baseline_git_commit": BASELINE_GIT_COMMIT,
-        "candidate_git_commit": CANDIDATE_COMMIT,
-        "changed_paths": list(fixture_paths),
-        "baseline_source_entries": _commit_entries(
-            BASELINE_GIT_COMMIT,
-            fixture_paths,
-        ),
-        "candidate_source_entries": candidate_entries,
-        "registered_golden_source_integrity_identity": (
-            golden_source_integrity_identity(old_plan)
-        ),
-        "candidate_golden_source_integrity_identity": (
-            golden_source_integrity_identity(new_plan)
-        ),
-        "source_roles": copy.deepcopy(compatibility_module._P263_SOURCE_ROLES),
-        "result_blind": copy.deepcopy(compatibility_module._P263_RESULT_BLIND),
-        "periodic_refit_temporal_contract": copy.deepcopy(
-            compatibility_module._P263_TEMPORAL_CONTRACT
-        ),
-        "governance": copy.deepcopy(compatibility_module._P263_GOVERNANCE),
-    }
-    fixture["artifact_digest"] = config_digest(fixture)
+    fixture = compatibility_module.load_p263_reviewed_source_compatibility_fixture(
+        FIXTURE_PATH
+    )
+    if (
+        fixture["candidate_source_entries"] != candidate_entries
+        or fixture["candidate_golden_source_integrity_identity"]
+        != golden_source_integrity_identity(new_plan)
+    ):
+        raise RuntimeError(
+            "P2.6.3 reviewed shared compatibility identity changed"
+        )
     source["reviewed_shared_compatibility_fixture_digest"] = fixture[
         "artifact_digest"
     ]

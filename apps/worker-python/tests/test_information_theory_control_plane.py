@@ -88,6 +88,12 @@ def test_m4_p2_ready_queue_does_not_unblock_formal_run() -> None:
     )
     assert (
         _by_task(snapshot)["m4-p2-9-p263-measurement-runtime-audit"].status
+        is TaskStatus.SUPERSEDED
+    )
+    assert (
+        _by_task(snapshot)[
+            "m4-p2-9-p263-runtime-observation-arithmetic-fix"
+        ].status
         is TaskStatus.EXTERNAL_WAIT
     )
     assert (

@@ -44,6 +44,7 @@ from dehps.research_os.information_theory.measurement_system_v2.replay import (
 )
 from dehps.research_os.information_theory.measurement_system_v2.runtime_audit import (
     P261_RUNTIME_AUDIT_PLAN_PATH,
+    P263_INITIAL_RUNTIME_AUDIT_PLAN_PATH,
     RUNTIME_AUDIT_PLAN_PATH,
     UNAVAILABLE,
     AuditedEvaluator,
@@ -195,12 +196,15 @@ def test_p263_source_compatibility_fixture_binds_current_plan() -> None:
 
 
 def test_p263_runtime_plan_is_result_blind_and_strict_prior(tmp_path: Path) -> None:
+    initial = load_runtime_audit_plan(ROOT / P263_INITIAL_RUNTIME_AUDIT_PLAN_PATH)
     plan = load_runtime_audit_plan(AUDIT_PATH)
 
-    assert plan["semantic_version"] == "1.1.6"
-    assert plan["supersedes_artifact_digest"] == (
-        "e2bfb82be29bedac51be6905e6049b4a10e5c0cde0198995e12279bf969714ca"
+    assert initial["semantic_version"] == "1.1.6"
+    assert initial["artifact_digest"] == (
+        "ccbed31f36ad9486f5489d5827c6456d1853259eaeb1ab7a61077347c7e06056"
     )
+    assert plan["semantic_version"] == "1.1.7"
+    assert plan["supersedes_artifact_digest"] == initial["artifact_digest"]
     assert plan["result_blind_contract"] == {
         "allowed_inputs": [
             "source_identity",
@@ -1429,6 +1433,7 @@ def test_additive_manifest_migration_preserves_live_truth() -> None:
         "m4-p2-9-measurement-runtime-audit",
         "m4-p2-9-p263-golden-reference-freeze",
         "m4-p2-9-p263-measurement-runtime-audit",
+        "m4-p2-9-p263-runtime-observation-arithmetic-fix",
         "m4-v2-global-routing",
     }
     live = copy.deepcopy(source)
@@ -1636,6 +1641,68 @@ def test_runtime_observer_stop_freezes_metrics_and_fails_closed(
         observer.stop()
 
 
+def test_p263_runtime_observation_fit_rate_uses_observed_fit_count() -> None:
+    plan = load_runtime_audit_plan(AUDIT_PATH)
+    observer = RuntimeAuditObserver(enabled=True)
+    for phase, invocation_count in (
+        supervisor_module._RUNTIME_AUDIT_PHASE_INVOCATIONS.items()
+    ):
+        for _ in range(invocation_count):
+            with observer.phase(phase):
+                pass
+    observer.count_fold(61)
+    observer.count_fit(64)
+    observer.count_resample(4000)
+    observer.stop()
+    fingerprint_digest = (
+        plan["oracle_contract"]["canonical_executor_fingerprint"][
+            "required_fingerprint_digest"
+        ]
+    )
+    observation = observer.observation(
+        plan_digest=plan["artifact_digest"],
+        execution_id="2" * 64,
+        git_commit="3" * 40,
+        executor_fingerprint_digest_before=fingerprint_digest,
+        executor_fingerprint_digest_after=fingerprint_digest,
+        benchmark_attempt_id="5" * 64,
+        measured_result_float64_tree_digest="6" * 64,
+        measured_checkpoint_journal_sha256="7" * 64,
+    )
+    supervisor_module._validate_runtime_observation(
+        observation,
+        benchmark_plan=plan,
+        execution_id="2" * 64,
+        git_commit="3" * 40,
+        executor_fingerprint_digest=fingerprint_digest,
+        benchmark_attempt_id="5" * 64,
+        measured_result_float64_tree_digest="6" * 64,
+        measured_checkpoint_journal_sha256="7" * 64,
+    )
+
+    changed = dict(observation)
+    changed["fits_per_second"] = 244 / changed["wall_time_seconds"]
+    changed["artifact_digest"] = ""
+    changed["artifact_digest"] = canonical_digest(
+        {key: value for key, value in changed.items() if key != "artifact_digest"},
+        domain="dehps.m4.p2-9.runtime-observation.v1",
+    )
+    with pytest.raises(
+        MainlineSupervisorError,
+        match="runtime audit observation arithmetic changed",
+    ):
+        supervisor_module._validate_runtime_observation(
+            changed,
+            benchmark_plan=plan,
+            execution_id="2" * 64,
+            git_commit="3" * 40,
+            executor_fingerprint_digest=fingerprint_digest,
+            benchmark_attempt_id="5" * 64,
+            measured_result_float64_tree_digest="6" * 64,
+            measured_checkpoint_journal_sha256="7" * 64,
+        )
+
+
 def test_runtime_correctness_replay_is_outside_measured_trace_capture() -> None:
     measured = PythonReferenceEvaluation(
         result_payload={"status": "COMPLETE", "actual_outer_fold_count": 61},
@@ -1704,7 +1771,7 @@ def test_runtime_commit_marker_recovers_registrations_without_rerun(
     task = next(
         item
         for item in manifest.tasks
-        if item.task_key == "m4-p2-9-p263-measurement-runtime-audit"
+        if item.task_key == "m4-p2-9-p263-runtime-observation-arithmetic-fix"
     )
     execution_id = "e" * 64
     git_commit = "d" * 40
@@ -1805,7 +1872,9 @@ def test_runtime_commit_marker_recovers_registrations_without_rerun(
         "runtime_executor_fingerprint_digest_before": "f" * 64,
         "runtime_executor_fingerprint_digest_after": "f" * 64,
         "equivalence_attestation_artifact_digest": equivalence["artifact_digest"],
-        "completion_fact": "m4-p2-9-p263-runtime-audit:VERIFIED",
+        "completion_fact": (
+            "m4-p2-9-p263-runtime-audit-arithmetic-fix:VERIFIED"
+        ),
         "actual_fold_count": 61,
         "audited_fold_count": 61,
         "correctness_replay_fold_count": 61,
@@ -1984,7 +2053,11 @@ def test_manifest_wires_replay_before_preflight_and_disconnects_legacy_p3() -> N
         "m4-p2-9-p263-golden-reference-freeze"
     ].artifact_digest
     golden = tasks["m4-p2-9-p263-golden-reference-freeze"]
-    runtime = tasks["m4-p2-9-p263-measurement-runtime-audit"]
+    failed_runtime = tasks["m4-p2-9-p263-measurement-runtime-audit"]
+    runtime = tasks["m4-p2-9-p263-runtime-observation-arithmetic-fix"]
+    assert manifest.task_state_by_digest[
+        failed_runtime.artifact_digest
+    ].declared_status is TaskStatus.SUPERSEDED
     assert golden.goal_key == runtime.goal_key == "M4_MEASUREMENT_RUNTIME_AUDIT"
     assert golden.lane.value == "maintenance"
     assert runtime.lane.value == "maintenance"
@@ -2044,7 +2117,7 @@ def test_p263_compatibility_and_executor_unlock_golden_then_runtime() -> None:
     )
     ready_keys = [item.task_key for item in with_executor_snapshot.ready_queue]
     assert "m4-p2-9-p263-golden-reference-freeze" in ready_keys
-    assert "m4-p2-9-p263-measurement-runtime-audit" not in ready_keys
+    assert "m4-p2-9-p263-runtime-observation-arithmetic-fix" not in ready_keys
 
     golden_task = next(
         task
@@ -2070,7 +2143,9 @@ def test_p263_compatibility_and_executor_unlock_golden_then_runtime() -> None:
     after_golden_resolutions = {
         item.task_key: item for item in after_golden_snapshot.resolutions
     }
-    audit = after_golden_resolutions["m4-p2-9-p263-measurement-runtime-audit"]
+    audit = after_golden_resolutions[
+        "m4-p2-9-p263-runtime-observation-arithmetic-fix"
+    ]
     assert audit.status is TaskStatus.READY
     assert not audit.unsatisfied_dependencies
 
@@ -2087,6 +2162,12 @@ def test_golden_reference_status_projects_only_completed_execution_identity() ->
         "e804e4eedf3c67ad9d35207367a096f6b830a6ab2ac29cc03501392d8430af32"
     )
     assert audit_status["canonical_executor_available"] is False
+    assert audit_status["supersession"][
+        "p2_6_3_failed_runtime_audit_resolver_status"
+    ] == "superseded"
+    assert audit_status["task_key"] == (
+        "m4-p2-9-p263-runtime-observation-arithmetic-fix"
+    )
     assert audit_status["execution_status"] == "NOT_RUN"
     assert audit_status["evidence_progress_increment"] == 0
     assert audit_status["historical_outcomes_read"] is None
