@@ -1,0 +1,159 @@
+{
+  "schema_version": "dehps-m4-v2-marginal-static-health-design-source.v1",
+  "artifact_type": "m4_v2_marginal_static_health_design_source",
+  "artifact_digest": "2621e16efa8cf888f06e841c7a89cc72e50bc291ef08e0eaa82458196616047d",
+  "contract_key": "M4_V2_MARGINAL_STATIC_HEALTH_DESIGN_SOURCE",
+  "research_request_key": "research-m4-v2-marginal-static-health-design-round-41-20260808",
+  "research_request_id": 318,
+  "research_execution_id": 239,
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/marginal_static_health_design.py",
+      "content_sha256": "3719b025d7d43c12dcf4d821dd6e9367aa47fc7538ec3015b9819e6d5db892a1"
+    }
+  ],
+  "source_set_digest": "09ca4073d4d26dc876650b629275a682cc85349a7bc75d4828de02d92efa993e",
+  "frozen_contract": {
+    "scientific_question": "Does the frozen MARGINAL_STATIC instrument behave as a calibrated measurement system across forward-like and historical-like sequence lengths, without result-selected thresholds or legacy workload reuse?",
+    "null_hypothesis": "The instrument cannot simultaneously satisfy the frozen positive direction, negative-control false-positive, bias, coverage, power, and MDE-completeness checks.",
+    "workload": {
+      "minimum_training_issues": 900,
+      "scales": [
+        {
+          "scale_id": "FORWARD_61",
+          "evaluation_issues": 61,
+          "sequence_issues": 961
+        },
+        {
+          "scale_id": "HISTORICAL_2581",
+          "evaluation_issues": 2581,
+          "sequence_issues": 3481
+        }
+      ],
+      "frozen_fixture_ids": [
+        "V2_M1_GROUP_ODDS_2_STATIONARY",
+        "NULL_UNIFORM_LEGAL_SIX_OF_33",
+        "V2_T1_OVERLAP_ODDS_2_MARKOV",
+        "V2_J1_HISTORY_IS4_LAMBDA_HALF"
+      ],
+      "local_marginal_power_targets_bits_per_issue": [
+        0.001,
+        0.01,
+        0.05
+      ],
+      "local_alternative_family": "the frozen M1 group-16/group-17 legal exponential family",
+      "local_alternative_calibration": [
+        {
+          "target_bits_per_issue": 0.001,
+          "group_a_to_b_odds": 1.0331367284982704,
+          "deterministic_bisection_tolerance_bits": 1e-12
+        },
+        {
+          "target_bits_per_issue": 0.01,
+          "group_a_to_b_odds": 1.1085745296098741,
+          "deterministic_bisection_tolerance_bits": 1e-12
+        },
+        {
+          "target_bits_per_issue": 0.05,
+          "group_a_to_b_odds": 1.2594098354832832,
+          "deterministic_bisection_tolerance_bits": 1e-12
+        }
+      ],
+      "replicates_per_fixture_scale_cell": 512,
+      "replicates_per_local_alternative_scale_cell": 512,
+      "base_fixture_replicates": 4096,
+      "local_alternative_replicates": 3072,
+      "total_replicates": 7168,
+      "total_generated_issues_if_executed": 15920128,
+      "total_outer_evaluation_issues_if_executed": 9468928,
+      "execution_shard_size": 64,
+      "execution_shards": 112,
+      "comparison_to_legacy_p2_6_1": {
+        "legacy_replicates": 31000,
+        "replicate_fraction": 0.2312258064516129,
+        "legacy_outer_issue_predictions": 64656000,
+        "outer_issue_fraction": 0.1464536005932931,
+        "legacy_probe_fits_reused": false,
+        "legacy_results_reused": false
+      }
+    },
+    "seed_contract": {
+      "root_domain": "M4_V2_MARGINAL_STATIC_HEALTH_V1",
+      "replicate_child_identity": "canonical digest of source-contract digest, fixture-or-local-target identity, scale id, and zero-based replicate index",
+      "bootstrap_child_domain": "M4_V2_MARGINAL_STATIC_HEALTH_BOOTSTRAP_V1",
+      "worker_or_shard_identity_in_seed": false,
+      "wall_clock_seed": false,
+      "retry_reuses_child_seed": true,
+      "resume_reuses_child_seed": true,
+      "shard_change_preserves_child_seed": true,
+      "best_seed_selection": "forbidden"
+    },
+    "inference": {
+      "endpoint": "mean per-issue candidate-minus-uniform number-event log-score gain in bits",
+      "truth_target": "per-issue exact conditional expected endpoint from the frozen generator and the pre-target estimator state; never copied from an observed result",
+      "confidence_level": 0.95,
+      "method": "centered circular moving-block bootstrap basic interval",
+      "bootstrap_replicates": 511,
+      "primary_block_size": 5,
+      "sensitivity_block_sizes": [
+        3,
+        8,
+        13
+      ],
+      "quantile_method": "Hyndman-Fan type 7",
+      "silent_fallback": "forbidden",
+      "detection_alpha": 0.05,
+      "detection_tail": "upper versus zero",
+      "cell_aggregation": "forbidden",
+      "mde": "smallest tested nonnegative local target with empirical power at least 0.80; report greater-than-0.05 when none pass; interpolation forbidden"
+    },
+    "acceptance": {
+      "legal_probability_and_draw_checks": "all pass",
+      "deterministic_estimator_replay": "exact digest equality on the frozen replay sentinel",
+      "positive_control_direction": "odds-2 M1 detection power at least 0.95 in each scale",
+      "negative_control_false_positive_rate_max": 0.075,
+      "negative_control_wilson_upper_95_max": 0.09,
+      "wilson_z": 1.959963984540054,
+      "absolute_score_bias_max_bits_per_issue": 0.0025,
+      "coverage_rate_interval": [
+        0.925,
+        0.975
+      ],
+      "practical_0_01_power_min": 0.8,
+      "strong_0_05_power_min": 0.95,
+      "mde_grid_complete_required": true,
+      "manual_or_partial_cell_override": "forbidden",
+      "any_missing_failed_duplicate_or_nonfinite_cell": "fail_closed"
+    },
+    "runtime_boundary": {
+      "database_reads_during_replicate": 0,
+      "database_writes_during_replicate": 0,
+      "csv_materialization": "forbidden",
+      "raw_draw_retention": "forbidden after sufficient-statistic and score update",
+      "checkpoint_write": "one immutable compact summary per completed replicate plus one append-only completion index entry",
+      "resume": "load the compact completion index once and skip matching completed replicate digests directly",
+      "duplicate_raw_replay": "forbidden",
+      "routine_physical_checkpoint_scan": "forbidden",
+      "worker_count": "runtime-selected from available local CPU; output identities are worker-count independent",
+      "single_host_only": true
+    },
+    "failure_condition": "Any incomplete or drifted fixture, scale, target, seed, interval, gate, shard, completion identity, or no-history boundary fails closed and does not authorize health execution.",
+    "generated_issues": 0,
+    "synthetic_replicates": 0,
+    "historical_outcomes_read": false,
+    "statistical_results_read": false,
+    "evidence_created": false,
+    "completion_fact": "m4-v2-marginal-static-measurement-health-design:FROZEN",
+    "next_consumer": "m4-v2-marginal-static-measurement-health-execution"
+  },
+  "result_blind": true,
+  "generated_issues": 0,
+  "synthetic_replicates": 0,
+  "formal_branch_execution_allowed": false,
+  "historical_outcomes_read": false,
+  "statistical_results_read": false,
+  "evidence_created": false,
+  "evidence_progress_increment": 0,
+  "promotion_gate_opened": false,
+  "production_action": "none"
+}

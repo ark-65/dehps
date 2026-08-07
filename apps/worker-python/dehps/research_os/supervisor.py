@@ -165,10 +165,19 @@ from dehps.research_os.information_theory.measurement_system_v2.marginal_static_
     MARGINAL_STATIC_FIXTURE_FREEZE_COMPLETION_FACT,
     MARGINAL_STATIC_FIXTURE_FREEZE_TASK_KEY,
     MARGINAL_STATIC_FIXTURE_SOURCE_CONTRACT_PATH,
-    MARGINAL_STATIC_HEALTH_DESIGN_TASK_KEY,
     build_marginal_static_fixture_artifacts,
     load_marginal_static_fixture_source_contract,
     verify_marginal_static_fixture_source_bytes,
+)
+from dehps.research_os.information_theory.measurement_system_v2.marginal_static_health_design import (
+    MARGINAL_STATIC_HEALTH_DESIGN_CAPABILITY,
+    MARGINAL_STATIC_HEALTH_DESIGN_COMPLETION_FACT,
+    MARGINAL_STATIC_HEALTH_DESIGN_SOURCE_CONTRACT_PATH,
+    MARGINAL_STATIC_HEALTH_DESIGN_TASK_KEY,
+    MARGINAL_STATIC_HEALTH_EXECUTION_TASK_KEY,
+    build_marginal_static_health_design_artifacts,
+    load_marginal_static_health_design_source_contract,
+    verify_marginal_static_health_design_source_bytes,
 )
 from dehps.research_os.information_theory.measurement_system_v2.preflight_design import (
     PREFLIGHT_DESIGN_CAPABILITY,
@@ -5177,6 +5186,253 @@ class M4MarginalStaticFixtureFreezeCapability:
         )
 
 
+class M4MarginalStaticHealthDesignCapability:
+    def __init__(
+        self,
+        *,
+        repository: PostgresResearchOSRepository,
+        root_dir: Path = ROOT_DIR,
+    ) -> None:
+        self.repository = repository
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key != MARGINAL_STATIC_HEALTH_DESIGN_TASK_KEY
+            or task.requested_capability != MARGINAL_STATIC_HEALTH_DESIGN_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static health design received the wrong task"
+            )
+        source_contract = load_marginal_static_health_design_source_contract(
+            self.root_dir / MARGINAL_STATIC_HEALTH_DESIGN_SOURCE_CONTRACT_PATH
+        )
+        verify_marginal_static_health_design_source_bytes(
+            root_dir=self.root_dir,
+            contract=source_contract,
+        )
+        _, fixture_execution, fixture_registrations = _load_single_completed_execution(
+            repository=self.repository,
+            root_dir=self.root_dir,
+            control_plane_key=control_plane_key,
+            task_key=MARGINAL_STATIC_FIXTURE_FREEZE_TASK_KEY,
+        )
+        fixture_contracts = _load_registered_type_group(
+            root_dir=self.root_dir,
+            registrations=fixture_registrations,
+            artifact_type="m4_v2_marginal_static_fixture",
+        )
+        fixture_bundle = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=fixture_registrations,
+            artifact_type="m4_v2_marginal_static_fixture_bundle",
+        )
+        fixture_completion = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=fixture_registrations,
+            artifact_type="m4_v2_marginal_static_fixture_freeze_completion",
+        )
+        expected_inputs = (
+            str(source_contract["artifact_digest"]),
+            str(fixture_execution["artifact_digest"]),
+            *(str(item["artifact_digest"]) for item in fixture_contracts),
+            str(fixture_bundle["artifact_digest"]),
+            str(fixture_completion["artifact_digest"]),
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static health-design source identities changed"
+            )
+        if (
+            fixture_execution.get("completion_fact")
+            != MARGINAL_STATIC_FIXTURE_FREEZE_COMPLETION_FACT
+            or fixture_execution.get("fixture_count") != 4
+            or fixture_execution.get("generated_issues") != 0
+            or fixture_execution.get("synthetic_replicates") != 0
+            or fixture_execution.get("historical_outcomes_read") is not False
+            or fixture_execution.get("evidence_created") is not False
+            or fixture_execution.get("duplicate_raw_replay") is not False
+            or fixture_execution.get("routine_physical_checkpoint_scan") is not False
+        ):
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static health-design parent execution changed"
+            )
+        run = build_marginal_static_health_design_artifacts(
+            source_contract=source_contract,
+            fixture_execution_artifact_digest=str(fixture_execution["artifact_digest"]),
+            fixture_contracts=fixture_contracts,
+            fixture_bundle=fixture_bundle,
+            fixture_completion=fixture_completion,
+            execution_id=execution_id,
+            git_commit=git_commit,
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        workload_path = (
+            task_dir
+            / "artifacts/workload-design"
+            / str(run.workload["artifact_digest"])
+            / "workload.json"
+        )
+        inference_path = (
+            task_dir
+            / "artifacts/inference-design"
+            / str(run.inference["artifact_digest"])
+            / "inference.json"
+        )
+        completion_path = (
+            task_dir
+            / "artifacts/completion"
+            / str(run.completion["artifact_digest"])
+            / "completion.json"
+        )
+        child_payloads = (
+            (workload_path, run.workload),
+            (inference_path, run.inference),
+            (completion_path, run.completion),
+        )
+        for path, payload in child_payloads:
+            _persist_immutable(path, payload)
+        frozen_workload = source_contract["frozen_contract"]["workload"]
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "marginal_static_health_design_source_contract_digest": (
+                source_contract["artifact_digest"]
+            ),
+            "marginal_static_health_design_source_set_digest": (
+                source_contract["source_set_digest"]
+            ),
+            "research_request_key": source_contract["research_request_key"],
+            "research_request_id": source_contract["research_request_id"],
+            "research_execution_id": source_contract["research_execution_id"],
+            "fixture_execution_id": fixture_execution["execution_id"],
+            "fixture_execution_artifact_digest": fixture_execution["artifact_digest"],
+            "marginal_static_fixture_digests": [
+                item["artifact_digest"] for item in fixture_contracts
+            ],
+            "marginal_static_fixture_bundle_digest": fixture_bundle["artifact_digest"],
+            "marginal_static_fixture_completion_digest": fixture_completion[
+                "artifact_digest"
+            ],
+            "fixture_count": 4,
+            "positive_fixture_count": 1,
+            "negative_fixture_count": 3,
+            "branch_id": "MARGINAL_STATIC",
+            "estimator_id": "EXPANDING_LEGAL_MARGINAL_ALPHA_1",
+            "identifiability_preflight_status": "PASS",
+            "legacy_measurement_health": "REPAIR",
+            "legacy_repair_overridden": False,
+            "accepted_model_artifact_digest": None,
+            "runtime_state": (
+                "issue_count plus ordered signed_int64[33] number-event counts"
+            ),
+            "marginal_static_health_workload_digest": run.workload["artifact_digest"],
+            "marginal_static_health_inference_digest": run.inference["artifact_digest"],
+            "marginal_static_health_design_completion_digest": run.completion[
+                "artifact_digest"
+            ],
+            "planned_total_replicates": frozen_workload["total_replicates"],
+            "planned_total_generated_issues": frozen_workload[
+                "total_generated_issues_if_executed"
+            ],
+            "planned_total_outer_evaluation_issues": frozen_workload[
+                "total_outer_evaluation_issues_if_executed"
+            ],
+            "planned_execution_shards": frozen_workload["execution_shards"],
+            "execution_shard_size": frozen_workload["execution_shard_size"],
+            "bootstrap_replicates_per_interval": 511,
+            "primary_block_size": 5,
+            "sensitivity_block_sizes": [3, 8, 13],
+            "legacy_replicates": 31000,
+            "legacy_outer_issue_predictions": 64656000,
+            "legacy_probe_fits_reused": False,
+            "legacy_results_reused": False,
+            "sampled_workload_status": "FROZEN_NOT_EXECUTED",
+            "sampled_synthetic_execution_status": "NOT_AUTHORIZED",
+            "historical_execution_status": "NOT_AUTHORIZED",
+            "database_reads_during_replicate": 0,
+            "database_writes_during_replicate": 0,
+            "csv_materialized": False,
+            "duplicate_raw_replay": False,
+            "routine_physical_checkpoint_scan": False,
+            "completion_index_loads": 0,
+            "completion_fact": MARGINAL_STATIC_HEALTH_DESIGN_COMPLETION_FACT,
+            "generated_issues": 0,
+            "synthetic_replicates": 0,
+            "bootstrap_replicates_executed": 0,
+            "actual_fold_count": 0,
+            "registered_artifact_count": len(child_payloads) + 1,
+            "formal_branch_runs_executed": 0,
+            "historical_outcomes_read": False,
+            "p2_6_1_partial_statistical_results_read": False,
+            "p2_6_3_statistical_results_read": False,
+            "evidence_created": False,
+            "evidence_progress_before": 0,
+            "evidence_progress_after": 0,
+            "downstream_consumer": MARGINAL_STATIC_HEALTH_EXECUTION_TASK_KEY,
+            "production_impact": "none",
+            "production_action": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "replay_status": "DETERMINISTIC",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                *(str(payload["artifact_digest"]) for _, payload in child_payloads),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(registrations) != execution_payload["registered_artifact_count"]:
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static health-design registration count changed"
+            )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=registrations,
+            completion_facts=(MARGINAL_STATIC_HEALTH_DESIGN_COMPLETION_FACT,),
+        )
+
+
 class M4P261RawExecutionReplayCapability:
     def __init__(
         self,
@@ -6972,6 +7228,12 @@ class ResearchEvidenceSupervisor:
                     root_dir=root_dir,
                 )
             ),
+            MARGINAL_STATIC_HEALTH_DESIGN_CAPABILITY: (
+                M4MarginalStaticHealthDesignCapability(
+                    repository=self.repository,
+                    root_dir=root_dir,
+                )
+            ),
             M4_V2_P261_RAW_REPLAY_CAPABILITY: (
                 M4P261RawExecutionReplayCapability(
                     repository=self.repository,
@@ -7426,6 +7688,25 @@ class ResearchEvidenceSupervisor:
                                     "false_positive_by_scale",
                                     "power_by_cell",
                                     "estimator_quality_by_cell",
+                                    "marginal_static_health_design_source_contract_digest",
+                                    "marginal_static_health_design_source_set_digest",
+                                    "marginal_static_health_workload_digest",
+                                    "marginal_static_health_inference_digest",
+                                    "marginal_static_health_design_completion_digest",
+                                    "planned_total_replicates",
+                                    "planned_total_generated_issues",
+                                    "planned_total_outer_evaluation_issues",
+                                    "planned_execution_shards",
+                                    "execution_shard_size",
+                                    "bootstrap_replicates_per_interval",
+                                    "primary_block_size",
+                                    "sensitivity_block_sizes",
+                                    "legacy_replicates",
+                                    "legacy_outer_issue_predictions",
+                                    "legacy_probe_fits_reused",
+                                    "legacy_results_reused",
+                                    "bootstrap_replicates_executed",
+                                    "completion_index_loads",
                                     "runtime_migration_digests",
                                     "runtime_git_commits",
                                     "incident_recovery_digests",
@@ -7705,6 +7986,7 @@ class ResearchEvidenceSupervisor:
         return self._latest_completed_summary_for_tasks(
             snapshot,
             (
+                MARGINAL_STATIC_HEALTH_DESIGN_TASK_KEY,
                 MARGINAL_STATIC_FIXTURE_FREEZE_TASK_KEY,
                 MARGINAL_STATIC_CONTRACT_FREEZE_TASK_KEY,
                 PREFLIGHT_EXECUTION_TASK_KEY,
@@ -7922,6 +8204,25 @@ class ResearchEvidenceSupervisor:
             "false_positive_by_scale",
             "power_by_cell",
             "estimator_quality_by_cell",
+            "marginal_static_health_design_source_contract_digest",
+            "marginal_static_health_design_source_set_digest",
+            "marginal_static_health_workload_digest",
+            "marginal_static_health_inference_digest",
+            "marginal_static_health_design_completion_digest",
+            "planned_total_replicates",
+            "planned_total_generated_issues",
+            "planned_total_outer_evaluation_issues",
+            "planned_execution_shards",
+            "execution_shard_size",
+            "bootstrap_replicates_per_interval",
+            "primary_block_size",
+            "sensitivity_block_sizes",
+            "legacy_replicates",
+            "legacy_outer_issue_predictions",
+            "legacy_probe_fits_reused",
+            "legacy_results_reused",
+            "bootstrap_replicates_executed",
+            "completion_index_loads",
             "runtime_migration_digests",
             "runtime_git_commits",
             "incident_recovery_digests",
@@ -9679,6 +9980,121 @@ class ResearchEvidenceSupervisor:
                 "historical_outcomes_read": False,
                 "statistical_results_read": False,
                 "evidence_created": False,
+                "manual_input_assembly": False,
+            }
+        elif task_key == MARGINAL_STATIC_HEALTH_DESIGN_TASK_KEY:
+            source_contract = load_marginal_static_health_design_source_contract(
+                self.root_dir / MARGINAL_STATIC_HEALTH_DESIGN_SOURCE_CONTRACT_PATH
+            )
+            verify_marginal_static_health_design_source_bytes(
+                root_dir=self.root_dir,
+                contract=source_contract,
+            )
+            _, fixture_execution, fixture_registrations = (
+                _load_single_completed_execution(
+                    repository=self.repository,
+                    root_dir=self.root_dir,
+                    control_plane_key=self.control_plane_key,
+                    task_key=MARGINAL_STATIC_FIXTURE_FREEZE_TASK_KEY,
+                )
+            )
+            fixture_contracts = _load_registered_type_group(
+                root_dir=self.root_dir,
+                registrations=fixture_registrations,
+                artifact_type="m4_v2_marginal_static_fixture",
+            )
+            fixture_bundle = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=fixture_registrations,
+                artifact_type="m4_v2_marginal_static_fixture_bundle",
+            )
+            fixture_completion = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=fixture_registrations,
+                artifact_type=("m4_v2_marginal_static_fixture_freeze_completion"),
+            )
+            reconstructed = build_marginal_static_health_design_artifacts(
+                source_contract=source_contract,
+                fixture_execution_artifact_digest=str(
+                    fixture_execution["artifact_digest"]
+                ),
+                fixture_contracts=fixture_contracts,
+                fixture_bundle=fixture_bundle,
+                fixture_completion=fixture_completion,
+                execution_id=resolved_execution_id,
+                git_commit=str(artifact["git_commit"]),
+            )
+            fixture_digests = [item["artifact_digest"] for item in fixture_contracts]
+            if (
+                artifact.get("marginal_static_health_design_source_contract_digest")
+                != source_contract["artifact_digest"]
+                or artifact.get("marginal_static_health_design_source_set_digest")
+                != source_contract["source_set_digest"]
+                or artifact.get("fixture_execution_artifact_digest")
+                != fixture_execution["artifact_digest"]
+                or artifact.get("marginal_static_fixture_digests") != fixture_digests
+                or artifact.get("marginal_static_fixture_bundle_digest")
+                != fixture_bundle["artifact_digest"]
+                or artifact.get("marginal_static_fixture_completion_digest")
+                != fixture_completion["artifact_digest"]
+                or artifact.get("marginal_static_health_workload_digest")
+                != reconstructed.workload["artifact_digest"]
+                or artifact.get("marginal_static_health_inference_digest")
+                != reconstructed.inference["artifact_digest"]
+                or artifact.get("marginal_static_health_design_completion_digest")
+                != reconstructed.completion["artifact_digest"]
+                or artifact.get("planned_total_replicates") != 7168
+                or artifact.get("planned_total_generated_issues") != 15920128
+                or artifact.get("planned_total_outer_evaluation_issues") != 9468928
+                or artifact.get("planned_execution_shards") != 112
+                or artifact.get("execution_shard_size") != 64
+                or artifact.get("bootstrap_replicates_per_interval") != 511
+                or artifact.get("primary_block_size") != 5
+                or artifact.get("sensitivity_block_sizes") != [3, 8, 13]
+                or artifact.get("legacy_probe_fits_reused") is not False
+                or artifact.get("legacy_results_reused") is not False
+                or artifact.get("sampled_workload_status") != "FROZEN_NOT_EXECUTED"
+                or artifact.get("database_reads_during_replicate") != 0
+                or artifact.get("database_writes_during_replicate") != 0
+                or artifact.get("csv_materialized") is not False
+                or artifact.get("duplicate_raw_replay") is not False
+                or artifact.get("routine_physical_checkpoint_scan") is not False
+                or artifact.get("generated_issues") != 0
+                or artifact.get("synthetic_replicates") != 0
+                or artifact.get("bootstrap_replicates_executed") != 0
+                or artifact.get("historical_outcomes_read") is not False
+                or artifact.get("p2_6_3_statistical_results_read") is not False
+                or artifact.get("evidence_created") is not False
+            ):
+                raise MainlineSupervisorError(
+                    "M4 v2 marginal-static health-design replay identity changed"
+                )
+            _verify_v2_registered_artifacts(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                expected_payloads=(*reconstructed.artifacts, artifact),
+            )
+            capability_replay = {
+                "schema_version": (
+                    "dehps-m4-v2-marginal-static-health-design-replay.v1"
+                ),
+                "status": "REPLAY_VERIFIED",
+                "workload_digest": reconstructed.workload["artifact_digest"],
+                "inference_digest": reconstructed.inference["artifact_digest"],
+                "completion_digest": reconstructed.completion["artifact_digest"],
+                "planned_total_replicates": 7168,
+                "planned_total_generated_issues": 15920128,
+                "planned_total_outer_evaluation_issues": 9468928,
+                "planned_execution_shards": 112,
+                "same_registered_content": True,
+                "generated_issues": 0,
+                "synthetic_replicates": 0,
+                "bootstrap_replicates_executed": 0,
+                "historical_outcomes_read": False,
+                "statistical_results_read": False,
+                "evidence_created": False,
+                "duplicate_raw_replay": False,
+                "routine_physical_checkpoint_scan": False,
                 "manual_input_assembly": False,
             }
         elif task_key == MARGINAL_STATIC_CONTRACT_FREEZE_TASK_KEY:

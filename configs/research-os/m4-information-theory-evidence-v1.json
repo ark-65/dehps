@@ -1440,6 +1440,17 @@
       "task_type": "marginal_static_measurement_health_design",
       "lane": "research",
       "priority": 89,
+      "requested_capability": "m4_v2_marginal_static_measurement_health_design",
+      "input_artifact_digests": [
+        "2621e16efa8cf888f06e841c7a89cc72e50bc291ef08e0eaa82458196616047d",
+        "355a341795c09a63d6dcc7c2ce88b51681eaebc060de173f8dc029d75b38fc24",
+        "7a59655f39a5c3bd25f3d5c1c3802cf9665ca1d7b358ba40a229857b211211de",
+        "ade134f8981d9b547cef50a01d16b7996bd527937c955006a627fad10c6ae702",
+        "11d11179b7d772159e8143c7a5b3f0a3e3753920cc70ee64cda45b205c4cfc06",
+        "22b378a03c57fbd77b83eec3525dded8d304684b4b2d95278deb70148c9a512a",
+        "629c7029c7feacd9804c33f8dba931d54f3ce4b473fe734ecc293822b5f7f3bd",
+        "18a19361f3ad9a73eb667916bfa4cb8d4d06a8ef299c579d663e03eb7b7cad56"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
@@ -1449,6 +1460,11 @@
         {
           "dependency_type": "artifact",
           "target_key": "m4-v2-marginal-static-measurement-fixture-freeze:FROZEN",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-v2-marginal-static-health-design-source:2621e16efa8cf888f06e841c7a89cc72e50bc291ef08e0eaa82458196616047d",
           "required_status": "available"
         }
       ],
@@ -1460,7 +1476,76 @@
         "phase": "M4-V2-MARGINAL-STATIC-HEALTH-DESIGN",
         "scope": "freeze_sample_sizes_seed_domains_acceptance_thresholds_and_compact_replicate_resume_contract_without_execution",
         "reason": "the four exact fixtures must be paired with a separately preregistered false-positive, bias, coverage, power, and MDE design before sampling",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "the replay-verified Round-40 fixture execution, four fixtures, bundle, completion, and approved Round-41 source contract are available",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "approved marginal-static health-design source",
+            "Round-40 fixture mainline execution",
+            "four immutable marginal-static fixture contracts",
+            "fixture bundle and completion"
+          ],
+          "downstream_artifacts": [
+            "workload and seed design",
+            "inference and acceptance design",
+            "health-design completion",
+            "mainline execution artifact"
+          ],
+          "status_projection": "unified_m4_status.measurement_system_v2.marginal_static_health_design",
+          "evidence_progress_rule": "zero_design_artifacts_are_not_measurement_evidence",
+          "decision_consumer": "marginal-static synthetic health executor",
+          "downstream_consumer": "m4-v2-marginal-static-measurement-health-execution"
+        },
         "formal_execution_allowed": false,
+        "planned_total_replicates": 7168,
+        "planned_total_generated_issues": 15920128,
+        "planned_total_outer_evaluation_issues": 9468928,
+        "planned_execution_shards": 112,
+        "synthetic_replicates": 0,
+        "generated_issues": 0,
+        "database_reads_during_replicate": 0,
+        "database_writes_during_replicate": 0,
+        "csv_materialization": "forbidden",
+        "duplicate_raw_replay": false,
+        "routine_physical_checkpoint_scan": false,
+        "historical_outcomes_read": false,
+        "statistical_results_read": false,
+        "production_action": "none"
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "m4-v2-marginal-static-measurement-health-execution",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "marginal_static_measurement_health_execution",
+      "lane": "research",
+      "priority": 88,
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-v2-marginal-static-measurement-health-design",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-v2-marginal-static-measurement-health-design:FROZEN",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "engineering_complete": false,
+        "engineering_increment_percent": 0,
+        "evidence_complete": false,
+        "evidence_increment_percent": 0,
+        "phase": "M4-V2-MARGINAL-STATIC-HEALTH-EXECUTION",
+        "scope": "execute_the_frozen_batched_synthetic_health_program_with_compact_resume_and_no_history",
+        "reason": "the design must complete in the unified mainline before the marginal-static branch may read historical outcomes",
+        "formal_execution_allowed": false,
+        "planned_total_replicates": 7168,
+        "planned_total_generated_issues": 15920128,
+        "planned_execution_shards": 112,
         "synthetic_replicates": 0,
         "generated_issues": 0,
         "historical_outcomes_read": false,
@@ -2409,6 +2494,7 @@
       "m4-p263-runtime-slot-governance-source-contract:e094f3bd319c63b9ed5a8b14b955f7f64544e30d3b8410cc26b2906b7e56ae67",
       "m4-v2-marginal-static-contract-freeze-source:db8109760e5aeaae30cc765bb60ccd704560a24674a934dff6304026d8b87de1",
       "m4-v2-marginal-static-fixture-freeze-source:65a3b02964d35c8250bde2e6c9858f94c40617b7a60923c77d96541b29982b53",
+      "m4-v2-marginal-static-health-design-source:2621e16efa8cf888f06e841c7a89cc72e50bc291ef08e0eaa82458196616047d",
       "m4-p2-9-p263-source-compatibility-fixture:1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f",
       "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
       "m4-p2-identifiability-preflight-manifest:5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3",
@@ -2431,5 +2517,5 @@
     "external_events": [],
     "authorities": []
   },
-  "manifest_digest": "120ebb7a322125380e89945e9bb39fcb0c2a7967c777aa43389dd177ed1a2e0a"
+  "manifest_digest": "59e96f33015b87c3f36b11999cba9e9b56e2e36f0d1b49df7b9a73205e30b193"
 }
