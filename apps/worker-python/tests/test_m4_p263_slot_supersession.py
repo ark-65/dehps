@@ -551,7 +551,9 @@ def test_post_stop_guard_and_slot_only_migration() -> None:
     ]
 
 
-def test_capability_materializes_only_governance_artifacts(tmp_path: Path) -> None:
+def test_completed_capability_rejects_post_freeze_governance_source_evolution(
+    tmp_path: Path,
+) -> None:
     manifest, events, registrations = _basis()
 
     class Repository:
@@ -587,21 +589,13 @@ def test_capability_materializes_only_governance_artifacts(tmp_path: Path) -> No
         root_dir=tmp_path,
     )
     task = _task(manifest, P263_SLOT_ELIGIBILITY_TASK_KEY)
-    result = capability.execute(
-        control_plane_key=CONTROL_PLANE_KEY,
-        task=task,
-        execution_id=ELIGIBILITY_EXECUTION_ID,
-        git_commit=GIT_COMMIT,
-    )
-    assert result.completion_facts == (P263_SLOT_ELIGIBILITY_FACT,)
-    assert len(result.registrations) == 2
-    assert result.execution_artifact["statistical_results_read"] is False
-    assert result.execution_artifact["evidence_created"] is False
-    child = next(
-        registration
-        for registration in result.registrations
-        if registration.artifact_type == "p263_runtime_slot_release_eligibility"
-    )
-    validate_p263_slot_eligibility_artifact(
-        json.loads((tmp_path / child.artifact_path).read_text(encoding="utf-8"))
-    )
+    with pytest.raises(
+        P263SlotSupersessionError,
+        match=r"p263_slot_source_modified:.*information_theory/progress\.py",
+    ):
+        capability.execute(
+            control_plane_key=CONTROL_PLANE_KEY,
+            task=task,
+            execution_id=ELIGIBILITY_EXECUTION_ID,
+            git_commit=GIT_COMMIT,
+        )

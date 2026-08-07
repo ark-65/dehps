@@ -1,0 +1,24 @@
+{
+  "schema_version": "dehps-m4-v2-branch-preflight-source-contract.v1",
+  "artifact_type": "m4_v2_branch_preflight_source_contract",
+  "artifact_digest": "6fb3a1e366da129ac460599a391891a49206ccc715b6367cf344e2aa3e9f2a3d",
+  "contract_key": "M4_V2_BRANCH_PREFLIGHT_DESIGN_SOURCE",
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/contracts.py",
+      "content_sha256": "80f11b0e27c39a9d73f255e5b0e604fa2d077f19d2d9c973585116d1f233cfff"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/preflight_design.py",
+      "content_sha256": "002b55bd8bb4549f85e1354264362f31334849c252bdc8f4e2e876fb26adc6e1"
+    }
+  ],
+  "source_set_digest": "300168c4e9500441aec4694d5e08b0a6725c833c7edd53d0899729158e103f6a",
+  "result_blind": true,
+  "historical_outcomes_read": false,
+  "statistical_results_read": false,
+  "evidence_created": false,
+  "evidence_progress_increment": 0,
+  "promotion_gate_opened": false,
+  "production_action": "none"
+}

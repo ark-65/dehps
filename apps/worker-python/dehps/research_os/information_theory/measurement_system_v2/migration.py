@@ -17,6 +17,11 @@ STATE_FIELDS = (
     "completion_classification",
     "superseded_by_task_digest",
 )
+GOAL_STATE_FIELDS = (
+    "status",
+    "retired_at",
+    "superseded_by_goal_digest",
+)
 
 
 def build_additive_m4_v2_manifest(
@@ -35,6 +40,12 @@ def build_additive_m4_v2_manifest(
     source = deepcopy(dict(source_payload))
     live.pop("artifact_digest", None)
     source.pop("artifact_digest", None)
+    normalized_live = ControlPlaneManifest.from_dict(live).to_dict(
+        include_digest=False
+    )
+    normalized_source = ControlPlaneManifest.from_dict(source).to_dict(
+        include_digest=False
+    )
     live_goals = {
         str(item["goal_key"]): item for item in live.get("goals", [])
     }
@@ -48,17 +59,32 @@ def build_additive_m4_v2_manifest(
         raise AdditiveManifestMigrationError(
             "manifest_migration_new_goal_allowlist_invalid"
         )
-    for key, goal in live_goals.items():
-        if key not in source_goals or stable_json(goal) != stable_json(source_goals[key]):
+    normalized_live_goals = {
+        str(item["goal_key"]): item for item in normalized_live["goals"]
+    }
+    normalized_source_goals = {
+        str(item["goal_key"]): item for item in normalized_source["goals"]
+    }
+    for key, goal in normalized_live_goals.items():
+        live_definition = {
+            field: value
+            for field, value in goal.items()
+            if field not in GOAL_STATE_FIELDS
+        }
+        source_definition = {
+            field: value
+            for field, value in normalized_source_goals.get(key, {}).items()
+            if field not in GOAL_STATE_FIELDS
+        }
+        if key not in source_goals or stable_json(live_definition) != stable_json(
+            source_definition
+        ):
             raise AdditiveManifestMigrationError(
                 f"manifest_migration_goal_definition_changed:{key}"
             )
     live_tasks = {
         str(item["task_key"]): item for item in live.get("tasks", [])
     }
-    normalized_live = ControlPlaneManifest.from_dict(live).to_dict(
-        include_digest=False
-    )
     normalized_live_tasks = {
         str(item["task_key"]): item for item in normalized_live["tasks"]
     }
@@ -122,6 +148,14 @@ def build_additive_m4_v2_manifest(
     normalized_tasks = {
         str(item["task_key"]): item for item in normalized["tasks"]
     }
+    normalized_goals = {
+        str(item["goal_key"]): item for item in normalized["goals"]
+    }
+    for key, goal in normalized_live_goals.items():
+        if stable_json(normalized_goals[key]) != stable_json(goal):
+            raise AdditiveManifestMigrationError(
+                f"manifest_migration_rewrote_goal_state:{key}"
+            )
     for key in unchanged_task_keys:
         if stable_json(normalized_tasks[key]) != stable_json(
             normalized_live_tasks[key]

@@ -23,6 +23,12 @@ M4_P263_COMPATIBILITY_TASK_KEY = (
 )
 M4_P263_COMPATIBILITY_FACT = "m4-p2-6-3-compatibility:VERIFIED"
 M4_V2_PREFLIGHT_DESIGN_TASK_KEY = "m4-v2-branch-identifiability-preflight-design"
+PREFLIGHT_DESIGN_COMPLETION_FACT = (
+    "m4-v2-branch-identifiability-preflight-design:FROZEN"
+)
+M4_V2_PREFLIGHT_FIXTURE_TASK_KEY = (
+    "m4-v2-branch-identifiability-fixture-freeze"
+)
 M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
 M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = "m4-v2-p2-6-1-marginal-decision-replay"
 M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
@@ -234,6 +240,17 @@ def build_m4_status(
     measurement_v2_task = tasks.get(M4_V2_DESIGN_TASK_KEY)
     measurement_v2_resolution = resolutions.get(M4_V2_DESIGN_TASK_KEY)
     measurement_v2_replay_resolution = resolutions.get(M4_V2_DESIGN_REPLAY_TASK_KEY)
+    measurement_v2_preflight_resolution = resolutions.get(
+        M4_V2_PREFLIGHT_DESIGN_TASK_KEY
+    )
+    measurement_v2_preflight_task = tasks.get(M4_V2_PREFLIGHT_DESIGN_TASK_KEY)
+    measurement_v2_preflight_execution = (
+        measurement_v2_execution
+        if measurement_v2_execution is not None
+        and measurement_v2_execution.get("execution_task_key")
+        == M4_V2_PREFLIGHT_DESIGN_TASK_KEY
+        else None
+    )
     measurement_compatibility_resolution = resolutions.get(
         M4_P263_COMPATIBILITY_TASK_KEY
     )
@@ -961,7 +978,19 @@ def build_m4_status(
         },
         "measurement_system_v2": (
             {
-                "phase": "DESIGN",
+                "phase": (
+                    "PREFLIGHT_FIXTURE_FREEZE"
+                    if measurement_v2_preflight_resolution is not None
+                    and measurement_v2_preflight_resolution.status
+                    is TaskStatus.COMPLETED
+                    else (
+                        "PREFLIGHT_DESIGN"
+                        if measurement_v2_replay_resolution is not None
+                        and measurement_v2_replay_resolution.status
+                        is TaskStatus.COMPLETED
+                        else "DESIGN"
+                    )
+                ),
                 "purpose": "hierarchical_information_measurement",
                 "contract_digest": M4_V2_CONTRACT_DIGEST,
                 "source_contract_status": "FROZEN",
@@ -993,6 +1022,56 @@ def build_m4_status(
                     "m4-measurement-contract-v2-design-replay:VERIFIED"
                     in manifest.facts.artifacts
                 ),
+                "branch_preflight_design": {
+                    "task_key": M4_V2_PREFLIGHT_DESIGN_TASK_KEY,
+                    "resolver_status": (
+                        None
+                        if measurement_v2_preflight_resolution is None
+                        else measurement_v2_preflight_resolution.status.value
+                    ),
+                    "completion_classification": (
+                        None
+                        if measurement_v2_preflight_task is None
+                        or task_states[
+                            measurement_v2_preflight_task.artifact_digest
+                        ].completion_classification
+                        is None
+                        else task_states[
+                            measurement_v2_preflight_task.artifact_digest
+                        ].completion_classification.value
+                    ),
+                    "design_frozen": (
+                        PREFLIGHT_DESIGN_COMPLETION_FACT
+                        in manifest.facts.artifacts
+                    ),
+                    "branch_design_count": (
+                        0
+                        if measurement_v2_preflight_execution is None
+                        else len(
+                            measurement_v2_preflight_execution.get(
+                                "branch_preflight_design_digests", []
+                            )
+                        )
+                    ),
+                    "formal_branch_runs_executed": (
+                        0
+                        if measurement_v2_preflight_execution is None
+                        else measurement_v2_preflight_execution.get(
+                            "formal_branch_runs_executed", 0
+                        )
+                    ),
+                    "preflight_result_count": (
+                        0
+                        if measurement_v2_preflight_execution is None
+                        else measurement_v2_preflight_execution.get(
+                            "preflight_result_count", 0
+                        )
+                    ),
+                    "historical_outcomes_read": False,
+                    "statistical_results_read": False,
+                    "evidence_progress_increment": 0,
+                    "next_consumer": M4_V2_PREFLIGHT_FIXTURE_TASK_KEY,
+                },
                 "completion_classification": (
                     None
                     if task_states[
@@ -1004,7 +1083,11 @@ def build_m4_status(
                     ].completion_classification.value
                 ),
                 "live_mainline_status": (
-                    "VALIDATED_IN_MAINLINE"
+                    "PREFLIGHT_DESIGN_VALIDATED_IN_MAINLINE"
+                    if measurement_v2_preflight_resolution is not None
+                    and measurement_v2_preflight_resolution.status
+                    is TaskStatus.COMPLETED
+                    else "VALIDATED_IN_MAINLINE"
                     if measurement_v2_replay_resolution is not None
                     and measurement_v2_replay_resolution.status is TaskStatus.COMPLETED
                     else (
@@ -1091,7 +1174,11 @@ def build_m4_status(
                     ),
                 },
                 "next_consumer": (
-                    M4_V2_PREFLIGHT_DESIGN_TASK_KEY
+                    M4_V2_PREFLIGHT_FIXTURE_TASK_KEY
+                    if measurement_v2_preflight_resolution is not None
+                    and measurement_v2_preflight_resolution.status
+                    is TaskStatus.COMPLETED
+                    else M4_V2_PREFLIGHT_DESIGN_TASK_KEY
                     if measurement_v2_replay_resolution is not None
                     and measurement_v2_replay_resolution.status is TaskStatus.COMPLETED
                     else M4_V2_DESIGN_REPLAY_TASK_KEY
