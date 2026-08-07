@@ -94,12 +94,14 @@ not rerun historical folds, scan checkpoints, or repeat a formal workload.
 
 ## Additive migration proof
 
-The exact migration dry-run against the Round-37 durable projection reported:
+The exact migration and completed durable execution reported:
 
 ```text
 source manifest:               4c2b1f44f2c1e20be80e128ab26e47e337989f21d7698b39d48c30391834cbad
-projected output manifest:     d884f4e373267999c52c2080b8891d536dbbe62d53c75ce657f38361311e535b
-dry-run artifact:              72ee5e700912c4e42262e1564ac8f927019db594bd3cf9a81e1843ccc20f9f52
+live manifest before migration:96a9337a0f802bfb8f22b442f7b37589e8585b8053e88250c1884235cb57e88e
+imported manifest:             e548fe0cb42648fb72d401eb7d56ac31b254345b738fc351b8bccd9afe35be9b
+dry-run artifact:              dde2772fa1b2b1d8d8e30fd24376ce61efa57a20bfa44f7c4d57fc81d25ebb6b
+completed live manifest:       2097823f8cb0478144cc2694d68a4bfc68a24f3df970751d19bc45045b6e4775
 source contract:               7da905d15249813e44bcf57b4e107fac15bb2d02587c4c68134ca5c834aac5c1
 tasks:                         42 -> 43
 unchanged existing tasks:      41
@@ -113,6 +115,20 @@ unallowlisted rewrites:        0
 Only the unstarted preflight-execution task is revised, only the conditional
 marginal-static contract-freeze consumer is added, and only the preflight
 source-contract fact is added.
+
+The fresh merged Supervisor completed execution
+`668fceb8663e3687a9f748e152c4fa066bf0048cb1efa5b9ce9a3f63f6cfd741`.
+Its mainline execution artifact is
+`dc6e9da1a8dfd0539078bc8eb82ee09f5ba5db5cf86c838b04a90128a88a4b3b`;
+the three branch-health results are:
+
+```text
+MARGINAL_STATIC:             3d9207bb3e552283ead5125e395894cbb21038fabff02dd88f0530487896306a PASS
+TEMPORAL_MARGINAL_INCREMENT: 2f238a0a4aff1698f50f2c155412352e994e0804277770c6a27afeb3ff133605 PASS
+JOINT_RESIDUAL_INCREMENT:    9939b6f91fa42910ccf6d6066eff3bff9939bb0352d0dce018e44f68bbea076a PASS
+completion:                  8d890a76e8e5b5f10099cb185042af1da2ff76b5fa7494b6805dc3a965c7cace
+replay:                      REPLAY_VERIFIED, same identities and content
+```
 
 ## Einstein diagnostic
 
@@ -176,19 +192,15 @@ establish predictive lift.
 
 | Link | Engineering handoff state | Proof |
 | --- | --- | --- |
-| Goal -> Resolver | Code complete | Exact M4 task definition and frozen source identity |
-| Resolver -> Ready Queue | Dry-run verified | Only preflight execution becomes executable |
-| Ready Queue -> Supervisor | Code complete | Capability registered under the exact request key |
-| Supervisor -> Capability | Code complete | Ten ordered parent identities and zero-result lineage checked |
-| Capability -> Artifacts | Code complete | Seven child artifacts plus mainline execution |
-| Artifacts -> Status | Code complete | PASS/FAIL/UNRESOLVED and branch counters projected |
-| Status -> Next Task | Code complete | Conditional `ALL_BRANCHES_PASS` fact is the sole release gate |
-| Deterministic replay | Code complete | Small artifact reconstruction and registered-byte verification |
+| Goal -> Resolver | Validated | Exact M4 task definition and frozen source identity imported into durable truth |
+| Resolver -> Ready Queue | Validated | Only preflight execution became executable |
+| Ready Queue -> Supervisor | Validated | Fresh merged Supervisor claimed the exact task once |
+| Supervisor -> Capability | Validated | Ten ordered parent identities and zero-result lineage checked |
+| Capability -> Artifacts | Validated | Seven child artifacts plus mainline execution registered immutably |
+| Artifacts -> Status | Validated | PASS/FAIL/UNRESOLVED and branch counters projected from durable execution |
+| Status -> Next Task | Validated | `ALL_BRANCHES_PASS` released only the marginal-static contract freezer |
+| Deterministic replay | Validated | Small artifacts reconstructed with identical registered identities and content |
 
-Final integration answer at engineering handoff:
+Final integration answer after the approved Operator execution:
 
-`NO — INTEGRATION_PENDING`
-
-The merged commit must be installed under a fresh unified Supervisor, the
-exact additive manifest imported by an approved Operator, the task completed
-once, and deterministic replay verified before this capability is `COMPLETE`.
+`YES — validated by unified mainline execution and replay`
