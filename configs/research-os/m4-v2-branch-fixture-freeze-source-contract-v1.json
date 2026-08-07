@@ -1,0 +1,174 @@
+{
+  "schema_version": "dehps-m4-v2-branch-fixture-freeze-source-contract.v1",
+  "artifact_type": "m4_v2_branch_fixture_freeze_source_contract",
+  "artifact_digest": "391acc6a04518389f841e94a640a14dcaf98bd2c36614d31a0e713446980b06d",
+  "contract_key": "M4_V2_BRANCH_FIXTURE_FREEZE_SOURCE",
+  "research_request_key": "research-m4-v2-branch-fixture-freeze-round-37-20260807",
+  "research_request_id": 306,
+  "research_execution_id": 227,
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/fixture_freeze.py",
+      "content_sha256": "e517a99c705061454e291873edd224a4a6eac6f347a01585b77aede08723aef9"
+    }
+  ],
+  "source_set_digest": "611678e0602f25cd3f0e567761562f30ebedd2372eadbe0cb4376d011713c678",
+  "frozen_contract": {
+    "solver_contract": {
+      "family": "fixed_cardinality_exponential_family",
+      "support": "Omega_binary_33_sum_6",
+      "distribution": "Q_lambda(y)=exp(sum_i(lambda_i*y_i))/e_6(exp(lambda))",
+      "gauge": "lambda_33=0",
+      "objective": "minimize_log_Z_minus_sum_q_lambda_on_32_dimensional_gauge",
+      "partition_method": "float64_elementary_symmetric_polynomial_dynamic_program",
+      "solver": "deterministic_damped_newton_with_analytic_covariance_hessian",
+      "maximum_iterations": 100,
+      "maximum_marginal_residual": 1e-12,
+      "input_sum_tolerance": 1e-12,
+      "input_interior_floor": 1e-9,
+      "renormalize_input": false,
+      "uniform_fallback": false,
+      "independent_bernoulli_fallback": false,
+      "failure_status": "NOT_RUN_MEASUREMENT_HEALTH_INCONCLUSIVE"
+    },
+    "exact_solver_fixtures": [
+      {
+        "fixture_id": "JME_UNIFORM",
+        "q": "q_i=6/33",
+        "expected_lambda": "all_zero_in_lambda_33_equals_0_gauge",
+        "expected_partition": 1107568
+      },
+      {
+        "fixture_id": "JME_GROUP_16_17_ODDS_2",
+        "weights": "w_1..w_16=2;w_17..w_33=1",
+        "expected_partition": 11248216,
+        "expected_q_group_a": "47343/200861",
+        "expected_q_group_b": "26334/200861",
+        "expected_lambda": "lambda_1..lambda_16=ln(2);lambda_17..lambda_33=0"
+      },
+      {
+        "fixture_id": "JME_OVERLAP_6_27_ODDS_2",
+        "weights": "w_i=2_for_six_prior_draw_numbers;otherwise_1",
+        "expected_partition": 2875258,
+        "expected_q_in_prior": "403502/1437629",
+        "expected_q_outside_prior": "229806/1437629",
+        "expected_lambda": "ln(2)_on_prior_draw_numbers;zero_elsewhere;number_33_outside_prior"
+      },
+      {
+        "fixture_id": "JME_INVALID_BOUNDARIES",
+        "cases": [
+          "sum(q)_outside_1e-12_of_6",
+          "q_i_outside_closed_interval_1e-9_to_1_minus_1e-9",
+          "nan_or_infinity"
+        ],
+        "expected": "FAIL_CLOSED_WITHOUT_SUBSTITUTION"
+      }
+    ],
+    "orthogonal_control_fixtures": [
+      {
+        "fixture_id": "V2_M1_GROUP_ODDS_2_STATIONARY",
+        "definition": "iid_legal_draws_from_JME_GROUP_16_17_ODDS_2",
+        "expected_roles": {
+          "MARGINAL_STATIC": "POSITIVE_CONTROL",
+          "TEMPORAL_MARGINAL_INCREMENT": "NEGATIVE_CONTROL",
+          "JOINT_RESIDUAL_INCREMENT": "NEGATIVE_CONTROL"
+        },
+        "truth_anchor_bits": {
+          "marginal_static": 0.4403398887146399,
+          "temporal_increment": 0.0,
+          "joint_residual": 0.0
+        }
+      },
+      {
+        "fixture_id": "V2_T1_OVERLAP_ODDS_2_MARKOV",
+        "definition": "Q(y_t|y_t_minus_1)_proportional_to_2_pow_intersection_size",
+        "strict_history_state": "complete_previous_legal_draw",
+        "stationarity_basis": "symmetric_kernel_is_doubly_stochastic_on_Omega",
+        "expected_roles": {
+          "MARGINAL_STATIC": "NEGATIVE_CONTROL",
+          "TEMPORAL_MARGINAL_INCREMENT": "POSITIVE_CONTROL",
+          "JOINT_RESIDUAL_INCREMENT": "NEGATIVE_CONTROL"
+        },
+        "truth_anchor_bits": {
+          "marginal_static": 0.0,
+          "temporal_increment": 0.31836950754110016,
+          "joint_residual": 0.0
+        }
+      },
+      {
+        "fixture_id": "V2_J1_HISTORY_IS4_LAMBDA_HALF",
+        "definition": "history_visible_state_selects_IS4_sign_with_lambda_1_over_2",
+        "strict_history_state": "lexicographic_half_of_previous_legal_draw",
+        "marginal_basis": "both_states_preserve_every_q_i_equal_6_over_33",
+        "expected_roles": {
+          "MARGINAL_STATIC": "NEGATIVE_CONTROL",
+          "TEMPORAL_MARGINAL_INCREMENT": "NEGATIVE_CONTROL",
+          "JOINT_RESIDUAL_INCREMENT": "POSITIVE_CONTROL"
+        },
+        "truth_anchor_bits": {
+          "marginal_static": 0.0,
+          "temporal_increment": 0.0,
+          "joint_residual": 0.18844293097886164
+        }
+      },
+      {
+        "fixture_id": "NULL_UNIFORM_LEGAL_SIX_OF_33",
+        "expected_roles": {
+          "MARGINAL_STATIC": "NEGATIVE_CONTROL",
+          "TEMPORAL_MARGINAL_INCREMENT": "NEGATIVE_CONTROL",
+          "JOINT_RESIDUAL_INCREMENT": "NEGATIVE_CONTROL"
+        },
+        "truth_anchor_bits": {
+          "marginal_static": 0.0,
+          "temporal_increment": 0.0,
+          "joint_residual": 0.0
+        }
+      }
+    ],
+    "legacy_role_resolution_fixtures": [
+      {
+        "fixture_id": "IS2_LOCAL_TEMPORAL_DELTA_QUARTER",
+        "parameter": "delta=1/4",
+        "joint_residual_truth_by_state_bits": [
+          0.06706540821027368,
+          0.033459104955733864
+        ],
+        "expected_joint_direction": "positive",
+        "role_after_successful_preflight": "POSITIVE_CONTROL"
+      },
+      {
+        "fixture_id": "IS3_PAIR_CONDITIONAL_QUARTER_BASE_RATE",
+        "parameter": "delta=p_pair/4_where_p_pair=7/124",
+        "conditional_pair_probabilities": [
+          "21/496",
+          "35/496"
+        ],
+        "joint_residual_truth_by_state_bits": [
+          0.0022439660633757972,
+          0.00182307204788662
+        ],
+        "expected_joint_direction": "positive",
+        "role_after_successful_preflight": "POSITIVE_CONTROL_WITH_SYNTHETIC_INSTRUMENT_DECISION_CREDIT_FALSE"
+      }
+    ],
+    "acceptance": {
+      "positive_floor_bits": 0.001,
+      "negative_absolute_tolerance_bits": 1e-10,
+      "maximum_solver_residual": 1e-12,
+      "permutation_equivariance_required": true,
+      "formal_branch_runs": 0,
+      "preflight_results": 0,
+      "historical_outcomes_read": false,
+      "statistical_results_read": false,
+      "evidence_created": false
+    }
+  },
+  "result_blind": true,
+  "formal_execution_allowed": false,
+  "historical_outcomes_read": false,
+  "statistical_results_read": false,
+  "evidence_created": false,
+  "evidence_progress_increment": 0,
+  "promotion_gate_opened": false,
+  "production_action": "none"
+}
