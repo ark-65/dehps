@@ -214,6 +214,15 @@ PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_EXECUTION_COMPLETION_FACT = (
 PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_TASK_KEY = (
     "prediction-v2-structural-baseline-comparison-route-decision"
 )
+PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_COMPLETION_FACT = (
+    "prediction-v2-structural-baseline-comparison-route-decision:COMPLETE"
+)
+PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_INTAKE_TASK_KEY = (
+    "prediction-v2-next-result-blind-research-intake"
+)
+PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_CONTRACT_EVENT = (
+    "research-contract:prediction-v2-next-result-blind-program:approved"
+)
 M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
 M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = "m4-v2-p2-6-1-marginal-decision-replay"
 M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
@@ -814,6 +823,22 @@ def build_m4_status(
     )
     prediction_v2_structural_baseline_route_resolution = resolutions.get(
         PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_TASK_KEY
+    )
+    prediction_v2_structural_baseline_route_task = tasks.get(
+        PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_TASK_KEY
+    )
+    prediction_v2_structural_baseline_route = (
+        measurement_v2_execution
+        if measurement_v2_execution is not None
+        and measurement_v2_execution.get("execution_task_key")
+        == PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_TASK_KEY
+        else None
+    )
+    prediction_v2_next_result_blind_intake_resolution = resolutions.get(
+        PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_INTAKE_TASK_KEY
+    )
+    prediction_v2_next_result_blind_intake_task = tasks.get(
+        PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_INTAKE_TASK_KEY
     )
     durable_gate_evidence_facts = tuple(
         fact
@@ -1548,7 +1573,10 @@ def build_m4_status(
         "measurement_system_v2": (
             {
                 "phase": (
-                    "PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION"
+                    "PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_INTAKE"
+                    if PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION"
                     if PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_EXECUTION_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_EXECUTION"
@@ -4380,6 +4408,138 @@ def build_m4_status(
                     "p3_authorized": False,
                     "production_action": "none",
                 },
+                "prediction_v2_structural_baseline_comparison_route_decision": {
+                    "task_key": (
+                        PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_TASK_KEY
+                    ),
+                    "resolver_status": (
+                        None
+                        if prediction_v2_structural_baseline_route_resolution is None
+                        else prediction_v2_structural_baseline_route_resolution.status.value
+                    ),
+                    "completion_classification": (
+                        None
+                        if prediction_v2_structural_baseline_route_task is None
+                        or task_states[
+                            prediction_v2_structural_baseline_route_task.artifact_digest
+                        ].completion_classification
+                        is None
+                        else task_states[
+                            prediction_v2_structural_baseline_route_task.artifact_digest
+                        ].completion_classification.value
+                    ),
+                    "route_complete": (
+                        PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_COMPLETION_FACT
+                        in manifest.facts.artifacts
+                    ),
+                    "decision": (
+                        None
+                        if prediction_v2_structural_baseline_route is None
+                        else prediction_v2_structural_baseline_route.get("decision")
+                    ),
+                    "comparison_decision": (
+                        None
+                        if prediction_v2_structural_baseline_route is None
+                        else prediction_v2_structural_baseline_route.get(
+                            "comparison_decision"
+                        )
+                    ),
+                    "structural_artifact_role": (
+                        None
+                        if prediction_v2_structural_baseline_route is None
+                        else prediction_v2_structural_baseline_route.get(
+                            "structural_artifact_role"
+                        )
+                    ),
+                    "prediction_research_disposition": (
+                        None
+                        if prediction_v2_structural_baseline_route is None
+                        else prediction_v2_structural_baseline_route.get(
+                            "prediction_research_disposition"
+                        )
+                    ),
+                    "candidate_stats": (
+                        None
+                        if prediction_v2_structural_baseline_route is None
+                        else prediction_v2_structural_baseline_route.get(
+                            "candidate_stats"
+                        )
+                    ),
+                    "class_summaries": (
+                        []
+                        if prediction_v2_structural_baseline_route is None
+                        else prediction_v2_structural_baseline_route.get(
+                            "class_summaries", []
+                        )
+                    ),
+                    "candidate_considerations_executed": 0,
+                    "threshold_retuned": False,
+                    "repetition_scan": "ABSENT_BY_CONSTRUCTION",
+                    "legacy_prediction_mainline_reactivation_authorized": False,
+                    "portfolio_activation_authorized": False,
+                    "decision_usefulness_established": False,
+                    "prediction_probability_claim": False,
+                    "global_optimality_claim": False,
+                    "historical_evidence": "INCONCLUSIVE",
+                    "prediction_v2_mode": "SHADOW_ONLY",
+                    "prediction_v2_route": "BASELINE_ONLY",
+                    "next_consumer": (
+                        PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_INTAKE_TASK_KEY
+                    ),
+                    "next_consumer_resolver_status": (
+                        None
+                        if prediction_v2_next_result_blind_intake_resolution is None
+                        else prediction_v2_next_result_blind_intake_resolution.status.value
+                    ),
+                    "next_external_event": (
+                        PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_CONTRACT_EVENT
+                    ),
+                    "database_queries_during_capability": 0,
+                    "historical_rows_read": 0,
+                    "formal_historical_folds_executed": 0,
+                    "bootstrap_children_executed": 0,
+                    "evidence_created": False,
+                    "new_model_created": False,
+                    "candidate_expert_authorized": False,
+                    "promotion_gate_opened": False,
+                    "p3_authorized": False,
+                    "production_action": "none",
+                },
+                "prediction_v2_next_result_blind_research_intake": {
+                    "task_key": PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_INTAKE_TASK_KEY,
+                    "resolver_status": (
+                        None
+                        if prediction_v2_next_result_blind_intake_resolution is None
+                        else prediction_v2_next_result_blind_intake_resolution.status.value
+                    ),
+                    "resolver_reason_code": (
+                        None
+                        if prediction_v2_next_result_blind_intake_resolution is None
+                        else prediction_v2_next_result_blind_intake_resolution.reason_code
+                    ),
+                    "required_external_event": (
+                        PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_CONTRACT_EVENT
+                    ),
+                    "external_event_available": (
+                        PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_CONTRACT_EVENT
+                        in manifest.facts.external_events
+                    ),
+                    "requested_capability": (
+                        None
+                        if prediction_v2_next_result_blind_intake_task is None
+                        else prediction_v2_next_result_blind_intake_task.requested_capability
+                    ),
+                    "result_blind_contract_required": True,
+                    "automatic_hypothesis_generation": False,
+                    "automatic_threshold_relaxation": False,
+                    "automatic_seed_retry": False,
+                    "automatic_portfolio_mutation": False,
+                    "legacy_route_fallback": False,
+                    "legacy_prediction_mainline_reactivation_authorized": False,
+                    "prediction_v2_mode": "SHADOW_ONLY",
+                    "prediction_v2_route": "BASELINE_ONLY",
+                    "production_action": "none",
+                },
                 "completion_classification": (
                     None
                     if task_states[
@@ -4391,7 +4551,10 @@ def build_m4_status(
                     ].completion_classification.value
                 ),
                 "live_mainline_status": (
-                    "PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_EXECUTION_VALIDATED_IN_MAINLINE"
+                    "PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_VALIDATED_IN_MAINLINE"
+                    if PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_EXECUTION_VALIDATED_IN_MAINLINE"
                     if PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_EXECUTION_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_PREREGISTRATION_VALIDATED_IN_MAINLINE"

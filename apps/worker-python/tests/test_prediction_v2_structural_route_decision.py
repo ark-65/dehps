@@ -241,6 +241,7 @@ def test_additive_migration_revises_route_and_adds_only_baseline_preregistration
         not in {
             "prediction-v2-structural-baseline-comparison-execution",
             "prediction-v2-structural-baseline-comparison-route-decision",
+            "prediction-v2-next-result-blind-research-intake",
         }
     ]
     live = copy.deepcopy(source)

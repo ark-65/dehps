@@ -1,0 +1,108 @@
+{
+  "schema_version": "dehps-prediction-v2-structural-baseline-comparison-route-decision-source.v1",
+  "artifact_type": "prediction_v2_structural_baseline_comparison_route_decision_source",
+  "artifact_digest": "74fa955fd13f4104195ce21d2e79669b96991a3b976121989e8b770ee063192e",
+  "contract_key": "PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_SOURCE",
+  "research_request_key": "research-prediction-v2-structural-baseline-route-decision-round-80-20260809",
+  "research_request_id": 408,
+  "research_execution_id": 329,
+  "engineering_request_key": "engineering-prediction-v2-structural-baseline-route-decision-round-81-20260809",
+  "engineering_request_id": 409,
+  "engineering_execution_id": 330,
+  "result_aware": true,
+  "database_queries": 0,
+  "historical_rows_read": 0,
+  "folds_executed": 0,
+  "bootstrap_children_executed": 0,
+  "candidate_considerations_executed": 0,
+  "registered_children": 3,
+  "new_evidence_created": false,
+  "new_model_created": false,
+  "production_action": "none",
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/prediction_v2_structural_baseline_comparison_route_decision.py",
+      "content_sha256": "ae6a2994bb55ff65d98b238885715e5ec9bb8f9e68d1599f1a9f2575cf0bdfa5"
+    }
+  ],
+  "source_set_digest": "c1e9e2d71fb99794d007b2406accd9740a3d1ff85354de62876625d109f543f1",
+  "frozen_contract": {
+    "task_key": "prediction-v2-structural-baseline-comparison-route-decision",
+    "capability": "prediction_v2_structural_baseline_comparison_route_decision",
+    "completion_fact": "prediction-v2-structural-baseline-comparison-route-decision:COMPLETE",
+    "next_consumer": "prediction-v2-next-result-blind-research-intake",
+    "next_external_event": "research-contract:prediction-v2-next-result-blind-program:approved",
+    "registered_input_digests": [
+      "ca8b04b63f7295744b41fa2b33fcbec4a2c3e70e115a7662e04ec2cc3d9f233f",
+      "cb49d823118f682e585e1395a7124083c9c86ca36476cd975f563aca44187877",
+      "73ca03f93b2a9149d265502b75fd747370c3e493095d3a555b72c8ed6546bc20",
+      "830513d1c77b6669a8e1ed2bd45d965f6644e0bb8dd543920de918e36e4b7541"
+    ],
+    "comparison_decision": "ARCHIVE_AS_ENGINEERING_EVIDENCE_ONLY",
+    "route_decision": "ARCHIVE_B176_FROM_ACTIVATION_AND_WAIT_FOR_NEW_RESULT_BLIND_RESEARCH_CONTRACT",
+    "structural_artifact_role": "ARCHIVED_NON_PREDICTIVE_ENGINEERING_REFERENCE_ONLY",
+    "prediction_research_disposition": "FROZEN_NO_ACCEPTED_CANDIDATE",
+    "candidate_stats": {
+      "singleton_square_sum": 33796,
+      "pair_square_sum": 14152,
+      "minimum_replacement_distance": 2,
+      "sum_pairwise_replacement_distance": 76030
+    },
+    "class_summaries": [
+      {
+        "class_id": "SINGLETON_FIRST_GREEDY_V1",
+        "replicate_count": 128,
+        "candidate_considerations": 5767168,
+        "candidate_dominated_replicate_count": 0,
+        "baseline_dominating_candidate_count": 14,
+        "candidate_dominance_required": 122,
+        "baseline_dominance_maximum": 0,
+        "class_gate_pass": false
+      },
+      {
+        "class_id": "PAIR_FIRST_GREEDY_V1",
+        "replicate_count": 128,
+        "candidate_considerations": 5767168,
+        "candidate_dominated_replicate_count": 0,
+        "baseline_dominating_candidate_count": 0,
+        "candidate_dominance_required": 122,
+        "baseline_dominance_maximum": 0,
+        "class_gate_pass": false
+      },
+      {
+        "class_id": "DISTANCE_FIRST_GREEDY_V1",
+        "replicate_count": 128,
+        "candidate_considerations": 5767168,
+        "candidate_dominated_replicate_count": 0,
+        "baseline_dominating_candidate_count": 5,
+        "candidate_dominance_required": 122,
+        "baseline_dominance_maximum": 0,
+        "class_gate_pass": false
+      }
+    ],
+    "required_candidate_dominated_replicates_per_class": 122,
+    "maximum_baseline_replicates_dominating_candidate_per_class": 0,
+    "result_blind_contract_required": true,
+    "legacy_prediction_mainline_reactivation_authorized": false,
+    "portfolio_activation_authorized": false,
+    "decision_usefulness_established": false,
+    "historical_evidence": "INCONCLUSIVE",
+    "prediction_v2_mode": "SHADOW_ONLY",
+    "prediction_v2_route": "BASELINE_ONLY",
+    "registered_child_count": 3,
+    "registered_total_with_mainline_execution": 4,
+    "candidate_considerations_executed": 0,
+    "database_queries": 0,
+    "historical_rows_read": 0,
+    "folds_executed": 0,
+    "bootstrap_children_executed": 0,
+    "new_evidence_created": false,
+    "new_model_created": false,
+    "candidate_expert_authorized": false,
+    "promotion_gate_opened": false,
+    "p3_authorized": false,
+    "production_action": "none",
+    "repetition_scan": "ABSENT_BY_CONSTRUCTION"
+  },
+  "frozen_contract_digest": "740752c2a9c2089ecc4253fbe30a78942cd23bc3c3370dbfde9e86a0ddc4e005"
+}
