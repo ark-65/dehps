@@ -444,10 +444,18 @@
       "superseded_by_digest": "7eeae8b00bc57af820f28527432663dcd930545160d9a77ea75660b4ec988a88"
     },
     "7eeae8b00bc57af820f28527432663dcd930545160d9a77ea75660b4ec988a88": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "source_commit": "ad415fac084b459740cf2126885d168c1687eef7",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "identity_field": "manifest_digest",
+      "supersedes_digest": "1790affe3010f14921e6f823e8d8aa8b9843cddcbe6619c0cba2b257f7a9d135",
+      "superseded_by_digest": "e483329a916e02374dd4735c58a32d08a0e922d31cd5abf554d5a3d779bfde56"
+    },
+    "e483329a916e02374dd4735c58a32d08a0e922d31cd5abf554d5a3d779bfde56": {
       "artifact_type": "research_os_control_plane_manifest",
       "path": "configs/research-os/m4-information-theory-evidence-v1.json",
       "identity_field": "manifest_digest",
-      "supersedes_digest": "1790affe3010f14921e6f823e8d8aa8b9843cddcbe6619c0cba2b257f7a9d135"
+      "supersedes_digest": "7eeae8b00bc57af820f28527432663dcd930545160d9a77ea75660b4ec988a88"
     },
     "6fb3a1e366da129ac460599a391891a49206ccc715b6367cf344e2aa3e9f2a3d": {
       "artifact_type": "m4_v2_branch_preflight_source_contract",
@@ -527,6 +535,11 @@
     "65dbd24e6a63fadfa62d0fb5d0bf7744d166ed1bfb2412bb48e57b04c2d190c6": {
       "artifact_type": "m4_v2_marginal_static_repair_v2_health_decision_source",
       "path": "configs/research-os/m4-v2-marginal-static-repair-v2-health-decision-source-v1.json",
+      "identity_field": "artifact_digest"
+    },
+    "ad07217101c613d1b7afa273054adb7a8c3fe3a7c6a36eea4012bbbae2483753": {
+      "artifact_type": "m4_v2_marginal_static_historical_design_source",
+      "path": "configs/research-os/m4-v2-marginal-static-historical-design-source-v1.json",
       "identity_field": "artifact_digest"
     },
     "e094f3bd319c63b9ed5a8b14b955f7f64544e30d3b8410cc26b2906b7e56ae67": {

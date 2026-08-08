@@ -207,6 +207,25 @@ from dehps.research_os.information_theory.measurement_system_v2.marginal_static_
     run_replicate,
     verify_marginal_static_health_execution_source_bytes,
 )
+from dehps.research_os.information_theory.measurement_system_v2.marginal_static_historical_design import (
+    FROZEN_PREREGISTRATION_PATH as MARGINAL_STATIC_HISTORICAL_PREREGISTRATION_PATH,
+)
+from dehps.research_os.information_theory.measurement_system_v2.marginal_static_historical_design import (
+    MARGINAL_STATIC_CONTRACT_TASK_KEY as HISTORICAL_MARGINAL_STATIC_CONTRACT_TASK_KEY,
+)
+from dehps.research_os.information_theory.measurement_system_v2.marginal_static_historical_design import (
+    MARGINAL_STATIC_HISTORICAL_DESIGN_CAPABILITY,
+    MARGINAL_STATIC_HISTORICAL_DESIGN_COMPLETION_FACT,
+    MARGINAL_STATIC_HISTORICAL_DESIGN_SOURCE_CONTRACT_PATH,
+    MARGINAL_STATIC_HISTORICAL_DESIGN_TASK_KEY,
+    MARGINAL_STATIC_HISTORICAL_PREREGISTRATION_TASK_KEY,
+    build_marginal_static_historical_design_artifacts,
+    load_marginal_static_historical_design_source_contract,
+    verify_marginal_static_historical_design_source_bytes,
+)
+from dehps.research_os.information_theory.measurement_system_v2.marginal_static_historical_design import (
+    MEASUREMENT_CONTRACT_DESIGN_TASK_KEY as HISTORICAL_MEASUREMENT_CONTRACT_DESIGN_TASK_KEY,
+)
 from dehps.research_os.information_theory.measurement_system_v2.marginal_static_repair_design import (
     MARGINAL_STATIC_REPAIR_DESIGN_CAPABILITY,
     MARGINAL_STATIC_REPAIR_DESIGN_COMPLETION_FACT,
@@ -7563,6 +7582,255 @@ class M4MarginalStaticRepairV2HealthDecisionCapability:
         )
 
 
+class M4MarginalStaticHistoricalDesignCapability:
+    def __init__(
+        self,
+        *,
+        repository: PostgresResearchOSRepository,
+        root_dir: Path = ROOT_DIR,
+    ) -> None:
+        self.repository = repository
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key != MARGINAL_STATIC_HISTORICAL_DESIGN_TASK_KEY
+            or task.requested_capability != MARGINAL_STATIC_HISTORICAL_DESIGN_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static historical design received the wrong task"
+            )
+        source_contract = load_marginal_static_historical_design_source_contract(
+            self.root_dir / MARGINAL_STATIC_HISTORICAL_DESIGN_SOURCE_CONTRACT_PATH
+        )
+        verify_marginal_static_historical_design_source_bytes(
+            root_dir=self.root_dir,
+            contract=source_contract,
+        )
+        _, health_decision_execution, health_decision_registrations = (
+            _load_single_completed_execution(
+                repository=self.repository,
+                root_dir=self.root_dir,
+                control_plane_key=control_plane_key,
+                task_key=MARGINAL_STATIC_REPAIR_V2_HEALTH_DECISION_TASK_KEY,
+            )
+        )
+        health_decision = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=health_decision_registrations,
+            artifact_type=(
+                "m4_v2_marginal_static_measurement_repair_v2_health_decision"
+            ),
+        )
+        _, marginal_execution, marginal_registrations = (
+            _load_single_completed_execution(
+                repository=self.repository,
+                root_dir=self.root_dir,
+                control_plane_key=control_plane_key,
+                task_key=HISTORICAL_MARGINAL_STATIC_CONTRACT_TASK_KEY,
+            )
+        )
+        marginal_contract = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=marginal_registrations,
+            artifact_type="m4_v2_marginal_static_measurement_contract",
+        )
+        _, measurement_execution, measurement_registrations = (
+            _load_single_completed_execution(
+                repository=self.repository,
+                root_dir=self.root_dir,
+                control_plane_key=control_plane_key,
+                task_key=HISTORICAL_MEASUREMENT_CONTRACT_DESIGN_TASK_KEY,
+            )
+        )
+        gate_compiler = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=measurement_registrations,
+            artifact_type="measurement_v2_gate_compiler_contract",
+        )
+        frozen_preregistration = _load_object(
+            self.root_dir / MARGINAL_STATIC_HISTORICAL_PREREGISTRATION_PATH
+        )
+        expected_inputs = (
+            str(source_contract["artifact_digest"]),
+            str(health_decision_execution["artifact_digest"]),
+            str(health_decision["artifact_digest"]),
+            str(marginal_execution["artifact_digest"]),
+            str(marginal_contract["artifact_digest"]),
+            str(measurement_execution["artifact_digest"]),
+            str(gate_compiler["artifact_digest"]),
+            str(frozen_preregistration["artifact_digest"]),
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static historical design identities changed"
+            )
+        run = build_marginal_static_historical_design_artifacts(
+            source_contract=source_contract,
+            repair_v2_health_decision_execution=health_decision_execution,
+            repair_v2_health_decision=health_decision,
+            marginal_static_contract_execution=marginal_execution,
+            marginal_static_measurement_contract=marginal_contract,
+            measurement_contract_design_execution=measurement_execution,
+            gate_compiler_contract=gate_compiler,
+            frozen_preregistration=frozen_preregistration,
+            execution_id=execution_id,
+            git_commit=git_commit,
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        child_paths = (
+            task_dir
+            / "artifacts/historical-dataset-boundary"
+            / str(run.dataset_boundary["artifact_digest"])
+            / "boundary.json",
+            task_dir
+            / "artifacts/historical-walk-forward-design"
+            / str(run.walk_forward_design["artifact_digest"])
+            / "design.json",
+            task_dir
+            / "artifacts/historical-inference-design"
+            / str(run.inference_design["artifact_digest"])
+            / "design.json",
+            task_dir
+            / "artifacts/completion"
+            / str(run.completion["artifact_digest"])
+            / "completion.json",
+        )
+        child_payloads = tuple(zip(child_paths, run.artifacts, strict=True))
+        for path, payload in child_payloads:
+            _persist_immutable(path, payload)
+        frozen = source_contract["frozen_contract"]
+        boundary = frozen["historical_boundary"]
+        walk_forward = frozen["walk_forward"]
+        inference = frozen["inference"]
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "marginal_static_historical_design_source_contract_digest": (
+                source_contract["artifact_digest"]
+            ),
+            "marginal_static_historical_design_source_set_digest": (
+                source_contract["source_set_digest"]
+            ),
+            "research_request_key": source_contract["research_request_key"],
+            "research_request_id": source_contract["research_request_id"],
+            "research_execution_id": source_contract["research_execution_id"],
+            "engineering_request_key": source_contract["engineering_request_key"],
+            "engineering_request_id": source_contract["engineering_request_id"],
+            "engineering_execution_id": source_contract["engineering_execution_id"],
+            "repair_v2_health_decision_execution_digest": (
+                health_decision_execution["artifact_digest"]
+            ),
+            "repair_v2_health_decision_digest": health_decision["artifact_digest"],
+            "marginal_static_contract_execution_digest": marginal_execution[
+                "artifact_digest"
+            ],
+            "marginal_static_measurement_contract_digest": marginal_contract[
+                "artifact_digest"
+            ],
+            "measurement_contract_design_execution_digest": measurement_execution[
+                "artifact_digest"
+            ],
+            "gate_compiler_contract_digest": gate_compiler["artifact_digest"],
+            "frozen_preregistration_digest": frozen_preregistration["artifact_digest"],
+            "historical_dataset_boundary_digest": run.dataset_boundary[
+                "artifact_digest"
+            ],
+            "historical_walk_forward_design_digest": run.walk_forward_design[
+                "artifact_digest"
+            ],
+            "historical_inference_design_digest": run.inference_design[
+                "artifact_digest"
+            ],
+            "historical_design_completion_digest": run.completion["artifact_digest"],
+            "historical_issue_count": boundary["issue_count"],
+            "initial_training_issue_count": frozen["estimand_and_model"][
+                "minimum_training_issues"
+            ],
+            "planned_evaluation_fold_count": walk_forward["evaluation_fold_count"],
+            "planned_bootstrap_replicates": inference["bootstrap_replicates"],
+            "formal_historical_folds_executed": 0,
+            "bootstrap_replicates_executed": 0,
+            "database_queries_during_capability": 0,
+            "historical_red_outcomes_read": False,
+            "historical_outcomes_read": False,
+            "statistical_results_read": False,
+            "evidence_created": False,
+            "evidence_progress_before": 25,
+            "evidence_progress_after": 25,
+            "historical_evidence": "NOT_RUN",
+            "historical_execution_status": "NOT_AUTHORIZED",
+            "accepted_model_artifact_digest": None,
+            "promotion_gate_opened": False,
+            "actual_fold_count": 0,
+            "registered_artifact_count": len(child_payloads) + 1,
+            "completion_fact": MARGINAL_STATIC_HISTORICAL_DESIGN_COMPLETION_FACT,
+            "downstream_consumer": (
+                MARGINAL_STATIC_HISTORICAL_PREREGISTRATION_TASK_KEY
+            ),
+            "production_impact": "none",
+            "production_action": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "replay_status": "DETERMINISTIC_DESIGN_ONLY",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                *(str(payload["artifact_digest"]) for _, payload in child_payloads),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(registrations) != execution_payload["registered_artifact_count"]:
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static historical design registration count changed"
+            )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=registrations,
+            completion_facts=(MARGINAL_STATIC_HISTORICAL_DESIGN_COMPLETION_FACT,),
+        )
+
+
 class M4P261RawExecutionReplayCapability:
     def __init__(
         self,
@@ -9429,6 +9697,12 @@ class ResearchEvidenceSupervisor:
             ),
             MARGINAL_STATIC_REPAIR_V2_HEALTH_DECISION_CAPABILITY: (
                 M4MarginalStaticRepairV2HealthDecisionCapability(
+                    repository=self.repository,
+                    root_dir=root_dir,
+                )
+            ),
+            MARGINAL_STATIC_HISTORICAL_DESIGN_CAPABILITY: (
+                M4MarginalStaticHistoricalDesignCapability(
                     repository=self.repository,
                     root_dir=root_dir,
                 )
@@ -13068,6 +13342,190 @@ class ResearchEvidenceSupervisor:
                 "historical_outcomes_read": False,
                 "statistical_results_read": True,
                 "evidence_created": False,
+                "manual_input_assembly": False,
+            }
+        elif task_key == MARGINAL_STATIC_HISTORICAL_DESIGN_TASK_KEY:
+            source_contract = load_marginal_static_historical_design_source_contract(
+                self.root_dir / MARGINAL_STATIC_HISTORICAL_DESIGN_SOURCE_CONTRACT_PATH
+            )
+            verify_marginal_static_historical_design_source_bytes(
+                root_dir=self.root_dir,
+                contract=source_contract,
+            )
+            _, health_decision_execution, health_decision_registrations = (
+                _load_single_completed_execution(
+                    repository=self.repository,
+                    root_dir=self.root_dir,
+                    control_plane_key=self.control_plane_key,
+                    task_key=MARGINAL_STATIC_REPAIR_V2_HEALTH_DECISION_TASK_KEY,
+                )
+            )
+            health_decision = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=health_decision_registrations,
+                artifact_type=(
+                    "m4_v2_marginal_static_measurement_repair_v2_health_decision"
+                ),
+            )
+            _, marginal_execution, marginal_registrations = (
+                _load_single_completed_execution(
+                    repository=self.repository,
+                    root_dir=self.root_dir,
+                    control_plane_key=self.control_plane_key,
+                    task_key=HISTORICAL_MARGINAL_STATIC_CONTRACT_TASK_KEY,
+                )
+            )
+            marginal_contract = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=marginal_registrations,
+                artifact_type="m4_v2_marginal_static_measurement_contract",
+            )
+            _, measurement_execution, measurement_registrations = (
+                _load_single_completed_execution(
+                    repository=self.repository,
+                    root_dir=self.root_dir,
+                    control_plane_key=self.control_plane_key,
+                    task_key=HISTORICAL_MEASUREMENT_CONTRACT_DESIGN_TASK_KEY,
+                )
+            )
+            gate_compiler = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=measurement_registrations,
+                artifact_type="measurement_v2_gate_compiler_contract",
+            )
+            frozen_preregistration = _load_object(
+                self.root_dir / MARGINAL_STATIC_HISTORICAL_PREREGISTRATION_PATH
+            )
+            reconstructed = build_marginal_static_historical_design_artifacts(
+                source_contract=source_contract,
+                repair_v2_health_decision_execution=health_decision_execution,
+                repair_v2_health_decision=health_decision,
+                marginal_static_contract_execution=marginal_execution,
+                marginal_static_measurement_contract=marginal_contract,
+                measurement_contract_design_execution=measurement_execution,
+                gate_compiler_contract=gate_compiler,
+                frozen_preregistration=frozen_preregistration,
+                execution_id=resolved_execution_id,
+                git_commit=str(artifact["git_commit"]),
+            )
+            registered_boundary = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                artifact_type=("m4_v2_marginal_static_historical_dataset_boundary"),
+            )
+            registered_walk_forward = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                artifact_type=("m4_v2_marginal_static_historical_walk_forward_design"),
+            )
+            registered_inference = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                artifact_type=("m4_v2_marginal_static_historical_inference_design"),
+            )
+            registered_completion = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                artifact_type=(
+                    "m4_v2_marginal_static_historical_measurement_design_completion"
+                ),
+            )
+            if (
+                registered_boundary != reconstructed.dataset_boundary
+                or registered_walk_forward != reconstructed.walk_forward_design
+                or registered_inference != reconstructed.inference_design
+                or registered_completion != reconstructed.completion
+                or artifact.get(
+                    "marginal_static_historical_design_source_contract_digest"
+                )
+                != source_contract["artifact_digest"]
+                or artifact.get("marginal_static_historical_design_source_set_digest")
+                != source_contract["source_set_digest"]
+                or artifact.get("research_request_id") != 362
+                or artifact.get("research_execution_id") != 283
+                or artifact.get("engineering_request_id") != 363
+                or artifact.get("engineering_execution_id") != 284
+                or artifact.get("repair_v2_health_decision_execution_digest")
+                != health_decision_execution["artifact_digest"]
+                or artifact.get("repair_v2_health_decision_digest")
+                != health_decision["artifact_digest"]
+                or artifact.get("marginal_static_contract_execution_digest")
+                != marginal_execution["artifact_digest"]
+                or artifact.get("marginal_static_measurement_contract_digest")
+                != marginal_contract["artifact_digest"]
+                or artifact.get("measurement_contract_design_execution_digest")
+                != measurement_execution["artifact_digest"]
+                or artifact.get("gate_compiler_contract_digest")
+                != gate_compiler["artifact_digest"]
+                or artifact.get("frozen_preregistration_digest")
+                != frozen_preregistration["artifact_digest"]
+                or artifact.get("historical_dataset_boundary_digest")
+                != reconstructed.dataset_boundary["artifact_digest"]
+                or artifact.get("historical_walk_forward_design_digest")
+                != reconstructed.walk_forward_design["artifact_digest"]
+                or artifact.get("historical_inference_design_digest")
+                != reconstructed.inference_design["artifact_digest"]
+                or artifact.get("historical_design_completion_digest")
+                != reconstructed.completion["artifact_digest"]
+                or artifact.get("historical_issue_count") != 3481
+                or artifact.get("initial_training_issue_count") != 900
+                or artifact.get("planned_evaluation_fold_count") != 2581
+                or artifact.get("planned_bootstrap_replicates") != 2000
+                or artifact.get("formal_historical_folds_executed") != 0
+                or artifact.get("bootstrap_replicates_executed") != 0
+                or artifact.get("database_queries_during_capability") != 0
+                or artifact.get("historical_red_outcomes_read") is not False
+                or artifact.get("historical_outcomes_read") is not False
+                or artifact.get("statistical_results_read") is not False
+                or artifact.get("evidence_created") is not False
+                or artifact.get("evidence_progress_before") != 25
+                or artifact.get("evidence_progress_after") != 25
+                or artifact.get("historical_evidence") != "NOT_RUN"
+                or artifact.get("historical_execution_status") != "NOT_AUTHORIZED"
+                or artifact.get("accepted_model_artifact_digest") is not None
+                or artifact.get("promotion_gate_opened") is not False
+                or artifact.get("actual_fold_count") != 0
+                or artifact.get("registered_artifact_count") != 5
+                or artifact.get("completion_fact")
+                != MARGINAL_STATIC_HISTORICAL_DESIGN_COMPLETION_FACT
+                or artifact.get("downstream_consumer")
+                != MARGINAL_STATIC_HISTORICAL_PREREGISTRATION_TASK_KEY
+                or artifact.get("production_action") != "none"
+                or artifact.get("replay_status") != "DETERMINISTIC_DESIGN_ONLY"
+            ):
+                raise MainlineSupervisorError(
+                    "M4 v2 marginal-static historical design replay identity changed"
+                )
+            _verify_v2_registered_artifacts(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                expected_payloads=(*reconstructed.artifacts, artifact),
+            )
+            capability_replay = {
+                "schema_version": (
+                    "dehps-m4-v2-marginal-static-historical-design-replay.v1"
+                ),
+                "status": "REPLAY_VERIFIED",
+                "dataset_boundary_digest": reconstructed.dataset_boundary[
+                    "artifact_digest"
+                ],
+                "walk_forward_design_digest": reconstructed.walk_forward_design[
+                    "artifact_digest"
+                ],
+                "inference_design_digest": reconstructed.inference_design[
+                    "artifact_digest"
+                ],
+                "completion_digest": reconstructed.completion["artifact_digest"],
+                "same_registered_content": True,
+                "design_only": True,
+                "formal_historical_folds_executed": 0,
+                "bootstrap_replicates_executed": 0,
+                "database_queries_during_replay": 0,
+                "historical_red_outcomes_read": False,
+                "statistical_results_read": False,
+                "evidence_created": False,
+                "accepted_model_artifact_digest": None,
+                "promotion_gate_opened": False,
                 "manual_input_assembly": False,
             }
         elif task_key == MARGINAL_STATIC_REPAIR_V2_PREREGISTRATION_TASK_KEY:
