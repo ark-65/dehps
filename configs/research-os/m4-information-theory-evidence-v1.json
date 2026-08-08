@@ -1755,6 +1755,14 @@
       "task_type": "marginal_static_measurement_repair_preregistration",
       "lane": "research",
       "priority": 85,
+      "requested_capability": "m4_v2_marginal_static_measurement_repair_preregistration",
+      "input_artifact_digests": [
+        "784de2ed686e99459ceb4463107a6e8b47534ffc0c0ef06974dc1be535da7384",
+        "ad4360f89416dcd190eed4022b3346b02c439c4fb4c4a59e8b47f5e9c87e2435",
+        "eabed1661dc45992e2940f01ddda31fb9d3e3bc673fefd29a249996133080de5",
+        "54f52d6f06ce575b22fd44673af9d75508a210931d9c7790b674b0045d5caa98",
+        "ede0d15c456bbe4889849318624208e642066b3afb178559362804d37e5b00b7"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
@@ -1764,6 +1772,11 @@
         {
           "dependency_type": "artifact",
           "target_key": "m4-v2-marginal-static-measurement-repair-design:FROZEN",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-v2-marginal-static-repair-preregistration-source:784de2ed686e99459ceb4463107a6e8b47534ffc0c0ef06974dc1be535da7384",
           "required_status": "available"
         }
       ],
@@ -1794,10 +1807,79 @@
           "downstream_consumer": "m4-v2-marginal-static-measurement-repair-health-execution"
         },
         "formal_execution_allowed": false,
+        "formal_replicates": 0,
+        "generated_issues": 0,
+        "bootstrap_replicates": 0,
+        "checkpoint_reads": 0,
+        "duplicate_validation": false,
+        "planned_calibration_replicates": 1024,
+        "planned_evaluation_replicates": 3584,
+        "planned_total_replicates": 4608,
+        "planned_execution_shards": 72,
+        "nested_bootstrap_replicates_per_formal_replicate": 0,
         "result_aware": true,
         "new_seed_required": true,
         "same_seed_tuning": "forbidden",
         "posthoc_threshold_change": "forbidden",
+        "historical_outcomes_read": false,
+        "evidence_created": false,
+        "promotion_gate_opened": false,
+        "production_action": "none"
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "m4-v2-marginal-static-measurement-repair-health-execution",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "marginal_static_measurement_repair_health_execution",
+      "lane": "research",
+      "priority": 84,
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-v2-marginal-static-measurement-repair-preregistration",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-v2-marginal-static-measurement-repair-preregistration:FROZEN",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "engineering_complete": false,
+        "engineering_increment_percent": 0,
+        "evidence_complete": false,
+        "evidence_increment_percent": 0,
+        "phase": "M4-V2-MARGINAL-STATIC-REPAIR-HEALTH-EXECUTION",
+        "scope": "execute_the_frozen_independent_split_conformal_repair_health_program_once",
+        "reason": "the repaired measurement system requires fresh independent calibration and evaluation replicates before any health decision",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "the repair-health preregistration is VALIDATED_IN_MAINLINE and replay-verified with its FROZEN fact available",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "immutable repair-health preregistration",
+            "workload and independent seed manifest",
+            "split-conformal inference and decision contract"
+          ],
+          "downstream_artifacts": [
+            "compact completion index",
+            "repair-health result",
+            "repair-health completion and mainline execution"
+          ],
+          "status_projection": "unified_m4_status.measurement_system_v2.marginal_static_repair_health_execution",
+          "evidence_progress_rule": "repair_health_is_measurement_evidence_but_not_historical_prediction_evidence",
+          "decision_consumer": "marginal-static repaired health decision",
+          "downstream_consumer": "m4-v2-marginal-static-measurement-repair-health-decision"
+        },
+        "formal_execution_allowed": false,
+        "planned_calibration_replicates": 1024,
+        "planned_evaluation_replicates": 3584,
+        "planned_total_replicates": 4608,
+        "planned_execution_shards": 72,
+        "duplicate_validation": false,
         "historical_outcomes_read": false,
         "evidence_created": false,
         "promotion_gate_opened": false,
@@ -2748,6 +2830,7 @@
       "m4-v2-marginal-static-health-design-source:2621e16efa8cf888f06e841c7a89cc72e50bc291ef08e0eaa82458196616047d",
       "m4-v2-marginal-static-health-decision-source:df89e7785e1ace80b9e967e3c1dba8983d74b93d3e961226daa7ed2c0e023fc8",
       "m4-v2-marginal-static-repair-design-source:13ec63a3ee5a075a1e44dd282a311425c2618d6d06f1fa3879815c7001450b3f",
+      "m4-v2-marginal-static-repair-preregistration-source:784de2ed686e99459ceb4463107a6e8b47534ffc0c0ef06974dc1be535da7384",
       "m4-v2-marginal-static-health-execution-source:5fbeb6ab0533478ac097747ab73fb0188561849505a76cf7a63a3a02061b2354",
       "m4-p2-9-p263-source-compatibility-fixture:1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f",
       "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
@@ -2771,5 +2854,5 @@
     "external_events": [],
     "authorities": []
   },
-  "manifest_digest": "95b220cc67427da30de97e780f07c0c0972334092f15aab43e1cbb4de48ade0a"
+  "manifest_digest": "ae918dd1b109e22ed3d3aeb7639e65aaf7e6dbab13122391381be4f5a44ae121"
 }

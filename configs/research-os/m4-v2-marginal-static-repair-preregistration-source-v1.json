@@ -1,0 +1,179 @@
+{
+  "schema_version": "dehps-m4-v2-marginal-static-repair-preregistration-source.v1",
+  "artifact_type": "m4_v2_marginal_static_repair_preregistration_source",
+  "artifact_digest": "784de2ed686e99459ceb4463107a6e8b47534ffc0c0ef06974dc1be535da7384",
+  "contract_key": "M4_V2_MARGINAL_STATIC_REPAIR_PREREGISTRATION_SOURCE",
+  "research_request_key": "research-m4-v2-marginal-static-repair-preregistration-round-45-20260808",
+  "research_request_id": 338,
+  "research_execution_id": 259,
+  "research_addendum_key": "research-m4-v2-marginal-static-repair-preregistration-exactness-addendum-round-45-20260808",
+  "research_addendum_request_id": 339,
+  "research_addendum_execution_id": 260,
+  "engineering_request_key": "engineering-m4-v2-marginal-static-repair-preregistration-round-45-20260808",
+  "engineering_request_id": 340,
+  "formal_replicates_executed": 0,
+  "generated_issues": 0,
+  "bootstrap_replicates_executed": 0,
+  "duplicate_validation": false,
+  "historical_outcomes_read": false,
+  "statistical_results_read": false,
+  "evidence_created": false,
+  "production_action": "none",
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/marginal_static_repair_preregistration.py",
+      "content_sha256": "c28e156c7573ee66d33c3958b555e63ad50ed5245c7aad9279d3cab209b94fce"
+    }
+  ],
+  "source_set_digest": "9e261b825b5180a40c73165d5d744e082abeb9271be354d17d907dd1cb4c6d55",
+  "frozen_contract": {
+    "task_key": "m4-v2-marginal-static-measurement-repair-preregistration",
+    "capability": "m4_v2_marginal_static_measurement_repair_preregistration",
+    "completion_fact": "m4-v2-marginal-static-measurement-repair-preregistration:FROZEN",
+    "next_consumer": "m4-v2-marginal-static-measurement-repair-health-execution",
+    "repair_design_digest": "54f52d6f06ce575b22fd44673af9d75508a210931d9c7790b674b0045d5caa98",
+    "old_decision": "REPAIR_MEASUREMENT_SYSTEM",
+    "analysis_unit": "one independently seeded replicate mean candidate-minus-uniform prequential number-event log-score gain in bits per issue",
+    "scales": [
+      {
+        "scale_id": "FORWARD_61",
+        "training_issues": 900,
+        "evaluation_issues": 61,
+        "sequence_issues": 961
+      },
+      {
+        "scale_id": "HISTORICAL_2581",
+        "training_issues": 900,
+        "evaluation_issues": 2581,
+        "sequence_issues": 3481
+      }
+    ],
+    "cells_per_scale": [
+      "V2_M1_GROUP_ODDS_2_STATIONARY",
+      "NULL_UNIFORM_LEGAL_SIX_OF_33",
+      "V2_T1_OVERLAP_ODDS_2_MARKOV",
+      "V2_J1_HISTORY_IS4_LAMBDA_HALF",
+      "LOCAL_M1:0.001",
+      "LOCAL_M1:0.010",
+      "LOCAL_M1:0.050"
+    ],
+    "calibration_lane": {
+      "generator": "NULL_UNIFORM_LEGAL_SIX_OF_33",
+      "replicates_per_scale": 512,
+      "threshold_source": "calibration_null_scores_only",
+      "alternative_outcomes_read": false,
+      "scale_pooling": false,
+      "cell_pooling": false
+    },
+    "evaluation_lane": {
+      "replicates_per_cell": 256,
+      "cell_count": 14,
+      "fresh_uniform_null_required": true,
+      "calibration_seed_reuse": false
+    },
+    "detection_rule": {
+      "method": "scale_specific_split_conformal_upper_tail_over_independent_scalar_replicate_scores",
+      "calibration_replicates_per_scale": 512,
+      "p_value": "(1 + count(calibration_score >= evaluation_score)) / 513",
+      "alpha": 0.05,
+      "max_rejecting_exceedance_count": 24,
+      "tie_rule": "greater_than_or_equal",
+      "randomized_tie_break": false,
+      "non_finite_score": "structural_failure",
+      "nested_bootstrap_replicates": 0,
+      "issue_block_bootstrap": "forbidden",
+      "threshold_selected_after_alternative_results": false
+    },
+    "mean_monte_carlo_interval": {
+      "sampling_unit": "one_independently_seeded_replicate_summary",
+      "sample_count": 256,
+      "method": "two_sided_95_percent_one_sample_student_t",
+      "critical_value": 1.9693105698498752,
+      "degrees_of_freedom": 255,
+      "sample_standard_deviation_ddof": 1,
+      "truth_classification_endpoint": "lower_endpoint",
+      "zero_variance": "both_endpoints_equal_finite_mean",
+      "non_finite_or_wrong_count": "structural_failure",
+      "bootstrap": "forbidden"
+    },
+    "wilson_interval": {
+      "method": "two_sided_95_percent_wilson_without_continuity_correction",
+      "z": 1.959963984540054,
+      "non_finite_or_wrong_count": "structural_failure"
+    },
+    "proof_and_diagnostics": {
+      "conditional_score_identity_absolute_error_max": 1e-12,
+      "identity_is_gate": true,
+      "empirical_bias": "student_t_interval_diagnostic_only",
+      "conditional_online_truth": "student_t_interval_and_positive_fraction",
+      "stationary_oracle_substitution": "forbidden",
+      "rmse": "report_by_cell_and_scale"
+    },
+    "control_gates": {
+      "negative_control_wilson_upper_max": 0.09,
+      "positive_control_wilson_lower_min": 0.8,
+      "complete_unique_finite_cells": "all_pass",
+      "legal_draws_and_probabilities": "all_pass",
+      "deterministic_replay": "exact_registered_content_and_execution_identity"
+    },
+    "local_target_classification": {
+      "pre_sample_feasibility": "exact_generator_specific_randomized_level_0_05_neyman_pearson_upper_power",
+      "admissible": "upper_power_at_least_0_80_and_online_truth_lower_95_greater_than_0",
+      "sensitivity_limit": "upper_power_below_0_80_or_online_truth_lower_not_positive",
+      "detectable": "admissible_and_wilson_lower_detection_power_at_least_0_80",
+      "instrument_limit": "admissible_and_wilson_lower_detection_power_below_0_80",
+      "mde": "smallest_tested_detectable_target_without_interpolation"
+    },
+    "decision": {
+      "pass": "all_proof_completeness_control_replay_and_admissible_local_target_gates_pass",
+      "repair": "any_structural_or_control_gate_fails_or_any_admissible_target_is_instrument_limit",
+      "automatic_pass_from_sensitivity_limits": false,
+      "manual_or_partial_override": "forbidden"
+    },
+    "workload": {
+      "calibration_replicates": 1024,
+      "evaluation_replicates": 3584,
+      "total_replicates": 4608,
+      "execution_shard_size": 64,
+      "execution_shards": 72,
+      "total_generated_issues_if_executed": 10234368,
+      "total_outer_evaluation_issues_if_executed": 6087168,
+      "old_round_42_replicates": 7168,
+      "replicate_reduction_fraction": 0.35714285714285715,
+      "nested_bootstrap_replicates_per_formal_replicate": 0,
+      "duplicate_validation": false
+    },
+    "seed_contract": {
+      "root_domain": "M4_V2_MARGINAL_STATIC_REPAIR_HEALTH_V1",
+      "calibration_child_domain": "M4_V2_MARGINAL_STATIC_REPAIR_HEALTH_CALIBRATION_V1",
+      "evaluation_child_domain": "M4_V2_MARGINAL_STATIC_REPAIR_HEALTH_EVALUATION_V1",
+      "reserved_bootstrap_domain": "M4_V2_MARGINAL_STATIC_REPAIR_HEALTH_BOOTSTRAP_V1",
+      "bootstrap_children_executed": 0,
+      "child_identity": "canonical_digest_of_preregistration_digest_lane_cell_scale_and_zero_based_replicate_index",
+      "round_42_child_seed_reuse": false,
+      "calibration_evaluation_overlap": false,
+      "worker_or_shard_identity_in_seed": false,
+      "wall_clock_seed": false,
+      "best_seed_selection": "forbidden"
+    },
+    "runtime_boundary": {
+      "single_host_only": true,
+      "worker_count": "runtime_selected_output_identity_independent",
+      "database_reads_during_replicate": 0,
+      "database_writes_during_replicate": 0,
+      "csv_materialization": "forbidden",
+      "raw_draw_retention": "forbidden_after_scalar_sufficient_statistics_update",
+      "checkpoint_write": "one_immutable_compact_summary_and_one_append_only_index_row",
+      "resume": "load_compact_completion_index_once_and_skip_matching_digest",
+      "routine_physical_checkpoint_scan": "forbidden",
+      "raw_replay": "forbidden"
+    },
+    "formal_replicates_executed": 0,
+    "generated_issues": 0,
+    "bootstrap_replicates_executed": 0,
+    "duplicate_validation": false,
+    "historical_outcomes_read": false,
+    "evidence_created": false,
+    "production_action": "none"
+  }
+}

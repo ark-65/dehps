@@ -216,6 +216,22 @@ from dehps.research_os.information_theory.measurement_system_v2.marginal_static_
     load_marginal_static_repair_design_source_contract,
     verify_marginal_static_repair_design_source_bytes,
 )
+from dehps.research_os.information_theory.measurement_system_v2.marginal_static_repair_preregistration import (
+    CALIBRATION_REPLICATES,
+    EVALUATION_REPLICATES,
+    EXECUTION_SHARD_SIZE,
+    EXECUTION_SHARDS,
+    MARGINAL_STATIC_REPAIR_HEALTH_EXECUTION_TASK_KEY,
+    MARGINAL_STATIC_REPAIR_PREREGISTRATION_CAPABILITY,
+    MARGINAL_STATIC_REPAIR_PREREGISTRATION_COMPLETION_FACT,
+    MARGINAL_STATIC_REPAIR_PREREGISTRATION_SOURCE_CONTRACT_PATH,
+    TOTAL_GENERATED_ISSUES,
+    TOTAL_OUTER_EVALUATION_ISSUES,
+    TOTAL_REPLICATES,
+    build_marginal_static_repair_preregistration_artifacts,
+    load_marginal_static_repair_preregistration_source_contract,
+    verify_marginal_static_repair_preregistration_source_bytes,
+)
 from dehps.research_os.information_theory.measurement_system_v2.preflight_design import (
     PREFLIGHT_DESIGN_CAPABILITY,
     PREFLIGHT_DESIGN_COMPLETION_FACT,
@@ -5912,9 +5928,7 @@ class M4MarginalStaticRepairDesignCapability:
             ],
             "forward_61_gate_admissible": {"0.010": False, "0.050": False},
             "forward_61_classification": "ANALYTICALLY_INFEASIBLE",
-            "independent_root_seed_domain": (
-                "M4_V2_MARGINAL_STATIC_REPAIR_HEALTH_V1"
-            ),
+            "independent_root_seed_domain": ("M4_V2_MARGINAL_STATIC_REPAIR_HEALTH_V1"),
             "independent_bootstrap_seed_domain": (
                 "M4_V2_MARGINAL_STATIC_REPAIR_HEALTH_BOOTSTRAP_V1"
             ),
@@ -5978,6 +5992,260 @@ class M4MarginalStaticRepairDesignCapability:
             execution_artifact_path=execution_path,
             registrations=registrations,
             completion_facts=(MARGINAL_STATIC_REPAIR_DESIGN_COMPLETION_FACT,),
+        )
+
+
+class M4MarginalStaticRepairPreregistrationCapability:
+    def __init__(
+        self,
+        *,
+        repository: PostgresResearchOSRepository,
+        root_dir: Path = ROOT_DIR,
+    ) -> None:
+        self.repository = repository
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key != MARGINAL_STATIC_REPAIR_PREREGISTRATION_TASK_KEY
+            or task.requested_capability
+            != MARGINAL_STATIC_REPAIR_PREREGISTRATION_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static repair preregistration received the wrong task"
+            )
+        source_contract = load_marginal_static_repair_preregistration_source_contract(
+            self.root_dir / MARGINAL_STATIC_REPAIR_PREREGISTRATION_SOURCE_CONTRACT_PATH
+        )
+        verify_marginal_static_repair_preregistration_source_bytes(
+            root_dir=self.root_dir,
+            contract=source_contract,
+        )
+        _, repair_execution, repair_registrations = _load_single_completed_execution(
+            repository=self.repository,
+            root_dir=self.root_dir,
+            control_plane_key=control_plane_key,
+            task_key=MARGINAL_STATIC_REPAIR_DESIGN_TASK_KEY,
+        )
+        feasibility = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=repair_registrations,
+            artifact_type="m4_v2_marginal_static_repair_analytic_feasibility",
+        )
+        repair_design = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=repair_registrations,
+            artifact_type="m4_v2_marginal_static_measurement_repair_design",
+        )
+        repair_completion = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=repair_registrations,
+            artifact_type="m4_v2_marginal_static_repair_design_completion",
+        )
+        expected_inputs = (
+            str(source_contract["artifact_digest"]),
+            str(repair_execution["artifact_digest"]),
+            str(feasibility["artifact_digest"]),
+            str(repair_design["artifact_digest"]),
+            str(repair_completion["artifact_digest"]),
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static repair preregistration identities changed"
+            )
+        run = build_marginal_static_repair_preregistration_artifacts(
+            source_contract=source_contract,
+            repair_design_execution=repair_execution,
+            analytic_feasibility=feasibility,
+            repair_design=repair_design,
+            repair_design_completion=repair_completion,
+            execution_id=execution_id,
+            git_commit=git_commit,
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        workload_path = (
+            task_dir
+            / "artifacts/workload-seeds"
+            / str(run.workload_and_seeds["artifact_digest"])
+            / "workload-seeds.json"
+        )
+        inference_path = (
+            task_dir
+            / "artifacts/inference-gates"
+            / str(run.inference_and_gates["artifact_digest"])
+            / "inference-gates.json"
+        )
+        preregistration_path = (
+            task_dir
+            / "artifacts/preregistration"
+            / str(run.preregistration["artifact_digest"])
+            / "preregistration.json"
+        )
+        completion_path = (
+            task_dir
+            / "artifacts/completion"
+            / str(run.completion["artifact_digest"])
+            / "completion.json"
+        )
+        child_payloads = (
+            (workload_path, run.workload_and_seeds),
+            (inference_path, run.inference_and_gates),
+            (preregistration_path, run.preregistration),
+            (completion_path, run.completion),
+        )
+        for path, payload in child_payloads:
+            _persist_immutable(path, payload)
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "marginal_static_repair_preregistration_source_contract_digest": (
+                source_contract["artifact_digest"]
+            ),
+            "marginal_static_repair_preregistration_source_set_digest": (
+                source_contract["source_set_digest"]
+            ),
+            "research_request_key": source_contract["research_request_key"],
+            "research_request_id": source_contract["research_request_id"],
+            "research_execution_id": source_contract["research_execution_id"],
+            "research_addendum_key": source_contract["research_addendum_key"],
+            "research_addendum_request_id": source_contract[
+                "research_addendum_request_id"
+            ],
+            "research_addendum_execution_id": source_contract[
+                "research_addendum_execution_id"
+            ],
+            "repair_design_execution_id": repair_execution["execution_id"],
+            "repair_design_execution_artifact_digest": repair_execution[
+                "artifact_digest"
+            ],
+            "repair_analytic_feasibility_digest": feasibility["artifact_digest"],
+            "repair_design_artifact_digest": repair_design["artifact_digest"],
+            "repair_design_completion_digest": repair_completion["artifact_digest"],
+            "marginal_static_repair_analytic_feasibility_digest": feasibility[
+                "artifact_digest"
+            ],
+            "marginal_static_repair_design_artifact_digest": repair_design[
+                "artifact_digest"
+            ],
+            "marginal_static_repair_design_completion_digest": repair_completion[
+                "artifact_digest"
+            ],
+            "old_measurement_health": "REPAIR",
+            "old_decision_preserved": "REPAIR_MEASUREMENT_SYSTEM",
+            "measurement_health": "REPAIR",
+            "eligible_for_historical_measurement": False,
+            "marginal_static_repair_health_workload_seed_digest": (
+                run.workload_and_seeds["artifact_digest"]
+            ),
+            "marginal_static_repair_health_inference_gate_digest": (
+                run.inference_and_gates["artifact_digest"]
+            ),
+            "marginal_static_repair_health_preregistration_digest": (
+                run.preregistration["artifact_digest"]
+            ),
+            "marginal_static_repair_health_preregistration_completion_digest": (
+                run.completion["artifact_digest"]
+            ),
+            "planned_calibration_replicates": CALIBRATION_REPLICATES,
+            "planned_evaluation_replicates": EVALUATION_REPLICATES,
+            "planned_total_replicates": TOTAL_REPLICATES,
+            "planned_total_generated_issues": TOTAL_GENERATED_ISSUES,
+            "planned_total_outer_evaluation_issues": (TOTAL_OUTER_EVALUATION_ISSUES),
+            "planned_execution_shards": EXECUTION_SHARDS,
+            "execution_shard_size": EXECUTION_SHARD_SIZE,
+            "max_rejecting_exceedance_count": 24,
+            "nested_bootstrap_replicates_per_formal_replicate": 0,
+            "independent_root_seed_domain": ("M4_V2_MARGINAL_STATIC_REPAIR_HEALTH_V1"),
+            "independent_calibration_seed_domain": (
+                "M4_V2_MARGINAL_STATIC_REPAIR_HEALTH_CALIBRATION_V1"
+            ),
+            "independent_evaluation_seed_domain": (
+                "M4_V2_MARGINAL_STATIC_REPAIR_HEALTH_EVALUATION_V1"
+            ),
+            "round_42_seed_reuse": False,
+            "calibration_evaluation_seed_overlap": False,
+            "formal_execution_authorized": False,
+            "automatic_pass_from_preregistration": False,
+            "completion_fact": (MARGINAL_STATIC_REPAIR_PREREGISTRATION_COMPLETION_FACT),
+            "generated_issues": 0,
+            "synthetic_replicates": 0,
+            "bootstrap_replicates_executed": 0,
+            "checkpoint_reads": 0,
+            "compact_index_reads": 0,
+            "sentinel_replicates_recomputed": 0,
+            "duplicate_validation": False,
+            "actual_fold_count": 0,
+            "registered_artifact_count": len(child_payloads) + 1,
+            "formal_branch_runs_executed": 0,
+            "historical_outcomes_read": False,
+            "statistical_results_read": False,
+            "evidence_created": False,
+            "evidence_progress_before": 0,
+            "evidence_progress_after": 0,
+            "accepted_model_artifact_digest": None,
+            "promotion_gate_opened": False,
+            "downstream_consumer": MARGINAL_STATIC_REPAIR_HEALTH_EXECUTION_TASK_KEY,
+            "production_impact": "none",
+            "production_action": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "replay_status": "DETERMINISTIC_PREREGISTRATION_ONLY",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                *(str(payload["artifact_digest"]) for _, payload in child_payloads),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(registrations) != execution_payload["registered_artifact_count"]:
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static repair preregistration registration "
+                "count changed"
+            )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=registrations,
+            completion_facts=(MARGINAL_STATIC_REPAIR_PREREGISTRATION_COMPLETION_FACT,),
         )
 
 
@@ -7792,6 +8060,12 @@ class ResearchEvidenceSupervisor:
                     root_dir=root_dir,
                 )
             ),
+            MARGINAL_STATIC_REPAIR_PREREGISTRATION_CAPABILITY: (
+                M4MarginalStaticRepairPreregistrationCapability(
+                    repository=self.repository,
+                    root_dir=root_dir,
+                )
+            ),
             M4_V2_P261_RAW_REPLAY_CAPABILITY: (
                 M4P261RawExecutionReplayCapability(
                     repository=self.repository,
@@ -8282,6 +8556,29 @@ class ResearchEvidenceSupervisor:
                                     "marginal_static_repair_analytic_feasibility_digest",
                                     "marginal_static_repair_design_artifact_digest",
                                     "marginal_static_repair_design_completion_digest",
+                                    "marginal_static_repair_preregistration_source_contract_digest",
+                                    "marginal_static_repair_preregistration_source_set_digest",
+                                    "research_addendum_key",
+                                    "research_addendum_request_id",
+                                    "research_addendum_execution_id",
+                                    "repair_design_execution_id",
+                                    "repair_design_execution_artifact_digest",
+                                    "repair_analytic_feasibility_digest",
+                                    "repair_design_artifact_digest",
+                                    "repair_design_completion_digest",
+                                    "marginal_static_repair_health_workload_seed_digest",
+                                    "marginal_static_repair_health_inference_gate_digest",
+                                    "marginal_static_repair_health_preregistration_digest",
+                                    "marginal_static_repair_health_preregistration_completion_digest",
+                                    "planned_calibration_replicates",
+                                    "planned_evaluation_replicates",
+                                    "max_rejecting_exceedance_count",
+                                    "nested_bootstrap_replicates_per_formal_replicate",
+                                    "independent_calibration_seed_domain",
+                                    "independent_evaluation_seed_domain",
+                                    "calibration_evaluation_seed_overlap",
+                                    "formal_execution_authorized",
+                                    "automatic_pass_from_preregistration",
                                     "forward_61_gate_admissible",
                                     "forward_61_classification",
                                     "independent_root_seed_domain",
@@ -10588,9 +10885,7 @@ class ResearchEvidenceSupervisor:
             registered_feasibility = _load_registered_type(
                 root_dir=self.root_dir,
                 registrations=registrations,
-                artifact_type=(
-                    "m4_v2_marginal_static_repair_analytic_feasibility"
-                ),
+                artifact_type=("m4_v2_marginal_static_repair_analytic_feasibility"),
             )
             registered_design = _load_registered_type(
                 root_dir=self.root_dir,
@@ -10613,9 +10908,7 @@ class ResearchEvidenceSupervisor:
                 registered_feasibility != reconstructed.feasibility
                 or registered_design != reconstructed.repair_design
                 or registered_completion != reconstructed.completion
-                or artifact.get(
-                    "marginal_static_repair_design_source_contract_digest"
-                )
+                or artifact.get("marginal_static_repair_design_source_contract_digest")
                 != source_contract["artifact_digest"]
                 or artifact.get("marginal_static_repair_design_source_set_digest")
                 != source_contract["source_set_digest"]
@@ -10623,17 +10916,14 @@ class ResearchEvidenceSupervisor:
                 != decision_execution["artifact_digest"]
                 or artifact.get("health_decision_artifact_digest")
                 != decision["artifact_digest"]
-                or artifact.get(
-                    "marginal_static_repair_analytic_feasibility_digest"
-                )
+                or artifact.get("marginal_static_repair_analytic_feasibility_digest")
                 != reconstructed.feasibility["artifact_digest"]
                 or artifact.get("marginal_static_repair_design_artifact_digest")
                 != reconstructed.repair_design["artifact_digest"]
                 or artifact.get("marginal_static_repair_design_completion_digest")
                 != reconstructed.completion["artifact_digest"]
                 or artifact.get("old_measurement_health") != "REPAIR"
-                or artifact.get("old_decision_preserved")
-                != "REPAIR_MEASUREMENT_SYSTEM"
+                or artifact.get("old_decision_preserved") != "REPAIR_MEASUREMENT_SYSTEM"
                 or artifact.get("measurement_health") != "REPAIR"
                 or artifact.get("decision") != "REPAIR_MEASUREMENT_SYSTEM"
                 or artifact.get("decision_fact")
@@ -10676,9 +10966,7 @@ class ResearchEvidenceSupervisor:
                 "analytic_feasibility_digest": reconstructed.feasibility[
                     "artifact_digest"
                 ],
-                "repair_design_digest": reconstructed.repair_design[
-                    "artifact_digest"
-                ],
+                "repair_design_digest": reconstructed.repair_design["artifact_digest"],
                 "completion_digest": reconstructed.completion["artifact_digest"],
                 "same_registered_content": True,
                 "design_only": True,
@@ -10690,6 +10978,176 @@ class ResearchEvidenceSupervisor:
                 "duplicate_validation": False,
                 "historical_outcomes_read": False,
                 "statistical_results_read": True,
+                "evidence_created": False,
+                "manual_input_assembly": False,
+            }
+        elif task_key == MARGINAL_STATIC_REPAIR_PREREGISTRATION_TASK_KEY:
+            source_contract = (
+                load_marginal_static_repair_preregistration_source_contract(
+                    self.root_dir
+                    / MARGINAL_STATIC_REPAIR_PREREGISTRATION_SOURCE_CONTRACT_PATH
+                )
+            )
+            verify_marginal_static_repair_preregistration_source_bytes(
+                root_dir=self.root_dir,
+                contract=source_contract,
+            )
+            _, repair_execution, repair_registrations = (
+                _load_single_completed_execution(
+                    repository=self.repository,
+                    root_dir=self.root_dir,
+                    control_plane_key=self.control_plane_key,
+                    task_key=MARGINAL_STATIC_REPAIR_DESIGN_TASK_KEY,
+                )
+            )
+            feasibility = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=repair_registrations,
+                artifact_type=("m4_v2_marginal_static_repair_analytic_feasibility"),
+            )
+            repair_design = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=repair_registrations,
+                artifact_type=("m4_v2_marginal_static_measurement_repair_design"),
+            )
+            repair_completion = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=repair_registrations,
+                artifact_type=("m4_v2_marginal_static_repair_design_completion"),
+            )
+            registered_workload = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                artifact_type=("m4_v2_marginal_static_repair_health_workload_seeds"),
+            )
+            registered_inference = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                artifact_type=("m4_v2_marginal_static_repair_health_inference_gates"),
+            )
+            registered_preregistration = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                artifact_type=("m4_v2_marginal_static_repair_health_preregistration"),
+            )
+            registered_completion = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                artifact_type=(
+                    "m4_v2_marginal_static_repair_health_preregistration_completion"
+                ),
+            )
+            reconstructed = build_marginal_static_repair_preregistration_artifacts(
+                source_contract=source_contract,
+                repair_design_execution=repair_execution,
+                analytic_feasibility=feasibility,
+                repair_design=repair_design,
+                repair_design_completion=repair_completion,
+                execution_id=resolved_execution_id,
+                git_commit=str(artifact["git_commit"]),
+            )
+            if (
+                registered_workload != reconstructed.workload_and_seeds
+                or registered_inference != reconstructed.inference_and_gates
+                or registered_preregistration != reconstructed.preregistration
+                or registered_completion != reconstructed.completion
+                or artifact.get(
+                    "marginal_static_repair_preregistration_source_contract_digest"
+                )
+                != source_contract["artifact_digest"]
+                or artifact.get(
+                    "marginal_static_repair_preregistration_source_set_digest"
+                )
+                != source_contract["source_set_digest"]
+                or artifact.get("repair_design_execution_artifact_digest")
+                != repair_execution["artifact_digest"]
+                or artifact.get("repair_analytic_feasibility_digest")
+                != feasibility["artifact_digest"]
+                or artifact.get("repair_design_artifact_digest")
+                != repair_design["artifact_digest"]
+                or artifact.get("repair_design_completion_digest")
+                != repair_completion["artifact_digest"]
+                or artifact.get("marginal_static_repair_health_workload_seed_digest")
+                != reconstructed.workload_and_seeds["artifact_digest"]
+                or artifact.get("marginal_static_repair_health_inference_gate_digest")
+                != reconstructed.inference_and_gates["artifact_digest"]
+                or artifact.get("marginal_static_repair_health_preregistration_digest")
+                != reconstructed.preregistration["artifact_digest"]
+                or artifact.get(
+                    "marginal_static_repair_health_preregistration_completion_digest"
+                )
+                != reconstructed.completion["artifact_digest"]
+                or artifact.get("old_measurement_health") != "REPAIR"
+                or artifact.get("old_decision_preserved") != "REPAIR_MEASUREMENT_SYSTEM"
+                or artifact.get("measurement_health") != "REPAIR"
+                or artifact.get("eligible_for_historical_measurement") is not False
+                or artifact.get("planned_calibration_replicates")
+                != CALIBRATION_REPLICATES
+                or artifact.get("planned_evaluation_replicates")
+                != EVALUATION_REPLICATES
+                or artifact.get("planned_total_replicates") != TOTAL_REPLICATES
+                or artifact.get("planned_total_generated_issues")
+                != TOTAL_GENERATED_ISSUES
+                or artifact.get("planned_total_outer_evaluation_issues")
+                != TOTAL_OUTER_EVALUATION_ISSUES
+                or artifact.get("planned_execution_shards") != EXECUTION_SHARDS
+                or artifact.get("execution_shard_size") != EXECUTION_SHARD_SIZE
+                or artifact.get("max_rejecting_exceedance_count") != 24
+                or artifact.get("nested_bootstrap_replicates_per_formal_replicate") != 0
+                or artifact.get("round_42_seed_reuse") is not False
+                or artifact.get("calibration_evaluation_seed_overlap") is not False
+                or artifact.get("formal_execution_authorized") is not False
+                or artifact.get("automatic_pass_from_preregistration") is not False
+                or artifact.get("generated_issues") != 0
+                or artifact.get("synthetic_replicates") != 0
+                or artifact.get("bootstrap_replicates_executed") != 0
+                or artifact.get("checkpoint_reads") != 0
+                or artifact.get("compact_index_reads") != 0
+                or artifact.get("sentinel_replicates_recomputed") != 0
+                or artifact.get("duplicate_validation") is not False
+                or artifact.get("historical_outcomes_read") is not False
+                or artifact.get("statistical_results_read") is not False
+                or artifact.get("evidence_created") is not False
+                or artifact.get("promotion_gate_opened") is not False
+                or artifact.get("downstream_consumer")
+                != MARGINAL_STATIC_REPAIR_HEALTH_EXECUTION_TASK_KEY
+                or artifact.get("production_action") != "none"
+            ):
+                raise MainlineSupervisorError(
+                    "M4 v2 marginal-static repair preregistration replay "
+                    "identity changed"
+                )
+            _verify_v2_registered_artifacts(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                expected_payloads=(*reconstructed.artifacts, artifact),
+            )
+            capability_replay = {
+                "schema_version": (
+                    "dehps-m4-v2-marginal-static-repair-preregistration-replay.v1"
+                ),
+                "status": "REPLAY_VERIFIED",
+                "workload_and_seed_digest": reconstructed.workload_and_seeds[
+                    "artifact_digest"
+                ],
+                "inference_and_gate_digest": reconstructed.inference_and_gates[
+                    "artifact_digest"
+                ],
+                "preregistration_digest": reconstructed.preregistration[
+                    "artifact_digest"
+                ],
+                "completion_digest": reconstructed.completion["artifact_digest"],
+                "same_registered_content": True,
+                "preregistration_only": True,
+                "formal_replicates_executed": 0,
+                "generated_issues_during_replay": 0,
+                "bootstrap_replicates_executed": 0,
+                "checkpoint_reads": 0,
+                "compact_index_reads": 0,
+                "sentinel_replicates_recomputed": 0,
+                "duplicate_validation": False,
+                "historical_outcomes_read": False,
+                "statistical_results_read": False,
                 "evidence_created": False,
                 "manual_input_assembly": False,
             }
