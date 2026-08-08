@@ -1,0 +1,144 @@
+{
+  "schema_version": "dehps-m4-v2-marginal-static-repair-design-source.v1",
+  "artifact_type": "m4_v2_marginal_static_repair_design_source",
+  "artifact_digest": "13ec63a3ee5a075a1e44dd282a311425c2618d6d06f1fa3879815c7001450b3f",
+  "contract_key": "M4_V2_MARGINAL_STATIC_REPAIR_DESIGN_SOURCE",
+  "research_request_key": "research-m4-v2-marginal-static-repair-design-round-44-20260808",
+  "research_request_id": 334,
+  "research_execution_id": 255,
+  "engineering_request_key": "engineering-m4-v2-marginal-static-repair-design-round-44-20260808",
+  "engineering_request_id": 335,
+  "result_aware": true,
+  "formal_replicates_executed": 0,
+  "generated_issues": 0,
+  "historical_outcomes_read": false,
+  "statistical_results_read": true,
+  "evidence_created": false,
+  "production_action": "none",
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/marginal_static_repair_design.py",
+      "content_sha256": "4cd93eed2dbbcdeb57dd21b546a07132bdfc047e707db4bc8ef2677a921601d1"
+    }
+  ],
+  "source_set_digest": "2503eff7461bee35f48947c48069341bf33cfa54e2e54d7fda20eb8cedbc61c8",
+  "frozen_contract": {
+    "task_key": "m4-v2-marginal-static-measurement-repair-design",
+    "capability": "m4_v2_marginal_static_measurement_repair_design",
+    "completion_fact": "m4-v2-marginal-static-measurement-repair-design:FROZEN",
+    "next_consumer": "m4-v2-marginal-static-measurement-repair-preregistration",
+    "health_result_digest": "40b449a7abe4ac9fff6eb0e98212f5809e0f0ff76c93f1344b673b4716905e2d",
+    "health_decision_digest": "cb653dc02739958814b0e4b349e163bd10f9256a19c05f61dbc1808fe6948d50",
+    "old_decision": "REPAIR_MEASUREMENT_SYSTEM",
+    "old_failed_gate_map": {
+      "BASE:V2_M1_GROUP_ODDS_2_STATIONARY:FORWARD_61": [
+        "bias",
+        "coverage",
+        "positive_power"
+      ],
+      "LOCAL_M1:0.010:FORWARD_61": [
+        "bias",
+        "coverage",
+        "practical_power"
+      ],
+      "LOCAL_M1:0.010:HISTORICAL_2581": [
+        "practical_power"
+      ],
+      "LOCAL_M1:0.050:FORWARD_61": [
+        "bias",
+        "strong_power"
+      ]
+    },
+    "diagnosis": {
+      "finite_sample_estimand_mismatch": {
+        "local_0_010_forward_mean_conditional_truth_bits_per_issue": -0.015424043459850139,
+        "local_0_010_forward_positive_truth_fraction": 0.0,
+        "local_0_010_historical_mean_conditional_truth_bits_per_issue": -0.0024829610710475126,
+        "local_0_010_historical_positive_truth_fraction": 0.15625,
+        "classification": "ASYMPTOTIC_ORACLE_LABEL_IS_NOT_FINITE_SAMPLE_ONLINE_TRUTH"
+      },
+      "bias_point_gate": {
+        "classification": "MONTE_CARLO_POINT_ESTIMATE_CANNOT_REPLACE_EXACT_CONDITIONAL_IDENTITY",
+        "all_failed_bias_ci95_include_zero": true
+      },
+      "inference_geometry": {
+        "all_failed_cells": "IID_M1",
+        "old_primary_block_size": 5,
+        "classification": "INFERENCE_ROUTE_MUST_FOLLOW_PROCESS_GEOMETRY"
+      }
+    },
+    "analytic_power_feasibility": {
+      "forward_61": {
+        "0.010": 0.22958915217193457,
+        "0.050": 0.6475131406108688
+      },
+      "historical_2581": {
+        "0.010": 0.9999890785821147,
+        "0.050": 0.9999999999999993
+      }
+    },
+    "old_power_requirements": {
+      "0.010": 0.8,
+      "0.050": 0.95
+    },
+    "pre_sample_feasibility_audit": {
+      "test_size": 0.05,
+      "method": "exact legal-six group-count convolution and randomized Neyman-Pearson upper envelope",
+      "admissibility_rule": "requested power must not exceed the generator-specific upper envelope",
+      "infeasible_projection": "SENSITIVITY_LIMIT_NOT_CALIBRATION_FAILURE",
+      "result_selected_exception": "forbidden"
+    },
+    "estimand_layers": {
+      "oracle_information": "known-generator stationary composite-score gain",
+      "online_instrument_utility": "conditional expected prequential score of the frozen expanding estimator",
+      "sampling_detection": "power of a preregistered inference rule at a declared horizon",
+      "sensitivity_limit": "reported MDE or analytic upper-bound limitation"
+    },
+    "bias_and_truth": {
+      "primary_proof": "conditional expectation of observed score equals recorded conditional truth",
+      "absolute_numerical_error_max": 1e-12,
+      "empirical_bias_role": "diagnostic_with_monte_carlo_interval",
+      "asymptotic_oracle_label_as_online_truth": "forbidden"
+    },
+    "inference_routing": {
+      "iid": "IID_RESAMPLING_OR_EXACT_METHOD_PREREGISTRATION_REQUIRED",
+      "dependent": "CIRCULAR_BLOCK_WITH_SENSITIVITY",
+      "route_selected_after_results": "forbidden",
+      "shared_unexplained_primary_block": "forbidden"
+    },
+    "power_and_mde": {
+      "forward_horizon_issues": 61,
+      "historical_horizon_issues": 2581,
+      "local_targets_bits_per_issue": [
+        0.001,
+        0.01,
+        0.05
+      ],
+      "local_cells_role": "report finite-sample online utility, attainable power, and MDE",
+      "infeasible_target_role": "explicit_sensitivity_limitation",
+      "power_threshold_selection_from_round_42": "forbidden"
+    },
+    "seed_contract": {
+      "root_seed_domain": "M4_V2_MARGINAL_STATIC_REPAIR_HEALTH_V1",
+      "bootstrap_seed_domain": "M4_V2_MARGINAL_STATIC_REPAIR_HEALTH_BOOTSTRAP_V1",
+      "round_42_seed_reuse": false,
+      "worker_or_shard_identity_in_seed": false,
+      "best_seed_selection": "forbidden"
+    },
+    "resource_boundary": {
+      "repair_design_replicates": 0,
+      "repair_design_generated_issues": 0,
+      "checkpoint_reads": 0,
+      "duplicate_validation": false,
+      "database_reads": 0,
+      "database_writes": 0,
+      "historical_outcomes_read": false,
+      "evidence_created": false,
+      "future_repair_execution": "one independent formal run after a separate preregistration"
+    },
+    "automatic_pass_from_reanalysis": false,
+    "same_seed_tuning": "forbidden",
+    "posthoc_threshold_change": "forbidden",
+    "production_action": "none"
+  }
+}

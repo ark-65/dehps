@@ -74,6 +74,12 @@ M4_V2_MARGINAL_HEALTH_DECISION_INCONCLUSIVE_FACT = (
 M4_V2_MARGINAL_REPAIR_DESIGN_TASK_KEY = (
     "m4-v2-marginal-static-measurement-repair-design"
 )
+M4_V2_MARGINAL_REPAIR_DESIGN_COMPLETION_FACT = (
+    "m4-v2-marginal-static-measurement-repair-design:FROZEN"
+)
+M4_V2_MARGINAL_REPAIR_PREREGISTRATION_TASK_KEY = (
+    "m4-v2-marginal-static-measurement-repair-preregistration"
+)
 M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
 M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = "m4-v2-p2-6-1-marginal-decision-replay"
 M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
@@ -376,11 +382,27 @@ def build_m4_status(
         measurement_v2_execution
         if measurement_v2_execution is not None
         and measurement_v2_execution.get("execution_task_key")
-        == M4_V2_MARGINAL_HEALTH_DECISION_TASK_KEY
+        in {
+            M4_V2_MARGINAL_HEALTH_DECISION_TASK_KEY,
+            M4_V2_MARGINAL_REPAIR_DESIGN_TASK_KEY,
+        }
         else None
     )
     measurement_v2_marginal_repair_design_resolution = resolutions.get(
         M4_V2_MARGINAL_REPAIR_DESIGN_TASK_KEY
+    )
+    measurement_v2_marginal_repair_design_task = tasks.get(
+        M4_V2_MARGINAL_REPAIR_DESIGN_TASK_KEY
+    )
+    measurement_v2_marginal_repair_design = (
+        measurement_v2_execution
+        if measurement_v2_execution is not None
+        and measurement_v2_execution.get("execution_task_key")
+        == M4_V2_MARGINAL_REPAIR_DESIGN_TASK_KEY
+        else None
+    )
+    measurement_v2_marginal_repair_preregistration_resolution = resolutions.get(
+        M4_V2_MARGINAL_REPAIR_PREREGISTRATION_TASK_KEY
     )
     measurement_compatibility_resolution = resolutions.get(
         M4_P263_COMPATIBILITY_TASK_KEY
@@ -1102,7 +1124,10 @@ def build_m4_status(
         "measurement_system_v2": (
             {
                 "phase": (
-                    "MARGINAL_STATIC_REPAIR_DESIGN"
+                    "MARGINAL_STATIC_REPAIR_PREREGISTRATION"
+                    if M4_V2_MARGINAL_REPAIR_DESIGN_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "MARGINAL_STATIC_REPAIR_DESIGN"
                     if M4_V2_MARGINAL_HEALTH_DECISION_REPAIR_FACT
                     in manifest.facts.artifacts
                     else "MARGINAL_STATIC_HISTORICAL_MEASUREMENT"
@@ -1714,15 +1739,82 @@ def build_m4_status(
                         if measurement_v2_marginal_repair_design_resolution is None
                         else measurement_v2_marginal_repair_design_resolution.status.value
                     ),
+                    "completion_classification": (
+                        None
+                        if measurement_v2_marginal_repair_design_task is None
+                        or task_states[
+                            measurement_v2_marginal_repair_design_task.artifact_digest
+                        ].completion_classification
+                        is None
+                        else task_states[
+                            measurement_v2_marginal_repair_design_task.artifact_digest
+                        ].completion_classification.value
+                    ),
+                    "completed": (
+                        M4_V2_MARGINAL_REPAIR_DESIGN_COMPLETION_FACT
+                        in manifest.facts.artifacts
+                    ),
                     "result_aware": True,
                     "new_preregistration_required": True,
+                    "independent_seed_required": True,
+                    "same_seed_tuning_forbidden": True,
+                    "posthoc_threshold_change_forbidden": True,
+                    "old_decision_preserved": "REPAIR_MEASUREMENT_SYSTEM",
+                    "forward_61_classification": (
+                        None
+                        if measurement_v2_marginal_repair_design is None
+                        else measurement_v2_marginal_repair_design.get(
+                            "forward_61_classification"
+                        )
+                    ),
+                    "analytic_feasibility_digest": (
+                        None
+                        if measurement_v2_marginal_repair_design is None
+                        else measurement_v2_marginal_repair_design.get(
+                            "marginal_static_repair_analytic_feasibility_digest"
+                        )
+                    ),
+                    "repair_design_digest": (
+                        None
+                        if measurement_v2_marginal_repair_design is None
+                        else measurement_v2_marginal_repair_design.get(
+                            "marginal_static_repair_design_artifact_digest"
+                        )
+                    ),
+                    "completion_digest": (
+                        None
+                        if measurement_v2_marginal_repair_design is None
+                        else measurement_v2_marginal_repair_design.get(
+                            "marginal_static_repair_design_completion_digest"
+                        )
+                    ),
+                    "generated_issues": 0,
+                    "synthetic_replicates": 0,
+                    "checkpoint_reads": 0,
+                    "duplicate_validation": False,
+                    "historical_outcomes_read": False,
+                    "statistical_results_read": (
+                        measurement_v2_marginal_repair_design is not None
+                    ),
+                    "evidence_created": False,
+                    "promotion_gate_opened": False,
+                    "production_action": "none",
+                    "next_consumer": M4_V2_MARGINAL_REPAIR_PREREGISTRATION_TASK_KEY,
+                },
+                "marginal_static_repair_preregistration": {
+                    "task_key": M4_V2_MARGINAL_REPAIR_PREREGISTRATION_TASK_KEY,
+                    "resolver_status": (
+                        None
+                        if measurement_v2_marginal_repair_preregistration_resolution
+                        is None
+                        else measurement_v2_marginal_repair_preregistration_resolution.status.value
+                    ),
                     "independent_seed_required": True,
                     "same_seed_tuning_forbidden": True,
                     "posthoc_threshold_change_forbidden": True,
                     "historical_outcomes_read": False,
                     "evidence_created": False,
                     "production_action": "none",
-                    "next_consumer": "m4-v2-marginal-static-measurement-repair-preregistration",
                 },
                 "completion_classification": (
                     None
@@ -1735,7 +1827,10 @@ def build_m4_status(
                     ].completion_classification.value
                 ),
                 "live_mainline_status": (
-                    "MARGINAL_STATIC_HEALTH_DECISION_VALIDATED_IN_MAINLINE"
+                    "MARGINAL_STATIC_REPAIR_DESIGN_VALIDATED_IN_MAINLINE"
+                    if M4_V2_MARGINAL_REPAIR_DESIGN_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "MARGINAL_STATIC_HEALTH_DECISION_VALIDATED_IN_MAINLINE"
                     if any(
                         fact in manifest.facts.artifacts
                         for fact in (
