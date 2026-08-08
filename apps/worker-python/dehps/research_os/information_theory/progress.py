@@ -166,6 +166,12 @@ PREDICTION_V2_PROMOTION_PLANNER_COMPLETION_FACT = (
 PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_TASK_KEY = (
     "prediction-v2-forward-evidence-or-pivot-planner"
 )
+PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_COMPLETION_FACT = (
+    "prediction-v2-forward-evidence-or-pivot-planner:COMPLETE"
+)
+PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_TASK_KEY = (
+    "prediction-v2-structural-decision-support-design"
+)
 M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
 M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = "m4-v2-p2-6-1-marginal-decision-replay"
 M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
@@ -665,6 +671,16 @@ def build_m4_status(
     )
     prediction_v2_forward_or_pivot_task = tasks.get(
         PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_TASK_KEY
+    )
+    prediction_v2_forward_or_pivot = (
+        measurement_v2_execution
+        if measurement_v2_execution is not None
+        and measurement_v2_execution.get("execution_task_key")
+        == PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_TASK_KEY
+        else None
+    )
+    prediction_v2_structural_design_resolution = resolutions.get(
+        PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_TASK_KEY
     )
     durable_gate_evidence_facts = tuple(
         fact
@@ -1399,7 +1415,10 @@ def build_m4_status(
         "measurement_system_v2": (
             {
                 "phase": (
-                    "PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER"
+                    "PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN"
+                    if PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER"
                     if PREDICTION_V2_PROMOTION_PLANNER_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "PREDICTION_V2_PROMOTION_PLANNER"
@@ -3307,14 +3326,22 @@ def build_m4_status(
                         )
                     ),
                     "plan_decision": (
-                        None
-                        if prediction_v2_promotion_planner is None
-                        else prediction_v2_promotion_planner.get("plan_decision")
+                        prediction_v2_forward_or_pivot.get("upstream_plan_decision")
+                        if prediction_v2_forward_or_pivot is not None
+                        else (
+                            None
+                            if prediction_v2_promotion_planner is None
+                            else prediction_v2_promotion_planner.get("plan_decision")
+                        )
                     ),
                     "route": (
-                        None
-                        if prediction_v2_promotion_planner is None
-                        else prediction_v2_promotion_planner.get("route")
+                        prediction_v2_forward_or_pivot.get("upstream_route")
+                        if prediction_v2_forward_or_pivot is not None
+                        else (
+                            None
+                            if prediction_v2_promotion_planner is None
+                            else prediction_v2_promotion_planner.get("route")
+                        )
                     ),
                     "prediction_v2_mode": "SHADOW_ONLY",
                     "prediction_v2_route": "BASELINE_ONLY",
@@ -3364,9 +3391,79 @@ def build_m4_status(
                         in manifest.facts.artifacts
                     ),
                     "selected_route": (
+                        prediction_v2_forward_or_pivot.get("selected_program")
+                        if prediction_v2_forward_or_pivot is not None
+                        else (
+                            None
+                            if prediction_v2_promotion_planner is None
+                            else prediction_v2_promotion_planner.get("route")
+                        )
+                    ),
+                    "selected_program": (
                         None
-                        if prediction_v2_promotion_planner is None
-                        else prediction_v2_promotion_planner.get("route")
+                        if prediction_v2_forward_or_pivot is None
+                        else prediction_v2_forward_or_pivot.get("selected_program")
+                    ),
+                    "prediction_research_disposition": (
+                        None
+                        if prediction_v2_forward_or_pivot is None
+                        else prediction_v2_forward_or_pivot.get(
+                            "prediction_research_disposition"
+                        )
+                    ),
+                    "projection_classification": (
+                        None
+                        if prediction_v2_forward_or_pivot is None
+                        else prediction_v2_forward_or_pivot.get(
+                            "projection_classification"
+                        )
+                    ),
+                    "formal_power_claim": False,
+                    "required_total_issues": (
+                        None
+                        if prediction_v2_forward_or_pivot is None
+                        else prediction_v2_forward_or_pivot.get("required_total_issues")
+                    ),
+                    "additional_issues_required": (
+                        None
+                        if prediction_v2_forward_or_pivot is None
+                        else prediction_v2_forward_or_pivot.get(
+                            "additional_issues_required"
+                        )
+                    ),
+                    "operational_horizon_days": (
+                        None
+                        if prediction_v2_forward_or_pivot is None
+                        else prediction_v2_forward_or_pivot.get(
+                            "operational_horizon_days"
+                        )
+                    ),
+                    "projected_mde_after_horizon_bits_per_issue": (
+                        None
+                        if prediction_v2_forward_or_pivot is None
+                        else prediction_v2_forward_or_pivot.get(
+                            "projected_mde_after_horizon_bits_per_issue"
+                        )
+                    ),
+                    "registered_artifact_count": (
+                        0
+                        if prediction_v2_forward_or_pivot is None
+                        else prediction_v2_forward_or_pivot.get(
+                            "registered_artifact_count", 0
+                        )
+                    ),
+                    "structural_algorithm_implemented": False,
+                    "new_model_created": False,
+                    "candidate_expert_authorized": False,
+                    "prediction_v2_mode": "SHADOW_ONLY",
+                    "prediction_v2_route": "BASELINE_ONLY",
+                    "next_consumer": (
+                        PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_TASK_KEY
+                    ),
+                    "next_consumer_resolver_status": (
+                        None
+                        if prediction_v2_structural_design_resolution is None
+                        else prediction_v2_structural_design_resolution.status.value
                     ),
                     "evidence_created": False,
                     "duplicate_validation": False,
@@ -3385,7 +3482,10 @@ def build_m4_status(
                     ].completion_classification.value
                 ),
                 "live_mainline_status": (
-                    "PREDICTION_V2_PROMOTION_PLANNER_VALIDATED_IN_MAINLINE"
+                    "PREDICTION_V2_FORWARD_OR_PIVOT_VALIDATED_IN_MAINLINE"
+                    if PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "PREDICTION_V2_PROMOTION_PLANNER_VALIDATED_IN_MAINLINE"
                     if PREDICTION_V2_PROMOTION_PLANNER_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "MARGINAL_STATIC_HISTORICAL_GATE_VALIDATED_IN_MAINLINE"
@@ -3555,7 +3655,10 @@ def build_m4_status(
                     ),
                 },
                 "next_consumer": (
-                    PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_TASK_KEY
+                    PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_TASK_KEY
+                    if PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_TASK_KEY
                     if PREDICTION_V2_PROMOTION_PLANNER_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else PREDICTION_V2_PROMOTION_PLANNER_TASK_KEY
