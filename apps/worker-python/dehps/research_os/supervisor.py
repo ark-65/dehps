@@ -12999,6 +12999,8 @@ class ResearchEvidenceSupervisor:
         return self._latest_completed_summary_for_tasks(
             snapshot,
             (
+                PREDICTION_V2_STRUCTURAL_PORTFOLIO_EVALUATION_TASK_KEY,
+                PREDICTION_V2_STRUCTURAL_PORTFOLIO_EXECUTION_TASK_KEY,
                 PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_PREREGISTRATION_TASK_KEY,
                 PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_TASK_KEY,
                 PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_TASK_KEY,
@@ -13042,6 +13044,8 @@ class ResearchEvidenceSupervisor:
             if resolutions.get(candidate) is not TaskStatus.COMPLETED:
                 continue
             if candidate in {
+                PREDICTION_V2_STRUCTURAL_PORTFOLIO_EVALUATION_TASK_KEY,
+                PREDICTION_V2_STRUCTURAL_PORTFOLIO_EXECUTION_TASK_KEY,
                 MARGINAL_STATIC_HISTORICAL_GATE_TASK_KEY,
                 MARGINAL_STATIC_HISTORICAL_EXECUTION_TASK_KEY,
                 MARGINAL_STATIC_HISTORICAL_PREREGISTRATION_TASK_KEY,
