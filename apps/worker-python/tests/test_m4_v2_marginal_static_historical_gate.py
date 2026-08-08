@@ -477,7 +477,10 @@ def test_supervisor_executes_and_replays_gate_without_recomputing_history(
         "measurement_v2_gate_compiler_contract": gate_contract,
     }
 
+    loaded_task_keys: list[str] = []
+
     def fake_completed_execution(*, task_key: str, **_: object):
+        loaded_task_keys.append(task_key)
         if task_key == HISTORICAL_EXECUTION_TASK_KEY:
             return ({}, parents["historical_execution"], [])
         return ({}, {}, [])
@@ -536,6 +539,10 @@ def test_supervisor_executes_and_replays_gate_without_recomputing_history(
         == (result.execution_artifact["accepted_model_artifact_digest"])
     )
     assert result.execution_artifact["duplicate_validation"] is False
+    assert loaded_task_keys.count("m4-v2-measurement-contract-design") == 1
+    assert "m4-v2-marginal-static-historical-measurement-design" not in (
+        loaded_task_keys
+    )
     assert result.completion_facts == (
         MARGINAL_STATIC_HISTORICAL_GATE_COMPLETION_FACT,
         "m4-v2-marginal-static-historical-evidence:POSITIVE",
@@ -577,3 +584,4 @@ def test_supervisor_executes_and_replays_gate_without_recomputing_history(
     assert capability_replay["formal_historical_folds_replayed"] == 0
     assert capability_replay["bootstrap_children_replayed"] == 0
     assert capability_replay["duplicate_validation"] is False
+    assert loaded_task_keys.count("m4-v2-measurement-contract-design") == 2
