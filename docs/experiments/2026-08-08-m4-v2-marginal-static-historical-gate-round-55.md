@@ -153,3 +153,19 @@ to load the same frozen digest
 The regression test now asserts that exact owner lookup. The failed durable
 event remains preserved; scientific rules, source contract, manifest, task
 inputs, and all immutable parent identities are unchanged.
+
+## Round 57 failed-state recovery guard
+
+The durable failure is now pinned by task digest, execution id, started-event
+digest, failed-event digest, exact error, and zero registered artifacts. A
+fail-closed recovery builder accepts only that exact `failed/INTEGRATED`
+incident and changes exactly one state to `draft/INTEGRATION_PENDING`. It
+rejects any changed identity, event history, error, completed event, or
+preexisting artifact.
+
+The builder does not load historical or statistical artifact payloads and
+executes zero folds, zero bootstrap children, zero Gate compilations, and zero
+database queries. Both immutable failure events remain in the durable event
+ledger. Durable import, Gate execution, Evidence compilation, and replay stay
+outside Engineering and require a distinct approved Operator Request after the
+recovery guard is merged and CI passes.
