@@ -433,9 +433,9 @@
       "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
       "identity_field": "manifest_digest",
       "supersedes_digest": "8994521570300cd5ec82c5c5e0d00fb669249282fad40479d19753667de572ae",
-      "superseded_by_digest": "70cecdb8f144aa23464dc77b2b47d8d478cbb56b8ae54a9ec3fa828b395b23bb"
+      "superseded_by_digest": "1790affe3010f14921e6f823e8d8aa8b9843cddcbe6619c0cba2b257f7a9d135"
     },
-    "70cecdb8f144aa23464dc77b2b47d8d478cbb56b8ae54a9ec3fa828b395b23bb": {
+    "1790affe3010f14921e6f823e8d8aa8b9843cddcbe6619c0cba2b257f7a9d135": {
       "artifact_type": "research_os_control_plane_manifest",
       "path": "configs/research-os/m4-information-theory-evidence-v1.json",
       "identity_field": "manifest_digest",
@@ -509,6 +509,11 @@
     "8f3b8e453a7ca86efa8daba4ed77cecd8bd23ee1cc99551b531a91e7a4445521": {
       "artifact_type": "m4_v2_marginal_static_repair_v2_preregistration_source",
       "path": "configs/research-os/m4-v2-marginal-static-repair-v2-preregistration-source-v1.json",
+      "identity_field": "artifact_digest"
+    },
+    "e1a2b76b1df2bb93a696330256462569e8122608fc027b014051391b9d89abee": {
+      "artifact_type": "m4_v2_marginal_static_repair_v2_health_execution_source",
+      "path": "configs/research-os/m4-v2-marginal-static-repair-v2-health-execution-source-v1.json",
       "identity_field": "artifact_digest"
     },
     "e094f3bd319c63b9ed5a8b14b955f7f64544e30d3b8410cc26b2906b7e56ae67": {
