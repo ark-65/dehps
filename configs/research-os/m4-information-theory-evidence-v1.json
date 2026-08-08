@@ -2598,8 +2598,17 @@
       "task_type": "prediction_v2_promotion_planner",
       "lane": "research",
       "priority": 74,
-      "requested_capability": null,
-      "input_artifact_digests": [],
+      "requested_capability": "prediction_v2_promotion_planner",
+      "input_artifact_digests": [
+        "f2fc68cc3d20167ecc8e2d3ea4ffaab6c9459cb2edef7e3b364e0431f446e160",
+        "6b761c57ea46fe8819a0a38193cfe78f613e48b348bc5d682669ad816fbea721",
+        "efbb2a3d3b711c5c63b9f05b8133f9cc4ba77b1121b90ef9f951ab56fe263b3e",
+        "fb7eb603f7fc283ee645a38ae1d2555d47b43fb86dbb23439a91ef329f1167d6",
+        "24e4c78cc12eab32aef2ee45cbeebb2b1078e6effea49442c2f45214890e7100",
+        "bdb89dd183846e4124654b57021be9892158b2b1387a8ca08d476283e0e2ed87",
+        "e01d76776f93b9a308b38b0832f6a79fdc616a04ad63864e4b671152685d1abd",
+        "5ab24ae2b6f172de9efb6f739b7488865f4a23bd9305687b5f87093e16a319e6"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
@@ -2613,8 +2622,8 @@
         }
       ],
       "metric_contract": {
-        "engineering_complete": false,
-        "engineering_increment_percent": 0,
+        "engineering_complete": true,
+        "engineering_increment_percent": 1,
         "evidence_complete": false,
         "evidence_increment_percent": 0,
         "phase": "PREDICTION-V2-PROMOTION-PLANNER",
@@ -2639,7 +2648,70 @@
           "downstream_consumer": "prediction-v2-forward-evidence-or-pivot-planner"
         },
         "evidence_created": false,
+        "registered_child_count": 3,
+        "database_queries_during_capability": 0,
+        "historical_rows_read": 0,
+        "formal_historical_folds_executed": 0,
+        "bootstrap_children_executed": 0,
+        "duplicate_validation": false,
+        "prediction_v2_mode": "SHADOW_ONLY",
+        "prediction_v2_route": "BASELINE_ONLY",
         "promotion_gate_opened": false,
+        "p3_authorized": false,
+        "production_action": "none"
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "prediction-v2-forward-evidence-or-pivot-planner",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "prediction_v2_forward_evidence_or_pivot_planner",
+      "lane": "research",
+      "priority": 73,
+      "requested_capability": null,
+      "input_artifact_digests": [],
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "prediction-v2-promotion-planner",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "prediction-v2-promotion-planner:COMPLETE",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "engineering_complete": false,
+        "engineering_increment_percent": 0,
+        "evidence_complete": false,
+        "evidence_increment_percent": 0,
+        "phase": "PREDICTION-V2-FORWARD-EVIDENCE-OR-PIVOT-PLANNER",
+        "scope": "choose_a_separately_preregistered_future_evidence_program_or_structural_decision_support_pivot_without_relabelling_inconclusive_evidence",
+        "reason": "the_frozen_promotion_planner_holds_BASELINE_ONLY_and_routes_the_unresolved_measurement_question_to_a_separate_prospective_contract",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "the_prediction_v2_promotion_plan_and_route_are_VALIDATED_IN_MAINLINE_and_replay_verified",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "Prediction v2 promotion plan",
+            "forward-evidence or structural-pivot route",
+            "promotion-planner replay proof"
+          ],
+          "downstream_artifacts": [
+            "separately preregistered prospective evidence plan or structural decision-support pivot plan"
+          ],
+          "status_projection": "unified_m4_status.measurement_system_v2.prediction_v2_forward_evidence_or_pivot_planner",
+          "evidence_progress_rule": "planning_does_not_create_evidence_or_authorize_an_expert",
+          "decision_consumer": "separately authorized future-evidence executor or structural decision-support design task",
+          "downstream_consumer": "to_be_selected_by_the_frozen_route_review"
+        },
+        "evidence_created": false,
+        "duplicate_validation": false,
+        "promotion_gate_opened": false,
+        "p3_authorized": false,
         "production_action": "none"
       },
       "status": "draft",
@@ -3597,6 +3669,7 @@
       "m4-v2-marginal-static-historical-design-source:ad07217101c613d1b7afa273054adb7a8c3fe3a7c6a36eea4012bbbae2483753",
       "m4-v2-marginal-static-historical-preregistration-source:fb9f79056cbd3f7bc4fd4cff3ad5250669d4f6aaed6ec1c31249738230aa291d",
       "m4-v2-marginal-static-health-execution-source:5fbeb6ab0533478ac097747ab73fb0188561849505a76cf7a63a3a02061b2354",
+      "prediction-v2-promotion-planner-source:f2fc68cc3d20167ecc8e2d3ea4ffaab6c9459cb2edef7e3b364e0431f446e160",
       "m4-p2-9-p263-source-compatibility-fixture:1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f",
       "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
       "m4-p2-identifiability-preflight-manifest:5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3",
@@ -3619,5 +3692,5 @@
     "external_events": [],
     "authorities": []
   },
-  "manifest_digest": "33b11d706a4fffc5c6edbfecb73b7492239977ad394711280735fd9b1b0d8fbd"
+  "manifest_digest": "da3589cbd4a8949bebc32c3bc5abbad995340f257a9f4a44825881739fcb17c4"
 }
