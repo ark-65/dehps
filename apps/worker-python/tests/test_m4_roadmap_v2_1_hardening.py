@@ -186,11 +186,14 @@ def test_frozen_sparse_tree_compatibility_fixture_remains_replayable() -> None:
     assert fixture["candidate_golden_source_integrity_identity"] == (
         golden_source_integrity_identity(plan)
     )
-    assert validate_reviewed_shared_compatibility_fixture(
-        fixture,
-        expected_artifact_digest=fixture["artifact_digest"],
-        expected_candidate_golden_identity=golden_source_integrity_identity(plan),
-    ) == fixture
+    assert (
+        validate_reviewed_shared_compatibility_fixture(
+            fixture,
+            expected_artifact_digest=fixture["artifact_digest"],
+            expected_candidate_golden_identity=golden_source_integrity_identity(plan),
+        )
+        == fixture
+    )
 
 
 def test_p263_source_compatibility_fixture_binds_current_plan() -> None:
@@ -203,23 +206,25 @@ def test_p263_source_compatibility_fixture_binds_current_plan() -> None:
     assert contract["reviewed_shared_compatibility_fixture_path"] == (
         P263_REVIEWED_SOURCE_COMPATIBILITY_FIXTURE_PATH.as_posix()
     )
-    assert contract["reviewed_shared_compatibility_fixture_digest"] == fixture[
-        "artifact_digest"
-    ]
-    assert fixture["changed_paths"] == list(
-        P263_REVIEWED_SOURCE_COMPATIBILITY_PATHS
+    assert (
+        contract["reviewed_shared_compatibility_fixture_digest"]
+        == fixture["artifact_digest"]
     )
+    assert fixture["changed_paths"] == list(P263_REVIEWED_SOURCE_COMPATIBILITY_PATHS)
     assert fixture["candidate_source_entries"] == _source_entries(
         P263_REVIEWED_SOURCE_COMPATIBILITY_PATHS
     )
     assert fixture["candidate_golden_source_integrity_identity"] == (
         golden_source_integrity_identity(plan)
     )
-    assert validate_p263_reviewed_source_compatibility_fixture(
-        fixture,
-        expected_artifact_digest=fixture["artifact_digest"],
-        expected_candidate_golden_identity=golden_source_integrity_identity(plan),
-    ) == fixture
+    assert (
+        validate_p263_reviewed_source_compatibility_fixture(
+            fixture,
+            expected_artifact_digest=fixture["artifact_digest"],
+            expected_candidate_golden_identity=golden_source_integrity_identity(plan),
+        )
+        == fixture
+    )
 
 
 def test_p263_runtime_plan_is_result_blind_and_strict_prior(tmp_path: Path) -> None:
@@ -493,7 +498,7 @@ def test_source_partition_covers_worker_python_and_operational_entrypoints() -> 
         65,
         4,
         11,
-        393,
+        394,
     )
     assert not shared & acceleration
     assert not shared & oracle
@@ -502,7 +507,7 @@ def test_source_partition_covers_worker_python_and_operational_entrypoints() -> 
     assert not acceleration & audit
     assert not oracle & audit
     classified = shared | acceleration | oracle | audit
-    assert len(classified) == 473
+    assert len(classified) == 474
     worker_python = {
         path.relative_to(ROOT).as_posix()
         for path in (ROOT / "apps/worker-python/dehps").rglob("*.py")
@@ -1577,9 +1582,9 @@ def test_additive_manifest_migration_preserves_live_truth() -> None:
         "m4-p2-9-measurement-runtime-audit",
         "m4-p2-9-p263-golden-reference-freeze",
         "m4-p2-9-p263-measurement-runtime-audit",
-            "m4-p2-9-p263-runtime-observation-arithmetic-fix",
-            "m4-p2-9-p263-runtime-slot-release-eligibility",
-            "m4-v2-global-routing",
+        "m4-p2-9-p263-runtime-observation-arithmetic-fix",
+        "m4-p2-9-p263-runtime-slot-release-eligibility",
+        "m4-v2-global-routing",
     }
     live = copy.deepcopy(source)
     live["goals"] = [
@@ -1652,7 +1657,7 @@ def test_runtime_audit_equivalence_and_unavailable_metrics() -> None:
             "exact_numerical_runtime_packages_versions_joblib_llvmlite_"
             "narwhals_numba_numpy_orjson_scipy_scikit_learn_threadpoolctl"
         ),
-        ("distribution_RECORD_sha256_for_nine_exact_numerical_runtime_" "packages"),
+        ("distribution_RECORD_sha256_for_nine_exact_numerical_runtime_packages"),
         (
             "installed_tree_digest_for_nine_exact_numerical_runtime_packages_"
             "excluding_pyc"
@@ -1789,9 +1794,10 @@ def test_runtime_observer_stop_freezes_metrics_and_fails_closed(
 def test_p263_runtime_observation_fit_rate_uses_observed_fit_count() -> None:
     plan = load_runtime_audit_plan(AUDIT_PATH)
     observer = RuntimeAuditObserver(enabled=True)
-    for phase, invocation_count in (
-        supervisor_module._RUNTIME_AUDIT_PHASE_INVOCATIONS.items()
-    ):
+    for (
+        phase,
+        invocation_count,
+    ) in supervisor_module._RUNTIME_AUDIT_PHASE_INVOCATIONS.items():
         for _ in range(invocation_count):
             with observer.phase(phase):
                 pass
@@ -1799,11 +1805,9 @@ def test_p263_runtime_observation_fit_rate_uses_observed_fit_count() -> None:
     observer.count_fit(64)
     observer.count_resample(4000)
     observer.stop()
-    fingerprint_digest = (
-        plan["oracle_contract"]["canonical_executor_fingerprint"][
-            "required_fingerprint_digest"
-        ]
-    )
+    fingerprint_digest = plan["oracle_contract"]["canonical_executor_fingerprint"][
+        "required_fingerprint_digest"
+    ]
     observation = observer.observation(
         plan_digest=plan["artifact_digest"],
         execution_id="2" * 64,
@@ -2017,9 +2021,7 @@ def test_runtime_commit_marker_recovers_registrations_without_rerun(
         "runtime_executor_fingerprint_digest_before": "f" * 64,
         "runtime_executor_fingerprint_digest_after": "f" * 64,
         "equivalence_attestation_artifact_digest": equivalence["artifact_digest"],
-        "completion_fact": (
-            "m4-p2-9-p263-runtime-audit-arithmetic-fix:VERIFIED"
-        ),
+        "completion_fact": ("m4-p2-9-p263-runtime-audit-arithmetic-fix:VERIFIED"),
         "actual_fold_count": 61,
         "audited_fold_count": 61,
         "correctness_replay_fold_count": 61,
@@ -2178,31 +2180,27 @@ def test_manifest_wires_replay_before_preflight_and_disconnects_legacy_p3() -> N
         expected_phase="M4-P2.6.1",
     )
     assert frozen.payload["source"]["task_digest"] == EXPECTED_P261_TASK_DIGEST
-    compatibility = tasks[
-        "m4-p2-6-3-superseding-compatibility-acceptance"
-    ]
-    assert {
-        item.target_key for item in compatibility.dependencies
-    } >= {
+    compatibility = tasks["m4-p2-6-3-superseding-compatibility-acceptance"]
+    assert {item.target_key for item in compatibility.dependencies} >= {
         "m4-p2-false-positive-and-power-runs",
         "m4-p2-automatic-gate-and-report",
     }
     design = tasks["m4-v2-measurement-contract-design"]
-    assert {
-        item.target_key for item in design.dependencies
-    } >= {
+    assert {item.target_key for item in design.dependencies} >= {
         "m4-p2-6-3-superseding-compatibility-acceptance",
         "m4-p2-6-3-compatibility:VERIFIED",
     }
-    assert tasks["m4-p2-9-golden-reference-freeze"].artifact_digest != tasks[
-        "m4-p2-9-p263-golden-reference-freeze"
-    ].artifact_digest
+    assert (
+        tasks["m4-p2-9-golden-reference-freeze"].artifact_digest
+        != tasks["m4-p2-9-p263-golden-reference-freeze"].artifact_digest
+    )
     golden = tasks["m4-p2-9-p263-golden-reference-freeze"]
     failed_runtime = tasks["m4-p2-9-p263-measurement-runtime-audit"]
     runtime = tasks["m4-p2-9-p263-runtime-observation-arithmetic-fix"]
-    assert manifest.task_state_by_digest[
-        failed_runtime.artifact_digest
-    ].declared_status is TaskStatus.SUPERSEDED
+    assert (
+        manifest.task_state_by_digest[failed_runtime.artifact_digest].declared_status
+        is TaskStatus.SUPERSEDED
+    )
     assert golden.goal_key == runtime.goal_key == "M4_MEASUREMENT_RUNTIME_AUDIT"
     assert golden.lane.value == "maintenance"
     assert runtime.lane.value == "maintenance"
@@ -2230,9 +2228,7 @@ def test_p263_compatibility_and_executor_unlock_golden_then_runtime() -> None:
     assert source_resolutions["m4-p2-9-measurement-runtime-audit"].status is (
         TaskStatus.SUPERSEDED
     )
-    assert source_resolutions[
-        "m4-p2-9-p263-golden-reference-freeze"
-    ].status is (
+    assert source_resolutions["m4-p2-9-p263-golden-reference-freeze"].status is (
         TaskStatus.EXTERNAL_WAIT
     )
 
@@ -2288,9 +2284,7 @@ def test_p263_compatibility_and_executor_unlock_golden_then_runtime() -> None:
     after_golden_resolutions = {
         item.task_key: item for item in after_golden_snapshot.resolutions
     }
-    audit = after_golden_resolutions[
-        "m4-p2-9-p263-runtime-observation-arithmetic-fix"
-    ]
+    audit = after_golden_resolutions["m4-p2-9-p263-runtime-observation-arithmetic-fix"]
     assert audit.status is TaskStatus.READY
     assert not audit.unsatisfied_dependencies
 
@@ -2307,9 +2301,10 @@ def test_golden_reference_status_projects_only_completed_execution_identity() ->
         "e804e4eedf3c67ad9d35207367a096f6b830a6ab2ac29cc03501392d8430af32"
     )
     assert audit_status["canonical_executor_available"] is False
-    assert audit_status["supersession"][
-        "p2_6_3_failed_runtime_audit_resolver_status"
-    ] == "superseded"
+    assert (
+        audit_status["supersession"]["p2_6_3_failed_runtime_audit_resolver_status"]
+        == "superseded"
+    )
     assert audit_status["task_key"] == (
         "m4-p2-9-p263-runtime-observation-arithmetic-fix"
     )

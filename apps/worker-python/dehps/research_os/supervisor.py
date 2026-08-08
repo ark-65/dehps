@@ -226,6 +226,16 @@ from dehps.research_os.information_theory.measurement_system_v2.marginal_static_
 from dehps.research_os.information_theory.measurement_system_v2.marginal_static_historical_design import (
     MEASUREMENT_CONTRACT_DESIGN_TASK_KEY as HISTORICAL_MEASUREMENT_CONTRACT_DESIGN_TASK_KEY,
 )
+from dehps.research_os.information_theory.measurement_system_v2.marginal_static_historical_execution import (
+    MARGINAL_STATIC_HISTORICAL_EXECUTION_CAPABILITY,
+    MARGINAL_STATIC_HISTORICAL_EXECUTION_COMPLETION_FACT,
+    MARGINAL_STATIC_HISTORICAL_EXECUTION_SOURCE_CONTRACT_PATH,
+    MARGINAL_STATIC_HISTORICAL_EXECUTION_TASK_KEY,
+    MARGINAL_STATIC_HISTORICAL_GATE_TASK_KEY,
+    build_marginal_static_historical_execution_artifacts,
+    load_marginal_static_historical_execution_source_contract,
+    verify_marginal_static_historical_execution_source_bytes,
+)
 from dehps.research_os.information_theory.measurement_system_v2.marginal_static_historical_preregistration import (
     EVALUATION_FOLD_COUNT as HISTORICAL_PREREGISTRATION_FOLD_COUNT,
 )
@@ -236,7 +246,6 @@ from dehps.research_os.information_theory.measurement_system_v2.marginal_static_
     HISTORICAL_ISSUE_COUNT as HISTORICAL_PREREGISTRATION_ISSUE_COUNT,
 )
 from dehps.research_os.information_theory.measurement_system_v2.marginal_static_historical_preregistration import (
-    MARGINAL_STATIC_HISTORICAL_EXECUTION_TASK_KEY,
     MARGINAL_STATIC_HISTORICAL_PREREGISTRATION_CAPABILITY,
     MARGINAL_STATIC_HISTORICAL_PREREGISTRATION_COMPLETION_FACT,
     MARGINAL_STATIC_HISTORICAL_PREREGISTRATION_SOURCE_CONTRACT_PATH,
@@ -8112,6 +8121,279 @@ class M4MarginalStaticHistoricalPreregistrationCapability:
         )
 
 
+class M4MarginalStaticHistoricalExecutionCapability:
+    def __init__(
+        self,
+        *,
+        repository: PostgresResearchOSRepository,
+        root_dir: Path = ROOT_DIR,
+    ) -> None:
+        self.repository = repository
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key != MARGINAL_STATIC_HISTORICAL_EXECUTION_TASK_KEY
+            or task.requested_capability
+            != MARGINAL_STATIC_HISTORICAL_EXECUTION_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static historical execution received the wrong task"
+            )
+        source_contract = load_marginal_static_historical_execution_source_contract(
+            self.root_dir / MARGINAL_STATIC_HISTORICAL_EXECUTION_SOURCE_CONTRACT_PATH
+        )
+        verify_marginal_static_historical_execution_source_bytes(
+            root_dir=self.root_dir,
+            contract=source_contract,
+        )
+        _, preregistration_execution, registrations = _load_single_completed_execution(
+            repository=self.repository,
+            root_dir=self.root_dir,
+            control_plane_key=control_plane_key,
+            task_key=MARGINAL_STATIC_HISTORICAL_PREREGISTRATION_TASK_KEY,
+        )
+        dataset_snapshot = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type="m4_v2_marginal_static_historical_dataset_snapshot",
+        )
+        fold_manifest = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type="m4_v2_marginal_static_historical_fold_manifest",
+        )
+        checkpoint_order_manifest = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type=(
+                "m4_v2_marginal_static_historical_checkpoint_order_manifest"
+            ),
+        )
+        resampling_manifest = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type="m4_v2_marginal_static_historical_resampling_manifest",
+        )
+        execution_plan = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type="m4_v2_marginal_static_historical_execution_plan",
+        )
+        preregistration_completion = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type=(
+                "m4_v2_marginal_static_historical_preregistration_completion"
+            ),
+        )
+        expected_inputs = (
+            str(source_contract["artifact_digest"]),
+            str(preregistration_execution["artifact_digest"]),
+            str(dataset_snapshot["artifact_digest"]),
+            str(fold_manifest["artifact_digest"]),
+            str(checkpoint_order_manifest["artifact_digest"]),
+            str(resampling_manifest["artifact_digest"]),
+            str(execution_plan["artifact_digest"]),
+            str(preregistration_completion["artifact_digest"]),
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static historical execution identities changed"
+            )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        run = build_marginal_static_historical_execution_artifacts(
+            source_contract=source_contract,
+            preregistration_execution=preregistration_execution,
+            dataset_snapshot=dataset_snapshot,
+            fold_manifest=fold_manifest,
+            checkpoint_order_manifest=checkpoint_order_manifest,
+            resampling_manifest=resampling_manifest,
+            execution_plan=execution_plan,
+            preregistration_completion=preregistration_completion,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            progress_dir=task_dir / "recovery",
+        )
+        child_paths: list[Path] = [
+            task_dir
+            / "artifacts/historical-fold-score-shard"
+            / str(item["artifact_digest"])
+            / "shard.json"
+            for item in run.fold_shards
+        ]
+        child_paths.extend(
+            (
+                task_dir
+                / "artifacts/historical-completion-index"
+                / str(run.completion_index["artifact_digest"])
+                / "index.json",
+                task_dir
+                / "artifacts/historical-resampling-output"
+                / str(run.resampling_output["artifact_digest"])
+                / "resampling.json",
+                task_dir
+                / "artifacts/historical-inference-aggregate"
+                / str(run.inference_aggregate["artifact_digest"])
+                / "inference.json",
+                task_dir
+                / "artifacts/historical-branch-candidate"
+                / str(run.branch_candidate["artifact_digest"])
+                / "candidate.json",
+                task_dir
+                / "artifacts/completion"
+                / str(run.completion["artifact_digest"])
+                / "completion.json",
+            )
+        )
+        child_payloads = tuple(zip(child_paths, run.artifacts, strict=True))
+        for path, payload in child_payloads:
+            _persist_immutable(path, payload)
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "marginal_static_historical_execution_source_contract_digest": (
+                source_contract["artifact_digest"]
+            ),
+            "marginal_static_historical_execution_source_set_digest": (
+                source_contract["source_set_digest"]
+            ),
+            "research_request_key": source_contract["research_request_key"],
+            "research_request_id": source_contract["research_request_id"],
+            "research_execution_id": source_contract["research_execution_id"],
+            "engineering_request_key": source_contract["engineering_request_key"],
+            "engineering_request_id": source_contract["engineering_request_id"],
+            "engineering_execution_id": source_contract["engineering_execution_id"],
+            "preregistration_execution_digest": preregistration_execution[
+                "artifact_digest"
+            ],
+            "historical_dataset_snapshot_digest": dataset_snapshot["artifact_digest"],
+            "historical_dataset_content_digest": dataset_snapshot[
+                "dataset_content_digest"
+            ],
+            "historical_fold_manifest_digest": fold_manifest["artifact_digest"],
+            "historical_checkpoint_order_manifest_digest": (
+                checkpoint_order_manifest["artifact_digest"]
+            ),
+            "historical_resampling_manifest_digest": resampling_manifest[
+                "artifact_digest"
+            ],
+            "historical_execution_plan_digest": execution_plan["artifact_digest"],
+            "historical_preregistration_completion_digest": (
+                preregistration_completion["artifact_digest"]
+            ),
+            "historical_issue_count": 3481,
+            "historical_rows_content_hashed": 3481,
+            "historical_outcomes_hashed": True,
+            "historical_outcomes_read": True,
+            "historical_outcomes_exposed_to_research_or_decision_logic": False,
+            "fold_identity_count": 2581,
+            "checkpoint_order_entry_count": 2581,
+            "root_seed_count": 2000,
+            "resampling_scheme_count": 8,
+            "resampling_child_count": 16000,
+            "historical_completion_index_digest": run.completion_index[
+                "artifact_digest"
+            ],
+            "historical_resampling_output_digest": run.resampling_output[
+                "artifact_digest"
+            ],
+            "historical_inference_aggregate_digest": run.inference_aggregate[
+                "artifact_digest"
+            ],
+            "historical_branch_candidate_digest": run.branch_candidate[
+                "artifact_digest"
+            ],
+            "historical_execution_completion_digest": run.completion["artifact_digest"],
+            "formal_historical_folds_executed": 2581,
+            "historical_scores_computed": 2581,
+            "bootstrap_children_executed": 16000,
+            "fold_shard_count": 11,
+            "database_queries_during_capability": 0,
+            "database_reads_per_fold": 0,
+            "database_writes_per_fold": 0,
+            "dataset_loads": 1,
+            "completion_index_loads": run.completion_index_loads,
+            "restored_shard_count": run.restored_shard_count,
+            "skipped_fold_count": run.skipped_fold_count,
+            "newly_computed_fold_count": run.newly_computed_fold_count,
+            "duplicate_validation": False,
+            "routine_physical_checkpoint_scan": False,
+            "statistical_results_computed": True,
+            "statistical_results_read_by_research_agent": False,
+            "evidence_created": False,
+            "evidence_progress_before": 25,
+            "evidence_progress_after": 25,
+            "historical_evidence": "PENDING_GATE_COMPILER",
+            "accepted_model_artifact_digest": None,
+            "promotion_gate_opened": False,
+            "actual_fold_count": 2581,
+            "registered_artifact_count": len(child_payloads) + 1,
+            "completion_fact": MARGINAL_STATIC_HISTORICAL_EXECUTION_COMPLETION_FACT,
+            "downstream_consumer": MARGINAL_STATIC_HISTORICAL_GATE_TASK_KEY,
+            "production_impact": "none",
+            "production_action": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "replay_status": "DETERMINISTIC_EXECUTION_PENDING_REPLAY",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                *(str(payload["artifact_digest"]) for _, payload in child_payloads),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        output_registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(output_registrations) != 17:
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static historical execution registration count changed"
+            )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=output_registrations,
+            completion_facts=(MARGINAL_STATIC_HISTORICAL_EXECUTION_COMPLETION_FACT,),
+        )
+
+
 class M4P261RawExecutionReplayCapability:
     def __init__(
         self,
@@ -9994,6 +10276,12 @@ class ResearchEvidenceSupervisor:
                     root_dir=root_dir,
                 )
             ),
+            MARGINAL_STATIC_HISTORICAL_EXECUTION_CAPABILITY: (
+                M4MarginalStaticHistoricalExecutionCapability(
+                    repository=self.repository,
+                    root_dir=root_dir,
+                )
+            ),
             M4_V2_P261_RAW_REPLAY_CAPABILITY: (
                 M4P261RawExecutionReplayCapability(
                     repository=self.repository,
@@ -10755,6 +11043,13 @@ class ResearchEvidenceSupervisor:
                                     "historical_resampling_manifest_digest",
                                     "historical_execution_plan_digest",
                                     "historical_preregistration_completion_digest",
+                                    "marginal_static_historical_execution_source_contract_digest",
+                                    "marginal_static_historical_execution_source_set_digest",
+                                    "historical_completion_index_digest",
+                                    "historical_resampling_output_digest",
+                                    "historical_inference_aggregate_digest",
+                                    "historical_branch_candidate_digest",
+                                    "historical_execution_completion_digest",
                                     "fold_identity_count",
                                     "checkpoint_order_entry_count",
                                     "root_seed_count",
@@ -10766,6 +11061,11 @@ class ResearchEvidenceSupervisor:
                                     "historical_outcomes_exposed_to_research_or_decision_logic",
                                     "historical_scores_computed",
                                     "bootstrap_children_executed",
+                                    "dataset_loads",
+                                    "completion_index_loads",
+                                    "restored_shard_count",
+                                    "skipped_fold_count",
+                                    "newly_computed_fold_count",
                                     "duplicate_validation",
                                 )
                                 if key in result.execution_artifact
@@ -10900,6 +11200,7 @@ class ResearchEvidenceSupervisor:
         return self._latest_completed_summary_for_tasks(
             snapshot,
             (
+                MARGINAL_STATIC_HISTORICAL_EXECUTION_TASK_KEY,
                 MARGINAL_STATIC_HISTORICAL_PREREGISTRATION_TASK_KEY,
                 MARGINAL_STATIC_HISTORICAL_DESIGN_TASK_KEY,
                 MARGINAL_STATIC_REPAIR_V2_HEALTH_DECISION_TASK_KEY,
@@ -10937,6 +11238,7 @@ class ResearchEvidenceSupervisor:
             if resolutions.get(candidate) is not TaskStatus.COMPLETED:
                 continue
             if candidate in {
+                MARGINAL_STATIC_HISTORICAL_EXECUTION_TASK_KEY,
                 MARGINAL_STATIC_HISTORICAL_PREREGISTRATION_TASK_KEY,
                 MARGINAL_STATIC_HISTORICAL_DESIGN_TASK_KEY,
             }:
@@ -11333,6 +11635,14 @@ class ResearchEvidenceSupervisor:
             "historical_resampling_manifest_digest",
             "historical_execution_plan_digest",
             "historical_preregistration_completion_digest",
+            "marginal_static_historical_execution_source_contract_digest",
+            "marginal_static_historical_execution_source_set_digest",
+            "preregistration_execution_digest",
+            "historical_completion_index_digest",
+            "historical_resampling_output_digest",
+            "historical_inference_aggregate_digest",
+            "historical_branch_candidate_digest",
+            "historical_execution_completion_digest",
             "fold_identity_count",
             "checkpoint_order_entry_count",
             "root_seed_count",
@@ -11344,6 +11654,11 @@ class ResearchEvidenceSupervisor:
             "historical_outcomes_exposed_to_research_or_decision_logic",
             "historical_scores_computed",
             "bootstrap_children_executed",
+            "dataset_loads",
+            "completion_index_loads",
+            "restored_shard_count",
+            "skipped_fold_count",
+            "newly_computed_fold_count",
             "duplicate_validation",
         ):
             if key in summary:
@@ -13719,6 +14034,187 @@ class ResearchEvidenceSupervisor:
                 "statistical_results_read": True,
                 "evidence_created": False,
                 "manual_input_assembly": False,
+            }
+        elif task_key == MARGINAL_STATIC_HISTORICAL_EXECUTION_TASK_KEY:
+            source_contract = load_marginal_static_historical_execution_source_contract(
+                self.root_dir
+                / MARGINAL_STATIC_HISTORICAL_EXECUTION_SOURCE_CONTRACT_PATH
+            )
+            verify_marginal_static_historical_execution_source_bytes(
+                root_dir=self.root_dir,
+                contract=source_contract,
+            )
+            _, preregistration_execution, preregistration_registrations = (
+                _load_single_completed_execution(
+                    repository=self.repository,
+                    root_dir=self.root_dir,
+                    control_plane_key=self.control_plane_key,
+                    task_key=MARGINAL_STATIC_HISTORICAL_PREREGISTRATION_TASK_KEY,
+                )
+            )
+            dataset_snapshot = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=preregistration_registrations,
+                artifact_type="m4_v2_marginal_static_historical_dataset_snapshot",
+            )
+            fold_manifest = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=preregistration_registrations,
+                artifact_type="m4_v2_marginal_static_historical_fold_manifest",
+            )
+            checkpoint_order_manifest = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=preregistration_registrations,
+                artifact_type=(
+                    "m4_v2_marginal_static_historical_checkpoint_order_manifest"
+                ),
+            )
+            resampling_manifest = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=preregistration_registrations,
+                artifact_type="m4_v2_marginal_static_historical_resampling_manifest",
+            )
+            execution_plan = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=preregistration_registrations,
+                artifact_type="m4_v2_marginal_static_historical_execution_plan",
+            )
+            preregistration_completion = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=preregistration_registrations,
+                artifact_type=(
+                    "m4_v2_marginal_static_historical_preregistration_completion"
+                ),
+            )
+            reconstructed = build_marginal_static_historical_execution_artifacts(
+                source_contract=source_contract,
+                preregistration_execution=preregistration_execution,
+                dataset_snapshot=dataset_snapshot,
+                fold_manifest=fold_manifest,
+                checkpoint_order_manifest=checkpoint_order_manifest,
+                resampling_manifest=resampling_manifest,
+                execution_plan=execution_plan,
+                preregistration_completion=preregistration_completion,
+                execution_id=resolved_execution_id,
+                git_commit=str(artifact["git_commit"]),
+                progress_dir=None,
+            )
+            registered_shards = tuple(
+                sorted(
+                    _load_registered_type_group(
+                        root_dir=self.root_dir,
+                        registrations=registrations,
+                        artifact_type=(
+                            "m4_v2_marginal_static_historical_fold_score_shard"
+                        ),
+                    ),
+                    key=lambda item: int(item["shard_index"]),
+                )
+            )
+            registered_index = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                artifact_type="m4_v2_marginal_static_historical_completion_index",
+            )
+            registered_resampling = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                artifact_type=("m4_v2_marginal_static_historical_resampling_output"),
+            )
+            registered_inference = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                artifact_type=("m4_v2_marginal_static_historical_inference_aggregate"),
+            )
+            registered_candidate = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                artifact_type=("m4_v2_marginal_static_historical_branch_candidate"),
+            )
+            registered_completion = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                artifact_type=("m4_v2_marginal_static_historical_execution_completion"),
+            )
+            if (
+                registered_shards != reconstructed.fold_shards
+                or registered_index != reconstructed.completion_index
+                or registered_resampling != reconstructed.resampling_output
+                or registered_inference != reconstructed.inference_aggregate
+                or registered_candidate != reconstructed.branch_candidate
+                or registered_completion != reconstructed.completion
+                or artifact.get(
+                    "marginal_static_historical_execution_source_contract_digest"
+                )
+                != source_contract["artifact_digest"]
+                or artifact.get(
+                    "marginal_static_historical_execution_source_set_digest"
+                )
+                != source_contract["source_set_digest"]
+                or artifact.get("research_request_id") != 370
+                or artifact.get("research_execution_id") != 291
+                or artifact.get("engineering_request_id") != 371
+                or artifact.get("engineering_execution_id") != 292
+                or artifact.get("historical_completion_index_digest")
+                != reconstructed.completion_index["artifact_digest"]
+                or artifact.get("historical_resampling_output_digest")
+                != reconstructed.resampling_output["artifact_digest"]
+                or artifact.get("historical_inference_aggregate_digest")
+                != reconstructed.inference_aggregate["artifact_digest"]
+                or artifact.get("historical_branch_candidate_digest")
+                != reconstructed.branch_candidate["artifact_digest"]
+                or artifact.get("historical_execution_completion_digest")
+                != reconstructed.completion["artifact_digest"]
+                or artifact.get("formal_historical_folds_executed") != 2581
+                or artifact.get("historical_scores_computed") != 2581
+                or artifact.get("bootstrap_children_executed") != 16000
+                or artifact.get("fold_shard_count") != 11
+                or artifact.get("database_queries_during_capability") != 0
+                or artifact.get("completion_index_loads") != 1
+                or artifact.get("duplicate_validation") is not False
+                or artifact.get("evidence_created") is not False
+                or artifact.get("completion_fact")
+                != MARGINAL_STATIC_HISTORICAL_EXECUTION_COMPLETION_FACT
+                or artifact.get("downstream_consumer")
+                != MARGINAL_STATIC_HISTORICAL_GATE_TASK_KEY
+                or artifact.get("registered_artifact_count") != 17
+                or artifact.get("production_action") != "none"
+            ):
+                raise MainlineSupervisorError(
+                    "M4 v2 marginal-static historical execution replay identity changed"
+                )
+            _verify_v2_registered_artifacts(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                expected_payloads=(*reconstructed.artifacts, artifact),
+            )
+            capability_replay = {
+                "schema_version": (
+                    "dehps-m4-v2-marginal-static-historical-execution-replay.v1"
+                ),
+                "status": "REPLAY_VERIFIED",
+                "completion_index_digest": reconstructed.completion_index[
+                    "artifact_digest"
+                ],
+                "resampling_output_digest": reconstructed.resampling_output[
+                    "artifact_digest"
+                ],
+                "inference_aggregate_digest": reconstructed.inference_aggregate[
+                    "artifact_digest"
+                ],
+                "branch_candidate_digest": reconstructed.branch_candidate[
+                    "artifact_digest"
+                ],
+                "completion_digest": reconstructed.completion["artifact_digest"],
+                "same_registered_content": True,
+                "database_queries_during_replay": 0,
+                "formal_historical_folds_replayed": 2581,
+                "bootstrap_children_replayed": 16000,
+                "completion_index_loads": 1,
+                "duplicate_validation": False,
+                "manual_input_assembly": False,
+                "evidence_created": False,
+                "next_consumer": MARGINAL_STATIC_HISTORICAL_GATE_TASK_KEY,
             }
         elif task_key == MARGINAL_STATIC_HISTORICAL_PREREGISTRATION_TASK_KEY:
             source_contract = (
