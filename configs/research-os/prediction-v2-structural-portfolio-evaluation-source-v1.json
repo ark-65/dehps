@@ -1,0 +1,95 @@
+{
+  "schema_version": "dehps-prediction-v2-structural-portfolio-evaluation-source.v1",
+  "artifact_type": "prediction_v2_structural_portfolio_evaluation_source",
+  "contract_key": "PREDICTION_V2_STRUCTURAL_PORTFOLIO_EVALUATION_SOURCE",
+  "research_request_key": "research-prediction-v2-structural-portfolio-evaluation-round-68-20260809",
+  "research_request_id": 394,
+  "research_execution_id": 315,
+  "engineering_request_key": "engineering-prediction-v2-structural-portfolio-evaluation-round-68-20260809",
+  "engineering_request_id": 395,
+  "engineering_execution_id": 316,
+  "result_aware": true,
+  "database_queries": 0,
+  "historical_rows_read": 0,
+  "folds_executed": 0,
+  "bootstrap_children_executed": 0,
+  "optimizer_proposals_executed": 0,
+  "null_replicates_executed": 0,
+  "registered_children": 3,
+  "new_evidence_created": false,
+  "new_model_created": false,
+  "production_action": "none",
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/prediction_v2_structural_portfolio_evaluation.py",
+      "content_sha256": "60fbddf791af8c4c65bc5787302325c720ccade3b735fce9ee8613f31cfe417e"
+    }
+  ],
+  "source_set_digest": "f2a1caeabd92b9a49225a8f57bde1c6c31cb4f16ea52f2d26370bc2b0824453f",
+  "frozen_contract": {
+    "task_key": "prediction-v2-structural-portfolio-evaluation",
+    "capability": "prediction_v2_structural_portfolio_evaluation",
+    "completion_fact": "prediction-v2-structural-portfolio-evaluation:COMPLETE",
+    "next_consumer": "prediction-v2-structural-route-decision",
+    "registered_input_digests": [
+      "a75e89e5bb0512b2e875c8b455efed60fad494b029041c9b1d8138cc96615c3d",
+      "df7193046245f073c1d77526ad3e5b98ad6806d7ee566b5dd5833659b3ff7498",
+      "0cd15cf2909ef8dc0fa3a0a6089d845292d8ca6b118c280d6fcb43b5d56d77fc",
+      "f9fed009ce30080bdcd8b471d298012a5460ed3111051b965b1782df2c20e511",
+      "6f207fbd5008f001976bb1fb3b18647065a3a858f20736a925fb0b180173a7e8"
+    ],
+    "candidate_budget": 176,
+    "finite_design_ideals": {
+      "singleton_square_sum": 33792,
+      "pair_square_sum": 13200,
+      "sum_pairwise_replacement_distance": 76032
+    },
+    "selected_stats": {
+      "singleton_square_sum": 33796,
+      "pair_square_sum": 14152,
+      "minimum_replacement_distance": 2,
+      "sum_pairwise_replacement_distance": 76030
+    },
+    "selected_ideal_gaps": {
+      "singleton_square_sum_excess": 4,
+      "pair_square_sum_excess": 952,
+      "sum_pairwise_replacement_distance_deficit": 2
+    },
+    "uniform_null_extrema": {
+      "singleton_square_sum_minimum": 34104,
+      "pair_square_sum_minimum": 15144,
+      "minimum_replacement_distance_maximum": 2,
+      "sum_pairwise_replacement_distance_maximum": 75876
+    },
+    "selected_strictly_dominated_null_count": 4096,
+    "selected_null_strictly_dominating_count": 0,
+    "island_count": 22,
+    "islands_passing_frozen_gate": 16,
+    "islands_dominating_every_null": 16,
+    "decision": "SUPPORTED_AT_FROZEN_B176_AGAINST_UNIFORM_RANDOM_ONLY",
+    "route_disposition": "ADVANCE_TO_SEPARATE_STRUCTURAL_ROUTE_DECISION",
+    "p_value_claim": false,
+    "global_optimality_claim": false,
+    "decision_usefulness_claim": false,
+    "prediction_probability_claim": false,
+    "historical_evidence": "INCONCLUSIVE",
+    "prediction_v2_mode": "SHADOW_ONLY",
+    "prediction_v2_route": "BASELINE_ONLY",
+    "registered_child_count": 3,
+    "registered_total_with_mainline_execution": 4,
+    "database_queries": 0,
+    "historical_rows_read": 0,
+    "folds_executed": 0,
+    "bootstrap_children_executed": 0,
+    "optimizer_proposals_executed": 0,
+    "null_replicates_executed": 0,
+    "new_evidence_created": false,
+    "new_model_created": false,
+    "candidate_expert_authorized": false,
+    "promotion_gate_opened": false,
+    "p3_authorized": false,
+    "production_action": "none"
+  },
+  "frozen_contract_digest": "0ad88295dda78b580bfc4d330d03aabb95409980745d6ebf4f1dbcf4bd1afec0",
+  "artifact_digest": "b194c87b8810aeb5757d1366dec00e6fe2243a07e9b38cbac8b1ddf92988bc93"
+}

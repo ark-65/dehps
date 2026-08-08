@@ -498,7 +498,7 @@ def test_source_partition_covers_worker_python_and_operational_entrypoints() -> 
         65,
         4,
         11,
-        400,
+        401,
     )
     assert not shared & acceleration
     assert not shared & oracle
@@ -507,7 +507,7 @@ def test_source_partition_covers_worker_python_and_operational_entrypoints() -> 
     assert not acceleration & audit
     assert not oracle & audit
     classified = shared | acceleration | oracle | audit
-    assert len(classified) == 480
+    assert len(classified) == 481
     worker_python = {
         path.relative_to(ROOT).as_posix()
         for path in (ROOT / "apps/worker-python/dehps").rglob("*.py")
