@@ -34,7 +34,7 @@ from dehps.research_os.information_theory.progress import (
     load_m4_manifest,
 )
 from dehps.research_os.mainline import mainline_completion_fact
-from dehps.research_os.models import ControlPlaneManifest
+from dehps.research_os.models import ControlPlaneManifest, TaskStatus
 from dehps.research_os.supervisor import (
     M4MarginalStaticHistoricalDesignCapability,
     ResearchEvidenceSupervisor,
@@ -458,3 +458,89 @@ def test_artifact_index_and_supervisor_register_historical_design() -> None:
         require_clean_tree=False,
     )
     assert MARGINAL_STATIC_HISTORICAL_DESIGN_CAPABILITY in supervisor.capabilities
+
+
+def test_latest_v2_summary_loads_registered_historical_design_artifact(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Resolution:
+        task_key = MARGINAL_STATIC_HISTORICAL_DESIGN_TASK_KEY
+        status = TaskStatus.COMPLETED
+
+    execution = {
+        "artifact_digest": "1" * 64,
+        "historical_dataset_boundary_digest": "2" * 64,
+        "historical_walk_forward_design_digest": "3" * 64,
+        "historical_inference_design_digest": "4" * 64,
+        "historical_design_completion_digest": "5" * 64,
+        "formal_historical_folds_executed": 0,
+        "historical_red_outcomes_read": False,
+        "statistical_results_read": False,
+        "evidence_created": False,
+    }
+    event = {
+        "payload": [
+            ["execution_artifact_digest", "1" * 64],
+            ["registered_artifact_count", 5],
+            ["actual_fold_count", 0],
+        ]
+    }
+    monkeypatch.setattr(
+        supervisor_module,
+        "_load_single_completed_execution",
+        lambda **_: (event, execution, ()),
+    )
+    supervisor = ResearchEvidenceSupervisor(
+        repository=object(),
+        require_clean_tree=False,
+    )
+    summary = supervisor._latest_completed_v2_summary(
+        type("Snapshot", (), {"resolutions": [Resolution()]})()
+    )
+    assert summary is not None
+    assert summary["execution_task_key"] == (MARGINAL_STATIC_HISTORICAL_DESIGN_TASK_KEY)
+    assert summary["execution_artifact_digest"] == "1" * 64
+    assert summary["historical_dataset_boundary_digest"] == "2" * 64
+    assert summary["historical_walk_forward_design_digest"] == "3" * 64
+    assert summary["historical_inference_design_digest"] == "4" * 64
+    assert summary["registered_artifact_count"] == 5
+
+
+def test_latest_v2_summary_orders_repair_v2_decision_before_execution() -> None:
+    decision_key = design_module.REPAIR_V2_HEALTH_DECISION_TASK_KEY
+    execution_key = "m4-v2-marginal-static-measurement-repair-v2-health-execution"
+
+    class Repository:
+        def __init__(self) -> None:
+            self.requested: list[str] = []
+
+        def list_mainline_execution_events(self, **kwargs) -> list[dict]:
+            key = kwargs["task_key"]
+            self.requested.append(key)
+            return [
+                {
+                    "event_type": "completed",
+                    "payload": [["execution_artifact_digest", "6" * 64]],
+                }
+            ]
+
+    resolutions = [
+        type(
+            "Resolution",
+            (),
+            {"task_key": decision_key, "status": TaskStatus.COMPLETED},
+        )(),
+        type(
+            "Resolution",
+            (),
+            {"task_key": execution_key, "status": TaskStatus.COMPLETED},
+        )(),
+    ]
+    repository = Repository()
+    summary = ResearchEvidenceSupervisor(
+        repository=repository,
+        require_clean_tree=False,
+    )._latest_completed_v2_summary(type("Snapshot", (), {"resolutions": resolutions})())
+    assert summary is not None
+    assert summary["execution_task_key"] == decision_key
+    assert repository.requested == [decision_key]

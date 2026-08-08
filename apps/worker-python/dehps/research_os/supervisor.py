@@ -10445,6 +10445,20 @@ class ResearchEvidenceSupervisor:
                                     "engineering_progress_after",
                                     "evidence_progress_before",
                                     "evidence_progress_after",
+                                    "marginal_static_historical_design_source_contract_digest",
+                                    "marginal_static_historical_design_source_set_digest",
+                                    "historical_dataset_boundary_digest",
+                                    "historical_walk_forward_design_digest",
+                                    "historical_inference_design_digest",
+                                    "historical_design_completion_digest",
+                                    "historical_issue_count",
+                                    "initial_training_issue_count",
+                                    "planned_evaluation_fold_count",
+                                    "planned_bootstrap_replicates",
+                                    "formal_historical_folds_executed",
+                                    "database_queries_during_capability",
+                                    "historical_red_outcomes_read",
+                                    "statistical_results_read",
                                 )
                                 if key in result.execution_artifact
                             },
@@ -10578,6 +10592,9 @@ class ResearchEvidenceSupervisor:
         return self._latest_completed_summary_for_tasks(
             snapshot,
             (
+                MARGINAL_STATIC_HISTORICAL_DESIGN_TASK_KEY,
+                MARGINAL_STATIC_REPAIR_V2_HEALTH_DECISION_TASK_KEY,
+                MARGINAL_STATIC_REPAIR_V2_HEALTH_EXECUTION_TASK_KEY,
                 MARGINAL_STATIC_REPAIR_V2_PREREGISTRATION_TASK_KEY,
                 MARGINAL_STATIC_REPAIR_V2_DESIGN_TASK_KEY,
                 MARGINAL_STATIC_REPAIR_HEALTH_DECISION_TASK_KEY,
@@ -10610,6 +10627,18 @@ class ResearchEvidenceSupervisor:
         for candidate in task_keys:
             if resolutions.get(candidate) is not TaskStatus.COMPLETED:
                 continue
+            if candidate == MARGINAL_STATIC_HISTORICAL_DESIGN_TASK_KEY:
+                event, artifact, _ = _load_single_completed_execution(
+                    repository=self.repository,
+                    root_dir=self.root_dir,
+                    control_plane_key=self.control_plane_key,
+                    task_key=candidate,
+                )
+                return {
+                    **artifact,
+                    **_event_payload(event),
+                    "execution_task_key": candidate,
+                }
             if candidate in {
                 M4_P29_GOLDEN_REFERENCE_TASK_KEY,
                 M4_P29_RUNTIME_AUDIT_TASK_KEY,
@@ -10969,6 +10998,20 @@ class ResearchEvidenceSupervisor:
             "engineering_progress_after",
             "evidence_progress_before",
             "evidence_progress_after",
+            "marginal_static_historical_design_source_contract_digest",
+            "marginal_static_historical_design_source_set_digest",
+            "historical_dataset_boundary_digest",
+            "historical_walk_forward_design_digest",
+            "historical_inference_design_digest",
+            "historical_design_completion_digest",
+            "historical_issue_count",
+            "initial_training_issue_count",
+            "planned_evaluation_fold_count",
+            "planned_bootstrap_replicates",
+            "formal_historical_folds_executed",
+            "database_queries_during_capability",
+            "historical_red_outcomes_read",
+            "statistical_results_read",
         ):
             if key in summary:
                 payload[key] = summary[key]
