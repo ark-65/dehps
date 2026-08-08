@@ -172,6 +172,12 @@ PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_COMPLETION_FACT = (
 PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_TASK_KEY = (
     "prediction-v2-structural-decision-support-design"
 )
+PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_COMPLETION_FACT = (
+    "prediction-v2-structural-decision-support-design:COMPLETE"
+)
+PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_PREREGISTRATION_TASK_KEY = (
+    "prediction-v2-structural-decision-support-preregistration"
+)
 M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
 M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = "m4-v2-p2-6-1-marginal-decision-replay"
 M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
@@ -681,6 +687,19 @@ def build_m4_status(
     )
     prediction_v2_structural_design_resolution = resolutions.get(
         PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_TASK_KEY
+    )
+    prediction_v2_structural_design_task = tasks.get(
+        PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_TASK_KEY
+    )
+    prediction_v2_structural_design = (
+        measurement_v2_execution
+        if measurement_v2_execution is not None
+        and measurement_v2_execution.get("execution_task_key")
+        == PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_TASK_KEY
+        else None
+    )
+    prediction_v2_structural_preregistration_resolution = resolutions.get(
+        PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_PREREGISTRATION_TASK_KEY
     )
     durable_gate_evidence_facts = tuple(
         fact
@@ -1415,7 +1434,10 @@ def build_m4_status(
         "measurement_system_v2": (
             {
                 "phase": (
-                    "PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN"
+                    "PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_PREREGISTRATION"
+                    if PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN"
                     if PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER"
@@ -3471,6 +3493,114 @@ def build_m4_status(
                     "p3_authorized": False,
                     "production_action": "none",
                 },
+                "prediction_v2_structural_decision_support_design": {
+                    "task_key": (
+                        PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_TASK_KEY
+                    ),
+                    "resolver_status": (
+                        None
+                        if prediction_v2_structural_design_resolution is None
+                        else prediction_v2_structural_design_resolution.status.value
+                    ),
+                    "completion_classification": (
+                        None
+                        if prediction_v2_structural_design_task is None
+                        or task_states[
+                            prediction_v2_structural_design_task.artifact_digest
+                        ].completion_classification
+                        is None
+                        else task_states[
+                            prediction_v2_structural_design_task.artifact_digest
+                        ].completion_classification.value
+                    ),
+                    "design_contract_frozen": (
+                        PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_COMPLETION_FACT
+                        in manifest.facts.artifacts
+                    ),
+                    "selected_program": (
+                        None
+                        if prediction_v2_structural_design is None
+                        else prediction_v2_structural_design.get("selected_program")
+                    ),
+                    "prediction_research_disposition": (
+                        None
+                        if prediction_v2_structural_design is None
+                        else prediction_v2_structural_design.get(
+                            "prediction_research_disposition"
+                        )
+                    ),
+                    "legal_universe_cardinality": (
+                        None
+                        if prediction_v2_structural_design is None
+                        else prediction_v2_structural_design.get(
+                            "legal_universe_cardinality"
+                        )
+                    ),
+                    "pair_universe_cardinality": (
+                        None
+                        if prediction_v2_structural_design is None
+                        else prediction_v2_structural_design.get(
+                            "pair_universe_cardinality"
+                        )
+                    ),
+                    "optimization_geometry": (
+                        None
+                        if prediction_v2_structural_design is None
+                        else prediction_v2_structural_design.get(
+                            "optimization_geometry"
+                        )
+                    ),
+                    "null_baseline": (
+                        None
+                        if prediction_v2_structural_design is None
+                        else prediction_v2_structural_design.get("null_baseline")
+                    ),
+                    "portfolio_budget_status": (
+                        None
+                        if prediction_v2_structural_design is None
+                        else prediction_v2_structural_design.get(
+                            "portfolio_budget_status"
+                        )
+                    ),
+                    "optimizer_status": (
+                        None
+                        if prediction_v2_structural_design is None
+                        else prediction_v2_structural_design.get("optimizer_status")
+                    ),
+                    "weighted_score_allowed": False,
+                    "label_permutation_invariant": True,
+                    "same_budget_null_required": True,
+                    "registered_artifact_count": (
+                        0
+                        if prediction_v2_structural_design is None
+                        else prediction_v2_structural_design.get(
+                            "registered_artifact_count", 0
+                        )
+                    ),
+                    "candidate_portfolios_generated": 0,
+                    "optimizers_executed": 0,
+                    "structural_algorithm_implemented": False,
+                    "new_model_created": False,
+                    "candidate_expert_authorized": False,
+                    "prediction_v2_mode": "SHADOW_ONLY",
+                    "prediction_v2_route": "BASELINE_ONLY",
+                    "next_consumer": (
+                        PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_PREREGISTRATION_TASK_KEY
+                    ),
+                    "next_consumer_resolver_status": (
+                        None
+                        if prediction_v2_structural_preregistration_resolution is None
+                        else prediction_v2_structural_preregistration_resolution.status.value
+                    ),
+                    "database_queries_during_capability": 0,
+                    "historical_rows_read": 0,
+                    "formal_historical_folds_executed": 0,
+                    "bootstrap_children_executed": 0,
+                    "evidence_created": False,
+                    "promotion_gate_opened": False,
+                    "p3_authorized": False,
+                    "production_action": "none",
+                },
                 "completion_classification": (
                     None
                     if task_states[
@@ -3482,7 +3612,10 @@ def build_m4_status(
                     ].completion_classification.value
                 ),
                 "live_mainline_status": (
-                    "PREDICTION_V2_FORWARD_OR_PIVOT_VALIDATED_IN_MAINLINE"
+                    "PREDICTION_V2_STRUCTURAL_DESIGN_VALIDATED_IN_MAINLINE"
+                    if PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "PREDICTION_V2_FORWARD_OR_PIVOT_VALIDATED_IN_MAINLINE"
                     if PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "PREDICTION_V2_PROMOTION_PLANNER_VALIDATED_IN_MAINLINE"
@@ -3655,7 +3788,10 @@ def build_m4_status(
                     ),
                 },
                 "next_consumer": (
-                    PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_TASK_KEY
+                    PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_PREREGISTRATION_TASK_KEY
+                    if PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_TASK_KEY
                     if PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_TASK_KEY
