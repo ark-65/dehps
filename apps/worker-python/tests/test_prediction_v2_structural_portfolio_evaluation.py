@@ -35,7 +35,7 @@ from dehps.research_os.information_theory.progress import (
     load_m4_manifest,
 )
 from dehps.research_os.mainline import mainline_completion_fact
-from dehps.research_os.models import ControlPlaneManifest
+from dehps.research_os.models import ControlPlaneManifest, TaskStatus
 from dehps.research_os.supervisor import (
     PredictionV2StructuralPortfolioEvaluationCapability,
     ResearchEvidenceSupervisor,
@@ -382,6 +382,67 @@ def test_status_routes_completed_evaluation_to_structural_route_decision() -> No
     assert evaluation["evaluation_complete"] is True
     assert evaluation["evaluation_decision"] == EVALUATION_DECISION
     assert evaluation["next_consumer_resolver_status"] == "ready"
+
+
+def test_latest_v2_summary_prefers_and_loads_structural_evaluation_artifact(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resolutions = [
+        type(
+            "Resolution",
+            (),
+            {
+                "task_key": PREDICTION_V2_STRUCTURAL_PORTFOLIO_EXECUTION_TASK_KEY,
+                "status": TaskStatus.COMPLETED,
+            },
+        )(),
+        type(
+            "Resolution",
+            (),
+            {
+                "task_key": PREDICTION_V2_STRUCTURAL_PORTFOLIO_EVALUATION_TASK_KEY,
+                "status": TaskStatus.COMPLETED,
+            },
+        )(),
+    ]
+    requested: list[str] = []
+    execution = {
+        "artifact_digest": "1" * 64,
+        "evaluation_decision": EVALUATION_DECISION,
+        "route_disposition": ROUTE_DISPOSITION,
+        "islands_passing_frozen_gate": 16,
+        "islands_dominating_every_null": 16,
+    }
+    event = {
+        "payload": [
+            ["execution_artifact_digest", "1" * 64],
+            ["registered_artifact_count", 4],
+            ["actual_fold_count", 0],
+        ]
+    }
+
+    def load_execution(**kwargs: object) -> tuple[dict, dict, tuple]:
+        requested.append(str(kwargs["task_key"]))
+        return event, execution, ()
+
+    monkeypatch.setattr(
+        supervisor_module,
+        "_load_single_completed_execution",
+        load_execution,
+    )
+    summary = ResearchEvidenceSupervisor(
+        repository=object(),
+        require_clean_tree=False,
+    )._latest_completed_v2_summary(type("Snapshot", (), {"resolutions": resolutions})())
+    assert summary is not None
+    assert requested == [PREDICTION_V2_STRUCTURAL_PORTFOLIO_EVALUATION_TASK_KEY]
+    assert summary["execution_task_key"] == (
+        PREDICTION_V2_STRUCTURAL_PORTFOLIO_EVALUATION_TASK_KEY
+    )
+    assert summary["evaluation_decision"] == EVALUATION_DECISION
+    assert summary["route_disposition"] == ROUTE_DISPOSITION
+    assert summary["islands_passing_frozen_gate"] == 16
+    assert summary["registered_artifact_count"] == 4
 
 
 def test_supervisor_executes_and_replays_evaluation_without_workload(
