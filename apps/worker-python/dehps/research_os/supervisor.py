@@ -410,10 +410,19 @@ from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_st
     PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_CAPABILITY,
     PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_COMPLETION_FACT,
     PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_SOURCE_CONTRACT_PATH,
-    PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_PREREGISTRATION_TASK_KEY,
     build_prediction_v2_structural_design_artifacts,
     load_prediction_v2_structural_design_source_contract,
     verify_prediction_v2_structural_design_source_bytes,
+)
+from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_structural_decision_support_preregistration import (
+    PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_PREREGISTRATION_CAPABILITY,
+    PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_PREREGISTRATION_COMPLETION_FACT,
+    PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_PREREGISTRATION_SOURCE_CONTRACT_PATH,
+    PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_PREREGISTRATION_TASK_KEY,
+    PREDICTION_V2_STRUCTURAL_PORTFOLIO_EXECUTION_TASK_KEY,
+    build_prediction_v2_structural_preregistration_artifacts,
+    load_prediction_v2_structural_preregistration_source_contract,
+    verify_prediction_v2_structural_preregistration_source_bytes,
 )
 from dehps.research_os.information_theory.measurement_system_v2.preflight_design import (
     PREFLIGHT_DESIGN_CAPABILITY,
@@ -9341,6 +9350,253 @@ class PredictionV2StructuralDecisionSupportDesignCapability:
         )
 
 
+class PredictionV2StructuralDecisionSupportPreregistrationCapability:
+    def __init__(
+        self,
+        *,
+        repository: PostgresResearchOSRepository,
+        root_dir: Path = ROOT_DIR,
+    ) -> None:
+        self.repository = repository
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key
+            != PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_PREREGISTRATION_TASK_KEY
+            or task.requested_capability
+            != PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_PREREGISTRATION_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "Prediction v2 structural preregistration compiler received the wrong task"
+            )
+        source_contract = load_prediction_v2_structural_preregistration_source_contract(
+            self.root_dir
+            / PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_PREREGISTRATION_SOURCE_CONTRACT_PATH
+        )
+        verify_prediction_v2_structural_preregistration_source_bytes(
+            root_dir=self.root_dir,
+            contract=source_contract,
+        )
+        _, design_execution, registrations = _load_single_completed_execution(
+            repository=self.repository,
+            root_dir=self.root_dir,
+            control_plane_key=control_plane_key,
+            task_key=PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_TASK_KEY,
+        )
+        design_contract = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type="prediction_v2_structural_decision_support_design_contract",
+        )
+        design_handoff = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type="prediction_v2_structural_preregistration_handoff",
+        )
+        design_completion = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type=(
+                "prediction_v2_structural_decision_support_design_completion"
+            ),
+        )
+        expected_inputs = (
+            str(source_contract["artifact_digest"]),
+            str(design_execution["artifact_digest"]),
+            str(design_contract["artifact_digest"]),
+            str(design_handoff["artifact_digest"]),
+            str(design_completion["artifact_digest"]),
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "Prediction v2 structural preregistration input identities changed"
+            )
+        run = build_prediction_v2_structural_preregistration_artifacts(
+            source_contract=source_contract,
+            design_execution=design_execution,
+            design_contract=design_contract,
+            design_handoff=design_handoff,
+            design_completion=design_completion,
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        child_paths = (
+            task_dir
+            / "artifacts/execution-preregistration"
+            / str(run.preregistration["artifact_digest"])
+            / "preregistration.json",
+            task_dir
+            / "artifacts/execution-handoff"
+            / str(run.execution_handoff["artifact_digest"])
+            / "handoff.json",
+            task_dir
+            / "artifacts/completion"
+            / str(run.completion["artifact_digest"])
+            / "completion.json",
+        )
+        child_payloads = tuple(zip(child_paths, run.artifacts, strict=True))
+        for path, payload in child_payloads:
+            _persist_immutable(path, payload)
+        preregistration = run.preregistration
+        frozen = preregistration["execution_contract"]
+        optimizer = frozen["optimizer"]
+        null_baseline = frozen["null_baseline"]
+        acceptance = frozen["structural_only_acceptance"]
+        compute_envelope = frozen["compute_envelope"]
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "prediction_v2_structural_preregistration_source_contract_digest": (
+                source_contract["artifact_digest"]
+            ),
+            "prediction_v2_structural_preregistration_source_set_digest": (
+                source_contract["source_set_digest"]
+            ),
+            "research_request_key": source_contract["research_request_key"],
+            "research_request_id": source_contract["research_request_id"],
+            "research_execution_id": source_contract["research_execution_id"],
+            "engineering_request_key": source_contract["engineering_request_key"],
+            "engineering_request_id": source_contract["engineering_request_id"],
+            "engineering_execution_id": source_contract["engineering_execution_id"],
+            "structural_design_execution_artifact_digest": design_execution[
+                "artifact_digest"
+            ],
+            "structural_design_contract_digest": design_contract["artifact_digest"],
+            "structural_design_handoff_digest": design_handoff["artifact_digest"],
+            "structural_design_completion_digest": design_completion["artifact_digest"],
+            "structural_execution_preregistration_digest": preregistration[
+                "artifact_digest"
+            ],
+            "structural_portfolio_execution_handoff_digest": run.execution_handoff[
+                "artifact_digest"
+            ],
+            "structural_preregistration_completion_digest": run.completion[
+                "artifact_digest"
+            ],
+            "structural_execution_contract_digest": preregistration[
+                "execution_contract_digest"
+            ],
+            "historical_evidence": "INCONCLUSIVE",
+            "selected_program": PREDICTION_V2_SELECTED_PIVOT_PROGRAM,
+            "prediction_research_disposition": preregistration[
+                "prediction_research_disposition"
+            ],
+            "primary_candidate_budget": frozen["primary_candidate_budget"]["B"],
+            "optimizer": optimizer["name"],
+            "optimizer_island_count": optimizer["island_count"],
+            "proposals_per_island": optimizer["proposals_per_island"],
+            "total_optimizer_proposals_frozen": optimizer["total_proposals"],
+            "null_baseline": null_baseline["type"],
+            "null_replicate_count_frozen": null_baseline["replicate_count"],
+            "comparison_tolerance": frozen["exactness"]["comparison_tolerance"],
+            "minimum_strictly_dominated_nulls": acceptance[
+                "minimum_strictly_dominated_null_replicates"
+            ],
+            "maximum_nulls_dominating_candidate": acceptance[
+                "maximum_null_replicates_strictly_dominating_candidate"
+            ],
+            "minimum_replacement_distance_required": acceptance[
+                "required_minimum_replacement_distance"
+            ],
+            "parallel_workers_frozen": compute_envelope["parallel_workers"],
+            "optimizer_wall_clock_limit_seconds": compute_envelope[
+                "optimizer_wall_clock_limit_seconds"
+            ],
+            "null_wall_clock_limit_seconds": compute_envelope[
+                "null_wall_clock_limit_seconds"
+            ],
+            "resident_memory_limit_bytes": compute_envelope[
+                "resident_memory_limit_bytes"
+            ],
+            "weighted_score_allowed": False,
+            "same_execution_retuning_allowed": False,
+            "partial_timeout_acceptance_allowed": False,
+            "prediction_v2_mode": "SHADOW_ONLY",
+            "prediction_v2_route": "BASELINE_ONLY",
+            "candidate_portfolios_generated": 0,
+            "optimizer_proposals_executed": 0,
+            "null_replicates_executed": 0,
+            "candidate_expert_authorized": False,
+            "database_queries_during_capability": 0,
+            "historical_rows_read": 0,
+            "actual_fold_count": 0,
+            "formal_historical_folds_executed": 0,
+            "bootstrap_children_executed": 0,
+            "evidence_created": False,
+            "new_model_created": False,
+            "structural_algorithm_implemented": False,
+            "promotion_gate_opened": False,
+            "p3_authorized": False,
+            "registered_artifact_count": len(child_payloads) + 1,
+            "completion_fact": (
+                PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_PREREGISTRATION_COMPLETION_FACT
+            ),
+            "downstream_consumer": PREDICTION_V2_STRUCTURAL_PORTFOLIO_EXECUTION_TASK_KEY,
+            "production_impact": "none",
+            "production_action": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "replay_status": "DETERMINISTIC_PREREGISTRATION_COMPILATION_PENDING_REPLAY",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                *(str(payload["artifact_digest"]) for _, payload in child_payloads),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        output_registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(output_registrations) != 4:
+            raise MainlineSupervisorError(
+                "Prediction v2 structural preregistration registration count changed"
+            )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=output_registrations,
+            completion_facts=(
+                PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_PREREGISTRATION_COMPLETION_FACT,
+            ),
+        )
+
+
 class M4P261RawExecutionReplayCapability:
     def __init__(
         self,
@@ -11253,6 +11509,12 @@ class ResearchEvidenceSupervisor:
                     root_dir=root_dir,
                 )
             ),
+            PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_PREREGISTRATION_CAPABILITY: (
+                PredictionV2StructuralDecisionSupportPreregistrationCapability(
+                    repository=self.repository,
+                    root_dir=root_dir,
+                )
+            ),
             M4_V2_P261_RAW_REPLAY_CAPABILITY: (
                 M4P261RawExecutionReplayCapability(
                     repository=self.repository,
@@ -12236,6 +12498,7 @@ class ResearchEvidenceSupervisor:
         return self._latest_completed_summary_for_tasks(
             snapshot,
             (
+                PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_PREREGISTRATION_TASK_KEY,
                 PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_TASK_KEY,
                 PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_TASK_KEY,
                 PREDICTION_V2_PROMOTION_PLANNER_TASK_KEY,
@@ -15140,6 +15403,204 @@ class ResearchEvidenceSupervisor:
                 "statistical_results_read": True,
                 "evidence_created": False,
                 "manual_input_assembly": False,
+            }
+        elif (
+            task_key
+            == PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_PREREGISTRATION_TASK_KEY
+        ):
+            source_contract = load_prediction_v2_structural_preregistration_source_contract(
+                self.root_dir
+                / PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_PREREGISTRATION_SOURCE_CONTRACT_PATH
+            )
+            verify_prediction_v2_structural_preregistration_source_bytes(
+                root_dir=self.root_dir,
+                contract=source_contract,
+            )
+            _, design_execution, design_registrations = (
+                _load_single_completed_execution(
+                    repository=self.repository,
+                    root_dir=self.root_dir,
+                    control_plane_key=self.control_plane_key,
+                    task_key=PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_TASK_KEY,
+                )
+            )
+            design_contract = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=design_registrations,
+                artifact_type=(
+                    "prediction_v2_structural_decision_support_design_contract"
+                ),
+            )
+            design_handoff = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=design_registrations,
+                artifact_type="prediction_v2_structural_preregistration_handoff",
+            )
+            design_completion = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=design_registrations,
+                artifact_type=(
+                    "prediction_v2_structural_decision_support_design_completion"
+                ),
+            )
+            reconstructed = build_prediction_v2_structural_preregistration_artifacts(
+                source_contract=source_contract,
+                design_execution=design_execution,
+                design_contract=design_contract,
+                design_handoff=design_handoff,
+                design_completion=design_completion,
+            )
+            preregistration = reconstructed.preregistration
+            frozen = preregistration["execution_contract"]
+            optimizer = frozen["optimizer"]
+            null_baseline = frozen["null_baseline"]
+            acceptance = frozen["structural_only_acceptance"]
+            compute_envelope = frozen["compute_envelope"]
+            if (
+                artifact.get(
+                    "prediction_v2_structural_preregistration_source_contract_digest"
+                )
+                != source_contract["artifact_digest"]
+                or artifact.get(
+                    "prediction_v2_structural_preregistration_source_set_digest"
+                )
+                != source_contract["source_set_digest"]
+                or artifact.get("research_request_id") != 388
+                or artifact.get("research_execution_id") != 309
+                or artifact.get("engineering_request_id") != 389
+                or artifact.get("engineering_execution_id") != 310
+                or artifact.get("structural_design_execution_artifact_digest")
+                != design_execution["artifact_digest"]
+                or artifact.get("structural_design_contract_digest")
+                != design_contract["artifact_digest"]
+                or artifact.get("structural_design_handoff_digest")
+                != design_handoff["artifact_digest"]
+                or artifact.get("structural_design_completion_digest")
+                != design_completion["artifact_digest"]
+                or artifact.get("structural_execution_preregistration_digest")
+                != preregistration["artifact_digest"]
+                or artifact.get("structural_portfolio_execution_handoff_digest")
+                != reconstructed.execution_handoff["artifact_digest"]
+                or artifact.get("structural_preregistration_completion_digest")
+                != reconstructed.completion["artifact_digest"]
+                or artifact.get("structural_execution_contract_digest")
+                != preregistration["execution_contract_digest"]
+                or artifact.get("historical_evidence") != "INCONCLUSIVE"
+                or artifact.get("selected_program")
+                != PREDICTION_V2_SELECTED_PIVOT_PROGRAM
+                or artifact.get("prediction_research_disposition")
+                != preregistration["prediction_research_disposition"]
+                or artifact.get("primary_candidate_budget")
+                != frozen["primary_candidate_budget"]["B"]
+                or artifact.get("optimizer") != optimizer["name"]
+                or artifact.get("optimizer_island_count") != optimizer["island_count"]
+                or artifact.get("proposals_per_island")
+                != optimizer["proposals_per_island"]
+                or artifact.get("total_optimizer_proposals_frozen")
+                != optimizer["total_proposals"]
+                or artifact.get("null_baseline") != null_baseline["type"]
+                or artifact.get("null_replicate_count_frozen")
+                != null_baseline["replicate_count"]
+                or artifact.get("comparison_tolerance")
+                != frozen["exactness"]["comparison_tolerance"]
+                or artifact.get("minimum_strictly_dominated_nulls")
+                != acceptance["minimum_strictly_dominated_null_replicates"]
+                or artifact.get("maximum_nulls_dominating_candidate")
+                != acceptance["maximum_null_replicates_strictly_dominating_candidate"]
+                or artifact.get("minimum_replacement_distance_required")
+                != acceptance["required_minimum_replacement_distance"]
+                or artifact.get("parallel_workers_frozen")
+                != compute_envelope["parallel_workers"]
+                or artifact.get("optimizer_wall_clock_limit_seconds")
+                != compute_envelope["optimizer_wall_clock_limit_seconds"]
+                or artifact.get("null_wall_clock_limit_seconds")
+                != compute_envelope["null_wall_clock_limit_seconds"]
+                or artifact.get("resident_memory_limit_bytes")
+                != compute_envelope["resident_memory_limit_bytes"]
+                or artifact.get("weighted_score_allowed") is not False
+                or artifact.get("same_execution_retuning_allowed") is not False
+                or artifact.get("partial_timeout_acceptance_allowed") is not False
+                or artifact.get("prediction_v2_mode") != "SHADOW_ONLY"
+                or artifact.get("prediction_v2_route") != "BASELINE_ONLY"
+                or artifact.get("candidate_portfolios_generated") != 0
+                or artifact.get("optimizer_proposals_executed") != 0
+                or artifact.get("null_replicates_executed") != 0
+                or artifact.get("candidate_expert_authorized") is not False
+                or artifact.get("database_queries_during_capability") != 0
+                or artifact.get("historical_rows_read") != 0
+                or artifact.get("formal_historical_folds_executed") != 0
+                or artifact.get("bootstrap_children_executed") != 0
+                or artifact.get("evidence_created") is not False
+                or artifact.get("new_model_created") is not False
+                or artifact.get("structural_algorithm_implemented") is not False
+                or artifact.get("promotion_gate_opened") is not False
+                or artifact.get("p3_authorized") is not False
+                or artifact.get("registered_artifact_count") != 4
+                or artifact.get("completion_fact")
+                != PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_PREREGISTRATION_COMPLETION_FACT
+                or artifact.get("downstream_consumer")
+                != PREDICTION_V2_STRUCTURAL_PORTFOLIO_EXECUTION_TASK_KEY
+                or artifact.get("production_action") != "none"
+            ):
+                raise MainlineSupervisorError(
+                    "Prediction v2 structural preregistration replay identity changed"
+                )
+            _verify_v2_registered_artifacts(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                expected_payloads=(*reconstructed.artifacts, artifact),
+            )
+            capability_replay = {
+                "schema_version": (
+                    "dehps-prediction-v2-structural-preregistration-replay.v1"
+                ),
+                "status": "REPLAY_VERIFIED",
+                "preregistration_digest": preregistration["artifact_digest"],
+                "execution_handoff_digest": reconstructed.execution_handoff[
+                    "artifact_digest"
+                ],
+                "completion_digest": reconstructed.completion["artifact_digest"],
+                "execution_contract_digest": preregistration[
+                    "execution_contract_digest"
+                ],
+                "historical_evidence": "INCONCLUSIVE",
+                "selected_program": PREDICTION_V2_SELECTED_PIVOT_PROGRAM,
+                "prediction_research_disposition": preregistration[
+                    "prediction_research_disposition"
+                ],
+                "primary_candidate_budget": frozen["primary_candidate_budget"]["B"],
+                "optimizer": optimizer["name"],
+                "optimizer_island_count": optimizer["island_count"],
+                "total_optimizer_proposals_frozen": optimizer["total_proposals"],
+                "null_replicate_count_frozen": null_baseline["replicate_count"],
+                "comparison_tolerance": frozen["exactness"]["comparison_tolerance"],
+                "minimum_strictly_dominated_nulls": acceptance[
+                    "minimum_strictly_dominated_null_replicates"
+                ],
+                "maximum_nulls_dominating_candidate": acceptance[
+                    "maximum_null_replicates_strictly_dominating_candidate"
+                ],
+                "minimum_replacement_distance_required": acceptance[
+                    "required_minimum_replacement_distance"
+                ],
+                "same_registered_content": True,
+                "prediction_v2_mode": "SHADOW_ONLY",
+                "prediction_v2_route": "BASELINE_ONLY",
+                "candidate_portfolios_generated": 0,
+                "optimizer_proposals_replayed": 0,
+                "null_replicates_replayed": 0,
+                "database_queries_during_replay": 0,
+                "historical_rows_read": 0,
+                "formal_historical_folds_replayed": 0,
+                "bootstrap_children_replayed": 0,
+                "evidence_created": False,
+                "new_model_created": False,
+                "structural_algorithm_implemented": False,
+                "candidate_expert_authorized": False,
+                "promotion_gate_opened": False,
+                "p3_authorized": False,
+                "manual_input_assembly": False,
+                "next_consumer": PREDICTION_V2_STRUCTURAL_PORTFOLIO_EXECUTION_TASK_KEY,
             }
         elif task_key == PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_TASK_KEY:
             source_contract = load_prediction_v2_structural_design_source_contract(

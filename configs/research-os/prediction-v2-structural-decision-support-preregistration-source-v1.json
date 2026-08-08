@@ -1,0 +1,181 @@
+{
+  "schema_version": "dehps-prediction-v2-structural-preregistration-source.v1",
+  "artifact_type": "prediction_v2_structural_decision_support_preregistration_source",
+  "contract_key": "PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_PREREGISTRATION_SOURCE",
+  "artifact_digest": "d0e997b1b7442ce5dfe01652eb23ff9b8e234ee79e0a783a7f27f3a1e1f9821e",
+  "source_set_digest": "c3c2be9973b19c116f083975e42a10bee8fefbff73209d3df11ad05478e8e211",
+  "frozen_contract_digest": "175f8134c70a6cdea99ccdccb07464f9d1a84bf356306a79d4b34d41b89d1c87",
+  "research_request_key": "research-prediction-v2-structural-preregistration-round-64-20260809",
+  "research_request_id": 388,
+  "research_execution_id": 309,
+  "engineering_request_key": "engineering-prediction-v2-structural-preregistration-round-64-20260809",
+  "engineering_request_id": 389,
+  "engineering_execution_id": 310,
+  "result_blind": true,
+  "historical_rows_read": 0,
+  "folds_executed": 0,
+  "bootstrap_children_executed": 0,
+  "candidate_portfolios_generated": 0,
+  "optimizer_proposals_executed": 0,
+  "null_replicates_executed": 0,
+  "registered_children": 3,
+  "new_evidence_created": false,
+  "new_model_created": false,
+  "structural_algorithm_implemented": false,
+  "production_action": "none",
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/prediction_v2_structural_decision_support_preregistration.py",
+      "content_sha256": "81a2b55b723d1f9eb2dfb7fea2893832770fd3209caa0ff81966bbb5000f27aa"
+    }
+  ],
+  "frozen_contract": {
+    "task_key": "prediction-v2-structural-decision-support-preregistration",
+    "capability": "prediction_v2_structural_decision_support_preregistration",
+    "completion_fact": "prediction-v2-structural-decision-support-preregistration:COMPLETE",
+    "next_consumer": "prediction-v2-structural-portfolio-execution",
+    "structural_design_execution_artifact_digest": "2c01404124ac1dd680ca5be7f846a982d739738ca13623b79dbc326df1cc3668",
+    "structural_design_child_artifact_digests": [
+      "37d638b1b69adb1f50cd7820ed1b284b6a1cb0b2b73413d6048fff5236049334",
+      "2f7e884d160c5453b45669d129498fe403202f481f64c885c8921723c1b06117",
+      "329a8d86fd083a3dcf33f1bbd480d5f6893f1be65aa228965e59cecbc02e68a9"
+    ],
+    "execution_contract": {
+      "legal_universe": {
+        "number_domain": "integers_1_through_33",
+        "combination_cardinality": 6,
+        "universe_cardinality": 1107568,
+        "canonical_rank": "zero_based_lexicographic_rank_matching_combinations(range(1,34),6)"
+      },
+      "primary_candidate_budget": {
+        "B": 176,
+        "selection_basis": "smallest_positive_budget_with_integral_singleton_and_pair_targets",
+        "target_singleton_count": 32,
+        "target_pair_count": 5,
+        "necessary_block_design_parameters": "2-(33,6,5);b=176;r=32",
+        "existence_or_global_optimality_claimed": false,
+        "compression_fraction_exact": "1-176/1107568",
+        "compression_ratio_exact": "1107568/176"
+      },
+      "optimizer": {
+        "name": "DETERMINISTIC_PARETO_PREFIX_EXCHANGE_V1",
+        "optimization_geometry": "PARETO_VECTOR_WITHOUT_SCALAR_WEIGHTS",
+        "island_count": 22,
+        "proposals_per_island": 262144,
+        "total_proposals": 5767168,
+        "initialization": "DETERMINISTIC_PARTIAL_FISHER_YATES_RANK_PERMUTATION",
+        "proposal": "SELECTED_PREFIX_COMPLEMENT_SUFFIX_SWAP",
+        "move_acceptance": "WEAK_PARETO_WITH_ONE_STRICT_OR_EQUAL_VECTOR_LEXICOGRAPHIC_IMPROVEMENT",
+        "island_selection": "MAX_STRICT_NULL_DOMINANCE_THEN_MIN_NULL_DOMINANCE_THEN_MAX_MIN_DISTANCE_THEN_LEXICOGRAPHIC_RANK_VECTOR",
+        "minimize_exact": [
+          "sum_of_squared_singleton_counts",
+          "sum_of_squared_pair_counts"
+        ],
+        "maximize_exact": [
+          "minimum_replacement_distance",
+          "sum_of_pairwise_replacement_distances"
+        ],
+        "implementation_backend": "NUMBA_EXACT_INTEGER_KERNEL_WITH_SCALAR_REFERENCE_PREFLIGHT",
+        "weighted_scalar_score_allowed": false,
+        "global_optimality_claimed": false,
+        "uniqueness_boundary": "SELECTED_PREFIX_OF_ONE_MAINTAINED_PERMUTATION"
+      },
+      "seed_contract": {
+        "optimizer_root_seed_hex": "124aed827e6f68471da3733717919b9956be3c2e4ed256b11cf7ed2c8ed9b9d2",
+        "optimizer_seed_derivation": "SHA256(root|'|island|'|zero_padded_island_index)",
+        "null_root_seed_hex": "ce969021ed72f5638d2b4534bd9c70af44854a6eb95973e5d7115a92f7a454ac",
+        "null_seed_derivation": "SHA256(root|'|replicate|'|zero_padded_replicate_index)",
+        "bounded_integer_draw": "SHA256_COUNTER_REJECTION_UNBIASED_CLOSED_OPEN"
+      },
+      "null_baseline": {
+        "type": "UNIFORM_WITHOUT_REPLACEMENT_PORTFOLIO_FROM_LEGAL_UNIVERSE",
+        "same_candidate_budget": 176,
+        "replicate_count": 4096,
+        "sampler": "DETERMINISTIC_VIRTUAL_PARTIAL_FISHER_YATES_PREFIX",
+        "ordered_output": "REPLICATE_INDEX_ASCENDING",
+        "historical_data_used": false
+      },
+      "exactness": {
+        "comparison_tolerance": 0,
+        "comparison_domain": "INTEGER_SUFFICIENT_STATISTICS_AND_CROSS_PRODUCTS",
+        "display_decimal_places": 12,
+        "display_rounding": "ROUND_HALF_EVEN",
+        "mean_distance_identity": "sum_distance=6*C(B,2)-(sum_singleton_count_squared-6B)/2",
+        "mean_distance_role": "DERIVED_AUDIT_COORDINATE_NOT_INDEPENDENT_GAIN"
+      },
+      "compute_envelope": {
+        "machine_scope": "CURRENT_LOCAL_HOST_ONLY",
+        "parallel_workers": 22,
+        "optimizer_wall_clock_limit_seconds": 7200,
+        "null_wall_clock_limit_seconds": 7200,
+        "resident_memory_limit_bytes": 2147483648,
+        "reference_preflight_proposals": 1024,
+        "timeout_policy": "INCOMPLETE_FAIL_CLOSED_NO_PARTIAL_ACCEPTANCE"
+      },
+      "structural_only_acceptance": {
+        "required_minimum_replacement_distance": 2,
+        "strict_dominance_definition": "NO_WORSE_ALL_FOUR_EXACT_COORDINATES_AND_STRICTLY_BETTER_ONE",
+        "minimum_strictly_dominated_null_replicates": 3893,
+        "maximum_null_replicates_strictly_dominating_candidate": 0,
+        "joint_failure_fraction": "(1+nulls_not_strictly_dominated_by_candidate)/4097<=0.05",
+        "gate_semantics": "STRUCTURAL_PERFORMANCE_GATE_NOT_PREDICTIVE_P_VALUE",
+        "same_execution_retuning_allowed": false,
+        "pass_disposition": "STRUCTURAL_DECISION_SUPPORT_HYPOTHESIS_SUPPORTED_AT_FROZEN_BUDGET_ONLY",
+        "fail_disposition": "STRUCTURAL_DECISION_SUPPORT_HYPOTHESIS_REJECTED_AT_FROZEN_BUDGET_NO_SAME_EXECUTION_RETUNING",
+        "prediction_or_probability_claim_allowed": false
+      },
+      "result_blind_input_boundary": {
+        "allowed": [
+          "legal_universe_constants",
+          "frozen_preregistration_contract"
+        ],
+        "forbidden": [
+          "draw_history",
+          "previous_scores",
+          "previous_predictions",
+          "previous_rankings",
+          "issue_outcomes",
+          "post_output_retuning",
+          "portfolio_or_null_results_before_execution"
+        ]
+      }
+    },
+    "arithmetic_proof": {
+      "legal_universe_cardinality": 1107568,
+      "pair_universe_cardinality": 528,
+      "singleton_budget_period": 11,
+      "pair_budget_period": 176,
+      "simultaneous_minimum_budget": 176,
+      "target_singleton_count": 32,
+      "target_pair_count": 5,
+      "total_optimizer_proposals": 5767168,
+      "maximum_nulls_not_strictly_dominated": 203,
+      "joint_failure_threshold_is_tight": true,
+      "distance_one_neighbours_per_block": 162,
+      "greedy_distance_two_portfolio_lower_bound": 6794,
+      "minimum_distance_two_feasible_at_budget_176": true,
+      "exact_block_design_existence_claimed": false
+    },
+    "historical_evidence": "INCONCLUSIVE",
+    "selected_program": "STRUCTURAL_DECISION_SUPPORT_PIVOT",
+    "prediction_research_disposition": "FROZEN_PENDING_STRUCTURAL_PORTFOLIO_EXECUTION",
+    "prediction_v2_mode": "SHADOW_ONLY",
+    "prediction_v2_route": "BASELINE_ONLY",
+    "registered_child_count": 3,
+    "registered_total_with_mainline_execution": 4,
+    "database_queries": 0,
+    "historical_rows_read": 0,
+    "folds_executed": 0,
+    "bootstrap_children_executed": 0,
+    "candidate_portfolios_generated": 0,
+    "optimizer_proposals_executed": 0,
+    "null_replicates_executed": 0,
+    "new_evidence_created": false,
+    "new_model_created": false,
+    "structural_algorithm_implemented": false,
+    "candidate_expert_authorized": false,
+    "promotion_gate_opened": false,
+    "p3_authorized": false,
+    "production_action": "none"
+  }
+}

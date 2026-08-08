@@ -2827,8 +2827,14 @@
       "task_type": "prediction_v2_structural_decision_support_preregistration",
       "lane": "research",
       "priority": 71,
-      "requested_capability": null,
-      "input_artifact_digests": [],
+      "requested_capability": "prediction_v2_structural_decision_support_preregistration",
+      "input_artifact_digests": [
+        "d0e997b1b7442ce5dfe01652eb23ff9b8e234ee79e0a783a7f27f3a1e1f9821e",
+        "2c01404124ac1dd680ca5be7f846a982d739738ca13623b79dbc326df1cc3668",
+        "37d638b1b69adb1f50cd7820ed1b284b6a1cb0b2b73413d6048fff5236049334",
+        "2f7e884d160c5453b45669d129498fe403202f481f64c885c8921723c1b06117",
+        "329a8d86fd083a3dcf33f1bbd480d5f6893f1be65aa228965e59cecbc02e68a9"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
@@ -2842,8 +2848,8 @@
         }
       ],
       "metric_contract": {
-        "engineering_complete": false,
-        "engineering_increment_percent": 0,
+        "engineering_complete": true,
+        "engineering_increment_percent": 1,
         "evidence_complete": false,
         "evidence_increment_percent": 0,
         "phase": "PREDICTION-V2-STRUCTURAL-DECISION-SUPPORT-PREREGISTRATION",
@@ -2854,22 +2860,116 @@
           "ready_condition": "the_structural_design_compiler_is_VALIDATED_IN_MAINLINE_and_replay_verified_with_the_design_contract_and_handoff_registered",
           "runner": "research_evidence_supervisor",
           "upstream_artifacts": [
+            "Prediction v2 structural design mainline execution",
             "result-blind structural decision-support design contract",
             "structural preregistration handoff",
             "structural design completion"
           ],
           "downstream_artifacts": [
-            "result-blind structural execution preregistration"
+            "result-blind structural execution preregistration",
+            "structural portfolio execution handoff",
+            "structural preregistration completion"
           ],
           "status_projection": "unified_m4_status.measurement_system_v2.prediction_v2_structural_decision_support_preregistration",
           "evidence_progress_rule": "preregistration_creates_no_prediction_Evidence_and_cannot_choose_parameters_after_execution",
-          "decision_consumer": "separately_authorized_structural_portfolio_execution",
-          "downstream_consumer": "to_be_declared_by_the_frozen_preregistration"
+          "decision_consumer": "prediction-v2-structural-portfolio-execution",
+          "downstream_consumer": "prediction-v2-structural-portfolio-execution"
         },
         "historical_evidence": "INCONCLUSIVE",
-        "prediction_research_disposition": "FROZEN_PENDING_SEPARATE_RESULT_BLIND_PREREGISTRATION",
+        "prediction_research_disposition": "FROZEN_PENDING_STRUCTURAL_PORTFOLIO_EXECUTION",
+        "primary_candidate_budget": 176,
+        "target_singleton_count": 32,
+        "target_pair_count": 5,
+        "optimizer": "DETERMINISTIC_PARETO_PREFIX_EXCHANGE_V1",
+        "optimizer_island_count": 22,
+        "proposals_per_island": 262144,
+        "total_optimizer_proposals_frozen": 5767168,
+        "null_replicate_count_frozen": 4096,
+        "comparison_tolerance": 0,
+        "minimum_replacement_distance_required": 2,
+        "minimum_strictly_dominated_nulls": 3893,
+        "maximum_nulls_dominating_candidate": 0,
+        "optimizer_wall_clock_limit_seconds": 7200,
+        "null_wall_clock_limit_seconds": 7200,
+        "resident_memory_limit_bytes": 2147483648,
+        "weighted_score_allowed": false,
+        "same_execution_retuning_allowed": false,
+        "partial_timeout_acceptance_allowed": false,
+        "registered_child_count": 3,
+        "database_queries_during_capability": 0,
+        "historical_rows_read": 0,
+        "formal_historical_folds_executed": 0,
+        "bootstrap_children_executed": 0,
+        "candidate_portfolios_generated": 0,
+        "optimizer_proposals_executed": 0,
+        "null_replicates_executed": 0,
         "portfolio_generated": false,
         "optimizer_executed": false,
+        "structural_algorithm_implemented": false,
+        "evidence_created": false,
+        "new_model_created": false,
+        "promotion_gate_opened": false,
+        "p3_authorized": false,
+        "production_action": "none"
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "prediction-v2-structural-portfolio-execution",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "prediction_v2_structural_portfolio_execution",
+      "lane": "research",
+      "priority": 70,
+      "requested_capability": null,
+      "input_artifact_digests": [],
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "prediction-v2-structural-decision-support-preregistration",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "prediction-v2-structural-decision-support-preregistration:COMPLETE",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "engineering_complete": false,
+        "engineering_increment_percent": 0,
+        "evidence_complete": false,
+        "evidence_increment_percent": 0,
+        "phase": "PREDICTION-V2-STRUCTURAL-PORTFOLIO-EXECUTION",
+        "scope": "execute_exactly_the_frozen_B176_22_island_prefix_exchange_and_4096_same_budget_null_contract_once_on_the_current_local_host",
+        "reason": "the_result_blind_preregistration_freezes_every_executable_choice_and_routes_exactly_one_bounded_structural_experiment_to_separate_authorization",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "the_structural_preregistration_compiler_is_VALIDATED_IN_MAINLINE_and_replay_verified_with_all_three_children_registered",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "structural preregistration mainline execution",
+            "result-blind structural execution preregistration",
+            "structural portfolio execution handoff",
+            "structural preregistration completion"
+          ],
+          "downstream_artifacts": [
+            "canonical B176 structural portfolio",
+            "exact structural sufficient statistics",
+            "4096-replicate same-budget null comparison",
+            "structural portfolio execution completion"
+          ],
+          "status_projection": "unified_m4_status.measurement_system_v2.prediction_v2_structural_portfolio_execution",
+          "evidence_progress_rule": "execution_may_support_or_reject_only_the_frozen_structural_hypothesis_and_creates_no_prediction_Evidence_or_probability_claim",
+          "decision_consumer": "prediction-v2-structural-portfolio-evaluation",
+          "downstream_consumer": "prediction-v2-structural-portfolio-evaluation"
+        },
+        "historical_evidence": "INCONCLUSIVE",
+        "prediction_research_disposition": "FROZEN_PENDING_STRUCTURAL_PORTFOLIO_EXECUTION",
+        "primary_candidate_budget": 176,
+        "portfolio_generated": false,
+        "optimizer_executed": false,
+        "null_replicates_executed": 0,
         "structural_algorithm_implemented": false,
         "evidence_created": false,
         "new_model_created": false,
@@ -3835,6 +3935,7 @@
       "prediction-v2-promotion-planner-source:f2fc68cc3d20167ecc8e2d3ea4ffaab6c9459cb2edef7e3b364e0431f446e160",
       "prediction-v2-forward-or-pivot-planner-source:0a57779c0c96d4efc04b17b84260c373f657ca49cc9525becaceb78894bc1144",
       "prediction-v2-structural-design-source:c0c31dff6aced2fbe5335e2702788f2f55367fa98c0b3f958dcf18c2c83b1778",
+      "prediction-v2-structural-preregistration-source:d0e997b1b7442ce5dfe01652eb23ff9b8e234ee79e0a783a7f27f3a1e1f9821e",
       "m4-p2-9-p263-source-compatibility-fixture:1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f",
       "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
       "m4-p2-identifiability-preflight-manifest:5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3",
@@ -3857,5 +3958,5 @@
     "external_events": [],
     "authorities": []
   },
-  "manifest_digest": "cdc74008ea7928f2ae6a9efffa252c8c5e7a5c27fb5e10c95d76d523efc13609"
+  "manifest_digest": "bcc26f14c355db2fa49ccc880e4c5b839ebc1bff1b76d36c064d9af2afa3336a"
 }
