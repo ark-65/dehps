@@ -9128,6 +9128,23 @@ class P27AutomaticMeasurementGateCapability:
         )
 
 
+def _progress_projection_path(task_key: str) -> Path | None:
+    return {
+        P26_TASK_KEY: Path(
+            "runtime/logs/m4-p2-6-3-measurement-validation-progress.json"
+        ),
+        MARGINAL_STATIC_HEALTH_EXECUTION_TASK_KEY: (
+            MARGINAL_STATIC_HEALTH_PROGRESS_PATH
+        ),
+        MARGINAL_STATIC_REPAIR_HEALTH_EXECUTION_TASK_KEY: (
+            MARGINAL_STATIC_REPAIR_HEALTH_PROGRESS_PATH
+        ),
+        MARGINAL_STATIC_REPAIR_V2_HEALTH_EXECUTION_TASK_KEY: (
+            MARGINAL_STATIC_REPAIR_V2_HEALTH_PROGRESS_PATH
+        ),
+    }.get(task_key)
+
+
 class ResearchEvidenceSupervisor:
     def __init__(
         self,
@@ -9577,6 +9594,7 @@ class ResearchEvidenceSupervisor:
             snapshot=running_snapshot,
             dispatch_performed=True,
         )
+        progress_projection_path = _progress_projection_path(task.task_key)
         self._write_state(
             {
                 "schema_version": "dehps-research-evidence-supervisor-state.v1",
@@ -9603,31 +9621,8 @@ class ResearchEvidenceSupervisor:
                 ),
                 "heartbeat_at": self.now().isoformat(),
                 **(
-                    {
-                        "progress_projection_path": (
-                            "runtime/logs/"
-                            "m4-p2-6-3-measurement-validation-progress.json"
-                        )
-                    }
-                    if task.task_key == P26_TASK_KEY
-                    else {}
-                ),
-                **(
-                    {
-                        "progress_projection_path": str(
-                            MARGINAL_STATIC_HEALTH_PROGRESS_PATH
-                        )
-                    }
-                    if task.task_key == MARGINAL_STATIC_HEALTH_EXECUTION_TASK_KEY
-                    else {}
-                ),
-                **(
-                    {
-                        "progress_projection_path": str(
-                            MARGINAL_STATIC_REPAIR_HEALTH_PROGRESS_PATH
-                        )
-                    }
-                    if task.task_key == MARGINAL_STATIC_REPAIR_HEALTH_EXECUTION_TASK_KEY
+                    {"progress_projection_path": str(progress_projection_path)}
+                    if progress_projection_path is not None
                     else {}
                 ),
             }

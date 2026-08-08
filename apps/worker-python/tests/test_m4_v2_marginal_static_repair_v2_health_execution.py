@@ -26,6 +26,7 @@ from dehps.research_os.information_theory.measurement_system_v2.marginal_static_
     MARGINAL_STATIC_REPAIR_V2_HEALTH_EXECUTION_COMPLETION_FACT,
     MARGINAL_STATIC_REPAIR_V2_HEALTH_EXECUTION_SOURCE_CONTRACT_PATH,
     MARGINAL_STATIC_REPAIR_V2_HEALTH_EXECUTION_TASK_KEY,
+    MARGINAL_STATIC_REPAIR_V2_HEALTH_PROGRESS_PATH,
     PLANNED_GENERATED_ISSUES,
     REFERENCE_CHILDREN,
     SHARD_COUNT,
@@ -57,6 +58,7 @@ from dehps.research_os.models import ControlPlaneManifest
 from dehps.research_os.supervisor import (
     M4MarginalStaticRepairV2HealthExecutionCapability,
     ResearchEvidenceSupervisor,
+    _progress_projection_path,
 )
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -419,3 +421,10 @@ def test_supervisor_registers_repair_v2_health_capability() -> None:
         MARGINAL_STATIC_REPAIR_V2_HEALTH_EXECUTION_CAPABILITY in supervisor.capabilities
     )
     assert PLANNED_GENERATED_ISSUES == 291_110_912
+
+
+def test_supervisor_projects_repair_v2_health_progress_path() -> None:
+    assert (
+        _progress_projection_path(MARGINAL_STATIC_REPAIR_V2_HEALTH_EXECUTION_TASK_KEY)
+        == MARGINAL_STATIC_REPAIR_V2_HEALTH_PROGRESS_PATH
+    )
