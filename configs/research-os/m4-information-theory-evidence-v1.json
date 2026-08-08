@@ -2366,6 +2366,15 @@
       "task_type": "marginal_static_historical_measurement_preregistration",
       "lane": "research",
       "priority": 77,
+      "requested_capability": "m4_v2_marginal_static_historical_measurement_preregistration",
+      "input_artifact_digests": [
+        "fb9f79056cbd3f7bc4fd4cff3ad5250669d4f6aaed6ec1c31249738230aa291d",
+        "5341f21e5d0a69597362c2244aac12009dfbae847285442780d541088312e649",
+        "c2d03127d2eb966b699b4829402dd72947cf0c959dd013f33169649316a1d420",
+        "da61f66489c4a511f1b9fafe84dfe3bacc10e9e0f15ed270e954db56d662e752",
+        "e52220af0b6cd4c40dd3ff05b9eb692446fe4660b1118ff6cf2b4cd5423f5bb4",
+        "e2624941ae88faa3aff67eff841e773a01a7b343a6c422a9ae433eb2bf710ba0"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
@@ -2379,8 +2388,8 @@
         }
       ],
       "metric_contract": {
-        "engineering_complete": false,
-        "engineering_increment_percent": 0,
+        "engineering_complete": true,
+        "engineering_increment_percent": 1,
         "evidence_complete": false,
         "evidence_increment_percent": 0,
         "phase": "M4-V2-MARGINAL-STATIC-HISTORICAL-MEASUREMENT-PREREGISTRATION",
@@ -2409,8 +2418,83 @@
           "downstream_consumer": "m4-v2-marginal-static-historical-measurement-execution"
         },
         "result_blind": true,
+        "historical_issue_count": 3481,
+        "database_queries_during_capability": 1,
+        "historical_rows_content_hashed": 3481,
+        "historical_outcomes_hashed": true,
+        "historical_outcomes_exposed_to_research_or_decision_logic": false,
+        "fold_identity_count": 2581,
+        "checkpoint_order_entry_count": 2581,
+        "root_seed_count": 2000,
+        "resampling_scheme_count": 8,
+        "resampling_child_count": 16000,
+        "fold_shard_count": 11,
+        "completion_index_loads": 1,
+        "completed_fold_action": "skip_verified_completed_fold_without_recompute",
+        "duplicate_validation": false,
         "historical_execution_authorized": false,
+        "historical_scores_computed": 0,
+        "formal_historical_folds_executed": 0,
+        "bootstrap_children_executed": 0,
         "statistical_results_read": false,
+        "evidence_created": false,
+        "promotion_gate_opened": false,
+        "production_action": "none"
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "m4-v2-marginal-static-historical-measurement-execution",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "marginal_static_historical_measurement_execution",
+      "lane": "research",
+      "priority": 76,
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-v2-marginal-static-historical-measurement-preregistration",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-v2-marginal-static-historical-measurement-preregistration:FROZEN",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "engineering_complete": false,
+        "engineering_increment_percent": 0,
+        "evidence_complete": false,
+        "evidence_increment_percent": 0,
+        "phase": "M4-V2-MARGINAL-STATIC-HISTORICAL-MEASUREMENT-EXECUTION",
+        "scope": "execute_the_frozen_content_addressed_walk_forward_and_dependence_aware_inference_contract_once_with_verified_resume_semantics",
+        "reason": "only a separate post-preregistration task may compute historical scores and statistical endpoints",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "the exact dataset fold checkpoint resampling and execution manifests are VALIDATED_IN_MAINLINE and replay-verified",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "content-addressed historical dataset snapshot",
+            "2581-fold identity manifest",
+            "checkpoint/settlement order manifest",
+            "resampling root and child manifest",
+            "frozen historical execution plan"
+          ],
+          "downstream_artifacts": [
+            "immutable fold shards",
+            "immutable completion index",
+            "dependence-aware historical inference aggregate",
+            "mainline execution completion"
+          ],
+          "status_projection": "unified_m4_status.measurement_system_v2.marginal_static_historical_measurement_execution",
+          "evidence_progress_rule": "historical_results_remain_non_evidence_until_the_fixed_gate_compiler_consumes_a_complete_replay_verified_execution",
+          "decision_consumer": "measurement-v2 Gate Compiler",
+          "downstream_consumer": "measurement_v2_gate_compiler"
+        },
+        "historical_execution_authorized": false,
+        "formal_historical_folds_executed": 0,
+        "bootstrap_children_executed": 0,
         "evidence_created": false,
         "promotion_gate_opened": false,
         "production_action": "none"
@@ -3368,6 +3452,7 @@
       "m4-v2-marginal-static-repair-v2-health-execution-source:e1a2b76b1df2bb93a696330256462569e8122608fc027b014051391b9d89abee",
       "m4-v2-marginal-static-repair-v2-health-decision-source:65dbd24e6a63fadfa62d0fb5d0bf7744d166ed1bfb2412bb48e57b04c2d190c6",
       "m4-v2-marginal-static-historical-design-source:ad07217101c613d1b7afa273054adb7a8c3fe3a7c6a36eea4012bbbae2483753",
+      "m4-v2-marginal-static-historical-preregistration-source:fb9f79056cbd3f7bc4fd4cff3ad5250669d4f6aaed6ec1c31249738230aa291d",
       "m4-v2-marginal-static-health-execution-source:5fbeb6ab0533478ac097747ab73fb0188561849505a76cf7a63a3a02061b2354",
       "m4-p2-9-p263-source-compatibility-fixture:1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f",
       "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
@@ -3391,5 +3476,5 @@
     "external_events": [],
     "authorities": []
   },
-  "manifest_digest": "e483329a916e02374dd4735c58a32d08a0e922d31cd5abf554d5a3d779bfde56"
+  "manifest_digest": "108143c77c9e5755d2a269392238c01fc885b6a38041a0eb262a2b8fd7fd2fc2"
 }

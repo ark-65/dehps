@@ -140,6 +140,12 @@ M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_DESIGN_COMPLETION_FACT = (
 M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_PREREGISTRATION_TASK_KEY = (
     "m4-v2-marginal-static-historical-measurement-preregistration"
 )
+M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_PREREGISTRATION_COMPLETION_FACT = (
+    "m4-v2-marginal-static-historical-measurement-preregistration:FROZEN"
+)
+M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_EXECUTION_TASK_KEY = (
+    "m4-v2-marginal-static-historical-measurement-execution"
+)
 M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
 M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = "m4-v2-p2-6-1-marginal-decision-replay"
 M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
@@ -573,7 +579,10 @@ def build_m4_status(
         measurement_v2_execution
         if measurement_v2_execution is not None
         and measurement_v2_execution.get("execution_task_key")
-        == M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_DESIGN_TASK_KEY
+        in {
+            M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_DESIGN_TASK_KEY,
+            M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_PREREGISTRATION_TASK_KEY,
+        }
         else None
     )
     measurement_v2_marginal_historical_preregistration_resolution = resolutions.get(
@@ -581,6 +590,19 @@ def build_m4_status(
     )
     measurement_v2_marginal_historical_preregistration_task = tasks.get(
         M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_PREREGISTRATION_TASK_KEY
+    )
+    measurement_v2_marginal_historical_preregistration = (
+        measurement_v2_execution
+        if measurement_v2_execution is not None
+        and measurement_v2_execution.get("execution_task_key")
+        == M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_PREREGISTRATION_TASK_KEY
+        else None
+    )
+    measurement_v2_marginal_historical_execution_resolution = resolutions.get(
+        M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_EXECUTION_TASK_KEY
+    )
+    measurement_v2_marginal_historical_execution_task = tasks.get(
+        M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_EXECUTION_TASK_KEY
     )
     measurement_compatibility_resolution = resolutions.get(
         M4_P263_COMPATIBILITY_TASK_KEY
@@ -1302,7 +1324,10 @@ def build_m4_status(
         "measurement_system_v2": (
             {
                 "phase": (
-                    "MARGINAL_STATIC_HISTORICAL_MEASUREMENT_PREREGISTRATION"
+                    "MARGINAL_STATIC_HISTORICAL_MEASUREMENT_EXECUTION"
+                    if M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_PREREGISTRATION_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "MARGINAL_STATIC_HISTORICAL_MEASUREMENT_PREREGISTRATION"
                     if M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_DESIGN_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "MARGINAL_STATIC_HISTORICAL_MEASUREMENT_DESIGN"
@@ -2716,14 +2741,211 @@ def build_m4_status(
                             measurement_v2_marginal_historical_preregistration_task.artifact_digest
                         ].completion_classification.value
                     ),
-                    "completed": False,
+                    "completed": (
+                        M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_PREREGISTRATION_COMPLETION_FACT
+                        in manifest.facts.artifacts
+                    ),
                     "result_blind": True,
                     "historical_execution_authorized": False,
-                    "historical_outcomes_read": False,
+                    "source_contract_digest": (
+                        None
+                        if measurement_v2_marginal_historical_preregistration is None
+                        else measurement_v2_marginal_historical_preregistration.get(
+                            "marginal_static_historical_preregistration_"
+                            "source_contract_digest"
+                        )
+                    ),
+                    "dataset_snapshot_digest": (
+                        None
+                        if measurement_v2_marginal_historical_preregistration is None
+                        else measurement_v2_marginal_historical_preregistration.get(
+                            "historical_dataset_snapshot_digest"
+                        )
+                    ),
+                    "dataset_content_digest": (
+                        None
+                        if measurement_v2_marginal_historical_preregistration is None
+                        else measurement_v2_marginal_historical_preregistration.get(
+                            "historical_dataset_content_digest"
+                        )
+                    ),
+                    "fold_manifest_digest": (
+                        None
+                        if measurement_v2_marginal_historical_preregistration is None
+                        else measurement_v2_marginal_historical_preregistration.get(
+                            "historical_fold_manifest_digest"
+                        )
+                    ),
+                    "checkpoint_order_manifest_digest": (
+                        None
+                        if measurement_v2_marginal_historical_preregistration is None
+                        else measurement_v2_marginal_historical_preregistration.get(
+                            "historical_checkpoint_order_manifest_digest"
+                        )
+                    ),
+                    "resampling_manifest_digest": (
+                        None
+                        if measurement_v2_marginal_historical_preregistration is None
+                        else measurement_v2_marginal_historical_preregistration.get(
+                            "historical_resampling_manifest_digest"
+                        )
+                    ),
+                    "historical_execution_plan_digest": (
+                        None
+                        if measurement_v2_marginal_historical_preregistration is None
+                        else measurement_v2_marginal_historical_preregistration.get(
+                            "historical_execution_plan_digest"
+                        )
+                    ),
+                    "completion_digest": (
+                        None
+                        if measurement_v2_marginal_historical_preregistration is None
+                        else measurement_v2_marginal_historical_preregistration.get(
+                            "historical_preregistration_completion_digest"
+                        )
+                    ),
+                    "historical_issue_count": (
+                        0
+                        if measurement_v2_marginal_historical_preregistration is None
+                        else measurement_v2_marginal_historical_preregistration.get(
+                            "historical_issue_count", 0
+                        )
+                    ),
+                    "fold_identity_count": (
+                        0
+                        if measurement_v2_marginal_historical_preregistration is None
+                        else measurement_v2_marginal_historical_preregistration.get(
+                            "fold_identity_count", 0
+                        )
+                    ),
+                    "checkpoint_order_entry_count": (
+                        0
+                        if measurement_v2_marginal_historical_preregistration is None
+                        else measurement_v2_marginal_historical_preregistration.get(
+                            "checkpoint_order_entry_count", 0
+                        )
+                    ),
+                    "root_seed_count": (
+                        0
+                        if measurement_v2_marginal_historical_preregistration is None
+                        else measurement_v2_marginal_historical_preregistration.get(
+                            "root_seed_count", 0
+                        )
+                    ),
+                    "resampling_scheme_count": (
+                        0
+                        if measurement_v2_marginal_historical_preregistration is None
+                        else measurement_v2_marginal_historical_preregistration.get(
+                            "resampling_scheme_count", 0
+                        )
+                    ),
+                    "resampling_child_count": (
+                        0
+                        if measurement_v2_marginal_historical_preregistration is None
+                        else measurement_v2_marginal_historical_preregistration.get(
+                            "resampling_child_count", 0
+                        )
+                    ),
+                    "fold_shard_count": (
+                        0
+                        if measurement_v2_marginal_historical_preregistration is None
+                        else measurement_v2_marginal_historical_preregistration.get(
+                            "fold_shard_count", 0
+                        )
+                    ),
+                    "database_queries_during_capability": (
+                        0
+                        if measurement_v2_marginal_historical_preregistration is None
+                        else measurement_v2_marginal_historical_preregistration.get(
+                            "database_queries_during_capability", 0
+                        )
+                    ),
+                    "historical_rows_content_hashed": (
+                        0
+                        if measurement_v2_marginal_historical_preregistration is None
+                        else measurement_v2_marginal_historical_preregistration.get(
+                            "historical_rows_content_hashed", 0
+                        )
+                    ),
+                    "historical_outcomes_hashed": (
+                        False
+                        if measurement_v2_marginal_historical_preregistration is None
+                        else measurement_v2_marginal_historical_preregistration.get(
+                            "historical_outcomes_hashed", False
+                        )
+                    ),
+                    "historical_outcomes_exposed_to_research_or_decision_logic": (
+                        False
+                        if measurement_v2_marginal_historical_preregistration is None
+                        else measurement_v2_marginal_historical_preregistration.get(
+                            "historical_outcomes_exposed_to_research_or_decision_logic",
+                            False,
+                        )
+                    ),
+                    "historical_outcomes_read": (
+                        False
+                        if measurement_v2_marginal_historical_preregistration is None
+                        else measurement_v2_marginal_historical_preregistration.get(
+                            "historical_outcomes_read", False
+                        )
+                    ),
+                    "historical_scores_computed": (
+                        0
+                        if measurement_v2_marginal_historical_preregistration is None
+                        else measurement_v2_marginal_historical_preregistration.get(
+                            "historical_scores_computed", 0
+                        )
+                    ),
+                    "formal_historical_folds_executed": (
+                        0
+                        if measurement_v2_marginal_historical_preregistration is None
+                        else measurement_v2_marginal_historical_preregistration.get(
+                            "formal_historical_folds_executed", 0
+                        )
+                    ),
+                    "bootstrap_children_executed": (
+                        0
+                        if measurement_v2_marginal_historical_preregistration is None
+                        else measurement_v2_marginal_historical_preregistration.get(
+                            "bootstrap_children_executed", 0
+                        )
+                    ),
                     "statistical_results_read": False,
                     "evidence_created": False,
+                    "duplicate_validation": False,
                     "production_action": "none",
-                    "next_consumer": "future_historical_measurement_execution",
+                    "next_consumer": (
+                        M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_EXECUTION_TASK_KEY
+                    ),
+                },
+                "marginal_static_historical_measurement_execution": {
+                    "task_key": (
+                        M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_EXECUTION_TASK_KEY
+                    ),
+                    "resolver_status": (
+                        None
+                        if measurement_v2_marginal_historical_execution_resolution
+                        is None
+                        else measurement_v2_marginal_historical_execution_resolution.status.value
+                    ),
+                    "completion_classification": (
+                        None
+                        if measurement_v2_marginal_historical_execution_task is None
+                        or task_states[
+                            measurement_v2_marginal_historical_execution_task.artifact_digest
+                        ].completion_classification
+                        is None
+                        else task_states[
+                            measurement_v2_marginal_historical_execution_task.artifact_digest
+                        ].completion_classification.value
+                    ),
+                    "completed": False,
+                    "historical_execution_authorized": False,
+                    "formal_historical_folds_executed": 0,
+                    "bootstrap_children_executed": 0,
+                    "evidence_created": False,
+                    "production_action": "none",
+                    "next_consumer": "measurement_v2_gate_compiler",
                 },
                 "completion_classification": (
                     None
@@ -2736,7 +2958,10 @@ def build_m4_status(
                     ].completion_classification.value
                 ),
                 "live_mainline_status": (
-                    "MARGINAL_STATIC_HISTORICAL_DESIGN_VALIDATED_IN_MAINLINE"
+                    "MARGINAL_STATIC_HISTORICAL_PREREGISTRATION_VALIDATED_IN_MAINLINE"
+                    if M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_PREREGISTRATION_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "MARGINAL_STATIC_HISTORICAL_DESIGN_VALIDATED_IN_MAINLINE"
                     if M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_DESIGN_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "MARGINAL_STATIC_REPAIR_V2_HEALTH_DECISION_VALIDATED_IN_MAINLINE"
@@ -2894,7 +3119,10 @@ def build_m4_status(
                     ),
                 },
                 "next_consumer": (
-                    M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_PREREGISTRATION_TASK_KEY
+                    M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_EXECUTION_TASK_KEY
+                    if M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_PREREGISTRATION_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_PREREGISTRATION_TASK_KEY
                     if M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_DESIGN_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_DESIGN_TASK_KEY
