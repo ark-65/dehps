@@ -3107,8 +3107,14 @@
       "task_type": "prediction_v2_structural_route_decision",
       "lane": "research",
       "priority": 68,
-      "requested_capability": null,
-      "input_artifact_digests": [],
+      "requested_capability": "prediction_v2_structural_route_decision",
+      "input_artifact_digests": [
+        "8f12888f0530b3afa32eb131504d14c5d521aad762900d55cccd44df6e726a99",
+        "f17d1a9f7aa19479599f35ce3eacf4847e9100b2548f25c7b848c19d8e02b3df",
+        "e467e86bdac0a18d4c21d29aed3d5a41bdaf9ece545988169b13e0056cdf9893",
+        "bd59e548910b2e727f8b5b284d4f80b8c75c206a5258961a0a4683e87c42f723",
+        "95c1f01e8ea097be7b21f555d8442ae6afc69e1a5e3611f23ef86b9b6ca160e6"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
@@ -3122,8 +3128,8 @@
         }
       ],
       "metric_contract": {
-        "engineering_complete": false,
-        "engineering_increment_percent": 0,
+        "engineering_complete": true,
+        "engineering_increment_percent": 1,
         "evidence_complete": false,
         "evidence_increment_percent": 0,
         "phase": "PREDICTION-V2-STRUCTURAL-ROUTE-DECISION",
@@ -3141,13 +3147,95 @@
           ],
           "downstream_artifacts": [
             "structural route decision",
-            "bounded downstream handoff"
+            "structural baseline-comparison preregistration handoff",
+            "structural route decision completion"
           ],
           "status_projection": "unified_m4_status.measurement_system_v2.prediction_v2_structural_route_decision",
           "evidence_progress_rule": "route_review_may_decide_only_non_predictive_structural_use_and_cannot_create_prediction_Evidence_or_probability_claim",
-          "decision_consumer": "pending_separate_route_contract",
-          "downstream_consumer": "pending_separate_route_contract"
+          "decision_consumer": "prediction-v2-structural-baseline-comparison-preregistration",
+          "downstream_consumer": "prediction-v2-structural-baseline-comparison-preregistration"
         },
+        "historical_evidence": "INCONCLUSIVE",
+        "evaluation_decision": "SUPPORTED_AT_FROZEN_B176_AGAINST_UNIFORM_RANDOM_ONLY",
+        "route_decision": "ROUTE_TO_NON_PREDICTIVE_STRUCTURAL_BASELINE_COMPARISON_PREREGISTRATION",
+        "structural_artifact_role": "OFFLINE_STRUCTURAL_DIVERSIFICATION_REFERENCE_ONLY",
+        "archive_condition": "IF_RESULT_BLIND_PREREGISTRATION_CANNOT_FREEZE_STRONGER_SIMPLE_SAME_BUDGET_LABEL_SYMMETRIC_BASELINES_AND_AN_OBSERVED_RESULT_INDEPENDENT_FAILURE_RULE_ARCHIVE_AS_ENGINEERING_EVIDENCE_ONLY",
+        "stronger_baseline_comparison_required": true,
+        "same_budget_required": true,
+        "label_symmetry_required": true,
+        "transparent_baselines_required": true,
+        "complexity_accounting_required": true,
+        "observed_result_independent_failure_rule_required": true,
+        "prediction_v2_mode": "SHADOW_ONLY",
+        "prediction_v2_route": "BASELINE_ONLY",
+        "portfolio_activation_authorized": false,
+        "decision_usefulness_established": false,
+        "evidence_created": false,
+        "new_model_created": false,
+        "promotion_gate_opened": false,
+        "p3_authorized": false,
+        "production_action": "none"
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "prediction-v2-structural-baseline-comparison-preregistration",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "prediction_v2_structural_baseline_comparison_preregistration",
+      "lane": "research",
+      "priority": 67,
+      "requested_capability": null,
+      "input_artifact_digests": [],
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "prediction-v2-structural-route-decision",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "prediction-v2-structural-route-decision:COMPLETE",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "engineering_complete": false,
+        "engineering_increment_percent": 0,
+        "evidence_complete": false,
+        "evidence_increment_percent": 0,
+        "phase": "PREDICTION-V2-STRUCTURAL-BASELINE-COMPARISON-PREREGISTRATION",
+        "scope": "freeze_a_result_blind_comparison_against_stronger_simple_same_budget_label_symmetric_transparent_baselines",
+        "reason": "uniform_random_is_too_weak_as_the_only_operational_comparator_and_cannot_establish_decision_usefulness",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "the_structural_route_decision_is_VALIDATED_IN_MAINLINE_and_replay_verified_with_all_three_children_registered",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "structural route decision mainline execution",
+            "structural route decision",
+            "structural baseline-comparison preregistration handoff",
+            "structural route decision completion"
+          ],
+          "downstream_artifacts": [
+            "result-blind structural baseline-comparison preregistration",
+            "bounded comparison execution handoff"
+          ],
+          "status_projection": "unified_m4_status.measurement_system_v2.prediction_v2_structural_baseline_comparison_preregistration",
+          "evidence_progress_rule": "preregistration_may_freeze_only_transparent_same_budget_label_symmetric_comparators_and_an_observed_result_independent_failure_rule_without_creating_prediction_Evidence",
+          "decision_consumer": "pending_separate_baseline_comparison_execution_contract",
+          "downstream_consumer": "pending_separate_baseline_comparison_execution_contract"
+        },
+        "route_decision": "ROUTE_TO_NON_PREDICTIVE_STRUCTURAL_BASELINE_COMPARISON_PREREGISTRATION",
+        "structural_artifact_role": "OFFLINE_STRUCTURAL_DIVERSIFICATION_REFERENCE_ONLY",
+        "result_blind": true,
+        "same_budget_required": true,
+        "label_symmetry_required": true,
+        "transparent_baselines_required": true,
+        "complexity_accounting_required": true,
+        "observed_result_independent_failure_rule_required": true,
+        "baseline_classes_frozen": false,
+        "comparison_execution_authorized": false,
         "historical_evidence": "INCONCLUSIVE",
         "prediction_v2_mode": "SHADOW_ONLY",
         "prediction_v2_route": "BASELINE_ONLY",
@@ -4120,6 +4208,7 @@
       "prediction-v2-structural-preregistration-source:d0e997b1b7442ce5dfe01652eb23ff9b8e234ee79e0a783a7f27f3a1e1f9821e",
       "prediction-v2-structural-portfolio-execution-source:0796da84d80649913795eb71f003ed38ecfb801098e15488e8fe66c403c4eb73",
       "prediction-v2-structural-portfolio-evaluation-source:b194c87b8810aeb5757d1366dec00e6fe2243a07e9b38cbac8b1ddf92988bc93",
+      "prediction-v2-structural-route-decision-source:8f12888f0530b3afa32eb131504d14c5d521aad762900d55cccd44df6e726a99",
       "m4-p2-9-p263-source-compatibility-fixture:1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f",
       "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
       "m4-p2-identifiability-preflight-manifest:5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3",
@@ -4142,5 +4231,5 @@
     "external_events": [],
     "authorities": []
   },
-  "manifest_digest": "835e947b3c11a30eca1e3343facf76bcf0a13c3d6e8efc971c2af708c4edfcaf"
+  "manifest_digest": "9bd459e2f9dd6fd5908ff24fc5ddbfbe3cebc2750e56b0b18959506ba5965f8d"
 }
