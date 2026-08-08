@@ -1984,6 +1984,12 @@
       "task_type": "marginal_static_measurement_repair_v2_design",
       "lane": "research",
       "priority": 82,
+      "requested_capability": "m4_v2_marginal_static_measurement_repair_v2_design",
+      "input_artifact_digests": [
+        "db6872c20602731b1c4129b585e42c4bc533f91e5e1725f1d5dfc9b4163af59e",
+        "b124ab0119279ec498dc5f94e0cba53395aaced8da81be30f55e28892ddd6233",
+        "0ffafc6b5d89e4e17e71c981b985bd228d4ed20686fd85bd79e84461c642fcb5"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
@@ -1994,11 +2000,16 @@
           "dependency_type": "artifact",
           "target_key": "m4-v2-marginal-static-measurement-repair-health-decision:REPAIR",
           "required_status": "available"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-v2-marginal-static-repair-v2-design-source:db6872c20602731b1c4129b585e42c4bc533f91e5e1725f1d5dfc9b4163af59e",
+          "required_status": "available"
         }
       ],
       "metric_contract": {
-        "engineering_complete": false,
-        "engineering_increment_percent": 0,
+        "engineering_complete": true,
+        "engineering_increment_percent": 1,
         "evidence_complete": false,
         "evidence_increment_percent": 0,
         "phase": "M4-V2-MARGINAL-STATIC-REPAIR-V2-DESIGN",
@@ -2010,15 +2021,75 @@
           "runner": "research_evidence_supervisor",
           "upstream_artifacts": [
             "immutable repaired measurement-health decision",
-            "three-cell failed-control topology"
+            "three-cell failed-control topology",
+            "immutable repair-v2 source contract"
           ],
           "downstream_artifacts": [
-            "independent repair-v2 design"
+            "immutable presample feasibility proof",
+            "independent repair-v2 design",
+            "immutable repair-v2 design completion"
           ],
           "status_projection": "unified_m4_status.measurement_system_v2.marginal_static_repair_v2_design",
           "evidence_progress_rule": "design_only_does_not_create_historical_prediction_evidence",
           "decision_consumer": "repair-v2 preregistration",
-          "downstream_consumer": "conditional_on_the_independent_repair_v2_design"
+          "downstream_consumer": "m4-v2-marginal-static-measurement-repair-v2-preregistration"
+        },
+        "formal_execution_allowed": false,
+        "formal_replicates": 0,
+        "generated_issues": 0,
+        "duplicate_validation": false,
+        "historical_outcomes_read": false,
+        "evidence_created": false,
+        "promotion_gate_opened": false,
+        "production_action": "none"
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "m4-v2-marginal-static-measurement-repair-v2-preregistration",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "marginal_static_measurement_repair_v2_preregistration",
+      "lane": "research",
+      "priority": 81,
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-v2-marginal-static-measurement-repair-v2-design",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-v2-marginal-static-measurement-repair-v2-design:FROZEN",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "engineering_complete": false,
+        "engineering_increment_percent": 0,
+        "evidence_complete": false,
+        "evidence_increment_percent": 0,
+        "phase": "M4-V2-MARGINAL-STATIC-REPAIR-V2-PREREGISTRATION",
+        "scope": "freeze_the_result_blind_exchangeability_preserving_repair_v2_execution_contract",
+        "reason": "the independent repair-v2 design must become an immutable preregistration before any new sample is generated",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "the repair-v2 design is completed and replay-verified in the unified mainline",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "immutable presample feasibility proof",
+            "independent repair-v2 design",
+            "immutable repair-v2 design completion"
+          ],
+          "downstream_artifacts": [
+            "immutable repair-v2 workload and seed contract",
+            "immutable repair-v2 inference gates",
+            "immutable repair-v2 preregistration completion"
+          ],
+          "status_projection": "unified_m4_status.measurement_system_v2.marginal_static_repair_v2_preregistration",
+          "evidence_progress_rule": "preregistration_only_does_not_create_historical_prediction_evidence",
+          "decision_consumer": "repair-v2 health execution",
+          "downstream_consumer": "conditional_on_the_preregistered_repair_v2_execution"
         },
         "formal_execution_allowed": false,
         "formal_replicates": 0,
@@ -2977,6 +3048,7 @@
       "m4-v2-marginal-static-repair-preregistration-source:784de2ed686e99459ceb4463107a6e8b47534ffc0c0ef06974dc1be535da7384",
       "m4-v2-marginal-static-repair-health-execution-source:51a677b570cf11bbfdc3c9b1cf7d38827a57d15d38e9b184933f6ad7ec8a0ff2",
       "m4-v2-marginal-static-repair-health-decision-source:2186e18ae26fb3770476d968df4f1e63dca1035cbf5858860580d8d766a50dd4",
+      "m4-v2-marginal-static-repair-v2-design-source:db6872c20602731b1c4129b585e42c4bc533f91e5e1725f1d5dfc9b4163af59e",
       "m4-v2-marginal-static-health-execution-source:5fbeb6ab0533478ac097747ab73fb0188561849505a76cf7a63a3a02061b2354",
       "m4-p2-9-p263-source-compatibility-fixture:1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f",
       "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
@@ -3000,5 +3072,5 @@
     "external_events": [],
     "authorities": []
   },
-  "manifest_digest": "8994521570300cd5ec82c5c5e0d00fb669249282fad40479d19753667de572ae"
+  "manifest_digest": "6f47aa476a86b455627c5ad4d03cc2aa78226d5c0f747fba5dc242e46a850a5b"
 }

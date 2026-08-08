@@ -1,0 +1,146 @@
+{
+  "schema_version": "dehps-m4-v2-marginal-static-repair-v2-design-source.v1",
+  "artifact_type": "m4_v2_marginal_static_repair_v2_design_source",
+  "artifact_digest": "db6872c20602731b1c4129b585e42c4bc533f91e5e1725f1d5dfc9b4163af59e",
+  "contract_key": "M4_V2_MARGINAL_STATIC_REPAIR_V2_DESIGN_SOURCE",
+  "research_request_key": "research-m4-v2-marginal-static-repair-v2-design-round-48-20260808",
+  "research_request_id": 349,
+  "research_execution_id": 270,
+  "engineering_request_key": "engineering-m4-v2-marginal-static-repair-v2-design-round-48-20260808",
+  "engineering_request_id": 350,
+  "engineering_execution_id": 271,
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/marginal_static_repair_v2_design.py",
+      "content_sha256": "87987c9a5b13c25e95c32564abf281a93400a1b48f52285664308c5a20147b66"
+    }
+  ],
+  "source_set_digest": "5662d069702e0c56bcf978458bbd9010274a2392542d98e03b803faf4f7e8e0a",
+  "frozen_contract": {
+    "task_key": "m4-v2-marginal-static-measurement-repair-v2-design",
+    "capability": "m4_v2_marginal_static_measurement_repair_v2_design",
+    "completion_fact": "m4-v2-marginal-static-measurement-repair-v2-design:FROZEN",
+    "next_consumer": "m4-v2-marginal-static-measurement-repair-v2-preregistration",
+    "repair_health_decision_execution_digest": "b124ab0119279ec498dc5f94e0cba53395aaced8da81be30f55e28892ddd6233",
+    "repair_health_decision_digest": "0ffafc6b5d89e4e17e71c981b985bd228d4ed20686fd85bd79e84461c642fcb5",
+    "old_decision": "REPAIR_MEASUREMENT_SYSTEM",
+    "failed_control_cell_ids": [
+      "BASE:V2_J1_HISTORY_IS4_LAMBDA_HALF:HISTORICAL_2581",
+      "BASE:V2_T1_OVERLAP_ODDS_2_MARKOV:FORWARD_61",
+      "BASE:V2_T1_OVERLAP_ODDS_2_MARKOV:HISTORICAL_2581"
+    ],
+    "diagnosis": {
+      "nuisance_family_exchangeability_break": "T1 and J1 null-score laws differ from the IID-uniform calibration-score law",
+      "shared_pool_binomial_break": "one random calibration pool shared by every evaluation score does not yield independent Bernoulli detections",
+      "old_sample_count_false_repair_risk": "n=256 and the unchanged Wilson gate pass a valid p=0.05 control with probability only 0.6985308250304538"
+    },
+    "legal_sample_space": {
+      "description": "all C(33,6)=1107568 legal red-ball subsets",
+      "number_count": 33,
+      "draw_size": 6,
+      "legal_subset_count": 1107568,
+      "duplicates_within_draw": false,
+      "historical_or_database_input": false
+    },
+    "frozen_estimator_and_gates": {
+      "estimator": "expanding alpha=1 marginal-frequency prequential composite score after 900 strict-prior training issues",
+      "conditional_identity_absolute_error_max": 1e-12,
+      "conformal_alpha": 0.05,
+      "negative_control_wilson_upper_95_max": 0.09,
+      "positive_control_wilson_lower_95_min": 0.8,
+      "threshold_changed": false,
+      "estimator_changed": false,
+      "fixture_changed": false
+    },
+    "calibration_strata": {
+      "null_family_by_fixture": {
+        "NULL_UNIFORM_LEGAL_SIX_OF_33": "IID_UNIFORM",
+        "V2_M1_GROUP_ODDS_2_STATIONARY": "IID_UNIFORM",
+        "V2_T1_OVERLAP_ODDS_2_MARKOV": "T1_MARKOV_STATIONARY",
+        "V2_J1_HISTORY_IS4_LAMBDA_HALF": "J1_WITHIN_DRAW_IS4"
+      },
+      "scales": [
+        "FORWARD_61",
+        "HISTORICAL_2581"
+      ],
+      "cross_family_pooling": "forbidden",
+      "cross_scale_pooling": "forbidden"
+    },
+    "independent_block_conformal": {
+      "reference_scores_per_block": 19,
+      "block_size": 20,
+      "conformal_alpha": 0.05,
+      "p_value": "(1 + count(reference_score >= evaluation_score)) / 20",
+      "tie_rule": "reference_greater_or_equal_counts",
+      "block_reuse_across_evaluation_indices": "forbidden",
+      "cross_index_independence_required": true,
+      "iid_block_reuse_across_alternative_cells_same_scale_index": true
+    },
+    "presample_sample_size_proof": {
+      "evaluation_replicates_per_cell": 1024,
+      "negative_control_count": 6,
+      "null_detection_probability_upper_bound": 0.05,
+      "wilson_largest_passing_detection_count": 74,
+      "per_control_false_repair_probability_upper_bound": 0.0007945187376967374,
+      "six_control_union_bound": 0.004767112426180425,
+      "six_independent_control_exact_false_repair_probability": 0.00475765355079516,
+      "required_familywise_false_repair_probability_max": 0.005,
+      "sample_size_selected_before_new_results": true
+    },
+    "future_workload": {
+      "calibration_reference_replicates": 116736,
+      "evaluation_replicates": 14336,
+      "total_replicates": 131072,
+      "execution_shard_size": 64,
+      "execution_shards": 2048,
+      "planned_generated_issues": 291110912,
+      "planned_outer_evaluation_issues": 173146112,
+      "nested_bootstrap_replicates": 0,
+      "compact_index_direct_resume": true,
+      "recursive_checkpoint_scan": false,
+      "database_reads_per_replicate": 0,
+      "database_writes_per_replicate": 0,
+      "csv_materialized": false,
+      "raw_replay": false,
+      "sentinel_replay": false,
+      "duplicate_validation": false
+    },
+    "seed_contract": {
+      "root_seed_domain": "M4_V2_MARGINAL_STATIC_REPAIR_V2_HEALTH_V1",
+      "calibration_seed_domain": "M4_V2_MARGINAL_STATIC_REPAIR_V2_CALIBRATION_BLOCK_V1",
+      "evaluation_seed_domain": "M4_V2_MARGINAL_STATIC_REPAIR_V2_EVALUATION_V1",
+      "round_42_or_round_46_seed_reuse": false,
+      "calibration_evaluation_overlap": false,
+      "worker_or_shard_identity_in_seed": false,
+      "best_seed_selection": "forbidden"
+    },
+    "decision_boundary": {
+      "recognized_health": [
+        "PASS",
+        "REPAIR",
+        "INCONCLUSIVE"
+      ],
+      "pass_requires_all_control_gates": true,
+      "manual_override": "forbidden",
+      "historical_authorization": false
+    },
+    "automatic_pass_from_reanalysis": false,
+    "same_seed_tuning": "forbidden",
+    "posthoc_threshold_change": "forbidden",
+    "historical_outcomes_read": false,
+    "evidence_created": false,
+    "promotion_gate_opened": false,
+    "production_action": "none"
+  },
+  "result_aware": true,
+  "formal_replicates_executed": 0,
+  "generated_issues": 0,
+  "compact_index_reads": 0,
+  "raw_replicates_regenerated": 0,
+  "sentinel_replicates_recomputed": 0,
+  "duplicate_validation": false,
+  "historical_outcomes_read": false,
+  "statistical_results_read": true,
+  "evidence_created": false,
+  "production_action": "none"
+}
