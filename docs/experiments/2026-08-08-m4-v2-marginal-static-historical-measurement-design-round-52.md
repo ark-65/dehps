@@ -154,6 +154,43 @@ digest and code/source identities before any historical result is exposed.
   one for the new audit module; the count and total coverage proof were updated,
   75 focused hardening/design tests passed, and the complete suite then passed.
 
+## First release observation and bounded recovery
+
+PR #293 merged as `15589243d9173f2d37555015b1f10a9ce36067b1`, and
+Operator Request 364 / Execution 285 imported the additive manifest, executed
+the sole Ready historical-design task, registered all five artifacts, and
+replayed them successfully. It performed zero historical folds, database
+queries, bootstrap replicates, outcome reads, or Evidence changes, then stopped
+with the historical preregistration task Ready.
+
+Final status acceptance exposed a bounded integration defect: the Supervisor's
+latest-v2 execution selector had not been extended with the Repair-v2 health
+execution/decision or historical-design task keys. Consequently the resolver
+and phase were correct, but the status consumer selected an older execution
+summary and projected the three new design artifact digests as null. Execution
+285 was marked failed rather than treating partial status integration as
+completion.
+
+Engineering Request 365 / Execution 286 is the separately reviewed recovery.
+It changes no frozen design, manifest, artifact, execution, replay, or scientific
+contract. It adds the missing stage order, loads the immutable registered
+historical execution artifact for older completed events whose summary predates
+the new fields, persists the new fields for future completions, and adds
+live-shape regression coverage.
+
+Recovery validation passed on the exact durable Round-52 execution: unified
+status selects execution artifact
+`5341f21e5d0a69597362c2244aac12009dfbae847285442780d541088312e649`,
+projects dataset boundary `c2d031...`, walk-forward design `da61f6...`, and
+inference design `e52220...`, and retains preregistration as the next consumer.
+The recovered focused Supervisor surface passed, and the full non-retired Worker
+suite passed with 2,117 tests, 4 skipped, and 4 warnings.
+
+The engineering percentage remains 43 under the pre-existing macro-phase
+aggregation algorithm. This round does not relabel it as 44: fixing that older
+progress-accounting definition is outside Request 365 and requires a separate
+reviewed contract rather than an opportunistic status patch.
+
 ## Mainline integration matrix
 
 | Link | Engineering state |
