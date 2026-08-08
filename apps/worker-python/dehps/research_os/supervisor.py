@@ -6156,6 +6156,11 @@ class M4MarginalStaticRepairPreregistrationCapability:
             "old_measurement_health": "REPAIR",
             "old_decision_preserved": "REPAIR_MEASUREMENT_SYSTEM",
             "measurement_health": "REPAIR",
+            "decision": repair_execution["decision"],
+            "decision_fact": repair_execution["decision_fact"],
+            "failed_cell_ids": repair_execution["failed_cell_ids"],
+            "failed_cell_count": repair_execution["failed_cell_count"],
+            "repair_required": True,
             "eligible_for_historical_measurement": False,
             "marginal_static_repair_health_workload_seed_digest": (
                 run.workload_and_seeds["artifact_digest"]
@@ -11080,6 +11085,13 @@ class ResearchEvidenceSupervisor:
                 or artifact.get("old_measurement_health") != "REPAIR"
                 or artifact.get("old_decision_preserved") != "REPAIR_MEASUREMENT_SYSTEM"
                 or artifact.get("measurement_health") != "REPAIR"
+                or artifact.get("decision") != repair_execution["decision"]
+                or artifact.get("decision_fact") != repair_execution["decision_fact"]
+                or artifact.get("failed_cell_ids")
+                != repair_execution["failed_cell_ids"]
+                or artifact.get("failed_cell_count")
+                != repair_execution["failed_cell_count"]
+                or artifact.get("repair_required") is not True
                 or artifact.get("eligible_for_historical_measurement") is not False
                 or artifact.get("planned_calibration_replicates")
                 != CALIBRATION_REPLICATES

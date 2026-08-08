@@ -92,6 +92,15 @@ def _parents() -> tuple[dict, dict, dict, dict]:
         "task_key": REPAIR_DESIGN_TASK_KEY,
         "completion_classification": "VALIDATED_IN_MAINLINE",
         "old_decision_preserved": "REPAIR_MEASUREMENT_SYSTEM",
+        "decision": "REPAIR_MEASUREMENT_SYSTEM",
+        "decision_fact": ("m4-v2-marginal-static-measurement-health-decision:REPAIR"),
+        "failed_cell_ids": [
+            "BASE:V2_M1_GROUP_ODDS_2_STATIONARY:FORWARD_61",
+            "LOCAL_M1:0.010:FORWARD_61",
+            "LOCAL_M1:0.010:HISTORICAL_2581",
+            "LOCAL_M1:0.050:FORWARD_61",
+        ],
+        "failed_cell_count": 4,
         "duplicate_validation": False,
         "historical_outcomes_read": False,
         "evidence_created": False,
@@ -293,6 +302,12 @@ def test_capability_and_replay_reconstruct_preregistration_without_samples(
     assert mainline["checkpoint_reads"] == 0
     assert mainline["duplicate_validation"] is False
     assert mainline["formal_execution_authorized"] is False
+    assert mainline["decision"] == "REPAIR_MEASUREMENT_SYSTEM"
+    assert mainline["decision_fact"] == (
+        "m4-v2-marginal-static-measurement-health-decision:REPAIR"
+    )
+    assert mainline["failed_cell_count"] == 4
+    assert mainline["repair_required"] is True
     assert mainline["downstream_consumer"] == (
         MARGINAL_STATIC_REPAIR_HEALTH_EXECUTION_TASK_KEY
     )
@@ -435,6 +450,18 @@ def test_completed_preregistration_projects_only_repair_health_ready() -> None:
             "execution_artifact_digest": "2" * 64,
             "registered_artifact_count": 5,
             "actual_fold_count": 0,
+            "measurement_health": "REPAIR",
+            "decision": "REPAIR_MEASUREMENT_SYSTEM",
+            "decision_fact": (
+                "m4-v2-marginal-static-measurement-health-decision:REPAIR"
+            ),
+            "failed_cell_ids": [
+                "BASE:V2_M1_GROUP_ODDS_2_STATIONARY:FORWARD_61",
+                "LOCAL_M1:0.010:FORWARD_61",
+                "LOCAL_M1:0.010:HISTORICAL_2581",
+                "LOCAL_M1:0.050:FORWARD_61",
+            ],
+            "failed_cell_count": 4,
             "marginal_static_repair_analytic_feasibility_digest": "3" * 64,
             "marginal_static_repair_design_artifact_digest": "4" * 64,
             "marginal_static_repair_design_completion_digest": "5" * 64,
@@ -460,6 +487,13 @@ def test_completed_preregistration_projects_only_repair_health_ready() -> None:
     assert preregistration["planned_total_replicates"] == TOTAL_REPLICATES
     assert preregistration["generated_issues"] == 0
     assert preregistration["duplicate_validation"] is False
+    decision = projection["marginal_static_health_decision"]
+    assert decision["measurement_health"] == "REPAIR"
+    assert decision["decision"] == "REPAIR_MEASUREMENT_SYSTEM"
+    assert decision["decision_fact"] == (
+        "m4-v2-marginal-static-measurement-health-decision:REPAIR"
+    )
+    assert decision["failed_cell_count"] == 4
     health = projection["marginal_static_repair_health_execution"]
     assert health["resolver_status"] == "ready"
     assert projection["next_consumer"] == (
