@@ -137,3 +137,19 @@ artifacts once, all seven outputs are registered, the Prediction v2 promotion
 planner becomes Ready, and replay verifies identical registered bytes with
 zero database queries, zero folds, zero bootstrap children, and no duplicate
 validation.
+
+## Round 56 runtime recovery note
+
+The first merged Operator attempt failed before Gate compilation because the
+Supervisor looked for `measurement_v2_gate_compiler_contract` in the
+historical-design child registration set. That contract is an immutable parent
+owned by `m4-v2-measurement-contract-design` and is intentionally not
+re-registered by historical design. No statistical decision was compiled, no
+Round 55 artifact was registered, and no Evidence was created.
+
+The narrow recovery changes only the owner task used by execution and replay
+to load the same frozen digest
+`9f9519be92fb5db4a4fb4939d1d5d3d32f7646a6e449f3dd20fd5c63b409f821`.
+The regression test now asserts that exact owner lookup. The failed durable
+event remains preserved; scientific rules, source contract, manifest, task
+inputs, and all immutable parent identities are unchanged.

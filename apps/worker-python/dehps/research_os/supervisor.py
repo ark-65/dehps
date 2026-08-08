@@ -8465,15 +8465,15 @@ class M4MarginalStaticHistoricalGateCapability:
             registrations=registrations,
             artifact_type="m4_v2_marginal_static_historical_execution_completion",
         )
-        _, _, design_registrations = _load_single_completed_execution(
+        _, _, measurement_design_registrations = _load_single_completed_execution(
             repository=self.repository,
             root_dir=self.root_dir,
             control_plane_key=control_plane_key,
-            task_key=MARGINAL_STATIC_HISTORICAL_DESIGN_TASK_KEY,
+            task_key=HISTORICAL_MEASUREMENT_CONTRACT_DESIGN_TASK_KEY,
         )
         gate_compiler_contract = _load_registered_type(
             root_dir=self.root_dir,
-            registrations=design_registrations,
+            registrations=measurement_design_registrations,
             artifact_type="measurement_v2_gate_compiler_contract",
         )
         expected_inputs = (
@@ -14347,15 +14347,15 @@ class ResearchEvidenceSupervisor:
                 registrations=historical_registrations,
                 artifact_type="m4_v2_marginal_static_historical_execution_completion",
             )
-            _, _, design_registrations = _load_single_completed_execution(
+            _, _, measurement_design_registrations = _load_single_completed_execution(
                 repository=self.repository,
                 root_dir=self.root_dir,
                 control_plane_key=self.control_plane_key,
-                task_key=MARGINAL_STATIC_HISTORICAL_DESIGN_TASK_KEY,
+                task_key=HISTORICAL_MEASUREMENT_CONTRACT_DESIGN_TASK_KEY,
             )
             gate_compiler_contract = _load_registered_type(
                 root_dir=self.root_dir,
-                registrations=design_registrations,
+                registrations=measurement_design_registrations,
                 artifact_type="measurement_v2_gate_compiler_contract",
             )
             reconstructed = build_marginal_static_historical_gate_artifacts(
