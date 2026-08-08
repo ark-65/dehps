@@ -3013,8 +3013,15 @@
       "task_type": "prediction_v2_structural_portfolio_evaluation",
       "lane": "research",
       "priority": 69,
-      "requested_capability": null,
-      "input_artifact_digests": [],
+      "requested_capability": "prediction_v2_structural_portfolio_evaluation",
+      "input_artifact_digests": [
+        "b194c87b8810aeb5757d1366dec00e6fe2243a07e9b38cbac8b1ddf92988bc93",
+        "a75e89e5bb0512b2e875c8b455efed60fad494b029041c9b1d8138cc96615c3d",
+        "df7193046245f073c1d77526ad3e5b98ad6806d7ee566b5dd5833659b3ff7498",
+        "0cd15cf2909ef8dc0fa3a0a6089d845292d8ca6b118c280d6fcb43b5d56d77fc",
+        "f9fed009ce30080bdcd8b471d298012a5460ed3111051b965b1782df2c20e511",
+        "6f207fbd5008f001976bb1fb3b18647065a3a858f20736a925fb0b180173a7e8"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
@@ -3028,8 +3035,8 @@
         }
       ],
       "metric_contract": {
-        "engineering_complete": false,
-        "engineering_increment_percent": 0,
+        "engineering_complete": true,
+        "engineering_increment_percent": 1,
         "evidence_complete": false,
         "evidence_increment_percent": 0,
         "phase": "PREDICTION-V2-STRUCTURAL-PORTFOLIO-EVALUATION",
@@ -3040,6 +3047,7 @@
           "ready_condition": "the_structural_portfolio_execution_is_VALIDATED_IN_MAINLINE_and_replay_verified_with_all_four_children_registered",
           "runner": "research_evidence_supervisor",
           "upstream_artifacts": [
+            "structural portfolio mainline execution",
             "canonical B176 structural portfolio",
             "22-island exact optimizer result index",
             "4096-replicate exact same-budget null comparison",
@@ -3047,7 +3055,8 @@
           ],
           "downstream_artifacts": [
             "structural portfolio evaluation decision",
-            "Prediction v2 structural route handoff"
+            "Prediction v2 structural route handoff",
+            "structural portfolio evaluation completion"
           ],
           "status_projection": "unified_m4_status.measurement_system_v2.prediction_v2_structural_portfolio_evaluation",
           "evidence_progress_rule": "evaluation_may_label_only_the_frozen_structural_hypothesis_and_cannot_create_prediction_Evidence_or_probability_claim",
@@ -3055,8 +3064,95 @@
           "downstream_consumer": "prediction-v2-structural-route-decision"
         },
         "historical_evidence": "INCONCLUSIVE",
+        "evaluation_decision": "SUPPORTED_AT_FROZEN_B176_AGAINST_UNIFORM_RANDOM_ONLY",
+        "hypothesis_scope": "FIXED_B176_OPTIMIZER_VERSUS_UNIFORM_SAME_BUDGET",
+        "candidate_budget": 176,
+        "singleton_square_sum_ideal": 33792,
+        "pair_square_sum_ideal": 13200,
+        "sum_pairwise_replacement_distance_ideal": 76032,
+        "selected_singleton_square_sum": 33796,
+        "selected_pair_square_sum": 14152,
+        "selected_minimum_replacement_distance": 2,
+        "selected_sum_pairwise_replacement_distance": 76030,
+        "selected_strictly_dominated_null_count": 4096,
+        "selected_null_strictly_dominating_count": 0,
+        "island_count": 22,
+        "islands_passing_frozen_gate": 16,
+        "islands_dominating_every_null": 16,
+        "route_disposition": "ADVANCE_TO_SEPARATE_STRUCTURAL_ROUTE_DECISION",
+        "p_value_claim": false,
+        "global_optimality_claim": false,
+        "decision_usefulness_claim": false,
+        "prediction_probability_claim": false,
         "prediction_v2_mode": "SHADOW_ONLY",
         "prediction_v2_route": "BASELINE_ONLY",
+        "database_queries_during_capability": 0,
+        "historical_rows_read": 0,
+        "folds_executed": 0,
+        "bootstrap_children_executed": 0,
+        "optimizer_proposals_executed": 0,
+        "null_replicates_executed": 0,
+        "evidence_created": false,
+        "new_model_created": false,
+        "promotion_gate_opened": false,
+        "p3_authorized": false,
+        "production_action": "none"
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "prediction-v2-structural-route-decision",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "prediction_v2_structural_route_decision",
+      "lane": "research",
+      "priority": 68,
+      "requested_capability": null,
+      "input_artifact_digests": [],
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "prediction-v2-structural-portfolio-evaluation",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "prediction-v2-structural-portfolio-evaluation:COMPLETE",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "engineering_complete": false,
+        "engineering_increment_percent": 0,
+        "evidence_complete": false,
+        "evidence_increment_percent": 0,
+        "phase": "PREDICTION-V2-STRUCTURAL-ROUTE-DECISION",
+        "scope": "decide_whether_the_replay_verified_structural_artifact_has_a_transparent_non_predictive_decision_support_role",
+        "reason": "structural construction performance_does_not_by_itself_establish_decision_usefulness_or_authorize_activation",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "the_structural_portfolio_evaluation_is_VALIDATED_IN_MAINLINE_and_replay_verified_with_all_three_children_registered",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "structural portfolio evaluation mainline execution",
+            "structural portfolio evaluation decision",
+            "Prediction v2 structural route handoff",
+            "structural portfolio evaluation completion"
+          ],
+          "downstream_artifacts": [
+            "structural route decision",
+            "bounded downstream handoff"
+          ],
+          "status_projection": "unified_m4_status.measurement_system_v2.prediction_v2_structural_route_decision",
+          "evidence_progress_rule": "route_review_may_decide_only_non_predictive_structural_use_and_cannot_create_prediction_Evidence_or_probability_claim",
+          "decision_consumer": "pending_separate_route_contract",
+          "downstream_consumer": "pending_separate_route_contract"
+        },
+        "historical_evidence": "INCONCLUSIVE",
+        "prediction_v2_mode": "SHADOW_ONLY",
+        "prediction_v2_route": "BASELINE_ONLY",
+        "portfolio_activation_authorized": false,
+        "decision_usefulness_established": false,
         "evidence_created": false,
         "new_model_created": false,
         "promotion_gate_opened": false,
@@ -4023,6 +4119,7 @@
       "prediction-v2-structural-design-source:c0c31dff6aced2fbe5335e2702788f2f55367fa98c0b3f958dcf18c2c83b1778",
       "prediction-v2-structural-preregistration-source:d0e997b1b7442ce5dfe01652eb23ff9b8e234ee79e0a783a7f27f3a1e1f9821e",
       "prediction-v2-structural-portfolio-execution-source:0796da84d80649913795eb71f003ed38ecfb801098e15488e8fe66c403c4eb73",
+      "prediction-v2-structural-portfolio-evaluation-source:b194c87b8810aeb5757d1366dec00e6fe2243a07e9b38cbac8b1ddf92988bc93",
       "m4-p2-9-p263-source-compatibility-fixture:1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f",
       "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
       "m4-p2-identifiability-preflight-manifest:5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3",
@@ -4045,5 +4142,5 @@
     "external_events": [],
     "authorities": []
   },
-  "manifest_digest": "78e3b5dd1a7654fcffda419a18511d2e27d72a8ee4d5d9465fea99ce4ec31c44"
+  "manifest_digest": "835e947b3c11a30eca1e3343facf76bcf0a13c3d6e8efc971c2af708c4edfcaf"
 }
