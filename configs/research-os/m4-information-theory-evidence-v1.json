@@ -2745,8 +2745,14 @@
       "task_type": "prediction_v2_structural_decision_support_design",
       "lane": "research",
       "priority": 72,
-      "requested_capability": null,
-      "input_artifact_digests": [],
+      "requested_capability": "prediction_v2_structural_decision_support_design",
+      "input_artifact_digests": [
+        "c0c31dff6aced2fbe5335e2702788f2f55367fa98c0b3f958dcf18c2c83b1778",
+        "b46328427e2ed3f4f2c6eea6cf68bc9f1ab3dd5a82c7933c2e99c1ad00c05ac5",
+        "c7ca0ad4f08ddc40d140623154f52d76a20c907f4d11995fd1379abd2719c180",
+        "0abe15f5795ca940e9fc6a7573949f62e0ff8da6ac9fcb47173b9d644c079ce0",
+        "35808dbb4bca36b1761576c88942757dfeb87c8679c4b4d530e9d27fea59d69a"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
@@ -2760,8 +2766,8 @@
         }
       ],
       "metric_contract": {
-        "engineering_complete": false,
-        "engineering_increment_percent": 0,
+        "engineering_complete": true,
+        "engineering_increment_percent": 1,
         "evidence_complete": false,
         "evidence_increment_percent": 0,
         "phase": "PREDICTION-V2-STRUCTURAL-DECISION-SUPPORT-DESIGN",
@@ -2772,24 +2778,101 @@
           "ready_condition": "the_forward_or_pivot_planner_is_VALIDATED_IN_MAINLINE_and_replay_verified_with_STRUCTURAL_DECISION_SUPPORT_PIVOT_selected",
           "runner": "research_evidence_supervisor",
           "upstream_artifacts": [
+            "Prediction v2 forward-or-pivot mainline execution",
             "prospective evidence feasibility assessment",
             "structural decision-support pivot plan",
             "forward-or-pivot planner completion"
           ],
           "downstream_artifacts": [
-            "result-blind structural decision-support design contract"
+            "result-blind structural decision-support design contract",
+            "structural preregistration handoff",
+            "structural design completion"
           ],
           "status_projection": "unified_m4_status.measurement_system_v2.prediction_v2_structural_decision_support_design",
           "evidence_progress_rule": "design_creates_no_prediction_Evidence_and_makes_no_probability_or_betting_claim",
-          "decision_consumer": "separately_authorized_structural_decision_support_preregistration",
-          "downstream_consumer": "to_be_declared_by_the_result_blind_design"
+          "decision_consumer": "prediction-v2-structural-decision-support-preregistration",
+          "downstream_consumer": "prediction-v2-structural-decision-support-preregistration"
         },
         "historical_evidence": "INCONCLUSIVE",
         "prediction_research_disposition": "FROZEN_PENDING_SEPARATE_RESULT_BLIND_PREREGISTRATION",
+        "legal_universe_cardinality": 1107568,
+        "pair_universe_cardinality": 528,
+        "optimization_geometry": "PARETO_VECTOR_WITHOUT_SCALAR_WEIGHTS",
+        "null_baseline": "UNIFORM_WITHOUT_REPLACEMENT_PORTFOLIO_FROM_LEGAL_UNIVERSE",
+        "portfolio_budget_status": "TO_BE_FROZEN_BY_PREREGISTRATION",
+        "optimizer_status": "TO_BE_FROZEN_BY_PREREGISTRATION",
+        "weighted_score_allowed": false,
+        "label_permutation_invariant": true,
+        "same_budget_null_required": true,
+        "registered_child_count": 3,
+        "database_queries_during_capability": 0,
+        "historical_rows_read": 0,
+        "formal_historical_folds_executed": 0,
+        "bootstrap_children_executed": 0,
+        "candidate_portfolios_generated": 0,
+        "optimizers_executed": 0,
         "structural_algorithm_implemented": false,
         "evidence_created": false,
         "new_model_created": false,
-        "duplicate_validation": false,
+        "promotion_gate_opened": false,
+        "p3_authorized": false,
+        "production_action": "none"
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "prediction-v2-structural-decision-support-preregistration",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "prediction_v2_structural_decision_support_preregistration",
+      "lane": "research",
+      "priority": 71,
+      "requested_capability": null,
+      "input_artifact_digests": [],
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "prediction-v2-structural-decision-support-design",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "prediction-v2-structural-decision-support-design:COMPLETE",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "engineering_complete": false,
+        "engineering_increment_percent": 0,
+        "evidence_complete": false,
+        "evidence_increment_percent": 0,
+        "phase": "PREDICTION-V2-STRUCTURAL-DECISION-SUPPORT-PREREGISTRATION",
+        "scope": "freeze_one_portfolio_budget_one_transparent_optimizer_deterministic_seeds_null_replicates_tolerances_compute_limit_and_structural_only_acceptance_without_using_history",
+        "reason": "the_replay_verified_structural_design_contract_defines_a_label_invariant_Pareto_geometry_but_deliberately_leaves_all_executable_choices_unselected",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "the_structural_design_compiler_is_VALIDATED_IN_MAINLINE_and_replay_verified_with_the_design_contract_and_handoff_registered",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "result-blind structural decision-support design contract",
+            "structural preregistration handoff",
+            "structural design completion"
+          ],
+          "downstream_artifacts": [
+            "result-blind structural execution preregistration"
+          ],
+          "status_projection": "unified_m4_status.measurement_system_v2.prediction_v2_structural_decision_support_preregistration",
+          "evidence_progress_rule": "preregistration_creates_no_prediction_Evidence_and_cannot_choose_parameters_after_execution",
+          "decision_consumer": "separately_authorized_structural_portfolio_execution",
+          "downstream_consumer": "to_be_declared_by_the_frozen_preregistration"
+        },
+        "historical_evidence": "INCONCLUSIVE",
+        "prediction_research_disposition": "FROZEN_PENDING_SEPARATE_RESULT_BLIND_PREREGISTRATION",
+        "portfolio_generated": false,
+        "optimizer_executed": false,
+        "structural_algorithm_implemented": false,
+        "evidence_created": false,
+        "new_model_created": false,
         "promotion_gate_opened": false,
         "p3_authorized": false,
         "production_action": "none"
@@ -3751,6 +3834,7 @@
       "m4-v2-marginal-static-health-execution-source:5fbeb6ab0533478ac097747ab73fb0188561849505a76cf7a63a3a02061b2354",
       "prediction-v2-promotion-planner-source:f2fc68cc3d20167ecc8e2d3ea4ffaab6c9459cb2edef7e3b364e0431f446e160",
       "prediction-v2-forward-or-pivot-planner-source:0a57779c0c96d4efc04b17b84260c373f657ca49cc9525becaceb78894bc1144",
+      "prediction-v2-structural-design-source:c0c31dff6aced2fbe5335e2702788f2f55367fa98c0b3f958dcf18c2c83b1778",
       "m4-p2-9-p263-source-compatibility-fixture:1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f",
       "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
       "m4-p2-identifiability-preflight-manifest:5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3",
@@ -3773,5 +3857,5 @@
     "external_events": [],
     "authorities": []
   },
-  "manifest_digest": "bacbcf0713ef9570ec9a0702a0285322c9180e4f8c72807a83b1f6348e69fd1a"
+  "manifest_digest": "cdc74008ea7928f2ae6a9efffa252c8c5e7a5c27fb5e10c95d76d523efc13609"
 }

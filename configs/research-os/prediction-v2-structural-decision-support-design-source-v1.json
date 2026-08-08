@@ -1,0 +1,153 @@
+{
+  "schema_version": "dehps-prediction-v2-structural-decision-support-design-source.v1",
+  "artifact_type": "prediction_v2_structural_decision_support_design_source",
+  "contract_key": "PREDICTION_V2_STRUCTURAL_DECISION_SUPPORT_DESIGN_SOURCE",
+  "artifact_digest": "c0c31dff6aced2fbe5335e2702788f2f55367fa98c0b3f958dcf18c2c83b1778",
+  "source_set_digest": "01e69d699518eadcbfce95f6c654318716b83fb8a7d11ec2c1a6eafa143a6ddd",
+  "frozen_contract_digest": "9fa80b03a081805f14f2b2be630b3bd01cf96cbc81c5f96d9650e5d6a73147b3",
+  "research_request_key": "research-prediction-v2-structural-design-round-62-20260809",
+  "research_request_id": 385,
+  "research_execution_id": 306,
+  "engineering_request_key": "engineering-prediction-v2-structural-design-round-62-20260809",
+  "engineering_request_id": 386,
+  "engineering_execution_id": 307,
+  "result_blind": true,
+  "historical_rows_read": 0,
+  "folds_executed": 0,
+  "bootstrap_children_executed": 0,
+  "candidate_portfolios_generated": 0,
+  "optimizers_executed": 0,
+  "registered_children": 3,
+  "new_evidence_created": false,
+  "new_model_created": false,
+  "structural_algorithm_implemented": false,
+  "production_action": "none",
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/prediction_v2_structural_decision_support_design.py",
+      "content_sha256": "25e1a5563d81c07c570daa855a26525327e9b4be1ebe71b1a5163895393575bd"
+    }
+  ],
+  "frozen_contract": {
+    "task_key": "prediction-v2-structural-decision-support-design",
+    "capability": "prediction_v2_structural_decision_support_design",
+    "completion_fact": "prediction-v2-structural-decision-support-design:COMPLETE",
+    "next_consumer": "prediction-v2-structural-decision-support-preregistration",
+    "forward_or_pivot_execution_artifact_digest": "b46328427e2ed3f4f2c6eea6cf68bc9f1ab3dd5a82c7933c2e99c1ad00c05ac5",
+    "forward_or_pivot_child_artifact_digests": [
+      "c7ca0ad4f08ddc40d140623154f52d76a20c907f4d11995fd1379abd2719c180",
+      "0abe15f5795ca940e9fc6a7573949f62e0ff8da6ac9fcb47173b9d644c079ce0",
+      "35808dbb4bca36b1761576c88942757dfeb87c8679c4b4d530e9d27fea59d69a"
+    ],
+    "prediction_v2_shadow_contract_digest": "df39fde45013c10b9c6586662d05353cebe9260788ee200c455e7e5e958e9db7",
+    "legal_identity": {
+      "number_domain": "integers_1_through_33",
+      "number_domain_size": 33,
+      "combination_cardinality": 6,
+      "combination_representation": "strictly_increasing_six_tuple",
+      "legal_universe_formula": "C(33,6)",
+      "legal_universe_cardinality": 1107568,
+      "pair_universe_formula": "C(33,2)",
+      "pair_universe_cardinality": 528,
+      "singletons_per_block": 6,
+      "pairs_per_block": 15,
+      "pre_draw_probability": "equal_for_every_legal_combination",
+      "universe_enumerated": false
+    },
+    "design_spec": {
+      "decision_object": {
+        "type": "unordered_fixed_budget_set_of_legal_combinations",
+        "candidate_budget_symbol": "B",
+        "candidate_budget_lower_bound": 2,
+        "candidate_budget_upper_bound_exclusive": 1107568,
+        "candidate_budget_status": "TO_BE_FROZEN_BY_PREREGISTRATION",
+        "duplicate_handling": "CANONICAL_SET_CONSTRUCTION_NO_VALIDATION_PASS"
+      },
+      "metrics": {
+        "compression_fraction": "1-B/1107568",
+        "compression_ratio": "1107568/B",
+        "singleton_exposure_share": "p_i=count_i/(6B)",
+        "singleton_concentration_excess": "sum_i(p_i^2)-1/33",
+        "pair_exposure_share": "q_ij=count_ij/(15B)",
+        "pair_concentration_excess": "sum_ij(q_ij^2)-1/528",
+        "replacement_distance": "d(A,B)=6-|A_intersection_B|",
+        "minimum_replacement_distance": "min_distinct_pairs_d(A,B)",
+        "mean_replacement_distance": "mean_unordered_distinct_pairs_d(A,B)"
+      },
+      "metric_invariants": {
+        "singleton_share_sum": 1,
+        "pair_share_sum": 1,
+        "singleton_hhi_lower_bound": "1/33",
+        "pair_hhi_lower_bound": "1/528",
+        "finite_budget_integrality_may_prevent_lower_bound_attainment": true,
+        "replacement_distance_range_for_set_members": [
+          1,
+          6
+        ],
+        "label_permutation_invariant": true,
+        "historical_outcome_dependency": false
+      },
+      "optimization_geometry": {
+        "type": "PARETO_VECTOR_WITHOUT_SCALAR_WEIGHTS",
+        "minimize": [
+          "singleton_concentration_excess",
+          "pair_concentration_excess"
+        ],
+        "maximize": [
+          "minimum_replacement_distance",
+          "mean_replacement_distance"
+        ],
+        "fixed_by_budget": [
+          "compression_fraction",
+          "compression_ratio"
+        ],
+        "weighted_score_allowed": false,
+        "optimizer_selected": false,
+        "global_optimality_claimed": false
+      },
+      "null_baseline": {
+        "type": "UNIFORM_WITHOUT_REPLACEMENT_PORTFOLIO_FROM_LEGAL_UNIVERSE",
+        "same_candidate_budget_required": true,
+        "seed_schedule_status": "TO_BE_FROZEN_BY_PREREGISTRATION",
+        "replicate_count_status": "TO_BE_FROZEN_BY_PREREGISTRATION",
+        "acceptance_threshold_status": "TO_BE_FROZEN_BY_PREREGISTRATION",
+        "historical_data_used": false
+      },
+      "result_blind_input_boundary": {
+        "allowed": [
+          "legal_universe_constants",
+          "future_preregistered_budget_optimizer_and_seeds"
+        ],
+        "forbidden": [
+          "draw_history",
+          "previous_scores",
+          "previous_predictions",
+          "previous_rankings",
+          "issue_outcomes",
+          "post_hoc_budget_or_weight_selection",
+          "duplicate_index"
+        ]
+      }
+    },
+    "historical_evidence": "INCONCLUSIVE",
+    "selected_program": "STRUCTURAL_DECISION_SUPPORT_PIVOT",
+    "prediction_research_disposition": "FROZEN_PENDING_SEPARATE_RESULT_BLIND_PREREGISTRATION",
+    "prediction_v2_mode": "SHADOW_ONLY",
+    "prediction_v2_route": "BASELINE_ONLY",
+    "registered_child_count": 3,
+    "registered_total_with_mainline_execution": 4,
+    "database_queries": 0,
+    "historical_rows_read": 0,
+    "folds_executed": 0,
+    "bootstrap_children_executed": 0,
+    "candidate_portfolios_generated": 0,
+    "optimizers_executed": 0,
+    "new_evidence_created": false,
+    "new_model_created": false,
+    "structural_algorithm_implemented": false,
+    "candidate_expert_authorized": false,
+    "promotion_gate_opened": false,
+    "p3_authorized": false,
+    "production_action": "none"
+  }
+}
