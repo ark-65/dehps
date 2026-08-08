@@ -1,0 +1,123 @@
+{
+  "schema_version": "dehps-m4-v2-marginal-static-repair-v2-preregistration-source.v1",
+  "artifact_type": "m4_v2_marginal_static_repair_v2_preregistration_source",
+  "artifact_digest": "8f3b8e453a7ca86efa8daba4ed77cecd8bd23ee1cc99551b531a91e7a4445521",
+  "contract_key": "M4_V2_MARGINAL_STATIC_REPAIR_V2_PREREGISTRATION_SOURCE",
+  "research_request_key": "research-m4-v2-marginal-static-repair-v2-preregistration-round-49-20260808",
+  "research_request_id": 352,
+  "research_execution_id": 273,
+  "engineering_request_key": "engineering-m4-v2-marginal-static-repair-v2-preregistration-round-49-20260808",
+  "engineering_request_id": 353,
+  "engineering_execution_id": 274,
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/marginal_static_repair_v2_preregistration.py",
+      "content_sha256": "dc69b3752ad7f8d4a0f8a45c7f215f9af6b935a8ebcc5c3ec583ad23209b8049"
+    }
+  ],
+  "source_set_digest": "9a1d319bb67dd68c4942c10ae8b3c60d38f30fa3904b612405ad70001cb17ab0",
+  "frozen_contract": {
+    "task_key": "m4-v2-marginal-static-measurement-repair-v2-preregistration",
+    "capability": "m4_v2_marginal_static_measurement_repair_v2_preregistration",
+    "completion_fact": "m4-v2-marginal-static-measurement-repair-v2-preregistration:FROZEN",
+    "next_consumer": "m4-v2-marginal-static-measurement-repair-v2-health-execution",
+    "design_execution_digest": "2fde91e5580f6e5dfb119f0666a42a5f137c9ea36d15ed5352633fab3f267144",
+    "presample_feasibility_digest": "645394d911ca6555db2363d792ef6e420f535a0caedfe480b09b7a2cf7e4aba2",
+    "repair_v2_design_digest": "741ddd093d3730d6d803468103b505af82da40fc8af2506d70edbb3e0f7af204",
+    "design_completion_digest": "802dd3a38bbd2a9af411a43c30b3bd4be3c407edfc8683b77565969e829cb644",
+    "scales": ["FORWARD_61", "HISTORICAL_2581"],
+    "null_families": ["IID_UNIFORM", "T1_MARKOV_STATIONARY", "J1_WITHIN_DRAW_IS4"],
+    "evaluation_cells": [
+      "V2_M1_GROUP_ODDS_2_STATIONARY",
+      "NULL_UNIFORM_LEGAL_SIX_OF_33",
+      "V2_T1_OVERLAP_ODDS_2_MARKOV",
+      "V2_J1_HISTORY_IS4_LAMBDA_HALF",
+      "LOCAL_M1:0.001",
+      "LOCAL_M1:0.010",
+      "LOCAL_M1:0.050"
+    ],
+    "workload": {
+      "reference_children": 116736,
+      "evaluation_children": 14336,
+      "total_children": 131072,
+      "shard_size": 64,
+      "shard_count": 2048,
+      "planned_generated_issues": 291110912,
+      "planned_outer_evaluation_issues": 173146112,
+      "nested_bootstrap_replicates": 0,
+      "database_reads_per_child": 0,
+      "database_writes_per_child": 0
+    },
+    "child_identity": {
+      "reference_fields": ["preregistration_digest", "reference", "null_family", "scale_id", "evaluation_index", "reference_index"],
+      "evaluation_fields": ["preregistration_digest", "evaluation", "cell_id", "scale_id", "evaluation_index"],
+      "evaluation_index_range": "0..1023",
+      "reference_index_range": "0..18",
+      "worker_or_shard_identity_in_seed": false,
+      "identity_collision": "fail_closed"
+    },
+    "seed_contract": {
+      "root": "M4_V2_MARGINAL_STATIC_REPAIR_V2_HEALTH_V1",
+      "reference": "M4_V2_MARGINAL_STATIC_REPAIR_V2_CALIBRATION_BLOCK_V1",
+      "evaluation": "M4_V2_MARGINAL_STATIC_REPAIR_V2_EVALUATION_V1",
+      "old_seed_reuse": false,
+      "best_seed_selection": "forbidden"
+    },
+    "resume_and_uniqueness": {
+      "completion_index_loads": 1,
+      "recursive_checkpoint_scan": false,
+      "completed_matching_child": "skip_without_generation_or_revalidation",
+      "completed_missing_or_mismatched_artifact": "fail_closed",
+      "new_child_dispatch_count": "at_most_once_per_execution",
+      "compact_summary_write": "one_immutable_summary_plus_one_append_only_completion_row",
+      "raw_replay": false,
+      "sentinel_replay": false,
+      "duplicate_validation": false,
+      "aggregate_replay": "registered_aggregate_content_only"
+    },
+    "matched_reference_rule": {
+      "coordinates": ["null_family", "scale_id", "evaluation_index"],
+      "reference_scores_per_block": 19,
+      "cross_family_reuse": "forbidden",
+      "cross_scale_reuse": "forbidden",
+      "cross_index_reuse": "forbidden",
+      "iid_block_reuse_across_iid_cells_same_scale_index": true
+    },
+    "statistics": {
+      "reference_scores_per_block": 19,
+      "p_value": "(1 + count(reference_score >= evaluation_score)) / 20",
+      "alpha": 0.05,
+      "evaluation_replicates_per_cell": 1024,
+      "negative_control_wilson_upper_95_max": 0.09,
+      "positive_control_wilson_lower_95_min": 0.8,
+      "largest_negative_control_passing_count": 74,
+      "six_control_false_repair_union_bound": 0.004767112426180425,
+      "cross_cell_independence_claim": "forbidden",
+      "familywise_claim_basis": "union_bound_only"
+    },
+    "decision": {
+      "pass": "all completeness, legality, finiteness, identity, six negative-control, two positive-control, and admissible local-target gates pass",
+      "repair": "any completed required gate fails",
+      "inconclusive": "execution incomplete, lineage mismatch, missing required gate, or proof assumption failure",
+      "manual_override": "forbidden",
+      "historical_authorization": false
+    },
+    "formal_replicates_executed": 0,
+    "generated_issues": 0,
+    "duplicate_validation": false,
+    "historical_outcomes_read": false,
+    "evidence_created": false,
+    "promotion_gate_opened": false,
+    "production_action": "none"
+  },
+  "formal_replicates_executed": 0,
+  "generated_issues": 0,
+  "compact_index_reads": 0,
+  "raw_replicates_regenerated": 0,
+  "sentinel_replicates_recomputed": 0,
+  "duplicate_validation": false,
+  "historical_outcomes_read": false,
+  "statistical_results_read": false,
+  "evidence_created": false,
+  "production_action": "none"
+}
