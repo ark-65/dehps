@@ -1,0 +1,78 @@
+{
+  "schema_version": "dehps-prediction-v2-promotion-planner-source.v1",
+  "artifact_type": "prediction_v2_promotion_planner_source",
+  "contract_key": "PREDICTION_V2_PROMOTION_PLANNER_SOURCE",
+  "research_request_key": "research-prediction-v2-promotion-planner-round-58-20260808",
+  "research_request_id": 379,
+  "research_execution_id": 300,
+  "engineering_request_key": "engineering-prediction-v2-promotion-planner-round-58-20260808",
+  "engineering_request_id": 380,
+  "engineering_execution_id": 301,
+  "result_aware": true,
+  "historical_rows_read": 0,
+  "folds_executed": 0,
+  "bootstrap_children_executed": 0,
+  "duplicate_validation": false,
+  "registered_children": 3,
+  "new_evidence_created": false,
+  "production_action": "none",
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/prediction_v2_promotion_planner.py",
+      "content_sha256": "c7544429c1cc8dad36227edea954e9b5cbcc1bd3ba422a731c89fb4728bb0c15"
+    }
+  ],
+  "source_set_digest": "2d9a1717d3098676d09ea8bf06a64c9029a386f86840b8bfbb22910e651cf117",
+  "frozen_contract": {
+    "task_key": "prediction-v2-promotion-planner",
+    "capability": "prediction_v2_promotion_planner",
+    "completion_fact": "prediction-v2-promotion-planner:COMPLETE",
+    "next_consumer": "prediction-v2-forward-evidence-or-pivot-planner",
+    "gate_execution_artifact_digest": "6b761c57ea46fe8819a0a38193cfe78f613e48b348bc5d682669ad816fbea721",
+    "gate_child_artifact_digests": [
+      "efbb2a3d3b711c5c63b9f05b8133f9cc4ba77b1121b90ef9f951ab56fe263b3e",
+      "fb7eb603f7fc283ee645a38ae1d2555d47b43fb86dbb23439a91ef329f1167d6",
+      "24e4c78cc12eab32aef2ee45cbeebb2b1078e6effea49442c2f45214890e7100",
+      "bdb89dd183846e4124654b57021be9892158b2b1387a8ca08d476283e0e2ed87",
+      "e01d76776f93b9a308b38b0832f6a79fdc616a04ad63864e4b671152685d1abd",
+      "5ab24ae2b6f172de9efb6f739b7488865f4a23bd9305687b5f87093e16a319e6"
+    ],
+    "prediction_v2_shadow_contract_digest": "df39fde45013c10b9c6586662d05353cebe9260788ee200c455e7e5e958e9db7",
+    "route_mapping": {
+      "POSITIVE": {
+        "plan_decision": "FORWARD_SHADOW_EVIDENCE_PLAN_ELIGIBLE",
+        "route": "FUTURE_ONLY_PREDICTION_V2_CANDIDATE_EVIDENCE",
+        "accepted_model_required": true,
+        "direct_promotion": false
+      },
+      "NEGATIVE": {
+        "plan_decision": "PREDICTIVE_PROMOTION_CLOSED",
+        "route": "STRUCTURAL_DECISION_SUPPORT_PIVOT_REVIEW",
+        "accepted_model_required": false,
+        "direct_promotion": false
+      },
+      "INCONCLUSIVE": {
+        "plan_decision": "HOLD_BASELINE_ONLY",
+        "route": "FUTURE_EVIDENCE_OR_STRUCTURAL_PIVOT_REVIEW",
+        "accepted_model_required": false,
+        "direct_promotion": false
+      }
+    },
+    "prediction_v2_mode": "SHADOW_ONLY",
+    "prediction_v2_route": "BASELINE_ONLY",
+    "registered_child_count": 3,
+    "registered_total_with_mainline_execution": 4,
+    "database_queries": 0,
+    "historical_rows_read": 0,
+    "folds_executed": 0,
+    "bootstrap_children_executed": 0,
+    "duplicate_validation": false,
+    "new_evidence_created": false,
+    "direct_promotion": false,
+    "promotion_gate_opened": false,
+    "p3_authorized": false,
+    "production_action": "none"
+  },
+  "frozen_contract_digest": "86cdddf15170f7b05e2be2866dd09f9e6aba82f09efb18271e20fc92dfde7a57",
+  "artifact_digest": "f2fc68cc3d20167ecc8e2d3ea4ffaab6c9459cb2edef7e3b364e0431f446e160"
+}

@@ -29,6 +29,7 @@ from dehps.prediction.v2.activation_binding import (
     PredictionV2ActivationBindingError,
     build_live_activation_attestation,
 )
+from dehps.prediction.v2.contracts import load_shadow_contract
 from dehps.prediction.v2.issue_mainline import (
     PredictionV2IssuePostDrawCapability,
     PredictionV2IssuePostDrawReplayCapability,
@@ -373,6 +374,15 @@ from dehps.research_os.information_theory.measurement_system_v2.marginal_static_
     build_marginal_static_repair_v2_preregistration_artifacts,
     load_marginal_static_repair_v2_preregistration_source_contract,
     verify_marginal_static_repair_v2_preregistration_source_bytes,
+)
+from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_promotion_planner import (
+    PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_TASK_KEY,
+    PREDICTION_V2_PROMOTION_PLANNER_CAPABILITY,
+    PREDICTION_V2_PROMOTION_PLANNER_COMPLETION_FACT,
+    PREDICTION_V2_PROMOTION_PLANNER_SOURCE_CONTRACT_PATH,
+    build_prediction_v2_promotion_planner_artifacts,
+    load_prediction_v2_promotion_planner_source_contract,
+    verify_prediction_v2_promotion_planner_source_bytes,
 )
 from dehps.research_os.information_theory.measurement_system_v2.preflight_design import (
     PREFLIGHT_DESIGN_CAPABILITY,
@@ -8638,6 +8648,223 @@ class M4MarginalStaticHistoricalGateCapability:
         )
 
 
+class PredictionV2PromotionPlannerCapability:
+    def __init__(
+        self,
+        *,
+        repository: PostgresResearchOSRepository,
+        root_dir: Path = ROOT_DIR,
+    ) -> None:
+        self.repository = repository
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key != PREDICTION_V2_PROMOTION_PLANNER_TASK_KEY
+            or task.requested_capability != PREDICTION_V2_PROMOTION_PLANNER_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "Prediction v2 promotion planner received the wrong task"
+            )
+        source_contract = load_prediction_v2_promotion_planner_source_contract(
+            self.root_dir / PREDICTION_V2_PROMOTION_PLANNER_SOURCE_CONTRACT_PATH
+        )
+        verify_prediction_v2_promotion_planner_source_bytes(
+            root_dir=self.root_dir,
+            contract=source_contract,
+        )
+        _, gate_execution, registrations = _load_single_completed_execution(
+            repository=self.repository,
+            root_dir=self.root_dir,
+            control_plane_key=control_plane_key,
+            task_key=MARGINAL_STATIC_HISTORICAL_GATE_TASK_KEY,
+        )
+        baseline_model = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type="m4_v2_legal_uniform_baseline_model_identity",
+        )
+        candidate_model = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type="m4_v2_marginal_static_evaluated_model_identity",
+        )
+        gate_output = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type="hierarchical_measurement_gate_output",
+        )
+        evidence = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type="m4_v2_marginal_static_historical_evidence",
+        )
+        eligibility = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type="prediction_v2_promotion_planning_eligibility",
+        )
+        gate_completion = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type="m4_v2_marginal_static_historical_gate_completion",
+        )
+        shadow_contract = load_shadow_contract(self.root_dir)
+        expected_inputs = (
+            str(source_contract["artifact_digest"]),
+            str(gate_execution["artifact_digest"]),
+            str(baseline_model["artifact_digest"]),
+            str(candidate_model["artifact_digest"]),
+            str(gate_output["artifact_digest"]),
+            str(evidence["artifact_digest"]),
+            str(eligibility["artifact_digest"]),
+            str(gate_completion["artifact_digest"]),
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "Prediction v2 promotion planner input identities changed"
+            )
+        run = build_prediction_v2_promotion_planner_artifacts(
+            source_contract=source_contract,
+            gate_execution=gate_execution,
+            baseline_model=baseline_model,
+            evaluated_candidate_model=candidate_model,
+            gate_output=gate_output,
+            historical_evidence=evidence,
+            planning_eligibility=eligibility,
+            gate_completion=gate_completion,
+            shadow_contract=shadow_contract,
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        child_paths = (
+            task_dir
+            / "artifacts/promotion-plan"
+            / str(run.promotion_plan["artifact_digest"])
+            / "plan.json",
+            task_dir
+            / "artifacts/forward-evidence-or-pivot-route"
+            / str(run.downstream_route["artifact_digest"])
+            / "route.json",
+            task_dir
+            / "artifacts/completion"
+            / str(run.completion["artifact_digest"])
+            / "completion.json",
+        )
+        child_payloads = tuple(zip(child_paths, run.artifacts, strict=True))
+        for path, payload in child_payloads:
+            _persist_immutable(path, payload)
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "prediction_v2_promotion_planner_source_contract_digest": (
+                source_contract["artifact_digest"]
+            ),
+            "prediction_v2_promotion_planner_source_set_digest": source_contract[
+                "source_set_digest"
+            ],
+            "research_request_key": source_contract["research_request_key"],
+            "research_request_id": source_contract["research_request_id"],
+            "research_execution_id": source_contract["research_execution_id"],
+            "engineering_request_key": source_contract["engineering_request_key"],
+            "engineering_request_id": source_contract["engineering_request_id"],
+            "engineering_execution_id": source_contract["engineering_execution_id"],
+            "gate_execution_artifact_digest": gate_execution["artifact_digest"],
+            "baseline_model_artifact_digest": baseline_model["artifact_digest"],
+            "evaluated_model_artifact_digest": candidate_model["artifact_digest"],
+            "hierarchical_gate_output_digest": gate_output["artifact_digest"],
+            "historical_evidence_artifact_digest": evidence["artifact_digest"],
+            "promotion_planning_eligibility_digest": eligibility["artifact_digest"],
+            "historical_gate_completion_digest": gate_completion["artifact_digest"],
+            "prediction_v2_shadow_contract_digest": shadow_contract[
+                "artifact_digest"
+            ],
+            "promotion_plan_digest": run.promotion_plan["artifact_digest"],
+            "downstream_route_digest": run.downstream_route["artifact_digest"],
+            "promotion_planner_completion_digest": run.completion["artifact_digest"],
+            "historical_evidence": run.historical_evidence,
+            "plan_decision": run.plan_decision,
+            "route": run.route,
+            "prediction_v2_mode": "SHADOW_ONLY",
+            "prediction_v2_route": "BASELINE_ONLY",
+            "candidate_expert_authorized": False,
+            "database_queries_during_capability": 0,
+            "historical_rows_read": 0,
+            "actual_fold_count": 0,
+            "formal_historical_folds_executed": 0,
+            "bootstrap_children_executed": 0,
+            "duplicate_validation": False,
+            "evidence_created": False,
+            "promotion_gate_opened": False,
+            "p3_authorized": False,
+            "registered_artifact_count": len(child_payloads) + 1,
+            "completion_fact": PREDICTION_V2_PROMOTION_PLANNER_COMPLETION_FACT,
+            "downstream_consumer": (
+                PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_TASK_KEY
+            ),
+            "production_impact": "none",
+            "production_action": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "replay_status": "DETERMINISTIC_PLANNER_COMPILATION_PENDING_REPLAY",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                str(shadow_contract["artifact_digest"]),
+                *(str(payload["artifact_digest"]) for _, payload in child_payloads),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        output_registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(output_registrations) != 4:
+            raise MainlineSupervisorError(
+                "Prediction v2 promotion planner registration count changed"
+            )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=output_registrations,
+            completion_facts=(PREDICTION_V2_PROMOTION_PLANNER_COMPLETION_FACT,),
+        )
+
+
 class M4P261RawExecutionReplayCapability:
     def __init__(
         self,
@@ -10532,6 +10759,12 @@ class ResearchEvidenceSupervisor:
                     root_dir=root_dir,
                 )
             ),
+            PREDICTION_V2_PROMOTION_PLANNER_CAPABILITY: (
+                PredictionV2PromotionPlannerCapability(
+                    repository=self.repository,
+                    root_dir=root_dir,
+                )
+            ),
             M4_V2_P261_RAW_REPLAY_CAPABILITY: (
                 M4P261RawExecutionReplayCapability(
                     repository=self.repository,
@@ -11329,6 +11562,20 @@ class ResearchEvidenceSupervisor:
                                     "evidence_created",
                                     "prediction_v2_planning_eligible",
                                     "fixed_primary_family",
+                                    "prediction_v2_promotion_planner_source_contract_digest",
+                                    "prediction_v2_promotion_planner_source_set_digest",
+                                    "gate_execution_artifact_digest",
+                                    "prediction_v2_shadow_contract_digest",
+                                    "promotion_plan_digest",
+                                    "downstream_route_digest",
+                                    "promotion_planner_completion_digest",
+                                    "plan_decision",
+                                    "route",
+                                    "prediction_v2_mode",
+                                    "prediction_v2_route",
+                                    "candidate_expert_authorized",
+                                    "historical_rows_read",
+                                    "p3_authorized",
                                 )
                                 if key in result.execution_artifact
                             },
@@ -11936,6 +12183,20 @@ class ResearchEvidenceSupervisor:
             "evidence_created",
             "prediction_v2_planning_eligible",
             "fixed_primary_family",
+            "prediction_v2_promotion_planner_source_contract_digest",
+            "prediction_v2_promotion_planner_source_set_digest",
+            "gate_execution_artifact_digest",
+            "prediction_v2_shadow_contract_digest",
+            "promotion_plan_digest",
+            "downstream_route_digest",
+            "promotion_planner_completion_digest",
+            "plan_decision",
+            "route",
+            "prediction_v2_mode",
+            "prediction_v2_route",
+            "candidate_expert_authorized",
+            "historical_rows_read",
+            "p3_authorized",
         ):
             if key in summary:
                 payload[key] = summary[key]
@@ -14310,6 +14571,154 @@ class ResearchEvidenceSupervisor:
                 "statistical_results_read": True,
                 "evidence_created": False,
                 "manual_input_assembly": False,
+            }
+        elif task_key == PREDICTION_V2_PROMOTION_PLANNER_TASK_KEY:
+            source_contract = load_prediction_v2_promotion_planner_source_contract(
+                self.root_dir / PREDICTION_V2_PROMOTION_PLANNER_SOURCE_CONTRACT_PATH
+            )
+            verify_prediction_v2_promotion_planner_source_bytes(
+                root_dir=self.root_dir,
+                contract=source_contract,
+            )
+            _, gate_execution, gate_registrations = _load_single_completed_execution(
+                repository=self.repository,
+                root_dir=self.root_dir,
+                control_plane_key=self.control_plane_key,
+                task_key=MARGINAL_STATIC_HISTORICAL_GATE_TASK_KEY,
+            )
+            baseline_model = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=gate_registrations,
+                artifact_type="m4_v2_legal_uniform_baseline_model_identity",
+            )
+            candidate_model = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=gate_registrations,
+                artifact_type="m4_v2_marginal_static_evaluated_model_identity",
+            )
+            gate_output = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=gate_registrations,
+                artifact_type="hierarchical_measurement_gate_output",
+            )
+            evidence = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=gate_registrations,
+                artifact_type="m4_v2_marginal_static_historical_evidence",
+            )
+            eligibility = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=gate_registrations,
+                artifact_type="prediction_v2_promotion_planning_eligibility",
+            )
+            gate_completion = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=gate_registrations,
+                artifact_type="m4_v2_marginal_static_historical_gate_completion",
+            )
+            shadow_contract = load_shadow_contract(self.root_dir)
+            reconstructed = build_prediction_v2_promotion_planner_artifacts(
+                source_contract=source_contract,
+                gate_execution=gate_execution,
+                baseline_model=baseline_model,
+                evaluated_candidate_model=candidate_model,
+                gate_output=gate_output,
+                historical_evidence=evidence,
+                planning_eligibility=eligibility,
+                gate_completion=gate_completion,
+                shadow_contract=shadow_contract,
+            )
+            if (
+                artifact.get(
+                    "prediction_v2_promotion_planner_source_contract_digest"
+                )
+                != source_contract["artifact_digest"]
+                or artifact.get("prediction_v2_promotion_planner_source_set_digest")
+                != source_contract["source_set_digest"]
+                or artifact.get("research_request_id") != 379
+                or artifact.get("research_execution_id") != 300
+                or artifact.get("engineering_request_id") != 380
+                or artifact.get("engineering_execution_id") != 301
+                or artifact.get("gate_execution_artifact_digest")
+                != gate_execution["artifact_digest"]
+                or artifact.get("baseline_model_artifact_digest")
+                != baseline_model["artifact_digest"]
+                or artifact.get("evaluated_model_artifact_digest")
+                != candidate_model["artifact_digest"]
+                or artifact.get("hierarchical_gate_output_digest")
+                != gate_output["artifact_digest"]
+                or artifact.get("historical_evidence_artifact_digest")
+                != evidence["artifact_digest"]
+                or artifact.get("promotion_planning_eligibility_digest")
+                != eligibility["artifact_digest"]
+                or artifact.get("historical_gate_completion_digest")
+                != gate_completion["artifact_digest"]
+                or artifact.get("prediction_v2_shadow_contract_digest")
+                != shadow_contract["artifact_digest"]
+                or artifact.get("promotion_plan_digest")
+                != reconstructed.promotion_plan["artifact_digest"]
+                or artifact.get("downstream_route_digest")
+                != reconstructed.downstream_route["artifact_digest"]
+                or artifact.get("promotion_planner_completion_digest")
+                != reconstructed.completion["artifact_digest"]
+                or artifact.get("historical_evidence")
+                != reconstructed.historical_evidence
+                or artifact.get("plan_decision") != reconstructed.plan_decision
+                or artifact.get("route") != reconstructed.route
+                or artifact.get("prediction_v2_mode") != "SHADOW_ONLY"
+                or artifact.get("prediction_v2_route") != "BASELINE_ONLY"
+                or artifact.get("candidate_expert_authorized") is not False
+                or artifact.get("database_queries_during_capability") != 0
+                or artifact.get("historical_rows_read") != 0
+                or artifact.get("formal_historical_folds_executed") != 0
+                or artifact.get("bootstrap_children_executed") != 0
+                or artifact.get("duplicate_validation") is not False
+                or artifact.get("evidence_created") is not False
+                or artifact.get("promotion_gate_opened") is not False
+                or artifact.get("p3_authorized") is not False
+                or artifact.get("registered_artifact_count") != 4
+                or artifact.get("completion_fact")
+                != PREDICTION_V2_PROMOTION_PLANNER_COMPLETION_FACT
+                or artifact.get("downstream_consumer")
+                != PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_TASK_KEY
+                or artifact.get("production_action") != "none"
+            ):
+                raise MainlineSupervisorError(
+                    "Prediction v2 promotion planner replay identity changed"
+                )
+            _verify_v2_registered_artifacts(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                expected_payloads=(*reconstructed.artifacts, artifact),
+            )
+            capability_replay = {
+                "schema_version": "dehps-prediction-v2-promotion-planner-replay.v1",
+                "status": "REPLAY_VERIFIED",
+                "promotion_plan_digest": reconstructed.promotion_plan[
+                    "artifact_digest"
+                ],
+                "downstream_route_digest": reconstructed.downstream_route[
+                    "artifact_digest"
+                ],
+                "completion_digest": reconstructed.completion["artifact_digest"],
+                "historical_evidence": reconstructed.historical_evidence,
+                "plan_decision": reconstructed.plan_decision,
+                "route": reconstructed.route,
+                "prediction_v2_mode": "SHADOW_ONLY",
+                "prediction_v2_route": "BASELINE_ONLY",
+                "same_registered_content": True,
+                "database_queries_during_replay": 0,
+                "historical_rows_read": 0,
+                "formal_historical_folds_replayed": 0,
+                "bootstrap_children_replayed": 0,
+                "duplicate_validation": False,
+                "evidence_created": False,
+                "promotion_gate_opened": False,
+                "p3_authorized": False,
+                "manual_input_assembly": False,
+                "next_consumer": (
+                    PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_TASK_KEY
+                ),
             }
         elif task_key == MARGINAL_STATIC_HISTORICAL_GATE_TASK_KEY:
             source_contract = load_marginal_static_historical_gate_source_contract(

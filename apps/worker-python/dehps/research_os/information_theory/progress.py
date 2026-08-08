@@ -160,6 +160,12 @@ M4_V2_MARGINAL_HISTORICAL_EVIDENCE_FACTS = tuple(
     for value in ("POSITIVE", "NEGATIVE", "INCONCLUSIVE")
 )
 PREDICTION_V2_PROMOTION_PLANNER_TASK_KEY = "prediction-v2-promotion-planner"
+PREDICTION_V2_PROMOTION_PLANNER_COMPLETION_FACT = (
+    "prediction-v2-promotion-planner:COMPLETE"
+)
+PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_TASK_KEY = (
+    "prediction-v2-forward-evidence-or-pivot-planner"
+)
 M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
 M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = "m4-v2-p2-6-1-marginal-decision-replay"
 M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
@@ -646,6 +652,19 @@ def build_m4_status(
     )
     prediction_v2_promotion_planner_task = tasks.get(
         PREDICTION_V2_PROMOTION_PLANNER_TASK_KEY
+    )
+    prediction_v2_promotion_planner = (
+        measurement_v2_execution
+        if measurement_v2_execution is not None
+        and measurement_v2_execution.get("execution_task_key")
+        == PREDICTION_V2_PROMOTION_PLANNER_TASK_KEY
+        else None
+    )
+    prediction_v2_forward_or_pivot_resolution = resolutions.get(
+        PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_TASK_KEY
+    )
+    prediction_v2_forward_or_pivot_task = tasks.get(
+        PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_TASK_KEY
     )
     durable_gate_evidence_facts = tuple(
         fact
@@ -1380,7 +1399,10 @@ def build_m4_status(
         "measurement_system_v2": (
             {
                 "phase": (
-                    "PREDICTION_V2_PROMOTION_PLANNER"
+                    "PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER"
+                    if PREDICTION_V2_PROMOTION_PLANNER_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "PREDICTION_V2_PROMOTION_PLANNER"
                     if M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_GATE_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "MARGINAL_STATIC_HISTORICAL_MEASUREMENT_GATE_COMPILER"
@@ -3249,26 +3271,107 @@ def build_m4_status(
                             prediction_v2_promotion_planner_task.artifact_digest
                         ].completion_classification.value
                     ),
-                    "completed": False,
+                    "completed": (
+                        PREDICTION_V2_PROMOTION_PLANNER_COMPLETION_FACT
+                        in manifest.facts.artifacts
+                    ),
                     "gate_evidence_ready": (
                         M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_GATE_COMPLETION_FACT
                         in manifest.facts.artifacts
                     ),
                     "historical_evidence": (
-                        None
-                        if measurement_v2_marginal_historical_gate is None
-                        else measurement_v2_marginal_historical_gate.get(
-                            "historical_evidence"
+                        prediction_v2_promotion_planner.get("historical_evidence")
+                        if prediction_v2_promotion_planner is not None
+                        else (
+                            measurement_v2_marginal_historical_gate.get(
+                                "historical_evidence"
+                            )
+                            if measurement_v2_marginal_historical_gate is not None
+                            else (
+                                durable_gate_evidence_facts[0].rsplit(":", 1)[-1]
+                                if durable_gate_evidence_facts
+                                else None
+                            )
                         )
                     ),
                     "planning_eligible": (
-                        False
-                        if measurement_v2_marginal_historical_gate is None
-                        else measurement_v2_marginal_historical_gate.get(
-                            "prediction_v2_planning_eligible", False
+                        prediction_v2_promotion_planner.get("plan_decision")
+                        == "FORWARD_SHADOW_EVIDENCE_PLAN_ELIGIBLE"
+                        if prediction_v2_promotion_planner is not None
+                        else (
+                            measurement_v2_marginal_historical_gate.get(
+                                "prediction_v2_planning_eligible", False
+                            )
+                            if measurement_v2_marginal_historical_gate is not None
+                            else False
                         )
                     ),
+                    "plan_decision": (
+                        None
+                        if prediction_v2_promotion_planner is None
+                        else prediction_v2_promotion_planner.get("plan_decision")
+                    ),
+                    "route": (
+                        None
+                        if prediction_v2_promotion_planner is None
+                        else prediction_v2_promotion_planner.get("route")
+                    ),
+                    "prediction_v2_mode": "SHADOW_ONLY",
+                    "prediction_v2_route": "BASELINE_ONLY",
+                    "candidate_expert_authorized": False,
+                    "registered_artifact_count": (
+                        0
+                        if prediction_v2_promotion_planner is None
+                        else prediction_v2_promotion_planner.get(
+                            "registered_artifact_count", 0
+                        )
+                    ),
+                    "database_queries_during_capability": 0,
+                    "historical_rows_read": 0,
+                    "formal_historical_folds_executed": 0,
+                    "bootstrap_children_executed": 0,
+                    "duplicate_validation": False,
+                    "evidence_created": False,
                     "promotion_gate_opened": False,
+                    "p3_authorized": False,
+                    "production_action": "none",
+                    "next_consumer": (
+                        PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_TASK_KEY
+                    ),
+                },
+                "prediction_v2_forward_evidence_or_pivot_planner": {
+                    "task_key": (
+                        PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_TASK_KEY
+                    ),
+                    "resolver_status": (
+                        None
+                        if prediction_v2_forward_or_pivot_resolution is None
+                        else prediction_v2_forward_or_pivot_resolution.status.value
+                    ),
+                    "completion_classification": (
+                        None
+                        if prediction_v2_forward_or_pivot_task is None
+                        or task_states[
+                            prediction_v2_forward_or_pivot_task.artifact_digest
+                        ].completion_classification
+                        is None
+                        else task_states[
+                            prediction_v2_forward_or_pivot_task.artifact_digest
+                        ].completion_classification.value
+                    ),
+                    "promotion_plan_ready": (
+                        PREDICTION_V2_PROMOTION_PLANNER_COMPLETION_FACT
+                        in manifest.facts.artifacts
+                    ),
+                    "selected_route": (
+                        None
+                        if prediction_v2_promotion_planner is None
+                        else prediction_v2_promotion_planner.get("route")
+                    ),
+                    "evidence_created": False,
+                    "duplicate_validation": False,
+                    "promotion_gate_opened": False,
+                    "p3_authorized": False,
                     "production_action": "none",
                 },
                 "completion_classification": (
@@ -3282,7 +3385,10 @@ def build_m4_status(
                     ].completion_classification.value
                 ),
                 "live_mainline_status": (
-                    "MARGINAL_STATIC_HISTORICAL_GATE_VALIDATED_IN_MAINLINE"
+                    "PREDICTION_V2_PROMOTION_PLANNER_VALIDATED_IN_MAINLINE"
+                    if PREDICTION_V2_PROMOTION_PLANNER_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "MARGINAL_STATIC_HISTORICAL_GATE_VALIDATED_IN_MAINLINE"
                     if M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_GATE_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "MARGINAL_STATIC_HISTORICAL_EXECUTION_VALIDATED_IN_MAINLINE"
@@ -3449,7 +3555,10 @@ def build_m4_status(
                     ),
                 },
                 "next_consumer": (
-                    PREDICTION_V2_PROMOTION_PLANNER_TASK_KEY
+                    PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_TASK_KEY
+                    if PREDICTION_V2_PROMOTION_PLANNER_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else PREDICTION_V2_PROMOTION_PLANNER_TASK_KEY
                     if M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_GATE_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_GATE_TASK_KEY
