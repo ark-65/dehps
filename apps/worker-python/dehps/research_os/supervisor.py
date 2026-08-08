@@ -423,6 +423,28 @@ from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_st
 from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_structural_baseline_comparison_preregistration import (
     PREREGISTRATION_DECISION as PREDICTION_V2_STRUCTURAL_BASELINE_PREREGISTRATION_DECISION,
 )
+from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_structural_baseline_comparison_route_decision import (
+    NEXT_RESEARCH_CONTRACT_EVENT as PREDICTION_V2_NEXT_RESEARCH_CONTRACT_EVENT,
+)
+from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_structural_baseline_comparison_route_decision import (
+    PREDICTION_RESEARCH_DISPOSITION as PREDICTION_V2_STRUCTURAL_BASELINE_ROUTE_DISPOSITION,
+)
+from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_structural_baseline_comparison_route_decision import (
+    PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_INTAKE_TASK_KEY,
+    PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_CAPABILITY,
+    PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_COMPLETION_FACT,
+    PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_SOURCE_CONTRACT_PATH,
+    build_prediction_v2_structural_baseline_comparison_route_decision_artifacts,
+    load_prediction_v2_structural_baseline_comparison_route_decision_source_contract,
+    replay_prediction_v2_structural_baseline_comparison_route_decision,
+    verify_prediction_v2_structural_baseline_comparison_route_decision_source_bytes,
+)
+from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_structural_baseline_comparison_route_decision import (
+    ROUTE_DECISION as PREDICTION_V2_STRUCTURAL_BASELINE_ROUTE_DECISION,
+)
+from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_structural_baseline_comparison_route_decision import (
+    STRUCTURAL_ARTIFACT_ROLE as PREDICTION_V2_STRUCTURAL_BASELINE_ARCHIVE_ROLE,
+)
 from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_structural_decision_support_design import (
     NULL_BASELINE as PREDICTION_V2_STRUCTURAL_NULL_BASELINE,
 )
@@ -10841,6 +10863,241 @@ class PredictionV2StructuralBaselineComparisonExecutionCapability:
         )
 
 
+class PredictionV2StructuralBaselineComparisonRouteDecisionCapability:
+    def __init__(
+        self,
+        *,
+        repository: PostgresResearchOSRepository,
+        root_dir: Path = ROOT_DIR,
+    ) -> None:
+        self.repository = repository
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key
+            != PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_TASK_KEY
+            or task.requested_capability
+            != PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "Prediction v2 structural baseline-comparison route decision "
+                "received the wrong task"
+            )
+        source_contract = load_prediction_v2_structural_baseline_comparison_route_decision_source_contract(
+            self.root_dir
+            / PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_SOURCE_CONTRACT_PATH
+        )
+        verify_prediction_v2_structural_baseline_comparison_route_decision_source_bytes(
+            root_dir=self.root_dir,
+            contract=source_contract,
+        )
+        _, comparison_execution, registrations = _load_single_completed_execution(
+            repository=self.repository,
+            root_dir=self.root_dir,
+            control_plane_key=control_plane_key,
+            task_key=PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_EXECUTION_TASK_KEY,
+        )
+        result_index = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type=(
+                "prediction_v2_structural_baseline_comparison_result_index"
+            ),
+        )
+        gate_outcome = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type=(
+                "prediction_v2_structural_baseline_comparison_gate_outcome"
+            ),
+        )
+        execution_completion = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type=(
+                "prediction_v2_structural_baseline_comparison_execution_completion"
+            ),
+        )
+        expected_inputs = (
+            str(source_contract["artifact_digest"]),
+            str(comparison_execution["artifact_digest"]),
+            str(result_index["artifact_digest"]),
+            str(gate_outcome["artifact_digest"]),
+            str(execution_completion["artifact_digest"]),
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "Prediction v2 structural baseline-comparison route decision "
+                "input identities changed"
+            )
+        run = build_prediction_v2_structural_baseline_comparison_route_decision_artifacts(
+            source_contract=source_contract,
+            comparison_execution=comparison_execution,
+            result_index=result_index,
+            gate_outcome=gate_outcome,
+            execution_completion=execution_completion,
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        child_paths = (
+            task_dir
+            / "artifacts/route-decision"
+            / str(run.decision["artifact_digest"])
+            / "route-decision.json",
+            task_dir
+            / "artifacts/research-intake-handoff"
+            / str(run.research_intake_handoff["artifact_digest"])
+            / "research-intake-handoff.json",
+            task_dir
+            / "artifacts/completion"
+            / str(run.completion["artifact_digest"])
+            / "completion.json",
+        )
+        child_payloads = tuple(zip(child_paths, run.artifacts, strict=True))
+        for path, payload in child_payloads:
+            _persist_immutable(path, payload)
+        decision = run.decision
+        handoff = run.research_intake_handoff
+        completion = run.completion
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "prediction_v2_structural_baseline_route_source_contract_digest": (
+                source_contract["artifact_digest"]
+            ),
+            "prediction_v2_structural_baseline_route_source_set_digest": (
+                source_contract["source_set_digest"]
+            ),
+            "research_request_key": source_contract["research_request_key"],
+            "research_request_id": source_contract["research_request_id"],
+            "research_execution_id": source_contract["research_execution_id"],
+            "engineering_request_key": source_contract["engineering_request_key"],
+            "engineering_request_id": source_contract["engineering_request_id"],
+            "engineering_execution_id": source_contract["engineering_execution_id"],
+            "structural_baseline_comparison_execution_digest": (
+                comparison_execution["artifact_digest"]
+            ),
+            "structural_baseline_result_index_digest": result_index[
+                "artifact_digest"
+            ],
+            "structural_baseline_gate_outcome_digest": gate_outcome[
+                "artifact_digest"
+            ],
+            "structural_baseline_execution_completion_digest": (
+                execution_completion["artifact_digest"]
+            ),
+            "structural_baseline_route_decision_digest": decision[
+                "artifact_digest"
+            ],
+            "result_blind_research_intake_handoff_digest": handoff[
+                "artifact_digest"
+            ],
+            "structural_baseline_route_completion_digest": completion[
+                "artifact_digest"
+            ],
+            "decision": decision["decision"],
+            "comparison_decision": decision["comparison_decision"],
+            "structural_artifact_role": decision["structural_artifact_role"],
+            "prediction_research_disposition": decision[
+                "prediction_research_disposition"
+            ],
+            "candidate_stats": decision["candidate_stats"],
+            "class_summaries": decision["class_summaries"],
+            "candidate_considerations_executed": 0,
+            "threshold_retuned": False,
+            "repetition_scan": PREDICTION_V2_STRUCTURAL_BASELINE_REPETITION_SCAN,
+            "portfolio_activation_authorized": False,
+            "decision_usefulness_established": False,
+            "prediction_probability_claim": False,
+            "global_optimality_claim": False,
+            "historical_evidence": "INCONCLUSIVE",
+            "prediction_v2_mode": "SHADOW_ONLY",
+            "prediction_v2_route": "BASELINE_ONLY",
+            "legacy_prediction_mainline_reactivation_authorized": False,
+            "candidate_expert_authorized": False,
+            "database_queries_during_capability": 0,
+            "historical_rows_read": 0,
+            "actual_fold_count": 0,
+            "formal_historical_folds_executed": 0,
+            "bootstrap_children_executed": 0,
+            "evidence_created": False,
+            "new_model_created": False,
+            "promotion_gate_opened": False,
+            "p3_authorized": False,
+            "registered_artifact_count": len(child_payloads) + 1,
+            "completion_fact": (
+                PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_COMPLETION_FACT
+            ),
+            "downstream_consumer": (
+                PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_INTAKE_TASK_KEY
+            ),
+            "next_external_event": PREDICTION_V2_NEXT_RESEARCH_CONTRACT_EVENT,
+            "production_impact": "none",
+            "production_action": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "replay_status": "DETERMINISTIC_REGISTERED_OUTPUT_REPLAY_PENDING",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                *(str(payload["artifact_digest"]) for _, payload in child_payloads),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        output_registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(output_registrations) != 4:
+            raise MainlineSupervisorError(
+                "Prediction v2 structural baseline-comparison route decision "
+                "registration count changed"
+            )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=output_registrations,
+            completion_facts=(
+                PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_COMPLETION_FACT,
+            ),
+        )
+
+
 class M4P261RawExecutionReplayCapability:
     def __init__(
         self,
@@ -12789,6 +13046,12 @@ class ResearchEvidenceSupervisor:
                     root_dir=root_dir,
                 )
             ),
+            PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_CAPABILITY: (
+                PredictionV2StructuralBaselineComparisonRouteDecisionCapability(
+                    repository=self.repository,
+                    root_dir=root_dir,
+                )
+            ),
             M4_V2_P261_RAW_REPLAY_CAPABILITY: (
                 M4P261RawExecutionReplayCapability(
                     repository=self.repository,
@@ -13772,6 +14035,7 @@ class ResearchEvidenceSupervisor:
         return self._latest_completed_summary_for_tasks(
             snapshot,
             (
+                PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_TASK_KEY,
                 PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_EXECUTION_TASK_KEY,
                 PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_PREREGISTRATION_TASK_KEY,
                 PREDICTION_V2_STRUCTURAL_ROUTE_DECISION_TASK_KEY,
@@ -13820,6 +14084,7 @@ class ResearchEvidenceSupervisor:
             if resolutions.get(candidate) is not TaskStatus.COMPLETED:
                 continue
             if candidate in {
+                PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_TASK_KEY,
                 PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_EXECUTION_TASK_KEY,
                 PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_PREREGISTRATION_TASK_KEY,
                 PREDICTION_V2_STRUCTURAL_ROUTE_DECISION_TASK_KEY,
@@ -16688,6 +16953,144 @@ class ResearchEvidenceSupervisor:
                 "evidence_created": False,
                 "manual_input_assembly": False,
             }
+        elif (
+            task_key
+            == PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_TASK_KEY
+        ):
+            source_contract = load_prediction_v2_structural_baseline_comparison_route_decision_source_contract(
+                self.root_dir
+                / PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_SOURCE_CONTRACT_PATH
+            )
+            verify_prediction_v2_structural_baseline_comparison_route_decision_source_bytes(
+                root_dir=self.root_dir,
+                contract=source_contract,
+            )
+            _, comparison_execution, comparison_registrations = (
+                _load_single_completed_execution(
+                    repository=self.repository,
+                    root_dir=self.root_dir,
+                    control_plane_key=self.control_plane_key,
+                    task_key=(
+                        PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_EXECUTION_TASK_KEY
+                    ),
+                )
+            )
+            result_index = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=comparison_registrations,
+                artifact_type=(
+                    "prediction_v2_structural_baseline_comparison_result_index"
+                ),
+            )
+            gate_outcome = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=comparison_registrations,
+                artifact_type=(
+                    "prediction_v2_structural_baseline_comparison_gate_outcome"
+                ),
+            )
+            execution_completion = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=comparison_registrations,
+                artifact_type=(
+                    "prediction_v2_structural_baseline_comparison_"
+                    "execution_completion"
+                ),
+            )
+            reconstructed, capability_replay = replay_prediction_v2_structural_baseline_comparison_route_decision(
+                source_contract=source_contract,
+                comparison_execution=comparison_execution,
+                result_index=result_index,
+                gate_outcome=gate_outcome,
+                execution_completion=execution_completion,
+            )
+            expected_inputs = [
+                str(source_contract["artifact_digest"]),
+                str(comparison_execution["artifact_digest"]),
+                str(result_index["artifact_digest"]),
+                str(gate_outcome["artifact_digest"]),
+                str(execution_completion["artifact_digest"]),
+            ]
+            if (
+                artifact.get("input_artifact_digests") != expected_inputs
+                or artifact.get(
+                    "prediction_v2_structural_baseline_route_source_contract_digest"
+                )
+                != source_contract["artifact_digest"]
+                or artifact.get(
+                    "prediction_v2_structural_baseline_route_source_set_digest"
+                )
+                != source_contract["source_set_digest"]
+                or artifact.get("research_request_id") != 408
+                or artifact.get("research_execution_id") != 329
+                or artifact.get("engineering_request_id") != 409
+                or artifact.get("engineering_execution_id") != 330
+                or artifact.get("structural_baseline_comparison_execution_digest")
+                != comparison_execution["artifact_digest"]
+                or artifact.get("structural_baseline_result_index_digest")
+                != result_index["artifact_digest"]
+                or artifact.get("structural_baseline_gate_outcome_digest")
+                != gate_outcome["artifact_digest"]
+                or artifact.get("structural_baseline_execution_completion_digest")
+                != execution_completion["artifact_digest"]
+                or artifact.get("structural_baseline_route_decision_digest")
+                != reconstructed.decision["artifact_digest"]
+                or artifact.get("result_blind_research_intake_handoff_digest")
+                != reconstructed.research_intake_handoff["artifact_digest"]
+                or artifact.get("structural_baseline_route_completion_digest")
+                != reconstructed.completion["artifact_digest"]
+                or artifact.get("decision")
+                != PREDICTION_V2_STRUCTURAL_BASELINE_ROUTE_DECISION
+                or artifact.get("comparison_decision")
+                != "ARCHIVE_AS_ENGINEERING_EVIDENCE_ONLY"
+                or artifact.get("structural_artifact_role")
+                != PREDICTION_V2_STRUCTURAL_BASELINE_ARCHIVE_ROLE
+                or artifact.get("prediction_research_disposition")
+                != PREDICTION_V2_STRUCTURAL_BASELINE_ROUTE_DISPOSITION
+                or artifact.get("candidate_stats")
+                != reconstructed.decision["candidate_stats"]
+                or artifact.get("class_summaries")
+                != reconstructed.decision["class_summaries"]
+                or artifact.get("candidate_considerations_executed") != 0
+                or artifact.get("threshold_retuned") is not False
+                or artifact.get("repetition_scan")
+                != PREDICTION_V2_STRUCTURAL_BASELINE_REPETITION_SCAN
+                or artifact.get("portfolio_activation_authorized") is not False
+                or artifact.get("decision_usefulness_established") is not False
+                or artifact.get("prediction_probability_claim") is not False
+                or artifact.get("global_optimality_claim") is not False
+                or artifact.get("historical_evidence") != "INCONCLUSIVE"
+                or artifact.get("prediction_v2_mode") != "SHADOW_ONLY"
+                or artifact.get("prediction_v2_route") != "BASELINE_ONLY"
+                or artifact.get("legacy_prediction_mainline_reactivation_authorized")
+                is not False
+                or artifact.get("database_queries_during_capability") != 0
+                or artifact.get("historical_rows_read") != 0
+                or artifact.get("formal_historical_folds_executed") != 0
+                or artifact.get("bootstrap_children_executed") != 0
+                or artifact.get("evidence_created") is not False
+                or artifact.get("new_model_created") is not False
+                or artifact.get("candidate_expert_authorized") is not False
+                or artifact.get("promotion_gate_opened") is not False
+                or artifact.get("p3_authorized") is not False
+                or artifact.get("registered_artifact_count") != 4
+                or artifact.get("completion_fact")
+                != PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_COMPLETION_FACT
+                or artifact.get("downstream_consumer")
+                != PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_INTAKE_TASK_KEY
+                or artifact.get("next_external_event")
+                != PREDICTION_V2_NEXT_RESEARCH_CONTRACT_EVENT
+                or artifact.get("production_action") != "none"
+            ):
+                raise MainlineSupervisorError(
+                    "Prediction v2 structural baseline-comparison route "
+                    "decision replay identity changed"
+                )
+            _verify_v2_registered_artifacts(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                expected_payloads=(*reconstructed.artifacts, artifact),
+            )
         elif (
             task_key == PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_EXECUTION_TASK_KEY
         ):

@@ -265,7 +265,10 @@ def test_additive_migration_revises_preregistration_and_adds_only_execution() ->
         item
         for item in source["tasks"]
         if item["task_key"]
-        != "prediction-v2-structural-baseline-comparison-route-decision"
+        not in {
+            "prediction-v2-structural-baseline-comparison-route-decision",
+            "prediction-v2-next-result-blind-research-intake",
+        }
     ]
     live = copy.deepcopy(source)
     live["tasks"] = [
