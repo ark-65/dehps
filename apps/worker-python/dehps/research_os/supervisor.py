@@ -236,6 +236,18 @@ from dehps.research_os.information_theory.measurement_system_v2.marginal_static_
     load_marginal_static_historical_execution_source_contract,
     verify_marginal_static_historical_execution_source_bytes,
 )
+from dehps.research_os.information_theory.measurement_system_v2.marginal_static_historical_gate import (
+    BRANCH_IDS as MARGINAL_STATIC_HISTORICAL_GATE_BRANCH_IDS,
+)
+from dehps.research_os.information_theory.measurement_system_v2.marginal_static_historical_gate import (
+    MARGINAL_STATIC_HISTORICAL_GATE_CAPABILITY,
+    MARGINAL_STATIC_HISTORICAL_GATE_COMPLETION_FACT,
+    MARGINAL_STATIC_HISTORICAL_GATE_SOURCE_CONTRACT_PATH,
+    PREDICTION_V2_PROMOTION_PLANNER_TASK_KEY,
+    build_marginal_static_historical_gate_artifacts,
+    load_marginal_static_historical_gate_source_contract,
+    verify_marginal_static_historical_gate_source_bytes,
+)
 from dehps.research_os.information_theory.measurement_system_v2.marginal_static_historical_preregistration import (
     EVALUATION_FOLD_COUNT as HISTORICAL_PREREGISTRATION_FOLD_COUNT,
 )
@@ -8394,6 +8406,238 @@ class M4MarginalStaticHistoricalExecutionCapability:
         )
 
 
+class M4MarginalStaticHistoricalGateCapability:
+    def __init__(
+        self,
+        *,
+        repository: PostgresResearchOSRepository,
+        root_dir: Path = ROOT_DIR,
+    ) -> None:
+        self.repository = repository
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key != MARGINAL_STATIC_HISTORICAL_GATE_TASK_KEY
+            or task.requested_capability != MARGINAL_STATIC_HISTORICAL_GATE_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static historical gate received the wrong task"
+            )
+        source_contract = load_marginal_static_historical_gate_source_contract(
+            self.root_dir / MARGINAL_STATIC_HISTORICAL_GATE_SOURCE_CONTRACT_PATH
+        )
+        verify_marginal_static_historical_gate_source_bytes(
+            root_dir=self.root_dir,
+            contract=source_contract,
+        )
+        _, historical_execution, registrations = _load_single_completed_execution(
+            repository=self.repository,
+            root_dir=self.root_dir,
+            control_plane_key=control_plane_key,
+            task_key=MARGINAL_STATIC_HISTORICAL_EXECUTION_TASK_KEY,
+        )
+        completion_index = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type="m4_v2_marginal_static_historical_completion_index",
+        )
+        inference_aggregate = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type="m4_v2_marginal_static_historical_inference_aggregate",
+        )
+        branch_candidate = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type="m4_v2_marginal_static_historical_branch_candidate",
+        )
+        historical_completion = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type="m4_v2_marginal_static_historical_execution_completion",
+        )
+        _, _, design_registrations = _load_single_completed_execution(
+            repository=self.repository,
+            root_dir=self.root_dir,
+            control_plane_key=control_plane_key,
+            task_key=MARGINAL_STATIC_HISTORICAL_DESIGN_TASK_KEY,
+        )
+        gate_compiler_contract = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=design_registrations,
+            artifact_type="measurement_v2_gate_compiler_contract",
+        )
+        expected_inputs = (
+            str(source_contract["artifact_digest"]),
+            str(gate_compiler_contract["artifact_digest"]),
+            str(historical_execution["artifact_digest"]),
+            str(completion_index["artifact_digest"]),
+            str(inference_aggregate["artifact_digest"]),
+            str(branch_candidate["artifact_digest"]),
+            str(historical_completion["artifact_digest"]),
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static historical gate identities changed"
+            )
+        run = build_marginal_static_historical_gate_artifacts(
+            source_contract=source_contract,
+            gate_compiler_contract=gate_compiler_contract,
+            historical_execution=historical_execution,
+            completion_index=completion_index,
+            inference_aggregate=inference_aggregate,
+            branch_candidate=branch_candidate,
+            historical_execution_completion=historical_completion,
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        child_paths = (
+            task_dir
+            / "artifacts/legal-uniform-baseline-model"
+            / str(run.baseline_model["artifact_digest"])
+            / "model.json",
+            task_dir
+            / "artifacts/marginal-static-evaluated-model"
+            / str(run.candidate_model["artifact_digest"])
+            / "model.json",
+            task_dir
+            / "artifacts/hierarchical-measurement-gate-output"
+            / str(run.gate_output["artifact_digest"])
+            / "gate.json",
+            task_dir
+            / "artifacts/marginal-static-historical-evidence"
+            / str(run.evidence["artifact_digest"])
+            / "evidence.json",
+            task_dir
+            / "artifacts/prediction-v2-promotion-planning-eligibility"
+            / str(run.eligibility["artifact_digest"])
+            / "eligibility.json",
+            task_dir
+            / "artifacts/completion"
+            / str(run.completion["artifact_digest"])
+            / "completion.json",
+        )
+        child_payloads = tuple(zip(child_paths, run.artifacts, strict=True))
+        for path, payload in child_payloads:
+            _persist_immutable(path, payload)
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "marginal_static_historical_gate_source_contract_digest": (
+                source_contract["artifact_digest"]
+            ),
+            "marginal_static_historical_gate_source_set_digest": source_contract[
+                "source_set_digest"
+            ],
+            "research_request_key": source_contract["research_request_key"],
+            "research_request_id": source_contract["research_request_id"],
+            "research_execution_id": source_contract["research_execution_id"],
+            "engineering_request_key": source_contract["engineering_request_key"],
+            "engineering_request_id": source_contract["engineering_request_id"],
+            "engineering_execution_id": source_contract["engineering_execution_id"],
+            "historical_execution_artifact_digest": historical_execution[
+                "artifact_digest"
+            ],
+            "historical_completion_index_digest": completion_index["artifact_digest"],
+            "historical_inference_aggregate_digest": inference_aggregate[
+                "artifact_digest"
+            ],
+            "historical_branch_candidate_digest": branch_candidate["artifact_digest"],
+            "historical_execution_completion_digest": historical_completion[
+                "artifact_digest"
+            ],
+            "gate_compiler_contract_digest": gate_compiler_contract["artifact_digest"],
+            "baseline_model_artifact_digest": run.baseline_model["artifact_digest"],
+            "evaluated_model_artifact_digest": run.candidate_model["artifact_digest"],
+            "accepted_model_artifact_digest": (
+                run.candidate_model["artifact_digest"]
+                if run.historical_evidence == "POSITIVE"
+                else None
+            ),
+            "hierarchical_gate_output_digest": run.gate_output["artifact_digest"],
+            "historical_evidence_artifact_digest": run.evidence["artifact_digest"],
+            "promotion_planning_eligibility_digest": run.eligibility["artifact_digest"],
+            "historical_gate_completion_digest": run.completion["artifact_digest"],
+            "historical_evidence": run.historical_evidence,
+            "evidence_fact": run.evidence_fact,
+            "evidence_created": True,
+            "prediction_v2_planning_eligible": (run.historical_evidence == "POSITIVE"),
+            "fixed_primary_family": list(MARGINAL_STATIC_HISTORICAL_GATE_BRANCH_IDS),
+            "actual_fold_count": 0,
+            "formal_historical_folds_executed": 0,
+            "bootstrap_children_executed": 0,
+            "database_queries_during_capability": 0,
+            "duplicate_validation": False,
+            "promotion_gate_opened": False,
+            "registered_artifact_count": len(child_payloads) + 1,
+            "completion_fact": MARGINAL_STATIC_HISTORICAL_GATE_COMPLETION_FACT,
+            "downstream_consumer": PREDICTION_V2_PROMOTION_PLANNER_TASK_KEY,
+            "production_impact": "none",
+            "production_action": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "replay_status": "DETERMINISTIC_GATE_COMPILATION_PENDING_REPLAY",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                *(str(payload["artifact_digest"]) for _, payload in child_payloads),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        output_registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(output_registrations) != 7:
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static historical gate registration count changed"
+            )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=output_registrations,
+            completion_facts=(
+                MARGINAL_STATIC_HISTORICAL_GATE_COMPLETION_FACT,
+                run.evidence_fact,
+            ),
+        )
+
+
 class M4P261RawExecutionReplayCapability:
     def __init__(
         self,
@@ -10282,6 +10526,12 @@ class ResearchEvidenceSupervisor:
                     root_dir=root_dir,
                 )
             ),
+            MARGINAL_STATIC_HISTORICAL_GATE_CAPABILITY: (
+                M4MarginalStaticHistoricalGateCapability(
+                    repository=self.repository,
+                    root_dir=root_dir,
+                )
+            ),
             M4_V2_P261_RAW_REPLAY_CAPABILITY: (
                 M4P261RawExecutionReplayCapability(
                     repository=self.repository,
@@ -11067,6 +11317,18 @@ class ResearchEvidenceSupervisor:
                                     "skipped_fold_count",
                                     "newly_computed_fold_count",
                                     "duplicate_validation",
+                                    "marginal_static_historical_gate_source_contract_digest",
+                                    "marginal_static_historical_gate_source_set_digest",
+                                    "historical_execution_artifact_digest",
+                                    "evaluated_model_artifact_digest",
+                                    "hierarchical_gate_output_digest",
+                                    "historical_evidence_artifact_digest",
+                                    "promotion_planning_eligibility_digest",
+                                    "historical_gate_completion_digest",
+                                    "evidence_fact",
+                                    "evidence_created",
+                                    "prediction_v2_planning_eligible",
+                                    "fixed_primary_family",
                                 )
                                 if key in result.execution_artifact
                             },
@@ -11200,6 +11462,7 @@ class ResearchEvidenceSupervisor:
         return self._latest_completed_summary_for_tasks(
             snapshot,
             (
+                MARGINAL_STATIC_HISTORICAL_GATE_TASK_KEY,
                 MARGINAL_STATIC_HISTORICAL_EXECUTION_TASK_KEY,
                 MARGINAL_STATIC_HISTORICAL_PREREGISTRATION_TASK_KEY,
                 MARGINAL_STATIC_HISTORICAL_DESIGN_TASK_KEY,
@@ -11238,6 +11501,7 @@ class ResearchEvidenceSupervisor:
             if resolutions.get(candidate) is not TaskStatus.COMPLETED:
                 continue
             if candidate in {
+                MARGINAL_STATIC_HISTORICAL_GATE_TASK_KEY,
                 MARGINAL_STATIC_HISTORICAL_EXECUTION_TASK_KEY,
                 MARGINAL_STATIC_HISTORICAL_PREREGISTRATION_TASK_KEY,
                 MARGINAL_STATIC_HISTORICAL_DESIGN_TASK_KEY,
@@ -11660,6 +11924,18 @@ class ResearchEvidenceSupervisor:
             "skipped_fold_count",
             "newly_computed_fold_count",
             "duplicate_validation",
+            "marginal_static_historical_gate_source_contract_digest",
+            "marginal_static_historical_gate_source_set_digest",
+            "historical_execution_artifact_digest",
+            "evaluated_model_artifact_digest",
+            "hierarchical_gate_output_digest",
+            "historical_evidence_artifact_digest",
+            "promotion_planning_eligibility_digest",
+            "historical_gate_completion_digest",
+            "evidence_fact",
+            "evidence_created",
+            "prediction_v2_planning_eligible",
+            "fixed_primary_family",
         ):
             if key in summary:
                 payload[key] = summary[key]
@@ -14034,6 +14310,159 @@ class ResearchEvidenceSupervisor:
                 "statistical_results_read": True,
                 "evidence_created": False,
                 "manual_input_assembly": False,
+            }
+        elif task_key == MARGINAL_STATIC_HISTORICAL_GATE_TASK_KEY:
+            source_contract = load_marginal_static_historical_gate_source_contract(
+                self.root_dir / MARGINAL_STATIC_HISTORICAL_GATE_SOURCE_CONTRACT_PATH
+            )
+            verify_marginal_static_historical_gate_source_bytes(
+                root_dir=self.root_dir,
+                contract=source_contract,
+            )
+            _, historical_execution, historical_registrations = (
+                _load_single_completed_execution(
+                    repository=self.repository,
+                    root_dir=self.root_dir,
+                    control_plane_key=self.control_plane_key,
+                    task_key=MARGINAL_STATIC_HISTORICAL_EXECUTION_TASK_KEY,
+                )
+            )
+            completion_index = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=historical_registrations,
+                artifact_type="m4_v2_marginal_static_historical_completion_index",
+            )
+            inference_aggregate = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=historical_registrations,
+                artifact_type="m4_v2_marginal_static_historical_inference_aggregate",
+            )
+            branch_candidate = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=historical_registrations,
+                artifact_type="m4_v2_marginal_static_historical_branch_candidate",
+            )
+            historical_completion = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=historical_registrations,
+                artifact_type="m4_v2_marginal_static_historical_execution_completion",
+            )
+            _, _, design_registrations = _load_single_completed_execution(
+                repository=self.repository,
+                root_dir=self.root_dir,
+                control_plane_key=self.control_plane_key,
+                task_key=MARGINAL_STATIC_HISTORICAL_DESIGN_TASK_KEY,
+            )
+            gate_compiler_contract = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=design_registrations,
+                artifact_type="measurement_v2_gate_compiler_contract",
+            )
+            reconstructed = build_marginal_static_historical_gate_artifacts(
+                source_contract=source_contract,
+                gate_compiler_contract=gate_compiler_contract,
+                historical_execution=historical_execution,
+                completion_index=completion_index,
+                inference_aggregate=inference_aggregate,
+                branch_candidate=branch_candidate,
+                historical_execution_completion=historical_completion,
+            )
+            if (
+                artifact.get("marginal_static_historical_gate_source_contract_digest")
+                != source_contract["artifact_digest"]
+                or artifact.get("marginal_static_historical_gate_source_set_digest")
+                != source_contract["source_set_digest"]
+                or artifact.get("research_request_id") != 373
+                or artifact.get("research_execution_id") != 294
+                or artifact.get("engineering_request_id") != 374
+                or artifact.get("engineering_execution_id") != 295
+                or artifact.get("historical_execution_artifact_digest")
+                != historical_execution["artifact_digest"]
+                or artifact.get("historical_completion_index_digest")
+                != completion_index["artifact_digest"]
+                or artifact.get("historical_inference_aggregate_digest")
+                != inference_aggregate["artifact_digest"]
+                or artifact.get("historical_branch_candidate_digest")
+                != branch_candidate["artifact_digest"]
+                or artifact.get("historical_execution_completion_digest")
+                != historical_completion["artifact_digest"]
+                or artifact.get("gate_compiler_contract_digest")
+                != gate_compiler_contract["artifact_digest"]
+                or artifact.get("baseline_model_artifact_digest")
+                != reconstructed.baseline_model["artifact_digest"]
+                or artifact.get("evaluated_model_artifact_digest")
+                != reconstructed.candidate_model["artifact_digest"]
+                or artifact.get("accepted_model_artifact_digest")
+                != (
+                    reconstructed.candidate_model["artifact_digest"]
+                    if reconstructed.historical_evidence == "POSITIVE"
+                    else None
+                )
+                or artifact.get("hierarchical_gate_output_digest")
+                != reconstructed.gate_output["artifact_digest"]
+                or artifact.get("historical_evidence_artifact_digest")
+                != reconstructed.evidence["artifact_digest"]
+                or artifact.get("promotion_planning_eligibility_digest")
+                != reconstructed.eligibility["artifact_digest"]
+                or artifact.get("historical_gate_completion_digest")
+                != reconstructed.completion["artifact_digest"]
+                or artifact.get("historical_evidence")
+                != reconstructed.historical_evidence
+                or artifact.get("evidence_fact") != reconstructed.evidence_fact
+                or artifact.get("evidence_created") is not True
+                or artifact.get("prediction_v2_planning_eligible")
+                != (reconstructed.historical_evidence == "POSITIVE")
+                or artifact.get("fixed_primary_family")
+                != list(MARGINAL_STATIC_HISTORICAL_GATE_BRANCH_IDS)
+                or artifact.get("formal_historical_folds_executed") != 0
+                or artifact.get("bootstrap_children_executed") != 0
+                or artifact.get("database_queries_during_capability") != 0
+                or artifact.get("duplicate_validation") is not False
+                or artifact.get("promotion_gate_opened") is not False
+                or artifact.get("completion_fact")
+                != MARGINAL_STATIC_HISTORICAL_GATE_COMPLETION_FACT
+                or artifact.get("downstream_consumer")
+                != PREDICTION_V2_PROMOTION_PLANNER_TASK_KEY
+                or artifact.get("registered_artifact_count") != 7
+                or artifact.get("production_action") != "none"
+            ):
+                raise MainlineSupervisorError(
+                    "M4 v2 marginal-static historical gate replay identity changed"
+                )
+            _verify_v2_registered_artifacts(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                expected_payloads=(*reconstructed.artifacts, artifact),
+            )
+            capability_replay = {
+                "schema_version": (
+                    "dehps-m4-v2-marginal-static-historical-gate-replay.v1"
+                ),
+                "status": "REPLAY_VERIFIED",
+                "baseline_model_digest": reconstructed.baseline_model[
+                    "artifact_digest"
+                ],
+                "candidate_model_digest": reconstructed.candidate_model[
+                    "artifact_digest"
+                ],
+                "gate_output_digest": reconstructed.gate_output["artifact_digest"],
+                "evidence_digest": reconstructed.evidence["artifact_digest"],
+                "eligibility_digest": reconstructed.eligibility["artifact_digest"],
+                "completion_digest": reconstructed.completion["artifact_digest"],
+                "historical_evidence": reconstructed.historical_evidence,
+                "evidence_fact": reconstructed.evidence_fact,
+                "prediction_v2_planning_eligible": (
+                    reconstructed.historical_evidence == "POSITIVE"
+                ),
+                "same_registered_content": True,
+                "database_queries_during_replay": 0,
+                "formal_historical_folds_replayed": 0,
+                "bootstrap_children_replayed": 0,
+                "duplicate_validation": False,
+                "evidence_created": True,
+                "promotion_gate_opened": False,
+                "manual_input_assembly": False,
+                "next_consumer": PREDICTION_V2_PROMOTION_PLANNER_TASK_KEY,
             }
         elif task_key == MARGINAL_STATIC_HISTORICAL_EXECUTION_TASK_KEY:
             source_contract = load_marginal_static_historical_execution_source_contract(

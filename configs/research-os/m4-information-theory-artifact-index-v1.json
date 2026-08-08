@@ -468,10 +468,18 @@
       "superseded_by_digest": "6000995d31ad3915c712264171692fa1099fe790a7752faac381463eefd61fd3"
     },
     "6000995d31ad3915c712264171692fa1099fe790a7752faac381463eefd61fd3": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "source_commit": "cd069c15110b0af0f3a83ff619272c14e4748edc",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "identity_field": "manifest_digest",
+      "supersedes_digest": "108143c77c9e5755d2a269392238c01fc885b6a38041a0eb262a2b8fd7fd2fc2",
+      "superseded_by_digest": "33b11d706a4fffc5c6edbfecb73b7492239977ad394711280735fd9b1b0d8fbd"
+    },
+    "33b11d706a4fffc5c6edbfecb73b7492239977ad394711280735fd9b1b0d8fbd": {
       "artifact_type": "research_os_control_plane_manifest",
       "path": "configs/research-os/m4-information-theory-evidence-v1.json",
       "identity_field": "manifest_digest",
-      "supersedes_digest": "108143c77c9e5755d2a269392238c01fc885b6a38041a0eb262a2b8fd7fd2fc2"
+      "supersedes_digest": "6000995d31ad3915c712264171692fa1099fe790a7752faac381463eefd61fd3"
     },
     "6fb3a1e366da129ac460599a391891a49206ccc715b6367cf344e2aa3e9f2a3d": {
       "artifact_type": "m4_v2_branch_preflight_source_contract",
@@ -566,6 +574,11 @@
     "dd034e9a6358af0090ce77d9896da2df28616db57374c71f7c89058c69ed71d2": {
       "artifact_type": "m4_v2_marginal_static_historical_execution_source",
       "path": "configs/research-os/m4-v2-marginal-static-historical-execution-source-v1.json",
+      "identity_field": "artifact_digest"
+    },
+    "dcab7f9d512c40cfafdc7eae0800cd1aac90c18674760d9d20cb46850bb5d60c": {
+      "artifact_type": "m4_v2_marginal_static_historical_gate_source",
+      "path": "configs/research-os/m4-v2-marginal-static-historical-gate-source-v1.json",
       "identity_field": "artifact_digest"
     },
     "e094f3bd319c63b9ed5a8b14b955f7f64544e30d3b8410cc26b2906b7e56ae67": {

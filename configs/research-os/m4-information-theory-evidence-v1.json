@@ -2524,8 +2524,16 @@
       "task_type": "marginal_static_historical_measurement_gate_compiler",
       "lane": "research",
       "priority": 75,
-      "requested_capability": null,
-      "input_artifact_digests": [],
+      "requested_capability": "m4_v2_marginal_static_historical_measurement_gate_compiler",
+      "input_artifact_digests": [
+        "dcab7f9d512c40cfafdc7eae0800cd1aac90c18674760d9d20cb46850bb5d60c",
+        "9f9519be92fb5db4a4fb4939d1d5d3d32f7646a6e449f3dd20fd5c63b409f821",
+        "046d08b7f2fba0514b64d228b5492b11f607753376d54947f7f6c3515300b462",
+        "cb6e184beb00bdb22af28a4ee6770240327f59f0fd171f443315841866b421a3",
+        "36056c0168bf71a995ec2a0bb9bf4663b0222b8fce621899a1e861282597e841",
+        "5044252bd63afb00bd7719a4c20febf29a5ce41ab2f6679def643d450f9eb2d0",
+        "f66218ac1261f3466c0d36d11f91f5c362899e08c2bd9e310384178161517464"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
@@ -2539,10 +2547,10 @@
         }
       ],
       "metric_contract": {
-        "engineering_complete": false,
-        "engineering_increment_percent": 0,
-        "evidence_complete": false,
-        "evidence_increment_percent": 0,
+        "engineering_complete": true,
+        "engineering_increment_percent": 1,
+        "evidence_complete": true,
+        "evidence_increment_percent": 1,
         "phase": "M4-V2-MARGINAL-STATIC-HISTORICAL-MEASUREMENT-GATE-COMPILER",
         "scope": "compile_the_complete_replay_verified_marginal_branch_candidate_with_the_fixed_three_branch_family",
         "reason": "historical execution creates a branch candidate but only the fixed Gate Compiler may create Evidence or an accepted downstream model",
@@ -2565,6 +2573,70 @@
           "evidence_progress_rule": "only_a_valid_complete_fixed_family_compilation_may_change_historical_evidence_progress",
           "decision_consumer": "Prediction v2 promotion planner",
           "downstream_consumer": "prediction_v2_promotion_planner"
+        },
+        "fixed_primary_family": [
+          "MARGINAL_STATIC",
+          "TEMPORAL_MARGINAL_INCREMENT",
+          "JOINT_RESIDUAL_INCREMENT"
+        ],
+        "familywise_alpha": 0.05,
+        "practical_threshold_bits_per_issue": 0.01,
+        "registered_child_count": 6,
+        "database_queries_during_capability": 0,
+        "formal_historical_folds_executed": 0,
+        "bootstrap_children_executed": 0,
+        "evidence_created": true,
+        "promotion_gate_opened": false,
+        "production_action": "none"
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "prediction-v2-promotion-planner",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "prediction_v2_promotion_planner",
+      "lane": "research",
+      "priority": 74,
+      "requested_capability": null,
+      "input_artifact_digests": [],
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-v2-marginal-static-historical-measurement-gate-compiler",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-v2-marginal-static-historical-measurement-gate-compiler:COMPLETE",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "engineering_complete": false,
+        "engineering_increment_percent": 0,
+        "evidence_complete": false,
+        "evidence_increment_percent": 0,
+        "phase": "PREDICTION-V2-PROMOTION-PLANNER",
+        "scope": "consume_the_immutable_gate_evidence_and_eligibility_without_directly_promoting_or_changing_production",
+        "reason": "only_a_separate_planner_may_translate_historical_evidence_into_a_forward_evidence_and_promotion_plan",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "the_fixed_family_gate_output_evidence_and_eligibility_are_VALIDATED_IN_MAINLINE_and_replay_verified",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "fixed-family Gate Compiler output",
+            "MARGINAL_STATIC historical Evidence",
+            "Prediction v2 promotion-planning eligibility"
+          ],
+          "downstream_artifacts": [
+            "Prediction v2 forward-evidence plan",
+            "promotion or pivot route"
+          ],
+          "status_projection": "unified_m4_status.measurement_system_v2.prediction_v2_promotion_planner",
+          "evidence_progress_rule": "planning_does_not_create_forward_evidence_or_open_the_promotion_gate",
+          "decision_consumer": "Prediction v2 forward-evidence executor or measurement pivot planner",
+          "downstream_consumer": "prediction-v2-forward-evidence-or-pivot-planner"
         },
         "evidence_created": false,
         "promotion_gate_opened": false,
@@ -3547,5 +3619,5 @@
     "external_events": [],
     "authorities": []
   },
-  "manifest_digest": "6000995d31ad3915c712264171692fa1099fe790a7752faac381463eefd61fd3"
+  "manifest_digest": "33b11d706a4fffc5c6edbfecb73b7492239977ad394711280735fd9b1b0d8fbd"
 }

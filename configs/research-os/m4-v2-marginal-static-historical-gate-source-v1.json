@@ -1,0 +1,62 @@
+{
+  "schema_version": "dehps-m4-v2-marginal-static-historical-gate-source.v1",
+  "artifact_type": "m4_v2_marginal_static_historical_gate_source",
+  "artifact_digest": "dcab7f9d512c40cfafdc7eae0800cd1aac90c18674760d9d20cb46850bb5d60c",
+  "contract_key": "M4_V2_MARGINAL_STATIC_HISTORICAL_GATE_SOURCE",
+  "research_request_key": "research-m4-v2-marginal-static-historical-measurement-gate-round-55-20260808",
+  "research_request_id": 373,
+  "research_execution_id": 294,
+  "engineering_request_key": "engineering-m4-v2-marginal-static-historical-measurement-gate-round-55-20260808",
+  "engineering_request_id": 374,
+  "engineering_execution_id": 295,
+  "result_aware": true,
+  "engineering_durable_result_read": false,
+  "historical_rows_read": 0,
+  "folds_executed": 0,
+  "bootstrap_children_executed": 0,
+  "registered_children": 6,
+  "production_action": "none",
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/marginal_static_historical_gate.py",
+      "content_sha256": "d7e22f0d06ebd3446fe4871e69d49cfd32ac0aa4007f039639aa2c019348c936"
+    }
+  ],
+  "source_set_digest": "4bbf182155064e10e3e4330881f26c4da5129f8edd682c6ef772086f446b48d2",
+  "frozen_contract_digest": "5f09bf14d56eea92b9d0637dab2fbf8e1a5363849324aef7bad35509cc3272d7",
+  "frozen_contract": {
+    "task_key": "m4-v2-marginal-static-historical-measurement-gate-compiler",
+    "capability": "m4_v2_marginal_static_historical_measurement_gate_compiler",
+    "completion_fact": "m4-v2-marginal-static-historical-measurement-gate-compiler:COMPLETE",
+    "next_consumer": "prediction-v2-promotion-planner",
+    "gate_compiler_contract_digest": "9f9519be92fb5db4a4fb4939d1d5d3d32f7646a6e449f3dd20fd5c63b409f821",
+    "historical_execution_id": "8cfbd33f314ebabdf3a334cfe96887c9802580bff91e8ab43304f1c6b67ef52a",
+    "historical_execution_artifact_digest": "046d08b7f2fba0514b64d228b5492b11f607753376d54947f7f6c3515300b462",
+    "completion_index_digest": "cb6e184beb00bdb22af28a4ee6770240327f59f0fd171f443315841866b421a3",
+    "inference_aggregate_digest": "36056c0168bf71a995ec2a0bb9bf4663b0222b8fce621899a1e861282597e841",
+    "branch_candidate_digest": "5044252bd63afb00bd7719a4c20febf29a5ce41ab2f6679def643d450f9eb2d0",
+    "historical_execution_completion_digest": "f66218ac1261f3466c0d36d11f91f5c362899e08c2bd9e310384178161517464",
+    "fixed_primary_family": [
+      "MARGINAL_STATIC",
+      "TEMPORAL_MARGINAL_INCREMENT",
+      "JOINT_RESIDUAL_INCREMENT"
+    ],
+    "familywise_alpha": 0.05,
+    "not_run_branch_p_value": 1.0,
+    "practical_threshold_bits_per_issue": 0.01,
+    "positive_rule": "health_PASS_and_complete_and_distinct_models_and_Holm_p_lte_0.05_and_lower_gt_0.01_and_both_half_means_gt_0",
+    "negative_rule": "health_PASS_and_complete_and_distinct_models_and_Holm_p_gt_0.05_and_equivalence_power_sufficient_and_0_lte_MDE_lte_0.01_and_equivalence_upper_lte_0.01",
+    "otherwise": "INCONCLUSIVE",
+    "half_counts": [1291, 1290],
+    "third_counts": [861, 860, 860],
+    "thirds_have_decision_credit": false,
+    "global_coverage": "PARTIAL",
+    "global_positive": "CANDIDATE_INFORMATION_FOUND",
+    "global_nonpositive": "INCONCLUSIVE",
+    "registered_child_count": 6,
+    "registered_total_with_mainline_execution": 7,
+    "evidence_scope": "conditional_historical_evidence_for_frozen_prequential_trajectory_not_forward_proof",
+    "promotion_gate_opened": false,
+    "production_action": "none"
+  }
+}
