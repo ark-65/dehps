@@ -261,6 +261,12 @@ def test_preregistration_fails_closed_on_parent_semantic_drift() -> None:
 
 def test_additive_migration_revises_preregistration_and_adds_only_execution() -> None:
     source = load_m4_manifest(MANIFEST_PATH).to_dict(include_digest=False)
+    source["tasks"] = [
+        item
+        for item in source["tasks"]
+        if item["task_key"]
+        != "prediction-v2-structural-baseline-comparison-route-decision"
+    ]
     live = copy.deepcopy(source)
     live["tasks"] = [
         item
