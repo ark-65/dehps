@@ -216,6 +216,17 @@ from dehps.research_os.information_theory.measurement_system_v2.marginal_static_
     load_marginal_static_repair_design_source_contract,
     verify_marginal_static_repair_design_source_bytes,
 )
+from dehps.research_os.information_theory.measurement_system_v2.marginal_static_repair_health_execution import (
+    MARGINAL_STATIC_REPAIR_HEALTH_DECISION_TASK_KEY,
+    MARGINAL_STATIC_REPAIR_HEALTH_EXECUTION_CAPABILITY,
+    MARGINAL_STATIC_REPAIR_HEALTH_EXECUTION_COMPLETION_FACT,
+    MARGINAL_STATIC_REPAIR_HEALTH_EXECUTION_SOURCE_CONTRACT_PATH,
+    MARGINAL_STATIC_REPAIR_HEALTH_PROGRESS_PATH,
+    execute_repair_health_program,
+    load_marginal_static_repair_health_execution_source_contract,
+    rebuild_repair_health_artifacts_from_index,
+    verify_marginal_static_repair_health_execution_source_bytes,
+)
 from dehps.research_os.information_theory.measurement_system_v2.marginal_static_repair_preregistration import (
     CALIBRATION_REPLICATES,
     EVALUATION_REPLICATES,
@@ -6254,6 +6265,301 @@ class M4MarginalStaticRepairPreregistrationCapability:
         )
 
 
+class M4MarginalStaticRepairHealthExecutionCapability:
+    def __init__(
+        self,
+        *,
+        repository: PostgresResearchOSRepository,
+        root_dir: Path = ROOT_DIR,
+    ) -> None:
+        self.repository = repository
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key != MARGINAL_STATIC_REPAIR_HEALTH_EXECUTION_TASK_KEY
+            or task.requested_capability
+            != MARGINAL_STATIC_REPAIR_HEALTH_EXECUTION_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static repair health execution received the wrong task"
+            )
+        source_contract = (
+            load_marginal_static_repair_health_execution_source_contract(
+                self.root_dir
+                / MARGINAL_STATIC_REPAIR_HEALTH_EXECUTION_SOURCE_CONTRACT_PATH
+            )
+        )
+        verify_marginal_static_repair_health_execution_source_bytes(
+            root_dir=self.root_dir,
+            contract=source_contract,
+        )
+        _, preregistration_execution, preregistration_registrations = (
+            _load_single_completed_execution(
+                repository=self.repository,
+                root_dir=self.root_dir,
+                control_plane_key=control_plane_key,
+                task_key=MARGINAL_STATIC_REPAIR_PREREGISTRATION_TASK_KEY,
+            )
+        )
+        workload = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=preregistration_registrations,
+            artifact_type="m4_v2_marginal_static_repair_health_workload_seeds",
+        )
+        inference = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=preregistration_registrations,
+            artifact_type="m4_v2_marginal_static_repair_health_inference_gates",
+        )
+        preregistration = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=preregistration_registrations,
+            artifact_type="m4_v2_marginal_static_repair_health_preregistration",
+        )
+        preregistration_completion = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=preregistration_registrations,
+            artifact_type=(
+                "m4_v2_marginal_static_repair_health_preregistration_completion"
+            ),
+        )
+        expected_inputs = (
+            str(source_contract["artifact_digest"]),
+            str(preregistration_execution["artifact_digest"]),
+            str(workload["artifact_digest"]),
+            str(inference["artifact_digest"]),
+            str(preregistration["artifact_digest"]),
+            str(preregistration_completion["artifact_digest"]),
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static repair health execution identities changed"
+            )
+        if (
+            preregistration_execution.get("completion_fact")
+            != MARGINAL_STATIC_REPAIR_PREREGISTRATION_COMPLETION_FACT
+            or preregistration_execution.get("generated_issues") != 0
+            or preregistration_execution.get("synthetic_replicates") != 0
+            or preregistration_execution.get("formal_execution_authorized") is not False
+            or preregistration_execution.get("duplicate_validation") is not False
+            or preregistration_execution.get("historical_outcomes_read") is not False
+            or preregistration_execution.get("evidence_created") is not False
+            or preregistration_execution.get("promotion_gate_opened") is not False
+        ):
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static repair health preregistration parent changed"
+            )
+        run = execute_repair_health_program(
+            root_dir=self.root_dir,
+            task_key=task.task_key,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            task_digest=task.artifact_digest,
+            source_contract=source_contract,
+            preregistration_execution=preregistration_execution,
+            workload_artifact=workload,
+            inference_artifact=inference,
+            preregistration_artifact=preregistration,
+            preregistration_completion=preregistration_completion,
+            progress_path=self.root_dir / MARGINAL_STATIC_REPAIR_HEALTH_PROGRESS_PATH,
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        index_path = (
+            task_dir
+            / "artifacts/completion-index"
+            / str(run.index_artifact["artifact_digest"])
+            / "index.json"
+        )
+        feasibility_path = (
+            task_dir
+            / "artifacts/pre-sample-feasibility"
+            / str(run.feasibility_artifact["artifact_digest"])
+            / "feasibility.json"
+        )
+        health_path = (
+            task_dir
+            / "artifacts/measurement-health"
+            / str(run.health_result["artifact_digest"])
+            / "result.json"
+        )
+        completion_path = (
+            task_dir
+            / "artifacts/completion"
+            / str(run.completion["artifact_digest"])
+            / "completion.json"
+        )
+        child_payloads = (
+            (index_path, run.index_artifact),
+            (feasibility_path, run.feasibility_artifact),
+            (health_path, run.health_result),
+            (completion_path, run.completion),
+        )
+        for path, payload in child_payloads:
+            _persist_immutable(path, payload)
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "marginal_static_repair_health_execution_source_contract_digest": (
+                source_contract["artifact_digest"]
+            ),
+            "marginal_static_repair_health_execution_source_set_digest": (
+                source_contract["source_set_digest"]
+            ),
+            "research_request_key": source_contract["research_request_key"],
+            "research_request_id": source_contract["research_request_id"],
+            "research_execution_id": source_contract["research_execution_id"],
+            "engineering_request_key": source_contract["engineering_request_key"],
+            "engineering_request_id": source_contract["engineering_request_id"],
+            "engineering_execution_id": source_contract["engineering_execution_id"],
+            "repair_preregistration_execution_id": preregistration_execution[
+                "execution_id"
+            ],
+            "repair_preregistration_execution_artifact_digest": (
+                preregistration_execution["artifact_digest"]
+            ),
+            "marginal_static_repair_health_workload_seed_digest": workload[
+                "artifact_digest"
+            ],
+            "marginal_static_repair_health_inference_gate_digest": inference[
+                "artifact_digest"
+            ],
+            "marginal_static_repair_health_preregistration_digest": preregistration[
+                "artifact_digest"
+            ],
+            "marginal_static_repair_health_preregistration_completion_digest": (
+                preregistration_completion["artifact_digest"]
+            ),
+            "marginal_static_repair_health_completion_index_digest": (
+                run.index_artifact["artifact_digest"]
+            ),
+            "marginal_static_repair_health_feasibility_digest": (
+                run.feasibility_artifact["artifact_digest"]
+            ),
+            "marginal_static_repair_health_result_digest": run.health_result[
+                "artifact_digest"
+            ],
+            "marginal_static_repair_health_execution_completion_digest": (
+                run.completion["artifact_digest"]
+            ),
+            "old_measurement_health": "REPAIR",
+            "old_decision_preserved": "REPAIR_MEASUREMENT_SYSTEM",
+            "measurement_health": "REPAIR",
+            "decision": preregistration_execution["decision"],
+            "decision_fact": preregistration_execution["decision_fact"],
+            "repair_health_preliminary_measurement_health": run.health_result[
+                "preliminary_measurement_health"
+            ],
+            "repair_health_authoritative_decision": None,
+            "eligible_for_historical_measurement": False,
+            "repair_required": True,
+            "failed_cell_ids": preregistration_execution["failed_cell_ids"],
+            "failed_cell_count": preregistration_execution["failed_cell_count"],
+            "replicate_count": run.health_result["replicate_count"],
+            "calibration_replicates": CALIBRATION_REPLICATES,
+            "evaluation_replicates": EVALUATION_REPLICATES,
+            "generated_issues": run.health_result["generated_issues"],
+            "outer_evaluation_issues": run.health_result[
+                "outer_evaluation_issues"
+            ],
+            "completed_replicates_before_run": run.completed_before_run,
+            "completed_replicates_during_run": run.completed_during_run,
+            "execution_runtime_seconds": run.runtime_seconds,
+            "worker_count": run.worker_count,
+            "planned_execution_shards": EXECUTION_SHARDS,
+            "execution_shard_size": EXECUTION_SHARD_SIZE,
+            "nested_bootstrap_replicates_per_formal_replicate": 0,
+            "checkpoint_mode": "compact_index_direct_resume_without_scan",
+            "completion_index_loads": 1,
+            "compact_index_reads": 1,
+            "checkpoint_reads": 1,
+            "sentinel_replicates_recomputed": 0,
+            "database_reads_during_replicate": 0,
+            "database_writes_during_replicate": 0,
+            "csv_materialized": False,
+            "duplicate_raw_replay": False,
+            "duplicate_validation": False,
+            "routine_physical_checkpoint_scan": False,
+            "round_42_seed_reuse": False,
+            "round_42_statistical_results_read": False,
+            "historical_execution_status": "NOT_AUTHORIZED",
+            "historical_outcomes_read": False,
+            "statistical_results_read": False,
+            "evidence_created": False,
+            "evidence_progress_before": 0,
+            "evidence_progress_after": 0,
+            "accepted_model_artifact_digest": None,
+            "promotion_gate_opened": False,
+            "completion_fact": MARGINAL_STATIC_REPAIR_HEALTH_EXECUTION_COMPLETION_FACT,
+            "actual_fold_count": 0,
+            "registered_artifact_count": len(child_payloads) + 1,
+            "formal_branch_runs_executed": 1,
+            "downstream_consumer": MARGINAL_STATIC_REPAIR_HEALTH_DECISION_TASK_KEY,
+            "production_impact": "none",
+            "production_action": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "replay_status": "COMPACT_INDEX_AGGREGATE_ONLY",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                *(str(payload["artifact_digest"]) for _, payload in child_payloads),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(registrations) != execution_payload["registered_artifact_count"]:
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static repair health registration count changed"
+            )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=registrations,
+            completion_facts=(
+                MARGINAL_STATIC_REPAIR_HEALTH_EXECUTION_COMPLETION_FACT,
+            ),
+        )
+
+
 class M4P261RawExecutionReplayCapability:
     def __init__(
         self,
@@ -8071,6 +8377,12 @@ class ResearchEvidenceSupervisor:
                     root_dir=root_dir,
                 )
             ),
+            MARGINAL_STATIC_REPAIR_HEALTH_EXECUTION_CAPABILITY: (
+                M4MarginalStaticRepairHealthExecutionCapability(
+                    repository=self.repository,
+                    root_dir=root_dir,
+                )
+            ),
             M4_V2_P261_RAW_REPLAY_CAPABILITY: (
                 M4P261RawExecutionReplayCapability(
                     repository=self.repository,
@@ -8429,6 +8741,16 @@ class ResearchEvidenceSupervisor:
                     if task.task_key == MARGINAL_STATIC_HEALTH_EXECUTION_TASK_KEY
                     else {}
                 ),
+                **(
+                    {
+                        "progress_projection_path": str(
+                            MARGINAL_STATIC_REPAIR_HEALTH_PROGRESS_PATH
+                        )
+                    }
+                    if task.task_key
+                    == MARGINAL_STATIC_REPAIR_HEALTH_EXECUTION_TASK_KEY
+                    else {}
+                ),
             }
         )
         self._write_lane_status(running_status)
@@ -8575,6 +8897,21 @@ class ResearchEvidenceSupervisor:
                                     "marginal_static_repair_health_inference_gate_digest",
                                     "marginal_static_repair_health_preregistration_digest",
                                     "marginal_static_repair_health_preregistration_completion_digest",
+                                    "marginal_static_repair_health_execution_source_contract_digest",
+                                    "marginal_static_repair_health_execution_source_set_digest",
+                                    "engineering_execution_id",
+                                    "repair_preregistration_execution_id",
+                                    "repair_preregistration_execution_artifact_digest",
+                                    "marginal_static_repair_health_completion_index_digest",
+                                    "marginal_static_repair_health_feasibility_digest",
+                                    "marginal_static_repair_health_result_digest",
+                                    "marginal_static_repair_health_execution_completion_digest",
+                                    "repair_health_preliminary_measurement_health",
+                                    "repair_health_authoritative_decision",
+                                    "calibration_replicates",
+                                    "evaluation_replicates",
+                                    "checkpoint_mode",
+                                    "round_42_statistical_results_read",
                                     "planned_calibration_replicates",
                                     "planned_evaluation_replicates",
                                     "max_rejecting_exceedance_count",
@@ -11160,6 +11497,204 @@ class ResearchEvidenceSupervisor:
                 "duplicate_validation": False,
                 "historical_outcomes_read": False,
                 "statistical_results_read": False,
+                "evidence_created": False,
+                "manual_input_assembly": False,
+            }
+        elif task_key == MARGINAL_STATIC_REPAIR_HEALTH_EXECUTION_TASK_KEY:
+            source_contract = (
+                load_marginal_static_repair_health_execution_source_contract(
+                    self.root_dir
+                    / MARGINAL_STATIC_REPAIR_HEALTH_EXECUTION_SOURCE_CONTRACT_PATH
+                )
+            )
+            verify_marginal_static_repair_health_execution_source_bytes(
+                root_dir=self.root_dir,
+                contract=source_contract,
+            )
+            _, preregistration_execution, preregistration_registrations = (
+                _load_single_completed_execution(
+                    repository=self.repository,
+                    root_dir=self.root_dir,
+                    control_plane_key=self.control_plane_key,
+                    task_key=MARGINAL_STATIC_REPAIR_PREREGISTRATION_TASK_KEY,
+                )
+            )
+            workload = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=preregistration_registrations,
+                artifact_type=(
+                    "m4_v2_marginal_static_repair_health_workload_seeds"
+                ),
+            )
+            inference = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=preregistration_registrations,
+                artifact_type=(
+                    "m4_v2_marginal_static_repair_health_inference_gates"
+                ),
+            )
+            preregistration = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=preregistration_registrations,
+                artifact_type=(
+                    "m4_v2_marginal_static_repair_health_preregistration"
+                ),
+            )
+            preregistration_completion = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=preregistration_registrations,
+                artifact_type=(
+                    "m4_v2_marginal_static_repair_health_preregistration_completion"
+                ),
+            )
+            registered_index = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                artifact_type=(
+                    "m4_v2_marginal_static_repair_health_completion_index"
+                ),
+            )
+            registered_feasibility = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                artifact_type="m4_v2_marginal_static_repair_health_feasibility",
+            )
+            registered_health = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                artifact_type=(
+                    "m4_v2_marginal_static_repaired_measurement_health_result"
+                ),
+            )
+            registered_completion = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                artifact_type=(
+                    "m4_v2_marginal_static_repair_health_execution_completion"
+                ),
+            )
+            reconstructed = rebuild_repair_health_artifacts_from_index(
+                root_dir=self.root_dir,
+                source_contract=source_contract,
+                index_artifact=registered_index,
+                workload_digest=str(workload["artifact_digest"]),
+                inference_digest=str(inference["artifact_digest"]),
+                preregistration_digest=str(preregistration["artifact_digest"]),
+                execution_id=resolved_execution_id,
+                git_commit=str(artifact["git_commit"]),
+            )
+            rebuilt_index, rebuilt_feasibility, rebuilt_health, rebuilt_completion = (
+                reconstructed
+            )
+            expected_inputs = [
+                str(source_contract["artifact_digest"]),
+                str(preregistration_execution["artifact_digest"]),
+                str(workload["artifact_digest"]),
+                str(inference["artifact_digest"]),
+                str(preregistration["artifact_digest"]),
+                str(preregistration_completion["artifact_digest"]),
+            ]
+            if (
+                registered_index != rebuilt_index
+                or registered_feasibility != rebuilt_feasibility
+                or registered_health != rebuilt_health
+                or registered_completion != rebuilt_completion
+                or artifact.get("input_artifact_digests") != expected_inputs
+                or artifact.get(
+                    "marginal_static_repair_health_execution_source_contract_digest"
+                )
+                != source_contract["artifact_digest"]
+                or artifact.get(
+                    "marginal_static_repair_health_execution_source_set_digest"
+                )
+                != source_contract["source_set_digest"]
+                or artifact.get(
+                    "repair_preregistration_execution_artifact_digest"
+                )
+                != preregistration_execution["artifact_digest"]
+                or artifact.get(
+                    "marginal_static_repair_health_completion_index_digest"
+                )
+                != rebuilt_index["artifact_digest"]
+                or artifact.get("marginal_static_repair_health_feasibility_digest")
+                != rebuilt_feasibility["artifact_digest"]
+                or artifact.get("marginal_static_repair_health_result_digest")
+                != rebuilt_health["artifact_digest"]
+                or artifact.get(
+                    "marginal_static_repair_health_execution_completion_digest"
+                )
+                != rebuilt_completion["artifact_digest"]
+                or artifact.get("old_measurement_health") != "REPAIR"
+                or artifact.get("old_decision_preserved")
+                != "REPAIR_MEASUREMENT_SYSTEM"
+                or artifact.get("measurement_health") != "REPAIR"
+                or artifact.get("repair_health_preliminary_measurement_health")
+                != rebuilt_health["preliminary_measurement_health"]
+                or artifact.get("repair_health_authoritative_decision") is not None
+                or artifact.get("eligible_for_historical_measurement") is not False
+                or artifact.get("repair_required") is not True
+                or artifact.get("replicate_count") != TOTAL_REPLICATES
+                or artifact.get("calibration_replicates")
+                != CALIBRATION_REPLICATES
+                or artifact.get("evaluation_replicates") != EVALUATION_REPLICATES
+                or artifact.get("generated_issues") != TOTAL_GENERATED_ISSUES
+                or artifact.get("outer_evaluation_issues")
+                != TOTAL_OUTER_EVALUATION_ISSUES
+                or artifact.get("planned_execution_shards") != EXECUTION_SHARDS
+                or artifact.get("execution_shard_size") != EXECUTION_SHARD_SIZE
+                or artifact.get(
+                    "nested_bootstrap_replicates_per_formal_replicate"
+                )
+                != 0
+                or artifact.get("checkpoint_mode")
+                != "compact_index_direct_resume_without_scan"
+                or artifact.get("completion_index_loads") != 1
+                or artifact.get("sentinel_replicates_recomputed") != 0
+                or artifact.get("duplicate_raw_replay") is not False
+                or artifact.get("duplicate_validation") is not False
+                or artifact.get("routine_physical_checkpoint_scan") is not False
+                or artifact.get("round_42_seed_reuse") is not False
+                or artifact.get("round_42_statistical_results_read") is not False
+                or artifact.get("historical_outcomes_read") is not False
+                or artifact.get("statistical_results_read") is not False
+                or artifact.get("evidence_created") is not False
+                or artifact.get("promotion_gate_opened") is not False
+                or artifact.get("completion_fact")
+                != MARGINAL_STATIC_REPAIR_HEALTH_EXECUTION_COMPLETION_FACT
+                or artifact.get("downstream_consumer")
+                != MARGINAL_STATIC_REPAIR_HEALTH_DECISION_TASK_KEY
+                or artifact.get("production_action") != "none"
+                or artifact.get("replay_status")
+                != "COMPACT_INDEX_AGGREGATE_ONLY"
+            ):
+                raise MainlineSupervisorError(
+                    "M4 v2 marginal-static repair health replay identity changed"
+                )
+            _verify_v2_registered_artifacts(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                expected_payloads=(*reconstructed, artifact),
+            )
+            capability_replay = {
+                "schema_version": (
+                    "dehps-m4-v2-marginal-static-repair-health-execution-replay.v1"
+                ),
+                "status": "REPLAY_VERIFIED",
+                "completion_index_digest": rebuilt_index["artifact_digest"],
+                "feasibility_digest": rebuilt_feasibility["artifact_digest"],
+                "health_result_digest": rebuilt_health["artifact_digest"],
+                "completion_digest": rebuilt_completion["artifact_digest"],
+                "preliminary_measurement_health": rebuilt_health[
+                    "preliminary_measurement_health"
+                ],
+                "authoritative_decision": None,
+                "same_registered_content": True,
+                "raw_replicates_regenerated": 0,
+                "compact_index_reads": 1,
+                "sentinel_replicates_recomputed": 0,
+                "duplicate_validation": False,
+                "historical_outcomes_read": False,
+                "round_42_statistical_results_read": False,
                 "evidence_created": False,
                 "manual_input_assembly": False,
             }

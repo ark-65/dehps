@@ -1,0 +1,81 @@
+{
+  "schema_version": "dehps-m4-v2-marginal-static-repair-health-execution-source.v1",
+  "artifact_type": "m4_v2_marginal_static_repair_health_execution_source",
+  "artifact_digest": "51a677b570cf11bbfdc3c9b1cf7d38827a57d15d38e9b184933f6ad7ec8a0ff2",
+  "contract_key": "M4_V2_MARGINAL_STATIC_REPAIR_HEALTH_EXECUTION_SOURCE",
+  "research_request_key": "research-m4-v2-marginal-static-repair-health-execution-round-46-20260808",
+  "research_request_id": 343,
+  "research_execution_id": 264,
+  "engineering_request_key": "engineering-m4-v2-marginal-static-repair-health-execution-round-46-20260808",
+  "engineering_request_id": 344,
+  "engineering_execution_id": 265,
+  "result_blind": true,
+  "formal_replicates_executed": 0,
+  "generated_issues": 0,
+  "historical_outcomes_read": false,
+  "round_42_statistical_results_read": false,
+  "evidence_created": false,
+  "production_action": "none",
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/marginal_static_repair_health_execution.py",
+      "content_sha256": "f28a3fb77b7a74f76064f0d0f4954b8e428d7eaa93197693d152b70fde1524b0"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/marginal_static_health_execution.py",
+      "content_sha256": "c8c92a3063e9b3a14c2e63e5c5243bb6dabd27c05ac2b2dad9966e0ab39ebb40"
+    }
+  ],
+  "source_set_digest": "1d8959a8f3685a26a9b0ba6ad13337cbbc4b200dae3a3b55f399bfe37d6d578b",
+  "frozen_contract": {
+    "task_key": "m4-v2-marginal-static-measurement-repair-health-execution",
+    "capability": "m4_v2_marginal_static_measurement_repair_health_execution",
+    "completion_fact": "m4-v2-marginal-static-measurement-repair-health-execution:COMPLETE",
+    "next_consumer": "m4-v2-marginal-static-measurement-repair-health-decision",
+    "preregistration_execution_digest": "71aabda0936955a2189d7f70d64f681fff7112180a016f64c44d67169a2a5bf1",
+    "workload_and_seed_digest": "18ebe3459240754b0f8f4b38789a97bb28a0c2f00bea9d51fd976690e1016a84",
+    "inference_and_gate_digest": "4a4491baf21295a881451549cf7f99b668681eb11b3a890c84be26f3de41df0e",
+    "preregistration_digest": "db904f2a5b934a8eef9c053b698b771a36a7c79f488439601e2dc66acc551476",
+    "preregistration_completion_digest": "41e621cdda7e06a00b76b224ff3c6060ac7af6ad84452a23e6d904bcef6c6bcd",
+    "calibration_replicates": 1024,
+    "evaluation_replicates": 3584,
+    "total_replicates": 4608,
+    "execution_shards": 72,
+    "execution_shard_size": 64,
+    "total_generated_issues": 10234368,
+    "total_outer_evaluation_issues": 6087168,
+    "pre_sample_feasibility": {
+      "method": "exact legal-six group-count convolution and randomized level-0.05 Neyman-Pearson upper envelope",
+      "test_size": 0.05,
+      "upper_power": {
+        "FORWARD_61": {
+          "0.001": 0.0871168536260234,
+          "0.010": 0.22958915217193457,
+          "0.050": 0.6475131406108688
+        },
+        "HISTORICAL_2581": {
+          "0.001": 0.5862083770694855,
+          "0.010": 0.9999890785821147,
+          "0.050": 0.9999999999999993
+        }
+      }
+    },
+    "max_rejecting_exceedance_count": 24,
+    "student_t_critical": 1.9693105698498752,
+    "student_t_degrees_of_freedom": 255,
+    "wilson_z": 1.959963984540054,
+    "conditional_identity_absolute_error_max": 1e-12,
+    "root_seed_domain": "M4_V2_MARGINAL_STATIC_REPAIR_HEALTH_V1",
+    "calibration_seed_domain": "M4_V2_MARGINAL_STATIC_REPAIR_HEALTH_CALIBRATION_V1",
+    "evaluation_seed_domain": "M4_V2_MARGINAL_STATIC_REPAIR_HEALTH_EVALUATION_V1",
+    "nested_bootstrap_replicates": 0,
+    "duplicate_validation": false,
+    "raw_replay": "forbidden",
+    "database_io_during_replicate": 0,
+    "csv_materialization": "forbidden",
+    "historical_outcomes_read": false,
+    "round_42_statistical_results_read": false,
+    "evidence_created": false,
+    "production_action": "none"
+  }
+}
