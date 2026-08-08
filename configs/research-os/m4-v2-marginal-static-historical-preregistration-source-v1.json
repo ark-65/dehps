@@ -1,0 +1,215 @@
+{
+  "schema_version": "dehps-m4-v2-marginal-static-historical-preregistration-source.v1",
+  "artifact_type": "m4_v2_marginal_static_historical_preregistration_source",
+  "artifact_digest": "fb9f79056cbd3f7bc4fd4cff3ad5250669d4f6aaed6ec1c31249738230aa291d",
+  "contract_key": "M4_V2_MARGINAL_STATIC_HISTORICAL_PREREGISTRATION_SOURCE",
+  "research_request_key": "research-m4-v2-marginal-static-historical-measurement-preregistration-round-53-20260808",
+  "research_request_id": 367,
+  "research_execution_id": 288,
+  "engineering_request_key": "engineering-m4-v2-marginal-static-historical-measurement-preregistration-round-53-20260808",
+  "engineering_request_id": 368,
+  "engineering_execution_id": 289,
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/marginal_static_historical_preregistration.py",
+      "content_sha256": "9e57a9c88ab27b5b1a02934a07440ece52c26c02bd95bdcdfd7b7bb3abb1281f"
+    }
+  ],
+  "source_set_digest": "3b0e661a8833d43555b650c0b60ec56a68f2127a01a7d3546563f4a9ba0ba642",
+  "frozen_contract_digest": "8af4853e1215c517c6713229c7d6cc56bb6a57760f4a54edfb5f9bf5e96b6011",
+  "frozen_contract": {
+    "task_key": "m4-v2-marginal-static-historical-measurement-preregistration",
+    "capability": "m4_v2_marginal_static_historical_measurement_preregistration",
+    "completion_fact": "m4-v2-marginal-static-historical-measurement-preregistration:FROZEN",
+    "next_consumer": "m4-v2-marginal-static-historical-measurement-execution",
+    "historical_design_execution_digest": "5341f21e5d0a69597362c2244aac12009dfbae847285442780d541088312e649",
+    "dataset_boundary_digest": "c2d03127d2eb966b699b4829402dd72947cf0c959dd013f33169649316a1d420",
+    "walk_forward_design_digest": "da61f66489c4a511f1b9fafe84dfe3bacc10e9e0f15ed270e954db56d662e752",
+    "inference_design_digest": "e52220af0b6cd4c40dd3ff05b9eb692446fe4660b1118ff6cf2b4cd5423f5bb4",
+    "design_completion_digest": "e2624941ae88faa3aff67eff841e773a01a7b343a6c422a9ae433eb2bf710ba0",
+    "dataset": {
+      "contract": "history_snapshot.v1.0.0",
+      "digest_domain": "dehps.history-snapshot-artifact.v1",
+      "identity_fields": [
+        "issue",
+        "draw_date",
+        "red_numbers"
+      ],
+      "query_bounds": [
+        "2003001",
+        "2026084"
+      ],
+      "transaction": "read_only_repeatable_read",
+      "database_query_count": 1,
+      "issue_count": 3481,
+      "start_issue": "2003001",
+      "start_date": "2003-02-23",
+      "end_issue": "2026084",
+      "end_date": "2026-07-23",
+      "red_shape": 6,
+      "red_range": [
+        1,
+        33
+      ],
+      "red_ordering": "strict_ascending",
+      "within_draw_duplicates": "forbidden",
+      "blue_ball": "not_selected",
+      "post_cutoff_rows": "not_selected",
+      "legacy_metadata_only_history_identity": "30224d09a8b2d9080d3bc848f50b534c6d6de50b2eac867882915e85acbf206b",
+      "legacy_identity_role": "lineage_only_not_content_digest",
+      "new_content_digest_role": "sole_formal_dataset_identity",
+      "history_revision_policy": "new_content_digest_and_execution_without_overwrite"
+    },
+    "folds": {
+      "initial_training_ordinals": [
+        1,
+        900
+      ],
+      "evaluation_ordinals": [
+        901,
+        3481
+      ],
+      "fold_count": 2581,
+      "candidate_estimator_id": "EXPANDING_LEGAL_MARGINAL_ALPHA_1",
+      "baseline_id": "LEGAL_UNIFORM_NUMBER_EVENT_BASELINE",
+      "training_end_rule": "test_ordinal_minus_one",
+      "phase_order": [
+        "COUNTS_FIT_THROUGH_T_MINUS_1",
+        "VIRTUAL_CHECKPOINT_PERSISTED",
+        "TARGET_T_EXPOSED",
+        "TARGET_T_SCORED",
+        "COUNTS_UPDATED_WITH_T",
+        "FOLD_SETTLED"
+      ],
+      "target_in_training": "forbidden",
+      "future_target_in_training": "forbidden",
+      "post_cutoff_target": "forbidden",
+      "checkpoint_is_forward_evidence": false,
+      "partial_run_evidence": "forbidden"
+    },
+    "resampling": {
+      "root_seed_domain": "M4_V2_MARGINAL_STATIC_HISTORICAL_INFERENCE_V1",
+      "root_replicates": 2000,
+      "seed_derivation": "first_unsigned_64_bits_of_canonical_sha256",
+      "selection_policy": "no_best_seed",
+      "schemes": [
+        "MOVING_BLOCK_NONCIRCULAR_LENGTH_5_PRIMARY",
+        "MOVING_BLOCK_NONCIRCULAR_LENGTH_3_SENSITIVITY",
+        "MOVING_BLOCK_NONCIRCULAR_LENGTH_8_SENSITIVITY",
+        "MOVING_BLOCK_NONCIRCULAR_LENGTH_13_SENSITIVITY",
+        "STATIONARY_EXPECTED_LENGTH_3_SENSITIVITY",
+        "STATIONARY_EXPECTED_LENGTH_5_SENSITIVITY",
+        "STATIONARY_EXPECTED_LENGTH_8_SENSITIVITY",
+        "STATIONARY_EXPECTED_LENGTH_13_SENSITIVITY"
+      ],
+      "scheme_count": 8,
+      "child_count": 16000
+    },
+    "inference_algorithms": {
+      "score_sequence": "2581_issue_level_candidate_minus_legal_uniform_log2_differences",
+      "primary_threshold_bits_per_issue": 0.01,
+      "primary_test": "center_at_0.01_then_noncircular_moving_block_length_5_upper_tail_plus_one_correction",
+      "primary_p_value_formula": "(1+count(bootstrap_mean>=observed_mean))/(B+1)",
+      "fixed_primary_family": [
+        "MARGINAL_STATIC",
+        "TEMPORAL_MARGINAL_INCREMENT",
+        "JOINT_RESIDUAL_INCREMENT"
+      ],
+      "missing_branch_p_value": 1.0,
+      "family_method": "Holm",
+      "familywise_alpha": 0.05,
+      "simultaneous_interval": "uncentered_percentile_moving_block_two_sided_alpha_0.05_over_3",
+      "equivalence_upper_bound": "uncentered_percentile_moving_block_one_sided_alpha_0.05_over_3",
+      "bootstrap_standard_error": "sample_sd_of_primary_uncentered_bootstrap_means",
+      "dependence_aware_mde": "max(0,(z_1_minus_0.05_over_3+z_0.8)*bootstrap_standard_error)",
+      "equivalence_power_at_zero": "Phi(0.01_over_standard_error-z_1_minus_0.05_over_3)",
+      "degenerate_standard_error": "fail_closed",
+      "positive_rule": "health_PASS_and_complete_run_and_distinct_models_and_Holm_p_le_0.05_and_lower_bound_gt_0.01_and_both_half_means_gt_0",
+      "negative_rule": "equivalence_upper_lt_0.01_and_power_at_zero_ge_0.8_and_MDE_le_0.01",
+      "otherwise": "INCONCLUSIVE",
+      "invalid_run": "INVALID",
+      "sensitivity_decision_credit": false,
+      "conditioning_scope": "frozen_prequential_trajectory_not_forward_guarantee"
+    },
+    "time_stability": {
+      "primary_halves": [
+        [
+          "2009076",
+          "2017139"
+        ],
+        [
+          "2017140",
+          "2026084"
+        ]
+      ],
+      "primary_half_counts": [
+        1291,
+        1290
+      ],
+      "thirds": [
+        [
+          "2009076",
+          "2015016"
+        ],
+        [
+          "2015017",
+          "2020111"
+        ],
+        [
+          "2020112",
+          "2026084"
+        ]
+      ],
+      "third_counts": [
+        861,
+        860,
+        860
+      ],
+      "partition_change_after_scores": "forbidden"
+    },
+    "execution": {
+      "dataset_loads": 1,
+      "dataset_residency": "immutable_snapshot_in_memory",
+      "database_reads_per_fold": 0,
+      "database_writes_per_fold": 0,
+      "algorithm": "single_pass_incremental_33_count_vector",
+      "initial_fit": "count_ordinals_1_through_900_once",
+      "per_fold_work": "derive_33_probabilities_checkpoint_score_then_update_6_counts",
+      "fold_shard_size": 256,
+      "fold_shard_count": 11,
+      "last_fold_shard_size": 21,
+      "completion_index_loads": 1,
+      "completed_fold_action": "skip_verified_completed_fold_without_recompute",
+      "completed_shard_action": "verify_one_aggregate_digest_then_skip_without_directory_scan",
+      "new_fold_dispatch": "at_most_once_per_execution",
+      "duplicate_validation": false,
+      "routine_physical_checkpoint_scan": false,
+      "partial_failure_policy": "resume_from_immutable_completion_index_or_fail_closed",
+      "result_selection_used": false
+    },
+    "preregistration_budget": {
+      "database_queries": 1,
+      "historical_rows_content_hashed": 3481,
+      "historical_scores_computed": 0,
+      "formal_historical_folds_executed": 0,
+      "bootstrap_children_executed": 0,
+      "statistical_results_read": 0,
+      "evidence_records": 0,
+      "accepted_models": 0,
+      "production_actions": 0
+    },
+    "formal_historical_execution_authorized": false
+  },
+  "result_blind": true,
+  "database_queries_during_capability": 1,
+  "historical_rows_content_hashed": 3481,
+  "historical_outcomes_exposed_to_research_or_decision_logic": false,
+  "historical_scores_computed": 0,
+  "formal_historical_folds_executed": 0,
+  "bootstrap_children_executed": 0,
+  "statistical_results_read": false,
+  "evidence_created": false,
+  "duplicate_validation": false,
+  "promotion_gate_opened": false,
+  "production_action": "none"
+}
