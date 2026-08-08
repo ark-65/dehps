@@ -261,6 +261,13 @@ from dehps.research_os.information_theory.measurement_system_v2.marginal_static_
     load_marginal_static_repair_v2_design_source_contract,
     verify_marginal_static_repair_v2_design_source_bytes,
 )
+from dehps.research_os.information_theory.measurement_system_v2.marginal_static_repair_v2_health_decision import (
+    MARGINAL_STATIC_REPAIR_V2_HEALTH_DECISION_CAPABILITY,
+    MARGINAL_STATIC_REPAIR_V2_HEALTH_DECISION_SOURCE_CONTRACT_PATH,
+    build_marginal_static_repair_v2_health_decision,
+    load_marginal_static_repair_v2_health_decision_source_contract,
+    verify_marginal_static_repair_v2_health_decision_source_bytes,
+)
 from dehps.research_os.information_theory.measurement_system_v2.marginal_static_repair_v2_health_execution import (
     EVALUATION_CHILDREN as REPAIR_V2_EVALUATION_CHILDREN,
 )
@@ -7416,6 +7423,146 @@ class M4MarginalStaticRepairV2HealthExecutionCapability:
         )
 
 
+class M4MarginalStaticRepairV2HealthDecisionCapability:
+    def __init__(
+        self,
+        *,
+        repository: PostgresResearchOSRepository,
+        root_dir: Path = ROOT_DIR,
+    ) -> None:
+        self.repository = repository
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key != MARGINAL_STATIC_REPAIR_V2_HEALTH_DECISION_TASK_KEY
+            or task.requested_capability
+            != MARGINAL_STATIC_REPAIR_V2_HEALTH_DECISION_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static repair-v2 health decision received "
+                "the wrong task"
+            )
+        source_contract = (
+            load_marginal_static_repair_v2_health_decision_source_contract(
+                self.root_dir
+                / MARGINAL_STATIC_REPAIR_V2_HEALTH_DECISION_SOURCE_CONTRACT_PATH
+            )
+        )
+        verify_marginal_static_repair_v2_health_decision_source_bytes(
+            root_dir=self.root_dir,
+            contract=source_contract,
+        )
+        _, health_execution, health_registrations = _load_single_completed_execution(
+            repository=self.repository,
+            root_dir=self.root_dir,
+            control_plane_key=control_plane_key,
+            task_key=MARGINAL_STATIC_REPAIR_V2_HEALTH_EXECUTION_TASK_KEY,
+        )
+        health_result = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=health_registrations,
+            artifact_type=("m4_v2_marginal_static_repair_v2_measurement_health_result"),
+        )
+        health_completion = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=health_registrations,
+            artifact_type=(
+                "m4_v2_marginal_static_repair_v2_health_execution_completion"
+            ),
+        )
+        expected_inputs = (
+            str(source_contract["artifact_digest"]),
+            str(health_execution["artifact_digest"]),
+            str(health_result["artifact_digest"]),
+            str(health_completion["artifact_digest"]),
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "M4 v2 marginal-static repair-v2 health decision identities changed"
+            )
+        decision = build_marginal_static_repair_v2_health_decision(
+            source_contract=source_contract,
+            health_execution=health_execution,
+            health_result=health_result,
+            health_completion=health_completion,
+        )
+        return _persist_small_capability(
+            root_dir=self.root_dir,
+            owner=self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_name="marginal-static-repair-v2-health-decision",
+            child_filename="decision.json",
+            child_payload=decision,
+            completion_fact=str(decision["decision_fact"]),
+            downstream_consumer=str(decision["next_consumer"]),
+            extra_execution={
+                "marginal_static_repair_v2_health_decision_source_contract_digest": (
+                    source_contract["artifact_digest"]
+                ),
+                "marginal_static_repair_v2_health_decision_source_set_digest": (
+                    source_contract["source_set_digest"]
+                ),
+                "repair_v2_health_execution_artifact_digest": health_execution[
+                    "artifact_digest"
+                ],
+                "repair_v2_health_result_digest": health_result["artifact_digest"],
+                "repair_v2_health_completion_digest": health_completion[
+                    "artifact_digest"
+                ],
+                "marginal_static_repair_v2_health_decision_artifact_digest": (
+                    decision["artifact_digest"]
+                ),
+                "authoritative_decision": decision["authoritative_decision"],
+                "decision": decision["decision"],
+                "decision_fact": decision["decision_fact"],
+                "measurement_health": decision["measurement_health"],
+                "failed_required_gate_cell_ids": [],
+                "failed_required_gate_cell_count": 0,
+                "required_gate_cell_ids": decision["required_gate_cell_ids"],
+                "required_gate_cell_count": decision["required_gate_cell_count"],
+                "admissible_local_cell_ids": decision["admissible_local_cell_ids"],
+                "admissible_local_cell_count": decision["admissible_local_cell_count"],
+                "sensitivity_limit_cell_ids": decision["sensitivity_limit_cell_ids"],
+                "sensitivity_limit_topology": decision["sensitivity_limit_topology"],
+                "sensitivity_limit_cell_count": decision[
+                    "sensitivity_limit_cell_count"
+                ],
+                "eligible_for_historical_measurement": decision[
+                    "eligible_for_historical_measurement"
+                ],
+                "eligible_for_historical_measurement_design": decision[
+                    "eligible_for_historical_measurement_design"
+                ],
+                "historical_measurement_execution_authorized": False,
+                "accepted_model_artifact_digest": None,
+                "historical_evidence": "NOT_RUN",
+                "historical_execution_status": "NOT_AUTHORIZED",
+                "statistical_results_read": True,
+                "generated_issues": 0,
+                "compact_index_reads": 0,
+                "raw_replicates_regenerated": 0,
+                "sentinel_replicates_recomputed": 0,
+                "duplicate_validation": False,
+                "promotion_gate_opened": False,
+                "repair_required": False,
+                "production_action": "none",
+                "replay_status": "DETERMINISTIC_DECISION_ONLY",
+            },
+        )
+
+
 class M4P261RawExecutionReplayCapability:
     def __init__(
         self,
@@ -9276,6 +9423,12 @@ class ResearchEvidenceSupervisor:
             ),
             MARGINAL_STATIC_REPAIR_V2_HEALTH_EXECUTION_CAPABILITY: (
                 M4MarginalStaticRepairV2HealthExecutionCapability(
+                    repository=self.repository,
+                    root_dir=root_dir,
+                )
+            ),
+            MARGINAL_STATIC_REPAIR_V2_HEALTH_DECISION_CAPABILITY: (
+                M4MarginalStaticRepairV2HealthDecisionCapability(
                     repository=self.repository,
                     root_dir=root_dir,
                 )
@@ -12774,6 +12927,146 @@ class ResearchEvidenceSupervisor:
                 "sentinel_replicates_recomputed": 0,
                 "duplicate_validation": False,
                 "historical_outcomes_read": False,
+                "evidence_created": False,
+                "manual_input_assembly": False,
+            }
+        elif task_key == MARGINAL_STATIC_REPAIR_V2_HEALTH_DECISION_TASK_KEY:
+            source_contract = (
+                load_marginal_static_repair_v2_health_decision_source_contract(
+                    self.root_dir
+                    / MARGINAL_STATIC_REPAIR_V2_HEALTH_DECISION_SOURCE_CONTRACT_PATH
+                )
+            )
+            verify_marginal_static_repair_v2_health_decision_source_bytes(
+                root_dir=self.root_dir,
+                contract=source_contract,
+            )
+            _, health_execution, health_registrations = (
+                _load_single_completed_execution(
+                    repository=self.repository,
+                    root_dir=self.root_dir,
+                    control_plane_key=self.control_plane_key,
+                    task_key=MARGINAL_STATIC_REPAIR_V2_HEALTH_EXECUTION_TASK_KEY,
+                )
+            )
+            health_result = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=health_registrations,
+                artifact_type=(
+                    "m4_v2_marginal_static_repair_v2_measurement_health_result"
+                ),
+            )
+            health_completion = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=health_registrations,
+                artifact_type=(
+                    "m4_v2_marginal_static_repair_v2_health_execution_completion"
+                ),
+            )
+            registered_decision = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                artifact_type=(
+                    "m4_v2_marginal_static_measurement_repair_v2_health_decision"
+                ),
+            )
+            reconstructed = build_marginal_static_repair_v2_health_decision(
+                source_contract=source_contract,
+                health_execution=health_execution,
+                health_result=health_result,
+                health_completion=health_completion,
+            )
+            if (
+                registered_decision != reconstructed
+                or artifact.get(
+                    "marginal_static_repair_v2_health_decision_source_contract_digest"
+                )
+                != source_contract["artifact_digest"]
+                or artifact.get(
+                    "marginal_static_repair_v2_health_decision_source_set_digest"
+                )
+                != source_contract["source_set_digest"]
+                or artifact.get("repair_v2_health_execution_artifact_digest")
+                != health_execution["artifact_digest"]
+                or artifact.get("repair_v2_health_result_digest")
+                != health_result["artifact_digest"]
+                or artifact.get("repair_v2_health_completion_digest")
+                != health_completion["artifact_digest"]
+                or artifact.get(
+                    "marginal_static_repair_v2_health_decision_artifact_digest"
+                )
+                != reconstructed["artifact_digest"]
+                or artifact.get("authoritative_decision")
+                != reconstructed["authoritative_decision"]
+                or artifact.get("decision") != reconstructed["decision"]
+                or artifact.get("decision_fact") != reconstructed["decision_fact"]
+                or artifact.get("measurement_health") != "PASS"
+                or artifact.get("failed_required_gate_cell_ids") != []
+                or artifact.get("failed_required_gate_cell_count") != 0
+                or artifact.get("required_gate_cell_ids")
+                != reconstructed["required_gate_cell_ids"]
+                or artifact.get("required_gate_cell_count") != 10
+                or artifact.get("admissible_local_cell_ids")
+                != reconstructed["admissible_local_cell_ids"]
+                or artifact.get("admissible_local_cell_count") != 2
+                or artifact.get("sensitivity_limit_cell_ids")
+                != reconstructed["sensitivity_limit_cell_ids"]
+                or artifact.get("sensitivity_limit_topology")
+                != reconstructed["sensitivity_limit_topology"]
+                or artifact.get("sensitivity_limit_cell_count") != 4
+                or artifact.get("eligible_for_historical_measurement") is not True
+                or artifact.get("eligible_for_historical_measurement_design")
+                is not True
+                or artifact.get("historical_measurement_execution_authorized")
+                is not False
+                or artifact.get("statistical_results_read") is not True
+                or artifact.get("generated_issues") != 0
+                or artifact.get("compact_index_reads") != 0
+                or artifact.get("raw_replicates_regenerated") != 0
+                or artifact.get("sentinel_replicates_recomputed") != 0
+                or artifact.get("duplicate_validation") is not False
+                or artifact.get("historical_outcomes_read") is not False
+                or artifact.get("evidence_created") is not False
+                or artifact.get("promotion_gate_opened") is not False
+                or artifact.get("repair_required") is not False
+                or artifact.get("downstream_consumer") != reconstructed["next_consumer"]
+                or artifact.get("production_action") != "none"
+            ):
+                raise MainlineSupervisorError(
+                    "M4 v2 marginal-static repair-v2 health decision replay "
+                    "identity changed"
+                )
+            _verify_v2_registered_artifacts(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                expected_payloads=(reconstructed, artifact),
+            )
+            capability_replay = {
+                "schema_version": (
+                    "dehps-m4-v2-marginal-static-repair-v2-health-decision-replay.v1"
+                ),
+                "status": "REPLAY_VERIFIED",
+                "decision_artifact_digest": reconstructed["artifact_digest"],
+                "measurement_health": reconstructed["measurement_health"],
+                "authoritative_decision": reconstructed["authoritative_decision"],
+                "decision": reconstructed["decision"],
+                "decision_fact": reconstructed["decision_fact"],
+                "required_gate_cell_count": reconstructed["required_gate_cell_count"],
+                "sensitivity_limit_cell_ids": reconstructed[
+                    "sensitivity_limit_cell_ids"
+                ],
+                "sensitivity_limit_cell_count": reconstructed[
+                    "sensitivity_limit_cell_count"
+                ],
+                "same_registered_content": True,
+                "decision_only": True,
+                "generated_issues_during_replay": 0,
+                "compact_index_reads": 0,
+                "raw_replicates_regenerated": 0,
+                "sentinel_replicates_recomputed": 0,
+                "duplicate_validation": False,
+                "historical_outcomes_read": False,
+                "statistical_results_read": True,
                 "evidence_created": False,
                 "manual_input_assembly": False,
             }

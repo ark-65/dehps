@@ -2217,6 +2217,13 @@
       "task_type": "marginal_static_measurement_repair_v2_health_decision",
       "lane": "research",
       "priority": 79,
+      "requested_capability": "m4_v2_marginal_static_measurement_repair_v2_health_decision",
+      "input_artifact_digests": [
+        "65dbd24e6a63fadfa62d0fb5d0bf7744d166ed1bfb2412bb48e57b04c2d190c6",
+        "7701f3ffe48e7163a7e8d68cd4b54d98008810b7cf1975bb4a3d533052f8e62a",
+        "b09069a0774201b3cc59572f309416885c674e6d58d5bae050f01201e25493d5",
+        "f817867000d810f622037c09a4b93280e46aae9178b8af0cd122e36f21397e21"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
@@ -2227,11 +2234,16 @@
           "dependency_type": "artifact",
           "target_key": "m4-v2-marginal-static-measurement-repair-v2-health-execution:COMPLETE",
           "required_status": "available"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-v2-marginal-static-repair-v2-health-decision-source:65dbd24e6a63fadfa62d0fb5d0bf7744d166ed1bfb2412bb48e57b04c2d190c6",
+          "required_status": "available"
         }
       ],
       "metric_contract": {
-        "engineering_complete": false,
-        "engineering_increment_percent": 0,
+        "engineering_complete": true,
+        "engineering_increment_percent": 1,
         "evidence_complete": false,
         "evidence_increment_percent": 0,
         "phase": "M4-V2-MARGINAL-STATIC-REPAIR-V2-HEALTH-DECISION",
@@ -2252,13 +2264,69 @@
           ],
           "status_projection": "unified_m4_status.measurement_system_v2.marginal_static_repair_v2_health_decision",
           "evidence_progress_rule": "a_synthetic_health_decision_routes_measurement_work_but_is_not_historical_prediction_evidence",
-          "decision_consumer": "conditional historical measurement authorization or a separately designed repair",
-          "downstream_consumer": "conditional_on_authoritative_repair_v2_health_decision"
+          "decision_consumer": "a separate result-blind historical measurement design",
+          "downstream_consumer": "m4-v2-marginal-static-historical-measurement-design"
         },
-        "formal_execution_allowed": false,
+        "formal_execution_allowed": true,
         "formal_children": 0,
         "generated_issues": 0,
+        "result_aware": true,
+        "required_gate_cell_count": 10,
+        "admissible_local_cell_count": 2,
+        "sensitivity_limit_cell_count": 4,
         "duplicate_validation": false,
+        "historical_outcomes_read": false,
+        "evidence_created": false,
+        "promotion_gate_opened": false,
+        "production_action": "none"
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "m4-v2-marginal-static-historical-measurement-design",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "marginal_static_historical_measurement_design",
+      "lane": "research",
+      "priority": 78,
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-v2-marginal-static-measurement-repair-v2-health-decision",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-v2-marginal-static-measurement-repair-v2-health-decision:PASS",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "engineering_complete": false,
+        "engineering_increment_percent": 0,
+        "evidence_complete": false,
+        "evidence_increment_percent": 0,
+        "phase": "M4-V2-MARGINAL-STATIC-HISTORICAL-MEASUREMENT-DESIGN",
+        "scope": "freeze_the_result_blind_chronology_safe_historical_measurement_contract_before_reading_any_historical_outcome",
+        "reason": "synthetic instrument health PASS authorizes measurement design but is not historical prediction Evidence",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "the exact Repair-v2 health decision is VALIDATED_IN_MAINLINE and emitted its unique PASS fact",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "immutable Repair-v2 health decision",
+            "mainline decision execution"
+          ],
+          "downstream_artifacts": [
+            "result-blind historical measurement design",
+            "historical preregistration contract"
+          ],
+          "status_projection": "unified_m4_status.measurement_system_v2.marginal_static_historical_measurement_design",
+          "evidence_progress_rule": "design_only_creates_no_historical_prediction_evidence",
+          "decision_consumer": "historical measurement preregistration",
+          "downstream_consumer": "m4-v2-marginal-static-historical-measurement-preregistration"
+        },
+        "result_blind": true,
         "historical_outcomes_read": false,
         "evidence_created": false,
         "promotion_gate_opened": false,
@@ -3215,6 +3283,7 @@
       "m4-v2-marginal-static-repair-v2-design-source:db6872c20602731b1c4129b585e42c4bc533f91e5e1725f1d5dfc9b4163af59e",
       "m4-v2-marginal-static-repair-v2-preregistration-source:8f3b8e453a7ca86efa8daba4ed77cecd8bd23ee1cc99551b531a91e7a4445521",
       "m4-v2-marginal-static-repair-v2-health-execution-source:e1a2b76b1df2bb93a696330256462569e8122608fc027b014051391b9d89abee",
+      "m4-v2-marginal-static-repair-v2-health-decision-source:65dbd24e6a63fadfa62d0fb5d0bf7744d166ed1bfb2412bb48e57b04c2d190c6",
       "m4-v2-marginal-static-health-execution-source:5fbeb6ab0533478ac097747ab73fb0188561849505a76cf7a63a3a02061b2354",
       "m4-p2-9-p263-source-compatibility-fixture:1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f",
       "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
@@ -3238,5 +3307,5 @@
     "external_events": [],
     "authorities": []
   },
-  "manifest_digest": "1790affe3010f14921e6f823e8d8aa8b9843cddcbe6619c0cba2b257f7a9d135"
+  "manifest_digest": "7eeae8b00bc57af820f28527432663dcd930545160d9a77ea75660b4ec988a88"
 }
