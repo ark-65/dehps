@@ -122,6 +122,18 @@ M4_V2_MARGINAL_REPAIR_V2_HEALTH_EXECUTION_COMPLETION_FACT = (
 M4_V2_MARGINAL_REPAIR_V2_HEALTH_DECISION_TASK_KEY = (
     "m4-v2-marginal-static-measurement-repair-v2-health-decision"
 )
+M4_V2_MARGINAL_REPAIR_V2_HEALTH_DECISION_PASS_FACT = (
+    "m4-v2-marginal-static-measurement-repair-v2-health-decision:PASS"
+)
+M4_V2_MARGINAL_REPAIR_V2_HEALTH_DECISION_REPAIR_FACT = (
+    "m4-v2-marginal-static-measurement-repair-v2-health-decision:REPAIR"
+)
+M4_V2_MARGINAL_REPAIR_V2_HEALTH_DECISION_INCONCLUSIVE_FACT = (
+    "m4-v2-marginal-static-measurement-repair-v2-health-decision:INCONCLUSIVE"
+)
+M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_DESIGN_TASK_KEY = (
+    "m4-v2-marginal-static-historical-measurement-design"
+)
 M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
 M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = "m4-v2-p2-6-1-marginal-decision-replay"
 M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
@@ -530,6 +542,19 @@ def build_m4_status(
         if measurement_v2_execution is not None
         and measurement_v2_execution.get("execution_task_key")
         == M4_V2_MARGINAL_REPAIR_V2_HEALTH_EXECUTION_TASK_KEY
+        else None
+    )
+    measurement_v2_marginal_repair_v2_health_decision_resolution = resolutions.get(
+        M4_V2_MARGINAL_REPAIR_V2_HEALTH_DECISION_TASK_KEY
+    )
+    measurement_v2_marginal_repair_v2_health_decision_task = tasks.get(
+        M4_V2_MARGINAL_REPAIR_V2_HEALTH_DECISION_TASK_KEY
+    )
+    measurement_v2_marginal_repair_v2_health_decision = (
+        measurement_v2_execution
+        if measurement_v2_execution is not None
+        and measurement_v2_execution.get("execution_task_key")
+        == M4_V2_MARGINAL_REPAIR_V2_HEALTH_DECISION_TASK_KEY
         else None
     )
     measurement_compatibility_resolution = resolutions.get(
@@ -1252,7 +1277,18 @@ def build_m4_status(
         "measurement_system_v2": (
             {
                 "phase": (
-                    "MARGINAL_STATIC_REPAIR_V2_HEALTH_DECISION"
+                    "MARGINAL_STATIC_HISTORICAL_MEASUREMENT_DESIGN"
+                    if M4_V2_MARGINAL_REPAIR_V2_HEALTH_DECISION_PASS_FACT
+                    in manifest.facts.artifacts
+                    else "MARGINAL_STATIC_REPAIR_V3_DESIGN"
+                    if any(
+                        fact in manifest.facts.artifacts
+                        for fact in (
+                            M4_V2_MARGINAL_REPAIR_V2_HEALTH_DECISION_REPAIR_FACT,
+                            M4_V2_MARGINAL_REPAIR_V2_HEALTH_DECISION_INCONCLUSIVE_FACT,
+                        )
+                    )
+                    else "MARGINAL_STATIC_REPAIR_V2_HEALTH_DECISION"
                     if M4_V2_MARGINAL_REPAIR_V2_HEALTH_EXECUTION_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "MARGINAL_STATIC_REPAIR_V2_HEALTH_EXECUTION"
@@ -2455,6 +2491,120 @@ def build_m4_status(
                     "production_action": "none",
                     "next_consumer": M4_V2_MARGINAL_REPAIR_V2_HEALTH_DECISION_TASK_KEY,
                 },
+                "marginal_static_repair_v2_health_decision": {
+                    "task_key": M4_V2_MARGINAL_REPAIR_V2_HEALTH_DECISION_TASK_KEY,
+                    "resolver_status": (
+                        None
+                        if measurement_v2_marginal_repair_v2_health_decision_resolution
+                        is None
+                        else measurement_v2_marginal_repair_v2_health_decision_resolution.status.value
+                    ),
+                    "completion_classification": (
+                        None
+                        if measurement_v2_marginal_repair_v2_health_decision_task
+                        is None
+                        or task_states[
+                            measurement_v2_marginal_repair_v2_health_decision_task.artifact_digest
+                        ].completion_classification
+                        is None
+                        else task_states[
+                            measurement_v2_marginal_repair_v2_health_decision_task.artifact_digest
+                        ].completion_classification.value
+                    ),
+                    "completed": any(
+                        fact in manifest.facts.artifacts
+                        for fact in (
+                            M4_V2_MARGINAL_REPAIR_V2_HEALTH_DECISION_PASS_FACT,
+                            M4_V2_MARGINAL_REPAIR_V2_HEALTH_DECISION_REPAIR_FACT,
+                            M4_V2_MARGINAL_REPAIR_V2_HEALTH_DECISION_INCONCLUSIVE_FACT,
+                        )
+                    ),
+                    "measurement_health": (
+                        None
+                        if measurement_v2_marginal_repair_v2_health_decision is None
+                        else measurement_v2_marginal_repair_v2_health_decision.get(
+                            "measurement_health"
+                        )
+                    ),
+                    "authoritative_decision": (
+                        None
+                        if measurement_v2_marginal_repair_v2_health_decision is None
+                        else measurement_v2_marginal_repair_v2_health_decision.get(
+                            "authoritative_decision"
+                        )
+                    ),
+                    "decision_fact": (
+                        None
+                        if measurement_v2_marginal_repair_v2_health_decision is None
+                        else measurement_v2_marginal_repair_v2_health_decision.get(
+                            "decision_fact"
+                        )
+                    ),
+                    "failed_required_gate_cell_count": (
+                        0
+                        if measurement_v2_marginal_repair_v2_health_decision is None
+                        else measurement_v2_marginal_repair_v2_health_decision.get(
+                            "failed_required_gate_cell_count", 0
+                        )
+                    ),
+                    "required_gate_cell_count": (
+                        0
+                        if measurement_v2_marginal_repair_v2_health_decision is None
+                        else measurement_v2_marginal_repair_v2_health_decision.get(
+                            "required_gate_cell_count", 0
+                        )
+                    ),
+                    "admissible_local_cell_count": (
+                        0
+                        if measurement_v2_marginal_repair_v2_health_decision is None
+                        else measurement_v2_marginal_repair_v2_health_decision.get(
+                            "admissible_local_cell_count", 0
+                        )
+                    ),
+                    "sensitivity_limit_cell_ids": (
+                        []
+                        if measurement_v2_marginal_repair_v2_health_decision is None
+                        else measurement_v2_marginal_repair_v2_health_decision.get(
+                            "sensitivity_limit_cell_ids", []
+                        )
+                    ),
+                    "sensitivity_limit_cell_count": (
+                        0
+                        if measurement_v2_marginal_repair_v2_health_decision is None
+                        else measurement_v2_marginal_repair_v2_health_decision.get(
+                            "sensitivity_limit_cell_count", 0
+                        )
+                    ),
+                    "eligible_for_historical_measurement": (
+                        False
+                        if measurement_v2_marginal_repair_v2_health_decision is None
+                        else measurement_v2_marginal_repair_v2_health_decision.get(
+                            "eligible_for_historical_measurement", False
+                        )
+                    ),
+                    "eligible_for_historical_measurement_design": (
+                        False
+                        if measurement_v2_marginal_repair_v2_health_decision is None
+                        else measurement_v2_marginal_repair_v2_health_decision.get(
+                            "eligible_for_historical_measurement_design", False
+                        )
+                    ),
+                    "historical_measurement_execution_authorized": False,
+                    "formal_children_executed": 0,
+                    "generated_issues": 0,
+                    "compact_index_reads": 0,
+                    "raw_replicates_regenerated": 0,
+                    "sentinel_replicates_recomputed": 0,
+                    "duplicate_validation": False,
+                    "historical_outcomes_read": False,
+                    "statistical_results_read": True,
+                    "evidence_created": False,
+                    "promotion_gate_opened": False,
+                    "production_action": "none",
+                    "next_consumer": (
+                        M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_DESIGN_TASK_KEY
+                    ),
+                },
                 "completion_classification": (
                     None
                     if task_states[
@@ -2466,7 +2616,16 @@ def build_m4_status(
                     ].completion_classification.value
                 ),
                 "live_mainline_status": (
-                    "MARGINAL_STATIC_REPAIR_V2_HEALTH_EXECUTION_VALIDATED_IN_MAINLINE"
+                    "MARGINAL_STATIC_REPAIR_V2_HEALTH_DECISION_VALIDATED_IN_MAINLINE"
+                    if any(
+                        fact in manifest.facts.artifacts
+                        for fact in (
+                            M4_V2_MARGINAL_REPAIR_V2_HEALTH_DECISION_PASS_FACT,
+                            M4_V2_MARGINAL_REPAIR_V2_HEALTH_DECISION_REPAIR_FACT,
+                            M4_V2_MARGINAL_REPAIR_V2_HEALTH_DECISION_INCONCLUSIVE_FACT,
+                        )
+                    )
+                    else "MARGINAL_STATIC_REPAIR_V2_HEALTH_EXECUTION_VALIDATED_IN_MAINLINE"
                     if M4_V2_MARGINAL_REPAIR_V2_HEALTH_EXECUTION_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "MARGINAL_STATIC_REPAIR_V2_PREREGISTRATION_VALIDATED_IN_MAINLINE"
