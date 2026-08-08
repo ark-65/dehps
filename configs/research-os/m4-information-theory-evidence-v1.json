@@ -2289,6 +2289,17 @@
       "task_type": "marginal_static_historical_measurement_design",
       "lane": "research",
       "priority": 78,
+      "requested_capability": "m4_v2_marginal_static_historical_measurement_design",
+      "input_artifact_digests": [
+        "ad07217101c613d1b7afa273054adb7a8c3fe3a7c6a36eea4012bbbae2483753",
+        "8d127c7b83cbed9974d51d23477900763a8cceae09f3db62a9e8fe3449e3a2a4",
+        "8b1badb229e8517695bc41aed6d87e469a27fe010006e60e11244e3792573124",
+        "ab0e17013b5b4b1e30f6a45652f6a9e5269392d525ad41db718f357a8b4bffef",
+        "26a12fa7ad46ebdeb8b08559e70bc7d6e15f4a1f3c7d3f8be5e16f4865071d5b",
+        "8164610dcac5bfa385cbd6cf4e78fcba885a83866bf9bd781fef387d22d83dc9",
+        "9f9519be92fb5db4a4fb4939d1d5d3d32f7646a6e449f3dd20fd5c63b409f821",
+        "4fff51c58e4a46d664e414bfe4cc0d7269c8e3712734153faec548648144d0d9"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
@@ -2302,8 +2313,8 @@
         }
       ],
       "metric_contract": {
-        "engineering_complete": false,
-        "engineering_increment_percent": 0,
+        "engineering_complete": true,
+        "engineering_increment_percent": 1,
         "evidence_complete": false,
         "evidence_increment_percent": 0,
         "phase": "M4-V2-MARGINAL-STATIC-HISTORICAL-MEASUREMENT-DESIGN",
@@ -2327,7 +2338,79 @@
           "downstream_consumer": "m4-v2-marginal-static-historical-measurement-preregistration"
         },
         "result_blind": true,
+        "legal_subset_count": 1107568,
+        "historical_issue_count": 3481,
+        "initial_training_issue_count": 900,
+        "evaluation_fold_count": 2581,
+        "cutoff_issue": "2026084",
+        "post_cutoff_rows_excluded_at_design": 6,
+        "candidate_estimator_id": "EXPANDING_LEGAL_MARGINAL_ALPHA_1",
+        "baseline_id": "LEGAL_UNIFORM_NUMBER_EVENT_BASELINE",
+        "resampling_unit": "issue",
+        "primary_block_length": 5,
+        "bootstrap_replicates_planned": 2000,
+        "formal_historical_folds_executed": 0,
+        "database_queries_during_capability": 0,
         "historical_outcomes_read": false,
+        "statistical_results_read": false,
+        "evidence_created": false,
+        "promotion_gate_opened": false,
+        "production_action": "none"
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "m4-v2-marginal-static-historical-measurement-preregistration",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "marginal_static_historical_measurement_preregistration",
+      "lane": "research",
+      "priority": 77,
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-v2-marginal-static-historical-measurement-design",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-v2-marginal-static-historical-measurement-design:FROZEN",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "engineering_complete": false,
+        "engineering_increment_percent": 0,
+        "evidence_complete": false,
+        "evidence_increment_percent": 0,
+        "phase": "M4-V2-MARGINAL-STATIC-HISTORICAL-MEASUREMENT-PREREGISTRATION",
+        "scope": "verify_and_freeze_the_exact_dataset_fold_checkpoint_resampling_and_execution_plan_before_historical_scoring",
+        "reason": "design completion authorizes a separate immutable preregistration but not historical endpoint computation",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "the result-blind historical design is VALIDATED_IN_MAINLINE and replay-verified",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "historical dataset-boundary design",
+            "strict-prior walk-forward design",
+            "historical inference and stability design",
+            "design completion"
+          ],
+          "downstream_artifacts": [
+            "verified immutable red-only dataset snapshot",
+            "2581-fold identity manifest",
+            "checkpoint/settlement order manifest",
+            "bootstrap seed and child manifest",
+            "historical execution plan"
+          ],
+          "status_projection": "unified_m4_status.measurement_system_v2.marginal_static_historical_measurement_preregistration",
+          "evidence_progress_rule": "preregistration_only_creates_no_historical_prediction_evidence",
+          "decision_consumer": "formal marginal-static historical execution",
+          "downstream_consumer": "m4-v2-marginal-static-historical-measurement-execution"
+        },
+        "result_blind": true,
+        "historical_execution_authorized": false,
+        "statistical_results_read": false,
         "evidence_created": false,
         "promotion_gate_opened": false,
         "production_action": "none"
@@ -3284,6 +3367,7 @@
       "m4-v2-marginal-static-repair-v2-preregistration-source:8f3b8e453a7ca86efa8daba4ed77cecd8bd23ee1cc99551b531a91e7a4445521",
       "m4-v2-marginal-static-repair-v2-health-execution-source:e1a2b76b1df2bb93a696330256462569e8122608fc027b014051391b9d89abee",
       "m4-v2-marginal-static-repair-v2-health-decision-source:65dbd24e6a63fadfa62d0fb5d0bf7744d166ed1bfb2412bb48e57b04c2d190c6",
+      "m4-v2-marginal-static-historical-design-source:ad07217101c613d1b7afa273054adb7a8c3fe3a7c6a36eea4012bbbae2483753",
       "m4-v2-marginal-static-health-execution-source:5fbeb6ab0533478ac097747ab73fb0188561849505a76cf7a63a3a02061b2354",
       "m4-p2-9-p263-source-compatibility-fixture:1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f",
       "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
@@ -3307,5 +3391,5 @@
     "external_events": [],
     "authorities": []
   },
-  "manifest_digest": "7eeae8b00bc57af820f28527432663dcd930545160d9a77ea75660b4ec988a88"
+  "manifest_digest": "e483329a916e02374dd4735c58a32d08a0e922d31cd5abf554d5a3d779bfde56"
 }

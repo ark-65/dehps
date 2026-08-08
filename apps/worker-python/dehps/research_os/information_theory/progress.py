@@ -134,6 +134,12 @@ M4_V2_MARGINAL_REPAIR_V2_HEALTH_DECISION_INCONCLUSIVE_FACT = (
 M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_DESIGN_TASK_KEY = (
     "m4-v2-marginal-static-historical-measurement-design"
 )
+M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_DESIGN_COMPLETION_FACT = (
+    "m4-v2-marginal-static-historical-measurement-design:FROZEN"
+)
+M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_PREREGISTRATION_TASK_KEY = (
+    "m4-v2-marginal-static-historical-measurement-preregistration"
+)
 M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
 M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = "m4-v2-p2-6-1-marginal-decision-replay"
 M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
@@ -556,6 +562,25 @@ def build_m4_status(
         and measurement_v2_execution.get("execution_task_key")
         == M4_V2_MARGINAL_REPAIR_V2_HEALTH_DECISION_TASK_KEY
         else None
+    )
+    measurement_v2_marginal_historical_design_resolution = resolutions.get(
+        M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_DESIGN_TASK_KEY
+    )
+    measurement_v2_marginal_historical_design_task = tasks.get(
+        M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_DESIGN_TASK_KEY
+    )
+    measurement_v2_marginal_historical_design = (
+        measurement_v2_execution
+        if measurement_v2_execution is not None
+        and measurement_v2_execution.get("execution_task_key")
+        == M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_DESIGN_TASK_KEY
+        else None
+    )
+    measurement_v2_marginal_historical_preregistration_resolution = resolutions.get(
+        M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_PREREGISTRATION_TASK_KEY
+    )
+    measurement_v2_marginal_historical_preregistration_task = tasks.get(
+        M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_PREREGISTRATION_TASK_KEY
     )
     measurement_compatibility_resolution = resolutions.get(
         M4_P263_COMPATIBILITY_TASK_KEY
@@ -1277,7 +1302,10 @@ def build_m4_status(
         "measurement_system_v2": (
             {
                 "phase": (
-                    "MARGINAL_STATIC_HISTORICAL_MEASUREMENT_DESIGN"
+                    "MARGINAL_STATIC_HISTORICAL_MEASUREMENT_PREREGISTRATION"
+                    if M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_DESIGN_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "MARGINAL_STATIC_HISTORICAL_MEASUREMENT_DESIGN"
                     if M4_V2_MARGINAL_REPAIR_V2_HEALTH_DECISION_PASS_FACT
                     in manifest.facts.artifacts
                     else "MARGINAL_STATIC_REPAIR_V3_DESIGN"
@@ -2605,6 +2633,98 @@ def build_m4_status(
                         M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_DESIGN_TASK_KEY
                     ),
                 },
+                "marginal_static_historical_measurement_design": {
+                    "task_key": (M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_DESIGN_TASK_KEY),
+                    "resolver_status": (
+                        None
+                        if measurement_v2_marginal_historical_design_resolution is None
+                        else measurement_v2_marginal_historical_design_resolution.status.value
+                    ),
+                    "completion_classification": (
+                        None
+                        if measurement_v2_marginal_historical_design_task is None
+                        or task_states[
+                            measurement_v2_marginal_historical_design_task.artifact_digest
+                        ].completion_classification
+                        is None
+                        else task_states[
+                            measurement_v2_marginal_historical_design_task.artifact_digest
+                        ].completion_classification.value
+                    ),
+                    "completed": (
+                        M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_DESIGN_COMPLETION_FACT
+                        in manifest.facts.artifacts
+                    ),
+                    "historical_dataset_boundary_digest": (
+                        None
+                        if measurement_v2_marginal_historical_design is None
+                        else measurement_v2_marginal_historical_design.get(
+                            "historical_dataset_boundary_digest"
+                        )
+                    ),
+                    "historical_walk_forward_design_digest": (
+                        None
+                        if measurement_v2_marginal_historical_design is None
+                        else measurement_v2_marginal_historical_design.get(
+                            "historical_walk_forward_design_digest"
+                        )
+                    ),
+                    "historical_inference_design_digest": (
+                        None
+                        if measurement_v2_marginal_historical_design is None
+                        else measurement_v2_marginal_historical_design.get(
+                            "historical_inference_design_digest"
+                        )
+                    ),
+                    "historical_issue_count": 3481,
+                    "initial_training_issue_count": 900,
+                    "planned_evaluation_fold_count": 2581,
+                    "planned_bootstrap_replicates": 2000,
+                    "formal_historical_folds_executed": 0,
+                    "bootstrap_replicates_executed": 0,
+                    "database_queries_during_capability": 0,
+                    "historical_red_outcomes_read": False,
+                    "statistical_results_read": False,
+                    "historical_evidence": "NOT_RUN",
+                    "evidence_created": False,
+                    "accepted_model_artifact_digest": None,
+                    "promotion_gate_opened": False,
+                    "production_action": "none",
+                    "next_consumer": (
+                        M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_PREREGISTRATION_TASK_KEY
+                    ),
+                },
+                "marginal_static_historical_measurement_preregistration": {
+                    "task_key": (
+                        M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_PREREGISTRATION_TASK_KEY
+                    ),
+                    "resolver_status": (
+                        None
+                        if measurement_v2_marginal_historical_preregistration_resolution
+                        is None
+                        else measurement_v2_marginal_historical_preregistration_resolution.status.value
+                    ),
+                    "completion_classification": (
+                        None
+                        if measurement_v2_marginal_historical_preregistration_task
+                        is None
+                        or task_states[
+                            measurement_v2_marginal_historical_preregistration_task.artifact_digest
+                        ].completion_classification
+                        is None
+                        else task_states[
+                            measurement_v2_marginal_historical_preregistration_task.artifact_digest
+                        ].completion_classification.value
+                    ),
+                    "completed": False,
+                    "result_blind": True,
+                    "historical_execution_authorized": False,
+                    "historical_outcomes_read": False,
+                    "statistical_results_read": False,
+                    "evidence_created": False,
+                    "production_action": "none",
+                    "next_consumer": "future_historical_measurement_execution",
+                },
                 "completion_classification": (
                     None
                     if task_states[
@@ -2616,7 +2736,10 @@ def build_m4_status(
                     ].completion_classification.value
                 ),
                 "live_mainline_status": (
-                    "MARGINAL_STATIC_REPAIR_V2_HEALTH_DECISION_VALIDATED_IN_MAINLINE"
+                    "MARGINAL_STATIC_HISTORICAL_DESIGN_VALIDATED_IN_MAINLINE"
+                    if M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_DESIGN_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "MARGINAL_STATIC_REPAIR_V2_HEALTH_DECISION_VALIDATED_IN_MAINLINE"
                     if any(
                         fact in manifest.facts.artifacts
                         for fact in (
@@ -2771,7 +2894,25 @@ def build_m4_status(
                     ),
                 },
                 "next_consumer": (
-                    M4_V2_MARGINAL_REPAIR_HEALTH_EXECUTION_TASK_KEY
+                    M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_PREREGISTRATION_TASK_KEY
+                    if M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_DESIGN_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else M4_V2_MARGINAL_HISTORICAL_MEASUREMENT_DESIGN_TASK_KEY
+                    if M4_V2_MARGINAL_REPAIR_V2_HEALTH_DECISION_PASS_FACT
+                    in manifest.facts.artifacts
+                    else M4_V2_MARGINAL_REPAIR_V2_HEALTH_DECISION_TASK_KEY
+                    if M4_V2_MARGINAL_REPAIR_V2_HEALTH_EXECUTION_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else M4_V2_MARGINAL_REPAIR_V2_HEALTH_EXECUTION_TASK_KEY
+                    if M4_V2_MARGINAL_REPAIR_V2_PREREGISTRATION_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else M4_V2_MARGINAL_REPAIR_V2_PREREGISTRATION_TASK_KEY
+                    if M4_V2_MARGINAL_REPAIR_V2_DESIGN_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else M4_V2_MARGINAL_REPAIR_V2_DESIGN_TASK_KEY
+                    if M4_V2_MARGINAL_REPAIR_HEALTH_DECISION_REPAIR_FACT
+                    in manifest.facts.artifacts
+                    else M4_V2_MARGINAL_REPAIR_HEALTH_EXECUTION_TASK_KEY
                     if M4_V2_MARGINAL_REPAIR_PREREGISTRATION_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else M4_V2_MARGINAL_REPAIR_PREREGISTRATION_TASK_KEY

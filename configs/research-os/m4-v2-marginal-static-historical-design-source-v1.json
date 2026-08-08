@@ -1,0 +1,219 @@
+{
+  "schema_version": "dehps-m4-v2-marginal-static-historical-design-source.v1",
+  "artifact_type": "m4_v2_marginal_static_historical_design_source",
+  "artifact_digest": "ad07217101c613d1b7afa273054adb7a8c3fe3a7c6a36eea4012bbbae2483753",
+  "contract_key": "M4_V2_MARGINAL_STATIC_HISTORICAL_DESIGN_SOURCE",
+  "research_request_key": "research-m4-v2-marginal-static-historical-measurement-design-round-52-20260808",
+  "research_request_id": 362,
+  "research_execution_id": 283,
+  "engineering_request_key": "engineering-m4-v2-marginal-static-historical-measurement-design-round-52-20260808",
+  "engineering_request_id": 363,
+  "engineering_execution_id": 284,
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/marginal_static_historical_design.py",
+      "content_sha256": "218fc572b00ca55035983b8aa07db92de77b673c33fd85c041cd66161cb5ed81"
+    }
+  ],
+  "source_set_digest": "2824ca2231bba937634eb865fdf2e25f35b006c08030ea16e0d5ad16270c1b8a",
+  "frozen_contract": {
+    "task_key": "m4-v2-marginal-static-historical-measurement-design",
+    "capability": "m4_v2_marginal_static_historical_measurement_design",
+    "completion_fact": "m4-v2-marginal-static-historical-measurement-design:FROZEN",
+    "next_consumer": "m4-v2-marginal-static-historical-measurement-preregistration",
+    "repair_v2_health_decision_execution_digest": "8d127c7b83cbed9974d51d23477900763a8cceae09f3db62a9e8fe3449e3a2a4",
+    "repair_v2_health_decision_digest": "8b1badb229e8517695bc41aed6d87e469a27fe010006e60e11244e3792573124",
+    "marginal_static_contract_execution_digest": "ab0e17013b5b4b1e30f6a45652f6a9e5269392d525ad41db718f357a8b4bffef",
+    "marginal_static_measurement_contract_digest": "26a12fa7ad46ebdeb8b08559e70bc7d6e15f4a1f3c7d3f8be5e16f4865071d5b",
+    "measurement_contract_design_execution_digest": "8164610dcac5bfa385cbd6cf4e78fcba885a83866bf9bd781fef387d22d83dc9",
+    "gate_compiler_contract_digest": "9f9519be92fb5db4a4fb4939d1d5d3d32f7646a6e449f3dd20fd5c63b409f821",
+    "frozen_preregistration_digest": "4fff51c58e4a46d664e414bfe4cc0d7269c8e3712734153faec548648144d0d9",
+    "legal_sample_space": {
+      "object": "unordered red-ball subset",
+      "number_labels": "1..33",
+      "number_count": 33,
+      "draw_cardinality": 6,
+      "legal_subset_count": 1107568,
+      "within_draw_duplicates": "forbidden",
+      "blue_ball": "excluded",
+      "observation_unit": "one issue",
+      "number_event_rows_are_clusters": true,
+      "independent_33_row_inference": "forbidden"
+    },
+    "historical_boundary": {
+      "dataset_schema": "ssq_history.reds_only.v1",
+      "existing_dataset_digest_to_verify_next": "30224d09a8b2d9080d3bc848f50b534c6d6de50b2eac867882915e85acbf206b",
+      "start_issue": "2003001",
+      "start_date": "2003-02-23",
+      "end_issue": "2026084",
+      "end_date": "2026-07-23",
+      "issue_count": 3481,
+      "ordered_issue_date_metadata_sha256": "437ffb9d03ca844e0564dd147050e6668bf600fc6e601c6e4dcc0753b65fe2fe",
+      "metadata_rows_observed_at_design": 3487,
+      "rows_through_cutoff": 3481,
+      "post_cutoff_rows_excluded_at_design": 6,
+      "first_excluded_issue": "2026085",
+      "last_excluded_issue_observed": "2026090",
+      "post_cutoff_use": "forbidden",
+      "revision_policy": "new dataset digest and run; immutable prior artifacts are never overwritten",
+      "design_database_columns_read": [
+        "issue",
+        "draw_date"
+      ],
+      "design_red_numbers_read": false,
+      "design_blue_number_read": false
+    },
+    "estimand_and_model": {
+      "branch_id": "MARGINAL_STATIC",
+      "estimand": "mean issue-level sum of 33 Bernoulli log2 score differences, candidate minus legal-uniform baseline",
+      "unit": "bits_per_issue",
+      "joint_information_claim": "forbidden",
+      "candidate_estimator_id": "EXPANDING_LEGAL_MARGINAL_ALPHA_1",
+      "candidate_formula": "q_i(t)=(c_i(t-1)+2/11)/(n(t-1)+1)",
+      "fit_window": "expanding strict-prior only",
+      "minimum_training_issues": 900,
+      "prior_strength_issues_alpha": 1,
+      "history_features": "forbidden",
+      "hyperparameter_search": "none",
+      "random_seed": "none",
+      "clipping": "forbidden",
+      "renormalization": "forbidden",
+      "probability_sum_identity": "sum_i q_i(t)=6",
+      "baseline_id": "LEGAL_UNIFORM_NUMBER_EVENT_BASELINE",
+      "baseline_probability_each_number": "2/11",
+      "baseline_artifact_must_differ_from_candidate_model": true,
+      "primary_endpoint_threshold_bits_per_issue": 0.01
+    },
+    "walk_forward": {
+      "retrospective": true,
+      "initial_training_ordinals": [
+        1,
+        900
+      ],
+      "initial_training_issues": [
+        "2003001",
+        "2009075"
+      ],
+      "evaluation_ordinals": [
+        901,
+        3481
+      ],
+      "evaluation_issues": [
+        "2009076",
+        "2026084"
+      ],
+      "evaluation_fold_count": 2581,
+      "test_horizon_issues": 1,
+      "fold_rule": "fit ordinals 1..t-1, persist virtual checkpoint, then expose target t",
+      "virtual_checkpoint_scope": "retrospective ordering proof only; never forward Evidence",
+      "current_target_in_fit": "forbidden",
+      "future_target_in_fit": "forbidden",
+      "post_cutoff_target_in_fit_or_score": "forbidden",
+      "failed_or_missing_fold_policy": "fail closed"
+    },
+    "inference": {
+      "canonical_sample": "2581 settled issue-level prequential score differences",
+      "primary_null": "Delta_MARGINAL_STATIC <= 0.01 bits/issue",
+      "primary_alternative": "Delta_MARGINAL_STATIC > 0.01 bits/issue",
+      "primary_p_value_tail": "one-sided upper",
+      "fixed_primary_family": [
+        "MARGINAL_STATIC",
+        "TEMPORAL_MARGINAL_INCREMENT",
+        "JOINT_RESIDUAL_INCREMENT"
+      ],
+      "family_method": "Holm",
+      "familywise_alpha": 0.05,
+      "not_run_or_invalid_branch_p_value": 1,
+      "partial_family_redefinition": "forbidden",
+      "resampling_unit": "issue-level settled score difference",
+      "primary_resampling": "non-circular moving-block bootstrap",
+      "primary_block_length": 5,
+      "block_length_sensitivities": [
+        3,
+        8,
+        13
+      ],
+      "stationary_bootstrap_sensitivity_expected_lengths": [
+        3,
+        5,
+        8,
+        13
+      ],
+      "bootstrap_replicates": 2000,
+      "primary_interval": "two-sided Bonferroni simultaneous percentile moving-block interval at per-branch total alpha 0.05/3",
+      "positive_rule": "health PASS, complete canonical run, distinct candidate/baseline, Holm p<=0.05, simultaneous lower bound>0.01",
+      "negative_equivalence_null": "Delta_MARGINAL_STATIC >= 0.01 bits/issue",
+      "negative_equivalence_alternative": "Delta_MARGINAL_STATIC < 0.01 bits/issue",
+      "equivalence_upper_bound": "separate one-sided Bonferroni upper bound at alpha 0.05/3",
+      "minimum_equivalence_power_at_zero": 0.8,
+      "mde_rule": "nonnegative dependence-aware MDE at alpha 0.05/3 and power 0.8; NEGATIVE requires MDE<=0.01",
+      "non_significance_without_equivalence_power": "INCONCLUSIVE",
+      "conditioning_scope": "conditional historical evidence for the frozen prequential trajectory"
+    },
+    "time_stability": {
+      "primary_halves": [
+        {
+          "start_issue": "2009076",
+          "end_issue": "2017139",
+          "issue_count": 1291
+        },
+        {
+          "start_issue": "2017140",
+          "end_issue": "2026084",
+          "issue_count": 1290
+        }
+      ],
+      "supported_signal_requires_both_half_means_positive": true,
+      "thirds_sensitivity": [
+        {
+          "start_issue": "2009076",
+          "end_issue": "2015016",
+          "issue_count": 861
+        },
+        {
+          "start_issue": "2015017",
+          "end_issue": "2020111",
+          "issue_count": 860
+        },
+        {
+          "start_issue": "2020112",
+          "end_issue": "2026084",
+          "issue_count": 860
+        }
+      ],
+      "partition_change_after_scores": "forbidden",
+      "post_cutoff_forward_cohort": "separate and eligible only with a real pre-draw checkpoint"
+    },
+    "controls_and_invariants": {
+      "legal_uniform_baseline": "primary adjacent baseline",
+      "synthetic_repair_v2_health": "measurement-health prerequisite only",
+      "global_number_relabeling": "equivariance test; no decision credit",
+      "issue_block_permutation": "order-sensitivity diagnostic; no decision credit",
+      "circular_target_shift": "alignment diagnostic; no decision credit",
+      "matched_random_score": "diagnostic only; no decision credit",
+      "formal_path_current_or_future_target_access": "hard failure",
+      "best_control_or_seed_selection": "forbidden"
+    },
+    "design_budget": {
+      "formal_historical_folds": 0,
+      "bootstrap_replicates_executed": 0,
+      "database_queries_during_capability": 0,
+      "historical_red_outcomes_read": 0,
+      "statistical_results_read": 0,
+      "evidence_records": 0,
+      "accepted_models": 0,
+      "production_actions": 0
+    },
+    "historical_execution_authorized": false,
+    "preregistration_authorized_next": true
+  },
+  "result_blind": true,
+  "formal_historical_folds_executed": 0,
+  "database_queries_during_capability": 0,
+  "historical_red_outcomes_read": false,
+  "statistical_results_read": false,
+  "evidence_created": false,
+  "evidence_progress_increment": 0,
+  "promotion_gate_opened": false,
+  "production_action": "none"
+}
