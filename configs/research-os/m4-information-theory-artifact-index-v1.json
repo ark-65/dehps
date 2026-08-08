@@ -532,10 +532,18 @@
       "superseded_by_digest": "9bd459e2f9dd6fd5908ff24fc5ddbfbe3cebc2750e56b0b18959506ba5965f8d"
     },
     "9bd459e2f9dd6fd5908ff24fc5ddbfbe3cebc2750e56b0b18959506ba5965f8d": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "source_commit": "c1d1f524d5d03e70c9c03b9f3c775d1b3c42da02",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "identity_field": "manifest_digest",
+      "supersedes_digest": "835e947b3c11a30eca1e3343facf76bcf0a13c3d6e8efc971c2af708c4edfcaf",
+      "superseded_by_digest": "ea0cd13256b6f7910c2aa50b067ce1ba75ca8afb7820fc45611fbc7f7821f465"
+    },
+    "ea0cd13256b6f7910c2aa50b067ce1ba75ca8afb7820fc45611fbc7f7821f465": {
       "artifact_type": "research_os_control_plane_manifest",
       "path": "configs/research-os/m4-information-theory-evidence-v1.json",
       "identity_field": "manifest_digest",
-      "supersedes_digest": "835e947b3c11a30eca1e3343facf76bcf0a13c3d6e8efc971c2af708c4edfcaf"
+      "supersedes_digest": "9bd459e2f9dd6fd5908ff24fc5ddbfbe3cebc2750e56b0b18959506ba5965f8d"
     },
     "6fb3a1e366da129ac460599a391891a49206ccc715b6367cf344e2aa3e9f2a3d": {
       "artifact_type": "m4_v2_branch_preflight_source_contract",
@@ -670,6 +678,11 @@
     "8f12888f0530b3afa32eb131504d14c5d521aad762900d55cccd44df6e726a99": {
       "artifact_type": "prediction_v2_structural_route_decision_source",
       "path": "configs/research-os/prediction-v2-structural-route-decision-source-v1.json",
+      "identity_field": "artifact_digest"
+    },
+    "51865ebe80dbde996ba1f87b058ea651e0d047a02c5455ec1cfb824907e069d2": {
+      "artifact_type": "prediction_v2_structural_baseline_comparison_preregistration_source",
+      "path": "configs/research-os/prediction-v2-structural-baseline-comparison-preregistration-source-v1.json",
       "identity_field": "artifact_digest"
     },
     "e094f3bd319c63b9ed5a8b14b955f7f64544e30d3b8410cc26b2906b7e56ae67": {

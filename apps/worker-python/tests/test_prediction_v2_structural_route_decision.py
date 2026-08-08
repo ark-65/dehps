@@ -234,6 +234,11 @@ def test_additive_migration_revises_route_and_adds_only_baseline_preregistration
 ):
     source_manifest = load_m4_manifest(MANIFEST_PATH)
     source = source_manifest.to_dict(include_digest=False)
+    source["tasks"] = [
+        item
+        for item in source["tasks"]
+        if item["task_key"] != "prediction-v2-structural-baseline-comparison-execution"
+    ]
     live = copy.deepcopy(source)
     live["tasks"] = [
         item

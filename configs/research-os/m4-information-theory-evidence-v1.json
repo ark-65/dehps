@@ -3185,8 +3185,14 @@
       "task_type": "prediction_v2_structural_baseline_comparison_preregistration",
       "lane": "research",
       "priority": 67,
-      "requested_capability": null,
-      "input_artifact_digests": [],
+      "requested_capability": "prediction_v2_structural_baseline_comparison_preregistration",
+      "input_artifact_digests": [
+        "51865ebe80dbde996ba1f87b058ea651e0d047a02c5455ec1cfb824907e069d2",
+        "13b30739d25f52e2b007c8d9720aa9d45e99825c43fde0aae4e7f1e4e7918b23",
+        "4881eb35f0fb0e8ee7d4ff3be624f75938d9b7b818fb8164ca86ccb842a22484",
+        "958e36d3cd956b70c451a64bda36ba21fee2216ada4d34e1093773de58b5d3ba",
+        "8780ded7346730cb69d15ac22b096927c7099bc11107f541a214a3c2794e9f0f"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
@@ -3200,8 +3206,8 @@
         }
       ],
       "metric_contract": {
-        "engineering_complete": false,
-        "engineering_increment_percent": 0,
+        "engineering_complete": true,
+        "engineering_increment_percent": 1,
         "evidence_complete": false,
         "evidence_increment_percent": 0,
         "phase": "PREDICTION-V2-STRUCTURAL-BASELINE-COMPARISON-PREREGISTRATION",
@@ -3219,12 +3225,13 @@
           ],
           "downstream_artifacts": [
             "result-blind structural baseline-comparison preregistration",
-            "bounded comparison execution handoff"
+            "bounded comparison execution handoff",
+            "structural baseline-comparison preregistration completion"
           ],
           "status_projection": "unified_m4_status.measurement_system_v2.prediction_v2_structural_baseline_comparison_preregistration",
           "evidence_progress_rule": "preregistration_may_freeze_only_transparent_same_budget_label_symmetric_comparators_and_an_observed_result_independent_failure_rule_without_creating_prediction_Evidence",
-          "decision_consumer": "pending_separate_baseline_comparison_execution_contract",
-          "downstream_consumer": "pending_separate_baseline_comparison_execution_contract"
+          "decision_consumer": "prediction-v2-structural-baseline-comparison-execution",
+          "downstream_consumer": "prediction-v2-structural-baseline-comparison-execution"
         },
         "route_decision": "ROUTE_TO_NON_PREDICTIVE_STRUCTURAL_BASELINE_COMPARISON_PREREGISTRATION",
         "structural_artifact_role": "OFFLINE_STRUCTURAL_DIVERSIFICATION_REFERENCE_ONLY",
@@ -3234,9 +3241,112 @@
         "transparent_baselines_required": true,
         "complexity_accounting_required": true,
         "observed_result_independent_failure_rule_required": true,
-        "baseline_classes_frozen": false,
-        "comparison_execution_authorized": false,
+        "preregistration_decision": "FREEZE_THREE_CLASS_COMPLEXITY_MATCHED_RESULT_BLIND_COMPARISON",
+        "baseline_class_ids": [
+          "SINGLETON_FIRST_GREEDY_V1",
+          "PAIR_FIRST_GREEDY_V1",
+          "DISTANCE_FIRST_GREEDY_V1"
+        ],
+        "baseline_classes_frozen": true,
+        "portfolio_budget": 176,
+        "replicates_per_class": 128,
+        "candidate_chunk_size_per_step": 256,
+        "candidate_considerations_per_replicate": 45056,
+        "candidate_considerations_per_class": 5767168,
+        "total_candidate_considerations": 17301504,
+        "candidate_stream": "SHA256_REJECTION_SAMPLED_PARTIAL_FISHER_YATES_WITHOUT_REPLACEMENT_V1",
+        "construction_invariant": "DISJOINT_CHUNKS_OF_ONE_WITHOUT_REPLACEMENT_STREAM_PER_REPLICATE",
+        "comparison_execution_authorized": true,
+        "required_candidate_dominated_replicates_per_class": 122,
+        "maximum_baseline_replicates_dominating_candidate_per_class": 0,
+        "supported_label": "SUPPORTED_BEYOND_FROZEN_TRANSPARENT_BASELINES",
+        "failure_label": "ARCHIVE_AS_ENGINEERING_EVIDENCE_ONLY",
+        "invalid_label": "INVALID_EXECUTION_NO_DECISION",
+        "database_queries": 0,
+        "historical_rows_read": 0,
+        "folds_executed": 0,
+        "baseline_proposals_executed": 0,
         "historical_evidence": "INCONCLUSIVE",
+        "prediction_v2_mode": "SHADOW_ONLY",
+        "prediction_v2_route": "BASELINE_ONLY",
+        "portfolio_activation_authorized": false,
+        "decision_usefulness_established": false,
+        "evidence_created": false,
+        "new_model_created": false,
+        "promotion_gate_opened": false,
+        "p3_authorized": false,
+        "production_action": "none"
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "prediction-v2-structural-baseline-comparison-execution",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "prediction_v2_structural_baseline_comparison_execution",
+      "lane": "research",
+      "priority": 68,
+      "requested_capability": null,
+      "input_artifact_digests": [],
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "prediction-v2-structural-baseline-comparison-preregistration",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "prediction-v2-structural-baseline-comparison-preregistration:COMPLETE",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "engineering_complete": false,
+        "engineering_increment_percent": 0,
+        "evidence_complete": false,
+        "evidence_increment_percent": 0,
+        "phase": "PREDICTION-V2-STRUCTURAL-BASELINE-COMPARISON-EXECUTION",
+        "scope": "execute_only_the_frozen_three_class_complexity_matched_structural_baseline_comparison",
+        "reason": "the_result_blind_program_must_execute_in_a_separate_mainline_task_before_any_route_decision",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "the_structural_baseline_comparison_preregistration_is_VALIDATED_IN_MAINLINE_and_replay_verified_with_all_three_children_registered",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "structural baseline-comparison preregistration mainline execution",
+            "frozen structural baseline-comparison preregistration",
+            "bounded comparison execution handoff",
+            "structural baseline-comparison preregistration completion"
+          ],
+          "downstream_artifacts": [
+            "three-class structural baseline-comparison result",
+            "frozen gate outcome",
+            "structural baseline-comparison execution completion"
+          ],
+          "status_projection": "unified_m4_status.measurement_system_v2.prediction_v2_structural_baseline_comparison_execution",
+          "evidence_progress_rule": "execution_may_apply_only_the_frozen_structural_comparison_gate_and_cannot_create_prediction_Evidence_or_activate_a_portfolio",
+          "decision_consumer": "pending_separate_structural_baseline_comparison_route_decision",
+          "downstream_consumer": "pending_separate_structural_baseline_comparison_route_decision"
+        },
+        "result_blind_preregistration_required": true,
+        "baseline_class_ids": [
+          "SINGLETON_FIRST_GREEDY_V1",
+          "PAIR_FIRST_GREEDY_V1",
+          "DISTANCE_FIRST_GREEDY_V1"
+        ],
+        "portfolio_budget": 176,
+        "replicates_per_class": 128,
+        "candidate_chunk_size_per_step": 256,
+        "candidate_considerations_per_replicate": 45056,
+        "candidate_considerations_per_class": 5767168,
+        "total_candidate_considerations": 17301504,
+        "candidate_stream": "SHA256_REJECTION_SAMPLED_PARTIAL_FISHER_YATES_WITHOUT_REPLACEMENT_V1",
+        "construction_invariant": "DISJOINT_CHUNKS_OF_ONE_WITHOUT_REPLACEMENT_STREAM_PER_REPLICATE",
+        "required_candidate_dominated_replicates_per_class": 122,
+        "maximum_baseline_replicates_dominating_candidate_per_class": 0,
+        "supported_label": "SUPPORTED_BEYOND_FROZEN_TRANSPARENT_BASELINES",
+        "failure_label": "ARCHIVE_AS_ENGINEERING_EVIDENCE_ONLY",
+        "invalid_label": "INVALID_EXECUTION_NO_DECISION",
         "prediction_v2_mode": "SHADOW_ONLY",
         "prediction_v2_route": "BASELINE_ONLY",
         "portfolio_activation_authorized": false,
@@ -4209,6 +4319,7 @@
       "prediction-v2-structural-portfolio-execution-source:0796da84d80649913795eb71f003ed38ecfb801098e15488e8fe66c403c4eb73",
       "prediction-v2-structural-portfolio-evaluation-source:b194c87b8810aeb5757d1366dec00e6fe2243a07e9b38cbac8b1ddf92988bc93",
       "prediction-v2-structural-route-decision-source:8f12888f0530b3afa32eb131504d14c5d521aad762900d55cccd44df6e726a99",
+      "prediction-v2-structural-baseline-comparison-preregistration-source:51865ebe80dbde996ba1f87b058ea651e0d047a02c5455ec1cfb824907e069d2",
       "m4-p2-9-p263-source-compatibility-fixture:1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f",
       "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
       "m4-p2-identifiability-preflight-manifest:5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3",
@@ -4231,5 +4342,5 @@
     "external_events": [],
     "authorities": []
   },
-  "manifest_digest": "9bd459e2f9dd6fd5908ff24fc5ddbfbe3cebc2750e56b0b18959506ba5965f8d"
+  "manifest_digest": "ea0cd13256b6f7910c2aa50b067ce1ba75ca8afb7820fc45611fbc7f7821f465"
 }

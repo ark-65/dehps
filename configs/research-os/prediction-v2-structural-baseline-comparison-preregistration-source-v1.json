@@ -1,0 +1,156 @@
+{
+  "schema_version": "dehps-prediction-v2-structural-baseline-comparison-preregistration-source.v1",
+  "artifact_type": "prediction_v2_structural_baseline_comparison_preregistration_source",
+  "contract_key": "PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_PREREGISTRATION_SOURCE",
+  "research_request_key": "research-prediction-v2-structural-baseline-comparison-preregistration-round-74-20260809",
+  "research_request_id": 402,
+  "research_execution_id": 323,
+  "engineering_request_key": "engineering-prediction-v2-structural-baseline-comparison-preregistration-round-75-20260809",
+  "engineering_request_id": 403,
+  "engineering_execution_id": 324,
+  "result_blind": true,
+  "portfolio_results_read": 0,
+  "database_queries": 0,
+  "historical_rows_read": 0,
+  "folds_executed": 0,
+  "bootstrap_children_executed": 0,
+  "baseline_proposals_executed": 0,
+  "registered_children": 3,
+  "new_evidence_created": false,
+  "new_model_created": false,
+  "production_action": "none",
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/prediction_v2_structural_baseline_comparison_preregistration.py",
+      "content_sha256": "6d3885d684e1fe03a9f4eeb09ca6787b490bf4ee56a0b40a2b5490e239d6a64c"
+    }
+  ],
+  "source_set_digest": "f8d3722f1ffa210f6ffd1fb33a03da8b24282bf106a128643f5966adffd088fc",
+  "frozen_contract": {
+    "task_key": "prediction-v2-structural-baseline-comparison-preregistration",
+    "capability": "prediction_v2_structural_baseline_comparison_preregistration",
+    "completion_fact": "prediction-v2-structural-baseline-comparison-preregistration:COMPLETE",
+    "next_consumer": "prediction-v2-structural-baseline-comparison-execution",
+    "registered_input_digests": [
+      "13b30739d25f52e2b007c8d9720aa9d45e99825c43fde0aae4e7f1e4e7918b23",
+      "4881eb35f0fb0e8ee7d4ff3be624f75938d9b7b818fb8164ca86ccb842a22484",
+      "958e36d3cd956b70c451a64bda36ba21fee2216ada4d34e1093773de58b5d3ba",
+      "8780ded7346730cb69d15ac22b096927c7099bc11107f541a214a3c2794e9f0f"
+    ],
+    "decision": "FREEZE_THREE_CLASS_COMPLEXITY_MATCHED_RESULT_BLIND_COMPARISON",
+    "route_decision": "ROUTE_TO_NON_PREDICTIVE_STRUCTURAL_BASELINE_COMPARISON_PREREGISTRATION",
+    "structural_artifact_role": "OFFLINE_STRUCTURAL_DIVERSIFICATION_REFERENCE_ONLY",
+    "result_blind": true,
+    "portfolio_results_read": 0,
+    "program": {
+      "legal_space": {
+        "labels": 33,
+        "combination_size": 6,
+        "combination_count": 1107568,
+        "label_order_used_by_selection": false
+      },
+      "portfolio_budget": 176,
+      "baseline_classes": [
+        {
+          "class_id": "SINGLETON_FIRST_GREEDY_V1",
+          "selection_tuple": [
+            "singleton_square_sum:min",
+            "pair_square_sum:min",
+            "minimum_replacement_distance:max",
+            "sum_pairwise_replacement_distance:max",
+            "stream_position:min"
+          ]
+        },
+        {
+          "class_id": "PAIR_FIRST_GREEDY_V1",
+          "selection_tuple": [
+            "pair_square_sum:min",
+            "singleton_square_sum:min",
+            "minimum_replacement_distance:max",
+            "sum_pairwise_replacement_distance:max",
+            "stream_position:min"
+          ]
+        },
+        {
+          "class_id": "DISTANCE_FIRST_GREEDY_V1",
+          "selection_tuple": [
+            "minimum_replacement_distance:max",
+            "sum_pairwise_replacement_distance:max",
+            "singleton_square_sum:min",
+            "pair_square_sum:min",
+            "stream_position:min"
+          ]
+        }
+      ],
+      "replicates_per_class": 128,
+      "candidate_chunk_size_per_step": 256,
+      "portfolio_steps_per_replicate": 176,
+      "candidate_considerations_per_replicate": 45056,
+      "candidate_considerations_per_class": 5767168,
+      "total_candidate_considerations": 17301504,
+      "master_seed_hex": "bbe0440383bfa1b55395ab61a195b0f1956a6d406c78b54ed318e353bdf82c3b",
+      "candidate_stream": "SHA256_REJECTION_SAMPLED_PARTIAL_FISHER_YATES_WITHOUT_REPLACEMENT_V1",
+      "candidate_stream_domain": "dehps.prediction-v2.structural-baseline-comparison.candidate-stream.v1",
+      "combination_indexing": "ZERO_BASED_LEXICOGRAPHIC_COMBINADIC_6_OF_33_V1",
+      "tie_break": "LOWEST_CANDIDATE_STREAM_POSITION",
+      "empty_or_singleton_minimum_replacement_distance": 6,
+      "checkpoint_every_portfolio_steps": 16,
+      "parallel_workers": 22,
+      "wall_clock_limit_seconds": 7200,
+      "resident_memory_limit_bytes": 4294967296,
+      "construction_invariant": "DISJOINT_CHUNKS_OF_ONE_WITHOUT_REPLACEMENT_STREAM_PER_REPLICATE"
+    },
+    "comparison_contract": {
+      "metrics": [
+        {
+          "key": "singleton_square_sum",
+          "direction": "minimize"
+        },
+        {
+          "key": "pair_square_sum",
+          "direction": "minimize"
+        },
+        {
+          "key": "minimum_replacement_distance",
+          "direction": "maximize"
+        },
+        {
+          "key": "sum_pairwise_replacement_distance",
+          "direction": "maximize"
+        }
+      ],
+      "strict_dominance": "NO_WORSE_ON_ALL_FOUR_AND_STRICTLY_BETTER_ON_AT_LEAST_ONE",
+      "required_candidate_dominated_replicates_per_class": 122,
+      "maximum_baseline_replicates_dominating_candidate_per_class": 0,
+      "supported_label": "SUPPORTED_BEYOND_FROZEN_TRANSPARENT_BASELINES",
+      "failure_label": "ARCHIVE_AS_ENGINEERING_EVIDENCE_ONLY",
+      "invalid_label": "INVALID_EXECUTION_NO_DECISION",
+      "p_value_claim": false,
+      "global_optimality_claim": false,
+      "decision_usefulness_claim": false,
+      "prediction_probability_claim": false
+    },
+    "comparison_execution_authorized": true,
+    "portfolio_activation_authorized": false,
+    "decision_usefulness_established": false,
+    "prediction_probability_claim": false,
+    "historical_evidence": "INCONCLUSIVE",
+    "prediction_v2_mode": "SHADOW_ONLY",
+    "prediction_v2_route": "BASELINE_ONLY",
+    "registered_child_count": 3,
+    "registered_total_with_mainline_execution": 4,
+    "database_queries": 0,
+    "historical_rows_read": 0,
+    "folds_executed": 0,
+    "bootstrap_children_executed": 0,
+    "baseline_proposals_executed": 0,
+    "new_evidence_created": false,
+    "new_model_created": false,
+    "candidate_expert_authorized": false,
+    "promotion_gate_opened": false,
+    "p3_authorized": false,
+    "production_action": "none"
+  },
+  "frozen_contract_digest": "f571d00e71b305bf416906fa34506ec0e84ae99b57935bc4fe180e6ae715b40d",
+  "artifact_digest": "51865ebe80dbde996ba1f87b058ea651e0d047a02c5455ec1cfb824907e069d2"
+}
