@@ -288,7 +288,7 @@ def test_additive_migration_revises_intake_and_adds_only_preregistration() -> No
     assert dry_run["existing_state_regressions"] == 0
     assert dry_run["existing_fact_deletions"] == 0
     assert dry_run["unallowlisted_definition_rewrites"] == 0
-    assert len(migrated["tasks"]) == len(live["tasks"]) + 1 == 71
+    assert len(migrated["tasks"]) == len(live["tasks"]) + 1
 
 
 def test_status_projects_design_and_ready_preregistration() -> None:

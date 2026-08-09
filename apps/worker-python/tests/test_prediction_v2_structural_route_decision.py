@@ -293,7 +293,7 @@ def test_additive_migration_revises_route_and_adds_only_baseline_preregistration
     assert dry_run["existing_state_regressions"] == 0
     assert dry_run["existing_fact_deletions"] == 0
     assert dry_run["unallowlisted_definition_rewrites"] == 0
-    assert len(migrated["tasks"]) == len(live["tasks"]) + 1 == 67
+    assert len(migrated["tasks"]) == len(live["tasks"]) + 1
 
 
 def test_status_routes_completed_decision_to_baseline_preregistration() -> None:

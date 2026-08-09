@@ -1595,6 +1595,8 @@ def build_m4_status(
                     else "PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_DESIGN"
                     if PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_CONTRACT_EVENT
                     in manifest.facts.external_events
+                    and PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_COMPLETION_FACT
+                    in manifest.facts.artifacts
                     else "PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_INTAKE"
                     if PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_COMPLETION_FACT
                     in manifest.facts.artifacts
