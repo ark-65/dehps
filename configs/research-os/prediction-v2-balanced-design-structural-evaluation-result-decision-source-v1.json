@@ -1,0 +1,58 @@
+{
+  "schema_version": "dehps-prediction-v2-balanced-design-structural-evaluation-result-decision-source.v1",
+  "artifact_type": "prediction_v2_balanced_design_structural_evaluation_result_decision_source",
+  "artifact_digest": "8a8463e8de27f799d068803794532e313c38e6ea50c2c7fd3124d7b273502584",
+  "contract_key": "PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_RESULT_DECISION_SOURCE",
+  "research_request_key": "research-prediction-v2-balanced-design-structural-evaluation-result-decision-round-107-20260809",
+  "research_request_id": 438,
+  "research_execution_id": 359,
+  "engineering_request_key": "engineering-prediction-v2-balanced-design-structural-evaluation-result-decision-round-107-20260809",
+  "engineering_request_id": 439,
+  "engineering_execution_id": 360,
+  "result_aware": true,
+  "post_hoc_rule_change": false,
+  "workload_rerun": false,
+  "registered_children": 3,
+  "new_evidence_created": false,
+  "new_model_created": false,
+  "production_action": "none",
+  "frozen_contract_digest": "32aed81d4bfafa7e541ea347097d364fab21a42f1dbd820bbb9e18bf53014c4f",
+  "frozen_contract": {
+    "task_key": "prediction-v2-balanced-design-structural-evaluation-result-decision",
+    "capability": "prediction_v2_balanced_design_structural_evaluation_result_decision",
+    "completion_fact": "prediction-v2-balanced-design-structural-evaluation-result-decision:COMPLETE",
+    "next_consumer": "prediction-v2-balanced-design-structural-utility-research-intake",
+    "registered_input_digests": [
+      "cb0be723aae6642fdc0956b42487d3daf65e72a166c9bda138f2549454ee050f",
+      "6fb8cdc6a279295126728dac76e3c11c01f7eda839c2c7874d4fd2652ba8f259",
+      "9c1fe1294b30592c6b2c6c731621f9c2609f74f7f6aed733f8332fbf696eda37",
+      "6fe5390299b0d15ed98f24c8dce23a88d50819ce63f3a8ce7058f26809d452fc"
+    ],
+    "research_request_id": 438,
+    "research_execution_id": 359,
+    "registered_outcome": "HIGHER_ORDER_STRUCTURAL_HOLDOUT_ADVANTAGE_WITHIN_MATCHED_NULL_ONLY",
+    "decision": "RETAIN_AS_STRUCTURAL_DIVERSIFICATION_REFERENCE_ONLY",
+    "candidate_triple_collision_mass": 605,
+    "primary_lower_tail_numerator": 55,
+    "primary_upper_tail_numerator": 9972,
+    "primary_denominator": 10000,
+    "secondary_lower_tail_numerator": 1,
+    "secondary_upper_tail_numerator": 2000,
+    "secondary_denominator": 2000,
+    "secondary_is_descriptive_only": true,
+    "workload_rerun": false,
+    "historical_evidence": "INCONCLUSIVE",
+    "new_evidence_created": false,
+    "new_model_created": false,
+    "promotion_gate_opened": false,
+    "p3_authorized": false,
+    "production_action": "none"
+  },
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/prediction_v2_balanced_design_structural_evaluation_result_decision.py",
+      "content_sha256": "a7c0479d9a74505ea98479c381f0b336f372478c70cfe6f2d42f920bb8371090"
+    }
+  ],
+  "source_set_digest": "7b0de8aeca6fb99663b98e54248f480ae1741b13941925a46d2fa8d7cc7f393d"
+}

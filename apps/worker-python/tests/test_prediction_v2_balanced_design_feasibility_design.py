@@ -4,6 +4,7 @@ import copy
 import json
 
 import pytest
+
 from dehps.config import ROOT_DIR
 from dehps.contracts import canonical_digest
 from dehps.research_os import supervisor as supervisor_module
@@ -182,6 +183,7 @@ def _failed_live_for_recovery() -> dict:
             "prediction-v2-balanced-design-structural-evaluation-preregistration",
             "prediction-v2-balanced-design-structural-evaluation-execution",
             "prediction-v2-balanced-design-structural-evaluation-result-decision",
+            "prediction-v2-balanced-design-structural-utility-research-intake",
         }
     ]
     target = next(
@@ -222,6 +224,7 @@ def _corrected_recovery_source() -> dict:
             "prediction-v2-balanced-design-structural-evaluation-preregistration",
             "prediction-v2-balanced-design-structural-evaluation-execution",
             "prediction-v2-balanced-design-structural-evaluation-result-decision",
+            "prediction-v2-balanced-design-structural-utility-research-intake",
         }
     ]
     payload.pop("manifest_digest")

@@ -4,6 +4,13 @@ import copy
 import json
 
 import pytest
+from test_prediction_v2_balanced_design_structural_evaluation_design import (
+    _parents as _design_parents,
+)
+from test_prediction_v2_balanced_design_structural_evaluation_design import (
+    _source as _design_source,
+)
+
 from dehps.config import ROOT_DIR
 from dehps.contracts import canonical_digest
 from dehps.research_os.information_theory.measurement_system_v2.migration import (
@@ -35,15 +42,11 @@ from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_ba
 )
 from dehps.research_os.information_theory.progress import load_m4_manifest
 from dehps.research_os.supervisor import ResearchEvidenceSupervisor
-from test_prediction_v2_balanced_design_structural_evaluation_design import (
-    _parents as _design_parents,
-)
-from test_prediction_v2_balanced_design_structural_evaluation_design import (
-    _source as _design_source,
-)
 
 MANIFEST_PATH = ROOT_DIR / "configs/research-os/m4-information-theory-evidence-v1.json"
-INDEX_PATH = ROOT_DIR / "configs/research-os/m4-information-theory-artifact-index-v1.json"
+INDEX_PATH = (
+    ROOT_DIR / "configs/research-os/m4-information-theory-artifact-index-v1.json"
+)
 SOURCE_FACT_PREFIX = (
     "prediction-v2-balanced-design-structural-evaluation-preregistration-source:"
 )
@@ -70,10 +73,12 @@ def _source() -> dict:
 
 
 def _parents() -> dict[str, dict]:
-    design_run = build_prediction_v2_balanced_design_structural_evaluation_design_artifacts(
-        source_contract=_design_source(),
-        require_registered_identities=False,
-        **_design_parents(),
+    design_run = (
+        build_prediction_v2_balanced_design_structural_evaluation_design_artifacts(
+            source_contract=_design_source(),
+            require_registered_identities=False,
+            **_design_parents(),
+        )
     )
     execution = _artifact(
         {
@@ -135,10 +140,12 @@ def test_preregistration_freezes_counts_and_removes_duplicate_validation() -> No
         assert artifact["duplicate_membership_uniqueness_or_repetition_scans"] == 0
         assert artifact["repetition_scan"] == REPETITION_SCAN
 
-    rebuilt, replay = replay_prediction_v2_balanced_design_structural_evaluation_preregistration(
-        source_contract=_source(),
-        require_registered_identities=False,
-        **_parents(),
+    rebuilt, replay = (
+        replay_prediction_v2_balanced_design_structural_evaluation_preregistration(
+            source_contract=_source(),
+            require_registered_identities=False,
+            **_parents(),
+        )
     )
     assert rebuilt.artifacts == run.artifacts
     assert replay["status"] == "REPLAY_VERIFIED"
@@ -244,7 +251,9 @@ def test_manifest_index_and_supervisor_bind_singular_preregistration() -> None:
     )
     assert tasks[
         PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_RESULT_DECISION_TASK_KEY
-    ].requested_capability is None
+    ].requested_capability == (
+        "prediction_v2_balanced_design_structural_evaluation_result_decision"
+    )
     index = json.loads(INDEX_PATH.read_text(encoding="utf-8"))["artifacts"]
     assert index[source_contract["artifact_digest"]]["path"] == str(
         PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_PREREGISTRATION_SOURCE_CONTRACT_PATH
