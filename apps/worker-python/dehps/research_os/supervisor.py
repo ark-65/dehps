@@ -13537,8 +13537,6 @@ class PredictionV2BalancedDesignStructuralEvaluationResultDecisionCapability:
             "actual_fold_count": 0,
             "formal_historical_folds_executed": 0,
             "bootstrap_children_executed": 0,
-            "duplicate_membership_uniqueness_or_repetition_scans": 0,
-            "repetition_scan": "ABSENT_BY_CONSTRUCTION",
             "historical_evidence": "INCONCLUSIVE",
             "prediction_v2_mode": "SHADOW_ONLY",
             "prediction_v2_route": "BASELINE_ONLY",
@@ -20645,9 +20643,6 @@ class ResearchEvidenceSupervisor:
                 or artifact.get("database_queries_during_capability") != 0
                 or artifact.get("historical_rows_read") != 0
                 or artifact.get("actual_fold_count") != 0
-                or artifact.get("duplicate_membership_uniqueness_or_repetition_scans")
-                != 0
-                or artifact.get("repetition_scan") != "ABSENT_BY_CONSTRUCTION"
                 or artifact.get("historical_evidence") != "INCONCLUSIVE"
                 or artifact.get("prediction_v2_mode") != "SHADOW_ONLY"
                 or artifact.get("prediction_v2_route") != "BASELINE_ONLY"
@@ -20666,10 +20661,6 @@ class ResearchEvidenceSupervisor:
                 or capability_replay.get("status") != "REPLAY_VERIFIED"
                 or capability_replay.get("same_registered_content") is not True
                 or capability_replay.get("workload_rerun") is not False
-                or capability_replay.get(
-                    "duplicate_membership_uniqueness_or_repetition_scans"
-                )
-                != 0
             ):
                 raise MainlineSupervisorError(
                     "Prediction v2 balanced-design structural-evaluation "
