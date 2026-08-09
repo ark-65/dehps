@@ -14,7 +14,12 @@ from dehps.research_os.information_theory.measurement_system_v2.migration import
     build_additive_m4_v2_manifest,
 )
 from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_balanced_design_feasibility_design import (
+    ARCHIVE_ROUTE_COMPLETION_DIGEST,
     BOUNDED_NEGATIVE_OUTCOME,
+    FAILED_ERROR,
+    FAILED_EXECUTION_ID,
+    FAILED_SOURCE_CONTRACT_DIGEST,
+    FAILED_TASK_DIGEST,
     INVALID_OUTCOME,
     POSITIVE_OUTCOME,
     PREDICTION_V2_APPROVED_RESULT_BLIND_RESEARCH_CONTRACT_EVENT,
@@ -25,7 +30,9 @@ from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_ba
     PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_TASK_KEY,
     REPETITION_SCAN,
     PredictionV2BalancedDesignFeasibilityDesignError,
+    PredictionV2BalancedDesignFeasibilityRecoveryError,
     build_prediction_v2_balanced_design_feasibility_artifacts,
+    build_prediction_v2_balanced_design_feasibility_recovery_manifest,
     load_prediction_v2_balanced_design_feasibility_source_contract,
     replay_prediction_v2_balanced_design_feasibility,
     verify_prediction_v2_balanced_design_feasibility_source_bytes,
@@ -161,6 +168,53 @@ def _source() -> dict:
     return source
 
 
+def _failed_live_for_recovery() -> dict:
+    payload = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    payload.pop("manifest_digest")
+    target = next(
+        item
+        for item in payload["tasks"]
+        if item["task_key"] == PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_TASK_KEY
+    )
+    target["input_artifact_digests"][0] = FAILED_SOURCE_CONTRACT_DIGEST
+    target["input_artifact_digests"][3] = (
+        design_module.TRUNCATED_ARCHIVE_ROUTE_COMPLETION_DIGEST
+    )
+    target["status"] = "failed"
+    target["completion_classification"] = "INTEGRATED"
+    corrected_source_fact = SOURCE_FACT_PREFIX + _source()["artifact_digest"]
+    payload["facts"]["artifacts"] = [
+        fact for fact in payload["facts"]["artifacts"] if fact != corrected_source_fact
+    ]
+    live = ControlPlaneManifest.from_dict(payload)
+    live_target = next(
+        task
+        for task in live.tasks
+        if task.task_key == PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_TASK_KEY
+    )
+    assert live_target.artifact_digest == FAILED_TASK_DIGEST
+    return live.to_dict(include_digest=True)
+
+
+def _failed_events() -> list[dict[str, object]]:
+    return [
+        {
+            "task_digest": FAILED_TASK_DIGEST,
+            "execution_id": FAILED_EXECUTION_ID,
+            "event_type": "started",
+            "event_digest": "1" * 64,
+            "payload": [],
+        },
+        {
+            "task_digest": FAILED_TASK_DIGEST,
+            "execution_id": FAILED_EXECUTION_ID,
+            "event_type": "failed",
+            "event_digest": "2" * 64,
+            "payload": [["error", FAILED_ERROR]],
+        },
+    ]
+
+
 def test_design_freezes_exact_incidence_problem_without_duplicate_validation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -210,6 +264,83 @@ def test_design_freezes_exact_incidence_problem_without_duplicate_validation(
     assert replay["workload_rerun"] is False
     assert replay["candidate_blocks_regenerated"] == 0
     assert replay["repetition_scan"] == REPETITION_SCAN
+
+
+def test_registered_parent_identity_is_full_digest() -> None:
+    assert len(ARCHIVE_ROUTE_COMPLETION_DIGEST) == 64
+    assert ARCHIVE_ROUTE_COMPLETION_DIGEST == (
+        "147cd0819bca3da1a925812e4f1ac556eeefef79b1973b1027406b9d6a511887"
+    )
+
+
+def test_recovery_replaces_only_exact_zero_artifact_failed_definition() -> None:
+    corrected = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    before = _failed_live_for_recovery()
+    recovered, report = (
+        build_prediction_v2_balanced_design_feasibility_recovery_manifest(
+            live_payload=before,
+            corrected_source_payload=corrected,
+            execution_events=_failed_events(),
+            execution_artifacts=(),
+            require_registered_failure=False,
+        )
+    )
+    after = ControlPlaneManifest.from_dict(recovered)
+    target = next(
+        task
+        for task in after.tasks
+        if task.task_key == PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_TASK_KEY
+    )
+    state = after.task_state_by_digest[target.artifact_digest]
+    assert target.artifact_digest != FAILED_TASK_DIGEST
+    assert target.input_artifact_digests[3] == ARCHIVE_ROUTE_COMPLETION_DIGEST
+    assert state.declared_status is TaskStatus.DRAFT
+    assert state.completion_classification.value == "INTEGRATION_PENDING"
+    assert len(after.tasks) == 71
+    assert report["status"] == "SAFE_TO_RECOVER"
+    assert report["changed_task_count"] == 1
+    assert report["added_source_fact_count"] == 1
+    assert report["preexisting_execution_artifact_count"] == 0
+    assert report["repetition_scan"] == REPETITION_SCAN
+
+    before_tasks = {item["task_key"]: item for item in before["tasks"]}
+    after_tasks = {item["task_key"]: item for item in recovered["tasks"]}
+    for task_key, before_task in before_tasks.items():
+        if task_key == PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_TASK_KEY:
+            continue
+        assert after_tasks[task_key] == before_task
+    old_source_fact = SOURCE_FACT_PREFIX + FAILED_SOURCE_CONTRACT_DIGEST
+    new_source_fact = SOURCE_FACT_PREFIX + _source()["artifact_digest"]
+    assert old_source_fact in recovered["facts"]["artifacts"]
+    assert new_source_fact in recovered["facts"]["artifacts"]
+
+
+@pytest.mark.parametrize("tamper", ["error", "extra_event", "artifact"])
+def test_recovery_fails_closed_on_nonexact_failure_history(tamper: str) -> None:
+    events = _failed_events()
+    artifacts: tuple[dict[str, str], ...] = ()
+    if tamper == "error":
+        events[-1] = copy.deepcopy(events[-1])
+        events[-1]["payload"] = [["error", "different"]]
+    elif tamper == "extra_event":
+        events.append(
+            {
+                **events[-1],
+                "event_type": "completed",
+                "event_digest": "3" * 64,
+            }
+        )
+    else:
+        artifacts = ({"artifact_digest": "4" * 64},)
+
+    with pytest.raises(PredictionV2BalancedDesignFeasibilityRecoveryError):
+        build_prediction_v2_balanced_design_feasibility_recovery_manifest(
+            live_payload=_failed_live_for_recovery(),
+            corrected_source_payload=json.loads(MANIFEST_PATH.read_text()),
+            execution_events=events,
+            execution_artifacts=artifacts,
+            require_registered_failure=False,
+        )
 
 
 def test_design_fails_closed_on_parent_route_drift() -> None:

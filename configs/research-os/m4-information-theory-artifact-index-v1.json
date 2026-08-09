@@ -564,10 +564,18 @@
       "superseded_by_digest": "77be7563f52a8b0d91c35d7556f6ba0b6a34e10c00c24a7464b085f263f96bee"
     },
     "77be7563f52a8b0d91c35d7556f6ba0b6a34e10c00c24a7464b085f263f96bee": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "source_commit": "e76a65c0b44658374cacc09591ae2f55a32c0444",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "identity_field": "manifest_digest",
+      "supersedes_digest": "16da2465cc0b8e75f815723c031446cb26eb9c2cdb11f1a9e45bc4615d13abae",
+      "superseded_by_digest": "2cdcd95151c5809f01eca4b959b080d699ea34ac300a7350206bfe4786b8a622"
+    },
+    "2cdcd95151c5809f01eca4b959b080d699ea34ac300a7350206bfe4786b8a622": {
       "artifact_type": "research_os_control_plane_manifest",
       "path": "configs/research-os/m4-information-theory-evidence-v1.json",
       "identity_field": "manifest_digest",
-      "supersedes_digest": "16da2465cc0b8e75f815723c031446cb26eb9c2cdb11f1a9e45bc4615d13abae"
+      "supersedes_digest": "77be7563f52a8b0d91c35d7556f6ba0b6a34e10c00c24a7464b085f263f96bee"
     },
     "6fb3a1e366da129ac460599a391891a49206ccc715b6367cf344e2aa3e9f2a3d": {
       "artifact_type": "m4_v2_branch_preflight_source_contract",
@@ -720,6 +728,13 @@
       "identity_field": "artifact_digest"
     },
     "a9665143242689b02702f88f9782d5fe11a52240fed11d1c6ebfef8d5dca10c2": {
+      "artifact_type": "superseded_prediction_v2_balanced_design_feasibility_source",
+      "source_commit": "e76a65c0b44658374cacc09591ae2f55a32c0444",
+      "path_at_source": "configs/research-os/prediction-v2-balanced-design-feasibility-design-source-v1.json",
+      "identity_field": "artifact_digest",
+      "superseded_by_digest": "f055aae2ae70af5d21fbfc2a1bfa50952fca595e906cd82556b445c3299acade"
+    },
+    "f055aae2ae70af5d21fbfc2a1bfa50952fca595e906cd82556b445c3299acade": {
       "artifact_type": "prediction_v2_balanced_design_feasibility_source",
       "path": "configs/research-os/prediction-v2-balanced-design-feasibility-design-source-v1.json",
       "identity_field": "artifact_digest"
