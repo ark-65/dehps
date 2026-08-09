@@ -3737,6 +3737,14 @@
       "task_type": "prediction_v2_balanced_design_feasibility_result_decision",
       "lane": "research",
       "priority": 73,
+      "requested_capability": "prediction_v2_balanced_design_feasibility_result_decision",
+      "input_artifact_digests": [
+        "d26e55c82fbba734887a713ab5f82ccbcfffe97b22d3477c9d03aa7ed1943fb1",
+        "4e060203c9172d13987b9e4597a70d01ccbd905aa7f0b1db8a74fa2a1f31ee6d",
+        "dde85462b725ec8719a30c5879dee0ba90b4a6d97f4a78b2d08b2beadc0c1f90",
+        "da9283998bd5833b6ad66f64543c42d0a94b06b7a730891eb718e21188210e79",
+        "345590d896621145bb54c88e7d5a3c07e07d563cddf637ca7f021f08874717f6"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
@@ -3747,11 +3755,16 @@
           "dependency_type": "artifact",
           "target_key": "prediction-v2-balanced-design-feasibility-execution:COMPLETE",
           "required_status": "available"
+        },
+        {
+          "dependency_type": "external_event",
+          "target_key": "research-contract:prediction-v2-balanced-design-result-decision:approved",
+          "required_status": "available"
         }
       ],
       "metric_contract": {
-        "engineering_complete": false,
-        "engineering_increment_percent": 0,
+        "engineering_complete": true,
+        "engineering_increment_percent": 1,
         "evidence_complete": false,
         "evidence_increment_percent": 0,
         "phase": "PREDICTION-V2-BALANCED-DESIGN-FEASIBILITY-RESULT-DECISION",
@@ -3760,7 +3773,7 @@
         "mainline_integration": {
           "goal": "M4_INFORMATION_THEORY_EVIDENCE",
           "ready_condition": "the_balanced_design_feasibility_execution_is_VALIDATED_IN_MAINLINE_and_replay_verified_with_inventory_result_completion_and_mainline_artifacts_registered",
-          "runner": "pending_a_separate_approved_research_decision_capability",
+          "runner": "research_evidence_supervisor",
           "upstream_artifacts": [
             "balanced-design feasibility execution mainline artifact",
             "complete cyclic orbit inventory",
@@ -3768,16 +3781,86 @@
             "feasibility execution completion"
           ],
           "downstream_artifacts": [
-            "future balanced-design feasibility result decision"
+            "balanced-design structural result decision",
+            "fixed-certificate structural-evaluation design handoff",
+            "balanced-design result-decision completion"
           ],
           "status_projection": "unified_m4_status.measurement_system_v2.prediction_v2_balanced_design_feasibility_result_decision",
           "evidence_progress_rule": "a_verified_positive_certificate_is_structural_existence_evidence_only_and_a_bounded_or_cyclic_exhaustive_miss_never_proves_global_nonexistence_or_prediction_value",
-          "decision_consumer": "future separately approved result-blind research program",
-          "downstream_consumer": "future separately approved result-blind research program"
+          "decision_consumer": "prediction-v2-balanced-design-structural-evaluation-design",
+          "downstream_consumer": "prediction-v2-balanced-design-structural-evaluation-design"
         },
         "constructor_family": "Z33_TRANSLATION_ORBIT_EXACT_MULTICOVER_V1",
         "execution_result_required": true,
+        "approved_external_event": "research-contract:prediction-v2-balanced-design-result-decision:approved",
+        "frozen_live_outcome": "FOUND_EXACT_2_33_6_5_DESIGN",
+        "frozen_live_decision": "CYCLIC_BALANCED_DESIGN_EXISTENCE_ESTABLISHED_STRUCTURAL_ONLY",
+        "certificate_artifact_digest": "b7a0069edef9f6a2aeec3f2205a50a63ba39594ed555c3c89b108830cd3c28db",
+        "certificate_verified": true,
+        "post_hoc_rule_change": false,
+        "prediction_probability_claim": false,
         "cyclic_subspace_exhaustion_is_global_nonexistence": false,
+        "historical_evidence": "INCONCLUSIVE",
+        "prediction_v2_mode": "SHADOW_ONLY",
+        "prediction_v2_route": "BASELINE_ONLY",
+        "portfolio_activation_authorized": false,
+        "evidence_created": false,
+        "new_model_created": false,
+        "promotion_gate_opened": false,
+        "p3_authorized": false,
+        "production_action": "none"
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "prediction-v2-balanced-design-structural-evaluation-design",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "prediction_v2_balanced_design_structural_evaluation_design",
+      "lane": "research",
+      "priority": 74,
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "prediction-v2-balanced-design-feasibility-result-decision",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "prediction-v2-balanced-design-feasibility-result-decision:COMPLETE",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "engineering_complete": false,
+        "engineering_increment_percent": 0,
+        "evidence_complete": false,
+        "evidence_increment_percent": 0,
+        "phase": "PREDICTION-V2-BALANCED-DESIGN-STRUCTURAL-EVALUATION-DESIGN",
+        "scope": "design_a_separately_approved_same_budget_structural_evaluation_for_the_fixed_replay_verified_certificate",
+        "reason": "structural_existence_is_established_but_decision_usefulness_and_prediction_value_remain_unmeasured",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "the_balanced_design_result_decision_is_VALIDATED_IN_MAINLINE_and_replay_verified_with_decision_handoff_completion_and_mainline_artifacts_registered",
+          "runner": "pending_a_separate_approved_research_design_capability",
+          "upstream_artifacts": [
+            "balanced-design result-decision mainline artifact",
+            "balanced-design structural result decision",
+            "fixed-certificate structural-evaluation design handoff",
+            "balanced-design result-decision completion"
+          ],
+          "downstream_artifacts": [
+            "future same-budget structural-evaluation design"
+          ],
+          "status_projection": "unified_m4_status.measurement_system_v2.prediction_v2_balanced_design_structural_evaluation_design",
+          "evidence_progress_rule": "design_and_structural_comparison_do_not_create_prediction_Evidence_without_a_separately_preregistered_historical_or_forward_measurement",
+          "decision_consumer": "future separately approved structural-evaluation preregistration",
+          "downstream_consumer": "future separately approved structural-evaluation preregistration"
+        },
+        "fixed_certificate_artifact_digest": "b7a0069edef9f6a2aeec3f2205a50a63ba39594ed555c3c89b108830cd3c28db",
+        "same_budget_null_required": true,
+        "historical_outcomes_allowed": false,
+        "prediction_probability_claim": false,
         "historical_evidence": "INCONCLUSIVE",
         "prediction_v2_mode": "SHADOW_ONLY",
         "prediction_v2_route": "BASELINE_ONLY",
@@ -4758,6 +4841,7 @@
       "prediction-v2-balanced-design-feasibility-preregistration-source:acc843ce75ab48c68777ecee4d40f87e59be04bf98c241f139dbdfe0416521d0",
       "prediction-v2-balanced-design-feasibility-execution-source:46ee7d03cab54a3d0b6dfd210058aec8e56494f7a48e20ce43eb6c7578bb65f6",
       "prediction-v2-balanced-design-feasibility-execution-source:c54ee87e5b9d6e513945204bea0413e8d34a51206e587f3662d8123eb03b9538",
+      "prediction-v2-balanced-design-feasibility-result-decision-source:d26e55c82fbba734887a713ab5f82ccbcfffe97b22d3477c9d03aa7ed1943fb1",
       "m4-p2-9-p263-source-compatibility-fixture:1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f",
       "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
       "m4-p2-identifiability-preflight-manifest:5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3",
@@ -4780,9 +4864,10 @@
     "external_events": [
       "research-contract:prediction-v2-next-result-blind-program:approved",
       "research-contract:prediction-v2-balanced-design-feasibility-preregistration:approved",
-      "research-contract:prediction-v2-balanced-design-feasibility-execution:approved"
+      "research-contract:prediction-v2-balanced-design-feasibility-execution:approved",
+      "research-contract:prediction-v2-balanced-design-result-decision:approved"
     ],
     "authorities": []
   },
-  "manifest_digest": "4609d472c9f0ce1c3ba96762038d4df34936f166f9f4e1d21ea3c381c233641c"
+  "manifest_digest": "7f20125603c790ab48744e9d1e2edaec7005b89e661d6dac760e016e22197ede"
 }

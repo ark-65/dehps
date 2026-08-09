@@ -48,6 +48,9 @@ from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_ba
     verify_execution_source_bytes,
     verify_positive_certificate,
 )
+from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_balanced_design_feasibility_result_decision import (
+    PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION_CAPABILITY,
+)
 from dehps.research_os.information_theory.progress import (
     build_m4_status,
     load_m4_manifest,
@@ -682,7 +685,7 @@ def test_additive_migration_revises_execution_and_adds_only_result_decision() ->
     assert len(migrated["tasks"]) == len(live["tasks"]) + 1
 
 
-def test_manifest_status_and_index_bind_execution_then_stop_at_result_decision() -> (
+def test_manifest_status_and_index_bind_execution_then_handoff_to_result_decision() -> (
     None
 ):
     source = _source()
@@ -702,8 +705,10 @@ def test_manifest_status_and_index_bind_execution_then_stop_at_result_decision()
     next_task = tasks[
         PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION_TASK_KEY
     ]
-    assert next_task.requested_capability is None
-    assert next_task.input_artifact_digests == ()
+    assert next_task.requested_capability == (
+        PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION_CAPABILITY
+    )
+    assert len(next_task.input_artifact_digests) == 5
     index = json.loads(INDEX_PATH.read_text(encoding="utf-8"))["artifacts"]
     assert index[source["artifact_digest"]]["path"] == str(
         PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_EXECUTION_SOURCE_CONTRACT_PATH
@@ -747,12 +752,9 @@ def test_manifest_status_and_index_bind_execution_then_stop_at_result_decision()
     execution_status = status["prediction_v2_balanced_design_feasibility_execution"]
     assert execution_status["outcome"] == POSITIVE_OUTCOME
     assert execution_status["node_expansions"] == 1
-    assert (
-        status["prediction_v2_balanced_design_feasibility_result_decision"][
-            "requested_capability"
-        ]
-        is None
-    )
+    assert status["prediction_v2_balanced_design_feasibility_result_decision"][
+        "requested_capability"
+    ] == (PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION_CAPABILITY)
 
 
 def test_supervisor_executes_and_replays_registered_toy_proof(

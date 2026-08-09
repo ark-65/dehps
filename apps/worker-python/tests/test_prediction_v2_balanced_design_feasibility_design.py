@@ -178,6 +178,7 @@ def _failed_live_for_recovery() -> dict:
         not in {
             "prediction-v2-balanced-design-feasibility-execution",
             "prediction-v2-balanced-design-feasibility-result-decision",
+            "prediction-v2-balanced-design-structural-evaluation-design",
         }
     ]
     target = next(
@@ -214,6 +215,7 @@ def _corrected_recovery_source() -> dict:
         not in {
             "prediction-v2-balanced-design-feasibility-execution",
             "prediction-v2-balanced-design-feasibility-result-decision",
+            "prediction-v2-balanced-design-structural-evaluation-design",
         }
     ]
     payload.pop("manifest_digest")
