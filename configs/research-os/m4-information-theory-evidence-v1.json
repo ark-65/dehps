@@ -3556,6 +3556,14 @@
       "task_type": "prediction_v2_balanced_design_feasibility_preregistration",
       "lane": "research",
       "priority": 71,
+      "requested_capability": "prediction_v2_balanced_design_feasibility_preregistration",
+      "input_artifact_digests": [
+        "acc843ce75ab48c68777ecee4d40f87e59be04bf98c241f139dbdfe0416521d0",
+        "821045891f32093cb2ae3375dd24bb7582b9dc4684db03bcb165d51a76cb05a7",
+        "fedcddb8034d325177ee1f2e81ee824fa656c19387fa16129fe32312d14360d7",
+        "683400d34aa3616a9efec061e875ad992478733eaaffa495d51a7dbedc70473b",
+        "8feb31267be4790ebd473547ffdeaa93cb1994d031ed157356a981ba8826411d"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
@@ -3566,11 +3574,16 @@
           "dependency_type": "artifact",
           "target_key": "prediction-v2-balanced-design-feasibility-design:COMPLETE",
           "required_status": "available"
+        },
+        {
+          "dependency_type": "external_event",
+          "target_key": "research-contract:prediction-v2-balanced-design-feasibility-preregistration:approved",
+          "required_status": "available"
         }
       ],
       "metric_contract": {
-        "engineering_complete": false,
-        "engineering_increment_percent": 0,
+        "engineering_complete": true,
+        "engineering_increment_percent": 1,
         "evidence_complete": false,
         "evidence_increment_percent": 0,
         "phase": "PREDICTION-V2-BALANCED-DESIGN-FEASIBILITY-PREREGISTRATION",
@@ -3578,30 +3591,114 @@
         "reason": "exact_integer_incidence_conditions_are_necessary_but_not_an_existence_proof_and_every_search_restriction_must_be_declared_before_results",
         "mainline_integration": {
           "goal": "M4_INFORMATION_THEORY_EVIDENCE",
-          "ready_condition": "the_balanced_design_feasibility_design_is_VALIDATED_IN_MAINLINE_and_replay_verified_with_all_three_children_registered",
-          "runner": "pending_a_separate_result_blind_preregistration_contract",
+          "ready_condition": "the_balanced_design_feasibility_design_is_VALIDATED_IN_MAINLINE_and_replay_verified_with_all_three_children_registered_and_Research_Request_417_is_approved",
+          "runner": "research_evidence_supervisor",
           "upstream_artifacts": [
             "balanced-design feasibility mainline execution",
             "balanced-design feasibility specification",
             "feasibility-preregistration handoff",
-            "balanced-design feasibility-design completion"
+            "balanced-design feasibility-design completion",
+            "approved result-blind Research Request 417"
           ],
           "downstream_artifacts": [
-            "future frozen feasibility execution contract"
+            "frozen cyclic feasibility preregistration",
+            "feasibility execution handoff",
+            "feasibility preregistration completion"
           ],
           "status_projection": "unified_m4_status.measurement_system_v2.prediction_v2_balanced_design_feasibility_preregistration",
           "evidence_progress_rule": "preregistration_may_only_freeze_a_bounded_proof_carrying_search_and_cannot_create_prediction_Evidence_or_an_existence_claim",
-          "decision_consumer": "future balanced-design feasibility execution",
-          "downstream_consumer": "future balanced-design feasibility execution"
+          "decision_consumer": "prediction-v2-balanced-design-feasibility-execution",
+          "downstream_consumer": "prediction-v2-balanced-design-feasibility-execution"
         },
+        "approved_external_event": "research-contract:prediction-v2-balanced-design-feasibility-preregistration:approved",
+        "constructor_family": "Z33_TRANSLATION_ORBIT_EXACT_MULTICOVER_V1",
         "point_count": 33,
         "block_size": 6,
         "block_count": 176,
         "point_replication_target": 32,
         "pair_replication_target": 5,
+        "legal_block_count": 1107568,
+        "full_orbit_count": 33561,
+        "short_orbit_count": 5,
+        "allowed_orbit_count_profiles": [
+          "5_FULL_1_SHORT",
+          "4_FULL_4_SHORT"
+        ],
+        "representation_scope": "ALL_AND_ONLY_Z33_TRANSLATION_INVARIANT_SIMPLE_2_DESIGN_CANDIDATES",
+        "other_automorphism_restrictions": "NONE",
+        "selection_order": "STRICTLY_INCREASING_ORBIT_REPRESENTATIVE_ID",
+        "certificate_encoding": "FIRST_COMBINADIC_ID_PLUS_175_GAP_MINUS_ONE_UNSIGNED_INTEGERS",
+        "maximum_multicover_node_expansions": 100000000,
+        "checkpoint_interval_node_expansions": 1000000,
         "positive_outcome": "FOUND_EXACT_2_33_6_5_DESIGN",
         "bounded_negative_outcome": "NOT_FOUND_WITHIN_FROZEN_BUDGET",
         "invalid_outcome": "INVALID_EXECUTION_NO_DECISION",
+        "execution_authorized": false,
+        "result_blind": true,
+        "legal_block_ids_visited": 0,
+        "orbit_candidates_enumerated": 0,
+        "solver_nodes_executed": 0,
+        "certificate_blocks_generated": 0,
+        "separate_duplicate_membership_or_uniqueness_scan": false,
+        "repetition_scan": "ABSENT_BY_CONSTRUCTION",
+        "historical_evidence": "INCONCLUSIVE",
+        "prediction_v2_mode": "SHADOW_ONLY",
+        "prediction_v2_route": "BASELINE_ONLY",
+        "portfolio_activation_authorized": false,
+        "evidence_created": false,
+        "new_model_created": false,
+        "promotion_gate_opened": false,
+        "p3_authorized": false,
+        "production_action": "none"
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "prediction-v2-balanced-design-feasibility-execution",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "prediction_v2_balanced_design_feasibility_execution",
+      "lane": "research",
+      "priority": 72,
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "prediction-v2-balanced-design-feasibility-preregistration",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "prediction-v2-balanced-design-feasibility-preregistration:COMPLETE",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "engineering_complete": false,
+        "engineering_increment_percent": 0,
+        "evidence_complete": false,
+        "evidence_increment_percent": 0,
+        "phase": "PREDICTION-V2-BALANCED-DESIGN-FEASIBILITY-EXECUTION",
+        "scope": "execute_the_frozen_complete_Z33_translation_orbit_inventory_exact_multicover_and_proof_carrying_integer_verifier",
+        "reason": "the_replay_verified_preregistration_must_be_consumed_without_changing_scope_branch_order_budget_checkpoint_or_outcome_semantics",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "the_cyclic_feasibility_preregistration_is_VALIDATED_IN_MAINLINE_and_replay_verified_with_all_three_children_registered",
+          "runner": "pending_a_separate_approved_engineering_execution_capability",
+          "upstream_artifacts": [
+            "cyclic feasibility preregistration mainline execution",
+            "frozen cyclic feasibility preregistration",
+            "feasibility execution handoff",
+            "feasibility preregistration completion"
+          ],
+          "downstream_artifacts": [
+            "future bounded feasibility execution result and optional exact certificate"
+          ],
+          "status_projection": "unified_m4_status.measurement_system_v2.prediction_v2_balanced_design_feasibility_execution",
+          "evidence_progress_rule": "a_positive_exact_certificate_establishes_design_existence_but_does_not_create_prediction_Evidence_while_a_bounded_or_cyclic_exhaustive_miss_is_not_global_nonexistence",
+          "decision_consumer": "future balanced-design feasibility result decision",
+          "downstream_consumer": "future balanced-design feasibility result decision"
+        },
+        "constructor_family": "Z33_TRANSLATION_ORBIT_EXACT_MULTICOVER_V1",
         "execution_authorized": false,
         "result_blind": true,
         "repetition_scan": "ABSENT_BY_CONSTRUCTION",
@@ -4582,6 +4679,7 @@
       "prediction-v2-structural-baseline-comparison-route-decision-source:74fa955fd13f4104195ce21d2e79669b96991a3b976121989e8b770ee063192e",
       "prediction-v2-balanced-design-feasibility-source:a9665143242689b02702f88f9782d5fe11a52240fed11d1c6ebfef8d5dca10c2",
       "prediction-v2-balanced-design-feasibility-source:f055aae2ae70af5d21fbfc2a1bfa50952fca595e906cd82556b445c3299acade",
+      "prediction-v2-balanced-design-feasibility-preregistration-source:acc843ce75ab48c68777ecee4d40f87e59be04bf98c241f139dbdfe0416521d0",
       "m4-p2-9-p263-source-compatibility-fixture:1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f",
       "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
       "m4-p2-identifiability-preflight-manifest:5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3",
@@ -4602,9 +4700,10 @@
       "research-hypothesis:seven-red-compound-top10-walk-forward-v1:rejected"
     ],
     "external_events": [
-      "research-contract:prediction-v2-next-result-blind-program:approved"
+      "research-contract:prediction-v2-next-result-blind-program:approved",
+      "research-contract:prediction-v2-balanced-design-feasibility-preregistration:approved"
     ],
     "authorities": []
   },
-  "manifest_digest": "2cdcd95151c5809f01eca4b959b080d699ea34ac300a7350206bfe4786b8a622"
+  "manifest_digest": "757f33766ab4e29ada0bc67c7864228345c05f1fb0d3963b213eda34b8e4ae9b"
 }

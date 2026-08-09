@@ -171,6 +171,11 @@ def _source() -> dict:
 def _failed_live_for_recovery() -> dict:
     payload = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     payload.pop("manifest_digest")
+    payload["tasks"] = [
+        item
+        for item in payload["tasks"]
+        if item["task_key"] != "prediction-v2-balanced-design-feasibility-execution"
+    ]
     target = next(
         item
         for item in payload["tasks"]
@@ -194,6 +199,17 @@ def _failed_live_for_recovery() -> dict:
     )
     assert live_target.artifact_digest == FAILED_TASK_DIGEST
     return live.to_dict(include_digest=True)
+
+
+def _corrected_recovery_source() -> dict:
+    payload = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    payload["tasks"] = [
+        item
+        for item in payload["tasks"]
+        if item["task_key"] != "prediction-v2-balanced-design-feasibility-execution"
+    ]
+    payload.pop("manifest_digest")
+    return ControlPlaneManifest.from_dict(payload).to_dict(include_digest=True)
 
 
 def _failed_events() -> list[dict[str, object]]:
@@ -274,7 +290,7 @@ def test_registered_parent_identity_is_full_digest() -> None:
 
 
 def test_recovery_replaces_only_exact_zero_artifact_failed_definition() -> None:
-    corrected = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    corrected = _corrected_recovery_source()
     before = _failed_live_for_recovery()
     recovered, report = (
         build_prediction_v2_balanced_design_feasibility_recovery_manifest(
@@ -336,7 +352,7 @@ def test_recovery_fails_closed_on_nonexact_failure_history(tamper: str) -> None:
     with pytest.raises(PredictionV2BalancedDesignFeasibilityRecoveryError):
         build_prediction_v2_balanced_design_feasibility_recovery_manifest(
             live_payload=_failed_live_for_recovery(),
-            corrected_source_payload=json.loads(MANIFEST_PATH.read_text()),
+            corrected_source_payload=_corrected_recovery_source(),
             execution_events=events,
             execution_artifacts=artifacts,
             require_registered_failure=False,
@@ -464,7 +480,9 @@ def test_status_projects_design_and_ready_preregistration() -> None:
         "prediction_v2_balanced_design_feasibility_preregistration"
     ]
     assert preregistration["resolver_status"] == "ready"
-    assert preregistration["requested_capability"] is None
+    assert preregistration["requested_capability"] == (
+        "prediction_v2_balanced_design_feasibility_preregistration"
+    )
 
 
 def test_manifest_index_and_supervisor_bind_the_singular_capability() -> None:
