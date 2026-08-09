@@ -1,0 +1,157 @@
+{
+  "schema_version": "dehps-prediction-v2-balanced-design-feasibility-preregistration-source.v1",
+  "artifact_type": "prediction_v2_balanced_design_feasibility_preregistration_source",
+  "artifact_digest": "acc843ce75ab48c68777ecee4d40f87e59be04bf98c241f139dbdfe0416521d0",
+  "contract_key": "PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_SOURCE",
+  "semantic_version": "1.0.0",
+  "status": "FROZEN_SOURCE_INTEGRATION_PENDING",
+  "research_request_key": "research-prediction-v2-balanced-design-preregistration-round-90-20260809",
+  "research_request_id": 417,
+  "research_execution_id": 338,
+  "engineering_request_key": "engineering-prediction-v2-balanced-design-preregistration-round-91-20260809",
+  "engineering_request_id": 418,
+  "engineering_execution_id": 339,
+  "result_blind": true,
+  "legal_block_ids_visited": 0,
+  "orbit_candidates_enumerated": 0,
+  "solver_nodes_executed": 0,
+  "certificate_blocks_generated": 0,
+  "database_queries": 0,
+  "historical_rows_read": 0,
+  "prior_scores_read": 0,
+  "prior_predictions_read": 0,
+  "prior_rankings_read": 0,
+  "registered_children": 3,
+  "new_evidence_created": false,
+  "new_model_created": false,
+  "production_action": "none",
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/prediction_v2_balanced_design_feasibility_preregistration.py",
+      "content_sha256": "a3d49d8c22e84d830d18b0d6ed0ef747565eff00973ad45fd6b8ff9ab270e08d"
+    }
+  ],
+  "source_set_digest": "dee087747520d0b35e8d705bc584623ee8a9cbe0934a4a530a6c1801941038a1",
+  "frozen_contract_digest": "535c323ce334d0eb00840ee8211d162d33031a658821b418d57c0e1da3d71724",
+  "frozen_contract": {
+    "task_key": "prediction-v2-balanced-design-feasibility-preregistration",
+    "capability": "prediction_v2_balanced_design_feasibility_preregistration",
+    "completion_fact": "prediction-v2-balanced-design-feasibility-preregistration:COMPLETE",
+    "approved_external_event": "research-contract:prediction-v2-balanced-design-feasibility-preregistration:approved",
+    "next_consumer": "prediction-v2-balanced-design-feasibility-execution",
+    "registered_input_digests": [
+      "821045891f32093cb2ae3375dd24bb7582b9dc4684db03bcb165d51a76cb05a7",
+      "fedcddb8034d325177ee1f2e81ee824fa656c19387fa16129fe32312d14360d7",
+      "683400d34aa3616a9efec061e875ad992478733eaaffa495d51a7dbedc70473b",
+      "8feb31267be4790ebd473547ffdeaa93cb1994d031ed157356a981ba8826411d"
+    ],
+    "constructor_family": "Z33_TRANSLATION_ORBIT_EXACT_MULTICOVER_V1",
+    "exact_parameters": {
+      "point_count": 33,
+      "block_size": 6,
+      "block_count": 176,
+      "point_replication_target": 32,
+      "pair_count": 528,
+      "pair_replication_target": 5
+    },
+    "orbit_inventory": {
+      "legal_block_count": 1107568,
+      "short_orbit_count": 5,
+      "blocks_per_short_orbit": 11,
+      "full_orbit_count": 33561,
+      "blocks_per_full_orbit": 33,
+      "inventory_identity": "55 + 33561*33 = 1107568"
+    },
+    "representation_scope_and_symmetry_breaks": {
+      "scope": "ALL_AND_ONLY_Z33_TRANSLATION_INVARIANT_SIMPLE_2_DESIGN_CANDIDATES",
+      "point_labels": "Z_33",
+      "short_orbit_subgroup": [0, 11, 22],
+      "short_orbit_representatives": "UNION_OF_TWO_SUBGROUP_COSETS_WITH_QUOTIENT_DISTANCE_1_THROUGH_5",
+      "canonical_full_orbit_representative": "MINIMUM_COMBINADIC_ID_OVER_33_TRANSLATES",
+      "pair_coordinates": "UNDIRECTED_CIRCULAR_DISTANCE_1_THROUGH_16",
+      "allowed_orbit_count_profiles": [
+        {"full_orbits": 5, "short_orbits": 1},
+        {"full_orbits": 4, "short_orbits": 4}
+      ],
+      "other_automorphism_restrictions": "NONE"
+    },
+    "exact_multicover_equation": "For each circular distance d in 1..16, sum(full_base_pair_count[d]) + sum(short_base_pair_count[d]/3) = 5.",
+    "canonical_variable_and_branch_order": {
+      "profile_order": ["5_FULL_1_SHORT", "4_FULL_4_SHORT"],
+      "short_subset_order": "LEXICOGRAPHIC_BY_QUOTIENT_DISTANCE",
+      "signature_grouping": "IDENTICAL_16_INTEGER_VECTORS_WITH_EXACT_MULTIPLICITY",
+      "branch_coordinate": "FEWEST_COMPATIBLE_SIGNATURES_THEN_LOWEST_DISTANCE",
+      "candidate_order": "LEXICOGRAPHIC_SIGNATURE_THEN_MINIMUM_REPRESENTATIVE_ID",
+      "selection_order": "STRICTLY_INCREASING_ORBIT_REPRESENTATIVE_ID",
+      "full_signature_filter": "REJECT_IF_ANY_DISTANCE_COMPONENT_EXCEEDS_CURRENT_NONNEGATIVE_RESIDUAL",
+      "seed_policy": "NONE"
+    },
+    "hardware_independent_work_budget": {
+      "legal_block_ids_visited": 1107568,
+      "maximum_full_orbit_representatives": 33561,
+      "maximum_short_orbit_representatives": 5,
+      "maximum_multicover_node_expansions": 100000000,
+      "checkpoint_interval_node_expansions": 1000000,
+      "maximum_resident_bytes": 4294967296,
+      "wall_clock_is_not_a_decision_boundary": true
+    },
+    "checkpoint_contract": {
+      "append_only": true,
+      "binds_source_contract_digest": true,
+      "binds_preregistration_digest": true,
+      "binds_profile_short_subset_branch_stack_residual_and_node_count": true,
+      "resume_from_latest_valid_checkpoint_only": true,
+      "completed_branch_skip": true,
+      "changed_identity_outcome": "INVALID_EXECUTION_NO_DECISION"
+    },
+    "positive_certificate_format": {
+      "block_count": 176,
+      "encoding": "FIRST_COMBINADIC_ID_PLUS_175_GAP_MINUS_ONE_UNSIGNED_INTEGERS",
+      "strict_order_is_unrepresentable_to_violate": true,
+      "includes_selected_orbit_representatives": true,
+      "includes_profile_and_certificate_sha256": true
+    },
+    "independent_exact_integer_verifier": {
+      "reconstruct_orbit_certificate": true,
+      "decode_exactly_176_legal_combinadic_ids": true,
+      "point_counter_width": "uint16",
+      "pair_counter_width": "uint16",
+      "required_point_counts": "33_VALUES_ALL_32",
+      "required_pair_counts": "528_VALUES_ALL_5",
+      "floating_point_operations": 0,
+      "separate_duplicate_membership_or_uniqueness_scan": false,
+      "repetition_scan": "ABSENT_BY_CONSTRUCTION"
+    },
+    "three_valued_outcome_rule": {
+      "positive": "FOUND_EXACT_2_33_6_5_DESIGN",
+      "bounded_negative": "NOT_FOUND_WITHIN_FROZEN_BUDGET",
+      "invalid": "INVALID_EXECUTION_NO_DECISION",
+      "bounded_negative_is_global_nonexistence": false,
+      "cyclic_subspace_exhaustion_is_global_nonexistence": false
+    },
+    "result_blind": true,
+    "registered_child_count": 3,
+    "registered_total_with_mainline_execution": 4,
+    "legal_block_ids_visited": 0,
+    "orbit_candidates_enumerated": 0,
+    "solver_nodes_executed": 0,
+    "certificate_blocks_generated": 0,
+    "checkpoints_written": 0,
+    "database_queries": 0,
+    "historical_rows_read": 0,
+    "prior_scores_read": 0,
+    "prior_predictions_read": 0,
+    "prior_rankings_read": 0,
+    "new_evidence_created": false,
+    "new_model_created": false,
+    "candidate_expert_authorized": false,
+    "promotion_gate_opened": false,
+    "p3_authorized": false,
+    "historical_evidence": "INCONCLUSIVE",
+    "prediction_v2_mode": "SHADOW_ONLY",
+    "prediction_v2_route": "BASELINE_ONLY",
+    "legacy_route_fallback": false,
+    "production_action": "none",
+    "repetition_scan": "ABSENT_BY_CONSTRUCTION"
+  }
+}

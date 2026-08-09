@@ -229,6 +229,13 @@ PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_COMPLETION_FACT = (
 PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_TASK_KEY = (
     "prediction-v2-balanced-design-feasibility-preregistration"
 )
+PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_COMPLETION_FACT = (
+    "prediction-v2-balanced-design-feasibility-preregistration:COMPLETE"
+)
+PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_CONTRACT_EVENT = "research-contract:prediction-v2-balanced-design-feasibility-preregistration:approved"
+PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_EXECUTION_TASK_KEY = (
+    "prediction-v2-balanced-design-feasibility-execution"
+)
 M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
 M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = "m4-v2-p2-6-1-marginal-decision-replay"
 M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
@@ -855,6 +862,19 @@ def build_m4_status(
     )
     prediction_v2_balanced_design_preregistration_resolution = resolutions.get(
         PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_TASK_KEY
+    )
+    prediction_v2_balanced_design_preregistration_task = tasks.get(
+        PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_TASK_KEY
+    )
+    prediction_v2_balanced_design_preregistration = (
+        measurement_v2_execution
+        if measurement_v2_execution is not None
+        and measurement_v2_execution.get("execution_task_key")
+        == PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_TASK_KEY
+        else None
+    )
+    prediction_v2_balanced_design_execution_resolution = resolutions.get(
+        PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_EXECUTION_TASK_KEY
     )
     durable_gate_evidence_facts = tuple(
         fact
@@ -1589,7 +1609,10 @@ def build_m4_status(
         "measurement_system_v2": (
             {
                 "phase": (
-                    "PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION"
+                    "PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_EXECUTION"
+                    if PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION"
                     if PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_DESIGN"
@@ -4625,6 +4648,76 @@ def build_m4_status(
                         is None
                         else prediction_v2_balanced_design_preregistration_resolution.reason_code
                     ),
+                    "requested_capability": (
+                        None
+                        if prediction_v2_balanced_design_preregistration_task is None
+                        else prediction_v2_balanced_design_preregistration_task.requested_capability
+                    ),
+                    "approved_contract_event": (
+                        PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_CONTRACT_EVENT
+                    ),
+                    "contract_event_available": (
+                        PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_CONTRACT_EVENT
+                        in manifest.facts.external_events
+                    ),
+                    "completion_fact_available": (
+                        PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_COMPLETION_FACT
+                        in manifest.facts.artifacts
+                    ),
+                    "preregistration_status": (
+                        "FROZEN_NOT_EXECUTED"
+                        if prediction_v2_balanced_design_preregistration is None
+                        else prediction_v2_balanced_design_preregistration.get(
+                            "preregistration_status", "FROZEN_NOT_EXECUTED"
+                        )
+                    ),
+                    "constructor_family": "Z33_TRANSLATION_ORBIT_EXACT_MULTICOVER_V1",
+                    "orbit_inventory": {
+                        "legal_block_count": 1_107_568,
+                        "full_orbit_count": 33_561,
+                        "short_orbit_count": 5,
+                    },
+                    "allowed_orbit_count_profiles": [
+                        "5_FULL_1_SHORT",
+                        "4_FULL_4_SHORT",
+                    ],
+                    "representation_scope": (
+                        "ALL_AND_ONLY_Z33_TRANSLATION_INVARIANT_"
+                        "SIMPLE_2_DESIGN_CANDIDATES"
+                    ),
+                    "selection_order": ("STRICTLY_INCREASING_ORBIT_REPRESENTATIVE_ID"),
+                    "legal_block_ids_visited": 0,
+                    "orbit_candidates_enumerated": 0,
+                    "solver_nodes_executed": 0,
+                    "certificate_blocks_generated": 0,
+                    "execution_authorized": False,
+                    "repetition_scan": "ABSENT_BY_CONSTRUCTION",
+                    "historical_evidence": "INCONCLUSIVE",
+                    "prediction_v2_mode": "SHADOW_ONLY",
+                    "prediction_v2_route": "BASELINE_ONLY",
+                    "evidence_created": False,
+                    "new_model_created": False,
+                    "promotion_gate_opened": False,
+                    "p3_authorized": False,
+                    "next_consumer": (
+                        PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_EXECUTION_TASK_KEY
+                    ),
+                    "production_action": "none",
+                },
+                "prediction_v2_balanced_design_feasibility_execution": {
+                    "task_key": (
+                        PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_EXECUTION_TASK_KEY
+                    ),
+                    "resolver_status": (
+                        None
+                        if prediction_v2_balanced_design_execution_resolution is None
+                        else prediction_v2_balanced_design_execution_resolution.status.value
+                    ),
+                    "resolver_reason_code": (
+                        None
+                        if prediction_v2_balanced_design_execution_resolution is None
+                        else prediction_v2_balanced_design_execution_resolution.reason_code
+                    ),
                     "requested_capability": None,
                     "execution_authorized": False,
                     "repetition_scan": "ABSENT_BY_CONSTRUCTION",
@@ -4641,7 +4734,10 @@ def build_m4_status(
                     ].completion_classification.value
                 ),
                 "live_mainline_status": (
-                    "PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_DESIGN_VALIDATED_IN_MAINLINE"
+                    "PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_VALIDATED_IN_MAINLINE"
+                    if PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_DESIGN_VALIDATED_IN_MAINLINE"
                     if PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_VALIDATED_IN_MAINLINE"
@@ -4841,7 +4937,10 @@ def build_m4_status(
                     ),
                 },
                 "next_consumer": (
-                    PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_TASK_KEY
+                    PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_EXECUTION_TASK_KEY
+                    if PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_TASK_KEY
                     if PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_INTAKE_TASK_KEY

@@ -401,6 +401,31 @@ from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_ba
 from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_balanced_design_feasibility_design import (
     REPETITION_SCAN as PREDICTION_V2_BALANCED_DESIGN_REPETITION_SCAN,
 )
+from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_balanced_design_feasibility_preregistration import (
+    BOUNDED_NEGATIVE_OUTCOME as PREDICTION_V2_BALANCED_DESIGN_PREREGISTRATION_BOUNDED_NEGATIVE_OUTCOME,
+)
+from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_balanced_design_feasibility_preregistration import (
+    CONSTRUCTOR_FAMILY as PREDICTION_V2_BALANCED_DESIGN_CONSTRUCTOR_FAMILY,
+)
+from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_balanced_design_feasibility_preregistration import (
+    INVALID_OUTCOME as PREDICTION_V2_BALANCED_DESIGN_PREREGISTRATION_INVALID_OUTCOME,
+)
+from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_balanced_design_feasibility_preregistration import (
+    POSITIVE_OUTCOME as PREDICTION_V2_BALANCED_DESIGN_PREREGISTRATION_POSITIVE_OUTCOME,
+)
+from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_balanced_design_feasibility_preregistration import (
+    PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_EXECUTION_TASK_KEY,
+    PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_CAPABILITY,
+    PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_COMPLETION_FACT,
+    PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_SOURCE_CONTRACT_PATH,
+    build_prediction_v2_balanced_design_feasibility_preregistration_artifacts,
+    load_prediction_v2_balanced_design_feasibility_preregistration_source_contract,
+    replay_prediction_v2_balanced_design_feasibility_preregistration,
+    verify_prediction_v2_balanced_design_feasibility_preregistration_source_bytes,
+)
+from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_balanced_design_feasibility_preregistration import (
+    REPETITION_SCAN as PREDICTION_V2_BALANCED_DESIGN_PREREGISTRATION_REPETITION_SCAN,
+)
 from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_forward_evidence_or_pivot_planner import (
     PREDICTION_RESEARCH_DISPOSITION,
     PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_CAPABILITY,
@@ -10935,16 +10960,12 @@ class PredictionV2StructuralBaselineComparisonRouteDecisionCapability:
         result_index = _load_registered_type(
             root_dir=self.root_dir,
             registrations=registrations,
-            artifact_type=(
-                "prediction_v2_structural_baseline_comparison_result_index"
-            ),
+            artifact_type=("prediction_v2_structural_baseline_comparison_result_index"),
         )
         gate_outcome = _load_registered_type(
             root_dir=self.root_dir,
             registrations=registrations,
-            artifact_type=(
-                "prediction_v2_structural_baseline_comparison_gate_outcome"
-            ),
+            artifact_type=("prediction_v2_structural_baseline_comparison_gate_outcome"),
         )
         execution_completion = _load_registered_type(
             root_dir=self.root_dir,
@@ -10965,12 +10986,14 @@ class PredictionV2StructuralBaselineComparisonRouteDecisionCapability:
                 "Prediction v2 structural baseline-comparison route decision "
                 "input identities changed"
             )
-        run = build_prediction_v2_structural_baseline_comparison_route_decision_artifacts(
-            source_contract=source_contract,
-            comparison_execution=comparison_execution,
-            result_index=result_index,
-            gate_outcome=gate_outcome,
-            execution_completion=execution_completion,
+        run = (
+            build_prediction_v2_structural_baseline_comparison_route_decision_artifacts(
+                source_contract=source_contract,
+                comparison_execution=comparison_execution,
+                result_index=result_index,
+                gate_outcome=gate_outcome,
+                execution_completion=execution_completion,
+            )
         )
         task_dir = (
             self.root_dir
@@ -11026,21 +11049,13 @@ class PredictionV2StructuralBaselineComparisonRouteDecisionCapability:
             "structural_baseline_comparison_execution_digest": (
                 comparison_execution["artifact_digest"]
             ),
-            "structural_baseline_result_index_digest": result_index[
-                "artifact_digest"
-            ],
-            "structural_baseline_gate_outcome_digest": gate_outcome[
-                "artifact_digest"
-            ],
+            "structural_baseline_result_index_digest": result_index["artifact_digest"],
+            "structural_baseline_gate_outcome_digest": gate_outcome["artifact_digest"],
             "structural_baseline_execution_completion_digest": (
                 execution_completion["artifact_digest"]
             ),
-            "structural_baseline_route_decision_digest": decision[
-                "artifact_digest"
-            ],
-            "result_blind_research_intake_handoff_digest": handoff[
-                "artifact_digest"
-            ],
+            "structural_baseline_route_decision_digest": decision["artifact_digest"],
+            "result_blind_research_intake_handoff_digest": handoff["artifact_digest"],
             "structural_baseline_route_completion_digest": completion[
                 "artifact_digest"
             ],
@@ -11190,8 +11205,7 @@ class PredictionV2BalancedDesignFeasibilityDesignCapability:
             root_dir=self.root_dir,
             registrations=route_registrations,
             artifact_type=(
-                "prediction_v2_structural_baseline_comparison_"
-                "route_decision_completion"
+                "prediction_v2_structural_baseline_comparison_route_decision_completion"
             ),
         )
         expected_inputs = (
@@ -11270,9 +11284,7 @@ class PredictionV2BalancedDesignFeasibilityDesignCapability:
             "archive_route_completion_digest": archive_route_completion[
                 "artifact_digest"
             ],
-            "feasibility_specification_digest": run.specification[
-                "artifact_digest"
-            ],
+            "feasibility_specification_digest": run.specification["artifact_digest"],
             "preregistration_handoff_digest": run.preregistration_handoff[
                 "artifact_digest"
             ],
@@ -11358,6 +11370,253 @@ class PredictionV2BalancedDesignFeasibilityDesignCapability:
             registrations=output_registrations,
             completion_facts=(
                 PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_COMPLETION_FACT,
+            ),
+        )
+
+
+class PredictionV2BalancedDesignFeasibilityPreregistrationCapability:
+    def __init__(
+        self,
+        *,
+        repository: PostgresResearchOSRepository,
+        root_dir: Path = ROOT_DIR,
+    ) -> None:
+        self.repository = repository
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key
+            != PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_TASK_KEY
+            or task.requested_capability
+            != PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "Prediction v2 balanced-design preregistration received the wrong task"
+            )
+        source_contract = load_prediction_v2_balanced_design_feasibility_preregistration_source_contract(
+            self.root_dir
+            / PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_SOURCE_CONTRACT_PATH
+        )
+        verify_prediction_v2_balanced_design_feasibility_preregistration_source_bytes(
+            root_dir=self.root_dir,
+            contract=source_contract,
+        )
+        _, design_execution, design_registrations = _load_single_completed_execution(
+            repository=self.repository,
+            root_dir=self.root_dir,
+            control_plane_key=control_plane_key,
+            task_key=PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_TASK_KEY,
+        )
+        feasibility_specification = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=design_registrations,
+            artifact_type="prediction_v2_balanced_design_feasibility_specification",
+        )
+        feasibility_preregistration_handoff = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=design_registrations,
+            artifact_type=(
+                "prediction_v2_balanced_design_feasibility_preregistration_handoff"
+            ),
+        )
+        feasibility_completion = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=design_registrations,
+            artifact_type="prediction_v2_balanced_design_feasibility_completion",
+        )
+        expected_inputs = (
+            str(source_contract["artifact_digest"]),
+            str(feasibility_specification["artifact_digest"]),
+            str(feasibility_preregistration_handoff["artifact_digest"]),
+            str(feasibility_completion["artifact_digest"]),
+            str(design_execution["artifact_digest"]),
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "Prediction v2 balanced-design preregistration input identities changed"
+            )
+        run = build_prediction_v2_balanced_design_feasibility_preregistration_artifacts(
+            source_contract=source_contract,
+            feasibility_specification=feasibility_specification,
+            feasibility_preregistration_handoff=feasibility_preregistration_handoff,
+            feasibility_completion=feasibility_completion,
+            feasibility_mainline_execution=design_execution,
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        child_paths = (
+            task_dir
+            / "artifacts/preregistration"
+            / str(run.preregistration["artifact_digest"])
+            / "preregistration.json",
+            task_dir
+            / "artifacts/execution-handoff"
+            / str(run.execution_handoff["artifact_digest"])
+            / "execution-handoff.json",
+            task_dir
+            / "artifacts/completion"
+            / str(run.completion["artifact_digest"])
+            / "completion.json",
+        )
+        child_payloads = tuple(zip(child_paths, run.artifacts, strict=True))
+        for path, payload in child_payloads:
+            _persist_immutable(path, payload)
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "prediction_v2_balanced_design_preregistration_source_contract_digest": (
+                source_contract["artifact_digest"]
+            ),
+            "prediction_v2_balanced_design_preregistration_source_set_digest": (
+                source_contract["source_set_digest"]
+            ),
+            "research_request_key": source_contract["research_request_key"],
+            "research_request_id": source_contract["research_request_id"],
+            "research_execution_id": source_contract["research_execution_id"],
+            "engineering_request_key": source_contract["engineering_request_key"],
+            "engineering_request_id": source_contract["engineering_request_id"],
+            "engineering_execution_id": source_contract["engineering_execution_id"],
+            "feasibility_design_mainline_execution_digest": design_execution[
+                "artifact_digest"
+            ],
+            "feasibility_specification_digest": feasibility_specification[
+                "artifact_digest"
+            ],
+            "feasibility_preregistration_handoff_digest": (
+                feasibility_preregistration_handoff["artifact_digest"]
+            ),
+            "feasibility_completion_digest": feasibility_completion["artifact_digest"],
+            "cyclic_feasibility_preregistration_digest": run.preregistration[
+                "artifact_digest"
+            ],
+            "feasibility_execution_handoff_digest": run.execution_handoff[
+                "artifact_digest"
+            ],
+            "preregistration_completion_digest": run.completion["artifact_digest"],
+            "preregistration_status": "FROZEN_NOT_EXECUTED",
+            "constructor_family": PREDICTION_V2_BALANCED_DESIGN_CONSTRUCTOR_FAMILY,
+            "point_count": 33,
+            "block_size": 6,
+            "block_count": 176,
+            "point_replication_target": 32,
+            "pair_count": 528,
+            "pair_replication_target": 5,
+            "legal_block_count": 1_107_568,
+            "full_orbit_count": 33_561,
+            "short_orbit_count": 5,
+            "allowed_orbit_count_profiles": [
+                "5_FULL_1_SHORT",
+                "4_FULL_4_SHORT",
+            ],
+            "positive_outcome": (
+                PREDICTION_V2_BALANCED_DESIGN_PREREGISTRATION_POSITIVE_OUTCOME
+            ),
+            "bounded_negative_outcome": (
+                PREDICTION_V2_BALANCED_DESIGN_PREREGISTRATION_BOUNDED_NEGATIVE_OUTCOME
+            ),
+            "invalid_outcome": (
+                PREDICTION_V2_BALANCED_DESIGN_PREREGISTRATION_INVALID_OUTCOME
+            ),
+            "bounded_negative_is_global_nonexistence": False,
+            "cyclic_subspace_exhaustion_is_global_nonexistence": False,
+            "existence_established": False,
+            "nonexistence_established": False,
+            "execution_authorized": False,
+            "result_blind": True,
+            "legal_block_ids_visited": 0,
+            "orbit_candidates_enumerated": 0,
+            "solver_nodes_executed": 0,
+            "certificate_blocks_generated": 0,
+            "checkpoints_written": 0,
+            "repetition_scan": (
+                PREDICTION_V2_BALANCED_DESIGN_PREREGISTRATION_REPETITION_SCAN
+            ),
+            "database_queries_during_capability": 0,
+            "historical_rows_read": 0,
+            "prior_scores_read": 0,
+            "prior_predictions_read": 0,
+            "prior_rankings_read": 0,
+            "actual_fold_count": 0,
+            "formal_historical_folds_executed": 0,
+            "bootstrap_children_executed": 0,
+            "historical_evidence": "INCONCLUSIVE",
+            "prediction_v2_mode": "SHADOW_ONLY",
+            "prediction_v2_route": "BASELINE_ONLY",
+            "legacy_route_fallback": False,
+            "legacy_prediction_mainline_reactivation_authorized": False,
+            "evidence_created": False,
+            "new_model_created": False,
+            "candidate_expert_authorized": False,
+            "promotion_gate_opened": False,
+            "p3_authorized": False,
+            "registered_artifact_count": len(child_payloads) + 1,
+            "completion_fact": (
+                PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_COMPLETION_FACT
+            ),
+            "downstream_consumer": (
+                PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_EXECUTION_TASK_KEY
+            ),
+            "production_impact": "none",
+            "production_action": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "replay_status": "DETERMINISTIC_REGISTERED_OUTPUT_REPLAY_PENDING",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                *(str(payload["artifact_digest"]) for _, payload in child_payloads),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        output_registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(output_registrations) != 4:
+            raise MainlineSupervisorError(
+                "Prediction v2 balanced-design preregistration registration count changed"
+            )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=output_registrations,
+            completion_facts=(
+                PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_COMPLETION_FACT,
             ),
         )
 
@@ -13322,6 +13581,12 @@ class ResearchEvidenceSupervisor:
                     root_dir=root_dir,
                 )
             ),
+            PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_CAPABILITY: (
+                PredictionV2BalancedDesignFeasibilityPreregistrationCapability(
+                    repository=self.repository,
+                    root_dir=root_dir,
+                )
+            ),
             M4_V2_P261_RAW_REPLAY_CAPABILITY: (
                 M4P261RawExecutionReplayCapability(
                     repository=self.repository,
@@ -14305,6 +14570,7 @@ class ResearchEvidenceSupervisor:
         return self._latest_completed_summary_for_tasks(
             snapshot,
             (
+                PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_TASK_KEY,
                 PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_TASK_KEY,
                 PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_TASK_KEY,
                 PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_EXECUTION_TASK_KEY,
@@ -14355,6 +14621,7 @@ class ResearchEvidenceSupervisor:
             if resolutions.get(candidate) is not TaskStatus.COMPLETED:
                 continue
             if candidate in {
+                PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_TASK_KEY,
                 PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_TASK_KEY,
                 PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_TASK_KEY,
                 PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_EXECUTION_TASK_KEY,
@@ -17236,15 +17503,13 @@ class ResearchEvidenceSupervisor:
                 root_dir=self.root_dir,
                 contract=source_contract,
             )
-            _, route_execution, route_registrations = (
-                _load_single_completed_execution(
-                    repository=self.repository,
-                    root_dir=self.root_dir,
-                    control_plane_key=self.control_plane_key,
-                    task_key=(
-                        PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_TASK_KEY
-                    ),
-                )
+            _, route_execution, route_registrations = _load_single_completed_execution(
+                repository=self.repository,
+                root_dir=self.root_dir,
+                control_plane_key=self.control_plane_key,
+                task_key=(
+                    PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_TASK_KEY
+                ),
             )
             route_decision_registrations = [
                 item
@@ -17289,9 +17554,7 @@ class ResearchEvidenceSupervisor:
             ]
             if (
                 artifact.get("input_artifact_digests") != expected_inputs
-                or artifact.get(
-                    "prediction_v2_balanced_design_source_contract_digest"
-                )
+                or artifact.get("prediction_v2_balanced_design_source_contract_digest")
                 != source_contract["artifact_digest"]
                 or artifact.get("prediction_v2_balanced_design_source_set_digest")
                 != source_contract["source_set_digest"]
@@ -17368,6 +17631,151 @@ class ResearchEvidenceSupervisor:
             )
         elif (
             task_key
+            == PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_TASK_KEY
+        ):
+            source_contract = load_prediction_v2_balanced_design_feasibility_preregistration_source_contract(
+                self.root_dir
+                / PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_SOURCE_CONTRACT_PATH
+            )
+            verify_prediction_v2_balanced_design_feasibility_preregistration_source_bytes(
+                root_dir=self.root_dir,
+                contract=source_contract,
+            )
+            _, design_execution, design_registrations = (
+                _load_single_completed_execution(
+                    repository=self.repository,
+                    root_dir=self.root_dir,
+                    control_plane_key=self.control_plane_key,
+                    task_key=PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_TASK_KEY,
+                )
+            )
+            feasibility_specification = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=design_registrations,
+                artifact_type=(
+                    "prediction_v2_balanced_design_feasibility_specification"
+                ),
+            )
+            feasibility_preregistration_handoff = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=design_registrations,
+                artifact_type=(
+                    "prediction_v2_balanced_design_feasibility_preregistration_handoff"
+                ),
+            )
+            feasibility_completion = _load_registered_type(
+                root_dir=self.root_dir,
+                registrations=design_registrations,
+                artifact_type=("prediction_v2_balanced_design_feasibility_completion"),
+            )
+            reconstructed, capability_replay = (
+                replay_prediction_v2_balanced_design_feasibility_preregistration(
+                    source_contract=source_contract,
+                    feasibility_specification=feasibility_specification,
+                    feasibility_preregistration_handoff=(
+                        feasibility_preregistration_handoff
+                    ),
+                    feasibility_completion=feasibility_completion,
+                    feasibility_mainline_execution=design_execution,
+                )
+            )
+            expected_inputs = [
+                str(source_contract["artifact_digest"]),
+                str(feasibility_specification["artifact_digest"]),
+                str(feasibility_preregistration_handoff["artifact_digest"]),
+                str(feasibility_completion["artifact_digest"]),
+                str(design_execution["artifact_digest"]),
+            ]
+            if (
+                artifact.get("input_artifact_digests") != expected_inputs
+                or artifact.get(
+                    "prediction_v2_balanced_design_preregistration_"
+                    "source_contract_digest"
+                )
+                != source_contract["artifact_digest"]
+                or artifact.get(
+                    "prediction_v2_balanced_design_preregistration_source_set_digest"
+                )
+                != source_contract["source_set_digest"]
+                or artifact.get("research_request_id") != 417
+                or artifact.get("research_execution_id") != 338
+                or artifact.get("engineering_request_id") != 418
+                or artifact.get("engineering_execution_id") != 339
+                or artifact.get("feasibility_design_mainline_execution_digest")
+                != design_execution["artifact_digest"]
+                or artifact.get("feasibility_specification_digest")
+                != feasibility_specification["artifact_digest"]
+                or artifact.get("feasibility_preregistration_handoff_digest")
+                != feasibility_preregistration_handoff["artifact_digest"]
+                or artifact.get("feasibility_completion_digest")
+                != feasibility_completion["artifact_digest"]
+                or artifact.get("cyclic_feasibility_preregistration_digest")
+                != reconstructed.preregistration["artifact_digest"]
+                or artifact.get("feasibility_execution_handoff_digest")
+                != reconstructed.execution_handoff["artifact_digest"]
+                or artifact.get("preregistration_completion_digest")
+                != reconstructed.completion["artifact_digest"]
+                or artifact.get("preregistration_status") != "FROZEN_NOT_EXECUTED"
+                or artifact.get("constructor_family")
+                != PREDICTION_V2_BALANCED_DESIGN_CONSTRUCTOR_FAMILY
+                or artifact.get("legal_block_count") != 1_107_568
+                or artifact.get("full_orbit_count") != 33_561
+                or artifact.get("short_orbit_count") != 5
+                or artifact.get("allowed_orbit_count_profiles")
+                != ["5_FULL_1_SHORT", "4_FULL_4_SHORT"]
+                or artifact.get("positive_outcome")
+                != PREDICTION_V2_BALANCED_DESIGN_PREREGISTRATION_POSITIVE_OUTCOME
+                or artifact.get("bounded_negative_outcome")
+                != PREDICTION_V2_BALANCED_DESIGN_PREREGISTRATION_BOUNDED_NEGATIVE_OUTCOME
+                or artifact.get("invalid_outcome")
+                != PREDICTION_V2_BALANCED_DESIGN_PREREGISTRATION_INVALID_OUTCOME
+                or artifact.get("bounded_negative_is_global_nonexistence") is not False
+                or artifact.get("cyclic_subspace_exhaustion_is_global_nonexistence")
+                is not False
+                or artifact.get("existence_established") is not False
+                or artifact.get("nonexistence_established") is not False
+                or artifact.get("execution_authorized") is not False
+                or artifact.get("result_blind") is not True
+                or artifact.get("legal_block_ids_visited") != 0
+                or artifact.get("orbit_candidates_enumerated") != 0
+                or artifact.get("solver_nodes_executed") != 0
+                or artifact.get("certificate_blocks_generated") != 0
+                or artifact.get("checkpoints_written") != 0
+                or artifact.get("repetition_scan")
+                != PREDICTION_V2_BALANCED_DESIGN_PREREGISTRATION_REPETITION_SCAN
+                or artifact.get("database_queries_during_capability") != 0
+                or artifact.get("historical_rows_read") != 0
+                or artifact.get("prior_scores_read") != 0
+                or artifact.get("prior_predictions_read") != 0
+                or artifact.get("prior_rankings_read") != 0
+                or artifact.get("formal_historical_folds_executed") != 0
+                or artifact.get("bootstrap_children_executed") != 0
+                or artifact.get("historical_evidence") != "INCONCLUSIVE"
+                or artifact.get("prediction_v2_mode") != "SHADOW_ONLY"
+                or artifact.get("prediction_v2_route") != "BASELINE_ONLY"
+                or artifact.get("legacy_route_fallback") is not False
+                or artifact.get("evidence_created") is not False
+                or artifact.get("new_model_created") is not False
+                or artifact.get("candidate_expert_authorized") is not False
+                or artifact.get("promotion_gate_opened") is not False
+                or artifact.get("p3_authorized") is not False
+                or artifact.get("registered_artifact_count") != 4
+                or artifact.get("completion_fact")
+                != PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_COMPLETION_FACT
+                or artifact.get("downstream_consumer")
+                != PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_EXECUTION_TASK_KEY
+                or artifact.get("production_action") != "none"
+            ):
+                raise MainlineSupervisorError(
+                    "Prediction v2 balanced-design preregistration replay identity changed"
+                )
+            _verify_v2_registered_artifacts(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                expected_payloads=(*reconstructed.artifacts, artifact),
+            )
+        elif (
+            task_key
             == PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_TASK_KEY
         ):
             source_contract = load_prediction_v2_structural_baseline_comparison_route_decision_source_contract(
@@ -17406,16 +17814,17 @@ class ResearchEvidenceSupervisor:
                 root_dir=self.root_dir,
                 registrations=comparison_registrations,
                 artifact_type=(
-                    "prediction_v2_structural_baseline_comparison_"
-                    "execution_completion"
+                    "prediction_v2_structural_baseline_comparison_execution_completion"
                 ),
             )
-            reconstructed, capability_replay = replay_prediction_v2_structural_baseline_comparison_route_decision(
-                source_contract=source_contract,
-                comparison_execution=comparison_execution,
-                result_index=result_index,
-                gate_outcome=gate_outcome,
-                execution_completion=execution_completion,
+            reconstructed, capability_replay = (
+                replay_prediction_v2_structural_baseline_comparison_route_decision(
+                    source_contract=source_contract,
+                    comparison_execution=comparison_execution,
+                    result_index=result_index,
+                    gate_outcome=gate_outcome,
+                    execution_completion=execution_completion,
+                )
             )
             expected_inputs = [
                 str(source_contract["artifact_digest"]),
