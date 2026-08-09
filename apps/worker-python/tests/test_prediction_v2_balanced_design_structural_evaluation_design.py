@@ -49,6 +49,12 @@ RESULT_DECISION_COMPLETION_FACT = (
 SOURCE_FACT_PREFIX = (
     "prediction-v2-balanced-design-structural-evaluation-design-source:"
 )
+STRUCTURAL_EVALUATION_EXECUTION_TASK_KEY = (
+    "prediction-v2-balanced-design-structural-evaluation-execution"
+)
+STRUCTURAL_EVALUATION_PREREGISTRATION_CAPABILITY = (
+    "prediction_v2_balanced_design_structural_evaluation_preregistration"
+)
 
 
 def _artifact(body: dict, *, domain: str) -> dict:
@@ -229,6 +235,24 @@ def test_design_fails_closed_on_fixed_certificate_drift() -> None:
 
 def test_additive_migration_revises_design_and_adds_only_preregistration() -> None:
     source = load_m4_manifest(MANIFEST_PATH).to_dict(include_digest=False)
+    source["tasks"] = [
+        item
+        for item in source["tasks"]
+        if item["task_key"] != STRUCTURAL_EVALUATION_EXECUTION_TASK_KEY
+    ]
+    source_preregistration = next(
+        item
+        for item in source["tasks"]
+        if item["task_key"]
+        == PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_PREREGISTRATION_TASK_KEY
+    )
+    source_preregistration["requested_capability"] = None
+    source_preregistration["input_artifact_digests"] = []
+    source_preregistration["dependencies"] = [
+        dependency
+        for dependency in source_preregistration["dependencies"]
+        if dependency["dependency_type"] != "external_event"
+    ]
     live = copy.deepcopy(source)
     live["tasks"] = [
         item
@@ -296,7 +320,9 @@ def test_manifest_index_supervisor_and_status_bind_singular_design() -> None:
     preregistration_task = tasks[
         PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_PREREGISTRATION_TASK_KEY
     ]
-    assert preregistration_task.requested_capability is None
+    assert preregistration_task.requested_capability == (
+        STRUCTURAL_EVALUATION_PREREGISTRATION_CAPABILITY
+    )
     index = json.loads(INDEX_PATH.read_text(encoding="utf-8"))["artifacts"]
     assert index[source_contract["artifact_digest"]]["path"] == str(
         PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_DESIGN_SOURCE_CONTRACT_PATH
@@ -371,4 +397,6 @@ def test_manifest_index_supervisor_and_status_bind_singular_design() -> None:
     assert preregistration_resolution[
         PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_PREREGISTRATION_TASK_KEY
     ] == "ready"
-    assert preregistration_task.requested_capability is None
+    assert preregistration_task.requested_capability == (
+        STRUCTURAL_EVALUATION_PREREGISTRATION_CAPABILITY
+    )
