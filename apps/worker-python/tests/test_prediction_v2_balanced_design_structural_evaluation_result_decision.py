@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import inspect
 import json
 
 import pytest
@@ -24,7 +25,10 @@ from dehps.research_os.information_theory.progress import (
     build_m4_status,
     load_m4_manifest,
 )
-from dehps.research_os.supervisor import ResearchEvidenceSupervisor
+from dehps.research_os.supervisor import (
+    PredictionV2BalancedDesignStructuralEvaluationResultDecisionCapability,
+    ResearchEvidenceSupervisor,
+)
 
 MANIFEST_PATH = ROOT_DIR / "configs/research-os/m4-information-theory-evidence-v1.json"
 INDEX_PATH = (
@@ -286,3 +290,26 @@ def test_manifest_index_supervisor_and_status_bind_singular_decision() -> None:
         ]
         is None
     )
+
+
+def test_supervisor_projection_and_replay_do_not_use_duplicate_metadata() -> None:
+    execution_source = inspect.getsource(
+        PredictionV2BalancedDesignStructuralEvaluationResultDecisionCapability
+    )
+    replay_source = inspect.getsource(ResearchEvidenceSupervisor.replay)
+    branch_marker = (
+        "elif (\n"
+        "            task_key\n"
+        "            == PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_"
+        "RESULT_DECISION_TASK_KEY"
+    )
+    replay_branch = replay_source.split(branch_marker, 1)[1].split(
+        "PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_TASK_KEY",
+        1,
+    )[0]
+    forbidden = {
+        "duplicate_membership_uniqueness_or_repetition_scans",
+        "repetition_scan",
+    }
+    assert not any(token in execution_source for token in forbidden)
+    assert not any(token in replay_branch for token in forbidden)
