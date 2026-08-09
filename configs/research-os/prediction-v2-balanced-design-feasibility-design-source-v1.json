@@ -1,7 +1,7 @@
 {
   "schema_version": "dehps-prediction-v2-balanced-design-feasibility-source.v1",
   "artifact_type": "prediction_v2_balanced_design_feasibility_source",
-  "artifact_digest": "a9665143242689b02702f88f9782d5fe11a52240fed11d1c6ebfef8d5dca10c2",
+  "artifact_digest": "f055aae2ae70af5d21fbfc2a1bfa50952fca595e906cd82556b445c3299acade",
   "contract_key": "PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_SOURCE",
   "semantic_version": "1.0.0",
   "status": "FROZEN_SOURCE_INTEGRATION_PENDING",
@@ -26,11 +26,11 @@
   "source_entries": [
     {
       "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/prediction_v2_balanced_design_feasibility_design.py",
-      "content_sha256": "db298438525be95b82ced977f1c2da28a04045ad77e03cb1b47ee8c7f0051c50"
+      "content_sha256": "bc9961a330d743344d014ff1db2580d76e0fa3cbedcbcdb8bdfb728cde28ada6"
     }
   ],
-  "source_set_digest": "25d47d538e126b5c9460e4ef8433953ee904390fd9fdbecf19ef36c2f415dbb1",
-  "frozen_contract_digest": "f428cc9df3a988f8d2919efa3b369ca3b5cdc4a64c4e29a03787bc14d4fe0271",
+  "source_set_digest": "b52a8f506296028117706869a470aabf44ca6e9954ba6be27aadc5d88246224c",
+  "frozen_contract_digest": "7ba0ca00660b91e4a91eac640f5d932ff1073963089f21f7bf62f67ab04d6287",
   "frozen_contract": {
     "task_key": "prediction-v2-next-result-blind-research-intake",
     "capability": "prediction_v2_balanced_design_feasibility_design",
@@ -40,7 +40,7 @@
     "registered_input_digests": [
       "886b03fc5873edec8ac2f154ade73fc5c0309ddace83915c8ccc946241150bdb",
       "ad9a142bcd8f70548d985d0483b003cf2d4374ecd0994a35e2c3a26545671105",
-      "147cd0819bca3da1a925812e4f1ac556eeef79b1973b1027406b9d6a511887"
+      "147cd0819bca3da1a925812e4f1ac556eeefef79b1973b1027406b9d6a511887"
     ],
     "point_count": 33,
     "block_size": 6,

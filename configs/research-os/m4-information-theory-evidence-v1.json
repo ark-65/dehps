@@ -3467,10 +3467,10 @@
       "priority": 70,
       "requested_capability": "prediction_v2_balanced_design_feasibility_design",
       "input_artifact_digests": [
-        "a9665143242689b02702f88f9782d5fe11a52240fed11d1c6ebfef8d5dca10c2",
+        "f055aae2ae70af5d21fbfc2a1bfa50952fca595e906cd82556b445c3299acade",
         "886b03fc5873edec8ac2f154ade73fc5c0309ddace83915c8ccc946241150bdb",
         "ad9a142bcd8f70548d985d0483b003cf2d4374ecd0994a35e2c3a26545671105",
-        "147cd0819bca3da1a925812e4f1ac556eeef79b1973b1027406b9d6a511887"
+        "147cd0819bca3da1a925812e4f1ac556eeefef79b1973b1027406b9d6a511887"
       ],
       "dependencies": [
         {
@@ -4581,6 +4581,7 @@
       "prediction-v2-structural-baseline-comparison-execution-source:050cd92940e3a9e939f806b51b6d4498388ae3707bf954d90d707cf7238ce930",
       "prediction-v2-structural-baseline-comparison-route-decision-source:74fa955fd13f4104195ce21d2e79669b96991a3b976121989e8b770ee063192e",
       "prediction-v2-balanced-design-feasibility-source:a9665143242689b02702f88f9782d5fe11a52240fed11d1c6ebfef8d5dca10c2",
+      "prediction-v2-balanced-design-feasibility-source:f055aae2ae70af5d21fbfc2a1bfa50952fca595e906cd82556b445c3299acade",
       "m4-p2-9-p263-source-compatibility-fixture:1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f",
       "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
       "m4-p2-identifiability-preflight-manifest:5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3",
@@ -4605,5 +4606,5 @@
     ],
     "authorities": []
   },
-  "manifest_digest": "77be7563f52a8b0d91c35d7556f6ba0b6a34e10c00c24a7464b085f263f96bee"
+  "manifest_digest": "2cdcd95151c5809f01eca4b959b080d699ea34ac300a7350206bfe4786b8a622"
 }

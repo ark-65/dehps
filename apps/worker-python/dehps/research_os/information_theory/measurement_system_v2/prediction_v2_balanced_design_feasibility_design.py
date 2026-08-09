@@ -9,6 +9,7 @@ from typing import Any
 
 from dehps.contracts import canonical_digest
 from dehps.research_os.information_theory.digest import config_digest
+from dehps.research_os.models import ControlPlaneManifest
 
 PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_TASK_KEY = (
     "prediction-v2-next-result-blind-research-intake"
@@ -37,6 +38,23 @@ RESEARCH_INTAKE_HANDOFF_DIGEST = (
     "ad9a142bcd8f70548d985d0483b003cf2d4374ecd0994a35e2c3a26545671105"
 )
 ARCHIVE_ROUTE_COMPLETION_DIGEST = (
+    "147cd0819bca3da1a925812e4f1ac556eeefef79b1973b1027406b9d6a511887"
+)
+
+FAILED_SOURCE_CONTRACT_DIGEST = (
+    "a9665143242689b02702f88f9782d5fe11a52240fed11d1c6ebfef8d5dca10c2"
+)
+FAILED_TASK_DIGEST = "de250a22f39c245d90f78a91d4a9184246e30e705ead656407504e41b0cb94b0"
+FAILED_EXECUTION_ID = "135b2ad17fb5e7bfb146859fc35927ee3521eadfd16294221d70483b3ea4f456"
+FAILED_STARTED_EVENT_DIGEST = (
+    "ea43e10beeb888153fd3aec9bda49c3d3a5df296155998e5d9b54f8523004fc6"
+)
+FAILED_EVENT_DIGEST = "6fdcf5a081b29f735cd392e7aa8ea6e99d4ae858e202a6b667fa62d9908f188a"
+FAILED_MANIFEST_DIGEST = (
+    "41a0256dfbee93122ab207218d6b7f85122963b0018edaac2bf8c401a17e3259"
+)
+FAILED_ERROR = "Prediction v2 balanced-design feasibility input identities changed"
+TRUNCATED_ARCHIVE_ROUTE_COMPLETION_DIGEST = (
     "147cd0819bca3da1a925812e4f1ac556eeef79b1973b1027406b9d6a511887"
 )
 
@@ -69,11 +87,15 @@ _SOURCE_MODULE_PATH = (
     "prediction_v2_balanced_design_feasibility_design.py"
 )
 FROZEN_CONTRACT_DIGEST = (
-    "f428cc9df3a988f8d2919efa3b369ca3b5cdc4a64c4e29a03787bc14d4fe0271"
+    "7ba0ca00660b91e4a91eac640f5d932ff1073963089f21f7bf62f67ab04d6287"
 )
 
 
 class PredictionV2BalancedDesignFeasibilityDesignError(RuntimeError):
+    pass
+
+
+class PredictionV2BalancedDesignFeasibilityRecoveryError(RuntimeError):
     pass
 
 
@@ -86,6 +108,177 @@ class PredictionV2BalancedDesignFeasibilityDesignRun:
     @property
     def artifacts(self) -> tuple[Mapping[str, Any], ...]:
         return self.specification, self.preregistration_handoff, self.completion
+
+
+def build_prediction_v2_balanced_design_feasibility_recovery_manifest(
+    *,
+    live_payload: Mapping[str, Any],
+    corrected_source_payload: Mapping[str, Any],
+    execution_events: Sequence[Mapping[str, Any]],
+    execution_artifacts: Sequence[Mapping[str, Any]],
+    require_registered_failure: bool = True,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Replace only the exact zero-artifact failed task with its corrected definition."""
+
+    live = ControlPlaneManifest.from_dict(dict(live_payload))
+    source = ControlPlaneManifest.from_dict(dict(corrected_source_payload))
+    if require_registered_failure and live.artifact_digest != FAILED_MANIFEST_DIGEST:
+        raise PredictionV2BalancedDesignFeasibilityRecoveryError(
+            "balanced_design_recovery_manifest_identity_changed"
+        )
+    live_tasks = {task.task_key: task for task in live.tasks}
+    source_tasks = {task.task_key: task for task in source.tasks}
+    live_task = live_tasks.get(PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_TASK_KEY)
+    source_task = source_tasks.get(PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_TASK_KEY)
+    if (
+        len(live.tasks) != 71
+        or len(source.tasks) != 71
+        or live_tasks.keys() != source_tasks.keys()
+        or live_task is None
+        or source_task is None
+        or live_task.artifact_digest != FAILED_TASK_DIGEST
+        or live_task.input_artifact_digests
+        != (
+            FAILED_SOURCE_CONTRACT_DIGEST,
+            ARCHIVE_ROUTE_DECISION_DIGEST,
+            RESEARCH_INTAKE_HANDOFF_DIGEST,
+            TRUNCATED_ARCHIVE_ROUTE_COMPLETION_DIGEST,
+        )
+        or source_task.artifact_digest == FAILED_TASK_DIGEST
+        or source_task.input_artifact_digests
+        != (
+            _source_contract_digest_from_facts(source.facts.artifacts),
+            ARCHIVE_ROUTE_DECISION_DIGEST,
+            RESEARCH_INTAKE_HANDOFF_DIGEST,
+            ARCHIVE_ROUTE_COMPLETION_DIGEST,
+        )
+    ):
+        raise PredictionV2BalancedDesignFeasibilityRecoveryError(
+            "balanced_design_recovery_task_identity_changed"
+        )
+    live_state = live.task_state_by_digest[FAILED_TASK_DIGEST]
+    if (
+        live_state.declared_status.value != "failed"
+        or live_state.completion_classification is None
+        or live_state.completion_classification.value != "INTEGRATED"
+    ):
+        raise PredictionV2BalancedDesignFeasibilityRecoveryError(
+            "balanced_design_recovery_task_is_not_exact_failure"
+        )
+    related = [
+        dict(event)
+        for event in execution_events
+        if event.get("task_digest") == FAILED_TASK_DIGEST
+        and event.get("execution_id") == FAILED_EXECUTION_ID
+    ]
+    started = [event for event in related if event.get("event_type") == "started"]
+    failed = [event for event in related if event.get("event_type") == "failed"]
+    completed = [event for event in related if event.get("event_type") == "completed"]
+    if (
+        len(related) != 2
+        or len(started) != 1
+        or len(failed) != 1
+        or completed
+        or (
+            require_registered_failure
+            and started[0].get("event_digest") != FAILED_STARTED_EVENT_DIGEST
+        )
+        or (
+            require_registered_failure
+            and failed[0].get("event_digest") != FAILED_EVENT_DIGEST
+        )
+        or _event_payload(failed[0]).get("error") != FAILED_ERROR
+    ):
+        raise PredictionV2BalancedDesignFeasibilityRecoveryError(
+            "balanced_design_recovery_event_history_changed"
+        )
+    if execution_artifacts:
+        raise PredictionV2BalancedDesignFeasibilityRecoveryError(
+            "balanced_design_recovery_artifacts_exist"
+        )
+
+    output = live.to_dict(include_digest=False)
+    source_payload = source.to_dict(include_digest=False)
+    source_definition = next(
+        task
+        for task in source_payload["tasks"]
+        if task["task_key"] == PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_TASK_KEY
+    )
+    source_definition["status"] = "draft"
+    source_definition["completion_classification"] = "INTEGRATION_PENDING"
+    source_definition["superseded_by_task_digest"] = None
+    changed = 0
+    for index, task in enumerate(output["tasks"]):
+        if task["task_key"] != PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_TASK_KEY:
+            continue
+        output["tasks"][index] = source_definition
+        changed += 1
+    corrected_source_fact = (
+        "prediction-v2-balanced-design-feasibility-source:"
+        f"{source_task.input_artifact_digests[0]}"
+    )
+    old_facts = tuple(output["facts"]["artifacts"])
+    output["facts"]["artifacts"] = sorted({*old_facts, corrected_source_fact})
+    if (
+        changed != 1
+        or len(output["facts"]["artifacts"]) != len(old_facts) + 1
+        or (
+            "prediction-v2-balanced-design-feasibility-source:"
+            f"{FAILED_SOURCE_CONTRACT_DIGEST}"
+        )
+        not in output["facts"]["artifacts"]
+    ):
+        raise PredictionV2BalancedDesignFeasibilityRecoveryError(
+            "balanced_design_recovery_transition_scope_changed"
+        )
+    recovered = ControlPlaneManifest.from_dict(output)
+    recovered_task = next(
+        task
+        for task in recovered.tasks
+        if task.task_key == PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_TASK_KEY
+    )
+    recovered_state = recovered.task_state_by_digest[recovered_task.artifact_digest]
+    recovered_tasks = {task.task_key: task for task in recovered.tasks}
+    if (
+        recovered_state.declared_status.value != "draft"
+        or recovered_state.completion_classification is None
+        or recovered_state.completion_classification.value != "INTEGRATION_PENDING"
+        or any(
+            recovered_tasks[task_key].artifact_digest != live_other.artifact_digest
+            for task_key, live_other in live_tasks.items()
+            if task_key != PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_TASK_KEY
+        )
+    ):
+        raise PredictionV2BalancedDesignFeasibilityRecoveryError(
+            "balanced_design_recovery_output_state_changed"
+        )
+    recovered_payload = recovered.to_dict(include_digest=True)
+    return recovered_payload, {
+        "schema_version": (
+            "dehps-prediction-v2-balanced-design-feasibility-recovery.v1"
+        ),
+        "status": "SAFE_TO_RECOVER",
+        "input_manifest_digest": live.artifact_digest,
+        "output_manifest_digest": recovered.artifact_digest,
+        "task_key": PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_TASK_KEY,
+        "failed_task_digest": FAILED_TASK_DIGEST,
+        "corrected_task_digest": recovered_task.artifact_digest,
+        "failed_execution_id": FAILED_EXECUTION_ID,
+        "preserved_started_event_digest": started[0].get("event_digest"),
+        "preserved_failed_event_digest": failed[0].get("event_digest"),
+        "state_transition": "failed/INTEGRATED -> draft/INTEGRATION_PENDING",
+        "changed_task_count": 1,
+        "added_source_fact_count": 1,
+        "deleted_task_count": 0,
+        "deleted_fact_count": 0,
+        "deleted_event_count": 0,
+        "rewritten_event_count": 0,
+        "preexisting_execution_artifact_count": 0,
+        "solver_nodes_executed": 0,
+        "candidate_blocks_generated": 0,
+        "repetition_scan": REPETITION_SCAN,
+        "production_action": "none",
+    }
 
 
 def load_prediction_v2_balanced_design_feasibility_source_contract(
@@ -578,6 +771,29 @@ def _verify_artifact(artifact: Mapping[str, Any], *, domain: str) -> None:
         raise PredictionV2BalancedDesignFeasibilityDesignError(
             "balanced_design_feasibility_parent_digest_invalid"
         )
+
+
+def _source_contract_digest_from_facts(facts: Sequence[str]) -> str:
+    prefix = "prediction-v2-balanced-design-feasibility-source:"
+    digests = [fact.removeprefix(prefix) for fact in facts if fact.startswith(prefix)]
+    current = [digest for digest in digests if digest != FAILED_SOURCE_CONTRACT_DIGEST]
+    if len(current) != 1 or not _is_digest(current[0]):
+        raise PredictionV2BalancedDesignFeasibilityRecoveryError(
+            "balanced_design_recovery_source_fact_changed"
+        )
+    return current[0]
+
+
+def _event_payload(event: Mapping[str, Any]) -> dict[str, Any]:
+    payload = event.get("payload")
+    if isinstance(payload, Mapping):
+        return dict(payload)
+    if isinstance(payload, Sequence) and not isinstance(payload, (str, bytes)):
+        try:
+            return dict(payload)
+        except (TypeError, ValueError):
+            return {}
+    return {}
 
 
 def _is_digest(value: object) -> bool:
