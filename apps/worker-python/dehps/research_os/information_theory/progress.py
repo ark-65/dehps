@@ -254,6 +254,12 @@ PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION_CONTRACT_EVENT = (
 PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_DESIGN_TASK_KEY = (
     "prediction-v2-balanced-design-structural-evaluation-design"
 )
+PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_DESIGN_COMPLETION_FACT = (
+    "prediction-v2-balanced-design-structural-evaluation-design:COMPLETE"
+)
+PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_PREREGISTRATION_TASK_KEY = (
+    "prediction-v2-balanced-design-structural-evaluation-preregistration"
+)
 M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
 M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = "m4-v2-p2-6-1-marginal-decision-replay"
 M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
@@ -922,6 +928,13 @@ def build_m4_status(
     )
     prediction_v2_balanced_design_structural_evaluation_task = tasks.get(
         PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_DESIGN_TASK_KEY
+    )
+    prediction_v2_balanced_design_structural_evaluation_design = (
+        measurement_v2_execution
+        if measurement_v2_execution is not None
+        and measurement_v2_execution.get("execution_task_key")
+        == PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_DESIGN_TASK_KEY
+        else None
     )
     durable_gate_evidence_facts = tuple(
         fact
@@ -1656,7 +1669,10 @@ def build_m4_status(
         "measurement_system_v2": (
             {
                 "phase": (
-                    "PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_DESIGN"
+                    "PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_PREREGISTRATION"
+                    if PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_DESIGN_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_DESIGN"
                     if PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION"
@@ -4946,7 +4962,49 @@ def build_m4_status(
                     ),
                     "fixed_certificate_artifact_digest": (
                         "b7a0069edef9f6a2aeec3f2205a50a63ba39594ed555c3c89b108830cd3c28db"
+                        if prediction_v2_balanced_design_structural_evaluation_design
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_design.get(
+                            "fixed_certificate_artifact_digest"
+                        )
                     ),
+                    "completion_fact_available": (
+                        PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_DESIGN_COMPLETION_FACT
+                        in manifest.facts.artifacts
+                    ),
+                    "confirmatory_endpoint": (
+                        None
+                        if prediction_v2_balanced_design_structural_evaluation_design
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_design.get(
+                            "confirmatory_endpoint"
+                        )
+                    ),
+                    "primary_null": (
+                        None
+                        if prediction_v2_balanced_design_structural_evaluation_design
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_design.get(
+                            "primary_null"
+                        )
+                    ),
+                    "secondary_null": (
+                        None
+                        if prediction_v2_balanced_design_structural_evaluation_design
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_design.get(
+                            "secondary_null"
+                        )
+                    ),
+                    "duplicate_or_repetition_scans": (
+                        0
+                        if prediction_v2_balanced_design_structural_evaluation_design
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_design.get(
+                            "duplicate_or_repetition_scans", 0
+                        )
+                    ),
+                    "repetition_scan": "ABSENT_BY_CONSTRUCTION",
                     "same_budget_null_required": True,
                     "historical_outcomes_allowed": False,
                     "prediction_probability_claim": False,
@@ -4966,7 +5024,10 @@ def build_m4_status(
                     ].completion_classification.value
                 ),
                 "live_mainline_status": (
-                    "PREDICTION_V2_BALANCED_DESIGN_RESULT_DECISION_VALIDATED_IN_MAINLINE"
+                    "PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_DESIGN_VALIDATED_IN_MAINLINE"
+                    if PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_DESIGN_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "PREDICTION_V2_BALANCED_DESIGN_RESULT_DECISION_VALIDATED_IN_MAINLINE"
                     if PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_EXECUTION_VALIDATED_IN_MAINLINE"
@@ -5175,7 +5236,10 @@ def build_m4_status(
                     ),
                 },
                 "next_consumer": (
-                    PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_DESIGN_TASK_KEY
+                    PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_PREREGISTRATION_TASK_KEY
+                    if PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_DESIGN_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_DESIGN_TASK_KEY
                     if PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION_TASK_KEY

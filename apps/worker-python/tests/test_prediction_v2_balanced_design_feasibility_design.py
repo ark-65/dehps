@@ -179,6 +179,7 @@ def _failed_live_for_recovery() -> dict:
             "prediction-v2-balanced-design-feasibility-execution",
             "prediction-v2-balanced-design-feasibility-result-decision",
             "prediction-v2-balanced-design-structural-evaluation-design",
+            "prediction-v2-balanced-design-structural-evaluation-preregistration",
         }
     ]
     target = next(
@@ -216,6 +217,7 @@ def _corrected_recovery_source() -> dict:
             "prediction-v2-balanced-design-feasibility-execution",
             "prediction-v2-balanced-design-feasibility-result-decision",
             "prediction-v2-balanced-design-structural-evaluation-design",
+            "prediction-v2-balanced-design-structural-evaluation-preregistration",
         }
     ]
     payload.pop("manifest_digest")

@@ -1,0 +1,158 @@
+{
+  "schema_version": "dehps-prediction-v2-balanced-design-structural-evaluation-design-source.v1",
+  "artifact_type": "prediction_v2_balanced_design_structural_evaluation_design_source",
+  "artifact_digest": "4ba7d37922325afd0d971787686dfbc9b43a0f198ba1d7ddabb71136f38ee1f3",
+  "contract_key": "PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_DESIGN_SOURCE",
+  "semantic_version": "1.0.0",
+  "status": "FROZEN_SOURCE_INTEGRATION_PENDING",
+  "research_request_key": "research-prediction-v2-balanced-design-structural-evaluation-design-round-101-20260809",
+  "research_request_id": 429,
+  "research_execution_id": 350,
+  "engineering_request_key": "engineering-prediction-v2-balanced-design-structural-evaluation-design-round-101-20260809",
+  "engineering_request_id": 430,
+  "engineering_execution_id": 351,
+  "result_blind": true,
+  "candidate_evaluation_statistics_read": false,
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/prediction_v2_balanced_design_structural_evaluation_design.py",
+      "content_sha256": "2b70f9539200b3038351eb9171399c094d87bdd60c15f8a0126429a0d3845f1d"
+    }
+  ],
+  "source_set_digest": "3e58d99677f460adf9f0022aeee23d794187b9b36df29d0c60c01c70252daa27",
+  "frozen_contract_digest": "c8af0a8b287f42583d17b941826bf3246b68d448ff1d6649e52cc588fdcf70af",
+  "frozen_contract": {
+    "task_key": "prediction-v2-balanced-design-structural-evaluation-design",
+    "capability": "prediction_v2_balanced_design_structural_evaluation_design",
+    "completion_fact": "prediction-v2-balanced-design-structural-evaluation-design:COMPLETE",
+    "next_consumer": "prediction-v2-balanced-design-structural-evaluation-preregistration",
+    "registered_input_digests": [
+      "6898d1723760fe0a44c36ec69512d0aeae30b00469a8049880eb9c82b9648e87",
+      "3c3da2f43a1f99751f6f3ea3e5ee82e887a726020092164ac719aeaa4ae97637",
+      "0d411caa1c7782c51d3b2e7a972aeba245df54fd1b5eab00b8af98a808b609d7",
+      "ab72a5e8a663656fdf544de987016160c8fad815980568c3dbfc3bcdda955720"
+    ],
+    "legal_universe": {
+      "domain": "SSQ_RED_BALL_SIX_OF_33",
+      "number_domain": "integers_1_through_33",
+      "combination_cardinality": 6,
+      "universe_cardinality": 1107568,
+      "universe_formula": "C(33,6)",
+      "pre_draw_probability": "equal_for_every_legal_combination"
+    },
+    "fixed_candidate": {
+      "certificate_artifact_digest": "b7a0069edef9f6a2aeec3f2205a50a63ba39594ed555c3c89b108830cd3c28db",
+      "block_count": 176,
+      "point_count": 33,
+      "block_size": 6,
+      "point_replication": 32,
+      "pair_replication": 5,
+      "full_orbit_count": 5,
+      "short_orbit_count": 1,
+      "fixed_before_evaluation": true,
+      "automatic_portfolio_mutation": false
+    },
+    "construction_validity_only": [
+      "all_33_point_replications_equal_32",
+      "all_528_pair_replications_equal_5",
+      "singleton_concentration_excess_equals_zero",
+      "pair_concentration_excess_equals_zero"
+    ],
+    "confirmatory_endpoint": "triple_collision_mass",
+    "metric_formulas": {
+      "triple_replication": "c_T=count_of_candidate_blocks_containing_triple_T",
+      "triple_collision_mass": "sum_over_T_in_C(33,3)_of_C(c_T,2)",
+      "triple_collision_block_pair_identity": "sum_over_unordered_distinct_blocks_A_B_of_C(|A_intersection_B|,3)",
+      "quadruple_collision_mass": "sum_over_Q_in_C(33,4)_of_C(c_Q,2)",
+      "quintuple_collision_mass": "sum_over_Q_in_C(33,5)_of_C(c_Q,2)",
+      "replacement_distance": "6-|A_intersection_B|"
+    },
+    "secondary_descriptive_metrics": [
+      "quadruple_collision_mass",
+      "quintuple_collision_mass",
+      "block_intersection_histogram_0_through_5",
+      "maximum_block_intersection",
+      "minimum_replacement_distance"
+    ],
+    "null_baselines": {
+      "primary": {
+        "type": "Z33_ORBIT_PROFILE_MATCHED_WITHOUT_REPLACEMENT_5_FULL_1_SHORT_B176",
+        "candidate_budget": 176,
+        "full_orbit_inventory_count": 33561,
+        "short_orbit_inventory_count": 5,
+        "selected_distinct_full_orbits": 5,
+        "selected_distinct_short_orbits": 1,
+        "expanded_full_blocks": 165,
+        "expanded_short_blocks": 11,
+        "same_point_replication_by_profile": 32,
+        "selection": "uniform_without_replacement_from_each_frozen_orbit_partition",
+        "metric_based_rejection_allowed": false,
+        "adaptive_reroll_allowed": false,
+        "uniqueness_guarantee": "disjoint_orbits_by_partition_construction",
+        "duplicate_validation_pass": false
+      },
+      "secondary": {
+        "type": "UNIFORM_PREFIX_WITHOUT_REPLACEMENT_FROM_ALL_1107568_LEGAL_BLOCKS_B176",
+        "candidate_budget": 176,
+        "selection": "first_176_ids_of_one_seeded_permutation_or_equivalent_order_statistic_sample",
+        "metric_based_rejection_allowed": false,
+        "adaptive_reroll_allowed": false,
+        "uniqueness_guarantee": "without_replacement_construction",
+        "duplicate_validation_pass": false
+      },
+      "primary_null_may_be_replaced_by_secondary": false
+    },
+    "inference_boundary": {
+      "primary_direction": "lower_triple_collision_mass_is_better",
+      "primary_inference": "one_sided_plus_one_empirical_tail_against_profile_matched_null",
+      "primary_endpoint_count": 1,
+      "secondary_metrics_gate_success": false,
+      "same_execution_retuning_allowed": false,
+      "partial_timeout_acceptance_allowed": false
+    },
+    "deferred_to_preregistration": [
+      "replicate_counts",
+      "deterministic_seed_domains",
+      "exact_orbit_expansion",
+      "alpha",
+      "tolerances",
+      "compute_limits",
+      "invalid_execution_rules",
+      "quantitative_outcome_thresholds"
+    ],
+    "outcome_semantics": {
+      "positive": "HIGHER_ORDER_STRUCTURAL_HOLDOUT_ADVANTAGE_WITHIN_MATCHED_NULL_ONLY",
+      "null": "PAIR_BALANCE_ONLY_NO_PREREGISTERED_HIGHER_ORDER_ADVANTAGE",
+      "regression": "HIGHER_ORDER_STRUCTURAL_REGRESSION_AGAINST_MATCHED_NULL",
+      "invalid": "INVALID_EVALUATION_NO_DECISION"
+    },
+    "registered_child_count": 3,
+    "registered_total_with_mainline_execution": 4,
+    "candidate_evaluation_statistics_read": false,
+    "null_replicates_executed": 0,
+    "database_queries": 0,
+    "historical_rows_read": 0,
+    "folds_executed": 0,
+    "duplicate_or_repetition_scans": 0,
+    "repetition_scan": "ABSENT_BY_CONSTRUCTION",
+    "separate_duplicate_membership_or_uniqueness_scan": false,
+    "scalar_weighted_score_allowed": false,
+    "historical_evidence": "INCONCLUSIVE",
+    "prediction_v2_mode": "SHADOW_ONLY",
+    "prediction_v2_route": "BASELINE_ONLY",
+    "new_evidence_created": false,
+    "new_model_created": false,
+    "promotion_gate_opened": false,
+    "p3_authorized": false,
+    "production_action": "none"
+  },
+  "database_queries": 0,
+  "historical_rows_read": 0,
+  "null_replicates_executed": 0,
+  "folds_executed": 0,
+  "registered_children": 3,
+  "duplicate_or_repetition_scans": 0,
+  "new_evidence_created": false,
+  "new_model_created": false,
+  "production_action": "none"
+}
