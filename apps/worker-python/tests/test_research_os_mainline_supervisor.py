@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -64,6 +65,173 @@ TEST_COMMIT = "a" * 40
 TEST_CONTROL_PLANE_KEY = "m4-information-theory-mainline"
 
 
+def historical_replay_payload(
+    *,
+    task_key: str,
+    execution_id: str,
+    execution_artifact_digest: str,
+    registered_artifact_count: int,
+) -> dict:
+    return {
+        "schema_version": "dehps-research-evidence-supervisor-replay.v1",
+        "status": "REPLAY_VERIFIED",
+        "dispatch_performed": False,
+        "manual_input_assembly": False,
+        "control_plane_key": TEST_CONTROL_PLANE_KEY,
+        "task_key": task_key,
+        "execution_id": execution_id,
+        "execution_artifact_digest": execution_artifact_digest,
+        "registered_artifact_count": registered_artifact_count,
+        "same_execution_identity": True,
+        "same_artifact_identity": True,
+        "capability_replay": {
+            "status": "REPLAY_VERIFIED",
+            "manual_input_assembly": False,
+        },
+    }
+
+
+def install_execution_commit_replay_subprocess(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    payload: dict,
+    current_commit: str,
+) -> list[tuple[tuple[str, ...], dict]]:
+    calls: list[tuple[tuple[str, ...], dict]] = []
+
+    def fake_run(command, **kwargs):
+        command = tuple(command)
+        calls.append((command, kwargs))
+        if command[:3] == ("git", "rev-parse", "HEAD"):
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                stdout=current_commit + "\n",
+                stderr="",
+            )
+        if command[:3] == ("git", "merge-base", "--is-ancestor"):
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        if command[:4] == ("git", "worktree", "add", "--detach"):
+            Path(command[4]).mkdir(parents=True)
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        if command[:4] == ("git", "worktree", "remove", "--force"):
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+        checkout = Path(kwargs["cwd"])
+        assert (checkout / "runtime").is_symlink()
+        environment = kwargs["env"]
+        assert environment["PYTHONHASHSEED"] == "0"
+        assert environment["OMP_NUM_THREADS"] == "1"
+        assert environment["OPENBLAS_NUM_THREADS"] == "1"
+        assert environment["MKL_NUM_THREADS"] == "1"
+        assert environment["NUMEXPR_NUM_THREADS"] == "1"
+        assert environment["PYTHONNOUSERSITE"] == "1"
+        assert environment["PYTHONPATH"] == str(checkout / "apps/worker-python")
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=json.dumps(payload, sort_keys=True) + "\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(supervisor_module.subprocess, "run", fake_run)
+    return calls
+
+
+def test_execution_commit_replay_uses_historical_source_and_cleans_worktree(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "root"
+    (root / "runtime").mkdir(parents=True)
+    task_key = supervisor_module.M4_P29_GOLDEN_REFERENCE_TASK_KEY
+    execution_artifact = {
+        "execution_id": "1" * 64,
+        "artifact_digest": "2" * 64,
+        "git_commit": "a" * 40,
+    }
+    payload = historical_replay_payload(
+        task_key=task_key,
+        execution_id=str(execution_artifact["execution_id"]),
+        execution_artifact_digest=str(execution_artifact["artifact_digest"]),
+        registered_artifact_count=5,
+    )
+    calls = install_execution_commit_replay_subprocess(
+        monkeypatch,
+        payload=payload,
+        current_commit="b" * 40,
+    )
+
+    result = supervisor_module._replay_from_execution_commit(
+        root_dir=root,
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
+        task_key=task_key,
+        execution_artifact=execution_artifact,
+        registered_artifact_count=5,
+    )
+
+    assert result == payload
+    assert any(
+        command[:4] == ("git", "worktree", "add", "--detach") for command, _ in calls
+    )
+    assert any(
+        command[:4] == ("git", "worktree", "remove", "--force") for command, _ in calls
+    )
+    historical_call = next(
+        (command, kwargs)
+        for command, kwargs in calls
+        if command[:3] != ("git", "rev-parse", "HEAD") and command[0] != "git"
+    )
+    assert historical_call[0][-4:] == (
+        "--control-plane-key",
+        TEST_CONTROL_PLANE_KEY,
+        "--task-key",
+        task_key,
+    )
+    assert not Path(historical_call[1]["cwd"]).exists()
+
+
+def test_execution_commit_replay_fails_closed_on_identity_drift(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "root"
+    (root / "runtime").mkdir(parents=True)
+    task_key = supervisor_module.M4_P29_RUNTIME_AUDIT_TASK_KEY
+    execution_artifact = {
+        "execution_id": "3" * 64,
+        "artifact_digest": "4" * 64,
+        "git_commit": "c" * 40,
+    }
+    payload = historical_replay_payload(
+        task_key=task_key,
+        execution_id="5" * 64,
+        execution_artifact_digest=str(execution_artifact["artifact_digest"]),
+        registered_artifact_count=6,
+    )
+    calls = install_execution_commit_replay_subprocess(
+        monkeypatch,
+        payload=payload,
+        current_commit="d" * 40,
+    )
+
+    with pytest.raises(
+        MainlineSupervisorError,
+        match="execution-commit replay identity changed",
+    ):
+        supervisor_module._replay_from_execution_commit(
+            root_dir=root,
+            control_plane_key=TEST_CONTROL_PLANE_KEY,
+            task_key=task_key,
+            execution_artifact=execution_artifact,
+            registered_artifact_count=6,
+        )
+
+    assert any(
+        command[:4] == ("git", "worktree", "remove", "--force") for command, _ in calls
+    )
+
+
 def reset_preflight_to_pending(value: dict) -> None:
     preflight = next(
         task for task in value["tasks"] if task["task_key"] == P26_PREFLIGHT_TASK_KEY
@@ -110,9 +278,9 @@ def manifest_payload() -> dict:
     p24["completion_classification"] = "INTEGRATION_PENDING"
     p24["dependencies"] = [p24["dependencies"][0]]
     p24["input_artifact_digests"] = []
-    p24["metric_contract"]["mainline_integration"][
-        "ready_condition"
-    ] = "P2.3 mainline execution completed"
+    p24["metric_contract"]["mainline_integration"]["ready_condition"] = (
+        "P2.3 mainline execution completed"
+    )
     p24["metric_contract"]["mainline_integration"]["upstream_artifacts"] = [
         "P2.3 mainline execution artifact"
     ]
@@ -589,7 +757,7 @@ def prepare_root(tmp_path: Path) -> Path:
             "configs/research-os/"
             "m4-information-theory-p2-6-1-measurement-validation-v1.json"
         ),
-        ("configs/research-os/" "m4-information-theory-p2-6-3-periodic-refit-v1.json"),
+        ("configs/research-os/m4-information-theory-p2-6-3-periodic-refit-v1.json"),
     ):
         destination = tmp_path / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
