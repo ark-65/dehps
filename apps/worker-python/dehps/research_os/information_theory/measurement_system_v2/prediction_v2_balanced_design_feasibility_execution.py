@@ -85,7 +85,8 @@ _EXPECTED_RESEARCH_REQUEST_KEY = (
     "research-prediction-v2-balanced-design-preregistration-round-90-20260809"
 )
 _EXPECTED_ENGINEERING_REQUEST_KEY = (
-    "engineering-prediction-v2-balanced-design-execution-round-93-20260809"
+    "engineering-prediction-v2-balanced-design-search-index-optimization-"
+    "round-95-20260809"
 )
 _SOURCE_MODULE_PATH = (
     "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/"
@@ -130,6 +131,103 @@ class SignatureGroup:
             "representative_ids": list(self.representative_ids),
             "multiplicity": self.multiplicity,
         }
+
+
+@dataclass(frozen=True)
+class _SignatureCompatibilityIndex:
+    signature_weight: int
+    all_groups_bits: int
+    positive_bits_by_coordinate: tuple[int, ...]
+    allowed_bits_by_coordinate: tuple[tuple[int, ...], ...]
+    value_bits_by_coordinate: tuple[tuple[int, ...], ...]
+
+    @classmethod
+    def build(
+        cls,
+        groups: Sequence[SignatureGroup],
+    ) -> _SignatureCompatibilityIndex:
+        if not groups or not groups[0].signature:
+            raise BalancedDesignExecutionError("signature_groups_empty")
+        width = len(groups[0].signature)
+        signature_weight = sum(groups[0].signature)
+        maximum_values = [0] * width
+        for group in groups:
+            if (
+                len(group.signature) != width
+                or sum(group.signature) != signature_weight
+                or any(value < 0 for value in group.signature)
+                or group.multiplicity <= 0
+            ):
+                raise BalancedDesignExecutionError("signature_group_weight_changed")
+            for coordinate, value in enumerate(group.signature):
+                maximum_values[coordinate] = max(
+                    maximum_values[coordinate],
+                    value,
+                )
+
+        value_bits = [[0] * (maximum_value + 1) for maximum_value in maximum_values]
+        for group_index, group in enumerate(groups):
+            group_bit = 1 << group_index
+            for coordinate, value in enumerate(group.signature):
+                value_bits[coordinate][value] |= group_bit
+
+        all_groups_bits = (1 << len(groups)) - 1
+        positive_bits: list[int] = []
+        allowed_bits: list[tuple[int, ...]] = []
+        for coordinate_values in value_bits:
+            positive = 0
+            cumulative = 0
+            allowed_for_coordinate: list[int] = []
+            for value, bits in enumerate(coordinate_values):
+                cumulative |= bits
+                allowed_for_coordinate.append(cumulative)
+                if value > 0:
+                    positive |= bits
+            positive_bits.append(positive)
+            allowed_bits.append(tuple(allowed_for_coordinate))
+
+        return cls(
+            signature_weight=signature_weight,
+            all_groups_bits=all_groups_bits,
+            positive_bits_by_coordinate=tuple(positive_bits),
+            allowed_bits_by_coordinate=tuple(allowed_bits),
+            value_bits_by_coordinate=tuple(tuple(bits) for bits in value_bits),
+        )
+
+    def compatible_bits(
+        self,
+        *,
+        groups: Sequence[SignatureGroup],
+        residual: Sequence[int],
+        selected_counts: Sequence[tuple[int, int]],
+    ) -> int:
+        if len(residual) != len(self.allowed_bits_by_coordinate):
+            raise BalancedDesignExecutionError("search_contract_invalid")
+        compatible = self.all_groups_bits
+        for available, allowed in zip(
+            residual,
+            self.allowed_bits_by_coordinate,
+        ):
+            if available < 0:
+                return 0
+            if available < len(allowed) - 1:
+                compatible &= allowed[available]
+            if not compatible:
+                return 0
+        for group_index, count in selected_counts:
+            if count >= groups[group_index].multiplicity:
+                compatible &= ~(1 << group_index)
+        return compatible
+
+    def maximum_value(self, *, coordinate: int, compatible_bits: int) -> int:
+        for value in range(
+            len(self.value_bits_by_coordinate[coordinate]) - 1,
+            -1,
+            -1,
+        ):
+            if compatible_bits & self.value_bits_by_coordinate[coordinate][value]:
+                return value
+        return 0
 
 
 @dataclass(frozen=True)
@@ -475,22 +573,23 @@ def _choose_branch_coordinate(
     groups: Sequence[SignatureGroup],
     residual: Sequence[int],
     selected_counts: Sequence[tuple[int, int]],
+    compatibility_index: _SignatureCompatibilityIndex | None = None,
+    compatible_bits: int | None = None,
 ) -> int:
+    index = compatibility_index or _SignatureCompatibilityIndex.build(groups)
+    if compatible_bits is None:
+        compatible_bits = index.compatible_bits(
+            groups=groups,
+            residual=residual,
+            selected_counts=selected_counts,
+        )
     choices: list[tuple[int, int]] = []
     for coordinate, need in enumerate(residual):
         if need <= 0:
             continue
-        compatible = 0
-        for group_index, group in enumerate(groups):
-            if (
-                _selected_count(selected_counts, group_index) < group.multiplicity
-                and group.signature[coordinate] > 0
-                and all(
-                    value <= available
-                    for value, available in zip(group.signature, residual)
-                )
-            ):
-                compatible += 1
+        compatible = (
+            compatible_bits & index.positive_bits_by_coordinate[coordinate]
+        ).bit_count()
         choices.append((compatible, coordinate))
     if not choices:
         return -1
@@ -505,22 +604,20 @@ def _coordinate_allocations(
     remaining: int,
     selected_counts: tuple[tuple[int, int], ...],
     coordinate: int,
+    compatibility_index: _SignatureCompatibilityIndex | None = None,
+    compatible_bits: int | None = None,
 ) -> Iterator[tuple[tuple[int, int], ...]]:
-    compatible = [
-        index
-        for index, group in enumerate(groups)
-        if (
-            _selected_count(selected_counts, index) < group.multiplicity
-            and group.signature[coordinate] > 0
-            and all(
-                value <= available
-                for value, available in zip(group.signature, residual)
-            )
+    index = compatibility_index or _SignatureCompatibilityIndex.build(groups)
+    if compatible_bits is None:
+        compatible_bits = index.compatible_bits(
+            groups=groups,
+            residual=residual,
+            selected_counts=selected_counts,
         )
-    ]
+    selected_by_group = dict(selected_counts)
 
     def walk(
-        position: int,
+        minimum_group_index: int,
         coordinate_need: int,
         slots: int,
         contribution: tuple[int, ...],
@@ -531,30 +628,48 @@ def _coordinate_allocations(
             return
         if slots <= 0:
             return
-        for compatible_position in range(position, len(compatible)):
-            group_index = compatible[compatible_position]
+        remaining_capacity = tuple(
+            available - current for available, current in zip(residual, contribution)
+        )
+        candidate_bits = (
+            index.compatible_bits(
+                groups=groups,
+                residual=remaining_capacity,
+                selected_counts=selected_counts,
+            )
+            & compatible_bits
+            & index.positive_bits_by_coordinate[coordinate]
+            & ~((1 << minimum_group_index) - 1)
+        )
+        while candidate_bits:
+            least_bit = candidate_bits & -candidate_bits
+            group_index = least_bit.bit_length() - 1
+            candidate_bits ^= least_bit
             group = groups[group_index]
-            available_count = group.multiplicity - _selected_count(
-                selected_counts,
+            available_count = group.multiplicity - selected_by_group.get(
                 group_index,
+                0,
             )
             maximum = min(
                 available_count,
                 slots,
                 coordinate_need // group.signature[coordinate],
+                *(
+                    available // value
+                    for available, value in zip(
+                        remaining_capacity,
+                        group.signature,
+                    )
+                    if value > 0
+                ),
             )
             for count in range(1, maximum + 1):
                 next_contribution = tuple(
                     current + count * value
                     for current, value in zip(contribution, group.signature)
                 )
-                if any(
-                    value > available
-                    for value, available in zip(next_contribution, residual)
-                ):
-                    break
                 yield from walk(
-                    compatible_position + 1,
+                    group_index + 1,
                     coordinate_need - count * group.signature[coordinate],
                     slots - count,
                     next_contribution,
@@ -599,31 +714,30 @@ def _make_frame(
     remaining: int,
     selected_counts: tuple[tuple[int, int], ...],
     next_allocation_index: int = 0,
+    compatibility_index: _SignatureCompatibilityIndex | None = None,
 ) -> _RuntimeFrame | None:
-    signature_weight = sum(groups[0].signature)
-    if any(sum(group.signature) != signature_weight for group in groups):
-        raise BalancedDesignExecutionError("signature_group_weight_changed")
+    index = compatibility_index or _SignatureCompatibilityIndex.build(groups)
+    signature_weight = index.signature_weight
     if remaining <= 0 or sum(residual) != remaining * signature_weight:
         return None
-    coordinate = _choose_branch_coordinate(
+    compatible_bits = index.compatible_bits(
         groups=groups,
         residual=residual,
         selected_counts=selected_counts,
     )
+    coordinate = _choose_branch_coordinate(
+        groups=groups,
+        residual=residual,
+        selected_counts=selected_counts,
+        compatibility_index=index,
+        compatible_bits=compatible_bits,
+    )
     if coordinate < 0:
         return None
-    for index, need in enumerate(residual):
-        maximum = max(
-            (
-                group.signature[index]
-                for group_index, group in enumerate(groups)
-                if _selected_count(selected_counts, group_index) < group.multiplicity
-                and all(
-                    value <= available
-                    for value, available in zip(group.signature, residual)
-                )
-            ),
-            default=0,
+    for coordinate_index, need in enumerate(residual):
+        maximum = index.maximum_value(
+            coordinate=coordinate_index,
+            compatible_bits=compatible_bits,
         )
         if need > remaining * maximum:
             return None
@@ -640,6 +754,8 @@ def _make_frame(
         remaining=remaining,
         selected_counts=selected_counts,
         coordinate=coordinate,
+        compatibility_index=index,
+        compatible_bits=compatible_bits,
     )
     for _ in range(next_allocation_index):
         try:
@@ -761,6 +877,7 @@ def search_exact_signature_multicover(
         or len(target_signature) != len(inventory.signature_groups[0].signature)
     ):
         raise BalancedDesignExecutionError("search_contract_invalid")
+    compatibility_index = _SignatureCompatibilityIndex.build(inventory.signature_groups)
     branches = _profile_branches(inventory.short_representatives, profiles)
     journal = CheckpointJournal(
         checkpoint_path,
@@ -796,6 +913,7 @@ def search_exact_signature_multicover(
                 remaining=snapshot.remaining,
                 selected_counts=snapshot.selected_counts,
                 next_allocation_index=snapshot.next_allocation_index,
+                compatibility_index=compatibility_index,
             )
             if frame is None or frame.snapshot.coordinate != snapshot.coordinate:
                 raise BalancedDesignExecutionError("checkpoint_stack_changed")
@@ -832,6 +950,7 @@ def search_exact_signature_multicover(
                 residual=tuple(residual),
                 remaining=profile[0],
                 selected_counts=(),
+                compatibility_index=compatibility_index,
             )
             if root is None:
                 branch_index += 1
@@ -927,6 +1046,7 @@ def search_exact_signature_multicover(
                 residual=residual,
                 remaining=remaining,
                 selected_counts=selected,
+                compatibility_index=compatibility_index,
             )
             if child is not None:
                 stack.append(child)
@@ -1564,8 +1684,8 @@ def load_execution_source_contract(path: Path) -> dict[str, Any]:
         or payload.get("research_request_id") != 417
         or payload.get("research_execution_id") != 338
         or payload.get("engineering_request_key") != _EXPECTED_ENGINEERING_REQUEST_KEY
-        or payload.get("engineering_request_id") != 420
-        or payload.get("engineering_execution_id") != 341
+        or payload.get("engineering_request_id") != 422
+        or payload.get("engineering_execution_id") != 343
         or payload.get("constructor_family") != CONSTRUCTOR_FAMILY
         or payload.get("formal_execution_allowed_during_engineering") is not False
         or payload.get("preregistration_digest") != PREREGISTRATION_DIGEST

@@ -18171,8 +18171,8 @@ class ResearchEvidenceSupervisor:
                 != source_contract["source_set_digest"]
                 or artifact.get("research_request_id") != 417
                 or artifact.get("research_execution_id") != 338
-                or artifact.get("engineering_request_id") != 420
-                or artifact.get("engineering_execution_id") != 341
+                or artifact.get("engineering_request_id") != 422
+                or artifact.get("engineering_execution_id") != 343
                 or artifact.get("preregistration_mainline_execution_digest")
                 != preregistration_execution["artifact_digest"]
                 or artifact.get("preregistration_digest")

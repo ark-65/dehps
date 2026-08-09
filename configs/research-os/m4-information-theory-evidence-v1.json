@@ -3662,7 +3662,7 @@
       "priority": 72,
       "requested_capability": "prediction_v2_balanced_design_feasibility_execution",
       "input_artifact_digests": [
-        "46ee7d03cab54a3d0b6dfd210058aec8e56494f7a48e20ce43eb6c7578bb65f6",
+        "c54ee87e5b9d6e513945204bea0413e8d34a51206e587f3662d8123eb03b9538",
         "64eb0919244444dda16997153c7de747c83284bbad091bdb8e36e64335ce88ce",
         "4693522bbbde211aec777d4e6644773fcf9c8a1bfe818100d1e7117cd28f1d69",
         "4bc8585d86c9f8e8c25d9f31f26c92189fed46e4dfb607717477f0c6a2225a47",
@@ -4757,6 +4757,7 @@
       "prediction-v2-balanced-design-feasibility-source:f055aae2ae70af5d21fbfc2a1bfa50952fca595e906cd82556b445c3299acade",
       "prediction-v2-balanced-design-feasibility-preregistration-source:acc843ce75ab48c68777ecee4d40f87e59be04bf98c241f139dbdfe0416521d0",
       "prediction-v2-balanced-design-feasibility-execution-source:46ee7d03cab54a3d0b6dfd210058aec8e56494f7a48e20ce43eb6c7578bb65f6",
+      "prediction-v2-balanced-design-feasibility-execution-source:c54ee87e5b9d6e513945204bea0413e8d34a51206e587f3662d8123eb03b9538",
       "m4-p2-9-p263-source-compatibility-fixture:1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f",
       "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
       "m4-p2-identifiability-preflight-manifest:5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3",
@@ -4783,5 +4784,5 @@
     ],
     "authorities": []
   },
-  "manifest_digest": "4ee71dce29ecee7afa1de66362a793d4e4e74818c57f19fd2bc82fd1e5aa6fb7"
+  "manifest_digest": "4609d472c9f0ce1c3ba96762038d4df34936f166f9f4e1d21ea3c381c233641c"
 }
