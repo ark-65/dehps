@@ -329,8 +329,10 @@ def test_manifest_status_and_index_bind_preregistration_then_stop_at_execution()
         FEASIBILITY_MAINLINE_EXECUTION_DIGEST,
     )
     next_task = tasks[PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_EXECUTION_TASK_KEY]
-    assert next_task.requested_capability is None
-    assert next_task.input_artifact_digests == ()
+    assert next_task.requested_capability == (
+        "prediction_v2_balanced_design_feasibility_execution"
+    )
+    assert len(next_task.input_artifact_digests) == 5
     index = json.loads(INDEX_PATH.read_text(encoding="utf-8"))["artifacts"]
     assert index[source["artifact_digest"]]["path"] == str(
         PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_SOURCE_CONTRACT_PATH
@@ -376,7 +378,7 @@ def test_manifest_status_and_index_bind_preregistration_then_stop_at_execution()
         status["prediction_v2_balanced_design_feasibility_execution"][
             "requested_capability"
         ]
-        is None
+        == "prediction_v2_balanced_design_feasibility_execution"
     )
 
 

@@ -174,7 +174,11 @@ def _failed_live_for_recovery() -> dict:
     payload["tasks"] = [
         item
         for item in payload["tasks"]
-        if item["task_key"] != "prediction-v2-balanced-design-feasibility-execution"
+        if item["task_key"]
+        not in {
+            "prediction-v2-balanced-design-feasibility-execution",
+            "prediction-v2-balanced-design-feasibility-result-decision",
+        }
     ]
     target = next(
         item
@@ -206,7 +210,11 @@ def _corrected_recovery_source() -> dict:
     payload["tasks"] = [
         item
         for item in payload["tasks"]
-        if item["task_key"] != "prediction-v2-balanced-design-feasibility-execution"
+        if item["task_key"]
+        not in {
+            "prediction-v2-balanced-design-feasibility-execution",
+            "prediction-v2-balanced-design-feasibility-result-decision",
+        }
     ]
     payload.pop("manifest_digest")
     return ControlPlaneManifest.from_dict(payload).to_dict(include_digest=True)
