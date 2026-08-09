@@ -4,6 +4,7 @@ import json
 import math
 import os
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -824,6 +825,197 @@ P26_FAILED_RECOVERY_ERROR = (
 
 class MainlineSupervisorError(RuntimeError):
     pass
+
+
+_EXECUTION_COMMIT_REPLAY_TASK_KEYS = frozenset(
+    {
+        M4_P29_GOLDEN_REFERENCE_TASK_KEY,
+        M4_P29_RUNTIME_AUDIT_TASK_KEY,
+    }
+)
+_EXECUTION_COMMIT_REPLAY_THREAD_ENV = {
+    "PYTHONHASHSEED": "0",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+}
+
+
+def _git_command(
+    root_dir: Path,
+    *args: str,
+    check: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            ("git", *args),
+            cwd=root_dir,
+            check=check,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise MainlineSupervisorError(
+            "execution-commit replay git boundary failed: " + " ".join(args)
+        ) from exc
+
+
+def _replay_from_execution_commit(
+    *,
+    root_dir: Path,
+    control_plane_key: str,
+    task_key: str,
+    execution_artifact: Mapping[str, Any],
+    registered_artifact_count: int,
+) -> dict[str, Any]:
+    """Run immutable historical replay with the exact code that produced it."""
+
+    if task_key not in _EXECUTION_COMMIT_REPLAY_TASK_KEYS:
+        raise MainlineSupervisorError("execution-commit replay task is not allowlisted")
+    execution_commit = str(execution_artifact.get("git_commit") or "")
+    if (
+        len(execution_commit) != 40
+        or execution_commit.lower() != execution_commit
+        or any(character not in "0123456789abcdef" for character in execution_commit)
+    ):
+        raise MainlineSupervisorError("execution-commit replay git identity is invalid")
+    current_commit = _git_command(root_dir, "rev-parse", "HEAD").stdout.strip()
+    if execution_commit == current_commit:
+        raise MainlineSupervisorError(
+            "execution-commit replay cannot delegate to the current commit"
+        )
+    _git_command(
+        root_dir,
+        "merge-base",
+        "--is-ancestor",
+        execution_commit,
+        current_commit,
+    )
+    runtime_root = (root_dir / "runtime").resolve()
+    if not runtime_root.is_dir():
+        raise MainlineSupervisorError(
+            "execution-commit replay runtime root is unavailable"
+        )
+
+    replay_result: dict[str, Any] | None = None
+    cleanup_failure: str | None = None
+    with tempfile.TemporaryDirectory(
+        prefix="dehps-execution-commit-replay-"
+    ) as temporary:
+        checkout = Path(temporary) / "checkout"
+        runtime_link = checkout / "runtime"
+        worktree_added = False
+        try:
+            _git_command(
+                root_dir,
+                "worktree",
+                "add",
+                "--detach",
+                str(checkout),
+                execution_commit,
+            )
+            worktree_added = True
+            if runtime_link.exists() or runtime_link.is_symlink():
+                raise MainlineSupervisorError(
+                    "execution-commit replay checkout contains a runtime entry"
+                )
+            runtime_link.symlink_to(runtime_root, target_is_directory=True)
+            environment = dict(os.environ)
+            environment.update(_EXECUTION_COMMIT_REPLAY_THREAD_ENV)
+            environment["PYTHONNOUSERSITE"] = "1"
+            environment["PYTHONPATH"] = str(checkout / "apps/worker-python")
+            try:
+                completed = subprocess.run(
+                    (
+                        sys.executable,
+                        "-m",
+                        "dehps.cli",
+                        "research-os",
+                        "supervisor",
+                        "replay",
+                        "--control-plane-key",
+                        control_plane_key,
+                        "--task-key",
+                        task_key,
+                    ),
+                    cwd=checkout,
+                    env=environment,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=1_200,
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise MainlineSupervisorError(
+                    "execution-commit replay subprocess failed"
+                ) from exc
+            if completed.returncode != 0:
+                diagnostic = (completed.stderr or completed.stdout).strip()[-2_000:]
+                raise MainlineSupervisorError(
+                    "execution-commit replay failed closed: " + diagnostic
+                )
+            json_lines = [
+                line.strip()
+                for line in completed.stdout.splitlines()
+                if line.strip().startswith("{") and line.strip().endswith("}")
+            ]
+            if len(json_lines) != 1:
+                raise MainlineSupervisorError(
+                    "execution-commit replay output is not one JSON object"
+                )
+            try:
+                parsed = json.loads(json_lines[0])
+            except json.JSONDecodeError as exc:
+                raise MainlineSupervisorError(
+                    "execution-commit replay output is invalid JSON"
+                ) from exc
+            if not isinstance(parsed, dict):
+                raise MainlineSupervisorError(
+                    "execution-commit replay output is not an object"
+                )
+            capability_replay = parsed.get("capability_replay")
+            if (
+                parsed.get("schema_version")
+                != "dehps-research-evidence-supervisor-replay.v1"
+                or parsed.get("status") != "REPLAY_VERIFIED"
+                or parsed.get("dispatch_performed") is not False
+                or parsed.get("manual_input_assembly") is not False
+                or parsed.get("control_plane_key") != control_plane_key
+                or parsed.get("task_key") != task_key
+                or parsed.get("execution_id") != execution_artifact.get("execution_id")
+                or parsed.get("execution_artifact_digest")
+                != execution_artifact.get("artifact_digest")
+                or parsed.get("registered_artifact_count") != registered_artifact_count
+                or parsed.get("same_execution_identity") is not True
+                or parsed.get("same_artifact_identity") is not True
+                or not isinstance(capability_replay, dict)
+                or capability_replay.get("status") != "REPLAY_VERIFIED"
+                or capability_replay.get("manual_input_assembly") is not False
+            ):
+                raise MainlineSupervisorError(
+                    "execution-commit replay identity changed"
+                )
+            replay_result = parsed
+        finally:
+            if runtime_link.is_symlink():
+                runtime_link.unlink()
+            if worktree_added:
+                cleanup = _git_command(
+                    root_dir,
+                    "worktree",
+                    "remove",
+                    "--force",
+                    str(checkout),
+                    check=False,
+                )
+                if cleanup.returncode != 0:
+                    cleanup_failure = "execution-commit replay worktree cleanup failed"
+    if cleanup_failure is not None:
+        raise MainlineSupervisorError(cleanup_failure)
+    if replay_result is None:
+        raise MainlineSupervisorError("execution-commit replay did not return a result")
+    return replay_result
 
 
 @dataclass(frozen=True)
@@ -16054,6 +16246,21 @@ class ResearchEvidenceSupervisor:
             if missing:
                 raise MainlineSupervisorError(
                     "registered mainline artifacts are missing: " + ", ".join(missing)
+                )
+        if task_key in _EXECUTION_COMMIT_REPLAY_TASK_KEYS:
+            execution_commit = str(artifact.get("git_commit") or "")
+            current_commit = _git_command(
+                self.root_dir,
+                "rev-parse",
+                "HEAD",
+            ).stdout.strip()
+            if execution_commit != current_commit:
+                return _replay_from_execution_commit(
+                    root_dir=self.root_dir,
+                    control_plane_key=self.control_plane_key,
+                    task_key=task_key,
+                    execution_artifact=artifact,
+                    registered_artifact_count=len(registrations),
                 )
         summary = _event_payload(event)
         capability_replay: dict[str, Any] | None = None
