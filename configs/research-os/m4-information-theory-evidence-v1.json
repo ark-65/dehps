@@ -3998,6 +3998,17 @@
       "task_type": "prediction_v2_balanced_design_structural_evaluation_execution",
       "lane": "research",
       "priority": 74,
+      "requested_capability": "prediction_v2_balanced_design_structural_evaluation_execution",
+      "input_artifact_digests": [
+        "e254bfcd84683f54d00f5e1a89b81a953ba90413a0724794abdde7e7c9eabc7c",
+        "0d4dcffc37f30fa8b58fe9b9ab8749b22d03ea091b0f12a07c2ac9c5eba8ce94",
+        "47b6ead65dbcde5a65b1f7c23b1823f0fc63f56b92f523e7b1f75a3e252c72cc",
+        "f5d636b0d8bb8e43883ceb4ef2597dcf1c01d88825474302251d7a63617856ef",
+        "d1b15201611275ae89d580a387e8de711b10edfb320e8c5984a59f9dea3caa0d",
+        "4e060203c9172d13987b9e4597a70d01ccbd905aa7f0b1db8a74fa2a1f31ee6d",
+        "dde85462b725ec8719a30c5879dee0ba90b4a6d97f4a78b2d08b2beadc0c1f90",
+        "da9283998bd5833b6ad66f64543c42d0a94b06b7a730891eb718e21188210e79"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
@@ -4008,6 +4019,94 @@
           "dependency_type": "artifact",
           "target_key": "prediction-v2-balanced-design-structural-evaluation-preregistration:COMPLETE",
           "required_status": "available"
+        },
+        {
+          "dependency_type": "external_event",
+          "target_key": "research-contract:prediction-v2-balanced-design-structural-evaluation-execution:approved",
+          "required_status": "observed"
+        }
+      ],
+      "metric_contract": {
+        "engineering_complete": true,
+        "engineering_increment_percent": 1,
+        "evidence_complete": false,
+        "evidence_increment_percent": 0,
+        "phase": "PREDICTION-V2-BALANCED-DESIGN-STRUCTURAL-EVALUATION-EXECUTION",
+        "scope": "execute_the_frozen_exact_integer_structural_evaluation_with_indexed_checkpoints_and_no_duplicate_validation",
+        "reason": "the_replay_verified_preregistration_now_authorizes_exactly_one_fixed_candidate_and_9999_plus_1999_deterministic_without_replacement_null_evaluations",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "the_structural_evaluation_preregistration_is_VALIDATED_IN_MAINLINE_and_replay_verified_with_all_registered_artifacts",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "structural-evaluation preregistration mainline execution",
+            "frozen structural-evaluation preregistration",
+            "structural-evaluation execution handoff",
+            "structural-evaluation preregistration completion",
+            "balanced-design feasibility mainline execution",
+            "complete Z33 orbit inventory",
+            "fixed proof-carrying balanced-design certificate"
+          ],
+          "downstream_artifacts": [
+            "structural-evaluation result",
+            "structural-evaluation diagnostics",
+            "structural-evaluation execution completion"
+          ],
+          "status_projection": "unified_m4_status.measurement_system_v2.prediction_v2_balanced_design_structural_evaluation_execution",
+          "evidence_progress_rule": "structural_comparison_creates_no_historical_or_forward_prediction_Evidence",
+          "decision_consumer": "prediction-v2-balanced-design-structural-evaluation-result-decision",
+          "downstream_consumer": "prediction-v2-balanced-design-structural-evaluation-result-decision"
+        },
+        "approved_external_event": "research-contract:prediction-v2-balanced-design-structural-evaluation-execution:approved",
+        "source_contract_digest": "e254bfcd84683f54d00f5e1a89b81a953ba90413a0724794abdde7e7c9eabc7c",
+        "frozen_execution_contract_digest": "0e2de0fb60fafd008237562a2825f1af4629bb958ffb790e75d4389f4d3717e1",
+        "confirmatory_endpoint": "triple_collision_mass",
+        "optimized_equivalent_formula": "sum_over_unordered_block_pairs_of_C(popcount(block_i_bitmask_and_block_j_bitmask),3)",
+        "primary_null": "Z33_ORBIT_PROFILE_MATCHED_WITHOUT_REPLACEMENT_5_FULL_1_SHORT_B176",
+        "primary_replicate_count": 9999,
+        "secondary_null": "UNIFORM_PREFIX_WITHOUT_REPLACEMENT_FROM_ALL_1107568_LEGAL_BLOCKS_B176",
+        "secondary_replicate_count": 1999,
+        "random_stream": "SHAKE256_COUNTER_MODE_RANDOM_BELOW_V1",
+        "sampling": "SPARSE_PARTIAL_FISHER_YATES_WITHOUT_REPLACEMENT_V1",
+        "kernel": "NUMBA_PARALLEL_UINT64_PAIR_INTERSECTION_LOOKUP_V1",
+        "checkpoint_resume": "DIGEST_VERIFIED_CONTIGUOUS_COMPLETED_CHUNKS_ONLY",
+        "primary_chunk_size": 512,
+        "secondary_chunk_size": 256,
+        "duplicate_membership_uniqueness_or_repetition_scans": 0,
+        "duplicate_validation_pass": false,
+        "membership_validation_pass": false,
+        "uniqueness_validation_pass": false,
+        "repetition_scan": "ABSENT_BY_CONSTRUCTION",
+        "candidate_evaluation_statistics_read": false,
+        "null_replicates_executed": 0,
+        "historical_evidence": "INCONCLUSIVE",
+        "prediction_v2_mode": "SHADOW_ONLY",
+        "prediction_v2_route": "BASELINE_ONLY",
+        "evidence_created": false,
+        "new_model_created": false,
+        "promotion_gate_opened": false,
+        "p3_authorized": false,
+        "production_action": "none"
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "prediction-v2-balanced-design-structural-evaluation-result-decision",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "prediction_v2_balanced_design_structural_evaluation_result_decision",
+      "lane": "research",
+      "priority": 73,
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "prediction-v2-balanced-design-structural-evaluation-execution",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "prediction-v2-balanced-design-structural-evaluation-execution:COMPLETE",
+          "required_status": "available"
         }
       ],
       "metric_contract": {
@@ -4015,36 +4114,28 @@
         "engineering_increment_percent": 0,
         "evidence_complete": false,
         "evidence_increment_percent": 0,
-        "phase": "PREDICTION-V2-BALANCED-DESIGN-STRUCTURAL-EVALUATION-EXECUTION",
-        "scope": "execute_only_the_frozen_structural_evaluation_after_a_separate_approved_capability_is_integrated",
-        "reason": "the_preregistration_handoff_must_be_validated_in_mainline_before_candidate_or_null_statistics_are_computed",
+        "phase": "PREDICTION-V2-BALANCED-DESIGN-STRUCTURAL-EVALUATION-RESULT-DECISION",
+        "scope": "interpret_only_the_registered_mechanical_structural_outcome_after_a_separate_approved_research_decision",
+        "reason": "structural_extremeness_within_a_matched_null_requires_separate_interpretation_and_cannot_promote_prediction_or_create_historical_Evidence_automatically",
         "mainline_integration": {
           "goal": "M4_INFORMATION_THEORY_EVIDENCE",
-          "ready_condition": "the_structural_evaluation_preregistration_is_VALIDATED_IN_MAINLINE_and_replay_verified_with_all_registered_artifacts",
-          "runner": "pending_a_separate_approved_execution_capability",
+          "ready_condition": "the_structural_evaluation_execution_is_VALIDATED_IN_MAINLINE_and_replay_verified_with_result_diagnostics_completion_and_mainline_artifacts_registered",
+          "runner": "pending_a_separate_approved_result_decision_capability",
           "upstream_artifacts": [
-            "structural-evaluation preregistration mainline execution",
-            "frozen structural-evaluation preregistration",
-            "structural-evaluation execution handoff",
-            "structural-evaluation preregistration completion"
+            "structural-evaluation mainline execution",
+            "structural-evaluation result",
+            "structural-evaluation diagnostics",
+            "structural-evaluation execution completion"
           ],
           "downstream_artifacts": [
-            "future structural-evaluation result"
+            "future structural-evaluation result decision"
           ],
-          "status_projection": "unified_m4_status.measurement_system_v2.prediction_v2_balanced_design_structural_evaluation_execution",
-          "evidence_progress_rule": "structural_comparison_creates_no_historical_or_forward_prediction_Evidence",
-          "decision_consumer": "future separately approved structural-evaluation result decision",
-          "downstream_consumer": "future separately approved structural-evaluation result decision"
+          "status_projection": "unified_m4_status.measurement_system_v2.prediction_v2_balanced_design_structural_evaluation_result_decision",
+          "evidence_progress_rule": "structural_comparison_alone_creates_no_historical_or_forward_prediction_Evidence",
+          "decision_consumer": "future separately approved research program",
+          "downstream_consumer": "future separately approved research program"
         },
-        "confirmatory_endpoint": "triple_collision_mass",
-        "primary_replicate_count": 9999,
-        "secondary_replicate_count": 1999,
-        "duplicate_validation_pass": false,
-        "membership_validation_pass": false,
-        "uniqueness_validation_pass": false,
-        "repetition_scan": "ABSENT_BY_CONSTRUCTION",
-        "candidate_evaluation_statistics_read": false,
-        "null_replicates_executed": 0,
+        "structural_only": true,
         "historical_evidence": "INCONCLUSIVE",
         "prediction_v2_mode": "SHADOW_ONLY",
         "prediction_v2_route": "BASELINE_ONLY",
@@ -5027,6 +5118,7 @@
       "prediction-v2-balanced-design-feasibility-result-decision-source:d26e55c82fbba734887a713ab5f82ccbcfffe97b22d3477c9d03aa7ed1943fb1",
       "prediction-v2-balanced-design-structural-evaluation-design-source:4ba7d37922325afd0d971787686dfbc9b43a0f198ba1d7ddabb71136f38ee1f3",
       "prediction-v2-balanced-design-structural-evaluation-preregistration-source:03ff0783961730cb8ac0f800000c00f6e666cd75a6364d9953c8647f9292a565",
+      "prediction-v2-balanced-design-structural-evaluation-execution-source:e254bfcd84683f54d00f5e1a89b81a953ba90413a0724794abdde7e7c9eabc7c",
       "m4-p2-9-p263-source-compatibility-fixture:1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f",
       "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
       "m4-p2-identifiability-preflight-manifest:5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3",
@@ -5052,9 +5144,10 @@
       "research-contract:prediction-v2-balanced-design-feasibility-execution:approved",
       "research-contract:prediction-v2-balanced-design-result-decision:approved",
       "research-contract:prediction-v2-balanced-design-structural-evaluation-design:approved",
-      "research-contract:prediction-v2-balanced-design-structural-evaluation-preregistration:approved"
+      "research-contract:prediction-v2-balanced-design-structural-evaluation-preregistration:approved",
+      "research-contract:prediction-v2-balanced-design-structural-evaluation-execution:approved"
     ],
     "authorities": []
   },
-  "manifest_digest": "124b55d77e22e577d0bd7b663fcbeaf212082ed3442bb654b9338a609bf55057"
+  "manifest_digest": "3c87a6b0ae65e18645e05dd2a028cc387b101d035c1562b883945e650a028981"
 }

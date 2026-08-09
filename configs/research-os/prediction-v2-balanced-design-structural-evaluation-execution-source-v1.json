@@ -1,0 +1,71 @@
+{
+  "schema_version": "dehps-prediction-v2-balanced-design-structural-evaluation-execution-source.v1",
+  "artifact_type": "prediction_v2_balanced_design_structural_evaluation_execution_source",
+  "artifact_digest": "e254bfcd84683f54d00f5e1a89b81a953ba90413a0724794abdde7e7c9eabc7c",
+  "contract_key": "PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_EXECUTION_SOURCE",
+  "research_request_key": "research-prediction-v2-balanced-design-structural-evaluation-execution-round-105-20260809",
+  "research_request_id": 435,
+  "research_execution_id": 356,
+  "engineering_request_key": "engineering-prediction-v2-balanced-design-structural-evaluation-execution-round-105-20260809",
+  "engineering_request_id": 436,
+  "engineering_execution_id": 357,
+  "scientific_contract_change_allowed": false,
+  "duplicate_membership_uniqueness_or_repetition_scans": 0,
+  "registered_children": 3,
+  "new_evidence_created": false,
+  "new_model_created": false,
+  "production_action": "none",
+  "frozen_contract_digest": "0e2de0fb60fafd008237562a2825f1af4629bb958ffb790e75d4389f4d3717e1",
+  "frozen_contract": {
+    "task_key": "prediction-v2-balanced-design-structural-evaluation-execution",
+    "capability": "prediction_v2_balanced_design_structural_evaluation_execution",
+    "completion_fact": "prediction-v2-balanced-design-structural-evaluation-execution:COMPLETE",
+    "next_consumer": "prediction-v2-balanced-design-structural-evaluation-result-decision",
+    "registered_input_digests": [
+      "0d4dcffc37f30fa8b58fe9b9ab8749b22d03ea091b0f12a07c2ac9c5eba8ce94",
+      "47b6ead65dbcde5a65b1f7c23b1823f0fc63f56b92f523e7b1f75a3e252c72cc",
+      "f5d636b0d8bb8e43883ceb4ef2597dcf1c01d88825474302251d7a63617856ef",
+      "d1b15201611275ae89d580a387e8de711b10edfb320e8c5984a59f9dea3caa0d",
+      "4e060203c9172d13987b9e4597a70d01ccbd905aa7f0b1db8a74fa2a1f31ee6d",
+      "dde85462b725ec8719a30c5879dee0ba90b4a6d97f4a78b2d08b2beadc0c1f90",
+      "da9283998bd5833b6ad66f64543c42d0a94b06b7a730891eb718e21188210e79"
+    ],
+    "research_request_id": 435,
+    "research_execution_id": 356,
+    "endpoint": "triple_collision_mass",
+    "optimized_formula": "sum_over_unordered_block_pairs_of_C(popcount(block_i_bitmask_and_block_j_bitmask),3)",
+    "random_stream": "SHAKE256_COUNTER_MODE_RANDOM_BELOW_V1",
+    "counter_encoding": "unsigned_128_bit_big_endian",
+    "message_framing": "domain_utf8 || 0x00 || counter_u128_be",
+    "sampling": "SPARSE_PARTIAL_FISHER_YATES_WITHOUT_REPLACEMENT_V1",
+    "kernel": "NUMBA_PARALLEL_UINT64_PAIR_INTERSECTION_LOOKUP_V1",
+    "primary_replicate_count": 9999,
+    "secondary_replicate_count": 1999,
+    "diagnostic_replicate_count_per_family": 199,
+    "primary_chunk_size": 512,
+    "secondary_chunk_size": 256,
+    "maximum_wall_seconds": 1800,
+    "maximum_resident_memory_bytes": 4294967296,
+    "duplicate_validation_pass": false,
+    "membership_validation_pass": false,
+    "uniqueness_validation_pass": false,
+    "repetition_scan": "ABSENT_BY_CONSTRUCTION",
+    "historical_evidence": "INCONCLUSIVE",
+    "new_evidence_created": false,
+    "new_model_created": false,
+    "promotion_gate_opened": false,
+    "p3_authorized": false,
+    "production_action": "none"
+  },
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/prediction_v2_balanced_design_structural_evaluation_execution.py",
+      "content_sha256": "5b78825404aa4de30fd494069fee3fdc91f18aaebc3819a4d33326993ac803fc"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/prediction_v2_balanced_design_feasibility_execution.py",
+      "content_sha256": "e49b51000682e7721cb75644fc95d5a823f7d06f13d4604eeaa210ecf36343bd"
+    }
+  ],
+  "source_set_digest": "4d6921ffd5dd6de2c45dbc8176e56769bd02049428057992583ff8ca35cc8a2b"
+}

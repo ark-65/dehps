@@ -12,6 +12,10 @@ from dehps.research_os.information_theory.measurement_system_v2.migration import
 from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_balanced_design_structural_evaluation_design import (
     build_prediction_v2_balanced_design_structural_evaluation_design_artifacts,
 )
+from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_balanced_design_structural_evaluation_execution import (
+    PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_EXECUTION_CAPABILITY,
+    PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_RESULT_DECISION_TASK_KEY,
+)
 from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_balanced_design_structural_evaluation_preregistration import (
     ALPHA_DENOMINATOR,
     DESIGN_EXECUTION_ID,
@@ -235,7 +239,12 @@ def test_manifest_index_and_supervisor_bind_singular_preregistration() -> None:
     next_task = tasks[
         PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_EXECUTION_TASK_KEY
     ]
-    assert next_task.requested_capability is None
+    assert next_task.requested_capability == (
+        PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_EXECUTION_CAPABILITY
+    )
+    assert tasks[
+        PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_RESULT_DECISION_TASK_KEY
+    ].requested_capability is None
     index = json.loads(INDEX_PATH.read_text(encoding="utf-8"))["artifacts"]
     assert index[source_contract["artifact_digest"]]["path"] == str(
         PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_PREREGISTRATION_SOURCE_CONTRACT_PATH
@@ -245,5 +254,9 @@ def test_manifest_index_and_supervisor_bind_singular_preregistration() -> None:
     )
     assert (
         PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_PREREGISTRATION_CAPABILITY
+        in supervisor.capabilities
+    )
+    assert (
+        PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_EXECUTION_CAPABILITY
         in supervisor.capabilities
     )
