@@ -588,10 +588,18 @@
       "superseded_by_digest": "4ee71dce29ecee7afa1de66362a793d4e4e74818c57f19fd2bc82fd1e5aa6fb7"
     },
     "4ee71dce29ecee7afa1de66362a793d4e4e74818c57f19fd2bc82fd1e5aa6fb7": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "source_commit": "f82b738a41faeca4116ab0ddf158a599a564d7dc",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "identity_field": "manifest_digest",
+      "supersedes_digest": "757f33766ab4e29ada0bc67c7864228345c05f1fb0d3963b213eda34b8e4ae9b",
+      "superseded_by_digest": "4609d472c9f0ce1c3ba96762038d4df34936f166f9f4e1d21ea3c381c233641c"
+    },
+    "4609d472c9f0ce1c3ba96762038d4df34936f166f9f4e1d21ea3c381c233641c": {
       "artifact_type": "research_os_control_plane_manifest",
       "path": "configs/research-os/m4-information-theory-evidence-v1.json",
       "identity_field": "manifest_digest",
-      "supersedes_digest": "757f33766ab4e29ada0bc67c7864228345c05f1fb0d3963b213eda34b8e4ae9b"
+      "supersedes_digest": "4ee71dce29ecee7afa1de66362a793d4e4e74818c57f19fd2bc82fd1e5aa6fb7"
     },
     "6fb3a1e366da129ac460599a391891a49206ccc715b6367cf344e2aa3e9f2a3d": {
       "artifact_type": "m4_v2_branch_preflight_source_contract",
@@ -761,9 +769,17 @@
       "identity_field": "artifact_digest"
     },
     "46ee7d03cab54a3d0b6dfd210058aec8e56494f7a48e20ce43eb6c7578bb65f6": {
+      "artifact_type": "superseded_prediction_v2_balanced_design_feasibility_execution_source",
+      "source_commit": "f82b738a41faeca4116ab0ddf158a599a564d7dc",
+      "path_at_source": "configs/research-os/prediction-v2-balanced-design-feasibility-execution-source-v1.json",
+      "identity_field": "artifact_digest",
+      "superseded_by_digest": "c54ee87e5b9d6e513945204bea0413e8d34a51206e587f3662d8123eb03b9538"
+    },
+    "c54ee87e5b9d6e513945204bea0413e8d34a51206e587f3662d8123eb03b9538": {
       "artifact_type": "prediction_v2_balanced_design_feasibility_execution_source",
       "path": "configs/research-os/prediction-v2-balanced-design-feasibility-execution-source-v1.json",
-      "identity_field": "artifact_digest"
+      "identity_field": "artifact_digest",
+      "supersedes_digest": "46ee7d03cab54a3d0b6dfd210058aec8e56494f7a48e20ce43eb6c7578bb65f6"
     },
     "e094f3bd319c63b9ed5a8b14b955f7f64544e30d3b8410cc26b2906b7e56ae67": {
       "artifact_type": "p263_runtime_slot_governance_source_contract",

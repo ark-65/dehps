@@ -4,7 +4,7 @@ import copy
 import json
 import shutil
 from dataclasses import asdict
-from itertools import combinations
+from itertools import combinations, product
 from pathlib import Path
 
 import pytest
@@ -29,6 +29,10 @@ from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_ba
     PREREGISTRATION_MAINLINE_EXECUTION_DIGEST,
     REPETITION_SCAN,
     BalancedDesignExecutionError,
+    SignatureGroup,
+    _choose_branch_coordinate,
+    _coordinate_allocations,
+    _SignatureCompatibilityIndex,
     build_balanced_design_execution_artifacts,
     build_positive_certificate,
     build_search_result_artifact,
@@ -152,6 +156,120 @@ def _recursive_keys(value: object) -> set[str]:
     return set()
 
 
+def _dense_compatible_group_indices(
+    *,
+    groups: tuple[SignatureGroup, ...],
+    residual: tuple[int, ...],
+    selected_counts: tuple[tuple[int, int], ...],
+    coordinate: int | None = None,
+) -> tuple[int, ...]:
+    selected = dict(selected_counts)
+    return tuple(
+        group_index
+        for group_index, group in enumerate(groups)
+        if (
+            selected.get(group_index, 0) < group.multiplicity
+            and (coordinate is None or group.signature[coordinate] > 0)
+            and all(
+                value <= available
+                for value, available in zip(group.signature, residual)
+            )
+        )
+    )
+
+
+def _dense_branch_coordinate(
+    *,
+    groups: tuple[SignatureGroup, ...],
+    residual: tuple[int, ...],
+    selected_counts: tuple[tuple[int, int], ...],
+) -> int:
+    choices = [
+        (
+            len(
+                _dense_compatible_group_indices(
+                    groups=groups,
+                    residual=residual,
+                    selected_counts=selected_counts,
+                    coordinate=coordinate,
+                )
+            ),
+            coordinate,
+        )
+        for coordinate, need in enumerate(residual)
+        if need > 0
+    ]
+    if not choices:
+        return -1
+    compatible_count, coordinate = min(choices)
+    return coordinate if compatible_count else -1
+
+
+def _dense_coordinate_allocations(
+    *,
+    groups: tuple[SignatureGroup, ...],
+    residual: tuple[int, ...],
+    remaining: int,
+    selected_counts: tuple[tuple[int, int], ...],
+    coordinate: int,
+) -> tuple[tuple[tuple[int, int], ...], ...]:
+    compatible = _dense_compatible_group_indices(
+        groups=groups,
+        residual=residual,
+        selected_counts=selected_counts,
+        coordinate=coordinate,
+    )
+    selected = dict(selected_counts)
+
+    def walk(
+        position: int,
+        coordinate_need: int,
+        slots: int,
+        contribution: tuple[int, ...],
+        allocation: tuple[tuple[int, int], ...],
+    ):
+        if coordinate_need == 0:
+            yield allocation
+            return
+        if slots <= 0:
+            return
+        for compatible_position in range(position, len(compatible)):
+            group_index = compatible[compatible_position]
+            group = groups[group_index]
+            maximum = min(
+                group.multiplicity - selected.get(group_index, 0),
+                slots,
+                coordinate_need // group.signature[coordinate],
+            )
+            for count in range(1, maximum + 1):
+                next_contribution = tuple(
+                    current + count * value
+                    for current, value in zip(contribution, group.signature)
+                )
+                if any(
+                    value > available
+                    for value, available in zip(next_contribution, residual)
+                ):
+                    break
+                yield from walk(
+                    compatible_position + 1,
+                    coordinate_need - count * group.signature[coordinate],
+                    slots - count,
+                    next_contribution,
+                    (*allocation, (group_index, count)),
+                )
+
+    return tuple(
+        walk(
+            0,
+            residual[coordinate],
+            remaining,
+            (0,) * len(residual),
+            (),
+        )
+    )
+
+
 def test_lexicographic_rank_unrank_is_a_small_universe_bijection() -> None:
     blocks = tuple(combinations(range(7), 3))
     for expected_rank, block in enumerate(blocks):
@@ -188,6 +306,88 @@ def test_toy_orbit_compiler_is_complete_and_signature_exact() -> None:
     ) == (0, 1, 3)
     assert translation_orbit_size((0, 1, 3), point_count=7) == (7, 1)
     assert circular_distance_signature((0, 1, 3), point_count=7) == (1, 1, 1)
+
+
+def test_signature_index_matches_dense_scan_on_exhaustive_toy_state_lattice() -> None:
+    groups = _toy_inventory().signature_groups
+    index = _SignatureCompatibilityIndex.build(groups)
+    selected_states = (
+        (),
+        ((0, 1),),
+        ((2, 1),),
+        ((2, 2),),
+        ((0, 1), (2, 1)),
+    )
+    for raw_residual in product(range(5), repeat=3):
+        residual = tuple(raw_residual)
+        for selected_counts in selected_states:
+            expected_compatible = _dense_compatible_group_indices(
+                groups=groups,
+                residual=residual,
+                selected_counts=selected_counts,
+            )
+            compatible_bits = index.compatible_bits(
+                groups=groups,
+                residual=residual,
+                selected_counts=selected_counts,
+            )
+            actual_compatible = tuple(
+                group_index
+                for group_index in range(len(groups))
+                if compatible_bits & (1 << group_index)
+            )
+            assert actual_compatible == expected_compatible
+            assert _choose_branch_coordinate(
+                groups=groups,
+                residual=residual,
+                selected_counts=selected_counts,
+                compatibility_index=index,
+                compatible_bits=compatible_bits,
+            ) == _dense_branch_coordinate(
+                groups=groups,
+                residual=residual,
+                selected_counts=selected_counts,
+            )
+
+
+def test_indexed_allocation_order_matches_dense_exhaustive_toy_frames() -> None:
+    groups = _toy_inventory().signature_groups
+    index = _SignatureCompatibilityIndex.build(groups)
+    selected_states = ((), ((2, 1),), ((0, 1), (2, 1)))
+    compared_frames = 0
+    for raw_residual in product(range(5), repeat=3):
+        residual = tuple(raw_residual)
+        for remaining in range(1, 5):
+            if sum(residual) != remaining * index.signature_weight:
+                continue
+            for selected_counts in selected_states:
+                coordinate = _dense_branch_coordinate(
+                    groups=groups,
+                    residual=residual,
+                    selected_counts=selected_counts,
+                )
+                if coordinate < 0:
+                    continue
+                expected = _dense_coordinate_allocations(
+                    groups=groups,
+                    residual=residual,
+                    remaining=remaining,
+                    selected_counts=selected_counts,
+                    coordinate=coordinate,
+                )
+                actual = tuple(
+                    _coordinate_allocations(
+                        groups=groups,
+                        residual=residual,
+                        remaining=remaining,
+                        selected_counts=selected_counts,
+                        coordinate=coordinate,
+                        compatibility_index=index,
+                    )
+                )
+                assert actual == expected
+                compared_frames += 1
+    assert compared_frames == 98
 
 
 def test_exact_multicover_finds_toy_fano_certificate_without_repetition_scan(
@@ -441,9 +641,9 @@ def test_additive_migration_revises_execution_and_adds_only_result_decision() ->
     ]
     current["metric_contract"]["engineering_complete"] = False
     current["metric_contract"]["engineering_increment_percent"] = 0
-    current["metric_contract"]["mainline_integration"][
-        "runner"
-    ] = "pending_a_separate_approved_engineering_execution_capability"
+    current["metric_contract"]["mainline_integration"]["runner"] = (
+        "pending_a_separate_approved_engineering_execution_capability"
+    )
     current["metric_contract"]["execution_authorized"] = False
     source_fact = SOURCE_FACT_PREFIX + _source()["artifact_digest"]
     live["facts"]["artifacts"] = [
