@@ -266,6 +266,12 @@ PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_PREREGISTRATION_COMPLETION_F
 PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_EXECUTION_TASK_KEY = (
     "prediction-v2-balanced-design-structural-evaluation-execution"
 )
+PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_EXECUTION_COMPLETION_FACT = (
+    "prediction-v2-balanced-design-structural-evaluation-execution:COMPLETE"
+)
+PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_RESULT_DECISION_TASK_KEY = (
+    "prediction-v2-balanced-design-structural-evaluation-result-decision"
+)
 M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
 M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = "m4-v2-p2-6-1-marginal-decision-replay"
 M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
@@ -956,6 +962,29 @@ def build_m4_status(
         and measurement_v2_execution.get("execution_task_key")
         == PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_PREREGISTRATION_TASK_KEY
         else None
+    )
+    prediction_v2_balanced_design_structural_evaluation_execution_resolution = (
+        resolutions.get(
+            PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_EXECUTION_TASK_KEY
+        )
+    )
+    prediction_v2_balanced_design_structural_evaluation_execution_task = tasks.get(
+        PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_EXECUTION_TASK_KEY
+    )
+    prediction_v2_balanced_design_structural_evaluation_execution = (
+        measurement_v2_execution
+        if measurement_v2_execution is not None
+        and measurement_v2_execution.get("execution_task_key")
+        == PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_EXECUTION_TASK_KEY
+        else None
+    )
+    prediction_v2_balanced_design_structural_evaluation_result_resolution = (
+        resolutions.get(
+            PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_RESULT_DECISION_TASK_KEY
+        )
+    )
+    prediction_v2_balanced_design_structural_evaluation_result_task = tasks.get(
+        PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_RESULT_DECISION_TASK_KEY
     )
     durable_gate_evidence_facts = tuple(
         fact
@@ -1690,7 +1719,10 @@ def build_m4_status(
         "measurement_system_v2": (
             {
                 "phase": (
-                    "PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_EXECUTION"
+                    "PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_RESULT_DECISION"
+                    if PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_EXECUTION_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_EXECUTION"
                     if PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_PREREGISTRATION_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_PREREGISTRATION"
@@ -5097,6 +5129,193 @@ def build_m4_status(
                     "prediction_v2_route": "BASELINE_ONLY",
                     "production_action": "none",
                 },
+                "prediction_v2_balanced_design_structural_evaluation_execution": {
+                    "task_key": PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_EXECUTION_TASK_KEY,
+                    "resolver_status": (
+                        None
+                        if prediction_v2_balanced_design_structural_evaluation_execution_resolution
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_execution_resolution.status.value
+                    ),
+                    "resolver_reason_code": (
+                        None
+                        if prediction_v2_balanced_design_structural_evaluation_execution_resolution
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_execution_resolution.reason_code
+                    ),
+                    "requested_capability": (
+                        None
+                        if prediction_v2_balanced_design_structural_evaluation_execution_task
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_execution_task.requested_capability
+                    ),
+                    "completion_fact_available": (
+                        PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_EXECUTION_COMPLETION_FACT
+                        in manifest.facts.artifacts
+                    ),
+                    "outcome": (
+                        None
+                        if prediction_v2_balanced_design_structural_evaluation_execution
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_execution.get(
+                            "outcome"
+                        )
+                    ),
+                    "candidate_triple_collision_mass": (
+                        None
+                        if prediction_v2_balanced_design_structural_evaluation_execution
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_execution.get(
+                            "candidate_triple_collision_mass"
+                        )
+                    ),
+                    "primary_lower_tail_numerator": (
+                        None
+                        if prediction_v2_balanced_design_structural_evaluation_execution
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_execution.get(
+                            "primary_lower_tail_numerator"
+                        )
+                    ),
+                    "primary_upper_tail_numerator": (
+                        None
+                        if prediction_v2_balanced_design_structural_evaluation_execution
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_execution.get(
+                            "primary_upper_tail_numerator"
+                        )
+                    ),
+                    "primary_denominator": (
+                        None
+                        if prediction_v2_balanced_design_structural_evaluation_execution
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_execution.get(
+                            "primary_denominator"
+                        )
+                    ),
+                    "secondary_lower_tail_numerator": (
+                        None
+                        if prediction_v2_balanced_design_structural_evaluation_execution
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_execution.get(
+                            "secondary_lower_tail_numerator"
+                        )
+                    ),
+                    "secondary_upper_tail_numerator": (
+                        None
+                        if prediction_v2_balanced_design_structural_evaluation_execution
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_execution.get(
+                            "secondary_upper_tail_numerator"
+                        )
+                    ),
+                    "secondary_denominator": (
+                        None
+                        if prediction_v2_balanced_design_structural_evaluation_execution
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_execution.get(
+                            "secondary_denominator"
+                        )
+                    ),
+                    "primary_replicate_count": 9999,
+                    "secondary_replicate_count": 1999,
+                    "null_replicates_executed": (
+                        0
+                        if prediction_v2_balanced_design_structural_evaluation_execution
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_execution.get(
+                            "null_replicates_executed", 0
+                        )
+                    ),
+                    "terminal_checkpoint_digest": (
+                        None
+                        if prediction_v2_balanced_design_structural_evaluation_execution
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_execution.get(
+                            "terminal_checkpoint_digest"
+                        )
+                    ),
+                    "checkpoint_chunk_count": (
+                        0
+                        if prediction_v2_balanced_design_structural_evaluation_execution
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_execution.get(
+                            "checkpoint_chunk_count", 0
+                        )
+                    ),
+                    "resumed_chunk_count": (
+                        0
+                        if prediction_v2_balanced_design_structural_evaluation_execution
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_execution.get(
+                            "resumed_chunk_count", 0
+                        )
+                    ),
+                    "executed_chunk_count": (
+                        0
+                        if prediction_v2_balanced_design_structural_evaluation_execution
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_execution.get(
+                            "executed_chunk_count", 0
+                        )
+                    ),
+                    "elapsed_wall_seconds": (
+                        None
+                        if prediction_v2_balanced_design_structural_evaluation_execution
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_execution.get(
+                            "elapsed_wall_seconds"
+                        )
+                    ),
+                    "peak_resident_bytes": (
+                        None
+                        if prediction_v2_balanced_design_structural_evaluation_execution
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_execution.get(
+                            "peak_resident_bytes"
+                        )
+                    ),
+                    "thread_count": (
+                        None
+                        if prediction_v2_balanced_design_structural_evaluation_execution
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_execution.get(
+                            "thread_count"
+                        )
+                    ),
+                    "duplicate_membership_uniqueness_or_repetition_scans": 0,
+                    "duplicate_validation_pass": False,
+                    "membership_validation_pass": False,
+                    "uniqueness_validation_pass": False,
+                    "repetition_scan": "ABSENT_BY_CONSTRUCTION",
+                    "historical_evidence": "INCONCLUSIVE",
+                    "prediction_v2_mode": "SHADOW_ONLY",
+                    "prediction_v2_route": "BASELINE_ONLY",
+                    "production_action": "none",
+                    "next_consumer": PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_RESULT_DECISION_TASK_KEY,
+                },
+                "prediction_v2_balanced_design_structural_evaluation_result_decision": {
+                    "task_key": PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_RESULT_DECISION_TASK_KEY,
+                    "resolver_status": (
+                        None
+                        if prediction_v2_balanced_design_structural_evaluation_result_resolution
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_result_resolution.status.value
+                    ),
+                    "resolver_reason_code": (
+                        None
+                        if prediction_v2_balanced_design_structural_evaluation_result_resolution
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_result_resolution.reason_code
+                    ),
+                    "requested_capability": (
+                        None
+                        if prediction_v2_balanced_design_structural_evaluation_result_task
+                        is None
+                        else prediction_v2_balanced_design_structural_evaluation_result_task.requested_capability
+                    ),
+                    "completion_fact_available": False,
+                },
                 "completion_classification": (
                     None
                     if task_states[
@@ -5108,7 +5327,10 @@ def build_m4_status(
                     ].completion_classification.value
                 ),
                 "live_mainline_status": (
-                    "PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_PREREGISTRATION_VALIDATED_IN_MAINLINE"
+                    "PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_EXECUTION_VALIDATED_IN_MAINLINE"
+                    if PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_EXECUTION_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_PREREGISTRATION_VALIDATED_IN_MAINLINE"
                     if PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_PREREGISTRATION_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_DESIGN_VALIDATED_IN_MAINLINE"
@@ -5323,7 +5545,10 @@ def build_m4_status(
                     ),
                 },
                 "next_consumer": (
-                    PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_EXECUTION_TASK_KEY
+                    PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_RESULT_DECISION_TASK_KEY
+                    if PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_EXECUTION_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_EXECUTION_TASK_KEY
                     if PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_PREREGISTRATION_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_PREREGISTRATION_TASK_KEY
