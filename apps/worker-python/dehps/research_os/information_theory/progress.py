@@ -223,6 +223,12 @@ PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_INTAKE_TASK_KEY = (
 PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_CONTRACT_EVENT = (
     "research-contract:prediction-v2-next-result-blind-program:approved"
 )
+PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_COMPLETION_FACT = (
+    "prediction-v2-balanced-design-feasibility-design:COMPLETE"
+)
+PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_TASK_KEY = (
+    "prediction-v2-balanced-design-feasibility-preregistration"
+)
 M4_V2_MARGINAL_BINDING_TASK_KEY = "m4-v2-p2-6-1-marginal-binding"
 M4_V2_MARGINAL_DECISION_REPLAY_TASK_KEY = "m4-v2-p2-6-1-marginal-decision-replay"
 M4_P29_P261_GOLDEN_REFERENCE_TASK_KEY = "m4-p2-9-golden-reference-freeze"
@@ -839,6 +845,16 @@ def build_m4_status(
     )
     prediction_v2_next_result_blind_intake_task = tasks.get(
         PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_INTAKE_TASK_KEY
+    )
+    prediction_v2_balanced_design_feasibility = (
+        measurement_v2_execution
+        if measurement_v2_execution is not None
+        and measurement_v2_execution.get("execution_task_key")
+        == PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_INTAKE_TASK_KEY
+        else None
+    )
+    prediction_v2_balanced_design_preregistration_resolution = resolutions.get(
+        PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_TASK_KEY
     )
     durable_gate_evidence_facts = tuple(
         fact
@@ -1573,7 +1589,13 @@ def build_m4_status(
         "measurement_system_v2": (
             {
                 "phase": (
-                    "PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_INTAKE"
+                    "PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION"
+                    if PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_DESIGN"
+                    if PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_CONTRACT_EVENT
+                    in manifest.facts.external_events
+                    else "PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_INTAKE"
                     if PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION"
@@ -4540,6 +4562,72 @@ def build_m4_status(
                     "prediction_v2_route": "BASELINE_ONLY",
                     "production_action": "none",
                 },
+                "prediction_v2_balanced_design_feasibility_design": {
+                    "task_key": PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_INTAKE_TASK_KEY,
+                    "resolver_status": (
+                        None
+                        if prediction_v2_next_result_blind_intake_resolution is None
+                        else prediction_v2_next_result_blind_intake_resolution.status.value
+                    ),
+                    "completion_fact_available": (
+                        PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_COMPLETION_FACT
+                        in manifest.facts.artifacts
+                    ),
+                    "design_status": (
+                        "FROZEN_NOT_EXECUTED"
+                        if prediction_v2_balanced_design_feasibility is None
+                        else prediction_v2_balanced_design_feasibility.get(
+                            "design_status", "FROZEN_NOT_EXECUTED"
+                        )
+                    ),
+                    "parameters": {
+                        "point_count": 33,
+                        "block_size": 6,
+                        "block_count": 176,
+                        "point_replication_target": 32,
+                        "pair_count": 528,
+                        "pair_replication_target": 5,
+                    },
+                    "necessary_incidence_conditions_pass": True,
+                    "existence_established": False,
+                    "nonexistence_established": False,
+                    "result_blind": True,
+                    "solver_nodes_executed": 0,
+                    "candidate_blocks_generated": 0,
+                    "repetition_scan": "ABSENT_BY_CONSTRUCTION",
+                    "historical_evidence": "INCONCLUSIVE",
+                    "prediction_v2_mode": "SHADOW_ONLY",
+                    "prediction_v2_route": "BASELINE_ONLY",
+                    "evidence_created": False,
+                    "new_model_created": False,
+                    "promotion_gate_opened": False,
+                    "p3_authorized": False,
+                    "next_consumer": (
+                        PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_TASK_KEY
+                    ),
+                    "production_action": "none",
+                },
+                "prediction_v2_balanced_design_feasibility_preregistration": {
+                    "task_key": (
+                        PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_TASK_KEY
+                    ),
+                    "resolver_status": (
+                        None
+                        if prediction_v2_balanced_design_preregistration_resolution
+                        is None
+                        else prediction_v2_balanced_design_preregistration_resolution.status.value
+                    ),
+                    "resolver_reason_code": (
+                        None
+                        if prediction_v2_balanced_design_preregistration_resolution
+                        is None
+                        else prediction_v2_balanced_design_preregistration_resolution.reason_code
+                    ),
+                    "requested_capability": None,
+                    "execution_authorized": False,
+                    "repetition_scan": "ABSENT_BY_CONSTRUCTION",
+                    "production_action": "none",
+                },
                 "completion_classification": (
                     None
                     if task_states[
@@ -4551,7 +4639,10 @@ def build_m4_status(
                     ].completion_classification.value
                 ),
                 "live_mainline_status": (
-                    "PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_VALIDATED_IN_MAINLINE"
+                    "PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_DESIGN_VALIDATED_IN_MAINLINE"
+                    if PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_VALIDATED_IN_MAINLINE"
                     if PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else "PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_EXECUTION_VALIDATED_IN_MAINLINE"
@@ -4748,7 +4839,13 @@ def build_m4_status(
                     ),
                 },
                 "next_consumer": (
-                    PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_TASK_KEY
+                    PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_TASK_KEY
+                    if PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else PREDICTION_V2_NEXT_RESULT_BLIND_RESEARCH_INTAKE_TASK_KEY
+                    if PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_ROUTE_DECISION_TASK_KEY
                     if PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_EXECUTION_COMPLETION_FACT
                     in manifest.facts.artifacts
                     else PREDICTION_V2_STRUCTURAL_BASELINE_COMPARISON_EXECUTION_TASK_KEY

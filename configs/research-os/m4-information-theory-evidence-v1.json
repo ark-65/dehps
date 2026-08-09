@@ -3462,9 +3462,16 @@
     {
       "task_key": "prediction-v2-next-result-blind-research-intake",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
-      "task_type": "prediction_v2_result_blind_research_intake",
+      "task_type": "prediction_v2_balanced_design_feasibility_design",
       "lane": "research",
       "priority": 70,
+      "requested_capability": "prediction_v2_balanced_design_feasibility_design",
+      "input_artifact_digests": [
+        "a9665143242689b02702f88f9782d5fe11a52240fed11d1c6ebfef8d5dca10c2",
+        "886b03fc5873edec8ac2f154ade73fc5c0309ddace83915c8ccc946241150bdb",
+        "ad9a142bcd8f70548d985d0483b003cf2d4374ecd0994a35e2c3a26545671105",
+        "147cd0819bca3da1a925812e4f1ac556eeef79b1973b1027406b9d6a511887"
+      ],
       "dependencies": [
         {
           "dependency_type": "task",
@@ -3483,36 +3490,52 @@
         }
       ],
       "metric_contract": {
-        "engineering_complete": false,
-        "engineering_increment_percent": 0,
+        "engineering_complete": true,
+        "engineering_increment_percent": 1,
         "evidence_complete": false,
         "evidence_increment_percent": 0,
-        "phase": "PREDICTION-V2-NEXT-RESULT-BLIND-RESEARCH-INTAKE",
-        "scope": "wait_for_a_separately_approved_result_blind_prediction_v2_research_contract",
-        "reason": "the_registered_B176_candidate_failed_its_frozen_structural_gate_and_no_automatic_replacement_hypothesis_is_authorized",
+        "phase": "PREDICTION-V2-BALANCED-DESIGN-FEASIBILITY-DESIGN",
+        "scope": "freeze_the_exact_result_blind_2_33_6_5_feasibility_problem_without_executing_a_constructor_or_solver",
+        "reason": "the_fixed_176_by_6_geometry_has_exact_integer_targets_r_32_and_lambda_5_but_integer_compatibility_does_not_prove_design_existence",
         "mainline_integration": {
           "goal": "M4_INFORMATION_THEORY_EVIDENCE",
-          "ready_condition": "the_archive_route_is_VALIDATED_IN_MAINLINE_and_a_new_result_blind_research_contract_is_approved_as_an_external_event",
-          "runner": "pending_the_separately_approved_contract",
+          "ready_condition": "the_archive_route_is_VALIDATED_IN_MAINLINE_and_replay_verified_and_Research_Request_411_is_approved_as_the_exact_external_event",
+          "runner": "research_evidence_supervisor",
           "upstream_artifacts": [
             "bounded structural baseline route decision",
             "result-blind research-intake handoff",
             "route-decision completion",
-            "approved result-blind research-contract event"
+            "approved result-blind Research Request 411"
           ],
           "downstream_artifacts": [
-            "future separately governed result-blind capability contract"
+            "balanced-design feasibility specification",
+            "feasibility-preregistration handoff",
+            "balanced-design feasibility-design completion"
           ],
-          "status_projection": "unified_m4_status.measurement_system_v2.prediction_v2_next_result_blind_research_intake",
-          "evidence_progress_rule": "the_wait_creates_no_Evidence_model_candidate_or_promotion_and_may_only_be_revised_by_a_new_approved_research_contract",
-          "decision_consumer": "future approved result-blind Prediction v2 capability",
-          "downstream_consumer": "future approved result-blind Prediction v2 capability"
+          "status_projection": "unified_m4_status.measurement_system_v2.prediction_v2_balanced_design_feasibility_design",
+          "evidence_progress_rule": "the_zero_work_combinatorial_design_contract_creates_no_historical_Evidence_model_candidate_or_promotion",
+          "decision_consumer": "prediction-v2-balanced-design-feasibility-preregistration",
+          "downstream_consumer": "prediction-v2-balanced-design-feasibility-preregistration"
         },
-        "required_external_event": "research-contract:prediction-v2-next-result-blind-program:approved",
-        "automatic_hypothesis_generation": false,
-        "automatic_threshold_relaxation": false,
-        "automatic_seed_retry": false,
-        "automatic_portfolio_mutation": false,
+        "approved_external_event": "research-contract:prediction-v2-next-result-blind-program:approved",
+        "point_count": 33,
+        "block_size": 6,
+        "block_count": 176,
+        "point_replication_target": 32,
+        "pair_count": 528,
+        "pair_replication_target": 5,
+        "legal_block_count": 1107568,
+        "simple_design_required": true,
+        "uniqueness_boundary": "STRICTLY_INCREASING_COMBINADIC_BLOCK_IDS_BY_CONSTRUCTION",
+        "positive_outcome": "FOUND_EXACT_2_33_6_5_DESIGN",
+        "bounded_negative_outcome": "NOT_FOUND_WITHIN_FROZEN_BUDGET",
+        "invalid_outcome": "INVALID_EXECUTION_NO_DECISION",
+        "bounded_negative_is_nonexistence_proof": false,
+        "result_blind": true,
+        "design_status": "FROZEN_NOT_EXECUTED",
+        "solver_nodes_executed": 0,
+        "candidate_blocks_generated": 0,
+        "repetition_scan": "ABSENT_BY_CONSTRUCTION",
         "legacy_route_fallback": false,
         "legacy_prediction_mainline_reactivation_authorized": false,
         "prediction_v2_mode": "SHADOW_ONLY",
@@ -3523,7 +3546,77 @@
         "promotion_gate_opened": false,
         "p3_authorized": false,
         "production_action": "none"
-      }
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "prediction-v2-balanced-design-feasibility-preregistration",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "prediction_v2_balanced_design_feasibility_preregistration",
+      "lane": "research",
+      "priority": 71,
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "prediction-v2-next-result-blind-research-intake",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "prediction-v2-balanced-design-feasibility-design:COMPLETE",
+          "required_status": "available"
+        }
+      ],
+      "metric_contract": {
+        "engineering_complete": false,
+        "engineering_increment_percent": 0,
+        "evidence_complete": false,
+        "evidence_increment_percent": 0,
+        "phase": "PREDICTION-V2-BALANCED-DESIGN-FEASIBILITY-PREREGISTRATION",
+        "scope": "freeze_the_constructor_representation_work_budget_certificate_and_three_valued_outcome_before_any_feasibility_execution",
+        "reason": "exact_integer_incidence_conditions_are_necessary_but_not_an_existence_proof_and_every_search_restriction_must_be_declared_before_results",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "the_balanced_design_feasibility_design_is_VALIDATED_IN_MAINLINE_and_replay_verified_with_all_three_children_registered",
+          "runner": "pending_a_separate_result_blind_preregistration_contract",
+          "upstream_artifacts": [
+            "balanced-design feasibility mainline execution",
+            "balanced-design feasibility specification",
+            "feasibility-preregistration handoff",
+            "balanced-design feasibility-design completion"
+          ],
+          "downstream_artifacts": [
+            "future frozen feasibility execution contract"
+          ],
+          "status_projection": "unified_m4_status.measurement_system_v2.prediction_v2_balanced_design_feasibility_preregistration",
+          "evidence_progress_rule": "preregistration_may_only_freeze_a_bounded_proof_carrying_search_and_cannot_create_prediction_Evidence_or_an_existence_claim",
+          "decision_consumer": "future balanced-design feasibility execution",
+          "downstream_consumer": "future balanced-design feasibility execution"
+        },
+        "point_count": 33,
+        "block_size": 6,
+        "block_count": 176,
+        "point_replication_target": 32,
+        "pair_replication_target": 5,
+        "positive_outcome": "FOUND_EXACT_2_33_6_5_DESIGN",
+        "bounded_negative_outcome": "NOT_FOUND_WITHIN_FROZEN_BUDGET",
+        "invalid_outcome": "INVALID_EXECUTION_NO_DECISION",
+        "execution_authorized": false,
+        "result_blind": true,
+        "repetition_scan": "ABSENT_BY_CONSTRUCTION",
+        "historical_evidence": "INCONCLUSIVE",
+        "prediction_v2_mode": "SHADOW_ONLY",
+        "prediction_v2_route": "BASELINE_ONLY",
+        "portfolio_activation_authorized": false,
+        "evidence_created": false,
+        "new_model_created": false,
+        "promotion_gate_opened": false,
+        "p3_authorized": false,
+        "production_action": "none"
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
     },
     {
       "task_key": "m4-v2-p2-6-1-raw-execution-replay",
@@ -4487,6 +4580,7 @@
       "prediction-v2-structural-baseline-comparison-preregistration-source:51865ebe80dbde996ba1f87b058ea651e0d047a02c5455ec1cfb824907e069d2",
       "prediction-v2-structural-baseline-comparison-execution-source:050cd92940e3a9e939f806b51b6d4498388ae3707bf954d90d707cf7238ce930",
       "prediction-v2-structural-baseline-comparison-route-decision-source:74fa955fd13f4104195ce21d2e79669b96991a3b976121989e8b770ee063192e",
+      "prediction-v2-balanced-design-feasibility-source:a9665143242689b02702f88f9782d5fe11a52240fed11d1c6ebfef8d5dca10c2",
       "m4-p2-9-p263-source-compatibility-fixture:1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f",
       "m4-p2-identifiability-decision:MEASUREMENT_CONTRACT_REPAIR_REQUIRED",
       "m4-p2-identifiability-preflight-manifest:5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3",
@@ -4506,8 +4600,10 @@
     "evidence": [
       "research-hypothesis:seven-red-compound-top10-walk-forward-v1:rejected"
     ],
-    "external_events": [],
+    "external_events": [
+      "research-contract:prediction-v2-next-result-blind-program:approved"
+    ],
     "authorities": []
   },
-  "manifest_digest": "16da2465cc0b8e75f815723c031446cb26eb9c2cdb11f1a9e45bc4615d13abae"
+  "manifest_digest": "77be7563f52a8b0d91c35d7556f6ba0b6a34e10c00c24a7464b085f263f96bee"
 }

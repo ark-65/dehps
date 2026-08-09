@@ -351,7 +351,7 @@ def test_additive_migration_revises_route_and_adds_only_external_wait_intake() -
     assert dry_run["existing_state_regressions"] == 0
     assert dry_run["existing_fact_deletions"] == 0
     assert dry_run["unallowlisted_definition_rewrites"] == 0
-    assert len(migrated["tasks"]) == len(live["tasks"]) + 1 == 70
+    assert len(migrated["tasks"]) == len(live["tasks"]) + 1 == 71
 
 
 def test_status_projects_archive_and_exact_external_wait() -> None:
@@ -365,6 +365,11 @@ def test_status_projects_archive_and_exact_external_wait() -> None:
         }:
             item["status"] = "completed"
             item["completion_classification"] = "COMPLETE"
+    payload["facts"]["external_events"] = [
+        event
+        for event in payload["facts"]["external_events"]
+        if event != NEXT_RESEARCH_CONTRACT_EVENT
+    ]
     payload["facts"]["artifacts"] = list(
         dict.fromkeys(
             (
@@ -413,7 +418,9 @@ def test_status_projects_archive_and_exact_external_wait() -> None:
     intake = projection["prediction_v2_next_result_blind_research_intake"]
     assert intake["resolver_status"] == "external_wait"
     assert intake["required_external_event"] == NEXT_RESEARCH_CONTRACT_EVENT
-    assert intake["requested_capability"] is None
+    assert intake["requested_capability"] == (
+        "prediction_v2_balanced_design_feasibility_design"
+    )
 
 
 def test_manifest_index_and_supervisor_bind_the_singular_capability() -> None:
