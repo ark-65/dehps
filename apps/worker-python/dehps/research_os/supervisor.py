@@ -442,6 +442,22 @@ from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_ba
 from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_balanced_design_feasibility_preregistration import (
     REPETITION_SCAN as PREDICTION_V2_BALANCED_DESIGN_PREREGISTRATION_REPETITION_SCAN,
 )
+from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_balanced_design_feasibility_result_decision import (
+    POSITIVE_DECISION as PREDICTION_V2_BALANCED_DESIGN_POSITIVE_RESULT_DECISION,
+)
+from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_balanced_design_feasibility_result_decision import (
+    PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION_CAPABILITY,
+    PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION_COMPLETION_FACT,
+    PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION_SOURCE_CONTRACT_PATH,
+    PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_DESIGN_TASK_KEY,
+    build_prediction_v2_balanced_design_result_decision_artifacts,
+    load_prediction_v2_balanced_design_result_decision_source_contract,
+    replay_prediction_v2_balanced_design_result_decision,
+    verify_prediction_v2_balanced_design_result_decision_source_bytes,
+)
+from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_balanced_design_feasibility_result_decision import (
+    REPETITION_SCAN as PREDICTION_V2_BALANCED_DESIGN_RESULT_DECISION_REPETITION_SCAN,
+)
 from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_forward_evidence_or_pivot_planner import (
     PREDICTION_RESEARCH_DISPOSITION,
     PREDICTION_V2_FORWARD_EVIDENCE_OR_PIVOT_PLANNER_CAPABILITY,
@@ -11699,8 +11715,7 @@ class PredictionV2BalancedDesignFeasibilityExecutionCapability:
             root_dir=self.root_dir,
             registrations=preregistration_registrations,
             artifact_type=(
-                "prediction_v2_balanced_design_feasibility_"
-                "preregistration_completion"
+                "prediction_v2_balanced_design_feasibility_preregistration_completion"
             ),
         )
         expected_inputs = (
@@ -11867,6 +11882,289 @@ class PredictionV2BalancedDesignFeasibilityExecutionCapability:
             registrations=output_registrations,
             completion_facts=(
                 PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_EXECUTION_COMPLETION_FACT,
+            ),
+        )
+
+
+def _replay_balanced_design_execution_for_result_decision(
+    *,
+    repository: PostgresResearchOSRepository,
+    root_dir: Path,
+    control_plane_key: str,
+) -> tuple[
+    Mapping[str, Any],
+    Mapping[str, Any],
+    Mapping[str, Any],
+    Mapping[str, Any],
+    Mapping[str, Any],
+]:
+    _, execution, registrations = _load_single_completed_execution(
+        repository=repository,
+        root_dir=root_dir,
+        control_plane_key=control_plane_key,
+        task_key=PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_EXECUTION_TASK_KEY,
+    )
+    inventory = _load_registered_type(
+        root_dir=root_dir,
+        registrations=registrations,
+        artifact_type="PredictionV2BalancedDesignOrbitInventoryArtifact",
+    )
+    result = _load_registered_type(
+        root_dir=root_dir,
+        registrations=registrations,
+        artifact_type="PredictionV2BalancedDesignSearchResultArtifact",
+    )
+    completion = _load_registered_type(
+        root_dir=root_dir,
+        registrations=registrations,
+        artifact_type="prediction_v2_balanced_design_feasibility_execution_completion",
+    )
+    execution_source = load_execution_source_contract(
+        root_dir
+        / PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_EXECUTION_SOURCE_CONTRACT_PATH
+    )
+    verify_execution_source_bytes(root_dir=root_dir, contract=execution_source)
+    _, preregistration_execution, preregistration_registrations = (
+        _load_single_completed_execution(
+            repository=repository,
+            root_dir=root_dir,
+            control_plane_key=control_plane_key,
+            task_key=(
+                PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_TASK_KEY
+            ),
+        )
+    )
+    preregistration = _load_registered_type(
+        root_dir=root_dir,
+        registrations=preregistration_registrations,
+        artifact_type="prediction_v2_balanced_design_feasibility_preregistration",
+    )
+    execution_handoff = _load_registered_type(
+        root_dir=root_dir,
+        registrations=preregistration_registrations,
+        artifact_type="prediction_v2_balanced_design_feasibility_execution_handoff",
+    )
+    preregistration_completion = _load_registered_type(
+        root_dir=root_dir,
+        registrations=preregistration_registrations,
+        artifact_type=(
+            "prediction_v2_balanced_design_feasibility_preregistration_completion"
+        ),
+    )
+    execution_replay = replay_balanced_design_execution(
+        source_contract=execution_source,
+        preregistration=preregistration,
+        execution_handoff=execution_handoff,
+        preregistration_completion=preregistration_completion,
+        preregistration_mainline_execution=preregistration_execution,
+        inventory_artifact=inventory,
+        result_artifact=result,
+        completion_artifact=completion,
+        execution_id=str(execution["execution_id"]),
+        checkpoint_path=(
+            root_dir
+            / "runtime/research-os/mainline/tasks"
+            / PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_EXECUTION_TASK_KEY
+            / str(execution["execution_id"])
+            / "checkpoints/search.jsonl"
+        ),
+    )
+    return execution, inventory, result, completion, execution_replay
+
+
+class PredictionV2BalancedDesignFeasibilityResultDecisionCapability:
+    def __init__(
+        self,
+        *,
+        repository: PostgresResearchOSRepository,
+        root_dir: Path = ROOT_DIR,
+    ) -> None:
+        self.repository = repository
+        self.root_dir = root_dir
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key
+            != PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION_TASK_KEY
+            or task.requested_capability
+            != PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "Prediction v2 balanced-design result decision received the wrong task"
+            )
+        source_contract = load_prediction_v2_balanced_design_result_decision_source_contract(
+            self.root_dir
+            / PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION_SOURCE_CONTRACT_PATH
+        )
+        verify_prediction_v2_balanced_design_result_decision_source_bytes(
+            root_dir=self.root_dir,
+            contract=source_contract,
+        )
+        parent_execution, inventory, result, completion, execution_replay = (
+            _replay_balanced_design_execution_for_result_decision(
+                repository=self.repository,
+                root_dir=self.root_dir,
+                control_plane_key=control_plane_key,
+            )
+        )
+        expected_inputs = (
+            str(source_contract["artifact_digest"]),
+            str(parent_execution["artifact_digest"]),
+            str(inventory["artifact_digest"]),
+            str(result["artifact_digest"]),
+            str(completion["artifact_digest"]),
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "Prediction v2 balanced-design result-decision inputs changed"
+            )
+        run = build_prediction_v2_balanced_design_result_decision_artifacts(
+            source_contract=source_contract,
+            execution=parent_execution,
+            inventory=inventory,
+            result=result,
+            completion=completion,
+            execution_replay=execution_replay,
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        child_paths = (
+            task_dir
+            / "artifacts/result-decision"
+            / str(run.decision["artifact_digest"])
+            / "result-decision.json",
+            task_dir
+            / "artifacts/structural-evaluation-handoff"
+            / str(run.structural_evaluation_handoff["artifact_digest"])
+            / "structural-evaluation-handoff.json",
+            task_dir
+            / "artifacts/completion"
+            / str(run.completion["artifact_digest"])
+            / "completion.json",
+        )
+        child_payloads = tuple(zip(child_paths, run.artifacts, strict=True))
+        for path, payload in child_payloads:
+            _persist_immutable(path, payload)
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "prediction_v2_balanced_design_result_decision_source_contract_digest": (
+                source_contract["artifact_digest"]
+            ),
+            "prediction_v2_balanced_design_result_decision_source_set_digest": (
+                source_contract["source_set_digest"]
+            ),
+            "research_request_key": source_contract["research_request_key"],
+            "research_request_id": source_contract["research_request_id"],
+            "research_execution_id": source_contract["research_execution_id"],
+            "engineering_request_key": source_contract["engineering_request_key"],
+            "engineering_request_id": source_contract["engineering_request_id"],
+            "engineering_execution_id": source_contract["engineering_execution_id"],
+            "balanced_design_execution_digest": parent_execution["artifact_digest"],
+            "orbit_inventory_digest": inventory["artifact_digest"],
+            "search_result_digest": result["artifact_digest"],
+            "execution_completion_digest": completion["artifact_digest"],
+            "result_decision_digest": run.decision["artifact_digest"],
+            "structural_evaluation_handoff_digest": (
+                run.structural_evaluation_handoff["artifact_digest"]
+            ),
+            "result_decision_completion_digest": run.completion["artifact_digest"],
+            "execution_outcome": result["outcome"],
+            "decision": PREDICTION_V2_BALANCED_DESIGN_POSITIVE_RESULT_DECISION,
+            "existence_established_in_cyclic_scope": True,
+            "global_nonexistence_established": False,
+            "certificate_artifact_digest": result["certificate_artifact_digest"],
+            "certificate_verified": True,
+            "terminal_checkpoint_digest": result["terminal_checkpoint_digest"],
+            "terminal_checkpoint_verified": True,
+            "post_hoc_rule_change": False,
+            "prediction_probability_claim": False,
+            "decision_usefulness_established": False,
+            "repetition_scan": (
+                PREDICTION_V2_BALANCED_DESIGN_RESULT_DECISION_REPETITION_SCAN
+            ),
+            "separate_duplicate_membership_or_uniqueness_scan": False,
+            "database_queries_during_capability": 0,
+            "historical_rows_read": 0,
+            "actual_fold_count": 0,
+            "formal_historical_folds_executed": 0,
+            "bootstrap_children_executed": 0,
+            "historical_evidence": "INCONCLUSIVE",
+            "prediction_v2_mode": "SHADOW_ONLY",
+            "prediction_v2_route": "BASELINE_ONLY",
+            "portfolio_activation_authorized": False,
+            "evidence_created": False,
+            "new_model_created": False,
+            "candidate_expert_authorized": False,
+            "promotion_gate_opened": False,
+            "p3_authorized": False,
+            "registered_artifact_count": len(child_payloads) + 1,
+            "completion_fact": (
+                PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION_COMPLETION_FACT
+            ),
+            "downstream_consumer": (
+                PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_DESIGN_TASK_KEY
+            ),
+            "production_impact": "none",
+            "production_action": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "replay_status": "DETERMINISTIC_REGISTERED_OUTPUT_REPLAY_PENDING",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                *(str(payload["artifact_digest"]) for _, payload in child_payloads),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        output_registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(output_registrations) != 4:
+            raise MainlineSupervisorError(
+                "Prediction v2 balanced-design result-decision registration count changed"
+            )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=output_registrations,
+            completion_facts=(
+                PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION_COMPLETION_FACT,
             ),
         )
 
@@ -13843,6 +14141,12 @@ class ResearchEvidenceSupervisor:
                     root_dir=root_dir,
                 )
             ),
+            PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION_CAPABILITY: (
+                PredictionV2BalancedDesignFeasibilityResultDecisionCapability(
+                    repository=self.repository,
+                    root_dir=root_dir,
+                )
+            ),
             M4_V2_P261_RAW_REPLAY_CAPABILITY: (
                 M4P261RawExecutionReplayCapability(
                     repository=self.repository,
@@ -14848,6 +15152,7 @@ class ResearchEvidenceSupervisor:
         return self._latest_completed_summary_for_tasks(
             snapshot,
             (
+                PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION_TASK_KEY,
                 PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_EXECUTION_TASK_KEY,
                 PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_TASK_KEY,
                 PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_TASK_KEY,
@@ -14900,6 +15205,7 @@ class ResearchEvidenceSupervisor:
             if resolutions.get(candidate) is not TaskStatus.COMPLETED:
                 continue
             if candidate in {
+                PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION_TASK_KEY,
                 PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_EXECUTION_TASK_KEY,
                 PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_PREREGISTRATION_TASK_KEY,
                 PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_TASK_KEY,
@@ -15397,6 +15703,20 @@ class ResearchEvidenceSupervisor:
             "same_budget_null_required",
             "candidate_portfolios_generated",
             "optimizers_executed",
+            "prediction_v2_balanced_design_result_decision_source_contract_digest",
+            "prediction_v2_balanced_design_result_decision_source_set_digest",
+            "balanced_design_execution_digest",
+            "result_decision_digest",
+            "structural_evaluation_handoff_digest",
+            "result_decision_completion_digest",
+            "execution_outcome",
+            "certificate_artifact_digest",
+            "certificate_verified",
+            "terminal_checkpoint_digest",
+            "terminal_checkpoint_verified",
+            "post_hoc_rule_change",
+            "prediction_probability_claim",
+            "decision_usefulness_established",
             "prediction_v2_balanced_design_execution_source_contract_digest",
             "prediction_v2_balanced_design_execution_source_set_digest",
             "preregistration_mainline_execution_digest",
@@ -18131,7 +18451,7 @@ class ResearchEvidenceSupervisor:
                 root_dir=self.root_dir,
                 registrations=registrations,
                 artifact_type=(
-                    "prediction_v2_balanced_design_feasibility_" "execution_completion"
+                    "prediction_v2_balanced_design_feasibility_execution_completion"
                 ),
             )
             capability_replay = replay_balanced_design_execution(
@@ -18221,6 +18541,119 @@ class ResearchEvidenceSupervisor:
                 root_dir=self.root_dir,
                 registrations=registrations,
                 expected_payloads=(inventory, result, completion, artifact),
+            )
+        elif (
+            task_key
+            == PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION_TASK_KEY
+        ):
+            source_contract = load_prediction_v2_balanced_design_result_decision_source_contract(
+                self.root_dir
+                / PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION_SOURCE_CONTRACT_PATH
+            )
+            verify_prediction_v2_balanced_design_result_decision_source_bytes(
+                root_dir=self.root_dir,
+                contract=source_contract,
+            )
+            (
+                parent_execution,
+                inventory,
+                result,
+                completion,
+                execution_replay,
+            ) = _replay_balanced_design_execution_for_result_decision(
+                repository=self.repository,
+                root_dir=self.root_dir,
+                control_plane_key=self.control_plane_key,
+            )
+            reconstructed, capability_replay = (
+                replay_prediction_v2_balanced_design_result_decision(
+                    source_contract=source_contract,
+                    execution=parent_execution,
+                    inventory=inventory,
+                    result=result,
+                    completion=completion,
+                    execution_replay=execution_replay,
+                )
+            )
+            expected_inputs = [
+                str(source_contract["artifact_digest"]),
+                str(parent_execution["artifact_digest"]),
+                str(inventory["artifact_digest"]),
+                str(result["artifact_digest"]),
+                str(completion["artifact_digest"]),
+            ]
+            if (
+                artifact.get("input_artifact_digests") != expected_inputs
+                or artifact.get(
+                    "prediction_v2_balanced_design_result_decision_"
+                    "source_contract_digest"
+                )
+                != source_contract["artifact_digest"]
+                or artifact.get(
+                    "prediction_v2_balanced_design_result_decision_source_set_digest"
+                )
+                != source_contract["source_set_digest"]
+                or artifact.get("research_request_id") != 424
+                or artifact.get("research_execution_id") != 345
+                or artifact.get("engineering_request_id") != 425
+                or artifact.get("engineering_execution_id") != 346
+                or artifact.get("balanced_design_execution_digest")
+                != parent_execution["artifact_digest"]
+                or artifact.get("orbit_inventory_digest")
+                != inventory["artifact_digest"]
+                or artifact.get("search_result_digest") != result["artifact_digest"]
+                or artifact.get("execution_completion_digest")
+                != completion["artifact_digest"]
+                or artifact.get("result_decision_digest")
+                != reconstructed.decision["artifact_digest"]
+                or artifact.get("structural_evaluation_handoff_digest")
+                != reconstructed.structural_evaluation_handoff["artifact_digest"]
+                or artifact.get("result_decision_completion_digest")
+                != reconstructed.completion["artifact_digest"]
+                or artifact.get("execution_outcome") != result["outcome"]
+                or artifact.get("decision")
+                != PREDICTION_V2_BALANCED_DESIGN_POSITIVE_RESULT_DECISION
+                or artifact.get("existence_established_in_cyclic_scope") is not True
+                or artifact.get("global_nonexistence_established") is not False
+                or artifact.get("certificate_artifact_digest")
+                != result["certificate_artifact_digest"]
+                or artifact.get("certificate_verified") is not True
+                or artifact.get("terminal_checkpoint_digest")
+                != result["terminal_checkpoint_digest"]
+                or artifact.get("terminal_checkpoint_verified") is not True
+                or artifact.get("post_hoc_rule_change") is not False
+                or artifact.get("prediction_probability_claim") is not False
+                or artifact.get("decision_usefulness_established") is not False
+                or artifact.get("repetition_scan")
+                != PREDICTION_V2_BALANCED_DESIGN_RESULT_DECISION_REPETITION_SCAN
+                or artifact.get("separate_duplicate_membership_or_uniqueness_scan")
+                is not False
+                or artifact.get("database_queries_during_capability") != 0
+                or artifact.get("historical_rows_read") != 0
+                or artifact.get("actual_fold_count") != 0
+                or artifact.get("historical_evidence") != "INCONCLUSIVE"
+                or artifact.get("prediction_v2_mode") != "SHADOW_ONLY"
+                or artifact.get("prediction_v2_route") != "BASELINE_ONLY"
+                or artifact.get("portfolio_activation_authorized") is not False
+                or artifact.get("evidence_created") is not False
+                or artifact.get("new_model_created") is not False
+                or artifact.get("candidate_expert_authorized") is not False
+                or artifact.get("promotion_gate_opened") is not False
+                or artifact.get("p3_authorized") is not False
+                or artifact.get("registered_artifact_count") != 4
+                or artifact.get("completion_fact")
+                != PREDICTION_V2_BALANCED_DESIGN_FEASIBILITY_RESULT_DECISION_COMPLETION_FACT
+                or artifact.get("downstream_consumer")
+                != PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_DESIGN_TASK_KEY
+                or artifact.get("production_action") != "none"
+            ):
+                raise MainlineSupervisorError(
+                    "Prediction v2 balanced-design result-decision replay identity changed"
+                )
+            _verify_v2_registered_artifacts(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                expected_payloads=(*reconstructed.artifacts, artifact),
             )
         elif (
             task_key

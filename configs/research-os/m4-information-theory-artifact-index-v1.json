@@ -596,10 +596,18 @@
       "superseded_by_digest": "4609d472c9f0ce1c3ba96762038d4df34936f166f9f4e1d21ea3c381c233641c"
     },
     "4609d472c9f0ce1c3ba96762038d4df34936f166f9f4e1d21ea3c381c233641c": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "source_commit": "0ad89b0eee7404c9ab04dedbbb12b8feb884d940",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "identity_field": "manifest_digest",
+      "supersedes_digest": "4ee71dce29ecee7afa1de66362a793d4e4e74818c57f19fd2bc82fd1e5aa6fb7",
+      "superseded_by_digest": "7f20125603c790ab48744e9d1e2edaec7005b89e661d6dac760e016e22197ede"
+    },
+    "7f20125603c790ab48744e9d1e2edaec7005b89e661d6dac760e016e22197ede": {
       "artifact_type": "research_os_control_plane_manifest",
       "path": "configs/research-os/m4-information-theory-evidence-v1.json",
       "identity_field": "manifest_digest",
-      "supersedes_digest": "4ee71dce29ecee7afa1de66362a793d4e4e74818c57f19fd2bc82fd1e5aa6fb7"
+      "supersedes_digest": "4609d472c9f0ce1c3ba96762038d4df34936f166f9f4e1d21ea3c381c233641c"
     },
     "6fb3a1e366da129ac460599a391891a49206ccc715b6367cf344e2aa3e9f2a3d": {
       "artifact_type": "m4_v2_branch_preflight_source_contract",
@@ -780,6 +788,11 @@
       "path": "configs/research-os/prediction-v2-balanced-design-feasibility-execution-source-v1.json",
       "identity_field": "artifact_digest",
       "supersedes_digest": "46ee7d03cab54a3d0b6dfd210058aec8e56494f7a48e20ce43eb6c7578bb65f6"
+    },
+    "d26e55c82fbba734887a713ab5f82ccbcfffe97b22d3477c9d03aa7ed1943fb1": {
+      "artifact_type": "prediction_v2_balanced_design_feasibility_result_decision_source",
+      "path": "configs/research-os/prediction-v2-balanced-design-feasibility-result-decision-source-v1.json",
+      "identity_field": "artifact_digest"
     },
     "e094f3bd319c63b9ed5a8b14b955f7f64544e30d3b8410cc26b2906b7e56ae67": {
       "artifact_type": "p263_runtime_slot_governance_source_contract",
