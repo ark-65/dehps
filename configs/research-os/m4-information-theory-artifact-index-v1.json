@@ -628,10 +628,18 @@
       "superseded_by_digest": "3c87a6b0ae65e18645e05dd2a028cc387b101d035c1562b883945e650a028981"
     },
     "3c87a6b0ae65e18645e05dd2a028cc387b101d035c1562b883945e650a028981": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "source_commit": "b32e3f166ebc7aa605e48ee55132f03755855a66",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "identity_field": "manifest_digest",
+      "supersedes_digest": "124b55d77e22e577d0bd7b663fcbeaf212082ed3442bb654b9338a609bf55057",
+      "superseded_by_digest": "07892a809dfaa07e6bdbb02c1c350ed226c4692b2c16eeadbc993f65a15cad47"
+    },
+    "07892a809dfaa07e6bdbb02c1c350ed226c4692b2c16eeadbc993f65a15cad47": {
       "artifact_type": "research_os_control_plane_manifest",
       "path": "configs/research-os/m4-information-theory-evidence-v1.json",
       "identity_field": "manifest_digest",
-      "supersedes_digest": "124b55d77e22e577d0bd7b663fcbeaf212082ed3442bb654b9338a609bf55057"
+      "supersedes_digest": "3c87a6b0ae65e18645e05dd2a028cc387b101d035c1562b883945e650a028981"
     },
     "6fb3a1e366da129ac460599a391891a49206ccc715b6367cf344e2aa3e9f2a3d": {
       "artifact_type": "m4_v2_branch_preflight_source_contract",
@@ -831,6 +839,11 @@
     "e254bfcd84683f54d00f5e1a89b81a953ba90413a0724794abdde7e7c9eabc7c": {
       "artifact_type": "prediction_v2_balanced_design_structural_evaluation_execution_source",
       "path": "configs/research-os/prediction-v2-balanced-design-structural-evaluation-execution-source-v1.json",
+      "identity_field": "artifact_digest"
+    },
+    "8a8463e8de27f799d068803794532e313c38e6ea50c2c7fd3124d7b273502584": {
+      "artifact_type": "prediction_v2_balanced_design_structural_evaluation_result_decision_source",
+      "path": "configs/research-os/prediction-v2-balanced-design-structural-evaluation-result-decision-source-v1.json",
       "identity_field": "artifact_digest"
     },
     "e094f3bd319c63b9ed5a8b14b955f7f64544e30d3b8410cc26b2906b7e56ae67": {
