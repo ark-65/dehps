@@ -343,22 +343,43 @@ def test_zero_work_preregistration_projects_actual_fold_count() -> None:
         for item in manifest.tasks
         if item.task_key == M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY
     )
-    assert (
-        _mainline_actual_fold_count(
-            task=task,
-            execution_artifact={
-                "portfolios_generated": 0,
-                "folds_executed": 0,
-                "random_replicates_executed": 0,
-                "metric_results_read": 0,
-                "target_draw_rows_read": 0,
-                "bootstrap_resamples_executed": 0,
-            },
-        )
-        == 0
-    )
+    zero_work = {
+        "portfolios_generated": 0,
+        "folds_executed": 0,
+        "random_replicates_executed": 0,
+        "metric_results_read": 0,
+        "target_draw_rows_read": 0,
+        "bootstrap_resamples_executed": 0,
+    }
+    assert _mainline_actual_fold_count(
+        task_key=task.task_key,
+        requested_capability=task.requested_capability,
+        execution_artifact=zero_work,
+    ) == 0
     with pytest.raises(MainlineSupervisorError, match="actual_fold_count is missing"):
-        _mainline_actual_fold_count(task=task, execution_artifact={})
+        _mainline_actual_fold_count(
+            task_key=task.task_key,
+            requested_capability="another_capability",
+            execution_artifact=zero_work,
+        )
+    with pytest.raises(MainlineSupervisorError, match="actual_fold_count is missing"):
+        _mainline_actual_fold_count(
+            task_key="another-task",
+            requested_capability=task.requested_capability,
+            execution_artifact=zero_work,
+        )
+    with pytest.raises(MainlineSupervisorError, match="actual_fold_count is missing"):
+        _mainline_actual_fold_count(
+            task_key=task.task_key,
+            requested_capability=task.requested_capability,
+            execution_artifact={**zero_work, "folds_executed": 1},
+        )
+    with pytest.raises(MainlineSupervisorError, match="actual_fold_count is missing"):
+        _mainline_actual_fold_count(
+            task_key=task.task_key,
+            requested_capability=task.requested_capability,
+            execution_artifact={},
+        )
 
 
 def test_recovery_preserves_failed_events_and_four_registrations() -> None:

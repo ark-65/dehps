@@ -1134,7 +1134,8 @@ def test_completed_loader_projects_exact_m4_p3_zero_work_fold_count(
     assert len(registrations) == 1
     assert (
         supervisor_module._mainline_actual_fold_count(
-            task=task,
+            task_key=task.task_key,
+            requested_capability=task.requested_capability,
             execution_artifact=loaded,
         )
         == 0

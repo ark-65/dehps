@@ -1490,7 +1490,8 @@ def _load_single_completed_execution(
         }
     )
     actual_fold_count = _mainline_actual_fold_count(
-        task=task,
+        task_key=task.task_key,
+        requested_capability=task.requested_capability,
         execution_artifact=execution,
     )
     if (
@@ -13988,13 +13989,16 @@ def _load_m4_p3_result_blind_structural_utility_preregistration_inputs(
 
 
 def _mainline_actual_fold_count(
-    *, task: Task, execution_artifact: Mapping[str, Any]
+    *,
+    task_key: str,
+    requested_capability: str | None,
+    execution_artifact: Mapping[str, Any],
 ) -> int:
     value = execution_artifact.get("actual_fold_count")
     if value is None:
         if (
-            task.task_key == M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY
-            and task.requested_capability
+            task_key == M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY
+            and requested_capability
             == M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_CAPABILITY
             and execution_artifact.get("portfolios_generated") == 0
             and execution_artifact.get("folds_executed") == 0
@@ -14005,11 +14009,11 @@ def _mainline_actual_fold_count(
         ):
             return 0
         raise MainlineSupervisorError(
-            f"mainline execution actual_fold_count is missing: {task.task_key}"
+            f"mainline execution actual_fold_count is missing: {task_key}"
         )
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise MainlineSupervisorError(
-            f"mainline execution actual_fold_count is invalid: {task.task_key}"
+            f"mainline execution actual_fold_count is invalid: {task_key}"
         )
     return value
 
@@ -16571,7 +16575,8 @@ class ResearchEvidenceSupervisor:
                 git_commit=git_commit,
             )
             actual_fold_count = _mainline_actual_fold_count(
-                task=task,
+                task_key=task.task_key,
+                requested_capability=task.requested_capability,
                 execution_artifact=result.execution_artifact,
             )
             for registration in result.registrations:
@@ -18071,15 +18076,6 @@ class ResearchEvidenceSupervisor:
     def replay(
         self, *, task_key: str, execution_id: str | None = None
     ) -> dict[str, Any]:
-        manifest = self.repository.load_manifest(
-            control_plane_key=self.control_plane_key
-        )
-        matching_tasks = [task for task in manifest.tasks if task.task_key == task_key]
-        if len(matching_tasks) != 1:
-            raise MainlineSupervisorError(
-                f"mainline replay task is not in the current manifest: {task_key}"
-            )
-        task = matching_tasks[0]
         if self.control_plane_key == PREDICTION_V2_CONTROL_PLANE_KEY or task_key in {
             M4_P29_GOLDEN_REFERENCE_TASK_KEY,
             M4_P29_RUNTIME_AUDIT_TASK_KEY,
@@ -24782,7 +24778,8 @@ class ResearchEvidenceSupervisor:
             "execution_id": resolved_execution_id,
             "execution_artifact_digest": artifact["artifact_digest"],
             "actual_fold_count": _mainline_actual_fold_count(
-                task=task,
+                task_key=task_key,
+                requested_capability=str(artifact.get("capability") or "") or None,
                 execution_artifact=artifact,
             ),
             "registered_artifact_count": len(registrations),
