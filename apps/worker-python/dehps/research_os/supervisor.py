@@ -13983,6 +13983,33 @@ def _load_m4_p3_result_blind_structural_utility_preregistration_inputs(
     return research_request, research_execution, completed_event, registrations
 
 
+def _mainline_actual_fold_count(
+    *, task: Task, execution_artifact: Mapping[str, Any]
+) -> int:
+    value = execution_artifact.get("actual_fold_count")
+    if value is None:
+        if (
+            task.task_key == M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY
+            and task.requested_capability
+            == M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_CAPABILITY
+            and execution_artifact.get("portfolios_generated") == 0
+            and execution_artifact.get("folds_executed") == 0
+            and execution_artifact.get("random_replicates_executed") == 0
+            and execution_artifact.get("metric_results_read") == 0
+            and execution_artifact.get("target_draw_rows_read") == 0
+            and execution_artifact.get("bootstrap_resamples_executed") == 0
+        ):
+            return 0
+        raise MainlineSupervisorError(
+            f"mainline execution actual_fold_count is missing: {task.task_key}"
+        )
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise MainlineSupervisorError(
+            f"mainline execution actual_fold_count is invalid: {task.task_key}"
+        )
+    return value
+
+
 class M4P3ResultBlindStructuralUtilityPreregistrationCapability:
     def __init__(
         self,
@@ -16539,6 +16566,10 @@ class ResearchEvidenceSupervisor:
                 execution_id=execution_id,
                 git_commit=git_commit,
             )
+            actual_fold_count = _mainline_actual_fold_count(
+                task=task,
+                execution_artifact=result.execution_artifact,
+            )
             for registration in result.registrations:
                 self.repository.register_mainline_artifact(registration=registration)
             completed_at = self.now().isoformat()
@@ -16563,9 +16594,7 @@ class ResearchEvidenceSupervisor:
                                     self.root_dir
                                 )
                             ),
-                            "actual_fold_count": result.execution_artifact[
-                                "actual_fold_count"
-                            ],
+                            "actual_fold_count": actual_fold_count,
                             "registered_artifact_count": len(result.registrations),
                             "git_commit": git_commit,
                             "completion_facts": list(result.completion_facts),
