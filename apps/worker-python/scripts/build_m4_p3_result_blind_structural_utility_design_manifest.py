@@ -28,6 +28,13 @@ from dehps.research_os.structural_utility.m4_p3_result_blind_design import (
     verify_m4_p3_result_blind_structural_utility_design_source_bytes,
 )
 
+PRE_MIGRATION_SOURCE_MANIFEST_DIGEST = (
+    "07892a809dfaa07e6bdbb02c1c350ed226c4692b2c16eeadbc993f65a15cad47"
+)
+MIGRATED_SOURCE_MANIFEST_DIGEST = (
+    "6bfb2795468b0a9fbe5ef86c005903ce243fee0900a7ab2f72410eccf0330d3e"
+)
+
 
 def _load(path: Path) -> dict:
     value = json.loads(path.read_text(encoding="utf-8"))
@@ -264,6 +271,39 @@ def _preregistration_task() -> dict:
 
 def _source_payload(source_base: dict, source_digest: str) -> dict:
     source = copy.deepcopy(source_base)
+    source_manifest_digest = source.get("manifest_digest")
+    if source_manifest_digest not in {
+        PRE_MIGRATION_SOURCE_MANIFEST_DIGEST,
+        MIGRATED_SOURCE_MANIFEST_DIGEST,
+    }:
+        raise SystemExit("M4-P3 source-base manifest identity changed")
+    ControlPlaneManifest.from_dict(source)
+    if source_manifest_digest == MIGRATED_SOURCE_MANIFEST_DIGEST:
+        if (
+            len(
+                [
+                    goal
+                    for goal in source.get("goals", [])
+                    if goal.get("goal_key") == M4_P3_STRUCTURAL_UTILITY_GOAL_KEY
+                ]
+            )
+            != 1
+            or len(
+                [
+                    task
+                    for task in source.get("tasks", [])
+                    if task.get("task_key")
+                    == M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY
+                ]
+            )
+            != 1
+            or _task(source, M4_P3_STRUCTURAL_UTILITY_DESIGN_TASK_KEY).get(
+                "requested_capability"
+            )
+            != M4_P3_STRUCTURAL_UTILITY_DESIGN_CAPABILITY
+        ):
+            raise SystemExit("migrated M4-P3 source shape changed")
+        return source
     source.pop("artifact_digest", None)
     source.pop("manifest_digest", None)
     if any(
@@ -308,10 +348,15 @@ def main() -> None:
     live_source.add_argument("--control-plane-key")
     parser.add_argument("--source-base", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--output-kind",
+        choices=("source", "merged"),
+        default="source",
+    )
     parser.add_argument("--dry-run-artifact", type=Path, required=True)
     parser.add_argument("--artifact-index", type=Path, required=True)
     parser.add_argument("--artifact-index-output", type=Path, required=True)
-    parser.add_argument("--superseded-manifest-source-commit", required=True)
+    parser.add_argument("--superseded-manifest-source-commit")
     args = parser.parse_args()
     outputs = {
         args.output.resolve(),
@@ -351,7 +396,7 @@ def main() -> None:
         source_base, str(source_contract["artifact_digest"])
     )
     source_fact = f"m4-p3-result-blind-structural-utility-design-source:{source_contract['artifact_digest']}"
-    _, dry_run = build_additive_m4_v2_manifest(
+    merged, dry_run = build_additive_m4_v2_manifest(
         live_payload=live,
         source_payload=source,
         allowlisted_new_goal_keys=(M4_P3_STRUCTURAL_UTILITY_GOAL_KEY,),
@@ -405,22 +450,38 @@ def main() -> None:
     if len(current_manifest_keys) != 1:
         raise SystemExit("current control-plane manifest index identity is not singular")
     prior_manifest_digest = current_manifest_keys[0]
-    if prior_manifest_digest == manifest_digest:
-        raise SystemExit("M4-P3 migration did not change the manifest identity")
-    prior_entry = artifacts[prior_manifest_digest]
-    prior_entry["artifact_type"] = "superseded_research_os_control_plane_manifest"
-    prior_entry["source_commit"] = args.superseded_manifest_source_commit
-    prior_entry["path_at_source"] = prior_entry.pop("path")
-    prior_entry["superseded_by_digest"] = manifest_digest
-    artifacts[manifest_digest] = {
+    expected_manifest_entry = {
         "artifact_type": "research_os_control_plane_manifest",
         "path": manifest_path,
         "identity_field": "manifest_digest",
-        "supersedes_digest": prior_manifest_digest,
     }
+    if prior_manifest_digest == manifest_digest:
+        if artifacts[manifest_digest].get("supersedes_digest") is not None:
+            expected_manifest_entry["supersedes_digest"] = artifacts[
+                manifest_digest
+            ]["supersedes_digest"]
+        if artifacts[manifest_digest] != expected_manifest_entry:
+            raise SystemExit("current control-plane manifest index entry changed")
+    else:
+        if not args.superseded_manifest_source_commit:
+            raise SystemExit(
+                "--superseded-manifest-source-commit is required for source migration"
+            )
+        prior_entry = artifacts[prior_manifest_digest]
+        prior_entry["artifact_type"] = (
+            "superseded_research_os_control_plane_manifest"
+        )
+        prior_entry["source_commit"] = args.superseded_manifest_source_commit
+        prior_entry["path_at_source"] = prior_entry.pop("path")
+        prior_entry["superseded_by_digest"] = manifest_digest
+        artifacts[manifest_digest] = {
+            **expected_manifest_entry,
+            "supersedes_digest": prior_manifest_digest,
+        }
+    output_payload = source if args.output_kind == "source" else merged
     atomic_write_text(
         args.output,
-        json.dumps(source, ensure_ascii=False, indent=2) + "\n",
+        json.dumps(output_payload, ensure_ascii=False, indent=2) + "\n",
     )
     atomic_write_text(
         args.dry_run_artifact,
