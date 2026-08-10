@@ -183,3 +183,28 @@ command: 2375 passed, 4 skipped, 6 explicitly deselected by CI, 22 warnings,
 zero failures in 203.44 seconds. The merged-output and source-output modes,
 byte-identical artifact-index pass-through, exact Ready resolution, Ruff, and
 `git diff --check` also passed.
+
+## Objective-class schema correction — round 115
+
+Operator Request 446 / Execution 367 attempted the approved additive import on
+merged main and failed before dispatch. PostgreSQL rejected
+`structural_decision_utility` because the Python enum and canonical manifest had
+been extended in round 112 while
+`research_os_goal_definitions_objective_class_check` still contained only the
+previous four values. The import transaction rolled back: the durable control
+plane remained 3 Goals / 78 tasks, no structural Goal or task was inserted, no
+Supervisor task was dispatched, and no artifact or result payload was read.
+
+Engineering Request 447 / Execution 368 corrects only that schema boundary.
+Both fresh-table creation and the idempotent existing-database ALTER path now
+allow the exact five-value domain: `prediction_quality`,
+`structural_decision_utility`, `runtime_capability`, `knowledge_quality`, and
+`maintenance_integrity`. The named CHECK is replaced without changing tables,
+rows, keys, indexes, manifests, states, facts, executions, registrations, or
+the scientific contract. Live DDL and the import retry remain separate Operator
+actions after merge.
+
+Round 115 validation: focused schema/repository/M4-P3/Research OS regressions
+passed; Ruff and `git diff --check` passed; the exact GitHub Worker command in a
+clean detached worktree completed with 2375 passed, 4 skipped, 6 CI-deselected,
+22 warnings, and zero failures in 204.60 seconds.

@@ -3,13 +3,23 @@ CREATE TABLE IF NOT EXISTS research_os_goal_definitions (
   goal_key TEXT NOT NULL,
   semantic_version TEXT NOT NULL,
   objective_class TEXT NOT NULL CHECK (objective_class IN (
-    'prediction_quality', 'runtime_capability', 'knowledge_quality', 'maintenance_integrity'
+    'prediction_quality', 'structural_decision_utility', 'runtime_capability',
+    'knowledge_quality', 'maintenance_integrity'
   )),
   owner_lane TEXT NOT NULL CHECK (owner_lane IN ('production', 'research', 'maintenance')),
   definition_json JSONB NOT NULL CHECK (jsonb_typeof(definition_json) = 'object'),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (goal_key, goal_digest)
 );
+
+ALTER TABLE research_os_goal_definitions
+  DROP CONSTRAINT IF EXISTS research_os_goal_definitions_objective_class_check;
+ALTER TABLE research_os_goal_definitions
+  ADD CONSTRAINT research_os_goal_definitions_objective_class_check
+  CHECK (objective_class IN (
+    'prediction_quality', 'structural_decision_utility', 'runtime_capability',
+    'knowledge_quality', 'maintenance_integrity'
+  ));
 
 CREATE INDEX IF NOT EXISTS idx_research_os_goal_definitions_key
   ON research_os_goal_definitions (goal_key, created_at, goal_digest);
