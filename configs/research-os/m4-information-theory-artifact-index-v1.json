@@ -875,10 +875,23 @@
       "identity_field": "artifact_digest"
     },
     "6bfb2795468b0a9fbe5ef86c005903ce243fee0900a7ab2f72410eccf0330d3e": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "supersedes_digest": "07892a809dfaa07e6bdbb02c1c350ed226c4692b2c16eeadbc993f65a15cad47",
+      "source_commit": "6aab3d5d2a1e454e61aba02942a33fe52857f5c3",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "superseded_by_digest": "6dff4a5326d7b7308cdca7be88c2307d7902c2366431d0a86a04c5ea3d6d1c95"
+    },
+    "72f5032c40d339946f014f7f333dd400f9ccf3a8a48250943ee1143e347687b8": {
+      "artifact_type": "m4_p3_result_blind_structural_utility_preregistration_source",
+      "path": "configs/research-os/m4-p3-result-blind-structural-utility-preregistration-source-v1.json",
+      "identity_field": "artifact_digest"
+    },
+    "6dff4a5326d7b7308cdca7be88c2307d7902c2366431d0a86a04c5ea3d6d1c95": {
       "artifact_type": "research_os_control_plane_manifest",
       "path": "configs/research-os/m4-information-theory-evidence-v1.json",
       "identity_field": "manifest_digest",
-      "supersedes_digest": "07892a809dfaa07e6bdbb02c1c350ed226c4692b2c16eeadbc993f65a15cad47"
+      "supersedes_digest": "6bfb2795468b0a9fbe5ef86c005903ce243fee0900a7ab2f72410eccf0330d3e"
     }
   },
   "lookup_rule": "digest_must_equal_the_artifact_identity_at_the_registered_canonical_path",

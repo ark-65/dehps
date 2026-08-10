@@ -14,6 +14,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+from dehps.agents.repository import AgentRequestRepository
 from dehps.artifacts import atomic_write_text
 from dehps.config import ROOT_DIR
 from dehps.contracts import canonical_digest
@@ -830,6 +831,43 @@ from dehps.research_os.structural_utility.m4_p3_result_blind_design import (
 )
 from dehps.research_os.structural_utility.m4_p3_result_blind_design import (
     PARENT_TASK_KEY as M4_P3_STRUCTURAL_UTILITY_PARENT_TASK_KEY,
+)
+from dehps.research_os.structural_utility.m4_p3_result_blind_preregistration import (
+    M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY,
+    M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_CAPABILITY,
+    M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_COMPLETION_FACT,
+    M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_SOURCE_CONTRACT_PATH,
+    build_m4_p3_result_blind_structural_utility_preregistration_artifacts,
+    load_m4_p3_result_blind_structural_utility_preregistration_source_contract,
+    replay_m4_p3_result_blind_structural_utility_preregistration,
+    verify_m4_p3_result_blind_structural_utility_preregistration_source_bytes,
+)
+from dehps.research_os.structural_utility.m4_p3_result_blind_preregistration import (
+    PARENT_COMPLETION_DIGEST as M4_P3_PREREG_PARENT_COMPLETION_DIGEST,
+)
+from dehps.research_os.structural_utility.m4_p3_result_blind_preregistration import (
+    PARENT_DESIGN_DIGEST as M4_P3_PREREG_PARENT_DESIGN_DIGEST,
+)
+from dehps.research_os.structural_utility.m4_p3_result_blind_preregistration import (
+    PARENT_EXECUTION_DIGEST as M4_P3_PREREG_PARENT_EXECUTION_DIGEST,
+)
+from dehps.research_os.structural_utility.m4_p3_result_blind_preregistration import (
+    PARENT_EXECUTION_ID as M4_P3_PREREG_PARENT_EXECUTION_ID,
+)
+from dehps.research_os.structural_utility.m4_p3_result_blind_preregistration import (
+    PARENT_HANDOFF_DIGEST as M4_P3_PREREG_PARENT_HANDOFF_DIGEST,
+)
+from dehps.research_os.structural_utility.m4_p3_result_blind_preregistration import (
+    PARENT_TASK_KEY as M4_P3_PREREG_PARENT_TASK_KEY,
+)
+from dehps.research_os.structural_utility.m4_p3_result_blind_preregistration import (
+    RESEARCH_EXECUTION_ID as M4_P3_PREREG_RESEARCH_EXECUTION_ID,
+)
+from dehps.research_os.structural_utility.m4_p3_result_blind_preregistration import (
+    RESEARCH_PREREGISTRATION_DIGEST as M4_P3_PREREG_RESEARCH_CONTRACT_DIGEST,
+)
+from dehps.research_os.structural_utility.m4_p3_result_blind_preregistration import (
+    RESEARCH_REQUEST_KEY as M4_P3_PREREG_RESEARCH_REQUEST_KEY,
 )
 from dehps.source_version import resolve_git_commit
 
@@ -13863,6 +13901,274 @@ class M4P3ResultBlindStructuralUtilityDesignCapability:
         )
 
 
+def _load_m4_p3_result_blind_structural_utility_preregistration_inputs(
+    *,
+    research_os_repository: PostgresResearchOSRepository,
+    agent_repository: AgentRequestRepository,
+    control_plane_key: str,
+) -> tuple[
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+    tuple[dict[str, Any], ...],
+]:
+    request = agent_repository.get_request(M4_P3_PREREG_RESEARCH_REQUEST_KEY)
+    executions = [
+        item
+        for item in agent_repository.list_executions(M4_P3_PREREG_RESEARCH_REQUEST_KEY)
+        if item.id == M4_P3_PREREG_RESEARCH_EXECUTION_ID
+    ]
+    if len(executions) != 1:
+        raise MainlineSupervisorError(
+            "M4-P3 preregistration Research execution identity changed"
+        )
+    research_request = {
+        "id": request.id,
+        "request_key": request.request_key,
+        "request_type": request.request_type.value,
+        "status": request.status.value,
+        "parent_request_id": request.parent_request_id,
+        "payload": request.payload,
+        "metadata": request.metadata,
+    }
+    execution = executions[0]
+    research_execution = {
+        "id": execution.id,
+        "request_id": execution.request_id,
+        "status": execution.status.value,
+        "result": execution.result,
+    }
+    events = research_os_repository.list_mainline_execution_event_metadata(
+        control_plane_key=control_plane_key,
+        task_keys=(M4_P3_PREREG_PARENT_TASK_KEY,),
+    )
+    completed = [
+        item
+        for item in events
+        if item.get("event_type") == "completed"
+        and item.get("execution_id") == M4_P3_PREREG_PARENT_EXECUTION_ID
+    ]
+    if len(completed) != 1:
+        raise MainlineSupervisorError(
+            "M4-P3 preregistration parent completed-event metadata changed"
+        )
+    completed_event = {
+        key: completed[0][key]
+        for key in (
+            "event_digest",
+            "execution_id",
+            "control_plane_key",
+            "manifest_digest",
+            "task_digest",
+            "task_key",
+            "capability",
+            "event_type",
+            "sequence",
+        )
+    }
+    allowed_types = {
+        "research_os_mainline_execution",
+        "m4_p3_result_blind_structural_utility_design",
+        "m4_p3_result_blind_structural_utility_preregistration_handoff",
+        "m4_p3_result_blind_structural_utility_design_completion",
+    }
+    registrations = tuple(
+        item
+        for item in research_os_repository.list_mainline_artifacts(
+            control_plane_key=control_plane_key,
+            execution_id=M4_P3_PREREG_PARENT_EXECUTION_ID,
+        )
+        if item.get("artifact_type") in allowed_types
+    )
+    return research_request, research_execution, completed_event, registrations
+
+
+class M4P3ResultBlindStructuralUtilityPreregistrationCapability:
+    def __init__(
+        self,
+        *,
+        repository: PostgresResearchOSRepository,
+        root_dir: Path = ROOT_DIR,
+        agent_repository: AgentRequestRepository | None = None,
+    ) -> None:
+        self.repository = repository
+        self.root_dir = root_dir
+        self.agent_repository = agent_repository or AgentRequestRepository()
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key != M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY
+            or task.requested_capability
+            != M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "M4-P3 structural-utility preregistration received the wrong task"
+            )
+        source_contract = (
+            load_m4_p3_result_blind_structural_utility_preregistration_source_contract(
+                self.root_dir
+                / M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_SOURCE_CONTRACT_PATH
+            )
+        )
+        verify_m4_p3_result_blind_structural_utility_preregistration_source_bytes(
+            root_dir=self.root_dir,
+            contract=source_contract,
+        )
+        (
+            research_request,
+            research_execution,
+            completed_event,
+            parent_registrations,
+        ) = _load_m4_p3_result_blind_structural_utility_preregistration_inputs(
+            research_os_repository=self.repository,
+            agent_repository=self.agent_repository,
+            control_plane_key=control_plane_key,
+        )
+        expected_inputs = (
+            str(source_contract["artifact_digest"]),
+            M4_P3_PREREG_RESEARCH_CONTRACT_DIGEST,
+            M4_P3_PREREG_PARENT_EXECUTION_DIGEST,
+            M4_P3_PREREG_PARENT_DESIGN_DIGEST,
+            M4_P3_PREREG_PARENT_HANDOFF_DIGEST,
+            M4_P3_PREREG_PARENT_COMPLETION_DIGEST,
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "M4-P3 structural-utility preregistration inputs changed"
+            )
+        run = build_m4_p3_result_blind_structural_utility_preregistration_artifacts(
+            source_contract=source_contract,
+            research_request=research_request,
+            research_execution=research_execution,
+            completed_event=completed_event,
+            parent_registrations=parent_registrations,
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        child_paths = (
+            task_dir
+            / "artifacts/preregistration"
+            / str(run.preregistration["artifact_digest"])
+            / "preregistration.json",
+            task_dir
+            / "artifacts/execution-handoff"
+            / str(run.execution_handoff["artifact_digest"])
+            / "execution-handoff.json",
+            task_dir
+            / "artifacts/completion"
+            / str(run.completion["artifact_digest"])
+            / "completion.json",
+        )
+        child_payloads = tuple(zip(child_paths, run.artifacts, strict=True))
+        for path, payload in child_payloads:
+            _persist_immutable(path, payload)
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "source_contract_digest": source_contract["artifact_digest"],
+            "source_set_digest": source_contract["source_set_digest"],
+            "research_request_id": 449,
+            "research_execution_id": 370,
+            "research_preregistration_digest": M4_P3_PREREG_RESEARCH_CONTRACT_DIGEST,
+            "parent_completed_event_digest": completed_event["event_digest"],
+            "parent_execution_digest": M4_P3_PREREG_PARENT_EXECUTION_DIGEST,
+            "parent_design_digest": M4_P3_PREREG_PARENT_DESIGN_DIGEST,
+            "parent_handoff_digest": M4_P3_PREREG_PARENT_HANDOFF_DIGEST,
+            "parent_completion_digest": M4_P3_PREREG_PARENT_COMPLETION_DIGEST,
+            "parent_registration_metadata_count": len(parent_registrations),
+            "preregistration_artifact_digest": run.preregistration["artifact_digest"],
+            "execution_handoff_digest": run.execution_handoff["artifact_digest"],
+            "preregistration_completion_digest": run.completion["artifact_digest"],
+            "fold_count": 90,
+            "portfolio_budget": 100,
+            "arm_count": 3,
+            "confirmatory_coordinate_count": 6,
+            "result_blind": True,
+            "incidental_prior_structural_values_observed_during_repository_discovery": True,
+            "previous_structural_result_values_used_to_select_any_choice": False,
+            "portfolios_generated": 0,
+            "folds_executed": 0,
+            "random_replicates_executed": 0,
+            "metric_results_read": 0,
+            "target_draw_rows_read": 0,
+            "bootstrap_resamples_executed": 0,
+            "historical_prediction_evidence": "INCONCLUSIVE",
+            "prediction_v2_mode": "SHADOW_ONLY",
+            "prediction_v2_route": "BASELINE_ONLY",
+            "old_training_lines": "FROZEN",
+            "new_prediction_evidence_created": False,
+            "new_model_created": False,
+            "promotion_gate_opened": False,
+            "predictive_p3_authorized": False,
+            "registered_artifact_count": len(child_payloads) + 1,
+            "completion_fact": (
+                M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_COMPLETION_FACT
+            ),
+            "downstream_consumer": M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY,
+            "production_impact": "none",
+            "production_action": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "replay_status": "DETERMINISTIC_REGISTERED_OUTPUT_REPLAY_PENDING",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                *(str(payload["artifact_digest"]) for _, payload in child_payloads),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        output_registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(output_registrations) != 4:
+            raise MainlineSupervisorError(
+                "M4-P3 structural-utility preregistration registration count changed"
+            )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=output_registrations,
+            completion_facts=(
+                M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_COMPLETION_FACT,
+            ),
+        )
+
+
 class M4P261RawExecutionReplayCapability:
     def __init__(
         self,
@@ -15871,6 +16177,12 @@ class ResearchEvidenceSupervisor:
                     root_dir=root_dir,
                 )
             ),
+            M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_CAPABILITY: (
+                M4P3ResultBlindStructuralUtilityPreregistrationCapability(
+                    repository=self.repository,
+                    root_dir=root_dir,
+                )
+            ),
             M4_V2_P261_RAW_REPLAY_CAPABILITY: (
                 M4P261RawExecutionReplayCapability(
                     repository=self.repository,
@@ -16876,6 +17188,7 @@ class ResearchEvidenceSupervisor:
         return self._latest_completed_summary_for_tasks(
             snapshot,
             (
+                M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY,
                 M4_P3_STRUCTURAL_UTILITY_DESIGN_TASK_KEY,
                 PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_RESULT_DECISION_TASK_KEY,
                 PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_EXECUTION_TASK_KEY,
@@ -16934,6 +17247,7 @@ class ResearchEvidenceSupervisor:
             if resolutions.get(candidate) is not TaskStatus.COMPLETED:
                 continue
             if candidate in {
+                M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY,
                 M4_P3_STRUCTURAL_UTILITY_DESIGN_TASK_KEY,
                 PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_RESULT_DECISION_TASK_KEY,
                 PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_EXECUTION_TASK_KEY,
@@ -20940,6 +21254,107 @@ class ResearchEvidenceSupervisor:
                 raise MainlineSupervisorError(
                     "Prediction v2 balanced-design structural-evaluation "
                     "result-decision replay identity changed"
+                )
+            _verify_v2_registered_artifacts(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                expected_payloads=(*reconstructed.artifacts, artifact),
+            )
+        elif task_key == M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY:
+            source_contract = (
+                load_m4_p3_result_blind_structural_utility_preregistration_source_contract(
+                    self.root_dir
+                    / M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_SOURCE_CONTRACT_PATH
+                )
+            )
+            verify_m4_p3_result_blind_structural_utility_preregistration_source_bytes(
+                root_dir=self.root_dir,
+                contract=source_contract,
+            )
+            (
+                research_request,
+                research_execution,
+                completed_event,
+                parent_registrations,
+            ) = _load_m4_p3_result_blind_structural_utility_preregistration_inputs(
+                research_os_repository=self.repository,
+                agent_repository=AgentRequestRepository(),
+                control_plane_key=self.control_plane_key,
+            )
+            reconstructed, capability_replay = (
+                replay_m4_p3_result_blind_structural_utility_preregistration(
+                    source_contract=source_contract,
+                    research_request=research_request,
+                    research_execution=research_execution,
+                    completed_event=completed_event,
+                    parent_registrations=parent_registrations,
+                )
+            )
+            expected_inputs = [
+                str(source_contract["artifact_digest"]),
+                M4_P3_PREREG_RESEARCH_CONTRACT_DIGEST,
+                M4_P3_PREREG_PARENT_EXECUTION_DIGEST,
+                M4_P3_PREREG_PARENT_DESIGN_DIGEST,
+                M4_P3_PREREG_PARENT_HANDOFF_DIGEST,
+                M4_P3_PREREG_PARENT_COMPLETION_DIGEST,
+            ]
+            if (
+                artifact.get("input_artifact_digests") != expected_inputs
+                or artifact.get("source_contract_digest")
+                != source_contract["artifact_digest"]
+                or artifact.get("source_set_digest")
+                != source_contract["source_set_digest"]
+                or artifact.get("research_request_id") != 449
+                or artifact.get("research_execution_id") != 370
+                or artifact.get("research_preregistration_digest")
+                != M4_P3_PREREG_RESEARCH_CONTRACT_DIGEST
+                or artifact.get("parent_completed_event_digest")
+                != completed_event["event_digest"]
+                or artifact.get("parent_registration_metadata_count") != 4
+                or artifact.get("preregistration_artifact_digest")
+                != reconstructed.preregistration["artifact_digest"]
+                or artifact.get("execution_handoff_digest")
+                != reconstructed.execution_handoff["artifact_digest"]
+                or artifact.get("preregistration_completion_digest")
+                != reconstructed.completion["artifact_digest"]
+                or artifact.get("fold_count") != 90
+                or artifact.get("portfolio_budget") != 100
+                or artifact.get("arm_count") != 3
+                or artifact.get("confirmatory_coordinate_count") != 6
+                or artifact.get("result_blind") is not True
+                or artifact.get(
+                    "incidental_prior_structural_values_observed_during_repository_discovery"
+                )
+                is not True
+                or artifact.get(
+                    "previous_structural_result_values_used_to_select_any_choice"
+                )
+                is not False
+                or artifact.get("portfolios_generated") != 0
+                or artifact.get("folds_executed") != 0
+                or artifact.get("metric_results_read") != 0
+                or artifact.get("target_draw_rows_read") != 0
+                or artifact.get("bootstrap_resamples_executed") != 0
+                or artifact.get("historical_prediction_evidence") != "INCONCLUSIVE"
+                or artifact.get("prediction_v2_mode") != "SHADOW_ONLY"
+                or artifact.get("prediction_v2_route") != "BASELINE_ONLY"
+                or artifact.get("old_training_lines") != "FROZEN"
+                or artifact.get("new_prediction_evidence_created") is not False
+                or artifact.get("new_model_created") is not False
+                or artifact.get("promotion_gate_opened") is not False
+                or artifact.get("predictive_p3_authorized") is not False
+                or artifact.get("registered_artifact_count") != 4
+                or artifact.get("completion_fact")
+                != M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_COMPLETION_FACT
+                or artifact.get("downstream_consumer")
+                != M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY
+                or artifact.get("production_action") != "none"
+                or capability_replay.get("status") != "REPLAY_VERIFIED"
+                or capability_replay.get("same_registered_content") is not True
+                or capability_replay.get("workload_rerun") is not False
+            ):
+                raise MainlineSupervisorError(
+                    "M4-P3 structural-utility preregistration replay identity changed"
                 )
             _verify_v2_registered_artifacts(
                 root_dir=self.root_dir,

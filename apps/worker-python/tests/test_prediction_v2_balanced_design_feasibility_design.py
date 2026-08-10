@@ -4,6 +4,7 @@ import copy
 import json
 
 import pytest
+
 from dehps.config import ROOT_DIR
 from dehps.contracts import canonical_digest
 from dehps.research_os import supervisor as supervisor_module
@@ -189,6 +190,7 @@ def _historical_recovery_base() -> dict:
             "prediction-v2-balanced-design-structural-evaluation-result-decision",
             "prediction-v2-balanced-design-structural-utility-research-intake",
             "m4-p3-result-blind-structural-utility-preregistration",
+            "m4-p3-result-blind-structural-utility-blind-generator-and-walk-forward",
         }
     ]
     payload["facts"]["artifacts"] = [
@@ -197,12 +199,18 @@ def _historical_recovery_base() -> dict:
         if not fact.startswith(
             "m4-p3-result-blind-structural-utility-design-source:"
         )
+        and not fact.startswith(
+            "m4-p3-result-blind-structural-utility-preregistration-source:"
+        )
     ]
     payload["facts"]["external_events"] = [
         event
         for event in payload["facts"]["external_events"]
         if event
-        != "research-contract:prediction-v2-balanced-design-structural-utility:approved"
+        not in {
+            "research-contract:prediction-v2-balanced-design-structural-utility:approved",
+            "research-contract:m4-p3-result-blind-structural-utility-preregistration:approved",
+        }
     ]
     assert len(payload["tasks"]) == 71
     return payload
