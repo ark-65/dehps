@@ -173,6 +173,43 @@ Integration answer at the Engineering code-review boundary:
 NO — INTEGRATION_PENDING
 ```
 
+## Replay repository compatibility — round 123
+
+PR 329 was auto-merged as commit
+`56bad1208299b6843a97b484972ad21553c26b2c` before its Worker check
+completed. PR run `31355753739` and main run `31355763328` then failed with 23
+same-signature replay regressions:
+
+```text
+AttributeError: ReplayRepository has no attribute load_manifest
+```
+
+The Round-122 replay projection had added one unconditional durable-manifest
+read solely to recover task identity. Existing isolated replay repositories
+intentionally implement only immutable event and artifact reads, so the new
+dependency broke their interface before any replay assertion ran. No scientific
+or runtime result failed.
+
+Engineering Request 455 / Execution 376 removes the manifest dependency. The
+shared projection now accepts the task key and requested capability that each
+caller already validated. Replay supplies its requested task key and the
+digest-verified execution artifact capability. The exceptional zero projection
+still requires the exact M4-P3 task, exact preregistration capability, and all
+six explicit zero-work counters; every other missing or invalid fold count
+remains fail-closed.
+
+Ruff passed, and 209 tests passed across all 23 CI-failing replay files plus
+the M4-P3 preregistration and shared Supervisor suites.
+
+The durable running task, completed event, eight total registrations across the
+failed and completed executions, and every artifact byte remain untouched.
+
+The integration answer remains:
+
+```text
+NO — INTEGRATION_PENDING
+```
+
 ## Completed-event finalization incident — rounds 121–122
 
 PR 328 merged the first runtime recovery as commit
