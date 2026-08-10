@@ -1,0 +1,144 @@
+# M4-P3 Result-Blind Structural Utility Execution — Round 126
+
+Date: 2026-08-10
+
+Role: Engineering Agent
+
+Engineering Request: 458
+
+Engineering Execution: 379
+
+Research Request: 457
+
+Research Execution: 378
+
+## Primary goal
+
+Implement the separately authorized result-blind generator and 90-fold
+walk-forward capability for M4-P3. The capability compares three equal-budget
+100-ticket portfolios using portfolio-internal structural coordinates only:
+
+- uniform random sampling without replacement, with 32 deterministic
+  replicates per fold;
+- the frozen legacy structural Top-100 selector;
+- the frozen Prediction v2 structural selector.
+
+## Explicit non-goals
+
+- no winning number, payout, reward, outcome rank, or prediction label is read;
+- no bootstrap, Holm adjustment, Evidence, or route decision is produced;
+- no old training line is restarted;
+- Prediction v2 remains `SHADOW_ONLY / BASELINE_ONLY`;
+- no model, feature family, selector, threshold, or estimand is changed;
+- no durable manifest import or canonical 90-fold execution occurs under the
+  Engineering role.
+
+## Frozen research binding
+
+The implementation validates the completed Research Request 457 / Execution
+378 contract digest
+`a4167973da82dcdf212dd22ad5e8cf30f4ecf5cbd2ba8c2751a89dd04a4d4660`.
+Its executable source contract is
+`8f123b06647d509000f0e4e291087438b3009f6c1ec3e5cab327600c3bca14f6`.
+
+The target sequence remains exactly `2026002` through `2026091`. Every fold
+loads history only through `target_issue - 1`, requires at least 900 prior
+rows, builds the same complete `C(33, 6) = 1,107,568` candidate ABI, and gives
+both non-random selectors the identical frozen Top-10,000 scored pool.
+
+## Implementation
+
+The new structural-utility execution module provides:
+
+- zero-based legal candidate sampling with a SHA-256 counter stream and
+  rejection-unbiased bounded draws;
+- exact 100-ticket validation before metric computation;
+- integer sufficient statistics for pair/triple coverage, high-overlap
+  collisions, pair entropy, largest similarity component, and family HHI;
+- 90 prior-only fold artifacts, one result index, and one completion artifact;
+- deterministic registered-artifact replay without rerunning scoring;
+- digest-verified resume of complete fold artifacts;
+- 18 immutable local checkpoints, one after every five completed folds.
+
+The canonical Research Evidence Supervisor now owns execution, persistence,
+registration, status projection, and replay. A completed capability registers
+exactly 92 capability children plus its mainline execution artifact. The next
+consumer is the separately authorized Evidence Compiler task; it remains
+unimplemented and dependency-blocked.
+
+## Migration dry run
+
+The additive migration was evaluated against the current durable control plane
+without importing it. Dry-run digest:
+`b68909407600da7fa2c31c28917c3900c0d813cbc3f1276ccb3de2855af2896a`.
+
+Observed boundary:
+
+- 0 goal additions;
+- 1 task addition: the inactive Evidence Compiler placeholder;
+- 1 revised task: the blind generator and walk-forward task;
+- 1 source fact and 1 research-approval event added;
+- 0 task or goal deletions;
+- 0 existing-state regressions;
+- 0 fact deletions;
+- 0 unallowlisted definition rewrites;
+- `production_action = none` and `promotion_gate_opened = false`.
+
+The tracked source manifest digest is
+`86847be6f03486b7420e3daa24f286d20d7e872c4901260f6eb3f502b0df0ffe`.
+
+## Validation
+
+```text
+ruff check (execution module, supervisor, execution tests): PASS
+
+pytest -q
+  test_research_os_mainline_supervisor.py
+  test_m4_p3_result_blind_structural_utility_execution.py
+  test_m4_p3_result_blind_structural_utility_preregistration.py
+
+36 passed in 78.22s
+
+Full worker validation in a temporary repository copy without the pre-existing
+`runtime/prediction-v2/legacy-retirement-activation.json`:
+
+2398 passed, 4 skipped, followed by the corrected source-partition test:
+1 passed. Effective clean-runtime result: 2399 passed, 4 skipped.
+```
+
+The focused suite proves the deterministic random golden vector, complete
+candidate ABI boundary, prior-only fold rejection, portfolio metric identities,
+90-fold result-index replay, source-byte pinning, mainline child-registration
+count, status projection, complete-fold resume without history reload, and the
+5-fold checkpoint cadence.
+
+The first full run in the live workspace reported 42 unrelated failures after
+the seven newly exposed historical-fixture assertions were corrected. Those 42
+all exercise retired legacy prediction/training paths and were caused by the
+existing Operator activation artifact. It was preserved unchanged. The clean
+temporary-copy run confirms the tracked source independently of that runtime
+state.
+
+## Mainline integration matrix
+
+| Link | Round-126 state | Proof |
+|---|---|---|
+| Goal | Declared | `M4_P3_RESULT_BLIND_STRUCTURAL_UTILITY` |
+| Resolver | Code complete | task dependencies and exact six input digests |
+| Ready Queue | Not durably activated | additive migration is dry-run only |
+| Supervisor | Code complete | canonical capability and replay registered |
+| Capability | `CODE_COMPLETE` | 36-test validation; no canonical live run |
+| Artifacts | Contract complete | 90 folds + index + completion defined |
+| Status | Code complete | execution counts and blind boundary projected |
+| Next task | Declared | separately authorized Evidence Compiler |
+| Deterministic replay | Code complete | registered artifact reconstruction tested |
+
+Integration answer:
+
+`NO — INTEGRATION_PENDING`
+
+Round 126 is not permitted to claim capability completion. A separately
+approved Operator execution must import the exact committed migration, dispatch
+the fresh Supervisor, complete all 90 folds, register the artifacts and fact,
+and replay them. Only after that proof may the Evidence Compiler receive its
+own Research contract.

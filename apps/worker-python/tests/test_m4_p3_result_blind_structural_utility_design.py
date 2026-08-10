@@ -4,7 +4,6 @@ import copy
 import json
 
 import pytest
-
 from dehps.config import ROOT_DIR
 from dehps.research_os.control_plane import ResearchOSControlPlane
 from dehps.research_os.information_theory.measurement_system_v2.migration import (
@@ -39,6 +38,9 @@ from dehps.research_os.structural_utility.m4_p3_result_blind_design import (
     load_m4_p3_result_blind_structural_utility_design_source_contract,
     replay_m4_p3_result_blind_structural_utility_design,
     verify_m4_p3_result_blind_structural_utility_design_source_bytes,
+)
+from dehps.research_os.structural_utility.m4_p3_result_blind_execution import (
+    M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_TASK_KEY,
 )
 from dehps.research_os.structural_utility.m4_p3_result_blind_preregistration import (
     M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY,
@@ -191,7 +193,7 @@ def test_design_rejects_result_values_in_parent_projection() -> None:
         )
 
 
-def test_additive_migration_adds_one_goal_one_task_and_revises_only_intake() -> None:
+def test_additive_migration_adds_one_goal_staged_tasks_and_revises_only_intake() -> None:
     source = load_m4_manifest(MANIFEST_PATH).to_dict(include_digest=False)
     live = copy.deepcopy(source)
     live["goals"] = [
@@ -203,10 +205,11 @@ def test_additive_migration_adds_one_goal_one_task_and_revises_only_intake() -> 
         item
         for item in live["tasks"]
         if item["task_key"]
-        not in {
-            M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY,
-            M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY,
-        }
+            not in {
+                M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY,
+                M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY,
+                M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_TASK_KEY,
+            }
     ]
     intake = next(
         item
@@ -264,15 +267,21 @@ def test_additive_migration_adds_one_goal_one_task_and_revises_only_intake() -> 
         live_payload=live,
         source_payload=source,
         allowlisted_new_goal_keys=(M4_P3_STRUCTURAL_UTILITY_GOAL_KEY,),
-        allowlisted_new_task_keys=(M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY,),
+        allowlisted_new_task_keys=(
+            M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY,
+            M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY,
+            M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_TASK_KEY,
+        ),
         allowlisted_revised_task_keys=(M4_P3_STRUCTURAL_UTILITY_DESIGN_TASK_KEY,),
         add_artifact_facts=(source_fact,),
         add_external_events=(M4_P3_STRUCTURAL_UTILITY_DESIGN_APPROVED_EVENT,),
     )
     assert dry_run["new_goal_keys"] == [M4_P3_STRUCTURAL_UTILITY_GOAL_KEY]
-    assert dry_run["new_task_keys"] == [
-        M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY
-    ]
+    assert set(dry_run["new_task_keys"]) == {
+        M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY,
+        M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY,
+        M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_TASK_KEY,
+    }
     assert dry_run["revised_task_keys"] == [M4_P3_STRUCTURAL_UTILITY_DESIGN_TASK_KEY]
     assert dry_run["existing_state_regressions"] == 0
     assert dry_run["existing_fact_deletions"] == 0
@@ -342,11 +351,12 @@ def test_manifest_status_index_and_supervisor_bind_the_independent_goal() -> Non
     assert M4_P3_STRUCTURAL_UTILITY_DESIGN_CAPABILITY in supervisor.capabilities
 
 
-def test_migration_builder_reuses_only_the_exact_migrated_source() -> None:
+def test_design_migration_builder_rejects_a_later_source_manifest() -> None:
     source = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     contract_digest = _source()["artifact_digest"]
-    assert source["manifest_digest"] == MIGRATED_SOURCE_MANIFEST_DIGEST
-    assert _source_payload(source, contract_digest) == source
+    assert source["manifest_digest"] != MIGRATED_SOURCE_MANIFEST_DIGEST
+    with pytest.raises(SystemExit, match="source-base manifest identity changed"):
+        _source_payload(source, contract_digest)
 
     changed = copy.deepcopy(source)
     changed["manifest_digest"] = "0" * 64

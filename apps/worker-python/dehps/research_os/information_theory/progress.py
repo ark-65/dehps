@@ -18,7 +18,12 @@ from dehps.research_os.structural_utility.m4_p3_result_blind_design import (
     M4_P3_STRUCTURAL_UTILITY_GOAL_KEY,
     M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY,
 )
+from dehps.research_os.structural_utility.m4_p3_result_blind_execution import (
+    M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_TASK_KEY,
+    M4_P3_STRUCTURAL_UTILITY_EXECUTION_COMPLETION_FACT,
+)
 from dehps.research_os.structural_utility.m4_p3_result_blind_preregistration import (
+    M4_P3_STRUCTURAL_UTILITY_EXECUTION_APPROVED_EVENT,
     M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY,
     M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_COMPLETION_FACT,
 )
@@ -1058,6 +1063,13 @@ def build_m4_status(
     m4_p3_structural_utility_execution_task = tasks.get(
         M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY
     )
+    m4_p3_structural_utility_execution = (
+        measurement_v2_execution
+        if measurement_v2_execution is not None
+        and measurement_v2_execution.get("execution_task_key")
+        == M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY
+        else None
+    )
     durable_gate_evidence_facts = tuple(
         fact
         for fact in M4_V2_MARGINAL_HISTORICAL_EVIDENCE_FACTS
@@ -1591,22 +1603,66 @@ def build_m4_status(
                     if m4_p3_structural_utility_execution_task is None
                     else m4_p3_structural_utility_execution_task.requested_capability
                 ),
-                "execution_authorized": False,
+                "execution_authorized": (
+                    m4_p3_structural_utility_execution_task is not None
+                    and m4_p3_structural_utility_execution_task.requested_capability
+                    is not None
+                    and M4_P3_STRUCTURAL_UTILITY_EXECUTION_APPROVED_EVENT
+                    in manifest.facts.external_events
+                ),
+                "completion_fact_registered": (
+                    M4_P3_STRUCTURAL_UTILITY_EXECUTION_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                ),
+                "execution_artifact_digest": (
+                    None
+                    if m4_p3_structural_utility_execution is None
+                    else m4_p3_structural_utility_execution.get(
+                        "execution_artifact_digest"
+                    )
+                ),
                 "fold_count": 90,
+                "folds_executed": (
+                    0
+                    if m4_p3_structural_utility_execution is None
+                    else m4_p3_structural_utility_execution.get("actual_fold_count")
+                ),
+                "portfolios_generated": (
+                    0
+                    if m4_p3_structural_utility_execution is None
+                    else m4_p3_structural_utility_execution.get("portfolios_generated")
+                ),
+                "target_draw_rows_read": (
+                    0
+                    if m4_p3_structural_utility_execution is None
+                    else m4_p3_structural_utility_execution.get("target_draw_rows_read")
+                ),
+                "bootstrap_resamples_executed": 0,
+                "evidence_created": False,
+                "route_decision_created": False,
+                "prediction_v2_mode": "SHADOW_ONLY",
+                "prediction_v2_route": "BASELINE_ONLY",
+                "old_training_lines": "FROZEN",
                 "production_action": "none",
+                "integration_answer": (
+                    "YES — validated by unified mainline execution and replay"
+                    if M4_P3_STRUCTURAL_UTILITY_EXECUTION_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "NO — INTEGRATION_PENDING"
+                ),
             },
             "next_consumer": (
-                M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY
-                if M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_COMPLETION_FACT
+                M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_TASK_KEY
+                if M4_P3_STRUCTURAL_UTILITY_EXECUTION_COMPLETION_FACT
                 in manifest.facts.artifacts
-                else M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY
+                else (
+                    M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY
+                    if M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY
+                )
             ),
-            "integration_answer": (
-                "YES — validated by unified mainline execution and replay"
-                if M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_COMPLETION_FACT
-                in manifest.facts.artifacts
-                else "NO — INTEGRATION_PENDING"
-            ),
+            "integration_answer": "NO — INTEGRATION_PENDING",
         },
         "artifacts": {
             "preregistration_digest": active_preregistration.get(
