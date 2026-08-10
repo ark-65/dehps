@@ -5404,39 +5404,54 @@
           "required_status": "available"
         }
       ],
-      "input_artifact_digests": [],
-      "requested_capability": null,
+      "input_artifact_digests": [
+        "de6bc5340c4d33cb95d48108b6087dd4e2e468bca660e468cfe3c0c2ff1211b7",
+        "888881ea69e660c3c6ff62b5f7d9849b3fa79fcc23db22582e2fa8a8df8a8a32",
+        "df1dd942bf0469b5a3ba47f1121fc7924c955c15f87c07ab32d5c5ebff148a61",
+        "62ccb47c00240b6191994e8df3be057810f8ef61e342e64cfa9958fb3cfb1475",
+        "0159b4d6048a9bf815c9ba426e51b3bcf3c0beae075088776956465a6814df4d",
+        "89d0c2c9d4fdeec96241ad1543d06a39bfd822f63042cdecf6703cd7e67ae4e8"
+      ],
+      "requested_capability": "m4_p3_result_blind_structural_utility_evidence_compiler",
       "metric_contract": {
-        "engineering_complete": false,
+        "engineering_complete": true,
         "engineering_increment_percent": 0,
         "evidence_complete": false,
         "evidence_increment_percent": 0,
         "phase": "M4-P3-RESULT-BLIND-STRUCTURAL-UTILITY-EVIDENCE-COMPILER",
-        "scope": "future_separately_authorized_bootstrap_holm_and_route_decision",
+        "scope": "compile_the_frozen_joint_block_bootstrap_holm_family_and_all_gate_structural_route_decision",
         "mainline_integration": {
           "goal": "M4_P3_RESULT_BLIND_STRUCTURAL_UTILITY",
-          "ready_condition": "blind execution is VALIDATED_IN_MAINLINE and replay verified and a separate Evidence Compiler Research Request is approved",
-          "runner": "pending_separately_approved_evidence_compiler_capability",
+          "ready_condition": "blind execution is VALIDATED_IN_MAINLINE and replay verified, Research Request 462 / Execution 383 is completed, and the Evidence Compiler approval event is available",
+          "runner": "research_evidence_supervisor",
           "upstream_artifacts": [
-            "90 immutable result-blind fold artifacts",
-            "structural metric result index",
-            "blind-execution completion"
+            "frozen Evidence Compiler Research contract",
+            "blind-execution mainline execution",
+            "90-fold structural metric result index",
+            "blind-execution completion",
+            "frozen M4-P3 preregistration"
           ],
           "downstream_artifacts": [
-            "paired block-bootstrap family",
-            "Holm-adjusted structural Evidence",
-            "route decision",
-            "decision completion"
+            "joint moving-block bootstrap family",
+            "Holm-adjusted 12-hypothesis structural Evidence",
+            "all-gate structural route decision",
+            "Evidence Compiler completion",
+            "canonical mainline execution"
           ],
           "status_projection": "unified_m4_status.structural_utility.m4_p3_structural_evidence_compiler",
-          "evidence_progress_rule": "decision_only_after_complete_replay_verified_90_fold_index",
-          "decision_consumer": "M4-P3 structural route decision",
-          "downstream_consumer": "M4-P3 structural route decision"
+          "evidence_progress_rule": "evidence_and_route_only_after_all_12_frozen_gates_compile",
+          "decision_consumer": "terminal structural route record",
+          "downstream_consumer": "terminal structural route record"
         },
+        "research_request_id": 462,
+        "research_execution_id": 383,
+        "fold_count": 90,
         "bootstrap_resamples": 20000,
         "block_length": 5,
         "holm_family_size": 12,
+        "registered_capability_artifact_count": 4,
         "result_blind": true,
+        "historical_prediction_evidence": "INCONCLUSIVE",
         "prediction_v2_mode": "SHADOW_ONLY",
         "prediction_v2_route": "BASELINE_ONLY",
         "old_training_lines": "FROZEN",
@@ -5527,7 +5542,8 @@
       "mainline-execution:m4-p2-walk-forward-probe-harness:0a493b3618f2b180719b360b17702d7587c25a8c6c59a577a0c099fccce01a62:de52c376117bf308e0608b75e1418d58acf6b5a1e5cf4a66925fe06b8219d3cb:completed",
       "m4-p3-result-blind-structural-utility-design-source:e954cb282933d8e41d9dae9497ee0a88016bceb69a9126edfb6235c70299658b",
       "m4-p3-result-blind-structural-utility-preregistration-source:72f5032c40d339946f014f7f333dd400f9ccf3a8a48250943ee1143e347687b8",
-      "m4-p3-result-blind-structural-utility-execution-source:8f123b06647d509000f0e4e291087438b3009f6c1ec3e5cab327600c3bca14f6"
+      "m4-p3-result-blind-structural-utility-execution-source:8f123b06647d509000f0e4e291087438b3009f6c1ec3e5cab327600c3bca14f6",
+      "m4-p3-result-blind-structural-utility-evidence-compiler-source:de6bc5340c4d33cb95d48108b6087dd4e2e468bca660e468cfe3c0c2ff1211b7"
     ],
     "evidence": [
       "research-hypothesis:seven-red-compound-top10-walk-forward-v1:rejected"
@@ -5542,9 +5558,10 @@
       "research-contract:prediction-v2-balanced-design-structural-evaluation-execution:approved",
       "research-contract:prediction-v2-balanced-design-structural-utility:approved",
       "research-contract:m4-p3-result-blind-structural-utility-preregistration:approved",
-      "research-contract:m4-p3-result-blind-structural-utility-blind-generator-and-walk-forward:approved"
+      "research-contract:m4-p3-result-blind-structural-utility-blind-generator-and-walk-forward:approved",
+      "research-contract:m4-p3-result-blind-structural-utility-evidence-compiler:approved"
     ],
     "authorities": []
   },
-  "manifest_digest": "86847be6f03486b7420e3daa24f286d20d7e872c4901260f6eb3f502b0df0ffe"
+  "manifest_digest": "a3aeacf15146fd0c55098eb3306e60ef1aa0e40d160a181ad1306b2b9744c5a6"
 }

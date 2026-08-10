@@ -166,3 +166,82 @@ folds, 3,060 portfolios, zero target-row reads, execution integration `YES`,
 and the Evidence Compiler as next consumer. The Goal-level answer correctly
 remains `NO — INTEGRATION_PENDING` because inference and route selection have
 not run.
+
+## Round 130 research freeze and Round 131 Evidence Compiler engineering
+
+Research Request 462 / Execution 383 froze the Evidence Compiler before any
+structural-result read or decision work. The contract digest is
+`888881ea69e660c3c6ff62b5f7d9849b3fa79fcc23db22582e2fa8a8df8a8a32`.
+The Einstein diagnostic constraint reduced the inference claim to a transparent
+same-budget null comparison: six frozen coordinates against both the random
+and legacy controls, with no predictive or payout interpretation.
+
+Engineering Request 463 / Execution 384 implements that frozen contract only:
+
+- one shared 20,000-resample circular moving-block bootstrap index family,
+  with block length 5 and 18 starts per resample, is used across all 12 series;
+- SHA-256 counter-stream sampling, stable hypothesis ordering, Holm step-down
+  adjustment, exact frozen order-statistic indexing, basic one-sided lower
+  bounds, and 60-of-90 stability gates are deterministic;
+- the route is scalar and all-gate: partial coordinate support cannot produce
+  a supported route;
+- a supported result permits candidate-portfolio-optimizer research only; a
+  failed result stops the lottery structural-optimization route while retaining
+  the Research OS, measurement, and replay infrastructure;
+- Prediction v2 remains `SHADOW_ONLY / BASELINE_ONLY`, old training remains
+  `FROZEN`, and no promotion, predictive probability, payout, or production
+  action is authorized.
+
+The canonical Supervisor consumes only the registered result index and
+blind-execution completion with their exact frozen digests. It persists and
+registers four capability children—bootstrap family, Evidence, route decision,
+and completion—plus the immutable mainline execution. Replay re-runs the frozen
+bootstrap compiler from the registered result index and requires exact artifact
+identity. Separate status-summary inputs preserve the earlier 90-fold execution
+projection after the compiler becomes the latest completed task.
+
+The additive source migration changes exactly one existing task, adds one source
+fact and the approved Research event, and makes no goal/task additions or
+deletions. Dry-run digest:
+`61365ce20f9e0228cae166dfe5f348e91c7bacbe36486386e8e5abc1b0d07a06`.
+Tracked source manifest digest:
+`a3aeacf15146fd0c55098eb3306e60ef1aa0e40d160a181ad1306b2b9744c5a6`.
+The same migration evaluated against the current durable control plane produced
+dry-run digest
+`13d8b79e41400a2a0730b4b78e665a7cdd8e6e8e0b0bbf3acf1fb1826ec0704c`
+and output manifest digest
+`04137035bcecc1abdc9268661e9bcf10b6231d430b2ea5d860ba8c4acda32854`;
+the resolver returned `ready / dependencies_satisfied` for the Evidence
+Compiler. No import was performed under the Engineering role.
+
+Round-131 code validation initially passed six new focused tests covering the
+source and Research contracts, shared circular blocks, supported and failed
+all-gate routes, deterministic compiler replay, Ready Queue resolution, and
+status persistence. The broader M4-P3 focused suite exposed one historical
+assertion that still expected the Evidence Compiler placeholder to be
+unimplemented; that assertion was updated to the newly authorized capability
+and dependency-wait state. No scientific logic changed.
+
+### Round-131 integration matrix
+
+| Link | Engineering state | Proof |
+|---|---|---|
+| Goal | Declared | `M4_P3_RESULT_BLIND_STRUCTURAL_UTILITY` |
+| Resolver | Code complete | one revised task, exact six input digests |
+| Ready Queue | Fixture validated | approved contract + completed parent resolves ready |
+| Supervisor | Code complete | canonical compile, persistence, registration, replay |
+| Capability | `CODE_COMPLETE` | frozen joint bootstrap and all-gate decision |
+| Artifacts | Contract complete | four children + one mainline execution |
+| Status | Code complete | execution and compiler summaries projected separately |
+| Decision consumer | Declared | terminal structural route record |
+| Deterministic replay | Code complete | 20,000-resample recompilation and identity check |
+
+Integration answer at Engineering handoff:
+
+`NO — INTEGRATION_PENDING`
+
+The Evidence Compiler has not yet read the real registered result index or
+produced a durable route. A separately authorized Operator run must import the
+exact merged migration, dispatch this single Ready task, register all five
+artifacts, project the route, and verify replay before the M4-P3 Goal may answer
+`YES — validated by unified mainline execution and replay`.

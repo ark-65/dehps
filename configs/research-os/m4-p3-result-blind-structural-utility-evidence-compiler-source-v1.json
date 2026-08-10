@@ -1,0 +1,23 @@
+{
+  "schema_version": "dehps-m4-p3-result-blind-structural-utility-evidence-compiler-source.v1",
+  "artifact_type": "m4_p3_result_blind_structural_utility_evidence_compiler_source",
+  "contract_key": "M4_P3_RESULT_BLIND_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_SOURCE",
+  "research_request_key": "research-m4-p3-result-blind-structural-utility-evidence-compiler-round-130-20260810",
+  "research_request_id": 462,
+  "research_execution_id": 383,
+  "research_context_fingerprint": "12ce0a5ba65d2d9ff1d3bebe43792bb6671aba9f2c24f2a572aa51e987fc9bb3",
+  "research_execution_contract_digest": "888881ea69e660c3c6ff62b5f7d9849b3fa79fcc23db22582e2fa8a8df8a8a32",
+  "engineering_request_key": "engineering-m4-p3-result-blind-structural-utility-evidence-compiler-round-131-20260810",
+  "engineering_request_id": 463,
+  "engineering_execution_id": 384,
+  "result_blind": true,
+  "execution_authorized": false,
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/structural_utility/m4_p3_evidence_compiler.py",
+      "content_sha256": "3c49777680118957c8ccef5b6960a0ef78349891aafbb42e79b68cd3169f837d"
+    }
+  ],
+  "source_set_digest": "3f9540334acdd606786ac916400f2162352e6ff07026721623c7f118f276f567",
+  "artifact_digest": "de6bc5340c4d33cb95d48108b6087dd4e2e468bca660e468cfe3c0c2ff1211b7"
+}

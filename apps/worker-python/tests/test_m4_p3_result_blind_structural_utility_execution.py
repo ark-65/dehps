@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from types import SimpleNamespace
 
 import pytest
+
 from dehps.config import ROOT_DIR
 from dehps.contracts import canonical_digest
 from dehps.input_contracts.candidate_abi import (
@@ -19,6 +20,9 @@ from dehps.research_os.information_theory.progress import (
 )
 from dehps.research_os.models import TaskStatus
 from dehps.research_os.structural_utility import m4_p3_result_blind_execution as blind
+from dehps.research_os.structural_utility.m4_p3_evidence_compiler import (
+    M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_CAPABILITY,
+)
 from dehps.research_os.structural_utility.m4_p3_result_blind_execution import (
     COORDINATE_ORDER,
     FOLD_COUNT,
@@ -300,7 +304,10 @@ def test_manifest_status_index_and_supervisor_bind_blind_execution() -> None:
         blind.PARENT_COMPLETION_DIGEST,
     )
     evidence_compiler = tasks[blind.M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_TASK_KEY]
-    assert evidence_compiler.requested_capability is None
+    assert (
+        evidence_compiler.requested_capability
+        == M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_CAPABILITY
+    )
     resolutions = {
         item.task_key: item.status.value
         for item in ResearchOSControlPlane().resolve(manifest).resolutions
@@ -309,7 +316,7 @@ def test_manifest_status_index_and_supervisor_bind_blind_execution() -> None:
         "dependency_wait"
     )
     assert resolutions[blind.M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_TASK_KEY] == (
-        "external_wait"
+        "dependency_wait"
     )
     projection = build_m4_status(manifest)["structural_utility"]
     assert projection["m4_p3_result_blind_execution"]["execution_authorized"] is True
@@ -327,6 +334,10 @@ def test_manifest_status_index_and_supervisor_bind_blind_execution() -> None:
     )
     assert (
         blind.M4_P3_STRUCTURAL_UTILITY_EXECUTION_CAPABILITY in supervisor.capabilities
+    )
+    assert (
+        M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_CAPABILITY
+        in supervisor.capabilities
     )
 
 
