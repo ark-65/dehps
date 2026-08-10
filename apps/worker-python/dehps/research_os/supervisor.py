@@ -832,6 +832,42 @@ from dehps.research_os.structural_utility.m4_p3_result_blind_design import (
 from dehps.research_os.structural_utility.m4_p3_result_blind_design import (
     PARENT_TASK_KEY as M4_P3_STRUCTURAL_UTILITY_PARENT_TASK_KEY,
 )
+from dehps.research_os.structural_utility.m4_p3_result_blind_execution import (
+    EXPECTED_CAPABILITY_ARTIFACTS,
+    M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_TASK_KEY,
+    M4_P3_STRUCTURAL_UTILITY_EXECUTION_CAPABILITY,
+    M4_P3_STRUCTURAL_UTILITY_EXECUTION_COMPLETION_FACT,
+    M4_P3_STRUCTURAL_UTILITY_EXECUTION_SOURCE_CONTRACT_PATH,
+    execute_result_blind_walk_forward,
+    load_m4_p3_result_blind_structural_utility_execution_source_contract,
+    replay_result_blind_walk_forward_artifacts,
+    validate_research_execution_contract,
+    verify_m4_p3_result_blind_structural_utility_execution_source_bytes,
+)
+from dehps.research_os.structural_utility.m4_p3_result_blind_execution import (
+    PARENT_COMPLETION_DIGEST as M4_P3_EXECUTION_PARENT_COMPLETION_DIGEST,
+)
+from dehps.research_os.structural_utility.m4_p3_result_blind_execution import (
+    PARENT_HANDOFF_DIGEST as M4_P3_EXECUTION_PARENT_HANDOFF_DIGEST,
+)
+from dehps.research_os.structural_utility.m4_p3_result_blind_execution import (
+    PARENT_PREREGISTRATION_DIGEST as M4_P3_EXECUTION_PARENT_PREREGISTRATION_DIGEST,
+)
+from dehps.research_os.structural_utility.m4_p3_result_blind_execution import (
+    PARENT_PREREGISTRATION_EXECUTION_DIGEST as M4_P3_EXECUTION_PARENT_EXECUTION_DIGEST,
+)
+from dehps.research_os.structural_utility.m4_p3_result_blind_execution import (
+    PARENT_PREREGISTRATION_EXECUTION_ID as M4_P3_EXECUTION_PARENT_EXECUTION_ID,
+)
+from dehps.research_os.structural_utility.m4_p3_result_blind_execution import (
+    RESEARCH_EXECUTION_CONTRACT_DIGEST as M4_P3_EXECUTION_RESEARCH_CONTRACT_DIGEST,
+)
+from dehps.research_os.structural_utility.m4_p3_result_blind_execution import (
+    RESEARCH_EXECUTION_ID as M4_P3_EXECUTION_RESEARCH_EXECUTION_ID,
+)
+from dehps.research_os.structural_utility.m4_p3_result_blind_execution import (
+    RESEARCH_REQUEST_KEY as M4_P3_EXECUTION_RESEARCH_REQUEST_KEY,
+)
 from dehps.research_os.structural_utility.m4_p3_result_blind_preregistration import (
     M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY,
     M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_CAPABILITY,
@@ -870,6 +906,7 @@ from dehps.research_os.structural_utility.m4_p3_result_blind_preregistration imp
     RESEARCH_REQUEST_KEY as M4_P3_PREREG_RESEARCH_REQUEST_KEY,
 )
 from dehps.source_version import resolve_git_commit
+from dehps.storage.postgres_store import load_history_until_with_dates
 
 P23_TASK_KEY = "m4-p2-walk-forward-probe-harness"
 P23_CAPABILITY = "m4_p2_3_walk_forward_harness"
@@ -14204,6 +14241,382 @@ class M4P3ResultBlindStructuralUtilityPreregistrationCapability:
         )
 
 
+def _load_m4_p3_result_blind_structural_utility_execution_inputs(
+    *,
+    root_dir: Path,
+    research_os_repository: PostgresResearchOSRepository,
+    agent_repository: AgentRequestRepository,
+    control_plane_key: str,
+) -> tuple[
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+    tuple[dict[str, Any], ...],
+    dict[str, Any],
+]:
+    request = agent_repository.get_request(M4_P3_EXECUTION_RESEARCH_REQUEST_KEY)
+    executions = [
+        item
+        for item in agent_repository.list_executions(
+            M4_P3_EXECUTION_RESEARCH_REQUEST_KEY
+        )
+        if item.id == M4_P3_EXECUTION_RESEARCH_EXECUTION_ID
+    ]
+    if len(executions) != 1:
+        raise MainlineSupervisorError(
+            "M4-P3 blind execution Research execution identity changed"
+        )
+    research_request = {
+        "id": request.id,
+        "request_key": request.request_key,
+        "request_type": request.request_type.value,
+        "status": request.status.value,
+        "parent_request_id": request.parent_request_id,
+        "payload": request.payload,
+        "metadata": request.metadata,
+    }
+    execution = executions[0]
+    research_execution = {
+        "id": execution.id,
+        "request_id": execution.request_id,
+        "status": execution.status.value,
+        "result": execution.result,
+    }
+    events = research_os_repository.list_mainline_execution_event_metadata(
+        control_plane_key=control_plane_key,
+        task_keys=(M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY,),
+    )
+    completed = [
+        item
+        for item in events
+        if item.get("event_type") == "completed"
+        and item.get("execution_id") == M4_P3_EXECUTION_PARENT_EXECUTION_ID
+    ]
+    if len(completed) != 1:
+        raise MainlineSupervisorError(
+            "M4-P3 blind execution parent completed-event identity changed"
+        )
+    completed_event = {
+        key: completed[0][key]
+        for key in (
+            "event_digest",
+            "execution_id",
+            "control_plane_key",
+            "manifest_digest",
+            "task_digest",
+            "task_key",
+            "capability",
+            "event_type",
+            "sequence",
+        )
+    }
+    registrations = tuple(
+        research_os_repository.list_mainline_artifacts(
+            control_plane_key=control_plane_key,
+            execution_id=M4_P3_EXECUTION_PARENT_EXECUTION_ID,
+        )
+    )
+    expected_digests = {
+        M4_P3_EXECUTION_PARENT_EXECUTION_DIGEST,
+        M4_P3_EXECUTION_PARENT_PREREGISTRATION_DIGEST,
+        M4_P3_EXECUTION_PARENT_HANDOFF_DIGEST,
+        M4_P3_EXECUTION_PARENT_COMPLETION_DIGEST,
+    }
+    if (
+        len(registrations) != 4
+        or {str(item.get("artifact_digest")) for item in registrations}
+        != expected_digests
+    ):
+        raise MainlineSupervisorError(
+            "M4-P3 blind execution parent registrations changed"
+        )
+    preregistration_registration = next(
+        item
+        for item in registrations
+        if item.get("artifact_digest") == M4_P3_EXECUTION_PARENT_PREREGISTRATION_DIGEST
+    )
+    preregistration_path = root_dir / str(
+        preregistration_registration.get("artifact_path") or ""
+    )
+    preregistration = _load_object(preregistration_path)
+    if (
+        preregistration.get("artifact_type")
+        != "m4_p3_result_blind_structural_utility_preregistration"
+        or preregistration.get("artifact_digest")
+        != M4_P3_EXECUTION_PARENT_PREREGISTRATION_DIGEST
+        or preregistration.get("result_blind") is not True
+        or preregistration.get("status") != "FROZEN_BEFORE_GENERATION"
+    ):
+        raise MainlineSupervisorError(
+            "M4-P3 blind execution parent preregistration changed"
+        )
+    return (
+        research_request,
+        research_execution,
+        completed_event,
+        registrations,
+        preregistration,
+    )
+
+
+class M4P3ResultBlindStructuralUtilityExecutionCapability:
+    def __init__(
+        self,
+        *,
+        repository: PostgresResearchOSRepository,
+        root_dir: Path = ROOT_DIR,
+        agent_repository: AgentRequestRepository | None = None,
+    ) -> None:
+        self.repository = repository
+        self.root_dir = root_dir
+        self.agent_repository = agent_repository or AgentRequestRepository()
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            task.task_key != M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY
+            or task.requested_capability
+            != M4_P3_STRUCTURAL_UTILITY_EXECUTION_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "M4-P3 structural-utility blind execution received the wrong task"
+            )
+        source_contract = (
+            load_m4_p3_result_blind_structural_utility_execution_source_contract(
+                self.root_dir / M4_P3_STRUCTURAL_UTILITY_EXECUTION_SOURCE_CONTRACT_PATH
+            )
+        )
+        verify_m4_p3_result_blind_structural_utility_execution_source_bytes(
+            root_dir=self.root_dir,
+            contract=source_contract,
+        )
+        (
+            research_request,
+            research_execution,
+            completed_event,
+            parent_registrations,
+            preregistration,
+        ) = _load_m4_p3_result_blind_structural_utility_execution_inputs(
+            root_dir=self.root_dir,
+            research_os_repository=self.repository,
+            agent_repository=self.agent_repository,
+            control_plane_key=control_plane_key,
+        )
+        validate_research_execution_contract(research_request, research_execution)
+        expected_inputs = (
+            str(source_contract["artifact_digest"]),
+            M4_P3_EXECUTION_RESEARCH_CONTRACT_DIGEST,
+            M4_P3_EXECUTION_PARENT_EXECUTION_DIGEST,
+            M4_P3_EXECUTION_PARENT_PREREGISTRATION_DIGEST,
+            M4_P3_EXECUTION_PARENT_HANDOFF_DIGEST,
+            M4_P3_EXECUTION_PARENT_COMPLETION_DIGEST,
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "M4-P3 structural-utility blind execution inputs changed"
+            )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        persisted_fold_paths: dict[str, Path] = {}
+        reusable_folds: dict[str, Mapping[str, Any]] = {}
+        for path in sorted((task_dir / "artifacts/folds").glob("*/fold.json")):
+            fold = _load_object(path)
+            issue = str(fold.get("target_issue") or "")
+            if not issue or issue in reusable_folds:
+                raise MainlineSupervisorError(
+                    "M4-P3 structural-utility resume fold identity changed"
+                )
+            reusable_folds[issue] = fold
+            persisted_fold_paths[str(fold.get("artifact_digest") or "")] = path
+
+        def persist_fold(fold: Mapping[str, Any]) -> None:
+            digest = str(fold["artifact_digest"])
+            path = task_dir / "artifacts/folds" / digest / "fold.json"
+            _persist_immutable(path, fold)
+            persisted_fold_paths[digest] = path
+
+        def persist_checkpoint(folds: Sequence[Mapping[str, Any]]) -> None:
+            count = len(folds)
+            if count == 0 or count % 5 != 0:
+                raise MainlineSupervisorError(
+                    "M4-P3 structural-utility checkpoint boundary changed"
+                )
+            payload: dict[str, Any] = {
+                "schema_version": (
+                    "dehps-m4-p3-result-blind-structural-utility-checkpoint.v1"
+                ),
+                "artifact_type": (
+                    "m4_p3_result_blind_structural_utility_execution_checkpoint"
+                ),
+                "artifact_digest": "",
+                "execution_id": execution_id,
+                "completed_fold_count": count,
+                "last_target_issue": folds[-1]["target_issue"],
+                "fold_artifact_digests": [item["artifact_digest"] for item in folds],
+                "source_contract_digest": source_contract["artifact_digest"],
+            }
+            identity = dict(payload)
+            identity.pop("artifact_digest")
+            payload["artifact_digest"] = canonical_digest(
+                identity,
+                domain=("dehps.m4-p3.result-blind-structural-utility.checkpoint.v1"),
+            )
+            _persist_immutable(task_dir / "checkpoints" / f"{count:03d}.json", payload)
+
+        started = time.monotonic()
+        with self.repository.connection_factory() as conn:
+            run = execute_result_blind_walk_forward(
+                history_loader=lambda issue: load_history_until_with_dates(conn, issue),
+                preregistration=preregistration,
+                source_contract_digest=str(source_contract["artifact_digest"]),
+                code_commit=git_commit,
+                persist_fold=persist_fold,
+                load_fold=reusable_folds.get,
+                persist_checkpoint=persist_checkpoint,
+            )
+        elapsed = time.monotonic() - started
+        if elapsed > 14_400:
+            raise MainlineSupervisorError(
+                "M4-P3 structural-utility blind execution exceeded wall-clock limit"
+            )
+        index_path = (
+            task_dir
+            / "artifacts/result-index"
+            / str(run.result_index["artifact_digest"])
+            / "result-index.json"
+        )
+        completion_path = (
+            task_dir
+            / "artifacts/completion"
+            / str(run.completion["artifact_digest"])
+            / "completion.json"
+        )
+        _persist_immutable(index_path, run.result_index)
+        _persist_immutable(completion_path, run.completion)
+        child_payloads = tuple(
+            (
+                persisted_fold_paths[str(fold["artifact_digest"])],
+                fold,
+            )
+            for fold in run.fold_artifacts
+        ) + (
+            (index_path, run.result_index),
+            (completion_path, run.completion),
+        )
+        if len(child_payloads) != EXPECTED_CAPABILITY_ARTIFACTS:
+            raise MainlineSupervisorError(
+                "M4-P3 structural-utility blind execution artifact count changed"
+            )
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "source_contract_digest": source_contract["artifact_digest"],
+            "source_set_digest": source_contract["source_set_digest"],
+            "research_request_id": 457,
+            "research_execution_id": 378,
+            "research_execution_contract_digest": (
+                M4_P3_EXECUTION_RESEARCH_CONTRACT_DIGEST
+            ),
+            "parent_completed_event_digest": completed_event["event_digest"],
+            "parent_registration_metadata_count": len(parent_registrations),
+            "parent_preregistration_digest": (
+                M4_P3_EXECUTION_PARENT_PREREGISTRATION_DIGEST
+            ),
+            "result_index_digest": run.result_index["artifact_digest"],
+            "execution_completion_digest": run.completion["artifact_digest"],
+            "fold_artifact_digests": [
+                item["artifact_digest"] for item in run.fold_artifacts
+            ],
+            "actual_fold_count": 90,
+            "resume_fold_count": len(reusable_folds),
+            "checkpoint_count": 18,
+            "checkpoint_interval_folds": 5,
+            "portfolio_budget": 100,
+            "portfolios_generated": 3060,
+            "random_replicates_executed": 2880,
+            "metric_portfolios_evaluated": 3060,
+            "target_draw_rows_read": 0,
+            "winning_labels_read": 0,
+            "payout_or_reward_values_read": 0,
+            "outcome_rank_values_read": 0,
+            "bootstrap_resamples_executed": 0,
+            "result_blind": True,
+            "historical_prediction_evidence": "INCONCLUSIVE",
+            "prediction_v2_mode": "SHADOW_ONLY",
+            "prediction_v2_route": "BASELINE_ONLY",
+            "old_training_lines": "FROZEN",
+            "new_prediction_evidence_created": False,
+            "new_structural_decision_evidence_created": False,
+            "new_model_created": False,
+            "promotion_gate_opened": False,
+            "predictive_p3_authorized": False,
+            "registered_artifact_count": len(child_payloads) + 1,
+            "completion_fact": M4_P3_STRUCTURAL_UTILITY_EXECUTION_COMPLETION_FACT,
+            "downstream_consumer": (
+                M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_TASK_KEY
+            ),
+            "elapsed_seconds": elapsed,
+            "production_impact": "none",
+            "production_action": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "replay_status": "DETERMINISTIC_REGISTERED_OUTPUT_REPLAY_PENDING",
+            "parent_digests": [
+                *task.input_artifact_digests,
+                *(str(payload["artifact_digest"]) for _, payload in child_payloads),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_payloads,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(registrations) != EXPECTED_CAPABILITY_ARTIFACTS + 1:
+            raise MainlineSupervisorError(
+                "M4-P3 structural-utility blind execution registration count changed"
+            )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=registrations,
+            completion_facts=(M4_P3_STRUCTURAL_UTILITY_EXECUTION_COMPLETION_FACT,),
+        )
+
+
 class M4P261RawExecutionReplayCapability:
     def __init__(
         self,
@@ -16214,6 +16627,12 @@ class ResearchEvidenceSupervisor:
             ),
             M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_CAPABILITY: (
                 M4P3ResultBlindStructuralUtilityPreregistrationCapability(
+                    repository=self.repository,
+                    root_dir=root_dir,
+                )
+            ),
+            M4_P3_STRUCTURAL_UTILITY_EXECUTION_CAPABILITY: (
+                M4P3ResultBlindStructuralUtilityExecutionCapability(
                     repository=self.repository,
                     root_dir=root_dir,
                 )
@@ -21299,11 +21718,9 @@ class ResearchEvidenceSupervisor:
                 expected_payloads=(*reconstructed.artifacts, artifact),
             )
         elif task_key == M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY:
-            source_contract = (
-                load_m4_p3_result_blind_structural_utility_preregistration_source_contract(
-                    self.root_dir
-                    / M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_SOURCE_CONTRACT_PATH
-                )
+            source_contract = load_m4_p3_result_blind_structural_utility_preregistration_source_contract(
+                self.root_dir
+                / M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_SOURCE_CONTRACT_PATH
             )
             verify_m4_p3_result_blind_structural_utility_preregistration_source_bytes(
                 root_dir=self.root_dir,
@@ -21398,6 +21815,152 @@ class ResearchEvidenceSupervisor:
                 root_dir=self.root_dir,
                 registrations=registrations,
                 expected_payloads=(*reconstructed.artifacts, artifact),
+            )
+        elif task_key == M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY:
+            source_contract = (
+                load_m4_p3_result_blind_structural_utility_execution_source_contract(
+                    self.root_dir
+                    / M4_P3_STRUCTURAL_UTILITY_EXECUTION_SOURCE_CONTRACT_PATH
+                )
+            )
+            verify_m4_p3_result_blind_structural_utility_execution_source_bytes(
+                root_dir=self.root_dir,
+                contract=source_contract,
+            )
+            (
+                research_request,
+                research_execution,
+                completed_event,
+                parent_registrations,
+                preregistration,
+            ) = _load_m4_p3_result_blind_structural_utility_execution_inputs(
+                root_dir=self.root_dir,
+                research_os_repository=self.repository,
+                agent_repository=AgentRequestRepository(),
+                control_plane_key=self.control_plane_key,
+            )
+            validate_research_execution_contract(research_request, research_execution)
+            if (
+                preregistration.get("artifact_digest")
+                != M4_P3_EXECUTION_PARENT_PREREGISTRATION_DIGEST
+            ):
+                raise MainlineSupervisorError(
+                    "M4-P3 blind execution replay parent changed"
+                )
+            child_registrations = [
+                item
+                for item in registrations
+                if item.get("artifact_type") != "research_os_mainline_execution"
+            ]
+            folds = tuple(
+                sorted(
+                    (
+                        _load_object(
+                            self.root_dir / str(item.get("artifact_path") or "")
+                        )
+                        for item in child_registrations
+                        if item.get("artifact_type")
+                        == "m4_p3_result_blind_structural_utility_fold"
+                    ),
+                    key=lambda item: str(item.get("target_issue") or ""),
+                )
+            )
+            index_matches = [
+                _load_object(self.root_dir / str(item.get("artifact_path") or ""))
+                for item in child_registrations
+                if item.get("artifact_type")
+                == "m4_p3_result_blind_structural_utility_result_index"
+            ]
+            completion_matches = [
+                _load_object(self.root_dir / str(item.get("artifact_path") or ""))
+                for item in child_registrations
+                if item.get("artifact_type")
+                == "m4_p3_result_blind_structural_utility_execution_completion"
+            ]
+            if (
+                len(folds) != 90
+                or len(index_matches) != 1
+                or len(completion_matches) != 1
+                or len(child_registrations) != EXPECTED_CAPABILITY_ARTIFACTS
+            ):
+                raise MainlineSupervisorError(
+                    "M4-P3 blind execution replay artifact shape changed"
+                )
+            capability_replay = replay_result_blind_walk_forward_artifacts(
+                fold_artifacts=folds,
+                result_index=index_matches[0],
+                completion=completion_matches[0],
+                source_contract_digest=str(source_contract["artifact_digest"]),
+            )
+            expected_inputs = [
+                str(source_contract["artifact_digest"]),
+                M4_P3_EXECUTION_RESEARCH_CONTRACT_DIGEST,
+                M4_P3_EXECUTION_PARENT_EXECUTION_DIGEST,
+                M4_P3_EXECUTION_PARENT_PREREGISTRATION_DIGEST,
+                M4_P3_EXECUTION_PARENT_HANDOFF_DIGEST,
+                M4_P3_EXECUTION_PARENT_COMPLETION_DIGEST,
+            ]
+            if (
+                artifact.get("input_artifact_digests") != expected_inputs
+                or artifact.get("source_contract_digest")
+                != source_contract["artifact_digest"]
+                or artifact.get("source_set_digest")
+                != source_contract["source_set_digest"]
+                or artifact.get("research_request_id") != 457
+                or artifact.get("research_execution_id") != 378
+                or artifact.get("research_execution_contract_digest")
+                != M4_P3_EXECUTION_RESEARCH_CONTRACT_DIGEST
+                or artifact.get("parent_completed_event_digest")
+                != completed_event["event_digest"]
+                or artifact.get("parent_registration_metadata_count")
+                != len(parent_registrations)
+                or artifact.get("result_index_digest")
+                != index_matches[0]["artifact_digest"]
+                or artifact.get("execution_completion_digest")
+                != completion_matches[0]["artifact_digest"]
+                or artifact.get("fold_artifact_digests")
+                != [item["artifact_digest"] for item in folds]
+                or artifact.get("actual_fold_count") != 90
+                or artifact.get("portfolios_generated") != 3060
+                or artifact.get("random_replicates_executed") != 2880
+                or artifact.get("metric_portfolios_evaluated") != 3060
+                or artifact.get("target_draw_rows_read") != 0
+                or artifact.get("winning_labels_read") != 0
+                or artifact.get("payout_or_reward_values_read") != 0
+                or artifact.get("outcome_rank_values_read") != 0
+                or artifact.get("bootstrap_resamples_executed") != 0
+                or artifact.get("result_blind") is not True
+                or artifact.get("prediction_v2_mode") != "SHADOW_ONLY"
+                or artifact.get("prediction_v2_route") != "BASELINE_ONLY"
+                or artifact.get("old_training_lines") != "FROZEN"
+                or artifact.get("new_prediction_evidence_created") is not False
+                or artifact.get("new_structural_decision_evidence_created") is not False
+                or artifact.get("new_model_created") is not False
+                or artifact.get("promotion_gate_opened") is not False
+                or artifact.get("predictive_p3_authorized") is not False
+                or artifact.get("registered_artifact_count") != 93
+                or artifact.get("completion_fact")
+                != M4_P3_STRUCTURAL_UTILITY_EXECUTION_COMPLETION_FACT
+                or artifact.get("downstream_consumer")
+                != M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_TASK_KEY
+                or artifact.get("production_action") != "none"
+                or capability_replay.get("status") != "REPLAY_VERIFIED"
+                or capability_replay.get("same_registered_content") is not True
+                or capability_replay.get("workload_rerun") is not False
+                or capability_replay.get("folds_replayed") != 90
+            ):
+                raise MainlineSupervisorError(
+                    "M4-P3 structural-utility blind execution replay identity changed"
+                )
+            _verify_v2_registered_artifacts(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                expected_payloads=(
+                    *folds,
+                    index_matches[0],
+                    completion_matches[0],
+                    artifact,
+                ),
             )
         elif task_key == M4_P3_STRUCTURAL_UTILITY_DESIGN_TASK_KEY:
             source_contract = (

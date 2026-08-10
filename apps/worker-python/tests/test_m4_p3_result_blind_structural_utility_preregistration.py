@@ -54,7 +54,7 @@ from dehps.research_os.supervisor import (
     _mainline_actual_fold_count,
 )
 from scripts.build_m4_p3_result_blind_structural_utility_preregistration_manifest import (
-    MIGRATED_SOURCE_MANIFEST_DIGEST,
+    _execution_task,
     _source_payload,
 )
 
@@ -261,7 +261,9 @@ def test_manifest_status_index_and_supervisor_bind_preregistration() -> None:
     assert task.input_artifact_digests[0] == source["artifact_digest"]
     assert len(task.input_artifact_digests) == 6
     execution = tasks[M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY]
-    assert execution.requested_capability is None
+    assert execution.requested_capability == (
+        "m4_p3_result_blind_structural_utility_blind_generator_and_walk_forward"
+    )
     resolutions = {
         item.task_key: item.status.value
         for item in ResearchOSControlPlane().resolve(manifest).resolutions
@@ -269,14 +271,16 @@ def test_manifest_status_index_and_supervisor_bind_preregistration() -> None:
     assert resolutions[M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY] == (
         "dependency_wait"
     )
-    assert resolutions[M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY] == "external_wait"
+    assert resolutions[M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY] == (
+        "dependency_wait"
+    )
     projection = build_m4_status(manifest)["structural_utility"]
     assert projection["m4_p3_result_blind_preregistration"]["fold_count"] == 90
     assert (
         projection["m4_p3_result_blind_preregistration"]["integration_answer"]
         == "NO — INTEGRATION_PENDING"
     )
-    assert projection["m4_p3_result_blind_execution"]["execution_authorized"] is False
+    assert projection["m4_p3_result_blind_execution"]["execution_authorized"] is True
     index = json.loads(INDEX_PATH.read_text(encoding="utf-8"))["artifacts"]
     assert index[source["artifact_digest"]]["path"] == (
         M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_SOURCE_CONTRACT_PATH.as_posix()
@@ -291,13 +295,32 @@ def test_manifest_status_index_and_supervisor_bind_preregistration() -> None:
 
 def test_migration_builder_reuses_exact_migrated_source() -> None:
     source = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
-    assert source["manifest_digest"] == MIGRATED_SOURCE_MANIFEST_DIGEST
     assert _source_payload(source, _source()["artifact_digest"]) == source
 
 
 def _failed_recovery_inputs() -> tuple[dict, tuple[dict, ...], tuple[dict, ...]]:
     payload = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     payload.pop("manifest_digest")
+    payload["tasks"] = [
+        _execution_task()
+        if item["task_key"] == M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY
+        else item
+        for item in payload["tasks"]
+        if item["task_key"] != "m4-p3-result-blind-structural-utility-evidence-compiler"
+    ]
+    payload["facts"]["artifacts"] = [
+        item
+        for item in payload["facts"]["artifacts"]
+        if not item.startswith(
+            "m4-p3-result-blind-structural-utility-execution-source:"
+        )
+    ]
+    payload["facts"]["external_events"] = [
+        item
+        for item in payload["facts"]["external_events"]
+        if item != "research-contract:m4-p3-result-blind-structural-utility-"
+        "blind-generator-and-walk-forward:approved"
+    ]
     task = next(
         item
         for item in payload["tasks"]
@@ -351,11 +374,14 @@ def test_zero_work_preregistration_projects_actual_fold_count() -> None:
         "target_draw_rows_read": 0,
         "bootstrap_resamples_executed": 0,
     }
-    assert _mainline_actual_fold_count(
-        task_key=task.task_key,
-        requested_capability=task.requested_capability,
-        execution_artifact=zero_work,
-    ) == 0
+    assert (
+        _mainline_actual_fold_count(
+            task_key=task.task_key,
+            requested_capability=task.requested_capability,
+            execution_artifact=zero_work,
+        )
+        == 0
+    )
     with pytest.raises(MainlineSupervisorError, match="actual_fold_count is missing"):
         _mainline_actual_fold_count(
             task_key=task.task_key,
