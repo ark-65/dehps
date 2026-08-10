@@ -34,6 +34,29 @@ def test_research_os_migration_is_additive_idempotent_and_immutable() -> None:
     assert "research_scheduler_queue" not in sql
     assert "training_round_results" not in sql
     assert "UPDATE research_" not in sql
+    expected_objective_classes = (
+        "prediction_quality",
+        "structural_decision_utility",
+        "runtime_capability",
+        "knowledge_quality",
+        "maintenance_integrity",
+    )
+    create_constraint = sql.split(
+        "ALTER TABLE research_os_goal_definitions", 1
+    )[0]
+    replay_constraint = sql.split(
+        "ALTER TABLE research_os_goal_definitions", 1
+    )[1].split("CREATE INDEX", 1)[0]
+    for objective_class in expected_objective_classes:
+        assert f"'{objective_class}'" in create_constraint
+        assert f"'{objective_class}'" in replay_constraint
+    assert (
+        "DROP CONSTRAINT IF EXISTS "
+        "research_os_goal_definitions_objective_class_check"
+    ) in replay_constraint
+    assert (
+        "ADD CONSTRAINT research_os_goal_definitions_objective_class_check"
+    ) in replay_constraint
 
 
 def test_research_os_schema_loader_replays_the_same_idempotent_migration() -> None:
