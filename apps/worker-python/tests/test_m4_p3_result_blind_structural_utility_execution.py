@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 from collections.abc import Mapping
+from types import SimpleNamespace
 
 import pytest
 from dehps.config import ROOT_DIR
@@ -16,6 +17,7 @@ from dehps.research_os.information_theory.progress import (
     build_m4_status,
     load_m4_manifest,
 )
+from dehps.research_os.models import TaskStatus
 from dehps.research_os.structural_utility import m4_p3_result_blind_execution as blind
 from dehps.research_os.structural_utility.m4_p3_result_blind_execution import (
     COORDINATE_ORDER,
@@ -446,3 +448,40 @@ def test_supervisor_capability_persists_exact_92_child_boundary(
     assert result.completion_facts == (
         blind.M4_P3_STRUCTURAL_UTILITY_EXECUTION_COMPLETION_FACT,
     )
+
+
+def test_latest_v2_summary_projects_completed_blind_execution_artifact(
+    monkeypatch,
+) -> None:
+    expected = {
+        "artifact_digest": "d" * 64,
+        "actual_fold_count": 90,
+        "portfolios_generated": 3060,
+        "target_draw_rows_read": 0,
+    }
+    monkeypatch.setattr(
+        "dehps.research_os.supervisor._load_single_completed_execution",
+        lambda **_kwargs: (
+            {"payload": []},
+            expected,
+            (),
+        ),
+    )
+    supervisor = ResearchEvidenceSupervisor(
+        repository=object(), require_clean_tree=False
+    )
+    snapshot = SimpleNamespace(
+        resolutions=(
+            SimpleNamespace(
+                task_key=blind.M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY,
+                status=TaskStatus.COMPLETED,
+            ),
+        )
+    )
+
+    summary = supervisor._latest_completed_v2_summary(snapshot)
+
+    assert summary == {
+        **expected,
+        "execution_task_key": blind.M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY,
+    }
