@@ -2,7 +2,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from dehps.research_os.control_plane import ResearchOSControlPlane
 from dehps.research_os.information_theory import load_m4_manifest
 from dehps.research_os.information_theory.digest import config_digest
@@ -172,12 +171,11 @@ def test_legacy_pass_fact_cannot_bypass_full_v2_global_routing() -> None:
     _set_task_complete(payload, "m4-p2-false-positive-and-power-runs", "1" * 64)
     _set_task_complete(payload, "m4-p2-automatic-gate-and-report", "2" * 64)
     payload["facts"]["artifacts"].append(PASS_FACT)
-    umbrella = next(
-        item
-        for item in payload["tasks"]
-        if item["task_key"] == "m4-p2-synthetic-measurement-validation"
+    _set_task_complete(
+        payload,
+        "m4-p2-synthetic-measurement-validation",
+        "4" * 64,
     )
-    umbrella["status"] = "completed"
     ready, states = _states(payload)
     assert states["m4-p3-strict-historical-walk-forward"] == "dependency_wait"
     assert states["m4-p2-repair-measurement-system"] == "completed"

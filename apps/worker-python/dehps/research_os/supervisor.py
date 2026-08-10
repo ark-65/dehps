@@ -377,6 +377,52 @@ from dehps.research_os.information_theory.measurement_system_v2.marginal_static_
     load_marginal_static_repair_v2_preregistration_source_contract,
     verify_marginal_static_repair_v2_preregistration_source_bytes,
 )
+from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcome_closure import (
+    P2_CLOSURE_CAPABILITY,
+    P2_CLOSURE_COMPLETION_FACT,
+    P2_CLOSURE_SOURCE_CONTRACT_PATH,
+    P2_CLOSURE_TASK_KEY,
+    build_p2_repair_outcome_closure,
+    load_p2_repair_outcome_closure_source_contract,
+    replay_p2_repair_outcome_closure,
+    verify_p2_repair_outcome_closure_source_bytes,
+)
+from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcome_closure import (
+    P25_DECISION_POLICY_DIGEST as P2_CLOSURE_DECISION_POLICY_DIGEST,
+)
+from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcome_closure import (
+    P26_VALIDATION_MANIFEST_DIGEST as P2_CLOSURE_VALIDATION_MANIFEST_DIGEST,
+)
+from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcome_closure import (
+    P27_EXECUTION_ID as P2_CLOSURE_P27_EXECUTION_ID,
+)
+from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcome_closure import (
+    P27_GATE_DIGEST as P2_CLOSURE_GATE_DIGEST,
+)
+from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcome_closure import (
+    P27_REPLAY_DIGEST as P2_CLOSURE_GATE_REPLAY_DIGEST,
+)
+from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcome_closure import (
+    P27_REPLAY_EXECUTION_ID as P2_CLOSURE_GATE_REPLAY_EXECUTION_ID,
+)
+from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcome_closure import (
+    P261_FROZEN_FIXTURE_DIGEST as P2_CLOSURE_P261_FIXTURE_DIGEST,
+)
+from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcome_closure import (
+    P263_SUPERSEDING_FIXTURE_DIGEST as P2_CLOSURE_P263_FIXTURE_DIGEST,
+)
+from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcome_closure import (
+    P263_UPDATE_POLICY_DIGEST as P2_CLOSURE_P263_POLICY_DIGEST,
+)
+from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcome_closure import (
+    RESEARCH_CONTEXT_FINGERPRINT as P2_CLOSURE_RESEARCH_FINGERPRINT,
+)
+from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcome_closure import (
+    RESEARCH_EXECUTION_ID as P2_CLOSURE_RESEARCH_EXECUTION_ID,
+)
+from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcome_closure import (
+    RESEARCH_REQUEST_KEY as P2_CLOSURE_RESEARCH_REQUEST_KEY,
+)
 from dehps.research_os.information_theory.measurement_system_v2.prediction_v2_balanced_design_feasibility_design import (
     ARCHIVE_ROUTE_DECISION_DIGEST as PREDICTION_V2_BALANCED_DESIGN_ARCHIVE_ROUTE_DECISION_DIGEST,
 )
@@ -16673,6 +16719,223 @@ class P27AutomaticMeasurementGateCapability:
         )
 
 
+class M4P2RepairOutcomeClosureCapability:
+    def __init__(
+        self,
+        *,
+        repository: PostgresResearchOSRepository,
+        root_dir: Path = ROOT_DIR,
+        agent_repository: AgentRequestRepository | None = None,
+    ) -> None:
+        self.repository = repository
+        self.root_dir = root_dir
+        self.agent_repository = agent_repository or AgentRequestRepository()
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            control_plane_key != M4_CONTROL_PLANE_KEY
+            or task.task_key != P2_CLOSURE_TASK_KEY
+            or task.requested_capability != P2_CLOSURE_CAPABILITY
+        ):
+            raise MainlineSupervisorError("M4-P2 closure received the wrong task")
+        source_contract = load_p2_repair_outcome_closure_source_contract(
+            self.root_dir / P2_CLOSURE_SOURCE_CONTRACT_PATH
+        )
+        verify_p2_repair_outcome_closure_source_bytes(
+            root_dir=self.root_dir,
+            contract=source_contract,
+        )
+        expected_inputs = (
+            str(source_contract["artifact_digest"]),
+            P2_CLOSURE_RESEARCH_FINGERPRINT,
+            P2_CLOSURE_DECISION_POLICY_DIGEST,
+            P2_CLOSURE_VALIDATION_MANIFEST_DIGEST,
+            P2_CLOSURE_P263_POLICY_DIGEST,
+            P2_CLOSURE_P261_FIXTURE_DIGEST,
+            P2_CLOSURE_P263_FIXTURE_DIGEST,
+            P2_CLOSURE_GATE_DIGEST,
+            P2_CLOSURE_GATE_REPLAY_DIGEST,
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError("M4-P2 closure frozen inputs changed")
+        request = self.agent_repository.get_request(P2_CLOSURE_RESEARCH_REQUEST_KEY)
+        executions = [
+            item
+            for item in self.agent_repository.list_executions(
+                P2_CLOSURE_RESEARCH_REQUEST_KEY
+            )
+            if item.id == P2_CLOSURE_RESEARCH_EXECUTION_ID
+        ]
+        if len(executions) != 1:
+            raise MainlineSupervisorError(
+                "M4-P2 closure Research execution identity changed"
+            )
+        research_request = {
+            "id": request.id,
+            "request_key": request.request_key,
+            "request_type": request.request_type.value,
+            "status": request.status.value,
+            "parent_request_id": request.parent_request_id,
+            "payload": request.payload,
+            "metadata": request.metadata,
+        }
+        research_execution_record = executions[0]
+        research_execution = {
+            "id": research_execution_record.id,
+            "request_id": research_execution_record.request_id,
+            "status": research_execution_record.status.value,
+            "result": research_execution_record.result,
+        }
+        gate = self._load_registered_artifact(
+            execution_id=P2_CLOSURE_P27_EXECUTION_ID,
+            artifact_digest=P2_CLOSURE_GATE_DIGEST,
+            artifact_type="automatic_measurement_gate",
+        )
+        gate_replay = self._load_registered_artifact(
+            execution_id=P2_CLOSURE_GATE_REPLAY_EXECUTION_ID,
+            artifact_digest=P2_CLOSURE_GATE_REPLAY_DIGEST,
+            artifact_type="P27MeasurementGateReplayArtifact",
+        )
+        closure = build_p2_repair_outcome_closure(
+            source_contract=source_contract,
+            research_request=research_request,
+            research_execution=research_execution,
+            gate=gate,
+            gate_replay=gate_replay,
+        )
+        replay = replay_p2_repair_outcome_closure(
+            closure_artifact=closure,
+            source_contract=source_contract,
+            research_request=research_request,
+            research_execution=research_execution,
+            gate=gate,
+            gate_replay=gate_replay,
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        closure_path = (
+            task_dir
+            / "artifacts/p2-closure"
+            / str(closure["artifact_digest"])
+            / "closure.json"
+        )
+        _persist_immutable(closure_path, closure)
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "p2_closure_artifact_digest": closure["artifact_digest"],
+            "p2_status": "COMPLETE_WITH_REPAIR_OUTCOME",
+            "decision": "REPAIR_MEASUREMENT_SYSTEM",
+            "decision_fact": "m4-p2-measurement-decision:REPAIR_MEASUREMENT_SYSTEM",
+            "p2_6_1_status": "FROZEN_INCOMPLETE",
+            "p2_6_3_status": "SUPERSEDING_COMPLETE",
+            "p2r_status": "PENDING_VALIDATION",
+            "m4_p3_status": "ACTIVE",
+            "m4_p3_blocked_by_p2r": False,
+            "replay_status": replay["status"],
+            "completion_fact": P2_CLOSURE_COMPLETION_FACT,
+            "actual_fold_count": 0,
+            "formal_replicates_executed": 0,
+            "samples_generated": 0,
+            "historical_database_reads": 0,
+            "historical_predictions_read": 0,
+            "historical_results_read": 0,
+            "historical_folds_read": 0,
+            "statistical_result_payloads_read": 0,
+            "artifacts_mutated": 0,
+            "registered_artifact_count": 2,
+            "evidence_created": False,
+            "evidence_progress_before": 25,
+            "evidence_progress_after": 25,
+            "promotion_gate_opened": False,
+            "downstream_consumer": "m4-p2r-measurement-repair-validation",
+            "production_action": "none",
+            "production_impact": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "parent_digests": [
+                *task.input_artifact_digests,
+                str(closure["artifact_digest"]),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=((closure_path, closure),),
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(registrations) != 2:
+            raise MainlineSupervisorError("M4-P2 closure registration count changed")
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=registrations,
+            completion_facts=(P2_CLOSURE_COMPLETION_FACT,),
+        )
+
+    def _load_registered_artifact(
+        self,
+        *,
+        execution_id: str,
+        artifact_digest: str,
+        artifact_type: str,
+    ) -> dict[str, Any]:
+        matches = [
+            item
+            for item in self.repository.list_mainline_artifacts(
+                control_plane_key=M4_CONTROL_PLANE_KEY,
+                execution_id=execution_id,
+            )
+            if item.get("artifact_digest") == artifact_digest
+            and item.get("artifact_type") == artifact_type
+        ]
+        if len(matches) != 1:
+            raise MainlineSupervisorError(
+                f"M4-P2 closure registered artifact changed:{artifact_type}"
+            )
+        path = self.root_dir / str(matches[0].get("artifact_path") or "")
+        payload = _load_object(path)
+        if payload.get("artifact_digest") != artifact_digest:
+            raise MainlineSupervisorError(
+                f"M4-P2 closure artifact path identity changed:{artifact_type}"
+            )
+        return payload
+
+
 def _progress_projection_path(task_key: str) -> Path | None:
     return {
         P26_TASK_KEY: Path(
@@ -16723,6 +16986,10 @@ class ResearchEvidenceSupervisor:
             ),
             P26_CAPABILITY: P26MeasurementValidationCapability(root_dir=root_dir),
             P27_CAPABILITY: P27AutomaticMeasurementGateCapability(root_dir=root_dir),
+            P2_CLOSURE_CAPABILITY: M4P2RepairOutcomeClosureCapability(
+                repository=self.repository,
+                root_dir=root_dir,
+            ),
             M4_P263_COMPATIBILITY_CAPABILITY: (
                 M4P263SupersedingCompatibilityCapability(root_dir=root_dir)
             ),

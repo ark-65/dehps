@@ -5,6 +5,22 @@ from pathlib import Path
 from typing import Any
 
 from dehps.research_os.control_plane import ResearchOSControlPlane
+from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcome_closure import (
+    P2_CLOSURE_CAPABILITY,
+    P2_CLOSURE_COMPLETION_FACT,
+    P2_CLOSURE_TASK_KEY,
+    P2R_EXECUTION_APPROVED_EVENT,
+    P2R_TASK_KEY,
+)
+from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcome_closure import (
+    RESEARCH_CONTEXT_FINGERPRINT as P2R_SEED_ROOT_SHA256,
+)
+from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcome_closure import (
+    RESEARCH_EXECUTION_ID as P2_CLOSURE_RESEARCH_EXECUTION_ID,
+)
+from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcome_closure import (
+    RESEARCH_REQUEST_ID as P2_CLOSURE_RESEARCH_REQUEST_ID,
+)
 from dehps.research_os.models import (
     ControlPlaneManifest,
     GoalStatus,
@@ -1232,6 +1248,17 @@ def build_m4_status(
         repair_resolution is not None
         and repair_resolution.status is TaskStatus.COMPLETED
     )
+    p2_closure_task = tasks.get(P2_CLOSURE_TASK_KEY)
+    p2_closure_integrated = (
+        p2_closure_task is not None
+        and p2_closure_task.requested_capability == P2_CLOSURE_CAPABILITY
+    )
+    p2_closure_complete = (
+        p2_closure_integrated
+        and resolutions[P2_CLOSURE_TASK_KEY].status is TaskStatus.COMPLETED
+        and P2_CLOSURE_COMPLETION_FACT in manifest.facts.artifacts
+    )
+    p2r_resolution = resolutions.get(P2R_TASK_KEY)
     current_phase = (
         "M4-P1"
         if not repair_complete
@@ -1363,6 +1390,8 @@ def build_m4_status(
     )
     if p2_measurement_repair_complete and not p2_6_complete:
         latest_p2_task_key = "m4-p2-repair-measurement-system"
+    if p2_closure_complete:
+        latest_p2_task_key = P2_CLOSURE_TASK_KEY
     projected_execution_task_key = (
         latest_p2_task_key
         if mainline_execution is None
@@ -1453,6 +1482,15 @@ def build_m4_status(
                 "exactly one PASS_TO_P3 or REPAIR_MEASUREMENT_SYSTEM fact emitted",
             ]
         )
+    if p2_closure_complete:
+        completed.extend(
+            [
+                "M4-P2 legal measurement-validation flow closed with repair outcome",
+                "P2 closure replay verified without compute or historical database reads",
+                "M4-P2R registered as independent PENDING_VALIDATION work",
+                "M4-P3 remains active and non-blocked by M4-P2R",
+            ]
+        )
     if repair_complete:
         completed.append(
             "injected-signal calibration truth and tolerance contract repaired"
@@ -1475,6 +1513,55 @@ def build_m4_status(
         "completed": completed,
         "evidence_changed": [],
         "tests": {"status": "not_recorded_in_control_plane"},
+        "p2_closure": {
+            "task_key": P2_CLOSURE_TASK_KEY,
+            "status": (
+                "COMPLETE_WITH_REPAIR_OUTCOME"
+                if p2_closure_complete
+                else (
+                    "INTEGRATION_PENDING" if p2_closure_integrated else "NOT_INTEGRATED"
+                )
+            ),
+            "resolver_status": resolutions[P2_CLOSURE_TASK_KEY].status.value,
+            "legal_measurement_validation_flow_completed": p2_7_complete,
+            "final_decision": (
+                "REPAIR_MEASUREMENT_SYSTEM"
+                if p2_closure_integrated
+                or "m4-p2-measurement-decision:REPAIR_MEASUREMENT_SYSTEM"
+                in manifest.facts.artifacts
+                else None
+            ),
+            "p2_6_1_status": "FROZEN_INCOMPLETE",
+            "p2_6_3_status": "SUPERSEDING_COMPLETE",
+            "research_request_id": P2_CLOSURE_RESEARCH_REQUEST_ID,
+            "research_execution_id": P2_CLOSURE_RESEARCH_EXECUTION_ID,
+            "compute_executed": False,
+            "historical_database_reads": 0,
+            "artifacts_mutated": 0,
+            "evidence_created": False,
+            "promotion_gate_opened": False,
+            "production_action": "none",
+        },
+        "p2r": {
+            "phase": "M4-P2R",
+            "task_key": P2R_TASK_KEY,
+            "status": "PENDING_VALIDATION",
+            "resolver_status": (
+                None if p2r_resolution is None else p2r_resolution.status.value
+            ),
+            "research_request_id": P2_CLOSURE_RESEARCH_REQUEST_ID,
+            "research_execution_id": P2_CLOSURE_RESEARCH_EXECUTION_ID,
+            "seed_root_sha256": P2R_SEED_ROOT_SHA256,
+            "failed_p2_samples_available_for_tuning": False,
+            "validation_execution_authorized": (
+                P2R_EXECUTION_APPROVED_EVENT in manifest.facts.external_events
+            ),
+            "m4_p3_dependency": False,
+            "evidence_created": False,
+            "promotion_gate_opened": False,
+            "production_action": "none",
+        },
+        "m4_p3_status": "ACTIVE",
         "structural_utility": {
             "goal_key": M4_P3_STRUCTURAL_UTILITY_GOAL_KEY,
             "goal_status": (
@@ -6574,29 +6661,37 @@ def build_m4_status(
                 else mainline_execution.get("execution_artifact_digest")
             ),
             "downstream_consumer": (
-                "m4-p2-repair-measurement-system"
-                if measurement_repair_required
+                P2R_TASK_KEY
+                if p2_closure_complete
                 else (
-                    (
-                        "m4-p3-strict-historical-walk-forward"
-                        if "m4-p2-measurement-decision:PASS_TO_P3"
-                        in manifest.facts.artifacts
-                        else "m4-p2-repair-measurement-system"
-                    )
-                    if p2_7_complete
+                    P2_CLOSURE_TASK_KEY
+                    if p2_closure_integrated
                     else (
-                        "m4-p2-automatic-gate-and-report"
-                        if p2_6_complete
+                        "m4-p2-repair-measurement-system"
+                        if measurement_repair_required
                         else (
-                            "m4-p2-false-positive-and-power-runs"
-                            if p2_preflight_complete
+                            (
+                                "m4-p3-strict-historical-walk-forward"
+                                if "m4-p2-measurement-decision:PASS_TO_P3"
+                                in manifest.facts.artifacts
+                                else "m4-p2-repair-measurement-system"
+                            )
+                            if p2_7_complete
                             else (
-                                "m4-p2-measurement-identifiability-preflight"
-                                if p2_5_complete
+                                "m4-p2-automatic-gate-and-report"
+                                if p2_6_complete
                                 else (
-                                    "m4-p2-resampling"
-                                    if p2_4_complete
-                                    else "m4-p2-injected-signal-calibration"
+                                    "m4-p2-false-positive-and-power-runs"
+                                    if p2_preflight_complete
+                                    else (
+                                        "m4-p2-measurement-identifiability-preflight"
+                                        if p2_5_complete
+                                        else (
+                                            "m4-p2-resampling"
+                                            if p2_4_complete
+                                            else "m4-p2-injected-signal-calibration"
+                                        )
+                                    )
                                 )
                             )
                         )
@@ -6635,6 +6730,11 @@ def _current_phase(
     for phase, task_key in PHASE_TASK_KEYS.items():
         if resolutions[task_key].status is TaskStatus.COMPLETED:
             continue
+        if (
+            phase == "M4-P2"
+            and tasks[task_key].requested_capability == P2_CLOSURE_CAPABILITY
+        ):
+            return phase
         if _metric(tasks[task_key]).get("engineering_complete") is not True:
             return phase
     return "M4-P6"

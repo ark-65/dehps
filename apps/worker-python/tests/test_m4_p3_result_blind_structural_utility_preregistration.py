@@ -306,7 +306,11 @@ def _failed_recovery_inputs() -> tuple[dict, tuple[dict, ...], tuple[dict, ...]]
         if item["task_key"] == M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY
         else item
         for item in payload["tasks"]
-        if item["task_key"] != "m4-p3-result-blind-structural-utility-evidence-compiler"
+        if item["task_key"]
+        not in {
+            "m4-p3-result-blind-structural-utility-evidence-compiler",
+            "m4-p2r-measurement-repair-validation",
+        }
     ]
     payload["facts"]["artifacts"] = [
         item
