@@ -4,7 +4,6 @@ import copy
 import json
 
 import pytest
-
 from dehps.config import ROOT_DIR
 from dehps.contracts import canonical_digest
 from dehps.research_os.control_plane import ResearchOSControlPlane
@@ -39,7 +38,21 @@ from dehps.research_os.structural_utility.m4_p3_result_blind_preregistration imp
     replay_m4_p3_result_blind_structural_utility_preregistration,
     verify_m4_p3_result_blind_structural_utility_preregistration_source_bytes,
 )
-from dehps.research_os.supervisor import ResearchEvidenceSupervisor
+from dehps.research_os.structural_utility.m4_p3_result_blind_preregistration_recovery import (
+    FAILED_ERROR,
+    FAILED_EVENT_DIGEST,
+    FAILED_EXECUTION_ID,
+    FAILED_REGISTRATIONS,
+    FAILED_STARTED_EVENT_DIGEST,
+    FAILED_TASK_DIGEST,
+    M4P3ResultBlindPreregistrationRecoveryError,
+    build_m4_p3_result_blind_preregistration_recovery_manifest,
+)
+from dehps.research_os.supervisor import (
+    MainlineSupervisorError,
+    ResearchEvidenceSupervisor,
+    _mainline_actual_fold_count,
+)
 from scripts.build_m4_p3_result_blind_structural_utility_preregistration_manifest import (
     MIGRATED_SOURCE_MANIFEST_DIGEST,
     _source_payload,
@@ -280,3 +293,107 @@ def test_migration_builder_reuses_exact_migrated_source() -> None:
     source = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     assert source["manifest_digest"] == MIGRATED_SOURCE_MANIFEST_DIGEST
     assert _source_payload(source, _source()["artifact_digest"]) == source
+
+
+def _failed_recovery_inputs() -> tuple[dict, tuple[dict, ...], tuple[dict, ...]]:
+    payload = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    payload.pop("manifest_digest")
+    task = next(
+        item
+        for item in payload["tasks"]
+        if item["task_key"] == M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY
+    )
+    task["status"] = "failed"
+    task["completion_classification"] = "INTEGRATED"
+    events = (
+        {
+            "event_digest": FAILED_STARTED_EVENT_DIGEST,
+            "execution_id": FAILED_EXECUTION_ID,
+            "task_digest": FAILED_TASK_DIGEST,
+            "event_type": "started",
+            "payload": [["git_commit", "613f585"]],
+        },
+        {
+            "event_digest": FAILED_EVENT_DIGEST,
+            "execution_id": FAILED_EXECUTION_ID,
+            "task_digest": FAILED_TASK_DIGEST,
+            "event_type": "failed",
+            "payload": [["error", FAILED_ERROR]],
+        },
+    )
+    registrations = tuple(
+        {
+            "artifact_type": artifact_type,
+            "registration_digest": identity[0],
+            "artifact_digest": identity[1],
+            "execution_id": FAILED_EXECUTION_ID,
+            "task_key": M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY,
+            "task_digest": FAILED_TASK_DIGEST,
+            "control_plane_key": "m4-information-theory-mainline",
+        }
+        for artifact_type, identity in FAILED_REGISTRATIONS.items()
+    )
+    return payload, events, registrations
+
+
+def test_zero_work_preregistration_projects_actual_fold_count() -> None:
+    manifest = load_m4_manifest(MANIFEST_PATH)
+    task = next(
+        item
+        for item in manifest.tasks
+        if item.task_key == M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY
+    )
+    assert (
+        _mainline_actual_fold_count(
+            task=task,
+            execution_artifact={
+                "portfolios_generated": 0,
+                "folds_executed": 0,
+                "random_replicates_executed": 0,
+                "metric_results_read": 0,
+                "target_draw_rows_read": 0,
+                "bootstrap_resamples_executed": 0,
+            },
+        )
+        == 0
+    )
+    with pytest.raises(MainlineSupervisorError, match="actual_fold_count is missing"):
+        _mainline_actual_fold_count(task=task, execution_artifact={})
+
+
+def test_recovery_preserves_failed_events_and_four_registrations() -> None:
+    live, events, registrations = _failed_recovery_inputs()
+    recovered, report = build_m4_p3_result_blind_preregistration_recovery_manifest(
+        live_payload=live,
+        execution_events=events,
+        execution_artifacts=registrations,
+        require_registered_failure=False,
+    )
+    task = next(
+        item
+        for item in recovered["tasks"]
+        if item["task_key"] == M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY
+    )
+    assert task["status"] == "draft"
+    assert task["completion_classification"] == "INTEGRATION_PENDING"
+    assert report["changed_task_count"] == 1
+    assert report["preserved_registration_count"] == 4
+    assert report["deleted_event_count"] == 0
+    assert report["deleted_registration_count"] == 0
+    assert report["workload_rerun"] is False
+
+
+def test_recovery_rejects_registration_drift() -> None:
+    live, events, registrations = _failed_recovery_inputs()
+    changed = list(copy.deepcopy(registrations))
+    changed[0]["artifact_digest"] = "0" * 64
+    with pytest.raises(
+        M4P3ResultBlindPreregistrationRecoveryError,
+        match="registration_identity_changed",
+    ):
+        build_m4_p3_result_blind_preregistration_recovery_manifest(
+            live_payload=live,
+            execution_events=events,
+            execution_artifacts=changed,
+            require_registered_failure=False,
+        )

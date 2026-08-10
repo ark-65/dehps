@@ -9,10 +9,9 @@ from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 import dehps.research_os.information_theory.measurement_validation.source_integrity as source_integrity_module
 import dehps.research_os.supervisor as supervisor_module
+import pytest
 from dehps.contracts import canonical_digest
 from dehps.golden_source_identity import (
     GoldenSourceIdentityError,
@@ -499,7 +498,7 @@ def test_source_partition_covers_worker_python_and_operational_entrypoints() -> 
         65,
         4,
         11,
-        417,
+        418,
     )
     assert not shared & acceleration
     assert not shared & oracle
@@ -508,7 +507,7 @@ def test_source_partition_covers_worker_python_and_operational_entrypoints() -> 
     assert not acceleration & audit
     assert not oracle & audit
     classified = shared | acceleration | oracle | audit
-    assert len(classified) == 497
+    assert len(classified) == 498
     worker_python = {
         path.relative_to(ROOT).as_posix()
         for path in (ROOT / "apps/worker-python/dehps").rglob("*.py")

@@ -178,3 +178,66 @@ only after a ready PR is merged and a separately approved Operator request
 imports the additive merged manifest, dispatches the preregistration through
 the canonical Supervisor, registers all four outputs, verifies replay, and
 projects the blind-execution task without starting it.
+
+## Post-merge incident and exact recovery — rounds 119–120
+
+PR 327 was squash-merged as commit
+`613f585c2b7334a762735a838015e8e4b30eb9cf`; GitHub Worker CI run
+`31353494050` passed. Operator Request 451 / Execution 372 imported the exact
+80-task merged manifest and observed only the preregistration Ready. The first
+canonical dispatch then failed while constructing the generic completed event:
+
+```text
+execution = f5491f273bb09dda3c093f0286ca574f1fa3233f4e67ea8e1c00e0d0acee06a4
+started event = 996846eaaa8d983816d950e4ad1c80ea2294a8a51a8f3a071f32020db6222d00
+failed event = 9bded78f38a6ea0a23cdf3665a07c0d962566528948b787c225567123221aade
+error = KeyError: 'actual_fold_count'
+```
+
+The capability correctly produced zero-work preregistration artifacts, which
+do not contain a historical fold-result field. The generic Supervisor assumed
+that every execution artifact exposed `actual_fold_count` and raised after
+registering the four immutable outputs. The durable task therefore became
+`failed / INTEGRATED`; no completed event was recorded. Operator 451 / 372 was
+closed `FAILED`. No generator, fold, metric, bootstrap, Evidence, prediction,
+promotion, or production workload ran.
+
+Engineering Request 452 / Execution 373 owns the bounded recovery. The runtime
+fix accepts `actual_fold_count = 0` only for this exact preregistration
+task/capability and only when all six workload counters are explicitly zero;
+missing or invalid values remain fail-closed everywhere else. This projection
+is validated before any new artifact registration.
+
+The recovery builder binds the exact failed manifest, task, execution, two
+events, error, and four registration identities. Its live read-only result is:
+
+```text
+input failed manifest = a96333328326e9876a9bca514447f09d8fc72d2804bb3805e39c5fb7b29e9d41
+output recovery manifest = 79a406344952cf017d66c94869cf4f0c9f3e2b9b06c08b8c0964a1a51d33454d
+changed tasks = 1
+transition = failed / INTEGRATED -> draft / INTEGRATION_PENDING
+deleted or rewritten events = 0
+deleted or rewritten registrations = 0
+preserved registrations = 4
+workload rerun = false
+Ready Queue = m4-p3-result-blind-structural-utility-preregistration
+blind execution = external_wait
+status = SAFE_TO_RECOVER
+```
+
+The recovery manifest has exactly the original merged-manifest digest because
+it restores only the canonical preregistration task state. Import and dispatch
+remain prohibited during the Engineering role. They require a fresh approved
+Operator Request after this recovery change is merged and its CI passes.
+
+Round-120 validation completed with 116 passed and 4 skipped across the M4-P3
+design/preregistration suites, Research OS control plane, repository, schema,
+CLI, shadow and Supervisor suites, and M4 source-partition hardening. Ruff,
+`git diff --check`, the live read-only recovery builder, exact manifest digest,
+Ready Queue, and external-wait assertions also passed.
+
+The integration answer remains:
+
+```text
+NO — INTEGRATION_PENDING
+```
