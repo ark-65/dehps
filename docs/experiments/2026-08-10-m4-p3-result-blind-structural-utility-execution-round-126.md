@@ -142,3 +142,27 @@ approved Operator execution must import the exact committed migration, dispatch
 the fresh Supervisor, complete all 90 folds, register the artifacts and fact,
 and replay them. Only after that proof may the Evidence Compiler receive its
 own Research contract.
+
+## Round 127 live execution and fail-closed status finding
+
+Merged commit `d2eb199f76458ea2b27e2d606aa4d9ef107a1727` completed the
+canonical workload as execution `df9c1cca8252f6cec16ca9740ec051f5c6dbb5df19eb6d363f2b4070c79b1619`.
+It produced 90 folds, 18 checkpoints and 93 registrations; registered-artifact
+replay returned `REPLAY_VERIFIED` with no workload rerun and zero target-row or
+bootstrap reads.
+
+Operator Request 459 / Execution 380 nevertheless failed closed because the
+unified status projection selected the earlier preregistration summary. The
+completed task and completion fact were visible, but `execution_artifact_digest`,
+`folds_executed` and `portfolios_generated` remained null/zero. All completed
+artifacts, events and registrations are preserved. Engineering Runtime Fix
+Request 460 / Execution 381 is limited to adding the completed blind-execution
+task to the existing latest-summary precedence and artifact-loading boundaries;
+it may not rerun the capability or change scientific behavior.
+
+The Round-128 regression suite passed 30 tests. A read-only durable projection
+with the corrected selector now reports execution artifact `df1dd942...`, 90
+folds, 3,060 portfolios, zero target-row reads, execution integration `YES`,
+and the Evidence Compiler as next consumer. The Goal-level answer correctly
+remains `NO — INTEGRATION_PENDING` because inference and route selection have
+not run.
