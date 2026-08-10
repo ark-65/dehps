@@ -4,6 +4,7 @@ import copy
 import json
 
 import pytest
+
 from dehps.config import ROOT_DIR
 from dehps.research_os.control_plane import ResearchOSControlPlane
 from dehps.research_os.information_theory.measurement_system_v2.migration import (
@@ -38,6 +39,10 @@ from dehps.research_os.structural_utility.m4_p3_result_blind_design import (
     load_m4_p3_result_blind_structural_utility_design_source_contract,
     replay_m4_p3_result_blind_structural_utility_design,
     verify_m4_p3_result_blind_structural_utility_design_source_bytes,
+)
+from dehps.research_os.structural_utility.m4_p3_result_blind_preregistration import (
+    M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY,
+    M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_CAPABILITY,
 )
 from dehps.research_os.supervisor import ResearchEvidenceSupervisor
 from scripts.build_m4_p3_result_blind_structural_utility_design_manifest import (
@@ -197,7 +202,11 @@ def test_additive_migration_adds_one_goal_one_task_and_revises_only_intake() -> 
     live["tasks"] = [
         item
         for item in live["tasks"]
-        if item["task_key"] != M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY
+        if item["task_key"]
+        not in {
+            M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY,
+            M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY,
+        }
     ]
     intake = next(
         item
@@ -297,7 +306,10 @@ def test_manifest_status_index_and_supervisor_bind_the_independent_goal() -> Non
         PARENT_COMPLETION_DIGEST,
     )
     preregistration = tasks[M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY]
-    assert preregistration.requested_capability is None
+    assert (
+        preregistration.requested_capability
+        == M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_CAPABILITY
+    )
     resolutions = {
         item.task_key: item.status.value
         for item in ResearchOSControlPlane().resolve(manifest).resolutions
@@ -308,7 +320,7 @@ def test_manifest_status_index_and_supervisor_bind_the_independent_goal() -> Non
     )
     assert (
         resolutions[M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY]
-        == "external_wait"
+        == "dependency_wait"
     )
     status = build_m4_status(manifest)
     projection = status["structural_utility"]

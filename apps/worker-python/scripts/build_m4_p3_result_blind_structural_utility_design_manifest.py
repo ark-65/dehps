@@ -32,6 +32,9 @@ PRE_MIGRATION_SOURCE_MANIFEST_DIGEST = (
     "07892a809dfaa07e6bdbb02c1c350ed226c4692b2c16eeadbc993f65a15cad47"
 )
 MIGRATED_SOURCE_MANIFEST_DIGEST = (
+    "6dff4a5326d7b7308cdca7be88c2307d7902c2366431d0a86a04c5ea3d6d1c95"
+)
+DESIGN_ONLY_MIGRATED_SOURCE_MANIFEST_DIGEST = (
     "6bfb2795468b0a9fbe5ef86c005903ce243fee0900a7ab2f72410eccf0330d3e"
 )
 
@@ -275,6 +278,7 @@ def _source_payload(source_base: dict, source_digest: str) -> dict:
     if source_manifest_digest not in {
         PRE_MIGRATION_SOURCE_MANIFEST_DIGEST,
         MIGRATED_SOURCE_MANIFEST_DIGEST,
+        DESIGN_ONLY_MIGRATED_SOURCE_MANIFEST_DIGEST,
     }:
         raise SystemExit("M4-P3 source-base manifest identity changed")
     ControlPlaneManifest.from_dict(source)
