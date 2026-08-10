@@ -12,6 +12,11 @@ from dehps.research_os.models import (
     Task,
     TaskStatus,
 )
+from dehps.research_os.structural_utility.m4_p3_evidence_compiler import (
+    M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_APPROVED_EVENT,
+    M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_CAPABILITY,
+    M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_COMPLETION_FACT,
+)
 from dehps.research_os.structural_utility.m4_p3_result_blind_design import (
     M4_P3_STRUCTURAL_UTILITY_DESIGN_COMPLETION_FACT,
     M4_P3_STRUCTURAL_UTILITY_DESIGN_TASK_KEY,
@@ -468,6 +473,8 @@ def build_m4_status(
     measurement_v2_execution: dict[str, Any] | None = None,
     golden_reference_execution: dict[str, Any] | None = None,
     runtime_audit_execution: dict[str, Any] | None = None,
+    m4_p3_execution_summary: dict[str, Any] | None = None,
+    m4_p3_evidence_compiler_summary: dict[str, Any] | None = None,
     dispatch_performed: bool = False,
 ) -> dict[str, Any]:
     if (
@@ -1064,11 +1071,32 @@ def build_m4_status(
         M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY
     )
     m4_p3_structural_utility_execution = (
-        measurement_v2_execution
-        if measurement_v2_execution is not None
-        and measurement_v2_execution.get("execution_task_key")
-        == M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY
-        else None
+        m4_p3_execution_summary
+        if m4_p3_execution_summary is not None
+        else (
+            measurement_v2_execution
+            if measurement_v2_execution is not None
+            and measurement_v2_execution.get("execution_task_key")
+            == M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY
+            else None
+        )
+    )
+    m4_p3_structural_evidence_resolution = resolutions.get(
+        M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_TASK_KEY
+    )
+    m4_p3_structural_evidence_task = tasks.get(
+        M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_TASK_KEY
+    )
+    m4_p3_structural_evidence_execution = (
+        m4_p3_evidence_compiler_summary
+        if m4_p3_evidence_compiler_summary is not None
+        else (
+            measurement_v2_execution
+            if measurement_v2_execution is not None
+            and measurement_v2_execution.get("execution_task_key")
+            == M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_TASK_KEY
+            else None
+        )
     )
     durable_gate_evidence_facts = tuple(
         fact
@@ -1651,18 +1679,111 @@ def build_m4_status(
                     else "NO — INTEGRATION_PENDING"
                 ),
             },
+            "m4_p3_structural_evidence_compiler": {
+                "task_key": M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_TASK_KEY,
+                "resolver_status": (
+                    None
+                    if m4_p3_structural_evidence_resolution is None
+                    else m4_p3_structural_evidence_resolution.status.value
+                ),
+                "resolver_reason_code": (
+                    None
+                    if m4_p3_structural_evidence_resolution is None
+                    else m4_p3_structural_evidence_resolution.reason_code
+                ),
+                "requested_capability": (
+                    None
+                    if m4_p3_structural_evidence_task is None
+                    else m4_p3_structural_evidence_task.requested_capability
+                ),
+                "execution_authorized": (
+                    m4_p3_structural_evidence_task is not None
+                    and m4_p3_structural_evidence_task.requested_capability
+                    == M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_CAPABILITY
+                    and M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_APPROVED_EVENT
+                    in manifest.facts.external_events
+                ),
+                "completion_fact_registered": (
+                    M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                ),
+                "execution_artifact_digest": (
+                    None
+                    if m4_p3_structural_evidence_execution is None
+                    else m4_p3_structural_evidence_execution.get(
+                        "execution_artifact_digest"
+                    )
+                ),
+                "fold_count": 90,
+                "bootstrap_resamples_executed": (
+                    0
+                    if m4_p3_structural_evidence_execution is None
+                    else m4_p3_structural_evidence_execution.get(
+                        "bootstrap_resamples_executed"
+                    )
+                ),
+                "holm_hypotheses_evaluated": (
+                    0
+                    if m4_p3_structural_evidence_execution is None
+                    else m4_p3_structural_evidence_execution.get(
+                        "holm_hypotheses_evaluated"
+                    )
+                ),
+                "decision": (
+                    None
+                    if m4_p3_structural_evidence_execution is None
+                    else m4_p3_structural_evidence_execution.get("decision")
+                ),
+                "evidence_digest": (
+                    None
+                    if m4_p3_structural_evidence_execution is None
+                    else m4_p3_structural_evidence_execution.get("evidence_digest")
+                ),
+                "route_decision_digest": (
+                    None
+                    if m4_p3_structural_evidence_execution is None
+                    else m4_p3_structural_evidence_execution.get(
+                        "route_decision_digest"
+                    )
+                ),
+                "target_draw_rows_read": 0,
+                "result_blind": True,
+                "historical_prediction_evidence": "INCONCLUSIVE",
+                "prediction_v2_mode": "SHADOW_ONLY",
+                "prediction_v2_route": "BASELINE_ONLY",
+                "old_training_lines": "FROZEN",
+                "promotion_gate_opened": False,
+                "predictive_p3_authorized": False,
+                "production_action": "none",
+                "integration_answer": (
+                    "YES — validated by unified mainline execution and replay"
+                    if M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                    else "NO — INTEGRATION_PENDING"
+                ),
+            },
             "next_consumer": (
-                M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_TASK_KEY
-                if M4_P3_STRUCTURAL_UTILITY_EXECUTION_COMPLETION_FACT
+                "terminal structural route record"
+                if M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_COMPLETION_FACT
                 in manifest.facts.artifacts
                 else (
-                    M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY
-                    if M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_COMPLETION_FACT
+                    M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_TASK_KEY
+                    if M4_P3_STRUCTURAL_UTILITY_EXECUTION_COMPLETION_FACT
                     in manifest.facts.artifacts
-                    else M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY
+                    else (
+                        M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY
+                        if M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_COMPLETION_FACT
+                        in manifest.facts.artifacts
+                        else M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY
+                    )
                 )
             ),
-            "integration_answer": "NO — INTEGRATION_PENDING",
+            "integration_answer": (
+                "YES — validated by unified mainline execution and replay"
+                if M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_COMPLETION_FACT
+                in manifest.facts.artifacts
+                else "NO — INTEGRATION_PENDING"
+            ),
         },
         "artifacts": {
             "preregistration_digest": active_preregistration.get(
