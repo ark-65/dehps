@@ -1,0 +1,25 @@
+{
+  "schema_version": "dehps-m4-p2-repair-outcome-closure-source.v1",
+  "artifact_type": "m4_p2_repair_outcome_closure_source",
+  "artifact_digest": "1f1b59c71345dc9d7de8bc7e0c4472c2759e99442f7c539373ec41ae78066929",
+  "contract_key": "M4_P2_REPAIR_OUTCOME_CLOSURE_SOURCE",
+  "research_request_key": "research-m4-p2-closure-p2r-preregistration-round-136-20260810",
+  "research_request_id": 468,
+  "research_execution_id": 389,
+  "research_context_fingerprint": "f486ec216030aeb1de38b68ebeac9543ab061b934bbfbed34b6cdc0367157016",
+  "p2_decision": "REPAIR_MEASUREMENT_SYSTEM",
+  "p2_terminal_status": "COMPLETE_WITH_REPAIR_OUTCOME",
+  "p2r_status": "PENDING_VALIDATION",
+  "execution_authorized": false,
+  "historical_results_read": false,
+  "evidence_created": false,
+  "promotion_gate_opened": false,
+  "production_action": "none",
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/p2_repair_outcome_closure.py",
+      "content_sha256": "609a773f378be41c5dd3e7e552218fa1436d498938738bc433100c3350c1486b"
+    }
+  ],
+  "source_set_digest": "0ed3fb2cb1f95f1aeb6a2e44d132693c5c584412b13c7c7674a8dedb446be0f5"
+}

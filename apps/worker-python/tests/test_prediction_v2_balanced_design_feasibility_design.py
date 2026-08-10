@@ -191,6 +191,7 @@ def _historical_recovery_base() -> dict:
             "m4-p3-result-blind-structural-utility-preregistration",
             "m4-p3-result-blind-structural-utility-blind-generator-and-walk-forward",
             "m4-p3-result-blind-structural-utility-evidence-compiler",
+            "m4-p2r-measurement-repair-validation",
         }
     ]
     payload["facts"]["artifacts"] = [

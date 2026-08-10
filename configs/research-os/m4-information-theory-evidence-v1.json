@@ -309,9 +309,9 @@
     {
       "task_key": "m4-p2-synthetic-measurement-validation",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
-      "task_type": "synthetic_validation",
+      "task_type": "m4_p2_repair_outcome_closure",
       "lane": "research",
-      "priority": 100,
+      "priority": 102,
       "dependencies": [
         {
           "dependency_type": "task",
@@ -319,19 +319,80 @@
           "required_status": "completed"
         },
         {
+          "dependency_type": "task",
+          "target_key": "m4-v2-p2-7-measurement-gate-replay",
+          "required_status": "completed"
+        },
+        {
           "dependency_type": "artifact",
-          "target_key": "m4-p2-measurement-decision:PASS_TO_P3",
+          "target_key": "m4-p2-measurement-decision:REPAIR_MEASUREMENT_SYSTEM",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p2-7-measurement-gate-replay:VERIFIED",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "external_event",
+          "target_key": "research-contract:m4-p2-repair-outcome-closure:approved",
           "required_status": "available"
         }
       ],
+      "input_artifact_digests": [
+        "1f1b59c71345dc9d7de8bc7e0c4472c2759e99442f7c539373ec41ae78066929",
+        "f486ec216030aeb1de38b68ebeac9543ab061b934bbfbed34b6cdc0367157016",
+        "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d",
+        "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58",
+        "ad58b9abcd90c5e7ee7b9892ac8c209b8033f7a50e603b58c043685b0c7d6f99",
+        "f9716c799e1e55e58585c7e9acf0730f9d05111ab6e375cfb9bea85ecbdeacc5",
+        "53f9a4b7d92944dfd6a46d317b018bdc6b434fc69bb977d72ae6d1f177e0c73b",
+        "4b8a881c2d093d608d3e9c23e184034628f1440c9c0a08f868aea1028e78e3f8",
+        "69394a8405ad7b08b147eb20f9cf198581d9a186cb4b478d50805788af7dbbb0"
+      ],
+      "requested_capability": "m4_p2_repair_outcome_closure",
       "metric_contract": {
-        "engineering_complete": false,
-        "engineering_weight_percent": 20,
+        "engineering_complete": true,
+        "engineering_increment_percent": 0,
         "evidence_complete": false,
-        "evidence_weight_percent": 25,
-        "gate": "false_positive_rate_and_injected_signal_detection",
-        "phase": "M4-P2"
-      }
+        "evidence_increment_percent": 0,
+        "phase": "M4-P2-CLOSURE",
+        "scope": "compile_immutable_repair_outcome_without_measurement_compute",
+        "terminal_status": "COMPLETE_WITH_REPAIR_OUTCOME",
+        "decision": "REPAIR_MEASUREMENT_SYSTEM",
+        "research_request_id": 468,
+        "research_execution_id": 389,
+        "compute_authorized": false,
+        "historical_database_reads": 0,
+        "artifact_mutation_allowed": false,
+        "evidence_created": false,
+        "promotion_gate_opened": false,
+        "production_action": "none",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "P2.7 gate and registered replay are complete with the immutable REPAIR decision, and Research Request 468 is completed",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "frozen P2 decision policy",
+            "frozen P2.6 validation manifest",
+            "P2.6.1 FROZEN_INCOMPLETE fixture",
+            "P2.6.3 SUPERSEDING_COMPLETE fixture and policy",
+            "registered P2.7 gate",
+            "registered P2.7 gate replay",
+            "Research Request 468 / Execution 389"
+          ],
+          "downstream_artifacts": [
+            "immutable P2 repair-outcome closure",
+            "canonical zero-work mainline execution"
+          ],
+          "status_projection": "unified_m4_status.p2_closure",
+          "evidence_progress_rule": "closure_creates_no_evidence",
+          "decision_consumer": "m4-p2r-measurement-repair-validation",
+          "downstream_consumer": "m4-p2r-measurement-repair-validation"
+        }
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
     },
     {
       "task_key": "m4-p2-synthetic-contracts-and-null-generator",
@@ -5461,6 +5522,72 @@
       },
       "status": "draft",
       "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "m4-p2r-measurement-repair-validation",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "m4_p2r_measurement_repair_validation",
+      "lane": "research",
+      "priority": 89,
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-p2-synthetic-measurement-validation",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p2-closure:COMPLETE_WITH_REPAIR_OUTCOME",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "external_event",
+          "target_key": "research-contract:m4-p2r-measurement-repair-validation-execution:approved",
+          "required_status": "available"
+        }
+      ],
+      "input_artifact_digests": [
+        "f486ec216030aeb1de38b68ebeac9543ab061b934bbfbed34b6cdc0367157016"
+      ],
+      "requested_capability": null,
+      "metric_contract": {
+        "engineering_complete": false,
+        "engineering_increment_percent": 0,
+        "evidence_complete": false,
+        "evidence_increment_percent": 0,
+        "phase": "M4-P2R",
+        "status": "PENDING_VALIDATION",
+        "scope": "future_independent_measurement_repair_validation",
+        "research_request_id": 468,
+        "research_execution_id": 389,
+        "seed_root_sha256": "f486ec216030aeb1de38b68ebeac9543ab061b934bbfbed34b6cdc0367157016",
+        "failed_p2_samples_available_for_tuning": false,
+        "validation_execution_authorized": false,
+        "m4_p3_dependency": false,
+        "evidence_created": false,
+        "promotion_gate_opened": false,
+        "production_action": "none",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "P2 closure is replay-verified and a future separate P2R execution Research Request is approved",
+          "runner": "pending_separately_authorized_p2r_capability",
+          "upstream_artifacts": [
+            "P2 repair-outcome closure",
+            "Research Request 468 independent validation preregistration"
+          ],
+          "downstream_artifacts": [
+            "future independent validation samples",
+            "future isolation audit",
+            "future all-obligations gate and replay"
+          ],
+          "status_projection": "unified_m4_status.p2r",
+          "evidence_progress_rule": "no_evidence_before_future_execution_and_decision",
+          "decision_consumer": "future separately authorized P2R decision",
+          "downstream_consumer": "future separately authorized P2R decision"
+        }
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
     }
   ],
   "facts": {
@@ -5543,7 +5670,8 @@
       "m4-p3-result-blind-structural-utility-design-source:e954cb282933d8e41d9dae9497ee0a88016bceb69a9126edfb6235c70299658b",
       "m4-p3-result-blind-structural-utility-preregistration-source:72f5032c40d339946f014f7f333dd400f9ccf3a8a48250943ee1143e347687b8",
       "m4-p3-result-blind-structural-utility-execution-source:8f123b06647d509000f0e4e291087438b3009f6c1ec3e5cab327600c3bca14f6",
-      "m4-p3-result-blind-structural-utility-evidence-compiler-source:de6bc5340c4d33cb95d48108b6087dd4e2e468bca660e468cfe3c0c2ff1211b7"
+      "m4-p3-result-blind-structural-utility-evidence-compiler-source:de6bc5340c4d33cb95d48108b6087dd4e2e468bca660e468cfe3c0c2ff1211b7",
+      "m4-p2-repair-outcome-closure-source:1f1b59c71345dc9d7de8bc7e0c4472c2759e99442f7c539373ec41ae78066929"
     ],
     "evidence": [
       "research-hypothesis:seven-red-compound-top10-walk-forward-v1:rejected"
@@ -5559,9 +5687,10 @@
       "research-contract:prediction-v2-balanced-design-structural-utility:approved",
       "research-contract:m4-p3-result-blind-structural-utility-preregistration:approved",
       "research-contract:m4-p3-result-blind-structural-utility-blind-generator-and-walk-forward:approved",
-      "research-contract:m4-p3-result-blind-structural-utility-evidence-compiler:approved"
+      "research-contract:m4-p3-result-blind-structural-utility-evidence-compiler:approved",
+      "research-contract:m4-p2-repair-outcome-closure:approved"
     ],
     "authorities": []
   },
-  "manifest_digest": "a3aeacf15146fd0c55098eb3306e60ef1aa0e40d160a181ad1306b2b9744c5a6"
+  "manifest_digest": "f3f263d3ef9c5028223070b7fc228c2ef95ffc315a86479d17ebccb0a87b890b"
 }
