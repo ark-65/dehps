@@ -245,3 +245,81 @@ produced a durable route. A separately authorized Operator run must import the
 exact merged migration, dispatch this single Ready task, register all five
 artifacts, project the route, and verify replay before the M4-P3 Goal may answer
 `YES — validated by unified mainline execution and replay`.
+
+## Round 134 mainline compilation and Round 135 acceptance
+
+Operator Request 466 / Execution 387 ran only the approved Evidence Compiler
+on merged commit `6670516ef2cff3a88dca5d107b07f1072dfb48ea`. Full Worker CI
+run 31366480467 was green before the operation. The additive import used
+manifest `04137035bcecc1abdc9268661e9bcf10b6231d430b2ea5d860ba8c4acda32854`;
+its pre-import resolver snapshot contained exactly one Ready task, the M4-P3
+Evidence Compiler. The Ready Queue is empty after completion.
+
+The canonical Supervisor executed mainline run
+`880b2c4af21107841b5d8d316c1c22025661c8da716909004301c5791b257cd3`
+from the registered 90-fold result index. It applied exactly 20,000 shared
+circular moving-block resamples and evaluated all 12 frozen Holm hypotheses.
+Eight gates passed and four failed. All six comparisons with the frozen legacy
+Top-100 control passed; the random-control results were:
+
+| Frozen random-control gate | Favorable mean | Frozen null | Stability | Result |
+|---|---:|---:|---:|---|
+| pair coverage ratio | -0.048337 | -0.001894 | 17 / 90 | fail |
+| triple coverage ratio | +0.004481 | 0 | 68 / 90 | pass |
+| high-overlap ticket-pair rate | -0.009618 | 0 | 17 / 90 | fail |
+| normalized pair-usage entropy | -0.017918 | 0 | 17 / 90 | fail |
+| largest similarity-cluster fraction | -0.001184 | -0.010000 | 90 / 90 | pass |
+| family concentration HHI | -0.085035 | -0.000200 | 9 / 90 | fail |
+
+Because the preregistration required all 12 gates, the immutable route is:
+
+`NO_STABLE_STRUCTURAL_UTILITY`
+
+This is not a statement that every structural coordinate is useless. It says
+the candidate selector did not demonstrate stable portfolio-wide structural
+utility against both equal-budget controls under the frozen all-gate estimand.
+In particular, it improved all six coordinates relative to the old Top-100
+control but failed four of six comparisons with uniform random sampling. The
+authorized consequence is therefore to stop the lottery structural-optimization
+route and retain the Research OS, measurement, and replay infrastructure.
+
+The registered evidence chain is:
+
+- bootstrap family:
+  `9c4da19fda0f76b215908d726af40bd14c59ee9003e284f6dd2f1c2531139153`;
+- structural Evidence:
+  `374d052e87037941feac91cb0d320ae710d316a33b5fa0d55d3ccd775bf418f1`;
+- terminal route decision:
+  `ec5e6bba11e15b291cd8abfee1d0a1caa93bedcffcca3becf1df49276bcd1054`;
+- capability completion:
+  `1b7ccbdc13e19a33421a7e9b57417030b453a7a232b750f404a500a63a4b084c`;
+- mainline execution artifact:
+  `42a7b7fb305779ec2da5c344721e7e609afa4da8e0eedf22e2ff5db645e6151e`.
+
+Deterministic replay returned `REPLAY_VERIFIED`, reproduced the execution and
+all registered content identities, and reran all 20,000 bootstrap resamples.
+Target-draw rows, winning labels, payout/reward values, and outcome ranks read
+during compilation and replay were all zero.
+
+### Final integration matrix
+
+| Link | Final state | Proof |
+|---|---|---|
+| Goal | Structurally decided | `M4_P3_RESULT_BLIND_STRUCTURAL_UTILITY` |
+| Resolver | Complete | task `00974652...` resolves `task_completed` |
+| Ready Queue | Consumed | unique compiler task before dispatch; empty after completion |
+| Supervisor | Complete | execution `880b2c4a...` on commit `6670516...` |
+| Capability | `VALIDATED_IN_MAINLINE` | 90 folds, 20,000 resamples, 12 Holm gates |
+| Artifacts | Registered | four capability children plus one execution artifact |
+| Status | Projected | compiler decision, counts, zero-read boundary, and frozen modes visible |
+| Next consumer | Terminal | immutable structural route record `ec5e6bba...` |
+| Deterministic replay | Verified | same execution, artifacts, registered content; workload rerun |
+
+Integration answer:
+
+`YES — validated by unified mainline execution and replay`
+
+The acceptance boundary remains unchanged: old training lines are `FROZEN`,
+Prediction v2 remains `SHADOW_ONLY / BASELINE_ONLY`, historical prediction
+evidence remains `INCONCLUSIVE`, and no predictive P3, model expansion, betting
+output, promotion, or production strategy action is authorized.
