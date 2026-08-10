@@ -1,0 +1,180 @@
+{
+  "artifact_digest": "e954cb282933d8e41d9dae9497ee0a88016bceb69a9126edfb6235c70299658b",
+  "artifact_type": "m4_p3_result_blind_structural_utility_design_source",
+  "contract_key": "M4_P3_RESULT_BLIND_STRUCTURAL_UTILITY_DESIGN_SOURCE",
+  "engineering_execution_id": 365,
+  "engineering_request_id": 444,
+  "engineering_request_key": "engineering-m4-p3-result-blind-structural-utility-design-round-112-20260810",
+  "folds_executed": 0,
+  "frozen_contract": {
+    "aggregation_rule": "report_all_coordinates_and_paired_fold_distributions_separately_with_no_unfrozen_scalar_score_or_post_hoc_pareto_preference",
+    "allowed_decisions": [
+      "STRUCTURAL_UTILITY_SUPPORTED_WITHIN_FROZEN_SCOPE",
+      "NO_STABLE_STRUCTURAL_UTILITY",
+      "INCONCLUSIVE_STRUCTURAL_UTILITY",
+      "INVALID_RESULT_BLIND_EXECUTION"
+    ],
+    "arms": [
+      {
+        "arm": "uniform_random_without_replacement",
+        "eligibility": "same_legal_universe_budget_cutoffs_and_frozen_seed_family",
+        "role": "primary_null"
+      },
+      {
+        "arm": "legacy_structural_top100",
+        "eligibility": "existing_source_pinned_structural_only_ordering_with_no_target_result_input_or_fail_closed",
+        "role": "frozen_legacy_comparator"
+      },
+      {
+        "arm": "prediction_v2_structural_selection_100",
+        "eligibility": "existing_source_pinned_result_blind_selector_with_explicit_budget_100_rule_and_no_retuning",
+        "role": "candidate"
+      }
+    ],
+    "capability": "m4_p3_result_blind_structural_utility_design",
+    "completion_fact": "m4-p3-result-blind-structural-utility-design:COMPLETE",
+    "confirmatory_coordinates": [
+      {
+        "direction": "higher",
+        "formula": "distinct_number_pairs_present/C(33,2)",
+        "metric": "pair_coverage_ratio"
+      },
+      {
+        "direction": "higher",
+        "formula": "distinct_number_triples_present/C(33,3)",
+        "metric": "triple_coverage_ratio"
+      },
+      {
+        "direction": "lower",
+        "formula": "ticket_pairs_with_intersection_at_least_3/C(100,2)",
+        "metric": "high_overlap_ticket_pair_rate"
+      },
+      {
+        "direction": "higher",
+        "formula": "shannon_entropy_of_528_pair_use_shares/log(528)",
+        "metric": "normalized_pair_usage_entropy"
+      },
+      {
+        "direction": "lower",
+        "formula": "largest_component_size/100_in_ticket_graph_with_intersection_at_least_3_edges",
+        "metric": "largest_similarity_cluster_fraction"
+      },
+      {
+        "direction": "lower",
+        "formula": "sum_of_squared_shares_over_a_preregistered_label_invariant_structural_family_partition",
+        "metric": "family_concentration_hhi"
+      }
+    ],
+    "constructive_invariant": {
+      "canonical_distinct_ticket_count": 100,
+      "confirmatory_advantage_metric": false,
+      "unique_ticket_fraction": "1/1"
+    },
+    "deferred_to_preregistration": [
+      "exact_fold_count_and_cutoff_endpoints_within_60_to_120",
+      "minimum_prior_history_requirement",
+      "exact_source_hashes_and_configs_for_non_random_arms",
+      "seed_schedule_and_random_replicate_count",
+      "label_invariant_structural_family_partition",
+      "paired_stability_statistic_uncertainty_multiplicity_tolerances_and_thresholds",
+      "invalid_fold_and_missing_snapshot_rules",
+      "resource_and_timeout_limits"
+    ],
+    "estimand": {
+      "contrast": "paired fold-level difference between the candidate arm and each equal-budget control arm",
+      "population": "60 to 120 consecutive preregistered cutoff-safe folds",
+      "unit": "one cutoff-safe fold by one frozen generator arm producing exactly 100 canonical six-of-33 tickets"
+    },
+    "failure_condition": "leakage_unequal_arm_contract_unavailable_comparator_post_hoc_choice_insufficient_valid_folds_unstable_direction_protected_regression_missing_replay_or_failure_under_the_preregistered_rule",
+    "fold_count_range": {
+      "maximum": 120,
+      "minimum": 60
+    },
+    "folds_executed": 0,
+    "goal_key": "M4_P3_RESULT_BLIND_STRUCTURAL_UTILITY",
+    "historical_prediction_evidence": "INCONCLUSIVE",
+    "legal_universe": {
+      "domain": "SSQ_RED_BALL_SIX_OF_33",
+      "pre_draw_probability": "equal_for_every_legal_combination",
+      "universe_cardinality": 1107568,
+      "universe_formula": "C(33,6)"
+    },
+    "metric_results_read": 0,
+    "minimal_non_null": "direction_consistent_improvement_on_multiple_independent_coordinates_without_a_protected_coordinate_regression",
+    "new_model_created": false,
+    "new_prediction_evidence_created": false,
+    "next_consumer": "m4-p3-result-blind-structural-utility-preregistration",
+    "null": "at_equal_budget_and_legal_universe_the_candidate_has_no_stable_fold_level_structural_improvement_over_both_controls",
+    "old_training_lines": "FROZEN",
+    "parent_payloads_read": 0,
+    "portfolio_budget": 100,
+    "portfolios_generated": 0,
+    "prediction_v2_mode": "SHADOW_ONLY",
+    "prediction_v2_route": "BASELINE_ONLY",
+    "predictive_p3_authorized": false,
+    "previous_structural_result_values_read": 0,
+    "production_action": "none",
+    "promotion_gate_opened": false,
+    "question": "Does a frozen candidate-portfolio construction produce stable, transparent structural utility at the same 100-ticket budget, independent of any target result?",
+    "raw_outcome_rows_read": 0,
+    "registered_child_count": 3,
+    "registered_input_digests": [
+      "1647b3a3e464377c0e6a642a0c592332b983d29fad9d62e30f616e39a08dd2a7",
+      "d42de641e526c0fffc2b19d12e5e9829305f9c64128002891d6b6b3535766773",
+      "7fb28fb7feabc215afd5449afab36edb49ad6c5ff09ba69b898170e4511fe1b9"
+    ],
+    "registered_parent_completed_event_digest": "bba1e122ab4e641ef517a6ec58c473c390cd4b3a8d835a6a39096b8aba30b376",
+    "registered_parent_execution_id": "d8c2a769a2325bf7b44311fd53d81689553558501c887c37519966a855fa438c",
+    "registered_parent_registration_digests": [
+      "8a1c6028966f5fded6b25dbbdc1c3d8d226df68fd6b1b7b211c6026b587a421a",
+      "28fdcc70e004dc68cdb1722ea68a5d2cca09b5cf656dff3c1b64d2f8adb171c4",
+      "2ae022e5e1b4480e9f7274e0f1d4c4d6ff265ddc6299a4f356f66eebd5e4468c"
+    ],
+    "registered_total_with_mainline_execution": 4,
+    "result_blind": true,
+    "result_blind_input_boundary": {
+      "allowed": [
+        "legal_universe_descriptor_and_canonical_combination_encoding",
+        "candidate_internal_structural_features",
+        "digest_pinned_cutoff_safe_strictly_prior_only_feature_snapshots",
+        "frozen_generator_sources_configurations_and_seed_domains"
+      ],
+      "evaluator_accepts_target_result_parameter": false,
+      "forbidden": [
+        "target_or_future_draw_numbers",
+        "winning_hit_payout_return_reward_or_settlement_labels",
+        "target_result_ranks_or_realized_outcome_rankings",
+        "raw_outcome_rows_in_generator_or_evaluator_interfaces",
+        "previous_structural_result_values_used_to_select_any_choice",
+        "post_hoc_arm_threshold_fold_seed_or_metric_changes"
+      ],
+      "generator_accepts_target_result_parameter": false
+    },
+    "route_policy": {
+      "supported": "continue_only_candidate_portfolio_optimizer_research_or_small_shadow_use_without_prediction_promotion",
+      "unsupported": "stop_lottery_structural_optimization_while_retaining_research_os"
+    },
+    "task_key": "prediction-v2-balanced-design-structural-utility-research-intake"
+  },
+  "frozen_contract_digest": "fb87502df390476ae8ab0dd8958479b6153a49b92ac0a0963c041c8de662ee51",
+  "metric_results_read": 0,
+  "new_model_created": false,
+  "new_prediction_evidence_created": false,
+  "parent_payloads_read": 0,
+  "portfolios_generated": 0,
+  "production_action": "none",
+  "registered_children": 3,
+  "research_execution_id": 364,
+  "research_request_id": 443,
+  "research_request_key": "research-m4-p3-result-blind-structural-utility-design-round-111-20260810",
+  "result_aware": false,
+  "result_blind": true,
+  "schema_version": "dehps-m4-p3-result-blind-structural-utility-design-source.v1",
+  "source_entries": [
+    {
+      "content_sha256": "e7fa2a29139b92f60168acc3caff1d2ce22728c9a305b12ac9356cff691cb6ed",
+      "path": "apps/worker-python/dehps/research_os/structural_utility/m4_p3_result_blind_design.py"
+    }
+  ],
+  "source_set_digest": "06e8d54dd7a1133abd1c833f202b2f3c032f49e00bbe9ea7cc3b104a5f254a68"
+}

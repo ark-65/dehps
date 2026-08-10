@@ -636,10 +636,12 @@
       "superseded_by_digest": "07892a809dfaa07e6bdbb02c1c350ed226c4692b2c16eeadbc993f65a15cad47"
     },
     "07892a809dfaa07e6bdbb02c1c350ed226c4692b2c16eeadbc993f65a15cad47": {
-      "artifact_type": "research_os_control_plane_manifest",
-      "path": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "artifact_type": "superseded_research_os_control_plane_manifest",
       "identity_field": "manifest_digest",
-      "supersedes_digest": "3c87a6b0ae65e18645e05dd2a028cc387b101d035c1562b883945e650a028981"
+      "supersedes_digest": "3c87a6b0ae65e18645e05dd2a028cc387b101d035c1562b883945e650a028981",
+      "source_commit": "f79da22f5c310843e17aca68a27b00dfb83537f8",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "superseded_by_digest": "6bfb2795468b0a9fbe5ef86c005903ce243fee0900a7ab2f72410eccf0330d3e"
     },
     "6fb3a1e366da129ac460599a391891a49206ccc715b6367cf344e2aa3e9f2a3d": {
       "artifact_type": "m4_v2_branch_preflight_source_contract",
@@ -866,6 +868,17 @@
     "1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f": {
       "artifact_type": "p263_periodic_refit_source_compatibility_fixture",
       "path": "configs/research-os/m4-p2-6-3-periodic-refit-source-compatibility-fixture-v1.json"
+    },
+    "e954cb282933d8e41d9dae9497ee0a88016bceb69a9126edfb6235c70299658b": {
+      "artifact_type": "m4_p3_result_blind_structural_utility_design_source",
+      "path": "configs/research-os/m4-p3-result-blind-structural-utility-design-source-v1.json",
+      "identity_field": "artifact_digest"
+    },
+    "6bfb2795468b0a9fbe5ef86c005903ce243fee0900a7ab2f72410eccf0330d3e": {
+      "artifact_type": "research_os_control_plane_manifest",
+      "path": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "identity_field": "manifest_digest",
+      "supersedes_digest": "07892a809dfaa07e6bdbb02c1c350ed226c4692b2c16eeadbc993f65a15cad47"
     }
   },
   "lookup_rule": "digest_must_equal_the_artifact_identity_at_the_registered_canonical_path",

@@ -253,7 +253,10 @@ def test_manifest_index_supervisor_and_status_bind_singular_decision() -> None:
         PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_RESULT_DECISION_CAPABILITY
     )
     assert decision.input_artifact_digests[0] == source["artifact_digest"]
-    assert intake.requested_capability is None
+    assert intake.requested_capability == (
+        "m4_p3_result_blind_structural_utility_design"
+    )
+    assert intake.goal_key == "M4_P3_RESULT_BLIND_STRUCTURAL_UTILITY"
     index = json.loads(INDEX_PATH.read_text(encoding="utf-8"))["artifacts"]
     assert index[source["artifact_digest"]]["path"] == str(
         PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_EVALUATION_RESULT_DECISION_SOURCE_CONTRACT_PATH
@@ -284,11 +287,10 @@ def test_manifest_index_supervisor_and_status_bind_singular_decision() -> None:
         ]["decision"]
         == DECISION
     )
-    assert (
-        projection["prediction_v2_balanced_design_structural_utility_research_intake"][
-            "requested_capability"
-        ]
-        is None
+    assert projection[
+        "prediction_v2_balanced_design_structural_utility_research_intake"
+    ]["requested_capability"] == (
+        "m4_p3_result_blind_structural_utility_design"
     )
 
 
