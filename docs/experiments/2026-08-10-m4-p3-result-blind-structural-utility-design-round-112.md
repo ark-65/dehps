@@ -148,3 +148,38 @@ only after a ready PR is merged and an independently approved Operator request
 imports the additive manifest, dispatches the design through the canonical
 Supervisor, registers its execution and three children, verifies replay, and
 projects the preregistration consumer.
+
+## Post-merge migration handoff correction — round 113
+
+Merged-main preflight found that the round 112 builder retained the verified
+live-state-preserving manifest only in memory and wrote the static source
+candidate to its output path. Importing that static candidate would correctly
+fail the repository's completed-state regression guard. Engineering Request
+445 / Execution 366 therefore adds only two operational properties:
+
+- the builder accepts the exact already-migrated canonical source manifest
+  idempotently and rejects every other source identity;
+- explicit `--output-kind merged` writes the existing additive migration
+  result, while `source` retains the reviewable repository-generation mode.
+
+On merged main, the corrected builder reproduced dry-run digest
+`c8c2ce8e9817eb102e5ca24293e4ba50ae4813e207efac6812325cfd0bcd16a2`,
+emitted live-state-preserving manifest
+`1eb4767e2d40ca388923c7a2107e60928e44e9558a5672558c2899aabce0899e`,
+left the canonical artifact index byte-identical, and resolved exactly the
+M4-P3 design task as Ready. No Goal, task, estimand, source contract,
+capability, status contract, artifact, or scientific boundary changed.
+
+PR 324's clean GitHub runner also exposed one historical recovery-test fixture
+that removed the seven post-recovery tasks known before this Goal but not the
+new M4-P3 preregistration task. The fixture therefore contained 72 tasks while
+the production recovery contract correctly requires the original 71-task
+failure boundary. Round 113 changes only the fixture reconstruction: it removes
+the independent M4-P3 Goal, both new tasks, and their source fact/event before
+exercising the unchanged production recovery guard.
+
+Round 113 validation on a clean detached worktree using the exact GitHub Worker
+command: 2375 passed, 4 skipped, 6 explicitly deselected by CI, 22 warnings,
+zero failures in 203.44 seconds. The merged-output and source-output modes,
+byte-identical artifact-index pass-through, exact Ready resolution, Ruff, and
+`git diff --check` also passed.

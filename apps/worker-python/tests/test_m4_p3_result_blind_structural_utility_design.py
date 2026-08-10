@@ -40,6 +40,10 @@ from dehps.research_os.structural_utility.m4_p3_result_blind_design import (
     verify_m4_p3_result_blind_structural_utility_design_source_bytes,
 )
 from dehps.research_os.supervisor import ResearchEvidenceSupervisor
+from scripts.build_m4_p3_result_blind_structural_utility_design_manifest import (
+    MIGRATED_SOURCE_MANIFEST_DIGEST,
+    _source_payload,
+)
 
 MANIFEST_PATH = ROOT_DIR / "configs/research-os/m4-information-theory-evidence-v1.json"
 INDEX_PATH = (
@@ -324,3 +328,15 @@ def test_manifest_status_index_and_supervisor_bind_the_independent_goal() -> Non
         repository=object(), require_clean_tree=False
     )
     assert M4_P3_STRUCTURAL_UTILITY_DESIGN_CAPABILITY in supervisor.capabilities
+
+
+def test_migration_builder_reuses_only_the_exact_migrated_source() -> None:
+    source = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    contract_digest = _source()["artifact_digest"]
+    assert source["manifest_digest"] == MIGRATED_SOURCE_MANIFEST_DIGEST
+    assert _source_payload(source, contract_digest) == source
+
+    changed = copy.deepcopy(source)
+    changed["manifest_digest"] = "0" * 64
+    with pytest.raises(SystemExit, match="source-base manifest identity changed"):
+        _source_payload(changed, contract_digest)

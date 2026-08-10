@@ -4,7 +4,6 @@ import copy
 import json
 
 import pytest
-
 from dehps.config import ROOT_DIR
 from dehps.contracts import canonical_digest
 from dehps.research_os import supervisor as supervisor_module
@@ -169,9 +168,14 @@ def _source() -> dict:
     return source
 
 
-def _failed_live_for_recovery() -> dict:
+def _historical_recovery_base() -> dict:
     payload = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     payload.pop("manifest_digest")
+    payload["goals"] = [
+        item
+        for item in payload["goals"]
+        if item["goal_key"] != "M4_P3_RESULT_BLIND_STRUCTURAL_UTILITY"
+    ]
     payload["tasks"] = [
         item
         for item in payload["tasks"]
@@ -184,8 +188,28 @@ def _failed_live_for_recovery() -> dict:
             "prediction-v2-balanced-design-structural-evaluation-execution",
             "prediction-v2-balanced-design-structural-evaluation-result-decision",
             "prediction-v2-balanced-design-structural-utility-research-intake",
+            "m4-p3-result-blind-structural-utility-preregistration",
         }
     ]
+    payload["facts"]["artifacts"] = [
+        fact
+        for fact in payload["facts"]["artifacts"]
+        if not fact.startswith(
+            "m4-p3-result-blind-structural-utility-design-source:"
+        )
+    ]
+    payload["facts"]["external_events"] = [
+        event
+        for event in payload["facts"]["external_events"]
+        if event
+        != "research-contract:prediction-v2-balanced-design-structural-utility:approved"
+    ]
+    assert len(payload["tasks"]) == 71
+    return payload
+
+
+def _failed_live_for_recovery() -> dict:
+    payload = _historical_recovery_base()
     target = next(
         item
         for item in payload["tasks"]
@@ -212,22 +236,7 @@ def _failed_live_for_recovery() -> dict:
 
 
 def _corrected_recovery_source() -> dict:
-    payload = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
-    payload["tasks"] = [
-        item
-        for item in payload["tasks"]
-        if item["task_key"]
-        not in {
-            "prediction-v2-balanced-design-feasibility-execution",
-            "prediction-v2-balanced-design-feasibility-result-decision",
-            "prediction-v2-balanced-design-structural-evaluation-design",
-            "prediction-v2-balanced-design-structural-evaluation-preregistration",
-            "prediction-v2-balanced-design-structural-evaluation-execution",
-            "prediction-v2-balanced-design-structural-evaluation-result-decision",
-            "prediction-v2-balanced-design-structural-utility-research-intake",
-        }
-    ]
-    payload.pop("manifest_digest")
+    payload = _historical_recovery_base()
     return ControlPlaneManifest.from_dict(payload).to_dict(include_digest=True)
 
 
