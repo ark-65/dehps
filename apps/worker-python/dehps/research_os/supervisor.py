@@ -1489,6 +1489,10 @@ def _load_single_completed_execution(
             "git_commit": execution.get("git_commit"),
         }
     )
+    actual_fold_count = _mainline_actual_fold_count(
+        task=task,
+        execution_artifact=execution,
+    )
     if (
         execution.get("artifact_digest") != expected
         or execution.get("task_key") != task_key
@@ -1507,7 +1511,7 @@ def _load_single_completed_execution(
         or started_summary.get("git_commit") != execution.get("git_commit")
         or started_summary.get("input_artifact_digests")
         != list(task.input_artifact_digests)
-        or summary.get("actual_fold_count") != execution.get("actual_fold_count")
+        or summary.get("actual_fold_count") != actual_fold_count
         or (
             require_manifest_complete
             and mainline_completion_fact(
@@ -18067,6 +18071,15 @@ class ResearchEvidenceSupervisor:
     def replay(
         self, *, task_key: str, execution_id: str | None = None
     ) -> dict[str, Any]:
+        manifest = self.repository.load_manifest(
+            control_plane_key=self.control_plane_key
+        )
+        matching_tasks = [task for task in manifest.tasks if task.task_key == task_key]
+        if len(matching_tasks) != 1:
+            raise MainlineSupervisorError(
+                f"mainline replay task is not in the current manifest: {task_key}"
+            )
+        task = matching_tasks[0]
         if self.control_plane_key == PREDICTION_V2_CONTROL_PLANE_KEY or task_key in {
             M4_P29_GOLDEN_REFERENCE_TASK_KEY,
             M4_P29_RUNTIME_AUDIT_TASK_KEY,
@@ -24768,7 +24781,10 @@ class ResearchEvidenceSupervisor:
             "task_key": task_key,
             "execution_id": resolved_execution_id,
             "execution_artifact_digest": artifact["artifact_digest"],
-            "actual_fold_count": artifact["actual_fold_count"],
+            "actual_fold_count": _mainline_actual_fold_count(
+                task=task,
+                execution_artifact=artifact,
+            ),
             "registered_artifact_count": len(registrations),
             "same_execution_identity": True,
             "same_artifact_identity": True,

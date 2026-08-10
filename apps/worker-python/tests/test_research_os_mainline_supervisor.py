@@ -1000,6 +1000,147 @@ def test_supervisor_resumes_after_completed_event_before_status_projection(
     ] == ["m4-p2-injected-signal-calibration"]
 
 
+def test_completed_loader_projects_exact_m4_p3_zero_work_fold_count(
+    tmp_path: Path,
+) -> None:
+    payload = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    payload.pop("manifest_digest")
+    task_payload = next(
+        item
+        for item in payload["tasks"]
+        if item["task_key"]
+        == supervisor_module.M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY
+    )
+    task_payload["status"] = "running"
+    task_payload["completion_classification"] = "INTEGRATED"
+    repository = MemoryMainlineRepository(payload)
+    task = next(
+        item
+        for item in repository.manifest.tasks
+        if item.task_key
+        == supervisor_module.M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY
+    )
+    execution_id = supervisor_module.stable_hash(
+        {
+            "schema": supervisor_module.MAINLINE_EXECUTION_SCHEMA,
+            "control_plane_key": TEST_CONTROL_PLANE_KEY,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "input_artifact_digests": task.input_artifact_digests,
+            "git_commit": TEST_COMMIT,
+        }
+    )
+    path = (
+        tmp_path
+        / "runtime/research-os/mainline/tasks"
+        / task.task_key
+        / execution_id
+        / "execution.json"
+    )
+    execution = {
+        "schema_version": "dehps-research-os-mainline-execution.v1",
+        "artifact_type": "research_os_mainline_execution",
+        "artifact_digest": "",
+        "execution_id": execution_id,
+        "control_plane_key": TEST_CONTROL_PLANE_KEY,
+        "goal_key": task.goal_key,
+        "task_key": task.task_key,
+        "task_digest": task.artifact_digest,
+        "capability": task.requested_capability,
+        "status": "COMPLETE",
+        "completion_classification": "VALIDATED_IN_MAINLINE",
+        "input_artifact_digests": list(task.input_artifact_digests),
+        "registered_artifact_count": 1,
+        "git_commit": TEST_COMMIT,
+        "working_tree_clean": True,
+        "parent_digests": list(task.input_artifact_digests),
+        "portfolios_generated": 0,
+        "folds_executed": 0,
+        "random_replicates_executed": 0,
+        "metric_results_read": 0,
+        "target_draw_rows_read": 0,
+        "bootstrap_resamples_executed": 0,
+    }
+    identity = dict(execution)
+    identity.pop("artifact_digest")
+    execution["artifact_digest"] = canonical_digest(
+        identity,
+        domain="dehps.research-os.mainline-execution.v1",
+    )
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(execution, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    repository.register_mainline_artifact(
+        registration=MainlineArtifactRegistration(
+            execution_id=execution_id,
+            control_plane_key=TEST_CONTROL_PLANE_KEY,
+            task_key=task.task_key,
+            task_digest=task.artifact_digest,
+            artifact_digest=execution["artifact_digest"],
+            artifact_type=execution["artifact_type"],
+            schema_version=execution["schema_version"],
+            artifact_path=str(path.relative_to(tmp_path)),
+            parent_digests=task.input_artifact_digests,
+            git_commit=TEST_COMMIT,
+        )
+    )
+    started = MainlineExecutionEvent(
+        execution_id=execution_id,
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
+        manifest_digest=repository.manifest.artifact_digest,
+        task_key=task.task_key,
+        task_digest=task.artifact_digest,
+        capability=str(task.requested_capability),
+        event_type="started",
+        sequence=0,
+        recorded_at="2026-08-10T04:23:22+00:00",
+        payload=(
+            ("git_commit", TEST_COMMIT),
+            ("input_artifact_digests", list(task.input_artifact_digests)),
+        ),
+    )
+    completed = MainlineExecutionEvent(
+        execution_id=execution_id,
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
+        manifest_digest=repository.manifest.artifact_digest,
+        task_key=task.task_key,
+        task_digest=task.artifact_digest,
+        capability=str(task.requested_capability),
+        event_type="completed",
+        sequence=1,
+        recorded_at="2026-08-10T04:23:30+00:00",
+        payload=(
+            ("actual_fold_count", 0),
+            ("execution_artifact_digest", execution["artifact_digest"]),
+            ("execution_artifact_path", str(path.relative_to(tmp_path))),
+            ("git_commit", TEST_COMMIT),
+            ("registered_artifact_count", 1),
+        ),
+    )
+    assert repository.record_mainline_execution_event(event=started)
+    assert repository.record_mainline_execution_event(event=completed)
+
+    _, loaded, registrations = supervisor_module._load_single_completed_execution(
+        repository=repository,  # type: ignore[arg-type]
+        root_dir=tmp_path,
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
+        task_key=task.task_key,
+        require_manifest_complete=False,
+    )
+
+    assert "actual_fold_count" not in loaded
+    assert len(registrations) == 1
+    assert (
+        supervisor_module._mainline_actual_fold_count(
+            task=task,
+            execution_artifact=loaded,
+        )
+        == 0
+    )
+
+
 def test_supervisor_rejects_stale_completed_event_manifest_on_resume(
     tmp_path: Path,
 ) -> None:
