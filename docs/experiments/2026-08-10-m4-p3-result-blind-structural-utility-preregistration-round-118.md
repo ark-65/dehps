@@ -173,6 +173,49 @@ Integration answer at the Engineering code-review boundary:
 NO — INTEGRATION_PENDING
 ```
 
+## Completed-event finalization incident — rounds 121–122
+
+PR 328 merged the first runtime recovery as commit
+`d76a3f44186946367485814a50c74c59f42d3fb3`; main Worker CI run
+`31354784595` passed. Operator Request 453 / Execution 374 imported the exact
+recovery manifest and dispatched the only Ready task. The capability completed
+without workload and immutably recorded:
+
+```text
+execution = 4263c9e224bd09cc416afa4fa9b50c7ed758d96cb38e7405f4c2efc9735c3ce9
+started event = 9b4a7fa7ef9d154b6496d47983153998f1d8922cca02beed5945b08f494b466c
+completed event = e4b91dc84d69bfb098becd7c3696d4af41436bf432c8dcef22e9ea3702bb9117
+new registrations = 4
+completed-event actual_fold_count = 0
+```
+
+The immediate status finalizer then failed closed with
+`completed execution identity changed`. The first fix projected the zero fold
+count when writing the completed event, but the shared completed-execution
+loader still compared that event value against the absent raw field in the
+frozen execution artifact. The task remains `running / INTEGRATED`; the
+completed event and all four registrations are preserved. The capability must
+not be dispatched again.
+
+Engineering Request 454 / Execution 375 owns the second bounded fix. It applies
+the same exact task/capability plus six-zero-counter projection when validating
+the completed event and when reporting deterministic replay. It does not add a
+field to, rewrite, or reinterpret the immutable execution artifact. Merged-main
+Operator recovery must resume the already completed execution, project status,
+replay it, and register no new artifact.
+
+Round-122 validation completed with 117 passed and 4 skipped across the M4-P3
+and Research OS focused suites. A live read-only call to the corrected completed
+loader verified event `e4b91d...`, execution `4263c9e...`, four registrations,
+the absent raw field, projected fold count zero, and unchanged running task.
+Ruff and `git diff --check` passed.
+
+The integration answer remains:
+
+```text
+NO — INTEGRATION_PENDING
+```
+
 The answer can become `YES — validated by unified mainline execution and replay`
 only after a ready PR is merged and a separately approved Operator request
 imports the additive merged manifest, dispatches the preregistration through
