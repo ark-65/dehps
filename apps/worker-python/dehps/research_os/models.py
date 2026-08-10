@@ -17,6 +17,7 @@ class ResearchOSValidationError(ValueError):
 
 class ObjectiveClass(str, Enum):
     PREDICTION_QUALITY = "prediction_quality"
+    STRUCTURAL_DECISION_UTILITY = "structural_decision_utility"
     RUNTIME_CAPABILITY = "runtime_capability"
     KNOWLEDGE_QUALITY = "knowledge_quality"
     MAINTENANCE_INTEGRITY = "maintenance_integrity"

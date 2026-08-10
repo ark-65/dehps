@@ -12,6 +12,12 @@ from dehps.research_os.models import (
     Task,
     TaskStatus,
 )
+from dehps.research_os.structural_utility.m4_p3_result_blind_design import (
+    M4_P3_STRUCTURAL_UTILITY_DESIGN_COMPLETION_FACT,
+    M4_P3_STRUCTURAL_UTILITY_DESIGN_TASK_KEY,
+    M4_P3_STRUCTURAL_UTILITY_GOAL_KEY,
+    M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY,
+)
 
 M4_GOAL_KEY = "M4_INFORMATION_THEORY_EVIDENCE"
 LEGACY_GOAL_KEY = "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION"
@@ -472,6 +478,13 @@ def build_m4_status(
     legacy_goal = goals[LEGACY_GOAL_KEY]
     if goal_states[m4_goal.artifact_digest].status is not GoalStatus.ACTIVE:
         raise ValueError("M4 Goal must be active")
+    structural_utility_goal = goals.get(M4_P3_STRUCTURAL_UTILITY_GOAL_KEY)
+    if (
+        structural_utility_goal is not None
+        and goal_states[structural_utility_goal.artifact_digest].status
+        is not GoalStatus.ACTIVE
+    ):
+        raise ValueError("M4-P3 structural-utility Goal must be active")
 
     tasks = {task.task_key: task for task in manifest.tasks}
     task_states = manifest.task_state_by_digest
@@ -1009,6 +1022,25 @@ def build_m4_status(
     prediction_v2_balanced_design_structural_utility_intake_task = tasks.get(
         PREDICTION_V2_BALANCED_DESIGN_STRUCTURAL_UTILITY_RESEARCH_INTAKE_TASK_KEY
     )
+    m4_p3_structural_utility_design_resolution = resolutions.get(
+        M4_P3_STRUCTURAL_UTILITY_DESIGN_TASK_KEY
+    )
+    m4_p3_structural_utility_design_task = tasks.get(
+        M4_P3_STRUCTURAL_UTILITY_DESIGN_TASK_KEY
+    )
+    m4_p3_structural_utility_design_execution = (
+        measurement_v2_execution
+        if measurement_v2_execution is not None
+        and measurement_v2_execution.get("execution_task_key")
+        == M4_P3_STRUCTURAL_UTILITY_DESIGN_TASK_KEY
+        else None
+    )
+    m4_p3_structural_utility_preregistration_resolution = resolutions.get(
+        M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY
+    )
+    m4_p3_structural_utility_preregistration_task = tasks.get(
+        M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY
+    )
     durable_gate_evidence_facts = tuple(
         fact
         for fact in M4_V2_MARGINAL_HISTORICAL_EVIDENCE_FACTS
@@ -1386,6 +1418,121 @@ def build_m4_status(
         "completed": completed,
         "evidence_changed": [],
         "tests": {"status": "not_recorded_in_control_plane"},
+        "structural_utility": {
+            "goal_key": M4_P3_STRUCTURAL_UTILITY_GOAL_KEY,
+            "goal_status": (
+                None
+                if structural_utility_goal is None
+                else goal_states[
+                    structural_utility_goal.artifact_digest
+                ].status.value.upper()
+            ),
+            "objective_class": "structural_decision_utility",
+            "m4_p3_result_blind_design": {
+                "task_key": M4_P3_STRUCTURAL_UTILITY_DESIGN_TASK_KEY,
+                "resolver_status": (
+                    None
+                    if m4_p3_structural_utility_design_resolution is None
+                    else m4_p3_structural_utility_design_resolution.status.value
+                ),
+                "resolver_reason_code": (
+                    None
+                    if m4_p3_structural_utility_design_resolution is None
+                    else m4_p3_structural_utility_design_resolution.reason_code
+                ),
+                "requested_capability": (
+                    None
+                    if m4_p3_structural_utility_design_task is None
+                    else m4_p3_structural_utility_design_task.requested_capability
+                ),
+                "completion_fact_registered": (
+                    M4_P3_STRUCTURAL_UTILITY_DESIGN_COMPLETION_FACT
+                    in manifest.facts.artifacts
+                ),
+                "execution_artifact_digest": (
+                    None
+                    if m4_p3_structural_utility_design_execution is None
+                    else m4_p3_structural_utility_design_execution.get(
+                        "execution_artifact_digest"
+                    )
+                ),
+                "portfolio_budget": 100,
+                "fold_count_range": [60, 120],
+                "confirmatory_coordinate_count": 6,
+                "result_blind": True,
+                "parent_payloads_read": (
+                    0
+                    if m4_p3_structural_utility_design_execution is None
+                    else m4_p3_structural_utility_design_execution.get(
+                        "parent_payloads_read"
+                    )
+                ),
+                "portfolios_generated": (
+                    0
+                    if m4_p3_structural_utility_design_execution is None
+                    else m4_p3_structural_utility_design_execution.get(
+                        "portfolios_generated"
+                    )
+                ),
+                "folds_executed": (
+                    0
+                    if m4_p3_structural_utility_design_execution is None
+                    else m4_p3_structural_utility_design_execution.get(
+                        "actual_fold_count"
+                    )
+                ),
+                "metric_results_read": (
+                    0
+                    if m4_p3_structural_utility_design_execution is None
+                    else m4_p3_structural_utility_design_execution.get(
+                        "metric_results_read"
+                    )
+                ),
+                "previous_structural_result_values_read": (
+                    0
+                    if m4_p3_structural_utility_design_execution is None
+                    else m4_p3_structural_utility_design_execution.get(
+                        "previous_structural_result_values_read"
+                    )
+                ),
+                "historical_prediction_evidence": "INCONCLUSIVE",
+                "prediction_v2_mode": "SHADOW_ONLY",
+                "prediction_v2_route": "BASELINE_ONLY",
+                "old_training_lines": "FROZEN",
+                "promotion_gate_opened": False,
+                "predictive_p3_authorized": False,
+                "production_action": "none",
+            },
+            "m4_p3_result_blind_preregistration": {
+                "task_key": M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY,
+                "resolver_status": (
+                    None
+                    if m4_p3_structural_utility_preregistration_resolution is None
+                    else m4_p3_structural_utility_preregistration_resolution.status.value
+                ),
+                "resolver_reason_code": (
+                    None
+                    if m4_p3_structural_utility_preregistration_resolution is None
+                    else m4_p3_structural_utility_preregistration_resolution.reason_code
+                ),
+                "requested_capability": (
+                    None
+                    if m4_p3_structural_utility_preregistration_task is None
+                    else m4_p3_structural_utility_preregistration_task.requested_capability
+                ),
+                "exact_fold_count_pending_within": [60, 120],
+                "automatic_execution_authorized": False,
+                "prediction_v2_mode": "SHADOW_ONLY",
+                "production_action": "none",
+            },
+            "next_consumer": (M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY),
+            "integration_answer": (
+                "YES — validated by unified mainline execution and replay"
+                if M4_P3_STRUCTURAL_UTILITY_DESIGN_COMPLETION_FACT
+                in manifest.facts.artifacts
+                else "NO — INTEGRATION_PENDING"
+            ),
+        },
         "artifacts": {
             "preregistration_digest": active_preregistration.get(
                 "preregistration_digest"
