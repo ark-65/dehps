@@ -939,10 +939,38 @@
       "identity_field": "artifact_digest"
     },
     "f8f6375b04359676d47a5c56c9f0b38874466ecf88d5a92f4c54115e39a2035a": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "supersedes_digest": "f3f263d3ef9c5028223070b7fc228c2ef95ffc315a86479d17ebccb0a87b890b",
+      "source_commit": "c5cd28529ca22bec40d75beb7b867359ffa44820",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "superseded_by_digest": "93f6a659bbeaa908ce94be4da2bfb5151a75eda09c61051f0d0826447384149a"
+    },
+    "34a49fd24be7c696636bb584a379776155407b8af2b120adfbffc2edfcea3857": {
+      "artifact_type": "m4_v2_marginal_static_historical_identity_adoption_source_contract",
+      "path": "configs/research-os/m4-v2-marginal-static-historical-identity-adoption-source-v1.json",
+      "identity_field": "artifact_digest"
+    },
+    "eb306e418182c8d2fc39272aa653018a9f5ad6afcbcf0c4825d88f09a8980c37": {
+      "artifact_type": "m4_v2_temporal_marginal_increment_source_contract",
+      "path": "configs/research-os/m4-v2-temporal-marginal-increment-source-v2.json",
+      "identity_field": "artifact_digest"
+    },
+    "f7345320fc87b601cbdae58e2064ff89dc2195c449efcd70d043441067af0a44": {
+      "artifact_type": "m4_v2_joint_residual_increment_source_contract",
+      "path": "configs/research-os/m4-v2-joint-residual-increment-source-v2.json",
+      "identity_field": "artifact_digest"
+    },
+    "6ca7ae72f61ac14be9e29d18c74e1fab8444426b14b37ec137dc1c116a94783c": {
+      "artifact_type": "m4_v2_global_routing_source_contract",
+      "path": "configs/research-os/m4-v2-global-routing-source-v1.json",
+      "identity_field": "artifact_digest"
+    },
+    "93f6a659bbeaa908ce94be4da2bfb5151a75eda09c61051f0d0826447384149a": {
       "artifact_type": "research_os_control_plane_manifest",
       "path": "configs/research-os/m4-information-theory-evidence-v1.json",
       "identity_field": "manifest_digest",
-      "supersedes_digest": "f3f263d3ef9c5028223070b7fc228c2ef95ffc315a86479d17ebccb0a87b890b"
+      "supersedes_digest": "f8f6375b04359676d47a5c56c9f0b38874466ecf88d5a92f4c54115e39a2035a"
     }
   },
   "lookup_rule": "digest_must_equal_the_artifact_identity_at_the_registered_canonical_path",

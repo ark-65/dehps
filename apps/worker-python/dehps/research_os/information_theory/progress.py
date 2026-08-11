@@ -27,9 +27,6 @@ from dehps.research_os.information_theory.predictive_route_reconciliation import
     GLOBAL_ROUTING_TASK_KEY,
     P2R_TO_P6_POLICY,
     P2R_TO_P6_POLICY_FACT,
-    P4_TASK_KEY as PREDICTIVE_P4_TASK_KEY,
-    P5_TASK_KEY as PREDICTIVE_P5_TASK_KEY,
-    P6_TASK_KEY as PREDICTIVE_P6_TASK_KEY,
     PREDICTIVE_P3_PASS_TO_P4_FACT,
     PREDICTIVE_P3_PRIMARY_ENDPOINT,
     PREDICTIVE_P3_TASK_KEY,
@@ -42,6 +39,15 @@ from dehps.research_os.information_theory.predictive_route_reconciliation import
     PREDICTIVE_ROUTE_RECONCILIATION_TASK_KEY,
     PredictiveRouteReconciliationError,
     validate_repaired_manifest_structure,
+)
+from dehps.research_os.information_theory.predictive_route_reconciliation import (
+    P4_TASK_KEY as PREDICTIVE_P4_TASK_KEY,
+)
+from dehps.research_os.information_theory.predictive_route_reconciliation import (
+    P5_TASK_KEY as PREDICTIVE_P5_TASK_KEY,
+)
+from dehps.research_os.information_theory.predictive_route_reconciliation import (
+    P6_TASK_KEY as PREDICTIVE_P6_TASK_KEY,
 )
 from dehps.research_os.models import (
     ControlPlaneManifest,
@@ -74,6 +80,53 @@ from dehps.research_os.structural_utility.m4_p3_result_blind_preregistration imp
 M4_GOAL_KEY = "M4_INFORMATION_THEORY_EVIDENCE"
 LEGACY_GOAL_KEY = "ADAPTIVE_TRAINING_SIGNAL_OPTIMIZATION"
 M4_FORWARD_EVENT_KEY = "draw:2026085"
+M4_V2_SUCCESSOR_BRANCH_ORDER = (
+    "MARGINAL_STATIC",
+    "TEMPORAL_MARGINAL_INCREMENT",
+    "JOINT_RESIDUAL_INCREMENT",
+)
+M4_V2_SUCCESSOR_REPLAY_FACTS = tuple(
+    "m4-v2-historical-branch-decision-replay:"
+    f"M4_MEASUREMENT_CONTRACT_V2:{branch_id}:VERIFIED"
+    for branch_id in M4_V2_SUCCESSOR_BRANCH_ORDER
+)
+M4_V2_SUCCESSOR_TASKS = {
+    "marginal_decision": "m4-v2-marginal-static-historical-identity-adoption",
+    "marginal_replay": (
+        "m4-v2-marginal-static-historical-branch-decision-replay"
+    ),
+    "temporal_design": (
+        "m4-v2-temporal-marginal-increment-historical-measurement-design"
+    ),
+    "temporal_preregistration": (
+        "m4-v2-temporal-marginal-increment-historical-measurement-preregistration"
+    ),
+    "temporal_producer": (
+        "m4-v2-temporal-marginal-increment-historical-measurement-gate-compiler"
+    ),
+    "temporal_replay": (
+        "m4-v2-temporal-marginal-increment-historical-branch-decision-replay"
+    ),
+    "joint_design": (
+        "m4-v2-joint-residual-increment-historical-measurement-design"
+    ),
+    "joint_preregistration": (
+        "m4-v2-joint-residual-increment-historical-measurement-preregistration"
+    ),
+    "joint_producer": (
+        "m4-v2-joint-residual-increment-historical-measurement-gate-compiler"
+    ),
+    "joint_replay": (
+        "m4-v2-joint-residual-increment-historical-branch-decision-replay"
+    ),
+    "global_routing": "m4-v2-global-routing",
+}
+M4_P3_PREDICTIVE_PREREGISTRATION_TASK_KEY = (
+    "m4-p3-predictive-preregistration-freeze"
+)
+M4_P3_PREDICTIVE_PREREGISTRATION_FACT = (
+    "m4-p3-predictive-preregistration:FROZEN"
+)
 M4_V2_DESIGN_TASK_KEY = "m4-v2-measurement-contract-design"
 M4_V2_DESIGN_REPLAY_TASK_KEY = "m4-v2-measurement-contract-design-replay"
 M4_P263_COMPATIBILITY_TASK_KEY = "m4-p2-6-3-superseding-compatibility-acceptance"
@@ -450,6 +503,149 @@ def manifest_with_external_event(
     return ControlPlaneManifest.from_dict(payload)
 
 
+def _successor_dependency_tuples(task: dict[str, Any]) -> tuple[tuple[str, str, str], ...]:
+    dependencies = task.get("dependencies")
+    if not isinstance(dependencies, list):
+        raise PredictiveRouteReconciliationError(
+            "m4_v2_successor_task_dependencies_invalid"
+        )
+    output: list[tuple[str, str, str]] = []
+    for dependency in dependencies:
+        if not isinstance(dependency, dict):
+            raise PredictiveRouteReconciliationError(
+                "m4_v2_successor_task_dependency_invalid"
+            )
+        output.append(
+            (
+                str(dependency.get("dependency_type") or ""),
+                str(dependency.get("target_key") or ""),
+                str(dependency.get("required_status") or ""),
+            )
+        )
+    return tuple(output)
+
+
+def validate_m4_v2_successor_structure(
+    manifest: ControlPlaneManifest,
+) -> dict[str, Any]:
+    """Validate the additive three-branch/global/P3 barrier wiring.
+
+    The earlier route validator remains the authority for P4/P6 and the
+    predictive endpoint.  It is evaluated against a detached projection with
+    the predecessor two-edge P3 shape, while this validator independently
+    requires the successor's exact four-edge AND barrier.  No manifest bytes
+    are mutated.
+    """
+
+    payload = manifest.to_dict(include_digest=False)
+    task_list = payload.get("tasks")
+    if not isinstance(task_list, list):
+        raise PredictiveRouteReconciliationError(
+            "m4_v2_successor_manifest_tasks_invalid"
+        )
+    tasks = {
+        str(task.get("task_key") or ""): task
+        for task in task_list
+        if isinstance(task, dict)
+    }
+    required = {
+        *M4_V2_SUCCESSOR_TASKS.values(),
+        M4_P3_PREDICTIVE_PREREGISTRATION_TASK_KEY,
+        PREDICTIVE_P3_TASK_KEY,
+    }
+    if len(tasks) != len(task_list) or not required.issubset(tasks):
+        raise PredictiveRouteReconciliationError(
+            "m4_v2_successor_manifest_task_identity_changed"
+        )
+
+    placeholder = tasks[M4_P3_PREDICTIVE_PREREGISTRATION_TASK_KEY]
+    placeholder_metric = placeholder.get("metric_contract")
+    if (
+        placeholder.get("requested_capability") is not None
+        or placeholder.get("status") != "draft"
+        or placeholder.get("completion_classification") != "INTEGRATION_PENDING"
+        or not isinstance(placeholder_metric, dict)
+        or placeholder_metric.get("runner") is not None
+        or placeholder_metric.get("execution_authorized") is not False
+        or placeholder_metric.get("completion_fact_emission_authorized") is not False
+        or placeholder_metric.get("completion_fact")
+        != M4_P3_PREDICTIVE_PREREGISTRATION_FACT
+    ):
+        raise PredictiveRouteReconciliationError(
+            "m4_v2_successor_p3_preregistration_placeholder_changed"
+        )
+    expected_placeholder = (
+        ("task", GLOBAL_ROUTING_TASK_KEY, "completed"),
+        ("artifact", ADAPTIVE_RESEARCH_ELIGIBILITY_FACT, "available"),
+    )
+    if _successor_dependency_tuples(placeholder) != expected_placeholder:
+        raise PredictiveRouteReconciliationError(
+            "m4_v2_successor_p3_preregistration_dependencies_changed"
+        )
+
+    expected_p3 = (
+        *expected_placeholder,
+        ("task", M4_P3_PREDICTIVE_PREREGISTRATION_TASK_KEY, "completed"),
+        ("artifact", M4_P3_PREDICTIVE_PREREGISTRATION_FACT, "available"),
+    )
+    predictive_p3 = tasks[PREDICTIVE_P3_TASK_KEY]
+    if _successor_dependency_tuples(predictive_p3) != expected_p3:
+        raise PredictiveRouteReconciliationError(
+            "m4_v2_successor_predictive_p3_dependencies_changed"
+        )
+
+    expected_global = (
+        (
+            "artifact",
+            "m4-v2-global-routing-contract:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
+            "available",
+        ),
+        *(
+            ("artifact", fact, "available")
+            for fact in M4_V2_SUCCESSOR_REPLAY_FACTS
+        ),
+    )
+    global_task = tasks[M4_V2_SUCCESSOR_TASKS["global_routing"]]
+    if (
+        global_task.get("requested_capability") != "m4_v2_global_routing"
+        or _successor_dependency_tuples(global_task) != expected_global
+    ):
+        raise PredictiveRouteReconciliationError(
+            "m4_v2_successor_global_routing_contract_changed"
+        )
+
+    predecessor_payload = json.loads(json.dumps(payload))
+    predecessor_p3 = next(
+        task
+        for task in predecessor_payload["tasks"]
+        if task["task_key"] == PREDICTIVE_P3_TASK_KEY
+    )
+    predecessor_p3["dependencies"] = [
+        {
+            "dependency_type": dependency_type,
+            "target_key": target_key,
+            "required_status": required_status,
+        }
+        for dependency_type, target_key, required_status in expected_placeholder
+    ]
+    permanent = validate_repaired_manifest_structure(predecessor_payload)
+    if permanent.get("status") != "VERIFIED":
+        raise PredictiveRouteReconciliationError(
+            "m4_v2_successor_permanent_route_structure_changed"
+        )
+    return {
+        "status": "VERIFIED",
+        "branch_order": list(M4_V2_SUCCESSOR_BRANCH_ORDER),
+        "global_replay_facts": list(M4_V2_SUCCESSOR_REPLAY_FACTS),
+        "predictive_p3_dependency_count": 4,
+        "predictive_preregistration_capability": None,
+        "predictive_preregistration_fact_available": (
+            M4_P3_PREDICTIVE_PREREGISTRATION_FACT in manifest.facts.artifacts
+        ),
+        "p3_fold_execution_authorized": False,
+    }
+
+
 def manifest_with_contract_repair_pending(
     manifest: ControlPlaneManifest,
 ) -> ControlPlaneManifest:
@@ -522,6 +718,7 @@ def build_m4_status(
     m4_p3_execution_summary: dict[str, Any] | None = None,
     m4_p3_evidence_compiler_summary: dict[str, Any] | None = None,
     predictive_route_reconciliation_summary: dict[str, Any] | None = None,
+    m4_v2_global_replay_summary: dict[str, Any] | None = None,
     dispatch_performed: bool = False,
 ) -> dict[str, Any]:
     if (
@@ -1305,11 +1502,60 @@ def build_m4_status(
         == PREDICTIVE_ROUTE_RECONCILIATION_CAPABILITY
     )
     route_structure_error: str | None = None
+    successor_structure_error: str | None = None
     route_structure_valid = False
+    successor_structure: dict[str, Any] | None = None
     if predictive_route_integrated:
+        successor_present_in_manifest = (
+            M4_P3_PREDICTIVE_PREREGISTRATION_TASK_KEY in tasks
+        )
+        if successor_present_in_manifest:
+            try:
+                successor_structure = validate_m4_v2_successor_structure(manifest)
+            except PredictiveRouteReconciliationError as exc:
+                successor_structure_error = str(exc)
         try:
+            legacy_projection: ControlPlaneManifest | dict[str, Any] = manifest
+            if successor_present_in_manifest:
+                legacy_projection = manifest.to_dict(include_digest=False)
+                legacy_p3 = next(
+                    task
+                    for task in legacy_projection["tasks"]
+                    if task["task_key"] == PREDICTIVE_P3_TASK_KEY
+                )
+                expected_legacy_dependencies = (
+                    ("task", GLOBAL_ROUTING_TASK_KEY, "completed"),
+                    ("artifact", ADAPTIVE_RESEARCH_ELIGIBILITY_FACT, "available"),
+                )
+                expected_successor_dependencies = (
+                    *expected_legacy_dependencies,
+                    (
+                        "task",
+                        M4_P3_PREDICTIVE_PREREGISTRATION_TASK_KEY,
+                        "completed",
+                    ),
+                    (
+                        "artifact",
+                        M4_P3_PREDICTIVE_PREREGISTRATION_FACT,
+                        "available",
+                    ),
+                )
+                if (
+                    _successor_dependency_tuples(legacy_p3)
+                    == expected_successor_dependencies
+                ):
+                    legacy_p3["dependencies"] = [
+                        {
+                            "dependency_type": dependency_type,
+                            "target_key": target_key,
+                            "required_status": required_status,
+                        }
+                        for dependency_type, target_key, required_status in (
+                            expected_legacy_dependencies
+                        )
+                    ]
             route_structure_valid = (
-                validate_repaired_manifest_structure(manifest).get("status")
+                validate_repaired_manifest_structure(legacy_projection).get("status")
                 == "VERIFIED"
             )
         except PredictiveRouteReconciliationError as exc:
@@ -1382,11 +1628,105 @@ def build_m4_status(
             P2R_TO_P6_POLICY_FACT,
         }.issubset(manifest.facts.artifacts)
     )
+    active_global_routing_facts = (
+        M4_V2_SUCCESSOR_REPLAY_FACTS
+        if successor_structure is not None
+        else GLOBAL_ROUTING_BRANCH_REPLAY_FACTS
+    )
     missing_global_routing_facts = [
         fact
-        for fact in GLOBAL_ROUTING_BRANCH_REPLAY_FACTS
+        for fact in active_global_routing_facts
         if fact not in manifest.facts.artifacts
     ]
+    successor_completion_facts = {
+        "marginal_decision": (
+            "m4-v2-historical-branch-decision:M4_MEASUREMENT_CONTRACT_V2:"
+            "MARGINAL_STATIC:TERMINAL"
+        ),
+        "marginal_replay": M4_V2_SUCCESSOR_REPLAY_FACTS[0],
+        "temporal_design": (
+            "m4-v2-temporal-marginal-increment-historical-measurement-design:FROZEN"
+        ),
+        "temporal_preregistration": (
+            "m4-v2-temporal-marginal-increment-historical-measurement-"
+            "preregistration:FROZEN"
+        ),
+        "temporal_producer": (
+            "m4-v2-historical-branch-decision:M4_MEASUREMENT_CONTRACT_V2:"
+            "TEMPORAL_MARGINAL_INCREMENT:TERMINAL"
+        ),
+        "temporal_replay": M4_V2_SUCCESSOR_REPLAY_FACTS[1],
+        "joint_design": (
+            "m4-v2-joint-residual-increment-historical-measurement-design:FROZEN"
+        ),
+        "joint_preregistration": (
+            "m4-v2-joint-residual-increment-historical-measurement-"
+            "preregistration:FROZEN"
+        ),
+        "joint_producer": (
+            "m4-v2-historical-branch-decision:M4_MEASUREMENT_CONTRACT_V2:"
+            "JOINT_RESIDUAL_INCREMENT:TERMINAL"
+        ),
+        "joint_replay": M4_V2_SUCCESSOR_REPLAY_FACTS[2],
+        "global_routing": "m4-v2-global-routing:COMPLETE",
+    }
+    successor_task_projection: dict[str, Any] = {}
+    for label, successor_task_key in M4_V2_SUCCESSOR_TASKS.items():
+        successor_task = tasks.get(successor_task_key)
+        successor_resolution = resolutions.get(successor_task_key)
+        completion_fact = successor_completion_facts[label]
+        successor_task_projection[label] = {
+            "task_key": successor_task_key,
+            "requested_capability": (
+                None
+                if successor_task is None
+                else successor_task.requested_capability
+            ),
+            "resolver_status": (
+                None
+                if successor_resolution is None
+                else successor_resolution.status.value
+            ),
+            "resolver_reason_code": (
+                None
+                if successor_resolution is None
+                else successor_resolution.reason_code
+            ),
+            "completion_fact": completion_fact,
+            "completion_fact_available": completion_fact in manifest.facts.artifacts,
+            "validated_in_mainline": (
+                successor_resolution is not None
+                and successor_resolution.status is TaskStatus.COMPLETED
+                and completion_fact in manifest.facts.artifacts
+            ),
+        }
+    p3_preregistration_task = tasks.get(
+        M4_P3_PREDICTIVE_PREREGISTRATION_TASK_KEY
+    )
+    p3_preregistration_resolution = resolutions.get(
+        M4_P3_PREDICTIVE_PREREGISTRATION_TASK_KEY
+    )
+    successor_structure_verified = (
+        successor_structure is not None
+        and successor_structure.get("status") == "VERIFIED"
+    )
+    successor_present = successor_structure_verified and all(
+        key in tasks for key in M4_V2_SUCCESSOR_TASKS.values()
+    )
+    successor_all_mainline = successor_present and all(
+        item["validated_in_mainline"] for item in successor_task_projection.values()
+    )
+    available_global_route_facts = sorted(
+        fact
+        for fact in manifest.facts.artifacts
+        if fact
+        in {
+            "m4-v2-routing:ADAPTIVE_RESEARCH_ELIGIBLE",
+            "m4-v2-routing:NO_DETECTABLE_INFORMATION_UNDER_FROZEN_M4_V2_CONTRACT",
+            "m4-v2-routing:DEEPER_VALIDATION_REQUIRED",
+            "m4-v2-routing:MEASUREMENT_REPAIR_REQUIRED",
+        }
+    )
     current_phase = (
         "M4-P1"
         if not repair_complete
@@ -1762,6 +2102,26 @@ def build_m4_status(
                             "target_key": ADAPTIVE_RESEARCH_ELIGIBILITY_FACT,
                             "required_status": "available",
                         },
+                        *(
+                            [
+                                {
+                                    "dependency_type": "task",
+                                    "target_key": (
+                                        M4_P3_PREDICTIVE_PREREGISTRATION_TASK_KEY
+                                    ),
+                                    "required_status": "completed",
+                                },
+                                {
+                                    "dependency_type": "artifact",
+                                    "target_key": (
+                                        M4_P3_PREDICTIVE_PREREGISTRATION_FACT
+                                    ),
+                                    "required_status": "available",
+                                },
+                            ]
+                            if successor_structure is not None
+                            else []
+                        ),
                     ]
                     if route_structure_valid
                     else None
@@ -7019,6 +7379,103 @@ def build_m4_status(
                 if runtime_audit_execution is None
                 else runtime_audit_execution.get("production_action")
             ),
+            "three_branch_successor": {
+                "present": successor_present,
+                "structural_contract": successor_structure,
+                "structural_contract_verified": successor_structure_verified,
+                "structural_contract_error": successor_structure_error,
+                "tasks": successor_task_projection,
+                "branch_order": list(M4_V2_SUCCESSOR_BRANCH_ORDER),
+                "missing_global_replay_facts": missing_global_routing_facts,
+                "available_global_route_facts": available_global_route_facts,
+                "all_branch_and_global_tasks_validated_in_mainline": (
+                    successor_all_mainline
+                ),
+                "global_replay": {
+                    "status": (
+                        None
+                        if m4_v2_global_replay_summary is None
+                        else m4_v2_global_replay_summary.get("status")
+                    ),
+                    "capability_status": (
+                        None
+                        if m4_v2_global_replay_summary is None
+                        else m4_v2_global_replay_summary.get("capability_status")
+                    ),
+                    "workload_rerun": (
+                        None
+                        if m4_v2_global_replay_summary is None
+                        else m4_v2_global_replay_summary.get("workload_rerun")
+                    ),
+                    "durable_state_changed": (
+                        None
+                        if m4_v2_global_replay_summary is None
+                        else m4_v2_global_replay_summary.get(
+                            "durable_state_changed"
+                        )
+                    ),
+                },
+                "predictive_p3_preregistration": {
+                    "task_key": M4_P3_PREDICTIVE_PREREGISTRATION_TASK_KEY,
+                    "requested_capability": (
+                        None
+                        if p3_preregistration_task is None
+                        else p3_preregistration_task.requested_capability
+                    ),
+                    "resolver_status": (
+                        None
+                        if p3_preregistration_resolution is None
+                        else p3_preregistration_resolution.status.value
+                    ),
+                    "resolver_reason_code": (
+                        None
+                        if p3_preregistration_resolution is None
+                        else p3_preregistration_resolution.reason_code
+                    ),
+                    "frozen_fact": M4_P3_PREDICTIVE_PREREGISTRATION_FACT,
+                    "frozen_fact_available": (
+                        M4_P3_PREDICTIVE_PREREGISTRATION_FACT
+                        in manifest.facts.artifacts
+                    ),
+                    "execution_authorized": False,
+                    "next_legal_consumer": (
+                        "research-m4-p3-predictive-preregistration-freeze"
+                    ),
+                },
+                "predictive_p3": {
+                    "task_key": PREDICTIVE_P3_TASK_KEY,
+                    "resolver_status": (
+                        None
+                        if predictive_p3_resolution is None
+                        else predictive_p3_resolution.status.value
+                    ),
+                    "dependency_semantics": (
+                        "AND-only" if successor_structure_verified else None
+                    ),
+                    "required_dependency_count": (
+                        successor_structure["predictive_p3_dependency_count"]
+                        if successor_structure_verified
+                        else None
+                    ),
+                    "fold_execution_authorized": False,
+                    "folds_executed_by_this_round": 0,
+                },
+                "integration_answer": (
+                    "YES — validated by unified mainline execution and replay"
+                    if successor_all_mainline
+                    and m4_v2_global_replay_summary is not None
+                    and m4_v2_global_replay_summary.get("status")
+                    == "REPLAY_VERIFIED"
+                    and m4_v2_global_replay_summary.get("capability_status")
+                    == "REGISTERED_REPLAY_VERIFIED"
+                    and m4_v2_global_replay_summary.get("workload_rerun") is False
+                    and m4_v2_global_replay_summary.get("durable_state_changed")
+                    is False
+                    else "NO — INTEGRATION_PENDING"
+                ),
+                "promotion_gate_opened": False,
+                "production_action": "none",
+            },
         },
         "mainline_integration": {
             "goal_integration": M4_GOAL_KEY,
