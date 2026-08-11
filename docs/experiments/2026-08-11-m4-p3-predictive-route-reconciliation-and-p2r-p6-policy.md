@@ -42,8 +42,10 @@ the predictive scientific contract.
 | Additive migration dry run | `d285e0bf4206cfc9752121269568aab7e98e26f709ae08620c47ad645ba0cbf0` |
 | Dry-run merged durable manifest | `f906975a91e22b01b5335e6d4f74f4cdf73fd48e8ace12d7044a3972c0e1dd54` |
 
-The dry-run identity is not an import record. It was produced in memory from
-the audited live manifest and the additive builder; `import_performed=false`.
+At dry-run creation this identity was not yet an import record; Operator 475
+later imported the exact same manifest identity. The dry-run artifact was
+produced in memory from the audited live manifest and the additive builder;
+`import_performed=false`.
 
 ## Superseded-goal audit
 
