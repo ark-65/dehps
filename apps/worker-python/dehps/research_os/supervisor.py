@@ -14,6 +14,8 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+from psycopg.rows import dict_row
+
 from dehps.agents.repository import AgentRequestRepository
 from dehps.artifacts import atomic_write_text
 from dehps.config import ROOT_DIR
@@ -386,6 +388,31 @@ from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcom
     load_p2_repair_outcome_closure_source_contract,
     replay_p2_repair_outcome_closure,
     verify_p2_repair_outcome_closure_source_bytes,
+)
+from dehps.research_os.information_theory.predictive_route_reconciliation import (
+    ENGINEERING_REQUEST_ID as ROUTE_RECONCILIATION_ENGINEERING_REQUEST_ID,
+    ENGINEERING_EXECUTION_ID as ROUTE_RECONCILIATION_ENGINEERING_EXECUTION_ID,
+    P2R_TO_P6_POLICY,
+    P2R_TO_P6_POLICY_FACT,
+    POLICY_RESEARCH_EXECUTION_ID as ROUTE_POLICY_RESEARCH_EXECUTION_ID,
+    POLICY_RESEARCH_REQUEST_ID as ROUTE_POLICY_RESEARCH_REQUEST_ID,
+    POLICY_RESEARCH_REQUEST_KEY as ROUTE_POLICY_RESEARCH_REQUEST_KEY,
+    PREDICTIVE_ROUTE_DECISION,
+    PREDICTIVE_ROUTE_DECISION_FACT,
+    PREDICTIVE_ROUTE_RECONCILIATION_CAPABILITY,
+    PREDICTIVE_ROUTE_RECONCILIATION_COMPLETION_FACT,
+    PREDICTIVE_ROUTE_RECONCILIATION_SOURCE_CONTRACT_PATH,
+    PREDICTIVE_ROUTE_RECONCILIATION_TASK_KEY,
+    ROUTE_RESEARCH_EXECUTION_ID as ROUTE_RECONCILIATION_RESEARCH_EXECUTION_ID,
+    ROUTE_RESEARCH_REQUEST_ID as ROUTE_RECONCILIATION_RESEARCH_REQUEST_ID,
+    ROUTE_RESEARCH_REQUEST_KEY as ROUTE_RECONCILIATION_RESEARCH_REQUEST_KEY,
+    PredictiveRouteReconciliationArtifacts,
+    build_predictive_route_reconciliation_artifacts,
+    load_predictive_route_reconciliation_source_contract,
+    replay_predictive_route_reconciliation_artifacts,
+    validate_repaired_manifest,
+    validate_result_blind_authorizations,
+    verify_predictive_route_reconciliation_source_bytes,
 )
 from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcome_closure import (
     P25_DECISION_POLICY_DIGEST as P2_CLOSURE_DECISION_POLICY_DIGEST,
@@ -1087,6 +1114,7 @@ _EXECUTION_COMMIT_REPLAY_TASK_KEYS = frozenset(
     {
         M4_P29_GOLDEN_REFERENCE_TASK_KEY,
         M4_P29_RUNTIME_AUDIT_TASK_KEY,
+        PREDICTIVE_ROUTE_RECONCILIATION_TASK_KEY,
     }
 )
 _EXECUTION_COMMIT_REPLAY_THREAD_ENV = {
@@ -1231,6 +1259,11 @@ def _replay_from_execution_commit(
                     "execution-commit replay output is not an object"
                 )
             capability_replay = parsed.get("capability_replay")
+            expected_capability_replay_status = (
+                "REGISTERED_REPLAY_VERIFIED"
+                if task_key == PREDICTIVE_ROUTE_RECONCILIATION_TASK_KEY
+                else "REPLAY_VERIFIED"
+            )
             if (
                 parsed.get("schema_version")
                 != "dehps-research-evidence-supervisor-replay.v1"
@@ -1246,7 +1279,8 @@ def _replay_from_execution_commit(
                 or parsed.get("same_execution_identity") is not True
                 or parsed.get("same_artifact_identity") is not True
                 or not isinstance(capability_replay, dict)
-                or capability_replay.get("status") != "REPLAY_VERIFIED"
+                or capability_replay.get("status")
+                != expected_capability_replay_status
                 or capability_replay.get("manual_input_assembly") is not False
             ):
                 raise MainlineSupervisorError(
@@ -7139,6 +7173,7 @@ class M4MarginalStaticRepairHealthExecutionCapability:
                 "m4_v2_marginal_static_repair_health_preregistration_completion"
             ),
         )
+
         expected_inputs = (
             str(source_contract["artifact_digest"]),
             str(preregistration_execution["artifact_digest"]),
@@ -16936,6 +16971,431 @@ class M4P2RepairOutcomeClosureCapability:
         return payload
 
 
+class M4PredictiveRouteReconciliationCapability:
+    def __init__(
+        self,
+        *,
+        repository: PostgresResearchOSRepository,
+        root_dir: Path = ROOT_DIR,
+        agent_repository: AgentRequestRepository | None = None,
+    ) -> None:
+        self.repository = repository
+        self.root_dir = root_dir
+        self.agent_repository = agent_repository or AgentRequestRepository()
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> CapabilityResult:
+        integration_contract(task)
+        if (
+            control_plane_key != M4_CONTROL_PLANE_KEY
+            or task.task_key != PREDICTIVE_ROUTE_RECONCILIATION_TASK_KEY
+            or task.requested_capability
+            != PREDICTIVE_ROUTE_RECONCILIATION_CAPABILITY
+        ):
+            raise MainlineSupervisorError(
+                "M4-P3 route reconciliation received the wrong task"
+            )
+        source_contract = load_predictive_route_reconciliation_source_contract(
+            self.root_dir / PREDICTIVE_ROUTE_RECONCILIATION_SOURCE_CONTRACT_PATH
+        )
+        verify_predictive_route_reconciliation_source_bytes(
+            root_dir=self.root_dir,
+            contract=source_contract,
+        )
+        expected_inputs = (
+            str(source_contract["artifact_digest"]),
+            str(
+                source_contract["route_research_request"][
+                    "reviewer_approval_decision_digest"
+                ]
+            ),
+            str(
+                source_contract["policy_research_request"][
+                    "reviewer_approval_decision_digest"
+                ]
+            ),
+            str(
+                source_contract["engineering_request"][
+                    "reviewer_approval_decision_digest"
+                ]
+            ),
+        )
+        if task.input_artifact_digests != expected_inputs:
+            raise MainlineSupervisorError(
+                "M4-P3 route reconciliation frozen inputs changed"
+            )
+        manifest = self.repository.load_manifest(
+            control_plane_key=M4_CONTROL_PLANE_KEY
+        )
+        manifest_validation = validate_repaired_manifest(
+            manifest,
+            source_contract=source_contract,
+        )
+        if manifest_validation["governance_completed"] is not False:
+            raise MainlineSupervisorError(
+                "M4-P3 route reconciliation was already completed"
+            )
+        authorization = self._load_authorization(source_contract=source_contract)
+        artifacts = build_predictive_route_reconciliation_artifacts(
+            source_contract=source_contract,
+            authorization=authorization,
+        )
+        replay = replay_predictive_route_reconciliation_artifacts(
+            expected=artifacts,
+            source_contract=source_contract,
+            authorization=authorization,
+        )
+        task_dir = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+        )
+        child_specs = (
+            (
+                task_dir
+                / "artifacts/route-reconciliation"
+                / str(artifacts.reconciliation["artifact_digest"])
+                / "reconciliation.json",
+                artifacts.reconciliation,
+            ),
+            (
+                task_dir
+                / "artifacts/p2r-to-p6-policy"
+                / str(artifacts.p2r_to_p6_policy["artifact_digest"])
+                / "policy.json",
+                artifacts.p2r_to_p6_policy,
+            ),
+            (
+                task_dir
+                / "artifacts/predictive-route-decision"
+                / str(artifacts.route_decision["artifact_digest"])
+                / "decision.json",
+                artifacts.route_decision,
+            ),
+        )
+        for path, payload in child_specs:
+            _persist_immutable(path, payload)
+        execution_payload: dict[str, Any] = {
+            "schema_version": MAINLINE_EXECUTION_SCHEMA,
+            "artifact_type": "research_os_mainline_execution",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "control_plane_key": control_plane_key,
+            "goal_key": task.goal_key,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "status": "COMPLETE",
+            "completion_classification": "VALIDATED_IN_MAINLINE",
+            "input_artifact_digests": list(task.input_artifact_digests),
+            "predictive_route_reconciliation_source_contract_digest": (
+                source_contract["artifact_digest"]
+            ),
+            "audited_durable_manifest_digest": source_contract[
+                "durable_manifest_digest"
+            ],
+            "audited_durable_snapshot_digest": source_contract[
+                "durable_snapshot_digest"
+            ],
+            "m4_p3_predictive_route_reconciliation_digest": (
+                artifacts.reconciliation["artifact_digest"]
+            ),
+            "p2r_to_p6_dependency_policy_digest": (
+                artifacts.p2r_to_p6_policy["artifact_digest"]
+            ),
+            "predictive_p3_route_decision_digest": (
+                artifacts.route_decision["artifact_digest"]
+            ),
+            "predictive_p3_route_decision": PREDICTIVE_ROUTE_DECISION,
+            "p2r_to_p6_policy": P2R_TO_P6_POLICY,
+            "global_routing_status": "dependency_wait",
+            "predictive_p3_status": "dependency_wait",
+            "p2r_status": "PENDING_VALIDATION",
+            "structural_p3_status": "NO_STABLE_STRUCTURAL_UTILITY",
+            "replay_status": replay["status"],
+            "actual_fold_count": 0,
+            "predictive_result_reads": 0,
+            "historical_database_reads": 0,
+            "computation": 0,
+            "new_historical_folds": 0,
+            "evidence_created": False,
+            "promotion_gate_opened": False,
+            "promotion_allowed": False,
+            "registered_artifact_count": 4,
+            "production_action": "none",
+            "production_impact": "none",
+            "git_commit": git_commit,
+            "working_tree_clean": True,
+            "parent_digests": [
+                *task.input_artifact_digests,
+                *(str(item["artifact_digest"]) for item in artifacts.artifacts),
+            ],
+        }
+        identity = dict(execution_payload)
+        identity.pop("artifact_digest")
+        execution_payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.research-os.mainline-execution.v1",
+        )
+        execution_path = task_dir / "execution.json"
+        _persist_immutable(execution_path, execution_payload)
+        registrations = P24InjectedSignalCalibrationCapability._registrations(
+            self,
+            control_plane_key=control_plane_key,
+            task=task,
+            execution_id=execution_id,
+            git_commit=git_commit,
+            child_payloads=child_specs,
+            execution_path=execution_path,
+            execution_payload=execution_payload,
+        )
+        if len(registrations) != 4:
+            raise MainlineSupervisorError(
+                "M4-P3 route reconciliation registration count changed"
+            )
+        return CapabilityResult(
+            execution_artifact=execution_payload,
+            execution_artifact_path=execution_path,
+            registrations=registrations,
+            completion_facts=(
+                PREDICTIVE_ROUTE_RECONCILIATION_COMPLETION_FACT,
+                PREDICTIVE_ROUTE_DECISION_FACT,
+                P2R_TO_P6_POLICY_FACT,
+            ),
+        )
+
+    def verify_registered_replay(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        execution_artifact: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        source_contract = load_predictive_route_reconciliation_source_contract(
+            self.root_dir / PREDICTIVE_ROUTE_RECONCILIATION_SOURCE_CONTRACT_PATH
+        )
+        verify_predictive_route_reconciliation_source_bytes(
+            root_dir=self.root_dir,
+            contract=source_contract,
+        )
+        authorization = self._load_authorization(source_contract=source_contract)
+        expected = build_predictive_route_reconciliation_artifacts(
+            source_contract=source_contract,
+            authorization=authorization,
+        )
+        registrations = self.repository.list_mainline_artifacts(
+            control_plane_key=control_plane_key,
+            execution_id=execution_id,
+        )
+        expected_payloads = (*expected.artifacts, execution_artifact)
+        expected_by_digest = {
+            str(item["artifact_digest"]): item for item in expected_payloads
+        }
+        if len(registrations) != 4 or len(expected_by_digest) != 4:
+            raise MainlineSupervisorError(
+                "M4-P3 route reconciliation registered identity changed"
+            )
+        registration_digests: set[str] = set()
+        registration_paths: set[str] = set()
+        for item in registrations:
+            record = _registration_record(item)
+            expected_payload = expected_by_digest.get(record.artifact_digest)
+            if expected_payload is None:
+                raise MainlineSupervisorError(
+                    "M4-P3 route reconciliation registered identity changed"
+                )
+            _canonical_task_artifact_path(
+                root_dir=self.root_dir,
+                control_plane_key=control_plane_key,
+                task_key=task.task_key,
+                execution_id=execution_id,
+                relative_path=record.artifact_path,
+            )
+            expected_registration_git = str(
+                expected_payload.get("runtime_git_commit")
+                or execution_artifact.get("git_commit")
+                or ""
+            )
+            if (
+                record.control_plane_key != control_plane_key
+                or record.task_key != task.task_key
+                or record.task_digest != task.artifact_digest
+                or record.execution_id != execution_id
+                or record.artifact_type
+                != str(expected_payload.get("artifact_type") or "typed_artifact")
+                or record.schema_version
+                != str(expected_payload.get("schema_version") or "unknown")
+                or record.parent_digests
+                != tuple(
+                    str(value)
+                    for value in expected_payload.get("parent_digests", ())
+                )
+                or record.git_commit != expected_registration_git
+                or record.registration_digest in registration_digests
+                or record.artifact_path in registration_paths
+            ):
+                raise MainlineSupervisorError(
+                    "M4-P3 route reconciliation registered identity changed"
+                )
+            registration_digests.add(record.registration_digest)
+            registration_paths.add(record.artifact_path)
+        _verify_v2_registered_artifacts(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            expected_payloads=expected_payloads,
+        )
+        return replay_predictive_route_reconciliation_artifacts(
+            expected=expected,
+            source_contract=source_contract,
+            authorization=authorization,
+            registered_content_verified=True,
+        )
+
+    def _load_authorization(
+        self, *, source_contract: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        engineering_key = str(
+            source_contract["engineering_request"]["request_key"]
+        )
+        return validate_result_blind_authorizations(
+            source_contract=source_contract,
+            route_research_request=self._request_metadata(
+                ROUTE_RECONCILIATION_RESEARCH_REQUEST_KEY
+            ),
+            route_execution_metadata=self._execution_metadata(
+                request_id=ROUTE_RECONCILIATION_RESEARCH_REQUEST_ID,
+                execution_id=ROUTE_RECONCILIATION_RESEARCH_EXECUTION_ID,
+            ),
+            route_decisions=self._decision_metadata(
+                ROUTE_RECONCILIATION_RESEARCH_REQUEST_KEY
+            ),
+            policy_research_request=self._request_metadata(
+                ROUTE_POLICY_RESEARCH_REQUEST_KEY
+            ),
+            policy_execution_metadata=self._execution_metadata(
+                request_id=ROUTE_POLICY_RESEARCH_REQUEST_ID,
+                execution_id=ROUTE_POLICY_RESEARCH_EXECUTION_ID,
+            ),
+            policy_decisions=self._decision_metadata(
+                ROUTE_POLICY_RESEARCH_REQUEST_KEY
+            ),
+            engineering_request=self._request_metadata(engineering_key),
+            engineering_execution_metadata=self._execution_metadata(
+                request_id=ROUTE_RECONCILIATION_ENGINEERING_REQUEST_ID,
+                execution_id=ROUTE_RECONCILIATION_ENGINEERING_EXECUTION_ID,
+            ),
+            engineering_decisions=self._decision_metadata(engineering_key),
+        )
+
+    def _request_metadata(self, request_key: str) -> dict[str, Any]:
+        request = self.agent_repository.get_request(request_key)
+        return {
+            "id": request.id,
+            "request_key": request.request_key,
+            "request_type": request.request_type,
+            "requested_by_role": request.requested_by_role,
+            "requested_by": request.requested_by,
+            "hypothesis_id": request.hypothesis_id,
+            "experiment_id": request.experiment_id,
+            "parent_request_id": request.parent_request_id,
+            "title": request.title,
+            "summary": request.summary,
+            "payload": request.payload,
+            "status": request.status,
+            "risk_level": request.risk_level,
+            "requires_review": request.requires_review,
+            "metadata": request.metadata,
+        }
+
+    def _decision_metadata(self, request_key: str) -> list[dict[str, Any]]:
+        return [
+            {
+                "id": item.id,
+                "request_id": item.request_id,
+                "previous_status": item.previous_status,
+                "new_status": item.new_status,
+                "decision_code": item.decision_code,
+                "summary": item.summary,
+                "reason": item.reason,
+                "decided_by_role": item.decided_by_role,
+                "decided_by": item.decided_by,
+                "decided_at": item.decided_at,
+                "created_at": item.created_at,
+            }
+            for item in self.agent_repository.list_decisions(request_key)
+        ]
+
+    def _execution_metadata(
+        self, *, request_id: int, execution_id: int
+    ) -> dict[str, Any]:
+        lister = getattr(self.agent_repository, "list_execution_metadata", None)
+        if callable(lister):
+            rows = [dict(item) for item in lister(request_id=request_id)]
+        else:
+            rows = []
+        connection_factory = getattr(
+            self.agent_repository, "_connection_factory", None
+        )
+        if not callable(lister) and connection_factory is None:
+            raise MainlineSupervisorError(
+                "result-blind Agent execution metadata loader is unavailable"
+            )
+        if not callable(lister):
+            with connection_factory() as conn, conn.cursor(
+                row_factory=dict_row
+            ) as cursor:
+                rows = list(
+                    cursor.execute(
+                        """
+                        SELECT id, request_id, executor_role, executor_id,
+                               execution_type, status, environment, run_id,
+                               started_at, completed_at, artifact_paths_json,
+                               created_at
+                        FROM agent_request_executions
+                        WHERE request_id = %s
+                        ORDER BY id
+                        """,
+                        (request_id,),
+                    ).fetchall()
+                )
+        if len(rows) != 1 or int(rows[0].get("id") or 0) != execution_id:
+            raise MainlineSupervisorError(
+                "result-blind Agent execution metadata is not exact-one:"
+                f"{request_id}:{execution_id}"
+            )
+        row = rows[0]
+        artifact_paths = row.get("artifact_paths_json")
+        if not isinstance(artifact_paths, list) or any(
+            not isinstance(value, str) for value in artifact_paths
+        ):
+            raise MainlineSupervisorError(
+                "result-blind Agent execution artifact paths are invalid:"
+                f"{request_id}:{execution_id}"
+            )
+        return {
+            "id": int(row["id"]),
+            "request_id": int(row["request_id"]),
+            "executor_role": str(row["executor_role"]),
+            "executor_id": str(row["executor_id"]),
+            "execution_type": str(row["execution_type"]),
+            "status": str(row["status"]),
+            "environment": str(row["environment"]),
+            "run_id": row.get("run_id"),
+            "started_at": row["started_at"],
+            "completed_at": row.get("completed_at"),
+            "artifact_paths": list(artifact_paths),
+            "created_at": row["created_at"],
+        }
+
+
 def _progress_projection_path(task_key: str) -> Path | None:
     return {
         P26_TASK_KEY: Path(
@@ -16989,6 +17449,12 @@ class ResearchEvidenceSupervisor:
             P2_CLOSURE_CAPABILITY: M4P2RepairOutcomeClosureCapability(
                 repository=self.repository,
                 root_dir=root_dir,
+            ),
+            PREDICTIVE_ROUTE_RECONCILIATION_CAPABILITY: (
+                M4PredictiveRouteReconciliationCapability(
+                    repository=self.repository,
+                    root_dir=root_dir,
+                )
             ),
             M4_P263_COMPATIBILITY_CAPABILITY: (
                 M4P263SupersedingCompatibilityCapability(root_dir=root_dir)
@@ -17617,6 +18083,21 @@ class ResearchEvidenceSupervisor:
             )
             for registration in result.registrations:
                 self.repository.register_mainline_artifact(registration=registration)
+            registered_replay: Mapping[str, Any] | None = None
+            if task.task_key == PREDICTIVE_ROUTE_RECONCILIATION_TASK_KEY:
+                route_capability = self.capabilities[capability]
+                if not isinstance(
+                    route_capability, M4PredictiveRouteReconciliationCapability
+                ):
+                    raise MainlineSupervisorError(
+                        "M4-P3 route reconciliation capability identity changed"
+                    )
+                registered_replay = route_capability.verify_registered_replay(
+                    control_plane_key=self.control_plane_key,
+                    task=task,
+                    execution_id=execution_id,
+                    execution_artifact=result.execution_artifact,
+                )
             completed_at = self.now().isoformat()
             completed = MainlineExecutionEvent(
                 execution_id=execution_id,
@@ -17697,6 +18178,20 @@ class ResearchEvidenceSupervisor:
                                     "joint_only_negative_control_count",
                                     "feasibility_sentinel_count",
                                     "replay_status",
+                                    "predictive_route_reconciliation_source_contract_digest",
+                                    "audited_durable_manifest_digest",
+                                    "audited_durable_snapshot_digest",
+                                    "m4_p3_predictive_route_reconciliation_digest",
+                                    "p2r_to_p6_dependency_policy_digest",
+                                    "predictive_p3_route_decision_digest",
+                                    "predictive_p3_route_decision",
+                                    "p2r_to_p6_policy",
+                                    "predictive_result_reads",
+                                    "historical_database_reads",
+                                    "computation",
+                                    "new_historical_folds",
+                                    "evidence_created",
+                                    "promotion_allowed",
                                     "bootstrap_replicate_count",
                                     "permutation_replicate_count",
                                     "negative_control_id",
@@ -18132,6 +18627,11 @@ class ResearchEvidenceSupervisor:
                                 )
                                 if key in result.execution_artifact
                             },
+                            **(
+                                {"replay_status": registered_replay["status"]}
+                                if registered_replay is not None
+                                else {}
+                            ),
                         }.items()
                     )
                 ),
@@ -18323,6 +18823,7 @@ class ResearchEvidenceSupervisor:
             if resolutions.get(candidate) is not TaskStatus.COMPLETED:
                 continue
             if candidate in {
+                PREDICTIVE_ROUTE_RECONCILIATION_TASK_KEY,
                 M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_TASK_KEY,
                 M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY,
                 M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY,
@@ -18541,6 +19042,20 @@ class ResearchEvidenceSupervisor:
             "joint_only_negative_control_count",
             "feasibility_sentinel_count",
             "replay_status",
+            "predictive_route_reconciliation_source_contract_digest",
+            "audited_durable_manifest_digest",
+            "audited_durable_snapshot_digest",
+            "m4_p3_predictive_route_reconciliation_digest",
+            "p2r_to_p6_dependency_policy_digest",
+            "predictive_p3_route_decision_digest",
+            "predictive_p3_route_decision",
+            "p2r_to_p6_policy",
+            "predictive_result_reads",
+            "historical_database_reads",
+            "computation",
+            "new_historical_folds",
+            "evidence_created",
+            "promotion_allowed",
             "bootstrap_replicate_count",
             "permutation_replicate_count",
             "negative_control_id",
@@ -19116,10 +19631,10 @@ class ResearchEvidenceSupervisor:
     def replay(
         self, *, task_key: str, execution_id: str | None = None
     ) -> dict[str, Any]:
-        if self.control_plane_key == PREDICTION_V2_CONTROL_PLANE_KEY or task_key in {
-            M4_P29_GOLDEN_REFERENCE_TASK_KEY,
-            M4_P29_RUNTIME_AUDIT_TASK_KEY,
-        }:
+        if (
+            self.control_plane_key == PREDICTION_V2_CONTROL_PLANE_KEY
+            or task_key in _EXECUTION_COMMIT_REPLAY_TASK_KEYS
+        ):
             event, artifact, verified_registrations = _load_single_completed_execution(
                 repository=self.repository,
                 root_dir=self.root_dir,
@@ -25950,6 +26465,92 @@ class ResearchEvidenceSupervisor:
                 "evidence_created": False,
                 "manual_input_assembly": False,
             }
+        elif task_key == PREDICTIVE_ROUTE_RECONCILIATION_TASK_KEY:
+            source_contract = load_predictive_route_reconciliation_source_contract(
+                self.root_dir
+                / PREDICTIVE_ROUTE_RECONCILIATION_SOURCE_CONTRACT_PATH
+            )
+            verify_predictive_route_reconciliation_source_bytes(
+                root_dir=self.root_dir,
+                contract=source_contract,
+            )
+            capability = M4PredictiveRouteReconciliationCapability(
+                repository=self.repository,
+                root_dir=self.root_dir,
+            )
+            authorization = capability._load_authorization(
+                source_contract=source_contract
+            )
+            expected = build_predictive_route_reconciliation_artifacts(
+                source_contract=source_contract,
+                authorization=authorization,
+            )
+            stored = PredictiveRouteReconciliationArtifacts(
+                reconciliation=_load_registered_type(
+                    root_dir=self.root_dir,
+                    registrations=registrations,
+                    artifact_type="M4P3PredictiveRouteReconciliationArtifact",
+                ),
+                p2r_to_p6_policy=_load_registered_type(
+                    root_dir=self.root_dir,
+                    registrations=registrations,
+                    artifact_type="P2RToP6DependencyPolicyArtifact",
+                ),
+                route_decision=_load_registered_type(
+                    root_dir=self.root_dir,
+                    registrations=registrations,
+                    artifact_type="PredictiveP3RouteDecisionArtifact",
+                ),
+            )
+            capability_replay = replay_predictive_route_reconciliation_artifacts(
+                expected=stored,
+                source_contract=source_contract,
+                authorization=authorization,
+                registered_content_verified=True,
+            )
+            if (
+                tuple(dict(item) for item in stored.artifacts)
+                != tuple(dict(item) for item in expected.artifacts)
+                or artifact.get(
+                    "m4_p3_predictive_route_reconciliation_digest"
+                )
+                != expected.reconciliation["artifact_digest"]
+                or artifact.get("p2r_to_p6_dependency_policy_digest")
+                != expected.p2r_to_p6_policy["artifact_digest"]
+                or artifact.get("predictive_p3_route_decision_digest")
+                != expected.route_decision["artifact_digest"]
+                or artifact.get("predictive_p3_route_decision")
+                != PREDICTIVE_ROUTE_DECISION
+                or artifact.get("p2r_to_p6_policy") != P2R_TO_P6_POLICY
+                or artifact.get(
+                    "predictive_route_reconciliation_source_contract_digest"
+                )
+                != source_contract["artifact_digest"]
+                or artifact.get("audited_durable_manifest_digest")
+                != source_contract["durable_manifest_digest"]
+                or artifact.get("audited_durable_snapshot_digest")
+                != source_contract["durable_snapshot_digest"]
+                or artifact.get("replay_status")
+                != "DETERMINISTIC_REBUILD_VERIFIED"
+                or artifact.get("registered_artifact_count") != 4
+                or artifact.get("actual_fold_count") != 0
+                or artifact.get("predictive_result_reads") != 0
+                or artifact.get("historical_database_reads") != 0
+                or artifact.get("computation") != 0
+                or artifact.get("new_historical_folds") != 0
+                or artifact.get("evidence_created") is not False
+                or artifact.get("promotion_gate_opened") is not False
+                or artifact.get("promotion_allowed") is not False
+                or artifact.get("production_action") != "none"
+            ):
+                raise MainlineSupervisorError(
+                    "M4-P3 route reconciliation replay identity changed"
+                )
+            _verify_v2_registered_artifacts(
+                root_dir=self.root_dir,
+                registrations=registrations,
+                expected_payloads=(*expected.artifacts, artifact),
+            )
         elif task_key == P26_REPAIR_TASK_KEY:
             repair = run_measurement_contract_repair(
                 root_dir=self.root_dir,
@@ -26252,6 +26853,12 @@ class ResearchEvidenceSupervisor:
                 self._latest_completed_summary_for_tasks(
                     snapshot,
                     (M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_TASK_KEY,),
+                )
+            ),
+            predictive_route_reconciliation_summary=(
+                self._latest_completed_summary_for_tasks(
+                    snapshot,
+                    (PREDICTIVE_ROUTE_RECONCILIATION_TASK_KEY,),
                 )
             ),
             golden_reference_execution=self._latest_completed_summary_for_tasks(

@@ -192,6 +192,7 @@ def _historical_recovery_base() -> dict:
             "m4-p3-result-blind-structural-utility-blind-generator-and-walk-forward",
             "m4-p3-result-blind-structural-utility-evidence-compiler",
             "m4-p2r-measurement-repair-validation",
+            "m4-p3-predictive-route-reconciliation",
         }
     ]
     payload["facts"]["artifacts"] = [
@@ -206,6 +207,9 @@ def _historical_recovery_base() -> dict:
         and not fact.startswith(
             "m4-p3-result-blind-structural-utility-execution-source:"
         )
+        and not fact.startswith(
+            "m4-p3-predictive-route-reconciliation-source:"
+        )
     ]
     payload["facts"]["external_events"] = [
         event
@@ -215,6 +219,9 @@ def _historical_recovery_base() -> dict:
             "research-contract:prediction-v2-balanced-design-structural-utility:approved",
             "research-contract:m4-p3-result-blind-structural-utility-preregistration:approved",
             "research-contract:m4-p3-result-blind-structural-utility-blind-generator-and-walk-forward:approved",
+            "research-contract:m4-p3-predictive-route-reconciliation:approved",
+            "research-contract:m4-p2r-to-p6-dependency-policy:approved",
+            "engineering-contract:m4-p3-predictive-route-reconciliation:approved",
         }
     ]
     assert len(payload["tasks"]) == 71

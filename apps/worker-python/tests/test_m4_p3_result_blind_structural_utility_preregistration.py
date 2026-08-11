@@ -310,6 +310,7 @@ def _failed_recovery_inputs() -> tuple[dict, tuple[dict, ...], tuple[dict, ...]]
         not in {
             "m4-p3-result-blind-structural-utility-evidence-compiler",
             "m4-p2r-measurement-repair-validation",
+            "m4-p3-predictive-route-reconciliation",
         }
     ]
     payload["facts"]["artifacts"] = [
@@ -318,12 +319,21 @@ def _failed_recovery_inputs() -> tuple[dict, tuple[dict, ...], tuple[dict, ...]]
         if not item.startswith(
             "m4-p3-result-blind-structural-utility-execution-source:"
         )
+        and not item.startswith(
+            "m4-p3-predictive-route-reconciliation-source:"
+        )
     ]
     payload["facts"]["external_events"] = [
         item
         for item in payload["facts"]["external_events"]
-        if item != "research-contract:m4-p3-result-blind-structural-utility-"
-        "blind-generator-and-walk-forward:approved"
+        if item
+        not in {
+            "research-contract:m4-p3-result-blind-structural-utility-"
+            "blind-generator-and-walk-forward:approved",
+            "research-contract:m4-p3-predictive-route-reconciliation:approved",
+            "research-contract:m4-p2r-to-p6-dependency-policy:approved",
+            "engineering-contract:m4-p3-predictive-route-reconciliation:approved",
+        }
     ]
     task = next(
         item

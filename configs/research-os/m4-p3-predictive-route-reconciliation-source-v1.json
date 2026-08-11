@@ -1,0 +1,190 @@
+{
+  "schema_version": "dehps-m4-p3-predictive-route-reconciliation-source.v1",
+  "artifact_type": "m4_p3_predictive_route_reconciliation_source",
+  "artifact_digest": "911fa45a1276ecc0502ad569760ceffbf2257dfaca42f8ec8bf1f4249af666ea",
+  "contract_key": "M4_P3_PREDICTIVE_ROUTE_RECONCILIATION_SOURCE",
+  "inspected_main_sha": "f58f46829f0dede149bc5f116e0fd660768d3a82",
+  "static_manifest_digest": "f3f263d3ef9c5028223070b7fc228c2ef95ffc315a86479d17ebccb0a87b890b",
+  "durable_manifest_digest": "0194d06a18cfbf51394af87aaf03149a440fc1f39f608e0acbe8fd0df75ca763",
+  "durable_snapshot_digest": "e7466e5b8752630c21c808b8dc2e7b27d197fd9a80d023ca001762b83b9be591",
+  "route_decision": "DAG_REPAIR_REQUIRED",
+  "p2r_to_p6_policy": "RESEARCH_ALLOWED_PROMOTION_BLOCKED",
+  "prediction_p3_task_identity": {
+    "task_key": "m4-p3-strict-historical-walk-forward",
+    "static_task_digest": "51dc1cee3f27ebf1f59717c0f8a2c70a1c4126b5ca5faa20189d8e50b0219e41",
+    "durable_task_digest": "098f891cf64188b830d9be7fb0cc0b2ebff5e02eae03213d641e51f4fa99e855",
+    "same_task_key": true,
+    "successor_created": false
+  },
+  "actual_dependencies": [
+    {
+      "dependency_type": "task",
+      "target_key": "m4-p2-synthetic-measurement-validation",
+      "required_status": "completed"
+    },
+    {
+      "dependency_type": "artifact",
+      "target_key": "m4-p2-measurement-decision:PASS_TO_P3",
+      "required_status": "available"
+    }
+  ],
+  "source_dependencies": [
+    {
+      "dependency_type": "task",
+      "target_key": "m4-v2-global-routing",
+      "required_status": "completed"
+    },
+    {
+      "dependency_type": "artifact",
+      "target_key": "m4-v2-routing:ADAPTIVE_RESEARCH_ELIGIBLE",
+      "required_status": "available"
+    }
+  ],
+  "detected_drift": true,
+  "global_routing_state": {
+    "task_key": "m4-v2-global-routing",
+    "declared_status": "draft",
+    "status": "dependency_wait",
+    "completion_classification": "INTEGRATION_PENDING",
+    "requested_capability": null,
+    "missing_branch_task_count": 3
+  },
+  "adaptive_research_eligible_fact": {
+    "fact": "m4-v2-routing:ADAPTIVE_RESEARCH_ELIGIBLE",
+    "available": false
+  },
+  "p4_p5_p6_dependency_graph": {
+    "p4": {
+      "task": "m4-p4-negative-controls-and-robustness",
+      "requires_predictive_p3_completed": true,
+      "requires_explicit_pass_fact": "m4-p3-predictive-decision:PASS_TO_P4"
+    },
+    "p5": {
+      "task": "m4-p5-forward-evidence",
+      "requires_p4_completed": true,
+      "p2r_hard_dependency": false
+    },
+    "p6": {
+      "task": "m4-p6-information-bound-and-decision",
+      "requires_policy_fact": "m4-p2r-to-p6-dependency-policy:RESEARCH_ALLOWED_PROMOTION_BLOCKED",
+      "p2r_hard_task_dependency": false,
+      "promotion_fail_closed": true
+    }
+  },
+  "structural_p3_terminal_state": {
+    "goal": "M4_P3_RESULT_BLIND_STRUCTURAL_UTILITY",
+    "decision": "NO_STABLE_STRUCTURAL_UTILITY",
+    "terminal": true,
+    "folds": 90,
+    "bootstrap_resamples": 20000,
+    "passed_gates": "8/12",
+    "mainline": "VALIDATED_IN_MAINLINE",
+    "replay": "REPLAY_VERIFIED",
+    "reopened": false
+  },
+  "old_goal_work_classification": {
+    "A_governance_reusable": [],
+    "B_successor_work": [],
+    "C_result_blindness_breach": [],
+    "D_pull_requests": [],
+    "result_blindness_potentially_breached": false
+  },
+  "estimand_relationship": {
+    "primary_endpoint": "out_of_sample_log_loss_improvement",
+    "equal_budget_100_ticket_comparison_role": "SEPARATE_FUTURE_SECONDARY_OR_DOWNSTREAM_CONTRACT",
+    "scientific_endpoint_changed": false,
+    "contracts_merged": false
+  },
+  "policy_effects": {
+    "p2r_blocks_p3": false,
+    "p2r_blocks_p4": false,
+    "p2r_blocks_p5": false,
+    "p6_research_summary_allowed_without_p2r": true,
+    "promotion_blocked_until_p2r_acceptance": true,
+    "prediction_v2_mode": "SHADOW_ONLY",
+    "prediction_v2_route": "BASELINE_ONLY"
+  },
+  "route_research_request": {
+    "request_key": "research-m4-p3-predictive-route-reconciliation",
+    "request_id": 472,
+    "execution_id": 393,
+    "reviewer_approval_decision_id": 1969,
+    "request_identity_digest": "e0b549439cffdba5c4e6f8cb895ede3777484cc65eb8a6de4a8810a300aceb1c",
+    "execution_metadata_digest": "c971b2ac7abab85f3b62ec14bfb75a2f91ab1a9908992feee5860638a3b9b291",
+    "reviewer_approval_decision_digest": "219eeb8d6a9ea2fed873274da9eaa5a870449a7fdc7266b2781ad3f49302e663"
+  },
+  "policy_research_request": {
+    "request_key": "research-m4-p2r-to-p6-dependency-policy",
+    "request_id": 473,
+    "execution_id": 394,
+    "reviewer_approval_decision_id": 1970,
+    "request_identity_digest": "9df175d26734b4ec27d13aa33c255eeccbdc34180800f2a6e7c1915ae38c76f5",
+    "execution_metadata_digest": "31d96f736f4bfb943d08aa0b9a98d9d5b5db596b2cfbdb35fd43855787076cfa",
+    "reviewer_approval_decision_digest": "63b1468e71606c5625317980ce22a02abdea2a253381a3d7a45cc1683c5ffd06"
+  },
+  "engineering_request": {
+    "request_key": "engineering-m4-p3-predictive-route-reconciliation-round-139-20260811",
+    "request_id": 474,
+    "execution_id": 395,
+    "reviewer_approval_decision_id": 1977,
+    "request_identity_digest": "0dc7b719130823c9a6c6b5527914548093e8fa5b7ac97d8735e3679f8c36f883",
+    "execution_metadata_digest": "657324336ca5215d47206f240fe76966db21f02180ce5ec953903eb89e5e1b54",
+    "reviewer_approval_decision_digest": "bd543c2944e4c0e44e120e463cb057635137d24289e878540235144000cf9679"
+  },
+  "policy_rationale": {
+    "selection": "RESEARCH_ALLOWED_PROMOTION_BLOCKED",
+    "reason": "P2R is independent of research readiness, while production promotion remains fail-closed pending its frozen acceptance fact."
+  },
+  "route_decision_rationale": {
+    "selection": "DAG_REPAIR_REQUIRED",
+    "reason": "The canonical source P3 dependencies and durable P3 dependencies differ, while every legal global-routing prerequisite remains absent."
+  },
+  "next_legal_task": {
+    "state": "dependency_wait",
+    "task_key": "m4-v2-global-routing",
+    "waits_for": [
+      "m4-v2-branch-decision-replay:MARGINAL_HISTORICAL:VERIFIED",
+      "m4-v2-branch-decision-replay:TEMPORAL_MARGINAL_INCREMENT:VERIFIED",
+      "m4-v2-branch-decision-replay:JOINT_RESIDUAL_INCREMENT:VERIFIED"
+    ],
+    "adaptive_fact_required_after_global_routing": "m4-v2-routing:ADAPTIVE_RESEARCH_ELIGIBLE"
+  },
+  "result_payload_reads": 0,
+  "historical_database_reads": 0,
+  "computation": 0,
+  "new_historical_folds": 0,
+  "evidence_created": false,
+  "promotion_gate_opened": false,
+  "production_action": "none",
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/predictive_route_reconciliation.py",
+      "content_sha256": "9d518818af105c10a361603078865815071b0018e3e375549b666b9440713968"
+    },
+    {
+      "path": "apps/worker-python/scripts/build_m4_p3_predictive_route_reconciliation_manifest.py",
+      "content_sha256": "19b8fa7094142ab6f6c58769ce2024075ee0e046eac8725cb26e67ab50c6ed12"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/control_plane.py",
+      "content_sha256": "4440b4f08380e8d635af76351acbc486a1a7297dba7f268b95fa8abd4e4bda18"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/models.py",
+      "content_sha256": "85167237d77fb3d2d88c6262eceae9685c611343c8b9a19fc1c71ac278c08bc4"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/migration.py",
+      "content_sha256": "6c84674ac9b3c9985d32936e1229861f44b42f40f6225069396f200a69924e42"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/supervisor.py",
+      "content_sha256": "6457c5e49cbf55237d6f2678048dbb15f6c8670d6cf27f652aa564f4e840f8ee"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/progress.py",
+      "content_sha256": "ba38a1091d6c9fa68f3e9a9bf31ed0da82a097e371fec5f2438ab77a3b803a2d"
+    }
+  ],
+  "source_set_digest": "d165970cfd364ccb5dc234e7644217be3efe0bdc9e2cfa14e91b39867465a771"
+}
