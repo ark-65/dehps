@@ -927,10 +927,22 @@
       "superseded_by_digest": "f3f263d3ef9c5028223070b7fc228c2ef95ffc315a86479d17ebccb0a87b890b"
     },
     "f3f263d3ef9c5028223070b7fc228c2ef95ffc315a86479d17ebccb0a87b890b": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "supersedes_digest": "a3aeacf15146fd0c55098eb3306e60ef1aa0e40d160a181ad1306b2b9744c5a6",
+      "source_commit": "f58f46829f0dede149bc5f116e0fd660768d3a82",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "superseded_by_digest": "f8f6375b04359676d47a5c56c9f0b38874466ecf88d5a92f4c54115e39a2035a"
+    },
+    "911fa45a1276ecc0502ad569760ceffbf2257dfaca42f8ec8bf1f4249af666ea": {
+      "artifact_type": "m4_p3_predictive_route_reconciliation_source",
+      "path": "configs/research-os/m4-p3-predictive-route-reconciliation-source-v1.json",
+      "identity_field": "artifact_digest"
+    },
+    "f8f6375b04359676d47a5c56c9f0b38874466ecf88d5a92f4c54115e39a2035a": {
       "artifact_type": "research_os_control_plane_manifest",
       "path": "configs/research-os/m4-information-theory-evidence-v1.json",
       "identity_field": "manifest_digest",
-      "supersedes_digest": "a3aeacf15146fd0c55098eb3306e60ef1aa0e40d160a181ad1306b2b9744c5a6"
+      "supersedes_digest": "f3f263d3ef9c5028223070b7fc228c2ef95ffc315a86479d17ebccb0a87b890b"
     }
   },
   "lookup_rule": "digest_must_equal_the_artifact_identity_at_the_registered_canonical_path",

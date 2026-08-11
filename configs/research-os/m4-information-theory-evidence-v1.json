@@ -5158,7 +5158,12 @@
         "evidence_complete": false,
         "evidence_weight_percent": 20,
         "phase": "M4-P3",
-        "primary_endpoint": "out_of_sample_log_loss_improvement"
+        "primary_endpoint": "out_of_sample_log_loss_improvement",
+        "route_decision": "DAG_REPAIR_REQUIRED",
+        "route_identity_repaired": true,
+        "scientific_contract_changed": false,
+        "ticket_budget_comparison_relationship": "SEPARATE_FUTURE_SECONDARY_OR_DOWNSTREAM_CONTRACT",
+        "promotion_allowed": false
       }
     },
     {
@@ -5172,6 +5177,11 @@
           "dependency_type": "task",
           "target_key": "m4-p3-strict-historical-walk-forward",
           "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p3-predictive-decision:PASS_TO_P4",
+          "required_status": "available"
         }
       ],
       "metric_contract": {
@@ -5181,7 +5191,11 @@
         "evidence_weight_percent": 25,
         "negative_control_count": 6,
         "phase": "M4-P4",
-        "sensitivity_family_count": 5
+        "sensitivity_family_count": 5,
+        "predictive_p3_pass_fact": "m4-p3-predictive-decision:PASS_TO_P4",
+        "task_completion_alone_unlocks_p4": false,
+        "p2r_blocks_research": false,
+        "promotion_allowed": false
       }
     },
     {
@@ -5260,6 +5274,11 @@
           "dependency_type": "task",
           "target_key": "m4-p5-forward-evidence",
           "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p2r-to-p6-dependency-policy:RESEARCH_ALLOWED_PROMOTION_BLOCKED",
+          "required_status": "available"
         }
       ],
       "metric_contract": {
@@ -5268,7 +5287,15 @@
         "engineering_weight_percent": 10,
         "evidence_complete": false,
         "evidence_weight_percent": 10,
-        "phase": "M4-P6"
+        "phase": "M4-P6",
+        "p2r_to_p6_policy": "RESEARCH_ALLOWED_PROMOTION_BLOCKED",
+        "p2r_blocks_research_summary": false,
+        "p2r_blocks_promotion": true,
+        "promotion_release_fact": "m4-p2r-measurement-repair-validation:ALL_FROZEN_ACCEPTANCE_PASS",
+        "promotion_gate_default": "FAIL_CLOSED",
+        "promotion_allowed_in_this_capability": false,
+        "prediction_v2_mode_while_p2r_pending": "SHADOW_ONLY",
+        "prediction_v2_route_while_p2r_pending": "BASELINE_ONLY"
       }
     },
     {
@@ -5588,6 +5615,100 @@
       },
       "status": "draft",
       "completion_classification": "INTEGRATION_PENDING"
+    },
+    {
+      "task_key": "m4-p3-predictive-route-reconciliation",
+      "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
+      "task_type": "m4_p3_predictive_route_reconciliation",
+      "lane": "research",
+      "priority": 103,
+      "dependencies": [
+        {
+          "dependency_type": "task",
+          "target_key": "m4-p2-synthetic-measurement-validation",
+          "required_status": "completed"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p2-closure:COMPLETE_WITH_REPAIR_OUTCOME",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p3-result-blind-structural-utility-evidence-compiler:COMPLETE",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "artifact",
+          "target_key": "m4-p3-predictive-route-reconciliation-source:911fa45a1276ecc0502ad569760ceffbf2257dfaca42f8ec8bf1f4249af666ea",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "external_event",
+          "target_key": "research-contract:m4-p3-predictive-route-reconciliation:approved",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "external_event",
+          "target_key": "research-contract:m4-p2r-to-p6-dependency-policy:approved",
+          "required_status": "available"
+        },
+        {
+          "dependency_type": "external_event",
+          "target_key": "engineering-contract:m4-p3-predictive-route-reconciliation:approved",
+          "required_status": "available"
+        }
+      ],
+      "input_artifact_digests": [
+        "911fa45a1276ecc0502ad569760ceffbf2257dfaca42f8ec8bf1f4249af666ea",
+        "219eeb8d6a9ea2fed873274da9eaa5a870449a7fdc7266b2781ad3f49302e663",
+        "63b1468e71606c5625317980ce22a02abdea2a253381a3d7a45cc1683c5ffd06",
+        "bd543c2944e4c0e44e120e463cb057635137d24289e878540235144000cf9679"
+      ],
+      "requested_capability": "m4_p3_predictive_route_reconciliation",
+      "metric_contract": {
+        "engineering_complete": true,
+        "engineering_increment_percent": 0,
+        "evidence_complete": false,
+        "evidence_increment_percent": 0,
+        "phase": "M4-P3-ROUTE-RECONCILIATION",
+        "scope": "compile_result_blind_route_and_p2r_to_p6_policy_facts",
+        "selected_route_decision": "DAG_REPAIR_REQUIRED",
+        "selected_p2r_to_p6_policy": "RESEARCH_ALLOWED_PROMOTION_BLOCKED",
+        "scientific_contract_changed": false,
+        "predictive_result_reads": 0,
+        "historical_database_reads": 0,
+        "new_historical_folds": 0,
+        "computation": 0,
+        "evidence_created": false,
+        "promotion_gate_opened": false,
+        "production_action": "none",
+        "mainline_integration": {
+          "goal": "M4_INFORMATION_THEORY_EVIDENCE",
+          "ready_condition": "P2 repair-outcome closure and terminal structural-P3 compiler are complete; the source contract plus route, policy, and Engineering approvals are available",
+          "runner": "research_evidence_supervisor",
+          "upstream_artifacts": [
+            "P2 COMPLETE_WITH_REPAIR_OUTCOME closure",
+            "terminal NO_STABLE_STRUCTURAL_UTILITY compiler completion",
+            "Research Request 472 / Execution 393 / Decision 1969",
+            "Research Request 473 / Execution 394 / Decision 1970",
+            "Engineering Request 474 / Execution 395 / Decision 1977",
+            "frozen route reconciliation source contract"
+          ],
+          "downstream_artifacts": [
+            "M4P3PredictiveRouteReconciliationArtifact",
+            "P2RToP6DependencyPolicyArtifact",
+            "PredictiveP3RouteDecisionArtifact",
+            "canonical zero-work mainline execution"
+          ],
+          "status_projection": "unified_m4_status.predictive_route_reconciliation",
+          "evidence_progress_rule": "always_zero_governance_only",
+          "decision_consumer": "m4-p3-strict-historical-walk-forward",
+          "downstream_consumer": "m4-v2-global-routing dependency wait and future predictive-P3 PASS-only P4 gate"
+        }
+      },
+      "status": "draft",
+      "completion_classification": "INTEGRATION_PENDING"
     }
   ],
   "facts": {
@@ -5671,6 +5792,7 @@
       "m4-p3-result-blind-structural-utility-preregistration-source:72f5032c40d339946f014f7f333dd400f9ccf3a8a48250943ee1143e347687b8",
       "m4-p3-result-blind-structural-utility-execution-source:8f123b06647d509000f0e4e291087438b3009f6c1ec3e5cab327600c3bca14f6",
       "m4-p3-result-blind-structural-utility-evidence-compiler-source:de6bc5340c4d33cb95d48108b6087dd4e2e468bca660e468cfe3c0c2ff1211b7",
+      "m4-p3-predictive-route-reconciliation-source:911fa45a1276ecc0502ad569760ceffbf2257dfaca42f8ec8bf1f4249af666ea",
       "m4-p2-repair-outcome-closure-source:1f1b59c71345dc9d7de8bc7e0c4472c2759e99442f7c539373ec41ae78066929"
     ],
     "evidence": [
@@ -5688,9 +5810,12 @@
       "research-contract:m4-p3-result-blind-structural-utility-preregistration:approved",
       "research-contract:m4-p3-result-blind-structural-utility-blind-generator-and-walk-forward:approved",
       "research-contract:m4-p3-result-blind-structural-utility-evidence-compiler:approved",
-      "research-contract:m4-p2-repair-outcome-closure:approved"
+      "research-contract:m4-p2-repair-outcome-closure:approved",
+      "research-contract:m4-p3-predictive-route-reconciliation:approved",
+      "research-contract:m4-p2r-to-p6-dependency-policy:approved",
+      "engineering-contract:m4-p3-predictive-route-reconciliation:approved"
     ],
     "authorities": []
   },
-  "manifest_digest": "f3f263d3ef9c5028223070b7fc228c2ef95ffc315a86479d17ebccb0a87b890b"
+  "manifest_digest": "f8f6375b04359676d47a5c56c9f0b38874466ecf88d5a92f4c54115e39a2035a"
 }

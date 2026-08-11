@@ -21,6 +21,28 @@ from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcom
 from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcome_closure import (
     RESEARCH_REQUEST_ID as P2_CLOSURE_RESEARCH_REQUEST_ID,
 )
+from dehps.research_os.information_theory.predictive_route_reconciliation import (
+    ADAPTIVE_RESEARCH_ELIGIBILITY_FACT,
+    GLOBAL_ROUTING_BRANCH_REPLAY_FACTS,
+    GLOBAL_ROUTING_TASK_KEY,
+    P2R_TO_P6_POLICY,
+    P2R_TO_P6_POLICY_FACT,
+    P4_TASK_KEY as PREDICTIVE_P4_TASK_KEY,
+    P5_TASK_KEY as PREDICTIVE_P5_TASK_KEY,
+    P6_TASK_KEY as PREDICTIVE_P6_TASK_KEY,
+    PREDICTIVE_P3_PASS_TO_P4_FACT,
+    PREDICTIVE_P3_PRIMARY_ENDPOINT,
+    PREDICTIVE_P3_TASK_KEY,
+    PREDICTIVE_ROUTE_DECISION,
+    PREDICTIVE_ROUTE_DECISION_FACT,
+    PREDICTIVE_ROUTE_RECONCILIATION_CAPABILITY,
+    PREDICTIVE_ROUTE_RECONCILIATION_COMPLETION_FACT,
+    PREDICTIVE_ROUTE_RECONCILIATION_DURABLE_MANIFEST_DIGEST,
+    PREDICTIVE_ROUTE_RECONCILIATION_DURABLE_SNAPSHOT_DIGEST,
+    PREDICTIVE_ROUTE_RECONCILIATION_TASK_KEY,
+    PredictiveRouteReconciliationError,
+    validate_repaired_manifest_structure,
+)
 from dehps.research_os.models import (
     ControlPlaneManifest,
     GoalStatus,
@@ -481,6 +503,14 @@ def manifest_with_contract_repair_pending(
     return ControlPlaneManifest.from_dict(payload)
 
 
+def _is_sha256(value: object) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
 def build_m4_status(
     manifest: ControlPlaneManifest,
     *,
@@ -491,6 +521,7 @@ def build_m4_status(
     runtime_audit_execution: dict[str, Any] | None = None,
     m4_p3_execution_summary: dict[str, Any] | None = None,
     m4_p3_evidence_compiler_summary: dict[str, Any] | None = None,
+    predictive_route_reconciliation_summary: dict[str, Any] | None = None,
     dispatch_performed: bool = False,
 ) -> dict[str, Any]:
     if (
@@ -1259,6 +1290,103 @@ def build_m4_status(
         and P2_CLOSURE_COMPLETION_FACT in manifest.facts.artifacts
     )
     p2r_resolution = resolutions.get(P2R_TASK_KEY)
+    predictive_route_task = tasks.get(PREDICTIVE_ROUTE_RECONCILIATION_TASK_KEY)
+    predictive_route_resolution = resolutions.get(
+        PREDICTIVE_ROUTE_RECONCILIATION_TASK_KEY
+    )
+    global_routing_resolution = resolutions.get(GLOBAL_ROUTING_TASK_KEY)
+    predictive_p3_resolution = resolutions.get(PREDICTIVE_P3_TASK_KEY)
+    predictive_p4_resolution = resolutions.get(PREDICTIVE_P4_TASK_KEY)
+    predictive_p5_resolution = resolutions.get(PREDICTIVE_P5_TASK_KEY)
+    predictive_p6_resolution = resolutions.get(PREDICTIVE_P6_TASK_KEY)
+    predictive_route_integrated = (
+        predictive_route_task is not None
+        and predictive_route_task.requested_capability
+        == PREDICTIVE_ROUTE_RECONCILIATION_CAPABILITY
+    )
+    route_structure_error: str | None = None
+    route_structure_valid = False
+    if predictive_route_integrated:
+        try:
+            route_structure_valid = (
+                validate_repaired_manifest_structure(manifest).get("status")
+                == "VERIFIED"
+            )
+        except PredictiveRouteReconciliationError as exc:
+            route_structure_error = str(exc)
+    route_summary = predictive_route_reconciliation_summary or {}
+    route_summary_valid = (
+        predictive_route_integrated
+        and route_structure_valid
+        and route_summary.get("artifact_type") == "research_os_mainline_execution"
+        and route_summary.get("execution_task_key")
+        == PREDICTIVE_ROUTE_RECONCILIATION_TASK_KEY
+        and route_summary.get("task_key")
+        == PREDICTIVE_ROUTE_RECONCILIATION_TASK_KEY
+        and route_summary.get("task_digest")
+        == predictive_route_task.artifact_digest
+        and route_summary.get("capability")
+        == PREDICTIVE_ROUTE_RECONCILIATION_CAPABILITY
+        and route_summary.get("status") == "COMPLETE"
+        and route_summary.get("completion_classification")
+        == "VALIDATED_IN_MAINLINE"
+        and _is_sha256(route_summary.get("artifact_digest"))
+        and route_summary.get("execution_artifact_digest")
+        == route_summary.get("artifact_digest")
+        and len(predictive_route_task.input_artifact_digests) >= 1
+        and route_summary.get(
+            "predictive_route_reconciliation_source_contract_digest"
+        )
+        == predictive_route_task.input_artifact_digests[0]
+        and route_summary.get("audited_durable_manifest_digest")
+        == PREDICTIVE_ROUTE_RECONCILIATION_DURABLE_MANIFEST_DIGEST
+        and route_summary.get("audited_durable_snapshot_digest")
+        == PREDICTIVE_ROUTE_RECONCILIATION_DURABLE_SNAPSHOT_DIGEST
+        and all(
+            _is_sha256(route_summary.get(key))
+            for key in (
+                "m4_p3_predictive_route_reconciliation_digest",
+                "p2r_to_p6_dependency_policy_digest",
+                "predictive_p3_route_decision_digest",
+            )
+        )
+        and route_summary.get("predictive_p3_route_decision")
+        == PREDICTIVE_ROUTE_DECISION
+        and route_summary.get("p2r_to_p6_policy") == P2R_TO_P6_POLICY
+        and set(route_summary.get("completion_facts") or ())
+        == {
+            PREDICTIVE_ROUTE_RECONCILIATION_COMPLETION_FACT,
+            PREDICTIVE_ROUTE_DECISION_FACT,
+            P2R_TO_P6_POLICY_FACT,
+        }
+        and route_summary.get("registered_artifact_count") == 4
+        and route_summary.get("actual_fold_count") == 0
+        and route_summary.get("predictive_result_reads") == 0
+        and route_summary.get("historical_database_reads") == 0
+        and route_summary.get("computation") == 0
+        and route_summary.get("new_historical_folds") == 0
+        and route_summary.get("evidence_created") is False
+        and route_summary.get("promotion_gate_opened") is False
+        and route_summary.get("promotion_allowed") is False
+        and route_summary.get("production_action") == "none"
+        and route_summary.get("replay_status") == "REGISTERED_REPLAY_VERIFIED"
+    )
+    predictive_route_complete = (
+        predictive_route_integrated
+        and predictive_route_resolution is not None
+        and predictive_route_resolution.status is TaskStatus.COMPLETED
+        and route_summary_valid
+        and {
+            PREDICTIVE_ROUTE_RECONCILIATION_COMPLETION_FACT,
+            PREDICTIVE_ROUTE_DECISION_FACT,
+            P2R_TO_P6_POLICY_FACT,
+        }.issubset(manifest.facts.artifacts)
+    )
+    missing_global_routing_facts = [
+        fact
+        for fact in GLOBAL_ROUTING_BRANCH_REPLAY_FACTS
+        if fact not in manifest.facts.artifacts
+    ]
     current_phase = (
         "M4-P1"
         if not repair_complete
@@ -1491,6 +1619,16 @@ def build_m4_status(
                 "M4-P3 remains active and non-blocked by M4-P2R",
             ]
         )
+    if predictive_route_complete:
+        completed.extend(
+            [
+                "predictive-P3 source and durable dependency identities reconciled",
+                "DAG_REPAIR_REQUIRED frozen without creating a successor",
+                "P2R-to-P6 RESEARCH_ALLOWED_PROMOTION_BLOCKED policy frozen",
+                "P4 explicit predictive-P3 PASS fact gate installed",
+                "zero-work route governance validated in unified mainline and replay",
+            ]
+        )
     if repair_complete:
         completed.append(
             "injected-signal calibration truth and tolerance contract repaired"
@@ -1559,6 +1697,248 @@ def build_m4_status(
             "m4_p3_dependency": False,
             "evidence_created": False,
             "promotion_gate_opened": False,
+            "production_action": "none",
+        },
+        "predictive_route_reconciliation": {
+            "task_key": PREDICTIVE_ROUTE_RECONCILIATION_TASK_KEY,
+            "structural_manifest_valid": route_structure_valid,
+            "structural_validation_error": route_structure_error,
+            "status": (
+                "COMPLETE"
+                if predictive_route_complete
+                else (
+                    "INTEGRATION_PENDING"
+                    if predictive_route_integrated
+                    else "NOT_INTEGRATED"
+                )
+            ),
+            "resolver_status": (
+                None
+                if predictive_route_resolution is None
+                else predictive_route_resolution.status.value
+            ),
+            "resolver_reason_code": (
+                None
+                if predictive_route_resolution is None
+                else predictive_route_resolution.reason_code
+            ),
+            "completion_fact_registered": (
+                PREDICTIVE_ROUTE_RECONCILIATION_COMPLETION_FACT
+                in manifest.facts.artifacts
+            ),
+            "route_decision": (
+                PREDICTIVE_ROUTE_DECISION if route_structure_valid else None
+            ),
+            "route_decision_fact_registered": (
+                PREDICTIVE_ROUTE_DECISION_FACT in manifest.facts.artifacts
+            ),
+            "p2r_to_p6_policy": (
+                P2R_TO_P6_POLICY if route_structure_valid else None
+            ),
+            "policy_fact_registered": (
+                P2R_TO_P6_POLICY_FACT in manifest.facts.artifacts
+            ),
+            "detected_drift": (
+                "STATIC_DURABLE_PREDICTIVE_P3_DEFINITION_DRIFT"
+                if route_structure_valid
+                else None
+            ),
+            "predictive_p3": {
+                "task_key": PREDICTIVE_P3_TASK_KEY,
+                "resolver_status": (
+                    None
+                    if predictive_p3_resolution is None
+                    else predictive_p3_resolution.status.value
+                ),
+                "canonical_dependencies": (
+                    [
+                        {
+                            "dependency_type": "task",
+                            "target_key": GLOBAL_ROUTING_TASK_KEY,
+                            "required_status": "completed",
+                        },
+                        {
+                            "dependency_type": "artifact",
+                            "target_key": ADAPTIVE_RESEARCH_ELIGIBILITY_FACT,
+                            "required_status": "available",
+                        },
+                    ]
+                    if route_structure_valid
+                    else None
+                ),
+                "primary_endpoint": (
+                    PREDICTIVE_P3_PRIMARY_ENDPOINT
+                    if route_structure_valid
+                    else None
+                ),
+                "equal_budget_100_ticket_comparison_role": (
+                    "SEPARATE_FUTURE_SECONDARY_OR_DOWNSTREAM_CONTRACT"
+                    if route_structure_valid
+                    else None
+                ),
+                "adaptive_research_eligible_fact_available": (
+                    ADAPTIVE_RESEARCH_ELIGIBILITY_FACT
+                    in manifest.facts.artifacts
+                ),
+                "result_reads": 0,
+                "new_historical_folds": 0,
+            },
+            "global_routing": {
+                "task_key": GLOBAL_ROUTING_TASK_KEY,
+                "resolver_status": (
+                    None
+                    if global_routing_resolution is None
+                    else global_routing_resolution.status.value
+                ),
+                "missing_replay_facts": missing_global_routing_facts,
+                "adaptive_research_eligible_fact_available": (
+                    ADAPTIVE_RESEARCH_ELIGIBILITY_FACT
+                    in manifest.facts.artifacts
+                ),
+            },
+            "downstream_policy": {
+                "p2r_blocks_p3": False if route_structure_valid else None,
+                "p2r_blocks_p4": False if route_structure_valid else None,
+                "p2r_blocks_p5": False if route_structure_valid else None,
+                "p4_resolver_status": (
+                    None
+                    if predictive_p4_resolution is None
+                    else predictive_p4_resolution.status.value
+                ),
+                "p4_pass_fact": (
+                    PREDICTIVE_P3_PASS_TO_P4_FACT
+                    if route_structure_valid
+                    else None
+                ),
+                "p4_pass_fact_available": (
+                    PREDICTIVE_P3_PASS_TO_P4_FACT in manifest.facts.artifacts
+                ),
+                "p5_resolver_status": (
+                    None
+                    if predictive_p5_resolution is None
+                    else predictive_p5_resolution.status.value
+                ),
+                "p6_resolver_status": (
+                    None
+                    if predictive_p6_resolution is None
+                    else predictive_p6_resolution.status.value
+                ),
+                "p6_research_summary_allowed_without_p2r": (
+                    route_structure_valid
+                ),
+                "promotion_allowed": False,
+                "promotion_gate": "FAIL_CLOSED",
+                "prediction_v2_mode": "SHADOW_ONLY",
+                "prediction_v2_route": "BASELINE_ONLY",
+            },
+            "structural_p3": {
+                "decision": "NO_STABLE_STRUCTURAL_UTILITY",
+                "state": "TERMINAL",
+                "reopened": False,
+            },
+            "m4_p3_predictive_route_reconciliation_digest": (
+                None
+                if not route_summary_valid
+                else route_summary.get(
+                    "m4_p3_predictive_route_reconciliation_digest"
+                )
+            ),
+            "p2r_to_p6_dependency_policy_digest": (
+                None
+                if not route_summary_valid
+                else route_summary.get(
+                    "p2r_to_p6_dependency_policy_digest"
+                )
+            ),
+            "predictive_p3_route_decision_digest": (
+                None
+                if not route_summary_valid
+                else route_summary.get(
+                    "predictive_p3_route_decision_digest"
+                )
+            ),
+            "source_contract_digest": (
+                route_summary.get(
+                    "predictive_route_reconciliation_source_contract_digest"
+                )
+                if route_summary_valid
+                else None
+            ),
+            "audited_durable_manifest_digest": (
+                route_summary.get("audited_durable_manifest_digest")
+                if route_summary_valid
+                else None
+            ),
+            "audited_durable_snapshot_digest": (
+                route_summary.get("audited_durable_snapshot_digest")
+                if route_summary_valid
+                else None
+            ),
+            "execution_artifact_digest": (
+                route_summary.get("artifact_digest")
+                if route_summary_valid
+                else None
+            ),
+            "predictive_result_reads": (
+                route_summary.get("predictive_result_reads")
+                if route_summary_valid
+                else None
+            ),
+            "historical_database_reads": (
+                route_summary.get("historical_database_reads")
+                if route_summary_valid
+                else None
+            ),
+            "computation": (
+                route_summary.get("computation") if route_summary_valid else None
+            ),
+            "new_historical_folds": (
+                route_summary.get("new_historical_folds")
+                if route_summary_valid
+                else None
+            ),
+            "evidence_created": (
+                route_summary.get("evidence_created")
+                if route_summary_valid
+                else None
+            ),
+            "promotion_gate_opened": (
+                route_summary.get("promotion_gate_opened")
+                if route_summary_valid
+                else None
+            ),
+            "declared_zero_work_contract": True,
+            "registered_execution_summary_valid": route_summary_valid,
+            "replay_status": (
+                route_summary.get("replay_status") if route_summary_valid else None
+            ),
+            "next_legal_task": (
+                "dependency_wait:predictive route structural wiring invalid"
+                if predictive_route_integrated and not route_structure_valid
+                else (
+                    PREDICTIVE_ROUTE_RECONCILIATION_TASK_KEY
+                    if predictive_route_resolution is not None
+                    and predictive_route_resolution.status is TaskStatus.READY
+                    else (
+                        "dependency_wait:m4-v2-global-routing awaits "
+                        + ", ".join(missing_global_routing_facts)
+                        if predictive_route_complete
+                        else (
+                            "dependency_wait:registered route execution summary "
+                            "missing or invalid"
+                            if predictive_route_resolution is not None
+                            and predictive_route_resolution.status
+                            is TaskStatus.COMPLETED
+                            else "dependency_wait:route reconciliation not yet complete"
+                        )
+                    )
+                )
+            ),
+            "mainline_integration": (
+                "YES — validated by unified mainline execution and replay"
+                if predictive_route_complete and route_summary_valid
+                else "NO — INTEGRATION_PENDING"
+            ),
             "production_action": "none",
         },
         "m4_p3_status": "ACTIVE",
@@ -6661,35 +7041,39 @@ def build_m4_status(
                 else mainline_execution.get("execution_artifact_digest")
             ),
             "downstream_consumer": (
-                P2R_TASK_KEY
-                if p2_closure_complete
+                "dependency_wait:m4-v2-global-routing"
+                if predictive_route_complete
                 else (
-                    P2_CLOSURE_TASK_KEY
-                    if p2_closure_integrated
+                    P2R_TASK_KEY
+                    if p2_closure_complete
                     else (
-                        "m4-p2-repair-measurement-system"
-                        if measurement_repair_required
+                        P2_CLOSURE_TASK_KEY
+                        if p2_closure_integrated
                         else (
-                            (
-                                "m4-p3-strict-historical-walk-forward"
-                                if "m4-p2-measurement-decision:PASS_TO_P3"
-                                in manifest.facts.artifacts
-                                else "m4-p2-repair-measurement-system"
-                            )
-                            if p2_7_complete
+                            "m4-p2-repair-measurement-system"
+                            if measurement_repair_required
                             else (
-                                "m4-p2-automatic-gate-and-report"
-                                if p2_6_complete
+                                (
+                                    "m4-p3-strict-historical-walk-forward"
+                                    if "m4-p2-measurement-decision:PASS_TO_P3"
+                                    in manifest.facts.artifacts
+                                    else "m4-p2-repair-measurement-system"
+                                )
+                                if p2_7_complete
                                 else (
-                                    "m4-p2-false-positive-and-power-runs"
-                                    if p2_preflight_complete
+                                    "m4-p2-automatic-gate-and-report"
+                                    if p2_6_complete
                                     else (
-                                        "m4-p2-measurement-identifiability-preflight"
-                                        if p2_5_complete
+                                        "m4-p2-false-positive-and-power-runs"
+                                        if p2_preflight_complete
                                         else (
-                                            "m4-p2-resampling"
-                                            if p2_4_complete
-                                            else "m4-p2-injected-signal-calibration"
+                                            "m4-p2-measurement-identifiability-preflight"
+                                            if p2_5_complete
+                                            else (
+                                                "m4-p2-resampling"
+                                                if p2_4_complete
+                                                else "m4-p2-injected-signal-calibration"
+                                            )
                                         )
                                     )
                                 )
