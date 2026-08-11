@@ -5,11 +5,13 @@ on:
     paths:
       - "apps/worker-python/**"
       - ".github/workflows/worker-python-tests.yml"
+      - "docs/experiments/2026-08-11-m4-p3-predictive-route-reconciliation-and-p2r-p6-policy.md"
   push:
     branches: [main]
     paths:
       - "apps/worker-python/**"
       - ".github/workflows/worker-python-tests.yml"
+      - "docs/experiments/2026-08-11-m4-p3-predictive-route-reconciliation-and-p2r-p6-policy.md"
 
 concurrency:
   group: worker-python-tests-${{ github.ref }}
