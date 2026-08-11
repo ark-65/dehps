@@ -2,9 +2,12 @@
 
 Date: 2026-08-11
 Round: 139
+Finalization round: 140
 Role: Engineering Agent
 Engineering Request / Execution: 474 / 395
-Status: `INTEGRATION_PENDING`
+Final-report Engineering Request / Execution: 476 / 397
+Final-report approval Decision: 1987
+Status: `COMPLETE`
 
 ## Primary goal
 
@@ -124,20 +127,76 @@ The builder binds the audited durable manifest, resolved snapshot, legacy P3
 dependency identity, and a seven-file source closure. No durable import was
 performed in this Engineering round.
 
+## Mainline publication and Operator execution
+
+Implementation PR 338 passed PR-head CI run 31456048689 at
+`19f80af5fb455696f3f90f9024471f3a829f4b4c`, was squash-merged to `main` as
+`c5cd28529ca22bec40d75beb7b867359ffa44820`, and passed merged-main CI run
+31456545451.
+
+Operator Request 475 was approved by Reviewer Decision 1982 and has exactly one
+Operator Execution, 396. The production operation imported the approved
+additive manifest, dispatched only
+`m4-p3-predictive-route-reconciliation` exactly once, observed the run-once
+Supervisor exit, and performed one read-only deterministic replay. The durable
+manifest progression is:
+
+1. imported: `f906975a91e22b01b5335e6d4f74f4cdf73fd48e8ace12d7044a3972c0e1dd54`;
+2. running: `330481307055ca9494f302b6e81c245f7146675f2a5ffca73a80fd0f9f8f273f`;
+3. completed/current: `b3a2ece6f5cde342ba6bb0bfefd8bb64b2aa69b819000ea064066252bdfbdd17`.
+
+The completed/current snapshot is
+`fd0bb1330890c3cdbd339c821f5727b41a0b857e2857f0cfa018bd3a33ad26d4`.
+Ready Queue transitioned from `[]`, to exactly
+`[m4-p3-predictive-route-reconciliation]` after import, and back to `[]` after
+the one governance execution.
+
+The completed route task definition digest is
+`2707c36fdc59a79b1306c42fbb3b379ddc22a36ae5df2335b1b94f317fd6e8b0`.
+Its mainline execution identity is
+`7fd32a2d3cf9224cdb42c772ea83073f14bdc98b4b0bd062cb1e819c0d639446`.
+It registered exactly four canonical artifacts:
+
+| Registration | Digest | Canonical path |
+| --- | --- | --- |
+| `M4P3PredictiveRouteReconciliationArtifact` | `9475ed5f778a7fef4b75a38399393e4b29d1e67b5cc9598f7890f4c0860ba61a` | `runtime/research-os/mainline/tasks/m4-p3-predictive-route-reconciliation/7fd32a2d3cf9224cdb42c772ea83073f14bdc98b4b0bd062cb1e819c0d639446/artifacts/route-reconciliation/9475ed5f778a7fef4b75a38399393e4b29d1e67b5cc9598f7890f4c0860ba61a/reconciliation.json` |
+| `P2RToP6DependencyPolicyArtifact` | `e960de14aa46b4752353aae27c1a59426dbcc70bf61d03852715a843b79a23dd` | `runtime/research-os/mainline/tasks/m4-p3-predictive-route-reconciliation/7fd32a2d3cf9224cdb42c772ea83073f14bdc98b4b0bd062cb1e819c0d639446/artifacts/p2r-to-p6-policy/e960de14aa46b4752353aae27c1a59426dbcc70bf61d03852715a843b79a23dd/policy.json` |
+| `PredictiveP3RouteDecisionArtifact` | `fae350dde93441f207ecd0652563c23f4827aeba0f4895af0629a7a3e8c03b0b` | `runtime/research-os/mainline/tasks/m4-p3-predictive-route-reconciliation/7fd32a2d3cf9224cdb42c772ea83073f14bdc98b4b0bd062cb1e819c0d639446/artifacts/predictive-route-decision/fae350dde93441f207ecd0652563c23f4827aeba0f4895af0629a7a3e8c03b0b/decision.json` |
+| Canonical mainline execution record | `7808bb91f545d38d929399305bf6986f6c6bc9196b1f8e5e519c0540c8d1700e` | `runtime/research-os/mainline/tasks/m4-p3-predictive-route-reconciliation/7fd32a2d3cf9224cdb42c772ea83073f14bdc98b4b0bd062cb1e819c0d639446/execution.json` |
+
+The replay result is `REPLAY_VERIFIED`; the capability replay result is
+`REGISTERED_REPLAY_VERIFIED`. Execution identity, artifact identity, registered
+content, and all four registration identities matched.
+The independent result-blind durable audit is `PASS` and matched the route task,
+execution, manifest, snapshot, and four artifact digests above. Result and predictive
+payload reads, historical-database reads, computation, new folds, Evidence
+creation, Promotion, and production action all remained zero or not triggered.
+
+The persisted downstream waits are exact and remain fail-closed:
+
+| Task | State | Missing dependencies |
+| --- | --- | --- |
+| `m4-v2-global-routing` | `dependency_wait` | `m4-v2-branch-decision-replay:MARGINAL_HISTORICAL:VERIFIED`; `m4-v2-branch-decision-replay:TEMPORAL_MARGINAL_INCREMENT:VERIFIED`; `m4-v2-branch-decision-replay:JOINT_RESIDUAL_INCREMENT:VERIFIED` |
+| `m4-p3-strict-historical-walk-forward` | `dependency_wait` | completed `m4-v2-global-routing`; `m4-v2-routing:ADAPTIVE_RESEARCH_ELIGIBLE` |
+| `m4-p4-negative-controls-and-robustness` | `dependency_wait` | completed `m4-p3-strict-historical-walk-forward`; `m4-p3-predictive-decision:PASS_TO_P4` |
+| `m4-p5-forward-evidence` | `dependency_wait` | completed `m4-p4-negative-controls-and-robustness`; completed `m4-forward-evidence-intake-2026085` |
+| `m4-p6-information-bound-and-decision` | `dependency_wait` | completed predictive P3, P4, and P5; the immutable P2R policy fact is satisfied and P2R is not a hard task dependency |
+| `m4-p2r-measurement-repair-validation` | `external_wait` | `research-contract:m4-p2r-measurement-repair-validation-execution:approved` |
+
 ## Integration matrix
 
 | Mainline link | Current proof | Status |
 | --- | --- | --- |
 | Goal | Existing `M4_INFORMATION_THEORY_EVIDENCE` | PASS |
-| Resolver | In-memory live merge resolves one governance task Ready | PASS (dry run) |
-| Ready Queue | Exactly `m4-p3-predictive-route-reconciliation` after simulated import | PASS (dry run) |
-| Supervisor | Capability registered with exact task/capability identity | CODE COMPLETE |
-| Capability | Rebuilds three zero-compute immutable artifacts | CODE COMPLETE |
-| Artifacts | Independent domains, four total registrations with mainline record | CODE COMPLETE |
-| Status | Unified route/policy/wait projection implemented | CODE COMPLETE |
-| Next task | Explicit global-routing dependency wait after governance completion | CODE COMPLETE |
-| Deterministic replay | Strong event/registration provenance, canonical paths, registered byte identity, and execution-commit replay implemented | CODE COMPLETE |
-| Durable import and execution | Requires separate post-merge Operator Request | PENDING |
+| Resolver | Imported manifest resolved exactly the governance task; completed manifest resolves the persisted downstream waits | PASS |
+| Ready Queue | Exactly the governance task after import; exactly `[]` after completion | PASS |
+| Supervisor | Exactly one explicit governance-task dispatch; run-once process stopped | PASS |
+| Capability | Executed once and produced the three zero-compute domain artifacts | PASS |
+| Artifacts | Exactly four canonical registrations with independent digest verification | PASS |
+| Status | Unified projection reports `COMPLETE`, route, policy, replay, and exact waits | PASS |
+| Next task | Global routing and predictive P3 remain fail-closed on their exact fact dependencies | PASS |
+| Deterministic replay | `REPLAY_VERIFIED` and `REGISTERED_REPLAY_VERIFIED` with the same execution and registration identities | PASS |
+| Durable import and execution | Operator Request 475 / Decision 1982 / exact-one Execution 396 | PASS |
 
 ## Validation
 
@@ -157,9 +216,14 @@ performed in this Engineering round.
   the other seven were historical-fixture/count compatibility failures caused
   by the additive task and were fixed. The final isolated full suite above
   excludes that runtime marker and hides no source regression.
-- PR-head CI, merge, and merged-main CI: pending.
-- Live Operator import, exactly one governance dispatch, Supervisor stop, and
-  read-only replay: pending separate authorization.
+- PR 338 head CI run 31456048689, squash merge
+  `c5cd28529ca22bec40d75beb7b867359ffa44820`, and merged-main CI run
+  31456545451: PASS.
+- Operator Request 475 / Decision 1982 / exact-one Execution 396, additive
+  import, exactly one governance dispatch, stopped Supervisor, and one read-only
+  replay: PASS.
+- Independent result-blind durable audit of the completed manifest, current
+  snapshot, route task/execution, and four canonical registrations: PASS.
 
 ## Required status block
 
@@ -185,6 +249,12 @@ RESEARCH_ALLOWED_PROMOTION_BLOCKED
 PREDICTIVE RESULT READS:
 0
 
+HISTORICAL DATABASE READS:
+0
+
+COMPUTATION:
+0
+
 NEW HISTORICAL FOLDS:
 0
 
@@ -194,10 +264,25 @@ NO
 PROMOTION:
 NOT_TRIGGERED
 
+PRODUCTION ACTION:
+none
+
+READY QUEUE:
+[]
+
+GLOBAL ROUTING WAIT:
+m4-v2-branch-decision-replay:MARGINAL_HISTORICAL:VERIFIED
+m4-v2-branch-decision-replay:TEMPORAL_MARGINAL_INCREMENT:VERIFIED
+m4-v2-branch-decision-replay:JOINT_RESIDUAL_INCREMENT:VERIFIED
+
+PREDICTIVE P3 SUBSEQUENT WAIT:
+m4-v2-global-routing:COMPLETED
+m4-v2-routing:ADAPTIVE_RESEARCH_ELIGIBLE
+
 NEXT LEGAL TASK:
-m4-p3-predictive-route-reconciliation after approved additive import;
-then dependency_wait on m4-v2-global-routing and its three absent replay facts
+m4-v2-global-routing after its three VERIFIED replay facts;
+predictive P3 then additionally awaits ADAPTIVE_RESEARCH_ELIGIBLE
 
 MAINLINE INTEGRATION:
-NO — INTEGRATION_PENDING
+YES — validated by unified mainline execution and replay
 ```
