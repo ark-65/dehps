@@ -87,7 +87,10 @@ downstream decision-support contract; it is not the same primary endpoint.
 All three authorization lines are bound through immutable request metadata,
 metadata-only execution identities, exact-one execution cardinality, strict
 artifact-path list typing, and full append-only Reviewer Decision digests. The
-runtime metadata query excludes `result_json` and `error_json`.
+runtime metadata query excludes `result_json` and `error_json`. Engineering
+Execution 395 completed at `2026-08-11T11:38:06.854949+08:00`, bound to
+implementation commit `31d7de2f0652578661f228c17fc3b11f44f9bcbb`; its
+metadata-only authorization replay validated all 12 declared artifact paths.
 
 ## Additive implementation
 
