@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import tomllib
 from dehps.agents.lifecycle_adapter import TOOL_INPUT_SCHEMAS, TOOL_NAMES
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -44,9 +45,19 @@ def test_server_module_contains_no_generic_capability_names() -> None:
 
 def test_project_config_and_authorized_pycharm_files_are_frozen() -> None:
     project_root = WORKER_ROOT.parents[1]
-    config = (project_root / ".codex/config.toml").read_text()
-    assert "[mcp_servers.dehps_lifecycle]" in config
-    assert "dehps.agents.lifecycle_mcp" in config
+    config = tomllib.loads((project_root / ".codex/config.toml").read_text())
+    server = config["mcp_servers"]["dehps_lifecycle"]
+    assert server == {
+        "command": "/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python",
+        "args": ["-m", "dehps.agents.lifecycle_mcp"],
+        "cwd": "/home/ark/workspace/dehps/apps/worker-python",
+        "enabled": True,
+        "required": True,
+        "startup_timeout_sec": 10,
+        "tool_timeout_sec": 30,
+        "default_tools_approval_mode": "auto",
+        "enabled_tools": list(TOOL_NAMES),
+    }
     expected = {
         ".idea/.gitignore": "7ade64d47c121e7a8250564beeb6f0f521f2c27dc8e0ef4f3e11637453bec907",
         ".idea/dehps.iml": "0266269f1c2d97153dec670e72e68dd6a0077b8952b9e5ad3a972f65212e6ef7",

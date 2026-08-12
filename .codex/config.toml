@@ -1,7 +1,20 @@
 [mcp_servers.dehps_lifecycle]
-command = "apps/worker-python/.venv/bin/python"
+command = "/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python"
 args = ["-m", "dehps.agents.lifecycle_mcp"]
-cwd = "."
+cwd = "/home/ark/workspace/dehps/apps/worker-python"
 enabled = true
+required = true
 startup_timeout_sec = 10
 tool_timeout_sec = 30
+default_tools_approval_mode = "auto"
+enabled_tools = [
+  "dehps_lifecycle_request_get",
+  "dehps_lifecycle_request_create",
+  "dehps_lifecycle_request_submit",
+  "dehps_lifecycle_request_review",
+  "dehps_lifecycle_request_approve",
+  "dehps_lifecycle_request_reject",
+  "dehps_lifecycle_execution_start",
+  "dehps_lifecycle_execution_complete",
+  "dehps_lifecycle_execution_fail",
+]

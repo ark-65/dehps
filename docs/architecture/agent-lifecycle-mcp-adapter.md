@@ -83,9 +83,15 @@ Every response reports these exact provenance tags where applicable:
 
 ## Project installation and activation
 
-The server is registered in project-local `.codex/config.toml` and runs
-`apps/worker-python/.venv/bin/python -m dehps.agents.lifecycle_mcp`. The worker
-dependency is `mcp>=1.0,<2`. No user-global Codex configuration is modified.
+The server is registered in project-local `.codex/config.toml`. Its stdio
+launcher and working directory are absolute and exact:
+`/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python -m
+dehps.agents.lifecycle_mcp`, with cwd
+`/home/ark/workspace/dehps/apps/worker-python`. The server is enabled and
+required, uses 10-second startup and 30-second tool timeouts, sets
+`default_tools_approval_mode = "auto"`, and allowlists exactly the nine typed
+lifecycle tools in their frozen order. The worker dependency is `mcp>=1.0,<2`.
+No user-global Codex configuration is modified.
 
 Installation and current-process reload are deliberately outside the
 implementation execution. A later authorized integration step must install the
