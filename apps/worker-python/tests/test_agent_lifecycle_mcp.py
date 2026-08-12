@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -17,7 +18,7 @@ WORKER_ROOT = Path(__file__).resolve().parents[1]
 @pytest.mark.anyio
 async def test_stdio_initialize_tools_list_and_db_free_invalid_call() -> None:
     parameters = StdioServerParameters(
-        command=str(WORKER_ROOT / ".venv/bin/python"),
+        command=sys.executable,
         args=["-m", "dehps.agents.lifecycle_mcp"],
         cwd=str(WORKER_ROOT),
         env={**os.environ, "PYTHONPATH": str(WORKER_ROOT)},

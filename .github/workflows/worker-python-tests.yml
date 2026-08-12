@@ -38,11 +38,11 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.14.4"
           cache: pip
           cache-dependency-path: apps/worker-python/pyproject.toml
       - name: Install worker
-        run: python -m pip install -e .
+        run: python -m pip install -e . "numpy==2.4.6"
       - name: Run worker test suite
         # Initialize OpenBLAS on one portable kernel, then remove the selector
         # before pytest so canonical executor-environment checks remain exact.
