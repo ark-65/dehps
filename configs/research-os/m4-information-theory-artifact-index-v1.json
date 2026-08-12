@@ -1,999 +1,1039 @@
 {
-  "schema_version": "dehps-m4-information-theory-artifact-index.v1",
   "artifacts": {
-    "ae4e741cfc55547785ca9cf57b5b49f37a3d8c4f2bd53daeff9228982f797a69": {
-      "artifact_type": "information_theory_contract",
-      "path": "configs/research-os/m4-information-theory-contract-v1.json"
+    "03ff0783961730cb8ac0f800000c00f6e666cd75a6364d9953c8647f9292a565": {
+      "artifact_type": "prediction_v2_balanced_design_structural_evaluation_preregistration_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/prediction-v2-balanced-design-structural-evaluation-preregistration-source-v1.json"
     },
-    "a4f29c1392305b6ef2dc90134901c74f8ffb297071838d734d1e17e8439ad6e8": {
-      "artifact_type": "superseded_information_theory_preregistration",
-      "source_commit": "c67d8cdf284a60fc9991e2c2dab65130f296b738",
-      "path_at_source": "configs/research-os/m4-information-theory-preregistration-v1.json",
-      "runtime_path": "runtime/research-os/information-theory/preregistrations/a4f29c1392305b6ef2dc90134901c74f8ffb297071838d734d1e17e8439ad6e8/preregistration.json",
-      "superseded_by_digest": "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1"
+    "043f2175d7ea438cf6217373bef38a045e1f58bab4f8af52faa0bbe2a5332055": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "d26d3053defee8bba831af0394a214421a672f18",
+      "superseded_by_digest": "ad719631406ce033a3fcd409a3ba6ba10c733f95d2a1110d960daa4865b79844"
     },
-    "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1": {
-      "artifact_type": "superseded_information_theory_preregistration",
-      "source_commit": "00ea40325f568a58958d2ddfab79cf4a98f30c2b",
-      "path_at_source": "configs/research-os/m4-information-theory-preregistration-v1.json",
-      "runtime_path": "runtime/research-os/information-theory/preregistrations/6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1/preregistration.json",
-      "supersedes_digest": "a4f29c1392305b6ef2dc90134901c74f8ffb297071838d734d1e17e8439ad6e8",
-      "superseded_by_digest": "a8da6bf2404d3bf213ac74d331917d5308195b7c3174b002378e1bbd849f6dfa"
+    "050cd92940e3a9e939f806b51b6d4498388ae3707bf954d90d707cf7238ce930": {
+      "artifact_type": "prediction_v2_structural_baseline_comparison_execution_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/prediction-v2-structural-baseline-comparison-execution-source-v1.json"
     },
-    "a8da6bf2404d3bf213ac74d331917d5308195b7c3174b002378e1bbd849f6dfa": {
-      "artifact_type": "superseded_information_theory_preregistration",
-      "path": "configs/research-os/m4-information-theory-preregistration-v1.0.2.json",
-      "supersedes_digest": "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1",
-      "superseded_by_digest": "4fff51c58e4a46d664e414bfe4cc0d7269c8e3712734153faec548648144d0d9"
+    "078337d9fcc172777d37f06e570181cf803f080e0805832b5964cef31117fb40": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "6bc33a5920844acc662d821284dad3ddbb55351c",
+      "superseded_by_digest": "d99f6a248bb83a74cb98d344607e4c7caa92b88f9ab6fb1fc402b375e2be3ea6"
+    },
+    "07892a809dfaa07e6bdbb02c1c350ed226c4692b2c16eeadbc993f65a15cad47": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "f79da22f5c310843e17aca68a27b00dfb83537f8",
+      "superseded_by_digest": "6bfb2795468b0a9fbe5ef86c005903ce243fee0900a7ab2f72410eccf0330d3e",
+      "supersedes_digest": "3c87a6b0ae65e18645e05dd2a028cc387b101d035c1562b883945e650a028981"
+    },
+    "0796da84d80649913795eb71f003ed38ecfb801098e15488e8fe66c403c4eb73": {
+      "artifact_type": "prediction_v2_structural_portfolio_execution_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/prediction-v2-structural-portfolio-execution-source-v1.json"
+    },
+    "07ef938e3df3b301259c34048cd02123025aad2ab9ad7982efec525b919e8acf": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "ff5745fcf6b1ab67f41a258f606b6c28fe85aeda",
+      "superseded_by_digest": "cdaa540b6fbd92a9e32cdd27edfe059cdd98c585be46a335b8ba37ccd097ecf2",
+      "supersedes_digest": "bb721c539a9e18250c96cdaa82c8aca719072d49673d8d02de884bceebbf48ae"
+    },
+    "0911059971a27faf9887ddf07c668e0c9eb8210e49859f3540a4f3f739d3d56e": {
+      "artifact_type": "information_theory_p2_input",
+      "path": "configs/research-os/m4-information-theory-p2-input-v1.json"
+    },
+    "0a57779c0c96d4efc04b17b84260c373f657ca49cc9525becaceb78894bc1144": {
+      "artifact_type": "prediction_v2_forward_evidence_or_pivot_planner_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/prediction-v2-forward-evidence-or-pivot-planner-source-v1.json"
+    },
+    "0c076b73b39bd3da04cc172b881ab9b39981daf42ac48a577625f70d5854e063": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "35e905c405d28d0d560f9d8f9bf023a4ebb3e396",
+      "superseded_by_digest": "0c1b98cebbe0908eeba5e1f29a0edc6f61d92dace47879acb1e36396ad589c25"
+    },
+    "0c1b98cebbe0908eeba5e1f29a0edc6f61d92dace47879acb1e36396ad589c25": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "4239615b6da73c8ceaf79bff974ec65f4f83f903",
+      "superseded_by_digest": "2b60ee797888ed91cedf80543d6d149c5e31647e18296cb3083870119bbf24f0"
+    },
+    "108143c77c9e5755d2a269392238c01fc885b6a38041a0eb262a2b8fd7fd2fc2": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "89bfff1d8936ba1d39c382baf45a4195ace8c6f9",
+      "superseded_by_digest": "6000995d31ad3915c712264171692fa1099fe790a7752faac381463eefd61fd3",
+      "supersedes_digest": "e483329a916e02374dd4735c58a32d08a0e922d31cd5abf554d5a3d779bfde56"
+    },
+    "120ebb7a322125380e89945e9bb39fcb0c2a7967c777aa43389dd177ed1a2e0a": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "7c7ec184d359476893b8cf98e9cafcc7f900e8eb",
+      "superseded_by_digest": "59e96f33015b87c3f36b11999cba9e9b56e2e36f0d1b49df7b9a73205e30b193",
+      "supersedes_digest": "b815060056f3f2b0d26cc26660f86a3b641d864b8f6c9b37e0e14c4aa786234d"
+    },
+    "124b55d77e22e577d0bd7b663fcbeaf212082ed3442bb654b9338a609bf55057": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "e852dcaca2d872c9ea657b4cc957256825cbf53f",
+      "superseded_by_digest": "3c87a6b0ae65e18645e05dd2a028cc387b101d035c1562b883945e650a028981",
+      "supersedes_digest": "26dd0c894d2224bfee27a1618e4f1bd2b296966c89006d90e5cd8db4c11cec51"
+    },
+    "13ec63a3ee5a075a1e44dd282a311425c2618d6d06f1fa3879815c7001450b3f": {
+      "artifact_type": "m4_v2_marginal_static_repair_design_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-marginal-static-repair-design-source-v1.json"
+    },
+    "1633316d335dc9d4d632df39792c5a5bb76acce58d698abe0c650c713baeadf8": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "1b4bdde9bad333b605a4e5dc1bbe335444556427",
+      "superseded_by_digest": "c102efe1f177fca3354b4270dd246d4eed8f2e6e710191f04fc97ec99b8222a2"
+    },
+    "16da2465cc0b8e75f815723c031446cb26eb9c2cdb11f1a9e45bc4615d13abae": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "e11f96788421916d40be4c2f8a99a7cda3c45a2e",
+      "superseded_by_digest": "77be7563f52a8b0d91c35d7556f6ba0b6a34e10c00c24a7464b085f263f96bee",
+      "supersedes_digest": "2b08a28d5cd481bc100a49491888def78c825d779a98f81a87983c875033ff5d"
+    },
+    "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca": {
+      "artifact_type": "information_theory_p2_walk_forward_harness_manifest",
+      "path": "configs/research-os/m4-information-theory-walk-forward-harness-v1.json"
+    },
+    "1790affe3010f14921e6f823e8d8aa8b9843cddcbe6619c0cba2b257f7a9d135": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "afae0977aa57f01dc44642612cbee8a6366fa2e3",
+      "superseded_by_digest": "7eeae8b00bc57af820f28527432663dcd930545160d9a77ea75660b4ec988a88",
+      "supersedes_digest": "6f47aa476a86b455627c5ad4d03cc2aa78226d5c0f747fba5dc242e46a850a5b"
+    },
+    "1a76f46d7a47a134c1688657749bc040290f65a03dbc7c860e38144e02005981": {
+      "artifact_type": "state_visible_synthetic_feature_manifest",
+      "path": "configs/research-os/m4-information-theory-p2-6-1-state-visible-feature-v1.json"
+    },
+    "1cde473524d7d6dcafba64ab7b0a1d2862b56149d5f6f198c73d88b406c3071b": {
+      "artifact_type": "information_theory_p2_resampling_kernel_manifest",
+      "path": "configs/research-os/m4-information-theory-p2-5-resampling-kernel-v1.json"
+    },
+    "1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f": {
+      "artifact_type": "p263_periodic_refit_source_compatibility_fixture",
+      "path": "configs/research-os/m4-p2-6-3-periodic-refit-source-compatibility-fixture-v1.json"
+    },
+    "1f1b59c71345dc9d7de8bc7e0c4472c2759e99442f7c539373ec41ae78066929": {
+      "artifact_type": "m4_p2_repair_outcome_closure_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-p2-repair-outcome-closure-source-v1.json"
+    },
+    "2186e18ae26fb3770476d968df4f1e63dca1035cbf5858860580d8d766a50dd4": {
+      "artifact_type": "m4_v2_marginal_static_repair_health_decision_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-marginal-static-repair-health-decision-source-v1.json"
+    },
+    "2621e16efa8cf888f06e841c7a89cc72e50bc291ef08e0eaa82458196616047d": {
+      "artifact_type": "m4_v2_marginal_static_health_design_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-marginal-static-health-design-source-v1.json"
+    },
+    "26dd0c894d2224bfee27a1618e4f1bd2b296966c89006d90e5cd8db4c11cec51": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "1dff2f67ce4f74326ea7cbc8dfd0dd76c677abf1",
+      "superseded_by_digest": "124b55d77e22e577d0bd7b663fcbeaf212082ed3442bb654b9338a609bf55057",
+      "supersedes_digest": "7f20125603c790ab48744e9d1e2edaec7005b89e661d6dac760e016e22197ede"
+    },
+    "27056596c7181f74131ca507b1b83076fc8e25f7c925fb671a73e7dd25c801da": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "c1c833037a3804806b859beca0741efa56cd5627",
+      "superseded_by_digest": "b1f72ebe01daf38c39724f2b6b2beaa1e0be391974e708ba1be65e8cf12ae3be"
+    },
+    "2b08a28d5cd481bc100a49491888def78c825d779a98f81a87983c875033ff5d": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "1740a7d4cb239a254c03b1a7c69dd6cbe3ab4068",
+      "superseded_by_digest": "16da2465cc0b8e75f815723c031446cb26eb9c2cdb11f1a9e45bc4615d13abae",
+      "supersedes_digest": "ea0cd13256b6f7910c2aa50b067ce1ba75ca8afb7820fc45611fbc7f7821f465"
+    },
+    "2b60ee797888ed91cedf80543d6d149c5e31647e18296cb3083870119bbf24f0": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "675ebbe5ded2f68f9cd73a5086024b359c94e835",
+      "superseded_by_digest": "043f2175d7ea438cf6217373bef38a045e1f58bab4f8af52faa0bbe2a5332055"
+    },
+    "2cdcd95151c5809f01eca4b959b080d699ea34ac300a7350206bfe4786b8a622": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "3682cfcc6d38e9d268d1dd5ccd4162add08205ac",
+      "superseded_by_digest": "757f33766ab4e29ada0bc67c7864228345c05f1fb0d3963b213eda34b8e4ae9b",
+      "supersedes_digest": "77be7563f52a8b0d91c35d7556f6ba0b6a34e10c00c24a7464b085f263f96bee"
+    },
+    "3266936443c2ebeb628773759a583ce7cf1c62e0dca70c2bece53a7ba3720900": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "6d8a76a528fec9e3a526ba22292778c010294ab0",
+      "superseded_by_digest": "95b220cc67427da30de97e780f07c0c0972334092f15aab43e1cbb4de48ade0a",
+      "supersedes_digest": "74eacc55bfa97baf8dba7a74c394d05aef2e8425e007695c44acd272b6aed56b"
+    },
+    "328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353": {
+      "artifact_type": "information_theory_p2_injected_signal_completion",
+      "runtime_path": "runtime/research-os/mainline/tasks/m4-p2-injected-signal-calibration/772b5063f1a3578c7e8f8a2cd9f102357828608de8fbd80c2c1fb2c82b79afa2/artifacts/completion/328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353/completion.json",
+      "source_commit": "675ebbe5ded2f68f9cd73a5086024b359c94e835"
+    },
+    "33b11d706a4fffc5c6edbfecb73b7492239977ad394711280735fd9b1b0d8fbd": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "720617d3d7745dd56498eab1f344dfb140ca99ee",
+      "superseded_by_digest": "da3589cbd4a8949bebc32c3bc5abbad995340f257a9f4a44825881739fcb17c4",
+      "supersedes_digest": "6000995d31ad3915c712264171692fa1099fe790a7752faac381463eefd61fd3"
+    },
+    "34a49fd24be7c696636bb584a379776155407b8af2b120adfbffc2edfcea3857": {
+      "artifact_type": "m4_v2_marginal_static_historical_identity_adoption_source_contract",
+      "identity_field": "artifact_digest",
+      "path_at_source": "configs/research-os/m4-v2-marginal-static-historical-identity-adoption-source-v1.json",
+      "source_commit": "bf84d17c523edbf800d1d5fece67086c5368bec1",
+      "superseded_by_digest": "44b0c436e3b2c2e5d73c14db55d19db3fefb56877a415e71ef53ef078893da25"
+    },
+    "391acc6a04518389f841e94a640a14dcaf98bd2c36614d31a0e713446980b06d": {
+      "artifact_type": "m4_v2_branch_fixture_freeze_source_contract",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-branch-fixture-freeze-source-contract-v1.json"
+    },
+    "39435df4057f0df747f2b56c48282d6fc4ad9a266fbb8f31262e3984ece712ba": {
+      "artifact_type": "measurement_source_compatibility_fixture",
+      "fixture_artifact_digest": "53f9a4b7d92944dfd6a46d317b018bdc6b434fc69bb977d72ae6d1f177e0c73b",
+      "identity_field": "manifest_digest",
+      "path": "configs/research-os/fixtures/m4-p2.6.3/superseding/source-manifest-fixture-v1.json",
+      "superseded_by_digest": "bb721c539a9e18250c96cdaa82c8aca719072d49673d8d02de884bceebbf48ae",
+      "supersedes_digest": "b1f72ebe01daf38c39724f2b6b2beaa1e0be391974e708ba1be65e8cf12ae3be"
+    },
+    "3c511268fd1211c6c71de8ec3ac9c0afd218855ed58885a26b4cec4638175157": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "d61e147bcdbc13ac84e0caac964625436b2fecca",
+      "superseded_by_digest": "8c03e82f97190ead5c2d9002a71316ca381083c54a2fc62f5d420e40a5c2f573"
+    },
+    "3c87a6b0ae65e18645e05dd2a028cc387b101d035c1562b883945e650a028981": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "b32e3f166ebc7aa605e48ee55132f03755855a66",
+      "superseded_by_digest": "07892a809dfaa07e6bdbb02c1c350ed226c4692b2c16eeadbc993f65a15cad47",
+      "supersedes_digest": "124b55d77e22e577d0bd7b663fcbeaf212082ed3442bb654b9338a609bf55057"
+    },
+    "3f27f9af24b9265b99abfd436299b2bdab16119c7880e1790d66101d193b0ea6": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "8f96669044af75786309fd125ea7a1b8895fbd78",
+      "superseded_by_digest": "4c2b1f44f2c1e20be80e128ab26e47e337989f21d7698b39d48c30391834cbad",
+      "supersedes_digest": "9d67c07990707e783384386b4c5c09e2a1f5b3c3521d93dcfd38817feddc69f5"
+    },
+    "41d909604b8fee0c97598cd9f13edf9de601b6c9f72194b5fb881d1e650f4844": {
+      "artifact_type": "m4_v2_joint_residual_increment_source_contract",
+      "identity_field": "artifact_digest",
+      "path_at_source": "configs/research-os/m4-v2-joint-residual-increment-source-v3.json",
+      "source_commit": "bf84d17c523edbf800d1d5fece67086c5368bec1",
+      "superseded_by_digest": "596f753ad6c273930c65fee35fde61461eb8a6b102461c083f22c887908598db",
+      "supersedes_digest": "f7345320fc87b601cbdae58e2064ff89dc2195c449efcd70d043441067af0a44"
+    },
+    "42d9583d2b333e171b99dfde27732b687e2deec2359a423d20d5d295103d1cec": {
+      "artifact_type": "measurement_contract_compatibility_request",
+      "path": "configs/research-os/m4-p2-measurement-v2-compatibility-request-v1.json"
+    },
+    "44b0c436e3b2c2e5d73c14db55d19db3fefb56877a415e71ef53ef078893da25": {
+      "artifact_type": "m4_v2_marginal_static_historical_identity_adoption_source_contract",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-marginal-static-historical-identity-adoption-source-v1.json",
+      "supersedes_digest": "34a49fd24be7c696636bb584a379776155407b8af2b120adfbffc2edfcea3857"
+    },
+    "4609d472c9f0ce1c3ba96762038d4df34936f166f9f4e1d21ea3c381c233641c": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "0ad89b0eee7404c9ab04dedbbb12b8feb884d940",
+      "superseded_by_digest": "7f20125603c790ab48744e9d1e2edaec7005b89e661d6dac760e016e22197ede",
+      "supersedes_digest": "4ee71dce29ecee7afa1de66362a793d4e4e74818c57f19fd2bc82fd1e5aa6fb7"
+    },
+    "46ee7d03cab54a3d0b6dfd210058aec8e56494f7a48e20ce43eb6c7578bb65f6": {
+      "artifact_type": "superseded_prediction_v2_balanced_design_feasibility_execution_source",
+      "identity_field": "artifact_digest",
+      "path_at_source": "configs/research-os/prediction-v2-balanced-design-feasibility-execution-source-v1.json",
+      "source_commit": "f82b738a41faeca4116ab0ddf158a599a564d7dc",
+      "superseded_by_digest": "c54ee87e5b9d6e513945204bea0413e8d34a51206e587f3662d8123eb03b9538"
+    },
+    "4ae6aadbf1c9df861266c014ab58f4870d84fef4949fd93931a7ccd2c3da1fd8": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "b71de485d3251496cff964be0a2251dfa6272e29",
+      "superseded_by_digest": "e09aa5e52f7b21e159fef78d7c0b87666caa09d84ee407fd8161c8b9396169a2"
+    },
+    "4ba7d37922325afd0d971787686dfbc9b43a0f198ba1d7ddabb71136f38ee1f3": {
+      "artifact_type": "prediction_v2_balanced_design_structural_evaluation_design_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/prediction-v2-balanced-design-structural-evaluation-design-source-v1.json"
+    },
+    "4c2b1f44f2c1e20be80e128ab26e47e337989f21d7698b39d48c30391834cbad": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "38498b77806e0141c1658d451ba6dc2545d09f4b",
+      "superseded_by_digest": "b815060056f3f2b0d26cc26660f86a3b641d864b8f6c9b37e0e14c4aa786234d",
+      "supersedes_digest": "3f27f9af24b9265b99abfd436299b2bdab16119c7880e1790d66101d193b0ea6"
+    },
+    "4d0669386fc32b27b5345995bdaf5e902aaa63109e73472804fd6b6ba06fcf15": {
+      "artifact_type": "superseded_measurement_runtime_benchmark_plan",
+      "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.4.json",
+      "superseded_by_digest": "e2bfb82be29bedac51be6905e6049b4a10e5c0cde0198995e12279bf969714ca",
+      "supersedes_digest": "bf5a8728d355e0b83ab1a173cd656b8a2f23abce1a1b9036664af617a1d1b47e"
+    },
+    "4ee71dce29ecee7afa1de66362a793d4e4e74818c57f19fd2bc82fd1e5aa6fb7": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "f82b738a41faeca4116ab0ddf158a599a564d7dc",
+      "superseded_by_digest": "4609d472c9f0ce1c3ba96762038d4df34936f166f9f4e1d21ea3c381c233641c",
+      "supersedes_digest": "757f33766ab4e29ada0bc67c7864228345c05f1fb0d3963b213eda34b8e4ae9b"
+    },
+    "4ef7e959d9dd1face4a5321bb30f8754663514d7a008a56b0630e556800263c1": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "0473cf41c60a2beb909f2ab814c590d5ac2b462f",
+      "superseded_by_digest": "74eacc55bfa97baf8dba7a74c394d05aef2e8425e007695c44acd272b6aed56b",
+      "supersedes_digest": "59e96f33015b87c3f36b11999cba9e9b56e2e36f0d1b49df7b9a73205e30b193"
     },
     "4fff51c58e4a46d664e414bfe4cc0d7269c8e3712734153faec548648144d0d9": {
       "artifact_type": "information_theory_preregistration",
       "path": "configs/research-os/m4-information-theory-preregistration-v1.0.3.json",
       "supersedes_digest": "a8da6bf2404d3bf213ac74d331917d5308195b7c3174b002378e1bbd849f6dfa"
     },
+    "51865ebe80dbde996ba1f87b058ea651e0d047a02c5455ec1cfb824907e069d2": {
+      "artifact_type": "prediction_v2_structural_baseline_comparison_preregistration_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/prediction-v2-structural-baseline-comparison-preregistration-source-v1.json"
+    },
+    "51a677b570cf11bbfdc3c9b1cf7d38827a57d15d38e9b184933f6ad7ec8a0ff2": {
+      "artifact_type": "m4_v2_marginal_static_repair_health_execution_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-marginal-static-repair-health-execution-source-v1.json"
+    },
+    "535d396671451b01f33764c414498d511945874004b2b491188a4a20c7bff6e9": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "09561469caf2f75f698201ca6f9773cb167854a3",
+      "superseded_by_digest": "8994521570300cd5ec82c5c5e0d00fb669249282fad40479d19753667de572ae",
+      "supersedes_digest": "ae918dd1b109e22ed3d3aeb7639e65aaf7e6dbab13122391381be4f5a44ae121"
+    },
+    "53f9a4b7d92944dfd6a46d317b018bdc6b434fc69bb977d72ae6d1f177e0c73b": {
+      "artifact_type": "measurement_source_compatibility_fixture",
+      "path": "configs/research-os/fixtures/m4-p2.6.3/superseding/source-manifest-fixture-v1.json"
+    },
+    "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2": {
+      "artifact_type": "information_theory_p2_metric_kernel_manifest",
+      "path": "configs/research-os/m4-information-theory-metric-kernel-v1.json"
+    },
+    "596f753ad6c273930c65fee35fde61461eb8a6b102461c083f22c887908598db": {
+      "artifact_type": "m4_v2_joint_residual_increment_source_contract",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-joint-residual-increment-source-v3.json",
+      "supersedes_digest": "41d909604b8fee0c97598cd9f13edf9de601b6c9f72194b5fb881d1e650f4844"
+    },
+    "59e96f33015b87c3f36b11999cba9e9b56e2e36f0d1b49df7b9a73205e30b193": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "b7eeb7cf8892bf234126a6018f0c299e6ecfc14f",
+      "superseded_by_digest": "4ef7e959d9dd1face4a5321bb30f8754663514d7a008a56b0630e556800263c1",
+      "supersedes_digest": "120ebb7a322125380e89945e9bb39fcb0c2a7967c777aa43389dd177ed1a2e0a"
+    },
+    "5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3": {
+      "artifact_type": "measurement_identifiability_preflight_manifest",
+      "path": "configs/research-os/m4-information-theory-p2-6-identifiability-preflight-v1.json"
+    },
+    "5d6eafd399bc6a0fc87a2fa0fce4830824776194566aab4a8ab2299379646aff": {
+      "artifact_type": "superseded_measurement_runtime_benchmark_plan",
+      "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.json",
+      "superseded_by_digest": "eef5e18f6ffb342f264ef47913892efa91d92dfec0a32a51d2f1d0cb2711cbd5",
+      "supersedes_digest": "c34836c3464bafd408c3eef1c87505040a69f79a5323bbb7d803bce9565be674"
+    },
+    "5e41910553643e6559e78aa401fdcdd1e661b5709eaf55f0e73e694fb5a61355": {
+      "artifact_type": "measurement_contract_repair_manifest",
+      "path": "configs/research-os/m4-information-theory-p2-6-1-measurement-contract-repair-v1.json"
+    },
+    "5fbeb6ab0533478ac097747ab73fb0188561849505a76cf7a63a3a02061b2354": {
+      "artifact_type": "m4_v2_marginal_static_health_execution_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-marginal-static-health-execution-source-v1.json"
+    },
+    "6000995d31ad3915c712264171692fa1099fe790a7752faac381463eefd61fd3": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "cd069c15110b0af0f3a83ff619272c14e4748edc",
+      "superseded_by_digest": "33b11d706a4fffc5c6edbfecb73b7492239977ad394711280735fd9b1b0d8fbd",
+      "supersedes_digest": "108143c77c9e5755d2a269392238c01fc885b6a38041a0eb262a2b8fd7fd2fc2"
+    },
+    "658b490f1c3b46c7beafb3f34ec42c58fd2481e92e4a03057de2ff43c070d825": {
+      "artifact_type": "m4_v2_temporal_marginal_increment_source_contract",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-temporal-marginal-increment-source-v3.json",
+      "supersedes_digest": "882509d115f778fc71e900491c8fc9cc30eb02687215890b2503ed4dd5e37ac5"
+    },
+    "65a3b02964d35c8250bde2e6c9858f94c40617b7a60923c77d96541b29982b53": {
+      "artifact_type": "m4_v2_marginal_static_fixture_freeze_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-marginal-static-fixture-freeze-source-v1.json"
+    },
+    "65dbd24e6a63fadfa62d0fb5d0bf7744d166ed1bfb2412bb48e57b04c2d190c6": {
+      "artifact_type": "m4_v2_marginal_static_repair_v2_health_decision_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-marginal-static-repair-v2-health-decision-source-v1.json"
+    },
+    "6bfb2795468b0a9fbe5ef86c005903ce243fee0900a7ab2f72410eccf0330d3e": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "6aab3d5d2a1e454e61aba02942a33fe52857f5c3",
+      "superseded_by_digest": "6dff4a5326d7b7308cdca7be88c2307d7902c2366431d0a86a04c5ea3d6d1c95",
+      "supersedes_digest": "07892a809dfaa07e6bdbb02c1c350ed226c4692b2c16eeadbc993f65a15cad47"
+    },
+    "6ca7ae72f61ac14be9e29d18c74e1fab8444426b14b37ec137dc1c116a94783c": {
+      "artifact_type": "m4_v2_global_routing_source_contract",
+      "identity_field": "artifact_digest",
+      "path_at_source": "configs/research-os/m4-v2-global-routing-source-v1.json",
+      "source_commit": "bf84d17c523edbf800d1d5fece67086c5368bec1",
+      "superseded_by_digest": "c8b1e4e50235179339fd95cb7e2af63d3e0616e25e30d689f7afec3019e19e7a"
+    },
+    "6dff4a5326d7b7308cdca7be88c2307d7902c2366431d0a86a04c5ea3d6d1c95": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "1106c0afff8cb2bfabb5767b7b0ad297b1b15755",
+      "superseded_by_digest": "86847be6f03486b7420e3daa24f286d20d7e872c4901260f6eb3f502b0df0ffe",
+      "supersedes_digest": "6bfb2795468b0a9fbe5ef86c005903ce243fee0900a7ab2f72410eccf0330d3e"
+    },
+    "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1": {
+      "artifact_type": "superseded_information_theory_preregistration",
+      "path_at_source": "configs/research-os/m4-information-theory-preregistration-v1.json",
+      "runtime_path": "runtime/research-os/information-theory/preregistrations/6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1/preregistration.json",
+      "source_commit": "00ea40325f568a58958d2ddfab79cf4a98f30c2b",
+      "superseded_by_digest": "a8da6bf2404d3bf213ac74d331917d5308195b7c3174b002378e1bbd849f6dfa",
+      "supersedes_digest": "a4f29c1392305b6ef2dc90134901c74f8ffb297071838d734d1e17e8439ad6e8"
+    },
+    "6f47aa476a86b455627c5ad4d03cc2aa78226d5c0f747fba5dc242e46a850a5b": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "3f34a2894a5a86d394039da74a12b410a82217d7",
+      "superseded_by_digest": "1790affe3010f14921e6f823e8d8aa8b9843cddcbe6619c0cba2b257f7a9d135",
+      "supersedes_digest": "8994521570300cd5ec82c5c5e0d00fb669249282fad40479d19753667de572ae"
+    },
+    "6fb3a1e366da129ac460599a391891a49206ccc715b6367cf344e2aa3e9f2a3d": {
+      "artifact_type": "m4_v2_branch_preflight_source_contract",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-branch-preflight-design-source-contract-v1.json"
+    },
+    "72f5032c40d339946f014f7f333dd400f9ccf3a8a48250943ee1143e347687b8": {
+      "artifact_type": "m4_p3_result_blind_structural_utility_preregistration_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-p3-result-blind-structural-utility-preregistration-source-v1.json"
+    },
+    "74eacc55bfa97baf8dba7a74c394d05aef2e8425e007695c44acd272b6aed56b": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "72e7ec0311dbbc556d9baaf82e53723b28a30856",
+      "superseded_by_digest": "3266936443c2ebeb628773759a583ce7cf1c62e0dca70c2bece53a7ba3720900",
+      "supersedes_digest": "4ef7e959d9dd1face4a5321bb30f8754663514d7a008a56b0630e556800263c1"
+    },
+    "74fa955fd13f4104195ce21d2e79669b96991a3b976121989e8b770ee063192e": {
+      "artifact_type": "prediction_v2_structural_baseline_comparison_route_decision_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/prediction-v2-structural-baseline-comparison-route-decision-source-v1.json"
+    },
+    "757f33766ab4e29ada0bc67c7864228345c05f1fb0d3963b213eda34b8e4ae9b": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "e50792d20b025551ab00cde163814fab0c744a26",
+      "superseded_by_digest": "4ee71dce29ecee7afa1de66362a793d4e4e74818c57f19fd2bc82fd1e5aa6fb7",
+      "supersedes_digest": "2cdcd95151c5809f01eca4b959b080d699ea34ac300a7350206bfe4786b8a622"
+    },
+    "77be7563f52a8b0d91c35d7556f6ba0b6a34e10c00c24a7464b085f263f96bee": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "e76a65c0b44658374cacc09591ae2f55a32c0444",
+      "superseded_by_digest": "2cdcd95151c5809f01eca4b959b080d699ea34ac300a7350206bfe4786b8a622",
+      "supersedes_digest": "16da2465cc0b8e75f815723c031446cb26eb9c2cdb11f1a9e45bc4615d13abae"
+    },
+    "784de2ed686e99459ceb4463107a6e8b47534ffc0c0ef06974dc1be535da7384": {
+      "artifact_type": "m4_v2_marginal_static_repair_preregistration_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-marginal-static-repair-preregistration-source-v1.json"
+    },
+    "78e3b5dd1a7654fcffda419a18511d2e27d72a8ee4d5d9465fea99ce4ec31c44": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "8cc98495e7bc51fe9c0c3ff689be0d88026a6986",
+      "superseded_by_digest": "835e947b3c11a30eca1e3343facf76bcf0a13c3d6e8efc971c2af708c4edfcaf",
+      "supersedes_digest": "bcc26f14c355db2fa49ccc880e4c5b839ebc1bff1b76d36c064d9af2afa3336a"
+    },
+    "7da905d15249813e44bcf57b4e107fac15bb2d02587c4c68134ca5c834aac5c1": {
+      "artifact_type": "m4_v2_branch_preflight_execution_source_contract",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-branch-preflight-execution-source-contract-v1.json"
+    },
+    "7eeae8b00bc57af820f28527432663dcd930545160d9a77ea75660b4ec988a88": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "ad415fac084b459740cf2126885d168c1687eef7",
+      "superseded_by_digest": "e483329a916e02374dd4735c58a32d08a0e922d31cd5abf554d5a3d779bfde56",
+      "supersedes_digest": "1790affe3010f14921e6f823e8d8aa8b9843cddcbe6619c0cba2b257f7a9d135"
+    },
+    "7f20125603c790ab48744e9d1e2edaec7005b89e661d6dac760e016e22197ede": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "836273f116725fb0351d84640bf8cd58024cc9a5",
+      "superseded_by_digest": "26dd0c894d2224bfee27a1618e4f1bd2b296966c89006d90e5cd8db4c11cec51",
+      "supersedes_digest": "4609d472c9f0ce1c3ba96762038d4df34936f166f9f4e1d21ea3c381c233641c"
+    },
+    "7f522941cd05e9a1433b7f887180aed8be8f0dde30bc7170f6dd2a444169dfbb": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "8ed7c572e33fa833f4b5f7fa8d24aad6386d5d54",
+      "superseded_by_digest": "9d67c07990707e783384386b4c5c09e2a1f5b3c3521d93dcfd38817feddc69f5",
+      "supersedes_digest": "cdaa540b6fbd92a9e32cdd27edfe059cdd98c585be46a335b8ba37ccd097ecf2"
+    },
     "824f91d5d012caed9c7a273c7a3fb9fcf1b6c3fb6a4f0465707441c7c261790d": {
       "artifact_type": "information_theory_decision_policy",
       "path": "configs/research-os/m4-information-theory-decision-policy-v1.json"
     },
-    "0911059971a27faf9887ddf07c668e0c9eb8210e49859f3540a4f3f739d3d56e": {
-      "artifact_type": "information_theory_p2_input",
-      "path": "configs/research-os/m4-information-theory-p2-input-v1.json"
-    },
-    "1633316d335dc9d4d632df39792c5a5bb76acce58d698abe0c650c713baeadf8": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "1b4bdde9bad333b605a4e5dc1bbe335444556427",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "c102efe1f177fca3354b4270dd246d4eed8f2e6e710191f04fc97ec99b8222a2"
-    },
-    "c102efe1f177fca3354b4270dd246d4eed8f2e6e710191f04fc97ec99b8222a2": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "48dbcff50c2d8addb983bb61372a27a7c11a8e2f",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "d5aacae2e61d20009965f031309f3c7489a3e499f2d9ad3e43b062684dd628df"
-    },
-    "d5aacae2e61d20009965f031309f3c7489a3e499f2d9ad3e43b062684dd628df": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "f59a6b1b1dde6f02f13aa3465e560cb38931b448",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "3c511268fd1211c6c71de8ec3ac9c0afd218855ed58885a26b4cec4638175157"
-    },
-    "3c511268fd1211c6c71de8ec3ac9c0afd218855ed58885a26b4cec4638175157": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "d61e147bcdbc13ac84e0caac964625436b2fecca",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "8c03e82f97190ead5c2d9002a71316ca381083c54a2fc62f5d420e40a5c2f573"
-    },
-    "8c03e82f97190ead5c2d9002a71316ca381083c54a2fc62f5d420e40a5c2f573": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "d61e147bcdbc13ac84e0caac964625436b2fecca",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "0c076b73b39bd3da04cc172b881ab9b39981daf42ac48a577625f70d5854e063"
-    },
-    "0c076b73b39bd3da04cc172b881ab9b39981daf42ac48a577625f70d5854e063": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "35e905c405d28d0d560f9d8f9bf023a4ebb3e396",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "0c1b98cebbe0908eeba5e1f29a0edc6f61d92dace47879acb1e36396ad589c25"
-    },
-    "0c1b98cebbe0908eeba5e1f29a0edc6f61d92dace47879acb1e36396ad589c25": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "4239615b6da73c8ceaf79bff974ec65f4f83f903",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "2b60ee797888ed91cedf80543d6d149c5e31647e18296cb3083870119bbf24f0"
-    },
-    "2b60ee797888ed91cedf80543d6d149c5e31647e18296cb3083870119bbf24f0": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "675ebbe5ded2f68f9cd73a5086024b359c94e835",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "043f2175d7ea438cf6217373bef38a045e1f58bab4f8af52faa0bbe2a5332055"
-    },
-    "043f2175d7ea438cf6217373bef38a045e1f58bab4f8af52faa0bbe2a5332055": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "d26d3053defee8bba831af0394a214421a672f18",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "ad719631406ce033a3fcd409a3ba6ba10c733f95d2a1110d960daa4865b79844"
-    },
-    "ad719631406ce033a3fcd409a3ba6ba10c733f95d2a1110d960daa4865b79844": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "d0aed253e2cb560007883deacaf4be6f47533d2f",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "a21c30d9c56c51205c399d90a095b94b84a69acbcce94d6a7fc6be5a471a8518"
-    },
-    "a21c30d9c56c51205c399d90a095b94b84a69acbcce94d6a7fc6be5a471a8518": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "859e053febeda0d0ac5ed7e442de9c566420650a",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "eab2583985b389dc8ee000fba74ee965fb75da131c2e709a05067a1cbfdbb9cc"
-    },
-    "eab2583985b389dc8ee000fba74ee965fb75da131c2e709a05067a1cbfdbb9cc": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "4926dd8090b46a5c77889e7ed92cea197dba2a0c",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "c8fbdd8523b0a14e18d6828535b90f7f56c3d1beaf059bf2e4ec687a2465748d"
-    },
-    "c8fbdd8523b0a14e18d6828535b90f7f56c3d1beaf059bf2e4ec687a2465748d": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "2161dc9b4c6700a9ad3c03eaab398e75456cb272",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "830cb10a322d033d8091907215f2a2b7396233455353ed9d22bc81e53cb3b08a"
-    },
     "830cb10a322d033d8091907215f2a2b7396233455353ed9d22bc81e53cb3b08a": {
       "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "70f83a5400c6207cbe3806e69329a233e461e311",
       "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "70f83a5400c6207cbe3806e69329a233e461e311",
       "superseded_by_digest": "4ae6aadbf1c9df861266c014ab58f4870d84fef4949fd93931a7ccd2c3da1fd8"
+    },
+    "835e947b3c11a30eca1e3343facf76bcf0a13c3d6e8efc971c2af708c4edfcaf": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "7769f4db90ada843e25867908cfca7bf35bfc4cb",
+      "superseded_by_digest": "9bd459e2f9dd6fd5908ff24fc5ddbfbe3cebc2750e56b0b18959506ba5965f8d",
+      "supersedes_digest": "78e3b5dd1a7654fcffda419a18511d2e27d72a8ee4d5d9465fea99ce4ec31c44"
     },
     "8493987cc4414414e33fb5c5ea148be1f42a1d9e57609600c4346fb642cbfa08": {
       "artifact_type": "superseded_information_theory_p2_synthetic_run_manifest",
       "path": "configs/research-os/m4-information-theory-p2-synthetic-run-manifest-v1.json",
       "superseded_by_digest": "f84c2da3565f7eda41c3782517c78211805f57ea8f3bfd00659a93c380826a3c"
     },
-    "f84c2da3565f7eda41c3782517c78211805f57ea8f3bfd00659a93c380826a3c": {
-      "artifact_type": "information_theory_p2_synthetic_run_manifest",
-      "path": "configs/research-os/m4-information-theory-p2-synthetic-run-manifest-v1.0.1.json",
-      "supersedes_digest": "8493987cc4414414e33fb5c5ea148be1f42a1d9e57609600c4346fb642cbfa08"
-    },
-    "f30186e3f5aeefb07565d25c4e0de68d955a07e87d1894fdaedbe8bedf4a2317": {
-      "artifact_type": "information_theory_p2_injected_signal_calibration_run_manifest",
-      "path": "configs/research-os/m4-information-theory-p2-4-calibration-run-manifest-v1.json"
-    },
-    "328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353": {
-      "artifact_type": "information_theory_p2_injected_signal_completion",
-      "source_commit": "675ebbe5ded2f68f9cd73a5086024b359c94e835",
-      "runtime_path": "runtime/research-os/mainline/tasks/m4-p2-injected-signal-calibration/772b5063f1a3578c7e8f8a2cd9f102357828608de8fbd80c2c1fb2c82b79afa2/artifacts/completion/328144fa1abebfee88d46dbbce6d9deb7b9f1f5834fb9a0c83cc55adef32a353/completion.json"
-    },
-    "1cde473524d7d6dcafba64ab7b0a1d2862b56149d5f6f198c73d88b406c3071b": {
-      "artifact_type": "information_theory_p2_resampling_kernel_manifest",
-      "path": "configs/research-os/m4-information-theory-p2-5-resampling-kernel-v1.json"
-    },
-    "953ae76e2e28523b7d067c2b73dac8bec63ff2417db283fd516fe900e52402f8": {
-      "artifact_type": "information_theory_p2_measurement_validation_manifest",
-      "path": "configs/research-os/m4-information-theory-p2-6-measurement-validation-v1.json"
-    },
-    "5b2852741e544f93c5f9fbc80a307537b22e16ebc4cc818b0b6f426b591114e3": {
-      "artifact_type": "measurement_identifiability_preflight_manifest",
-      "path": "configs/research-os/m4-information-theory-p2-6-identifiability-preflight-v1.json"
-    },
-    "d2d959f6c326e42f80bf92ae652087c941c77e0bacbe22f29e04d4cf8c9f4d6d": {
-      "artifact_type": "measurement_validation_superseded_run_archive",
-      "path": "configs/research-os/m4-information-theory-p2-6-superseded-run-archive-v1.json"
-    },
-    "5e41910553643e6559e78aa401fdcdd1e661b5709eaf55f0e73e694fb5a61355": {
-      "artifact_type": "measurement_contract_repair_manifest",
-      "path": "configs/research-os/m4-information-theory-p2-6-1-measurement-contract-repair-v1.json"
-    },
-    "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58": {
-      "artifact_type": "repaired_measurement_validation_manifest",
-      "path": "configs/research-os/m4-information-theory-p2-6-1-measurement-validation-v1.json"
-    },
-    "1a76f46d7a47a134c1688657749bc040290f65a03dbc7c860e38144e02005981": {
-      "artifact_type": "state_visible_synthetic_feature_manifest",
-      "path": "configs/research-os/m4-information-theory-p2-6-1-state-visible-feature-v1.json"
-    },
-    "a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b": {
-      "artifact_type": "hierarchical_information_measurement_contract",
-      "path": "configs/research-os/m4-measurement-contract-v2.json"
-    },
-    "dc45c140226a30d30f371f34628c05fa158b7dca86579f33431d2280a2987487": {
-      "artifact_type": "p261_marginal_binding_contract",
-      "path": "configs/research-os/m4-p2-6-1-marginal-binding-contract-v1.json"
-    },
-    "92dddbf3528e61eb5997131c161b1ccb8c4d8bd20974d961d6f19c22b396300e": {
-      "artifact_type": "measurement_contract_v2_gate_replay_fixture",
-      "path": "configs/research-os/m4-measurement-contract-v2-replay-fixture-v1.json"
-    },
-    "c34836c3464bafd408c3eef1c87505040a69f79a5323bbb7d803bce9565be674": {
-      "artifact_type": "superseded_measurement_runtime_benchmark_plan",
-      "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.json",
-      "superseded_by_digest": "5d6eafd399bc6a0fc87a2fa0fce4830824776194566aab4a8ab2299379646aff"
-    },
-    "56b9d0a62d43d167069e5222c7095383c9c5106bb3361b0b1def75cf2b6c86a2": {
-      "artifact_type": "information_theory_p2_metric_kernel_manifest",
-      "path": "configs/research-os/m4-information-theory-metric-kernel-v1.json"
-    },
-    "177a3d591b7557a4231a276bfb007f0d42a94d942824403f5376f94fe904d2ca": {
-      "artifact_type": "information_theory_p2_walk_forward_harness_manifest",
-      "path": "configs/research-os/m4-information-theory-walk-forward-harness-v1.json"
-    },
-    "5d6eafd399bc6a0fc87a2fa0fce4830824776194566aab4a8ab2299379646aff": {
-      "artifact_type": "superseded_measurement_runtime_benchmark_plan",
-      "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.json",
-      "supersedes_digest": "c34836c3464bafd408c3eef1c87505040a69f79a5323bbb7d803bce9565be674",
-      "superseded_by_digest": "eef5e18f6ffb342f264ef47913892efa91d92dfec0a32a51d2f1d0cb2711cbd5"
-    },
-    "eef5e18f6ffb342f264ef47913892efa91d92dfec0a32a51d2f1d0cb2711cbd5": {
-      "artifact_type": "superseded_measurement_runtime_benchmark_plan",
-      "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.1.json",
-      "supersedes_digest": "5d6eafd399bc6a0fc87a2fa0fce4830824776194566aab4a8ab2299379646aff",
-      "superseded_by_digest": "ee8c6afd84299f8976ea3949959dba3180d487d4ed487e098ec7b778caa04e52"
-    },
-    "ee8c6afd84299f8976ea3949959dba3180d487d4ed487e098ec7b778caa04e52": {
-      "artifact_type": "superseded_measurement_runtime_benchmark_plan",
-      "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.2.json",
-      "supersedes_digest": "eef5e18f6ffb342f264ef47913892efa91d92dfec0a32a51d2f1d0cb2711cbd5",
-      "superseded_by_digest": "bf5a8728d355e0b83ab1a173cd656b8a2f23abce1a1b9036664af617a1d1b47e"
-    },
-    "bf5a8728d355e0b83ab1a173cd656b8a2f23abce1a1b9036664af617a1d1b47e": {
-      "artifact_type": "superseded_measurement_runtime_benchmark_plan",
-      "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.3.json",
-      "supersedes_digest": "ee8c6afd84299f8976ea3949959dba3180d487d4ed487e098ec7b778caa04e52",
-      "superseded_by_digest": "4d0669386fc32b27b5345995bdaf5e902aaa63109e73472804fd6b6ba06fcf15"
-    },
-    "e8149632b3a2f507fdb7adbd2980d4217ce06fca45913273bedc4cbe61c431c9": {
-      "artifact_type": "reviewed_shared_source_compatibility_fixture",
-      "path": "configs/research-os/m4-p2-6-1-sparse-tree-source-compatibility-fixture-v1.json"
-    },
-    "4ae6aadbf1c9df861266c014ab58f4870d84fef4949fd93931a7ccd2c3da1fd8": {
+    "86847be6f03486b7420e3daa24f286d20d7e872c4901260f6eb3f502b0df0ffe": {
       "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "b71de485d3251496cff964be0a2251dfa6272e29",
+      "identity_field": "manifest_digest",
       "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "e09aa5e52f7b21e159fef78d7c0b87666caa09d84ee407fd8161c8b9396169a2"
+      "source_commit": "ac07c6b8adeb7e21fc207bdecb514461c576e324",
+      "superseded_by_digest": "a3aeacf15146fd0c55098eb3306e60ef1aa0e40d160a181ad1306b2b9744c5a6",
+      "supersedes_digest": "6dff4a5326d7b7308cdca7be88c2307d7902c2366431d0a86a04c5ea3d6d1c95"
     },
-    "e09aa5e52f7b21e159fef78d7c0b87666caa09d84ee407fd8161c8b9396169a2": {
+    "882509d115f778fc71e900491c8fc9cc30eb02687215890b2503ed4dd5e37ac5": {
+      "artifact_type": "m4_v2_temporal_marginal_increment_source_contract",
+      "identity_field": "artifact_digest",
+      "path_at_source": "configs/research-os/m4-v2-temporal-marginal-increment-source-v3.json",
+      "source_commit": "bf84d17c523edbf800d1d5fece67086c5368bec1",
+      "superseded_by_digest": "658b490f1c3b46c7beafb3f34ec42c58fd2481e92e4a03057de2ff43c070d825",
+      "supersedes_digest": "eb306e418182c8d2fc39272aa653018a9f5ad6afcbcf0c4825d88f09a8980c37"
+    },
+    "8994521570300cd5ec82c5c5e0d00fb669249282fad40479d19753667de572ae": {
       "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "5c3778a9004041aee2ca707e7b4cc24f338ab3ed",
+      "identity_field": "manifest_digest",
       "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "078337d9fcc172777d37f06e570181cf803f080e0805832b5964cef31117fb40"
+      "source_commit": "ebe1d12dd0c34fa4d1e501527352166045c64068",
+      "superseded_by_digest": "6f47aa476a86b455627c5ad4d03cc2aa78226d5c0f747fba5dc242e46a850a5b",
+      "supersedes_digest": "535d396671451b01f33764c414498d511945874004b2b491188a4a20c7bff6e9"
     },
-    "078337d9fcc172777d37f06e570181cf803f080e0805832b5964cef31117fb40": {
+    "8a8463e8de27f799d068803794532e313c38e6ea50c2c7fd3124d7b273502584": {
+      "artifact_type": "prediction_v2_balanced_design_structural_evaluation_result_decision_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/prediction-v2-balanced-design-structural-evaluation-result-decision-source-v1.json"
+    },
+    "8c03e82f97190ead5c2d9002a71316ca381083c54a2fc62f5d420e40a5c2f573": {
       "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "6bc33a5920844acc662d821284dad3ddbb55351c",
       "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "d99f6a248bb83a74cb98d344607e4c7caa92b88f9ab6fb1fc402b375e2be3ea6"
-    },
-    "d99f6a248bb83a74cb98d344607e4c7caa92b88f9ab6fb1fc402b375e2be3ea6": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "ec8bfd6577a6b51d9a9e88679c2125216bba2187",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "27056596c7181f74131ca507b1b83076fc8e25f7c925fb671a73e7dd25c801da"
-    },
-    "4d0669386fc32b27b5345995bdaf5e902aaa63109e73472804fd6b6ba06fcf15": {
-      "artifact_type": "superseded_measurement_runtime_benchmark_plan",
-      "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.4.json",
-      "supersedes_digest": "bf5a8728d355e0b83ab1a173cd656b8a2f23abce1a1b9036664af617a1d1b47e",
-      "superseded_by_digest": "e2bfb82be29bedac51be6905e6049b4a10e5c0cde0198995e12279bf969714ca"
-    },
-    "27056596c7181f74131ca507b1b83076fc8e25f7c925fb671a73e7dd25c801da": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "c1c833037a3804806b859beca0741efa56cd5627",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "b1f72ebe01daf38c39724f2b6b2beaa1e0be391974e708ba1be65e8cf12ae3be"
-    },
-    "e2bfb82be29bedac51be6905e6049b4a10e5c0cde0198995e12279bf969714ca": {
-      "artifact_type": "superseded_measurement_runtime_benchmark_plan",
-      "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.5.json",
-      "supersedes_digest": "4d0669386fc32b27b5345995bdaf5e902aaa63109e73472804fd6b6ba06fcf15",
-      "superseded_by_digest": "ccbed31f36ad9486f5489d5827c6456d1853259eaeb1ab7a61077347c7e06056"
-    },
-    "ccbed31f36ad9486f5489d5827c6456d1853259eaeb1ab7a61077347c7e06056": {
-      "artifact_type": "superseded_measurement_runtime_benchmark_plan",
-      "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.6.json",
-      "supersedes_digest": "e2bfb82be29bedac51be6905e6049b4a10e5c0cde0198995e12279bf969714ca",
-      "superseded_by_digest": "8c97fd5fdc006cba6a4145dbd56acc566b9507e18279d06437d0aa472adb2cd2"
+      "source_commit": "d61e147bcdbc13ac84e0caac964625436b2fecca",
+      "superseded_by_digest": "0c076b73b39bd3da04cc172b881ab9b39981daf42ac48a577625f70d5854e063"
     },
     "8c97fd5fdc006cba6a4145dbd56acc566b9507e18279d06437d0aa472adb2cd2": {
       "artifact_type": "measurement_runtime_benchmark_plan",
       "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.7.json",
       "supersedes_digest": "ccbed31f36ad9486f5489d5827c6456d1853259eaeb1ab7a61077347c7e06056"
     },
-    "b1f72ebe01daf38c39724f2b6b2beaa1e0be391974e708ba1be65e8cf12ae3be": {
-      "artifact_type": "measurement_source_compatibility_fixture",
-      "path": "configs/research-os/fixtures/m4-p2.6.1/frozen/source-manifest-fixture-v1.json",
-      "identity_field": "manifest_digest",
-      "fixture_artifact_digest": "f9716c799e1e55e58585c7e9acf0730f9d05111ab6e375cfb9bea85ecbdeacc5",
-      "superseded_by_digest": "39435df4057f0df747f2b56c48282d6fc4ad9a266fbb8f31262e3984ece712ba"
-    },
-    "39435df4057f0df747f2b56c48282d6fc4ad9a266fbb8f31262e3984ece712ba": {
-      "artifact_type": "measurement_source_compatibility_fixture",
-      "path": "configs/research-os/fixtures/m4-p2.6.3/superseding/source-manifest-fixture-v1.json",
-      "identity_field": "manifest_digest",
-      "fixture_artifact_digest": "53f9a4b7d92944dfd6a46d317b018bdc6b434fc69bb977d72ae6d1f177e0c73b",
-      "supersedes_digest": "b1f72ebe01daf38c39724f2b6b2beaa1e0be391974e708ba1be65e8cf12ae3be",
-      "superseded_by_digest": "bb721c539a9e18250c96cdaa82c8aca719072d49673d8d02de884bceebbf48ae"
-    },
-    "bb721c539a9e18250c96cdaa82c8aca719072d49673d8d02de884bceebbf48ae": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "0842201871aef856b97838c38bb53d536e1e5893",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "39435df4057f0df747f2b56c48282d6fc4ad9a266fbb8f31262e3984ece712ba",
-      "superseded_by_digest": "07ef938e3df3b301259c34048cd02123025aad2ab9ad7982efec525b919e8acf"
-    },
-    "07ef938e3df3b301259c34048cd02123025aad2ab9ad7982efec525b919e8acf": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "ff5745fcf6b1ab67f41a258f606b6c28fe85aeda",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "bb721c539a9e18250c96cdaa82c8aca719072d49673d8d02de884bceebbf48ae",
-      "superseded_by_digest": "cdaa540b6fbd92a9e32cdd27edfe059cdd98c585be46a335b8ba37ccd097ecf2"
-    },
-    "cdaa540b6fbd92a9e32cdd27edfe059cdd98c585be46a335b8ba37ccd097ecf2": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "142e533ec00f3e29c61faec4a1ea5813a1123e3d",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "07ef938e3df3b301259c34048cd02123025aad2ab9ad7982efec525b919e8acf",
-      "superseded_by_digest": "7f522941cd05e9a1433b7f887180aed8be8f0dde30bc7170f6dd2a444169dfbb"
-    },
-    "7f522941cd05e9a1433b7f887180aed8be8f0dde30bc7170f6dd2a444169dfbb": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "8ed7c572e33fa833f4b5f7fa8d24aad6386d5d54",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "cdaa540b6fbd92a9e32cdd27edfe059cdd98c585be46a335b8ba37ccd097ecf2",
-      "superseded_by_digest": "9d67c07990707e783384386b4c5c09e2a1f5b3c3521d93dcfd38817feddc69f5"
-    },
-    "9d67c07990707e783384386b4c5c09e2a1f5b3c3521d93dcfd38817feddc69f5": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "71c03a4b7fc8ea049f381d48b15388daaf9cd2ba",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "7f522941cd05e9a1433b7f887180aed8be8f0dde30bc7170f6dd2a444169dfbb",
-      "superseded_by_digest": "3f27f9af24b9265b99abfd436299b2bdab16119c7880e1790d66101d193b0ea6"
-    },
-    "3f27f9af24b9265b99abfd436299b2bdab16119c7880e1790d66101d193b0ea6": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "8f96669044af75786309fd125ea7a1b8895fbd78",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "9d67c07990707e783384386b4c5c09e2a1f5b3c3521d93dcfd38817feddc69f5",
-      "superseded_by_digest": "4c2b1f44f2c1e20be80e128ab26e47e337989f21d7698b39d48c30391834cbad"
-    },
-    "4c2b1f44f2c1e20be80e128ab26e47e337989f21d7698b39d48c30391834cbad": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "38498b77806e0141c1658d451ba6dc2545d09f4b",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "3f27f9af24b9265b99abfd436299b2bdab16119c7880e1790d66101d193b0ea6",
-      "superseded_by_digest": "b815060056f3f2b0d26cc26660f86a3b641d864b8f6c9b37e0e14c4aa786234d"
-    },
-    "b815060056f3f2b0d26cc26660f86a3b641d864b8f6c9b37e0e14c4aa786234d": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "297c7e9c1eeba7e064300d88b5f42bd0c56f43b9",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "4c2b1f44f2c1e20be80e128ab26e47e337989f21d7698b39d48c30391834cbad",
-      "superseded_by_digest": "120ebb7a322125380e89945e9bb39fcb0c2a7967c777aa43389dd177ed1a2e0a"
-    },
-    "120ebb7a322125380e89945e9bb39fcb0c2a7967c777aa43389dd177ed1a2e0a": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "7c7ec184d359476893b8cf98e9cafcc7f900e8eb",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "b815060056f3f2b0d26cc26660f86a3b641d864b8f6c9b37e0e14c4aa786234d",
-      "superseded_by_digest": "59e96f33015b87c3f36b11999cba9e9b56e2e36f0d1b49df7b9a73205e30b193"
-    },
-    "59e96f33015b87c3f36b11999cba9e9b56e2e36f0d1b49df7b9a73205e30b193": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "b7eeb7cf8892bf234126a6018f0c299e6ecfc14f",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "120ebb7a322125380e89945e9bb39fcb0c2a7967c777aa43389dd177ed1a2e0a",
-      "superseded_by_digest": "4ef7e959d9dd1face4a5321bb30f8754663514d7a008a56b0630e556800263c1"
-    },
-    "4ef7e959d9dd1face4a5321bb30f8754663514d7a008a56b0630e556800263c1": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "0473cf41c60a2beb909f2ab814c590d5ac2b462f",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "59e96f33015b87c3f36b11999cba9e9b56e2e36f0d1b49df7b9a73205e30b193",
-      "superseded_by_digest": "74eacc55bfa97baf8dba7a74c394d05aef2e8425e007695c44acd272b6aed56b"
-    },
-    "74eacc55bfa97baf8dba7a74c394d05aef2e8425e007695c44acd272b6aed56b": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "72e7ec0311dbbc556d9baaf82e53723b28a30856",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "4ef7e959d9dd1face4a5321bb30f8754663514d7a008a56b0630e556800263c1",
-      "superseded_by_digest": "3266936443c2ebeb628773759a583ce7cf1c62e0dca70c2bece53a7ba3720900"
-    },
-    "3266936443c2ebeb628773759a583ce7cf1c62e0dca70c2bece53a7ba3720900": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "6d8a76a528fec9e3a526ba22292778c010294ab0",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "74eacc55bfa97baf8dba7a74c394d05aef2e8425e007695c44acd272b6aed56b",
-      "superseded_by_digest": "95b220cc67427da30de97e780f07c0c0972334092f15aab43e1cbb4de48ade0a"
-    },
-    "95b220cc67427da30de97e780f07c0c0972334092f15aab43e1cbb4de48ade0a": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "057e64066473063c91b676509ca98251975a7996",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "3266936443c2ebeb628773759a583ce7cf1c62e0dca70c2bece53a7ba3720900",
-      "superseded_by_digest": "ae918dd1b109e22ed3d3aeb7639e65aaf7e6dbab13122391381be4f5a44ae121"
-    },
-    "ae918dd1b109e22ed3d3aeb7639e65aaf7e6dbab13122391381be4f5a44ae121": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "abbec115ef964d23e47a415f9bfd85ad0841e7db",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "95b220cc67427da30de97e780f07c0c0972334092f15aab43e1cbb4de48ade0a",
-      "superseded_by_digest": "535d396671451b01f33764c414498d511945874004b2b491188a4a20c7bff6e9"
-    },
-    "535d396671451b01f33764c414498d511945874004b2b491188a4a20c7bff6e9": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "09561469caf2f75f698201ca6f9773cb167854a3",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "ae918dd1b109e22ed3d3aeb7639e65aaf7e6dbab13122391381be4f5a44ae121",
-      "superseded_by_digest": "8994521570300cd5ec82c5c5e0d00fb669249282fad40479d19753667de572ae"
-    },
-    "8994521570300cd5ec82c5c5e0d00fb669249282fad40479d19753667de572ae": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "ebe1d12dd0c34fa4d1e501527352166045c64068",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "535d396671451b01f33764c414498d511945874004b2b491188a4a20c7bff6e9",
-      "superseded_by_digest": "6f47aa476a86b455627c5ad4d03cc2aa78226d5c0f747fba5dc242e46a850a5b"
-    },
-    "6f47aa476a86b455627c5ad4d03cc2aa78226d5c0f747fba5dc242e46a850a5b": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "3f34a2894a5a86d394039da74a12b410a82217d7",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "8994521570300cd5ec82c5c5e0d00fb669249282fad40479d19753667de572ae",
-      "superseded_by_digest": "1790affe3010f14921e6f823e8d8aa8b9843cddcbe6619c0cba2b257f7a9d135"
-    },
-    "1790affe3010f14921e6f823e8d8aa8b9843cddcbe6619c0cba2b257f7a9d135": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "afae0977aa57f01dc44642612cbee8a6366fa2e3",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "6f47aa476a86b455627c5ad4d03cc2aa78226d5c0f747fba5dc242e46a850a5b",
-      "superseded_by_digest": "7eeae8b00bc57af820f28527432663dcd930545160d9a77ea75660b4ec988a88"
-    },
-    "7eeae8b00bc57af820f28527432663dcd930545160d9a77ea75660b4ec988a88": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "ad415fac084b459740cf2126885d168c1687eef7",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "1790affe3010f14921e6f823e8d8aa8b9843cddcbe6619c0cba2b257f7a9d135",
-      "superseded_by_digest": "e483329a916e02374dd4735c58a32d08a0e922d31cd5abf554d5a3d779bfde56"
-    },
-    "e483329a916e02374dd4735c58a32d08a0e922d31cd5abf554d5a3d779bfde56": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "1d260fb7aece7e80926552fa23d479a6741cd19e",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "7eeae8b00bc57af820f28527432663dcd930545160d9a77ea75660b4ec988a88",
-      "superseded_by_digest": "108143c77c9e5755d2a269392238c01fc885b6a38041a0eb262a2b8fd7fd2fc2"
-    },
-    "108143c77c9e5755d2a269392238c01fc885b6a38041a0eb262a2b8fd7fd2fc2": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "89bfff1d8936ba1d39c382baf45a4195ace8c6f9",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "e483329a916e02374dd4735c58a32d08a0e922d31cd5abf554d5a3d779bfde56",
-      "superseded_by_digest": "6000995d31ad3915c712264171692fa1099fe790a7752faac381463eefd61fd3"
-    },
-    "6000995d31ad3915c712264171692fa1099fe790a7752faac381463eefd61fd3": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "cd069c15110b0af0f3a83ff619272c14e4748edc",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "108143c77c9e5755d2a269392238c01fc885b6a38041a0eb262a2b8fd7fd2fc2",
-      "superseded_by_digest": "33b11d706a4fffc5c6edbfecb73b7492239977ad394711280735fd9b1b0d8fbd"
-    },
-    "33b11d706a4fffc5c6edbfecb73b7492239977ad394711280735fd9b1b0d8fbd": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "720617d3d7745dd56498eab1f344dfb140ca99ee",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "6000995d31ad3915c712264171692fa1099fe790a7752faac381463eefd61fd3",
-      "superseded_by_digest": "da3589cbd4a8949bebc32c3bc5abbad995340f257a9f4a44825881739fcb17c4"
-    },
-    "da3589cbd4a8949bebc32c3bc5abbad995340f257a9f4a44825881739fcb17c4": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "f62cbca91e8792fafa340e9809767fbd710424f5",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "33b11d706a4fffc5c6edbfecb73b7492239977ad394711280735fd9b1b0d8fbd",
-      "superseded_by_digest": "bacbcf0713ef9570ec9a0702a0285322c9180e4f8c72807a83b1f6348e69fd1a"
-    },
-    "bacbcf0713ef9570ec9a0702a0285322c9180e4f8c72807a83b1f6348e69fd1a": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "9bb15f6f113ebf041ffc7372bfee72526fdd7f89",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "da3589cbd4a8949bebc32c3bc5abbad995340f257a9f4a44825881739fcb17c4",
-      "superseded_by_digest": "cdc74008ea7928f2ae6a9efffa252c8c5e7a5c27fb5e10c95d76d523efc13609"
-    },
-    "cdc74008ea7928f2ae6a9efffa252c8c5e7a5c27fb5e10c95d76d523efc13609": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "8b10c4e60a0cf023d516caa5a55d4a518a83fc1e",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "bacbcf0713ef9570ec9a0702a0285322c9180e4f8c72807a83b1f6348e69fd1a",
-      "superseded_by_digest": "bcc26f14c355db2fa49ccc880e4c5b839ebc1bff1b76d36c064d9af2afa3336a"
-    },
-    "bcc26f14c355db2fa49ccc880e4c5b839ebc1bff1b76d36c064d9af2afa3336a": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "745e173d258f1653564e574c5cc4feb7244860dc",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "cdc74008ea7928f2ae6a9efffa252c8c5e7a5c27fb5e10c95d76d523efc13609",
-      "superseded_by_digest": "78e3b5dd1a7654fcffda419a18511d2e27d72a8ee4d5d9465fea99ce4ec31c44"
-    },
-    "78e3b5dd1a7654fcffda419a18511d2e27d72a8ee4d5d9465fea99ce4ec31c44": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "8cc98495e7bc51fe9c0c3ff689be0d88026a6986",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "bcc26f14c355db2fa49ccc880e4c5b839ebc1bff1b76d36c064d9af2afa3336a",
-      "superseded_by_digest": "835e947b3c11a30eca1e3343facf76bcf0a13c3d6e8efc971c2af708c4edfcaf"
-    },
-    "835e947b3c11a30eca1e3343facf76bcf0a13c3d6e8efc971c2af708c4edfcaf": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "7769f4db90ada843e25867908cfca7bf35bfc4cb",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "78e3b5dd1a7654fcffda419a18511d2e27d72a8ee4d5d9465fea99ce4ec31c44",
-      "superseded_by_digest": "9bd459e2f9dd6fd5908ff24fc5ddbfbe3cebc2750e56b0b18959506ba5965f8d"
-    },
-    "9bd459e2f9dd6fd5908ff24fc5ddbfbe3cebc2750e56b0b18959506ba5965f8d": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "c1d1f524d5d03e70c9c03b9f3c775d1b3c42da02",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "835e947b3c11a30eca1e3343facf76bcf0a13c3d6e8efc971c2af708c4edfcaf",
-      "superseded_by_digest": "ea0cd13256b6f7910c2aa50b067ce1ba75ca8afb7820fc45611fbc7f7821f465"
-    },
-    "ea0cd13256b6f7910c2aa50b067ce1ba75ca8afb7820fc45611fbc7f7821f465": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "93ee3b64dc23b151b74c604bf3ddf6ce28868315",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "9bd459e2f9dd6fd5908ff24fc5ddbfbe3cebc2750e56b0b18959506ba5965f8d",
-      "superseded_by_digest": "2b08a28d5cd481bc100a49491888def78c825d779a98f81a87983c875033ff5d"
-    },
-    "2b08a28d5cd481bc100a49491888def78c825d779a98f81a87983c875033ff5d": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "1740a7d4cb239a254c03b1a7c69dd6cbe3ab4068",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "ea0cd13256b6f7910c2aa50b067ce1ba75ca8afb7820fc45611fbc7f7821f465",
-      "superseded_by_digest": "16da2465cc0b8e75f815723c031446cb26eb9c2cdb11f1a9e45bc4615d13abae"
-    },
-    "16da2465cc0b8e75f815723c031446cb26eb9c2cdb11f1a9e45bc4615d13abae": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "e11f96788421916d40be4c2f8a99a7cda3c45a2e",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "2b08a28d5cd481bc100a49491888def78c825d779a98f81a87983c875033ff5d",
-      "superseded_by_digest": "77be7563f52a8b0d91c35d7556f6ba0b6a34e10c00c24a7464b085f263f96bee"
-    },
-    "77be7563f52a8b0d91c35d7556f6ba0b6a34e10c00c24a7464b085f263f96bee": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "e76a65c0b44658374cacc09591ae2f55a32c0444",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "16da2465cc0b8e75f815723c031446cb26eb9c2cdb11f1a9e45bc4615d13abae",
-      "superseded_by_digest": "2cdcd95151c5809f01eca4b959b080d699ea34ac300a7350206bfe4786b8a622"
-    },
-    "2cdcd95151c5809f01eca4b959b080d699ea34ac300a7350206bfe4786b8a622": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "3682cfcc6d38e9d268d1dd5ccd4162add08205ac",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "77be7563f52a8b0d91c35d7556f6ba0b6a34e10c00c24a7464b085f263f96bee",
-      "superseded_by_digest": "757f33766ab4e29ada0bc67c7864228345c05f1fb0d3963b213eda34b8e4ae9b"
-    },
-    "757f33766ab4e29ada0bc67c7864228345c05f1fb0d3963b213eda34b8e4ae9b": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "e50792d20b025551ab00cde163814fab0c744a26",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "2cdcd95151c5809f01eca4b959b080d699ea34ac300a7350206bfe4786b8a622",
-      "superseded_by_digest": "4ee71dce29ecee7afa1de66362a793d4e4e74818c57f19fd2bc82fd1e5aa6fb7"
-    },
-    "4ee71dce29ecee7afa1de66362a793d4e4e74818c57f19fd2bc82fd1e5aa6fb7": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "f82b738a41faeca4116ab0ddf158a599a564d7dc",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "757f33766ab4e29ada0bc67c7864228345c05f1fb0d3963b213eda34b8e4ae9b",
-      "superseded_by_digest": "4609d472c9f0ce1c3ba96762038d4df34936f166f9f4e1d21ea3c381c233641c"
-    },
-    "4609d472c9f0ce1c3ba96762038d4df34936f166f9f4e1d21ea3c381c233641c": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "0ad89b0eee7404c9ab04dedbbb12b8feb884d940",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "4ee71dce29ecee7afa1de66362a793d4e4e74818c57f19fd2bc82fd1e5aa6fb7",
-      "superseded_by_digest": "7f20125603c790ab48744e9d1e2edaec7005b89e661d6dac760e016e22197ede"
-    },
-    "7f20125603c790ab48744e9d1e2edaec7005b89e661d6dac760e016e22197ede": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "836273f116725fb0351d84640bf8cd58024cc9a5",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "4609d472c9f0ce1c3ba96762038d4df34936f166f9f4e1d21ea3c381c233641c",
-      "superseded_by_digest": "26dd0c894d2224bfee27a1618e4f1bd2b296966c89006d90e5cd8db4c11cec51"
-    },
-    "26dd0c894d2224bfee27a1618e4f1bd2b296966c89006d90e5cd8db4c11cec51": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "1dff2f67ce4f74326ea7cbc8dfd0dd76c677abf1",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "7f20125603c790ab48744e9d1e2edaec7005b89e661d6dac760e016e22197ede",
-      "superseded_by_digest": "124b55d77e22e577d0bd7b663fcbeaf212082ed3442bb654b9338a609bf55057"
-    },
-    "124b55d77e22e577d0bd7b663fcbeaf212082ed3442bb654b9338a609bf55057": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "e852dcaca2d872c9ea657b4cc957256825cbf53f",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "26dd0c894d2224bfee27a1618e4f1bd2b296966c89006d90e5cd8db4c11cec51",
-      "superseded_by_digest": "3c87a6b0ae65e18645e05dd2a028cc387b101d035c1562b883945e650a028981"
-    },
-    "3c87a6b0ae65e18645e05dd2a028cc387b101d035c1562b883945e650a028981": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "source_commit": "b32e3f166ebc7aa605e48ee55132f03755855a66",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "124b55d77e22e577d0bd7b663fcbeaf212082ed3442bb654b9338a609bf55057",
-      "superseded_by_digest": "07892a809dfaa07e6bdbb02c1c350ed226c4692b2c16eeadbc993f65a15cad47"
-    },
-    "07892a809dfaa07e6bdbb02c1c350ed226c4692b2c16eeadbc993f65a15cad47": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "3c87a6b0ae65e18645e05dd2a028cc387b101d035c1562b883945e650a028981",
-      "source_commit": "f79da22f5c310843e17aca68a27b00dfb83537f8",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "6bfb2795468b0a9fbe5ef86c005903ce243fee0900a7ab2f72410eccf0330d3e"
-    },
-    "6fb3a1e366da129ac460599a391891a49206ccc715b6367cf344e2aa3e9f2a3d": {
-      "artifact_type": "m4_v2_branch_preflight_source_contract",
-      "path": "configs/research-os/m4-v2-branch-preflight-design-source-contract-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "391acc6a04518389f841e94a640a14dcaf98bd2c36614d31a0e713446980b06d": {
-      "artifact_type": "m4_v2_branch_fixture_freeze_source_contract",
-      "path": "configs/research-os/m4-v2-branch-fixture-freeze-source-contract-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "7da905d15249813e44bcf57b4e107fac15bb2d02587c4c68134ca5c834aac5c1": {
-      "artifact_type": "m4_v2_branch_preflight_execution_source_contract",
-      "path": "configs/research-os/m4-v2-branch-preflight-execution-source-contract-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "db8109760e5aeaae30cc765bb60ccd704560a24674a934dff6304026d8b87de1": {
-      "artifact_type": "m4_v2_marginal_static_contract_freeze_source",
-      "path": "configs/research-os/m4-v2-marginal-static-contract-freeze-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "65a3b02964d35c8250bde2e6c9858f94c40617b7a60923c77d96541b29982b53": {
-      "artifact_type": "m4_v2_marginal_static_fixture_freeze_source",
-      "path": "configs/research-os/m4-v2-marginal-static-fixture-freeze-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "2621e16efa8cf888f06e841c7a89cc72e50bc291ef08e0eaa82458196616047d": {
-      "artifact_type": "m4_v2_marginal_static_health_design_source",
-      "path": "configs/research-os/m4-v2-marginal-static-health-design-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "5fbeb6ab0533478ac097747ab73fb0188561849505a76cf7a63a3a02061b2354": {
-      "artifact_type": "m4_v2_marginal_static_health_execution_source",
-      "path": "configs/research-os/m4-v2-marginal-static-health-execution-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "df89e7785e1ace80b9e967e3c1dba8983d74b93d3e961226daa7ed2c0e023fc8": {
-      "artifact_type": "m4_v2_marginal_static_health_decision_source",
-      "path": "configs/research-os/m4-v2-marginal-static-health-decision-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "13ec63a3ee5a075a1e44dd282a311425c2618d6d06f1fa3879815c7001450b3f": {
-      "artifact_type": "m4_v2_marginal_static_repair_design_source",
-      "path": "configs/research-os/m4-v2-marginal-static-repair-design-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "784de2ed686e99459ceb4463107a6e8b47534ffc0c0ef06974dc1be535da7384": {
-      "artifact_type": "m4_v2_marginal_static_repair_preregistration_source",
-      "path": "configs/research-os/m4-v2-marginal-static-repair-preregistration-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "51a677b570cf11bbfdc3c9b1cf7d38827a57d15d38e9b184933f6ad7ec8a0ff2": {
-      "artifact_type": "m4_v2_marginal_static_repair_health_execution_source",
-      "path": "configs/research-os/m4-v2-marginal-static-repair-health-execution-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "2186e18ae26fb3770476d968df4f1e63dca1035cbf5858860580d8d766a50dd4": {
-      "artifact_type": "m4_v2_marginal_static_repair_health_decision_source",
-      "path": "configs/research-os/m4-v2-marginal-static-repair-health-decision-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "db6872c20602731b1c4129b585e42c4bc533f91e5e1725f1d5dfc9b4163af59e": {
-      "artifact_type": "m4_v2_marginal_static_repair_v2_design_source",
-      "path": "configs/research-os/m4-v2-marginal-static-repair-v2-design-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "8f3b8e453a7ca86efa8daba4ed77cecd8bd23ee1cc99551b531a91e7a4445521": {
-      "artifact_type": "m4_v2_marginal_static_repair_v2_preregistration_source",
-      "path": "configs/research-os/m4-v2-marginal-static-repair-v2-preregistration-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "e1a2b76b1df2bb93a696330256462569e8122608fc027b014051391b9d89abee": {
-      "artifact_type": "m4_v2_marginal_static_repair_v2_health_execution_source",
-      "path": "configs/research-os/m4-v2-marginal-static-repair-v2-health-execution-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "65dbd24e6a63fadfa62d0fb5d0bf7744d166ed1bfb2412bb48e57b04c2d190c6": {
-      "artifact_type": "m4_v2_marginal_static_repair_v2_health_decision_source",
-      "path": "configs/research-os/m4-v2-marginal-static-repair-v2-health-decision-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "ad07217101c613d1b7afa273054adb7a8c3fe3a7c6a36eea4012bbbae2483753": {
-      "artifact_type": "m4_v2_marginal_static_historical_design_source",
-      "path": "configs/research-os/m4-v2-marginal-static-historical-design-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "fb9f79056cbd3f7bc4fd4cff3ad5250669d4f6aaed6ec1c31249738230aa291d": {
-      "artifact_type": "m4_v2_marginal_static_historical_preregistration_source",
-      "path": "configs/research-os/m4-v2-marginal-static-historical-preregistration-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "dd034e9a6358af0090ce77d9896da2df28616db57374c71f7c89058c69ed71d2": {
-      "artifact_type": "m4_v2_marginal_static_historical_execution_source",
-      "path": "configs/research-os/m4-v2-marginal-static-historical-execution-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "dcab7f9d512c40cfafdc7eae0800cd1aac90c18674760d9d20cb46850bb5d60c": {
-      "artifact_type": "m4_v2_marginal_static_historical_gate_source",
-      "path": "configs/research-os/m4-v2-marginal-static-historical-gate-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "f2fc68cc3d20167ecc8e2d3ea4ffaab6c9459cb2edef7e3b364e0431f446e160": {
-      "artifact_type": "prediction_v2_promotion_planner_source",
-      "path": "configs/research-os/prediction-v2-promotion-planner-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "0a57779c0c96d4efc04b17b84260c373f657ca49cc9525becaceb78894bc1144": {
-      "artifact_type": "prediction_v2_forward_evidence_or_pivot_planner_source",
-      "path": "configs/research-os/prediction-v2-forward-evidence-or-pivot-planner-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "c0c31dff6aced2fbe5335e2702788f2f55367fa98c0b3f958dcf18c2c83b1778": {
-      "artifact_type": "prediction_v2_structural_decision_support_design_source",
-      "path": "configs/research-os/prediction-v2-structural-decision-support-design-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "d0e997b1b7442ce5dfe01652eb23ff9b8e234ee79e0a783a7f27f3a1e1f9821e": {
-      "artifact_type": "prediction_v2_structural_decision_support_preregistration_source",
-      "path": "configs/research-os/prediction-v2-structural-decision-support-preregistration-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "0796da84d80649913795eb71f003ed38ecfb801098e15488e8fe66c403c4eb73": {
-      "artifact_type": "prediction_v2_structural_portfolio_execution_source",
-      "path": "configs/research-os/prediction-v2-structural-portfolio-execution-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "b194c87b8810aeb5757d1366dec00e6fe2243a07e9b38cbac8b1ddf92988bc93": {
-      "artifact_type": "prediction_v2_structural_portfolio_evaluation_source",
-      "path": "configs/research-os/prediction-v2-structural-portfolio-evaluation-source-v1.json",
-      "identity_field": "artifact_digest"
+    "8f123b06647d509000f0e4e291087438b3009f6c1ec3e5cab327600c3bca14f6": {
+      "artifact_type": "m4_p3_result_blind_structural_utility_execution_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-p3-result-blind-structural-utility-blind-execution-source-v1.json"
     },
     "8f12888f0530b3afa32eb131504d14c5d521aad762900d55cccd44df6e726a99": {
       "artifact_type": "prediction_v2_structural_route_decision_source",
-      "path": "configs/research-os/prediction-v2-structural-route-decision-source-v1.json",
-      "identity_field": "artifact_digest"
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/prediction-v2-structural-route-decision-source-v1.json"
     },
-    "51865ebe80dbde996ba1f87b058ea651e0d047a02c5455ec1cfb824907e069d2": {
-      "artifact_type": "prediction_v2_structural_baseline_comparison_preregistration_source",
-      "path": "configs/research-os/prediction-v2-structural-baseline-comparison-preregistration-source-v1.json",
-      "identity_field": "artifact_digest"
+    "8f3b8e453a7ca86efa8daba4ed77cecd8bd23ee1cc99551b531a91e7a4445521": {
+      "artifact_type": "m4_v2_marginal_static_repair_v2_preregistration_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-marginal-static-repair-v2-preregistration-source-v1.json"
     },
-    "050cd92940e3a9e939f806b51b6d4498388ae3707bf954d90d707cf7238ce930": {
-      "artifact_type": "prediction_v2_structural_baseline_comparison_execution_source",
-      "path": "configs/research-os/prediction-v2-structural-baseline-comparison-execution-source-v1.json",
-      "identity_field": "artifact_digest"
+    "911fa45a1276ecc0502ad569760ceffbf2257dfaca42f8ec8bf1f4249af666ea": {
+      "artifact_type": "m4_p3_predictive_route_reconciliation_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-p3-predictive-route-reconciliation-source-v1.json"
     },
-    "74fa955fd13f4104195ce21d2e79669b96991a3b976121989e8b770ee063192e": {
-      "artifact_type": "prediction_v2_structural_baseline_comparison_route_decision_source",
-      "path": "configs/research-os/prediction-v2-structural-baseline-comparison-route-decision-source-v1.json",
-      "identity_field": "artifact_digest"
+    "92dddbf3528e61eb5997131c161b1ccb8c4d8bd20974d961d6f19c22b396300e": {
+      "artifact_type": "measurement_contract_v2_gate_replay_fixture",
+      "path": "configs/research-os/m4-measurement-contract-v2-replay-fixture-v1.json"
+    },
+    "93f6a659bbeaa908ce94be4da2bfb5151a75eda09c61051f0d0826447384149a": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "4e787ebc1b13e1a16fe42b80054cb2a01f4c0b6b",
+      "superseded_by_digest": "b73210e14f1a49653f999821bc97a462d0b6775dad0dc0b4d052fc7d52f045c4",
+      "supersedes_digest": "f8f6375b04359676d47a5c56c9f0b38874466ecf88d5a92f4c54115e39a2035a"
+    },
+    "953ae76e2e28523b7d067c2b73dac8bec63ff2417db283fd516fe900e52402f8": {
+      "artifact_type": "information_theory_p2_measurement_validation_manifest",
+      "path": "configs/research-os/m4-information-theory-p2-6-measurement-validation-v1.json"
+    },
+    "95b220cc67427da30de97e780f07c0c0972334092f15aab43e1cbb4de48ade0a": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "057e64066473063c91b676509ca98251975a7996",
+      "superseded_by_digest": "ae918dd1b109e22ed3d3aeb7639e65aaf7e6dbab13122391381be4f5a44ae121",
+      "supersedes_digest": "3266936443c2ebeb628773759a583ce7cf1c62e0dca70c2bece53a7ba3720900"
+    },
+    "9bd459e2f9dd6fd5908ff24fc5ddbfbe3cebc2750e56b0b18959506ba5965f8d": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "c1d1f524d5d03e70c9c03b9f3c775d1b3c42da02",
+      "superseded_by_digest": "ea0cd13256b6f7910c2aa50b067ce1ba75ca8afb7820fc45611fbc7f7821f465",
+      "supersedes_digest": "835e947b3c11a30eca1e3343facf76bcf0a13c3d6e8efc971c2af708c4edfcaf"
+    },
+    "9d67c07990707e783384386b4c5c09e2a1f5b3c3521d93dcfd38817feddc69f5": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "71c03a4b7fc8ea049f381d48b15388daaf9cd2ba",
+      "superseded_by_digest": "3f27f9af24b9265b99abfd436299b2bdab16119c7880e1790d66101d193b0ea6",
+      "supersedes_digest": "7f522941cd05e9a1433b7f887180aed8be8f0dde30bc7170f6dd2a444169dfbb"
+    },
+    "a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b": {
+      "artifact_type": "hierarchical_information_measurement_contract",
+      "path": "configs/research-os/m4-measurement-contract-v2.json"
+    },
+    "a21c30d9c56c51205c399d90a095b94b84a69acbcce94d6a7fc6be5a471a8518": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "859e053febeda0d0ac5ed7e442de9c566420650a",
+      "superseded_by_digest": "eab2583985b389dc8ee000fba74ee965fb75da131c2e709a05067a1cbfdbb9cc"
+    },
+    "a3aeacf15146fd0c55098eb3306e60ef1aa0e40d160a181ad1306b2b9744c5a6": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "1ec91084c37e4b36535d0a3efd51fb68d786ea0f",
+      "superseded_by_digest": "f3f263d3ef9c5028223070b7fc228c2ef95ffc315a86479d17ebccb0a87b890b",
+      "supersedes_digest": "86847be6f03486b7420e3daa24f286d20d7e872c4901260f6eb3f502b0df0ffe"
+    },
+    "a4e46a434a4b2ef9fe56ed0390d58ca5a45bbad21685b81cb983f7261b3abf58": {
+      "artifact_type": "repaired_measurement_validation_manifest",
+      "path": "configs/research-os/m4-information-theory-p2-6-1-measurement-validation-v1.json"
+    },
+    "a4f29c1392305b6ef2dc90134901c74f8ffb297071838d734d1e17e8439ad6e8": {
+      "artifact_type": "superseded_information_theory_preregistration",
+      "path_at_source": "configs/research-os/m4-information-theory-preregistration-v1.json",
+      "runtime_path": "runtime/research-os/information-theory/preregistrations/a4f29c1392305b6ef2dc90134901c74f8ffb297071838d734d1e17e8439ad6e8/preregistration.json",
+      "source_commit": "c67d8cdf284a60fc9991e2c2dab65130f296b738",
+      "superseded_by_digest": "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1"
+    },
+    "a8da6bf2404d3bf213ac74d331917d5308195b7c3174b002378e1bbd849f6dfa": {
+      "artifact_type": "superseded_information_theory_preregistration",
+      "path": "configs/research-os/m4-information-theory-preregistration-v1.0.2.json",
+      "superseded_by_digest": "4fff51c58e4a46d664e414bfe4cc0d7269c8e3712734153faec548648144d0d9",
+      "supersedes_digest": "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1"
     },
     "a9665143242689b02702f88f9782d5fe11a52240fed11d1c6ebfef8d5dca10c2": {
       "artifact_type": "superseded_prediction_v2_balanced_design_feasibility_source",
-      "source_commit": "e76a65c0b44658374cacc09591ae2f55a32c0444",
-      "path_at_source": "configs/research-os/prediction-v2-balanced-design-feasibility-design-source-v1.json",
       "identity_field": "artifact_digest",
+      "path_at_source": "configs/research-os/prediction-v2-balanced-design-feasibility-design-source-v1.json",
+      "source_commit": "e76a65c0b44658374cacc09591ae2f55a32c0444",
       "superseded_by_digest": "f055aae2ae70af5d21fbfc2a1bfa50952fca595e906cd82556b445c3299acade"
-    },
-    "f055aae2ae70af5d21fbfc2a1bfa50952fca595e906cd82556b445c3299acade": {
-      "artifact_type": "prediction_v2_balanced_design_feasibility_source",
-      "path": "configs/research-os/prediction-v2-balanced-design-feasibility-design-source-v1.json",
-      "identity_field": "artifact_digest"
     },
     "acc843ce75ab48c68777ecee4d40f87e59be04bf98c241f139dbdfe0416521d0": {
       "artifact_type": "prediction_v2_balanced_design_feasibility_preregistration_source",
-      "path": "configs/research-os/prediction-v2-balanced-design-feasibility-preregistration-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "46ee7d03cab54a3d0b6dfd210058aec8e56494f7a48e20ce43eb6c7578bb65f6": {
-      "artifact_type": "superseded_prediction_v2_balanced_design_feasibility_execution_source",
-      "source_commit": "f82b738a41faeca4116ab0ddf158a599a564d7dc",
-      "path_at_source": "configs/research-os/prediction-v2-balanced-design-feasibility-execution-source-v1.json",
       "identity_field": "artifact_digest",
-      "superseded_by_digest": "c54ee87e5b9d6e513945204bea0413e8d34a51206e587f3662d8123eb03b9538"
+      "path": "configs/research-os/prediction-v2-balanced-design-feasibility-preregistration-source-v1.json"
+    },
+    "ad07217101c613d1b7afa273054adb7a8c3fe3a7c6a36eea4012bbbae2483753": {
+      "artifact_type": "m4_v2_marginal_static_historical_design_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-marginal-static-historical-design-source-v1.json"
+    },
+    "ad719631406ce033a3fcd409a3ba6ba10c733f95d2a1110d960daa4865b79844": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "d0aed253e2cb560007883deacaf4be6f47533d2f",
+      "superseded_by_digest": "a21c30d9c56c51205c399d90a095b94b84a69acbcce94d6a7fc6be5a471a8518"
+    },
+    "ae4e741cfc55547785ca9cf57b5b49f37a3d8c4f2bd53daeff9228982f797a69": {
+      "artifact_type": "information_theory_contract",
+      "path": "configs/research-os/m4-information-theory-contract-v1.json"
+    },
+    "ae918dd1b109e22ed3d3aeb7639e65aaf7e6dbab13122391381be4f5a44ae121": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "abbec115ef964d23e47a415f9bfd85ad0841e7db",
+      "superseded_by_digest": "535d396671451b01f33764c414498d511945874004b2b491188a4a20c7bff6e9",
+      "supersedes_digest": "95b220cc67427da30de97e780f07c0c0972334092f15aab43e1cbb4de48ade0a"
+    },
+    "b194c87b8810aeb5757d1366dec00e6fe2243a07e9b38cbac8b1ddf92988bc93": {
+      "artifact_type": "prediction_v2_structural_portfolio_evaluation_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/prediction-v2-structural-portfolio-evaluation-source-v1.json"
+    },
+    "b1f72ebe01daf38c39724f2b6b2beaa1e0be391974e708ba1be65e8cf12ae3be": {
+      "artifact_type": "measurement_source_compatibility_fixture",
+      "fixture_artifact_digest": "f9716c799e1e55e58585c7e9acf0730f9d05111ab6e375cfb9bea85ecbdeacc5",
+      "identity_field": "manifest_digest",
+      "path": "configs/research-os/fixtures/m4-p2.6.1/frozen/source-manifest-fixture-v1.json",
+      "superseded_by_digest": "39435df4057f0df747f2b56c48282d6fc4ad9a266fbb8f31262e3984ece712ba"
+    },
+    "b73210e14f1a49653f999821bc97a462d0b6775dad0dc0b4d052fc7d52f045c4": {
+      "artifact_type": "research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "bf84d17c523edbf800d1d5fece67086c5368bec1",
+      "superseded_by_digest": "e1a8ca3df25b0260a8b28bdebd0f610ad2c7fe1ac0563b9e05caedeb72c519f8",
+      "supersedes_digest": "93f6a659bbeaa908ce94be4da2bfb5151a75eda09c61051f0d0826447384149a"
+    },
+    "b815060056f3f2b0d26cc26660f86a3b641d864b8f6c9b37e0e14c4aa786234d": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "297c7e9c1eeba7e064300d88b5f42bd0c56f43b9",
+      "superseded_by_digest": "120ebb7a322125380e89945e9bb39fcb0c2a7967c777aa43389dd177ed1a2e0a",
+      "supersedes_digest": "4c2b1f44f2c1e20be80e128ab26e47e337989f21d7698b39d48c30391834cbad"
+    },
+    "bacbcf0713ef9570ec9a0702a0285322c9180e4f8c72807a83b1f6348e69fd1a": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "9bb15f6f113ebf041ffc7372bfee72526fdd7f89",
+      "superseded_by_digest": "cdc74008ea7928f2ae6a9efffa252c8c5e7a5c27fb5e10c95d76d523efc13609",
+      "supersedes_digest": "da3589cbd4a8949bebc32c3bc5abbad995340f257a9f4a44825881739fcb17c4"
+    },
+    "bb721c539a9e18250c96cdaa82c8aca719072d49673d8d02de884bceebbf48ae": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "0842201871aef856b97838c38bb53d536e1e5893",
+      "superseded_by_digest": "07ef938e3df3b301259c34048cd02123025aad2ab9ad7982efec525b919e8acf",
+      "supersedes_digest": "39435df4057f0df747f2b56c48282d6fc4ad9a266fbb8f31262e3984ece712ba"
+    },
+    "bcc26f14c355db2fa49ccc880e4c5b839ebc1bff1b76d36c064d9af2afa3336a": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "745e173d258f1653564e574c5cc4feb7244860dc",
+      "superseded_by_digest": "78e3b5dd1a7654fcffda419a18511d2e27d72a8ee4d5d9465fea99ce4ec31c44",
+      "supersedes_digest": "cdc74008ea7928f2ae6a9efffa252c8c5e7a5c27fb5e10c95d76d523efc13609"
+    },
+    "bf5a8728d355e0b83ab1a173cd656b8a2f23abce1a1b9036664af617a1d1b47e": {
+      "artifact_type": "superseded_measurement_runtime_benchmark_plan",
+      "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.3.json",
+      "superseded_by_digest": "4d0669386fc32b27b5345995bdaf5e902aaa63109e73472804fd6b6ba06fcf15",
+      "supersedes_digest": "ee8c6afd84299f8976ea3949959dba3180d487d4ed487e098ec7b778caa04e52"
+    },
+    "c0c31dff6aced2fbe5335e2702788f2f55367fa98c0b3f958dcf18c2c83b1778": {
+      "artifact_type": "prediction_v2_structural_decision_support_design_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/prediction-v2-structural-decision-support-design-source-v1.json"
+    },
+    "c102efe1f177fca3354b4270dd246d4eed8f2e6e710191f04fc97ec99b8222a2": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "48dbcff50c2d8addb983bb61372a27a7c11a8e2f",
+      "superseded_by_digest": "d5aacae2e61d20009965f031309f3c7489a3e499f2d9ad3e43b062684dd628df"
+    },
+    "c34836c3464bafd408c3eef1c87505040a69f79a5323bbb7d803bce9565be674": {
+      "artifact_type": "superseded_measurement_runtime_benchmark_plan",
+      "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.json",
+      "superseded_by_digest": "5d6eafd399bc6a0fc87a2fa0fce4830824776194566aab4a8ab2299379646aff"
     },
     "c54ee87e5b9d6e513945204bea0413e8d34a51206e587f3662d8123eb03b9538": {
       "artifact_type": "prediction_v2_balanced_design_feasibility_execution_source",
-      "path": "configs/research-os/prediction-v2-balanced-design-feasibility-execution-source-v1.json",
       "identity_field": "artifact_digest",
+      "path": "configs/research-os/prediction-v2-balanced-design-feasibility-execution-source-v1.json",
       "supersedes_digest": "46ee7d03cab54a3d0b6dfd210058aec8e56494f7a48e20ce43eb6c7578bb65f6"
+    },
+    "c8b1e4e50235179339fd95cb7e2af63d3e0616e25e30d689f7afec3019e19e7a": {
+      "artifact_type": "m4_v2_global_routing_source_contract",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-global-routing-source-v1.json",
+      "supersedes_digest": "6ca7ae72f61ac14be9e29d18c74e1fab8444426b14b37ec137dc1c116a94783c"
+    },
+    "c8fbdd8523b0a14e18d6828535b90f7f56c3d1beaf059bf2e4ec687a2465748d": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "2161dc9b4c6700a9ad3c03eaab398e75456cb272",
+      "superseded_by_digest": "830cb10a322d033d8091907215f2a2b7396233455353ed9d22bc81e53cb3b08a"
+    },
+    "ccbed31f36ad9486f5489d5827c6456d1853259eaeb1ab7a61077347c7e06056": {
+      "artifact_type": "superseded_measurement_runtime_benchmark_plan",
+      "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.6.json",
+      "superseded_by_digest": "8c97fd5fdc006cba6a4145dbd56acc566b9507e18279d06437d0aa472adb2cd2",
+      "supersedes_digest": "e2bfb82be29bedac51be6905e6049b4a10e5c0cde0198995e12279bf969714ca"
+    },
+    "cdaa540b6fbd92a9e32cdd27edfe059cdd98c585be46a335b8ba37ccd097ecf2": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "142e533ec00f3e29c61faec4a1ea5813a1123e3d",
+      "superseded_by_digest": "7f522941cd05e9a1433b7f887180aed8be8f0dde30bc7170f6dd2a444169dfbb",
+      "supersedes_digest": "07ef938e3df3b301259c34048cd02123025aad2ab9ad7982efec525b919e8acf"
+    },
+    "cdc74008ea7928f2ae6a9efffa252c8c5e7a5c27fb5e10c95d76d523efc13609": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "8b10c4e60a0cf023d516caa5a55d4a518a83fc1e",
+      "superseded_by_digest": "bcc26f14c355db2fa49ccc880e4c5b839ebc1bff1b76d36c064d9af2afa3336a",
+      "supersedes_digest": "bacbcf0713ef9570ec9a0702a0285322c9180e4f8c72807a83b1f6348e69fd1a"
+    },
+    "d0e997b1b7442ce5dfe01652eb23ff9b8e234ee79e0a783a7f27f3a1e1f9821e": {
+      "artifact_type": "prediction_v2_structural_decision_support_preregistration_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/prediction-v2-structural-decision-support-preregistration-source-v1.json"
     },
     "d26e55c82fbba734887a713ab5f82ccbcfffe97b22d3477c9d03aa7ed1943fb1": {
       "artifact_type": "prediction_v2_balanced_design_feasibility_result_decision_source",
-      "path": "configs/research-os/prediction-v2-balanced-design-feasibility-result-decision-source-v1.json",
-      "identity_field": "artifact_digest"
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/prediction-v2-balanced-design-feasibility-result-decision-source-v1.json"
     },
-    "4ba7d37922325afd0d971787686dfbc9b43a0f198ba1d7ddabb71136f38ee1f3": {
-      "artifact_type": "prediction_v2_balanced_design_structural_evaluation_design_source",
-      "path": "configs/research-os/prediction-v2-balanced-design-structural-evaluation-design-source-v1.json",
-      "identity_field": "artifact_digest"
+    "d2d959f6c326e42f80bf92ae652087c941c77e0bacbe22f29e04d4cf8c9f4d6d": {
+      "artifact_type": "measurement_validation_superseded_run_archive",
+      "path": "configs/research-os/m4-information-theory-p2-6-superseded-run-archive-v1.json"
     },
-    "03ff0783961730cb8ac0f800000c00f6e666cd75a6364d9953c8647f9292a565": {
-      "artifact_type": "prediction_v2_balanced_design_structural_evaluation_preregistration_source",
-      "path": "configs/research-os/prediction-v2-balanced-design-structural-evaluation-preregistration-source-v1.json",
-      "identity_field": "artifact_digest"
+    "d5aacae2e61d20009965f031309f3c7489a3e499f2d9ad3e43b062684dd628df": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "f59a6b1b1dde6f02f13aa3465e560cb38931b448",
+      "superseded_by_digest": "3c511268fd1211c6c71de8ec3ac9c0afd218855ed58885a26b4cec4638175157"
     },
-    "e254bfcd84683f54d00f5e1a89b81a953ba90413a0724794abdde7e7c9eabc7c": {
-      "artifact_type": "prediction_v2_balanced_design_structural_evaluation_execution_source",
-      "path": "configs/research-os/prediction-v2-balanced-design-structural-evaluation-execution-source-v1.json",
-      "identity_field": "artifact_digest"
+    "d99f6a248bb83a74cb98d344607e4c7caa92b88f9ab6fb1fc402b375e2be3ea6": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "ec8bfd6577a6b51d9a9e88679c2125216bba2187",
+      "superseded_by_digest": "27056596c7181f74131ca507b1b83076fc8e25f7c925fb671a73e7dd25c801da"
     },
-    "8a8463e8de27f799d068803794532e313c38e6ea50c2c7fd3124d7b273502584": {
-      "artifact_type": "prediction_v2_balanced_design_structural_evaluation_result_decision_source",
-      "path": "configs/research-os/prediction-v2-balanced-design-structural-evaluation-result-decision-source-v1.json",
-      "identity_field": "artifact_digest"
+    "da3589cbd4a8949bebc32c3bc5abbad995340f257a9f4a44825881739fcb17c4": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "f62cbca91e8792fafa340e9809767fbd710424f5",
+      "superseded_by_digest": "bacbcf0713ef9570ec9a0702a0285322c9180e4f8c72807a83b1f6348e69fd1a",
+      "supersedes_digest": "33b11d706a4fffc5c6edbfecb73b7492239977ad394711280735fd9b1b0d8fbd"
+    },
+    "db6872c20602731b1c4129b585e42c4bc533f91e5e1725f1d5dfc9b4163af59e": {
+      "artifact_type": "m4_v2_marginal_static_repair_v2_design_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-marginal-static-repair-v2-design-source-v1.json"
+    },
+    "db8109760e5aeaae30cc765bb60ccd704560a24674a934dff6304026d8b87de1": {
+      "artifact_type": "m4_v2_marginal_static_contract_freeze_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-marginal-static-contract-freeze-source-v1.json"
+    },
+    "dc45c140226a30d30f371f34628c05fa158b7dca86579f33431d2280a2987487": {
+      "artifact_type": "p261_marginal_binding_contract",
+      "path": "configs/research-os/m4-p2-6-1-marginal-binding-contract-v1.json"
+    },
+    "dcab7f9d512c40cfafdc7eae0800cd1aac90c18674760d9d20cb46850bb5d60c": {
+      "artifact_type": "m4_v2_marginal_static_historical_gate_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-marginal-static-historical-gate-source-v1.json"
+    },
+    "dd034e9a6358af0090ce77d9896da2df28616db57374c71f7c89058c69ed71d2": {
+      "artifact_type": "m4_v2_marginal_static_historical_execution_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-marginal-static-historical-execution-source-v1.json"
+    },
+    "de6bc5340c4d33cb95d48108b6087dd4e2e468bca660e468cfe3c0c2ff1211b7": {
+      "artifact_type": "m4_p3_result_blind_structural_utility_evidence_compiler_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-p3-result-blind-structural-utility-evidence-compiler-source-v1.json"
+    },
+    "df89e7785e1ace80b9e967e3c1dba8983d74b93d3e961226daa7ed2c0e023fc8": {
+      "artifact_type": "m4_v2_marginal_static_health_decision_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-marginal-static-health-decision-source-v1.json"
     },
     "e094f3bd319c63b9ed5a8b14b955f7f64544e30d3b8410cc26b2906b7e56ae67": {
       "artifact_type": "p263_runtime_slot_governance_source_contract",
-      "path": "configs/research-os/m4-p263-runtime-slot-governance-source-contract-v1.json",
-      "identity_field": "artifact_digest"
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-p263-runtime-slot-governance-source-contract-v1.json"
+    },
+    "e09aa5e52f7b21e159fef78d7c0b87666caa09d84ee407fd8161c8b9396169a2": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "5c3778a9004041aee2ca707e7b4cc24f338ab3ed",
+      "superseded_by_digest": "078337d9fcc172777d37f06e570181cf803f080e0805832b5964cef31117fb40"
+    },
+    "e1a2b76b1df2bb93a696330256462569e8122608fc027b014051391b9d89abee": {
+      "artifact_type": "m4_v2_marginal_static_repair_v2_health_execution_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-marginal-static-repair-v2-health-execution-source-v1.json"
+    },
+    "e1a8ca3df25b0260a8b28bdebd0f610ad2c7fe1ac0563b9e05caedeb72c519f8": {
+      "artifact_type": "research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "supersedes_digest": "b73210e14f1a49653f999821bc97a462d0b6775dad0dc0b4d052fc7d52f045c4"
+    },
+    "e254bfcd84683f54d00f5e1a89b81a953ba90413a0724794abdde7e7c9eabc7c": {
+      "artifact_type": "prediction_v2_balanced_design_structural_evaluation_execution_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/prediction-v2-balanced-design-structural-evaluation-execution-source-v1.json"
+    },
+    "e2bfb82be29bedac51be6905e6049b4a10e5c0cde0198995e12279bf969714ca": {
+      "artifact_type": "superseded_measurement_runtime_benchmark_plan",
+      "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.5.json",
+      "superseded_by_digest": "ccbed31f36ad9486f5489d5827c6456d1853259eaeb1ab7a61077347c7e06056",
+      "supersedes_digest": "4d0669386fc32b27b5345995bdaf5e902aaa63109e73472804fd6b6ba06fcf15"
+    },
+    "e483329a916e02374dd4735c58a32d08a0e922d31cd5abf554d5a3d779bfde56": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "1d260fb7aece7e80926552fa23d479a6741cd19e",
+      "superseded_by_digest": "108143c77c9e5755d2a269392238c01fc885b6a38041a0eb262a2b8fd7fd2fc2",
+      "supersedes_digest": "7eeae8b00bc57af820f28527432663dcd930545160d9a77ea75660b4ec988a88"
+    },
+    "e8149632b3a2f507fdb7adbd2980d4217ce06fca45913273bedc4cbe61c431c9": {
+      "artifact_type": "reviewed_shared_source_compatibility_fixture",
+      "path": "configs/research-os/m4-p2-6-1-sparse-tree-source-compatibility-fixture-v1.json"
+    },
+    "e954cb282933d8e41d9dae9497ee0a88016bceb69a9126edfb6235c70299658b": {
+      "artifact_type": "m4_p3_result_blind_structural_utility_design_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-p3-result-blind-structural-utility-design-source-v1.json"
+    },
+    "ea0cd13256b6f7910c2aa50b067ce1ba75ca8afb7820fc45611fbc7f7821f465": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "93ee3b64dc23b151b74c604bf3ddf6ce28868315",
+      "superseded_by_digest": "2b08a28d5cd481bc100a49491888def78c825d779a98f81a87983c875033ff5d",
+      "supersedes_digest": "9bd459e2f9dd6fd5908ff24fc5ddbfbe3cebc2750e56b0b18959506ba5965f8d"
+    },
+    "eab2583985b389dc8ee000fba74ee965fb75da131c2e709a05067a1cbfdbb9cc": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "4926dd8090b46a5c77889e7ed92cea197dba2a0c",
+      "superseded_by_digest": "c8fbdd8523b0a14e18d6828535b90f7f56c3d1beaf059bf2e4ec687a2465748d"
+    },
+    "eb306e418182c8d2fc39272aa653018a9f5ad6afcbcf0c4825d88f09a8980c37": {
+      "artifact_type": "m4_v2_temporal_marginal_increment_source_contract",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-temporal-marginal-increment-source-v2.json"
+    },
+    "ee8c6afd84299f8976ea3949959dba3180d487d4ed487e098ec7b778caa04e52": {
+      "artifact_type": "superseded_measurement_runtime_benchmark_plan",
+      "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.2.json",
+      "superseded_by_digest": "bf5a8728d355e0b83ab1a173cd656b8a2f23abce1a1b9036664af617a1d1b47e",
+      "supersedes_digest": "eef5e18f6ffb342f264ef47913892efa91d92dfec0a32a51d2f1d0cb2711cbd5"
+    },
+    "eef5e18f6ffb342f264ef47913892efa91d92dfec0a32a51d2f1d0cb2711cbd5": {
+      "artifact_type": "superseded_measurement_runtime_benchmark_plan",
+      "path": "configs/research-os/m4-p2-9-measurement-runtime-audit-plan-v1.1.1.json",
+      "superseded_by_digest": "ee8c6afd84299f8976ea3949959dba3180d487d4ed487e098ec7b778caa04e52",
+      "supersedes_digest": "5d6eafd399bc6a0fc87a2fa0fce4830824776194566aab4a8ab2299379646aff"
+    },
+    "f055aae2ae70af5d21fbfc2a1bfa50952fca595e906cd82556b445c3299acade": {
+      "artifact_type": "prediction_v2_balanced_design_feasibility_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/prediction-v2-balanced-design-feasibility-design-source-v1.json"
+    },
+    "f2fc68cc3d20167ecc8e2d3ea4ffaab6c9459cb2edef7e3b364e0431f446e160": {
+      "artifact_type": "prediction_v2_promotion_planner_source",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/prediction-v2-promotion-planner-source-v1.json"
+    },
+    "f30186e3f5aeefb07565d25c4e0de68d955a07e87d1894fdaedbe8bedf4a2317": {
+      "artifact_type": "information_theory_p2_injected_signal_calibration_run_manifest",
+      "path": "configs/research-os/m4-information-theory-p2-4-calibration-run-manifest-v1.json"
+    },
+    "f3f263d3ef9c5028223070b7fc228c2ef95ffc315a86479d17ebccb0a87b890b": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "f58f46829f0dede149bc5f116e0fd660768d3a82",
+      "superseded_by_digest": "f8f6375b04359676d47a5c56c9f0b38874466ecf88d5a92f4c54115e39a2035a",
+      "supersedes_digest": "a3aeacf15146fd0c55098eb3306e60ef1aa0e40d160a181ad1306b2b9744c5a6"
+    },
+    "f7345320fc87b601cbdae58e2064ff89dc2195c449efcd70d043441067af0a44": {
+      "artifact_type": "m4_v2_joint_residual_increment_source_contract",
+      "identity_field": "artifact_digest",
+      "path": "configs/research-os/m4-v2-joint-residual-increment-source-v2.json"
+    },
+    "f84c2da3565f7eda41c3782517c78211805f57ea8f3bfd00659a93c380826a3c": {
+      "artifact_type": "information_theory_p2_synthetic_run_manifest",
+      "path": "configs/research-os/m4-information-theory-p2-synthetic-run-manifest-v1.0.1.json",
+      "supersedes_digest": "8493987cc4414414e33fb5c5ea148be1f42a1d9e57609600c4346fb642cbfa08"
+    },
+    "f8f6375b04359676d47a5c56c9f0b38874466ecf88d5a92f4c54115e39a2035a": {
+      "artifact_type": "superseded_research_os_control_plane_manifest",
+      "identity_field": "manifest_digest",
+      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
+      "source_commit": "c5cd28529ca22bec40d75beb7b867359ffa44820",
+      "superseded_by_digest": "93f6a659bbeaa908ce94be4da2bfb5151a75eda09c61051f0d0826447384149a",
+      "supersedes_digest": "f3f263d3ef9c5028223070b7fc228c2ef95ffc315a86479d17ebccb0a87b890b"
     },
     "f9716c799e1e55e58585c7e9acf0730f9d05111ab6e375cfb9bea85ecbdeacc5": {
       "artifact_type": "measurement_source_compatibility_fixture",
       "path": "configs/research-os/fixtures/m4-p2.6.1/frozen/source-manifest-fixture-v1.json"
     },
-    "53f9a4b7d92944dfd6a46d317b018bdc6b434fc69bb977d72ae6d1f177e0c73b": {
-      "artifact_type": "measurement_source_compatibility_fixture",
-      "path": "configs/research-os/fixtures/m4-p2.6.3/superseding/source-manifest-fixture-v1.json"
-    },
-    "42d9583d2b333e171b99dfde27732b687e2deec2359a423d20d5d295103d1cec": {
-      "artifact_type": "measurement_contract_compatibility_request",
-      "path": "configs/research-os/m4-p2-measurement-v2-compatibility-request-v1.json"
-    },
-    "1e6a499c75b75ced2b674f1c680b3bd4c9055c3c97d52724da86fce2b5733d6f": {
-      "artifact_type": "p263_periodic_refit_source_compatibility_fixture",
-      "path": "configs/research-os/m4-p2-6-3-periodic-refit-source-compatibility-fixture-v1.json"
-    },
-    "e954cb282933d8e41d9dae9497ee0a88016bceb69a9126edfb6235c70299658b": {
-      "artifact_type": "m4_p3_result_blind_structural_utility_design_source",
-      "path": "configs/research-os/m4-p3-result-blind-structural-utility-design-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "6bfb2795468b0a9fbe5ef86c005903ce243fee0900a7ab2f72410eccf0330d3e": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "07892a809dfaa07e6bdbb02c1c350ed226c4692b2c16eeadbc993f65a15cad47",
-      "source_commit": "6aab3d5d2a1e454e61aba02942a33fe52857f5c3",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "6dff4a5326d7b7308cdca7be88c2307d7902c2366431d0a86a04c5ea3d6d1c95"
-    },
-    "72f5032c40d339946f014f7f333dd400f9ccf3a8a48250943ee1143e347687b8": {
-      "artifact_type": "m4_p3_result_blind_structural_utility_preregistration_source",
-      "path": "configs/research-os/m4-p3-result-blind-structural-utility-preregistration-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "6dff4a5326d7b7308cdca7be88c2307d7902c2366431d0a86a04c5ea3d6d1c95": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "6bfb2795468b0a9fbe5ef86c005903ce243fee0900a7ab2f72410eccf0330d3e",
-      "source_commit": "1106c0afff8cb2bfabb5767b7b0ad297b1b15755",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "86847be6f03486b7420e3daa24f286d20d7e872c4901260f6eb3f502b0df0ffe"
-    },
-    "8f123b06647d509000f0e4e291087438b3009f6c1ec3e5cab327600c3bca14f6": {
-      "artifact_type": "m4_p3_result_blind_structural_utility_execution_source",
-      "path": "configs/research-os/m4-p3-result-blind-structural-utility-blind-execution-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "86847be6f03486b7420e3daa24f286d20d7e872c4901260f6eb3f502b0df0ffe": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "6dff4a5326d7b7308cdca7be88c2307d7902c2366431d0a86a04c5ea3d6d1c95",
-      "source_commit": "ac07c6b8adeb7e21fc207bdecb514461c576e324",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "a3aeacf15146fd0c55098eb3306e60ef1aa0e40d160a181ad1306b2b9744c5a6"
-    },
-    "de6bc5340c4d33cb95d48108b6087dd4e2e468bca660e468cfe3c0c2ff1211b7": {
-      "artifact_type": "m4_p3_result_blind_structural_utility_evidence_compiler_source",
-      "path": "configs/research-os/m4-p3-result-blind-structural-utility-evidence-compiler-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "1f1b59c71345dc9d7de8bc7e0c4472c2759e99442f7c539373ec41ae78066929": {
-      "artifact_type": "m4_p2_repair_outcome_closure_source",
-      "path": "configs/research-os/m4-p2-repair-outcome-closure-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "a3aeacf15146fd0c55098eb3306e60ef1aa0e40d160a181ad1306b2b9744c5a6": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "86847be6f03486b7420e3daa24f286d20d7e872c4901260f6eb3f502b0df0ffe",
-      "source_commit": "1ec91084c37e4b36535d0a3efd51fb68d786ea0f",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "f3f263d3ef9c5028223070b7fc228c2ef95ffc315a86479d17ebccb0a87b890b"
-    },
-    "f3f263d3ef9c5028223070b7fc228c2ef95ffc315a86479d17ebccb0a87b890b": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "supersedes_digest": "a3aeacf15146fd0c55098eb3306e60ef1aa0e40d160a181ad1306b2b9744c5a6",
-      "source_commit": "f58f46829f0dede149bc5f116e0fd660768d3a82",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "f8f6375b04359676d47a5c56c9f0b38874466ecf88d5a92f4c54115e39a2035a"
-    },
-    "911fa45a1276ecc0502ad569760ceffbf2257dfaca42f8ec8bf1f4249af666ea": {
-      "artifact_type": "m4_p3_predictive_route_reconciliation_source",
-      "path": "configs/research-os/m4-p3-predictive-route-reconciliation-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "f8f6375b04359676d47a5c56c9f0b38874466ecf88d5a92f4c54115e39a2035a": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "f3f263d3ef9c5028223070b7fc228c2ef95ffc315a86479d17ebccb0a87b890b",
-      "source_commit": "c5cd28529ca22bec40d75beb7b867359ffa44820",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "93f6a659bbeaa908ce94be4da2bfb5151a75eda09c61051f0d0826447384149a"
-    },
-    "34a49fd24be7c696636bb584a379776155407b8af2b120adfbffc2edfcea3857": {
-      "artifact_type": "m4_v2_marginal_static_historical_identity_adoption_source_contract",
-      "path": "configs/research-os/m4-v2-marginal-static-historical-identity-adoption-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "eb306e418182c8d2fc39272aa653018a9f5ad6afcbcf0c4825d88f09a8980c37": {
-      "artifact_type": "m4_v2_temporal_marginal_increment_source_contract",
-      "path": "configs/research-os/m4-v2-temporal-marginal-increment-source-v2.json",
-      "identity_field": "artifact_digest"
-    },
-    "f7345320fc87b601cbdae58e2064ff89dc2195c449efcd70d043441067af0a44": {
-      "artifact_type": "m4_v2_joint_residual_increment_source_contract",
-      "path": "configs/research-os/m4-v2-joint-residual-increment-source-v2.json",
-      "identity_field": "artifact_digest"
-    },
-    "882509d115f778fc71e900491c8fc9cc30eb02687215890b2503ed4dd5e37ac5": {
-      "artifact_type": "m4_v2_temporal_marginal_increment_source_contract",
-      "path": "configs/research-os/m4-v2-temporal-marginal-increment-source-v3.json",
+    "fb9f79056cbd3f7bc4fd4cff3ad5250669d4f6aaed6ec1c31249738230aa291d": {
+      "artifact_type": "m4_v2_marginal_static_historical_preregistration_source",
       "identity_field": "artifact_digest",
-      "supersedes_digest": "eb306e418182c8d2fc39272aa653018a9f5ad6afcbcf0c4825d88f09a8980c37"
-    },
-    "41d909604b8fee0c97598cd9f13edf9de601b6c9f72194b5fb881d1e650f4844": {
-      "artifact_type": "m4_v2_joint_residual_increment_source_contract",
-      "path": "configs/research-os/m4-v2-joint-residual-increment-source-v3.json",
-      "identity_field": "artifact_digest",
-      "supersedes_digest": "f7345320fc87b601cbdae58e2064ff89dc2195c449efcd70d043441067af0a44"
-    },
-    "6ca7ae72f61ac14be9e29d18c74e1fab8444426b14b37ec137dc1c116a94783c": {
-      "artifact_type": "m4_v2_global_routing_source_contract",
-      "path": "configs/research-os/m4-v2-global-routing-source-v1.json",
-      "identity_field": "artifact_digest"
-    },
-    "93f6a659bbeaa908ce94be4da2bfb5151a75eda09c61051f0d0826447384149a": {
-      "artifact_type": "superseded_research_os_control_plane_manifest",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "f8f6375b04359676d47a5c56c9f0b38874466ecf88d5a92f4c54115e39a2035a",
-      "source_commit": "4e787ebc1b13e1a16fe42b80054cb2a01f4c0b6b",
-      "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "b73210e14f1a49653f999821bc97a462d0b6775dad0dc0b4d052fc7d52f045c4"
-    },
-    "b73210e14f1a49653f999821bc97a462d0b6775dad0dc0b4d052fc7d52f045c4": {
-      "artifact_type": "research_os_control_plane_manifest",
-      "path": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "identity_field": "manifest_digest",
-      "supersedes_digest": "93f6a659bbeaa908ce94be4da2bfb5151a75eda09c61051f0d0826447384149a"
+      "path": "configs/research-os/m4-v2-marginal-static-historical-preregistration-source-v1.json"
     }
   },
-  "lookup_rule": "digest_must_equal_the_artifact_identity_at_the_registered_canonical_path",
   "deletion_policy": "forbidden",
+  "lookup_rule": "digest_must_equal_the_artifact_identity_at_the_registered_canonical_path",
+  "schema_version": "dehps-m4-information-theory-artifact-index.v1",
   "supersede_policy": "append_new_digest_and_retain_old_entry"
 }

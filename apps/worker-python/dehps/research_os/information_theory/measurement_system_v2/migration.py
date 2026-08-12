@@ -5,6 +5,7 @@ from copy import deepcopy
 from typing import Any
 
 from dehps.contracts import canonical_digest
+from dehps.research_os.control_plane import ResearchOSControlPlane
 from dehps.research_os.models import ControlPlaneManifest, stable_json
 
 
@@ -44,6 +45,82 @@ M4_V2_VERSIONED_SUCCESSOR_SOURCE_FACTS = {
         ),
     },
 }
+
+M4_V2_RECOVERY_INPUT_MANIFEST_DIGEST = (
+    "94f7e6448fa1572802a050129d09c8bd679772afc62f31f0d1dc2544d098c58a"
+)
+M4_V2_RECOVERY_INPUT_SNAPSHOT_DIGEST = (
+    "85be3d0edf17b94510d68da6b5b8bfe1c73583222a8bc2822cb7e46bee08f4e3"
+)
+M4_V2_FAILED_TASK_KEY = "m4-v2-marginal-static-historical-identity-adoption"
+M4_V2_RECOVERY_TASK_KEY = (
+    "m4-v2-marginal-static-historical-identity-adoption-recovery-v1"
+)
+M4_V2_FAILED_EXECUTION_ID = (
+    "43eed4c903a59595336b514f17c3be318714535e3b61341ae3a492f03fb4e488"
+)
+M4_V2_FAILED_EVENT_MANIFEST_DIGEST = (
+    "79a8abb17bb705ab21350d6d3df882bbd39d89c3b7d2a3e9e5fa4f3c43046966"
+)
+M4_V2_FAILED_CAPABILITY = "m4_v2_marginal_static_historical_identity_adoption"
+M4_V2_FAILED_EVENT_METADATA = (
+    (
+        0,
+        "started",
+        "dfae9cbce68c931b7e0b715223623a4e7691cbb2613b0f6ef3dbdb00deb550a3",
+    ),
+    (
+        1,
+        "failed",
+        "8291bed8402c539f416f9c8d8a23c2f59800ff544d7b5ca90a5f3878d6ef665f",
+    ),
+)
+M4_V2_ORIGINAL_TASK_DEFINITIONS = (
+    (
+        M4_V2_FAILED_TASK_KEY,
+        "6f21824945ebdf8e19dcd946ffbc6260f8e28fc52555a5060422f152d37677fd",
+    ),
+    (
+        "m4-v2-marginal-static-historical-branch-decision-replay",
+        "ee575d4109b055e1988ae493e2a6a913704624d8e611063f707aed08d34e344e",
+    ),
+    (
+        "m4-v2-temporal-marginal-increment-historical-measurement-design",
+        "6dac3ba04bbd3177ce5fd19f1be2a1339f17d91797371ebac238c7b7bc13553a",
+    ),
+    (
+        "m4-v2-temporal-marginal-increment-historical-measurement-preregistration",
+        "abaf397c80a620310796e1190c89ac3f97c67b81fdcf48b2a1aa2f263e26b83f",
+    ),
+    (
+        "m4-v2-temporal-marginal-increment-historical-measurement-gate-compiler",
+        "fec3b8f121e30dd17e8691e0988cfdcdc6f694048e8e64314280bdadbdb70e7f",
+    ),
+    (
+        "m4-v2-temporal-marginal-increment-historical-branch-decision-replay",
+        "c604ff59b9d10354c0205b2174c54ad3a4d4839de6602636c2822e6c06c2251a",
+    ),
+    (
+        "m4-v2-joint-residual-increment-historical-measurement-design",
+        "5b99c388bcbf2f6edc94b798d44d18d0e62b4618ae449cd994a18f81f42dce3c",
+    ),
+    (
+        "m4-v2-joint-residual-increment-historical-measurement-preregistration",
+        "3747796049a496e39f1ea0b675b05b53553ee46c1d782ee1b3faa48d273af2f3",
+    ),
+    (
+        "m4-v2-joint-residual-increment-historical-measurement-gate-compiler",
+        "ee3508c6ebee7b552b2931f01d8f5dc4a396f12361c9037d49552c59922ec7c3",
+    ),
+    (
+        "m4-v2-joint-residual-increment-historical-branch-decision-replay",
+        "fd67e804ca63b7b694933ee1c6e7b909f128ece37c13c331b149da967a6f299d",
+    ),
+    (
+        "m4-v2-global-routing",
+        "e9857fa7f4f5e84fb8e096c60e4622bfef62691141416eeea82d36e0760d6d68",
+    ),
+)
 
 
 def require_versioned_successor_source_fact_retention(
@@ -354,3 +431,190 @@ def build_additive_task_manifest(
         add_artifact_facts=add_artifact_facts,
         add_external_events=add_external_events,
     )
+
+
+def build_failed_task_recovery_manifest(
+    *,
+    live_payload: Mapping[str, Any],
+    recovery_task: Mapping[str, Any],
+    revised_tasks: Sequence[Mapping[str, Any]],
+    add_artifact_facts: Iterable[str] = (),
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Replace the frozen failed active slot without rewriting durable history.
+
+    This pure builder validates the exact post-failure recovery input.  The
+    repository import remains the sole transactional writer: because the old
+    failed key is absent from the successor manifest and the recovery key is
+    new, its immutable definition, failed state, execution and events remain
+    addressable while the first unexecuted definition receives an ordinary
+    same-key revision.  The remaining builders continue the same-key revision
+    chain from this validated recovery root.
+    """
+
+    live = deepcopy(dict(live_payload))
+    manifest = ControlPlaneManifest.from_dict(live)
+    if manifest.artifact_digest != M4_V2_RECOVERY_INPUT_MANIFEST_DIGEST:
+        raise AdditiveManifestMigrationError(
+            "manifest_recovery_input_manifest_digest_changed"
+        )
+    snapshot = ResearchOSControlPlane().resolve(manifest)
+    if snapshot.snapshot_digest != M4_V2_RECOVERY_INPUT_SNAPSHOT_DIGEST:
+        raise AdditiveManifestMigrationError(
+            "manifest_recovery_input_snapshot_digest_changed"
+        )
+    if snapshot.ready_queue:
+        raise AdditiveManifestMigrationError("manifest_recovery_ready_queue_not_empty")
+
+    tasks = list(manifest.tasks)
+    by_key = {task.task_key: task for task in tasks}
+    actual = tuple(
+        (key, by_key[key].artifact_digest)
+        for key, _ in M4_V2_ORIGINAL_TASK_DEFINITIONS
+        if key in by_key
+    )
+    if actual != M4_V2_ORIGINAL_TASK_DEFINITIONS:
+        raise AdditiveManifestMigrationError(
+            "manifest_recovery_original_task_definitions_changed"
+        )
+    failed_task = by_key[M4_V2_FAILED_TASK_KEY]
+    failed_state = manifest.task_state_by_digest[failed_task.artifact_digest]
+    if (
+        failed_state.declared_status.value != "failed"
+        or (
+            failed_state.completion_classification is None
+            or failed_state.completion_classification.value != "INTEGRATED"
+        )
+        or failed_state.superseded_by_task_digest is not None
+    ):
+        raise AdditiveManifestMigrationError(
+            "manifest_recovery_failed_task_state_changed"
+        )
+
+    recovery = deepcopy(dict(recovery_task))
+    if recovery.get("task_key") != M4_V2_RECOVERY_TASK_KEY:
+        raise AdditiveManifestMigrationError(
+            "manifest_recovery_successor_task_key_changed"
+        )
+    revised_by_key = {
+        str(item.get("task_key") or ""): deepcopy(dict(item))
+        for item in revised_tasks
+    }
+    expected_revised = {
+        "m4-v2-marginal-static-historical-branch-decision-replay"
+    }
+    if set(revised_by_key) != expected_revised:
+        raise AdditiveManifestMigrationError(
+            "manifest_recovery_revised_task_keys_changed"
+        )
+    if M4_V2_RECOVERY_TASK_KEY in by_key:
+        raise AdditiveManifestMigrationError(
+            "manifest_recovery_successor_already_present"
+        )
+
+    normalized_live = manifest.to_dict(include_digest=False)
+    output_tasks: list[dict[str, Any]] = []
+    for task in normalized_live["tasks"]:
+        key = str(task["task_key"])
+        if key == M4_V2_FAILED_TASK_KEY:
+            output_tasks.append(recovery)
+        elif key in revised_by_key:
+            replacement = revised_by_key[key]
+            for field in STATE_FIELDS:
+                if field in task:
+                    replacement[field] = deepcopy(task[field])
+                else:
+                    replacement.pop(field, None)
+            output_tasks.append(replacement)
+        else:
+            output_tasks.append(deepcopy(task))
+
+    facts = deepcopy(normalized_live["facts"])
+    facts["artifacts"] = sorted(
+        set(facts["artifacts"]).union(str(value) for value in add_artifact_facts)
+    )
+    require_versioned_successor_source_fact_retention(facts["artifacts"])
+    output = {
+        "schema_version": normalized_live["schema_version"],
+        "goals": deepcopy(normalized_live["goals"]),
+        "tasks": output_tasks,
+        "facts": facts,
+    }
+    successor = ControlPlaneManifest.from_dict(output)
+    normalized = successor.to_dict(include_digest=True)
+    successor_snapshot = ResearchOSControlPlane().resolve(successor)
+    ready_keys = tuple(item.task_key for item in successor_snapshot.ready_queue)
+    if ready_keys != (M4_V2_RECOVERY_TASK_KEY,):
+        raise AdditiveManifestMigrationError(
+            "manifest_recovery_successor_not_unique_ready"
+        )
+
+    dry_run: dict[str, Any] = {
+        "schema_version": "dehps-m4-v2-failed-task-recovery-migration-dry-run.v1",
+        "artifact_type": "m4_v2_failed_task_recovery_migration_dry_run",
+        "artifact_digest": "",
+        "status": "VERIFIED",
+        "input_manifest_digest": manifest.artifact_digest,
+        "input_snapshot_digest": snapshot.snapshot_digest,
+        "input_ready_task_keys": [],
+        "old_failed_task_key": M4_V2_FAILED_TASK_KEY,
+        "old_failed_task_digest": failed_task.artifact_digest,
+        "old_failed_task_preserved_in_durable_history": True,
+        "old_failed_task_present_in_active_manifest": False,
+        "recovery_task_key": M4_V2_RECOVERY_TASK_KEY,
+        "new_task_count": 1,
+        "revised_same_key_count": 1,
+        "revised_task_keys": sorted(revised_by_key),
+        "output_manifest_digest": successor.artifact_digest,
+        "output_snapshot_digest": successor_snapshot.snapshot_digest,
+        "output_ready_task_keys": list(ready_keys),
+        "import_performed": False,
+        "production_action": "none",
+        "promotion_gate_opened": False,
+        "p3_folds": 0,
+    }
+    identity = dict(dry_run)
+    identity.pop("artifact_digest")
+    dry_run["artifact_digest"] = canonical_digest(
+        identity,
+        domain="dehps.m4.v2.failed-task-recovery-migration-dry-run.v1",
+    )
+    return normalized, dry_run
+
+
+def verify_failed_task_recovery_event_metadata(
+    event_metadata: Sequence[Mapping[str, Any]],
+) -> None:
+    """Bind the result-blind durable execution/event projection before recovery."""
+
+    observed = tuple(
+        (
+            int(item.get("sequence", -1)),
+            str(item.get("event_type") or ""),
+            str(item.get("event_digest") or ""),
+            str(item.get("execution_id") or ""),
+            str(item.get("task_key") or ""),
+            str(item.get("task_digest") or ""),
+            str(item.get("control_plane_key") or ""),
+            str(item.get("manifest_digest") or ""),
+            str(item.get("capability") or ""),
+        )
+        for item in event_metadata
+    )
+    expected = tuple(
+        (
+            sequence,
+            event_type,
+            event_digest,
+            M4_V2_FAILED_EXECUTION_ID,
+            M4_V2_FAILED_TASK_KEY,
+            M4_V2_ORIGINAL_TASK_DEFINITIONS[0][1],
+            "m4-information-theory-mainline",
+            M4_V2_FAILED_EVENT_MANIFEST_DIGEST,
+            M4_V2_FAILED_CAPABILITY,
+        )
+        for sequence, event_type, event_digest in M4_V2_FAILED_EVENT_METADATA
+    )
+    if observed != expected:
+        raise AdditiveManifestMigrationError(
+            "manifest_recovery_failed_execution_event_metadata_changed"
+        )

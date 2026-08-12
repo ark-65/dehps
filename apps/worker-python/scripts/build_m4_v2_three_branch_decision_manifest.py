@@ -7,7 +7,9 @@ from pathlib import Path
 from typing import Any
 
 from dehps.research_os.information_theory.measurement_system_v2.migration import (
-    build_additive_task_manifest,
+    M4_V2_FAILED_TASK_KEY,
+    M4_V2_RECOVERY_TASK_KEY,
+    build_failed_task_recovery_manifest,
     require_sha256_digest,
 )
 from dehps.research_os.models import (
@@ -22,7 +24,8 @@ SOURCE_CONTRACT_FACT = (
     "m4-v2-marginal-static-historical-identity-adoption-contract:"
     "M4_MEASUREMENT_CONTRACT_V2:FROZEN"
 )
-DECISION_TASK_KEY = "m4-v2-marginal-static-historical-identity-adoption"
+DECISION_TASK_KEY = M4_V2_FAILED_TASK_KEY
+RECOVERY_TASK_KEY = M4_V2_RECOVERY_TASK_KEY
 DECISION_CAPABILITY = "m4_v2_marginal_static_historical_identity_adoption"
 REPLAY_TASK_KEY = "m4-v2-marginal-static-historical-branch-decision-replay"
 REPLAY_CAPABILITY = "m4_v2_marginal_static_historical_branch_decision_replay"
@@ -78,7 +81,7 @@ def build_m4_v2_three_branch_decision_manifest(
         field_name="marginal_identity_adoption_source_contract_digest",
     )
     decision = _task(
-        task_key=DECISION_TASK_KEY,
+        task_key=RECOVERY_TASK_KEY,
         task_type=DECISION_CAPABILITY,
         priority=89,
         dependencies=[
@@ -105,7 +108,16 @@ def build_m4_v2_three_branch_decision_manifest(
             "historical_result_reads": 0,
             "scientific_computation": 0,
             "terminal_fact": TERMINAL_FACT,
-            "completion_fact": f"{DECISION_TASK_KEY}:COMPLETE",
+            "completion_fact": f"{RECOVERY_TASK_KEY}:COMPLETE",
+            "recovery_lineage": {
+                "old_failed_task_key": DECISION_TASK_KEY,
+                "old_failed_task_definition_digest": "6f21824945ebdf8e19dcd946ffbc6260f8e28fc52555a5060422f152d37677fd",
+                "old_failed_execution_digest": "43eed4c903a59595336b514f17c3be318714535e3b61341ae3a492f03fb4e488",
+                "old_started_event_digest": "dfae9cbce68c931b7e0b715223623a4e7691cbb2613b0f6ef3dbdb00deb550a3",
+                "old_failed_event_digest": "8291bed8402c539f416f9c8d8a23c2f59800ff544d7b5ca90a5f3878d6ef665f",
+                "old_event_manifest_digest": "79a8abb17bb705ab21350d6d3df882bbd39d89c3b7d2a3e9e5fa4f3c43046966",
+                "old_durable_history_preserved": True,
+            },
             "artifact_types_in_registration_order": [
                 "M4V2BranchDecisionArtifact",
                 "research_os_mainline_execution",
@@ -133,9 +145,9 @@ def build_m4_v2_three_branch_decision_manifest(
                     "unified_m4_status.measurement_system_v2."
                     "marginal_static_historical_decision"
                 ),
-                "evidence_rule": "zero Evidence; categorical identity adoption only",
+                "evidence_progress_rule": "zero Evidence; categorical identity adoption only",
                 "decision_consumer": REPLAY_TASK_KEY,
-                "next_consumer": REPLAY_TASK_KEY,
+                "downstream_consumer": REPLAY_TASK_KEY,
             },
         },
     )
@@ -185,19 +197,20 @@ def build_m4_v2_three_branch_decision_manifest(
                     "unified_m4_status.measurement_system_v2."
                     "marginal_static_historical_decision_replay"
                 ),
-                "evidence_rule": "zero Evidence; registered-content replay only",
+                "evidence_progress_rule": "zero Evidence; registered-content replay only",
                 "decision_consumer": (
                     "m4-v2-temporal-marginal-increment-historical-measurement-design"
                 ),
-                "next_consumer": (
+                "downstream_consumer": (
                     "m4-v2-temporal-marginal-increment-historical-measurement-design"
                 ),
             },
         },
     )
-    return build_additive_task_manifest(
+    return build_failed_task_recovery_manifest(
         live_payload=live_payload,
-        new_tasks=(decision, replay),
+        recovery_task=decision,
+        revised_tasks=(replay,),
         add_artifact_facts=(SOURCE_CONTRACT_FACT,),
     )
 

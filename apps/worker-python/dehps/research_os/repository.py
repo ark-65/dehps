@@ -86,6 +86,11 @@ class PostgresResearchOSRepository:
         task_revisions: list[tuple[str, str, str]] = []
 
         with self.connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
+            self._verify_m4_v2_failed_task_recovery_import(
+                cursor,
+                control_plane_key=key,
+                manifest=manifest,
+            )
             self._verify_mainline_completion_records(
                 cursor,
                 control_plane_key=key,
@@ -310,6 +315,145 @@ class PostgresResearchOSRepository:
             task_revisions=tuple(task_revisions),
             ready_task_keys=tuple(item.task_key for item in snapshot.ready_queue),
         )
+
+    @staticmethod
+    def _verify_m4_v2_failed_task_recovery_import(
+        cursor,
+        *,
+        control_plane_key: str,
+        manifest: ControlPlaneManifest,
+    ) -> None:
+        """Bind the frozen failed lineage before the recovery transaction writes."""
+
+        from dehps.research_os.information_theory.measurement_system_v2.migration import (
+            M4_V2_FAILED_EXECUTION_ID,
+            M4_V2_FAILED_TASK_KEY,
+            M4_V2_ORIGINAL_TASK_DEFINITIONS,
+            M4_V2_RECOVERY_INPUT_MANIFEST_DIGEST,
+            M4_V2_RECOVERY_TASK_KEY,
+            AdditiveManifestMigrationError,
+            verify_failed_task_recovery_event_metadata,
+        )
+
+        canonical_control_plane_key = "m4-information-theory-mainline"
+        task_keys = {task.task_key for task in manifest.tasks}
+        if (
+            control_plane_key != canonical_control_plane_key
+            or M4_V2_RECOVERY_TASK_KEY not in task_keys
+        ):
+            return
+        if M4_V2_FAILED_TASK_KEY in task_keys:
+            raise ResearchOSValidationError(
+                "m4_v2_recovery_old_failed_task_still_active"
+            )
+
+        control = cursor.execute(
+            """
+            SELECT current_manifest_digest
+            FROM research_os_control_planes
+            WHERE control_plane_key = %s
+            FOR UPDATE
+            """,
+            (control_plane_key,),
+        ).fetchone()
+        if control is None:
+            raise ResearchOSValidationError(
+                "m4_v2_recovery_control_plane_not_initialized"
+            )
+        current_manifest_digest = str(control["current_manifest_digest"])
+        if current_manifest_digest not in {
+            M4_V2_RECOVERY_INPUT_MANIFEST_DIGEST,
+            manifest.artifact_digest,
+        }:
+            stored = cursor.execute(
+                """
+                SELECT manifest_json
+                FROM research_os_manifests
+                WHERE manifest_digest = %s
+                """,
+                (current_manifest_digest,),
+            ).fetchone()
+            if stored is None:
+                raise ResearchOSValidationError(
+                    "m4_v2_recovery_current_manifest_missing"
+                )
+            current_manifest = ControlPlaneManifest.from_dict(
+                dict(stored["manifest_json"])
+            )
+            current_tasks = {
+                task.task_key: task.artifact_digest for task in current_manifest.tasks
+            }
+            incoming_tasks = {
+                task.task_key: task.artifact_digest for task in manifest.tasks
+            }
+            successor_keys = {
+                key for key, _digest in M4_V2_ORIGINAL_TASK_DEFINITIONS
+            }
+            successor_keys.remove(M4_V2_FAILED_TASK_KEY)
+            successor_keys.add(M4_V2_RECOVERY_TASK_KEY)
+            if (
+                M4_V2_FAILED_TASK_KEY in current_tasks
+                or not successor_keys.issubset(current_tasks)
+                or any(
+                    current_tasks[key] != incoming_tasks.get(key)
+                    for key in successor_keys
+                )
+            ):
+                raise ResearchOSValidationError(
+                    "m4_v2_recovery_current_manifest_lineage_changed"
+                )
+
+        original_task_digest = dict(M4_V2_ORIGINAL_TASK_DEFINITIONS)[
+            M4_V2_FAILED_TASK_KEY
+        ]
+        state = cursor.execute(
+            """
+            SELECT td.task_digest, ts.declared_status,
+                   ts.completion_classification, ts.superseded_by_task_digest
+            FROM research_os_task_definitions td
+            JOIN research_os_task_states ts ON ts.task_digest = td.task_digest
+            WHERE ts.control_plane_key = %s
+              AND td.task_key = %s
+              AND td.task_digest = %s
+            """,
+            (
+                control_plane_key,
+                M4_V2_FAILED_TASK_KEY,
+                original_task_digest,
+            ),
+        ).fetchone()
+        if (
+            state is None
+            or str(state["task_digest"]) != original_task_digest
+            or str(state["declared_status"]) != "failed"
+            or str(state["completion_classification"]) != "INTEGRATED"
+            or state["superseded_by_task_digest"] is not None
+        ):
+            raise ResearchOSValidationError(
+                "m4_v2_recovery_failed_task_state_changed"
+            )
+
+        rows = cursor.execute(
+            """
+            SELECT event_digest, execution_id, control_plane_key,
+                   manifest_digest, task_digest, task_key, capability,
+                   event_type, sequence
+            FROM research_os_mainline_execution_events
+            WHERE control_plane_key = %s
+              AND task_key = %s
+              AND execution_id = %s
+            ORDER BY sequence, event_digest
+            """,
+            (
+                control_plane_key,
+                M4_V2_FAILED_TASK_KEY,
+                M4_V2_FAILED_EXECUTION_ID,
+            ),
+        ).fetchall()
+        try:
+            verify_failed_task_recovery_event_metadata(tuple(dict(row) for row in rows))
+        except AdditiveManifestMigrationError as exc:
+            raise ResearchOSValidationError(str(exc)) from exc
 
     def load_manifest(self, *, control_plane_key: str) -> ControlPlaneManifest:
         key = self._key(control_plane_key)

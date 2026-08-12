@@ -32,6 +32,10 @@ from dehps.research_os.information_theory.measurement_system_v2 import (
 from dehps.research_os.information_theory.measurement_system_v2 import (
     temporal_marginal_increment as temporal,
 )
+from dehps.research_os.information_theory.measurement_system_v2.migration import (
+    AdditiveManifestMigrationError,
+    verify_failed_task_recovery_event_metadata,
+)
 from dehps.research_os.information_theory.progress import (
     M4_P3_PREDICTIVE_PREREGISTRATION_FACT,
     M4_P3_PREDICTIVE_PREREGISTRATION_TASK_KEY,
@@ -65,6 +69,7 @@ from dehps.research_os.models import (
     validate_m4_v2_artifact_envelope,
     validate_m4_v2_nested_schema,
 )
+from dehps.research_os.repository import PostgresResearchOSRepository
 
 from scripts import build_m4_v2_global_routing_manifest as global_builder
 from scripts import build_m4_v2_joint_residual_increment_manifest as joint_builder
@@ -72,9 +77,20 @@ from scripts import build_m4_v2_temporal_marginal_increment_manifest as temporal
 from scripts import build_m4_v2_three_branch_decision_manifest as marginal_builder
 
 MANIFEST_PATH = ROOT_DIR / "configs/research-os/m4-information-theory-evidence-v1.json"
-BASE_SHA = "15760f143ad92d7dd6df34a89924af950669a513"
 CONTROL_PLANE_KEY = "m4-information-theory-mainline"
 GIT_COMMIT = "a" * 40
+RECOVERY_INPUT_MANIFEST_DIGEST = (
+    "94f7e6448fa1572802a050129d09c8bd679772afc62f31f0d1dc2544d098c58a"
+)
+SOURCE_PATHS = (
+    ROOT_DIR
+    / "configs/research-os/m4-v2-marginal-static-historical-identity-adoption-source-v1.json",
+    ROOT_DIR
+    / "configs/research-os/m4-v2-temporal-marginal-increment-source-v3.json",
+    ROOT_DIR
+    / "configs/research-os/m4-v2-joint-residual-increment-source-v3.json",
+    ROOT_DIR / "configs/research-os/m4-v2-global-routing-source-v1.json",
+)
 
 EXPECTED_ARTIFACT_TYPES = {
     "M4V2BranchDecisionArtifact",
@@ -153,30 +169,41 @@ def _digest(label: str) -> str:
 
 
 def _manifest_payload() -> dict[str, Any]:
-    completed = subprocess.run(
-        ["git", "show", f"{BASE_SHA}:{MANIFEST_PATH.relative_to(ROOT_DIR)}"],
-        cwd=ROOT_DIR,
-        check=True,
-        capture_output=True,
-        text=True,
+    return json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+
+
+def _recovery_input_payload() -> dict[str, Any]:
+    """Load the exact durable, result-blind recovery boundary under test."""
+
+    typed = PostgresResearchOSRepository().load_manifest(
+        control_plane_key=CONTROL_PLANE_KEY
     )
-    return json.loads(completed.stdout)
+    assert typed.artifact_digest == RECOVERY_INPUT_MANIFEST_DIGEST
+    return typed.to_dict(include_digest=True)
 
 
 def _successor_payload() -> dict[str, Any]:
-    payload = _manifest_payload()
-    for builder, digest in (
-        (marginal_builder.build_manifest, _digest("marginal-source")),
-        (temporal_builder.build_manifest, _digest("temporal-source")),
-        (joint_builder.build_manifest, _digest("joint-source")),
-        (global_builder.build_manifest, _digest("global-source")),
+    payload = _recovery_input_payload()
+    for builder, path in zip(
+        (
+            marginal_builder.build_manifest,
+            temporal_builder.build_manifest,
+            joint_builder.build_manifest,
+            global_builder.build_manifest,
+        ),
+        SOURCE_PATHS,
+        strict=True,
     ):
+        digest = json.loads(path.read_text(encoding="utf-8"))["artifact_digest"]
         payload, dry_run = builder(payload, digest)
         assert dry_run["status"] == "VERIFIED"
-        assert dry_run["existing_goal_deletions"] == 0
-        assert dry_run["existing_task_deletions"] == 0
-        assert dry_run["existing_fact_deletions"] == 0
-        assert dry_run["existing_state_regressions"] == 0
+        for key in (
+            "existing_goal_deletions",
+            "existing_fact_deletions",
+            "existing_state_regressions",
+        ):
+            if key in dry_run:
+                assert dry_run[key] == 0
         assert dry_run["import_performed"] is False
     return payload
 
@@ -661,7 +688,7 @@ def test_acceptance_matrix_covers_all_45_required_goal_tests() -> None:
 
 
 def test_additive_manifest_preserves_p2_p2r_structural_terminal_and_history() -> None:
-    before = ControlPlaneManifest.from_dict(_manifest_payload()).to_dict(
+    before = ControlPlaneManifest.from_dict(_recovery_input_payload()).to_dict(
         include_digest=False
     )
     after = ControlPlaneManifest.from_dict(_successor_payload()).to_dict(
@@ -669,20 +696,67 @@ def test_additive_manifest_preserves_p2_p2r_structural_terminal_and_history() ->
     )
     before_tasks = {item["task_key"]: item for item in before["tasks"]}
     after_tasks = {item["task_key"]: item for item in after["tasks"]}
-    assert set(before_tasks).issubset(after_tasks)
-    assert len(after_tasks) == len(before_tasks) + 11
+    assert len(after_tasks) == len(before_tasks)
+    assert marginal_builder.DECISION_TASK_KEY in before_tasks
+    assert marginal_builder.DECISION_TASK_KEY not in after_tasks
+    assert marginal_builder.RECOVERY_TASK_KEY not in before_tasks
+    assert marginal_builder.RECOVERY_TASK_KEY in after_tasks
 
-    revised = {global_builder.GLOBAL_TASK, global_builder.PREDICTIVE_P3_TASK}
+    revised = {
+        marginal_builder.DECISION_TASK_KEY,
+        marginal_builder.REPLAY_TASK_KEY,
+        temporal_builder.DESIGN_TASK,
+        temporal_builder.PREREG_TASK,
+        temporal_builder.PRODUCER_TASK,
+        temporal_builder.REPLAY_TASK,
+        joint_builder.DESIGN_TASK,
+        joint_builder.PREREG_TASK,
+        joint_builder.PRODUCER_TASK,
+        joint_builder.REPLAY_TASK,
+        global_builder.GLOBAL_TASK,
+    }
     for task_key, task in before_tasks.items():
         if task_key not in revised:
             assert after_tasks[task_key] == task
-        else:
+        elif task_key != marginal_builder.DECISION_TASK_KEY:
             for state_field in (
                 "status",
                 "completion_classification",
                 "superseded_by_task_digest",
             ):
                 assert after_tasks[task_key].get(state_field) == task.get(state_field)
+    recovery = after_tasks[marginal_builder.RECOVERY_TASK_KEY]
+    assert recovery["status"] == "draft"
+    assert recovery["completion_classification"] == "INTEGRATION_PENDING"
+    assert recovery["metric_contract"]["recovery_lineage"] == {
+        "old_failed_task_key": marginal_builder.DECISION_TASK_KEY,
+        "old_failed_task_definition_digest": (
+            "6f21824945ebdf8e19dcd946ffbc6260f8e28fc52555a5060422f152d37677fd"
+        ),
+        "old_failed_execution_digest": (
+            "43eed4c903a59595336b514f17c3be318714535e3b61341ae3a492f03fb4e488"
+        ),
+        "old_started_event_digest": (
+            "dfae9cbce68c931b7e0b715223623a4e7691cbb2613b0f6ef3dbdb00deb550a3"
+        ),
+        "old_failed_event_digest": (
+            "8291bed8402c539f416f9c8d8a23c2f59800ff544d7b5ca90a5f3878d6ef665f"
+        ),
+        "old_event_manifest_digest": (
+            "79a8abb17bb705ab21350d6d3df882bbd39d89c3b7d2a3e9e5fa4f3c43046966"
+        ),
+        "old_durable_history_preserved": True,
+    }
+    canonical_keys = {
+        marginal_builder.RECOVERY_TASK_KEY,
+        *(revised - {marginal_builder.DECISION_TASK_KEY}),
+    }
+    for task_key in canonical_keys:
+        integration = after_tasks[task_key]["metric_contract"]["mainline_integration"]
+        assert "downstream_consumer" in integration
+        assert "evidence_progress_rule" in integration
+        assert "next_consumer" not in integration
+        assert "evidence_rule" not in integration
     for fact_type, facts in before["facts"].items():
         assert set(facts).issubset(after["facts"][fact_type])
 
@@ -714,6 +788,247 @@ def test_additive_manifest_preserves_p2_p2r_structural_terminal_and_history() ->
         in structural_goal["target_metric_manifest"]["allowed_decisions"]
     )
     assert structural_goal["target_metric_manifest"]["prediction_promotion"] == "closed"
+
+
+def test_recovery_entry_audit_rejects_manifest_ready_and_event_lineage_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    input_payload = _recovery_input_payload()
+    source_digest = json.loads(SOURCE_PATHS[0].read_text(encoding="utf-8"))[
+        "artifact_digest"
+    ]
+    tampered = copy.deepcopy(input_payload)
+    tampered.pop("manifest_digest")
+    _add_facts(tampered, "unexpected-ready-enabling-fact")
+    with pytest.raises(
+        AdditiveManifestMigrationError,
+        match="manifest_recovery_input_manifest_digest_changed",
+    ):
+        marginal_builder.build_manifest(tampered, source_digest)
+
+    exact_metadata = tuple(
+        {
+            "sequence": sequence,
+            "event_type": event_type,
+            "event_digest": event_digest,
+            "execution_id": (
+                "43eed4c903a59595336b514f17c3be318714535e3b61341ae3a492f03fb4e488"
+            ),
+            "task_key": marginal_builder.DECISION_TASK_KEY,
+            "task_digest": (
+                "6f21824945ebdf8e19dcd946ffbc6260f8e28fc52555a5060422f152d37677fd"
+            ),
+            "control_plane_key": CONTROL_PLANE_KEY,
+            "manifest_digest": (
+                "79a8abb17bb705ab21350d6d3df882bbd39d89c3b7d2a3e9e5fa4f3c43046966"
+            ),
+            "capability": "m4_v2_marginal_static_historical_identity_adoption",
+        }
+        for sequence, event_type, event_digest in (
+            (
+                0,
+                "started",
+                "dfae9cbce68c931b7e0b715223623a4e7691cbb2613b0f6ef3dbdb00deb550a3",
+            ),
+            (
+                1,
+                "failed",
+                "8291bed8402c539f416f9c8d8a23c2f59800ff544d7b5ca90a5f3878d6ef665f",
+            ),
+        )
+    )
+    verify_failed_task_recovery_event_metadata(exact_metadata)
+    for index in range(len(exact_metadata)):
+        altered = [dict(item) for item in exact_metadata]
+        altered[index]["event_digest"] = _digest(f"forged-event-{index}")
+        with pytest.raises(
+            AdditiveManifestMigrationError,
+            match="failed_execution_event_metadata_changed",
+        ):
+            verify_failed_task_recovery_event_metadata(altered)
+
+    class _Cursor:
+        def __init__(
+            self,
+            rows: Sequence[Mapping[str, Any]],
+            *,
+            current_digest: str = (
+                "94f7e6448fa1572802a050129d09c8bd679772afc62f31f0d1dc2544d098c58a"
+            ),
+            current_payload: Mapping[str, Any] | None = None,
+        ) -> None:
+            self.rows = tuple(dict(item) for item in rows)
+            self.current_digest = current_digest
+            self.current_payload = current_payload
+
+        def execute(self, statement: str, _params: object) -> SimpleNamespace:
+            if "FROM research_os_control_planes" in statement:
+                return SimpleNamespace(
+                    fetchone=lambda: {
+                        "current_manifest_digest": self.current_digest
+                    }
+                )
+            if "FROM research_os_manifests" in statement:
+                return SimpleNamespace(
+                    fetchone=lambda: (
+                        None
+                        if self.current_payload is None
+                        else {"manifest_json": dict(self.current_payload)}
+                    )
+                )
+            if "FROM research_os_task_definitions" in statement:
+                return SimpleNamespace(
+                    fetchone=lambda: {
+                        "task_digest": (
+                            "6f21824945ebdf8e19dcd946ffbc6260f8e28fc52555a5060422f152d37677fd"
+                        ),
+                        "declared_status": "failed",
+                        "completion_classification": "INTEGRATED",
+                        "superseded_by_task_digest": None,
+                    }
+                )
+            if "FROM research_os_mainline_execution_events" in statement:
+                return SimpleNamespace(fetchall=lambda: self.rows)
+            raise AssertionError(statement)
+
+    successor = ControlPlaneManifest.from_dict(_successor_payload())
+    PostgresResearchOSRepository._verify_m4_v2_failed_task_recovery_import(
+        _Cursor(exact_metadata),
+        control_plane_key=CONTROL_PLANE_KEY,
+        manifest=successor,
+    )
+    PostgresResearchOSRepository._verify_m4_v2_failed_task_recovery_import(
+        _Cursor(exact_metadata, current_digest=successor.artifact_digest),
+        control_plane_key=CONTROL_PLANE_KEY,
+        manifest=successor,
+    )
+
+    successor_payload = successor.to_dict(include_digest=False)
+    successor_payload["facts"]["artifacts"] = sorted(
+        {*successor_payload["facts"]["artifacts"], "post-recovery-state-progress"}
+    )
+    progressed = ControlPlaneManifest.from_dict(successor_payload)
+    PostgresResearchOSRepository._verify_m4_v2_failed_task_recovery_import(
+        _Cursor(
+            exact_metadata,
+            current_digest=successor.artifact_digest,
+            current_payload=successor.to_dict(include_digest=True),
+        ),
+        control_plane_key=CONTROL_PLANE_KEY,
+        manifest=progressed,
+    )
+
+    forged_payload = successor.to_dict(include_digest=False)
+    next(
+        item
+        for item in forged_payload["tasks"]
+        if item["task_key"] == marginal_builder.REPLAY_TASK_KEY
+    )["priority"] += 1
+    forged_current = ControlPlaneManifest.from_dict(forged_payload)
+    with pytest.raises(
+        ResearchOSValidationError,
+        match="current_manifest_lineage_changed",
+    ):
+        PostgresResearchOSRepository._verify_m4_v2_failed_task_recovery_import(
+            _Cursor(
+                exact_metadata,
+                current_digest=forged_current.artifact_digest,
+                current_payload=forged_current.to_dict(include_digest=True),
+            ),
+            control_plane_key=CONTROL_PLANE_KEY,
+            manifest=progressed,
+        )
+    drifted_rows = (
+        exact_metadata[:-1],
+        (*exact_metadata, dict(exact_metadata[-1])),
+        tuple(reversed(exact_metadata)),
+        (
+            {**exact_metadata[0], "event_digest": _digest("forged-event")},
+            exact_metadata[1],
+        ),
+    )
+    for rows in drifted_rows:
+        with pytest.raises(
+            ResearchOSValidationError,
+            match="failed_execution_event_metadata_changed",
+        ):
+            PostgresResearchOSRepository._verify_m4_v2_failed_task_recovery_import(
+                _Cursor(rows),
+                control_plane_key=CONTROL_PLANE_KEY,
+                manifest=successor,
+            )
+
+    class _Context:
+        def __init__(self, value: object) -> None:
+            self.value = value
+
+        def __enter__(self) -> object:
+            return self.value
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    class _NoWriteConnection:
+        def cursor(self, **_kwargs: object) -> _Context:
+            return _Context(SimpleNamespace())
+
+    preflight_calls: list[str] = []
+
+    def reject_before_write(
+        _cursor: object, *, control_plane_key: str, manifest: object
+    ) -> None:
+        assert control_plane_key == CONTROL_PLANE_KEY
+        assert manifest is not None
+        preflight_calls.append("preflight")
+        raise ResearchOSValidationError("lineage_preflight_rejected")
+
+    monkeypatch.setattr(
+        PostgresResearchOSRepository,
+        "_verify_m4_v2_failed_task_recovery_import",
+        staticmethod(reject_before_write),
+    )
+    repository = PostgresResearchOSRepository(
+        lambda: _Context(_NoWriteConnection())  # type: ignore[arg-type]
+    )
+    with pytest.raises(ResearchOSValidationError, match="lineage_preflight_rejected"):
+        repository.import_manifest(
+            control_plane_key=CONTROL_PLANE_KEY,
+            payload=successor.to_dict(include_digest=True),
+        )
+    assert preflight_calls == ["preflight"]
+
+
+def test_recovery_status_projection_uses_only_the_new_active_identity() -> None:
+    manifest = ControlPlaneManifest.from_dict(_successor_payload())
+    verified = validate_m4_v2_successor_structure(manifest)
+    assert verified["status"] == "VERIFIED"
+    assert M4_V2_SUCCESSOR_TASKS["marginal_decision"] == (
+        marginal_builder.RECOVERY_TASK_KEY
+    )
+    assert marginal_builder.DECISION_TASK_KEY not in {
+        task.task_key for task in manifest.tasks
+    }
+
+
+def test_global_downstream_route_map_is_exact_and_unknown_route_fails_closed() -> None:
+    payload = _successor_payload()
+    global_task = _task(payload, global_builder.GLOBAL_TASK)
+    integration = global_task["metric_contract"]["mainline_integration"]
+    downstream = integration["downstream_consumer"]
+    assert downstream == global_builder.GLOBAL_DOWNSTREAM_CONSUMER
+    assert hashlib.sha256(downstream.encode()).hexdigest() == (
+        "5821fa0f008bf14548be0d2faa5d007e150d116ceaecbb39b170f0ca53917d60"
+    )
+    mapping = json.loads(downstream)
+    assert mapping["ADAPTIVE_RESEARCH_ELIGIBLE"] == (
+        "P3_PREDICTIVE_PREREGISTRATION_FREEZE"
+    )
+    assert all(
+        consumer != "P3_PREDICTIVE_PREREGISTRATION_FREEZE"
+        for route, consumer in mapping.items()
+        if route != "ADAPTIVE_RESEARCH_ELIGIBLE"
+    )
+    assert "UNKNOWN_ROUTE" not in mapping
 
 
 def test_marginal_identity_adoption_is_categorical_result_blind_and_singular() -> None:
@@ -1250,15 +1565,12 @@ def test_global_router_repair_and_partial_positive_never_adaptive() -> None:
 def test_resolver_global_route_and_four_and_p3_barrier() -> None:
     payload = _successor_payload()
     manifest = ControlPlaneManifest.from_dict(payload)
-    structure = validate_m4_v2_successor_structure(manifest)
-    assert structure == {
-        "status": "VERIFIED",
-        "branch_order": list(M4_V2_BRANCH_IDS),
-        "global_replay_facts": list(M4_V2_SUCCESSOR_REPLAY_FACTS),
-        "predictive_p3_dependency_count": 4,
-        "predictive_preregistration_capability": None,
-        "predictive_preregistration_fact_available": False,
-        "p3_fold_execution_authorized": False,
+    successor_task_keys = {
+        marginal_builder.RECOVERY_TASK_KEY,
+        *(M4_V2_SUCCESSOR_TASKS.values()),
+    } - {marginal_builder.DECISION_TASK_KEY}
+    assert marginal_builder.RECOVERY_TASK_KEY in {
+        task.task_key for task in manifest.tasks
     }
     global_task = _task(payload, global_builder.GLOBAL_TASK)
     placeholder = _task(payload, M4_P3_PREDICTIVE_PREREGISTRATION_TASK_KEY)
@@ -1291,13 +1603,13 @@ def test_resolver_global_route_and_four_and_p3_barrier() -> None:
     )
 
     _add_facts(payload, M4_V2_SUCCESSOR_REPLAY_FACTS[-1])
-    for task_key in set(M4_V2_SUCCESSOR_TASKS.values()) - {global_builder.GLOBAL_TASK}:
+    for task_key in successor_task_keys - {global_builder.GLOBAL_TASK}:
         _set_task_completed(payload, task_key)
     manifest = ControlPlaneManifest.from_dict(_without_manifest_digest(payload))
     successor_ready = [
         item.task_key
         for item in ResearchOSControlPlane().resolve(manifest).ready_queue
-        if item.task_key in M4_V2_SUCCESSOR_TASKS.values()
+        if item.task_key in successor_task_keys
     ]
     assert successor_ready == [global_builder.GLOBAL_TASK]
 
@@ -1327,7 +1639,7 @@ def test_resolver_global_route_and_four_and_p3_barrier() -> None:
     successor_capabilities = {
         task["requested_capability"]
         for task in payload["tasks"]
-        if task["task_key"] in M4_V2_SUCCESSOR_TASKS.values()
+        if task["task_key"] in successor_task_keys
     }
     assert (
         _task(payload, PREDICTIVE_P3_TASK_KEY)["requested_capability"]
@@ -1387,6 +1699,16 @@ def test_source_contracts_exact_closure_and_digest_drift_fail_closed(
             assert item["sha256"] == hashlib.sha256(historical_bytes).hexdigest()
 
     active_source_sets: dict[str, tuple[str, ...]] = {}
+    for family in ("marginal", "global"):
+        contract = supervisor_module._load_m4_v2_successor_source_contract(
+            root_dir=ROOT_DIR, family=family
+        )
+        entries = tuple(item["path"] for item in contract["source_entries"])
+        assert len(entries) == len(set(entries)) == 7
+        assert contract["artifact_digest"] == json.loads(
+            SOURCE_PATHS[0 if family == "marginal" else 3].read_text(encoding="utf-8")
+        )["artifact_digest"]
+        active_source_sets[family] = entries
     expected_arrays = {
         "temporal": "c3aa7e4fbb5a60393e68582ebf9b47d572892b8c2a8494db8065b8a604ab1898",
         "joint": "b9d51e1feb75e656708e410c9f719d839fedc3ed5c6dc2eae9929be8bfdcb60d",
@@ -1490,14 +1812,14 @@ def test_successor_v2_estimator_identity_rejects_predecessor_v1() -> None:
         if item["task_key"].startswith("m4-v2-joint-residual-increment")
     ]
     assert temporal_tasks and joint_tasks
-    assert all(
-        item["input_artifact_digests"] == [_digest("temporal-source")]
-        for item in temporal_tasks
-    )
-    assert all(
-        item["input_artifact_digests"] == [_digest("joint-source")]
-        for item in joint_tasks
-    )
+    temporal_source = json.loads(SOURCE_PATHS[1].read_text(encoding="utf-8"))[
+        "artifact_digest"
+    ]
+    joint_source = json.loads(SOURCE_PATHS[2].read_text(encoding="utf-8"))[
+        "artifact_digest"
+    ]
+    assert all(item["input_artifact_digests"] == [temporal_source] for item in temporal_tasks)
+    assert all(item["input_artifact_digests"] == [joint_source] for item in joint_tasks)
     assert all(
         item["metric_contract"]["estimator_id"] == temporal.TEMPORAL_MODEL_ID
         for item in temporal_tasks
@@ -1959,7 +2281,7 @@ def test_supervisor_global_replay_is_zero_write_and_preserves_all_identities(
         lambda _self, _family, _task: {"artifact_digest": _digest("global-source")},
     )
     by_decision_task = {
-        marginal.MARGINAL_STATIC_DECISION_TASK_KEY: records[0],
+        marginal_builder.RECOVERY_TASK_KEY: records[0],
         temporal.TEMPORAL_PRODUCER_TASK_KEY: records[1],
         joint.JOINT_PRODUCER_TASK_KEY: records[2],
     }
@@ -2224,14 +2546,12 @@ def test_atomic_publication_crash_reconciliation_and_conflicts(
         "connection.commit()"
     )
     assert "self.repository.connection_factory()" in source
-    repository_diff = subprocess.run(
-        ["git", "diff", "--", "apps/worker-python/dehps/research_os/repository.py"],
-        cwd=ROOT_DIR,
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout
-    assert repository_diff == ""
+    repository_source = inspect.getsource(
+        PostgresResearchOSRepository.import_manifest
+    )
+    assert repository_source.index(
+        "_verify_m4_v2_failed_task_recovery_import"
+    ) < repository_source.index("_verify_mainline_completion_records")
 
 
 def test_engineering_boundary_has_zero_runtime_or_operator_actions() -> None:

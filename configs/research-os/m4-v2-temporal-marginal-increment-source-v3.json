@@ -1,58 +1,244 @@
 {
-  "schema_version": "dehps-m4-v2-temporal-marginal-increment-source-contract.v3",
-  "artifact_type": "m4_v2_temporal_marginal_increment_source_contract",
-  "artifact_digest": "882509d115f778fc71e900491c8fc9cc30eb02687215890b2503ed4dd5e37ac5",
-  "contract_key": "m4-v2-temporal-marginal-increment-contract-v3",
-  "measurement_contract_key": "M4_MEASUREMENT_CONTRACT_V2",
-  "measurement_contract_digest": "a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b",
-  "source_fact": "m4-v2-temporal-marginal-increment-contract-v3:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
-  "supersedes_v2_artifact_digest": "eb306e418182c8d2fc39272aa653018a9f5ad6afcbcf0c4825d88f09a8980c37",
-  "supersedes_v2_source_set_digest": "347871439de9af2736ba2eefa69c21bd2122bdecfaab77cf49b9830a1d56268a",
-  "source_path_array_contract_version": 4,
-  "source_path_array_digest": "c3aa7e4fbb5a60393e68582ebf9b47d572892b8c2a8494db8065b8a604ab1898",
-  "source_entries": [
-    {"path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/temporal_marginal_increment.py", "sha256": "598f0eb2d32e34eb19807fd8a2f653fc6d6ade6695ce5f3adc1716b5f4b869e6"},
-    {"path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_temporal_marginal_increment_execution.py", "sha256": "4d68810ebb201a4718855d0724d707f026d9c879d69be1d68f4bc29eb8dfd3e7"},
-    {"path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_legal_fixed_cardinality.py", "sha256": "4a6e581b2bb7ce0269b561667eb4b0d2ace09e32df3e7fb339ed3c8ebc520fe5"},
-    {"path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_increment_fixture_generators.py", "sha256": "cfdec1f74d77e5ee9e6ffbc37de3e23d061563c228212042c091864b600b343b"},
-    {"path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_increment_execution_support.py", "sha256": "e3522898ddd1d162caa9bfae2659b79f1f0f385a742d863d1784d188e926febc"},
-    {"path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/temporal_probability_capsule.py", "sha256": "52a4ef8c1a7c7ed3aeaf7595e2f005836a2e615111990591b7637d4dcce5b3e2"},
-    {"path": "apps/worker-python/dehps/research_os/supervisor.py", "sha256": "e4dde0bc8189d9c0d7833e96c2bce02b3d84f982030d91fb6c4ad643460f064b"},
-    {"path": "apps/worker-python/dehps/research_os/information_theory/progress.py", "sha256": "22051faaf8518ecf48fd3055841b9ccb5cfb5ab470c202ef2bedcda046a22e0f"},
-    {"path": "apps/worker-python/dehps/research_os/control_plane.py", "sha256": "4440b4f08380e8d635af76351acbc486a1a7297dba7f268b95fa8abd4e4bda18"},
-    {"path": "apps/worker-python/dehps/research_os/models.py", "sha256": "6e9ff33d8a5c32b06e72f758b095890f3bcb32239627d0d460a09c119faec579"},
-    {"path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/migration.py", "sha256": "3c20445389842f86a68f70466e38b23028cf772c9b23850558252341a869fe99"},
-    {"path": "apps/worker-python/scripts/build_m4_v2_temporal_marginal_increment_manifest.py", "sha256": "f117fe2519630ab94dd4d60c47fbfab7cb4ac1cb1f49316cf83bbd20afca96a4"}
-  ],
-  "source_set_digest": "2fbcfc5f3c0af6b746e9da3459aeae613c1c51132d8ff3532f1609797695b4d2",
   "accepted_support_input_schema": "dehps-m4-v2-accepted-support-input.v3",
+  "artifact_digest": "658b490f1c3b46c7beafb3f34ec42c58fd2481e92e4a03057de2ff43c070d825",
+  "artifact_type": "m4_v2_temporal_marginal_increment_source_contract",
+  "contract_key": "m4-v2-temporal-marginal-increment-contract-v3",
+  "corrected_amendment_contract_digest": "a6c59a1f0e0ae81b8eedbee9dfac515a50b26d57bd33c9e0e4ae122d811fd37c",
+  "corrected_request501_rebased_addendum_digest": "deac42696723726613e780dfeeacbace7f054edb3a486caa33c884a20d64ef03",
+  "corrected_resolved_contract_digest": "51f8f56af4fde4e06e610a791876fd17bf49edfb0c221dec4d53c67dafd5b97d",
+  "measurement_contract_digest": "a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b",
+  "measurement_contract_key": "M4_MEASUREMENT_CONTRACT_V2",
+  "merged_authority_binding_map_digest": "5474d83ddf68bb702365f8221f9b6d2160fc37e66cd3d875171e7d44d4c37b97",
   "numeric_runtime_contract": {
-    "runtime_contract_id": "TEMPORAL_PROBABILITY_CAPSULE_BINARY64_RUNTIME_V1",
-    "worker_image_digest": "e8b8eb142ed94afb6f91274b896856ba335789eac987f0fbdf15528d63b08690",
-    "python_implementation": "cpython",
-    "python_version": "3.14.4",
-    "python_executable_digest": "b8d8288faefdd300201f43fcf00f6f539a27218eeed3a3dff5ab10b9c4c99700",
-    "platform_machine": "x86_64",
-    "byte_order": "little",
     "binary64_mantissa_bits": 53,
     "binary64_rounding_mode": "ROUND_TO_NEAREST_TIES_TO_EVEN",
-    "fused_multiply_add_allowed": false,
+    "blas_lapack_binary_closure_digest": "d68656f8750016103d07cb5ae19add5d1a3e5aad5af34e100ebe1b3545bf4435",
+    "byte_order": "little",
+    "evaluator_contract_digest": "d3759bd8b3114e4bb75fe62298ecc1dcc127d6b85491e7f692ab14603bb0e0e9",
     "extended_precision_allowed": false,
+    "fused_multiply_add_allowed": false,
     "libm_binary_digest": "beea4eeacfcfa2cd96011b959a826c97cf4a774017e214f6a34d7eea3d49cd88",
-    "numpy_version": "2.4.6",
     "numpy_core_binary_digest": "75eb7a6fdffcad459e89100b5102342ec49b33717cb0f593f1b7146b90ad18d6",
     "numpy_linalg_binary_digest": "9044fb4c88488c93acdcb13ed4b7c4d639fada857456bb0254a190deb2e12aa7",
-    "blas_lapack_binary_closure_digest": "d68656f8750016103d07cb5ae19add5d1a3e5aad5af34e100ebe1b3545bf4435",
+    "numpy_version": "2.4.6",
+    "platform_machine": "x86_64",
+    "python_executable_digest": "b8d8288faefdd300201f43fcf00f6f539a27218eeed3a3dff5ab10b9c4c99700",
+    "python_implementation": "cpython",
+    "python_version": "3.14.4",
+    "runtime_contract_id": "TEMPORAL_PROBABILITY_CAPSULE_BINARY64_RUNTIME_V1",
     "solver_source_contract_digest": "391acc6a04518389f841e94a640a14dcaf98bd2c36614d31a0e713446980b06d",
-    "evaluator_contract_digest": "d3759bd8b3114e4bb75fe62298ecc1dcc127d6b85491e7f692ab14603bb0e0e9"
+    "worker_image_digest": "e8b8eb142ed94afb6f91274b896856ba335789eac987f0fbdf15528d63b08690"
   },
   "numeric_runtime_contract_digest": "66df0140487ef61aaa438a9c6027945a891d67e7e9c06f01f48c7831bac30ed0",
-  "merged_authority_binding_map_digest": "5474d83ddf68bb702365f8221f9b6d2160fc37e66cd3d875171e7d44d4c37b97",
   "probability_composition_repair_digest": "29dbdd7e29b86de2ede4fbf441c8cbf83d3c151abf771628662ef00f8af7f1be",
-  "corrected_amendment_contract_digest": "a6c59a1f0e0ae81b8eedbee9dfac515a50b26d57bd33c9e0e4ae122d811fd37c",
-  "corrected_resolved_contract_digest": "51f8f56af4fde4e06e610a791876fd17bf49edfb0c221dec4d53c67dafd5b97d",
-  "corrected_request501_rebased_addendum_digest": "deac42696723726613e780dfeeacbace7f054edb3a486caa33c884a20d64ef03",
-  "seed_contract": {"schema_version":"dehps-m4-v2-temporal-seed-contract.v3","branch_id":"TEMPORAL_MARGINAL_INCREMENT","upstream_request_id":479,"upstream_execution_id":400,"upstream_approval_decision_id":2008,"upstream_seed_and_resampling_contract":{"best_seed_selection":"forbidden","canonical_seed_object":{"bootstrap_coordinate_count":14651392,"bootstrap_coordinates":{"block_length":"iterate exact order [3,5,8,13]","bootstrap_child_index":"0..510","cell_id":"the exact canonical cell_id at cell_index","cell_index":"0..13 matching cells_in_canonical_order","coordinate_type":"BOOTSTRAP","domain":"M4_V2_TEMPORAL_MARGINAL_INCREMENT_MEASUREMENT_HEALTH_V1","replicate_index":"0..511","root_seed_full_sha256":"e29d5a88e74a1ebac8081066947b5c7b595b160602fc71934a3805157cb907f4"},"bootstrap_field_order":["domain","root_seed_full_sha256","coordinate_type","cell_index","cell_id","replicate_index","block_length","bootstrap_child_index"],"child_seed":"first 64 digest bits in big-endian byte order","digest":"SHA-256 over the serialized bytes","full_digest_persisted":true,"historical_coordinate_count":16000,"historical_coordinates":{"coordinate_type":"HISTORICAL_BOOTSTRAP","domain":"M4_V2_TEMPORAL_MARGINAL_INCREMENT_HISTORICAL_INFERENCE_V1","historical_child_index":"0..1999","root_seed_full_sha256":"51268c1a018f5922852080ed6d1b22b73c209954729b43a9da68d5c829015795","scheme_id":"the exact scheme string at scheme_index","scheme_index":"0..7 matching historical_schemes order"},"historical_field_order":["domain","root_seed_full_sha256","coordinate_type","scheme_index","scheme_id","historical_child_index"],"sequence_coordinate_count":7168,"sequence_coordinates":{"cell_id":"the exact canonical cell_id at cell_index","cell_index":"0..13 matching cells_in_canonical_order","coordinate_type":"SEQUENCE","domain":"M4_V2_TEMPORAL_MARGINAL_INCREMENT_MEASUREMENT_HEALTH_V1","replicate_index":"0..511","root_seed_full_sha256":"e29d5a88e74a1ebac8081066947b5c7b595b160602fc71934a3805157cb907f4"},"sequence_field_order":["domain","root_seed_full_sha256","coordinate_type","cell_index","cell_id","replicate_index"],"serialization":"UTF-8 minified JSON object, no insignificant whitespace, field order exactly as declared, strings unescaped except as required by JSON, integers in shortest base-10 form"},"collision_policy":{"coordinate_or_seed_collision":"fail before generation with no result artifact, Decision or fact","require_unique_full_sha256_for_all_coordinates":true,"require_unique_unsigned_64_seed_within_and_across_sequence_bootstrap_and_historical_sets":true,"worker_count_and_execution_order_do_not_change_coordinates":true},"historical_child_count":16000,"historical_root_domain":"M4_V2_TEMPORAL_MARGINAL_INCREMENT_HISTORICAL_INFERENCE_V1","historical_root_replicates":2000,"historical_schemes":["MOVING_BLOCK_NONCIRCULAR_LENGTH_5_PRIMARY","MOVING_BLOCK_NONCIRCULAR_LENGTH_3_SENSITIVITY","MOVING_BLOCK_NONCIRCULAR_LENGTH_8_SENSITIVITY","MOVING_BLOCK_NONCIRCULAR_LENGTH_13_SENSITIVITY","STATIONARY_EXPECTED_LENGTH_3_SENSITIVITY","STATIONARY_EXPECTED_LENGTH_5_SENSITIVITY","STATIONARY_EXPECTED_LENGTH_8_SENSITIVITY","STATIONARY_EXPECTED_LENGTH_13_SENSITIVITY"],"partial_or_best_scheme_selection":"forbidden","prng":"numpy.random.Generator(numpy.random.PCG64DXSM(unsigned_64_big_endian_child_seed))","quantile_method":"Hyndman-Fan type 7","retry_and_resume_reuse_seed":true,"root_seeds":{"extraction":"take digest bytes 0..7 in network big-endian order, render exactly 16 lowercase hexadecimal digits with leading zeros, prefix 0x, and parse as unsigned uint64","historical":{"domain":"M4_V2_TEMPORAL_MARGINAL_INCREMENT_HISTORICAL_INFERENCE_V1","known_material_full_sha256":"51268c1a018f5922852080ed6d1b22b73c209954729b43a9da68d5c829015795","material_object_in_sorted_key_order":{"branch_id":"TEMPORAL_MARGINAL_INCREMENT","dataset_content_digest":"8f7b7527d6ee95301b58002e594b0955b7e0f391421b8c438b87fc4f2507b106","domain":"M4_V2_TEMPORAL_MARGINAL_INCREMENT_HISTORICAL_INFERENCE_V1","fold_manifest_digest":"5a68579161ad5528ee15b8b1ea3e314d6acb05203885a5514e5654da026e9ad7","measurement_contract_digest":"a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b","parent_approval_decision_id":1997,"parent_request_id":478,"parent_research_execution_id":399,"request_key":"research-m4-v2-temporal-marginal-increment-historical-contract"},"unsigned_64_big_endian_hex":"0x51268c1a018f5922"},"material_serialization":{"canonicalization":"compact JSON with keys sorted lexicographically, no insignificant whitespace and no trailing newline; exactly jq -cS -j semantics","encoding":"UTF-8","sha256_input":"the exact canonical serialized object bytes","sorted_key_order":["branch_id","dataset_content_digest","domain","fold_manifest_digest","measurement_contract_digest","parent_approval_decision_id","parent_request_id","parent_research_execution_id","request_key"]},"root_seed_search_or_replacement":"forbidden","synthetic":{"domain":"M4_V2_TEMPORAL_MARGINAL_INCREMENT_MEASUREMENT_HEALTH_V1","known_material_full_sha256":"e29d5a88e74a1ebac8081066947b5c7b595b160602fc71934a3805157cb907f4","material_object_in_sorted_key_order":{"branch_id":"TEMPORAL_MARGINAL_INCREMENT","dataset_content_digest":"8f7b7527d6ee95301b58002e594b0955b7e0f391421b8c438b87fc4f2507b106","domain":"M4_V2_TEMPORAL_MARGINAL_INCREMENT_MEASUREMENT_HEALTH_V1","fold_manifest_digest":"5a68579161ad5528ee15b8b1ea3e314d6acb05203885a5514e5654da026e9ad7","measurement_contract_digest":"a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b","parent_approval_decision_id":1997,"parent_request_id":478,"parent_research_execution_id":399,"request_key":"research-m4-v2-temporal-marginal-increment-historical-contract"},"unsigned_64_big_endian_hex":"0xe29d5a88e74a1eba"}},"synthetic_bootstrap_child_count":14651392,"synthetic_root_domain":"M4_V2_TEMPORAL_MARGINAL_INCREMENT_MEASUREMENT_HEALTH_V1","synthetic_sequence_child_count":7168,"worker_or_shard_in_seed":false},"seed_contract_digest":"877ed87d59b2b26daa7b5dd59a37f9230c7e04ad3e5e28f8e9bf88728c9cf612"},
+  "production_action": "none",
+  "schema_version": "dehps-m4-v2-temporal-marginal-increment-source-contract.v3",
+  "seed_contract": {
+    "branch_id": "TEMPORAL_MARGINAL_INCREMENT",
+    "schema_version": "dehps-m4-v2-temporal-seed-contract.v3",
+    "seed_contract_digest": "877ed87d59b2b26daa7b5dd59a37f9230c7e04ad3e5e28f8e9bf88728c9cf612",
+    "upstream_approval_decision_id": 2008,
+    "upstream_execution_id": 400,
+    "upstream_request_id": 479,
+    "upstream_seed_and_resampling_contract": {
+      "best_seed_selection": "forbidden",
+      "canonical_seed_object": {
+        "bootstrap_coordinate_count": 14651392,
+        "bootstrap_coordinates": {
+          "block_length": "iterate exact order [3,5,8,13]",
+          "bootstrap_child_index": "0..510",
+          "cell_id": "the exact canonical cell_id at cell_index",
+          "cell_index": "0..13 matching cells_in_canonical_order",
+          "coordinate_type": "BOOTSTRAP",
+          "domain": "M4_V2_TEMPORAL_MARGINAL_INCREMENT_MEASUREMENT_HEALTH_V1",
+          "replicate_index": "0..511",
+          "root_seed_full_sha256": "e29d5a88e74a1ebac8081066947b5c7b595b160602fc71934a3805157cb907f4"
+        },
+        "bootstrap_field_order": [
+          "domain",
+          "root_seed_full_sha256",
+          "coordinate_type",
+          "cell_index",
+          "cell_id",
+          "replicate_index",
+          "block_length",
+          "bootstrap_child_index"
+        ],
+        "child_seed": "first 64 digest bits in big-endian byte order",
+        "digest": "SHA-256 over the serialized bytes",
+        "full_digest_persisted": true,
+        "historical_coordinate_count": 16000,
+        "historical_coordinates": {
+          "coordinate_type": "HISTORICAL_BOOTSTRAP",
+          "domain": "M4_V2_TEMPORAL_MARGINAL_INCREMENT_HISTORICAL_INFERENCE_V1",
+          "historical_child_index": "0..1999",
+          "root_seed_full_sha256": "51268c1a018f5922852080ed6d1b22b73c209954729b43a9da68d5c829015795",
+          "scheme_id": "the exact scheme string at scheme_index",
+          "scheme_index": "0..7 matching historical_schemes order"
+        },
+        "historical_field_order": [
+          "domain",
+          "root_seed_full_sha256",
+          "coordinate_type",
+          "scheme_index",
+          "scheme_id",
+          "historical_child_index"
+        ],
+        "sequence_coordinate_count": 7168,
+        "sequence_coordinates": {
+          "cell_id": "the exact canonical cell_id at cell_index",
+          "cell_index": "0..13 matching cells_in_canonical_order",
+          "coordinate_type": "SEQUENCE",
+          "domain": "M4_V2_TEMPORAL_MARGINAL_INCREMENT_MEASUREMENT_HEALTH_V1",
+          "replicate_index": "0..511",
+          "root_seed_full_sha256": "e29d5a88e74a1ebac8081066947b5c7b595b160602fc71934a3805157cb907f4"
+        },
+        "sequence_field_order": [
+          "domain",
+          "root_seed_full_sha256",
+          "coordinate_type",
+          "cell_index",
+          "cell_id",
+          "replicate_index"
+        ],
+        "serialization": "UTF-8 minified JSON object, no insignificant whitespace, field order exactly as declared, strings unescaped except as required by JSON, integers in shortest base-10 form"
+      },
+      "collision_policy": {
+        "coordinate_or_seed_collision": "fail before generation with no result artifact, Decision or fact",
+        "require_unique_full_sha256_for_all_coordinates": true,
+        "require_unique_unsigned_64_seed_within_and_across_sequence_bootstrap_and_historical_sets": true,
+        "worker_count_and_execution_order_do_not_change_coordinates": true
+      },
+      "historical_child_count": 16000,
+      "historical_root_domain": "M4_V2_TEMPORAL_MARGINAL_INCREMENT_HISTORICAL_INFERENCE_V1",
+      "historical_root_replicates": 2000,
+      "historical_schemes": [
+        "MOVING_BLOCK_NONCIRCULAR_LENGTH_5_PRIMARY",
+        "MOVING_BLOCK_NONCIRCULAR_LENGTH_3_SENSITIVITY",
+        "MOVING_BLOCK_NONCIRCULAR_LENGTH_8_SENSITIVITY",
+        "MOVING_BLOCK_NONCIRCULAR_LENGTH_13_SENSITIVITY",
+        "STATIONARY_EXPECTED_LENGTH_3_SENSITIVITY",
+        "STATIONARY_EXPECTED_LENGTH_5_SENSITIVITY",
+        "STATIONARY_EXPECTED_LENGTH_8_SENSITIVITY",
+        "STATIONARY_EXPECTED_LENGTH_13_SENSITIVITY"
+      ],
+      "partial_or_best_scheme_selection": "forbidden",
+      "prng": "numpy.random.Generator(numpy.random.PCG64DXSM(unsigned_64_big_endian_child_seed))",
+      "quantile_method": "Hyndman-Fan type 7",
+      "retry_and_resume_reuse_seed": true,
+      "root_seeds": {
+        "extraction": "take digest bytes 0..7 in network big-endian order, render exactly 16 lowercase hexadecimal digits with leading zeros, prefix 0x, and parse as unsigned uint64",
+        "historical": {
+          "domain": "M4_V2_TEMPORAL_MARGINAL_INCREMENT_HISTORICAL_INFERENCE_V1",
+          "known_material_full_sha256": "51268c1a018f5922852080ed6d1b22b73c209954729b43a9da68d5c829015795",
+          "material_object_in_sorted_key_order": {
+            "branch_id": "TEMPORAL_MARGINAL_INCREMENT",
+            "dataset_content_digest": "8f7b7527d6ee95301b58002e594b0955b7e0f391421b8c438b87fc4f2507b106",
+            "domain": "M4_V2_TEMPORAL_MARGINAL_INCREMENT_HISTORICAL_INFERENCE_V1",
+            "fold_manifest_digest": "5a68579161ad5528ee15b8b1ea3e314d6acb05203885a5514e5654da026e9ad7",
+            "measurement_contract_digest": "a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b",
+            "parent_approval_decision_id": 1997,
+            "parent_request_id": 478,
+            "parent_research_execution_id": 399,
+            "request_key": "research-m4-v2-temporal-marginal-increment-historical-contract"
+          },
+          "unsigned_64_big_endian_hex": "0x51268c1a018f5922"
+        },
+        "material_serialization": {
+          "canonicalization": "compact JSON with keys sorted lexicographically, no insignificant whitespace and no trailing newline; exactly jq -cS -j semantics",
+          "encoding": "UTF-8",
+          "sha256_input": "the exact canonical serialized object bytes",
+          "sorted_key_order": [
+            "branch_id",
+            "dataset_content_digest",
+            "domain",
+            "fold_manifest_digest",
+            "measurement_contract_digest",
+            "parent_approval_decision_id",
+            "parent_request_id",
+            "parent_research_execution_id",
+            "request_key"
+          ]
+        },
+        "root_seed_search_or_replacement": "forbidden",
+        "synthetic": {
+          "domain": "M4_V2_TEMPORAL_MARGINAL_INCREMENT_MEASUREMENT_HEALTH_V1",
+          "known_material_full_sha256": "e29d5a88e74a1ebac8081066947b5c7b595b160602fc71934a3805157cb907f4",
+          "material_object_in_sorted_key_order": {
+            "branch_id": "TEMPORAL_MARGINAL_INCREMENT",
+            "dataset_content_digest": "8f7b7527d6ee95301b58002e594b0955b7e0f391421b8c438b87fc4f2507b106",
+            "domain": "M4_V2_TEMPORAL_MARGINAL_INCREMENT_MEASUREMENT_HEALTH_V1",
+            "fold_manifest_digest": "5a68579161ad5528ee15b8b1ea3e314d6acb05203885a5514e5654da026e9ad7",
+            "measurement_contract_digest": "a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b",
+            "parent_approval_decision_id": 1997,
+            "parent_request_id": 478,
+            "parent_research_execution_id": 399,
+            "request_key": "research-m4-v2-temporal-marginal-increment-historical-contract"
+          },
+          "unsigned_64_big_endian_hex": "0xe29d5a88e74a1eba"
+        }
+      },
+      "synthetic_bootstrap_child_count": 14651392,
+      "synthetic_root_domain": "M4_V2_TEMPORAL_MARGINAL_INCREMENT_MEASUREMENT_HEALTH_V1",
+      "synthetic_sequence_child_count": 7168,
+      "worker_or_shard_in_seed": false
+    }
+  },
   "seed_contract_digest": "877ed87d59b2b26daa7b5dd59a37f9230c7e04ad3e5e28f8e9bf88728c9cf612",
-  "production_action": "none"
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/temporal_marginal_increment.py",
+      "sha256": "598f0eb2d32e34eb19807fd8a2f653fc6d6ade6695ce5f3adc1716b5f4b869e6"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_temporal_marginal_increment_execution.py",
+      "sha256": "4d68810ebb201a4718855d0724d707f026d9c879d69be1d68f4bc29eb8dfd3e7"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_legal_fixed_cardinality.py",
+      "sha256": "4a6e581b2bb7ce0269b561667eb4b0d2ace09e32df3e7fb339ed3c8ebc520fe5"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_increment_fixture_generators.py",
+      "sha256": "cfdec1f74d77e5ee9e6ffbc37de3e23d061563c228212042c091864b600b343b"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_increment_execution_support.py",
+      "sha256": "e3522898ddd1d162caa9bfae2659b79f1f0f385a742d863d1784d188e926febc"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/temporal_probability_capsule.py",
+      "sha256": "52a4ef8c1a7c7ed3aeaf7595e2f005836a2e615111990591b7637d4dcce5b3e2"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/supervisor.py",
+      "sha256": "1fbf2d8a9ffc5f3df63d0b09e72187873c06954ac88a22398354cb5753166c63"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/progress.py",
+      "sha256": "b89603bb245b98486e775df6ff2e5c133accf9871c680934c7b655acd1bc3498"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/control_plane.py",
+      "sha256": "4440b4f08380e8d635af76351acbc486a1a7297dba7f268b95fa8abd4e4bda18"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/models.py",
+      "sha256": "6e9ff33d8a5c32b06e72f758b095890f3bcb32239627d0d460a09c119faec579"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/migration.py",
+      "sha256": "f540aa9ab2c57053f7a00bdabf8b873f0324ade010b989d97abfc3ee6da44d66"
+    },
+    {
+      "path": "apps/worker-python/scripts/build_m4_v2_temporal_marginal_increment_manifest.py",
+      "sha256": "386012c0de93be04760efdab8402e176d1e4cb15acfc563bbd1a21c73cc710e8"
+    }
+  ],
+  "source_fact": "m4-v2-temporal-marginal-increment-contract-v3:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
+  "source_path_array_contract_version": 4,
+  "source_path_array_digest": "c3aa7e4fbb5a60393e68582ebf9b47d572892b8c2a8494db8065b8a604ab1898",
+  "source_set_digest": "0d9bf2e60dfb27322a809b0881f5bc1bedfcde47d6a32066bf1498b86a7d12ae",
+  "supersedes_v2_artifact_digest": "eb306e418182c8d2fc39272aa653018a9f5ad6afcbcf0c4825d88f09a8980c37",
+  "supersedes_v2_source_set_digest": "347871439de9af2736ba2eefa69c21bd2122bdecfaab77cf49b9830a1d56268a"
 }

@@ -194,6 +194,7 @@ def _historical_recovery_base() -> dict:
             "m4-p2r-measurement-repair-validation",
             "m4-p3-predictive-route-reconciliation",
             "m4-v2-marginal-static-historical-identity-adoption",
+            "m4-v2-marginal-static-historical-identity-adoption-recovery-v1",
             "m4-v2-marginal-static-historical-branch-decision-replay",
             "m4-v2-temporal-marginal-increment-historical-measurement-design",
             "m4-v2-temporal-marginal-increment-historical-measurement-preregistration",

@@ -45,8 +45,8 @@
       "m4-v2-branch-preflight-execution-source-contract:7da905d15249813e44bcf57b4e107fac15bb2d02587c4c68134ca5c834aac5c1",
       "m4-v2-branch-preflight-source-contract:6fb3a1e366da129ac460599a391891a49206ccc715b6367cf344e2aa3e9f2a3d",
       "m4-v2-global-routing-contract:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
-      "m4-v2-joint-residual-increment-contract:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
       "m4-v2-joint-residual-increment-contract-v3:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
+      "m4-v2-joint-residual-increment-contract:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
       "m4-v2-marginal-static-contract-freeze-source:db8109760e5aeaae30cc765bb60ccd704560a24674a934dff6304026d8b87de1",
       "m4-v2-marginal-static-fixture-freeze-source:65a3b02964d35c8250bde2e6c9858f94c40617b7a60923c77d96541b29982b53",
       "m4-v2-marginal-static-health-decision-source:df89e7785e1ace80b9e967e3c1dba8983d74b93d3e961226daa7ed2c0e023fc8",
@@ -63,8 +63,8 @@
       "m4-v2-marginal-static-repair-v2-health-decision-source:65dbd24e6a63fadfa62d0fb5d0bf7744d166ed1bfb2412bb48e57b04c2d190c6",
       "m4-v2-marginal-static-repair-v2-health-execution-source:e1a2b76b1df2bb93a696330256462569e8122608fc027b014051391b9d89abee",
       "m4-v2-marginal-static-repair-v2-preregistration-source:8f3b8e453a7ca86efa8daba4ed77cecd8bd23ee1cc99551b531a91e7a4445521",
-      "m4-v2-temporal-marginal-increment-contract:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
       "m4-v2-temporal-marginal-increment-contract-v3:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
+      "m4-v2-temporal-marginal-increment-contract:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
       "mainline-execution:m4-p2-injected-signal-calibration:60ac1df68a112c671682116a30db1b01eae18e7a0cd5c2e0dcd0e13183893a83:772b5063f1a3578c7e8f8a2cd9f102357828608de8fbd80c2c1fb2c82b79afa2:completed",
       "mainline-execution:m4-p2-measurement-identifiability-preflight:e0f59f90c975b72c327089e03ff8ffd5729b9e6d40920b929708dcdcb3ffa0f4:127924d8a31a9631b45964f9dc650889c08e01c942e52a743ca6284c95d46106:completed",
       "mainline-execution:m4-p2-resampling:7a74fbe800bb9b8e24b4e3863150bcc28128dd30ba5bbe7dfe57feddb022fd5f:596d7745e8733239417d2b05c39f99cf645843d63842dad7ba850e9f165f1a33:completed",
@@ -309,7 +309,7 @@
       }
     }
   ],
-  "manifest_digest": "b73210e14f1a49653f999821bc97a462d0b6775dad0dc0b4d052fc7d52f045c4",
+  "manifest_digest": "e1a8ca3df25b0260a8b28bdebd0f610ad2c7fe1ac0563b9e05caedeb72c519f8",
   "schema_version": "research-os-control-plane-v1",
   "tasks": [
     {
@@ -5420,7 +5420,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "6ca7ae72f61ac14be9e29d18c74e1fab8444426b14b37ec137dc1c116a94783c"
+        "c8b1e4e50235179339fd95cb7e2af63d3e0616e25e30d689f7afec3019e19e7a"
       ],
       "lane": "research",
       "metric_contract": {
@@ -5462,9 +5462,9 @@
             "m4-v2-global-routing:COMPLETE",
             "m4-v2-routing:{ROUTE}"
           ],
-          "evidence_rule": "zero Evidence; categorical registered Decision inputs only",
+          "downstream_consumer": "{\"ADAPTIVE_RESEARCH_ELIGIBLE\":\"P3_PREDICTIVE_PREREGISTRATION_FREEZE\",\"DEEPER_VALIDATION_REQUIRED\":\"M4_DEEPER_VALIDATION\",\"MEASUREMENT_REPAIR_REQUIRED\":\"MEASUREMENT_REPAIR\",\"NO_DETECTABLE_INFORMATION_UNDER_FROZEN_M4_V2_CONTRACT\":\"KERNEL_SEARCH_EFFICIENCY\"}",
+          "evidence_progress_rule": "zero Evidence; categorical registered Decision inputs only",
           "goal": "M4_INFORMATION_THEORY_EVIDENCE",
-          "next_consumer": "m4-p3-predictive-preregistration-freeze",
           "ready_condition": "the exact source fact and all three canonical replay facts are available",
           "runner": "research_evidence_supervisor",
           "status_projection": "unified_m4_status.measurement_system_v2.global_routing",
@@ -6159,7 +6159,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "34a49fd24be7c696636bb584a379776155407b8af2b120adfbffc2edfcea3857"
+        "44b0c436e3b2c2e5d73c14db55d19db3fefb56877a415e71ef53ef078893da25"
       ],
       "lane": "research",
       "metric_contract": {
@@ -6168,7 +6168,7 @@
           "research_os_mainline_execution"
         ],
         "branch_id": "MARGINAL_STATIC",
-        "completion_fact": "m4-v2-marginal-static-historical-identity-adoption:COMPLETE",
+        "completion_fact": "m4-v2-marginal-static-historical-identity-adoption-recovery-v1:COMPLETE",
         "historical_measurement_rerun": false,
         "historical_result_reads": 0,
         "identity_adoption_only": true,
@@ -6179,9 +6179,9 @@
             "research_os_mainline_execution",
             "m4-v2-historical-branch-decision:M4_MEASUREMENT_CONTRACT_V2:MARGINAL_STATIC:TERMINAL"
           ],
-          "evidence_rule": "zero Evidence; categorical identity adoption only",
+          "downstream_consumer": "m4-v2-marginal-static-historical-branch-decision-replay",
+          "evidence_progress_rule": "zero Evidence; categorical identity adoption only",
           "goal": "M4_INFORMATION_THEORY_EVIDENCE",
-          "next_consumer": "m4-v2-marginal-static-historical-branch-decision-replay",
           "ready_condition": "the exact frozen source-contract fact is available and the canonical existing MARGINAL_STATIC gate task is completed",
           "runner": "research_evidence_supervisor",
           "status_projection": "unified_m4_status.measurement_system_v2.marginal_static_historical_decision",
@@ -6195,6 +6195,15 @@
         "phase": "M4-V2-MARGINAL-STATIC-IDENTITY-ADOPTION",
         "production_action": "none",
         "promotion_gate_opened": false,
+        "recovery_lineage": {
+          "old_durable_history_preserved": true,
+          "old_event_manifest_digest": "79a8abb17bb705ab21350d6d3df882bbd39d89c3b7d2a3e9e5fa4f3c43046966",
+          "old_failed_event_digest": "8291bed8402c539f416f9c8d8a23c2f59800ff544d7b5ca90a5f3878d6ef665f",
+          "old_failed_execution_digest": "43eed4c903a59595336b514f17c3be318714535e3b61341ae3a492f03fb4e488",
+          "old_failed_task_definition_digest": "6f21824945ebdf8e19dcd946ffbc6260f8e28fc52555a5060422f152d37677fd",
+          "old_failed_task_key": "m4-v2-marginal-static-historical-identity-adoption",
+          "old_started_event_digest": "dfae9cbce68c931b7e0b715223623a4e7691cbb2613b0f6ef3dbdb00deb550a3"
+        },
         "registration_count": 2,
         "scientific_computation": 0,
         "terminal_fact": "m4-v2-historical-branch-decision:M4_MEASUREMENT_CONTRACT_V2:MARGINAL_STATIC:TERMINAL"
@@ -6203,7 +6212,7 @@
       "requested_capability": "m4_v2_marginal_static_historical_identity_adoption",
       "status": "draft",
       "superseded_by_task_digest": null,
-      "task_key": "m4-v2-marginal-static-historical-identity-adoption",
+      "task_key": "m4-v2-marginal-static-historical-identity-adoption-recovery-v1",
       "task_type": "m4_v2_marginal_static_historical_identity_adoption"
     },
     {
@@ -6218,7 +6227,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "34a49fd24be7c696636bb584a379776155407b8af2b120adfbffc2edfcea3857"
+        "44b0c436e3b2c2e5d73c14db55d19db3fefb56877a415e71ef53ef078893da25"
       ],
       "lane": "research",
       "metric_contract": {
@@ -6236,9 +6245,9 @@
             "research_os_mainline_execution",
             "m4-v2-historical-branch-decision-replay:M4_MEASUREMENT_CONTRACT_V2:MARGINAL_STATIC:VERIFIED"
           ],
-          "evidence_rule": "zero Evidence; registered-content replay only",
+          "downstream_consumer": "m4-v2-temporal-marginal-increment-historical-measurement-design",
+          "evidence_progress_rule": "zero Evidence; registered-content replay only",
           "goal": "M4_INFORMATION_THEORY_EVIDENCE",
-          "next_consumer": "m4-v2-temporal-marginal-increment-historical-measurement-design",
           "ready_condition": "the unique registered MARGINAL_STATIC Decision is terminal",
           "runner": "research_evidence_supervisor",
           "status_projection": "unified_m4_status.measurement_system_v2.marginal_static_historical_decision_replay",
@@ -6282,7 +6291,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "882509d115f778fc71e900491c8fc9cc30eb02687215890b2503ed4dd5e37ac5"
+        "658b490f1c3b46c7beafb3f34ec42c58fd2481e92e4a03057de2ff43c070d825"
       ],
       "lane": "research",
       "metric_contract": {
@@ -6307,9 +6316,9 @@
             "M4V2TemporalMarginalIncrementDesignArtifact",
             "research_os_mainline_execution"
           ],
-          "evidence_rule": "only the frozen producer path may create scientific artifacts; no Promotion",
+          "downstream_consumer": "m4-v2-temporal-marginal-increment-historical-measurement-preregistration",
+          "evidence_progress_rule": "only the frozen producer path may create scientific artifacts; no Promotion",
           "goal": "M4_INFORMATION_THEORY_EVIDENCE",
-          "next_consumer": "m4-v2-temporal-marginal-increment-historical-measurement-preregistration",
           "ready_condition": "all listed dependencies are conjunctively satisfied",
           "runner": "research_evidence_supervisor",
           "status_projection": "unified_m4_status.measurement_system_v2.temporal_marginal_increment",
@@ -6353,7 +6362,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "eb306e418182c8d2fc39272aa653018a9f5ad6afcbcf0c4825d88f09a8980c37"
+        "658b490f1c3b46c7beafb3f34ec42c58fd2481e92e4a03057de2ff43c070d825"
       ],
       "lane": "research",
       "metric_contract": {
@@ -6378,9 +6387,9 @@
             "M4V2TemporalMarginalIncrementPreregistrationBundleArtifact",
             "research_os_mainline_execution"
           ],
-          "evidence_rule": "only the frozen producer path may create scientific artifacts; no Promotion",
+          "downstream_consumer": "m4-v2-temporal-marginal-increment-historical-measurement-gate-compiler",
+          "evidence_progress_rule": "only the frozen producer path may create scientific artifacts; no Promotion",
           "goal": "M4_INFORMATION_THEORY_EVIDENCE",
-          "next_consumer": "m4-v2-temporal-marginal-increment-historical-measurement-gate-compiler",
           "ready_condition": "all listed dependencies are conjunctively satisfied",
           "runner": "research_evidence_supervisor",
           "status_projection": "unified_m4_status.measurement_system_v2.temporal_marginal_increment",
@@ -6429,7 +6438,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "eb306e418182c8d2fc39272aa653018a9f5ad6afcbcf0c4825d88f09a8980c37"
+        "658b490f1c3b46c7beafb3f34ec42c58fd2481e92e4a03057de2ff43c070d825"
       ],
       "lane": "research",
       "metric_contract": {
@@ -6459,9 +6468,9 @@
             "m4-v2-historical-branch-decision:M4_MEASUREMENT_CONTRACT_V2:TEMPORAL_MARGINAL_INCREMENT:TERMINAL",
             "m4-v2-temporal-marginal-increment-historical-measurement-gate-compiler:COMPLETE"
           ],
-          "evidence_rule": "only the frozen producer path may create scientific artifacts; no Promotion",
+          "downstream_consumer": "m4-v2-temporal-marginal-increment-historical-branch-decision-replay",
+          "evidence_progress_rule": "only the frozen producer path may create scientific artifacts; no Promotion",
           "goal": "M4_INFORMATION_THEORY_EVIDENCE",
-          "next_consumer": "m4-v2-temporal-marginal-increment-historical-branch-decision-replay",
           "ready_condition": "all listed dependencies are conjunctively satisfied",
           "runner": "research_evidence_supervisor",
           "status_projection": "unified_m4_status.measurement_system_v2.temporal_marginal_increment",
@@ -6547,7 +6556,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "eb306e418182c8d2fc39272aa653018a9f5ad6afcbcf0c4825d88f09a8980c37"
+        "658b490f1c3b46c7beafb3f34ec42c58fd2481e92e4a03057de2ff43c070d825"
       ],
       "lane": "research",
       "metric_contract": {
@@ -6572,9 +6581,9 @@
             "M4V2BranchDecisionReplayArtifact",
             "research_os_mainline_execution"
           ],
-          "evidence_rule": "only the frozen producer path may create scientific artifacts; no Promotion",
+          "downstream_consumer": "m4-v2-joint-residual-increment-historical-measurement-design",
+          "evidence_progress_rule": "only the frozen producer path may create scientific artifacts; no Promotion",
           "goal": "M4_INFORMATION_THEORY_EVIDENCE",
-          "next_consumer": "m4-v2-joint-residual-increment-historical-measurement-design",
           "ready_condition": "all listed dependencies are conjunctively satisfied",
           "runner": "research_evidence_supervisor",
           "status_projection": "unified_m4_status.measurement_system_v2.temporal_marginal_increment",
@@ -6621,7 +6630,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "41d909604b8fee0c97598cd9f13edf9de601b6c9f72194b5fb881d1e650f4844"
+        "596f753ad6c273930c65fee35fde61461eb8a6b102461c083f22c887908598db"
       ],
       "lane": "research",
       "metric_contract": {
@@ -6646,9 +6655,9 @@
             "M4V2JointResidualIncrementDesignArtifact",
             "research_os_mainline_execution"
           ],
-          "evidence_rule": "only the frozen producer path may create scientific artifacts; no Promotion",
+          "downstream_consumer": "m4-v2-joint-residual-increment-historical-measurement-preregistration",
+          "evidence_progress_rule": "only the frozen producer path may create scientific artifacts; no Promotion",
           "goal": "M4_INFORMATION_THEORY_EVIDENCE",
-          "next_consumer": "m4-v2-joint-residual-increment-historical-measurement-preregistration",
           "ready_condition": "all listed dependencies are conjunctively satisfied",
           "runner": "research_evidence_supervisor",
           "status_projection": "unified_m4_status.measurement_system_v2.joint_residual_increment",
@@ -6691,7 +6700,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "f7345320fc87b601cbdae58e2064ff89dc2195c449efcd70d043441067af0a44"
+        "596f753ad6c273930c65fee35fde61461eb8a6b102461c083f22c887908598db"
       ],
       "lane": "research",
       "metric_contract": {
@@ -6716,9 +6725,9 @@
             "M4V2JointResidualIncrementPreregistrationArtifact",
             "research_os_mainline_execution"
           ],
-          "evidence_rule": "only the frozen producer path may create scientific artifacts; no Promotion",
+          "downstream_consumer": "m4-v2-joint-residual-increment-historical-measurement-gate-compiler",
+          "evidence_progress_rule": "only the frozen producer path may create scientific artifacts; no Promotion",
           "goal": "M4_INFORMATION_THEORY_EVIDENCE",
-          "next_consumer": "m4-v2-joint-residual-increment-historical-measurement-gate-compiler",
           "ready_condition": "all listed dependencies are conjunctively satisfied",
           "runner": "research_evidence_supervisor",
           "status_projection": "unified_m4_status.measurement_system_v2.joint_residual_increment",
@@ -6771,7 +6780,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "f7345320fc87b601cbdae58e2064ff89dc2195c449efcd70d043441067af0a44"
+        "596f753ad6c273930c65fee35fde61461eb8a6b102461c083f22c887908598db"
       ],
       "lane": "research",
       "metric_contract": {
@@ -6802,9 +6811,9 @@
             "m4-v2-historical-branch-decision:M4_MEASUREMENT_CONTRACT_V2:JOINT_RESIDUAL_INCREMENT:TERMINAL",
             "m4-v2-joint-residual-increment-historical-measurement-gate-compiler:COMPLETE"
           ],
-          "evidence_rule": "only the frozen producer path may create scientific artifacts; no Promotion",
+          "downstream_consumer": "m4-v2-joint-residual-increment-historical-branch-decision-replay",
+          "evidence_progress_rule": "only the frozen producer path may create scientific artifacts; no Promotion",
           "goal": "M4_INFORMATION_THEORY_EVIDENCE",
-          "next_consumer": "m4-v2-joint-residual-increment-historical-branch-decision-replay",
           "ready_condition": "all listed dependencies are conjunctively satisfied",
           "runner": "research_evidence_supervisor",
           "status_projection": "unified_m4_status.measurement_system_v2.joint_residual_increment",
@@ -6890,7 +6899,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "f7345320fc87b601cbdae58e2064ff89dc2195c449efcd70d043441067af0a44"
+        "596f753ad6c273930c65fee35fde61461eb8a6b102461c083f22c887908598db"
       ],
       "lane": "research",
       "metric_contract": {
@@ -6915,9 +6924,9 @@
             "M4V2BranchDecisionReplayArtifact",
             "research_os_mainline_execution"
           ],
-          "evidence_rule": "only the frozen producer path may create scientific artifacts; no Promotion",
+          "downstream_consumer": "m4-v2-global-routing",
+          "evidence_progress_rule": "only the frozen producer path may create scientific artifacts; no Promotion",
           "goal": "M4_INFORMATION_THEORY_EVIDENCE",
-          "next_consumer": "m4-v2-global-routing",
           "ready_condition": "all listed dependencies are conjunctively satisfied",
           "runner": "research_evidence_supervisor",
           "status_projection": "unified_m4_status.measurement_system_v2.joint_residual_increment",

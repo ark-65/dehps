@@ -1,5 +1,5 @@
 {
-  "artifact_digest": "34a49fd24be7c696636bb584a379776155407b8af2b120adfbffc2edfcea3857",
+  "artifact_digest": "44b0c436e3b2c2e5d73c14db55d19db3fefb56877a415e71ef53ef078893da25",
   "artifact_type": "m4_v2_marginal_static_historical_identity_adoption_source_contract",
   "failed_engineering_predecessor_binding": {
     "approval_decision_digest": "eddcffb0b16a78e802e6937c2376bf106f6ce2f5689c0d3d497b48157120e49a",
@@ -165,11 +165,11 @@
     },
     {
       "path": "apps/worker-python/dehps/research_os/supervisor.py",
-      "sha256": "86fa5c77fa0fb249df2a3144de6cde4015def1216063fcd3face8d5294a48773"
+      "sha256": "1fbf2d8a9ffc5f3df63d0b09e72187873c06954ac88a22398354cb5753166c63"
     },
     {
       "path": "apps/worker-python/dehps/research_os/information_theory/progress.py",
-      "sha256": "5a71f33f8229d48f91d9a8ebcdaf894bff5737aa59c7578f96408e26316cb7ae"
+      "sha256": "b89603bb245b98486e775df6ff2e5c133accf9871c680934c7b655acd1bc3498"
     },
     {
       "path": "apps/worker-python/dehps/research_os/control_plane.py",
@@ -177,17 +177,17 @@
     },
     {
       "path": "apps/worker-python/dehps/research_os/models.py",
-      "sha256": "1bb6d69cf6958afe2ce1f8bd3b3eb59dce6c3e772de2dc0159fae5f4b1c0443a"
+      "sha256": "6e9ff33d8a5c32b06e72f758b095890f3bcb32239627d0d460a09c119faec579"
     },
     {
       "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/migration.py",
-      "sha256": "76812a114fd34b3f61c6ad05bfc7d92d207eff0246d9cd0ebf534ddb4739726e"
+      "sha256": "f540aa9ab2c57053f7a00bdabf8b873f0324ade010b989d97abfc3ee6da44d66"
     },
     {
       "path": "apps/worker-python/scripts/build_m4_v2_three_branch_decision_manifest.py",
-      "sha256": "3a7286ccc8755ecea29306afd21c0fd528195f4f54e4843a7615a3a83d8b552e"
+      "sha256": "7b9b86fc627b650c47a3d644c3db0f7928ea9c567dad730c07d8676fd1eced60"
     }
   ],
   "source_fact": "m4-v2-marginal-static-historical-identity-adoption-contract:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
-  "source_set_digest": "4044017cd97206e7c5ede4e18e22365988822370eb285c2d21fc74b71ee02917"
+  "source_set_digest": "1db37e401b78e674642aefb9207be90ee2f35f3a5907cd76c66a3162d587db10"
 }

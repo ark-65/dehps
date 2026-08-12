@@ -156,12 +156,6 @@ from dehps.research_os.information_theory.measurement_system_v2.branch_decision 
     MARGINAL_STATIC_DECISION_CAPABILITY as M4_V2_SUCCESSOR_MARGINAL_DECISION_CAPABILITY,
 )
 from dehps.research_os.information_theory.measurement_system_v2.branch_decision import (
-    MARGINAL_STATIC_DECISION_COMPLETION_FACT as M4_V2_SUCCESSOR_MARGINAL_DECISION_COMPLETION_FACT,
-)
-from dehps.research_os.information_theory.measurement_system_v2.branch_decision import (
-    MARGINAL_STATIC_DECISION_TASK_KEY as M4_V2_SUCCESSOR_MARGINAL_DECISION_TASK_KEY,
-)
-from dehps.research_os.information_theory.measurement_system_v2.branch_decision import (
     MARGINAL_STATIC_GATE_ARTIFACT_DIGEST as M4_V2_SUCCESSOR_MARGINAL_GATE_DIGEST,
 )
 from dehps.research_os.information_theory.measurement_system_v2.branch_decision import (
@@ -475,6 +469,10 @@ from dehps.research_os.information_theory.measurement_system_v2.marginal_static_
     build_marginal_static_repair_v2_preregistration_artifacts,
     load_marginal_static_repair_v2_preregistration_source_contract,
     verify_marginal_static_repair_v2_preregistration_source_bytes,
+)
+from dehps.research_os.information_theory.measurement_system_v2.migration import (
+    M4_V2_FAILED_TASK_KEY,
+    verify_failed_task_recovery_event_metadata,
 )
 from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcome_closure import (
     P2_CLOSURE_CAPABILITY,
@@ -1046,6 +1044,7 @@ from dehps.research_os.models import (
     m4_v2_build_artifact_envelope,
     m4_v2_domain_digest,
     stable_hash,
+    stable_json,
 )
 from dehps.research_os.repository import PostgresResearchOSRepository
 from dehps.research_os.structural_utility.m4_p3_evidence_compiler import (
@@ -1192,6 +1191,19 @@ from dehps.research_os.structural_utility.m4_p3_result_blind_preregistration imp
 from dehps.source_version import resolve_git_commit
 from dehps.storage.postgres_store import load_history_until_with_dates
 
+M4_V2_SUCCESSOR_MARGINAL_RECOVERY_TASK_KEY = (
+    "m4-v2-marginal-static-historical-identity-adoption-recovery-v1"
+)
+M4_V2_SUCCESSOR_MARGINAL_RECOVERY_COMPLETION_FACT = (
+    f"{M4_V2_SUCCESSOR_MARGINAL_RECOVERY_TASK_KEY}:COMPLETE"
+)
+M4_V2_GLOBAL_DOWNSTREAM_CONSUMER = (
+    '{"ADAPTIVE_RESEARCH_ELIGIBLE":"P3_PREDICTIVE_PREREGISTRATION_FREEZE",'
+    '"DEEPER_VALIDATION_REQUIRED":"M4_DEEPER_VALIDATION",'
+    '"MEASUREMENT_REPAIR_REQUIRED":"MEASUREMENT_REPAIR",'
+    '"NO_DETECTABLE_INFORMATION_UNDER_FROZEN_M4_V2_CONTRACT":'
+    '"KERNEL_SEARCH_EFFICIENCY"}'
+)
 P23_TASK_KEY = "m4-p2-walk-forward-probe-harness"
 P23_CAPABILITY = "m4_p2_3_walk_forward_harness"
 P23_PROBES = (
@@ -3804,11 +3816,8 @@ def _load_m4_v2_successor_source_contract(
         return _validate_m4_v2_active_v3_source_contract(
             root_dir=root_dir, family=family, spec=spec, contract=contract
         )
-    return verify_m4_v2_historical_successor_source_contract(
-        root_dir=root_dir, family=family
-    )
-    # The legacy live-byte verifier below is intentionally unreachable: legacy
-    # contracts are audit-only raw Git objects after Request512.
+    # Request530 reactivates only these two resealed v1 envelopes for live
+    # dispatch.  The raw-Git verifier remains the separate historical audit API.
     expected_fields = {
         "schema_version",
         "artifact_type",
@@ -20723,7 +20732,7 @@ class M4V2SuccessorCapability:
         if family == "temporal":
             parent = self._branch_record(
                 control_plane_key=control_plane_key,
-                decision_task_key=M4_V2_SUCCESSOR_MARGINAL_DECISION_TASK_KEY,
+                decision_task_key=M4_V2_SUCCESSOR_MARGINAL_RECOVERY_TASK_KEY,
                 replay_task_key=M4_V2_SUCCESSOR_MARGINAL_REPLAY_TASK_KEY,
             )
             body = {
@@ -21044,6 +21053,12 @@ class M4V2SuccessorCapability:
         execution_id: str,
     ) -> AtomicCapabilityResult:
         source = self._source("marginal", task)
+        verify_failed_task_recovery_event_metadata(
+            self.repository.list_mainline_execution_event_metadata(
+                control_plane_key=control_plane_key,
+                task_keys=(M4_V2_FAILED_TASK_KEY,),
+            )
+        )
         gate_execution, gate_registration, gate = self._completed_artifact(
             control_plane_key=control_plane_key,
             task_key=MARGINAL_STATIC_HISTORICAL_GATE_TASK_KEY,
@@ -21117,7 +21132,7 @@ class M4V2SuccessorCapability:
             ),
             completion_facts=(
                 M4_V2_SUCCESSOR_MARGINAL_TERMINAL_FACT,
-                M4_V2_SUCCESSOR_MARGINAL_DECISION_COMPLETION_FACT,
+                M4_V2_SUCCESSOR_MARGINAL_RECOVERY_COMPLETION_FACT,
             ),
             execution_metadata=(
                 ("source_contract_digest", source["artifact_digest"]),
@@ -21139,7 +21154,7 @@ class M4V2SuccessorCapability:
     ) -> AtomicCapabilityResult:
         source = self._source(family, task)
         if family == "marginal":
-            decision_task = M4_V2_SUCCESSOR_MARGINAL_DECISION_TASK_KEY
+            decision_task = M4_V2_SUCCESSOR_MARGINAL_RECOVERY_TASK_KEY
             replay_builder = build_marginal_static_branch_decision_replay
             replay_fact = M4_V2_SUCCESSOR_MARGINAL_REPLAY_FACT
             completion_fact = M4_V2_SUCCESSOR_MARGINAL_REPLAY_COMPLETION_FACT
@@ -21782,7 +21797,7 @@ class M4V2SuccessorCapability:
         )
         parent = self._branch_record(
             control_plane_key=control_plane_key,
-            decision_task_key=M4_V2_SUCCESSOR_MARGINAL_DECISION_TASK_KEY,
+            decision_task_key=M4_V2_SUCCESSOR_MARGINAL_RECOVERY_TASK_KEY,
             replay_task_key=M4_V2_SUCCESSOR_MARGINAL_REPLAY_TASK_KEY,
         )
         if parent["decision"].get("body", {}).get("accepted_for_downstream_baseline") is True:
@@ -21854,7 +21869,7 @@ class M4V2SuccessorCapability:
         )
         marginal = self._branch_record(
             control_plane_key=control_plane_key,
-            decision_task_key=M4_V2_SUCCESSOR_MARGINAL_DECISION_TASK_KEY,
+            decision_task_key=M4_V2_SUCCESSOR_MARGINAL_RECOVERY_TASK_KEY,
             replay_task_key=M4_V2_SUCCESSOR_MARGINAL_REPLAY_TASK_KEY,
         )
         temporal = self._branch_record(
@@ -21923,10 +21938,24 @@ class M4V2SuccessorCapability:
         self, *, control_plane_key: str, task: Task
     ) -> AtomicCapabilityResult:
         source = self._source("global", task)
+        integration = integration_contract(task)
+        downstream = integration["downstream_consumer"]
+        if downstream != M4_V2_GLOBAL_DOWNSTREAM_CONSUMER:
+            raise MainlineSupervisorError(
+                "M4-v2 Global downstream consumer bytes changed"
+            )
+        route_consumers = json.loads(downstream)
+        if (
+            not isinstance(route_consumers, dict)
+            or stable_json(route_consumers) != downstream
+        ):
+            raise MainlineSupervisorError(
+                "M4-v2 Global downstream consumer is not exact canonical JSON"
+            )
         records = (
             self._branch_record(
                 control_plane_key=control_plane_key,
-                decision_task_key=M4_V2_SUCCESSOR_MARGINAL_DECISION_TASK_KEY,
+                decision_task_key=M4_V2_SUCCESSOR_MARGINAL_RECOVERY_TASK_KEY,
                 replay_task_key=M4_V2_SUCCESSOR_MARGINAL_REPLAY_TASK_KEY,
             ),
             self._branch_record(
@@ -21945,6 +21974,9 @@ class M4V2SuccessorCapability:
             source_contract_digest=source["artifact_digest"],
             task_digest=task.artifact_digest,
         )
+        route_name = route["route"]
+        if route_name not in route_consumers:
+            raise MainlineSupervisorError("M4-v2 Global route has no downstream consumer")
         route_fact = f"m4-v2-routing:{route['route']}"
         return AtomicCapabilityResult(
             artifacts=(
@@ -21960,6 +21992,7 @@ class M4V2SuccessorCapability:
                 ("source_set_digest", source["source_set_digest"]),
                 ("route_decision_artifact_digest", route["artifact_digest"]),
                 ("route", route["route"]),
+                ("downstream_consumer", route_consumers[route_name]),
                 ("decision_replay_coverage", "COMPLETE"),
                 ("historical_database_reads", 0),
                 ("scientific_computation", 0),
@@ -21980,7 +22013,7 @@ class M4V2SuccessorCapability:
         capability = task.requested_capability
         expected = {
             M4_V2_SUCCESSOR_MARGINAL_DECISION_CAPABILITY: (
-                M4_V2_SUCCESSOR_MARGINAL_DECISION_TASK_KEY,
+                M4_V2_SUCCESSOR_MARGINAL_RECOVERY_TASK_KEY,
                 lambda: self._marginal_decision(
                     control_plane_key=control_plane_key,
                     task=task,
@@ -23538,7 +23571,7 @@ class ResearchEvidenceSupervisor:
                 TEMPORAL_PREREGISTRATION_TASK_KEY,
                 TEMPORAL_DESIGN_TASK_KEY,
                 M4_V2_SUCCESSOR_MARGINAL_REPLAY_TASK_KEY,
-                M4_V2_SUCCESSOR_MARGINAL_DECISION_TASK_KEY,
+                M4_V2_SUCCESSOR_MARGINAL_RECOVERY_TASK_KEY,
                 M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_TASK_KEY,
                 M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY,
                 M4_P3_STRUCTURAL_UTILITY_PREREGISTRATION_TASK_KEY,
@@ -25035,7 +25068,7 @@ class ResearchEvidenceSupervisor:
             branch_records = (
                 dispatcher._branch_record(
                     control_plane_key=self.control_plane_key,
-                    decision_task_key=M4_V2_SUCCESSOR_MARGINAL_DECISION_TASK_KEY,
+                    decision_task_key=M4_V2_SUCCESSOR_MARGINAL_RECOVERY_TASK_KEY,
                     replay_task_key=M4_V2_SUCCESSOR_MARGINAL_REPLAY_TASK_KEY,
                 ),
                 dispatcher._branch_record(

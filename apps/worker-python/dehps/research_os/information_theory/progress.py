@@ -91,7 +91,9 @@ M4_V2_SUCCESSOR_REPLAY_FACTS = tuple(
     for branch_id in M4_V2_SUCCESSOR_BRANCH_ORDER
 )
 M4_V2_SUCCESSOR_TASKS = {
-    "marginal_decision": "m4-v2-marginal-static-historical-identity-adoption",
+    "marginal_decision": (
+        "m4-v2-marginal-static-historical-identity-adoption-recovery-v1"
+    ),
     "marginal_replay": (
         "m4-v2-marginal-static-historical-branch-decision-replay"
     ),
@@ -1660,8 +1662,7 @@ def build_m4_status(
     ]
     successor_completion_facts = {
         "marginal_decision": (
-            "m4-v2-historical-branch-decision:M4_MEASUREMENT_CONTRACT_V2:"
-            "MARGINAL_STATIC:TERMINAL"
+            "m4-v2-marginal-static-historical-identity-adoption-recovery-v1:COMPLETE"
         ),
         "marginal_replay": M4_V2_SUCCESSOR_REPLAY_FACTS[0],
         "temporal_design": (
