@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping
+from contextlib import AbstractContextManager
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, ContextManager
+from typing import Any
 
 from psycopg import Connection
 from psycopg.errors import ForeignKeyViolation, UniqueViolation
@@ -23,8 +25,32 @@ from dehps.agents.roles import AgentRole
 from dehps.db import get_connection
 from dehps.storage.postgres_store import ensure_agent_authority_schema
 
+ConnectionFactory = Callable[[], AbstractContextManager[Connection[Any]]]
+REQUEST_METADATA_COLUMNS = """
+id, request_key, request_type, requested_by_role, requested_by,
+hypothesis_id, experiment_id, parent_request_id, title, summary, status,
+risk_level, requires_review, created_at, updated_at, submitted_at, resolved_at,
+metadata_json
+"""
+EXECUTION_METADATA_COLUMNS = """
+id, request_id, executor_role, executor_id, execution_type, status,
+environment, run_id, started_at, completed_at, created_at
+"""
 
-ConnectionFactory = Callable[[], ContextManager[Connection[Any]]]
+
+@dataclass(frozen=True)
+class AgentRequestExecutionMetadata:
+    id: int
+    request_id: int
+    executor_role: AgentRole
+    executor_id: str
+    execution_type: str
+    status: AgentExecutionStatus
+    environment: str
+    run_id: str | None
+    started_at: datetime
+    completed_at: datetime | None
+    created_at: datetime
 TERMINAL_REQUEST_STATUSES = frozenset(
     {
         AgentRequestStatus.REJECTED,
@@ -97,6 +123,22 @@ def _execution(row: Mapping[str, Any]) -> AgentRequestExecution:
         result=dict(row.get("result_json") or {}),
         artifact_paths=list(row.get("artifact_paths_json") or []),
         error=dict(row.get("error_json") or {}),
+        created_at=row["created_at"],
+    )
+
+
+def _execution_metadata(row: Mapping[str, Any]) -> AgentRequestExecutionMetadata:
+    return AgentRequestExecutionMetadata(
+        id=int(row["id"]),
+        request_id=int(row["request_id"]),
+        executor_role=AgentRole(row["executor_role"]),
+        executor_id=str(row["executor_id"]),
+        execution_type=str(row["execution_type"]),
+        status=AgentExecutionStatus(row["status"]),
+        environment=str(row["environment"]),
+        run_id=row.get("run_id"),
+        started_at=row["started_at"],
+        completed_at=row.get("completed_at"),
         created_at=row["created_at"],
     )
 
@@ -177,6 +219,76 @@ class AgentRequestRepository:
             raise AgentRequestNotFoundError(f"agent request not found: {request_key}")
         return _request(row)
 
+    def get_request_contract(
+        self,
+        request_key: str,
+        *,
+        include_payload: bool,
+    ) -> Mapping[str, Any]:
+        """Read one request from one table with an auditable payload boundary."""
+        columns = REQUEST_METADATA_COLUMNS
+        if include_payload:
+            columns = f"{columns}, payload_json"
+        with self._connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
+            row = cursor.execute(
+                f"SELECT {columns} FROM agent_requests WHERE request_key = %s",
+                (request_key,),
+            ).fetchone()
+        if row is None:
+            raise AgentRequestNotFoundError(f"agent request not found: {request_key}")
+        return dict(row)
+
+    def list_decision_metadata(self, request_key: str) -> list[Mapping[str, Any]]:
+        """Return decision audit metadata without selecting reason_json."""
+        with self._connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
+            request_id = self._request_id(cursor, request_key)
+            rows = cursor.execute(
+                """
+                SELECT id, request_id, previous_status, new_status, decision_code,
+                       summary, decided_by_role, decided_by, decided_at, created_at
+                FROM agent_request_decisions
+                WHERE request_id = %s ORDER BY decided_at, id
+                """,
+                (request_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def list_execution_metadata(
+        self,
+        request_key: str,
+    ) -> list[AgentRequestExecutionMetadata]:
+        """Return execution identity/state without touching result-bearing columns."""
+        with self._connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
+            request_id = self._request_id(cursor, request_key)
+            rows = cursor.execute(
+                f"""
+                SELECT {EXECUTION_METADATA_COLUMNS}
+                FROM agent_request_executions
+                WHERE request_id = %s ORDER BY started_at, id
+                """,
+                (request_id,),
+            ).fetchall()
+        return [_execution_metadata(row) for row in rows]
+
+    def get_execution_metadata(
+        self,
+        request_key: str,
+        execution_id: int,
+    ) -> AgentRequestExecutionMetadata:
+        with self._connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
+            request_id = self._request_id(cursor, request_key)
+            row = cursor.execute(
+                f"""
+                SELECT {EXECUTION_METADATA_COLUMNS}
+                FROM agent_request_executions
+                WHERE id = %s AND request_id = %s
+                """,
+                (execution_id, request_id),
+            ).fetchone()
+        if row is None:
+            raise AgentRequestNotFoundError(f"execution not found: {execution_id}")
+        return _execution_metadata(row)
+
     def list_requests(
         self,
         *,
@@ -233,10 +345,7 @@ class AgentRequestRepository:
                 (_json(dict(payload)), request_key),
             ).fetchone()
         if row is None:
-            try:
-                existing = self.get_request(request_key)
-            except AgentRequestNotFoundError:
-                raise
+            existing = self.get_request(request_key)
             raise AgentRequestConflictError(
                 f"request payload is frozen in status {existing.status.value}"
             )
@@ -309,6 +418,43 @@ class AgentRequestRepository:
         assert execution_row is not None
         return _request(updated), _execution(execution_row)
 
+    def begin_execution_metadata(
+        self,
+        *,
+        request_key: str,
+        executor_role: AgentRole,
+        executor_id: str,
+        execution_type: str,
+        environment: str,
+        run_id: str | None,
+    ) -> tuple[AgentRequest, AgentRequestExecutionMetadata]:
+        """Start an execution without selecting result/error/artifact columns."""
+        with self._connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
+            row = self._locked_request(cursor, request_key)
+            if AgentRequestStatus(row["status"]) != AgentRequestStatus.APPROVED:
+                raise AgentRequestConflictError("only approved requests can begin execution")
+            execution_row = cursor.execute(
+                f"""
+                INSERT INTO agent_request_executions (
+                  request_id, executor_role, executor_id, execution_type, environment, run_id
+                ) VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING {EXECUTION_METADATA_COLUMNS}
+                """,
+                (row["id"], executor_role.value, executor_id, execution_type, environment, run_id),
+            ).fetchone()
+            updated = self._transition_row(
+                cursor,
+                row=row,
+                new_status=AgentRequestStatus.EXECUTING,
+                decision_code="execution_started",
+                summary="approved request execution started",
+                reason={"environment": environment, "execution_type": execution_type, "run_id": run_id},
+                decided_by_role=executor_role,
+                decided_by=executor_id,
+            )
+        assert execution_row is not None
+        return _request(updated), _execution_metadata(execution_row)
+
     def finish_execution(
         self,
         *,
@@ -367,6 +513,72 @@ class AgentRequestRepository:
             )
         assert finished_execution is not None
         return _request(updated), _execution(finished_execution)
+
+    def finish_execution_metadata(
+        self,
+        *,
+        request_key: str,
+        execution_id: int,
+        executor_role: AgentRole,
+        executor_id: str,
+        execution_status: AgentExecutionStatus,
+        request_status: AgentRequestStatus,
+        result: Mapping[str, Any],
+        artifact_paths: list[str],
+        error: Mapping[str, Any],
+    ) -> tuple[AgentRequest, AgentRequestExecutionMetadata]:
+        """Finish via parameterized writes while never reading sensitive payload columns."""
+        with self._connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
+            row = self._locked_request(cursor, request_key)
+            if AgentRequestStatus(row["status"]) != AgentRequestStatus.EXECUTING:
+                raise AgentRequestConflictError("request is not executing")
+            execution_row = cursor.execute(
+                f"""
+                SELECT {EXECUTION_METADATA_COLUMNS}
+                FROM agent_request_executions
+                WHERE id = %s AND request_id = %s FOR UPDATE
+                """,
+                (execution_id, row["id"]),
+            ).fetchone()
+            if execution_row is None:
+                raise AgentRequestNotFoundError(f"execution not found: {execution_id}")
+            if AgentExecutionStatus(execution_row["status"]) != AgentExecutionStatus.RUNNING:
+                raise AgentRequestConflictError("execution is not running")
+            if (
+                execution_row["executor_role"] != executor_role.value
+                or execution_row["executor_id"] != executor_id
+            ):
+                raise AgentRequestConflictError(
+                    "execution may only be finished by its recorded executor"
+                )
+            finished_execution = cursor.execute(
+                f"""
+                UPDATE agent_request_executions
+                SET status = %s, completed_at = now(), result_json = %s::jsonb,
+                    artifact_paths_json = %s::jsonb, error_json = %s::jsonb
+                WHERE id = %s
+                RETURNING {EXECUTION_METADATA_COLUMNS}
+                """,
+                (
+                    execution_status.value,
+                    _json(dict(result)),
+                    _json(list(artifact_paths)),
+                    _json(dict(error)),
+                    execution_id,
+                ),
+            ).fetchone()
+            updated = self._transition_row(
+                cursor,
+                row=row,
+                new_status=request_status,
+                decision_code=f"execution_{execution_status.value}",
+                summary=f"request execution {execution_status.value}",
+                reason={"execution_id": execution_id, "has_error": bool(error)},
+                decided_by_role=executor_role,
+                decided_by=executor_id,
+            )
+        assert finished_execution is not None
+        return _request(updated), _execution_metadata(finished_execution)
 
     def stop_active_execution(
         self,

@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import copy
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-
-from dehps.notifications.mail import MailDeliveryError, MailDeliveryReceipt, QqMailConfig
+from dehps.notifications.mail import (
+    MailDeliveryError,
+    MailDeliveryReceipt,
+    QqMailConfig,
+)
 from dehps.notifications.post_draw_evaluation import (
     PostDrawDeliveryStateError,
     PostDrawEvaluationDeliveryLedger,
@@ -17,9 +19,19 @@ from dehps.notifications.post_draw_evaluation import (
     write_post_draw_evaluation_artifacts,
 )
 
-
 RECIPIENT = "recipient@example.com"
 AUTHORIZATION_CODE = "abcdefghijklmnop"
+
+
+@pytest.fixture
+def inactive_legacy_retirement(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "dehps.prediction.v2.retirement.DEFAULT_ACTIVATION_PATH",
+        tmp_path / "legacy-retirement-not-activated.json",
+    )
+
+
+pytestmark = pytest.mark.usefixtures("inactive_legacy_retirement")
 
 
 def _row(

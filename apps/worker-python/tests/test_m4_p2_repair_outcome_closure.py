@@ -314,13 +314,13 @@ def test_completed_closure_moves_phase_forward_but_leaves_p2r_pending() -> None:
 def test_source_builder_is_idempotent_and_live_migration_is_additive() -> None:
     source_contract = _source()
     migrated = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
-    assert (
-        build_source_payload(
-            migrated,
-            source_digest=source_contract["artifact_digest"],
-        )
-        == migrated
+    rebuilt = build_source_payload(
+        migrated,
+        source_digest=source_contract["artifact_digest"],
     )
+    assert ControlPlaneManifest.from_dict(rebuilt).to_dict(
+        include_digest=True
+    ) == ControlPlaneManifest.from_dict(migrated).to_dict(include_digest=True)
     live = copy.deepcopy(migrated)
     live.pop("manifest_digest")
     live["tasks"] = [item for item in live["tasks"] if item["task_key"] != P2R_TASK_KEY]

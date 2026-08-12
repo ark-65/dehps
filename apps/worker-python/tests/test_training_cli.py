@@ -1,12 +1,22 @@
 from __future__ import annotations
 
 import pytest
-
 from dehps.training.cli import build_settings, parse_args
 from dehps.training.production_runtime import (
     build_production_training_session,
     ranked_universe_size_status,
 )
+
+
+@pytest.fixture
+def inactive_legacy_retirement(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "dehps.prediction.v2.retirement.DEFAULT_ACTIVATION_PATH",
+        tmp_path / "legacy-retirement-not-activated.json",
+    )
+
+
+pytestmark = pytest.mark.usefixtures("inactive_legacy_retirement")
 
 
 def test_legacy_supervisor_command_remains_cli_compatible() -> None:

@@ -4,25 +4,35 @@ from datetime import date
 from types import SimpleNamespace
 
 import pytest
-
-import dehps.optimization.next_candidates as next_candidates
+from dehps.optimization import next_candidates
 from dehps.optimization.next_candidates import (
     DYNAMIC_KDJ_LINE_KEY,
     NEAR_DYNAMIC_KDJ_EVAL_WINDOW,
     NEAR_DYNAMIC_KDJ_LINE_KEY,
+    STATIC_100_LINE_KEY,
     build_dynamic_kdj_next_candidate_snapshot,
     build_near_dynamic_kdj_next_candidate_snapshot,
     build_training_next_candidate_snapshot,
-    dynamic_kdj_regression_summary,
     dynamic_kdj_config_for_next,
+    dynamic_kdj_regression_summary,
     dynamic_kdj_strength_sweep_training_summary,
     load_best_training_summary,
     next_issue_hint,
     refresh_training_prediction_lines_current,
-    STATIC_100_LINE_KEY,
     training_freshness_metadata,
     training_summary_sort_key,
 )
+
+
+@pytest.fixture
+def inactive_legacy_retirement(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "dehps.prediction.v2.retirement.DEFAULT_ACTIVATION_PATH",
+        tmp_path / "legacy-retirement-not-activated.json",
+    )
+
+
+pytestmark = pytest.mark.usefixtures("inactive_legacy_retirement")
 
 
 class FakeCursor:

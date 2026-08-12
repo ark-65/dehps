@@ -1,0 +1,193 @@
+{
+  "artifact_digest": "34a49fd24be7c696636bb584a379776155407b8af2b120adfbffc2edfcea3857",
+  "artifact_type": "m4_v2_marginal_static_historical_identity_adoption_source_contract",
+  "failed_engineering_predecessor_binding": {
+    "approval_decision_digest": "eddcffb0b16a78e802e6937c2376bf106f6ce2f5689c0d3d497b48157120e49a",
+    "approval_decision_id": 2022,
+    "artifact_paths": [],
+    "execution_id": 404,
+    "execution_metadata_digest": "c7d13ea79268129aeab593a84457059a004a6e8b34efd9642dc572333ddaed38",
+    "failure_decision_digest": "b7abd799b0e1640716abe881c1bf9d1ecbc24dbd512c85f54b58ae4ddc448f49",
+    "failure_decision_id": 2024,
+    "repository_files_changed": 0,
+    "request_id": 483,
+    "request_identity_digest": "f39d797516843948394bb2717e150a5fa9142f521fa61058941aaf98c03865a2",
+    "start_decision_digest": "20e610ecfb50667ac5d16dd5036f72a9e5618638f49446758fc099622a8cdf45",
+    "start_decision_id": 2023
+  },
+  "future_artifact_digests": null,
+  "governance_bindings": [
+    {
+      "completion_decision_digest": "04fcb65f5b5a629c6782212f14672e1d48995a729409866a2e9b7a04df8f7b7e",
+      "completion_decision_id": 1999,
+      "execution_id": 399,
+      "execution_metadata_digest": "dfe6cd3d0602252a23857ef1374fdba981bccea2423fb59a768b6dbf05df51c8",
+      "request_id": 478,
+      "request_identity_digest": "ab4eb125bb99f17163e854de6fedb1a0e5ad41d1ff7a61ec96fbe4a7f108f932",
+      "reviewer_approval_decision_digest": "45970de2489bc3030dccab515fc4316594b91c22d2449046ece7dd4a8375d09a",
+      "reviewer_approval_decision_id": 1997
+    },
+    {
+      "completion_decision_digest": "ef1e47038c59bd6683f72679ca1dc4015726994587c09dd64ad82e833f7fe94e",
+      "completion_decision_id": 2013,
+      "execution_id": 400,
+      "execution_metadata_digest": "9d1406f263ed9df569ec0f2e46eef6eb2f31e55be46f9492a750129f958d386b",
+      "request_id": 479,
+      "request_identity_digest": "4ba78e4f2418067f653be3918c2abd2f5b6dcfb649de07ae79ec9d90d119882b",
+      "reviewer_approval_decision_digest": "0cedf08ac4d81d45faa478f4b7fa6a80b53b3437f84059ae8e655866ffb0e75f",
+      "reviewer_approval_decision_id": 2008
+    },
+    {
+      "completion_decision_digest": "9e55d45f4030685f15e18d2fd00c9098f9fb74c1e057dd6da0c22a37ab525061",
+      "completion_decision_id": 2017,
+      "execution_id": 402,
+      "execution_metadata_digest": "ca0ccb7297e7a98631f772fcdac6b3ce5b160234e99c70ac340bfddcac1504f8",
+      "request_id": 480,
+      "request_identity_digest": "81c9fefdfa6ba008d58713ceb75ddc3d1e8aceddf0cc1fe47370dd4a512766ac",
+      "reviewer_approval_decision_digest": "f352903dd91de4e92b80289a7659c49f7212486f84bbb328873b19db8063b570",
+      "reviewer_approval_decision_id": 2006
+    },
+    {
+      "completion_decision_digest": "c5632c6f1aff722e9f3d06b4d195449c5eeb6b91ee09fd9c24c09215594ef9d3",
+      "completion_decision_id": 2016,
+      "execution_id": 401,
+      "execution_metadata_digest": "44070360c153a8b5ec1284d53c8e8167a3e0811033afbd202566c273f1aa1cc1",
+      "request_id": 481,
+      "request_identity_digest": "23a3894c1dcef55feb61c238d14049aff8f5c5a91ae391540f726510488ef309",
+      "reviewer_approval_decision_digest": "9861c4658b7854982dd4dec59f1c2fe5c76c1f081b8cd5c9901e122480d0465c",
+      "reviewer_approval_decision_id": 2010
+    },
+    {
+      "completion_decision_digest": "460157a589ca86880e402f39868401d55554a63f79b15963de584e00293c4c3e",
+      "completion_decision_id": 2019,
+      "execution_id": 403,
+      "execution_metadata_digest": "f82266f687bc3a8dbc08f6cb49dcaf66f43bbc93fc0ff855fc787c9aa06a0b4f",
+      "request_id": 482,
+      "request_identity_digest": "1e49d08a6aa91c1b6c7bca61ef497645692444ceaedd39157124e5eee2d3226d",
+      "reviewer_approval_decision_digest": "c87356ea75a845a37e14f91d14ab9383ab3d0c217b2f53406425f98b347c2f59",
+      "reviewer_approval_decision_id": 2011
+    },
+    {
+      "completion_decision_digest": "420a699eab1e5047cf9d839984816935753c2462517e2de7667034773ecf41fb",
+      "completion_decision_id": 2029,
+      "execution_id": 405,
+      "execution_metadata_digest": "2b4675b502ca8d20a14c3f2c96d05acdecb97188437b8a6b45cb0a887a10e15c",
+      "request_id": 484,
+      "request_identity_digest": "5800519f5ce62dc180057d9f9ec8d7f850188ca8e68ce855e43bed424d2d3498",
+      "reviewer_approval_decision_digest": "1f86747756e1ed8be43682b549c3fd43060146a012fdd4522dfe9a71775a78d8",
+      "reviewer_approval_decision_id": 2027
+    },
+    {
+      "completion_decision_digest": "fea96bdc8bfd982b82e61170847cc55f00d68109e4b49fe5a32e4a11ad71eb32",
+      "completion_decision_id": 2034,
+      "execution_id": 406,
+      "execution_metadata_digest": "f9c470c3a006907e8099198f5576b4e3e6e2ad15059cb3fea7d6c04721048ca6",
+      "request_id": 485,
+      "request_identity_digest": "62df9c98f9f947fe55ac92ebb6c58af3bb5f0465880b38ac0eb974b162348b97",
+      "reviewer_approval_decision_digest": "cb1b7ea196029a347643f9d4f35fbda6b30c2c32a7649b9713758150c7cbe4b5",
+      "reviewer_approval_decision_id": 2032
+    },
+    {
+      "completion_decision_digest": "bd5a28cf3845a5412cee5a04ed673ffbf342a32aee2cf99da408ba9ebac8b6b3",
+      "completion_decision_id": 2039,
+      "execution_id": 407,
+      "execution_metadata_digest": "cf61b1c4b8909d570d772d16448c2bfc1ee87a19f246eb28c3ed5aa5115499a1",
+      "request_id": 486,
+      "request_identity_digest": "e1bc2e2d756b8ed61570b5106c61b3cb9574f30f4713cdb17cab8681382ff7a5",
+      "reviewer_approval_decision_digest": "48668201404fdec514d4284b56e54e0d815082a73a68d18e01e68bc689cdcfb5",
+      "reviewer_approval_decision_id": 2037
+    }
+  ],
+  "governance_digest_reference_contract": {
+    "datetime_projection": "timezone-aware datetimes are normalized to UTC with a terminal Z before canonical JSON serialization",
+    "decision_identity_domain": "dehps.agent-request-decision.append-only-identity.v1",
+    "decision_identity_helper": "governance_reviewer_decision_digest",
+    "decision_identity_projection_fields_exact": [
+      "id",
+      "request_id",
+      "previous_status",
+      "new_status",
+      "decision_code",
+      "summary",
+      "reason",
+      "decided_by_role",
+      "decided_by",
+      "decided_at",
+      "created_at"
+    ],
+    "decision_reason_blinding": "decision reason is recursively checked only against the production _FORBIDDEN_BLINDED_PAYLOAD_KEYS scientific-result key set; an operational failure reason may legitimately contain a non-scientific field literally named error and remains identity-bearing",
+    "decision_role_scope": "approval, completion, execution-start and execution-failure Decisions all use the same append-only decision projection and domain; the historical helper name does not restrict the Decision role or code",
+    "enum_projection": "enum values are their exact lowercase text values",
+    "execution_identity_domain": "dehps.agent-request-execution.result-blind-metadata.v1",
+    "execution_identity_helper": "governance_execution_metadata_digest",
+    "execution_identity_projection_fields_exact": [
+      "id",
+      "request_id",
+      "executor_role",
+      "executor_id",
+      "execution_type",
+      "environment",
+      "run_id",
+      "started_at",
+      "created_at"
+    ],
+    "execution_mapping_blinding": "result, result_json, execution_result, error and error_json are rejected from an execution mapping before projection",
+    "request_identity_domain": "dehps.agent-request.result-blind-metadata.v1",
+    "request_identity_helper": "governance_request_identity_digest",
+    "request_identity_projection_fields_exact": [
+      "id",
+      "request_key",
+      "request_type",
+      "requested_by_role",
+      "requested_by",
+      "hypothesis_id",
+      "experiment_id",
+      "parent_request_id",
+      "title",
+      "summary",
+      "payload",
+      "risk_level",
+      "requires_review",
+      "metadata"
+    ],
+    "request_payload_blinding": "request payload is recursively checked against the production _FORBIDDEN_BLINDED_PAYLOAD_KEYS scientific-result key set before projection",
+    "runtime_reference_equivalence": "successor models.py must implement byte-identical projections and domain-separated digests for the same sanitized fixture without importing predictive_route_reconciliation.py at runtime"
+  },
+  "measurement_contract_digest": "a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b",
+  "measurement_contract_key": "M4_MEASUREMENT_CONTRACT_V2",
+  "production_action": "none",
+  "research_context_fingerprint": "7d882bdec8ae1ad6e5397a7f856de5983b530620c3b72ebd18130435cbd6e543",
+  "schema_version": "dehps-m4-v2-marginal-static-historical-identity-adoption-source-contract.v1",
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/branch_decision.py",
+      "sha256": "f5f8f0fda5896e4fe4515a8f59af751cbe2390a19ad241c3ad008d252d3693a9"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/supervisor.py",
+      "sha256": "86fa5c77fa0fb249df2a3144de6cde4015def1216063fcd3face8d5294a48773"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/progress.py",
+      "sha256": "5a71f33f8229d48f91d9a8ebcdaf894bff5737aa59c7578f96408e26316cb7ae"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/control_plane.py",
+      "sha256": "4440b4f08380e8d635af76351acbc486a1a7297dba7f268b95fa8abd4e4bda18"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/models.py",
+      "sha256": "1bb6d69cf6958afe2ce1f8bd3b3eb59dce6c3e772de2dc0159fae5f4b1c0443a"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/migration.py",
+      "sha256": "76812a114fd34b3f61c6ad05bfc7d92d207eff0246d9cd0ebf534ddb4739726e"
+    },
+    {
+      "path": "apps/worker-python/scripts/build_m4_v2_three_branch_decision_manifest.py",
+      "sha256": "3a7286ccc8755ecea29306afd21c0fd528195f4f54e4843a7615a3a83d8b552e"
+    }
+  ],
+  "source_fact": "m4-v2-marginal-static-historical-identity-adoption-contract:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
+  "source_set_digest": "4044017cd97206e7c5ede4e18e22365988822370eb285c2d21fc74b71ee02917"
+}

@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from dehps.config import ROOT_DIR
 from dehps.research_os import supervisor as supervisor_module
 from dehps.research_os.control_plane import ResearchOSControlPlane
@@ -43,13 +42,13 @@ from dehps.research_os.information_theory.predictive_route_reconciliation import
     PREDICTIVE_ROUTE_RECONCILIATION_CAPABILITY,
     PREDICTIVE_ROUTE_RECONCILIATION_SOURCE_CONTRACT_PATH,
     PREDICTIVE_ROUTE_RECONCILIATION_TASK_KEY,
-    PredictiveRouteReconciliationArtifacts,
-    PredictiveRouteReconciliationError,
     ROUTE_RESEARCH_EXECUTION_ID,
     ROUTE_RESEARCH_REQUEST_ID,
     ROUTE_RESEARCH_REQUEST_KEY,
     ROUTE_REVIEWER_APPROVAL_DECISION_ID,
     STRUCTURAL_P3_TERMINAL_DECISION,
+    PredictiveRouteReconciliationArtifacts,
+    PredictiveRouteReconciliationError,
     build_predictive_route_reconciliation_artifacts,
     governance_execution_metadata_digest,
     governance_request_identity_digest,
@@ -67,8 +66,8 @@ from dehps.research_os.models import (
     MainlineArtifactRegistration,
     TaskStatus,
 )
-from scripts import build_m4_p3_predictive_route_reconciliation_manifest as builder
 
+from scripts import build_m4_p3_predictive_route_reconciliation_manifest as builder
 
 MANIFEST_PATH = (
     ROOT_DIR / "configs/research-os/m4-information-theory-evidence-v1.json"
@@ -561,10 +560,19 @@ def test_source_contract_is_registered_and_bytes_are_fail_closed(tmp_path: Path)
     source = load_predictive_route_reconciliation_source_contract(
         ROOT_DIR / PREDICTIVE_ROUTE_RECONCILIATION_SOURCE_CONTRACT_PATH
     )
-    verify_predictive_route_reconciliation_source_bytes(
+    audit = route.verify_predictive_route_reconciliation_v1_historical_git_objects(
         root_dir=ROOT_DIR,
-        contract=source,
+        commit_oid=route.PREDICTIVE_ROUTE_RECONCILIATION_V1_HISTORICAL_COMMIT,
+        source_paths=SOURCE_PATHS,
     )
+    assert audit["status"] == "VERIFIED"
+    assert audit["artifact_digest"] == source["artifact_digest"]
+    assert audit["source_set_digest"] == source["source_set_digest"]
+    with pytest.raises(PredictiveRouteReconciliationError, match="source_modified"):
+        verify_predictive_route_reconciliation_source_bytes(
+            root_dir=ROOT_DIR,
+            contract=source,
+        )
     index = json.loads(INDEX_PATH.read_text(encoding="utf-8"))["artifacts"]
     assert index[source["artifact_digest"]] == {
         "artifact_type": route.PREDICTIVE_ROUTE_RECONCILIATION_SOURCE_ARTIFACT_TYPE,
@@ -1317,7 +1325,18 @@ def test_repair_or_adaptive_alone_cannot_bypass_global_routing(
     )
 
     global_only = copy.deepcopy(repaired)
+    global_task = next(
+        task
+        for task in _manifest(global_only).tasks
+        if task.task_key == GLOBAL_ROUTING_TASK_KEY
+    )
     _task(global_only, GLOBAL_ROUTING_TASK_KEY)["status"] = "completed"
+    _task(global_only, GLOBAL_ROUTING_TASK_KEY)["completion_classification"] = (
+        "COMPLETE"
+    )
+    global_only["facts"]["artifacts"].append(
+        mainline_completion_fact(task=global_task, execution_id="f" * 64)
+    )
     assert _resolution(global_only, PREDICTIVE_P3_TASK_KEY).status is (
         TaskStatus.DEPENDENCY_WAIT
     )
@@ -1426,10 +1445,7 @@ def _called_leaf(call: ast.Call) -> str | None:
 
 
 def test_domain_builder_and_capability_have_no_blinded_work_operations() -> None:
-    capability = getattr(
-        supervisor_module,
-        "M4PredictiveRouteReconciliationCapability",
-    )
+    capability = supervisor_module.M4PredictiveRouteReconciliationCapability
     sources = {
         "domain": inspect.getsource(route),
         "builder": inspect.getsource(builder),

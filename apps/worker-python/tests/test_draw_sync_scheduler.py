@@ -2,11 +2,21 @@ import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from dehps.draw_sync.scheduler import DrawSyncSchedulePolicy
-from dehps.draw_sync.scheduler import DrawSyncWatch
-from dehps.draw_sync.scheduler import main
+import pytest
 from dehps.draw_sync.launch_contract import load_draw_sync_watch_launch_contract
 from dehps.draw_sync.models import DrawSyncResult, DrawSyncStatus
+from dehps.draw_sync.scheduler import DrawSyncSchedulePolicy, DrawSyncWatch, main
+
+
+@pytest.fixture
+def inactive_legacy_retirement(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "dehps.prediction.v2.retirement.DEFAULT_ACTIVATION_PATH",
+        tmp_path / "legacy-retirement-not-activated.json",
+    )
+
+
+pytestmark = pytest.mark.usefixtures("inactive_legacy_retirement")
 
 
 def test_draw_sync_scheduler_uses_hot_interval_on_draw_evening() -> None:
