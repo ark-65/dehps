@@ -102,9 +102,9 @@ def _metric(
             "upstream_artifacts": [],
             "downstream_artifacts": artifacts,
             "status_projection": "unified_m4_status.measurement_system_v2.joint_residual_increment",
-            "evidence_rule": "only the frozen producer path may create scientific artifacts; no Promotion",
+            "evidence_progress_rule": "only the frozen producer path may create scientific artifacts; no Promotion",
             "decision_consumer": next_consumer,
-            "next_consumer": next_consumer,
+            "downstream_consumer": next_consumer,
         },
     }
 
@@ -253,7 +253,8 @@ def build_m4_v2_joint_residual_increment_manifest(
     )
     return build_additive_task_manifest(
         live_payload=live_payload,
-        new_tasks=tasks,
+        new_tasks=(),
+        revised_tasks=tasks,
         add_artifact_facts=(HISTORICAL_SOURCE_FACT, SOURCE_FACT),
     )
 

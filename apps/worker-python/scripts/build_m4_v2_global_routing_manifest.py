@@ -49,6 +49,13 @@ ALLOWED_ROUTES = (
     "DEEPER_VALIDATION_REQUIRED",
     "MEASUREMENT_REPAIR_REQUIRED",
 )
+GLOBAL_DOWNSTREAM_CONSUMER = (
+    '{"ADAPTIVE_RESEARCH_ELIGIBLE":"P3_PREDICTIVE_PREREGISTRATION_FREEZE",'
+    '"DEEPER_VALIDATION_REQUIRED":"M4_DEEPER_VALIDATION",'
+    '"MEASUREMENT_REPAIR_REQUIRED":"MEASUREMENT_REPAIR",'
+    '"NO_DETECTABLE_INFORMATION_UNDER_FROZEN_M4_V2_CONTRACT":'
+    '"KERNEL_SEARCH_EFFICIENCY"}'
+)
 
 
 def _task(payload: Mapping[str, Any], task_key: str) -> dict[str, Any]:
@@ -130,9 +137,9 @@ def _global_task(live_payload: Mapping[str, Any], source_digest: str) -> dict[st
                 "m4-v2-routing:{ROUTE}",
             ],
             "status_projection": "unified_m4_status.measurement_system_v2.global_routing",
-            "evidence_rule": "zero Evidence; categorical registered Decision inputs only",
+            "evidence_progress_rule": "zero Evidence; categorical registered Decision inputs only",
             "decision_consumer": P3_PREREG_TASK,
-            "next_consumer": P3_PREREG_TASK,
+            "downstream_consumer": GLOBAL_DOWNSTREAM_CONSUMER,
         },
     }
     return task
@@ -212,11 +219,8 @@ def build_m4_v2_global_routing_manifest(
     )
     return build_additive_task_manifest(
         live_payload=live_payload,
-        new_tasks=(_p3_preregistration_placeholder(),),
-        revised_tasks=(
-            _global_task(live_payload, source_digest),
-            _predictive_p3(live_payload),
-        ),
+        new_tasks=(),
+        revised_tasks=(_global_task(live_payload, source_digest),),
         add_artifact_facts=(SOURCE_FACT,),
     )
 

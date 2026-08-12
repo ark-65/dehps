@@ -1,37 +1,151 @@
 {
-  "schema_version": "dehps-m4-v2-joint-residual-increment-source-contract.v3",
-  "artifact_type": "m4_v2_joint_residual_increment_source_contract",
-  "artifact_digest": "41d909604b8fee0c97598cd9f13edf9de601b6c9f72194b5fb881d1e650f4844",
-  "contract_key": "m4-v2-joint-residual-increment-contract-v3",
-  "measurement_contract_key": "M4_MEASUREMENT_CONTRACT_V2",
-  "measurement_contract_digest": "a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b",
-  "source_fact": "m4-v2-joint-residual-increment-contract-v3:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
-  "supersedes_v2_artifact_digest": "f7345320fc87b601cbdae58e2064ff89dc2195c449efcd70d043441067af0a44",
-  "supersedes_v2_source_set_digest": "a43b774b2d2889f1f4611b3859915a78662f0783060f29e852129cfda8e72a68",
-  "source_path_array_contract_version": 4,
-  "source_path_array_digest": "b9d51e1feb75e656708e410c9f719d839fedc3ed5c6dc2eae9929be8bfdcb60d",
-  "source_entries": [
-    {"path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/joint_residual_increment.py", "sha256": "123b7528bb5bdcd50e99c6f7017dab7854c70cc0bb829a7b38a68b69747de102"},
-    {"path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_joint_residual_increment_execution.py", "sha256": "a63c3764bae5bc2a533e12e30bff869479d33b32c086805c2bc53b4d8141edf5"},
-    {"path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_legal_fixed_cardinality.py", "sha256": "4a6e581b2bb7ce0269b561667eb4b0d2ace09e32df3e7fb339ed3c8ebc520fe5"},
-    {"path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_increment_fixture_generators.py", "sha256": "cfdec1f74d77e5ee9e6ffbc37de3e23d061563c228212042c091864b600b343b"},
-    {"path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_increment_execution_support.py", "sha256": "e3522898ddd1d162caa9bfae2659b79f1f0f385a742d863d1784d188e926febc"},
-    {"path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/temporal_probability_capsule.py", "sha256": "52a4ef8c1a7c7ed3aeaf7595e2f005836a2e615111990591b7637d4dcce5b3e2"},
-    {"path": "apps/worker-python/dehps/research_os/supervisor.py", "sha256": "e4dde0bc8189d9c0d7833e96c2bce02b3d84f982030d91fb6c4ad643460f064b"},
-    {"path": "apps/worker-python/dehps/research_os/information_theory/progress.py", "sha256": "22051faaf8518ecf48fd3055841b9ccb5cfb5ab470c202ef2bedcda046a22e0f"},
-    {"path": "apps/worker-python/dehps/research_os/control_plane.py", "sha256": "4440b4f08380e8d635af76351acbc486a1a7297dba7f268b95fa8abd4e4bda18"},
-    {"path": "apps/worker-python/dehps/research_os/models.py", "sha256": "6e9ff33d8a5c32b06e72f758b095890f3bcb32239627d0d460a09c119faec579"},
-    {"path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/migration.py", "sha256": "3c20445389842f86a68f70466e38b23028cf772c9b23850558252341a869fe99"},
-    {"path": "apps/worker-python/scripts/build_m4_v2_joint_residual_increment_manifest.py", "sha256": "72b0a1fe2e50f353d3181f8a3563ec719fad9bfa1e48b4121bd872608ea15c48"}
-  ],
-  "source_set_digest": "373178905dd6d125102a16553f43ba95bc93a5fa6927b56bee1f1526071ba045",
   "accepted_support_input_schema": "dehps-m4-v2-accepted-support-input.v3",
+  "artifact_digest": "596f753ad6c273930c65fee35fde61461eb8a6b102461c083f22c887908598db",
+  "artifact_type": "m4_v2_joint_residual_increment_source_contract",
+  "contract_key": "m4-v2-joint-residual-increment-contract-v3",
+  "corrected_amendment_contract_digest": "a6c59a1f0e0ae81b8eedbee9dfac515a50b26d57bd33c9e0e4ae122d811fd37c",
+  "corrected_request501_rebased_addendum_digest": "deac42696723726613e780dfeeacbace7f054edb3a486caa33c884a20d64ef03",
+  "corrected_resolved_contract_digest": "51f8f56af4fde4e06e610a791876fd17bf49edfb0c221dec4d53c67dafd5b97d",
+  "measurement_contract_digest": "a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b",
+  "measurement_contract_key": "M4_MEASUREMENT_CONTRACT_V2",
   "merged_authority_binding_map_digest": "5474d83ddf68bb702365f8221f9b6d2160fc37e66cd3d875171e7d44d4c37b97",
   "probability_composition_repair_digest": "29dbdd7e29b86de2ede4fbf441c8cbf83d3c151abf771628662ef00f8af7f1be",
-  "corrected_amendment_contract_digest": "a6c59a1f0e0ae81b8eedbee9dfac515a50b26d57bd33c9e0e4ae122d811fd37c",
-  "corrected_resolved_contract_digest": "51f8f56af4fde4e06e610a791876fd17bf49edfb0c221dec4d53c67dafd5b97d",
-  "corrected_request501_rebased_addendum_digest": "deac42696723726613e780dfeeacbace7f054edb3a486caa33c884a20d64ef03",
-  "seed_contract": {"schema_version":"dehps-m4-v2-joint-seed-contract.v3","branch_id":"JOINT_RESIDUAL_INCREMENT","upstream_request_id":481,"upstream_execution_id":401,"upstream_approval_decision_id":2010,"upstream_seed_and_resampling_contract":{"best_seed_selection":"forbidden","child_digest_domain":"dehps.m4.v2.joint-residual-increment.seed-child.v1","child_field_types":{"block_length_or_null":"JSON integer in [3,5,8,13] only for synthetic bootstrap; otherwise JSON null","branch_id":"the exact string JOINT_RESIDUAL_INCREMENT","cell_kind_or_null":"JSON string BASE or LOCAL for synthetic grids; JSON null for historical","child_index":"JSON integer in the exact grid range","domain":"the exact string dehps.m4.v2.joint-residual-increment.seed-child.v1","fixture_or_target_id_or_null":"for BASE use the exact fixture-id string; for LOCAL use exactly one decimal string from [\"0.001\",\"0.01\",\"0.05\"]; JSON number forms are forbidden; historical uses JSON null","horizon_id_or_null":"exact horizon string for synthetic grids; JSON null for historical","replicate_index_or_null":"JSON integer 0..511 for synthetic grids; JSON null for historical","root_seed_full_sha256":"64-character lowercase hexadecimal string","scheme_id_or_null":"exact scheme string only for historical; otherwise JSON null","stage":"one exact uppercase stage string from the three frozen grids"},"child_seed_fields":["domain","root_seed_full_sha256","branch_id","stage","cell_kind_or_null","fixture_or_target_id_or_null","horizon_id_or_null","replicate_index_or_null","block_length_or_null","scheme_id_or_null","child_index"],"child_serialization":"the same compact sorted-key JSON rule","full_digest_and_64_bit_seed_collision_policy":"all planned coordinates, full digests and 64-bit seeds must be unique before any random draw; collision is a frozen-contract repair condition and may not trigger rehash, salt search or seed replacement","historical_child_count":16000,"historical_root_domain":"M4_V2_JOINT_RESIDUAL_INCREMENT_HISTORICAL_INFERENCE_V1","historical_root_material_sha256":"b98b418e96d25aa84b51eade58c9dabce823f9d556efc4f6c833b0e70b9afc60","historical_root_replicates":2000,"historical_root_seed_hex64":"0xb98b418e96d25aa8","historical_schemes":["MOVING_BLOCK_NONCIRCULAR_LENGTH_5_PRIMARY","MOVING_BLOCK_NONCIRCULAR_LENGTH_3_SENSITIVITY","MOVING_BLOCK_NONCIRCULAR_LENGTH_8_SENSITIVITY","MOVING_BLOCK_NONCIRCULAR_LENGTH_13_SENSITIVITY","STATIONARY_EXPECTED_LENGTH_3_SENSITIVITY","STATIONARY_EXPECTED_LENGTH_5_SENSITIVITY","STATIONARY_EXPECTED_LENGTH_8_SENSITIVITY","STATIONARY_EXPECTED_LENGTH_13_SENSITIVITY"],"historical_seed_grid":"stage=HISTORICAL_RESAMPLE; each of the exact 8 ordered scheme ids; child_index=0..1999; all cell/horizon/replicate/block fields null; exactly 16000 seeds","partial_or_best_scheme_selection":"forbidden","planned_child_seed_count":14674560,"prng":"numpy.random.Generator(numpy.random.PCG64DXSM(unsigned_64_bit_child_seed))","quantile_method":"Hyndman-Fan type 7","retry_and_resume_reuse_seed":true,"root_material":{"branch_id":"JOINT_RESIDUAL_INCREMENT","dataset_content_digest":"8f7b7527d6ee95301b58002e594b0955b7e0f391421b8c438b87fc4f2507b106","fold_manifest_digest":"5a68579161ad5528ee15b8b1ea3e314d6acb05203885a5514e5654da026e9ad7","measurement_contract_digest":"a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b","parent_approval_decision_id":1997,"parent_request_id":478,"parent_research_execution_id":399,"request_key":"research-m4-v2-joint-residual-increment-historical-contract"},"root_serialization":"compact UTF-8 JSON object with keys lexicographically sorted, no insignificant whitespace and no trailing newline; add the exact domain field before hashing","seed_word_rule":"first 8 SHA-256 bytes interpreted as one unsigned 64-bit big-endian integer; the full 32-byte digest is retained in the seed manifest","synthetic_bootstrap_seed_grid":"stage=SYNTHETIC_BOOTSTRAP; every sequence identity; block_length in [3,5,8,13]; child_index=0..510; exactly 14651392 seeds","synthetic_root_domain":"M4_V2_JOINT_RESIDUAL_INCREMENT_MEASUREMENT_HEALTH_V1","synthetic_root_material_sha256":"7282624ee66eb89bc823a47b69c31086748bf6a393f51943d2c879aebb821482","synthetic_root_seed_hex64":"0x7282624ee66eb89b","synthetic_sequence_seed_grid":"stage=SYNTHETIC_SEQUENCE; every one of 14 cells; replicate_index=0..511; block_length and scheme null; child_index=0; exactly 7168 seeds","worker_or_shard_in_seed":false},"seed_contract_digest":"c0a272b7401ac780fed0fbfd44aae2a4f5de37ea15a7b4a7545ce9cec5a6e853"},
+  "production_action": "none",
+  "schema_version": "dehps-m4-v2-joint-residual-increment-source-contract.v3",
+  "seed_contract": {
+    "branch_id": "JOINT_RESIDUAL_INCREMENT",
+    "schema_version": "dehps-m4-v2-joint-seed-contract.v3",
+    "seed_contract_digest": "c0a272b7401ac780fed0fbfd44aae2a4f5de37ea15a7b4a7545ce9cec5a6e853",
+    "upstream_approval_decision_id": 2010,
+    "upstream_execution_id": 401,
+    "upstream_request_id": 481,
+    "upstream_seed_and_resampling_contract": {
+      "best_seed_selection": "forbidden",
+      "child_digest_domain": "dehps.m4.v2.joint-residual-increment.seed-child.v1",
+      "child_field_types": {
+        "block_length_or_null": "JSON integer in [3,5,8,13] only for synthetic bootstrap; otherwise JSON null",
+        "branch_id": "the exact string JOINT_RESIDUAL_INCREMENT",
+        "cell_kind_or_null": "JSON string BASE or LOCAL for synthetic grids; JSON null for historical",
+        "child_index": "JSON integer in the exact grid range",
+        "domain": "the exact string dehps.m4.v2.joint-residual-increment.seed-child.v1",
+        "fixture_or_target_id_or_null": "for BASE use the exact fixture-id string; for LOCAL use exactly one decimal string from [\"0.001\",\"0.01\",\"0.05\"]; JSON number forms are forbidden; historical uses JSON null",
+        "horizon_id_or_null": "exact horizon string for synthetic grids; JSON null for historical",
+        "replicate_index_or_null": "JSON integer 0..511 for synthetic grids; JSON null for historical",
+        "root_seed_full_sha256": "64-character lowercase hexadecimal string",
+        "scheme_id_or_null": "exact scheme string only for historical; otherwise JSON null",
+        "stage": "one exact uppercase stage string from the three frozen grids"
+      },
+      "child_seed_fields": [
+        "domain",
+        "root_seed_full_sha256",
+        "branch_id",
+        "stage",
+        "cell_kind_or_null",
+        "fixture_or_target_id_or_null",
+        "horizon_id_or_null",
+        "replicate_index_or_null",
+        "block_length_or_null",
+        "scheme_id_or_null",
+        "child_index"
+      ],
+      "child_serialization": "the same compact sorted-key JSON rule",
+      "full_digest_and_64_bit_seed_collision_policy": "all planned coordinates, full digests and 64-bit seeds must be unique before any random draw; collision is a frozen-contract repair condition and may not trigger rehash, salt search or seed replacement",
+      "historical_child_count": 16000,
+      "historical_root_domain": "M4_V2_JOINT_RESIDUAL_INCREMENT_HISTORICAL_INFERENCE_V1",
+      "historical_root_material_sha256": "b98b418e96d25aa84b51eade58c9dabce823f9d556efc4f6c833b0e70b9afc60",
+      "historical_root_replicates": 2000,
+      "historical_root_seed_hex64": "0xb98b418e96d25aa8",
+      "historical_schemes": [
+        "MOVING_BLOCK_NONCIRCULAR_LENGTH_5_PRIMARY",
+        "MOVING_BLOCK_NONCIRCULAR_LENGTH_3_SENSITIVITY",
+        "MOVING_BLOCK_NONCIRCULAR_LENGTH_8_SENSITIVITY",
+        "MOVING_BLOCK_NONCIRCULAR_LENGTH_13_SENSITIVITY",
+        "STATIONARY_EXPECTED_LENGTH_3_SENSITIVITY",
+        "STATIONARY_EXPECTED_LENGTH_5_SENSITIVITY",
+        "STATIONARY_EXPECTED_LENGTH_8_SENSITIVITY",
+        "STATIONARY_EXPECTED_LENGTH_13_SENSITIVITY"
+      ],
+      "historical_seed_grid": "stage=HISTORICAL_RESAMPLE; each of the exact 8 ordered scheme ids; child_index=0..1999; all cell/horizon/replicate/block fields null; exactly 16000 seeds",
+      "partial_or_best_scheme_selection": "forbidden",
+      "planned_child_seed_count": 14674560,
+      "prng": "numpy.random.Generator(numpy.random.PCG64DXSM(unsigned_64_bit_child_seed))",
+      "quantile_method": "Hyndman-Fan type 7",
+      "retry_and_resume_reuse_seed": true,
+      "root_material": {
+        "branch_id": "JOINT_RESIDUAL_INCREMENT",
+        "dataset_content_digest": "8f7b7527d6ee95301b58002e594b0955b7e0f391421b8c438b87fc4f2507b106",
+        "fold_manifest_digest": "5a68579161ad5528ee15b8b1ea3e314d6acb05203885a5514e5654da026e9ad7",
+        "measurement_contract_digest": "a0a367c99d7646cadc162bd9ceb0d5d73481cd7c26656bf02b40a99d9180095b",
+        "parent_approval_decision_id": 1997,
+        "parent_request_id": 478,
+        "parent_research_execution_id": 399,
+        "request_key": "research-m4-v2-joint-residual-increment-historical-contract"
+      },
+      "root_serialization": "compact UTF-8 JSON object with keys lexicographically sorted, no insignificant whitespace and no trailing newline; add the exact domain field before hashing",
+      "seed_word_rule": "first 8 SHA-256 bytes interpreted as one unsigned 64-bit big-endian integer; the full 32-byte digest is retained in the seed manifest",
+      "synthetic_bootstrap_seed_grid": "stage=SYNTHETIC_BOOTSTRAP; every sequence identity; block_length in [3,5,8,13]; child_index=0..510; exactly 14651392 seeds",
+      "synthetic_root_domain": "M4_V2_JOINT_RESIDUAL_INCREMENT_MEASUREMENT_HEALTH_V1",
+      "synthetic_root_material_sha256": "7282624ee66eb89bc823a47b69c31086748bf6a393f51943d2c879aebb821482",
+      "synthetic_root_seed_hex64": "0x7282624ee66eb89b",
+      "synthetic_sequence_seed_grid": "stage=SYNTHETIC_SEQUENCE; every one of 14 cells; replicate_index=0..511; block_length and scheme null; child_index=0; exactly 7168 seeds",
+      "worker_or_shard_in_seed": false
+    }
+  },
   "seed_contract_digest": "c0a272b7401ac780fed0fbfd44aae2a4f5de37ea15a7b4a7545ce9cec5a6e853",
-  "production_action": "none"
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/joint_residual_increment.py",
+      "sha256": "123b7528bb5bdcd50e99c6f7017dab7854c70cc0bb829a7b38a68b69747de102"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_joint_residual_increment_execution.py",
+      "sha256": "a63c3764bae5bc2a533e12e30bff869479d33b32c086805c2bc53b4d8141edf5"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_legal_fixed_cardinality.py",
+      "sha256": "4a6e581b2bb7ce0269b561667eb4b0d2ace09e32df3e7fb339ed3c8ebc520fe5"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_increment_fixture_generators.py",
+      "sha256": "cfdec1f74d77e5ee9e6ffbc37de3e23d061563c228212042c091864b600b343b"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_increment_execution_support.py",
+      "sha256": "e3522898ddd1d162caa9bfae2659b79f1f0f385a742d863d1784d188e926febc"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/temporal_probability_capsule.py",
+      "sha256": "52a4ef8c1a7c7ed3aeaf7595e2f005836a2e615111990591b7637d4dcce5b3e2"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/supervisor.py",
+      "sha256": "1fbf2d8a9ffc5f3df63d0b09e72187873c06954ac88a22398354cb5753166c63"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/progress.py",
+      "sha256": "b89603bb245b98486e775df6ff2e5c133accf9871c680934c7b655acd1bc3498"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/control_plane.py",
+      "sha256": "4440b4f08380e8d635af76351acbc486a1a7297dba7f268b95fa8abd4e4bda18"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/models.py",
+      "sha256": "6e9ff33d8a5c32b06e72f758b095890f3bcb32239627d0d460a09c119faec579"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/migration.py",
+      "sha256": "f540aa9ab2c57053f7a00bdabf8b873f0324ade010b989d97abfc3ee6da44d66"
+    },
+    {
+      "path": "apps/worker-python/scripts/build_m4_v2_joint_residual_increment_manifest.py",
+      "sha256": "9dd0d0102ce81103e604b3fa5050053f20fe9c72620f62d3319e8994ae63a64d"
+    }
+  ],
+  "source_fact": "m4-v2-joint-residual-increment-contract-v3:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
+  "source_path_array_contract_version": 4,
+  "source_path_array_digest": "b9d51e1feb75e656708e410c9f719d839fedc3ed5c6dc2eae9929be8bfdcb60d",
+  "source_set_digest": "f3639c43ebd26f6d38a42bea1752297e24a6fd08d67334208e3c07047e224e5d",
+  "supersedes_v2_artifact_digest": "f7345320fc87b601cbdae58e2064ff89dc2195c449efcd70d043441067af0a44",
+  "supersedes_v2_source_set_digest": "a43b774b2d2889f1f4611b3859915a78662f0783060f29e852129cfda8e72a68"
 }

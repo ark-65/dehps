@@ -1,5 +1,5 @@
 {
-  "artifact_digest": "6ca7ae72f61ac14be9e29d18c74e1fab8444426b14b37ec137dc1c116a94783c",
+  "artifact_digest": "c8b1e4e50235179339fd95cb7e2af63d3e0616e25e30d689f7afec3019e19e7a",
   "artifact_type": "m4_v2_global_routing_source_contract",
   "failed_engineering_predecessor_binding": {
     "approval_decision_digest": "eddcffb0b16a78e802e6937c2376bf106f6ce2f5689c0d3d497b48157120e49a",
@@ -165,15 +165,15 @@
     },
     {
       "path": "apps/worker-python/dehps/research_os/supervisor.py",
-      "sha256": "86fa5c77fa0fb249df2a3144de6cde4015def1216063fcd3face8d5294a48773"
+      "sha256": "1fbf2d8a9ffc5f3df63d0b09e72187873c06954ac88a22398354cb5753166c63"
     },
     {
       "path": "apps/worker-python/dehps/research_os/information_theory/progress.py",
-      "sha256": "5a71f33f8229d48f91d9a8ebcdaf894bff5737aa59c7578f96408e26316cb7ae"
+      "sha256": "b89603bb245b98486e775df6ff2e5c133accf9871c680934c7b655acd1bc3498"
     },
     {
       "path": "apps/worker-python/scripts/build_m4_v2_global_routing_manifest.py",
-      "sha256": "875c03db862599c6678ac0ef141d48f2c848a1c1751dfdb9b236eae89c2b842f"
+      "sha256": "ded7527cf9e20216e540833ff6786469002bc4415b473d9ee56e573444a52cab"
     },
     {
       "path": "apps/worker-python/dehps/research_os/control_plane.py",
@@ -181,13 +181,13 @@
     },
     {
       "path": "apps/worker-python/dehps/research_os/models.py",
-      "sha256": "1bb6d69cf6958afe2ce1f8bd3b3eb59dce6c3e772de2dc0159fae5f4b1c0443a"
+      "sha256": "6e9ff33d8a5c32b06e72f758b095890f3bcb32239627d0d460a09c119faec579"
     },
     {
       "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/migration.py",
-      "sha256": "76812a114fd34b3f61c6ad05bfc7d92d207eff0246d9cd0ebf534ddb4739726e"
+      "sha256": "f540aa9ab2c57053f7a00bdabf8b873f0324ade010b989d97abfc3ee6da44d66"
     }
   ],
   "source_fact": "m4-v2-global-routing-contract:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
-  "source_set_digest": "3aa4bc089b0925f6f3885290f7207ba7ede0337691d7685ae92ac179083a1a07"
+  "source_set_digest": "aa48e145a2a058324b5e7a37ec541ddf2925d464e9c99d6b1aa6c026e49ac022"
 }
