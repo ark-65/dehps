@@ -1305,6 +1305,108 @@ M4_V2_ARTIFACT_TYPE_REGISTRY: Mapping[str, M4V2ArtifactTypeSpec] = MappingProxyT
 })
 
 
+def _m4_v2_versioned_artifact_spec(
+    artifact_type: str,
+    schema_version: str,
+) -> M4V2ArtifactTypeSpec:
+    """Resolve an artifact spec by its complete versioned identity.
+
+    The public type registry remains the frozen seventeen-type v2 registry.  A
+    schema version is nevertheless part of a registered artifact's identity;
+    accepted-parent repair and Temporal probability-capsule artifacts therefore
+    use this explicit dispatch table instead of a type-only alias or fallback.
+    """
+
+    base = M4_V2_ARTIFACT_TYPE_REGISTRY.get(artifact_type)
+    if base is None:
+        raise ResearchOSValidationError(
+            f"unknown M4-v2 artifact_type: {artifact_type}"
+        )
+    if schema_version == base.schema_version:
+        return base
+    versioned: dict[tuple[str, str], M4V2ArtifactTypeSpec] = {
+        (
+            "M4V2TemporalMarginalIncrementCandidateModelArtifact",
+            "dehps-m4-v2-temporal-marginal-increment-candidate-model.v3",
+        ): _m4_v2_artifact_spec(
+            "dehps-m4-v2-temporal-marginal-increment-candidate-model.v3",
+            "dehps.m4.v2.temporal-marginal-increment.candidate-model.v3",
+            (
+                *M4_V2_ARTIFACT_TYPE_REGISTRY[
+                    "M4V2TemporalMarginalIncrementCandidateModelArtifact"
+                ].body_fields,
+                "probability_capsule_index",
+                "probability_capsule_index_digest",
+                "probability_capsule_evaluator_contract_digest",
+            ),
+            branch_id="TEMPORAL_MARGINAL_INCREMENT",
+            nested_fields=dict(
+                M4_V2_ARTIFACT_TYPE_REGISTRY[
+                    "M4V2TemporalMarginalIncrementCandidateModelArtifact"
+                ].nested_fields
+            ),
+        ),
+        (
+            "M4V2TemporalMarginalIncrementScientificFailureArtifact",
+            "dehps-m4-v2-temporal-marginal-increment-scientific-failure.v3",
+        ): _m4_v2_artifact_spec(
+            "dehps-m4-v2-temporal-marginal-increment-scientific-failure.v3",
+            "dehps.m4.v2.temporal-marginal-increment.scientific-failure.v3",
+            M4_V2_ARTIFACT_TYPE_REGISTRY[
+                "M4V2TemporalMarginalIncrementScientificFailureArtifact"
+            ].body_fields,
+            branch_id="TEMPORAL_MARGINAL_INCREMENT",
+        ),
+        (
+            "M4V2TemporalMarginalIncrementProducerCompletionArtifact",
+            "dehps-m4-v2-temporal-marginal-increment-producer-completion.v3",
+        ): _m4_v2_artifact_spec(
+            "dehps-m4-v2-temporal-marginal-increment-producer-completion.v3",
+            "dehps.m4.v2.temporal-marginal-increment.producer-completion.v3",
+            M4_V2_ARTIFACT_TYPE_REGISTRY[
+                "M4V2TemporalMarginalIncrementProducerCompletionArtifact"
+            ].body_fields,
+            branch_id="TEMPORAL_MARGINAL_INCREMENT",
+            nested_fields={
+                "registered_artifact_digests_in_order":
+                "preceding_artifact_digest_list"
+            },
+        ),
+        (
+            "M4V2JointResidualScientificFailureArtifact",
+            "dehps-m4-v2-joint-residual-scientific-failure.v3",
+        ): _m4_v2_artifact_spec(
+            "dehps-m4-v2-joint-residual-scientific-failure.v3",
+            "dehps.m4.v2.joint-residual-increment.scientific-failure.v3",
+            M4_V2_ARTIFACT_TYPE_REGISTRY[
+                "M4V2JointResidualScientificFailureArtifact"
+            ].body_fields,
+            branch_id="JOINT_RESIDUAL_INCREMENT",
+        ),
+        (
+            "M4V2JointResidualProducerCompletionArtifact",
+            "dehps-m4-v2-joint-residual-producer-completion.v3",
+        ): _m4_v2_artifact_spec(
+            "dehps-m4-v2-joint-residual-producer-completion.v3",
+            "dehps.m4.v2.joint-residual-increment.producer-completion.v3",
+            M4_V2_ARTIFACT_TYPE_REGISTRY[
+                "M4V2JointResidualProducerCompletionArtifact"
+            ].body_fields,
+            branch_id="JOINT_RESIDUAL_INCREMENT",
+            nested_fields={
+                "registered_artifact_digests_in_order":
+                "preceding_artifact_digest_list"
+            },
+        ),
+    }
+    spec = versioned.get((artifact_type, schema_version))
+    if spec is None:
+        raise ResearchOSValidationError(
+            f"{artifact_type} schema changed"
+        )
+    return spec
+
+
 @dataclass(frozen=True)
 class M4V2NestedSchemaSpec:
     field_variants: tuple[tuple[str, ...], ...]
@@ -2480,11 +2582,10 @@ def validate_m4_v2_artifact_envelope(
         raise ResearchOSValidationError(
             f"unexpected artifact_type {artifact_type!r}; expected {expected_artifact_type!r}"
         )
-    spec = M4_V2_ARTIFACT_TYPE_REGISTRY.get(artifact_type)
-    if spec is None:
-        raise ResearchOSValidationError(f"unknown M4-v2 artifact_type: {artifact_type}")
-    if value.get("schema_version") != spec.schema_version:
-        raise ResearchOSValidationError(f"{artifact_type} schema changed")
+    schema_version = _required_text(
+        value.get("schema_version"), field_name="schema_version"
+    )
+    spec = _m4_v2_versioned_artifact_spec(artifact_type, schema_version)
     body = _mapping(value.get("body"), field_name=f"{artifact_type}.body")
     _m4_v2_require_exact_fields(
         body, (spec.body_fields,), field_name=f"{artifact_type}.body"
@@ -2553,12 +2654,23 @@ def m4_v2_build_artifact_envelope(
     artifact_type: str,
     body: Mapping[str, Any],
     parent_digests: Sequence[str],
+    schema_version: str | None = None,
 ) -> dict[str, Any]:
     """Build then validate an exact Request486 envelope."""
 
-    spec = M4_V2_ARTIFACT_TYPE_REGISTRY.get(artifact_type)
-    if spec is None:
+    base = M4_V2_ARTIFACT_TYPE_REGISTRY.get(artifact_type)
+    if base is None:
         raise ResearchOSValidationError(f"unknown M4-v2 artifact_type: {artifact_type}")
+    if schema_version is None and (
+        artifact_type == "M4V2TemporalMarginalIncrementCandidateModelArtifact"
+        and "probability_capsule_index" in body
+    ):
+        schema_version = (
+            "dehps-m4-v2-temporal-marginal-increment-candidate-model.v3"
+        )
+    spec = _m4_v2_versioned_artifact_spec(
+        artifact_type, schema_version or base.schema_version
+    )
     primitive_body = json.loads(m4_v2_canonical_json(body))
     parents = list(parent_digests)
     digest_input = (

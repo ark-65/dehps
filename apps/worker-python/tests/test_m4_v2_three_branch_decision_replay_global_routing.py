@@ -190,9 +190,7 @@ def _without_manifest_digest(payload: Mapping[str, Any]) -> dict[str, Any]:
 
 def _task(payload: Mapping[str, Any], task_key: str) -> dict[str, Any]:
     matches = [
-        copy.deepcopy(item)
-        for item in payload["tasks"]
-        if item["task_key"] == task_key
+        copy.deepcopy(item) for item in payload["tasks"] if item["task_key"] == task_key
     ]
     assert len(matches) == 1
     return matches[0]
@@ -402,9 +400,7 @@ def _zero_compute_records(*, marginal_evidence: str = "NEGATIVE", health: str = 
     joint_replay = joint.build_joint_branch_replay(
         source_contract_digest=_digest("joint-source"),
         decision_artifact=joint_decision,
-        decision_registration_digest=joint_decision_registration[
-            "registration_digest"
-        ],
+        decision_registration_digest=joint_decision_registration["registration_digest"],
         decision_producer_execution_artifact_digest=_digest(
             "joint-producer-execution-artifact"
         ),
@@ -528,9 +524,7 @@ def _accepted_records():
     joint_replay = joint.build_joint_branch_replay(
         source_contract_digest=_digest("joint-source"),
         decision_artifact=joint_decision,
-        decision_registration_digest=joint_decision_registration[
-            "registration_digest"
-        ],
+        decision_registration_digest=joint_decision_registration["registration_digest"],
         decision_producer_execution_artifact_digest=_digest(
             "accepted-joint-producer-execution-artifact"
         ),
@@ -635,9 +629,7 @@ def _partial_positive_records():
     joint_replay = joint.build_joint_branch_replay(
         source_contract_digest=_digest("joint-source"),
         decision_artifact=joint_decision,
-        decision_registration_digest=joint_decision_registration[
-            "registration_digest"
-        ],
+        decision_registration_digest=joint_decision_registration["registration_digest"],
         decision_producer_execution_artifact_digest=_digest(
             "partial-joint-producer-execution-artifact"
         ),
@@ -701,19 +693,26 @@ def test_additive_manifest_preserves_p2_p2r_structural_terminal_and_history() ->
     assert p2r["completion_classification"] == "INTEGRATION_PENDING"
     assert all(
         dependency["target_key"] != P2R_TASK_KEY
-        for key in (PREDICTIVE_P3_TASK_KEY, PREDICTIVE_P4_TASK_KEY, PREDICTIVE_P5_TASK_KEY)
+        for key in (
+            PREDICTIVE_P3_TASK_KEY,
+            PREDICTIVE_P4_TASK_KEY,
+            PREDICTIVE_P5_TASK_KEY,
+        )
         for dependency in after_tasks[key]["dependencies"]
     )
-    assert not any("promotion:allowed" in fact.lower() for fact in after["facts"]["artifacts"])
+    assert not any(
+        "promotion:allowed" in fact.lower() for fact in after["facts"]["artifacts"]
+    )
 
     structural_goal = next(
         item
         for item in after["goals"]
         if item["goal_key"] == "M4_P3_RESULT_BLIND_STRUCTURAL_UTILITY"
     )
-    assert "NO_STABLE_STRUCTURAL_UTILITY" in structural_goal[
-        "target_metric_manifest"
-    ]["allowed_decisions"]
+    assert (
+        "NO_STABLE_STRUCTURAL_UTILITY"
+        in structural_goal["target_metric_manifest"]["allowed_decisions"]
+    )
     assert structural_goal["target_metric_manifest"]["prediction_promotion"] == "closed"
 
 
@@ -753,7 +752,9 @@ def test_marginal_identity_adoption_is_categorical_result_blind_and_singular() -
 
     polluted = dict(tracked)
     polluted["raw_primary_p_value"] = 0.001
-    with pytest.raises(marginal.MarginalStaticBranchDecisionError, match="result_payload"):
+    with pytest.raises(
+        marginal.MarginalStaticBranchDecisionError, match="result_payload"
+    ):
         marginal.build_marginal_static_branch_decision(
             categorical_identity=polluted,
             producer_execution_id=_digest("categorical-producer"),
@@ -761,7 +762,9 @@ def test_marginal_identity_adoption_is_categorical_result_blind_and_singular() -
         )
     wrong_identity = dict(tracked)
     wrong_identity["accepted_model_artifact_digest"] = _digest("not-marginal")
-    with pytest.raises(marginal.MarginalStaticBranchDecisionError, match="identity_mismatch"):
+    with pytest.raises(
+        marginal.MarginalStaticBranchDecisionError, match="identity_mismatch"
+    ):
         marginal.build_marginal_static_branch_decision(
             categorical_identity=wrong_identity,
             producer_execution_id=_digest("categorical-producer"),
@@ -773,7 +776,9 @@ def _governance_fixture(identifier: int, *, failed: bool = False):
     request = {
         "id": identifier,
         "request_key": f"request-{identifier}",
-        "request_type": "engineering_implementation" if failed else "research_scheduler_request",
+        "request_type": "engineering_implementation"
+        if failed
+        else "research_scheduler_request",
         "requested_by_role": "research",
         "requested_by": "research:fixture",
         "hypothesis_id": None,
@@ -813,10 +818,18 @@ def _governance_fixture(identifier: int, *, failed: bool = False):
                 "request_id": identifier,
                 "previous_status": "running" if final else "under_review",
                 "new_status": (
-                    "failed" if failed and final else "completed" if final else "approved"
+                    "failed"
+                    if failed and final
+                    else "completed"
+                    if final
+                    else "approved"
                 ),
                 "decision_code": (
-                    "execution_failed" if failed and final else "execution_completed" if final else "request_approved"
+                    "execution_failed"
+                    if failed and final
+                    else "execution_completed"
+                    if final
+                    else "request_approved"
                 ),
                 "summary": f"decision-{offset}",
                 "reason": {"result_blind": True, "result_payload_reads": 0},
@@ -853,7 +866,10 @@ class _GovernanceCursor:
         self.sql.append(normalized)
         if "FROM agent_requests" in normalized:
             return _Rows(self.fixture["requests"])
-        if "FROM agent_request_executions" in normalized and "count(*)" not in normalized:
+        if (
+            "FROM agent_request_executions" in normalized
+            and "count(*)" not in normalized
+        ):
             return _Rows(self.fixture["executions"])
         if "decision_code = 'request_approved'" in normalized:
             return _Rows(self.fixture["counts"])
@@ -890,16 +906,26 @@ class _GovernanceRepository:
 
 def _synthetic_governance_contract():
     completed_request, completed_execution, completed_decisions = _governance_fixture(1)
-    failed_request, failed_execution, failed_decisions = _governance_fixture(2, failed=True)
+    failed_request, failed_execution, failed_decisions = _governance_fixture(
+        2, failed=True
+    )
     completed_binding = {
         "request_id": 1,
         "execution_id": completed_execution["id"],
         "reviewer_approval_decision_id": completed_decisions[0]["id"],
         "completion_decision_id": completed_decisions[-1]["id"],
-        "request_identity_digest": governance_request_identity_digest(completed_request),
-        "execution_metadata_digest": governance_execution_metadata_digest(completed_execution),
-        "reviewer_approval_decision_digest": governance_reviewer_decision_digest(completed_decisions[0]),
-        "completion_decision_digest": governance_reviewer_decision_digest(completed_decisions[-1]),
+        "request_identity_digest": governance_request_identity_digest(
+            completed_request
+        ),
+        "execution_metadata_digest": governance_execution_metadata_digest(
+            completed_execution
+        ),
+        "reviewer_approval_decision_digest": governance_reviewer_decision_digest(
+            completed_decisions[0]
+        ),
+        "completion_decision_digest": governance_reviewer_decision_digest(
+            completed_decisions[-1]
+        ),
     }
     failed_binding = {
         "request_id": 2,
@@ -908,10 +934,18 @@ def _synthetic_governance_contract():
         "start_decision_id": failed_decisions[1]["id"],
         "failure_decision_id": failed_decisions[-1]["id"],
         "request_identity_digest": governance_request_identity_digest(failed_request),
-        "execution_metadata_digest": governance_execution_metadata_digest(failed_execution),
-        "approval_decision_digest": governance_reviewer_decision_digest(failed_decisions[0]),
-        "start_decision_digest": governance_reviewer_decision_digest(failed_decisions[1]),
-        "failure_decision_digest": governance_reviewer_decision_digest(failed_decisions[-1]),
+        "execution_metadata_digest": governance_execution_metadata_digest(
+            failed_execution
+        ),
+        "approval_decision_digest": governance_reviewer_decision_digest(
+            failed_decisions[0]
+        ),
+        "start_decision_digest": governance_reviewer_decision_digest(
+            failed_decisions[1]
+        ),
+        "failure_decision_digest": governance_reviewer_decision_digest(
+            failed_decisions[-1]
+        ),
         "artifact_paths": [],
         "repository_files_changed": 0,
     }
@@ -930,15 +964,27 @@ def _synthetic_governance_contract():
 
 def test_governance_digest_equivalence_and_lifecycle_fail_closed(monkeypatch) -> None:
     request, execution, decisions = _governance_fixture(77)
-    assert governance_request_identity_digest(request) == governance_reference.governance_request_identity_digest(request)
+    assert governance_request_identity_digest(
+        request
+    ) == governance_reference.governance_request_identity_digest(request)
     sanitized_execution = {
         key: value
         for key, value in execution.items()
         if key not in {"status", "completed_at", "artifact_paths"}
     }
-    assert governance_execution_metadata_digest(sanitized_execution) == governance_reference.governance_execution_metadata_digest(sanitized_execution)
-    assert governance_reviewer_decision_digest(decisions[0]) == governance_reference.governance_reviewer_decision_digest(decisions[0])
-    for forbidden in ("result", "result_json", "execution_result", "error", "error_json"):
+    assert governance_execution_metadata_digest(
+        sanitized_execution
+    ) == governance_reference.governance_execution_metadata_digest(sanitized_execution)
+    assert governance_reviewer_decision_digest(
+        decisions[0]
+    ) == governance_reference.governance_reviewer_decision_digest(decisions[0])
+    for forbidden in (
+        "result",
+        "result_json",
+        "execution_result",
+        "error",
+        "error_json",
+    ):
         polluted = dict(sanitized_execution)
         polluted[forbidden] = {"must_not_be_read": True}
         with pytest.raises(ResearchOSValidationError, match="not_sanitized"):
@@ -970,7 +1016,9 @@ def test_governance_digest_equivalence_and_lifecycle_fail_closed(monkeypatch) ->
             broken["last"][0]["last_decision_id"] += 100
         else:
             broken["executions"][0]["artifact_paths"] = ["forbidden.json"]
-        with pytest.raises(supervisor_module.MainlineSupervisorError, match="lifecycle changed"):
+        with pytest.raises(
+            supervisor_module.MainlineSupervisorError, match="lifecycle changed"
+        ):
             supervisor_module._verify_m4_v2_successor_governance(
                 agent_repository=_GovernanceRepository(broken)
             )
@@ -978,7 +1026,10 @@ def test_governance_digest_equivalence_and_lifecycle_fail_closed(monkeypatch) ->
     reused_failed = copy.deepcopy(fixture)
     reused_failed["requests"][1]["status"] = "completed"
     reused_failed["executions"][1]["status"] = "completed"
-    with pytest.raises(supervisor_module.MainlineSupervisorError, match="failed Engineering predecessor"):
+    with pytest.raises(
+        supervisor_module.MainlineSupervisorError,
+        match="failed Engineering predecessor",
+    ):
         supervisor_module._verify_m4_v2_successor_governance(
             agent_repository=_GovernanceRepository(reused_failed)
         )
@@ -987,27 +1038,60 @@ def test_governance_digest_equivalence_and_lifecycle_fail_closed(monkeypatch) ->
 def test_governance_constants_and_all_source_contract_seals() -> None:
     bindings = supervisor_module.M4_V2_SUCCESSOR_GOVERNANCE_BINDINGS
     failed = supervisor_module.M4_V2_FAILED_ENGINEERING_PREDECESSOR_BINDING
-    assert [item["request_id"] for item in bindings] == [478, 479, 480, 481, 482, 484, 485, 486]
-    assert [item["execution_id"] for item in bindings] == [399, 400, 402, 401, 403, 405, 406, 407]
+    assert [item["request_id"] for item in bindings] == [
+        478,
+        479,
+        480,
+        481,
+        482,
+        484,
+        485,
+        486,
+    ]
+    assert [item["execution_id"] for item in bindings] == [
+        399,
+        400,
+        402,
+        401,
+        403,
+        405,
+        406,
+        407,
+    ]
     assert len(bindings) == 8
-    assert sum(
-        key.endswith("_digest")
-        for item in bindings
-        for key in item
-    ) == 32
+    assert sum(key.endswith("_digest") for item in bindings for key in item) == 32
     assert failed["request_id"] == 483
     assert failed["execution_id"] == 404
     assert failed["artifact_paths"] == []
     assert failed["repository_files_changed"] == 0
     assert sum(key.endswith("_digest") for key in failed) == 5
 
+    assert supervisor_module.M4_V2_HISTORICAL_SOURCE_PIN == (
+        "4e787ebc1b13e1a16fe42b80054cb2a01f4c0b6b"
+    )
+    assert set(supervisor_module.M4_V2_HISTORICAL_SOURCE_IDENTITIES) == {
+        "marginal",
+        "temporal",
+        "joint",
+        "global",
+    }
     for family, spec in supervisor_module.M4_V2_SUCCESSOR_SOURCE_SPECS.items():
-        path = ROOT_DIR / spec["path"]
-        assert path.is_file(), f"missing source contract for {family}: {path}"
-        contract = json.loads(path.read_text(encoding="utf-8"))
-        assert contract["governance_bindings"] == [dict(item) for item in bindings]
-        assert contract["failed_engineering_predecessor_binding"] == failed
-        assert contract["governance_digest_reference_contract"] == supervisor_module.M4_V2_GOVERNANCE_DIGEST_REFERENCE_CONTRACT
+        legacy = supervisor_module.verify_m4_v2_historical_successor_source_contract(
+            root_dir=ROOT_DIR, family=family
+        )
+        assert (
+            legacy["artifact_digest"],
+            legacy["source_set_digest"],
+        ) == supervisor_module.M4_V2_HISTORICAL_SOURCE_IDENTITIES[family]
+        assert len(legacy["source_entries"]) == 7
+        if family in {"temporal", "joint"}:
+            assert spec["selector"] == f"{family}_v3"
+            assert spec["path"].endswith("source-v3.json")
+            assert spec["historical_path"].endswith("source-v2.json")
+        else:
+            # Marginal and Global have no live selector after Request512.  Their
+            # checked-out files are irrelevant to this audit-only verifier.
+            assert "selector" not in spec
 
 
 def test_zero_compute_parent_stop_chain_replays_and_global_route() -> None:
@@ -1020,9 +1104,14 @@ def test_zero_compute_parent_stop_chain_replays_and_global_route() -> None:
         assert replay["body"]["branch_id"] == branch_id
         assert replay["body"]["replay_status"] == "REGISTERED_REPLAY_VERIFIED"
         assert replay["body"]["workload_rerun"] is False
-        assert replay["body"]["decision_registration_digest"] == replay["parent_digests"][2]
+        assert (
+            replay["body"]["decision_registration_digest"]
+            == replay["parent_digests"][2]
+        )
     for decision in (records[1]["decision"], records[2]["decision"]):
-        assert decision["body"]["terminal_decision"] == "NOT_EVALUABLE_PARENT_NOT_ACCEPTED"
+        assert (
+            decision["body"]["terminal_decision"] == "NOT_EVALUABLE_PARENT_NOT_ACCEPTED"
+        )
         assert decision["body"]["scientific_decision"] is None
         assert decision["body"]["evaluation_status"] == "NOT_RUN_PARENT_NOT_ACCEPTED"
     for completion in completions:
@@ -1034,8 +1123,13 @@ def test_zero_compute_parent_stop_chain_replays_and_global_route() -> None:
         assert body["bootstrap_resample_count"] == 0
         assert body["evidence_created"] is False
         assert body["promotion_gate_opened"] is False
-    assert temporal_completion["body"]["registration_count_including_mainline_execution"] == 3
-    assert joint_completion["body"]["registration_count_including_mainline_execution"] == 3
+    assert (
+        temporal_completion["body"]["registration_count_including_mainline_execution"]
+        == 3
+    )
+    assert (
+        joint_completion["body"]["registration_count_including_mainline_execution"] == 3
+    )
 
     route = routing.compile_m4_v2_global_route_decision(
         records,
@@ -1098,7 +1192,9 @@ def test_global_router_is_finite_categorical_and_replay_is_pure(monkeypatch) -> 
         monkeypatch.setattr(
             module,
             name,
-            lambda *_args, _name=name, **_kwargs: forbidden_workload_calls.append(_name),
+            lambda *_args, _name=name, **_kwargs: forbidden_workload_calls.append(
+                _name
+            ),
         )
     replay = routing.replay_m4_v2_global_route_decision(
         records,
@@ -1128,7 +1224,9 @@ def test_global_router_is_finite_categorical_and_replay_is_pure(monkeypatch) -> 
 
 
 def test_global_router_repair_and_partial_positive_never_adaptive() -> None:
-    repair_records, _ = _zero_compute_records(marginal_evidence="INCONCLUSIVE", health="REPAIR")
+    repair_records, _ = _zero_compute_records(
+        marginal_evidence="INCONCLUSIVE", health="REPAIR"
+    )
     repair = routing.compile_m4_v2_global_route_decision(
         repair_records,
         source_contract_digest=_digest("global-source"),
@@ -1187,7 +1285,10 @@ def test_resolver_global_route_and_four_and_p3_barrier() -> None:
     for fact in M4_V2_SUCCESSOR_REPLAY_FACTS[:-1]:
         _add_facts(payload, fact)
     manifest = ControlPlaneManifest.from_dict(_without_manifest_digest(payload))
-    assert _resolution(manifest, global_builder.GLOBAL_TASK).status is TaskStatus.DEPENDENCY_WAIT
+    assert (
+        _resolution(manifest, global_builder.GLOBAL_TASK).status
+        is TaskStatus.DEPENDENCY_WAIT
+    )
 
     _add_facts(payload, M4_V2_SUCCESSOR_REPLAY_FACTS[-1])
     for task_key in set(M4_V2_SUCCESSOR_TASKS.values()) - {global_builder.GLOBAL_TASK}:
@@ -1203,12 +1304,21 @@ def test_resolver_global_route_and_four_and_p3_barrier() -> None:
     _set_task_completed(payload, global_builder.GLOBAL_TASK)
     _add_facts(payload, routing.ADAPTIVE_RESEARCH_ELIGIBILITY_FACT)
     manifest = ControlPlaneManifest.from_dict(_without_manifest_digest(payload))
-    assert _resolution(manifest, M4_P3_PREDICTIVE_PREREGISTRATION_TASK_KEY).status is TaskStatus.READY
-    assert _resolution(manifest, PREDICTIVE_P3_TASK_KEY).status is TaskStatus.DEPENDENCY_WAIT
+    assert (
+        _resolution(manifest, M4_P3_PREDICTIVE_PREREGISTRATION_TASK_KEY).status
+        is TaskStatus.READY
+    )
+    assert (
+        _resolution(manifest, PREDICTIVE_P3_TASK_KEY).status
+        is TaskStatus.DEPENDENCY_WAIT
+    )
 
     _set_task_completed(payload, M4_P3_PREDICTIVE_PREREGISTRATION_TASK_KEY)
     manifest = ControlPlaneManifest.from_dict(_without_manifest_digest(payload))
-    assert _resolution(manifest, PREDICTIVE_P3_TASK_KEY).status is TaskStatus.DEPENDENCY_WAIT
+    assert (
+        _resolution(manifest, PREDICTIVE_P3_TASK_KEY).status
+        is TaskStatus.DEPENDENCY_WAIT
+    )
     assert M4_P3_PREDICTIVE_PREREGISTRATION_FACT not in manifest.facts.artifacts
 
     _add_facts(payload, M4_P3_PREDICTIVE_PREREGISTRATION_FACT)
@@ -1219,7 +1329,10 @@ def test_resolver_global_route_and_four_and_p3_barrier() -> None:
         for task in payload["tasks"]
         if task["task_key"] in M4_V2_SUCCESSOR_TASKS.values()
     }
-    assert _task(payload, PREDICTIVE_P3_TASK_KEY)["requested_capability"] not in successor_capabilities
+    assert (
+        _task(payload, PREDICTIVE_P3_TASK_KEY)["requested_capability"]
+        not in successor_capabilities
+    )
 
 
 def test_p4_requires_completed_p3_and_explicit_pass() -> None:
@@ -1238,67 +1351,82 @@ def test_p4_requires_completed_p3_and_explicit_pass() -> None:
     )
     manifest = ControlPlaneManifest.from_dict(_without_manifest_digest(payload))
     assert _resolution(manifest, PREDICTIVE_P3_TASK_KEY).status is TaskStatus.READY
-    assert _resolution(manifest, PREDICTIVE_P4_TASK_KEY).status is TaskStatus.DEPENDENCY_WAIT
+    assert (
+        _resolution(manifest, PREDICTIVE_P4_TASK_KEY).status
+        is TaskStatus.DEPENDENCY_WAIT
+    )
     _set_task_completed(payload, PREDICTIVE_P3_TASK_KEY)
     manifest = ControlPlaneManifest.from_dict(_without_manifest_digest(payload))
-    assert _resolution(manifest, PREDICTIVE_P4_TASK_KEY).status is TaskStatus.DEPENDENCY_WAIT
+    assert (
+        _resolution(manifest, PREDICTIVE_P4_TASK_KEY).status
+        is TaskStatus.DEPENDENCY_WAIT
+    )
     _add_facts(payload, PREDICTIVE_P3_PASS_TO_P4_FACT)
     manifest = ControlPlaneManifest.from_dict(_without_manifest_digest(payload))
     assert _resolution(manifest, PREDICTIVE_P4_TASK_KEY).status is TaskStatus.READY
 
 
-def _resolve_import(path: Path, node: ast.ImportFrom) -> Path | None:
-    if node.level:
-        package = path.parent.relative_to(ROOT_DIR / "apps/worker-python")
-        parts = list(package.parts[: len(package.parts) - node.level + 1])
-        if node.module:
-            parts.extend(node.module.split("."))
-    else:
-        module = node.module or ""
-        if module not in {"dehps", "scripts"} and not module.startswith(
-            ("dehps.", "scripts.")
-        ):
-            return None
-        parts = module.split(".")
-    candidate = Path("apps/worker-python", *parts).with_suffix(".py")
-    return candidate if (ROOT_DIR / candidate).is_file() else None
-
-
-def _import_edges(source_path: str, source_text: str) -> set[tuple[str, str]]:
-    path = ROOT_DIR / source_path
-    tree = ast.parse(source_text)
-    edges: set[tuple[str, str]] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            target = _resolve_import(path, node)
-            if target is not None:
-                edges.add((source_path, target.as_posix()))
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name == "dehps" or alias.name.startswith("dehps.") or alias.name == "scripts" or alias.name.startswith("scripts."):
-                    candidate = Path("apps/worker-python", *alias.name.split(".")).with_suffix(".py")
-                    if (ROOT_DIR / candidate).is_file():
-                        edges.add((source_path, candidate.as_posix()))
-    return edges
-
-
-def test_source_contracts_exact_closure_and_digest_drift_fail_closed(tmp_path: Path) -> None:
-    source_sets = {
-        family: tuple(spec["entries"])
-        for family, spec in supervisor_module.M4_V2_SUCCESSOR_SOURCE_SPECS.items()
-    }
-    for family, entries in source_sets.items():
-        assert len(entries) == 7
-        assert len(set(entries)) == 7
-        contract = supervisor_module._load_m4_v2_successor_source_contract(
+def test_source_contracts_exact_closure_and_digest_drift_fail_closed(
+    tmp_path: Path,
+) -> None:
+    specs = supervisor_module.M4_V2_SUCCESSOR_SOURCE_SPECS
+    legacy_source_sets: dict[str, tuple[str, ...]] = {}
+    for family in ("marginal", "temporal", "joint", "global"):
+        contract = supervisor_module.verify_m4_v2_historical_successor_source_contract(
             root_dir=ROOT_DIR, family=family
         )
-        assert tuple(item["path"] for item in contract["source_entries"]) == entries
+        entries = tuple(item["path"] for item in contract["source_entries"])
+        assert len(entries) == len(set(entries)) == 7
+        legacy_source_sets[family] = entries
+        for item in contract["source_entries"]:
+            historical_bytes = supervisor_module._m4_v2_raw_git_blob(
+                root_dir=ROOT_DIR,
+                commit=supervisor_module.M4_V2_HISTORICAL_SOURCE_PIN,
+                path=item["path"],
+            )
+            assert item["sha256"] == hashlib.sha256(historical_bytes).hexdigest()
+
+    active_source_sets: dict[str, tuple[str, ...]] = {}
+    expected_arrays = {
+        "temporal": "c3aa7e4fbb5a60393e68582ebf9b47d572892b8c2a8494db8065b8a604ab1898",
+        "joint": "b9d51e1feb75e656708e410c9f719d839fedc3ed5c6dc2eae9929be8bfdcb60d",
+    }
+    for family in ("temporal", "joint"):
+        selector = specs[family]["selector"]
+        contract = supervisor_module.load_m4_v2_active_successor_source_contract(
+            root_dir=ROOT_DIR, selector=selector
+        )
+        entries = tuple(item["path"] for item in contract["source_entries"])
+        assert entries == tuple(specs[family]["entries"])
+        assert len(entries) == len(set(entries)) == 12
+        assert contract["schema_version"].endswith("source-contract.v3")
+        assert contract["source_path_array_contract_version"] == 4
+        assert contract["source_path_array_digest"] == expected_arrays[family]
+        assert contract["accepted_support_input_schema"] == (
+            "dehps-m4-v2-accepted-support-input.v3"
+        )
         assert all(
-            item["sha256"] == hashlib.sha256((ROOT_DIR / item["path"]).read_bytes()).hexdigest()
+            item["sha256"]
+            == hashlib.sha256((ROOT_DIR / item["path"]).read_bytes()).hexdigest()
             for item in contract["source_entries"]
         )
-        assert contract["future_artifact_digests"] is None
+        active_source_sets[family] = entries
+
+    for rejected_selector in (
+        "marginal",
+        "global",
+        "temporal",
+        "joint",
+        "temporal_v2",
+        "joint_v2",
+    ):
+        with pytest.raises(
+            supervisor_module.MainlineSupervisorError,
+            match="selector is not authorized",
+        ):
+            supervisor_module.load_m4_v2_active_successor_source_contract(
+                root_dir=ROOT_DIR, selector=rejected_selector
+            )
 
     assert "branch_decision" not in {
         node.module
@@ -1308,26 +1436,11 @@ def test_source_contracts_exact_closure_and_digest_drift_fail_closed(tmp_path: P
     }
     assert M4V2BranchDecisionArtifact.__module__ == "dehps.research_os.models"
 
-    all_paths = sorted({path for entries in source_sets.values() for path in entries})
-    for path in all_paths:
-        current = (ROOT_DIR / path).read_text(encoding="utf-8")
-        try:
-            base = subprocess.run(
-                ["git", "show", f"{BASE_SHA}:{path}"],
-                cwd=ROOT_DIR,
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout
-        except subprocess.CalledProcessError:
-            base = ""
-        added = _import_edges(path, current) - _import_edges(path, base)
-        for edge in added:
-            assert any(set(edge).issubset(entries) for entries in source_sets.values()), edge
-
     family = "temporal"
-    spec = supervisor_module.M4_V2_SUCCESSOR_SOURCE_SPECS[family]
-    for entry in supervisor_module._load_m4_v2_successor_source_contract(root_dir=ROOT_DIR, family=family)["source_entries"]:
+    spec = specs[family]
+    for entry in supervisor_module.load_m4_v2_active_successor_source_contract(
+        root_dir=ROOT_DIR, selector=spec["selector"]
+    )["source_entries"]:
         target = tmp_path / entry["path"]
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT_DIR / entry["path"], target)
@@ -1336,10 +1449,32 @@ def test_source_contracts_exact_closure_and_digest_drift_fail_closed(tmp_path: P
     shutil.copy2(ROOT_DIR / spec["path"], contract_target)
     first_source = tmp_path / spec["entries"][0]
     first_source.write_bytes(first_source.read_bytes() + b"\n# digest drift\n")
-    with pytest.raises(supervisor_module.MainlineSupervisorError, match="source bytes changed"):
-        supervisor_module._load_m4_v2_successor_source_contract(
-            root_dir=tmp_path, family=family
+    with pytest.raises(
+        supervisor_module.MainlineSupervisorError, match="source bytes changed"
+    ):
+        supervisor_module.load_m4_v2_active_successor_source_contract(
+            root_dir=tmp_path, selector=spec["selector"]
         )
+
+    original_raw_git_blob = supervisor_module._m4_v2_raw_git_blob
+
+    def tampered_historical_blob(*, root_dir: Path, commit: str, path: str) -> bytes:
+        content = original_raw_git_blob(root_dir=root_dir, commit=commit, path=path)
+        if path == legacy_source_sets["joint"][0]:
+            return content + b"\n# historical tamper\n"
+        return content
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(
+            supervisor_module, "_m4_v2_raw_git_blob", tampered_historical_blob
+        )
+        with pytest.raises(
+            supervisor_module.MainlineSupervisorError,
+            match="historical source bytes changed",
+        ):
+            supervisor_module.verify_m4_v2_historical_successor_source_contract(
+                root_dir=ROOT_DIR, family="joint"
+            )
 
 
 def test_successor_v2_estimator_identity_rejects_predecessor_v1() -> None:
@@ -1372,9 +1507,24 @@ def test_successor_v2_estimator_identity_rejects_predecessor_v1() -> None:
         for item in joint_tasks
     )
     assert joint.REQUEST481_PREDECESSOR_ESTIMATOR_ID != joint.JOINT_ESTIMATOR_ID
-    assert temporal.REQUEST481_PREDECESSOR_JOINT_ESTIMATOR_ID != temporal.SUCCESSOR_JOINT_ESTIMATOR_ID
-    assert supervisor_module.M4_V2_SUCCESSOR_SOURCE_SPECS["temporal"]["path"].endswith("source-v2.json")
-    assert supervisor_module.M4_V2_SUCCESSOR_SOURCE_SPECS["joint"]["path"].endswith("source-v2.json")
+    assert (
+        temporal.REQUEST481_PREDECESSOR_JOINT_ESTIMATOR_ID
+        != temporal.SUCCESSOR_JOINT_ESTIMATOR_ID
+    )
+    assert (
+        supervisor_module.M4_V2_SUCCESSOR_SOURCE_SPECS["temporal"]["selector"]
+        == "temporal_v3"
+    )
+    assert (
+        supervisor_module.M4_V2_SUCCESSOR_SOURCE_SPECS["joint"]["selector"]
+        == "joint_v3"
+    )
+    assert supervisor_module.M4_V2_SUCCESSOR_SOURCE_SPECS["temporal"]["path"].endswith(
+        "source-v3.json"
+    )
+    assert supervisor_module.M4_V2_SUCCESSOR_SOURCE_SPECS["joint"]["path"].endswith(
+        "source-v3.json"
+    )
 
 
 def _warmup_rows() -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -1407,8 +1557,15 @@ def test_fixed_null_warmup_exact_alias_and_falsifiers() -> None:
     assert rule["fallback"] is None
     assert index["row_count"] == 899
     assert [item["transition_ordinal"] for item in rows] == list(range(2, 901))
-    assert all(item["q_t_marginal_content_digest"] == item["q_m_marginal_content_digest"] for item in rows)
-    assert all(item["q_t_full_distribution_content_digest"] == item["q_m_full_distribution_content_digest"] for item in rows)
+    assert all(
+        item["q_t_marginal_content_digest"] == item["q_m_marginal_content_digest"]
+        for item in rows
+    )
+    assert all(
+        item["q_t_full_distribution_content_digest"]
+        == item["q_m_full_distribution_content_digest"]
+        for item in rows
+    )
     assert all(item["temporal_theta_fit_invoked"] is False for item in rows)
 
     for field, changed in (
@@ -1421,11 +1578,17 @@ def test_fixed_null_warmup_exact_alias_and_falsifiers() -> None:
         tampered[field] = changed
         with pytest.raises(temporal.TemporalMarginalIncrementContractError):
             temporal.validate_temporal_warmup_row(tampered)
-    with pytest.raises(temporal.TemporalMarginalIncrementContractError, match="coverage_or_order"):
+    with pytest.raises(
+        temporal.TemporalMarginalIncrementContractError, match="coverage_or_order"
+    ):
         temporal.build_temporal_warmup_index(rows[:-1], rule_digest=rule["rule_digest"])
     duplicated = [*rows[:-1], rows[-2]]
-    with pytest.raises(temporal.TemporalMarginalIncrementContractError, match="coverage_or_order"):
-        temporal.build_temporal_warmup_index(duplicated, rule_digest=rule["rule_digest"])
+    with pytest.raises(
+        temporal.TemporalMarginalIncrementContractError, match="coverage_or_order"
+    ):
+        temporal.build_temporal_warmup_index(
+            duplicated, rule_digest=rule["rule_digest"]
+        )
 
     same_prefix = dict(rows[10])
     same_prefix["non_identity_suffix_provenance"] = "changed"
@@ -1434,8 +1597,18 @@ def test_fixed_null_warmup_exact_alias_and_falsifiers() -> None:
     changed_prefix["q_m_full_distribution_content_digest"] = _digest("suffix-leak")
     with pytest.raises(temporal.TemporalMarginalIncrementContractError, match="suffix"):
         temporal.assert_temporal_suffix_noninterference(rows[10], changed_prefix)
-    assert temporal.temporal_synthetic_warmup_position(cell_index=0, replicate_index=0, transition_ordinal=2) == 0
-    assert temporal.temporal_synthetic_warmup_position(cell_index=13, replicate_index=511, transition_ordinal=900) == 6_444_031
+    assert (
+        temporal.temporal_synthetic_warmup_position(
+            cell_index=0, replicate_index=0, transition_ordinal=2
+        )
+        == 0
+    )
+    assert (
+        temporal.temporal_synthetic_warmup_position(
+            cell_index=13, replicate_index=511, transition_ordinal=900
+        )
+        == 6_444_031
+    )
 
 
 def test_temporal_composite_and_joint_chronology_contracts() -> None:
@@ -1506,11 +1679,19 @@ def test_synthetic_cartesian_grid_seed_and_count_invariance() -> None:
     assert {item["coordinate_digest"] for item in temporal_coordinates}.isdisjoint(
         item["coordinate_digest"] for item in joint_coordinates
     )
-    assert all(item["seed_contract_digest"] == seed for item in temporal_coordinates + joint_coordinates)
-    assert all(item["sequence_seed_full_sha256"] != seed for item in temporal_coordinates + joint_coordinates)
+    assert all(
+        item["seed_contract_digest"] == seed
+        for item in temporal_coordinates + joint_coordinates
+    )
+    assert all(
+        item["sequence_seed_full_sha256"] != seed
+        for item in temporal_coordinates + joint_coordinates
+    )
     tampered = copy.deepcopy(temporal_coordinates[0])
     tampered["sequence_seed_full_sha256"] = _digest("seed-drift")
-    with pytest.raises(temporal.TemporalMarginalIncrementContractError, match="seed_or_cell"):
+    with pytest.raises(
+        temporal.TemporalMarginalIncrementContractError, match="seed_or_cell"
+    ):
         temporal.validate_temporal_synthetic_sequence_coordinate(tampered)
 
 
@@ -1542,20 +1723,37 @@ def test_all_17_artifact_types_nested_lineage_paths_and_cardinalities() -> None:
     with pytest.raises(ResearchOSValidationError, match="unknown"):
         validate_m4_v2_artifact_envelope(eighteenth)
 
-    assert temporal.temporal_registration_plan("PARENT_NOT_ACCEPTED").artifact_types_in_registration_order == (
+    assert temporal.temporal_registration_plan(
+        "PARENT_NOT_ACCEPTED"
+    ).artifact_types_in_registration_order == (
         "M4V2BranchDecisionArtifact",
         "M4V2TemporalMarginalIncrementProducerCompletionArtifact",
         "research_os_mainline_execution",
     )
-    assert joint.joint_registration_plan("PARENT_NOT_ACCEPTED").artifact_types_in_registration_order == (
+    assert joint.joint_registration_plan(
+        "PARENT_NOT_ACCEPTED"
+    ).artifact_types_in_registration_order == (
         "M4V2BranchDecisionArtifact",
         "M4V2JointResidualProducerCompletionArtifact",
         "research_os_mainline_execution",
     )
-    assert temporal.temporal_registration_plan("EVALUATED_COMPLETE").registration_count_including_mainline_execution == 6
-    assert joint.joint_registration_plan("EVALUATED_COMPLETE").registration_count_including_mainline_execution == 7
+    assert (
+        temporal.temporal_registration_plan(
+            "EVALUATED_COMPLETE"
+        ).registration_count_including_mainline_execution
+        == 6
+    )
+    assert (
+        joint.joint_registration_plan(
+            "EVALUATED_COMPLETE"
+        ).registration_count_including_mainline_execution
+        == 7
+    )
     for completion in completions:
-        assert completion["artifact_digest"] not in completion["body"]["registered_artifact_digests_in_order"]
+        assert (
+            completion["artifact_digest"]
+            not in completion["body"]["registered_artifact_digests_in_order"]
+        )
 
     q_digest = _digest("q")
     certificate = joint.build_q_base_reconstruction_certificate(
@@ -1603,9 +1801,12 @@ def test_all_17_artifact_types_nested_lineage_paths_and_cardinalities() -> None:
         f"runtime/research-os/mainline/tasks/{routing.GLOBAL_ROUTE_TASK_KEY}/"
         f"{execution_id}/artifacts/global-routing-decision/{artifact_digest}/decision.json"
     )
-    assert routing.m4_v2_global_route_artifact_path(
-        execution_id=execution_id, artifact_digest=artifact_digest
-    ) == expected_path
+    assert (
+        routing.m4_v2_global_route_artifact_path(
+            execution_id=execution_id, artifact_digest=artifact_digest
+        )
+        == expected_path
+    )
 
 
 def test_holm_lineage_and_formal_one_rules_fail_before_workload() -> None:
@@ -1637,17 +1838,22 @@ def test_holm_lineage_and_formal_one_rules_fail_before_workload() -> None:
             "raw_primary_p_value": 0.125,
             **changed,
         }
-        with pytest.raises(temporal.TemporalMarginalIncrementContractError, match="lineage"):
+        with pytest.raises(
+            temporal.TemporalMarginalIncrementContractError, match="lineage"
+        ):
             temporal.validate_accepted_parent_raw_p_lineage(**arguments)
-    assert temporal.validate_temporal_holm_family(
-        {
-            "MARGINAL_STATIC": 0.125,
-            "TEMPORAL_MARGINAL_INCREMENT": 0.25,
-            "JOINT_RESIDUAL_INCREMENT": 1.0,
-        },
-        marginal_raw_p_value=0.125,
-        temporal_raw_p_value=0.25,
-    )["JOINT_RESIDUAL_INCREMENT"] == 1.0
+    assert (
+        temporal.validate_temporal_holm_family(
+            {
+                "MARGINAL_STATIC": 0.125,
+                "TEMPORAL_MARGINAL_INCREMENT": 0.25,
+                "JOINT_RESIDUAL_INCREMENT": 1.0,
+            },
+            marginal_raw_p_value=0.125,
+            temporal_raw_p_value=0.25,
+        )["JOINT_RESIDUAL_INCREMENT"]
+        == 1.0
+    )
     assert joint.formal_holm_one_allowed(
         branch_id="JOINT_RESIDUAL_INCREMENT",
         terminal_decision=None,
@@ -1677,7 +1883,9 @@ def test_holm_lineage_and_formal_one_rules_fail_before_workload() -> None:
     )
 
 
-def test_supervisor_global_replay_is_zero_write_and_preserves_all_identities(monkeypatch) -> None:
+def test_supervisor_global_replay_is_zero_write_and_preserves_all_identities(
+    monkeypatch,
+) -> None:
     payload = _successor_payload()
     manifest = ControlPlaneManifest.from_dict(payload)
     before_manifest = m4_v2_canonical_json(manifest.to_dict(include_digest=True))
@@ -1687,7 +1895,11 @@ def test_supervisor_global_replay_is_zero_write_and_preserves_all_identities(mon
     route = routing.compile_m4_v2_global_route_decision(
         records,
         source_contract_digest=_digest("global-source"),
-        task_digest=next(task for task in manifest.tasks if task.task_key == routing.GLOBAL_ROUTE_TASK_KEY).artifact_digest,
+        task_digest=next(
+            task
+            for task in manifest.tasks
+            if task.task_key == routing.GLOBAL_ROUTE_TASK_KEY
+        ).artifact_digest,
     )
 
     class ReadOnlyRepository:
@@ -1702,10 +1914,22 @@ def test_supervisor_global_replay_is_zero_write_and_preserves_all_identities(mon
             return manifest
 
         def __getattr__(self, name: str):
-            if any(token in name for token in ("record", "import", "write", "register", "update", "append")):
+            if any(
+                token in name
+                for token in (
+                    "record",
+                    "import",
+                    "write",
+                    "register",
+                    "update",
+                    "append",
+                )
+            ):
+
                 def forbidden(*_args, **_kwargs):
                     self.writes.append(name)
                     raise AssertionError(f"durable write attempted: {name}")
+
                 return forbidden
             raise AttributeError(name)
 
@@ -1715,7 +1939,10 @@ def test_supervisor_global_replay_is_zero_write_and_preserves_all_identities(mon
         "execution_id": execution_id,
         "artifact_digest": _digest("global-execution-artifact"),
     }
-    registrations = [{"artifact_type": routing.GLOBAL_ROUTE_ARTIFACT_TYPE}, {"artifact_type": "research_os_mainline_execution"}]
+    registrations = [
+        {"artifact_type": routing.GLOBAL_ROUTE_ARTIFACT_TYPE},
+        {"artifact_type": "research_os_mainline_execution"},
+    ]
     monkeypatch.setattr(
         supervisor_module,
         "_load_single_completed_execution",
@@ -1763,16 +1990,28 @@ def test_supervisor_global_replay_is_zero_write_and_preserves_all_identities(mon
             }
         ),
     )
-    monkeypatch.setattr(supervisor, "_write_state", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("state write")))
-    monkeypatch.setattr(supervisor, "_write_lane_status", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("lane write")))
+    monkeypatch.setattr(
+        supervisor,
+        "_write_state",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("state write")),
+    )
+    monkeypatch.setattr(
+        supervisor,
+        "_write_lane_status",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("lane write")),
+    )
     replay = supervisor.replay(task_key=routing.GLOBAL_ROUTE_TASK_KEY)
     assert replay["status"] == "REPLAY_VERIFIED"
-    assert replay["capability_replay"]["capability_status"] == "REGISTERED_REPLAY_VERIFIED"
+    assert (
+        replay["capability_replay"]["capability_status"] == "REGISTERED_REPLAY_VERIFIED"
+    )
     assert replay["capability_replay"]["workload_rerun"] is False
     assert replay["durable_state_changed"] is False
     assert repository.writes == []
     assert status_projection_calls == [manifest.artifact_digest]
-    assert m4_v2_canonical_json(manifest.to_dict(include_digest=True)) == before_manifest
+    assert (
+        m4_v2_canonical_json(manifest.to_dict(include_digest=True)) == before_manifest
+    )
     after_snapshot = ResearchOSControlPlane().resolve(manifest)
     assert after_snapshot.snapshot_digest == before_snapshot.snapshot_digest
     assert m4_v2_canonical_json(jsonable(after_snapshot.ready_queue)) == before_ready
@@ -1793,7 +2032,9 @@ class _RegistrationCursor:
         raise AssertionError(self._last)
 
 
-def test_atomic_publication_crash_reconciliation_and_conflicts(tmp_path: Path, monkeypatch) -> None:
+def test_atomic_publication_crash_reconciliation_and_conflicts(
+    tmp_path: Path, monkeypatch
+) -> None:
     staged = tmp_path / ".staging" / "00.json"
     content = b'{"frozen":true}\n'
     fsync_calls: list[int] = []
@@ -1818,7 +2059,9 @@ def test_atomic_publication_crash_reconciliation_and_conflicts(tmp_path: Path, m
 
     identical_stage = tmp_path / ".staging" / "01.json"
     supervisor_module._atomic_write_staged_file(identical_stage, content)
-    preexisting = supervisor_module._atomic_publish_noreplace(identical_stage, destination)
+    preexisting = supervisor_module._atomic_publish_noreplace(
+        identical_stage, destination
+    )
     assert preexisting[2] is False
     assert identical_stage.exists()
     mismatch_stage = tmp_path / ".staging" / "02.json"
@@ -1853,10 +2096,14 @@ def test_atomic_publication_crash_reconciliation_and_conflicts(tmp_path: Path, m
         git_commit=GIT_COMMIT,
     )
     exact = jsonable(registration)
-    supervisor_module._atomic_insert_registration(_RegistrationCursor(exact), registration)
+    supervisor_module._atomic_insert_registration(
+        _RegistrationCursor(exact), registration
+    )
     mismatch = dict(exact)
     mismatch["artifact_path"] = "mismatch"
-    with pytest.raises(supervisor_module.MainlineSupervisorError, match="not idempotent"):
+    with pytest.raises(
+        supervisor_module.MainlineSupervisorError, match="not idempotent"
+    ):
         supervisor_module._atomic_insert_registration(
             _RegistrationCursor(mismatch), registration
         )
@@ -1879,8 +2126,7 @@ def test_atomic_publication_crash_reconciliation_and_conflicts(tmp_path: Path, m
 
         def list_mainline_execution_events(self, **_kwargs):
             return [
-                {"event_type": "completed"}
-                for _ in range(self.completed_event_count)
+                {"event_type": "completed"} for _ in range(self.completed_event_count)
             ]
 
         def list_mainline_artifacts(self, **_kwargs):
@@ -1912,34 +2158,46 @@ def test_atomic_publication_crash_reconciliation_and_conflicts(tmp_path: Path, m
         "_load_single_completed_execution",
         lambda **_kwargs: ({}, {}, []),
     )
-    assert reconcile(
-        ReconciliationRepository(
-            head_digest=complete,
-            registrations=[expected_row],
-            completed_event_count=1,
+    assert (
+        reconcile(
+            ReconciliationRepository(
+                head_digest=complete,
+                registrations=[expected_row],
+                completed_event_count=1,
+            )
         )
-    ) == "COMMITTED"
-    assert reconcile(
-        ReconciliationRepository(
-            head_digest=head,
-            registrations=[],
-            completed_event_count=0,
+        == "COMMITTED"
+    )
+    assert (
+        reconcile(
+            ReconciliationRepository(
+                head_digest=head,
+                registrations=[],
+                completed_event_count=0,
+            )
         )
-    ) == "ABSENT"
-    assert reconcile(
-        ReconciliationRepository(
-            head_digest=complete,
-            registrations=[expected_row],
-            completed_event_count=0,
+        == "ABSENT"
+    )
+    assert (
+        reconcile(
+            ReconciliationRepository(
+                head_digest=complete,
+                registrations=[expected_row],
+                completed_event_count=0,
+            )
         )
-    ) == "INCIDENT"
-    assert reconcile(
-        ReconciliationRepository(
-            head_digest=complete,
-            registrations=[],
-            completed_event_count=1,
+        == "INCIDENT"
+    )
+    assert (
+        reconcile(
+            ReconciliationRepository(
+                head_digest=complete,
+                registrations=[],
+                completed_event_count=1,
+            )
         )
-    ) == "INCIDENT"
+        == "INCIDENT"
+    )
     monkeypatch.setattr(
         supervisor_module,
         "_load_single_completed_execution",
@@ -1947,17 +2205,24 @@ def test_atomic_publication_crash_reconciliation_and_conflicts(tmp_path: Path, m
             supervisor_module.MainlineSupervisorError("registered file missing")
         ),
     )
-    assert reconcile(
-        ReconciliationRepository(
-            head_digest=complete,
-            registrations=[expected_row],
-            completed_event_count=1,
+    assert (
+        reconcile(
+            ReconciliationRepository(
+                head_digest=complete,
+                registrations=[expected_row],
+                completed_event_count=1,
+            )
         )
-    ) == "INCIDENT"
+        == "INCIDENT"
+    )
 
-    source = inspect.getsource(supervisor_module.ResearchEvidenceSupervisor._complete_atomic_capability)
+    source = inspect.getsource(
+        supervisor_module.ResearchEvidenceSupervisor._complete_atomic_capability
+    )
     assert source.count("connection.commit()") == 1
-    assert source.index("_atomic_publish_noreplace") < source.index("connection.commit()")
+    assert source.index("_atomic_publish_noreplace") < source.index(
+        "connection.commit()"
+    )
     assert "self.repository.connection_factory()" in source
     repository_diff = subprocess.run(
         ["git", "diff", "--", "apps/worker-python/dehps/research_os/repository.py"],
@@ -1991,4 +2256,7 @@ def test_engineering_boundary_has_zero_runtime_or_operator_actions() -> None:
         assert "promotion" not in source.lower() or "promotion_gate_opened" in source
     successor = supervisor_module.M4V2SuccessorCapability
     assert not hasattr(successor, "promote")
-    assert M4_P3_PREDICTIVE_PREREGISTRATION_FACT not in _successor_payload()["facts"]["artifacts"]
+    assert (
+        M4_P3_PREDICTIVE_PREREGISTRATION_FACT
+        not in _successor_payload()["facts"]["artifacts"]
+    )

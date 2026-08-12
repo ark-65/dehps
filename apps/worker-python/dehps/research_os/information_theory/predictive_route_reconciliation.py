@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import subprocess
 from collections.abc import Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
@@ -10,7 +12,6 @@ from typing import Any
 
 from dehps.contracts import canonical_digest
 from dehps.research_os.information_theory.digest import config_digest
-
 
 PREDICTIVE_ROUTE_RECONCILIATION_TASK_KEY = (
     "m4-p3-predictive-route-reconciliation"
@@ -107,6 +108,12 @@ PREDICTIVE_ROUTE_RECONCILIATION_SOURCE_ARTIFACT_TYPE = (
 PREDICTIVE_ROUTE_RECONCILIATION_SOURCE_CONTRACT_KEY = (
     "M4_P3_PREDICTIVE_ROUTE_RECONCILIATION_SOURCE"
 )
+PREDICTIVE_ROUTE_RECONCILIATION_V1_HISTORICAL_COMMIT = (
+    "15760f143ad92d7dd6df34a89924af950669a513"
+)
+PREDICTIVE_ROUTE_RECONCILIATION_V1_CONFIG_SHA256 = (
+    "ec4ec69c912229d56728f7ec12480420fb2010964798fa8a91c35f8f4bf8cfed"
+)
 PREDICTIVE_ROUTE_RECONCILIATION_INSPECTED_MAIN_SHA = (
     "f58f46829f0dede149bc5f116e0fd660768d3a82"
 )
@@ -126,12 +133,16 @@ _SOURCE_MODULE_PATH = (
 )
 _SOURCE_PATHS = (
     _SOURCE_MODULE_PATH,
-    "apps/worker-python/scripts/"
-    "build_m4_p3_predictive_route_reconciliation_manifest.py",
+    (
+        "apps/worker-python/scripts/"
+        "build_m4_p3_predictive_route_reconciliation_manifest.py"
+    ),
     "apps/worker-python/dehps/research_os/control_plane.py",
     "apps/worker-python/dehps/research_os/models.py",
-    "apps/worker-python/dehps/research_os/information_theory/"
-    "measurement_system_v2/migration.py",
+    (
+        "apps/worker-python/dehps/research_os/information_theory/"
+        "measurement_system_v2/migration.py"
+    ),
     "apps/worker-python/dehps/research_os/supervisor.py",
     "apps/worker-python/dehps/research_os/information_theory/progress.py",
 )
@@ -253,6 +264,108 @@ def verify_predictive_route_reconciliation_source_bytes(
             raise PredictiveRouteReconciliationError(
                 f"predictive_route_reconciliation_source_modified:{relative}"
             )
+
+
+def verify_predictive_route_reconciliation_v1_historical_git_objects(
+    *,
+    root_dir: Path,
+    commit_oid: str,
+    source_paths: Sequence[str],
+) -> dict[str, Any]:
+    """Audit immutable v1 against raw blobs at its pinned historical commit."""
+
+    normalized_source_paths = tuple(str(path) for path in source_paths)
+    if (
+        commit_oid != PREDICTIVE_ROUTE_RECONCILIATION_V1_HISTORICAL_COMMIT
+        or normalized_source_paths != _SOURCE_PATHS
+        or len(set(normalized_source_paths)) != len(_SOURCE_PATHS)
+    ):
+        raise PredictiveRouteReconciliationError(
+            "predictive_route_reconciliation_historical_identity_changed"
+        )
+    root = root_dir.resolve()
+    env = {**os.environ, "GIT_NO_REPLACE_OBJECTS": "1"}
+
+    def git(*arguments: str) -> bytes:
+        try:
+            return subprocess.run(
+                ["git", *arguments],
+                cwd=root,
+                env=env,
+                check=True,
+                capture_output=True,
+            ).stdout
+        except (OSError, subprocess.CalledProcessError) as exc:
+            raise PredictiveRouteReconciliationError(
+                "predictive_route_reconciliation_historical_git_object_unavailable"
+            ) from exc
+
+    resolved = git("rev-parse", "--verify", f"{commit_oid}^{{commit}}").decode().strip()
+    if resolved != commit_oid:
+        raise PredictiveRouteReconciliationError(
+            "predictive_route_reconciliation_historical_commit_changed"
+        )
+
+    def historical_blob(relative: str) -> tuple[str, bytes]:
+        if Path(relative).is_absolute() or ".." in Path(relative).parts:
+            raise PredictiveRouteReconciliationError(
+                "predictive_route_reconciliation_historical_path_unsafe"
+            )
+        record = git("ls-tree", "-z", commit_oid, "--", relative)
+        records = [item for item in record.split(b"\0") if item]
+        if len(records) != 1:
+            raise PredictiveRouteReconciliationError(
+                f"predictive_route_reconciliation_historical_source_missing:{relative}"
+            )
+        try:
+            header, observed_path = records[0].split(b"\t", 1)
+            mode, object_type, object_oid = header.decode("ascii").split(" ")
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise PredictiveRouteReconciliationError(
+                "predictive_route_reconciliation_historical_tree_invalid"
+            ) from exc
+        if (
+            mode != "100644"
+            or object_type != "blob"
+            or observed_path.decode("utf-8") != relative
+            or len(object_oid) != 40
+        ):
+            raise PredictiveRouteReconciliationError(
+                f"predictive_route_reconciliation_historical_source_invalid:{relative}"
+            )
+        return object_oid, git("cat-file", "blob", object_oid)
+
+    config_relative = PREDICTIVE_ROUTE_RECONCILIATION_SOURCE_CONTRACT_PATH.as_posix()
+    config_oid, config_bytes = historical_blob(config_relative)
+    if hashlib.sha256(config_bytes).hexdigest() != PREDICTIVE_ROUTE_RECONCILIATION_V1_CONFIG_SHA256:
+        raise PredictiveRouteReconciliationError(
+            "predictive_route_reconciliation_historical_config_modified"
+        )
+    try:
+        contract = json.loads(config_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PredictiveRouteReconciliationError(
+            "predictive_route_reconciliation_historical_config_invalid"
+        ) from exc
+    _validate_source_contract(contract)
+    source_oids: dict[str, str] = {}
+    for entry in contract["source_entries"]:
+        relative = str(entry["path"])
+        object_oid, content = historical_blob(relative)
+        if hashlib.sha256(content).hexdigest() != entry["content_sha256"]:
+            raise PredictiveRouteReconciliationError(
+                f"predictive_route_reconciliation_historical_source_modified:{relative}"
+            )
+        source_oids[relative] = object_oid
+    return {
+        "status": "VERIFIED",
+        "commit_oid": commit_oid,
+        "config_blob_oid": config_oid,
+        "config_sha256": PREDICTIVE_ROUTE_RECONCILIATION_V1_CONFIG_SHA256,
+        "artifact_digest": contract["artifact_digest"],
+        "source_set_digest": contract["source_set_digest"],
+        "source_blob_oids": source_oids,
+    }
 
 
 def governance_request_identity_digest(request: Mapping[str, Any]) -> str:
@@ -1296,8 +1409,8 @@ def _is_digest(value: object) -> bool:
 
 __all__ = [
     "ADAPTIVE_RESEARCH_ELIGIBILITY_FACT",
-    "ENGINEERING_EXECUTION_ID",
     "ENGINEERING_APPROVED_EVENT",
+    "ENGINEERING_EXECUTION_ID",
     "ENGINEERING_REQUEST_ID",
     "ENGINEERING_REVIEWER_APPROVAL_DECISION_ID",
     "EQUAL_BUDGET_COMPARISON_RELATIONSHIP",
@@ -1310,8 +1423,8 @@ __all__ = [
     "P4_TASK_KEY",
     "P5_TASK_KEY",
     "P6_TASK_KEY",
-    "POLICY_RESEARCH_EXECUTION_ID",
     "POLICY_RESEARCH_APPROVED_EVENT",
+    "POLICY_RESEARCH_EXECUTION_ID",
     "POLICY_RESEARCH_REQUEST_ID",
     "POLICY_RESEARCH_REQUEST_KEY",
     "POLICY_REVIEWER_APPROVAL_DECISION_ID",
@@ -1328,14 +1441,16 @@ __all__ = [
     "PREDICTIVE_ROUTE_RECONCILIATION_SOURCE_CONTRACT_PATH",
     "PREDICTIVE_ROUTE_RECONCILIATION_STATIC_MANIFEST_DIGEST",
     "PREDICTIVE_ROUTE_RECONCILIATION_TASK_KEY",
-    "PredictiveRouteReconciliationArtifacts",
-    "PredictiveRouteReconciliationError",
-    "ROUTE_RESEARCH_EXECUTION_ID",
+    "PREDICTIVE_ROUTE_RECONCILIATION_V1_CONFIG_SHA256",
+    "PREDICTIVE_ROUTE_RECONCILIATION_V1_HISTORICAL_COMMIT",
     "ROUTE_RESEARCH_APPROVED_EVENT",
+    "ROUTE_RESEARCH_EXECUTION_ID",
     "ROUTE_RESEARCH_REQUEST_ID",
     "ROUTE_RESEARCH_REQUEST_KEY",
     "ROUTE_REVIEWER_APPROVAL_DECISION_ID",
     "STRUCTURAL_P3_TERMINAL_DECISION",
+    "PredictiveRouteReconciliationArtifacts",
+    "PredictiveRouteReconciliationError",
     "build_predictive_route_reconciliation_artifacts",
     "governance_execution_metadata_digest",
     "governance_request_identity_digest",
@@ -1346,4 +1461,5 @@ __all__ = [
     "validate_repaired_manifest_structure",
     "validate_result_blind_authorizations",
     "verify_predictive_route_reconciliation_source_bytes",
+    "verify_predictive_route_reconciliation_v1_historical_git_objects",
 ]

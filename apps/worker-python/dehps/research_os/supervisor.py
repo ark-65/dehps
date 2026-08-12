@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import json
 import math
 import os
@@ -10,7 +11,7 @@ import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -226,6 +227,18 @@ from dehps.research_os.information_theory.measurement_system_v2.joint_residual_i
 )
 from dehps.research_os.information_theory.measurement_system_v2.joint_residual_increment import (
     WARMUP_REQUEST_PAYLOAD_DIGEST as JOINT_SUCCESSOR_WARMUP_REQUEST_DIGEST,
+)
+from dehps.research_os.information_theory.measurement_system_v2.m4_v2_increment_execution_support import (
+    AcceptedWorkloadContractError,
+    build_full_transcript,
+    build_resume_index,
+    next_coordinate_for_prefix,
+)
+from dehps.research_os.information_theory.measurement_system_v2.m4_v2_joint_residual_increment_execution import (
+    iter_joint_residual_increment_accepted_parent_events,
+)
+from dehps.research_os.information_theory.measurement_system_v2.m4_v2_temporal_marginal_increment_execution import (
+    iter_temporal_marginal_increment_accepted_parent_events,
 )
 from dehps.research_os.information_theory.measurement_system_v2.marginal_static_contract import (
     MARGINAL_STATIC_CONTRACT_FREEZE_CAPABILITY,
@@ -1001,6 +1014,7 @@ from dehps.research_os.models import (
     M4_V2_MEASUREMENT_CONTRACT_KEY,
     CompletionClassification,
     ControlPlaneManifest,
+    M4V2BranchDecisionArtifact,
     MainlineArtifactRegistration,
     MainlineExecutionEvent,
     ResearchOSValidationError,
@@ -1010,6 +1024,7 @@ from dehps.research_os.models import (
     governance_request_identity_digest,
     governance_reviewer_decision_digest,
     jsonable,
+    m4_v2_build_artifact_envelope,
     m4_v2_domain_digest,
     stable_hash,
 )
@@ -1232,13 +1247,20 @@ M4_V2_SUCCESSOR_SOURCE_SPECS: dict[str, dict[str, Any]] = {
         ),
     },
     "temporal": {
-        "path": "configs/research-os/m4-v2-temporal-marginal-increment-source-v2.json",
-        "schema": "dehps-m4-v2-temporal-marginal-increment-source-contract.v2",
+        "path": "configs/research-os/m4-v2-temporal-marginal-increment-source-v3.json",
+        "historical_path": "configs/research-os/m4-v2-temporal-marginal-increment-source-v2.json",
+        "selector": "temporal_v3",
+        "schema": "dehps-m4-v2-temporal-marginal-increment-source-contract.v3",
         "artifact_type": "m4_v2_temporal_marginal_increment_source_contract",
-        "fact": "m4-v2-temporal-marginal-increment-contract:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
+        "fact": "m4-v2-temporal-marginal-increment-contract-v3:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
         "research_context_fingerprint": "4fe8d963c603053d68e3891bbc75d080f4258325a26e029151c9332b233c2353",
         "entries": (
             "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/temporal_marginal_increment.py",
+            "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_temporal_marginal_increment_execution.py",
+            "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_legal_fixed_cardinality.py",
+            "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_increment_fixture_generators.py",
+            "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_increment_execution_support.py",
+            "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/temporal_probability_capsule.py",
             "apps/worker-python/dehps/research_os/supervisor.py",
             "apps/worker-python/dehps/research_os/information_theory/progress.py",
             "apps/worker-python/dehps/research_os/control_plane.py",
@@ -1248,13 +1270,20 @@ M4_V2_SUCCESSOR_SOURCE_SPECS: dict[str, dict[str, Any]] = {
         ),
     },
     "joint": {
-        "path": "configs/research-os/m4-v2-joint-residual-increment-source-v2.json",
-        "schema": "dehps-m4-v2-joint-residual-increment-source-contract.v2",
+        "path": "configs/research-os/m4-v2-joint-residual-increment-source-v3.json",
+        "historical_path": "configs/research-os/m4-v2-joint-residual-increment-source-v2.json",
+        "selector": "joint_v3",
+        "schema": "dehps-m4-v2-joint-residual-increment-source-contract.v3",
         "artifact_type": "m4_v2_joint_residual_increment_source_contract",
-        "fact": "m4-v2-joint-residual-increment-contract:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
+        "fact": "m4-v2-joint-residual-increment-contract-v3:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
         "research_context_fingerprint": "f589cc50a0de7c85338c1beaaa1edc4901d8ba4b3aa71ddd9620632ff7f2d5cc",
         "entries": (
             "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/joint_residual_increment.py",
+            "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_joint_residual_increment_execution.py",
+            "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_legal_fixed_cardinality.py",
+            "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_increment_fixture_generators.py",
+            "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/m4_v2_increment_execution_support.py",
+            "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/temporal_probability_capsule.py",
             "apps/worker-python/dehps/research_os/supervisor.py",
             "apps/worker-python/dehps/research_os/information_theory/progress.py",
             "apps/worker-python/dehps/research_os/control_plane.py",
@@ -1282,6 +1311,34 @@ M4_V2_SUCCESSOR_SOURCE_SPECS: dict[str, dict[str, Any]] = {
 }
 M4_V2_SOURCE_SET_DIGEST_DOMAIN = "dehps.m4.v2.successor-source-set.v1"
 M4_V2_SOURCE_CONTRACT_DIGEST_DOMAIN = "dehps.m4.v2.successor-source-contract.v1"
+M4_V2_HISTORICAL_SOURCE_PIN = "4e787ebc1b13e1a16fe42b80054cb2a01f4c0b6b"
+M4_V2_HISTORICAL_SOURCE_IDENTITIES: Mapping[str, tuple[str, str]] = {
+    "marginal": (
+        "34a49fd24be7c696636bb584a379776155407b8af2b120adfbffc2edfcea3857",
+        "4044017cd97206e7c5ede4e18e22365988822370eb285c2d21fc74b71ee02917",
+    ),
+    "temporal": (
+        "eb306e418182c8d2fc39272aa653018a9f5ad6afcbcf0c4825d88f09a8980c37",
+        "347871439de9af2736ba2eefa69c21bd2122bdecfaab77cf49b9830a1d56268a",
+    ),
+    "joint": (
+        "f7345320fc87b601cbdae58e2064ff89dc2195c449efcd70d043441067af0a44",
+        "a43b774b2d2889f1f4611b3859915a78662f0783060f29e852129cfda8e72a68",
+    ),
+    "global": (
+        "6ca7ae72f61ac14be9e29d18c74e1fab8444426b14b37ec137dc1c116a94783c",
+        "3aa4bc089b0925f6f3885290f7207ba7ede0337691d7685ae92ac179083a1a07",
+    ),
+}
+M4_V2_ACCEPTED_WORKLOAD_REGISTERED_INPUT_DIGESTS: Mapping[str, str] = {
+    "dataset_snapshot_artifact_digest": "999064903fa8a040520ab2a664a1ce3ec35321a90f0e5823626194c64c8d98c6",
+    "dataset_content_digest": "8f7b7527d6ee95301b58002e594b0955b7e0f391421b8c438b87fc4f2507b106",
+    "fold_manifest_artifact_digest": "5a68579161ad5528ee15b8b1ea3e314d6acb05203885a5514e5654da026e9ad7",
+    "checkpoint_order_manifest_artifact_digest": "40b85566e977311438add76d301d9614050bfac7fa0de618c1f415299f8b88cd",
+    "resampling_manifest_artifact_digest": "0115e6143760309409cadce212921b52d5a9448a237b86b0a620542e189ea135",
+    "historical_execution_plan_artifact_digest": "f8491fa0c1c13848979814a00387a197c6140270c55dd4fbe77849060f92f198",
+    "fixture_source_artifact_digest": "391acc6a04518389f841e94a640a14dcaf98bd2c36614d31a0e713446980b06d",
+}
 M4_V2_SUCCESSOR_GOVERNANCE_BINDINGS: tuple[dict[str, Any], ...] = (
     {
         "request_id": 478,
@@ -1489,6 +1546,14 @@ class MainlineSupervisorError(RuntimeError):
 
 class AtomicPublicationGovernanceIncident(MainlineSupervisorError):
     """A completion may be committed; no compensating durable write is legal."""
+
+
+class AcceptedWorkloadRecoveryRequired(MainlineSupervisorError):
+    """Durable workload progress exists and the same execution must resume."""
+
+
+class AcceptedWorkloadGovernanceIncident(AtomicPublicationGovernanceIncident):
+    """Durable accepted-workload bytes conflict with the frozen contract."""
 
 
 _EXECUTION_COMMIT_REPLAY_TASK_KEYS = frozenset(
@@ -1820,6 +1885,7 @@ class AtomicCapabilityResult:
     execution_metadata: tuple[tuple[str, Any], ...] = ()
     actual_fold_count: int = 0
     workload_rerun: bool = False
+    owned_files: tuple[tuple[str, Mapping[str, Any]], ...] = ()
 
 
 def _load_object(path: Path) -> dict[str, Any]:
@@ -2160,6 +2226,84 @@ def _atomic_publish_noreplace(
     return stat.st_dev, stat.st_ino, True
 
 
+def _atomic_rename_exchange(left: Path, right: Path) -> None:
+    libc = ctypes.CDLL(None, use_errno=True)
+    renameat2 = getattr(libc, "renameat2", None)
+    if renameat2 is None:
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 resume exchange is unavailable"
+        )
+    result = renameat2(
+        ctypes.c_int(-100), ctypes.c_char_p(os.fsencode(left)),
+        ctypes.c_int(-100), ctypes.c_char_p(os.fsencode(right)),
+        ctypes.c_uint(2),
+    )
+    if result != 0:
+        error = ctypes.get_errno()
+        raise AtomicPublicationGovernanceIncident(
+            f"M4-v2 resume exchange failed with errno {error}"
+        )
+    _atomic_fsync_directory(left.parent)
+    if right.parent != left.parent:
+        _atomic_fsync_directory(right.parent)
+
+
+def _accepted_workload_relative_root(*, task_key: str, execution_id: str) -> str:
+    return (
+        f"runtime/research-os/mainline/tasks/{task_key}/{execution_id}/"
+        "accepted-workload"
+    )
+
+
+def _publish_accepted_workload_event_and_resume(
+    *, root_dir: Path, task_key: str, execution_id: str,
+    event: Mapping[str, Any], resume_index: Mapping[str, Any],
+) -> tuple[str, str]:
+    """Durably publish one event before atomically advancing its resume root."""
+
+    relative_root = _accepted_workload_relative_root(
+        task_key=task_key, execution_id=execution_id
+    )
+    base = root_dir / relative_root
+    pending = base / ".pending"
+    event_digest = str(event.get("event_digest") or "")
+    event_index = event.get("event_index")
+    resume_digest = str(resume_index.get("resume_index_digest") or "")
+    if (
+        not isinstance(event_index, int) or event_index < 0
+        or len(event_digest) != 64 or len(resume_digest) != 64
+    ):
+        raise MainlineSupervisorError("M4-v2 accepted-workload journal identity changed")
+    event_relative = f"{relative_root}/events/{event_index:08d}-{event_digest}.json"
+    event_path = root_dir / event_relative
+    event_pending = pending / f"event-{event_index:08d}-{event_digest}.json"
+    event_content = _atomic_artifact_bytes(event)
+    pending.mkdir(parents=True, exist_ok=True)
+    if not event_pending.exists():
+        _atomic_write_staged_file(event_pending, event_content)
+    elif event_pending.read_bytes() != event_content:
+        raise AtomicPublicationGovernanceIncident("M4-v2 pending event collision")
+    _atomic_publish_noreplace(event_pending, event_path)
+    resume_relative = f"{relative_root}/resume-index.json"
+    resume_path = root_dir / resume_relative
+    resume_pending = pending / f"resume-index-{resume_digest}.json"
+    resume_content = _atomic_artifact_bytes(resume_index)
+    if not resume_pending.exists():
+        _atomic_write_staged_file(resume_pending, resume_content)
+    elif resume_pending.read_bytes() != resume_content:
+        raise AtomicPublicationGovernanceIncident("M4-v2 pending resume collision")
+    if not resume_path.exists():
+        _atomic_publish_noreplace(resume_pending, resume_path)
+    elif resume_path.read_bytes() == resume_content:
+        resume_pending.unlink()
+        _atomic_fsync_directory(resume_pending.parent)
+    else:
+        _atomic_rename_exchange(resume_pending, resume_path)
+        resume_pending.unlink()
+        _atomic_fsync_directory(resume_pending.parent)
+    return event_relative, resume_relative
+
+
 def _atomic_repository_json(value: Any) -> str:
     return json.dumps(
         jsonable(value),
@@ -2178,6 +2322,15 @@ def _load_m4_v2_successor_source_contract(
         raise MainlineSupervisorError("M4-v2 successor source family is unknown") from exc
     path = root_dir / str(spec["path"])
     contract = _load_object(path)
+    if family in {"temporal", "joint"}:
+        return _validate_m4_v2_active_v3_source_contract(
+            root_dir=root_dir, family=family, spec=spec, contract=contract
+        )
+    return verify_m4_v2_historical_successor_source_contract(
+        root_dir=root_dir, family=family
+    )
+    # The legacy live-byte verifier below is intentionally unreachable: legacy
+    # contracts are audit-only raw Git objects after Request512.
     expected_fields = {
         "schema_version",
         "artifact_type",
@@ -2254,6 +2407,192 @@ def _load_m4_v2_successor_source_contract(
     ):
         raise MainlineSupervisorError("M4-v2 successor source identity changed")
     return contract
+
+
+def _validate_m4_v2_active_v3_source_contract(
+    *, root_dir: Path, family: str, spec: Mapping[str, Any], contract: Mapping[str, Any]
+) -> dict[str, Any]:
+    expected_fields = {
+        "schema_version", "artifact_type", "artifact_digest", "contract_key",
+        "measurement_contract_key", "measurement_contract_digest", "source_fact",
+        "supersedes_v2_artifact_digest", "supersedes_v2_source_set_digest",
+        "source_path_array_contract_version", "source_path_array_digest",
+        "source_entries", "source_set_digest", "accepted_support_input_schema",
+        "merged_authority_binding_map_digest", "probability_composition_repair_digest",
+        "corrected_amendment_contract_digest", "corrected_resolved_contract_digest",
+        "corrected_request501_rebased_addendum_digest", "seed_contract",
+        "seed_contract_digest", "production_action",
+    }
+    expected_array_digest = {
+        "temporal": "c3aa7e4fbb5a60393e68582ebf9b47d572892b8c2a8494db8065b8a604ab1898",
+        "joint": "b9d51e1feb75e656708e410c9f719d839fedc3ed5c6dc2eae9929be8bfdcb60d",
+    }[family]
+    expected_superseded = {
+        "temporal": (
+            "eb306e418182c8d2fc39272aa653018a9f5ad6afcbcf0c4825d88f09a8980c37",
+            "347871439de9af2736ba2eefa69c21bd2122bdecfaab77cf49b9830a1d56268a",
+        ),
+        "joint": (
+            "f7345320fc87b601cbdae58e2064ff89dc2195c449efcd70d043441067af0a44",
+            "a43b774b2d2889f1f4611b3859915a78662f0783060f29e852129cfda8e72a68",
+        ),
+    }[family]
+    entries = contract.get("source_entries")
+    if (
+        set(contract) != expected_fields
+        or contract.get("schema_version") != spec["schema"]
+        or contract.get("artifact_type") != spec["artifact_type"]
+        or contract.get("source_fact") != spec["fact"]
+        or contract.get("source_path_array_contract_version") != 4
+        or contract.get("source_path_array_digest") != expected_array_digest
+        or (contract.get("supersedes_v2_artifact_digest"), contract.get("supersedes_v2_source_set_digest")) != expected_superseded
+        or contract.get("accepted_support_input_schema") != "dehps-m4-v2-accepted-support-input.v3"
+        or not isinstance(contract.get("seed_contract"), Mapping)
+        or contract.get("seed_contract", {}).get("seed_contract_digest")
+        != contract.get("seed_contract_digest")
+        or contract.get("production_action") != "none"
+        or not isinstance(entries, list)
+        or len(entries) != 12
+    ):
+        raise MainlineSupervisorError("M4-v2 active v3 source contract changed")
+    verified: list[dict[str, str]] = []
+    for raw, expected_path in zip(entries, spec["entries"], strict=True):
+        if not isinstance(raw, Mapping) or set(raw) != {"path", "sha256"}:
+            raise MainlineSupervisorError("M4-v2 active v3 source entry shape changed")
+        source_path = str(raw["path"])
+        expected_sha = str(raw["sha256"])
+        absolute = (root_dir / source_path).resolve()
+        if (
+            source_path != expected_path
+            or absolute != root_dir.resolve() / source_path
+            or not absolute.is_file()
+            or sha256(absolute.read_bytes()).hexdigest() != expected_sha
+        ):
+            raise MainlineSupervisorError(f"M4-v2 active v3 source bytes changed: {source_path}")
+        verified.append({"path": source_path, "sha256": expected_sha})
+    source_set = m4_v2_domain_digest(
+        {"source_entries": verified}, domain=M4_V2_SOURCE_SET_DIGEST_DOMAIN
+    )
+    identity = dict(contract)
+    identity.pop("artifact_digest")
+    if (
+        contract.get("source_set_digest") != source_set
+        or contract.get("artifact_digest")
+        != m4_v2_domain_digest(identity, domain=M4_V2_SOURCE_CONTRACT_DIGEST_DOMAIN)
+    ):
+        raise MainlineSupervisorError("M4-v2 active v3 source identity changed")
+    return dict(contract)
+
+
+def _m4_v2_raw_git_blob(*, root_dir: Path, commit: str, path: str) -> bytes:
+    """Read one ordinary blob from the pinned object database, never worktree bytes."""
+
+    environment = dict(os.environ)
+    environment["GIT_NO_REPLACE_OBJECTS"] = "1"
+    try:
+        entry = subprocess.run(
+            ["git", "ls-tree", commit, "--", path],
+            cwd=root_dir,
+            env=environment,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        fields = entry.split(None, 3)
+        if len(fields) != 4 or fields[0] != "100644" or fields[1] != "blob":
+            raise MainlineSupervisorError(
+                f"M4-v2 historical source is not an ordinary blob: {path}"
+            )
+        object_id = fields[2]
+        result = subprocess.run(
+            ["git", "cat-file", "blob", object_id],
+            cwd=root_dir,
+            env=environment,
+            check=True,
+            capture_output=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise MainlineSupervisorError(
+            f"M4-v2 historical source object unavailable: {path}"
+        ) from exc
+    return result.stdout
+
+
+def verify_m4_v2_historical_successor_source_contract(
+    *, root_dir: Path, family: str
+) -> dict[str, Any]:
+    """Audit a legacy source contract entirely at the frozen historical commit.
+
+    This API is deliberately separate from production dispatch.  A successful
+    historical audit grants no authority to select a legacy runner.
+    """
+
+    if family not in M4_V2_HISTORICAL_SOURCE_IDENTITIES:
+        raise MainlineSupervisorError("M4-v2 historical source family is unknown")
+    spec = M4_V2_SUCCESSOR_SOURCE_SPECS[family]
+    config_path = str(spec.get("historical_path", spec["path"]))
+    raw_contract = _m4_v2_raw_git_blob(
+        root_dir=root_dir,
+        commit=M4_V2_HISTORICAL_SOURCE_PIN,
+        path=config_path,
+    )
+    try:
+        contract = json.loads(raw_contract)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise MainlineSupervisorError(
+            "M4-v2 historical source contract is not canonical JSON"
+        ) from exc
+    if not isinstance(contract, dict) or set(contract) < {
+        "artifact_digest", "source_set_digest", "source_entries"
+    }:
+        raise MainlineSupervisorError("M4-v2 historical source contract changed")
+    artifact_digest, source_set_digest = M4_V2_HISTORICAL_SOURCE_IDENTITIES[family]
+    if (
+        contract.get("artifact_digest") != artifact_digest
+        or contract.get("source_set_digest") != source_set_digest
+    ):
+        raise MainlineSupervisorError("M4-v2 historical source identity changed")
+    entries = contract.get("source_entries")
+    if not isinstance(entries, list) or len(entries) != 7:
+        raise MainlineSupervisorError("M4-v2 historical source entry order changed")
+    verified_entries: list[dict[str, str]] = []
+    for raw in entries:
+        if not isinstance(raw, Mapping) or set(raw) != {"path", "sha256"}:
+            raise MainlineSupervisorError("M4-v2 historical source entry shape changed")
+        source_path = str(raw["path"])
+        content = _m4_v2_raw_git_blob(
+            root_dir=root_dir,
+            commit=M4_V2_HISTORICAL_SOURCE_PIN,
+            path=source_path,
+        )
+        if sha256(content).hexdigest() != raw["sha256"]:
+            raise MainlineSupervisorError(
+                f"M4-v2 historical source bytes changed: {source_path}"
+            )
+        verified_entries.append({"path": source_path, "sha256": str(raw["sha256"])})
+    observed_source_set = m4_v2_domain_digest(
+        {"source_entries": verified_entries}, domain=M4_V2_SOURCE_SET_DIGEST_DOMAIN
+    )
+    identity = dict(contract)
+    identity.pop("artifact_digest")
+    if (
+        observed_source_set != source_set_digest
+        or m4_v2_domain_digest(identity, domain=M4_V2_SOURCE_CONTRACT_DIGEST_DOMAIN)
+        != artifact_digest
+    ):
+        raise MainlineSupervisorError("M4-v2 historical source identity changed")
+    return contract
+
+
+def load_m4_v2_active_successor_source_contract(
+    *, root_dir: Path, selector: str
+) -> dict[str, Any]:
+    """Resolve only the two live production selectors authorized by Request512."""
+
+    family = {"temporal_v3": "temporal", "joint_v3": "joint"}.get(selector)
+    if family is None:
+        raise MainlineSupervisorError("M4-v2 active successor selector is not authorized")
+    return _load_m4_v2_successor_source_contract(root_dir=root_dir, family=family)
 
 
 def _verify_m4_v2_successor_governance(
@@ -18649,6 +18988,153 @@ class M4V2SuccessorCapability:
         )
         return execution, registration, artifact
 
+    def _exact_registered_artifact(
+        self, *, control_plane_key: str, artifact_digest: str,
+        expected_artifact_type: str | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Resolve one immutable artifact only by its full registered digest."""
+
+        with self.repository.connection_factory() as connection, connection.cursor(
+            row_factory=dict_row
+        ) as cursor:
+            rows = cursor.execute(
+                """
+                SELECT registration_digest, registration_json
+                FROM research_os_mainline_artifacts
+                WHERE control_plane_key = %s
+                  AND registration_json ->> 'artifact_digest' = %s
+                ORDER BY registration_digest
+                """,
+                (control_plane_key, artifact_digest),
+            ).fetchall()
+        if len(rows) != 1:
+            raise MainlineSupervisorError(
+                f"M4-v2 exact registered digest is not unique: {artifact_digest}"
+            )
+        registration = {
+            "registration_digest": str(rows[0]["registration_digest"]),
+            **dict(rows[0]["registration_json"]),
+        }
+        record = _registration_record(registration)
+        if record.artifact_digest != artifact_digest or (
+            expected_artifact_type is not None
+            and record.artifact_type != expected_artifact_type
+        ):
+            raise MainlineSupervisorError("M4-v2 exact registered identity changed")
+        path = _canonical_task_artifact_path(
+            root_dir=self.root_dir, control_plane_key=control_plane_key,
+            task_key=record.task_key, execution_id=record.execution_id,
+            relative_path=record.artifact_path,
+        )
+        artifact = _load_object(path)
+        if (
+            artifact.get("artifact_digest") != artifact_digest
+            or artifact.get("artifact_type") != record.artifact_type
+            or artifact.get("schema_version") != record.schema_version
+            or tuple(str(item) for item in artifact.get("parent_digests", ()))
+            != record.parent_digests
+        ):
+            raise MainlineSupervisorError("M4-v2 exact registered content changed")
+        return registration, artifact
+
+    def _accepted_workload_bundle(
+        self, *, control_plane_key: str, branch_id: str, source: Mapping[str, Any],
+        preregistration: Mapping[str, Any], parent_records: Sequence[Mapping[str, Any]],
+        producer_execution_id: str,
+    ) -> dict[str, Any]:
+        decisions = [dict(item["decision"]) for item in parent_records]
+        replays = [dict(item["replay"]) for item in parent_records]
+        support_digest = str(decisions[-1]["body"]["accepted_model_artifact_digest"])
+        support_registration, support = self._exact_registered_artifact(
+            control_plane_key=control_plane_key, artifact_digest=support_digest
+        )
+        static: dict[str, dict[str, Any]] = {}
+        for field, digest in M4_V2_ACCEPTED_WORKLOAD_REGISTERED_INPUT_DIGESTS.items():
+            if field == "dataset_content_digest":
+                continue
+            _, static[field] = self._exact_registered_artifact(
+                control_plane_key=control_plane_key, artifact_digest=digest
+            )
+        marginal_digest = (
+            "bdb89dd183846e4124654b57021be9892158b2b1387a8ca08d476283e0e2ed87"
+        )
+        _, marginal_raw_p = self._exact_registered_artifact(
+            control_plane_key=control_plane_key, artifact_digest=marginal_digest
+        )
+        holm = [marginal_raw_p]
+        if branch_id == "JOINT_RESIDUAL_INCREMENT":
+            temporal_historical = []
+            for parent_digest in support.get("parent_digests", []):
+                try:
+                    _, candidate = self._exact_registered_artifact(
+                        control_plane_key=control_plane_key, artifact_digest=str(parent_digest),
+                        expected_artifact_type="M4V2TemporalMarginalIncrementHistoricalAggregateArtifact",
+                    )
+                except MainlineSupervisorError:
+                    continue
+                temporal_historical.append(candidate)
+            if len(temporal_historical) != 1:
+                raise MainlineSupervisorError(
+                    "M4-v2 Temporal raw-p lineage is not exact"
+                )
+            holm.append(temporal_historical[0])
+        source_seed = source.get("seed_contract")
+        if not isinstance(source_seed, Mapping):
+            raise MainlineSupervisorError("M4-v2 active source seed contract is missing")
+        roots = source_seed["upstream_seed_and_resampling_contract"]["root_seeds"]
+        bundle: dict[str, Any] = {
+            "schema_version": (
+                "m4-v2-temporal-accepted-parent-workload-input.v2"
+                if branch_id == "TEMPORAL_MARGINAL_INCREMENT"
+                else "m4-v2-joint-accepted-parent-workload-input.v2"
+            ),
+            "branch_id": branch_id,
+            "source_contract_artifact_digest": source["artifact_digest"],
+            "source_set_digest": source["source_set_digest"],
+            "preregistration_artifact_digest": preregistration["artifact_digest"],
+            "producer_execution_id": producer_execution_id,
+            "ordered_parent_decision_artifact_digests": [item["artifact_digest"] for item in decisions],
+            "ordered_parent_replay_artifact_digests": [item["artifact_digest"] for item in replays],
+            "accepted_support_model_artifact_digest": support_digest,
+            "accepted_support_model_registration_digest": support_registration["registration_digest"],
+            "ordered_holm_lineage_artifact_digests": [item["artifact_digest"] for item in holm],
+            **M4_V2_ACCEPTED_WORKLOAD_REGISTERED_INPUT_DIGESTS,
+            "synthetic_root_seed_full_sha256": roots["synthetic"]["known_material_full_sha256"],
+            "historical_root_seed_full_sha256": roots["historical"]["known_material_full_sha256"],
+            "warmup_request_payload_digest": preregistration["body"]["warmup_request_payload_digest"],
+            "runtime_contract": {
+                "python_implementation": "cpython", "python_version": "3.14.4",
+                "numpy_version": "2.4.6", "byteorder": "little",
+                "float_identity": "IEEE-754 binary64 values serialized only by the already frozen float.hex and big-endian transport rules",
+                "mismatch_rule": "fail before workload start; no compatibility fallback",
+            },
+            "resolved_inputs": {
+                "source_contract_envelope": dict(source),
+                "preregistration_envelope": dict(preregistration),
+                "ordered_parent_decision_envelopes": decisions,
+                "ordered_parent_replay_envelopes": replays,
+                "accepted_support_model_envelope": support,
+                "accepted_support_model_registration_record": support_registration,
+                "ordered_holm_lineage_envelopes": holm,
+                "dataset_snapshot_envelope": static["dataset_snapshot_artifact_digest"],
+                "fold_manifest_envelope": static["fold_manifest_artifact_digest"],
+                "checkpoint_order_manifest_envelope": static["checkpoint_order_manifest_artifact_digest"],
+                "resampling_manifest_envelope": static["resampling_manifest_artifact_digest"],
+                "historical_execution_plan_envelope": static["historical_execution_plan_artifact_digest"],
+                "fixture_source_envelope": static["fixture_source_artifact_digest"],
+                "seed_contract": dict(source_seed),
+            },
+        }
+        bundle["input_bundle_digest"] = m4_v2_domain_digest(
+            bundle,
+            domain=(
+                "dehps.m4.v2.temporal.accepted-workload-input-bundle.v2"
+                if branch_id == "TEMPORAL_MARGINAL_INCREMENT"
+                else "dehps.m4.v2.joint.accepted-workload-input-bundle.v2"
+            ),
+        )
+        return bundle
+
     def _source(self, family: str, task: Task) -> dict[str, Any]:
         source = _load_m4_v2_successor_source_contract(
             root_dir=self.root_dir,
@@ -18886,9 +19372,7 @@ class M4V2SuccessorCapability:
                 "fold_contract_digest": self._contract_digest(
                     family=family, source=source, name="fold"
                 ),
-                "seed_contract_digest": self._contract_digest(
-                    family=family, source=source, name="seed"
-                ),
+                "seed_contract_digest": source["seed_contract_digest"],
                 "numerical_contract_digest": self._contract_digest(
                     family=family, source=source, name="numerical"
                 ),
@@ -18968,9 +19452,7 @@ class M4V2SuccessorCapability:
             "fold_contract_digest": self._contract_digest(
                 family=family, source=source, name="fold"
             ),
-            "seed_contract_digest": self._contract_digest(
-                family=family, source=source, name="seed"
-            ),
+            "seed_contract_digest": source["seed_contract_digest"],
             "numerical_contract_digest": self._contract_digest(
                 family=family, source=source, name="numerical"
             ),
@@ -19202,6 +19684,381 @@ class M4V2SuccessorCapability:
             workload_rerun=False,
         )
 
+    def _run_accepted_workload_events(
+        self, *, task: Task, execution_id: str, branch_id: str,
+        bundle: Mapping[str, Any], iterator: Callable[..., Any],
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any], tuple[tuple[str, Mapping[str, Any]], ...]]:
+        relative_root = _accepted_workload_relative_root(
+            task_key=task.task_key, execution_id=execution_id
+        )
+        resume_path = self.root_dir / relative_root / "resume-index.json"
+        resume = _load_object(resume_path) if resume_path.is_file() else None
+        events = list(resume.get("events", [])) if isinstance(resume, Mapping) else []
+        computation = bundle["resolved_inputs"]["historical_execution_plan_envelope"]["body"][
+            "accepted_workload_computation"
+        ]
+        folds = [
+            (int(item["evaluation_ordinal"]), str(item["issue"]))
+            for item in computation["historical_fold_commits_in_order"]
+        ]
+        schemes = [
+            str(item["scheme_id"])
+            for item in computation["historical_sensitivity_summaries_in_order"]
+        ]
+        for event in iterator(bundle, resume_index=resume):
+            event_value = dict(event)
+            events.append(event_value)
+            next_coordinate = next_coordinate_for_prefix(
+                events, fold_coordinates=folds, sensitivity_scheme_ids=schemes
+            )
+            resume = build_resume_index(
+                branch_id=branch_id, input_bundle_digest=bundle["input_bundle_digest"],
+                producer_execution_id=execution_id, events=events,
+                next_coordinate=next_coordinate,
+            )
+            _publish_accepted_workload_event_and_resume(
+                root_dir=self.root_dir, task_key=task.task_key,
+                execution_id=execution_id, event=event_value, resume_index=resume,
+            )
+        if not events or events[-1].get("event_type") != "TERMINAL_OUTCOME":
+            raise MainlineSupervisorError("M4-v2 accepted workload did not terminate")
+        transcript = build_full_transcript(
+            branch_id=branch_id, input_bundle_digest=bundle["input_bundle_digest"],
+            producer_execution_id=execution_id, events=events,
+        )
+        if not isinstance(resume, Mapping) or resume.get("terminal_seen") is not True:
+            raise MainlineSupervisorError("M4-v2 accepted workload final resume is missing")
+        owned = tuple(
+            (
+                f"{relative_root}/events/{event['event_index']:08d}-{event['event_digest']}.json",
+                event,
+            )
+            for event in events
+        ) + (
+            (f"{relative_root}/transcript.json", transcript),
+            (f"{relative_root}/resume-index.json", dict(resume)),
+        )
+        return events, dict(resume), transcript, owned
+
+    @staticmethod
+    def _compile_started_health_repair(
+        *, branch_id: str, bundle: Mapping[str, Any], terminal: Mapping[str, Any],
+        owned_files: tuple[tuple[str, Mapping[str, Any]], ...],
+    ) -> AtomicCapabilityResult:
+        subpath = terminal["execution_subpath"]
+        if subpath not in {
+            "EARLY_IDENTITY_VALID_HEALTH_REPAIR", "STARTED_PARTIAL_HEALTH_REPAIR"
+        }:
+            raise MainlineSupervisorError(
+                "M4-v2 accepted terminal requires the frozen v2 compiler"
+            )
+        temporal_branch = branch_id == "TEMPORAL_MARGINAL_INCREMENT"
+        failure_type = (
+            "M4V2TemporalMarginalIncrementScientificFailureArtifact"
+            if temporal_branch else "M4V2JointResidualScientificFailureArtifact"
+        )
+        failure_schema = (
+            "dehps-m4-v2-temporal-marginal-increment-scientific-failure.v3"
+            if temporal_branch else "dehps-m4-v2-joint-residual-scientific-failure.v3"
+        )
+        failure = m4_v2_build_artifact_envelope(
+            artifact_type=failure_type, schema_version=failure_schema,
+            body=terminal["failure_artifact_body_or_null"],
+            parent_digests=(
+                bundle["source_contract_artifact_digest"],
+                bundle["preregistration_artifact_digest"],
+            ),
+        )
+        if failure["artifact_digest"] != terminal["expected_failure_artifact_digest_or_null"]:
+            raise MainlineSupervisorError("M4-v2 expected Failure v3 digest changed")
+        decision_parents = [
+            bundle["source_contract_artifact_digest"],
+            bundle["preregistration_artifact_digest"],
+        ]
+        for decision_digest, replay_digest in zip(
+            bundle["ordered_parent_decision_artifact_digests"],
+            bundle["ordered_parent_replay_artifact_digests"], strict=True,
+        ):
+            decision_parents.extend((decision_digest, replay_digest))
+        decision_parents.append(failure["artifact_digest"])
+        decision = M4V2BranchDecisionArtifact(
+            measurement_contract_key=M4_V2_MEASUREMENT_CONTRACT_KEY,
+            measurement_contract_digest=M4_V2_MEASUREMENT_CONTRACT_DIGEST,
+            branch_id=branch_id, estimand_digest=M4_V2_ESTIMAND_DIGESTS[branch_id],
+            decision_path=terminal["decision_path"],
+            terminal_decision=terminal["terminal_decision"],
+            scientific_decision=terminal["scientific_decision"],
+            evaluation_status=terminal["evaluation_status"],
+            measurement_health=terminal["measurement_health"],
+            historical_evidence=terminal["historical_evidence"],
+            accepted_for_downstream_baseline=False,
+            accepted_model_artifact_digest=None, baseline_artifact_digest=None,
+            baseline_source_model_artifact_digest=None,
+            producer_task_key=(TEMPORAL_PRODUCER_TASK_KEY if temporal_branch else JOINT_PRODUCER_TASK_KEY),
+            producer_execution_id=bundle["producer_execution_id"],
+            parent_digests=tuple(decision_parents),
+        ).to_dict()
+        replicate_count = terminal["completed_resample_count"] // 2044
+        completion_type = (
+            "M4V2TemporalMarginalIncrementProducerCompletionArtifact"
+            if temporal_branch else "M4V2JointResidualProducerCompletionArtifact"
+        )
+        completion_schema = (
+            "dehps-m4-v2-temporal-marginal-increment-producer-completion.v3"
+            if temporal_branch else "dehps-m4-v2-joint-residual-producer-completion.v3"
+        )
+        completion_body = {
+            "status": "COMPLETE", "measurement_contract_key": M4_V2_MEASUREMENT_CONTRACT_KEY,
+            "measurement_contract_digest": M4_V2_MEASUREMENT_CONTRACT_DIGEST,
+            "branch_id": branch_id, "estimand_digest": M4_V2_ESTIMAND_DIGESTS[branch_id],
+            "decision_path": "IDENTITY_VALID_HEALTH_REPAIR",
+            "source_contract_digest": bundle["source_contract_artifact_digest"],
+            "preregistration_artifact_digest": bundle["preregistration_artifact_digest"],
+            "registered_artifact_digests_in_order": [failure["artifact_digest"], decision["artifact_digest"]],
+            "decision_artifact_digest": decision["artifact_digest"],
+            "terminal_fact": TEMPORAL_TERMINAL_FACT if temporal_branch else JOINT_TERMINAL_FACT,
+            "completion_fact": TEMPORAL_PRODUCER_COMPLETION_FACT if temporal_branch else JOINT_PRODUCER_COMPLETION_FACT,
+            "registration_count_including_mainline_execution": 4,
+            "historical_outcomes_read": 0, "synthetic_replicate_count": replicate_count,
+            "warmup_transition_count_per_replicate": 0 if replicate_count == 0 else 899,
+            "warmup_alias_position_count": 899 * replicate_count,
+            "historical_fold_count": 0,
+            "bootstrap_resample_count": terminal["completed_resample_count"],
+            "evidence_created": False, "promotion_gate_opened": False,
+            "production_action": "none",
+            "exact_consumer": TEMPORAL_REPLAY_TASK_KEY if temporal_branch else JOINT_REPLAY_TASK_KEY,
+        }
+        completion = m4_v2_build_artifact_envelope(
+            artifact_type=completion_type, schema_version=completion_schema,
+            body=completion_body,
+            parent_digests=(
+                bundle["source_contract_artifact_digest"],
+                bundle["preregistration_artifact_digest"],
+                failure["artifact_digest"], decision["artifact_digest"],
+            ),
+        )
+        return AtomicCapabilityResult(
+            artifacts=(
+                AtomicArtifactPayload("scientific-failure", "failure.json", failure),
+                AtomicArtifactPayload("branch-decision", "decision.json", decision),
+                AtomicArtifactPayload(
+                    "temporal-marginal-increment-completion" if temporal_branch else "joint-residual-completion",
+                    "completion.json", completion,
+                ),
+            ),
+            completion_facts=(
+                TEMPORAL_TERMINAL_FACT if temporal_branch else JOINT_TERMINAL_FACT,
+                TEMPORAL_PRODUCER_COMPLETION_FACT if temporal_branch else JOINT_PRODUCER_COMPLETION_FACT,
+            ),
+            execution_metadata=(
+                ("input_bundle_digest", bundle["input_bundle_digest"]),
+                ("branch_id", branch_id), ("execution_subpath", subpath),
+                ("decision_path", terminal["decision_path"]),
+                ("decision_artifact_digest", decision["artifact_digest"]),
+                ("completion_artifact_digest", completion["artifact_digest"]),
+            ),
+            owned_files=owned_files,
+        )
+
+    @staticmethod
+    def _compile_v2_terminal(
+        *, branch_id: str, bundle: Mapping[str, Any], terminal: Mapping[str, Any],
+        owned_files: tuple[tuple[str, Mapping[str, Any]], ...],
+    ) -> AtomicCapabilityResult:
+        temporal_branch = branch_id == "TEMPORAL_MARGINAL_INCREMENT"
+        source_digest = bundle["source_contract_artifact_digest"]
+        prereg_digest = bundle["preregistration_artifact_digest"]
+        parent_pairs = [
+            digest
+            for pair in zip(
+                bundle["ordered_parent_decision_artifact_digests"],
+                bundle["ordered_parent_replay_artifact_digests"], strict=True,
+            )
+            for digest in pair
+        ]
+        artifact_specs = (
+            {
+                "health": "M4V2TemporalMarginalIncrementHealthAggregateArtifact",
+                "historical": "M4V2TemporalMarginalIncrementHistoricalAggregateArtifact",
+                "candidate": "M4V2TemporalMarginalIncrementCandidateModelArtifact",
+                "failure": "M4V2TemporalMarginalIncrementScientificFailureArtifact",
+                "completion": "M4V2TemporalMarginalIncrementProducerCompletionArtifact",
+            }
+            if temporal_branch
+            else {
+                "baseline": "M4V2JointResidualMaximumEntropyBaselineArtifact",
+                "health": "M4V2JointResidualMeasurementHealthArtifact",
+                "historical": "M4V2JointResidualHistoricalExecutionArtifact",
+                "candidate": "M4V2JointResidualCandidateModelArtifact",
+                "failure": "M4V2JointResidualScientificFailureArtifact",
+                "completion": "M4V2JointResidualProducerCompletionArtifact",
+            }
+        )
+        built: dict[str, dict[str, Any]] = {}
+
+        def build(name: str, parents: Sequence[str]) -> None:
+            body = terminal[f"{name}_artifact_body_or_null"]
+            if body is None:
+                return
+            envelope = m4_v2_build_artifact_envelope(
+                artifact_type=artifact_specs[name], body=body, parent_digests=parents
+            )
+            if envelope["artifact_digest"] != terminal[f"expected_{name}_artifact_digest_or_null"]:
+                raise MainlineSupervisorError(
+                    f"M4-v2 expected {name} artifact digest changed"
+                )
+            built[name] = envelope
+
+        if not temporal_branch and terminal["baseline_artifact_body_or_null"] is not None:
+            baseline_body = terminal["baseline_artifact_body_or_null"]
+            build(
+                "baseline",
+                (source_digest, prereg_digest, baseline_body["temporal_parent_candidate_artifact_digest"]),
+            )
+        health_body = terminal["health_artifact_body_or_null"]
+        if health_body is not None:
+            health_parents = [source_digest, prereg_digest, *parent_pairs]
+            if not temporal_branch and terminal["execution_subpath"] == "EVALUATED_COMPLETE":
+                health_parents.append(built["baseline"]["artifact_digest"])
+            build("health", health_parents)
+        historical_body = terminal["historical_artifact_body_or_null"]
+        if historical_body is not None:
+            if temporal_branch:
+                historical_parents = (
+                    source_digest, prereg_digest, built["health"]["artifact_digest"],
+                    historical_body["marginal_raw_p_artifact_digest"],
+                )
+            else:
+                historical_parents = (
+                    source_digest, prereg_digest, built["baseline"]["artifact_digest"],
+                    built["health"]["artifact_digest"],
+                    historical_body["marginal_raw_p_artifact_digest"],
+                    historical_body["temporal_raw_p_artifact_digest"],
+                )
+            build("historical", historical_parents)
+        candidate_body = terminal["candidate_artifact_body_or_null"]
+        if candidate_body is not None:
+            candidate_parents = (
+                source_digest, built["historical"]["artifact_digest"],
+                *(
+                    (
+                        candidate_body["marginal_parent_model_artifact_digest"],
+                        candidate_body["marginal_parent_probability_chain_digest"],
+                    )
+                    if temporal_branch
+                    else (
+                        built["baseline"]["artifact_digest"],
+                        candidate_body["temporal_parent_candidate_artifact_digest"],
+                    )
+                ),
+            )
+            build("candidate", candidate_parents)
+        failure_body = terminal["failure_artifact_body_or_null"]
+        if failure_body is not None:
+            failure_parents = [source_digest, prereg_digest]
+            if terminal["failure_stage"] == "HISTORICAL":
+                failure_parents.append(built["health"]["artifact_digest"])
+            build("failure", failure_parents)
+        ordered_names = (
+            ("health", "historical", "candidate")
+            if temporal_branch and terminal["execution_subpath"] == "EVALUATED_COMPLETE"
+            else ("baseline", "health", "historical", "candidate")
+            if terminal["execution_subpath"] == "EVALUATED_COMPLETE"
+            else ("health", "failure")
+            if terminal["failure_stage"] == "HISTORICAL"
+            else ("health",)
+            if "health" in built
+            else ("failure",)
+        )
+        leaves = [built[name] for name in ordered_names if name in built]
+        accepted = terminal["terminal_decision"] == "BRANCH_INFORMATION_ACCEPTED"
+        candidate_digest = built.get("candidate", {}).get("artifact_digest")
+        baseline_digest = (
+            bundle["accepted_support_model_artifact_digest"]
+            if temporal_branch and candidate_digest is not None
+            else built.get("baseline", {}).get("artifact_digest")
+        )
+        baseline_source = (
+            bundle["accepted_support_model_artifact_digest"]
+            if candidate_digest is not None else None
+        )
+        decision = M4V2BranchDecisionArtifact(
+            measurement_contract_key=M4_V2_MEASUREMENT_CONTRACT_KEY,
+            measurement_contract_digest=M4_V2_MEASUREMENT_CONTRACT_DIGEST,
+            branch_id=branch_id, estimand_digest=M4_V2_ESTIMAND_DIGESTS[branch_id],
+            decision_path=terminal["decision_path"],
+            terminal_decision=terminal["terminal_decision"],
+            scientific_decision=terminal["scientific_decision"],
+            evaluation_status=terminal["evaluation_status"],
+            measurement_health=terminal["measurement_health"],
+            historical_evidence=terminal["historical_evidence"],
+            accepted_for_downstream_baseline=accepted,
+            accepted_model_artifact_digest=candidate_digest,
+            baseline_artifact_digest=baseline_digest,
+            baseline_source_model_artifact_digest=baseline_source,
+            producer_task_key=TEMPORAL_PRODUCER_TASK_KEY if temporal_branch else JOINT_PRODUCER_TASK_KEY,
+            producer_execution_id=bundle["producer_execution_id"],
+            parent_digests=(source_digest, prereg_digest, *parent_pairs, *(item["artifact_digest"] for item in leaves)),
+        ).to_dict()
+        preceding = [*leaves, decision]
+        completion_body = {
+            "status": "COMPLETE", "measurement_contract_key": M4_V2_MEASUREMENT_CONTRACT_KEY,
+            "measurement_contract_digest": M4_V2_MEASUREMENT_CONTRACT_DIGEST,
+            "branch_id": branch_id, "estimand_digest": M4_V2_ESTIMAND_DIGESTS[branch_id],
+            "decision_path": terminal["decision_path"], "source_contract_digest": source_digest,
+            "preregistration_artifact_digest": prereg_digest,
+            "registered_artifact_digests_in_order": [item["artifact_digest"] for item in preceding],
+            "decision_artifact_digest": decision["artifact_digest"],
+            "terminal_fact": TEMPORAL_TERMINAL_FACT if temporal_branch else JOINT_TERMINAL_FACT,
+            "completion_fact": TEMPORAL_PRODUCER_COMPLETION_FACT if temporal_branch else JOINT_PRODUCER_COMPLETION_FACT,
+            "registration_count_including_mainline_execution": len(preceding) + 2,
+            "historical_outcomes_read": terminal["completed_fold_count"],
+            "synthetic_replicate_count": sum(
+                1 for _, value in owned_files if value.get("event_type") == "HEALTH_REPLICATE_COMMIT"
+            ),
+            "warmup_transition_count_per_replicate": 899 if any(
+                value.get("event_type") == "HEALTH_REPLICATE_COMMIT" for _, value in owned_files
+            ) else 0,
+            "warmup_alias_position_count": 899 * sum(
+                1 for _, value in owned_files if value.get("event_type") == "HEALTH_REPLICATE_COMMIT"
+            ),
+            "historical_fold_count": terminal["completed_fold_count"],
+            "bootstrap_resample_count": terminal["completed_resample_count"],
+            "evidence_created": False, "promotion_gate_opened": False,
+            "production_action": "none",
+            "exact_consumer": TEMPORAL_REPLAY_TASK_KEY if temporal_branch else JOINT_REPLAY_TASK_KEY,
+        }
+        completion = m4_v2_build_artifact_envelope(
+            artifact_type=artifact_specs["completion"], body=completion_body,
+            parent_digests=(source_digest, prereg_digest, *(item["artifact_digest"] for item in preceding)),
+        )
+        all_artifacts = [
+            AtomicArtifactPayload(name, f"{name}.json", artifact)
+            for name, artifact in ((name, built[name]) for name in ordered_names if name in built)
+        ] + [
+            AtomicArtifactPayload("branch-decision", "decision.json", decision),
+            AtomicArtifactPayload(
+                "temporal-marginal-increment-completion" if temporal_branch else "joint-residual-completion",
+                "completion.json", completion,
+            ),
+        ]
+        return AtomicCapabilityResult(
+            artifacts=tuple(all_artifacts),
+            completion_facts=(
+                TEMPORAL_TERMINAL_FACT if temporal_branch else JOINT_TERMINAL_FACT,
+                TEMPORAL_PRODUCER_COMPLETION_FACT if temporal_branch else JOINT_PRODUCER_COMPLETION_FACT,
+            ),
+            execution_metadata=(
+                ("input_bundle_digest", bundle["input_bundle_digest"]),
+                ("branch_id", branch_id),
+                ("execution_subpath", terminal["execution_subpath"]),
+                ("decision_path", terminal["decision_path"]),
+                ("decision_artifact_digest", decision["artifact_digest"]),
+                ("completion_artifact_digest", completion["artifact_digest"]),
+            ),
+            actual_fold_count=terminal["completed_fold_count"], owned_files=owned_files,
+        )
+
     def _temporal_producer(
         self,
         *,
@@ -19220,6 +20077,31 @@ class M4V2SuccessorCapability:
             decision_task_key=M4_V2_SUCCESSOR_MARGINAL_DECISION_TASK_KEY,
             replay_task_key=M4_V2_SUCCESSOR_MARGINAL_REPLAY_TASK_KEY,
         )
+        if parent["decision"].get("body", {}).get("accepted_for_downstream_baseline") is True:
+            bundle = self._accepted_workload_bundle(
+                control_plane_key=control_plane_key,
+                branch_id="TEMPORAL_MARGINAL_INCREMENT", source=source,
+                preregistration=preregistration, parent_records=(parent,),
+                producer_execution_id=execution_id,
+            )
+            events, _, _, owned = self._run_accepted_workload_events(
+                task=task, execution_id=execution_id,
+                branch_id="TEMPORAL_MARGINAL_INCREMENT", bundle=bundle,
+                iterator=iter_temporal_marginal_increment_accepted_parent_events,
+            )
+            terminal = events[-1]["payload"]
+            compiler = (
+                self._compile_started_health_repair
+                if terminal["execution_subpath"] in {
+                    "EARLY_IDENTITY_VALID_HEALTH_REPAIR",
+                    "STARTED_PARTIAL_HEALTH_REPAIR",
+                }
+                else self._compile_v2_terminal
+            )
+            return compiler(
+                branch_id="TEMPORAL_MARGINAL_INCREMENT", bundle=bundle,
+                terminal=terminal, owned_files=owned,
+            )
         decision, completion = build_temporal_parent_not_accepted_path(
             source_contract_digest=source["artifact_digest"],
             preregistration_artifact_digest=preregistration["artifact_digest"],
@@ -19272,6 +20154,34 @@ class M4V2SuccessorCapability:
             decision_task_key=TEMPORAL_PRODUCER_TASK_KEY,
             replay_task_key=TEMPORAL_REPLAY_TASK_KEY,
         )
+        if all(
+            record["decision"].get("body", {}).get("accepted_for_downstream_baseline") is True
+            for record in (marginal, temporal)
+        ):
+            bundle = self._accepted_workload_bundle(
+                control_plane_key=control_plane_key,
+                branch_id="JOINT_RESIDUAL_INCREMENT", source=source,
+                preregistration=preregistration, parent_records=(marginal, temporal),
+                producer_execution_id=execution_id,
+            )
+            events, _, _, owned = self._run_accepted_workload_events(
+                task=task, execution_id=execution_id,
+                branch_id="JOINT_RESIDUAL_INCREMENT", bundle=bundle,
+                iterator=iter_joint_residual_increment_accepted_parent_events,
+            )
+            terminal = events[-1]["payload"]
+            compiler = (
+                self._compile_started_health_repair
+                if terminal["execution_subpath"] in {
+                    "EARLY_IDENTITY_VALID_HEALTH_REPAIR",
+                    "STARTED_PARTIAL_HEALTH_REPAIR",
+                }
+                else self._compile_v2_terminal
+            )
+            return compiler(
+                branch_id="JOINT_RESIDUAL_INCREMENT", bundle=bundle,
+                terminal=terminal, owned_files=owned,
+            )
         decision, completion = build_joint_parent_not_accepted_path(
             source_contract_digest=source["artifact_digest"],
             preregistration_artifact_digest=preregistration["artifact_digest"],
@@ -19481,7 +20391,7 @@ class ResearchEvidenceSupervisor:
         self.repository = repository or PostgresResearchOSRepository()
         self.control_plane_key = control_plane_key
         self.root_dir = root_dir
-        self.now = now or (lambda: datetime.now(timezone.utc))
+        self.now = now or (lambda: datetime.now(UTC))
         self.git_commit = git_commit
         self.require_clean_tree = require_clean_tree
         self.capabilities = {
@@ -20728,6 +21638,37 @@ class ResearchEvidenceSupervisor:
                 git_commit=git_commit,
             )
         except Exception as exc:
+            accepted_workload_resume = (
+                self.root_dir
+                / _accepted_workload_relative_root(
+                    task_key=task.task_key, execution_id=execution_id
+                )
+                / "resume-index.json"
+            )
+            if task.task_key in {TEMPORAL_PRODUCER_TASK_KEY, JOINT_PRODUCER_TASK_KEY} and accepted_workload_resume.is_file():
+                incident = isinstance(
+                    exc,
+                    (AcceptedWorkloadContractError, AtomicPublicationGovernanceIncident),
+                )
+                payload = {
+                    "schema_version": "dehps-research-evidence-supervisor-state.v1",
+                    "status": "GOVERNANCE_INCIDENT" if incident else "RECOVERY_REQUIRED",
+                    "control_plane_key": self.control_plane_key,
+                    "task_key": task.task_key,
+                    "execution_id": execution_id,
+                    "resume_index_path": str(accepted_workload_resume.relative_to(self.root_dir)),
+                    "dispatch_performed": True,
+                    "git_commit": git_commit,
+                    "heartbeat_at": self.now().isoformat(),
+                }
+                self._write_state(payload)
+                if incident:
+                    raise AcceptedWorkloadGovernanceIncident(
+                        "M4-v2 accepted-workload durable prefix is a governance incident"
+                    ) from exc
+                raise AcceptedWorkloadRecoveryRequired(
+                    "M4-v2 accepted-workload durable prefix requires resume"
+                ) from exc
             if isinstance(exc, AtomicPublicationGovernanceIncident):
                 self._write_state(
                     {
@@ -21102,11 +22043,14 @@ class ResearchEvidenceSupervisor:
             if actual != expected or len(completed_events) != 1:
                 return "INCIDENT"
             try:
-                _load_single_completed_execution(
+                _, execution, _ = _load_single_completed_execution(
                     repository=self.repository,
                     root_dir=self.root_dir,
                     control_plane_key=self.control_plane_key,
                     task_key=task.task_key,
+                )
+                self._verify_accepted_workload_owned_files(
+                    task=task, execution_id=execution_id, execution=execution
                 )
             except Exception:  # noqa: BLE001 - reconciliation is fail closed.
                 return "INCIDENT"
@@ -21118,6 +22062,30 @@ class ResearchEvidenceSupervisor:
         ):
             return "ABSENT"
         return "INCIDENT"
+
+    def _verify_accepted_workload_owned_files(
+        self, *, task: Task, execution_id: str, execution: Mapping[str, Any]
+    ) -> None:
+        paths = execution.get("owned_accepted_workload_paths", [])
+        digests = execution.get("owned_accepted_workload_sha256", [])
+        if not isinstance(paths, list) or not isinstance(digests, list) or len(paths) != len(digests):
+            raise MainlineSupervisorError("M4-v2 accepted-workload ownership changed")
+        prefix = (
+            f"runtime/research-os/mainline/tasks/{task.task_key}/{execution_id}/"
+            "accepted-workload/"
+        )
+        if len(paths) != len(set(paths)):
+            raise MainlineSupervisorError("M4-v2 accepted-workload ownership duplicated")
+        for relative_path, expected_digest in zip(paths, digests, strict=True):
+            if not isinstance(relative_path, str) or not relative_path.startswith(prefix):
+                raise MainlineSupervisorError("M4-v2 accepted-workload ownership escaped")
+            path = _canonical_task_artifact_path(
+                root_dir=self.root_dir, control_plane_key=self.control_plane_key,
+                task_key=task.task_key, execution_id=execution_id,
+                relative_path=relative_path,
+            )
+            if not path.is_file() or sha256(path.read_bytes()).hexdigest() != expected_digest:
+                raise MainlineSupervisorError("M4-v2 accepted-workload owned bytes changed")
 
     def _complete_atomic_capability(
         self,
@@ -21189,6 +22157,27 @@ class ResearchEvidenceSupervisor:
                 (artifact, payload, relative_path, _atomic_artifact_bytes(payload))
             )
 
+        owned_records: list[tuple[str, bytes, str]] = []
+        owned_prefix = (
+            f"runtime/research-os/mainline/tasks/{task.task_key}/{execution_id}/"
+            "accepted-workload/"
+        )
+        for relative_path, raw_payload in result.owned_files:
+            if (
+                not relative_path.startswith(owned_prefix)
+                or relative_path in seen_paths
+                or relative_path.endswith("/")
+            ):
+                raise MainlineSupervisorError("M4-v2 accepted-workload owned path changed")
+            _canonical_task_artifact_path(
+                root_dir=self.root_dir, control_plane_key=self.control_plane_key,
+                task_key=task.task_key, execution_id=execution_id,
+                relative_path=relative_path,
+            )
+            content = _atomic_artifact_bytes(raw_payload)
+            owned_records.append((relative_path, content, sha256(content).hexdigest()))
+            seen_paths.add(relative_path)
+
         execution_payload: dict[str, Any] = {
             "schema_version": MAINLINE_EXECUTION_SCHEMA,
             "artifact_type": "research_os_mainline_execution",
@@ -21213,6 +22202,8 @@ class ResearchEvidenceSupervisor:
             "production_action": "none",
             "git_commit": git_commit,
             "working_tree_clean": True,
+            "owned_accepted_workload_paths": [item[0] for item in owned_records],
+            "owned_accepted_workload_sha256": [item[2] for item in owned_records],
             **metadata,
             "parent_digests": [
                 *task.input_artifact_digests,
@@ -21331,6 +22322,7 @@ class ResearchEvidenceSupervisor:
                 (relative_path, content)
                 for _, _, relative_path, content in child_records
             ),
+            *((relative_path, content) for relative_path, content, _ in owned_records),
             (execution_relative_path, execution_bytes),
         ]
         try:
@@ -21461,6 +22453,9 @@ class ResearchEvidenceSupervisor:
                 raise MainlineSupervisorError(
                     "M4-v2 atomic readback identity changed"
                 )
+            self._verify_accepted_workload_owned_files(
+                task=task, execution_id=execution_id, execution=persisted_execution
+            )
             final_manifest = self.repository.load_manifest(
                 control_plane_key=self.control_plane_key
             )

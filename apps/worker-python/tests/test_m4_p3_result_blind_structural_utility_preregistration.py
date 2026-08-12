@@ -311,6 +311,17 @@ def _failed_recovery_inputs() -> tuple[dict, tuple[dict, ...], tuple[dict, ...]]
             "m4-p3-result-blind-structural-utility-evidence-compiler",
             "m4-p2r-measurement-repair-validation",
             "m4-p3-predictive-route-reconciliation",
+            "m4-v2-marginal-static-historical-identity-adoption",
+            "m4-v2-marginal-static-historical-branch-decision-replay",
+            "m4-v2-temporal-marginal-increment-historical-measurement-design",
+            "m4-v2-temporal-marginal-increment-historical-measurement-preregistration",
+            "m4-v2-temporal-marginal-increment-historical-measurement-gate-compiler",
+            "m4-v2-temporal-marginal-increment-historical-branch-decision-replay",
+            "m4-v2-joint-residual-increment-historical-measurement-design",
+            "m4-v2-joint-residual-increment-historical-measurement-preregistration",
+            "m4-v2-joint-residual-increment-historical-measurement-gate-compiler",
+            "m4-v2-joint-residual-increment-historical-branch-decision-replay",
+            "m4-p3-predictive-preregistration-freeze",
         }
     ]
     payload["facts"]["artifacts"] = [
@@ -328,8 +339,10 @@ def _failed_recovery_inputs() -> tuple[dict, tuple[dict, ...], tuple[dict, ...]]
         for item in payload["facts"]["external_events"]
         if item
         not in {
-            "research-contract:m4-p3-result-blind-structural-utility-"
-            "blind-generator-and-walk-forward:approved",
+            (
+                "research-contract:m4-p3-result-blind-structural-utility-"
+                "blind-generator-and-walk-forward:approved"
+            ),
             "research-contract:m4-p3-predictive-route-reconciliation:approved",
             "research-contract:m4-p2r-to-p6-dependency-policy:approved",
             "engineering-contract:m4-p3-predictive-route-reconciliation:approved",

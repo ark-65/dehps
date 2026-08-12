@@ -7,7 +7,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 from dehps.draw_sync.models import DrawSyncResult, DrawSyncStatus
 from dehps.draw_sync.scheduler import DrawSyncWatch
 from dehps.input_contracts.candidate_abi import candidate_unrank
@@ -84,6 +83,17 @@ from dehps.research_os.supervisor import (
 ROOT = Path(__file__).resolve().parents[3]
 MANIFEST_PATH = ROOT / "configs/prediction-v2/prediction-v2-shadow-mainline-v1.json"
 TEST_COMMIT = "a" * 40
+
+
+@pytest.fixture
+def inactive_legacy_retirement(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "dehps.prediction.v2.retirement.DEFAULT_ACTIVATION_PATH",
+        tmp_path / "legacy-retirement-not-activated.json",
+    )
+
+
+pytestmark = pytest.mark.usefixtures("inactive_legacy_retirement")
 
 
 def reference_history(*, count: int = 120, salt: int = 0) -> HistorySnapshotArtifact:

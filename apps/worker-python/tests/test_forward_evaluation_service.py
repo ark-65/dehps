@@ -2,7 +2,19 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
+import pytest
 from dehps.forward_runtime.evaluation_service import ForwardEvaluationService
+
+
+@pytest.fixture
+def inactive_legacy_retirement(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "dehps.prediction.v2.retirement.DEFAULT_ACTIVATION_PATH",
+        tmp_path / "legacy-retirement-not-activated.json",
+    )
+
+
+pytestmark = pytest.mark.usefixtures("inactive_legacy_retirement")
 
 
 def run_row() -> dict:

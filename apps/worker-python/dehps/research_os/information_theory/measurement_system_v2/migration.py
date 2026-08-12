@@ -22,6 +22,41 @@ GOAL_STATE_FIELDS = (
     "retired_at",
     "superseded_by_goal_digest",
 )
+M4_V2_VERSIONED_SUCCESSOR_SOURCE_FACTS = {
+    "TEMPORAL_MARGINAL_INCREMENT": {
+        "historical": (
+            "m4-v2-temporal-marginal-increment-contract:"
+            "M4_MEASUREMENT_CONTRACT_V2:FROZEN"
+        ),
+        "active": (
+            "m4-v2-temporal-marginal-increment-contract-v3:"
+            "M4_MEASUREMENT_CONTRACT_V2:FROZEN"
+        ),
+    },
+    "JOINT_RESIDUAL_INCREMENT": {
+        "historical": (
+            "m4-v2-joint-residual-increment-contract:"
+            "M4_MEASUREMENT_CONTRACT_V2:FROZEN"
+        ),
+        "active": (
+            "m4-v2-joint-residual-increment-contract-v3:"
+            "M4_MEASUREMENT_CONTRACT_V2:FROZEN"
+        ),
+    },
+}
+
+
+def require_versioned_successor_source_fact_retention(
+    artifact_facts: Iterable[str],
+) -> None:
+    """Reject an active v3 source fact that displaced its historical v2 fact."""
+
+    facts = set(artifact_facts)
+    for branch_id, identities in M4_V2_VERSIONED_SUCCESSOR_SOURCE_FACTS.items():
+        if identities["active"] in facts and identities["historical"] not in facts:
+            raise AdditiveManifestMigrationError(
+                f"manifest_migration_historical_source_fact_missing:{branch_id}"
+            )
 
 
 def require_sha256_digest(value: object, *, field_name: str) -> str:
@@ -176,6 +211,7 @@ def build_additive_m4_v2_manifest(
     output["facts"]["external_events"] = sorted(
         set(output["facts"]["external_events"]).union(requested_external_events)
     )
+    require_versioned_successor_source_fact_retention(output["facts"]["artifacts"])
     manifest = ControlPlaneManifest.from_dict(output)
     normalized = manifest.to_dict(include_digest=True)
 

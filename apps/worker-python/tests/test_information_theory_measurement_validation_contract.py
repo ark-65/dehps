@@ -186,6 +186,25 @@ def test_legacy_pass_fact_cannot_bypass_full_v2_global_routing() -> None:
         "m4-v2-routing:ADAPTIVE_RESEARCH_ELIGIBLE"
     )
     ready, states = _states(payload)
+    assert states["m4-p3-strict-historical-walk-forward"] == "dependency_wait"
+    assert "m4-p3-strict-historical-walk-forward" not in ready
+
+    payload["facts"]["artifacts"].extend(
+        [
+            "m4-v2-branch-decision-replay:MARGINAL_HISTORICAL:VERIFIED",
+            "m4-v2-branch-decision-replay:TEMPORAL_MARGINAL_INCREMENT:VERIFIED",
+            "m4-v2-branch-decision-replay:JOINT_RESIDUAL_INCREMENT:VERIFIED",
+        ]
+    )
+    ready, states = _states(payload)
+    assert states["m4-p3-strict-historical-walk-forward"] == "dependency_wait"
+    assert "m4-p3-strict-historical-walk-forward" not in ready
+
+    _set_task_complete(payload, "m4-p3-predictive-preregistration-freeze", "5" * 64)
+    payload["facts"]["artifacts"].append(
+        "m4-p3-predictive-preregistration:FROZEN"
+    )
+    ready, states = _states(payload)
     assert states["m4-p3-strict-historical-walk-forward"] == "ready"
     assert "m4-p3-strict-historical-walk-forward" in ready
 

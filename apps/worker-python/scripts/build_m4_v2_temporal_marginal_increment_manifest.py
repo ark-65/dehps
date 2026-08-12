@@ -22,6 +22,9 @@ CONTRACT_DIGEST = M4_V2_MEASUREMENT_CONTRACT_DIGEST
 BRANCH_ID = "TEMPORAL_MARGINAL_INCREMENT"
 ESTIMAND_DIGEST = M4_V2_ESTIMAND_DIGESTS[BRANCH_ID]
 SOURCE_FACT = (
+    "m4-v2-temporal-marginal-increment-contract-v3:M4_MEASUREMENT_CONTRACT_V2:FROZEN"
+)
+HISTORICAL_SOURCE_FACT = (
     "m4-v2-temporal-marginal-increment-contract:M4_MEASUREMENT_CONTRACT_V2:FROZEN"
 )
 PARENT_REPLAY_FACT = "m4-v2-historical-branch-decision-replay:M4_MEASUREMENT_CONTRACT_V2:MARGINAL_STATIC:VERIFIED"
@@ -262,7 +265,9 @@ def build_m4_v2_temporal_marginal_increment_manifest(
         ),
     )
     return build_additive_task_manifest(
-        live_payload=live_payload, new_tasks=tasks, add_artifact_facts=(SOURCE_FACT,)
+        live_payload=live_payload,
+        new_tasks=tasks,
+        add_artifact_facts=(HISTORICAL_SOURCE_FACT, SOURCE_FACT),
     )
 
 

@@ -121,6 +121,26 @@ M4_V2_SUCCESSOR_TASKS = {
     ),
     "global_routing": "m4-v2-global-routing",
 }
+M4_V2_ACTIVE_SUCCESSOR_SOURCE_CONTRACTS = {
+    "temporal_producer": {
+        "selector": "temporal_v3",
+        "schema_version": (
+            "dehps-m4-v2-temporal-marginal-increment-source-contract.v3"
+        ),
+        "source_fact": (
+            "m4-v2-temporal-marginal-increment-contract-v3:"
+            "M4_MEASUREMENT_CONTRACT_V2:FROZEN"
+        ),
+    },
+    "joint_producer": {
+        "selector": "joint_v3",
+        "schema_version": "dehps-m4-v2-joint-residual-increment-source-contract.v3",
+        "source_fact": (
+            "m4-v2-joint-residual-increment-contract-v3:"
+            "M4_MEASUREMENT_CONTRACT_V2:FROZEN"
+        ),
+    },
+}
 M4_P3_PREDICTIVE_PREREGISTRATION_TASK_KEY = (
     "m4-p3-predictive-preregistration-freeze"
 )
@@ -7385,6 +7405,7 @@ def build_m4_status(
                 "structural_contract_verified": successor_structure_verified,
                 "structural_contract_error": successor_structure_error,
                 "tasks": successor_task_projection,
+                "active_source_contracts": M4_V2_ACTIVE_SUCCESSOR_SOURCE_CONTRACTS,
                 "branch_order": list(M4_V2_SUCCESSOR_BRANCH_ORDER),
                 "missing_global_replay_facts": missing_global_routing_facts,
                 "available_global_route_facts": available_global_route_facts,

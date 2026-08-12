@@ -227,6 +227,18 @@ _REGISTRATION_ORDERS = MappingProxyType(
             TEMPORAL_COMPLETION_ARTIFACT,
             MAINLINE_EXECUTION_ARTIFACT,
         ),
+        "EARLY_IDENTITY_VALID_HEALTH_REPAIR": (
+            "M4V2TemporalMarginalIncrementScientificFailureArtifact@dehps-m4-v2-temporal-marginal-increment-scientific-failure.v3",
+            BRANCH_DECISION_ARTIFACT,
+            "M4V2TemporalMarginalIncrementProducerCompletionArtifact@dehps-m4-v2-temporal-marginal-increment-producer-completion.v3",
+            MAINLINE_EXECUTION_ARTIFACT,
+        ),
+        "STARTED_PARTIAL_HEALTH_REPAIR": (
+            "M4V2TemporalMarginalIncrementScientificFailureArtifact@dehps-m4-v2-temporal-marginal-increment-scientific-failure.v3",
+            BRANCH_DECISION_ARTIFACT,
+            "M4V2TemporalMarginalIncrementProducerCompletionArtifact@dehps-m4-v2-temporal-marginal-increment-producer-completion.v3",
+            MAINLINE_EXECUTION_ARTIFACT,
+        ),
         "IDENTITY_VALID_HEALTH_INVALID": (
             TEMPORAL_FAILURE_ARTIFACT,
             BRANCH_DECISION_ARTIFACT,
@@ -255,6 +267,8 @@ _FULL_PATH_COUNTS = MappingProxyType(
         "EVALUATED_COMPLETE": 12,
         "PARENT_NOT_ACCEPTED": 9,
         "IDENTITY_VALID_HEALTH_REPAIR": 10,
+        "EARLY_IDENTITY_VALID_HEALTH_REPAIR": 10,
+        "STARTED_PARTIAL_HEALTH_REPAIR": 10,
         "IDENTITY_VALID_HEALTH_INVALID": 10,
         "IDENTITY_VALID_HISTORICAL_REPAIR": 11,
         "IDENTITY_VALID_HISTORICAL_INVALID": 11,
@@ -2299,6 +2313,26 @@ def _validate_temporal_artifact_body(
                 "temporal_candidate_status_mismatch"
             )
         validate_temporal_candidate_lineage(body)
+        if "probability_capsule_index" in body:
+            from .temporal_probability_capsule import (
+                EVALUATOR_CONTRACT_DIGEST,
+                validate_probability_capsule_index,
+            )
+
+            capsule = validate_probability_capsule_index(
+                body.get("probability_capsule_index")
+            )
+            if (
+                body.get("probability_capsule_index_digest")
+                != capsule["index_digest"]
+                or body.get("probability_capsule_evaluator_contract_digest")
+                != EVALUATOR_CONTRACT_DIGEST
+                or body.get("source_contract_digest")
+                != capsule["producer_source_contract_digest"]
+            ):
+                raise TemporalMarginalIncrementContractError(
+                    "temporal_candidate_v3_capsule_owner_mismatch"
+                )
     elif artifact_type == TEMPORAL_HEALTH_ARTIFACT:
         path = body.get("decision_path")
         health_by_path = {

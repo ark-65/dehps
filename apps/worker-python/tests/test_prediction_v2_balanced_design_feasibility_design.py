@@ -193,6 +193,17 @@ def _historical_recovery_base() -> dict:
             "m4-p3-result-blind-structural-utility-evidence-compiler",
             "m4-p2r-measurement-repair-validation",
             "m4-p3-predictive-route-reconciliation",
+            "m4-v2-marginal-static-historical-identity-adoption",
+            "m4-v2-marginal-static-historical-branch-decision-replay",
+            "m4-v2-temporal-marginal-increment-historical-measurement-design",
+            "m4-v2-temporal-marginal-increment-historical-measurement-preregistration",
+            "m4-v2-temporal-marginal-increment-historical-measurement-gate-compiler",
+            "m4-v2-temporal-marginal-increment-historical-branch-decision-replay",
+            "m4-v2-joint-residual-increment-historical-measurement-design",
+            "m4-v2-joint-residual-increment-historical-measurement-preregistration",
+            "m4-v2-joint-residual-increment-historical-measurement-gate-compiler",
+            "m4-v2-joint-residual-increment-historical-branch-decision-replay",
+            "m4-p3-predictive-preregistration-freeze",
         }
     ]
     payload["facts"]["artifacts"] = [

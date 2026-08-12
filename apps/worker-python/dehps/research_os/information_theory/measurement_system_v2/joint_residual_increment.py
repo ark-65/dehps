@@ -231,6 +231,18 @@ _REGISTRATION_ORDERS = MappingProxyType(
             JOINT_COMPLETION_ARTIFACT,
             MAINLINE_EXECUTION_ARTIFACT,
         ),
+        "EARLY_IDENTITY_VALID_HEALTH_REPAIR": (
+            "M4V2JointResidualScientificFailureArtifact@dehps-m4-v2-joint-residual-scientific-failure.v3",
+            BRANCH_DECISION_ARTIFACT,
+            "M4V2JointResidualProducerCompletionArtifact@dehps-m4-v2-joint-residual-producer-completion.v3",
+            MAINLINE_EXECUTION_ARTIFACT,
+        ),
+        "STARTED_PARTIAL_HEALTH_REPAIR": (
+            "M4V2JointResidualScientificFailureArtifact@dehps-m4-v2-joint-residual-scientific-failure.v3",
+            BRANCH_DECISION_ARTIFACT,
+            "M4V2JointResidualProducerCompletionArtifact@dehps-m4-v2-joint-residual-producer-completion.v3",
+            MAINLINE_EXECUTION_ARTIFACT,
+        ),
         "IDENTITY_VALID_HEALTH_INVALID": (
             JOINT_FAILURE_ARTIFACT,
             BRANCH_DECISION_ARTIFACT,
@@ -259,6 +271,8 @@ _FULL_PATH_COUNTS = MappingProxyType(
         "EVALUATED_COMPLETE": 13,
         "PARENT_NOT_ACCEPTED": 9,
         "IDENTITY_VALID_HEALTH_REPAIR": 10,
+        "EARLY_IDENTITY_VALID_HEALTH_REPAIR": 10,
+        "STARTED_PARTIAL_HEALTH_REPAIR": 10,
         "IDENTITY_VALID_HEALTH_INVALID": 10,
         "IDENTITY_VALID_HISTORICAL_REPAIR": 11,
         "IDENTITY_VALID_HISTORICAL_INVALID": 11,

@@ -3,12 +3,15 @@ from __future__ import annotations
 import json
 import re
 from datetime import datetime, timezone
-from itertools import islice, combinations
+from itertools import combinations, islice
 from pathlib import Path
 
 import pytest
-
-from dehps.notifications.mail import MailDeliveryError, MailDeliveryReceipt, QqMailConfig
+from dehps.notifications.mail import (
+    MailDeliveryError,
+    MailDeliveryReceipt,
+    QqMailConfig,
+)
 from dehps.notifications.mainline_prediction import (
     MainlinePredictionMailError,
     MainlinePredictionNotificationService,
@@ -18,9 +21,19 @@ from dehps.notifications.mainline_prediction import (
     require_pre_draw_delivery_window,
 )
 
-
 RECIPIENT = "receiver@vip.qq.com"
 AUTHORIZATION_CODE = "abcdefghijklmnop"
+
+
+@pytest.fixture
+def inactive_legacy_retirement(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "dehps.prediction.v2.retirement.DEFAULT_ACTIVATION_PATH",
+        tmp_path / "legacy-retirement-not-activated.json",
+    )
+
+
+pytestmark = pytest.mark.usefixtures("inactive_legacy_retirement")
 
 
 def _payload() -> dict:

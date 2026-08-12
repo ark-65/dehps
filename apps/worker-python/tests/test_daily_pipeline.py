@@ -4,8 +4,18 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from scripts.daily_pipeline import run_pipeline
+
+
+@pytest.fixture
+def inactive_legacy_retirement(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "dehps.prediction.v2.retirement.DEFAULT_ACTIVATION_PATH",
+        tmp_path / "legacy-retirement-not-activated.json",
+    )
+
+
+pytestmark = pytest.mark.usefixtures("inactive_legacy_retirement")
 
 
 class ForwardEvaluator:
