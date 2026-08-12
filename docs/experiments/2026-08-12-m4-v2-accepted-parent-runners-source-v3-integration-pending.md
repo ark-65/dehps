@@ -8,8 +8,8 @@ explicitly bound to their live v3 source contracts without executing a workload.
 
 ## Round boundary
 
-The implementation is owned by approved Engineering Request 513 and Execution
-427. It preserves the frozen science, terminal discriminants, registration
+The implementation is owned by approved Engineering Request 523 and Execution
+436. It preserves the frozen science, terminal discriminants, registration
 orders, seeds, fold chronology, artifact counts, and parent decisions. This
 round did not run the Research Evidence Supervisor, either registered workload,
 replay, Global routing, P3/P4, or Promotion.
@@ -26,17 +26,23 @@ blobs at pinned commit `4e787ebc1b13e1a16fe42b80054cb2a01f4c0b6b`.
 | Link | Code path | Evidence in this round | Status |
 | --- | --- | --- | --- |
 | Goal | M4 information-theory evidence | Existing canonical Goal retained | CODE_COMPLETE |
-| Resolver | Exact parent/support/source digest lookup | Artificial focused tests only | CODE_COMPLETE |
-| Ready Queue | v3 source facts and accepted parent gates | Manifest/static validation only | CODE_COMPLETE |
-| Supervisor | Event/resume/transcript publisher | Not executed | INTEGRATION_PENDING |
-| Capability | Temporal and Joint accepted-parent iterators | Artificial fixtures only | CODE_COMPLETE |
+| Resolver | Exact parent/support/source digest lookup | Registered-envelope counterexample tests | CODE_COMPLETE |
+| Ready Queue | v3 source facts and accepted parent gates | Manifest/static validation | CODE_COMPLETE |
+| Supervisor | Event/delta/snapshot/reference/head publisher | Fault-matrix tests only; not executed live | INTEGRATION_PENDING |
+| Capability | Temporal and Joint accepted-parent iterators | Registered-shape pure computation and terminal-owner tests | CODE_COMPLETE |
 | Artifacts | Versioned v3 terminal envelopes and owned nested files | Not published | INTEGRATION_PENDING |
 | Status | Unified successor projection | Static validation only | INTEGRATION_PENDING |
 | Next Task | Replay then Global routing | Not dispatched | INTEGRATION_PENDING |
 
-Next consumers are an independent review, a ready-for-review PR and CI, then a
+Independent code review passed after the crash-window and seven-terminal owner
+counterexamples were closed. Focused validation completed with 65 passing
+tests; the first Worker full-suite pass exposed a stale manifest self-digest,
+and all 151 affected failures/errors passed after that exact digest repair. The
+final Worker full suite completed with 2,512 passed, 4 skipped, and zero
+failures/errors. The four pre-existing skips were not added or relaxed here.
+
+Next consumers are a ready-for-review PR and CI, then a
 separately approved Operator execution for additive manifest adoption, unified
 mainline workload execution, and deterministic replay.
 
 MAINLINE INTEGRATION: **NO — INTEGRATION_PENDING**.
-

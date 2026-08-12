@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import ctypes
+import errno
 import json
 import math
 import os
+import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -232,7 +235,17 @@ from dehps.research_os.information_theory.measurement_system_v2.m4_v2_increment_
     AcceptedWorkloadContractError,
     build_full_transcript,
     build_resume_index,
-    next_coordinate_for_prefix,
+    build_resume_journal_head_v2,
+    build_resume_journal_transition,
+    is_resume_checkpoint_count,
+    next_coordinate_after_event,
+    validate_event,
+    validate_registered_computation_inputs,
+    validate_resume_checkpoint_reference_v2,
+    validate_resume_delta_v2,
+    validate_resume_index,
+    validate_resume_journal_head_v2,
+    validate_resume_snapshot_v1,
 )
 from dehps.research_os.information_theory.measurement_system_v2.m4_v2_joint_residual_increment_execution import (
     iter_joint_residual_increment_accepted_parent_events,
@@ -876,6 +889,12 @@ from dehps.research_os.information_theory.measurement_system_v2.temporal_margina
 )
 from dehps.research_os.information_theory.measurement_system_v2.temporal_marginal_increment import (
     WARMUP_REQUEST_PAYLOAD_DIGEST as TEMPORAL_SUCCESSOR_WARMUP_REQUEST_DIGEST,
+)
+from dehps.research_os.information_theory.measurement_system_v2.temporal_probability_capsule import (
+    BLAS_LAPACK_BINARY_CLOSURE_DIGEST,
+    NUMERIC_RUNTIME_CONTRACT_DIGEST,
+    WORKER_IMAGE_DIGEST,
+    validate_numeric_runtime_contract,
 )
 from dehps.research_os.information_theory.measurement_validation import (
     FIXTURE_GIT_COMMIT,
@@ -2248,10 +2267,1463 @@ def _atomic_rename_exchange(left: Path, right: Path) -> None:
         _atomic_fsync_directory(right.parent)
 
 
+def _atomic_publish_noreplace_same_directory(source: Path, destination: Path) -> None:
+    """Publish one immutable journal inode with Linux RENAME_NOREPLACE."""
+
+    if source.parent != destination.parent:
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 immutable journal publish crossed a directory"
+        )
+    directory_fd = os.open(
+        source.parent,
+        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
+    )
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        renameat2 = getattr(libc, "renameat2", None)
+        if renameat2 is None:
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 immutable journal renameat2 is unavailable"
+            )
+        result = renameat2(
+            ctypes.c_int(directory_fd), ctypes.c_char_p(os.fsencode(source.name)),
+            ctypes.c_int(directory_fd), ctypes.c_char_p(os.fsencode(destination.name)),
+            ctypes.c_uint(1),
+        )
+        error = ctypes.get_errno() if result != 0 else 0
+        if result == 0:
+            os.fsync(directory_fd)
+            return
+    finally:
+        os.close(directory_fd)
+    if error == errno.EEXIST:
+        if (
+            destination.is_symlink() or not destination.is_file()
+            or destination.read_bytes() != source.read_bytes()
+        ):
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 immutable journal canonical collision"
+            )
+        source.unlink()
+        _atomic_fsync_directory(source.parent)
+        return
+    if error == errno.EXDEV:
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 immutable journal cross-filesystem rename rejected"
+        )
+    raise AtomicPublicationGovernanceIncident(
+        f"M4-v2 immutable journal publish failed with errno {error}"
+    )
+
+
+def _atomic_write_staged_same_directory(
+    directory: Path, name: str, content: bytes,
+) -> Path:
+    if not name or "/" in name or "\\" in name or "\x00" in name:
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 immutable staged name is noncanonical"
+        )
+    directory_fd = os.open(
+        directory,
+        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
+    )
+    try:
+        descriptor = os.open(
+            name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+            dir_fd=directory_fd,
+        )
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise AtomicPublicationGovernanceIncident(
+                    "M4-v2 immutable staged inode is non-regular"
+                )
+            view = memoryview(content)
+            while view:
+                written = os.write(descriptor, view)
+                view = view[written:]
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+    return directory / name
+
+
+def _atomic_exchange_same_directory(left: Path, right: Path) -> None:
+    if left.parent != right.parent:
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 head exchange crossed a directory"
+        )
+    directory_fd = os.open(
+        left.parent,
+        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0),
+    )
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        renameat2 = getattr(libc, "renameat2", None)
+        if renameat2 is None:
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 head exchange is unavailable"
+            )
+        result = renameat2(
+            ctypes.c_int(directory_fd), ctypes.c_char_p(os.fsencode(left.name)),
+            ctypes.c_int(directory_fd), ctypes.c_char_p(os.fsencode(right.name)),
+            ctypes.c_uint(2),
+        )
+        if result != 0:
+            error = ctypes.get_errno()
+            if error == errno.EXDEV:
+                raise AtomicPublicationGovernanceIncident(
+                    "M4-v2 head cross-filesystem exchange rejected"
+                )
+            raise AtomicPublicationGovernanceIncident(
+                f"M4-v2 head exchange failed with errno {error}"
+            )
+        os.fsync(directory_fd)
+    finally:
+        os.close(directory_fd)
+
+
 def _accepted_workload_relative_root(*, task_key: str, execution_id: str) -> str:
     return (
         f"runtime/research-os/mainline/tasks/{task_key}/{execution_id}/"
         "accepted-workload"
+    )
+
+
+_ACCEPTED_EVENT_NAME = re.compile(r"^(\d{8})-([0-9a-f]{64})\.json$")
+_ACCEPTED_PENDING_EVENT_NAME = re.compile(
+    r"^event-(\d{8})-([0-9a-f]{64})\.json$"
+)
+_ACCEPTED_PENDING_RESUME_NAME = re.compile(
+    r"^resume-index-([0-9a-f]{64})\.json$"
+)
+_ACCEPTED_DELTA_NAME = re.compile(r"^(\d{8})-([0-9a-f]{64})\.json$")
+_ACCEPTED_CHECKPOINT_NAME = re.compile(r"^(\d{8})-([0-9a-f]{64})\.json$")
+_ACCEPTED_SNAPSHOT_NAME = re.compile(r"^(\d{8})-([0-9a-f]{64})\.json$")
+_ACCEPTED_PENDING_DELTA_NAME = re.compile(
+    r"^resume-delta-(\d{8})-([0-9a-f]{64})\.json$"
+)
+_ACCEPTED_PENDING_HEAD_NAME = re.compile(
+    r"^\.pending-resume-journal-head-v2-(none|[0-9a-f]{64})-([0-9a-f]{64})\.json$"
+)
+_ACCEPTED_PENDING_CHECKPOINT_NAME = re.compile(
+    r"^resume-checkpoint-(\d{8})-([0-9a-f]{64})\.json$"
+)
+_ACCEPTED_PENDING_IMMUTABLE_NAME = re.compile(
+    r"^\.pending-(\d{8})-([0-9a-f]{64})-([0-9a-f]{32})\.json$"
+)
+_ACCEPTED_WORKLOAD_EXECUTION_METADATA_FIELDS = frozenset(
+    {
+        "accepted_workload_input_bundle_digest",
+        "accepted_workload_resume_index_digest",
+        "accepted_workload_resume_index_path",
+        "accepted_workload_terminal_event_digest",
+        "accepted_workload_transcript_digest",
+        "accepted_workload_transcript_event_count",
+        "accepted_workload_transcript_path",
+        "accepted_workload_transcript_schema",
+    }
+)
+
+
+def _validate_accepted_workload_execution_metadata_keys(
+    execution: Mapping[str, Any],
+) -> None:
+    actual = {
+        str(key)
+        for key in execution
+        if str(key).startswith("accepted_workload_")
+    }
+    if actual != _ACCEPTED_WORKLOAD_EXECUTION_METADATA_FIELDS:
+        raise MainlineSupervisorError(
+            "M4-v2 accepted-workload exact execution metadata is incomplete"
+        )
+
+
+def _accepted_workload_regular_entries(path: Path) -> list[Path]:
+    if not path.exists():
+        return []
+    if path.is_symlink() or not path.is_dir():
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload journal directory identity changed"
+        )
+    entries = sorted(path.iterdir(), key=lambda item: item.name)
+    if any(item.is_symlink() or not item.is_file() for item in entries):
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload journal contains non-regular bytes"
+        )
+    return entries
+
+
+def _accepted_workload_event_entries(base: Path) -> list[tuple[Path, dict[str, Any]]]:
+    result: list[tuple[Path, dict[str, Any]]] = []
+    for path in _accepted_workload_regular_entries(base / "events"):
+        match = _ACCEPTED_EVENT_NAME.fullmatch(path.name)
+        if match is None:
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload event name is noncanonical"
+            )
+        try:
+            value = _load_object(path)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload event bytes are unreadable"
+            ) from exc
+        if (
+            not isinstance(value, Mapping)
+            or value.get("event_index") != int(match.group(1))
+            or value.get("event_digest") != match.group(2)
+        ):
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload event filename owner changed"
+            )
+        result.append((path, dict(value)))
+    return result
+
+
+def _accepted_workload_owned_entries(
+    path: Path, *, pattern: re.Pattern[str], index_field: str, digest_field: str,
+) -> list[tuple[Path, dict[str, Any]]]:
+    result: list[tuple[Path, dict[str, Any]]] = []
+    for entry in _accepted_workload_regular_entries(path):
+        match = pattern.fullmatch(entry.name)
+        if match is None:
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload journal name is noncanonical"
+            )
+        try:
+            value = _load_object(entry)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload journal bytes are unreadable"
+            ) from exc
+        if (
+            not isinstance(value, Mapping)
+            or value.get(index_field) != int(match.group(1))
+            or value.get(digest_field) != match.group(2)
+        ):
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload journal filename owner changed"
+            )
+        result.append((entry, dict(value)))
+    return result
+
+
+def _accepted_workload_delta_entries(base: Path) -> list[tuple[Path, dict[str, Any]]]:
+    return _accepted_workload_owned_entries(
+        base / "resume-deltas", pattern=_ACCEPTED_DELTA_NAME,
+        index_field="event_index", digest_field="delta_digest",
+    )
+
+
+def _accepted_workload_checkpoint_entries(
+    base: Path,
+) -> list[tuple[Path, dict[str, Any]]]:
+    return _accepted_workload_owned_entries(
+        base / "resume-checkpoints", pattern=_ACCEPTED_CHECKPOINT_NAME,
+        index_field="checkpoint_event_count",
+        digest_field="checkpoint_reference_digest",
+    )
+
+
+def _accepted_workload_snapshot_entries(
+    base: Path,
+) -> list[tuple[Path, dict[str, Any]]]:
+    return _accepted_workload_owned_entries(
+        base / "resume-snapshots", pattern=_ACCEPTED_SNAPSHOT_NAME,
+        index_field="next_event_index", digest_field="resume_index_digest",
+    )
+
+
+def _head_bound_checkpoint_reference(
+    base: Path, head: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    if head is None:
+        return None
+    relative = head.get("latest_checkpoint_reference_path_or_null")
+    if relative is None:
+        return None
+    if not isinstance(relative, str) or not relative.startswith("resume-checkpoints/"):
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload head reference path changed"
+        )
+    path = base / relative
+    if path.is_symlink() or not path.is_file():
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload head reference is missing"
+        )
+    value = _load_object(path)
+    if (
+        not isinstance(value, Mapping)
+        or value.get("checkpoint_reference_digest")
+        != head.get("latest_checkpoint_reference_digest_or_null")
+    ):
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload head reference owner changed"
+        )
+    return dict(value)
+
+
+def _replace_atomic_json(path: Path, pending_path: Path, value: Mapping[str, Any]) -> None:
+    content = _atomic_artifact_bytes(value)
+    if not pending_path.exists():
+        _atomic_write_staged_file(pending_path, content)
+    elif pending_path.read_bytes() != content:
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload pending replacement collision"
+        )
+    if not path.exists():
+        _atomic_publish_noreplace(pending_path, path)
+    elif path.read_bytes() == content:
+        pending_path.unlink()
+        _atomic_fsync_directory(pending_path.parent)
+    else:
+        _atomic_rename_exchange(pending_path, path)
+        pending_path.unlink()
+        _atomic_fsync_directory(pending_path.parent)
+
+
+def _publish_accepted_workload_journal_transition_v2(
+    *, root_dir: Path, task_key: str, execution_id: str,
+    event: Mapping[str, Any], delta: Mapping[str, Any], head: Mapping[str, Any],
+    checkpoint_reference_or_null: Mapping[str, Any] | None,
+    checkpoint_resume_index_or_null: Mapping[str, Any] | None,
+    commit_head: bool = True,
+) -> tuple[str, str]:
+    """Publish immutable prerequisites, then advance only the bounded head."""
+
+    relative_root = _accepted_workload_relative_root(
+        task_key=task_key, execution_id=execution_id
+    )
+    base = root_dir / relative_root
+    pending = base / ".pending"
+    pending.mkdir(parents=True, exist_ok=True)
+    _atomic_fsync_directory(pending)
+    _atomic_fsync_directory(base)
+    event_index = int(event["event_index"])
+    event_digest = str(event["event_digest"])
+    delta_digest = str(delta["delta_digest"])
+    head_digest = str(head["head_digest"])
+    if (
+        delta.get("event_index") != event_index
+        or delta.get("event_digest") != event_digest
+        or head.get("last_delta_digest") != delta_digest
+    ):
+        raise MainlineSupervisorError(
+            "M4-v2 accepted-workload v2 publication owner changed"
+        )
+    event_path = base / "events" / f"{event_index:08d}-{event_digest}.json"
+    delta_path = base / "resume-deltas" / f"{event_index:08d}-{delta_digest}.json"
+    event_pending = pending / f"event-{event_index:08d}-{event_digest}.json"
+    delta_pending = pending / f"resume-delta-{event_index:08d}-{delta_digest}.json"
+    for staged, canonical, value in (
+        (event_pending, event_path, event),
+        (delta_pending, delta_path, delta),
+    ):
+        content = _atomic_artifact_bytes(value)
+        if not staged.exists():
+            _atomic_write_staged_file(staged, content)
+        elif staged.read_bytes() != content:
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload pending tuple collision"
+            )
+        _atomic_publish_noreplace(staged, canonical)
+        if staged.exists():
+            staged.unlink()
+            _atomic_fsync_directory(staged.parent)
+    if (checkpoint_reference_or_null is None) != (
+        checkpoint_resume_index_or_null is None
+    ):
+        raise MainlineSupervisorError(
+            "M4-v2 accepted-workload checkpoint tuple is incomplete"
+        )
+    if checkpoint_reference_or_null is not None:
+        count = int(checkpoint_reference_or_null["checkpoint_event_count"])
+        reference_digest = str(
+            checkpoint_reference_or_null["checkpoint_reference_digest"]
+        )
+        resume_digest = str(checkpoint_resume_index_or_null["resume_index_digest"])
+        snapshot_relative = f"resume-snapshots/{count:08d}-{resume_digest}.json"
+        if checkpoint_reference_or_null.get("v1_resume_snapshot_path") != snapshot_relative:
+            raise MainlineSupervisorError(
+                "M4-v2 accepted-workload snapshot path owner changed"
+            )
+        snapshot_directory = base / "resume-snapshots"
+        checkpoint_directory = base / "resume-checkpoints"
+        for directory in (snapshot_directory, checkpoint_directory):
+            if not directory.exists():
+                directory.mkdir(mode=0o700)
+                _atomic_fsync_directory(directory)
+                _atomic_fsync_directory(base)
+            elif directory.is_symlink() or not directory.is_dir():
+                raise AtomicPublicationGovernanceIncident(
+                    "M4-v2 accepted-workload immutable directory changed"
+                )
+        token = reference_digest[:32]
+        snapshot_path = snapshot_directory / f"{count:08d}-{resume_digest}.json"
+        snapshot_pending = snapshot_directory / (
+            f".pending-{count:08d}-{resume_digest}-{token}.json"
+        )
+        checkpoint_path = (
+            checkpoint_directory / f"{count:08d}-{reference_digest}.json"
+        )
+        checkpoint_pending = (
+            checkpoint_directory
+            / f".pending-{count:08d}-{reference_digest}-{token}.json"
+        )
+        for staged, canonical, value in (
+            (snapshot_pending, snapshot_path, checkpoint_resume_index_or_null),
+            (checkpoint_pending, checkpoint_path, checkpoint_reference_or_null),
+        ):
+            content = _atomic_artifact_bytes(value)
+            if not staged.exists():
+                _atomic_write_staged_same_directory(
+                    staged.parent, staged.name, content
+                )
+            elif staged.is_symlink() or staged.read_bytes() != content:
+                raise AtomicPublicationGovernanceIncident(
+                    "M4-v2 accepted-workload immutable pending collision"
+                )
+            _atomic_publish_noreplace_same_directory(staged, canonical)
+
+    # The canonical head is the sole logical commit point.  Re-check every
+    # prerequisite immediately before staging it.
+    prerequisites = [
+        (event_path, event),
+        (delta_path, delta),
+    ]
+    if checkpoint_reference_or_null is not None:
+        prerequisites.extend(
+            [
+                (snapshot_path, checkpoint_resume_index_or_null),
+                (checkpoint_path, checkpoint_reference_or_null),
+            ]
+        )
+    else:
+        snapshot_relative = head.get("latest_checkpoint_snapshot_path_or_null")
+        reference_relative = head.get("latest_checkpoint_reference_path_or_null")
+        if not isinstance(snapshot_relative, str) or not isinstance(
+            reference_relative, str
+        ):
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload head checkpoint paths are missing"
+            )
+        snapshot_path = base / snapshot_relative
+        checkpoint_path = base / reference_relative
+        snapshot_value = _load_object(snapshot_path)
+        reference_value = _load_object(checkpoint_path)
+        if not isinstance(snapshot_value, Mapping) or not isinstance(
+            reference_value, Mapping
+        ):
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload head checkpoint bytes are invalid"
+            )
+        prerequisites.extend(
+            [(snapshot_path, snapshot_value), (checkpoint_path, reference_value)]
+        )
+    for path, value in prerequisites:
+        if (
+            path.is_symlink() or not path.is_file()
+            or path.read_bytes() != _atomic_artifact_bytes(value)
+        ):
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload head prerequisite changed"
+            )
+    if not commit_head:
+        return (
+            f"{relative_root}/events/{event_index:08d}-{event_digest}.json",
+            f"{relative_root}/resume-deltas/{event_index:08d}-{delta_digest}.json",
+        )
+    head_path = base / "resume-journal-head-v2.json"
+    old_head = None
+    if head_path.exists():
+        if head_path.is_symlink() or not head_path.is_file():
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload canonical head changed"
+            )
+        old_value = _load_object(head_path)
+        if not isinstance(old_value, Mapping):
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload canonical head is invalid"
+            )
+        old_head = str(old_value.get("head_digest"))
+    head_pending = base / (
+        f".pending-resume-journal-head-v2-{old_head or 'none'}-{head_digest}.json"
+    )
+    _atomic_write_staged_same_directory(
+        head_pending.parent, head_pending.name, _atomic_artifact_bytes(head)
+    )
+    if old_head is None:
+        _atomic_publish_noreplace_same_directory(head_pending, head_path)
+    else:
+        _atomic_exchange_same_directory(head_pending, head_path)
+        _atomic_fsync_directory(base)
+        exchanged = _load_object(head_pending)
+        if not isinstance(exchanged, Mapping) or exchanged.get("head_digest") != old_head:
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload exchanged head is not predecessor"
+            )
+        head_pending.unlink()
+        _atomic_fsync_directory(base)
+    return (
+        f"{relative_root}/events/{event_index:08d}-{event_digest}.json",
+        f"{relative_root}/resume-deltas/{event_index:08d}-{delta_digest}.json",
+    )
+
+
+def _recover_accepted_workload_pending_v2_superseded(
+    *, root_dir: Path, task_key: str, execution_id: str, branch_id: str,
+    input_bundle_digest: str, fold_coordinates: Sequence[tuple[int, str]],
+    sensitivity_scheme_ids: Sequence[str],
+) -> None:
+    """Finish only one unambiguous Request520 staged transition tuple."""
+
+    base = root_dir / _accepted_workload_relative_root(
+        task_key=task_key, execution_id=execution_id
+    )
+    entries = _accepted_workload_regular_entries(base / ".pending")
+    if not entries:
+        return
+    groups: dict[str, list[Path]] = {
+        "event": [], "delta": [], "head": [], "checkpoint": [], "resume": []
+    }
+    for path in entries:
+        if _ACCEPTED_PENDING_EVENT_NAME.fullmatch(path.name):
+            groups["event"].append(path)
+        elif _ACCEPTED_PENDING_DELTA_NAME.fullmatch(path.name):
+            groups["delta"].append(path)
+        elif _ACCEPTED_PENDING_HEAD_NAME.fullmatch(path.name):
+            groups["head"].append(path)
+        elif _ACCEPTED_PENDING_CHECKPOINT_NAME.fullmatch(path.name):
+            groups["checkpoint"].append(path)
+        elif _ACCEPTED_PENDING_RESUME_NAME.fullmatch(path.name):
+            groups["resume"].append(path)
+        else:
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload pending v2 name is noncanonical"
+            )
+    if any(len(paths) > 1 for paths in groups.values()):
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload pending v2 set is ambiguous"
+        )
+
+    def loaded(kind: str) -> dict[str, Any] | None:
+        if not groups[kind]:
+            return None
+        try:
+            value = _load_object(groups[kind][0])
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload pending v2 bytes are unreadable"
+            ) from exc
+        if not isinstance(value, Mapping):
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload pending v2 value is invalid"
+            )
+        return dict(value)
+
+    event, delta, head = loaded("event"), loaded("delta"), loaded("head")
+    checkpoint, resume = loaded("checkpoint"), loaded("resume")
+    if checkpoint is not None and resume is None:
+        canonical_resume = base / "resume-index.json"
+        if canonical_resume.is_file():
+            candidate = _load_object(canonical_resume)
+            if (
+                isinstance(candidate, Mapping)
+                and candidate.get("resume_index_digest")
+                == checkpoint.get("v1_resume_index_digest")
+            ):
+                resume = dict(candidate)
+    if delta is None and checkpoint is not None:
+        candidate = (
+            base / "resume-deltas"
+            / f"{checkpoint.get('checkpoint_event_count', 0) - 1:08d}-"
+            f"{checkpoint.get('checkpoint_last_delta_digest', '')}.json"
+        )
+        if candidate.is_file():
+            delta = dict(_load_object(candidate))
+    if delta is None and head is not None:
+        candidate = (
+            base / "resume-deltas"
+            / f"{head.get('last_event_index', -1):08d}-{head.get('last_delta_digest', '')}.json"
+        )
+        if candidate.is_file():
+            delta = dict(_load_object(candidate))
+    if event is None and delta is not None:
+        candidate = (
+            base / "events"
+            / f"{delta.get('event_index', -1):08d}-{delta.get('event_digest', '')}.json"
+        )
+        if candidate.is_file():
+            event = dict(_load_object(candidate))
+    if head is None and delta is not None:
+        head = build_resume_journal_head_v2(
+            branch_id=branch_id, input_bundle_digest=input_bundle_digest,
+            producer_execution_id=execution_id, delta=delta,
+        )
+    if head is None or delta is None or event is None:
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload pending v2 tuple is incomplete"
+        )
+    if (checkpoint is None) != (resume is None):
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload pending v2 checkpoint tuple is incomplete"
+        )
+    event_name = (
+        _ACCEPTED_PENDING_EVENT_NAME.fullmatch(groups["event"][0].name)
+        if groups["event"] else None
+    )
+    delta_name = (
+        _ACCEPTED_PENDING_DELTA_NAME.fullmatch(groups["delta"][0].name)
+        if groups["delta"] else None
+    )
+    head_name = (
+        _ACCEPTED_PENDING_HEAD_NAME.fullmatch(groups["head"][0].name)
+        if groups["head"] else None
+    )
+    checkpoint_name = (
+        _ACCEPTED_PENDING_CHECKPOINT_NAME.fullmatch(groups["checkpoint"][0].name)
+        if groups["checkpoint"] else None
+    )
+    resume_name = (
+        _ACCEPTED_PENDING_RESUME_NAME.fullmatch(groups["resume"][0].name)
+        if groups["resume"] else None
+    )
+    if (
+        event_name is not None
+        and (int(event_name.group(1)), event_name.group(2))
+        != (event.get("event_index"), event.get("event_digest"))
+    ) or (
+        delta_name is not None
+        and (int(delta_name.group(1)), delta_name.group(2))
+        != (delta.get("event_index"), delta.get("delta_digest"))
+    ) or (
+        head_name is not None and head_name.group(1) != head.get("head_digest")
+    ) or (
+        checkpoint_name is not None and (
+            int(checkpoint_name.group(1)), checkpoint_name.group(2)
+        ) != (
+            checkpoint.get("checkpoint_event_count"),
+            checkpoint.get("checkpoint_reference_digest"),
+        )
+    ) or (
+        resume_name is not None
+        and resume_name.group(1) != resume.get("resume_index_digest")
+    ):
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload pending v2 filename owner changed"
+        )
+    previous_delta = None
+    if delta["event_index"] > 0:
+        previous_candidates = _accepted_workload_delta_entries(base)
+        previous_matches = [
+            value for _, value in previous_candidates
+            if value.get("event_index") == delta["event_index"] - 1
+            and value.get("delta_digest")
+            == delta.get("previous_delta_digest_or_null")
+        ]
+        if len(previous_matches) != 1:
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload pending v2 prior delta is ambiguous"
+            )
+        previous_delta = previous_matches[0]
+    next_coordinate = next_coordinate_after_event(
+        event, fold_coordinates=fold_coordinates,
+        sensitivity_scheme_ids=sensitivity_scheme_ids,
+    )
+    try:
+        delta = validate_resume_delta_v2(
+            delta, previous_delta, branch_id=branch_id,
+            input_bundle_digest=input_bundle_digest,
+            producer_execution_id=execution_id, event=event,
+            next_coordinate=next_coordinate,
+            checkpoint_resume_index_or_null=resume,
+        )
+        head = validate_resume_journal_head_v2(
+            head, branch_id=branch_id,
+            input_bundle_digest=input_bundle_digest,
+            producer_execution_id=execution_id, delta=delta,
+        )
+        if checkpoint is not None:
+            checkpoint = validate_resume_checkpoint_reference_v2(
+                checkpoint, branch_id=branch_id,
+                input_bundle_digest=input_bundle_digest,
+                producer_execution_id=execution_id, delta=delta,
+                checkpoint_resume_index=resume,
+            )
+    except AcceptedWorkloadContractError as exc:
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload pending v2 tuple validation failed"
+        ) from exc
+    _publish_accepted_workload_journal_transition_v2(
+        root_dir=root_dir, task_key=task_key, execution_id=execution_id,
+        event=event, delta=delta, head=head,
+        checkpoint_reference_or_null=checkpoint,
+        checkpoint_resume_index_or_null=resume,
+    )
+
+
+def _recover_accepted_workload_pending_v2(
+    *, root_dir: Path, task_key: str, execution_id: str, branch_id: str,
+    input_bundle_digest: str, fold_coordinates: Sequence[tuple[int, str]],
+    sensitivity_scheme_ids: Sequence[str],
+) -> None:
+    """Recover only Request522's unique exact pending-head state."""
+
+    base = root_dir / _accepted_workload_relative_root(
+        task_key=task_key, execution_id=execution_id
+    )
+    if not base.exists():
+        return
+    head_path = base / "resume-journal-head-v2.json"
+    head_pending = []
+    for path in base.iterdir():
+        if _ACCEPTED_PENDING_HEAD_NAME.fullmatch(path.name):
+            if path.is_symlink() or not path.is_file():
+                raise AtomicPublicationGovernanceIncident(
+                    "M4-v2 accepted-workload pending head is non-regular"
+                )
+            head_pending.append(path)
+    immutable_pending: list[Path] = []
+    for directory_name in ("resume-snapshots", "resume-checkpoints"):
+        directory = base / directory_name
+        if not directory.exists():
+            continue
+        for path in _accepted_workload_regular_entries(directory):
+            if _ACCEPTED_PENDING_IMMUTABLE_NAME.fullmatch(path.name):
+                immutable_pending.append(path)
+    central_pending = _accepted_workload_regular_entries(base / ".pending")
+    if len(head_pending) > 1:
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload pending head is ambiguous"
+        )
+    if not head_pending:
+        # A legacy-v1 migration deliberately publishes an uncommitted prefix
+        # before its one final head.  Its idempotent migration routine owns
+        # that state and validates it against the immutable legacy bytes.
+        legacy_path = base / "resume-index.json"
+        if (
+            not head_path.exists()
+            and legacy_path.is_file()
+            and not legacy_path.is_symlink()
+        ):
+            return
+
+        # Finish the only deterministic next transition after a crash at any
+        # prerequisite boundary (staged/canonical event, delta, snapshot, or
+        # checkpoint reference).  Nothing is inferred from a filename alone:
+        # the event is validated, every remaining byte is rebuilt, and the
+        # normal publisher compares all extant bytes before committing head.
+        canonical_head = None
+        if head_path.is_file() and not head_path.is_symlink():
+            loaded_head = _load_object(head_path)
+            if isinstance(loaded_head, Mapping):
+                canonical_head = dict(loaded_head)
+        committed_count = (
+            int(canonical_head["next_event_index"])
+            if canonical_head is not None else 0
+        )
+        canonical_events = _accepted_workload_event_entries(base)
+        extra_events = [
+            value for _, value in canonical_events
+            if value.get("event_index") == committed_count
+        ]
+        pending_event_paths = [
+            path for path in central_pending
+            if _ACCEPTED_PENDING_EVENT_NAME.fullmatch(path.name)
+        ]
+        pending_delta_paths = [
+            path for path in central_pending
+            if _ACCEPTED_PENDING_DELTA_NAME.fullmatch(path.name)
+        ]
+        recognized_central = {*pending_event_paths, *pending_delta_paths}
+        if any(path not in recognized_central for path in central_pending):
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload pending prerequisite name is unexpected"
+            )
+        if len(extra_events) + len(pending_event_paths) > 1:
+            values = list(extra_events)
+            values.extend(
+                value for value in (_load_object(path) for path in pending_event_paths)
+                if isinstance(value, Mapping)
+            )
+            if not values or any(value != values[0] for value in values[1:]):
+                raise AtomicPublicationGovernanceIncident(
+                    "M4-v2 accepted-workload next event is ambiguous"
+                )
+        event_value = (
+            dict(extra_events[0]) if extra_events
+            else (
+                dict(_load_object(pending_event_paths[0]))
+                if pending_event_paths else None
+            )
+        )
+        if event_value is None:
+            if central_pending or immutable_pending:
+                raise AtomicPublicationGovernanceIncident(
+                    "M4-v2 accepted-workload pending prerequisite has no event owner"
+                )
+            return
+        committed_events = [
+            value for _, value in canonical_events
+            if int(value.get("event_index", -1)) < committed_count
+        ]
+        if [value.get("event_index") for value in committed_events] != list(
+            range(committed_count)
+        ):
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload committed event prefix changed"
+            )
+        try:
+            event_value = validate_event(
+                event_value, branch_id=branch_id,
+                input_bundle_digest=input_bundle_digest,
+                producer_execution_id=execution_id,
+            )
+        except AcceptedWorkloadContractError as exc:
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload pending event is invalid"
+            ) from exc
+        for pending_event_path in pending_event_paths:
+            match = _ACCEPTED_PENDING_EVENT_NAME.fullmatch(
+                pending_event_path.name
+            )
+            assert match is not None
+            if (
+                int(match.group(1)) != event_value["event_index"]
+                or match.group(2) != event_value["event_digest"]
+            ):
+                raise AtomicPublicationGovernanceIncident(
+                    "M4-v2 accepted-workload pending event filename owner changed"
+                )
+        if (
+            event_value["event_index"] != committed_count
+            or event_value["previous_event_digest_or_null"]
+            != (
+                committed_events[-1]["event_digest"]
+                if committed_events else None
+            )
+        ):
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload pending event owner changed"
+            )
+        previous_delta = None
+        if committed_count:
+            previous_deltas = [
+                value for _, value in _accepted_workload_delta_entries(base)
+                if value.get("event_index") == committed_count - 1
+            ]
+            if len(previous_deltas) != 1:
+                raise AtomicPublicationGovernanceIncident(
+                    "M4-v2 accepted-workload prior delta is ambiguous"
+                )
+            previous_delta = previous_deltas[0]
+        next_coordinate = next_coordinate_after_event(
+            event_value, fold_coordinates=fold_coordinates,
+            sensitivity_scheme_ids=sensitivity_scheme_ids,
+        )
+        terminal_seen = event_value["event_type"] == "TERMINAL_OUTCOME"
+        checkpoint_resume = None
+        if is_resume_checkpoint_count(committed_count + 1, terminal_seen):
+            checkpoint_resume = build_resume_index(
+                branch_id=branch_id, input_bundle_digest=input_bundle_digest,
+                producer_execution_id=execution_id,
+                events=[*committed_events, event_value],
+                next_coordinate=next_coordinate,
+            )
+        latest_reference = _head_bound_checkpoint_reference(base, canonical_head)
+        delta, head, reference = build_resume_journal_transition(
+            previous_delta, branch_id=branch_id,
+            input_bundle_digest=input_bundle_digest,
+            producer_execution_id=execution_id, event=event_value,
+            next_coordinate=next_coordinate,
+            checkpoint_resume_index_or_null=checkpoint_resume,
+            latest_checkpoint_reference_or_null=(
+                None if checkpoint_resume is not None else latest_reference
+            ),
+        )
+        expected_delta_name = (
+            f"resume-delta-{committed_count:08d}-{delta['delta_digest']}.json"
+        )
+        if len(pending_delta_paths) > 1 or any(
+            path.name != expected_delta_name
+            or path.is_symlink()
+            or path.read_bytes() != _atomic_artifact_bytes(delta)
+            for path in pending_delta_paths
+        ):
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload pending delta owner changed"
+            )
+        expected_immutable: dict[Path, bytes] = {}
+        if reference is not None and checkpoint_resume is not None:
+            token = reference["checkpoint_reference_digest"][:32]
+            snapshot_pending = (
+                base / "resume-snapshots"
+                / (
+                    f".pending-{committed_count + 1:08d}-"
+                    f"{checkpoint_resume['resume_index_digest']}-{token}.json"
+                )
+            )
+            reference_pending = (
+                base / "resume-checkpoints"
+                / (
+                    f".pending-{committed_count + 1:08d}-"
+                    f"{reference['checkpoint_reference_digest']}-{token}.json"
+                )
+            )
+            expected_immutable = {
+                snapshot_pending: _atomic_artifact_bytes(checkpoint_resume),
+                reference_pending: _atomic_artifact_bytes(reference),
+            }
+        if any(
+            path not in expected_immutable
+            or path.is_symlink()
+            or path.read_bytes() != expected_immutable[path]
+            for path in immutable_pending
+        ):
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload immutable pending owner changed"
+            )
+        _publish_accepted_workload_journal_transition_v2(
+            root_dir=root_dir, task_key=task_key, execution_id=execution_id,
+            event=event_value, delta=delta, head=head,
+            checkpoint_reference_or_null=reference,
+            checkpoint_resume_index_or_null=checkpoint_resume,
+        )
+        remaining_central = _accepted_workload_regular_entries(base / ".pending")
+        remaining_immutable = []
+        for directory_name in ("resume-snapshots", "resume-checkpoints"):
+            directory = base / directory_name
+            if directory.exists():
+                remaining_immutable.extend(
+                    path for path in _accepted_workload_regular_entries(directory)
+                    if _ACCEPTED_PENDING_IMMUTABLE_NAME.fullmatch(path.name)
+                )
+        if remaining_central or remaining_immutable:
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload recovered prerequisite left staged bytes"
+            )
+        return
+    pending_path = head_pending[0]
+    match = _ACCEPTED_PENDING_HEAD_NAME.fullmatch(pending_path.name)
+    assert match is not None
+    old_digest, new_digest = match.groups()
+    pending_value = _load_object(pending_path)
+    if not isinstance(pending_value, Mapping):
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload pending head bytes are invalid"
+        )
+    canonical_value = None
+    if head_path.exists():
+        if head_path.is_symlink() or not head_path.is_file():
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload canonical head changed"
+            )
+        canonical_value = _load_object(head_path)
+        if not isinstance(canonical_value, Mapping):
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload canonical head bytes are invalid"
+            )
+    # Post-exchange: canonical is new and the pending inode is the exact old
+    # immediate predecessor.  This is the only pending-head cleanup case.
+    if (
+        canonical_value is not None
+        and canonical_value.get("head_digest") == new_digest
+        and pending_value.get("head_digest") == old_digest
+        and old_digest != "none"
+    ):
+        pending_path.unlink()
+        _atomic_fsync_directory(base)
+        return
+    if pending_value.get("head_digest") != new_digest:
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload pending head filename owner changed"
+        )
+    if canonical_value is None:
+        if old_digest != "none":
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload initial pending head predecessor changed"
+            )
+    elif canonical_value.get("head_digest") != old_digest:
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload pending head predecessor changed"
+        )
+    event_path = (
+        base / "events"
+        / f"{pending_value.get('last_event_index', -1):08d}-"
+        f"{pending_value.get('last_event_digest', '')}.json"
+    )
+    delta_path = (
+        base / "resume-deltas"
+        / f"{pending_value.get('last_event_index', -1):08d}-"
+        f"{pending_value.get('last_delta_digest', '')}.json"
+    )
+    required = [event_path, delta_path]
+    for field in (
+        "latest_checkpoint_snapshot_path_or_null",
+        "latest_checkpoint_reference_path_or_null",
+    ):
+        relative = pending_value.get(field)
+        if not isinstance(relative, str):
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload pending head checkpoint tuple is partial"
+            )
+        required.append(base / relative)
+    if any(path.is_symlink() or not path.is_file() for path in required):
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload pending head prerequisite missing"
+        )
+    try:
+        event_value = _load_object(event_path)
+        delta_value = _load_object(delta_path)
+        snapshot_path, reference_path = required[2], required[3]
+        snapshot_value = _load_object(snapshot_path)
+        reference_value = _load_object(reference_path)
+        if not all(
+            isinstance(value, Mapping)
+            for value in (event_value, delta_value, snapshot_value, reference_value)
+        ):
+            raise AcceptedWorkloadContractError(
+                "accepted_workload_recovered_prerequisite_shape_invalid"
+            )
+        checkpoint_count = int(reference_value["checkpoint_event_count"])
+        snapshot_value = validate_resume_snapshot_v1(
+            snapshot_value,
+            snapshot_path=reference_value["v1_resume_snapshot_path"],
+            checkpoint_event_count=checkpoint_count,
+            branch_id=branch_id, input_bundle_digest=input_bundle_digest,
+            producer_execution_id=execution_id,
+        )
+        checkpoint_delta_path = (
+            base / "resume-deltas"
+            / f"{checkpoint_count - 1:08d}-"
+            f"{reference_value['checkpoint_last_delta_digest']}.json"
+        )
+        checkpoint_delta = _load_object(checkpoint_delta_path)
+        reference_value = validate_resume_checkpoint_reference_v2(
+            reference_value, branch_id=branch_id,
+            input_bundle_digest=input_bundle_digest,
+            producer_execution_id=execution_id, delta=checkpoint_delta,
+            checkpoint_resume_index=snapshot_value,
+        )
+        previous_delta = None
+        if delta_value["event_index"]:
+            prior_path = (
+                base / "resume-deltas"
+                / f"{delta_value['event_index'] - 1:08d}-"
+                f"{delta_value['previous_delta_digest_or_null']}.json"
+            )
+            previous_delta = _load_object(prior_path)
+        next_coordinate = next_coordinate_after_event(
+            event_value, fold_coordinates=fold_coordinates,
+            sensitivity_scheme_ids=sensitivity_scheme_ids,
+        )
+        current_checkpoint = (
+            snapshot_value
+            if checkpoint_count == delta_value["next_event_index"]
+            else None
+        )
+        delta_value = validate_resume_delta_v2(
+            delta_value, previous_delta, branch_id=branch_id,
+            input_bundle_digest=input_bundle_digest,
+            producer_execution_id=execution_id, event=event_value,
+            next_coordinate=next_coordinate,
+            checkpoint_resume_index_or_null=current_checkpoint,
+        )
+        validate_resume_journal_head_v2(
+            pending_value, branch_id=branch_id,
+            input_bundle_digest=input_bundle_digest,
+            producer_execution_id=execution_id, delta=delta_value,
+            latest_checkpoint_reference_or_null=reference_value,
+        )
+    except (AcceptedWorkloadContractError, KeyError, TypeError, ValueError) as exc:
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload pending head prerequisite validation failed"
+        ) from exc
+    # Recovery never infers durability: re-fsync exact files and their fixed
+    # parent directories before committing the head.
+    for path in required:
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise AtomicPublicationGovernanceIncident(
+                    "M4-v2 accepted-workload prerequisite is non-regular"
+                )
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    for name in ("events", "resume-deltas", "resume-snapshots", "resume-checkpoints"):
+        _atomic_fsync_directory(base / name)
+    if canonical_value is None:
+        _atomic_publish_noreplace_same_directory(pending_path, head_path)
+    else:
+        _atomic_exchange_same_directory(pending_path, head_path)
+        _atomic_fsync_directory(base)
+        exchanged = _load_object(pending_path)
+        if not isinstance(exchanged, Mapping) or exchanged.get("head_digest") != old_digest:
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload recovered predecessor changed"
+            )
+        pending_path.unlink()
+        _atomic_fsync_directory(base)
+
+
+def _reconstruct_accepted_workload_journal_v2(
+    *, base: Path, branch_id: str, input_bundle_digest: str,
+    producer_execution_id: str, fold_coordinates: Sequence[tuple[int, str]],
+    sensitivity_scheme_ids: Sequence[str],
+) -> tuple[
+    list[dict[str, Any]], list[dict[str, Any]], dict[str, Any] | None,
+    dict[str, Any] | None, tuple[dict[str, Any], dict[str, Any]] | None,
+]:
+    """Validate the committed chain once, then expose at most one orphan pair."""
+
+    events = [value for _, value in _accepted_workload_event_entries(base)]
+    deltas = [value for _, value in _accepted_workload_delta_entries(base)]
+    head_path = base / "resume-journal-head-v2.json"
+    if head_path.is_symlink():
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload journal head is a symlink"
+        )
+    head = dict(_load_object(head_path)) if head_path.is_file() else None
+    legacy_path = base / "resume-index.json"
+    if not events and not deltas and head is None:
+        if legacy_path.is_file() and not legacy_path.is_symlink():
+            legacy = validate_resume_index(
+                _load_object(legacy_path), branch_id=branch_id,
+                input_bundle_digest=input_bundle_digest,
+                producer_execution_id=producer_execution_id,
+            )
+            return [], [], None, legacy, None
+        return [], [], None, None, None
+    if len(events) != len(deltas) or not events:
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload event/delta journal is incomplete"
+        )
+    committed_count = int(head.get("next_event_index", 0)) if head is not None else 0
+    if head is None:
+        if len(events) != 1:
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload no-head state is invalid"
+            )
+        committed_count = 0
+    if committed_count < 0 or len(events) - committed_count not in {0, 1}:
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload journal has multiple or later orphan pairs"
+        )
+    checkpoint_entries = _accepted_workload_checkpoint_entries(base)
+    references = {value["checkpoint_event_count"]: value for _, value in checkpoint_entries}
+    if len(references) != len(checkpoint_entries):
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload checkpoint count is duplicated"
+        )
+    snapshots = {
+        value["next_event_index"]: (path, value)
+        for path, value in _accepted_workload_snapshot_entries(base)
+    }
+    if len(snapshots) != len(_accepted_workload_snapshot_entries(base)):
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload snapshot count is duplicated"
+        )
+    logical_resume = None
+    previous: dict[str, Any] | None = None
+    if committed_count:
+        expected_reference_counts = {
+            count for count in range(1, committed_count + 1)
+            if is_resume_checkpoint_count(
+                count, events[count - 1]["event_type"] == "TERMINAL_OUTCOME"
+            )
+        }
+        optional_orphan_reference_count = None
+        if len(events) == committed_count + 1 and is_resume_checkpoint_count(
+            committed_count + 1,
+            events[committed_count]["event_type"] == "TERMINAL_OUTCOME",
+        ):
+            # A checkpoint reference is published before the bounded head.  A
+            # crash in that window leaves exactly one next orphan transition;
+            # recovery validates and adopts it below rather than classifying
+            # the reference as an out-of-cadence extra.
+            optional_orphan_reference_count = committed_count + 1
+        actual_reference_counts = set(references)
+        allowed_reference_sets = {frozenset(expected_reference_counts)}
+        if optional_orphan_reference_count is not None:
+            allowed_reference_sets.add(
+                frozenset({*expected_reference_counts, optional_orphan_reference_count})
+            )
+        if frozenset(actual_reference_counts) not in allowed_reference_sets:
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload checkpoint cadence changed"
+            )
+        allowed_snapshot_sets = allowed_reference_sets
+        if frozenset(snapshots) not in allowed_snapshot_sets:
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload snapshot cadence changed"
+            )
+        latest_reference = None
+        latest_checkpoint = None
+        for offset in range(committed_count):
+            event = events[offset]
+            next_coordinate = next_coordinate_after_event(
+                event, fold_coordinates=fold_coordinates,
+                sensitivity_scheme_ids=sensitivity_scheme_ids,
+            )
+            checkpoint = None
+            reference = None
+            terminal_seen = event["event_type"] == "TERMINAL_OUTCOME"
+            if is_resume_checkpoint_count(offset + 1, terminal_seen):
+                reference = references[offset + 1]
+                snapshot_path, snapshot_value = snapshots[offset + 1]
+                checkpoint = validate_resume_snapshot_v1(
+                    snapshot_value,
+                    snapshot_path=(
+                        f"resume-snapshots/{snapshot_path.name}"
+                    ),
+                    checkpoint_event_count=offset + 1,
+                    branch_id=branch_id,
+                    input_bundle_digest=input_bundle_digest,
+                    producer_execution_id=producer_execution_id,
+                )
+                if checkpoint["events"] != events[: offset + 1]:
+                    raise AtomicPublicationGovernanceIncident(
+                        "M4-v2 accepted-workload snapshot prefix changed"
+                    )
+            try:
+                previous = validate_resume_delta_v2(
+                    deltas[offset], previous, branch_id=branch_id,
+                    input_bundle_digest=input_bundle_digest,
+                    producer_execution_id=producer_execution_id, event=event,
+                    next_coordinate=next_coordinate,
+                    checkpoint_resume_index_or_null=checkpoint,
+                )
+                if reference is not None:
+                    latest_reference = validate_resume_checkpoint_reference_v2(
+                        reference, branch_id=branch_id,
+                        input_bundle_digest=input_bundle_digest,
+                        producer_execution_id=producer_execution_id,
+                        delta=previous, checkpoint_resume_index=checkpoint,
+                    )
+                    latest_checkpoint = checkpoint
+            except AcceptedWorkloadContractError as exc:
+                raise AtomicPublicationGovernanceIncident(
+                    "M4-v2 accepted-workload committed chain validation failed"
+                ) from exc
+        assert previous is not None
+        try:
+            head = validate_resume_journal_head_v2(
+                head, branch_id=branch_id,
+                input_bundle_digest=input_bundle_digest,
+                producer_execution_id=producer_execution_id, delta=previous,
+                latest_checkpoint_reference_or_null=latest_reference,
+            )
+        except AcceptedWorkloadContractError as exc:
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload journal head validation failed"
+            ) from exc
+        if latest_checkpoint is None:
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload head-bound checkpoint is missing"
+            )
+        if (
+            head["latest_checkpoint_event_count"]
+            != latest_checkpoint["next_event_index"]
+            or head["latest_checkpoint_resume_index_digest_or_null"]
+            != latest_checkpoint["resume_index_digest"]
+        ):
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload head selected a non-latest checkpoint"
+            )
+        logical_resume = build_resume_index(
+            branch_id=branch_id, input_bundle_digest=input_bundle_digest,
+            producer_execution_id=producer_execution_id,
+            events=events[:committed_count], next_coordinate=head["next_coordinate"],
+        )
+    orphan = None
+    if len(events) == committed_count + 1:
+        orphan = (events[-1], deltas[-1])
+    return events[:committed_count], deltas[:committed_count], head, logical_resume, orphan
+
+
+def _migrate_accepted_workload_legacy_v1(
+    *, root_dir: Path, task_key: str, execution_id: str, branch_id: str,
+    input_bundle_digest: str, legacy_resume: Mapping[str, Any],
+    fold_coordinates: Sequence[tuple[int, str]],
+    sensitivity_scheme_ids: Sequence[str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    """Publish one deterministic v2 migration set and commit its head once."""
+
+    legacy_path = root_dir / _accepted_workload_relative_root(
+        task_key=task_key, execution_id=execution_id
+    ) / "resume-index.json"
+    legacy_bytes = legacy_path.read_bytes()
+    events = [dict(value) for value in legacy_resume["events"]]
+    existing_events = [
+        value for _, value in _accepted_workload_event_entries(legacy_path.parent)
+    ]
+    existing_deltas = [
+        value for _, value in _accepted_workload_delta_entries(legacy_path.parent)
+    ]
+    if (
+        len(existing_events) > len(events)
+        or len(existing_deltas) > len(events)
+        or existing_events != events[: len(existing_events)]
+        or abs(len(existing_events) - len(existing_deltas)) > 1
+    ):
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload legacy migration prefix changed"
+        )
+    if not events:
+        return [], [], {}
+    previous_delta = None
+    latest_reference = None
+    deltas: list[dict[str, Any]] = []
+    last_transition: tuple[
+        dict[str, Any], dict[str, Any], dict[str, Any] | None,
+        dict[str, Any] | None,
+    ] | None = None
+    for offset, event in enumerate(events):
+        event_count = offset + 1
+        next_coordinate = (
+            legacy_resume["next_coordinate"]
+            if event_count == len(events)
+            else next_coordinate_after_event(
+                event, fold_coordinates=fold_coordinates,
+                sensitivity_scheme_ids=sensitivity_scheme_ids,
+            )
+        )
+        checkpoint_resume = None
+        if is_resume_checkpoint_count(
+            event_count, event["event_type"] == "TERMINAL_OUTCOME"
+        ):
+            checkpoint_resume = build_resume_index(
+                branch_id=branch_id, input_bundle_digest=input_bundle_digest,
+                producer_execution_id=execution_id,
+                events=events[:event_count], next_coordinate=next_coordinate,
+            )
+        delta, head, reference = build_resume_journal_transition(
+            previous_delta, branch_id=branch_id,
+            input_bundle_digest=input_bundle_digest,
+            producer_execution_id=execution_id, event=event,
+            next_coordinate=next_coordinate,
+            checkpoint_resume_index_or_null=checkpoint_resume,
+            latest_checkpoint_reference_or_null=(
+                None if checkpoint_resume is not None else latest_reference
+            ),
+        )
+        _publish_accepted_workload_journal_transition_v2(
+            root_dir=root_dir, task_key=task_key, execution_id=execution_id,
+            event=event, delta=delta, head=head,
+            checkpoint_reference_or_null=reference,
+            checkpoint_resume_index_or_null=checkpoint_resume,
+            commit_head=False,
+        )
+        previous_delta = delta
+        deltas.append(delta)
+        if reference is not None:
+            latest_reference = reference
+        last_transition = (delta, head, reference, checkpoint_resume)
+    assert last_transition is not None
+    delta, head, reference, checkpoint_resume = last_transition
+    _publish_accepted_workload_journal_transition_v2(
+        root_dir=root_dir, task_key=task_key, execution_id=execution_id,
+        event=events[-1], delta=delta, head=head,
+        checkpoint_reference_or_null=reference,
+        checkpoint_resume_index_or_null=checkpoint_resume,
+    )
+    if legacy_path.read_bytes() != legacy_bytes:
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload legacy fixed bytes changed"
+        )
+    return events, deltas, head
+
+
+def _recover_accepted_workload_pending(
+    *, root_dir: Path, task_key: str, execution_id: str
+) -> None:
+    base = root_dir / _accepted_workload_relative_root(
+        task_key=task_key, execution_id=execution_id
+    )
+    pending = _accepted_workload_regular_entries(base / ".pending")
+    if not pending:
+        return
+    event_files = [
+        path for path in pending
+        if _ACCEPTED_PENDING_EVENT_NAME.fullmatch(path.name) is not None
+    ]
+    resume_files = [
+        path for path in pending
+        if _ACCEPTED_PENDING_RESUME_NAME.fullmatch(path.name) is not None
+    ]
+    if len(event_files) > 1 or len(resume_files) != 1 or len(pending) not in {1, 2}:
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload pending set is ambiguous"
+        )
+    try:
+        resume = _load_object(resume_files[0])
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload pending resume is unreadable"
+        ) from exc
+    if not isinstance(resume, Mapping):
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload pending resume is invalid"
+        )
+    resume_name = _ACCEPTED_PENDING_RESUME_NAME.fullmatch(resume_files[0].name)
+    if (
+        resume_name is None
+        or resume_name.group(1) != resume.get("resume_index_digest")
+    ):
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload pending resume filename owner changed"
+        )
+    events = resume.get("events")
+    if not isinstance(events, list) or not events:
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload pending resume has no owner event"
+        )
+    event = events[-1]
+    if not isinstance(event, Mapping):
+        raise AtomicPublicationGovernanceIncident(
+            "M4-v2 accepted-workload pending event is invalid"
+        )
+    if event_files:
+        try:
+            staged_event = _load_object(event_files[0])
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload pending event is unreadable"
+            ) from exc
+        if staged_event != event:
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload pending event/resume diverged"
+            )
+        event_name = _ACCEPTED_PENDING_EVENT_NAME.fullmatch(event_files[0].name)
+        if (
+            event_name is None
+            or int(event_name.group(1)) != event.get("event_index")
+            or event_name.group(2) != event.get("event_digest")
+        ):
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload pending event filename owner changed"
+            )
+    else:
+        event_path = (
+            base / "events"
+            / f"{event['event_index']:08d}-{event['event_digest']}.json"
+        )
+        if not event_path.is_file() or _load_object(event_path) != event:
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload pending resume lost its event"
+            )
+    _publish_accepted_workload_event_and_resume(
+        root_dir=root_dir,
+        task_key=task_key,
+        execution_id=execution_id,
+        event=event,
+        resume_index=resume,
     )
 
 
@@ -2284,6 +3756,9 @@ def _publish_accepted_workload_event_and_resume(
     elif event_pending.read_bytes() != event_content:
         raise AtomicPublicationGovernanceIncident("M4-v2 pending event collision")
     _atomic_publish_noreplace(event_pending, event_path)
+    if event_pending.exists():
+        event_pending.unlink()
+        _atomic_fsync_directory(event_pending.parent)
     resume_relative = f"{relative_root}/resume-index.json"
     resume_path = root_dir / resume_relative
     resume_pending = pending / f"resume-index-{resume_digest}.json"
@@ -2294,6 +3769,9 @@ def _publish_accepted_workload_event_and_resume(
         raise AtomicPublicationGovernanceIncident("M4-v2 pending resume collision")
     if not resume_path.exists():
         _atomic_publish_noreplace(resume_pending, resume_path)
+        if resume_pending.exists():
+            resume_pending.unlink()
+            _atomic_fsync_directory(resume_pending.parent)
     elif resume_path.read_bytes() == resume_content:
         resume_pending.unlink()
         _atomic_fsync_directory(resume_pending.parent)
@@ -2423,6 +3901,11 @@ def _validate_m4_v2_active_v3_source_contract(
         "corrected_request501_rebased_addendum_digest", "seed_contract",
         "seed_contract_digest", "production_action",
     }
+    if family == "temporal":
+        expected_fields |= {
+            "numeric_runtime_contract",
+            "numeric_runtime_contract_digest",
+        }
     expected_array_digest = {
         "temporal": "c3aa7e4fbb5a60393e68582ebf9b47d572892b8c2a8494db8065b8a604ab1898",
         "joint": "b9d51e1feb75e656708e410c9f719d839fedc3ed5c6dc2eae9929be8bfdcb60d",
@@ -2455,6 +3938,25 @@ def _validate_m4_v2_active_v3_source_contract(
         or len(entries) != 12
     ):
         raise MainlineSupervisorError("M4-v2 active v3 source contract changed")
+    if family == "temporal":
+        try:
+            runtime = validate_numeric_runtime_contract(
+                contract.get("numeric_runtime_contract", {})
+            )
+        except ValueError as exc:
+            raise MainlineSupervisorError(
+                "M4-v2 active Temporal numeric runtime owner changed"
+            ) from exc
+        if (
+            contract.get("numeric_runtime_contract_digest")
+            != NUMERIC_RUNTIME_CONTRACT_DIGEST
+            or runtime["worker_image_digest"] != WORKER_IMAGE_DIGEST
+            or runtime["blas_lapack_binary_closure_digest"]
+            != BLAS_LAPACK_BINARY_CLOSURE_DIGEST
+        ):
+            raise MainlineSupervisorError(
+                "M4-v2 active Temporal build closure owner changed"
+            )
     verified: list[dict[str, str]] = []
     for raw, expected_path in zip(entries, spec["entries"], strict=True):
         if not isinstance(raw, Mapping) or set(raw) != {"path", "sha256"}:
@@ -19195,6 +20697,15 @@ class M4V2SuccessorCapability:
     def _contract_digest(
         *, family: str, source: Mapping[str, Any], name: str
     ) -> str:
+        if family == "temporal" and name == "numerical":
+            if (
+                source.get("numeric_runtime_contract_digest")
+                != NUMERIC_RUNTIME_CONTRACT_DIGEST
+            ):
+                raise MainlineSupervisorError(
+                    "M4-v2 Temporal numerical runtime owner is missing"
+                )
+            return NUMERIC_RUNTIME_CONTRACT_DIGEST
         return _m4_v2_frozen_contract_digest(
             family=family,
             contract_name=name,
@@ -19691,35 +21202,144 @@ class M4V2SuccessorCapability:
         relative_root = _accepted_workload_relative_root(
             task_key=task.task_key, execution_id=execution_id
         )
-        resume_path = self.root_dir / relative_root / "resume-index.json"
-        resume = _load_object(resume_path) if resume_path.is_file() else None
-        events = list(resume.get("events", [])) if isinstance(resume, Mapping) else []
-        computation = bundle["resolved_inputs"]["historical_execution_plan_envelope"]["body"][
-            "accepted_workload_computation"
-        ]
-        folds = [
-            (int(item["evaluation_ordinal"]), str(item["issue"]))
-            for item in computation["historical_fold_commits_in_order"]
-        ]
-        schemes = [
-            str(item["scheme_id"])
-            for item in computation["historical_sensitivity_summaries_in_order"]
-        ]
-        for event in iterator(bundle, resume_index=resume):
-            event_value = dict(event)
-            events.append(event_value)
-            next_coordinate = next_coordinate_for_prefix(
-                events, fold_coordinates=folds, sensitivity_scheme_ids=schemes
+        base = self.root_dir / relative_root
+        folds, schemes = validate_registered_computation_inputs(
+            bundle, branch_id=branch_id
+        )
+        _recover_accepted_workload_pending_v2(
+            root_dir=self.root_dir, task_key=task.task_key,
+            execution_id=execution_id, branch_id=branch_id,
+            input_bundle_digest=bundle["input_bundle_digest"],
+            fold_coordinates=folds, sensitivity_scheme_ids=schemes,
+        )
+        legacy_path = base / "resume-index.json"
+        head_path = base / "resume-journal-head-v2.json"
+        if (
+            not head_path.exists()
+            and legacy_path.is_file()
+            and not legacy_path.is_symlink()
+        ):
+            legacy_resume = validate_resume_index(
+                _load_object(legacy_path), branch_id=branch_id,
+                input_bundle_digest=bundle["input_bundle_digest"],
+                producer_execution_id=execution_id,
             )
-            resume = build_resume_index(
-                branch_id=branch_id, input_bundle_digest=bundle["input_bundle_digest"],
-                producer_execution_id=execution_id, events=events,
-                next_coordinate=next_coordinate,
-            )
-            _publish_accepted_workload_event_and_resume(
+            _migrate_accepted_workload_legacy_v1(
                 root_dir=self.root_dir, task_key=task.task_key,
-                execution_id=execution_id, event=event_value, resume_index=resume,
+                execution_id=execution_id, branch_id=branch_id,
+                input_bundle_digest=bundle["input_bundle_digest"],
+                legacy_resume=legacy_resume, fold_coordinates=folds,
+                sensitivity_scheme_ids=schemes,
             )
+        events, deltas, head, resume, orphan = _reconstruct_accepted_workload_journal_v2(
+            base=base, branch_id=branch_id,
+            input_bundle_digest=bundle["input_bundle_digest"],
+            producer_execution_id=execution_id, fold_coordinates=folds,
+            sensitivity_scheme_ids=schemes,
+        )
+        if resume is not None and not events and head is None:
+            events, deltas, head = _migrate_accepted_workload_legacy_v1(
+                root_dir=self.root_dir, task_key=task.task_key,
+                execution_id=execution_id, branch_id=branch_id,
+                input_bundle_digest=bundle["input_bundle_digest"],
+                legacy_resume=resume, fold_coordinates=folds,
+                sensitivity_scheme_ids=schemes,
+            )
+        latest_checkpoint_reference = _head_bound_checkpoint_reference(base, head)
+        event_stream = iter(iterator(bundle, resume_index=resume))
+        if orphan is not None:
+            try:
+                expected_orphan = dict(next(event_stream))
+            except StopIteration as exc:
+                raise AtomicPublicationGovernanceIncident(
+                    "M4-v2 accepted-workload has an event after terminal"
+                ) from exc
+            orphan_event, orphan_delta = orphan
+            if orphan_event != expected_orphan:
+                raise AtomicPublicationGovernanceIncident(
+                    "M4-v2 accepted-workload orphan event is not unique next"
+                )
+            next_coordinate = next_coordinate_after_event(
+                orphan_event, fold_coordinates=folds,
+                sensitivity_scheme_ids=schemes,
+            )
+            terminal_seen = orphan_event["event_type"] == "TERMINAL_OUTCOME"
+            checkpoint_resume = None
+            if is_resume_checkpoint_count(len(events) + 1, terminal_seen):
+                checkpoint_resume = build_resume_index(
+                    branch_id=branch_id,
+                    input_bundle_digest=bundle["input_bundle_digest"],
+                    producer_execution_id=execution_id,
+                    events=[*events, orphan_event], next_coordinate=next_coordinate,
+                )
+            expected_delta, orphan_head, reference = build_resume_journal_transition(
+                deltas[-1] if deltas else None, branch_id=branch_id,
+                input_bundle_digest=bundle["input_bundle_digest"],
+                producer_execution_id=execution_id, event=orphan_event,
+                next_coordinate=next_coordinate,
+                checkpoint_resume_index_or_null=checkpoint_resume,
+                latest_checkpoint_reference_or_null=(
+                    None if checkpoint_resume is not None
+                    else latest_checkpoint_reference
+                ),
+            )
+            if orphan_delta != expected_delta:
+                raise AtomicPublicationGovernanceIncident(
+                    "M4-v2 accepted-workload orphan delta is not unique next"
+                )
+            _publish_accepted_workload_journal_transition_v2(
+                root_dir=self.root_dir, task_key=task.task_key,
+                execution_id=execution_id, event=orphan_event,
+                delta=orphan_delta, head=orphan_head,
+                checkpoint_reference_or_null=reference,
+                checkpoint_resume_index_or_null=checkpoint_resume,
+            )
+            events.append(orphan_event)
+            deltas.append(orphan_delta)
+            head = orphan_head
+            if reference is not None:
+                latest_checkpoint_reference = reference
+            resume = checkpoint_resume or resume
+        for event in event_stream:
+            event_value = dict(event)
+            next_coordinate = next_coordinate_after_event(
+                event_value, fold_coordinates=folds,
+                sensitivity_scheme_ids=schemes,
+            )
+            terminal_seen = event_value["event_type"] == "TERMINAL_OUTCOME"
+            checkpoint_resume = None
+            event_count = len(events) + 1
+            if is_resume_checkpoint_count(event_count, terminal_seen):
+                candidate_events = [*events, event_value]
+                checkpoint_resume = build_resume_index(
+                    branch_id=branch_id,
+                    input_bundle_digest=bundle["input_bundle_digest"],
+                    producer_execution_id=execution_id,
+                    events=candidate_events, next_coordinate=next_coordinate,
+                )
+            delta, head, reference = build_resume_journal_transition(
+                deltas[-1] if deltas else None, branch_id=branch_id,
+                input_bundle_digest=bundle["input_bundle_digest"],
+                producer_execution_id=execution_id, event=event_value,
+                next_coordinate=next_coordinate,
+                checkpoint_resume_index_or_null=checkpoint_resume,
+                latest_checkpoint_reference_or_null=(
+                    None if checkpoint_resume is not None
+                    else latest_checkpoint_reference
+                ),
+            )
+            _publish_accepted_workload_journal_transition_v2(
+                root_dir=self.root_dir, task_key=task.task_key,
+                execution_id=execution_id, event=event_value, delta=delta,
+                head=head, checkpoint_reference_or_null=reference,
+                checkpoint_resume_index_or_null=checkpoint_resume,
+            )
+            events.append(event_value)
+            deltas.append(delta)
+            if reference is not None:
+                latest_checkpoint_reference = reference
+            if checkpoint_resume is not None:
+                resume = checkpoint_resume
         if not events or events[-1].get("event_type") != "TERMINAL_OUTCOME":
             raise MainlineSupervisorError("M4-v2 accepted workload did not terminate")
         transcript = build_full_transcript(
@@ -19728,6 +21348,22 @@ class M4V2SuccessorCapability:
         )
         if not isinstance(resume, Mapping) or resume.get("terminal_seen") is not True:
             raise MainlineSupervisorError("M4-v2 accepted workload final resume is missing")
+        if not isinstance(head, Mapping):
+            raise MainlineSupervisorError("M4-v2 accepted workload final head is missing")
+        final_resume_relative = head.get(
+            "latest_checkpoint_snapshot_path_or_null"
+        )
+        if not isinstance(final_resume_relative, str):
+            raise MainlineSupervisorError(
+                "M4-v2 accepted workload final snapshot path is missing"
+            )
+        final_disk_events = [
+            value for _, value in _accepted_workload_event_entries(base)
+        ]
+        if final_disk_events != events:
+            raise AtomicPublicationGovernanceIncident(
+                "M4-v2 accepted-workload final event set is not exhaustive"
+            )
         owned = tuple(
             (
                 f"{relative_root}/events/{event['event_index']:08d}-{event['event_digest']}.json",
@@ -19736,9 +21372,57 @@ class M4V2SuccessorCapability:
             for event in events
         ) + (
             (f"{relative_root}/transcript.json", transcript),
-            (f"{relative_root}/resume-index.json", dict(resume)),
+            (f"{relative_root}/{final_resume_relative}", dict(resume)),
         )
         return events, dict(resume), transcript, owned
+
+    @staticmethod
+    def _accepted_workload_execution_metadata(
+        *, bundle: Mapping[str, Any],
+        owned_files: tuple[tuple[str, Mapping[str, Any]], ...],
+    ) -> tuple[tuple[str, Any], ...]:
+        transcripts = [
+            (path, value) for path, value in owned_files
+            if path.endswith("/transcript.json")
+        ]
+        resumes = [
+            (path, value) for path, value in owned_files
+            if value.get("schema_version")
+            == "dehps-m4-v2-accepted-workload-resume-index.v1"
+        ]
+        event_files = [
+            (path, value) for path, value in owned_files
+            if "/events/" in path
+        ]
+        if len(transcripts) != 1 or len(resumes) != 1 or not event_files:
+            raise MainlineSupervisorError(
+                "M4-v2 accepted-workload final ownership is incomplete"
+            )
+        transcript_path, transcript = transcripts[0]
+        resume_path, resume = resumes[0]
+        terminal = event_files[-1][1]
+        if (
+            terminal.get("event_type") != "TERMINAL_OUTCOME"
+            or transcript.get("events") != [value for _, value in event_files]
+            or resume.get("events") != transcript.get("events")
+            or resume.get("terminal_seen") is not True
+        ):
+            raise MainlineSupervisorError(
+                "M4-v2 accepted-workload final ownership is not byte-equal"
+            )
+        return (
+            ("accepted_workload_input_bundle_digest", bundle["input_bundle_digest"]),
+            ("accepted_workload_resume_index_digest", resume["resume_index_digest"]),
+            ("accepted_workload_resume_index_path", resume_path),
+            ("accepted_workload_terminal_event_digest", terminal["event_digest"]),
+            ("accepted_workload_transcript_digest", transcript["transcript_digest"]),
+            ("accepted_workload_transcript_event_count", transcript["event_count"]),
+            ("accepted_workload_transcript_path", transcript_path),
+            (
+                "accepted_workload_transcript_schema",
+                "dehps-m4-v2-accepted-workload-transcript.v1",
+            ),
+        )
 
     @staticmethod
     def _compile_started_health_repair(
@@ -19856,6 +21540,8 @@ class M4V2SuccessorCapability:
                 ("decision_path", terminal["decision_path"]),
                 ("decision_artifact_digest", decision["artifact_digest"]),
                 ("completion_artifact_digest", completion["artifact_digest"]),
+            ) + M4V2SuccessorCapability._accepted_workload_execution_metadata(
+                bundle=bundle, owned_files=owned_files
             ),
             owned_files=owned_files,
         )
@@ -19900,8 +21586,22 @@ class M4V2SuccessorCapability:
             body = terminal[f"{name}_artifact_body_or_null"]
             if body is None:
                 return
+            schema_version = {
+                (True, "candidate"): (
+                    "dehps-m4-v2-temporal-marginal-increment-candidate-model.v3"
+                ),
+                (True, "failure"): (
+                    "dehps-m4-v2-temporal-marginal-increment-scientific-failure.v3"
+                ),
+                (False, "failure"): (
+                    "dehps-m4-v2-joint-residual-scientific-failure.v3"
+                ),
+            }.get((temporal_branch, name))
             envelope = m4_v2_build_artifact_envelope(
-                artifact_type=artifact_specs[name], body=body, parent_digests=parents
+                artifact_type=artifact_specs[name],
+                body=body,
+                parent_digests=parents,
+                schema_version=schema_version,
             )
             if envelope["artifact_digest"] != terminal[f"expected_{name}_artifact_digest_or_null"]:
                 raise MainlineSupervisorError(
@@ -20029,7 +21729,13 @@ class M4V2SuccessorCapability:
             "exact_consumer": TEMPORAL_REPLAY_TASK_KEY if temporal_branch else JOINT_REPLAY_TASK_KEY,
         }
         completion = m4_v2_build_artifact_envelope(
-            artifact_type=artifact_specs["completion"], body=completion_body,
+            artifact_type=artifact_specs["completion"],
+            schema_version=(
+                "dehps-m4-v2-temporal-marginal-increment-producer-completion.v3"
+                if temporal_branch
+                else "dehps-m4-v2-joint-residual-producer-completion.v3"
+            ),
+            body=completion_body,
             parent_digests=(source_digest, prereg_digest, *(item["artifact_digest"] for item in preceding)),
         )
         all_artifacts = [
@@ -20055,6 +21761,8 @@ class M4V2SuccessorCapability:
                 ("decision_path", terminal["decision_path"]),
                 ("decision_artifact_digest", decision["artifact_digest"]),
                 ("completion_artifact_digest", completion["artifact_digest"]),
+            ) + M4V2SuccessorCapability._accepted_workload_execution_metadata(
+                bundle=bundle, owned_files=owned_files
             ),
             actual_fold_count=terminal["completed_fold_count"], owned_files=owned_files,
         )
@@ -21638,14 +23346,31 @@ class ResearchEvidenceSupervisor:
                 git_commit=git_commit,
             )
         except Exception as exc:
-            accepted_workload_resume = (
+            accepted_workload_root = (
                 self.root_dir
                 / _accepted_workload_relative_root(
                     task_key=task.task_key, execution_id=execution_id
                 )
-                / "resume-index.json"
             )
-            if task.task_key in {TEMPORAL_PRODUCER_TASK_KEY, JOINT_PRODUCER_TASK_KEY} and accepted_workload_resume.is_file():
+            accepted_workload_resume = accepted_workload_root / "resume-index.json"
+            durable_accepted_workload_state = (
+                accepted_workload_root.exists()
+                or accepted_workload_resume.exists()
+            )
+            if (
+                task.task_key
+                in {TEMPORAL_PRODUCER_TASK_KEY, JOINT_PRODUCER_TASK_KEY}
+                and (
+                    durable_accepted_workload_state
+                    or isinstance(
+                        exc,
+                        (
+                            AcceptedWorkloadContractError,
+                            AtomicPublicationGovernanceIncident,
+                        ),
+                    )
+                )
+            ):
                 incident = isinstance(
                     exc,
                     (AcceptedWorkloadContractError, AtomicPublicationGovernanceIncident),
@@ -21656,7 +23381,11 @@ class ResearchEvidenceSupervisor:
                     "control_plane_key": self.control_plane_key,
                     "task_key": task.task_key,
                     "execution_id": execution_id,
-                    "resume_index_path": str(accepted_workload_resume.relative_to(self.root_dir)),
+                    "resume_index_path": (
+                        str(accepted_workload_resume.relative_to(self.root_dir))
+                        if accepted_workload_resume.exists()
+                        else None
+                    ),
                     "dispatch_performed": True,
                     "git_commit": git_commit,
                     "heartbeat_at": self.now().isoformat(),
@@ -22076,6 +23805,7 @@ class ResearchEvidenceSupervisor:
         )
         if len(paths) != len(set(paths)):
             raise MainlineSupervisorError("M4-v2 accepted-workload ownership duplicated")
+        loaded: dict[str, Mapping[str, Any]] = {}
         for relative_path, expected_digest in zip(paths, digests, strict=True):
             if not isinstance(relative_path, str) or not relative_path.startswith(prefix):
                 raise MainlineSupervisorError("M4-v2 accepted-workload ownership escaped")
@@ -22086,6 +23816,69 @@ class ResearchEvidenceSupervisor:
             )
             if not path.is_file() or sha256(path.read_bytes()).hexdigest() != expected_digest:
                 raise MainlineSupervisorError("M4-v2 accepted-workload owned bytes changed")
+            value = _load_object(path)
+            if not isinstance(value, Mapping):
+                raise MainlineSupervisorError(
+                    "M4-v2 accepted-workload owned payload changed"
+                )
+            loaded[relative_path] = value
+        if not paths:
+            if any(str(key).startswith("accepted_workload_") for key in execution):
+                raise MainlineSupervisorError(
+                    "M4-v2 parent-not-accepted execution leaked workload metadata"
+                )
+            return
+        _validate_accepted_workload_execution_metadata_keys(execution)
+        transcript_path = execution["accepted_workload_transcript_path"]
+        resume_path = execution["accepted_workload_resume_index_path"]
+        transcript = loaded.get(str(transcript_path))
+        resume = loaded.get(str(resume_path))
+        event_items = [
+            (path, value) for path, value in loaded.items() if "/events/" in path
+        ]
+        event_items.sort(key=lambda item: item[1].get("event_index", -1))
+        events = [value for _, value in event_items]
+        if (
+            not isinstance(transcript, Mapping)
+            or not isinstance(resume, Mapping)
+            or transcript.get("schema_version")
+            != "dehps-m4-v2-accepted-workload-transcript.v1"
+            or execution["accepted_workload_transcript_schema"]
+            != "dehps-m4-v2-accepted-workload-transcript.v1"
+            or transcript.get("events") != events
+            or resume.get("events") != events
+            or not events
+            or events[-1].get("event_type") != "TERMINAL_OUTCOME"
+            or resume.get("terminal_seen") is not True
+            or execution["accepted_workload_input_bundle_digest"]
+            != transcript.get("input_bundle_digest")
+            or execution["accepted_workload_resume_index_digest"]
+            != resume.get("resume_index_digest")
+            or execution["accepted_workload_terminal_event_digest"]
+            != events[-1].get("event_digest")
+            or execution["accepted_workload_transcript_digest"]
+            != transcript.get("transcript_digest")
+            or execution["accepted_workload_transcript_event_count"] != len(events)
+            or transcript.get("event_count") != len(events)
+        ):
+            raise MainlineSupervisorError(
+                "M4-v2 accepted-workload final ownership metadata changed"
+            )
+        event_directory = (
+            self.root_dir / prefix / "events"
+        )
+        actual_names = sorted(
+            entry.name for entry in event_directory.iterdir()
+            if entry.is_file() and not entry.is_symlink()
+        )
+        expected_names = sorted(Path(path).name for path, _ in event_items)
+        if actual_names != expected_names or any(
+            entry.is_symlink() or not entry.is_file()
+            for entry in event_directory.iterdir()
+        ):
+            raise MainlineSupervisorError(
+                "M4-v2 accepted-workload event ownership is not exhaustive"
+            )
 
     def _complete_atomic_capability(
         self,

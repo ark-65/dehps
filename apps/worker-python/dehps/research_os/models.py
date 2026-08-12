@@ -2661,13 +2661,6 @@ def m4_v2_build_artifact_envelope(
     base = M4_V2_ARTIFACT_TYPE_REGISTRY.get(artifact_type)
     if base is None:
         raise ResearchOSValidationError(f"unknown M4-v2 artifact_type: {artifact_type}")
-    if schema_version is None and (
-        artifact_type == "M4V2TemporalMarginalIncrementCandidateModelArtifact"
-        and "probability_capsule_index" in body
-    ):
-        schema_version = (
-            "dehps-m4-v2-temporal-marginal-increment-candidate-model.v3"
-        )
     spec = _m4_v2_versioned_artifact_spec(
         artifact_type, schema_version or base.schema_version
     )

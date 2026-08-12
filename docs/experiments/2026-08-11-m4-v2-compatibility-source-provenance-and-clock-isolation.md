@@ -20,7 +20,8 @@ surface; this round does not reactivate it or alter the active predictor.
 
 No Supervisor, workload, replay, P3/P4, Promotion, production action, runtime
 publication, or scientific result read occurred. Validation is limited to
-static/focused/full Worker tests under Engineering Request 513.
+static/focused/full Worker tests under approved Engineering Request 523 and
+Execution 436. The compatibility fixes were retained while the accepted-parent
+resume protocol advanced to the immutable snapshot/reference/head contract.
 
 MAINLINE INTEGRATION: **NO — INTEGRATION_PENDING**.
-

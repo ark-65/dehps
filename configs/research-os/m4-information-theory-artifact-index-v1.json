@@ -961,13 +961,13 @@
       "path": "configs/research-os/m4-v2-joint-residual-increment-source-v2.json",
       "identity_field": "artifact_digest"
     },
-    "4c3d6022336770708eddcc34d31949923f8e49d4114ac4509df8ac472bfe65b9": {
+    "882509d115f778fc71e900491c8fc9cc30eb02687215890b2503ed4dd5e37ac5": {
       "artifact_type": "m4_v2_temporal_marginal_increment_source_contract",
       "path": "configs/research-os/m4-v2-temporal-marginal-increment-source-v3.json",
       "identity_field": "artifact_digest",
       "supersedes_digest": "eb306e418182c8d2fc39272aa653018a9f5ad6afcbcf0c4825d88f09a8980c37"
     },
-    "b66eadd1d71f9506dacb8107256bb3a2678fd9802cfe64c8ed27a543e82651d7": {
+    "41d909604b8fee0c97598cd9f13edf9de601b6c9f72194b5fb881d1e650f4844": {
       "artifact_type": "m4_v2_joint_residual_increment_source_contract",
       "path": "configs/research-os/m4-v2-joint-residual-increment-source-v3.json",
       "identity_field": "artifact_digest",
@@ -984,9 +984,9 @@
       "supersedes_digest": "f8f6375b04359676d47a5c56c9f0b38874466ecf88d5a92f4c54115e39a2035a",
       "source_commit": "4e787ebc1b13e1a16fe42b80054cb2a01f4c0b6b",
       "path_at_source": "configs/research-os/m4-information-theory-evidence-v1.json",
-      "superseded_by_digest": "d2291235dc72cb849455299bc6b11020d1454c1f26617502da9e83d905b136f2"
+      "superseded_by_digest": "b73210e14f1a49653f999821bc97a462d0b6775dad0dc0b4d052fc7d52f045c4"
     },
-    "d2291235dc72cb849455299bc6b11020d1454c1f26617502da9e83d905b136f2": {
+    "b73210e14f1a49653f999821bc97a462d0b6775dad0dc0b4d052fc7d52f045c4": {
       "artifact_type": "research_os_control_plane_manifest",
       "path": "configs/research-os/m4-information-theory-evidence-v1.json",
       "identity_field": "manifest_digest",

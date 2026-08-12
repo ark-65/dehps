@@ -309,7 +309,7 @@
       }
     }
   ],
-  "manifest_digest": "d2291235dc72cb849455299bc6b11020d1454c1f26617502da9e83d905b136f2",
+  "manifest_digest": "b73210e14f1a49653f999821bc97a462d0b6775dad0dc0b4d052fc7d52f045c4",
   "schema_version": "research-os-control-plane-v1",
   "tasks": [
     {
@@ -6282,7 +6282,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "4c3d6022336770708eddcc34d31949923f8e49d4114ac4509df8ac472bfe65b9"
+        "882509d115f778fc71e900491c8fc9cc30eb02687215890b2503ed4dd5e37ac5"
       ],
       "lane": "research",
       "metric_contract": {
@@ -6621,7 +6621,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "b66eadd1d71f9506dacb8107256bb3a2678fd9802cfe64c8ed27a543e82651d7"
+        "41d909604b8fee0c97598cd9f13edf9de601b6c9f72194b5fb881d1e650f4844"
       ],
       "lane": "research",
       "metric_contract": {
