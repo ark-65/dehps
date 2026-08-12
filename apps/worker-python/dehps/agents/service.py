@@ -14,19 +14,21 @@ from dehps.agents.handoffs import (
     validate_research_to_engineering_payload,
 )
 from dehps.agents.policy import AgentAuthorityPolicy, AuthorizationContext
-from dehps.agents.repository import AgentRequestRepository
+from dehps.agents.repository import (
+    AgentRequestExecutionMetadata,
+    AgentRequestRepository,
+)
 from dehps.agents.requests import (
     REQUEST_TRANSITIONS,
+    REQUEST_TYPE_SPECS,
     AgentExecutionStatus,
     AgentRequest,
     AgentRequestExecution,
     AgentRequestStatus,
     AgentRequestType,
     AgentRiskLevel,
-    REQUEST_TYPE_SPECS,
 )
 from dehps.agents.roles import AgentRole
-
 
 RISK_ORDER = {
     AgentRiskLevel.LOW: 0,
@@ -169,6 +171,7 @@ class AgentRequestService:
     ) -> AgentRequest:
         request = self.repository.get_request(request_key)
         self._authorize_request(request, reviewer_role, self._review_action("review"), environment)
+        self._require_independent_critical_reviewer(request, reviewer_id)
         return self._transition(
             request,
             AgentRequestStatus.UNDER_REVIEW,
@@ -190,6 +193,7 @@ class AgentRequestService:
     ) -> AgentRequest:
         request = self.repository.get_request(request_key)
         self._authorize_request(request, reviewer_role, self._review_action("approve"), environment)
+        self._require_independent_critical_reviewer(request, reviewer_id)
         return self._transition(
             request,
             AgentRequestStatus.APPROVED,
@@ -211,6 +215,7 @@ class AgentRequestService:
     ) -> AgentRequest:
         request = self.repository.get_request(request_key)
         self._authorize_request(request, reviewer_role, self._review_action("reject"), environment)
+        self._require_independent_critical_reviewer(request, reviewer_id)
         return self._transition(
             request,
             AgentRequestStatus.REJECTED,
@@ -278,6 +283,30 @@ class AgentRequestService:
             run_id=run_id,
         )
 
+    def begin_execution_metadata(
+        self,
+        request_key: str,
+        *,
+        executor_role: AgentRole,
+        executor_id: str,
+        environment: str,
+        run_id: str | None = None,
+    ) -> tuple[AgentRequest, AgentRequestExecutionMetadata]:
+        request = self.repository.get_request(request_key)
+        spec = REQUEST_TYPE_SPECS[request.request_type]
+        self._ensure_transition(request.status, AgentRequestStatus.EXECUTING)
+        self._authorize_request(request, executor_role, spec.execution_action, environment)
+        if executor_role == AgentRole.OPERATOR and not str(run_id or "").strip():
+            raise AgentRequestValidationError("Operator executions require a run_id")
+        return self.repository.begin_execution_metadata(
+            request_key=request_key,
+            executor_role=executor_role,
+            executor_id=executor_id,
+            execution_type=spec.execution_action.value,
+            environment=environment,
+            run_id=run_id,
+        )
+
     def complete_execution(
         self,
         request_key: str,
@@ -318,6 +347,67 @@ class AgentRequestService:
         self._authorize_request(request, executor_role, REQUEST_TYPE_SPECS[request.request_type].execution_action, execution.environment)
         self._ensure_transition(request.status, AgentRequestStatus.FAILED)
         return self.repository.finish_execution(
+            request_key=request_key,
+            execution_id=execution_id,
+            executor_role=executor_role,
+            executor_id=executor_id,
+            execution_status=AgentExecutionStatus.FAILED,
+            request_status=AgentRequestStatus.FAILED,
+            result={},
+            artifact_paths=[],
+            error=error,
+        )
+
+    def complete_execution_metadata(
+        self,
+        request_key: str,
+        *,
+        execution_id: int,
+        executor_role: AgentRole,
+        executor_id: str,
+        result: Mapping[str, Any],
+        artifact_paths: list[str],
+    ) -> tuple[AgentRequest, AgentRequestExecutionMetadata]:
+        request, execution = self._execution_metadata_context(request_key, execution_id)
+        self._authorize_request(
+            request,
+            executor_role,
+            REQUEST_TYPE_SPECS[request.request_type].execution_action,
+            execution.environment,
+        )
+        self._ensure_transition(request.status, AgentRequestStatus.COMPLETED)
+        if request_uses_engineering_result_contract(request.request_type):
+            validate_engineering_result(result)
+        return self.repository.finish_execution_metadata(
+            request_key=request_key,
+            execution_id=execution_id,
+            executor_role=executor_role,
+            executor_id=executor_id,
+            execution_status=AgentExecutionStatus.COMPLETED,
+            request_status=AgentRequestStatus.COMPLETED,
+            result=result,
+            artifact_paths=artifact_paths,
+            error={},
+        )
+
+    def fail_execution_metadata(
+        self,
+        request_key: str,
+        *,
+        execution_id: int,
+        executor_role: AgentRole,
+        executor_id: str,
+        error: Mapping[str, Any],
+    ) -> tuple[AgentRequest, AgentRequestExecutionMetadata]:
+        request, execution = self._execution_metadata_context(request_key, execution_id)
+        self._authorize_request(
+            request,
+            executor_role,
+            REQUEST_TYPE_SPECS[request.request_type].execution_action,
+            execution.environment,
+        )
+        self._ensure_transition(request.status, AgentRequestStatus.FAILED)
+        return self.repository.finish_execution_metadata(
             request_key=request_key,
             execution_id=execution_id,
             executor_role=executor_role,
@@ -373,6 +463,34 @@ class AgentRequestService:
         if execution is None:
             raise AgentRequestValidationError(f"execution is not attached to request: {execution_id}")
         return request, execution
+
+    def _execution_metadata_context(
+        self,
+        request_key: str,
+        execution_id: int,
+    ) -> tuple[AgentRequest, AgentRequestExecutionMetadata]:
+        request = self.repository.get_request(request_key)
+        execution = self.repository.get_execution_metadata(request_key, execution_id)
+        return request, execution
+
+    def _require_independent_critical_reviewer(
+        self,
+        request: AgentRequest,
+        reviewer_id: str,
+    ) -> None:
+        if request.risk_level != AgentRiskLevel.CRITICAL:
+            return
+        if reviewer_id == request.requested_by:
+            raise AgentAuthorizationError(
+                "critical request reviewer must differ from the recorded requester"
+            )
+        if any(
+            execution.executor_id == reviewer_id
+            for execution in self.repository.list_execution_metadata(request.request_key)
+        ):
+            raise AgentAuthorizationError(
+                "critical request reviewer must differ from every recorded executor"
+            )
 
     def _transition(
         self,
