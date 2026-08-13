@@ -1,6 +1,6 @@
 {
   "accepted_support_input_schema": "dehps-m4-v2-accepted-support-input.v3",
-  "artifact_digest": "658b490f1c3b46c7beafb3f34ec42c58fd2481e92e4a03057de2ff43c070d825",
+  "artifact_digest": "d266bc0a49b9423871753c25e0c5b97d0fb39c6fad50a02e59fc75e1e5ccfe5a",
   "artifact_type": "m4_v2_temporal_marginal_increment_source_contract",
   "contract_key": "m4-v2-temporal-marginal-increment-contract-v3",
   "corrected_amendment_contract_digest": "a6c59a1f0e0ae81b8eedbee9dfac515a50b26d57bd33c9e0e4ae122d811fd37c",
@@ -212,11 +212,11 @@
     },
     {
       "path": "apps/worker-python/dehps/research_os/supervisor.py",
-      "sha256": "1fbf2d8a9ffc5f3df63d0b09e72187873c06954ac88a22398354cb5753166c63"
+      "sha256": "01e82839be19e8ba67ebb15df38ece93748e70dfae7bd86d9a8b7e2b0c4e760a"
     },
     {
       "path": "apps/worker-python/dehps/research_os/information_theory/progress.py",
-      "sha256": "b89603bb245b98486e775df6ff2e5c133accf9871c680934c7b655acd1bc3498"
+      "sha256": "67122e19468e95939f6ff33334f8b698bfef19ff3bcb03f2ebbbafc2c6af6f6c"
     },
     {
       "path": "apps/worker-python/dehps/research_os/control_plane.py",
@@ -228,7 +228,7 @@
     },
     {
       "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/migration.py",
-      "sha256": "f540aa9ab2c57053f7a00bdabf8b873f0324ade010b989d97abfc3ee6da44d66"
+      "sha256": "9456104df0d241c1376ae6c41971eee2443c09edb463da7e866685da6a5ab6b4"
     },
     {
       "path": "apps/worker-python/scripts/build_m4_v2_temporal_marginal_increment_manifest.py",
@@ -238,7 +238,7 @@
   "source_fact": "m4-v2-temporal-marginal-increment-contract-v3:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
   "source_path_array_contract_version": 4,
   "source_path_array_digest": "c3aa7e4fbb5a60393e68582ebf9b47d572892b8c2a8494db8065b8a604ab1898",
-  "source_set_digest": "0d9bf2e60dfb27322a809b0881f5bc1bedfcde47d6a32066bf1498b86a7d12ae",
+  "source_set_digest": "ec9509f1cf0ed17036a1bc4a183aa235d81efdb4e479763e5ded2ec775ed28fb",
   "supersedes_v2_artifact_digest": "eb306e418182c8d2fc39272aa653018a9f5ad6afcbcf0c4825d88f09a8980c37",
   "supersedes_v2_source_set_digest": "347871439de9af2736ba2eefa69c21bd2122bdecfaab77cf49b9830a1d56268a"
 }

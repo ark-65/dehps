@@ -309,7 +309,7 @@
       }
     }
   ],
-  "manifest_digest": "e1a8ca3df25b0260a8b28bdebd0f610ad2c7fe1ac0563b9e05caedeb72c519f8",
+  "manifest_digest": "e7310b8cb567e2f959aea8d37601309a704cc2c5a8669f868618a84bafc3fa78",
   "schema_version": "research-os-control-plane-v1",
   "tasks": [
     {
@@ -5420,7 +5420,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "c8b1e4e50235179339fd95cb7e2af63d3e0616e25e30d689f7afec3019e19e7a"
+        "5df45852e589719de889cdd5c08dedc9985b037fb27670354cddcadff20ace66"
       ],
       "lane": "research",
       "metric_contract": {
@@ -6227,7 +6227,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "44b0c436e3b2c2e5d73c14db55d19db3fefb56877a415e71ef53ef078893da25"
+        "f078eed2de707bf1e0ed80495eb9955bd8a909e170fed3318110574f7722e3bb"
       ],
       "lane": "research",
       "metric_contract": {
@@ -6236,7 +6236,7 @@
           "research_os_mainline_execution"
         ],
         "branch_id": "MARGINAL_STATIC",
-        "completion_fact": "m4-v2-marginal-static-historical-branch-decision-replay:COMPLETE",
+        "completion_fact": "m4-v2-marginal-static-historical-branch-decision-replay-recovery-v1:COMPLETE",
         "historical_result_reads": 0,
         "mainline_integration": {
           "decision_consumer": "m4-v2-temporal-marginal-increment-historical-measurement-design",
@@ -6261,6 +6261,31 @@
         "phase": "M4-V2-MARGINAL-STATIC-DECISION-REPLAY",
         "production_action": "none",
         "promotion_gate_opened": false,
+        "recovery_lineage": {
+          "old_active_definition_digest": "26aefc4e9e1ae7e2673acef28f7630f85b90baf34e26e1abe8e047d2dd478832",
+          "old_event_manifest_digest": "c7c827b3dc41eaecb07d80fd150025de4c2e179e8a6cdfd204ebd4ab191ec56c",
+          "old_execution_id": "a41b900ce663f4f6a6f16b5429f70270954daee019c746f89d255b9daef5b9b0",
+          "old_failed_event": {
+            "event_digest": "338f84f5dafab3ff55a2566e3e4cf437769707674722d9b9f7335510d8f0b7b4",
+            "sequence": 1
+          },
+          "old_older_definition_digest": "ee575d4109b055e1988ae493e2a6a913704624d8e611063f707aed08d34e344e",
+          "old_started_event": {
+            "event_digest": "85eeba6a9dd2f477267705e0aa7f80b53e6450021563dd5a54a5146e10431065",
+            "sequence": 0
+          },
+          "old_state": {
+            "completion_classification": "INTEGRATED",
+            "declared_status": "failed",
+            "reason_code": "task_failed",
+            "resolved_status": "failed",
+            "superseded_by_task_digest": null
+          },
+          "old_task_key": "m4-v2-marginal-static-historical-branch-decision-replay",
+          "schema_version": "dehps-m4-v2-marginal-static-branch-decision-replay-recovery-lineage.v1",
+          "successor_task_key": "m4-v2-marginal-static-historical-branch-decision-replay-recovery-v1"
+        },
+        "recovery_lineage_digest": "9b24c1953df46f2271b199acbdc003045dc6fe28dd1568b15f7614e294df61b9",
         "registration_count": 2,
         "replay_fact": "m4-v2-historical-branch-decision-replay:M4_MEASUREMENT_CONTRACT_V2:MARGINAL_STATIC:VERIFIED",
         "replay_status": "REGISTERED_REPLAY_VERIFIED",
@@ -6271,7 +6296,7 @@
       "requested_capability": "m4_v2_marginal_static_historical_branch_decision_replay",
       "status": "draft",
       "superseded_by_task_digest": null,
-      "task_key": "m4-v2-marginal-static-historical-branch-decision-replay",
+      "task_key": "m4-v2-marginal-static-historical-branch-decision-replay-recovery-v1",
       "task_type": "m4_v2_marginal_static_historical_branch_decision_replay"
     },
     {
@@ -6291,7 +6316,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "658b490f1c3b46c7beafb3f34ec42c58fd2481e92e4a03057de2ff43c070d825"
+        "d266bc0a49b9423871753c25e0c5b97d0fb39c6fad50a02e59fc75e1e5ccfe5a"
       ],
       "lane": "research",
       "metric_contract": {
@@ -6362,7 +6387,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "658b490f1c3b46c7beafb3f34ec42c58fd2481e92e4a03057de2ff43c070d825"
+        "d266bc0a49b9423871753c25e0c5b97d0fb39c6fad50a02e59fc75e1e5ccfe5a"
       ],
       "lane": "research",
       "metric_contract": {
@@ -6438,7 +6463,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "658b490f1c3b46c7beafb3f34ec42c58fd2481e92e4a03057de2ff43c070d825"
+        "d266bc0a49b9423871753c25e0c5b97d0fb39c6fad50a02e59fc75e1e5ccfe5a"
       ],
       "lane": "research",
       "metric_contract": {
@@ -6556,7 +6581,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "658b490f1c3b46c7beafb3f34ec42c58fd2481e92e4a03057de2ff43c070d825"
+        "d266bc0a49b9423871753c25e0c5b97d0fb39c6fad50a02e59fc75e1e5ccfe5a"
       ],
       "lane": "research",
       "metric_contract": {
@@ -6630,7 +6655,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "596f753ad6c273930c65fee35fde61461eb8a6b102461c083f22c887908598db"
+        "3dc328e7067619967e5cf10333f69749e80b37143bbde8b59beb84ae64abe8a7"
       ],
       "lane": "research",
       "metric_contract": {
@@ -6700,7 +6725,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "596f753ad6c273930c65fee35fde61461eb8a6b102461c083f22c887908598db"
+        "3dc328e7067619967e5cf10333f69749e80b37143bbde8b59beb84ae64abe8a7"
       ],
       "lane": "research",
       "metric_contract": {
@@ -6780,7 +6805,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "596f753ad6c273930c65fee35fde61461eb8a6b102461c083f22c887908598db"
+        "3dc328e7067619967e5cf10333f69749e80b37143bbde8b59beb84ae64abe8a7"
       ],
       "lane": "research",
       "metric_contract": {
@@ -6899,7 +6924,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "596f753ad6c273930c65fee35fde61461eb8a6b102461c083f22c887908598db"
+        "3dc328e7067619967e5cf10333f69749e80b37143bbde8b59beb84ae64abe8a7"
       ],
       "lane": "research",
       "metric_contract": {

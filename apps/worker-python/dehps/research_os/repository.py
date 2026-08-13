@@ -86,11 +86,15 @@ class PostgresResearchOSRepository:
         task_revisions: list[tuple[str, str, str]] = []
 
         with self.connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
-            self._verify_m4_v2_failed_task_recovery_import(
-                cursor,
-                control_plane_key=key,
-                manifest=manifest,
+            replay_recovery = self._verify_m4_v2_failed_replay_recovery_import(
+                cursor, control_plane_key=key, manifest=manifest
             )
+            if not replay_recovery:
+                self._verify_m4_v2_failed_task_recovery_import(
+                    cursor,
+                    control_plane_key=key,
+                    manifest=manifest,
+                )
             self._verify_mainline_completion_records(
                 cursor,
                 control_plane_key=key,
@@ -454,6 +458,146 @@ class PostgresResearchOSRepository:
             verify_failed_task_recovery_event_metadata(tuple(dict(row) for row in rows))
         except AdditiveManifestMigrationError as exc:
             raise ResearchOSValidationError(str(exc)) from exc
+
+    @staticmethod
+    def _verify_m4_v2_failed_replay_recovery_import(
+        cursor,
+        *,
+        control_plane_key: str,
+        manifest: ControlPlaneManifest,
+    ) -> bool:
+        """Verify the append-only failed replay lineage before any import write."""
+
+        from dehps.research_os.information_theory.measurement_system_v2.migration import (
+            M4_V2_FAILED_REPLAY_EXECUTION_ID,
+            M4_V2_FAILED_REPLAY_OLDER_TASK_DIGEST,
+            M4_V2_FAILED_REPLAY_TASK_DIGEST,
+            M4_V2_FAILED_REPLAY_TASK_KEY,
+            M4_V2_REPLAY_RECOVERY_INPUT_MANIFEST_DIGEST,
+            M4_V2_REPLAY_RECOVERY_TASK_KEY,
+            AdditiveManifestMigrationError,
+            verify_failed_replay_recovery_event_metadata,
+        )
+
+        task_by_key = {task.task_key: task for task in manifest.tasks}
+        recovery = task_by_key.get(M4_V2_REPLAY_RECOVERY_TASK_KEY)
+        if recovery is None:
+            return False
+        if control_plane_key != "m4-information-theory-mainline":
+            raise ResearchOSValidationError(
+                "m4_v2_replay_recovery_control_plane_changed"
+            )
+        if M4_V2_FAILED_REPLAY_TASK_KEY in task_by_key:
+            raise ResearchOSValidationError(
+                "m4_v2_replay_recovery_old_failed_task_still_active"
+            )
+
+        control = cursor.execute(
+            """
+            SELECT current_manifest_digest
+            FROM research_os_control_planes
+            WHERE control_plane_key = %s
+            FOR UPDATE
+            """,
+            (control_plane_key,),
+        ).fetchone()
+        if control is None:
+            raise ResearchOSValidationError(
+                "m4_v2_replay_recovery_control_plane_not_initialized"
+            )
+        current_manifest_digest = str(control["current_manifest_digest"])
+        if current_manifest_digest not in {
+            M4_V2_REPLAY_RECOVERY_INPUT_MANIFEST_DIGEST,
+            manifest.artifact_digest,
+        }:
+            stored = cursor.execute(
+                """
+                SELECT manifest_json
+                FROM research_os_manifests
+                WHERE manifest_digest = %s
+                """,
+                (current_manifest_digest,),
+            ).fetchone()
+            if stored is None:
+                raise ResearchOSValidationError(
+                    "m4_v2_replay_recovery_current_manifest_missing"
+                )
+            current_manifest = ControlPlaneManifest.from_dict(
+                dict(stored["manifest_json"])
+            )
+            current_by_key = {
+                task.task_key: task.artifact_digest
+                for task in current_manifest.tasks
+            }
+            if (
+                M4_V2_FAILED_REPLAY_TASK_KEY in current_by_key
+                or current_by_key.get(M4_V2_REPLAY_RECOVERY_TASK_KEY)
+                != recovery.artifact_digest
+            ):
+                raise ResearchOSValidationError(
+                    "m4_v2_replay_recovery_current_manifest_lineage_changed"
+                )
+
+        states = cursor.execute(
+            """
+            SELECT td.task_digest, ts.declared_status,
+                   ts.completion_classification, ts.superseded_by_task_digest
+            FROM research_os_task_definitions td
+            JOIN research_os_task_states ts ON ts.task_digest = td.task_digest
+            WHERE ts.control_plane_key = %s
+              AND td.task_key = %s
+              AND td.task_digest IN (%s, %s)
+            ORDER BY td.task_digest
+            """,
+            (
+                control_plane_key,
+                M4_V2_FAILED_REPLAY_TASK_KEY,
+                M4_V2_FAILED_REPLAY_TASK_DIGEST,
+                M4_V2_FAILED_REPLAY_OLDER_TASK_DIGEST,
+            ),
+        ).fetchall()
+        state_by_digest = {str(row["task_digest"]): row for row in states}
+        active = state_by_digest.get(M4_V2_FAILED_REPLAY_TASK_DIGEST)
+        older = state_by_digest.get(M4_V2_FAILED_REPLAY_OLDER_TASK_DIGEST)
+        if (
+            active is None
+            or str(active["declared_status"]) != "failed"
+            or str(active["completion_classification"]) != "INTEGRATED"
+            or active["superseded_by_task_digest"] is not None
+            or older is None
+            or str(older["declared_status"]) != "superseded"
+            or str(older["completion_classification"]) != "INTEGRATION_PENDING"
+            or str(older["superseded_by_task_digest"])
+            != M4_V2_FAILED_REPLAY_TASK_DIGEST
+        ):
+            raise ResearchOSValidationError(
+                "m4_v2_replay_recovery_failed_task_lineage_changed"
+            )
+
+        rows = cursor.execute(
+            """
+            SELECT event_digest, execution_id, control_plane_key,
+                   manifest_digest, task_digest, task_key, capability,
+                   event_type, sequence
+            FROM research_os_mainline_execution_events
+            WHERE control_plane_key = %s
+              AND task_key = %s
+              AND execution_id = %s
+            ORDER BY sequence, event_digest
+            """,
+            (
+                control_plane_key,
+                M4_V2_FAILED_REPLAY_TASK_KEY,
+                M4_V2_FAILED_REPLAY_EXECUTION_ID,
+            ),
+        ).fetchall()
+        try:
+            verify_failed_replay_recovery_event_metadata(
+                tuple(dict(row) for row in rows)
+            )
+        except AdditiveManifestMigrationError as exc:
+            raise ResearchOSValidationError(str(exc)) from exc
+        return True
 
     def load_manifest(self, *, control_plane_key: str) -> ControlPlaneManifest:
         key = self._key(control_plane_key)
