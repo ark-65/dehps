@@ -1340,6 +1340,7 @@ M4_V2_SUCCESSOR_SOURCE_SPECS: dict[str, dict[str, Any]] = {
             "apps/worker-python/dehps/research_os/control_plane.py",
             "apps/worker-python/dehps/research_os/models.py",
             "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/migration.py",
+            "apps/worker-python/scripts/build_m4_v2_global_routing_recovery_v2_manifest.py",
         ),
     },
 }
@@ -20698,7 +20699,7 @@ class M4V2SuccessorCapability:
             registrations=replay_registrations,
             artifact_type="M4V2BranchDecisionReplayArtifact",
         )
-        return {
+        record = {
             "decision": decision,
             "decision_registration": decision_registration,
             "decision_execution": decision_execution,
@@ -20712,6 +20713,34 @@ class M4V2SuccessorCapability:
                 replay_registrations, "research_os_mainline_execution"
             ),
         }
+        if replay_task_key == M4_V2_SUCCESSOR_MARGINAL_REPLAY_RECOVERY_TASK_KEY:
+            manifest = self.repository.load_manifest(
+                control_plane_key=control_plane_key
+            )
+            definitions = [
+                item for item in manifest.tasks if item.task_key == replay_task_key
+            ]
+            if len(definitions) != 1:
+                raise MainlineSupervisorError(
+                    "M4-v2 marginal recovery definition cardinality changed"
+                )
+            definition = definitions[0]
+            state = manifest.task_state_by_digest[definition.artifact_digest]
+            record["recovery_task_definition"] = {
+                "definition": definition.to_dict(),
+                "definition_digest": definition.artifact_digest,
+            }
+            record["recovery_task_state"] = {
+                "task_digest": state.task_digest,
+                "declared_status": state.declared_status.value,
+                "completion_classification": (
+                    None
+                    if state.completion_classification is None
+                    else state.completion_classification.value
+                ),
+                "superseded_by_task_digest": state.superseded_by_task_digest,
+            }
+        return record
 
     @staticmethod
     def _contract_digest(

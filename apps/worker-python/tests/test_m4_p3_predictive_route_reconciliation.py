@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from dehps.config import ROOT_DIR
 from dehps.research_os import supervisor as supervisor_module
 from dehps.research_os.control_plane import ResearchOSControlPlane
@@ -66,7 +67,6 @@ from dehps.research_os.models import (
     MainlineArtifactRegistration,
     TaskStatus,
 )
-
 from scripts import build_m4_p3_predictive_route_reconciliation_manifest as builder
 
 MANIFEST_PATH = (
@@ -419,12 +419,12 @@ def _durable_drift_fixture(source_payload: dict[str, Any]) -> dict[str, Any]:
     global_task = next(
         task
         for task in live["tasks"]
-        if task["task_key"] == "m4-v2-global-routing-recovery-v1"
+        if task["task_key"] == "m4-v2-global-routing-recovery-v2"
     )
     global_task["task_key"] = GLOBAL_ROUTING_TASK_KEY
     for task in live["tasks"]:
         for dependency in task["dependencies"]:
-            if dependency["target_key"] == "m4-v2-global-routing-recovery-v1":
+            if dependency["target_key"] == "m4-v2-global-routing-recovery-v2":
                 dependency["target_key"] = GLOBAL_ROUTING_TASK_KEY
 
     p3 = _task(live, PREDICTIVE_P3_TASK_KEY)

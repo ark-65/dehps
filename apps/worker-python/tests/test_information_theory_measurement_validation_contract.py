@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+
 from dehps.research_os.control_plane import ResearchOSControlPlane
 from dehps.research_os.information_theory import load_m4_manifest
 from dehps.research_os.information_theory.digest import config_digest
@@ -181,7 +182,7 @@ def test_legacy_pass_fact_cannot_bypass_full_v2_global_routing() -> None:
     assert states["m4-p2-repair-measurement-system"] == "completed"
     assert "m4-p3-strict-historical-walk-forward" not in ready
 
-    _set_task_complete(payload, "m4-v2-global-routing-recovery-v1", "3" * 64)
+    _set_task_complete(payload, "m4-v2-global-routing-recovery-v2", "3" * 64)
     payload["facts"]["artifacts"].append(
         "m4-v2-routing:ADAPTIVE_RESEARCH_ELIGIBLE"
     )

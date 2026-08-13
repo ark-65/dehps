@@ -23,6 +23,7 @@ from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcom
 )
 from dehps.research_os.information_theory.measurement_system_v2.routing import (
     GLOBAL_ROUTE_RECOVERY_COMPLETION_FACT,
+    GLOBAL_ROUTE_RECOVERY_TASK_KEY,
 )
 from dehps.research_os.information_theory.predictive_route_reconciliation import (
     ADAPTIVE_RESEARCH_ELIGIBILITY_FACT,
@@ -123,7 +124,7 @@ M4_V2_SUCCESSOR_TASKS = {
     "joint_replay": (
         "m4-v2-joint-residual-increment-historical-branch-decision-replay"
     ),
-    "global_routing": "m4-v2-global-routing-recovery-v1",
+    "global_routing": GLOBAL_ROUTE_RECOVERY_TASK_KEY,
 }
 M4_V2_GLOBAL_ROUTING_RECOVERY_TASK_KEY = M4_V2_SUCCESSOR_TASKS["global_routing"]
 M4_V2_ACTIVE_SUCCESSOR_SOURCE_CONTRACTS = {
