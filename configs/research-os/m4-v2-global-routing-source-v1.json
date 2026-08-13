@@ -1,5 +1,5 @@
 {
-  "artifact_digest": "ae2985e419e5b2839c29fe47372480ee50b35b7070109842f2984d5d44101670",
+  "artifact_digest": "24bfd16ee558f13ec2a50a30a8d903a11934fc128f996f370d78fdba9a4929ec",
   "artifact_type": "m4_v2_global_routing_source_contract",
   "failed_engineering_predecessor_binding": {
     "approval_decision_digest": "eddcffb0b16a78e802e6937c2376bf106f6ce2f5689c0d3d497b48157120e49a",
@@ -161,15 +161,15 @@
   "source_entries": [
     {
       "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/routing.py",
-      "sha256": "d819eecb0710db34820ce5105adf4bcc98029989c541627e4da36de97892b6bf"
+      "sha256": "821b9337bf997aba0a83e8da237d100cd5e172fa8157b1909961eb419d052b25"
     },
     {
       "path": "apps/worker-python/dehps/research_os/supervisor.py",
-      "sha256": "5cf8e2b1ec9ac26fb5936def10f1bab58ff087c1342a43d871e03c1e589060ed"
+      "sha256": "492bbecb3d69e2969aca471d4fff2d315cdb5f97566350cef1117bae5888becb"
     },
     {
       "path": "apps/worker-python/dehps/research_os/information_theory/progress.py",
-      "sha256": "e78bccd8d8f8e2eb9b98b3223002bca4853291b86eacf05fafcba6e061f1e9fd"
+      "sha256": "90c51eedec56308e7196ad4bfd97c0302e4463ffbd166f182b2a7ce4e599af9c"
     },
     {
       "path": "apps/worker-python/scripts/build_m4_v2_global_routing_manifest.py",
@@ -190,8 +190,12 @@
     {
       "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/migration.py",
       "sha256": "9456104df0d241c1376ae6c41971eee2443c09edb463da7e866685da6a5ab6b4"
+    },
+    {
+      "path": "apps/worker-python/scripts/build_m4_v2_global_routing_recovery_v2_manifest.py",
+      "sha256": "d83932de3fa6f5722da2b2cb7922102d26f3005df1cab5b94dbc10ee21da463b"
     }
   ],
   "source_fact": "m4-v2-global-routing-contract:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
-  "source_set_digest": "57e96ce7553ad9c3795e98ebbd32d49f12ba7eb3c6e696ba49c5752e0a7dd53b"
+  "source_set_digest": "51416beac1b615c6b5b91786f40f105b45ec7503285126649aa4334715b3a00c"
 }

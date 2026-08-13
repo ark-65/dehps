@@ -1,5 +1,5 @@
 {
-  "artifact_digest": "189a3d56f0986bf1c8cd5960a995ac36d0155cf341c8c554c1537c5278c0cd0b",
+  "artifact_digest": "b4d008248fbc5dc24e9d2e9c95ddb8fbae6123c7cf5d06a06b7361001069e265",
   "artifact_type": "m4_v2_marginal_static_historical_identity_adoption_source_contract",
   "failed_engineering_predecessor_binding": {
     "approval_decision_digest": "eddcffb0b16a78e802e6937c2376bf106f6ce2f5689c0d3d497b48157120e49a",
@@ -165,11 +165,11 @@
     },
     {
       "path": "apps/worker-python/dehps/research_os/supervisor.py",
-      "sha256": "5cf8e2b1ec9ac26fb5936def10f1bab58ff087c1342a43d871e03c1e589060ed"
+      "sha256": "492bbecb3d69e2969aca471d4fff2d315cdb5f97566350cef1117bae5888becb"
     },
     {
       "path": "apps/worker-python/dehps/research_os/information_theory/progress.py",
-      "sha256": "e78bccd8d8f8e2eb9b98b3223002bca4853291b86eacf05fafcba6e061f1e9fd"
+      "sha256": "90c51eedec56308e7196ad4bfd97c0302e4463ffbd166f182b2a7ce4e599af9c"
     },
     {
       "path": "apps/worker-python/dehps/research_os/control_plane.py",
@@ -189,5 +189,5 @@
     }
   ],
   "source_fact": "m4-v2-marginal-static-historical-identity-adoption-contract:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
-  "source_set_digest": "0925ab8fb843ff122338480076d9c61dbbaffde96365b02b2aeba50630a37dea"
+  "source_set_digest": "513d5716a256b6863d8f0c1b4cf2d0798a2031cd7905bc9e9ce73233f618e7fa"
 }

@@ -124,6 +124,21 @@ run from the frozen recovery manifest boundary.
 11. All four source-envelope loaders must validate the resealed bytes before
     any separately authorized live import.
 12. Integration matrix: `NO — INTEGRATION_PENDING`.
+
+## Global routing actual-schema recovery v2
+
+1. The result-blind recovery input is manifest `03718fe3cb8744410d66f72f523e469baa5ff01c78334792c85fd9cd5c9298cc`, snapshot `0c9c8dc98f92f04c7c7ba57e824b881d65976415b7e9f3dc1fe1d793ec5cdc50`, and Ready `[]`.
+2. Failed recovery-v1 definition `09068006b555e4d9f2d9bb4ec6a1c471daa244c82fe278c44407b2aeab1fcff2`, execution `bc2dada5ea040d488b9256ea2adb90163b6c46a45d517e545f7d24b39efa7c66`, and ordered started/failed events remain immutable.
+3. The additive successor is `m4-v2-global-routing-recovery-v2`; its compatibility predicate reads source ownership from replay envelope parent zero and recovery lineage from the typed durable Marginal recovery task definition/state. It does not require nonexistent replay-body fields.
+4. Marginal raw/source-set/artifact are `a6ab598845e822489218ad3595533d1f0128ca8a8955b4aa1e616df5c1c14308` / `513d5716a256b6863d8f0c1b4cf2d0798a2031cd7905bc9e9ce73233f618e7fa` / `b4d008248fbc5dc24e9d2e9c95ddb8fbae6123c7cf5d06a06b7361001069e265`.
+5. Temporal raw/source-set/artifact are `f06cf742a7d1b23e618d87879001e184ef8a76c5dec65bcbf22e9cdb405964ce` / `5957d641a7ade50eebfb6a0b3de9260132875e03c66a5773b9cc6a0323179451` / `3056dc8ec97d91b8b7ad3f283b56e89693569e23b070e143c220f999d1dbac8e`.
+6. Joint raw/source-set/artifact are `6e622bebb7bc65eafa8cb9eac579874e1d306048e09638d00dc466f1c9eb7eb8` / `d2e83e6d24548ecb9e902d5a3065070dfe94ad93b251455f229ff781f07135ff` / `d9b4e3a280c4d49db6c859c7c08736dcb6e8723875f8269df220d41a79b3240d`.
+7. Global raw/source-set/artifact are `a4e2241ad1dca793c6436866232ec555862da949c016a6d32dae5fafb50840e1` / `51416beac1b615c6b5b91786f40f105b45ec7503285126649aa4334715b3a00c` / `24bfd16ee558f13ec2a50a30a8d903a11934fc128f996f370d78fdba9a4929ec`; recovery-v1 remains ordinal 4 and recovery-v2 is appended at ordinal 8.
+8. The pure durable transformer output manifest/snapshot/dry-run/recovery definition are `1cc4ebf7a458ecaf6eba3e3a8079012318a2bf7354cb4b3f9770dcfa9ddbe84d` / `93907aa79561e6e9929f5211703180f6d0619caa72b930086e473f0b0b5a2e56` / `445df30d9ed25d78bdf6bd6870c89ba68efb6bce8206960dc1bfdd0ad35c076c` / `a2c26aa0c86d22065508b74a640f37b4cd5b2531368ed234294a30c31cfbcbca`; no import is performed here.
+9. Checked-in Evidence raw/manifest/snapshot/length are `7c1974fd61bc15286f32b86371856254d4e68fef32d41289177aaca5974c6b91` / `8b6aa2e52b39abdedc00aaeeda348b910713edea778e67693f80a6c4df7955e3` / `b9af9f3e30699abbc2b90c2c747a3ccd52d0906876b8be705b509b613f47bbb1` / `343792`; goals remain 4 and tasks remain 94.
+10. Artifact Index raw/length are `6bd884630820cf38ef23e3a7e4efdaeef2fc016ecdd58162c38d59ee6610debd` / `75881`; the four persisted source identities and prior Evidence identity point directly and reciprocally to the new identities.
+11. Only the two predictive-P3 definitions are dependency-zero revisions from recovery-v1 to recovery-v2. Predictive-P3 folds remain `0`.
+12. Integration matrix: `NO — INTEGRATION_PENDING`.
 13. Predictive-P3 folds: `0`.
 
 ## Global routing recovery v1 and exact replay lineage

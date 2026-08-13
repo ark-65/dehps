@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import ast
+import base64
 import copy
+import json
+import lzma
 import os
 import uuid
 from contextlib import contextmanager
+from pathlib import Path
 
 import psycopg
 import pytest
@@ -17,12 +22,9 @@ from dehps.research_os.models import (
     TaskStatus,
 )
 from dehps.research_os.repository import PostgresResearchOSRepository
+from scripts import build_m4_v2_global_routing_recovery_v2_manifest as recovery_v2
 
-
-pytestmark = pytest.mark.skipif(
-    os.getenv("DEHPS_TEST_POSTGRES") != "1",
-    reason="set DEHPS_TEST_POSTGRES=1 for isolated PostgreSQL repository acceptance",
-)
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def _goal(key: str, lane: str, objective: str) -> dict:
@@ -79,6 +81,8 @@ def _manifest(*, draw_available: bool = False) -> dict:
 
 @pytest.fixture
 def postgres_repository():
+    if os.getenv("DEHPS_TEST_POSTGRES") != "1":
+        pytest.skip("set DEHPS_TEST_POSTGRES=1 for isolated PostgreSQL acceptance")
     database_url = os.getenv("DEHPS_TEST_DATABASE_URL", get_settings().database_url)
     schema = f"research_os_p2_{uuid.uuid4().hex}"
     with psycopg.connect(database_url) as admin:
@@ -98,6 +102,233 @@ def postgres_repository():
     finally:
         with psycopg.connect(database_url) as admin:
             admin.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+
+
+class _Rows:
+    def __init__(self, *, one=None, many=()):
+        self.one = one
+        self.many = many
+
+    def fetchone(self):
+        return self.one
+
+    def fetchall(self):
+        return self.many
+
+
+class _RecoveryV2Cursor:
+    def __init__(self, manifest: ControlPlaneManifest):
+        self.manifest = manifest
+        self.baseline = _recovery_v2_baseline_manifest()
+        self.old_definition = next(
+            task
+            for task in self.baseline.tasks
+            if task.task_key == recovery_v2.OLD_TASK_KEY
+        )
+        self.state = {
+            "declared_status": "failed",
+            "completion_classification": "INTEGRATED",
+            "superseded_by_task_digest": None,
+        }
+        self.events = [
+            {
+                "event_digest": recovery_v2.OLD_STARTED_EVENT_DIGEST,
+                "execution_id": recovery_v2.OLD_EXECUTION_ID,
+                "manifest_digest": recovery_v2.OLD_EVENT_MANIFEST_DIGEST,
+                "task_digest": recovery_v2.OLD_TASK_DIGEST,
+                "task_key": recovery_v2.OLD_TASK_KEY,
+                "event_type": "started",
+                "sequence": 0,
+            },
+            {
+                "event_digest": recovery_v2.OLD_FAILED_EVENT_DIGEST,
+                "execution_id": recovery_v2.OLD_EXECUTION_ID,
+                "manifest_digest": recovery_v2.OLD_EVENT_MANIFEST_DIGEST,
+                "task_digest": recovery_v2.OLD_TASK_DIGEST,
+                "task_key": recovery_v2.OLD_TASK_KEY,
+                "event_type": "failed",
+                "sequence": 1,
+            },
+        ]
+        self.statements: list[str] = []
+
+    def execute(self, statement, parameters=()):
+        query = " ".join(str(statement).split())
+        self.statements.append(query)
+        assert query.startswith("SELECT")
+        if "FROM research_os_control_planes" in query:
+            return _Rows(one={"current_manifest_digest": self.manifest.artifact_digest})
+        if "FROM research_os_manifests" in query:
+            stored = (
+                self.baseline
+                if parameters == (recovery_v2.INPUT_MANIFEST_DIGEST,)
+                else self.manifest
+            )
+            return _Rows(one={"manifest_json": stored.to_dict(include_digest=True)})
+        if "FROM research_os_task_definitions" in query:
+            return _Rows(
+                one={
+                    "task_digest": recovery_v2.OLD_TASK_DIGEST,
+                    "task_key": recovery_v2.OLD_TASK_KEY,
+                    "definition_json": self.old_definition.to_dict(),
+                }
+            )
+        if "FROM research_os_task_states" in query:
+            return _Rows(one=self.state)
+        if "FROM research_os_mainline_execution_events" in query:
+            return _Rows(many=self.events)
+        raise AssertionError(query)
+
+
+def _active_recovery_v2_manifest() -> ControlPlaneManifest:
+    baseline = _recovery_v2_baseline_manifest()
+    source_path = ROOT / recovery_v2.GLOBAL_SOURCE_PATH
+    source = json.loads(source_path.read_text(encoding="utf-8"))
+    source_digest = recovery_v2.validate_global_source_contract(
+        source, root_dir=ROOT
+    )
+    payload, _ = recovery_v2.build_manifest(
+        baseline.to_dict(include_digest=True),
+        global_source_contract_digest=source_digest,
+    )
+    manifest = ControlPlaneManifest.from_dict(payload)
+    assert recovery_v2.RECOVERY_TASK_KEY in {
+        task.task_key for task in manifest.tasks
+    }
+    return manifest
+
+
+def _recovery_v2_baseline_manifest() -> ControlPlaneManifest:
+    fixture_path = (
+        ROOT
+        / "apps/worker-python/tests/test_m4_v2_three_branch_decision_replay_global_routing.py"
+    )
+    syntax = ast.parse(fixture_path.read_text(encoding="utf-8"))
+    encoded = next(
+        ast.literal_eval(node.value)
+        for node in syntax.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name)
+            and target.id == "RECOVERY_V2_INPUT_FIXTURE_B85"
+            for target in node.targets
+        )
+    )
+    return ControlPlaneManifest.from_dict(
+        json.loads(lzma.decompress(base64.b85decode(encoded)).decode())
+    )
+
+
+def test_global_recovery_v2_prewrite_validator_is_result_blind_and_fail_closed() -> None:
+    manifest = _active_recovery_v2_manifest()
+    cursor = _RecoveryV2Cursor(manifest)
+    PostgresResearchOSRepository._verify_m4_v2_failed_global_routing_recovery_v2_import(
+        cursor,
+        control_plane_key="m4-information-theory-mainline",
+        manifest=manifest,
+    )
+    assert cursor.statements
+
+    mutations = (
+        lambda candidate: candidate.state.update(declared_status="completed"),
+        lambda candidate: candidate.events[0].update(event_digest="0" * 64),
+        lambda candidate: setattr(candidate, "baseline", candidate.manifest),
+        lambda candidate: setattr(
+            candidate,
+            "old_definition",
+            next(
+                task
+                for task in candidate.manifest.tasks
+                if task.task_key == recovery_v2.RECOVERY_TASK_KEY
+            ),
+        ),
+    )
+    for mutate in mutations:
+        changed = _RecoveryV2Cursor(manifest)
+        mutate(changed)
+        with pytest.raises(ResearchOSValidationError):
+            PostgresResearchOSRepository._verify_m4_v2_failed_global_routing_recovery_v2_import(
+                changed,
+                control_plane_key="m4-information-theory-mainline",
+                manifest=manifest,
+            )
+        assert all(statement.startswith("SELECT") for statement in changed.statements)
+
+    payload = manifest.to_dict(include_digest=False)
+    unrelated = copy.deepcopy(payload)
+    unrelated["facts"]["external_events"].append("unregistered-idempotent-drift")
+    changed = _RecoveryV2Cursor(ControlPlaneManifest.from_dict(unrelated))
+    with pytest.raises(
+        ResearchOSValidationError, match="m4_v2_global_recovery_v2_output_changed"
+    ):
+        PostgresResearchOSRepository._verify_m4_v2_failed_global_routing_recovery_v2_import(
+            changed,
+            control_plane_key="m4-information-theory-mainline",
+            manifest=changed.manifest,
+        )
+
+    p3_key = recovery_v2.P3_REVISIONS[0][0]
+    p3 = next(task for task in payload["tasks"] if task["task_key"] == p3_key)
+    p3["priority"] += 1
+    changed_manifest = ControlPlaneManifest.from_dict(payload)
+    changed = _RecoveryV2Cursor(changed_manifest)
+    with pytest.raises(
+        ResearchOSValidationError, match="m4_v2_global_recovery_v2_output_changed"
+    ):
+        PostgresResearchOSRepository._verify_m4_v2_failed_global_routing_recovery_v2_import(
+            changed,
+            control_plane_key="m4-information-theory-mainline",
+            manifest=changed_manifest,
+        )
+
+
+def test_global_recovery_v2_import_rolls_back_before_first_write(monkeypatch) -> None:
+    manifest = _active_recovery_v2_manifest()
+    events: list[str] = []
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, *_args, **_kwargs):
+            events.append("write")
+            raise AssertionError("SQL reached before recovery preflight")
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, *_args):
+            events.append("rollback" if exc_type else "commit")
+            return False
+
+        def cursor(self, **_kwargs):
+            return Cursor()
+
+    @contextmanager
+    def connection_factory():
+        with Connection() as connection:
+            yield connection
+
+    repository = PostgresResearchOSRepository(connection_factory)  # type: ignore[arg-type]
+
+    def reject(*_args, **_kwargs):
+        raise ResearchOSValidationError("frozen-v2-prewrite-rejected")
+
+    monkeypatch.setattr(
+        repository,
+        "_verify_m4_v2_failed_global_routing_recovery_v2_import",
+        reject,
+    )
+    with pytest.raises(ResearchOSValidationError, match="frozen-v2-prewrite-rejected"):
+        repository.import_manifest(
+            control_plane_key="m4-information-theory-mainline",
+            payload=manifest.to_dict(include_digest=True),
+        )
+    assert events == ["rollback"]
 
 
 def _counts(connection_factory) -> dict[str, int]:

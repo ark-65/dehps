@@ -9,9 +9,10 @@ from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 import dehps.research_os.information_theory.measurement_validation.source_integrity as source_integrity_module
 import dehps.research_os.supervisor as supervisor_module
-import pytest
 from dehps.contracts import canonical_digest
 from dehps.golden_source_identity import (
     GoldenSourceIdentityError,
@@ -1584,7 +1585,7 @@ def test_additive_manifest_migration_preserves_live_truth() -> None:
         "m4-p2-9-p263-measurement-runtime-audit",
         "m4-p2-9-p263-runtime-observation-arithmetic-fix",
         "m4-p2-9-p263-runtime-slot-release-eligibility",
-        "m4-v2-global-routing-recovery-v1",
+        "m4-v2-global-routing-recovery-v2",
     }
     live = copy.deepcopy(source)
     live["goals"] = [
