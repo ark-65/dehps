@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import zlib
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -76,6 +77,9 @@ from dehps.research_os.repository import PostgresResearchOSRepository
 
 from scripts import build_m4_v2_global_routing_manifest as global_builder
 from scripts import build_m4_v2_joint_residual_increment_manifest as joint_builder
+from scripts import (
+    build_m4_v2_nine_downstream_resealed_input_manifest as nine_revision_builder,
+)
 from scripts import build_m4_v2_temporal_marginal_increment_manifest as temporal_builder
 from scripts import build_m4_v2_three_branch_decision_manifest as marginal_builder
 
@@ -1048,6 +1052,29 @@ def _successor_payload() -> dict[str, Any]:
     return payload
 
 
+def _pure_replay_recovery_payload() -> dict[str, Any]:
+    source_digest = json.loads(SOURCE_PATHS[0].read_text(encoding="utf-8"))[
+        "artifact_digest"
+    ]
+    payload, dry_run = marginal_builder.build_manifest(
+        _recovery_input_payload(), source_digest
+    )
+    assert dry_run["status"] == "VERIFIED"
+    return payload
+
+
+def _nine_revision_source_digests() -> dict[str, str]:
+    return {
+        branch: json.loads(path.read_text(encoding="utf-8"))["artifact_digest"]
+        for branch, path in zip(
+            ("MARGINAL_STATIC", *nine_revision_builder.SOURCE_DIGESTS),
+            SOURCE_PATHS,
+            strict=True,
+        )
+        if branch != "MARGINAL_STATIC"
+    }
+
+
 def _without_manifest_digest(payload: Mapping[str, Any]) -> dict[str, Any]:
     result = copy.deepcopy(dict(payload))
     result.pop("artifact_digest", None)
@@ -1525,6 +1552,499 @@ def test_acceptance_matrix_covers_all_45_required_goal_tests() -> None:
         if name.startswith("test_") and callable(value)
     }
     assert set(ACCEPTANCE_MATRIX.values()).issubset(test_names)
+
+
+def test_nine_downstream_resealed_inputs_match_frozen_additive_revisions() -> None:
+    before_payload = _pure_replay_recovery_payload()
+    sources = _nine_revision_source_digests()
+    after_payload, dry_run = nine_revision_builder.build_manifest(
+        pure_recovery_payload=before_payload,
+        temporal_source_contract_digest=sources["TEMPORAL_MARGINAL_INCREMENT"],
+        joint_source_contract_digest=sources["JOINT_RESIDUAL_INCREMENT"],
+        global_source_contract_digest=sources["GLOBAL_ROUTING"],
+    )
+    after = ControlPlaneManifest.from_dict(after_payload)
+    resolution = ResearchOSControlPlane().resolve(after)
+    assert after.artifact_digest == nine_revision_builder.OUTPUT_MANIFEST_DIGEST
+    assert resolution.snapshot_digest == nine_revision_builder.OUTPUT_SNAPSHOT_DIGEST
+    assert [item.task_key for item in resolution.ready_queue] == [
+        marginal_builder.REPLAY_RECOVERY_TASK_KEY
+    ]
+    assert dry_run["status"] == "VERIFIED"
+    assert dry_run["revised_same_key_count"] == 9
+    assert dry_run["new_task_count"] == 0
+    assert dry_run["import_performed"] is False
+    assert dry_run["p3_folds"] == 0
+
+    before = ControlPlaneManifest.from_dict(before_payload)
+    before_tasks = {
+        item.task_key: (item.artifact_digest, item.to_dict()) for item in before.tasks
+    }
+    after_tasks = {
+        item.task_key: (item.artifact_digest, item.to_dict()) for item in after.tasks
+    }
+    expected_keys = tuple(item[0] for item in nine_revision_builder.REVISION_VALIDATION_ORDER)
+    assert tuple(item.task_key for item in before.tasks) == tuple(
+        item.task_key for item in after.tasks
+    )
+    for task_key, before_value in before_tasks.items():
+        if task_key not in expected_keys:
+            assert after_tasks[task_key] == before_value
+            continue
+        old_digest, before_body = before_value
+        new_digest, after_body = after_tasks[task_key]
+        before_task = copy.deepcopy(before_body)
+        after_task = copy.deepcopy(after_body)
+        old_inputs = before_task.pop("input_artifact_digests")
+        new_inputs = after_task.pop("input_artifact_digests")
+        assert before_task == after_task
+        frozen = next(
+            item
+            for item in nine_revision_builder.REVISION_VALIDATION_ORDER
+            if item[0] == task_key
+        )
+        assert (old_digest, old_inputs, new_digest, new_inputs) == (
+            frozen[1],
+            [frozen[2]],
+            frozen[3],
+            [frozen[4]],
+        )
+
+    completed = copy.deepcopy(after_payload)
+    _set_task_completed(completed, marginal_builder.REPLAY_RECOVERY_TASK_KEY)
+    _add_facts(
+        completed,
+        "m4-v2-historical-branch-decision-replay:M4_MEASUREMENT_CONTRACT_V2:"
+        "MARGINAL_STATIC:VERIFIED",
+        f"{marginal_builder.REPLAY_RECOVERY_TASK_KEY}:COMPLETE",
+    )
+    completed_resolution = ResearchOSControlPlane().resolve(
+        ControlPlaneManifest.from_dict(completed)
+    )
+    assert [item.task_key for item in completed_resolution.ready_queue] == [
+        temporal_builder.DESIGN_TASK
+    ]
+
+
+@pytest.mark.parametrize("tamper", ("manifest", "source"))
+def test_nine_downstream_resealed_input_revision_fails_closed(tamper: str) -> None:
+    payload = _pure_replay_recovery_payload()
+    sources = _nine_revision_source_digests()
+    if tamper == "manifest":
+        payload["facts"]["artifacts"].append("forged-nine-revision-fact")
+        payload.pop("artifact_digest", None)
+        payload.pop("manifest_digest", None)
+        expected = "nine_revision_input_manifest_changed"
+    else:
+        sources["GLOBAL_ROUTING"] = "0" * 64
+        expected = "nine_revision_source_contract_digests_changed"
+    with pytest.raises(nine_revision_builder.NineDownstreamRevisionError, match=expected):
+        nine_revision_builder.build_manifest(
+            pure_recovery_payload=payload,
+            temporal_source_contract_digest=sources["TEMPORAL_MARGINAL_INCREMENT"],
+            joint_source_contract_digest=sources["JOINT_RESIDUAL_INCREMENT"],
+            global_source_contract_digest=sources["GLOBAL_ROUTING"],
+        )
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    ("missing_target", "duplicate_target", "task_order", "old_input", "non_target"),
+)
+def test_nine_downstream_resealed_input_revision_rejects_structural_tamper(
+    tamper: str,
+) -> None:
+    payload = _pure_replay_recovery_payload()
+    target_key = nine_revision_builder.REVISION_VALIDATION_ORDER[0][0]
+    if tamper == "missing_target":
+        payload["tasks"] = [
+            task for task in payload["tasks"] if task["task_key"] != target_key
+        ]
+    elif tamper == "duplicate_target":
+        payload["tasks"].append(
+            copy.deepcopy(next(task for task in payload["tasks"] if task["task_key"] == target_key))
+        )
+    elif tamper == "task_order":
+        payload["tasks"][0], payload["tasks"][1] = payload["tasks"][1], payload["tasks"][0]
+    elif tamper == "old_input":
+        next(task for task in payload["tasks"] if task["task_key"] == target_key)[
+            "input_artifact_digests"
+        ] = ["0" * 64]
+    else:
+        payload["facts"]["artifacts"].append("forged-non-target-fact")
+    payload.pop("artifact_digest", None)
+    payload.pop("manifest_digest", None)
+    with pytest.raises((nine_revision_builder.NineDownstreamRevisionError, ResearchOSValidationError)):
+        nine_revision_builder.build_manifest(
+            payload,
+            temporal_source_contract_digest=nine_revision_builder.SOURCE_DIGESTS[
+                "TEMPORAL_MARGINAL_INCREMENT"
+            ],
+            joint_source_contract_digest=nine_revision_builder.SOURCE_DIGESTS[
+                "JOINT_RESIDUAL_INCREMENT"
+            ],
+            global_source_contract_digest=nine_revision_builder.SOURCE_DIGESTS[
+                "GLOBAL_ROUTING"
+            ],
+        )
+
+
+def test_nine_downstream_resealed_input_revision_rejects_output_identity_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(nine_revision_builder, "OUTPUT_MANIFEST_DIGEST", "0" * 64)
+    with pytest.raises(
+        nine_revision_builder.NineDownstreamRevisionError,
+        match="nine_revision_output_manifest_changed",
+    ):
+        nine_revision_builder.build_manifest(
+            _pure_replay_recovery_payload(),
+            temporal_source_contract_digest=nine_revision_builder.SOURCE_DIGESTS[
+                "TEMPORAL_MARGINAL_INCREMENT"
+            ],
+            joint_source_contract_digest=nine_revision_builder.SOURCE_DIGESTS[
+                "JOINT_RESIDUAL_INCREMENT"
+            ],
+            global_source_contract_digest=nine_revision_builder.SOURCE_DIGESTS[
+                "GLOBAL_ROUTING"
+            ],
+        )
+
+
+def test_nine_downstream_resealed_input_revision_rejects_input_snapshot_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(nine_revision_builder, "INPUT_SNAPSHOT_DIGEST", "0" * 64)
+    with pytest.raises(
+        nine_revision_builder.NineDownstreamRevisionError,
+        match="nine_revision_input_snapshot_changed",
+    ):
+        nine_revision_builder.build_manifest(
+            _pure_replay_recovery_payload(),
+            temporal_source_contract_digest=nine_revision_builder.SOURCE_DIGESTS[
+                "TEMPORAL_MARGINAL_INCREMENT"
+            ],
+            joint_source_contract_digest=nine_revision_builder.SOURCE_DIGESTS[
+                "JOINT_RESIDUAL_INCREMENT"
+            ],
+            global_source_contract_digest=nine_revision_builder.SOURCE_DIGESTS[
+                "GLOBAL_ROUTING"
+            ],
+        )
+
+
+def test_nine_downstream_resealed_input_revision_rejects_input_ready_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = _pure_replay_recovery_payload()
+    original = nine_revision_builder.ResearchOSControlPlane.resolve
+
+    def empty_ready(
+        self: ResearchOSControlPlane, manifest: ControlPlaneManifest
+    ) -> SimpleNamespace:
+        resolved = original(self, manifest)
+        return SimpleNamespace(
+            snapshot_digest=resolved.snapshot_digest,
+            ready_queue=(),
+        )
+
+    monkeypatch.setattr(nine_revision_builder.ResearchOSControlPlane, "resolve", empty_ready)
+    with pytest.raises(
+        nine_revision_builder.NineDownstreamRevisionError,
+        match="nine_revision_input_ready_changed",
+    ):
+        nine_revision_builder.build_manifest(
+            payload,
+            temporal_source_contract_digest=nine_revision_builder.SOURCE_DIGESTS[
+                "TEMPORAL_MARGINAL_INCREMENT"
+            ],
+            joint_source_contract_digest=nine_revision_builder.SOURCE_DIGESTS[
+                "JOINT_RESIDUAL_INCREMENT"
+            ],
+            global_source_contract_digest=nine_revision_builder.SOURCE_DIGESTS[
+                "GLOBAL_ROUTING"
+            ],
+        )
+
+
+@pytest.mark.parametrize("extra_target", (False, True))
+def test_nine_downstream_resealed_input_revision_rejects_old_definition_or_extra_target(
+    extra_target: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = _pure_replay_recovery_payload()
+    if extra_target:
+        target_keys = {item[0] for item in nine_revision_builder.REVISION_VALIDATION_ORDER}
+        task = next(item for item in payload["tasks"] if item["task_key"] not in target_keys)
+        task["input_artifact_digests"] = [
+            nine_revision_builder.REVISION_VALIDATION_ORDER[0][2]
+        ]
+        expected = "nine_revision_target_set_changed"
+    else:
+        key = nine_revision_builder.REVISION_VALIDATION_ORDER[0][0]
+        task = next(item for item in payload["tasks"] if item["task_key"] == key)
+        task["priority"] += 1
+        expected = "nine_revision_old_definition_changed"
+    payload.pop("artifact_digest", None)
+    payload.pop("manifest_digest", None)
+    typed = ControlPlaneManifest.from_dict(payload)
+    resolved = ResearchOSControlPlane().resolve(typed)
+    monkeypatch.setattr(
+        nine_revision_builder, "INPUT_MANIFEST_DIGEST", typed.artifact_digest
+    )
+    monkeypatch.setattr(
+        nine_revision_builder, "INPUT_SNAPSHOT_DIGEST", resolved.snapshot_digest
+    )
+    with pytest.raises(nine_revision_builder.NineDownstreamRevisionError, match=expected):
+        nine_revision_builder.build_manifest(
+            typed.to_dict(include_digest=True),
+            temporal_source_contract_digest=nine_revision_builder.SOURCE_DIGESTS[
+                "TEMPORAL_MARGINAL_INCREMENT"
+            ],
+            joint_source_contract_digest=nine_revision_builder.SOURCE_DIGESTS[
+                "JOINT_RESIDUAL_INCREMENT"
+            ],
+            global_source_contract_digest=nine_revision_builder.SOURCE_DIGESTS[
+                "GLOBAL_ROUTING"
+            ],
+        )
+
+
+@pytest.mark.parametrize("revision_index", range(9))
+def test_nine_downstream_resealed_input_revision_rejects_each_new_definition_drift(
+    revision_index: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    revisions = list(nine_revision_builder.REVISION_VALIDATION_ORDER)
+    changed = list(revisions[revision_index])
+    changed[3] = "0" * 64
+    revisions[revision_index] = tuple(changed)
+    monkeypatch.setattr(
+        nine_revision_builder, "REVISION_VALIDATION_ORDER", tuple(revisions)
+    )
+    with pytest.raises(
+        nine_revision_builder.NineDownstreamRevisionError,
+        match="nine_revision_new_definition_changed",
+    ):
+        nine_revision_builder.build_manifest(
+            _pure_replay_recovery_payload(),
+            temporal_source_contract_digest=nine_revision_builder.SOURCE_DIGESTS[
+                "TEMPORAL_MARGINAL_INCREMENT"
+            ],
+            joint_source_contract_digest=nine_revision_builder.SOURCE_DIGESTS[
+                "JOINT_RESIDUAL_INCREMENT"
+            ],
+            global_source_contract_digest=nine_revision_builder.SOURCE_DIGESTS[
+                "GLOBAL_ROUTING"
+            ],
+        )
+
+
+@pytest.mark.parametrize("drift", ("snapshot", "ready", "dry_run"))
+def test_nine_downstream_resealed_input_revision_rejects_derived_output_drift(
+    drift: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    payload = _pure_replay_recovery_payload()
+    if drift == "snapshot":
+        monkeypatch.setattr(nine_revision_builder, "OUTPUT_SNAPSHOT_DIGEST", "0" * 64)
+        expected = "nine_revision_output_snapshot_changed"
+    elif drift == "dry_run":
+        monkeypatch.setattr(nine_revision_builder, "OUTPUT_DRY_RUN_DIGEST", "0" * 64)
+        expected = "nine_revision_output_dry_run_changed"
+    else:
+        original = nine_revision_builder.ResearchOSControlPlane.resolve
+        calls = 0
+
+        def output_empty_ready(
+            self: ResearchOSControlPlane, manifest: ControlPlaneManifest
+        ) -> Any:
+            nonlocal calls
+            calls += 1
+            resolved = original(self, manifest)
+            if calls == 2:
+                return SimpleNamespace(
+                    snapshot_digest=resolved.snapshot_digest,
+                    ready_queue=(),
+                )
+            return resolved
+
+        monkeypatch.setattr(
+            nine_revision_builder.ResearchOSControlPlane, "resolve", output_empty_ready
+        )
+        expected = "nine_revision_output_ready_changed"
+    with pytest.raises(nine_revision_builder.NineDownstreamRevisionError, match=expected):
+        nine_revision_builder.build_manifest(
+            payload,
+            temporal_source_contract_digest=nine_revision_builder.SOURCE_DIGESTS[
+                "TEMPORAL_MARGINAL_INCREMENT"
+            ],
+            joint_source_contract_digest=nine_revision_builder.SOURCE_DIGESTS[
+                "JOINT_RESIDUAL_INCREMENT"
+            ],
+            global_source_contract_digest=nine_revision_builder.SOURCE_DIGESTS[
+                "GLOBAL_ROUTING"
+            ],
+        )
+
+
+def test_nine_downstream_resealed_input_cli_is_pure_and_deterministic(
+    tmp_path: Path,
+) -> None:
+    input_path = tmp_path / "pure-recovery.json"
+    output_path = tmp_path / "nine-revisions.json"
+    dry_run_path = tmp_path / "nine-revisions-dry-run.json"
+    input_path.write_text(
+        json.dumps(_pure_replay_recovery_payload(), sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    command = [
+        sys.executable,
+        str(
+            nine_revision_builder.__file__
+        ),
+        "--input",
+        str(input_path),
+        "--temporal-source",
+        str(SOURCE_PATHS[1]),
+        "--joint-source",
+        str(SOURCE_PATHS[2]),
+        "--global-source",
+        str(SOURCE_PATHS[3]),
+        "--output",
+        str(output_path),
+        "--dry-run",
+        str(dry_run_path),
+    ]
+    result = subprocess.run(
+        command,
+        cwd=ROOT_DIR / "apps/worker-python",
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    output = json.loads(output_path.read_text(encoding="utf-8"))
+    dry_run = json.loads(dry_run_path.read_text(encoding="utf-8"))
+    assert output["manifest_digest"] == nine_revision_builder.OUTPUT_MANIFEST_DIGEST
+    assert dry_run["output_snapshot_digest"] == nine_revision_builder.OUTPUT_SNAPSHOT_DIGEST
+    assert dry_run["artifact_digest"] == nine_revision_builder.OUTPUT_DRY_RUN_DIGEST
+    assert dry_run["import_performed"] is False
+    assert json.loads(result.stdout) == dry_run
+
+    collision = subprocess.run(
+        [*command[:-4], "--output", str(input_path), "--dry-run", str(dry_run_path)],
+        cwd=ROOT_DIR / "apps/worker-python",
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert collision.returncode != 0
+    assert "six distinct paths" in collision.stderr
+
+
+def test_nine_downstream_pair_temp_failure_preserves_both_finals(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "manifest.json"
+    dry_run = tmp_path / "dry-run.json"
+    output.write_bytes(b"old-manifest")
+    dry_run.write_bytes(b"old-dry-run")
+    original = nine_revision_builder._write_temp
+    calls = 0
+
+    def fail_second(path: Path, content: bytes) -> Path:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("injected-second-temp-write")
+        return original(path, content)
+
+    monkeypatch.setattr(nine_revision_builder, "_write_temp", fail_second)
+    with pytest.raises(OSError, match="injected-second-temp-write"):
+        nine_revision_builder._publish_pair(
+            output, b"new-manifest", dry_run, b"new-dry-run"
+        )
+    assert output.read_bytes() == b"old-manifest"
+    assert dry_run.read_bytes() == b"old-dry-run"
+    assert sorted(path.name for path in tmp_path.iterdir()) == [
+        "dry-run.json",
+        "manifest.json",
+    ]
+
+
+@pytest.mark.parametrize("failure_stage", ("validation", "serialization"))
+def test_nine_downstream_prepublication_failure_preserves_both_existing_finals(
+    failure_stage: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    input_path = tmp_path / "input.json"
+    payload = _pure_replay_recovery_payload()
+    if failure_stage == "validation":
+        payload["facts"]["artifacts"].append("forged-prepublication-fact")
+        payload.pop("artifact_digest", None)
+        payload.pop("manifest_digest", None)
+    input_path.write_text(json.dumps(payload), encoding="utf-8")
+    output = tmp_path / "manifest.json"
+    dry_run = tmp_path / "dry-run.json"
+    output.write_bytes(b"old-manifest")
+    dry_run.write_bytes(b"old-dry-run")
+    if failure_stage == "serialization":
+        original = nine_revision_builder._serialized
+        calls = 0
+
+        def fail_second(payload: Mapping[str, Any]) -> bytes:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise TypeError("injected-second-serialization")
+            return original(payload)
+
+        monkeypatch.setattr(nine_revision_builder, "_serialized", fail_second)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(nine_revision_builder.__file__),
+            "--input",
+            str(input_path),
+            "--temporal-source",
+            str(SOURCE_PATHS[1]),
+            "--joint-source",
+            str(SOURCE_PATHS[2]),
+            "--global-source",
+            str(SOURCE_PATHS[3]),
+            "--output",
+            str(output),
+            "--dry-run",
+            str(dry_run),
+        ],
+    )
+    with pytest.raises((TypeError, nine_revision_builder.NineDownstreamRevisionError)):
+        nine_revision_builder.main()
+    assert output.read_bytes() == b"old-manifest"
+    assert dry_run.read_bytes() == b"old-dry-run"
+
+
+def test_nine_downstream_second_rename_failure_reports_partial_pair_without_rollback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "manifest.json"
+    dry_run = tmp_path / "dry-run.json"
+    output.write_bytes(b"old-manifest")
+    dry_run.write_bytes(b"old-dry-run")
+    original = nine_revision_builder._replace_path
+    calls = 0
+
+    def fail_second(temp_path: Path, final_path: Path) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("injected-second-rename")
+        original(temp_path, final_path)
+
+    monkeypatch.setattr(nine_revision_builder, "_replace_path", fail_second)
+    with pytest.raises(OSError, match="injected-second-rename"):
+        nine_revision_builder._publish_pair(
+            output, b"new-manifest", dry_run, b"new-dry-run"
+        )
+    assert output.read_bytes() == b"new-manifest"
+    assert dry_run.read_bytes() == b"old-dry-run"
 
 
 def test_additive_manifest_preserves_p2_p2r_structural_terminal_and_history() -> None:
