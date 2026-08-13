@@ -1584,7 +1584,7 @@ def test_additive_manifest_migration_preserves_live_truth() -> None:
         "m4-p2-9-p263-measurement-runtime-audit",
         "m4-p2-9-p263-runtime-observation-arithmetic-fix",
         "m4-p2-9-p263-runtime-slot-release-eligibility",
-        "m4-v2-global-routing",
+        "m4-v2-global-routing-recovery-v1",
     }
     live = copy.deepcopy(source)
     live["goals"] = [

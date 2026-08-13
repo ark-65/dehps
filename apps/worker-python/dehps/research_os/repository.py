@@ -86,6 +86,9 @@ class PostgresResearchOSRepository:
         task_revisions: list[tuple[str, str, str]] = []
 
         with self.connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
+            self._verify_m4_v2_failed_global_routing_recovery_import(
+                cursor, control_plane_key=key, manifest=manifest
+            )
             replay_recovery = self._verify_m4_v2_failed_replay_recovery_import(
                 cursor, control_plane_key=key, manifest=manifest
             )
@@ -598,6 +601,107 @@ class PostgresResearchOSRepository:
         except AdditiveManifestMigrationError as exc:
             raise ResearchOSValidationError(str(exc)) from exc
         return True
+
+    @staticmethod
+    def _verify_m4_v2_failed_global_routing_recovery_import(
+        cursor,
+        *,
+        control_plane_key: str,
+        manifest: ControlPlaneManifest,
+    ) -> None:
+        """Verify the frozen failed Global lineage before the first write."""
+
+        from scripts.build_m4_v2_global_routing_recovery_manifest import (
+            INPUT_MANIFEST_DIGEST,
+            OLD_EVENT_MANIFEST_DIGEST,
+            OLD_EXECUTION_ID,
+            OLD_FAILED_EVENT_DIGEST,
+            OLD_STARTED_EVENT_DIGEST,
+            OLD_TASK_DIGEST,
+            OLD_TASK_KEY,
+            P3_REVISIONS,
+            RECOVERY_TASK_KEY,
+            build_manifest,
+        )
+
+        tasks = {task.task_key: task for task in manifest.tasks}
+        recovery = tasks.get(RECOVERY_TASK_KEY)
+        if recovery is None:
+            return
+        if control_plane_key != "m4-information-theory-mainline":
+            raise ResearchOSValidationError("m4_v2_global_recovery_control_plane_changed")
+        if OLD_TASK_KEY in tasks or len(recovery.input_artifact_digests) != 1:
+            raise ResearchOSValidationError("m4_v2_global_recovery_task_identity_changed")
+
+        control = cursor.execute(
+            """SELECT current_manifest_digest FROM research_os_control_planes
+               WHERE control_plane_key = %s FOR UPDATE""",
+            (control_plane_key,),
+        ).fetchone()
+        if control is None:
+            raise ResearchOSValidationError("m4_v2_global_recovery_control_plane_missing")
+        current_digest = str(control["current_manifest_digest"])
+        stored = cursor.execute(
+            "SELECT manifest_json FROM research_os_manifests WHERE manifest_digest = %s",
+            (current_digest,),
+        ).fetchone()
+        if stored is None:
+            raise ResearchOSValidationError("m4_v2_global_recovery_manifest_missing")
+        current = ControlPlaneManifest.from_dict(dict(stored["manifest_json"]))
+        if current_digest == INPUT_MANIFEST_DIGEST:
+            expected, _ = build_manifest(
+                current.to_dict(include_digest=True),
+                global_source_contract_digest=recovery.input_artifact_digests[0],
+            )
+            if manifest.to_dict(include_digest=True) != expected:
+                raise ResearchOSValidationError("m4_v2_global_recovery_output_changed")
+        else:
+            current_tasks = {task.task_key: task for task in current.tasks}
+            keys = {RECOVERY_TASK_KEY, *(key for key, _, _ in P3_REVISIONS)}
+            if OLD_TASK_KEY in current_tasks or any(
+                current_tasks.get(key) is None
+                or current_tasks[key].artifact_digest != tasks[key].artifact_digest
+                for key in keys
+            ):
+                raise ResearchOSValidationError("m4_v2_global_recovery_lineage_changed")
+
+        state = cursor.execute(
+            """SELECT ts.declared_status, ts.completion_classification,
+                      ts.superseded_by_task_digest
+               FROM research_os_task_states ts
+               WHERE ts.control_plane_key = %s AND ts.task_digest = %s""",
+            (control_plane_key, OLD_TASK_DIGEST),
+        ).fetchone()
+        if (
+            state is None
+            or str(state["declared_status"]) != "failed"
+            or str(state["completion_classification"]) != "INTEGRATED"
+            or state["superseded_by_task_digest"] is not None
+        ):
+            raise ResearchOSValidationError("m4_v2_global_recovery_old_state_changed")
+        rows = cursor.execute(
+            """SELECT event_digest, execution_id, manifest_digest, task_digest,
+                      task_key, event_type, sequence
+               FROM research_os_mainline_execution_events
+               WHERE control_plane_key = %s AND task_key = %s AND execution_id = %s
+               ORDER BY sequence, event_digest""",
+            (control_plane_key, OLD_TASK_KEY, OLD_EXECUTION_ID),
+        ).fetchall()
+        expected_rows = (
+            (OLD_STARTED_EVENT_DIGEST, "started", 0),
+            (OLD_FAILED_EVENT_DIGEST, "failed", 1),
+        )
+        if len(rows) != 2 or any(
+            str(row["event_digest"]) != digest
+            or str(row["execution_id"]) != OLD_EXECUTION_ID
+            or str(row["manifest_digest"]) != OLD_EVENT_MANIFEST_DIGEST
+            or str(row["task_digest"]) != OLD_TASK_DIGEST
+            or str(row["task_key"]) != OLD_TASK_KEY
+            or str(row["event_type"]) != event_type
+            or int(row["sequence"]) != sequence
+            for row, (digest, event_type, sequence) in zip(rows, expected_rows, strict=True)
+        ):
+            raise ResearchOSValidationError("m4_v2_global_recovery_event_lineage_changed")
 
     def load_manifest(self, *, control_plane_key: str) -> ControlPlaneManifest:
         key = self._key(control_plane_key)

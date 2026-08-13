@@ -28,8 +28,10 @@ GLOBAL_ROUTE_SCHEMA = "dehps-m4-measurement-routing-decision.v1"
 GLOBAL_ROUTE_ARTIFACT_TYPE = "m4_measurement_routing_decision"
 GLOBAL_ROUTE_DIGEST_DOMAIN = "dehps.m4.v2.global-routing-decision.v1"
 GLOBAL_ROUTE_TASK_KEY = "m4-v2-global-routing"
+GLOBAL_ROUTE_RECOVERY_TASK_KEY = "m4-v2-global-routing-recovery-v1"
 GLOBAL_ROUTE_CAPABILITY = "m4_v2_global_routing"
 GLOBAL_ROUTE_COMPLETION_FACT = "m4-v2-global-routing:COMPLETE"
+GLOBAL_ROUTE_RECOVERY_COMPLETION_FACT = "m4-v2-global-routing-recovery-v1:COMPLETE"
 GLOBAL_ROUTE_ARTIFACT_SLUG = "global-routing-decision"
 GLOBAL_ROUTE_ARTIFACT_FILENAME = "decision.json"
 GLOBAL_ROUTE_REPLAY_FACTS = tuple(
@@ -148,6 +150,57 @@ class M4V2GlobalRoutingError(ValueError):
     pass
 
 
+_MARGINAL_RECOVERY_DECISION = {
+    "task_key": "m4-v2-marginal-static-historical-identity-adoption-recovery-v1",
+    "task_digest": "f94b2393253e36a63fe8828a44dad40ed57ef336c0c942d2b31cc084f51085cc",
+    "execution_id": "40d9c8ef01fcdd923610e0ef77ec01a8501d883c79891cc286319c285247e930",
+    "artifact_digest": "483952200c4ec81408d9980aa26e7c68ce6d9134b0b6e97d2504e521835e92be",
+    "registration_digest": "7cf8e235aaf12545f54604fd4715b96dc0a082daedf93f07731e5f72958d110b",
+    "git_commit": "40d68768877cdee081f4f8955fad320a4c1d98d1",
+    "parent_digests": (
+        "44b0c436e3b2c2e5d73c14db55d19db3fefb56877a415e71ef53ef078893da25",
+        "24e4c78cc12eab32aef2ee45cbeebb2b1078e6effea49442c2f45214890e7100",
+        "41cb08af93fdb98fa2e5e23636efdb18af6c3d67861628b0870c6a9bee9cc07f",
+        "6b761c57ea46fe8819a0a38193cfe78f613e48b348bc5d682669ad816fbea721",
+    ),
+}
+_MARGINAL_RECOVERY_REPLAY = {
+    "envelope_task_key": "m4-v2-marginal-static-historical-branch-decision-replay",
+    "task_key": "m4-v2-marginal-static-historical-branch-decision-replay-recovery-v1",
+    "task_digest": "5d0a7cd3afa90d66d176d6fd928f098ce62531cf02474d20e202b936f88f61b8",
+    "execution_id": "1cda97efa0dd01f46b5a816f8568b007fd80862ae621f7d1377352fc62baa5a5",
+    "artifact_digest": "ca6665e69d5f74e0bfbe585af14f58f3ad6ca862aa28811b517047eadc0c9f1e",
+    "registration_digest": "c8e083fd799c4f58d937ed27ef28ad391f73757af34ea19a2bafc3294a93ca3f",
+    "git_commit": "eb8d26bb8c7869ac09b87e5c6a79d41ac9ada086",
+    "parent_digests": (
+        "f078eed2de707bf1e0ed80495eb9955bd8a909e170fed3318110574f7722e3bb",
+        "483952200c4ec81408d9980aa26e7c68ce6d9134b0b6e97d2504e521835e92be",
+        "7cf8e235aaf12545f54604fd4715b96dc0a082daedf93f07731e5f72958d110b",
+        "62afd5d495a78b0faf944d82cc6cea54ed8a4508b300e707de08a9f6edc7ccb1",
+    ),
+}
+_MARGINAL_RECOVERY_EXECUTIONS = {
+    "decision": {
+        "artifact_digest": "62afd5d495a78b0faf944d82cc6cea54ed8a4508b300e707de08a9f6edc7ccb1",
+        "registration_digest": "468b1c6aabf5a7c54be26b6deca7c8502d5b8285ccb69fea5cdd76a705477f4c",
+        "git_commit": _MARGINAL_RECOVERY_DECISION["git_commit"],
+        "parent_digests": (
+            _MARGINAL_RECOVERY_DECISION["parent_digests"][0],
+            _MARGINAL_RECOVERY_DECISION["artifact_digest"],
+        ),
+    },
+    "replay": {
+        "artifact_digest": "d1e98c5793d9ab3949a4dc24490157c18514970e0d09a1001a4b55209f4f0256",
+        "registration_digest": "213901688264a7b794b42ad927551e0f3883a1486ba5e499edfd30185a4944df",
+        "git_commit": _MARGINAL_RECOVERY_REPLAY["git_commit"],
+        "parent_digests": (
+            _MARGINAL_RECOVERY_REPLAY["parent_digests"][0],
+            _MARGINAL_RECOVERY_REPLAY["artifact_digest"],
+        ),
+    },
+}
+
+
 def _mapping(value: Any, *, field_name: str) -> dict[str, Any]:
     if isinstance(value, Mapping):
         return deepcopy(dict(value))
@@ -183,7 +236,7 @@ def m4_v2_global_route_artifact_path(*, execution_id: str, artifact_digest: str)
     frozen_execution_id = _digest(execution_id, field_name="execution_id")
     frozen_artifact_digest = _digest(artifact_digest, field_name="artifact_digest")
     return (
-        f"runtime/research-os/mainline/tasks/{GLOBAL_ROUTE_TASK_KEY}/"
+        f"runtime/research-os/mainline/tasks/{GLOBAL_ROUTE_RECOVERY_TASK_KEY}/"
         f"{frozen_execution_id}/artifacts/{GLOBAL_ROUTE_ARTIFACT_SLUG}/"
         f"{frozen_artifact_digest}/{GLOBAL_ROUTE_ARTIFACT_FILENAME}"
     )
@@ -715,10 +768,99 @@ def _registration(
     }
 
 
+def _exact_execution_owner(
+    record: Mapping[str, Any], *, name: str, task: Mapping[str, Any]
+) -> bool:
+    execution = _mapping(record.get(f"{name}_execution"), field_name=f"{name}_execution")
+    registration = _mapping(
+        record.get(f"{name}_execution_registration"),
+        field_name=f"{name}_execution_registration",
+    )
+    expected = _MARGINAL_RECOVERY_EXECUTIONS[name]
+    return (
+        execution.get("artifact_type") == "research_os_mainline_execution"
+        and execution.get("schema_version") == "dehps-research-os-mainline-execution.v1"
+        and execution.get("artifact_digest") == expected["artifact_digest"]
+        and execution.get("task_key") == task["task_key"]
+        and execution.get("task_digest") == task["task_digest"]
+        and execution.get("execution_id") == task["execution_id"]
+        and execution.get("git_commit") == expected["git_commit"]
+        and tuple(execution.get("parent_digests", ())) == expected["parent_digests"]
+        and registration.get("registration_digest")
+        == expected["registration_digest"]
+        and registration.get("artifact_digest") == expected["artifact_digest"]
+        and registration.get("artifact_type") == "research_os_mainline_execution"
+        and registration.get("schema_version")
+        == "dehps-research-os-mainline-execution.v1"
+        and registration.get("task_key") == task["task_key"]
+        and registration.get("task_digest") == task["task_digest"]
+        and registration.get("execution_id") == task["execution_id"]
+        and registration.get("git_commit") == expected["git_commit"]
+        and tuple(registration.get("parent_digests", ()))
+        == expected["parent_digests"]
+    )
+
+
+def _exact_marginal_recovery_compatibility(
+    *,
+    record: Mapping[str, Any],
+    decision: Mapping[str, Any],
+    replay: Mapping[str, Any],
+    decision_envelope: Mapping[str, Any],
+    replay_envelope: Mapping[str, Any],
+    decision_registration: Mapping[str, Any],
+    replay_registration: Mapping[str, Any],
+) -> bool:
+    d = _MARGINAL_RECOVERY_DECISION
+    r = _MARGINAL_RECOVERY_REPLAY
+    return (
+        decision.get("producer_task_key") == d["task_key"]
+        and decision.get("producer_execution_id") == d["execution_id"]
+        and decision_envelope.get("artifact_digest") == d["artifact_digest"]
+        and tuple(decision_envelope.get("parent_digests", ())) == d["parent_digests"]
+        and decision_registration.get("task_key") == d["task_key"]
+        and decision_registration.get("task_digest") == d["task_digest"]
+        and decision_registration.get("execution_id") == d["execution_id"]
+        and decision_registration.get("registration_digest")
+        == d["registration_digest"]
+        and decision_registration.get("git_commit") == d["git_commit"]
+        and replay.get("replay_task_key") == r["envelope_task_key"]
+        and replay.get("replay_execution_id") == r["execution_id"]
+        and replay.get("source_contract_digest") == r["parent_digests"][0]
+        and replay.get("recovery_lineage_digest")
+        == "9b24c1953df46f2271b199acbdc003045dc6fe28dd1568b15f7614e294df61b9"
+        and replay_envelope.get("artifact_digest") == r["artifact_digest"]
+        and tuple(replay_envelope.get("parent_digests", ())) == r["parent_digests"]
+        and replay_registration.get("task_key") == r["task_key"]
+        and replay_registration.get("task_digest") == r["task_digest"]
+        and replay_registration.get("execution_id") == r["execution_id"]
+        and replay_registration.get("registration_digest") == r["registration_digest"]
+        and replay_registration.get("git_commit") == r["git_commit"]
+        and _exact_execution_owner(record, name="decision", task=d)
+        and _exact_execution_owner(record, name="replay", task=r)
+    )
+
+
 def _validated_record(
     value: Any, *, expected_branch_id: str
 ) -> tuple[dict[str, Any], str, str, dict[str, str]]:
     record = _mapping(value, field_name="branch_record")
+    legacy_fields = {
+        "decision",
+        "decision_registration",
+        "replay",
+        "replay_registration",
+    }
+    recovery_fields = legacy_fields | {
+        "decision_execution",
+        "decision_execution_registration",
+        "replay_execution",
+        "replay_execution_registration",
+    }
+    if set(record) not in {frozenset(legacy_fields), frozenset(recovery_fields)}:
+        raise M4V2GlobalRoutingError(
+            f"branch_record_fields_invalid:{expected_branch_id}"
+        )
     try:
         validated_decision = validate_m4_v2_artifact_envelope(
             _mapping(record.get("decision"), field_name="decision"),
@@ -783,6 +925,18 @@ def _validated_record(
         expected_schema_version=M4_V2_BRANCH_DECISION_REPLAY_SCHEMA,
         expected_parent_digests=tuple(replay_envelope["parent_digests"]),
     )
+    exact_replay_owner = replay.get("replay_task_key") == replay_registration["task_key"]
+    exact_recovery_owner = set(record) == recovery_fields and expected_branch_id == "MARGINAL_STATIC" and (
+        _exact_marginal_recovery_compatibility(
+            record=record,
+            decision=decision,
+            replay=replay,
+            decision_envelope=decision_envelope,
+            replay_envelope=replay_envelope,
+            decision_registration=decision_registration,
+            replay_registration=replay_registration,
+        )
+    )
     if (
         decision_registration["task_key"] != decision.get("producer_task_key")
         or decision_registration["execution_id"]
@@ -797,7 +951,7 @@ def _validated_record(
         or replay.get("decision_producer_task_key") != decision.get("producer_task_key")
         or replay.get("decision_producer_execution_id")
         != decision.get("producer_execution_id")
-        or replay.get("replay_task_key") != replay_registration["task_key"]
+        or not (exact_replay_owner or exact_recovery_owner)
         or replay.get("replay_execution_id") != replay_registration["execution_id"]
         or replay.get("replay_execution_id")
         == replay.get("decision_producer_execution_id")

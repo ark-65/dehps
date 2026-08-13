@@ -21,10 +21,12 @@ from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcom
 from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcome_closure import (
     RESEARCH_REQUEST_ID as P2_CLOSURE_RESEARCH_REQUEST_ID,
 )
+from dehps.research_os.information_theory.measurement_system_v2.routing import (
+    GLOBAL_ROUTE_RECOVERY_COMPLETION_FACT,
+)
 from dehps.research_os.information_theory.predictive_route_reconciliation import (
     ADAPTIVE_RESEARCH_ELIGIBILITY_FACT,
     GLOBAL_ROUTING_BRANCH_REPLAY_FACTS,
-    GLOBAL_ROUTING_TASK_KEY,
     P2R_TO_P6_POLICY,
     P2R_TO_P6_POLICY_FACT,
     PREDICTIVE_P3_PASS_TO_P4_FACT,
@@ -121,8 +123,9 @@ M4_V2_SUCCESSOR_TASKS = {
     "joint_replay": (
         "m4-v2-joint-residual-increment-historical-branch-decision-replay"
     ),
-    "global_routing": "m4-v2-global-routing",
+    "global_routing": "m4-v2-global-routing-recovery-v1",
 }
+M4_V2_GLOBAL_ROUTING_RECOVERY_TASK_KEY = M4_V2_SUCCESSOR_TASKS["global_routing"]
 M4_V2_ACTIVE_SUCCESSOR_SOURCE_CONTRACTS = {
     "temporal_producer": {
         "selector": "temporal_v3",
@@ -597,7 +600,7 @@ def validate_m4_v2_successor_structure(
             "m4_v2_successor_p3_preregistration_placeholder_changed"
         )
     expected_placeholder = (
-        ("task", GLOBAL_ROUTING_TASK_KEY, "completed"),
+        ("task", M4_V2_GLOBAL_ROUTING_RECOVERY_TASK_KEY, "completed"),
         ("artifact", ADAPTIVE_RESEARCH_ELIGIBILITY_FACT, "available"),
     )
     if _successor_dependency_tuples(placeholder) != expected_placeholder:
@@ -645,7 +648,11 @@ def validate_m4_v2_successor_structure(
     predecessor_p3["dependencies"] = [
         {
             "dependency_type": dependency_type,
-            "target_key": target_key,
+            "target_key": (
+                "m4-v2-global-routing"
+                if target_key == M4_V2_GLOBAL_ROUTING_RECOVERY_TASK_KEY
+                else target_key
+            ),
             "required_status": required_status,
         }
         for dependency_type, target_key, required_status in expected_placeholder
@@ -1513,7 +1520,7 @@ def build_m4_status(
     predictive_route_resolution = resolutions.get(
         PREDICTIVE_ROUTE_RECONCILIATION_TASK_KEY
     )
-    global_routing_resolution = resolutions.get(GLOBAL_ROUTING_TASK_KEY)
+    global_routing_resolution = resolutions.get(M4_V2_GLOBAL_ROUTING_RECOVERY_TASK_KEY)
     predictive_p3_resolution = resolutions.get(PREDICTIVE_P3_TASK_KEY)
     predictive_p4_resolution = resolutions.get(PREDICTIVE_P4_TASK_KEY)
     predictive_p5_resolution = resolutions.get(PREDICTIVE_P5_TASK_KEY)
@@ -1546,7 +1553,7 @@ def build_m4_status(
                     if task["task_key"] == PREDICTIVE_P3_TASK_KEY
                 )
                 expected_legacy_dependencies = (
-                    ("task", GLOBAL_ROUTING_TASK_KEY, "completed"),
+                    ("task", M4_V2_GLOBAL_ROUTING_RECOVERY_TASK_KEY, "completed"),
                     ("artifact", ADAPTIVE_RESEARCH_ELIGIBILITY_FACT, "available"),
                 )
                 expected_successor_dependencies = (
@@ -1689,7 +1696,7 @@ def build_m4_status(
             "JOINT_RESIDUAL_INCREMENT:TERMINAL"
         ),
         "joint_replay": M4_V2_SUCCESSOR_REPLAY_FACTS[2],
-        "global_routing": "m4-v2-global-routing:COMPLETE",
+        "global_routing": GLOBAL_ROUTE_RECOVERY_COMPLETION_FACT,
     }
     successor_task_projection: dict[str, Any] = {}
     for label, successor_task_key in M4_V2_SUCCESSOR_TASKS.items():
@@ -2115,7 +2122,7 @@ def build_m4_status(
                     [
                         {
                             "dependency_type": "task",
-                            "target_key": GLOBAL_ROUTING_TASK_KEY,
+                            "target_key": M4_V2_GLOBAL_ROUTING_RECOVERY_TASK_KEY,
                             "required_status": "completed",
                         },
                         {
@@ -2165,7 +2172,7 @@ def build_m4_status(
                 "new_historical_folds": 0,
             },
             "global_routing": {
-                "task_key": GLOBAL_ROUTING_TASK_KEY,
+                "task_key": M4_V2_GLOBAL_ROUTING_RECOVERY_TASK_KEY,
                 "resolver_status": (
                     None
                     if global_routing_resolution is None

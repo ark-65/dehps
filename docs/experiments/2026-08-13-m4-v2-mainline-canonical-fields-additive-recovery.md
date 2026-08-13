@@ -125,3 +125,18 @@ run from the frozen recovery manifest boundary.
     any separately authorized live import.
 12. Integration matrix: `NO — INTEGRATION_PENDING`.
 13. Predictive-P3 folds: `0`.
+
+## Global routing recovery v1 and exact replay lineage
+
+1. The result-blind recovery input is manifest `15f5d12cebb0eed31f4f0f33c1ac4d3d0878f9335d11741046305baf746eb216`, snapshot `e80b5fa52caee4cbab1f380aceda3dd55cede6581fb8ee62a882afdd843ea2c5`, and Ready `[]`.
+2. The old failed `m4-v2-global-routing` definition, state, execution `7d1d2d82c6d46679f9e3da9f0d743b0d7a774262eb3c5220daefca11100ad12d`, and ordered event digests `dab8a953b60bebcb927147d123b7280392b9a3ead6f0d225ec5799e4b7caaebb` / `a4163025b41b837c1d3c467242b0710b9255bd68a0e6cb16378b64f6c7e0a37c` remain immutable.
+3. The additive active successor is `m4-v2-global-routing-recovery-v1`; the two predictive-P3 definitions change only dependency zero from the old Global key to that successor.
+4. Marginal raw/source-set/artifact are `518155b055a4e94abda2e803dc1c0b81a5eeab67f24286af6c8f5394c2687471` / `0925ab8fb843ff122338480076d9c61dbbaffde96365b02b2aeba50630a37dea` / `189a3d56f0986bf1c8cd5960a995ac36d0155cf341c8c554c1537c5278c0cd0b`.
+5. Temporal raw/source-set/artifact are `96d6906e1e689219e541ba195b9dd83178c4f6f04758cc33155ec47050e57531` / `159d85ef452b51351483b13fdba2f4b0d207afada776b81f7dd525eaa49c652b` / `f4b95688273927fdf22d5ebc38fc51f7da9fc7a46321a655ebfa7b76ff4172f9`.
+6. Joint raw/source-set/artifact are `8b92b8944d89d65d4d79dda74dcdd9f7ad99ce31040ba097ff12ef2be570ebd8` / `6160958a1c869716438be9ea27ca5492b419c8a88ec978a6c46db3952f60d131` / `212c8ab6820ac8a5f0c89e2d6be33b42ee91ca26276cc75c54a9cc3e3214a5b3`.
+7. Global raw/source-set/artifact are `f65982c371c6e0598f51814e51e1fe0bd6162b7c23332976d39fd881e145ff5b` / `57e96ce7553ad9c3795e98ebbd32d49f12ba7eb3c6e696ba49c5752e0a7dd53b` / `ae2985e419e5b2839c29fe47372480ee50b35b7070109842f2984d5d44101670`; its source ordinal 4 is the standalone recovery builder.
+8. Checked-in Evidence raw/manifest/snapshot/length are `f927c21e99d56cb857f39e8e0e8b7365de9652a97076ee5d5fc515461232ae82` / `37fe3ffd8f0c026615f9da80e2850398d2442657c773e41d5dbcd3e9627a0c5c` / `c12637a544f20882e20f8205d089f4371b59519c974b1a965eddbd02f37ddeed` / `343976`. The active Global successor owns `m4-v2-global-routing-recovery-v1:COMPLETE` and its recovery-key content-addressed artifact path. No import is performed here.
+9. Artifact Index raw/length are `96daa788fee0cae47489f63d2d7ec8e3a953b48f40b9fd7bb23fd179c2e68d53` / `73604`; the four prior live source artifacts and prior Evidence manifest are historical `path_at_source` entries with direct reciprocal supersession to the final live identities; no unpersisted intermediate candidate is registered.
+10. The Marginal recovered replay is accepted only by the exact Request555 decision/replay/mainline-execution conjunction; Temporal and Joint retain historical exact replay task-key equality.
+11. No production import or Supervisor/workload/P3 execution occurred. Predictive-P3 folds remain `0`.
+12. Integration matrix: `NO — INTEGRATION_PENDING`.
