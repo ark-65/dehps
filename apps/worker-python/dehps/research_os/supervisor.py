@@ -165,12 +165,6 @@ from dehps.research_os.information_theory.measurement_system_v2.branch_decision 
     MARGINAL_STATIC_REPLAY_CAPABILITY as M4_V2_SUCCESSOR_MARGINAL_REPLAY_CAPABILITY,
 )
 from dehps.research_os.information_theory.measurement_system_v2.branch_decision import (
-    MARGINAL_STATIC_REPLAY_COMPLETION_FACT as M4_V2_SUCCESSOR_MARGINAL_REPLAY_COMPLETION_FACT,
-)
-from dehps.research_os.information_theory.measurement_system_v2.branch_decision import (
-    MARGINAL_STATIC_REPLAY_TASK_KEY as M4_V2_SUCCESSOR_MARGINAL_REPLAY_TASK_KEY,
-)
-from dehps.research_os.information_theory.measurement_system_v2.branch_decision import (
     MARGINAL_STATIC_REPLAY_VERIFIED_FACT as M4_V2_SUCCESSOR_MARGINAL_REPLAY_FACT,
 )
 from dehps.research_os.information_theory.measurement_system_v2.branch_decision import (
@@ -471,7 +465,9 @@ from dehps.research_os.information_theory.measurement_system_v2.marginal_static_
     verify_marginal_static_repair_v2_preregistration_source_bytes,
 )
 from dehps.research_os.information_theory.measurement_system_v2.migration import (
+    M4_V2_FAILED_REPLAY_TASK_KEY,
     M4_V2_FAILED_TASK_KEY,
+    verify_failed_replay_recovery_event_metadata,
     verify_failed_task_recovery_event_metadata,
 )
 from dehps.research_os.information_theory.measurement_system_v2.p2_repair_outcome_closure import (
@@ -1196,6 +1192,12 @@ M4_V2_SUCCESSOR_MARGINAL_RECOVERY_TASK_KEY = (
 )
 M4_V2_SUCCESSOR_MARGINAL_RECOVERY_COMPLETION_FACT = (
     f"{M4_V2_SUCCESSOR_MARGINAL_RECOVERY_TASK_KEY}:COMPLETE"
+)
+M4_V2_SUCCESSOR_MARGINAL_REPLAY_RECOVERY_TASK_KEY = (
+    "m4-v2-marginal-static-historical-branch-decision-replay-recovery-v1"
+)
+M4_V2_SUCCESSOR_MARGINAL_REPLAY_RECOVERY_COMPLETION_FACT = (
+    f"{M4_V2_SUCCESSOR_MARGINAL_REPLAY_RECOVERY_TASK_KEY}:COMPLETE"
 )
 M4_V2_GLOBAL_DOWNSTREAM_CONSUMER = (
     '{"ADAPTIVE_RESEARCH_ELIGIBLE":"P3_PREDICTIVE_PREREGISTRATION_FREEZE",'
@@ -20733,7 +20735,7 @@ class M4V2SuccessorCapability:
             parent = self._branch_record(
                 control_plane_key=control_plane_key,
                 decision_task_key=M4_V2_SUCCESSOR_MARGINAL_RECOVERY_TASK_KEY,
-                replay_task_key=M4_V2_SUCCESSOR_MARGINAL_REPLAY_TASK_KEY,
+                replay_task_key=M4_V2_SUCCESSOR_MARGINAL_REPLAY_RECOVERY_TASK_KEY,
             )
             body = {
                 "status": "FROZEN",
@@ -21152,12 +21154,24 @@ class M4V2SuccessorCapability:
         execution_id: str,
         family: str,
     ) -> AtomicCapabilityResult:
+        if family not in {"marginal", "temporal", "joint"}:
+            raise MainlineSupervisorError(
+                f"M4-v2 branch replay family is unsupported: {family}"
+            )
         source = self._source(family, task)
         if family == "marginal":
+            verify_failed_replay_recovery_event_metadata(
+                self.repository.list_mainline_execution_event_metadata(
+                    control_plane_key=control_plane_key,
+                    task_keys=(M4_V2_FAILED_REPLAY_TASK_KEY,),
+                )
+            )
             decision_task = M4_V2_SUCCESSOR_MARGINAL_RECOVERY_TASK_KEY
             replay_builder = build_marginal_static_branch_decision_replay
             replay_fact = M4_V2_SUCCESSOR_MARGINAL_REPLAY_FACT
-            completion_fact = M4_V2_SUCCESSOR_MARGINAL_REPLAY_COMPLETION_FACT
+            completion_fact = (
+                M4_V2_SUCCESSOR_MARGINAL_REPLAY_RECOVERY_COMPLETION_FACT
+            )
             branch_id = "MARGINAL_STATIC"
         elif family == "temporal":
             decision_task = TEMPORAL_PRODUCER_TASK_KEY
@@ -21176,16 +21190,20 @@ class M4V2SuccessorCapability:
             task_key=decision_task,
             artifact_type="M4V2BranchDecisionArtifact",
         )
-        replay_value = replay_builder(
-            source_contract_digest=source["artifact_digest"],
-            decision_artifact=decision,
-            decision_registration_digest=decision_registration[
+        common_kwargs = {
+            "source_contract_digest": source["artifact_digest"],
+            "decision_registration_digest": decision_registration[
                 "registration_digest"
             ],
-            decision_producer_execution_artifact_digest=producer_execution[
+            "decision_producer_execution_artifact_digest": producer_execution[
                 "artifact_digest"
             ],
-            replay_execution_id=execution_id,
+            "replay_execution_id": execution_id,
+        }
+        replay_value = (
+            replay_builder(decision=decision, **common_kwargs)
+            if family == "marginal"
+            else replay_builder(decision_artifact=decision, **common_kwargs)
         )
         replay = (
             replay_value.to_dict()
@@ -21798,7 +21816,7 @@ class M4V2SuccessorCapability:
         parent = self._branch_record(
             control_plane_key=control_plane_key,
             decision_task_key=M4_V2_SUCCESSOR_MARGINAL_RECOVERY_TASK_KEY,
-            replay_task_key=M4_V2_SUCCESSOR_MARGINAL_REPLAY_TASK_KEY,
+            replay_task_key=M4_V2_SUCCESSOR_MARGINAL_REPLAY_RECOVERY_TASK_KEY,
         )
         if parent["decision"].get("body", {}).get("accepted_for_downstream_baseline") is True:
             bundle = self._accepted_workload_bundle(
@@ -21870,7 +21888,7 @@ class M4V2SuccessorCapability:
         marginal = self._branch_record(
             control_plane_key=control_plane_key,
             decision_task_key=M4_V2_SUCCESSOR_MARGINAL_RECOVERY_TASK_KEY,
-            replay_task_key=M4_V2_SUCCESSOR_MARGINAL_REPLAY_TASK_KEY,
+            replay_task_key=M4_V2_SUCCESSOR_MARGINAL_REPLAY_RECOVERY_TASK_KEY,
         )
         temporal = self._branch_record(
             control_plane_key=control_plane_key,
@@ -21956,7 +21974,7 @@ class M4V2SuccessorCapability:
             self._branch_record(
                 control_plane_key=control_plane_key,
                 decision_task_key=M4_V2_SUCCESSOR_MARGINAL_RECOVERY_TASK_KEY,
-                replay_task_key=M4_V2_SUCCESSOR_MARGINAL_REPLAY_TASK_KEY,
+                replay_task_key=M4_V2_SUCCESSOR_MARGINAL_REPLAY_RECOVERY_TASK_KEY,
             ),
             self._branch_record(
                 control_plane_key=control_plane_key,
@@ -22021,7 +22039,7 @@ class M4V2SuccessorCapability:
                 ),
             ),
             M4_V2_SUCCESSOR_MARGINAL_REPLAY_CAPABILITY: (
-                M4_V2_SUCCESSOR_MARGINAL_REPLAY_TASK_KEY,
+                M4_V2_SUCCESSOR_MARGINAL_REPLAY_RECOVERY_TASK_KEY,
                 lambda: self._branch_replay(
                     control_plane_key=control_plane_key,
                     task=task,
@@ -23570,7 +23588,7 @@ class ResearchEvidenceSupervisor:
                 TEMPORAL_PRODUCER_TASK_KEY,
                 TEMPORAL_PREREGISTRATION_TASK_KEY,
                 TEMPORAL_DESIGN_TASK_KEY,
-                M4_V2_SUCCESSOR_MARGINAL_REPLAY_TASK_KEY,
+                M4_V2_SUCCESSOR_MARGINAL_REPLAY_RECOVERY_TASK_KEY,
                 M4_V2_SUCCESSOR_MARGINAL_RECOVERY_TASK_KEY,
                 M4_P3_STRUCTURAL_UTILITY_EVIDENCE_COMPILER_TASK_KEY,
                 M4_P3_STRUCTURAL_UTILITY_EXECUTION_TASK_KEY,
@@ -25069,7 +25087,7 @@ class ResearchEvidenceSupervisor:
                 dispatcher._branch_record(
                     control_plane_key=self.control_plane_key,
                     decision_task_key=M4_V2_SUCCESSOR_MARGINAL_RECOVERY_TASK_KEY,
-                    replay_task_key=M4_V2_SUCCESSOR_MARGINAL_REPLAY_TASK_KEY,
+                    replay_task_key=M4_V2_SUCCESSOR_MARGINAL_REPLAY_RECOVERY_TASK_KEY,
                 ),
                 dispatcher._branch_record(
                     control_plane_key=self.control_plane_key,

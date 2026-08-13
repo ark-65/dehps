@@ -65,6 +65,74 @@ TEST_COMMIT = "a" * 40
 TEST_CONTROL_PLANE_KEY = "m4-information-theory-mainline"
 
 
+@pytest.mark.parametrize(
+    ("family", "builder_name", "decision_keyword"),
+    (
+        ("marginal", "build_marginal_static_branch_decision_replay", "decision"),
+        ("temporal", "build_temporal_branch_replay", "decision_artifact"),
+        ("joint", "build_joint_branch_replay", "decision_artifact"),
+    ),
+)
+def test_m4_v2_branch_replay_dispatcher_uses_exact_family_keyword(
+    monkeypatch: pytest.MonkeyPatch,
+    family: str,
+    builder_name: str,
+    decision_keyword: str,
+) -> None:
+    calls: list[dict[str, object]] = []
+    decision = {"artifact_digest": "d" * 64}
+
+    def replay_builder(**kwargs: object) -> dict[str, object]:
+        calls.append(kwargs)
+        return {"artifact_digest": "r" * 64}
+
+    capability = object.__new__(supervisor_module.M4V2SuccessorCapability)
+    capability.repository = SimpleNamespace(
+        list_mainline_execution_event_metadata=lambda **_kwargs: ()
+    )
+    monkeypatch.setattr(
+        supervisor_module.M4V2SuccessorCapability,
+        "_source",
+        lambda _self, _family, _task: {
+            "artifact_digest": "s" * 64,
+            "source_set_digest": "q" * 64,
+        },
+    )
+    monkeypatch.setattr(
+        supervisor_module.M4V2SuccessorCapability,
+        "_completed_artifact",
+        lambda _self, **_kwargs: (
+            {"artifact_digest": "e" * 64},
+            {"registration_digest": "g" * 64},
+            decision,
+        ),
+    )
+    monkeypatch.setattr(supervisor_module, builder_name, replay_builder)
+    monkeypatch.setattr(
+        supervisor_module,
+        "verify_failed_replay_recovery_event_metadata",
+        lambda _events: None,
+    )
+
+    result = capability._branch_replay(
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
+        task=SimpleNamespace(),
+        execution_id="x" * 64,
+        family=family,
+    )
+
+    assert result.workload_rerun is False
+    assert calls == [
+        {
+            decision_keyword: decision,
+            "source_contract_digest": "s" * 64,
+            "decision_registration_digest": "g" * 64,
+            "decision_producer_execution_artifact_digest": "e" * 64,
+            "replay_execution_id": "x" * 64,
+        }
+    ]
+
+
 def historical_replay_payload(
     *,
     task_key: str,

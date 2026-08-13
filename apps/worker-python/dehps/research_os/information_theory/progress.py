@@ -95,7 +95,7 @@ M4_V2_SUCCESSOR_TASKS = {
         "m4-v2-marginal-static-historical-identity-adoption-recovery-v1"
     ),
     "marginal_replay": (
-        "m4-v2-marginal-static-historical-branch-decision-replay"
+        "m4-v2-marginal-static-historical-branch-decision-replay-recovery-v1"
     ),
     "temporal_design": (
         "m4-v2-temporal-marginal-increment-historical-measurement-design"

@@ -75,6 +75,66 @@ M4_V2_FAILED_EVENT_METADATA = (
         "8291bed8402c539f416f9c8d8a23c2f59800ff544d7b5ca90a5f3878d6ef665f",
     ),
 )
+M4_V2_REPLAY_RECOVERY_INPUT_MANIFEST_DIGEST = (
+    "1331950e7f2c74ee8db22bb3383d1defb241b4bee0253d2fedbb8cde065cb470"
+)
+M4_V2_REPLAY_RECOVERY_INPUT_SNAPSHOT_DIGEST = (
+    "d76b4200d439309c5a0b9c9ac1bb42b22649d3be182e996873ad8825fbaecd50"
+)
+M4_V2_FAILED_REPLAY_TASK_KEY = (
+    "m4-v2-marginal-static-historical-branch-decision-replay"
+)
+M4_V2_REPLAY_RECOVERY_TASK_KEY = (
+    "m4-v2-marginal-static-historical-branch-decision-replay-recovery-v1"
+)
+M4_V2_FAILED_REPLAY_TASK_DIGEST = (
+    "26aefc4e9e1ae7e2673acef28f7630f85b90baf34e26e1abe8e047d2dd478832"
+)
+M4_V2_FAILED_REPLAY_OLDER_TASK_DIGEST = (
+    "ee575d4109b055e1988ae493e2a6a913704624d8e611063f707aed08d34e344e"
+)
+M4_V2_FAILED_REPLAY_EXECUTION_ID = (
+    "a41b900ce663f4f6a6f16b5429f70270954daee019c746f89d255b9daef5b9b0"
+)
+M4_V2_FAILED_REPLAY_EVENT_MANIFEST_DIGEST = (
+    "c7c827b3dc41eaecb07d80fd150025de4c2e179e8a6cdfd204ebd4ab191ec56c"
+)
+M4_V2_FAILED_REPLAY_CAPABILITY = (
+    "m4_v2_marginal_static_historical_branch_decision_replay"
+)
+M4_V2_FAILED_REPLAY_EVENT_METADATA = (
+    (0, "started", "85eeba6a9dd2f477267705e0aa7f80b53e6450021563dd5a54a5146e10431065"),
+    (1, "failed", "338f84f5dafab3ff55a2566e3e4cf437769707674722d9b9f7335510d8f0b7b4"),
+)
+M4_V2_REPLAY_RECOVERY_LINEAGE = {
+    "old_active_definition_digest": M4_V2_FAILED_REPLAY_TASK_DIGEST,
+    "old_event_manifest_digest": M4_V2_FAILED_REPLAY_EVENT_MANIFEST_DIGEST,
+    "old_execution_id": M4_V2_FAILED_REPLAY_EXECUTION_ID,
+    "old_failed_event": {
+        "event_digest": M4_V2_FAILED_REPLAY_EVENT_METADATA[1][2],
+        "sequence": 1,
+    },
+    "old_older_definition_digest": M4_V2_FAILED_REPLAY_OLDER_TASK_DIGEST,
+    "old_started_event": {
+        "event_digest": M4_V2_FAILED_REPLAY_EVENT_METADATA[0][2],
+        "sequence": 0,
+    },
+    "old_state": {
+        "completion_classification": "INTEGRATED",
+        "declared_status": "failed",
+        "reason_code": "task_failed",
+        "resolved_status": "failed",
+        "superseded_by_task_digest": None,
+    },
+    "old_task_key": M4_V2_FAILED_REPLAY_TASK_KEY,
+    "schema_version": (
+        "dehps-m4-v2-marginal-static-branch-decision-replay-recovery-lineage.v1"
+    ),
+    "successor_task_key": M4_V2_REPLAY_RECOVERY_TASK_KEY,
+}
+M4_V2_REPLAY_RECOVERY_LINEAGE_DIGEST = (
+    "9b24c1953df46f2271b199acbdc003045dc6fe28dd1568b15f7614e294df61b9"
+)
 M4_V2_ORIGINAL_TASK_DEFINITIONS = (
     (
         M4_V2_FAILED_TASK_KEY,
@@ -617,4 +677,181 @@ def verify_failed_task_recovery_event_metadata(
     if observed != expected:
         raise AdditiveManifestMigrationError(
             "manifest_recovery_failed_execution_event_metadata_changed"
+        )
+
+
+def build_failed_replay_recovery_manifest(
+    *,
+    live_payload: Mapping[str, Any],
+    source_contract_digest: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Replace only the failed replay active slot with its immutable successor."""
+
+    source_digest = require_sha256_digest(
+        source_contract_digest,
+        field_name="marginal_identity_adoption_source_contract_digest",
+    )
+    live = deepcopy(dict(live_payload))
+    manifest = ControlPlaneManifest.from_dict(live)
+    if manifest.artifact_digest != M4_V2_REPLAY_RECOVERY_INPUT_MANIFEST_DIGEST:
+        raise AdditiveManifestMigrationError(
+            "manifest_replay_recovery_input_manifest_digest_changed"
+        )
+    snapshot = ResearchOSControlPlane().resolve(manifest)
+    if snapshot.snapshot_digest != M4_V2_REPLAY_RECOVERY_INPUT_SNAPSHOT_DIGEST:
+        raise AdditiveManifestMigrationError(
+            "manifest_replay_recovery_input_snapshot_digest_changed"
+        )
+    if snapshot.ready_queue:
+        raise AdditiveManifestMigrationError(
+            "manifest_replay_recovery_ready_queue_not_empty"
+        )
+
+    tasks = {task.task_key: task for task in manifest.tasks}
+    failed = tasks.get(M4_V2_FAILED_REPLAY_TASK_KEY)
+    if failed is None or failed.artifact_digest != M4_V2_FAILED_REPLAY_TASK_DIGEST:
+        raise AdditiveManifestMigrationError(
+            "manifest_replay_recovery_failed_definition_changed"
+        )
+    failed_state = manifest.task_state_by_digest[failed.artifact_digest]
+    if (
+        failed_state.declared_status.value != "failed"
+        or failed_state.completion_classification is None
+        or failed_state.completion_classification.value != "INTEGRATED"
+        or failed_state.superseded_by_task_digest is not None
+    ):
+        raise AdditiveManifestMigrationError(
+            "manifest_replay_recovery_failed_state_changed"
+        )
+    if M4_V2_REPLAY_RECOVERY_TASK_KEY in tasks:
+        raise AdditiveManifestMigrationError(
+            "manifest_replay_recovery_successor_already_present"
+        )
+    decision = tasks.get(M4_V2_RECOVERY_TASK_KEY)
+    if (
+        decision is None
+        or decision.artifact_digest
+        != "f94b2393253e36a63fe8828a44dad40ed57ef336c0c942d2b31cc084f51085cc"
+    ):
+        raise AdditiveManifestMigrationError(
+            "manifest_replay_recovery_predecessor_changed"
+        )
+    decision_state = manifest.task_state_by_digest[decision.artifact_digest]
+    if (
+        decision_state.declared_status.value != "completed"
+        or decision_state.completion_classification is None
+        or decision_state.completion_classification.value != "COMPLETE"
+        or decision_state.superseded_by_task_digest is not None
+    ):
+        raise AdditiveManifestMigrationError(
+            "manifest_replay_recovery_predecessor_state_changed"
+        )
+
+    normalized_live = manifest.to_dict(include_digest=False)
+    output_tasks: list[dict[str, Any]] = []
+    for task in normalized_live["tasks"]:
+        if task["task_key"] != M4_V2_FAILED_REPLAY_TASK_KEY:
+            output_tasks.append(deepcopy(task))
+            continue
+        if task["input_artifact_digests"] != [
+            "44b0c436e3b2c2e5d73c14db55d19db3fefb56877a415e71ef53ef078893da25"
+        ]:
+            raise AdditiveManifestMigrationError(
+                "manifest_replay_recovery_source_contract_changed"
+            )
+        recovery = deepcopy(task)
+        recovery["input_artifact_digests"] = [source_digest]
+        recovery["task_key"] = M4_V2_REPLAY_RECOVERY_TASK_KEY
+        recovery["status"] = "draft"
+        recovery["completion_classification"] = "INTEGRATION_PENDING"
+        recovery["superseded_by_task_digest"] = None
+        metric = recovery["metric_contract"]
+        metric["completion_fact"] = f"{M4_V2_REPLAY_RECOVERY_TASK_KEY}:COMPLETE"
+        metric["recovery_lineage"] = deepcopy(M4_V2_REPLAY_RECOVERY_LINEAGE)
+        metric["recovery_lineage_digest"] = M4_V2_REPLAY_RECOVERY_LINEAGE_DIGEST
+        output_tasks.append(recovery)
+
+    output = {
+        "schema_version": normalized_live["schema_version"],
+        "goals": deepcopy(normalized_live["goals"]),
+        "tasks": output_tasks,
+        "facts": deepcopy(normalized_live["facts"]),
+    }
+    successor = ControlPlaneManifest.from_dict(output)
+    successor_snapshot = ResearchOSControlPlane().resolve(successor)
+    ready_keys = tuple(item.task_key for item in successor_snapshot.ready_queue)
+    if ready_keys != (M4_V2_REPLAY_RECOVERY_TASK_KEY,):
+        raise AdditiveManifestMigrationError(
+            "manifest_replay_recovery_successor_not_unique_ready"
+        )
+    normalized = successor.to_dict(include_digest=True)
+    dry_run: dict[str, Any] = {
+        "schema_version": "dehps-m4-v2-failed-replay-recovery-migration-dry-run.v1",
+        "artifact_type": "m4_v2_failed_replay_recovery_migration_dry_run",
+        "artifact_digest": "",
+        "status": "VERIFIED",
+        "input_manifest_digest": manifest.artifact_digest,
+        "input_snapshot_digest": snapshot.snapshot_digest,
+        "input_ready_task_keys": [],
+        "old_failed_task_key": M4_V2_FAILED_REPLAY_TASK_KEY,
+        "old_failed_task_digest": failed.artifact_digest,
+        "old_failed_task_preserved_in_durable_history": True,
+        "old_failed_task_present_in_active_manifest": False,
+        "recovery_task_key": M4_V2_REPLAY_RECOVERY_TASK_KEY,
+        "recovery_lineage_digest": M4_V2_REPLAY_RECOVERY_LINEAGE_DIGEST,
+        "new_task_count": 1,
+        "revised_same_key_count": 0,
+        "output_manifest_digest": successor.artifact_digest,
+        "output_snapshot_digest": successor_snapshot.snapshot_digest,
+        "output_ready_task_keys": list(ready_keys),
+        "import_performed": False,
+        "production_action": "none",
+        "promotion_gate_opened": False,
+        "p3_folds": 0,
+    }
+    identity = dict(dry_run)
+    identity.pop("artifact_digest")
+    dry_run["artifact_digest"] = canonical_digest(
+        identity,
+        domain="dehps.m4.v2.failed-replay-recovery-migration-dry-run.v1",
+    )
+    return normalized, dry_run
+
+
+def verify_failed_replay_recovery_event_metadata(
+    event_metadata: Sequence[Mapping[str, Any]],
+) -> None:
+    """Bind the failed replay execution/event projection without result reads."""
+
+    observed = tuple(
+        (
+            int(item.get("sequence", -1)),
+            str(item.get("event_type") or ""),
+            str(item.get("event_digest") or ""),
+            str(item.get("execution_id") or ""),
+            str(item.get("task_key") or ""),
+            str(item.get("task_digest") or ""),
+            str(item.get("control_plane_key") or ""),
+            str(item.get("manifest_digest") or ""),
+            str(item.get("capability") or ""),
+        )
+        for item in event_metadata
+    )
+    expected = tuple(
+        (
+            sequence,
+            event_type,
+            event_digest,
+            M4_V2_FAILED_REPLAY_EXECUTION_ID,
+            M4_V2_FAILED_REPLAY_TASK_KEY,
+            M4_V2_FAILED_REPLAY_TASK_DIGEST,
+            "m4-information-theory-mainline",
+            M4_V2_FAILED_REPLAY_EVENT_MANIFEST_DIGEST,
+            M4_V2_FAILED_REPLAY_CAPABILITY,
+        )
+        for sequence, event_type, event_digest in M4_V2_FAILED_REPLAY_EVENT_METADATA
+    )
+    if observed != expected:
+        raise AdditiveManifestMigrationError(
+            "manifest_replay_recovery_failed_execution_event_metadata_changed"
         )
