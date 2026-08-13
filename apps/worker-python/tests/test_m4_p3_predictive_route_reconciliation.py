@@ -416,6 +416,16 @@ def _durable_drift_fixture(source_payload: dict[str, Any]) -> dict[str, Any]:
         for item in live["tasks"]
         if item["task_key"] != PREDICTIVE_ROUTE_RECONCILIATION_TASK_KEY
     ]
+    global_task = next(
+        task
+        for task in live["tasks"]
+        if task["task_key"] == "m4-v2-global-routing-recovery-v1"
+    )
+    global_task["task_key"] = GLOBAL_ROUTING_TASK_KEY
+    for task in live["tasks"]:
+        for dependency in task["dependencies"]:
+            if dependency["target_key"] == "m4-v2-global-routing-recovery-v1":
+                dependency["target_key"] = GLOBAL_ROUTING_TASK_KEY
 
     p3 = _task(live, PREDICTIVE_P3_TASK_KEY)
     p3["dependencies"] = [

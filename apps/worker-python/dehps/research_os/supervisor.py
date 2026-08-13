@@ -839,8 +839,8 @@ from dehps.research_os.information_theory.measurement_system_v2.routing import (
     GLOBAL_ROUTE_ARTIFACT_FILENAME,
     GLOBAL_ROUTE_ARTIFACT_SLUG,
     GLOBAL_ROUTE_CAPABILITY,
-    GLOBAL_ROUTE_COMPLETION_FACT,
-    GLOBAL_ROUTE_TASK_KEY,
+    GLOBAL_ROUTE_RECOVERY_COMPLETION_FACT,
+    GLOBAL_ROUTE_RECOVERY_TASK_KEY,
     compile_m4_v2_global_route_decision,
     replay_m4_v2_global_route_decision,
 )
@@ -1336,6 +1336,7 @@ M4_V2_SUCCESSOR_SOURCE_SPECS: dict[str, dict[str, Any]] = {
             "apps/worker-python/dehps/research_os/supervisor.py",
             "apps/worker-python/dehps/research_os/information_theory/progress.py",
             "apps/worker-python/scripts/build_m4_v2_global_routing_manifest.py",
+            "apps/worker-python/scripts/build_m4_v2_global_routing_recovery_manifest.py",
             "apps/worker-python/dehps/research_os/control_plane.py",
             "apps/worker-python/dehps/research_os/models.py",
             "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/migration.py",
@@ -3856,7 +3857,7 @@ def _load_m4_v2_successor_source_contract(
         or contract.get("governance_digest_reference_contract")
         != M4_V2_GOVERNANCE_DIGEST_REFERENCE_CONTRACT
         or not isinstance(entries, list)
-        or len(entries) != 7
+        or len(entries) != len(spec["entries"])
     ):
         raise MainlineSupervisorError("M4-v2 successor source contract changed")
     observed_paths: list[str] = []
@@ -20669,7 +20670,7 @@ class M4V2SuccessorCapability:
         decision_task_key: str,
         replay_task_key: str,
     ) -> dict[str, Any]:
-        _, _, decision_registrations = _load_single_completed_execution(
+        _, decision_execution, decision_registrations = _load_single_completed_execution(
             repository=self.repository,
             root_dir=self.root_dir,
             control_plane_key=control_plane_key,
@@ -20683,7 +20684,7 @@ class M4V2SuccessorCapability:
             registrations=decision_registrations,
             artifact_type="M4V2BranchDecisionArtifact",
         )
-        _, _, replay_registrations = _load_single_completed_execution(
+        _, replay_execution, replay_registrations = _load_single_completed_execution(
             repository=self.repository,
             root_dir=self.root_dir,
             control_plane_key=control_plane_key,
@@ -20700,8 +20701,16 @@ class M4V2SuccessorCapability:
         return {
             "decision": decision,
             "decision_registration": decision_registration,
+            "decision_execution": decision_execution,
+            "decision_execution_registration": self._registration_for_type(
+                decision_registrations, "research_os_mainline_execution"
+            ),
             "replay": replay,
             "replay_registration": replay_registration,
+            "replay_execution": replay_execution,
+            "replay_execution_registration": self._registration_for_type(
+                replay_registrations, "research_os_mainline_execution"
+            ),
         }
 
     @staticmethod
@@ -22004,7 +22013,7 @@ class M4V2SuccessorCapability:
                     route,
                 ),
             ),
-            completion_facts=(route_fact, GLOBAL_ROUTE_COMPLETION_FACT),
+            completion_facts=(route_fact, GLOBAL_ROUTE_RECOVERY_COMPLETION_FACT),
             execution_metadata=(
                 ("source_contract_digest", source["artifact_digest"]),
                 ("source_set_digest", source["source_set_digest"]),
@@ -22114,7 +22123,7 @@ class M4V2SuccessorCapability:
                 ),
             ),
             GLOBAL_ROUTE_CAPABILITY: (
-                GLOBAL_ROUTE_TASK_KEY,
+                GLOBAL_ROUTE_RECOVERY_TASK_KEY,
                 lambda: self._global_route(
                     control_plane_key=control_plane_key,
                     task=task,
@@ -23579,7 +23588,7 @@ class ResearchEvidenceSupervisor:
         return self._latest_completed_summary_for_tasks(
             snapshot,
             (
-                GLOBAL_ROUTE_TASK_KEY,
+                GLOBAL_ROUTE_RECOVERY_TASK_KEY,
                 JOINT_REPLAY_TASK_KEY,
                 JOINT_PRODUCER_TASK_KEY,
                 JOINT_PREREGISTRATION_TASK_KEY,
@@ -25055,12 +25064,12 @@ class ResearchEvidenceSupervisor:
     def replay(
         self, *, task_key: str, execution_id: str | None = None
     ) -> dict[str, Any]:
-        if task_key == GLOBAL_ROUTE_TASK_KEY:
+        if task_key == GLOBAL_ROUTE_RECOVERY_TASK_KEY:
             _, execution_artifact, registrations = _load_single_completed_execution(
                 repository=self.repository,
                 root_dir=self.root_dir,
                 control_plane_key=self.control_plane_key,
-                task_key=GLOBAL_ROUTE_TASK_KEY,
+                task_key=GLOBAL_ROUTE_RECOVERY_TASK_KEY,
             )
             resolved_execution_id = str(execution_artifact["execution_id"])
             if execution_id is not None and execution_id != resolved_execution_id:
@@ -25071,7 +25080,9 @@ class ResearchEvidenceSupervisor:
                 control_plane_key=self.control_plane_key
             )
             route_tasks = [
-                task for task in manifest.tasks if task.task_key == GLOBAL_ROUTE_TASK_KEY
+                task
+                for task in manifest.tasks
+                if task.task_key == GLOBAL_ROUTE_RECOVERY_TASK_KEY
             ]
             if len(route_tasks) != 1:
                 raise MainlineSupervisorError(

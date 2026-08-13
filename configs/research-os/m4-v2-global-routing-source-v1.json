@@ -1,5 +1,5 @@
 {
-  "artifact_digest": "5df45852e589719de889cdd5c08dedc9985b037fb27670354cddcadff20ace66",
+  "artifact_digest": "ae2985e419e5b2839c29fe47372480ee50b35b7070109842f2984d5d44101670",
   "artifact_type": "m4_v2_global_routing_source_contract",
   "failed_engineering_predecessor_binding": {
     "approval_decision_digest": "eddcffb0b16a78e802e6937c2376bf106f6ce2f5689c0d3d497b48157120e49a",
@@ -161,19 +161,23 @@
   "source_entries": [
     {
       "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/routing.py",
-      "sha256": "6aa770ec03d1344b5a240c8e9e32a1ccbecc3a508e8df7a639a070854bd5a549"
+      "sha256": "d819eecb0710db34820ce5105adf4bcc98029989c541627e4da36de97892b6bf"
     },
     {
       "path": "apps/worker-python/dehps/research_os/supervisor.py",
-      "sha256": "01e82839be19e8ba67ebb15df38ece93748e70dfae7bd86d9a8b7e2b0c4e760a"
+      "sha256": "5cf8e2b1ec9ac26fb5936def10f1bab58ff087c1342a43d871e03c1e589060ed"
     },
     {
       "path": "apps/worker-python/dehps/research_os/information_theory/progress.py",
-      "sha256": "67122e19468e95939f6ff33334f8b698bfef19ff3bcb03f2ebbbafc2c6af6f6c"
+      "sha256": "e78bccd8d8f8e2eb9b98b3223002bca4853291b86eacf05fafcba6e061f1e9fd"
     },
     {
       "path": "apps/worker-python/scripts/build_m4_v2_global_routing_manifest.py",
       "sha256": "ded7527cf9e20216e540833ff6786469002bc4415b473d9ee56e573444a52cab"
+    },
+    {
+      "path": "apps/worker-python/scripts/build_m4_v2_global_routing_recovery_manifest.py",
+      "sha256": "c7c1e7410b877086a2991333108fd0eb894de0695eceac4290c26c93fbc2ebca"
     },
     {
       "path": "apps/worker-python/dehps/research_os/control_plane.py",
@@ -189,5 +193,5 @@
     }
   ],
   "source_fact": "m4-v2-global-routing-contract:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
-  "source_set_digest": "1396cd9ec6ec0bf62c304baebefc21a011e61ba5d403ccb65b5951229a740b6a"
+  "source_set_digest": "57e96ce7553ad9c3795e98ebbd32d49f12ba7eb3c6e696ba49c5752e0a7dd53b"
 }

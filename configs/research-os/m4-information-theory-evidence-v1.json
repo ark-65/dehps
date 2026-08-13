@@ -309,7 +309,7 @@
       }
     }
   ],
-  "manifest_digest": "e7310b8cb567e2f959aea8d37601309a704cc2c5a8669f868618a84bafc3fa78",
+  "manifest_digest": "37fe3ffd8f0c026615f9da80e2850398d2442657c773e41d5dbcd3e9627a0c5c",
   "schema_version": "research-os-control-plane-v1",
   "tasks": [
     {
@@ -5420,7 +5420,7 @@
       "goal_digest": "6984fd74d4df4de06e940f5612a2fa97744402498a8e30a16d3ff8bdb0859472",
       "goal_key": "M4_INFORMATION_THEORY_EVIDENCE",
       "input_artifact_digests": [
-        "5df45852e589719de889cdd5c08dedc9985b037fb27670354cddcadff20ace66"
+        "ae2985e419e5b2839c29fe47372480ee50b35b7070109842f2984d5d44101670"
       ],
       "lane": "research",
       "metric_contract": {
@@ -5444,7 +5444,7 @@
           "MARGINAL_STATIC": "821491eb28b19ebe4ce60d8f7baf7ff7233fec20dc6f25021581437ade56c631",
           "TEMPORAL_MARGINAL_INCREMENT": "f1bde59f8bb59bc4bb796df8ec5fe3f0a4ba723a6cc3828bb263e747cabd53b3"
         },
-        "completion_fact": "m4-v2-global-routing:COMPLETE",
+        "completion_fact": "m4-v2-global-routing-recovery-v1:COMPLETE",
         "completion_fact_count": 1,
         "coverage_axes_are_not_aliases": true,
         "decision_replay_coverage_required": "COMPLETE",
@@ -5459,7 +5459,7 @@
           "downstream_artifacts": [
             "M4V2GlobalRouteDecisionArtifact",
             "research_os_mainline_execution",
-            "m4-v2-global-routing:COMPLETE",
+            "m4-v2-global-routing-recovery-v1:COMPLETE",
             "m4-v2-routing:{ROUTE}"
           ],
           "downstream_consumer": "{\"ADAPTIVE_RESEARCH_ELIGIBLE\":\"P3_PREDICTIVE_PREREGISTRATION_FREEZE\",\"DEEPER_VALIDATION_REQUIRED\":\"M4_DEEPER_VALIDATION\",\"MEASUREMENT_REPAIR_REQUIRED\":\"MEASUREMENT_REPAIR\",\"NO_DETECTABLE_INFORMATION_UNDER_FROZEN_M4_V2_CONTRACT\":\"KERNEL_SEARCH_EFFICIENCY\"}",
@@ -5486,9 +5486,35 @@
         "phase": "M4-V2-GLOBAL-ROUTING",
         "production_action": "none",
         "promotion_gate_opened": false,
+        "recovery_lineage": {
+          "cause": "exact_replay_envelope_historical_key_with_recovery_registration_key",
+          "old_active_definition_digest": "da2910f9a7371c46225e0df5a400b3c64ca36bbe05dd98c881a232d66ae144ae",
+          "old_event_manifest_digest": "91ea3e8de6b48c51cf854a2f7254b81da758db601fbacf4971d648ebf3031b6c",
+          "old_execution_id": "7d1d2d82c6d46679f9e3da9f0d743b0d7a774262eb3c5220daefca11100ad12d",
+          "old_failed_event": {
+            "event_digest": "a4163025b41b837c1d3c467242b0710b9255bd68a0e6cb16378b64f6c7e0a37c",
+            "sequence": 1
+          },
+          "old_older_definition_digest": "321660dd0f35e3bc3a4ea752d9257e24014bc1b5966b05f6ba5ef63656e5a377",
+          "old_started_event": {
+            "event_digest": "dab8a953b60bebcb927147d123b7280392b9a3ead6f0d225ec5799e4b7caaebb",
+            "sequence": 0
+          },
+          "old_state": {
+            "completion_classification": "INTEGRATED",
+            "declared_status": "failed",
+            "reason_code": "task_failed",
+            "resolved_status": "failed",
+            "superseded_by_task_digest": null
+          },
+          "old_task_key": "m4-v2-global-routing",
+          "schema_version": "dehps-m4-v2-global-routing-recovery-lineage.v1",
+          "successor_task_key": "m4-v2-global-routing-recovery-v1"
+        },
+        "recovery_lineage_digest": "f22a7ce0da06fc47787a3618f3a53912622aecdb2b69bd9d1856d3a4c130d5c8",
         "registered_artifact_count": 2,
         "route_artifact_filename": "decision.json",
-        "route_artifact_path_template": "runtime/research-os/mainline/tasks/m4-v2-global-routing/{execution_id}/artifacts/global-routing-decision/{artifact_digest}/decision.json",
+        "route_artifact_path_template": "runtime/research-os/mainline/tasks/m4-v2-global-routing-recovery-v1/{execution_id}/artifacts/global-routing-decision/{artifact_digest}/decision.json",
         "route_artifact_slug": "global-routing-decision",
         "route_artifact_type": "M4V2GlobalRouteDecisionArtifact",
         "route_digest_domain": "dehps.m4.v2.global-routing-decision.v1",
@@ -5511,7 +5537,7 @@
       "requested_capability": "m4_v2_global_routing",
       "status": "draft",
       "superseded_by_task_digest": null,
-      "task_key": "m4-v2-global-routing",
+      "task_key": "m4-v2-global-routing-recovery-v1",
       "task_type": "hierarchical_measurement_global_routing"
     },
     {
@@ -5520,7 +5546,7 @@
         {
           "dependency_type": "task",
           "required_status": "completed",
-          "target_key": "m4-v2-global-routing"
+          "target_key": "m4-v2-global-routing-recovery-v1"
         },
         {
           "dependency_type": "artifact",
@@ -6986,7 +7012,7 @@
         {
           "dependency_type": "task",
           "required_status": "completed",
-          "target_key": "m4-v2-global-routing"
+          "target_key": "m4-v2-global-routing-recovery-v1"
         },
         {
           "dependency_type": "artifact",

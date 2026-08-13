@@ -50,6 +50,7 @@ from dehps.research_os.information_theory.progress import (
     PREDICTIVE_P3_TASK_KEY,
     PREDICTIVE_P4_TASK_KEY,
     PREDICTIVE_P5_TASK_KEY,
+    build_m4_status,
     validate_m4_v2_successor_structure,
 )
 from dehps.research_os.mainline import mainline_completion_fact
@@ -76,6 +77,9 @@ from dehps.research_os.models import (
 from dehps.research_os.repository import PostgresResearchOSRepository
 
 from scripts import build_m4_v2_global_routing_manifest as global_builder
+from scripts import (
+    build_m4_v2_global_routing_recovery_manifest as global_recovery_builder,
+)
 from scripts import build_m4_v2_joint_residual_increment_manifest as joint_builder
 from scripts import (
     build_m4_v2_nine_downstream_resealed_input_manifest as nine_revision_builder,
@@ -1022,8 +1026,17 @@ def test_recovery_input_fixture_matches_live_database_when_available() -> None:
         pytest.skip("configured PostgreSQL is unavailable for explicit integration check")
 
     typed = repository.load_manifest(control_plane_key=CONTROL_PLANE_KEY)
-    assert typed.artifact_digest == RECOVERY_INPUT_MANIFEST_DIGEST
-    assert typed.to_dict(include_digest=True) == _recovery_input_payload()
+    assert typed.artifact_digest == global_recovery_builder.INPUT_MANIFEST_DIGEST
+    snapshot = ResearchOSControlPlane().resolve(typed)
+    assert snapshot.snapshot_digest == global_recovery_builder.INPUT_SNAPSHOT_DIGEST
+    assert snapshot.ready_queue == ()
+
+
+def _active_global_recovery_payload() -> dict[str, Any]:
+    payload = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    typed = ControlPlaneManifest.from_dict(payload)
+    assert typed.artifact_digest == payload["manifest_digest"]
+    return payload
 
 
 def _successor_payload() -> dict[str, Any]:
@@ -1053,9 +1066,7 @@ def _successor_payload() -> dict[str, Any]:
 
 
 def _pure_replay_recovery_payload() -> dict[str, Any]:
-    source_digest = json.loads(SOURCE_PATHS[0].read_text(encoding="utf-8"))[
-        "artifact_digest"
-    ]
+    source_digest = "f078eed2de707bf1e0ed80495eb9955bd8a909e170fed3318110574f7722e3bb"
     payload, dry_run = marginal_builder.build_manifest(
         _recovery_input_payload(), source_digest
     )
@@ -1064,15 +1075,7 @@ def _pure_replay_recovery_payload() -> dict[str, Any]:
 
 
 def _nine_revision_source_digests() -> dict[str, str]:
-    return {
-        branch: json.loads(path.read_text(encoding="utf-8"))["artifact_digest"]
-        for branch, path in zip(
-            ("MARGINAL_STATIC", *nine_revision_builder.SOURCE_DIGESTS),
-            SOURCE_PATHS,
-            strict=True,
-        )
-        if branch != "MARGINAL_STATIC"
-    }
+    return dict(nine_revision_builder.SOURCE_DIGESTS)
 
 
 def _without_manifest_digest(payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -1895,6 +1898,18 @@ def test_nine_downstream_resealed_input_cli_is_pure_and_deterministic(
         json.dumps(_pure_replay_recovery_payload(), sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
     )
+    historical_sources: list[Path] = []
+    for branch in nine_revision_builder.SOURCE_DIGESTS:
+        path = tmp_path / f"{branch.lower()}-historical-source.json"
+        path.write_text(
+            json.dumps(
+                {"artifact_digest": nine_revision_builder.SOURCE_DIGESTS[branch]},
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        historical_sources.append(path)
     command = [
         sys.executable,
         str(
@@ -1903,11 +1918,11 @@ def test_nine_downstream_resealed_input_cli_is_pure_and_deterministic(
         "--input",
         str(input_path),
         "--temporal-source",
-        str(SOURCE_PATHS[1]),
+        str(historical_sources[0]),
         "--joint-source",
-        str(SOURCE_PATHS[2]),
+        str(historical_sources[1]),
         "--global-source",
-        str(SOURCE_PATHS[3]),
+        str(historical_sources[2]),
         "--output",
         str(output_path),
         "--dry-run",
@@ -2095,7 +2110,7 @@ def test_additive_manifest_preserves_p2_p2r_structural_terminal_and_history() ->
         marginal_builder.REPLAY_RECOVERY_LINEAGE_DIGEST
     )
     assert recovery["input_artifact_digests"] == [
-        "f078eed2de707bf1e0ed80495eb9955bd8a909e170fed3318110574f7722e3bb"
+        json.loads(SOURCE_PATHS[0].read_text(encoding="utf-8"))["artifact_digest"]
     ]
     canonical_keys = {
         marginal_builder.REPLAY_RECOVERY_TASK_KEY,
@@ -2361,7 +2376,7 @@ def test_recovery_entry_audit_rejects_manifest_ready_and_event_lineage_drift(
 
 
 def test_recovery_status_projection_uses_only_the_new_active_replay() -> None:
-    manifest = ControlPlaneManifest.from_dict(_successor_payload())
+    manifest = ControlPlaneManifest.from_dict(_active_global_recovery_payload())
     verified = validate_m4_v2_successor_structure(manifest)
     assert verified["status"] == "VERIFIED"
     assert M4_V2_SUCCESSOR_TASKS["marginal_replay"] == (
@@ -2925,7 +2940,7 @@ def test_global_router_repair_and_partial_positive_never_adaptive() -> None:
 
 
 def test_resolver_global_route_and_four_and_p3_barrier() -> None:
-    payload = _successor_payload()
+    payload = _active_global_recovery_payload()
     manifest = ControlPlaneManifest.from_dict(payload)
     successor_task_keys = {
         marginal_builder.REPLAY_RECOVERY_TASK_KEY,
@@ -2934,7 +2949,7 @@ def test_resolver_global_route_and_four_and_p3_barrier() -> None:
     assert marginal_builder.REPLAY_RECOVERY_TASK_KEY in {
         task.task_key for task in manifest.tasks
     }
-    global_task = _task(payload, global_builder.GLOBAL_TASK)
+    global_task = _task(payload, global_recovery_builder.RECOVERY_TASK_KEY)
     placeholder = _task(payload, M4_P3_PREDICTIVE_PREREGISTRATION_TASK_KEY)
     predictive_p3 = _task(payload, PREDICTIVE_P3_TASK_KEY)
     assert global_task["requested_capability"] == routing.GLOBAL_ROUTE_CAPABILITY
@@ -2947,7 +2962,7 @@ def test_resolver_global_route_and_four_and_p3_barrier() -> None:
     assert placeholder["metric_contract"]["execution_authorized"] is False
     assert placeholder["completion_classification"] == "INTEGRATION_PENDING"
     assert _dependency_tuples(placeholder) == (
-        ("task", global_builder.GLOBAL_TASK, "completed"),
+        ("task", global_recovery_builder.RECOVERY_TASK_KEY, "completed"),
         ("artifact", routing.ADAPTIVE_RESEARCH_ELIGIBILITY_FACT, "available"),
     )
     assert _dependency_tuples(predictive_p3) == (
@@ -2956,27 +2971,15 @@ def test_resolver_global_route_and_four_and_p3_barrier() -> None:
         ("artifact", M4_P3_PREDICTIVE_PREREGISTRATION_FACT, "available"),
     )
 
-    for fact in M4_V2_SUCCESSOR_REPLAY_FACTS[:-1]:
-        _add_facts(payload, fact)
-    manifest = ControlPlaneManifest.from_dict(_without_manifest_digest(payload))
-    assert (
-        _resolution(manifest, global_builder.GLOBAL_TASK).status
-        is TaskStatus.DEPENDENCY_WAIT
-    )
-
-    _add_facts(payload, M4_V2_SUCCESSOR_REPLAY_FACTS[-1])
-    for task_key in successor_task_keys - {global_builder.GLOBAL_TASK}:
-        if _task(payload, task_key)["status"] != "completed":
-            _set_task_completed(payload, task_key)
     manifest = ControlPlaneManifest.from_dict(_without_manifest_digest(payload))
     successor_ready = [
         item.task_key
         for item in ResearchOSControlPlane().resolve(manifest).ready_queue
         if item.task_key in successor_task_keys
     ]
-    assert successor_ready == [global_builder.GLOBAL_TASK]
+    assert successor_ready == []
 
-    _set_task_completed(payload, global_builder.GLOBAL_TASK)
+    _set_task_completed(payload, global_recovery_builder.RECOVERY_TASK_KEY)
     _add_facts(payload, routing.ADAPTIVE_RESEARCH_ELIGIBILITY_FACT)
     manifest = ControlPlaneManifest.from_dict(_without_manifest_digest(payload))
     assert (
@@ -3067,7 +3070,7 @@ def test_source_contracts_exact_closure_and_digest_drift_fail_closed(
             root_dir=ROOT_DIR, family=family
         )
         entries = tuple(item["path"] for item in contract["source_entries"])
-        assert len(entries) == len(set(entries)) == 7
+        assert len(entries) == len(set(entries)) == len(specs[family]["entries"])
         assert contract["artifact_digest"] == json.loads(
             SOURCE_PATHS[0 if family == "marginal" else 3].read_text(encoding="utf-8")
         )["artifact_digest"]
@@ -3483,7 +3486,7 @@ def test_all_17_artifact_types_nested_lineage_paths_and_cardinalities() -> None:
     execution_id = _digest("global-execution")
     artifact_digest = _digest("global-route-artifact")
     expected_path = (
-        f"runtime/research-os/mainline/tasks/{routing.GLOBAL_ROUTE_TASK_KEY}/"
+        f"runtime/research-os/mainline/tasks/{routing.GLOBAL_ROUTE_RECOVERY_TASK_KEY}/"
         f"{execution_id}/artifacts/global-routing-decision/{artifact_digest}/decision.json"
     )
     assert (
@@ -3492,6 +3495,33 @@ def test_all_17_artifact_types_nested_lineage_paths_and_cardinalities() -> None:
         )
         == expected_path
     )
+
+
+def test_global_recovery_emits_and_projects_only_its_owned_completion_fact() -> None:
+    payload = _active_global_recovery_payload()
+    manifest = ControlPlaneManifest.from_dict(payload)
+    task = next(
+        item
+        for item in manifest.tasks
+        if item.task_key == routing.GLOBAL_ROUTE_RECOVERY_TASK_KEY
+    )
+    records = iter(_accepted_records())
+    capability = object.__new__(supervisor_module.M4V2SuccessorCapability)
+    capability._source = lambda _family, _task: {
+        "artifact_digest": task.input_artifact_digests[0],
+        "source_set_digest": _digest("global-source-set"),
+    }
+    capability._branch_record = lambda **_kwargs: next(records)
+    result = capability._global_route(control_plane_key=CONTROL_PLANE_KEY, task=task)
+    assert routing.GLOBAL_ROUTE_COMPLETION_FACT not in result.completion_facts
+    assert routing.GLOBAL_ROUTE_RECOVERY_COMPLETION_FACT in result.completion_facts
+
+    status = build_m4_status(manifest)
+    projection = status["measurement_runtime_audit"]["three_branch_successor"][
+        "tasks"
+    ]["global_routing"]
+    assert projection["completion_fact"] == routing.GLOBAL_ROUTE_RECOVERY_COMPLETION_FACT
+    assert projection["completion_fact_available"] is False
 
 
 def test_holm_lineage_and_formal_one_rules_fail_before_workload() -> None:
@@ -3571,7 +3601,7 @@ def test_holm_lineage_and_formal_one_rules_fail_before_workload() -> None:
 def test_supervisor_global_replay_is_zero_write_and_preserves_all_identities(
     monkeypatch,
 ) -> None:
-    payload = _successor_payload()
+    payload = _active_global_recovery_payload()
     manifest = ControlPlaneManifest.from_dict(payload)
     before_manifest = m4_v2_canonical_json(manifest.to_dict(include_digest=True))
     before_snapshot = ResearchOSControlPlane().resolve(manifest)
@@ -3583,7 +3613,7 @@ def test_supervisor_global_replay_is_zero_write_and_preserves_all_identities(
         task_digest=next(
             task
             for task in manifest.tasks
-            if task.task_key == routing.GLOBAL_ROUTE_TASK_KEY
+            if task.task_key == routing.GLOBAL_ROUTE_RECOVERY_TASK_KEY
         ).artifact_digest,
     )
 
@@ -3685,7 +3715,7 @@ def test_supervisor_global_replay_is_zero_write_and_preserves_all_identities(
         "_write_lane_status",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("lane write")),
     )
-    replay = supervisor.replay(task_key=routing.GLOBAL_ROUTE_TASK_KEY)
+    replay = supervisor.replay(task_key=routing.GLOBAL_ROUTE_RECOVERY_TASK_KEY)
     assert replay["status"] == "REPLAY_VERIFIED"
     assert (
         replay["capability_replay"]["capability_status"] == "REGISTERED_REPLAY_VERIFIED"
