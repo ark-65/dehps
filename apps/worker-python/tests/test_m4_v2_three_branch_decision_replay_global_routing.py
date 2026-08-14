@@ -1630,16 +1630,39 @@ def test_global_recovery_v2_source_contract_fails_closed(tamper: str) -> None:
 def test_recovery_input_fixture_matches_live_database_when_available() -> None:
     repository = PostgresResearchOSRepository()
     try:
-        with repository.connection_factory():
-            pass
+        with repository.connection_factory() as connection, connection.cursor() as cursor:
+            stored = cursor.execute(
+                "SELECT manifest_json FROM research_os_manifests "
+                "WHERE manifest_digest = %s",
+                (global_recovery_v2_builder.INPUT_MANIFEST_DIGEST,),
+            ).fetchone()
     except psycopg.OperationalError:
         pytest.skip("configured PostgreSQL is unavailable for explicit integration check")
 
-    typed = repository.load_manifest(control_plane_key=CONTROL_PLANE_KEY)
-    assert typed.artifact_digest == global_recovery_v2_builder.INPUT_MANIFEST_DIGEST
-    snapshot = ResearchOSControlPlane().resolve(typed)
-    assert snapshot.snapshot_digest == global_recovery_v2_builder.INPUT_SNAPSHOT_DIGEST
-    assert snapshot.ready_queue == ()
+    assert stored is not None
+    immutable_input = ControlPlaneManifest.from_dict(dict(stored[0]))
+    assert (
+        immutable_input.artifact_digest
+        == global_recovery_v2_builder.INPUT_MANIFEST_DIGEST
+    )
+    input_snapshot = ResearchOSControlPlane().resolve(immutable_input)
+    assert (
+        input_snapshot.snapshot_digest
+        == global_recovery_v2_builder.INPUT_SNAPSHOT_DIGEST
+    )
+    assert input_snapshot.ready_queue == ()
+
+    current = repository.load_manifest(control_plane_key=CONTROL_PLANE_KEY)
+    assert current.artifact_digest == (
+        "1cc4ebf7a458ecaf6eba3e3a8079012318a2bf7354cb4b3f9770dcfa9ddbe84d"
+    )
+    current_snapshot = ResearchOSControlPlane().resolve(current)
+    assert current_snapshot.snapshot_digest == (
+        "93907aa79561e6e9929f5211703180f6d0619caa72b930086e473f0b0b5a2e56"
+    )
+    assert tuple(item.task_key for item in current_snapshot.ready_queue) == (
+        global_recovery_v2_builder.RECOVERY_TASK_KEY,
+    )
 
 
 def _active_global_recovery_payload() -> dict[str, Any]:

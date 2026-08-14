@@ -125,6 +125,100 @@ run from the frozen recovery manifest boundary.
     any separately authorized live import.
 12. Integration matrix: `NO — INTEGRATION_PENDING`.
 
+## Global recovery-v2 repository lifecycle transition automaton
+
+1. Completed Research Request 577, Execution 472, and Decision 2422 freeze one
+   result-blind repository policy correction.  The singular owner remains
+   `PostgresResearchOSRepository._verify_m4_v2_failed_global_routing_recovery_v2_import`;
+   generic `import_manifest` calls it before any write, while the unchanged
+   Supervisor atomic-completion path reaches the same policy through
+   `PostgresResearchOSRepository._verify_mainline_completion_records` after
+   typed registrations and the completed event are staged in the same
+   transaction and before manifest, task-state, or control-plane writes.
+2. The finite policy accepts only exact INPUT idempotence; INPUT → READY;
+   READY idempotence; READY → RUNNING; RUNNING idempotence with zero events or
+   one canonical started event; RUNNING → COMPLETED; COMPLETED idempotence;
+   RUNNING → FAILED; and terminal FAILED idempotence.  Every skip, regression,
+   unknown stage, nonidentical repeated stage, alias, fallback, owner,
+   cardinality, ordering, status/classification, fact, task, or science drift
+   fails before its protected write boundary.
+3. READY remains manifest
+   `1cc4ebf7a458ecaf6eba3e3a8079012318a2bf7354cb4b3f9770dcfa9ddbe84d`,
+   snapshot
+   `93907aa79561e6e9929f5211703180f6d0619caa72b930086e473f0b0b5a2e56`,
+   and unique Ready `m4-v2-global-routing-recovery-v2`.  RUNNING is manifest
+   `8d9ed3811969cb80979c51e2c27f451ca2c4b127d59a2c1a9e105127b68bb084`,
+   snapshot
+   `e60513a5d59644a2cc4aa0cc444bae880caf1af07e39813f6d2e46c9b6cf4086`,
+   Ready empty, and exactly the task-37 status and completion-classification
+   changes.
+4. COMPLETED is intentionally dynamic: the repository derives it from the
+   canonical RUNNING manifest and cardinality-one typed execution identity,
+   ordered started/completed events, the exact Global route and execution
+   registrations, registered route identity, and only the matching
+   mainline-completion, Global-completion, and route facts.  The repository
+   independently recomputes the completed event's
+   `dehps.m4.v2.mainline-publication-batch-identity.v1` digest from the exact
+   RUNNING head, task/execution/git owners, and ordered route/execution
+   registration artifact/path pairs; an internally self-consistent event with
+   a different batch digest fails closed.  The repository
+   reads no route or execution artifact payload bytes; the unchanged
+   Supervisor remains the one canonical constructor, atomic publisher,
+   postcommit typed readback owner, and deterministic replay owner.
+5. FAILED is manifest
+   `b50a4c07ee75cd9e87842b8ad62846b6c37af23a17a9fc71e1e3610ce2e8c319`,
+   snapshot
+   `527494d7827f5160b844b8025c98acf420a135e8811a93157e4adca7ab509369`,
+   Ready empty, and exactly task-37 status `running → failed` while
+   classification remains `INTEGRATED`.  It requires exactly the ordered
+   started/failed events with one owner and git commit, zero registrations,
+   and zero new completion, route, mainline, P3, P4, or Promotion facts.
+   FAILED is terminal and cannot be retried, replayed, reset, completed, or
+   superseded by this policy.
+6. Generic rejection leaves the current canonical head unchanged.  Atomic
+   COMPLETED rejection rolls back its same-transaction staged registrations,
+   completed event, manifest, task-state, and control-plane writes.  The
+   failed event and FAILED-manifest import remain separate transactions: an
+   unexpected later manifest-write failure preserves the durable failed event
+   and prior RUNNING head, requires services to stop, forbids retry, and
+   requires fresh result-blind Research; no cross-transaction rollback is
+   claimed.
+7. All twelve pre-existing Global recovery-v2 guard codes and their precedence
+   remain exact.  `m4_v2_global_recovery_v2_output_changed` is reserved for
+   finite-stage or canonical-projection mismatch.  Frozen input, old
+   recovery-v1 definition/state/events, strict Global source, branch replays,
+   lineage, task order, snapshot, and both dependency-only P3 revisions are
+   checked on every applicable stage.
+8. The complete repository focused surface passes 61 tests with 4 existing
+   isolated-PostgreSQL skips.  The repository plus Global-routing focused
+   surface passes 52 tests with 85 deselected and zero failures.  The live
+   database compatibility node separately proves that immutable INPUT
+   manifest `03718fe3…` and snapshot `0c9c8dc9…` remain exact while the
+   current pointer is the legal READY manifest `1cc4ebf7…`, snapshot
+   `93907aa7…`, and unique recovery-v2 Ready task.  The legal-stage,
+   event/registration/fact tamper, shared-hook, and atomic pre-write timing
+   tests pass.  Ruff, `py_compile`, and `git diff --check` pass.  Full Worker
+   validation passes 2628 tests with 4 existing skips and zero failures.
+9. Request 576 and Execution 471 remain immutable and are never retried or
+   reused.  Both Global builders and loaders, Supervisor, control plane,
+   routing, progress, models, all four source configs, Evidence, and Index are
+   byte-identical.  This Engineering round performs no import, Supervisor
+   start, workload, replay, service mutation, P3 fold, P4 action, or
+   Promotion.  During the validation pause, a user service was externally
+   auto-started and immediately stopped after it emitted only a fail-closed
+   status heartbeat (`dispatch_performed=false`) for its validation error;
+   the durable manifest/snapshot/unique Ready projection, task state, event
+   lineage, and predictive-P3 fold count remained unchanged.  Predictive-P3
+   folds remain exactly `0`.
+10. Failed Engineering Request 578 and Execution 473 are not retried; their
+    exact three-path bytes were adopted only as frozen preimages under fresh
+    Request 579 authority.  The fourth-path delta is wholly inside
+    `test_recovery_input_fixture_matches_live_database_when_available`; every
+    byte outside that function remains baseline-identical.
+11. Integration matrix: `NO — INTEGRATION_PENDING`.  A fresh independently
+    reviewed Operator request is required after exact4 publication and
+    merged-main CI success.
+
 ## Global routing actual-schema recovery v2
 
 1. The result-blind recovery input is manifest `03718fe3cb8744410d66f72f523e469baa5ff01c78334792c85fd9cd5c9298cc`, snapshot `0c9c8dc98f92f04c7c7ba57e824b881d65976415b7e9f3dc1fe1d793ec5cdc50`, and Ready `[]`.
