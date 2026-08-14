@@ -125,6 +125,68 @@ run from the frozen recovery manifest boundary.
     any separately authorized live import.
 12. Integration matrix: `NO — INTEGRATION_PENDING`.
 
+## Recovery-v2 FAILED timestamp normalization and RUNNING live-pointer fixture
+
+1. Completed Research Request 584, Execution 476, and Decision 2445 freeze one
+   result-blind repository correction. Approved Engineering Request 587 and
+   Execution 479 adopt only the exact four preimages left by failed
+   Request 586 / Execution 478 / Decision 2455; those in turn include the
+   timestamp-normalization source/test preimages left by failed Request 585 /
+   Execution 477 / Decision 2450. Neither failed Engineering execution is
+   retried or reused.
+2. `PostgresResearchOSRepository` now parses a durable event-row
+   `recorded_at` value and its typed-event counterpart only as an aware
+   `datetime` or an aware ISO-8601 string, normalizes both to UTC, and requires
+   exact instant equality. Naive, timezone-free, empty, unparseable,
+   wrong-type, and different-instant values fail through the existing v2
+   validation error and precedence. No alias, fallback, latest lookup, new
+   transition, or competing validation path is introduced.
+3. Relative to repository baseline `50628def…`, the only source deltas are the
+   required datetime/UTC import, one closed UTC-normalization helper, and the
+   existing started/failed `recorded_at` comparison seam. All other validator
+   guards, error codes, evaluation order, and precedence remain unchanged.
+4. The live-database compatibility node continues to prove the immutable
+   recovery input manifest `03718fe3…`, snapshot `0c9c8dc9…`, and Ready `[]`.
+   Separately, it now accepts the legal current RUNNING manifest
+   `8d9ed3811969cb80979c51e2c27f451ca2c4b127d59a2c1a9e105127b68bb084`,
+   snapshot
+   `e60513a5d59644a2cc4aa0cc444bae880caf1af07e39813f6d2e46c9b6cf4086`,
+   and Ready `[]`. Its baseline-identical prefix is `965e173b…` / `142731`
+   bytes and suffix is `06c9e9fd…` / `128089` bytes; every changed byte is
+   inside `test_recovery_input_fixture_matches_live_database_when_available`.
+5. Final non-report path identities are repository
+   `8f8094073590123a8ac250583417d3d9931116176d4889fd911c44c22a7a0719`
+   / `89874`, repository tests
+   `88387362b0738a02b26c6b38c4a28517ba24bbc12cf158c15624b4dcfd0121e1`
+   / `63364`, and the Global-routing compatibility test
+   `aac4d4c5afec65f1cef2606b62289914e546af3d9e11e34a1155654c35a229a1`
+   / `272312`. The final review gate freezes this report's post-write identity,
+   the declared-order exact4 material preimage, and the exact baseline binary
+   diff from the final bytes, avoiding a recursive self-hash claim.
+6. The exact live-database node passes once without skip; the eight timestamp
+   cases pass; the final combined targeted surface passes 9 tests; the full
+   repository module passes 69 tests with 4 existing isolated-PostgreSQL
+   skips. The frozen repository plus repository-test Ruff command exits zero.
+   The fourth-path baseline/current Ruff JSON outputs are exactly equal at
+   `f84acf2e…` / `3598`, each containing only the historical I001 spanning
+   lines 1–91 outside the authorized function; that function has no Ruff
+   diagnostic. `py_compile`, AST parsing, source-span checks, and
+   `git diff --check` pass. The fresh v3 pre-report full Worker run passes
+   2636 tests with 4 existing skips, 26 warnings, and zero failures in
+   698.06 seconds; the final post-report Worker run is the publication
+   evidence frozen by the final review gate.
+7. Request 581 / Execution 475, Request 585 / Execution 477, and Request 586 /
+   Execution 478 remain failed, immutable, and no-retry. Durable recovery-v2 remains RUNNING/INTEGRATED
+   with exactly the existing started and failed events, zero registrations,
+   Ready `[]`, and predictive-P3 folds `0`. This Engineering round performs no
+   import, Supervisor start, workload, replay, event, registration, route,
+   P3 fold, P4 action, or Promotion, and performs no source reseal.
+8. After exact4 publication and both Worker CI gates succeed, a fresh
+   separately reviewed Operator may import exactly one FAILED terminal
+   projection `b50a4c07…` / `527494d7…`, adding zero events and registrations,
+   then must stop. Fresh result-blind Research v3 is the only next authority.
+9. Integration matrix: `NO — INTEGRATION_PENDING`.
+
 ## Global recovery-v2 repository lifecycle transition automaton
 
 1. Completed Research Request 577, Execution 472, and Decision 2422 freeze one

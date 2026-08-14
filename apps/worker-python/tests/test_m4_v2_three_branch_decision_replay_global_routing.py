@@ -1654,15 +1654,13 @@ def test_recovery_input_fixture_matches_live_database_when_available() -> None:
 
     current = repository.load_manifest(control_plane_key=CONTROL_PLANE_KEY)
     assert current.artifact_digest == (
-        "1cc4ebf7a458ecaf6eba3e3a8079012318a2bf7354cb4b3f9770dcfa9ddbe84d"
+        "8d9ed3811969cb80979c51e2c27f451ca2c4b127d59a2c1a9e105127b68bb084"
     )
     current_snapshot = ResearchOSControlPlane().resolve(current)
     assert current_snapshot.snapshot_digest == (
-        "93907aa79561e6e9929f5211703180f6d0619caa72b930086e473f0b0b5a2e56"
+        "e60513a5d59644a2cc4aa0cc444bae880caf1af07e39813f6d2e46c9b6cf4086"
     )
-    assert tuple(item.task_key for item in current_snapshot.ready_queue) == (
-        global_recovery_v2_builder.RECOVERY_TASK_KEY,
-    )
+    assert current_snapshot.ready_queue == ()
 
 
 def _active_global_recovery_payload() -> dict[str, Any]:
