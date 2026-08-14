@@ -63,7 +63,7 @@ SOURCE_PATH = (
     ROOT / "configs/research-os/"
     "m4-v2-marginal-static-historical-execution-source-v1.json"
 )
-MANIFEST_PATH = ROOT / "configs/research-os/m4-information-theory-evidence-v1.json"
+MANIFEST_PATH = ROOT / "apps/worker-python/tests/fixtures/research_os/m4-information-theory-evidence-head-b6c03ba.json"
 INDEX_PATH = ROOT / "configs/research-os/m4-information-theory-artifact-index-v1.json"
 
 

@@ -59,7 +59,7 @@ from dehps.research_os.supervisor import (
 )
 
 ROOT = Path(__file__).resolve().parents[3]
-MANIFEST_PATH = ROOT / "configs/research-os/m4-information-theory-evidence-v1.json"
+MANIFEST_PATH = ROOT / "apps/worker-python/tests/fixtures/research_os/m4-information-theory-evidence-head-b6c03ba.json"
 DATASET_DIGEST = "5354b9f7f6c72996cff16d6c161b03ff49922bf92589bd43b823d107019ebd86"
 TEST_COMMIT = "a" * 40
 TEST_CONTROL_PLANE_KEY = "m4-information-theory-mainline"

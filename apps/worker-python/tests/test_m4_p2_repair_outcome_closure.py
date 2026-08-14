@@ -42,7 +42,7 @@ from scripts.build_m4_p2_repair_outcome_closure_manifest import (
     build_source_payload,
 )
 
-MANIFEST_PATH = ROOT_DIR / "configs/research-os/m4-information-theory-evidence-v1.json"
+MANIFEST_PATH = ROOT_DIR / "apps/worker-python/tests/fixtures/research_os/m4-information-theory-evidence-head-b6c03ba.json"
 INDEX_PATH = (
     ROOT_DIR / "configs/research-os/m4-information-theory-artifact-index-v1.json"
 )

@@ -30,10 +30,10 @@ GLOBAL_ROUTE_ARTIFACT_TYPE = "m4_measurement_routing_decision"
 GLOBAL_ROUTE_DIGEST_DOMAIN = "dehps.m4.v2.global-routing-decision.v1"
 GLOBAL_ROUTE_TASK_KEY = "m4-v2-global-routing"
 GLOBAL_ROUTE_RECOVERY_V1_TASK_KEY = "m4-v2-global-routing-recovery-v1"
-GLOBAL_ROUTE_RECOVERY_TASK_KEY = "m4-v2-global-routing-recovery-v2"
+GLOBAL_ROUTE_RECOVERY_TASK_KEY = "m4-v2-global-routing-recovery-v3"
 GLOBAL_ROUTE_CAPABILITY = "m4_v2_global_routing"
 GLOBAL_ROUTE_COMPLETION_FACT = "m4-v2-global-routing:COMPLETE"
-GLOBAL_ROUTE_RECOVERY_COMPLETION_FACT = "m4-v2-global-routing-recovery-v2:COMPLETE"
+GLOBAL_ROUTE_RECOVERY_COMPLETION_FACT = "m4-v2-global-routing-recovery-v3:COMPLETE"
 GLOBAL_ROUTE_ARTIFACT_SLUG = "global-routing-decision"
 GLOBAL_ROUTE_ARTIFACT_FILENAME = "decision.json"
 GLOBAL_ROUTE_REPLAY_FACTS = tuple(
@@ -808,6 +808,7 @@ def _exact_execution_owner(
             task_digest=str(task["task_digest"]),
             execution_id=str(task["execution_id"]),
             child_artifact_digest=str(task["artifact_digest"]),
+            expected_parent_count=2,
         )
         and
         execution.get("artifact_type") == "research_os_mainline_execution"
@@ -841,6 +842,7 @@ def _execution_owner(
     task_digest: str,
     execution_id: str,
     child_artifact_digest: str,
+    expected_parent_count: int,
 ) -> bool:
     execution = _mapping(record.get(f"{name}_execution"), field_name=f"{name}_execution")
     registration = _mapping(
@@ -874,8 +876,9 @@ def _execution_owner(
         set(registration) != required_registration_fields
         or len(artifact_digest) != 64
         or len(git_commit) != 40
-        or not parents
-        or parents[-1] != child_artifact_digest
+        or len(parents) != expected_parent_count
+        or parents.count(child_artifact_digest) != 1
+        or parents[1] != child_artifact_digest
         or registration_parents != parents
         or execution.get("schema_version")
         != "dehps-research-os-mainline-execution.v1"
@@ -1094,6 +1097,13 @@ def _validated_record(
                 task_digest=registration["task_digest"],
                 execution_id=registration["execution_id"],
                 child_artifact_digest=artifact_digest,
+                expected_parent_count=(
+                        3
+                        if name == "decision"
+                        and expected_branch_id
+                        in {"TEMPORAL_MARGINAL_INCREMENT", "JOINT_RESIDUAL_INCREMENT"}
+                        else 2
+                ),
             )
             for name, registration, artifact_digest in (
                 ("decision", decision_registration, decision_digest),

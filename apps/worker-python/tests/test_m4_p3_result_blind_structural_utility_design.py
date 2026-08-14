@@ -52,7 +52,7 @@ from scripts.build_m4_p3_result_blind_structural_utility_design_manifest import 
     _source_payload,
 )
 
-MANIFEST_PATH = ROOT_DIR / "configs/research-os/m4-information-theory-evidence-v1.json"
+MANIFEST_PATH = ROOT_DIR / "apps/worker-python/tests/fixtures/research_os/m4-information-theory-evidence-head-b6c03ba.json"
 INDEX_PATH = (
     ROOT_DIR / "configs/research-os/m4-information-theory-artifact-index-v1.json"
 )

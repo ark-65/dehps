@@ -35,6 +35,7 @@ from dehps.research_os.repository import PostgresResearchOSRepository
 from psycopg import sql
 
 from scripts import build_m4_v2_global_routing_recovery_v2_manifest as recovery_v2
+from scripts import build_m4_v2_global_routing_recovery_v3_manifest as recovery_v3
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -208,14 +209,11 @@ class _RecoveryV2Cursor:
 
 def _active_recovery_v2_manifest() -> ControlPlaneManifest:
     baseline = _recovery_v2_baseline_manifest()
-    source_path = ROOT / recovery_v2.GLOBAL_SOURCE_PATH
-    source = json.loads(source_path.read_text(encoding="utf-8"))
-    source_digest = recovery_v2.validate_global_source_contract(
-        source, root_dir=ROOT
-    )
     payload, _ = recovery_v2.build_manifest(
         baseline.to_dict(include_digest=True),
-        global_source_contract_digest=source_digest,
+        global_source_contract_digest=(
+            "24bfd16ee558f13ec2a50a30a8d903a11934fc128f996f370d78fdba9a4929ec"
+        ),
     )
     manifest = ControlPlaneManifest.from_dict(payload)
     assert recovery_v2.RECOVERY_TASK_KEY in {
@@ -504,6 +502,264 @@ def _recovery_v2_baseline_manifest() -> ControlPlaneManifest:
     )
     return ControlPlaneManifest.from_dict(
         json.loads(lzma.decompress(base64.b85decode(encoded)).decode())
+    )
+
+
+def _terminal_recovery_v2_manifest() -> ControlPlaneManifest:
+    payload, _ = recovery_v2.build_manifest(
+        _recovery_v2_baseline_manifest().to_dict(include_digest=True),
+        global_source_contract_digest=recovery_v3.OLD_SOURCE_DIGEST,
+    )
+    ready = ControlPlaneManifest.from_dict(payload)
+    failed = _transition_recovery_v2_manifest(
+        ready,
+        status="failed",
+        classification="INTEGRATED",
+    )
+    assert failed.artifact_digest == recovery_v3.INPUT_MANIFEST_DIGEST
+    return failed
+
+
+def _active_recovery_v3_manifest() -> ControlPlaneManifest:
+    baseline = _terminal_recovery_v2_manifest()
+    source_path = ROOT / recovery_v3.GLOBAL_SOURCE_PATH
+    source = json.loads(source_path.read_text(encoding="utf-8"))
+    source_digest = recovery_v3.validate_global_source_contract(source, root_dir=ROOT)
+    payload, _ = recovery_v3.build_manifest(
+        baseline.to_dict(include_digest=True),
+        global_source_contract_digest=source_digest,
+    )
+    manifest = ControlPlaneManifest.from_dict(payload)
+    assert recovery_v3.RECOVERY_TASK_KEY in {task.task_key for task in manifest.tasks}
+    return manifest
+
+
+def _transition_recovery_v3_manifest(
+    manifest: ControlPlaneManifest,
+    *,
+    status: str,
+    classification: str,
+    facts: tuple[str, ...] = (),
+) -> ControlPlaneManifest:
+    payload = manifest.to_dict(include_digest=False)
+    task = next(
+        item for item in payload["tasks"] if item["task_key"] == recovery_v3.RECOVERY_TASK_KEY
+    )
+    task["status"] = status
+    task["completion_classification"] = classification
+    payload["facts"]["artifacts"] = sorted({*payload["facts"]["artifacts"], *facts})
+    return ControlPlaneManifest.from_dict(payload)
+
+
+class _RecoveryV3Cursor:
+    def __init__(
+        self,
+        manifest: ControlPlaneManifest,
+        *,
+        current: ControlPlaneManifest | None = None,
+        runtime_events: list[dict] | None = None,
+        registrations: list[dict] | None = None,
+    ):
+        self.manifest = manifest
+        self.current = current or manifest
+        self.baseline = _terminal_recovery_v2_manifest()
+        self.predecessor_events = [
+            {
+                "event_digest": recovery_v3.OLD_STARTED_EVENT_DIGEST,
+                "execution_id": recovery_v3.OLD_EXECUTION_ID,
+                "manifest_digest": recovery_v3.OLD_EVENT_MANIFEST_DIGEST,
+                "task_digest": recovery_v3.OLD_TASK_DIGEST,
+                "task_key": recovery_v3.OLD_TASK_KEY,
+                "event_type": "started",
+                "sequence": 0,
+            },
+            {
+                "event_digest": recovery_v3.OLD_FAILED_EVENT_DIGEST,
+                "execution_id": recovery_v3.OLD_EXECUTION_ID,
+                "manifest_digest": recovery_v3.OLD_EVENT_MANIFEST_DIGEST,
+                "task_digest": recovery_v3.OLD_TASK_DIGEST,
+                "task_key": recovery_v3.OLD_TASK_KEY,
+                "event_type": "failed",
+                "sequence": 1,
+            },
+        ]
+        self.runtime_events = runtime_events or []
+        self.registrations = registrations or []
+        self.statements: list[str] = []
+
+    def execute(self, statement, parameters=()):
+        query = " ".join(str(statement).split())
+        self.statements.append(query)
+        assert query.startswith("SELECT")
+        if "FROM research_os_control_planes" in query:
+            return _Rows(one={"current_manifest_digest": self.current.artifact_digest})
+        if "FROM research_os_manifests" in query:
+            stored = self.baseline if parameters == (recovery_v3.INPUT_MANIFEST_DIGEST,) else self.current
+            return _Rows(one={"manifest_json": stored.to_dict(include_digest=True)})
+        if "FROM research_os_mainline_execution_events" in query:
+            return _Rows(
+                many=(
+                    self.predecessor_events
+                    if parameters[1] == recovery_v3.OLD_TASK_KEY
+                    else self.runtime_events
+                )
+            )
+        if "FROM research_os_mainline_artifacts" in query:
+            return _Rows(
+                many=[] if parameters[1] == recovery_v3.OLD_TASK_KEY else self.registrations
+            )
+        raise AssertionError(query)
+
+
+def _recovery_v3_runtime_fixture(
+    terminal: str,
+) -> tuple[ControlPlaneManifest, ControlPlaneManifest, list[dict], list[dict]]:
+    ready = _active_recovery_v3_manifest()
+    running = _transition_recovery_v3_manifest(
+        ready, status="running", classification="INTEGRATED"
+    )
+    task = next(item for item in ready.tasks if item.task_key == recovery_v3.RECOVERY_TASK_KEY)
+    git_commit = "b" * 40
+    execution_id = stable_hash(
+        {
+            "schema": "dehps-research-os-mainline-execution.v1",
+            "control_plane_key": "m4-information-theory-mainline",
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "input_artifact_digests": task.input_artifact_digests,
+            "git_commit": git_commit,
+        }
+    )
+    started = MainlineExecutionEvent(
+        execution_id=execution_id,
+        control_plane_key="m4-information-theory-mainline",
+        manifest_digest=running.artifact_digest,
+        task_key=task.task_key,
+        task_digest=task.artifact_digest,
+        capability=str(task.requested_capability),
+        event_type="started",
+        sequence=0,
+        recorded_at="2026-08-15T01:00:00+00:00",
+        payload=(("input_artifact_digests", list(task.input_artifact_digests)), ("git_commit", git_commit)),
+    )
+    if terminal == "RUNNING":
+        return running, running, [_event_row(started)], []
+    if terminal == "FAILED":
+        failed = _transition_recovery_v3_manifest(
+            running, status="failed", classification="INTEGRATED"
+        )
+        event = MainlineExecutionEvent(
+            execution_id=execution_id,
+            control_plane_key="m4-information-theory-mainline",
+            manifest_digest=running.artifact_digest,
+            task_key=task.task_key,
+            task_digest=task.artifact_digest,
+            capability=str(task.requested_capability),
+            event_type="failed",
+            sequence=1,
+            recorded_at="2026-08-15T01:01:00+00:00",
+            payload=(("error", "frozen failure"), ("git_commit", git_commit)),
+        )
+        return failed, running, [_event_row(started), _event_row(event)], []
+    if terminal != "COMPLETED":
+        raise AssertionError(terminal)
+    metric = json.loads(task.metric_contract)
+    route = "DEEPER_VALIDATION_REQUIRED"
+    route_fact = metric["route_facts"][route]
+    completion_fact = metric["completion_fact"]
+    route_digest = "c" * 64
+    execution_artifact_digest = "d" * 64
+    mainline_fact = (
+        f"mainline-execution:{task.task_key}:{task.artifact_digest}:"
+        f"{execution_id}:completed"
+    )
+    completed = _transition_recovery_v3_manifest(
+        running,
+        status="completed",
+        classification="COMPLETE",
+        facts=(mainline_fact, route_fact, completion_fact),
+    )
+    route_path = metric["route_artifact_path_template"].format(
+        execution_id=execution_id, artifact_digest=route_digest
+    )
+    execution_path = f"runtime/research-os/mainline/tasks/{task.task_key}/{execution_id}/execution.json"
+    route_registration = MainlineArtifactRegistration(
+        execution_id=execution_id,
+        control_plane_key="m4-information-theory-mainline",
+        task_key=task.task_key,
+        task_digest=task.artifact_digest,
+        artifact_digest=route_digest,
+        artifact_type=metric["route_serialized_artifact_type"],
+        schema_version="dehps-m4-measurement-routing-decision.v1",
+        artifact_path=route_path,
+        parent_digests=(),
+        git_commit=git_commit,
+    )
+    execution_registration = MainlineArtifactRegistration(
+        execution_id=execution_id,
+        control_plane_key="m4-information-theory-mainline",
+        task_key=task.task_key,
+        task_digest=task.artifact_digest,
+        artifact_digest=execution_artifact_digest,
+        artifact_type="research_os_mainline_execution",
+        schema_version="dehps-research-os-mainline-execution.v1",
+        artifact_path=execution_path,
+        parent_digests=(task.input_artifact_digests[0], route_digest),
+        git_commit=git_commit,
+    )
+    summary = {
+        "execution_artifact_digest": execution_artifact_digest,
+        "execution_artifact_path": execution_path,
+        "actual_fold_count": 0,
+        "registered_artifact_count": 2,
+        "git_commit": git_commit,
+        "completion_facts": [route_fact, completion_fact],
+        "additional_completed_task_keys": [],
+        "publication_batch_digest": m4_v2_domain_digest(
+            {
+                "control_plane_key": "m4-information-theory-mainline",
+                "expected_head_manifest_digest": running.artifact_digest,
+                "task_key": task.task_key,
+                "task_digest": task.artifact_digest,
+                "execution_id": execution_id,
+                "git_commit": git_commit,
+                "ordered_artifact_digest_path_pairs": [
+                    {"artifact_digest": route_digest, "canonical_artifact_path": route_path},
+                    {"artifact_digest": execution_artifact_digest, "canonical_artifact_path": execution_path},
+                ],
+            },
+            domain="dehps.m4.v2.mainline-publication-batch-identity.v1",
+        ),
+        "workload_rerun": False,
+        "source_contract_digest": task.input_artifact_digests[0],
+        "source_set_digest": json.loads(
+            (ROOT / recovery_v3.GLOBAL_SOURCE_PATH).read_text(encoding="utf-8")
+        )["source_set_digest"],
+        "route_decision_artifact_digest": route_digest,
+        "route": route,
+        "downstream_consumer": metric["mainline_integration"]["downstream_consumer"],
+        "decision_replay_coverage": "COMPLETE",
+        "historical_database_reads": 0,
+        "scientific_computation": 0,
+        "replay_status": "REGISTERED_REPLAY_PENDING",
+    }
+    completed_event = MainlineExecutionEvent(
+        execution_id=execution_id,
+        control_plane_key="m4-information-theory-mainline",
+        manifest_digest=running.artifact_digest,
+        task_key=task.task_key,
+        task_digest=task.artifact_digest,
+        capability=str(task.requested_capability),
+        event_type="completed",
+        sequence=1,
+        recorded_at="2026-08-15T01:01:00+00:00",
+        payload=tuple(sorted(summary.items())),
+    )
+    return (
+        completed,
+        running,
+        [_event_row(started), _event_row(completed_event)],
+        [_registration_row(route_registration), _registration_row(execution_registration)],
     )
 
 
@@ -1576,6 +1832,274 @@ def test_global_recovery_v2_import_rolls_back_before_first_write(monkeypatch) ->
         reject,
     )
     with pytest.raises(ResearchOSValidationError, match="frozen-v2-prewrite-rejected"):
+        repository.import_manifest(
+            control_plane_key="m4-information-theory-mainline",
+            payload=manifest.to_dict(include_digest=True),
+        )
+    assert events == ["rollback"]
+
+
+def test_global_recovery_v3_builder_loader_works_from_repository_root_subprocess() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "from dehps.research_os.repository import "
+                "_load_m4_v2_global_routing_recovery_v3_builder as load; "
+                "builder=load(); print(builder.__name__, builder.RECOVERY_TASK_KEY)"
+            ),
+        ],
+        cwd=ROOT,
+        env={**os.environ, "PYTHONPATH": str(ROOT / "apps/worker-python")},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout.strip() == (
+        "_dehps_m4_v2_global_routing_recovery_v3_builder "
+        "m4-v2-global-routing-recovery-v3"
+    )
+
+
+def test_global_recovery_v3_lifecycle_accepts_only_exact_finite_stages() -> None:
+    baseline = _terminal_recovery_v2_manifest()
+    ready = _active_recovery_v3_manifest()
+    running = _transition_recovery_v3_manifest(
+        ready, status="running", classification="INTEGRATED"
+    )
+    running_with_event, _, started, _ = _recovery_v3_runtime_fixture("RUNNING")
+    failed, _, failed_events, _ = _recovery_v3_runtime_fixture("FAILED")
+    completed, _, completed_events, registrations = _recovery_v3_runtime_fixture(
+        "COMPLETED"
+    )
+    cases = (
+        (baseline, baseline, [], []),
+        (ready, baseline, [], []),
+        (ready, ready, [], []),
+        (running, ready, [], []),
+        (running_with_event, running, started, []),
+        (failed, running, failed_events, []),
+        (failed, failed, failed_events, []),
+        (completed, running, completed_events, registrations),
+        (completed, completed, completed_events, registrations),
+    )
+    for incoming, current, events, artifacts in cases:
+        cursor = _RecoveryV3Cursor(
+            incoming,
+            current=current,
+            runtime_events=copy.deepcopy(events),
+            registrations=copy.deepcopy(artifacts),
+        )
+        PostgresResearchOSRepository._verify_m4_v2_failed_global_routing_recovery_v3_import(
+            cursor,
+            control_plane_key="m4-information-theory-mainline",
+            manifest=incoming,
+        )
+        assert all(statement.startswith("SELECT") for statement in cursor.statements)
+
+
+@pytest.mark.parametrize(
+    ("current_stage", "incoming_stage"),
+    (
+        ("INPUT", "RUNNING"),
+        ("READY", "COMPLETED"),
+        ("READY", "FAILED"),
+        ("RUNNING", "READY"),
+        ("FAILED", "RUNNING"),
+        ("COMPLETED", "RUNNING"),
+    ),
+)
+def test_global_recovery_v3_rejects_stage_skips_and_regressions(
+    current_stage: str, incoming_stage: str
+) -> None:
+    baseline = _terminal_recovery_v2_manifest()
+    ready = _active_recovery_v3_manifest()
+    running = _transition_recovery_v3_manifest(
+        ready, status="running", classification="INTEGRATED"
+    )
+    failed, _, failed_events, _ = _recovery_v3_runtime_fixture("FAILED")
+    completed, _, completed_events, registrations = _recovery_v3_runtime_fixture(
+        "COMPLETED"
+    )
+    stages = {
+        "INPUT": (baseline, []),
+        "READY": (ready, []),
+        "RUNNING": (running, []),
+        "FAILED": (failed, failed_events),
+        "COMPLETED": (completed, completed_events),
+    }
+    incoming, incoming_events = stages[incoming_stage]
+    current, current_events = stages[current_stage]
+    cursor = _RecoveryV3Cursor(
+        incoming,
+        current=current,
+        runtime_events=copy.deepcopy(incoming_events or current_events),
+        registrations=(
+            copy.deepcopy(registrations)
+            if "COMPLETED" in {current_stage, incoming_stage}
+            else []
+        ),
+    )
+    with pytest.raises(
+        ResearchOSValidationError,
+        match="^m4_v2_global_recovery_v3_output_changed$",
+    ):
+        PostgresResearchOSRepository._verify_m4_v2_failed_global_routing_recovery_v3_import(
+            cursor,
+            control_plane_key="m4-information-theory-mainline",
+            manifest=incoming,
+        )
+
+
+@pytest.mark.parametrize(
+    ("target", "field"),
+    (
+        ("started", "execution_id"),
+        ("started", "manifest_digest"),
+        ("completed", "task_digest"),
+        ("completed", "sequence"),
+        ("registration", "artifact_digest"),
+        ("registration", "artifact_path"),
+        ("registration", "git_commit"),
+        ("batch", "publication_batch_digest"),
+    ),
+)
+def test_global_recovery_v3_completed_metadata_tamper_fails_closed(
+    target: str, field: str
+) -> None:
+    completed, running, events, registrations = _recovery_v3_runtime_fixture("COMPLETED")
+    if target in {"started", "completed"}:
+        index = 0 if target == "started" else 1
+        events[index][field] = 9 if field == "sequence" else "0" * 64
+    elif target == "registration":
+        registrations[0][field] = "0" * (40 if field == "git_commit" else 64)
+    else:
+        raw = copy.deepcopy(events[1]["event_json"])
+        payload = dict(raw["payload"])
+        payload[field] = "0" * 64
+        changed = MainlineExecutionEvent(
+            execution_id=str(raw["execution_id"]),
+            control_plane_key=str(raw["control_plane_key"]),
+            manifest_digest=str(raw["manifest_digest"]),
+            task_key=str(raw["task_key"]),
+            task_digest=str(raw["task_digest"]),
+            capability=str(raw["capability"]),
+            event_type=str(raw["event_type"]),
+            sequence=int(raw["sequence"]),
+            recorded_at=str(raw["recorded_at"]),
+            payload=tuple(sorted(payload.items())),
+        )
+        events[1] = _event_row(changed)
+    cursor = _RecoveryV3Cursor(
+        completed,
+        current=running,
+        runtime_events=events,
+        registrations=registrations,
+    )
+    with pytest.raises(
+        ResearchOSValidationError,
+        match="^m4_v2_global_recovery_v3_output_changed$",
+    ):
+        PostgresResearchOSRepository._verify_m4_v2_failed_global_routing_recovery_v3_import(
+            cursor,
+            control_plane_key="m4-information-theory-mainline",
+            manifest=completed,
+        )
+
+
+def test_global_recovery_v3_failed_stage_is_terminal_and_registration_free() -> None:
+    failed, running, events, _ = _recovery_v3_runtime_fixture("FAILED")
+    _, _, _, completed_registrations = _recovery_v3_runtime_fixture("COMPLETED")
+    mutations = []
+    changed_event = copy.deepcopy(events)
+    changed_event[1]["event_type"] = "completed"
+    mutations.append((changed_event, []))
+    mutations.append((events + [copy.deepcopy(events[1])], []))
+    mutations.append((copy.deepcopy(events), completed_registrations[:1]))
+    for runtime_events, registrations in mutations:
+        cursor = _RecoveryV3Cursor(
+            failed,
+            current=running,
+            runtime_events=runtime_events,
+            registrations=registrations,
+        )
+        with pytest.raises(
+            ResearchOSValidationError,
+            match="^m4_v2_global_recovery_v3_output_changed$",
+        ):
+            PostgresResearchOSRepository._verify_m4_v2_failed_global_routing_recovery_v3_import(
+                cursor,
+                control_plane_key="m4-information-theory-mainline",
+                manifest=failed,
+            )
+
+
+def test_mainline_completion_hook_reaches_shared_global_recovery_v3_policy(
+    monkeypatch,
+) -> None:
+    manifest, _, _, _ = _recovery_v3_runtime_fixture("COMPLETED")
+    calls: list[str] = []
+
+    def verify(_cursor, *, control_plane_key, manifest):
+        calls.append(f"{control_plane_key}:{manifest.artifact_digest}")
+
+    monkeypatch.setattr(
+        PostgresResearchOSRepository,
+        "_verify_m4_v2_failed_global_routing_recovery_v3_import",
+        verify,
+    )
+    monkeypatch.setattr(repository_module, "completion_execution_ids", lambda *_args, **_kwargs: ())
+    PostgresResearchOSRepository._verify_mainline_completion_records(
+        object(),
+        control_plane_key="m4-information-theory-mainline",
+        manifest=manifest,
+    )
+    assert calls == [f"m4-information-theory-mainline:{manifest.artifact_digest}"]
+
+
+def test_global_recovery_v3_import_rolls_back_before_first_write(monkeypatch) -> None:
+    manifest = _active_recovery_v3_manifest()
+    events: list[str] = []
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, *_args, **_kwargs):
+            events.append("write")
+            raise AssertionError("SQL reached before recovery preflight")
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, *_args):
+            events.append("rollback" if exc_type else "commit")
+            return False
+
+        def cursor(self, **_kwargs):
+            return Cursor()
+
+    @contextmanager
+    def connection_factory():
+        with Connection() as connection:
+            yield connection
+
+    repository = PostgresResearchOSRepository(connection_factory)  # type: ignore[arg-type]
+
+    def reject(*_args, **_kwargs):
+        raise ResearchOSValidationError("frozen-v3-prewrite-rejected")
+
+    monkeypatch.setattr(
+        repository,
+        "_verify_m4_v2_failed_global_routing_recovery_v3_import",
+        reject,
+    )
+    with pytest.raises(ResearchOSValidationError, match="frozen-v3-prewrite-rejected"):
         repository.import_manifest(
             control_plane_key="m4-information-theory-mainline",
             payload=manifest.to_dict(include_digest=True),

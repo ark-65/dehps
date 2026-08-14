@@ -1341,6 +1341,7 @@ M4_V2_SUCCESSOR_SOURCE_SPECS: dict[str, dict[str, Any]] = {
             "apps/worker-python/dehps/research_os/models.py",
             "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/migration.py",
             "apps/worker-python/scripts/build_m4_v2_global_routing_recovery_v2_manifest.py",
+            "apps/worker-python/scripts/build_m4_v2_global_routing_recovery_v3_manifest.py",
         ),
     },
 }

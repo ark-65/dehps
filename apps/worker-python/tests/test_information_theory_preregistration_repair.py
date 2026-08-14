@@ -35,7 +35,7 @@ V103_PATH = (
     / "configs/research-os/m4-information-theory-preregistration-v1.0.3.json"
 )
 POLICY_PATH = ROOT / "configs/research-os/m4-information-theory-decision-policy-v1.json"
-MANIFEST_PATH = ROOT / "configs/research-os/m4-information-theory-evidence-v1.json"
+MANIFEST_PATH = ROOT / "apps/worker-python/tests/fixtures/research_os/m4-information-theory-evidence-head-b6c03ba.json"
 V101_DIGEST = "6e03cd828378badda6995c6582d80165b0a4ee3b5899b97737bad1494fcf1ae1"
 V102_DIGEST = "a8da6bf2404d3bf213ac74d331917d5308195b7c3174b002378e1bbd849f6dfa"
 V103_DIGEST = "4fff51c58e4a46d664e414bfe4cc0d7269c8e3712734153faec548648144d0d9"

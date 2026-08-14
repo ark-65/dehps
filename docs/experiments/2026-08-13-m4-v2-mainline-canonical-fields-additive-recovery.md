@@ -125,6 +125,126 @@ run from the frozen recovery manifest boundary.
     any separately authorized live import.
 12. Integration matrix: `NO — INTEGRATION_PENDING`.
 
+## Global routing recovery v3 exact65 HEAD-fixture source isolation
+
+1. Research Request 598, Execution 489, and Decision 2513 completed the
+   result-blind source-isolation contract. Engineering Request 597,
+   Execution 488, and Decision 2508 remain failed, immutable, and no-retry;
+   Engineering Request 599 and its unique Execution 490 are the sole fresh
+   implementation authority.
+2. The round adopts the frozen dirty18 bytes
+   `e325ca45fb87f4440f11ac0146d759ec140abf4599cb31d78f9c859a2d72870e`
+   / `3420`, retains the exact65 allowlist preimage
+   `b525fc4d6e170eacc41e4d15c522db4e906682016cae45b36544e9a34ce5af10`
+   / `39019`, and extends the inherited exact18 surface only with 46 tracked
+   test modules plus one created historical fixture. The baseline material is
+   `64d349d11375959f8c87c571eeb04485def937cff6d047fff5a7096d8f9eb155`
+   / `12593`.
+3. The created fixture
+   `apps/worker-python/tests/fixtures/research_os/m4-information-theory-evidence-head-b6c03ba.json`
+   is byte-for-byte the Evidence Git object at
+   `b6c03ba18e075529505f5107b86f82024602f652`. Its raw identity is
+   `7c1974fd61bc15286f32b86371856254d4e68fef32d41289177aaca5974c6b91`
+   / `343792`; it parses as `research-os-control-plane-v1` with manifest
+   digest `8b6aa2e52b39abdedc00aaeeda348b910713edea778e67693f80a6c4df7955e3`,
+   94 tasks, 87 artifact facts, and 15 external-event facts.
+4. Each of the 46 legacy-stage test modules changes exactly one frozen
+   module-level `MANIFEST_PATH`, `CONTROL_PATH`, or `CONTROL_PLANE_PATH`
+   quoted RHS from the mutable canonical Evidence path to that historical
+   fixture. Prefix/suffix and zero-context proofs show no other byte changed;
+   all aliases resolve the fixture and none resolve the mutable Evidence.
+   Imports, helpers, fixture setup, assertions, builders, control flow,
+   nodeids, loaders, runtime dispatch, production code, skips, markers,
+   fallbacks, and environment behavior are unchanged.
+5. The frozen exact71 node set passes 71 tests with zero failures, skips, or
+   xfails. The complete 46-module surface passes 484 tests; the inherited
+   focused recovery-v3 surface passes 181 tests; and the repository module
+   passes 88 tests with the same 4 isolated-PostgreSQL skips. Inherited
+   exact18 Ruff, `py_compile`, seven JSON parses, `git diff --check`, and
+   per-module baseline-to-final Ruff diagnostic equality all pass with no new
+   diagnostic.
+6. The fresh full Worker run passes 2661 tests with 4 existing skips, 26
+   multiprocessing deprecation warnings, and zero failures in 1039.24
+   seconds. No deselection, marker, assertion weakening, or skip increase was
+   used.
+7. Independent final review freezes the final 65 per-file identities, the
+   declared-order final material, the exact raw tracked-plus-two-created
+   inclusive diff, all 46 source spans, and this report's identity externally;
+   none of those self-referential final digests is embedded here.
+8. This Engineering round performs no manifest import, Supervisor run,
+   workload, registered replay, production operation, P3 fold/event, P4
+   action, or Promotion. Only after exact65 publication and distinct PR-head
+   and merged-main Worker CI success may a fresh separately reviewed Operator
+   import the unique canonical recovery-v3 manifest once, run the unified
+   Supervisor once, stop, perform one registered-content result-blind replay,
+   stop, and leave route-dependent P3 unexecuted for fresh Research.
+9. Integration matrix: `NO — INTEGRATION_PENDING`. Recovery-v3 remains
+   prospective until the separately authorized Operator path completes the
+   unified mainline execution and deterministic registered-content replay.
+
+## Global routing recovery v3 exact18 scope recovery
+
+1. Research Request 596, Execution 487, and Decision 2503 completed the
+   result-blind target-matrix clarification. Failed Engineering Request 593,
+   Execution 484, and Decision 2488, and failed Engineering Request 595,
+   Execution 486, and Decision 2498 remain immutable and are neither retried
+   nor reused. Engineering Request 597 and Execution 488 are the sole fresh
+   implementation authority.
+2. The exact18 round adopts the frozen dirty17 bytes, updates only eight stale
+   expected-value literals in the first three named control-plane test
+   functions, and updates this report. The four functions retain 44 assertions:
+   eight expected-value updates and 36 frozen assertions. The fourth function,
+   imports, helpers, setup, control flow, historical P2/P5 literals, and every
+   byte outside the authorized function envelopes remain unchanged.
+3. The pre-update control-plane test identity is
+   `05936ef46496856bfa0ff79d7a83b74f469cfc06201711e9446265058fc1b426`
+   / `10647`; reversing exactly the eight expected-value updates reconstructs
+   it byte-for-byte. The final control-plane identity is
+   `53fa81226529bb153b151d3caa2cbdae5633c3096f0dc126ee824f0af78b3784`
+   / `10657`. Final F1/F2/F3/F4 function identities are respectively
+   `845f8b3b9a95782034362c6432da36be5a011287a5844e36af0560754dfee17b`
+   / `1837`, `4055ea3c9b6c83d2910e33651fed8adb14190e77db763c2c7456590550032aec`
+   / `944`, `bcbe0c0a760cf5b2b9a306163e9341d3789361a3ec31224ddb88b82615772fc2`
+   / `1573`, and `0c7a7400e29d1fb5a8deeb514083d6cbb8223aa181c0ee475a149a08cf250764`
+   / `2600`. Bytes outside F1-F3 are
+   `cf7ab9aaca78692d2a5689a57260ee786b748ce867e54465b41a28073fa84b7c`
+   / `6303` and bytes outside all four functions are
+   `ca13e793174719673f38831cbc9e0ef66b7c6fdf8873a0113469b425a9124615`
+   / `3703`.
+4. The four resealed Marginal, Temporal, Joint, and Global source artifacts are
+   `50b84cab26c034819431ec6f1a345808d498144ef2f5c016a0c52b5492e7e81a`,
+   `99b32cba51531bde1b69722124a30091199b2ddbd073f5a886ea2d02ff3c6b5b`,
+   `f9dfcde1d881c62dbf6cbebc895f88490b478e43278b701aa6779ea817e62fd2`,
+   and `11cb628f050f05465676fe083a6f9c183cbf855edfec8e194e98ad0450cdfd64`.
+   Global retains ten ordered entries and appends the recovery-v3 builder once
+   at ordinal 9.
+5. The pure prospective recovery-v3 manifest, snapshot, Ready task, task
+   definition, lineage, and dry-run identities are
+   `ed48af29b29ce4c7a53f7e700a595c5ff5967901e71fa69166bb2679815b7f8f`,
+   `ca5636d335b23495b068cf1a0cad9c900bba83a9830e0690b70846ba262eb99b`,
+   `m4-v2-global-routing-recovery-v3`,
+   `bddceb738009ba18cf81d26453915349ab588ba574d3a24e6ffd5c1bd8e49ab2`,
+   `2bb78ab0feedcc750c6a063dc874e1a1e0ab725dacab2f2fe8a24a6b2175d44c`,
+   and `c2cd0fa858b592e3a1f8149d93fa7439d65c10727af78934915ff5769fc1769a`.
+   The two dependency-only P3 revisions are
+   `4ce1abbb70dc84ffb1efa77e5c56247ef973e0e0fc170986e22ba39dbfe58a1c`
+   and `8d541f7f64a1f66cdebf085c4655d029be36e2a510cbe03ff72296661e385bc1`;
+   predictive-P3 folds and events remain exactly `0`.
+6. Direct control-plane nodes pass 4 tests, the complete control-plane module
+   passes 7 tests, the inherited focused surface passes 181 tests, and the
+   repository module passes 88 tests with 4 existing isolated-PostgreSQL
+   skips. Ruff, `py_compile`, six JSON parses, and `git diff --check` pass. A
+   fresh full Worker invocation on the final exact18 tree remains the external
+   pre-publication evidence frozen by independent final review.
+7. This Engineering round performs no manifest import, Supervisor run,
+   workload, registered replay, production operation, P3 fold/event, P4
+   action, or Promotion. A future Operator request may be considered only
+   after exact18 publication and distinct PR-head and merged-main Worker CI
+   success.
+8. Integration matrix: `NO — INTEGRATION_PENDING`. Recovery-v3 has not been
+   imported or exercised through the unified mainline Supervisor and
+   deterministic registered-content replay.
+
 ## Recovery-v2 FAILED timestamp normalization and RUNNING live-pointer fixture
 
 1. Completed Research Request 584, Execution 476, and Decision 2445 freeze one
