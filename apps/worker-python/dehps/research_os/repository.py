@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
+from types import ModuleType
 from typing import Any
 
 from psycopg import Connection
@@ -28,6 +30,69 @@ from dehps.research_os.models import (
 from dehps.storage.postgres_store import ensure_research_os_schema
 
 ConnectionFactory = Callable[[], AbstractContextManager[Connection[Any]]]
+
+_M4_V2_GLOBAL_RECOVERY_V2_BUILDER_MODULE_NAME = (
+    "_dehps_m4_v2_global_routing_recovery_v2_builder"
+)
+_M4_V2_GLOBAL_RECOVERY_V2_REQUIRED_SYMBOLS = (
+    "GLOBAL_SOURCE_PATH",
+    "INPUT_MANIFEST_DIGEST",
+    "OLD_EVENT_MANIFEST_DIGEST",
+    "OLD_EXECUTION_ID",
+    "OLD_FAILED_EVENT_DIGEST",
+    "OLD_STARTED_EVENT_DIGEST",
+    "OLD_TASK_DIGEST",
+    "OLD_TASK_KEY",
+    "P3_REVISIONS",
+    "RECOVERY_TASK_KEY",
+    "GlobalRoutingRecoveryV2Error",
+    "build_manifest",
+    "validate_global_source_contract",
+)
+
+
+def _load_m4_v2_global_routing_recovery_v2_builder() -> ModuleType:
+    """Load the singular recovery-v2 builder without depending on cwd imports."""
+
+    from dehps.config import ROOT_DIR
+
+    try:
+        root_dir = ROOT_DIR.resolve()
+        builder_path = (
+            ROOT_DIR
+            / "apps/worker-python/scripts/"
+            "build_m4_v2_global_routing_recovery_v2_manifest.py"
+        ).resolve()
+        if not builder_path.is_relative_to(root_dir):
+            raise ValueError(str(builder_path))
+        if not builder_path.is_file():
+            raise FileNotFoundError(builder_path)
+        spec = importlib.util.spec_from_file_location(
+            _M4_V2_GLOBAL_RECOVERY_V2_BUILDER_MODULE_NAME,
+            builder_path,
+        )
+        if spec is None:
+            raise ImportError("m4_v2_global_recovery_v2_builder_spec_unavailable")
+        if spec.loader is None:
+            raise ImportError("m4_v2_global_recovery_v2_builder_loader_unavailable")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        for symbol in _M4_V2_GLOBAL_RECOVERY_V2_REQUIRED_SYMBOLS:
+            if not hasattr(module, symbol):
+                raise AttributeError(symbol)
+        for symbol in ("build_manifest", "validate_global_source_contract"):
+            if not callable(getattr(module, symbol)):
+                raise TypeError(symbol)
+        error_class = module.GlobalRoutingRecoveryV2Error
+        if not isinstance(error_class, type) or not issubclass(
+            error_class, BaseException
+        ):
+            raise TypeError("GlobalRoutingRecoveryV2Error")
+        return module
+    except Exception as exc:
+        raise ResearchOSValidationError(
+            "m4_v2_global_recovery_v2_builder_unavailable"
+        ) from exc
 
 
 def _json(value: Any) -> str:
@@ -615,21 +680,21 @@ class PostgresResearchOSRepository:
         """Verify the exact failed recovery-v1 lineage before the first write."""
 
         from dehps.config import ROOT_DIR
-        from scripts.build_m4_v2_global_routing_recovery_v2_manifest import (
-            GLOBAL_SOURCE_PATH,
-            INPUT_MANIFEST_DIGEST,
-            OLD_EVENT_MANIFEST_DIGEST,
-            OLD_EXECUTION_ID,
-            OLD_FAILED_EVENT_DIGEST,
-            OLD_STARTED_EVENT_DIGEST,
-            OLD_TASK_DIGEST,
-            OLD_TASK_KEY,
-            P3_REVISIONS,
-            RECOVERY_TASK_KEY,
-            GlobalRoutingRecoveryV2Error,
-            build_manifest,
-            validate_global_source_contract,
-        )
+
+        builder = _load_m4_v2_global_routing_recovery_v2_builder()
+        GLOBAL_SOURCE_PATH = builder.GLOBAL_SOURCE_PATH
+        INPUT_MANIFEST_DIGEST = builder.INPUT_MANIFEST_DIGEST
+        OLD_EVENT_MANIFEST_DIGEST = builder.OLD_EVENT_MANIFEST_DIGEST
+        OLD_EXECUTION_ID = builder.OLD_EXECUTION_ID
+        OLD_FAILED_EVENT_DIGEST = builder.OLD_FAILED_EVENT_DIGEST
+        OLD_STARTED_EVENT_DIGEST = builder.OLD_STARTED_EVENT_DIGEST
+        OLD_TASK_DIGEST = builder.OLD_TASK_DIGEST
+        OLD_TASK_KEY = builder.OLD_TASK_KEY
+        P3_REVISIONS = builder.P3_REVISIONS
+        RECOVERY_TASK_KEY = builder.RECOVERY_TASK_KEY
+        GlobalRoutingRecoveryV2Error = builder.GlobalRoutingRecoveryV2Error
+        build_manifest = builder.build_manifest
+        validate_global_source_contract = builder.validate_global_source_contract
         tasks = {task.task_key: task for task in manifest.tasks}
         recovery = tasks.get(RECOVERY_TASK_KEY)
         if recovery is None:
