@@ -25,6 +25,8 @@ from dehps.research_os.models import (
     Task,
     TaskResolution,
     jsonable,
+    m4_v2_domain_digest,
+    stable_hash,
     stable_json,
 )
 from dehps.storage.postgres_store import ensure_research_os_schema
@@ -223,6 +225,7 @@ class PostgresResearchOSRepository:
                 cursor,
                 control_plane_key=key,
                 manifest=manifest,
+                m4_v2_lifecycle_verified=True,
             )
             previous_goals, previous_tasks = self._current_revisions(cursor, key)
             self._verify_no_mainline_completion_regression(
@@ -750,13 +753,31 @@ class PostgresResearchOSRepository:
         validate_global_source_contract = builder.validate_global_source_contract
         tasks = {task.task_key: task for task in manifest.tasks}
         recovery = tasks.get(RECOVERY_TASK_KEY)
-        if recovery is None:
+        incoming_input_baseline = manifest.artifact_digest == INPUT_MANIFEST_DIGEST
+        if recovery is None and not incoming_input_baseline:
             return
         if control_plane_key != "m4-information-theory-mainline":
             raise ResearchOSValidationError(
                 "m4_v2_global_recovery_v2_control_plane_changed"
             )
-        if OLD_TASK_KEY in tasks or len(recovery.input_artifact_digests) != 1:
+        if (
+            (
+                incoming_input_baseline
+                and (
+                    recovery is not None
+                    or OLD_TASK_KEY not in tasks
+                    or tasks[OLD_TASK_KEY].artifact_digest != OLD_TASK_DIGEST
+                )
+            )
+            or (
+                not incoming_input_baseline
+                and (
+                    recovery is None
+                    or OLD_TASK_KEY in tasks
+                    or len(recovery.input_artifact_digests) != 1
+                )
+            )
+        ):
             raise ResearchOSValidationError(
                 "m4_v2_global_recovery_v2_task_identity_changed"
             )
@@ -831,7 +852,10 @@ class PostgresResearchOSRepository:
             raise ResearchOSValidationError(
                 "m4_v2_global_recovery_v2_source_changed"
             ) from exc
-        if recovery.input_artifact_digests != (source_digest,):
+        if (
+            recovery is not None
+            and recovery.input_artifact_digests != (source_digest,)
+        ):
             raise ResearchOSValidationError(
                 "m4_v2_global_recovery_v2_source_changed"
             )
@@ -839,18 +863,115 @@ class PostgresResearchOSRepository:
             baseline.to_dict(include_digest=True),
             global_source_contract_digest=source_digest,
         )
-        expected_digest = str(expected["manifest_digest"])
-        if manifest.to_dict(include_digest=True) != expected:
+        ready = ControlPlaneManifest.from_dict(expected)
+
+        def transition(
+            source_manifest: ControlPlaneManifest,
+            *,
+            status: str,
+            classification: str,
+            facts: tuple[str, ...] = (),
+        ) -> ControlPlaneManifest:
+            payload = source_manifest.to_dict(include_digest=False)
+            matches = [
+                item
+                for item in payload["tasks"]
+                if item["task_key"] == RECOVERY_TASK_KEY
+            ]
+            if len(matches) != 1:
+                raise ResearchOSValidationError(
+                    "m4_v2_global_recovery_v2_output_changed"
+                )
+            matches[0]["status"] = status
+            matches[0]["completion_classification"] = classification
+            if facts:
+                payload["facts"]["artifacts"] = sorted(
+                    {*payload["facts"]["artifacts"], *facts}
+                )
+            return ControlPlaneManifest.from_dict(payload)
+
+        running = transition(
+            ready,
+            status="running",
+            classification="INTEGRATED",
+        )
+        failed = transition(
+            running,
+            status="failed",
+            classification="INTEGRATED",
+        )
+        if (
+            ready.artifact_digest
+            != "1cc4ebf7a458ecaf6eba3e3a8079012318a2bf7354cb4b3f9770dcfa9ddbe84d"
+            or running.artifact_digest
+            != "8d9ed3811969cb80979c51e2c27f451ca2c4b127d59a2c1a9e105127b68bb084"
+            or failed.artifact_digest
+            != "b50a4c07ee75cd9e87842b8ad62846b6c37af23a17a9fc71e1e3610ce2e8c319"
+        ):
             raise ResearchOSValidationError(
                 "m4_v2_global_recovery_v2_output_changed"
             )
-        if current_digest not in {INPUT_MANIFEST_DIGEST, expected_digest}:
+
+        frozen = {
+            "INPUT_BASELINE": baseline,
+            "READY": ready,
+            "RUNNING": running,
+            "FAILED": failed,
+        }
+
+        def stage(value: ControlPlaneManifest) -> str | None:
+            serialized = value.to_dict(include_digest=True)
+            for name, candidate in frozen.items():
+                if serialized == candidate.to_dict(include_digest=True):
+                    return name
+            candidate = next(
+                (
+                    item
+                    for item in value.tasks
+                    if item.task_key == RECOVERY_TASK_KEY
+                ),
+                None,
+            )
+            if candidate is None:
+                return None
+            state = value.task_state_by_digest[candidate.artifact_digest]
+            if (
+                state.declared_status.value == "completed"
+                and state.completion_classification is not None
+                and state.completion_classification.value == "COMPLETE"
+            ):
+                return "COMPLETED"
+            return None
+
+        incoming_stage = stage(manifest)
+        if incoming_stage is None:
+            raise ResearchOSValidationError(
+                "m4_v2_global_recovery_v2_output_changed"
+            )
+        current_stage = stage(current)
+        if current_stage is None or current.artifact_digest != current_digest:
             raise ResearchOSValidationError(
                 "m4_v2_global_recovery_v2_current_manifest_changed"
             )
+        allowed = {
+            ("INPUT_BASELINE", "INPUT_BASELINE"),
+            ("INPUT_BASELINE", "READY"),
+            ("READY", "READY"),
+            ("READY", "RUNNING"),
+            ("RUNNING", "RUNNING"),
+            ("RUNNING", "COMPLETED"),
+            ("RUNNING", "FAILED"),
+            ("COMPLETED", "COMPLETED"),
+            ("FAILED", "FAILED"),
+        }
+        if (current_stage, incoming_stage) not in allowed:
+            raise ResearchOSValidationError(
+                "m4_v2_global_recovery_v2_output_changed"
+            )
         if (
-            current_digest == expected_digest
-            and current.to_dict(include_digest=True) != expected
+            current_stage in {"COMPLETED", "FAILED"}
+            and current.to_dict(include_digest=True)
+            != manifest.to_dict(include_digest=True)
         ):
             raise ResearchOSValidationError(
                 "m4_v2_global_recovery_v2_current_manifest_changed"
@@ -901,11 +1022,433 @@ class PostgresResearchOSRepository:
             )
         successor_by_key = {task.task_key: task for task in manifest.tasks}
         if any(
-            successor_by_key[key].artifact_digest != after
-            for key, _, after in P3_REVISIONS
+            key not in successor_by_key
+            or successor_by_key[key].artifact_digest
+            != (before if incoming_stage == "INPUT_BASELINE" else after)
+            for key, before, after in P3_REVISIONS
         ):
             raise ResearchOSValidationError(
                 "m4_v2_global_recovery_v2_p3_revisions_changed"
+            )
+
+        runtime_rows = cursor.execute(
+            """SELECT event_digest, execution_id, control_plane_key,
+                      manifest_digest, task_digest, task_key, capability,
+                      event_type, sequence, recorded_at, event_json
+               FROM research_os_mainline_execution_events
+               WHERE control_plane_key = %s AND task_key = %s
+               ORDER BY sequence, event_digest""",
+            (control_plane_key, RECOVERY_TASK_KEY),
+        ).fetchall()
+
+        def typed_event(row: Any) -> tuple[MainlineExecutionEvent, dict[str, Any]]:
+            try:
+                raw = dict(row["event_json"])
+                if set(raw) != {
+                    "execution_id",
+                    "control_plane_key",
+                    "manifest_digest",
+                    "task_key",
+                    "task_digest",
+                    "capability",
+                    "event_type",
+                    "sequence",
+                    "recorded_at",
+                    "payload",
+                }:
+                    raise ValueError("event fields")
+                payload_items = raw["payload"]
+                if (
+                    not isinstance(payload_items, list)
+                    or any(
+                        not isinstance(item, list) or len(item) != 2
+                        for item in payload_items
+                    )
+                ):
+                    raise ValueError("event payload")
+                event = MainlineExecutionEvent(
+                    execution_id=str(raw["execution_id"]),
+                    control_plane_key=str(raw["control_plane_key"]),
+                    manifest_digest=str(raw["manifest_digest"]),
+                    task_key=str(raw["task_key"]),
+                    task_digest=str(raw["task_digest"]),
+                    capability=str(raw["capability"]),
+                    event_type=str(raw["event_type"]),
+                    sequence=int(raw["sequence"]),
+                    recorded_at=str(raw["recorded_at"]),
+                    payload=tuple((str(item[0]), item[1]) for item in payload_items),
+                )
+                payload = dict(event.payload)
+                if len(payload) != len(event.payload):
+                    raise ValueError("duplicate payload field")
+                column_values = {
+                    "execution_id": event.execution_id,
+                    "control_plane_key": event.control_plane_key,
+                    "manifest_digest": event.manifest_digest,
+                    "task_digest": event.task_digest,
+                    "task_key": event.task_key,
+                    "capability": event.capability,
+                    "event_type": event.event_type,
+                    "sequence": event.sequence,
+                    "recorded_at": event.recorded_at,
+                }
+                if (
+                    str(row["event_digest"]) != event.artifact_digest
+                    or any(
+                        str(row[name]) != str(value)
+                        for name, value in column_values.items()
+                    )
+                ):
+                    raise ValueError("event columns")
+                return event, payload
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ResearchOSValidationError(
+                    "m4_v2_global_recovery_v2_output_changed"
+                ) from exc
+
+        events = tuple(typed_event(row) for row in runtime_rows)
+        recovery_task = next(
+            (
+                item
+                for item in manifest.tasks
+                if item.task_key == RECOVERY_TASK_KEY
+            ),
+            next(
+                (
+                    item
+                    for item in ready.tasks
+                    if item.task_key == RECOVERY_TASK_KEY
+                ),
+                None,
+            ),
+        )
+        if recovery_task is None:
+            raise ResearchOSValidationError(
+                "m4_v2_global_recovery_v2_task_identity_changed"
+            )
+        metric = json.loads(recovery_task.metric_contract)
+        capability = str(recovery_task.requested_capability or "")
+        source_inputs = list(recovery_task.input_artifact_digests)
+
+        def valid_digest(value: Any, *, length: int = 64) -> bool:
+            text = str(value or "")
+            return (
+                len(text) == length
+                and text == text.lower()
+                and all(character in "0123456789abcdef" for character in text)
+            )
+
+        def validate_started(
+            item: tuple[MainlineExecutionEvent, dict[str, Any]],
+        ) -> tuple[str, str]:
+            event, payload = item
+            if (
+                event.control_plane_key != control_plane_key
+                or event.manifest_digest != running.artifact_digest
+                or event.task_key != RECOVERY_TASK_KEY
+                or event.task_digest != recovery_task.artifact_digest
+                or event.capability != capability
+                or event.event_type != "started"
+                or event.sequence != 0
+                or not event.recorded_at
+                or set(payload) != {"input_artifact_digests", "git_commit"}
+                or payload["input_artifact_digests"] != source_inputs
+                or not valid_digest(payload["git_commit"], length=40)
+            ):
+                raise ResearchOSValidationError(
+                    "m4_v2_global_recovery_v2_output_changed"
+                )
+            git_commit = str(payload["git_commit"])
+            expected_execution = stable_hash(
+                {
+                    "schema": "dehps-research-os-mainline-execution.v1",
+                    "control_plane_key": control_plane_key,
+                    "task_digest": recovery_task.artifact_digest,
+                    "capability": capability,
+                    "input_artifact_digests": recovery_task.input_artifact_digests,
+                    "git_commit": git_commit,
+                }
+            )
+            if event.execution_id != expected_execution:
+                raise ResearchOSValidationError(
+                    "m4_v2_global_recovery_v2_output_changed"
+                )
+            return event.execution_id, git_commit
+
+        if incoming_stage in {"INPUT_BASELINE", "READY"}:
+            if events:
+                raise ResearchOSValidationError(
+                    "m4_v2_global_recovery_v2_output_changed"
+                )
+            return
+        if incoming_stage == "RUNNING":
+            allowed_event_counts = (
+                {0}
+                if current_stage == "READY"
+                else {0, 1}
+            )
+            if len(events) not in allowed_event_counts:
+                raise ResearchOSValidationError(
+                    "m4_v2_global_recovery_v2_output_changed"
+                )
+            if events:
+                validate_started(events[0])
+            return
+        if len(events) != 2:
+            raise ResearchOSValidationError(
+                "m4_v2_global_recovery_v2_output_changed"
+            )
+        execution_id, git_commit = validate_started(events[0])
+        terminal_event, terminal_payload = events[1]
+        if (
+            terminal_event.execution_id != execution_id
+            or terminal_event.control_plane_key != control_plane_key
+            or terminal_event.manifest_digest != running.artifact_digest
+            or terminal_event.task_key != RECOVERY_TASK_KEY
+            or terminal_event.task_digest != recovery_task.artifact_digest
+            or terminal_event.capability != capability
+            or terminal_event.sequence != 1
+            or not terminal_event.recorded_at
+        ):
+            raise ResearchOSValidationError(
+                "m4_v2_global_recovery_v2_output_changed"
+            )
+
+        registration_rows = cursor.execute(
+            """SELECT registration_digest, execution_id, control_plane_key,
+                      task_digest, task_key, artifact_digest, artifact_type,
+                      schema_version, artifact_path, parent_digests_json,
+                      git_commit, registration_json
+               FROM research_os_mainline_artifacts
+               WHERE control_plane_key = %s AND task_key = %s
+                 AND execution_id = %s
+               ORDER BY artifact_path, registration_digest""",
+            (control_plane_key, RECOVERY_TASK_KEY, execution_id),
+        ).fetchall()
+
+        if incoming_stage == "FAILED":
+            if (
+                terminal_event.event_type != "failed"
+                or set(terminal_payload) != {"error", "git_commit"}
+                or not str(terminal_payload["error"])
+                or str(terminal_payload["git_commit"]) != git_commit
+                or registration_rows
+                or manifest.facts != running.facts
+            ):
+                raise ResearchOSValidationError(
+                    "m4_v2_global_recovery_v2_output_changed"
+                )
+            return
+
+        if terminal_event.event_type != "completed":
+            raise ResearchOSValidationError(
+                "m4_v2_global_recovery_v2_output_changed"
+            )
+        expected_completed_fields = {
+            "execution_artifact_digest",
+            "execution_artifact_path",
+            "actual_fold_count",
+            "registered_artifact_count",
+            "git_commit",
+            "completion_facts",
+            "additional_completed_task_keys",
+            "publication_batch_digest",
+            "workload_rerun",
+            "source_contract_digest",
+            "source_set_digest",
+            "route_decision_artifact_digest",
+            "route",
+            "downstream_consumer",
+            "decision_replay_coverage",
+            "historical_database_reads",
+            "scientific_computation",
+            "replay_status",
+        }
+        routes = dict(metric["route_facts"])
+        route = str(terminal_payload.get("route") or "")
+        route_fact = routes.get(route)
+        completion_fact = str(metric["completion_fact"])
+        completion_facts = terminal_payload.get("completion_facts")
+        execution_artifact_digest = str(
+            terminal_payload.get("execution_artifact_digest") or ""
+        )
+        route_digest = str(
+            terminal_payload.get("route_decision_artifact_digest") or ""
+        )
+        expected_execution_path = (
+            f"runtime/research-os/mainline/tasks/{RECOVERY_TASK_KEY}/"
+            f"{execution_id}/execution.json"
+        )
+        expected_route_path = str(metric["route_artifact_path_template"]).format(
+            execution_id=execution_id,
+            artifact_digest=route_digest,
+        )
+        if (
+            set(terminal_payload) != expected_completed_fields
+            or route_fact is None
+            or completion_facts != [route_fact, completion_fact]
+            or terminal_payload["additional_completed_task_keys"] != []
+            or int(terminal_payload["actual_fold_count"]) != 0
+            or int(terminal_payload["registered_artifact_count"]) != 2
+            or terminal_payload["workload_rerun"] is not False
+            or str(terminal_payload["git_commit"]) != git_commit
+            or str(terminal_payload["source_contract_digest"]) != source_digest
+            or str(terminal_payload["source_set_digest"])
+            != "51416beac1b615c6b5b91786f40f105b45ec7503285126649aa4334715b3a00c"
+            or str(terminal_payload["downstream_consumer"])
+            != json.loads(recovery_task.metric_contract)["mainline_integration"][
+                "downstream_consumer"
+            ]
+            or terminal_payload["decision_replay_coverage"] != "COMPLETE"
+            or int(terminal_payload["historical_database_reads"]) != 0
+            or int(terminal_payload["scientific_computation"]) != 0
+            or terminal_payload["replay_status"] != "REGISTERED_REPLAY_PENDING"
+            or not valid_digest(execution_artifact_digest)
+            or not valid_digest(route_digest)
+            or not valid_digest(terminal_payload["publication_batch_digest"])
+            or str(terminal_payload["execution_artifact_path"])
+            != expected_execution_path
+        ):
+            raise ResearchOSValidationError(
+                "m4_v2_global_recovery_v2_output_changed"
+            )
+
+        mainline_fact = (
+            f"mainline-execution:{RECOVERY_TASK_KEY}:"
+            f"{recovery_task.artifact_digest}:{execution_id}:completed"
+        )
+        expected_completed = transition(
+            running,
+            status="completed",
+            classification="COMPLETE",
+            facts=(mainline_fact, route_fact, completion_fact),
+        )
+        if manifest.to_dict(include_digest=True) != expected_completed.to_dict(
+            include_digest=True
+        ):
+            raise ResearchOSValidationError(
+                "m4_v2_global_recovery_v2_output_changed"
+            )
+
+        registrations: list[MainlineArtifactRegistration] = []
+        try:
+            for row in registration_rows:
+                raw = dict(row["registration_json"])
+                if set(raw) != {
+                    "execution_id",
+                    "control_plane_key",
+                    "task_key",
+                    "task_digest",
+                    "artifact_digest",
+                    "artifact_type",
+                    "schema_version",
+                    "artifact_path",
+                    "parent_digests",
+                    "git_commit",
+                }:
+                    raise ValueError("registration fields")
+                registration = MainlineArtifactRegistration(
+                    execution_id=str(raw["execution_id"]),
+                    control_plane_key=str(raw["control_plane_key"]),
+                    task_key=str(raw["task_key"]),
+                    task_digest=str(raw["task_digest"]),
+                    artifact_digest=str(raw["artifact_digest"]),
+                    artifact_type=str(raw["artifact_type"]),
+                    schema_version=str(raw["schema_version"]),
+                    artifact_path=str(raw["artifact_path"]),
+                    parent_digests=tuple(str(value) for value in raw["parent_digests"]),
+                    git_commit=str(raw["git_commit"]),
+                )
+                column_values = {
+                    "execution_id": registration.execution_id,
+                    "control_plane_key": registration.control_plane_key,
+                    "task_digest": registration.task_digest,
+                    "task_key": registration.task_key,
+                    "artifact_digest": registration.artifact_digest,
+                    "artifact_type": registration.artifact_type,
+                    "schema_version": registration.schema_version,
+                    "artifact_path": registration.artifact_path,
+                    "git_commit": registration.git_commit,
+                }
+                if (
+                    str(row["registration_digest"])
+                    != registration.registration_digest
+                    or list(row["parent_digests_json"])
+                    != list(registration.parent_digests)
+                    or any(
+                        str(row[name]) != str(value)
+                        for name, value in column_values.items()
+                    )
+                ):
+                    raise ValueError("registration columns")
+                registrations.append(registration)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ResearchOSValidationError(
+                "m4_v2_global_recovery_v2_output_changed"
+            ) from exc
+        if len(registrations) != 2:
+            raise ResearchOSValidationError(
+                "m4_v2_global_recovery_v2_output_changed"
+            )
+        route_registration, execution_registration = registrations
+        if (
+            route_registration.execution_id != execution_id
+            or route_registration.control_plane_key != control_plane_key
+            or route_registration.task_key != RECOVERY_TASK_KEY
+            or route_registration.task_digest != recovery_task.artifact_digest
+            or route_registration.artifact_digest != route_digest
+            or route_registration.artifact_type
+            != str(metric["route_serialized_artifact_type"])
+            or route_registration.schema_version
+            != "dehps-m4-measurement-routing-decision.v1"
+            or route_registration.artifact_path != expected_route_path
+            or route_registration.parent_digests
+            or route_registration.git_commit != git_commit
+            or execution_registration.execution_id != execution_id
+            or execution_registration.control_plane_key != control_plane_key
+            or execution_registration.task_key != RECOVERY_TASK_KEY
+            or execution_registration.task_digest != recovery_task.artifact_digest
+            or execution_registration.artifact_digest
+            != execution_artifact_digest
+            or execution_registration.artifact_type
+            != "research_os_mainline_execution"
+            or execution_registration.schema_version
+            != "dehps-research-os-mainline-execution.v1"
+            or execution_registration.artifact_path != expected_execution_path
+            or execution_registration.parent_digests
+            != (source_digest, route_digest)
+            or execution_registration.git_commit != git_commit
+        ):
+            raise ResearchOSValidationError(
+                "m4_v2_global_recovery_v2_output_changed"
+            )
+        expected_publication_batch_digest = m4_v2_domain_digest(
+            {
+                "control_plane_key": control_plane_key,
+                "expected_head_manifest_digest": running.artifact_digest,
+                "task_key": RECOVERY_TASK_KEY,
+                "task_digest": recovery_task.artifact_digest,
+                "execution_id": execution_id,
+                "git_commit": git_commit,
+                "ordered_artifact_digest_path_pairs": [
+                    {
+                        "artifact_digest": route_registration.artifact_digest,
+                        "canonical_artifact_path": route_registration.artifact_path,
+                    },
+                    {
+                        "artifact_digest": execution_registration.artifact_digest,
+                        "canonical_artifact_path": execution_registration.artifact_path,
+                    },
+                ],
+            },
+            domain="dehps.m4.v2.mainline-publication-batch-identity.v1",
+        )
+        if (
+            str(terminal_payload["publication_batch_digest"])
+            != expected_publication_batch_digest
+        ):
+            raise ResearchOSValidationError(
+                "m4_v2_global_recovery_v2_output_changed"
             )
 
     @staticmethod
@@ -1492,7 +2035,29 @@ class PostgresResearchOSRepository:
         *,
         control_plane_key: str,
         manifest: ControlPlaneManifest,
+        m4_v2_lifecycle_verified: bool = False,
     ) -> None:
+        recovery_v2 = next(
+            (
+                task
+                for task in manifest.tasks
+                if task.task_key == "m4-v2-global-routing-recovery-v2"
+            ),
+            None,
+        )
+        if (
+            not m4_v2_lifecycle_verified
+            and recovery_v2 is not None
+            and manifest.task_state_by_digest[
+                recovery_v2.artifact_digest
+            ].declared_status.value
+            == "completed"
+        ):
+            PostgresResearchOSRepository._verify_m4_v2_failed_global_routing_recovery_v2_import(
+                cursor,
+                control_plane_key=control_plane_key,
+                manifest=manifest,
+            )
         for task in manifest.tasks:
             if task.requested_capability is None:
                 continue
