@@ -141,6 +141,44 @@ run from the frozen recovery manifest boundary.
 12. Integration matrix: `NO — INTEGRATION_PENDING`.
 13. Predictive-P3 folds: `0`.
 
+## Global recovery v2 repository builder loader closure
+
+1. Completed Research Request 568 freezes one repository-only correction:
+   `PostgresResearchOSRepository` loads the canonical recovery-v2 builder from
+   its exact repository-root path through a fixed private
+   `importlib.util.spec_from_file_location` module. The loader neither changes
+   `sys.path` nor changes or depends on the process working directory.
+2. The resolved builder path must remain inside the resolved repository root
+   and must be a regular file. Missing, wrong, outside-root, symlink-escaped,
+   non-file, unavailable-spec, unavailable-loader, execution, missing-symbol,
+   noncallable-function, and invalid-error-class cases all fail before the
+   first SQL write as
+   `ResearchOSValidationError("m4_v2_global_recovery_v2_builder_unavailable")`
+   with the original cause preserved.
+3. One loader invocation returns one `ModuleType`; that same module owns the
+   ordered 13 frozen constants, functions, and error class used by the existing
+   pre-write validator. The canonical repository import remains the singular
+   importer; builder algorithms and constants are not copied into the
+   repository.
+4. A real subprocess with cwd equal to the repository root reproduces the old
+   `ModuleNotFoundError` for the former `scripts.*` package import and passes
+   the private loader plus validator on the corrected bytes. The focused loader
+   matrix passes 22 tests, the complete repository module passes 22 tests with
+   4 isolated-PostgreSQL skips, and the repository plus Global-routing focused
+   surface passes 94 tests with the same 4 skips. Ruff, `py_compile`, and
+   `git diff --check` pass; full Worker zero-failure validation remains a
+   mandatory pre-publication gate.
+5. The standalone recovery-v2 builder, all four source envelopes, Evidence,
+   Index, pure manifest `1cc4ebf7…`, snapshot `93907aa7…`, dry-run
+   `445df30d…`, recovery definition `a2c26aa0…`, lineage `1f7ecdea…`,
+   Ready queue, science, thresholds, route, P3, P4, and Promotion are unchanged.
+6. Failed Operator Request 567 and Execution 465 are immutable and are not
+   retried. This Engineering round performs no import, Supervisor start,
+   workload, replay, or runtime mutation. Predictive-P3 folds remain `0`.
+7. Integration matrix: `NO — INTEGRATION_PENDING`. After the fix is merged
+   and merged-main CI is green, a fresh separately reviewed Operator Request is
+   required for any canonical import or run.
+
 ## Global routing recovery v1 and exact replay lineage
 
 1. The result-blind recovery input is manifest `15f5d12cebb0eed31f4f0f33c1ac4d3d0878f9335d11741046305baf746eb216`, snapshot `e80b5fa52caee4cbab1f380aceda3dd55cede6581fb8ee62a882afdd843ea2c5`, and Ready `[]`.

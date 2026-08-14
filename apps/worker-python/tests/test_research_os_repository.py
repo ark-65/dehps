@@ -6,15 +6,18 @@ import copy
 import json
 import lzma
 import os
+import subprocess
+import sys
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
 
 import psycopg
 import pytest
-from psycopg import sql
-
+from dehps import config as dehps_config
 from dehps.config import get_settings
+from dehps.research_os import repository as repository_module
 from dehps.research_os.models import (
     ControlPlaneManifest,
     ExternalExecutorObservation,
@@ -22,6 +25,8 @@ from dehps.research_os.models import (
     TaskStatus,
 )
 from dehps.research_os.repository import PostgresResearchOSRepository
+from psycopg import sql
+
 from scripts import build_m4_v2_global_routing_recovery_v2_manifest as recovery_v2
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -216,6 +221,310 @@ def _recovery_v2_baseline_manifest() -> ControlPlaneManifest:
     )
     return ControlPlaneManifest.from_dict(
         json.loads(lzma.decompress(base64.b85decode(encoded)).decode())
+    )
+
+
+def _builder_symbol_module() -> ModuleType:
+    module = ModuleType("_test_m4_v2_global_recovery_v2_builder")
+    for symbol in repository_module._M4_V2_GLOBAL_RECOVERY_V2_REQUIRED_SYMBOLS:
+        setattr(module, symbol, object())
+    module.GlobalRoutingRecoveryV2Error = RuntimeError
+    module.build_manifest = lambda *_args, **_kwargs: None
+    module.validate_global_source_contract = lambda *_args, **_kwargs: None
+    return module
+
+
+def test_global_recovery_v2_builder_loader_works_from_repository_root_subprocess() -> None:
+    old_import = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "from scripts."
+                "build_m4_v2_global_routing_recovery_v2_manifest import "
+                "build_manifest"
+            ),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert old_import.returncode != 0
+    assert "ModuleNotFoundError" in old_import.stderr
+    assert (
+        "scripts.build_m4_v2_global_routing_recovery_v2_manifest"
+        in old_import.stderr
+    )
+
+    corrected = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+import os
+from dehps.research_os.models import ControlPlaneManifest
+from dehps.research_os.repository import (
+    PostgresResearchOSRepository,
+    _load_m4_v2_global_routing_recovery_v2_builder,
+)
+
+before = os.getcwd()
+builder = _load_m4_v2_global_routing_recovery_v2_builder()
+manifest = ControlPlaneManifest.from_dict(
+    {
+        "schema_version": "research-os-control-plane-v1",
+        "goals": [
+            {
+                "goal_key": "loader-check",
+                "semantic_version": "1.0.0",
+                "objective_class": "maintenance_integrity",
+                "status": "active",
+                "baseline_metric_manifest": {"metric": "loader", "value": 0},
+                "target_metric_manifest": {"metric": "loader", "value": 1},
+                "success_evidence": ["loader:verified"],
+                "owner_lane": "maintenance",
+                "guardrails": ["no_runtime_mutation"],
+            }
+        ],
+        "tasks": [],
+        "facts": {},
+    }
+)
+PostgresResearchOSRepository._verify_m4_v2_failed_global_routing_recovery_v2_import(
+    None,
+    control_plane_key="m4-information-theory-mainline",
+    manifest=manifest,
+)
+assert builder.__name__ == "_dehps_m4_v2_global_routing_recovery_v2_builder"
+assert os.getcwd() == before
+""",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert corrected.returncode == 0, corrected.stderr
+
+
+def test_global_recovery_v2_builder_loader_rejects_invalid_paths(
+    monkeypatch, tmp_path
+) -> None:
+    def assert_unavailable() -> BaseException:
+        with pytest.raises(
+            ResearchOSValidationError,
+            match="^m4_v2_global_recovery_v2_builder_unavailable$",
+        ) as error:
+            repository_module._load_m4_v2_global_routing_recovery_v2_builder()
+        assert error.value.__cause__ is not None
+        return error.value.__cause__
+
+    monkeypatch.setattr(dehps_config, "ROOT_DIR", tmp_path / "missing-root")
+    assert isinstance(assert_unavailable(), FileNotFoundError)
+
+    non_file_root = tmp_path / "non-file-root"
+    non_file_path = (
+        non_file_root
+        / "apps/worker-python/scripts/"
+        "build_m4_v2_global_routing_recovery_v2_manifest.py"
+    )
+    non_file_path.mkdir(parents=True)
+    monkeypatch.setattr(dehps_config, "ROOT_DIR", non_file_root)
+    assert isinstance(assert_unavailable(), FileNotFoundError)
+
+    outside = tmp_path / "outside-builder.py"
+    outside.write_text("raise RuntimeError('must not execute')\n", encoding="utf-8")
+    escaped_root = tmp_path / "escaped-root"
+    escaped_path = (
+        escaped_root
+        / "apps/worker-python/scripts/"
+        "build_m4_v2_global_routing_recovery_v2_manifest.py"
+    )
+    escaped_path.parent.mkdir(parents=True)
+    escaped_path.symlink_to(outside)
+    monkeypatch.setattr(dehps_config, "ROOT_DIR", escaped_root)
+    assert isinstance(assert_unavailable(), ValueError)
+
+    wrong_root = tmp_path / "wrong-root"
+    wrong_path = (
+        wrong_root
+        / "apps/worker-python/scripts/"
+        "build_m4_v2_global_routing_recovery_v2_manifest.py"
+    )
+    wrong_path.parent.mkdir(parents=True)
+    wrong_path.write_text("raise RuntimeError('wrong builder')\n", encoding="utf-8")
+    monkeypatch.setattr(dehps_config, "ROOT_DIR", wrong_root)
+    cause = assert_unavailable()
+    assert isinstance(cause, RuntimeError)
+    assert str(cause) == "wrong builder"
+
+
+def test_global_recovery_v2_builder_loader_fail_closed_matrix(monkeypatch) -> None:
+    def assert_unavailable() -> BaseException:
+        with pytest.raises(
+            ResearchOSValidationError,
+            match="^m4_v2_global_recovery_v2_builder_unavailable$",
+        ) as error:
+            repository_module._load_m4_v2_global_routing_recovery_v2_builder()
+        assert error.value.__cause__ is not None
+        return error.value.__cause__
+
+    monkeypatch.setattr(
+        repository_module.importlib.util,
+        "spec_from_file_location",
+        lambda *_args: None,
+    )
+    assert isinstance(assert_unavailable(), ImportError)
+
+    monkeypatch.setattr(
+        repository_module.importlib.util,
+        "spec_from_file_location",
+        lambda *_args: SimpleNamespace(loader=None),
+    )
+    assert isinstance(assert_unavailable(), ImportError)
+
+    class ExplodingLoader:
+        def exec_module(self, _module):
+            raise LookupError("builder exec failed")
+
+    spec = SimpleNamespace(loader=ExplodingLoader())
+    module = _builder_symbol_module()
+    monkeypatch.setattr(
+        repository_module.importlib.util,
+        "spec_from_file_location",
+        lambda *_args: spec,
+    )
+    monkeypatch.setattr(
+        repository_module.importlib.util,
+        "module_from_spec",
+        lambda _spec: module,
+    )
+    cause = assert_unavailable()
+    assert isinstance(cause, LookupError)
+    assert str(cause) == "builder exec failed"
+
+
+@pytest.mark.parametrize(
+    "missing_symbol",
+    repository_module._M4_V2_GLOBAL_RECOVERY_V2_REQUIRED_SYMBOLS,
+)
+def test_global_recovery_v2_builder_loader_requires_every_symbol(
+    monkeypatch, missing_symbol
+) -> None:
+    module = _builder_symbol_module()
+    delattr(module, missing_symbol)
+    spec = SimpleNamespace(loader=SimpleNamespace(exec_module=lambda _module: None))
+    monkeypatch.setattr(
+        repository_module.importlib.util,
+        "spec_from_file_location",
+        lambda *_args: spec,
+    )
+    monkeypatch.setattr(
+        repository_module.importlib.util,
+        "module_from_spec",
+        lambda _spec: module,
+    )
+    with pytest.raises(
+        ResearchOSValidationError,
+        match="^m4_v2_global_recovery_v2_builder_unavailable$",
+    ) as error:
+        repository_module._load_m4_v2_global_routing_recovery_v2_builder()
+    assert isinstance(error.value.__cause__, AttributeError)
+    assert error.value.__cause__.args == (missing_symbol,)
+
+
+@pytest.mark.parametrize(
+    "symbol", ("build_manifest", "validate_global_source_contract")
+)
+def test_global_recovery_v2_builder_loader_requires_callable_functions(
+    monkeypatch, symbol
+) -> None:
+    module = _builder_symbol_module()
+    setattr(module, symbol, None)
+    spec = SimpleNamespace(loader=SimpleNamespace(exec_module=lambda _module: None))
+    monkeypatch.setattr(
+        repository_module.importlib.util,
+        "spec_from_file_location",
+        lambda *_args: spec,
+    )
+    monkeypatch.setattr(
+        repository_module.importlib.util,
+        "module_from_spec",
+        lambda _spec: module,
+    )
+    with pytest.raises(
+        ResearchOSValidationError,
+        match="^m4_v2_global_recovery_v2_builder_unavailable$",
+    ) as error:
+        repository_module._load_m4_v2_global_routing_recovery_v2_builder()
+    assert isinstance(error.value.__cause__, TypeError)
+    assert error.value.__cause__.args == (symbol,)
+
+
+def test_global_recovery_v2_builder_loader_requires_exception_class(
+    monkeypatch,
+) -> None:
+    module = _builder_symbol_module()
+    module.GlobalRoutingRecoveryV2Error = object()
+    spec = SimpleNamespace(loader=SimpleNamespace(exec_module=lambda _module: None))
+    monkeypatch.setattr(
+        repository_module.importlib.util,
+        "spec_from_file_location",
+        lambda *_args: spec,
+    )
+    monkeypatch.setattr(
+        repository_module.importlib.util,
+        "module_from_spec",
+        lambda _spec: module,
+    )
+    with pytest.raises(
+        ResearchOSValidationError,
+        match="^m4_v2_global_recovery_v2_builder_unavailable$",
+    ) as error:
+        repository_module._load_m4_v2_global_routing_recovery_v2_builder()
+    assert isinstance(error.value.__cause__, TypeError)
+    assert error.value.__cause__.args == ("GlobalRoutingRecoveryV2Error",)
+
+
+def test_global_recovery_v2_validator_uses_one_module_for_all_symbols(
+    monkeypatch,
+) -> None:
+    accesses: list[tuple[int, str]] = []
+
+    class RecordingModule(ModuleType):
+        def __getattribute__(self, name):
+            if name in repository_module._M4_V2_GLOBAL_RECOVERY_V2_REQUIRED_SYMBOLS:
+                accesses.append((id(self), name))
+            return super().__getattribute__(name)
+
+    module = RecordingModule("_recording_recovery_v2_builder")
+    values = _builder_symbol_module()
+    for symbol in repository_module._M4_V2_GLOBAL_RECOVERY_V2_REQUIRED_SYMBOLS:
+        setattr(module, symbol, getattr(values, symbol))
+    module.RECOVERY_TASK_KEY = recovery_v2.RECOVERY_TASK_KEY
+    calls = 0
+
+    def load_once():
+        nonlocal calls
+        calls += 1
+        return module
+
+    monkeypatch.setattr(
+        repository_module,
+        "_load_m4_v2_global_routing_recovery_v2_builder",
+        load_once,
+    )
+    manifest = ControlPlaneManifest.from_dict(_manifest())
+    PostgresResearchOSRepository._verify_m4_v2_failed_global_routing_recovery_v2_import(
+        None,
+        control_plane_key="not-the-global-control-plane",
+        manifest=manifest,
+    )
+    assert calls == 1
+    assert {owner for owner, _symbol in accesses} == {id(module)}
+    assert [symbol for _owner, symbol in accesses] == list(
+        repository_module._M4_V2_GLOBAL_RECOVERY_V2_REQUIRED_SYMBOLS
     )
 
 
