@@ -10,8 +10,10 @@ import subprocess
 import sys
 import uuid
 from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import psycopg
 import pytest
@@ -258,6 +260,23 @@ def _event_row(event: MainlineExecutionEvent) -> dict:
         "recorded_at": event.recorded_at,
         "event_json": payload,
     }
+
+
+def _event_row_with_recorded_at(row: dict, recorded_at: str) -> dict:
+    raw = copy.deepcopy(row["event_json"])
+    event = MainlineExecutionEvent(
+        execution_id=str(raw["execution_id"]),
+        control_plane_key=str(raw["control_plane_key"]),
+        manifest_digest=str(raw["manifest_digest"]),
+        task_key=str(raw["task_key"]),
+        task_digest=str(raw["task_digest"]),
+        capability=str(raw["capability"]),
+        event_type=str(raw["event_type"]),
+        sequence=int(raw["sequence"]),
+        recorded_at=recorded_at,
+        payload=tuple((str(item[0]), item[1]) for item in raw["payload"]),
+    )
+    return _event_row(event)
 
 
 def _registration_row(registration: MainlineArtifactRegistration) -> dict:
@@ -1354,6 +1373,76 @@ def test_global_recovery_v2_failed_metadata_is_terminal_and_registration_free() 
                 control_plane_key="m4-information-theory-mainline",
                 manifest=incoming,
             )
+
+
+@pytest.mark.parametrize(
+    "typed_offset",
+    (timezone(timedelta(hours=-4)), timezone(timedelta(hours=5, minutes=30))),
+)
+def test_global_recovery_v2_event_timestamps_compare_as_utc_instants(
+    typed_offset,
+) -> None:
+    failed, running, events, _ = _recovery_v2_runtime_fixture("FAILED")
+    for index, row in enumerate(events):
+        instant = datetime.fromisoformat(str(row["recorded_at"]))
+        events[index] = _event_row_with_recorded_at(
+            row,
+            instant.astimezone(typed_offset).isoformat(),
+        )
+        events[index]["recorded_at"] = instant.astimezone(
+            ZoneInfo("Asia/Shanghai")
+        )
+    cursor = _RecoveryV2Cursor(
+        failed,
+        current=running,
+        runtime_events=events,
+        registrations=[],
+    )
+    PostgresResearchOSRepository._verify_m4_v2_failed_global_routing_recovery_v2_import(
+        cursor,
+        control_plane_key="m4-information-theory-mainline",
+        manifest=failed,
+    )
+
+
+@pytest.mark.parametrize(
+    ("target", "value"),
+    (
+        ("row", datetime.fromisoformat("2026-08-14T10:00:00")),
+        ("typed", "2026-08-14T10:00:00"),
+        ("row", ""),
+        ("row", "not-a-timestamp"),
+        ("row", 123),
+        ("row", datetime(2026, 8, 14, 10, 0, 1, tzinfo=UTC)),
+    ),
+)
+def test_global_recovery_v2_event_timestamp_rejects_invalid_or_different_instants(
+    target: str,
+    value,
+) -> None:
+    failed, running, events, _ = _recovery_v2_runtime_fixture("FAILED")
+    if target == "typed":
+        events[0] = _event_row_with_recorded_at(events[0], value)
+        events[0]["recorded_at"] = datetime(
+            2026, 8, 14, 10, 0, tzinfo=UTC
+        )
+    else:
+        events[0]["recorded_at"] = value
+    cursor = _RecoveryV2Cursor(
+        failed,
+        current=running,
+        runtime_events=events,
+        registrations=[],
+    )
+    with pytest.raises(
+        ResearchOSValidationError,
+        match="^m4_v2_global_recovery_v2_output_changed$",
+    ):
+        PostgresResearchOSRepository._verify_m4_v2_failed_global_routing_recovery_v2_import(
+            cursor,
+            control_plane_key="m4-information-theory-mainline",
+            manifest=failed,
+        )
 
 
 def test_mainline_completion_hook_reaches_shared_global_recovery_v2_policy(

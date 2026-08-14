@@ -5,6 +5,7 @@ import json
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from types import ModuleType
 from typing import Any
 
@@ -66,6 +67,22 @@ _M4_V2_GLOBAL_RECOVERY_V2_REQUIRED_SYMBOLS = (
     "build_manifest",
     "validate_global_source_contract",
 )
+
+
+def _m4_v2_utc_instant(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str):
+        normalized = f"{value[:-1]}+00:00" if value.endswith("Z") else value
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except ValueError as exc:
+            raise ValueError("recorded_at") from exc
+    else:
+        raise TypeError("recorded_at")
+    if parsed.utcoffset() is None:
+        raise ValueError("recorded_at")
+    return parsed.astimezone(UTC)
 
 
 def _load_m4_v2_global_routing_recovery_v1_builder() -> ModuleType:
@@ -1090,7 +1107,6 @@ class PostgresResearchOSRepository:
                     "capability": event.capability,
                     "event_type": event.event_type,
                     "sequence": event.sequence,
-                    "recorded_at": event.recorded_at,
                 }
                 if (
                     str(row["event_digest"]) != event.artifact_digest
@@ -1098,6 +1114,8 @@ class PostgresResearchOSRepository:
                         str(row[name]) != str(value)
                         for name, value in column_values.items()
                     )
+                    or _m4_v2_utc_instant(row["recorded_at"])
+                    != _m4_v2_utc_instant(event.recorded_at)
                 ):
                     raise ValueError("event columns")
                 return event, payload
