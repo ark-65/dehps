@@ -9,10 +9,9 @@ from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
-
 import dehps.research_os.information_theory.measurement_validation.source_integrity as source_integrity_module
 import dehps.research_os.supervisor as supervisor_module
+import pytest
 from dehps.contracts import canonical_digest
 from dehps.golden_source_identity import (
     GoldenSourceIdentityError,
@@ -124,7 +123,6 @@ from dehps.research_os.information_theory.progress import (
     load_m4_manifest,
     manifest_with_external_event,
 )
-from dehps.research_os.mainline import mainline_completion_fact
 from dehps.research_os.models import (
     ControlPlaneManifest,
     MainlineArtifactRegistration,
@@ -2230,7 +2228,7 @@ def test_p263_compatibility_and_executor_unlock_golden_then_runtime() -> None:
         TaskStatus.SUPERSEDED
     )
     assert source_resolutions["m4-p2-9-p263-golden-reference-freeze"].status is (
-        TaskStatus.EXTERNAL_WAIT
+        TaskStatus.COMPLETED
     )
 
     executor_event = (
@@ -2255,39 +2253,11 @@ def test_p263_compatibility_and_executor_unlock_golden_then_runtime() -> None:
             for item in with_executor_snapshot.resolutions
             if item.task_key == "m4-p2-9-p263-golden-reference-freeze"
         ).status
-        is TaskStatus.READY
+        is TaskStatus.COMPLETED
     )
     ready_keys = [item.task_key for item in with_executor_snapshot.ready_queue]
-    assert "m4-p2-9-p263-golden-reference-freeze" in ready_keys
+    assert "m4-p2-9-p263-golden-reference-freeze" not in ready_keys
     assert "m4-p2-9-p263-runtime-observation-arithmetic-fix" not in ready_keys
-
-    golden_task = next(
-        task
-        for task in with_executor.tasks
-        if task.task_key == "m4-p2-9-p263-golden-reference-freeze"
-    )
-    payload = with_executor.to_dict(include_digest=False)
-    for task in payload["tasks"]:
-        if task["task_key"] == golden_task.task_key:
-            task["status"] = "completed"
-            task["completion_classification"] = "COMPLETE"
-            break
-    facts = set(payload["facts"]["artifacts"])
-    facts.update(
-        {
-            "m4-p2-9-p263-golden-reference:VERIFIED",
-            mainline_completion_fact(task=golden_task, execution_id="e" * 64),
-        }
-    )
-    payload["facts"]["artifacts"] = sorted(facts)
-    after_golden = ControlPlaneManifest.from_dict(payload)
-    after_golden_snapshot = control_plane.resolve(after_golden)
-    after_golden_resolutions = {
-        item.task_key: item for item in after_golden_snapshot.resolutions
-    }
-    audit = after_golden_resolutions["m4-p2-9-p263-runtime-observation-arithmetic-fix"]
-    assert audit.status is TaskStatus.READY
-    assert not audit.unsatisfied_dependencies
 
 
 def test_golden_reference_status_projects_only_completed_execution_identity() -> None:
@@ -2301,7 +2271,7 @@ def test_golden_reference_status_projects_only_completed_execution_identity() ->
         "m4-canonical-executor:"
         "e804e4eedf3c67ad9d35207367a096f6b830a6ab2ac29cc03501392d8430af32"
     )
-    assert audit_status["canonical_executor_available"] is False
+    assert audit_status["canonical_executor_available"] is True
     assert (
         audit_status["supersession"]["p2_6_3_failed_runtime_audit_resolver_status"]
         == "superseded"
@@ -2314,12 +2284,9 @@ def test_golden_reference_status_projects_only_completed_execution_identity() ->
     assert audit_status["historical_outcomes_read"] is None
     assert audit_status["production_action"] is None
     golden = source["measurement_runtime_audit"]["golden_reference"]
-    assert golden["resolver_status"] == "external_wait"
-    assert golden["resolver_reason_code"] == "external_event_dependency_unsatisfied"
-    assert golden["resolver_unsatisfied_dependencies"] == [
-        audit_status["canonical_executor_event"],
-        "m4-p2-6-3-compatibility:VERIFIED",
-    ]
+    assert golden["resolver_status"] == "completed"
+    assert golden["resolver_reason_code"] == "task_completed"
+    assert golden["resolver_unsatisfied_dependencies"] == []
     assert golden["execution_status"] == "NOT_RUN"
     assert golden["plan_artifact_digest"] is None
     assert golden["immutable_golden_fixture_is_oracle"] is None

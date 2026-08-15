@@ -43,7 +43,7 @@ from dehps.research_os.supervisor import (
 )
 
 ROOT = Path(__file__).resolve().parents[3]
-MANIFEST_PATH = ROOT / "configs/research-os/m4-information-theory-evidence-v1.json"
+MANIFEST_PATH = ROOT / "apps/worker-python/tests/fixtures/research_os/m4-information-theory-evidence-head-b6c03ba.json"
 SOURCE_PATH = ROOT / MARGINAL_STATIC_REPAIR_V2_HEALTH_DECISION_SOURCE_CONTRACT_PATH
 
 

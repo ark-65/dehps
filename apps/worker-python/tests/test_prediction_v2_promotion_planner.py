@@ -40,7 +40,7 @@ from dehps.research_os.supervisor import (
 )
 from test_m4_v2_marginal_static_historical_gate import _run as _gate_run
 
-MANIFEST_PATH = ROOT_DIR / "configs/research-os/m4-information-theory-evidence-v1.json"
+MANIFEST_PATH = ROOT_DIR / "apps/worker-python/tests/fixtures/research_os/m4-information-theory-evidence-head-b6c03ba.json"
 INDEX_PATH = ROOT_DIR / "configs/research-os/m4-information-theory-artifact-index-v1.json"
 
 

@@ -67,3 +67,15 @@ Integration answer: **NO — INTEGRATION_PENDING** until a fresh PR-head Worker
 run and a distinct fresh merged-main Worker run both conclude SUCCESS under the
 30-minute ceiling, local `main` is synchronized cleanly to `origin/main`, and
 the fresh Engineering request is typed-completed.
+
+
+## PR353 Worker CI 30-minute timeout recovery
+
+1. Engineering Request 599, Execution 490, and Decision 2518 failed at the PR-head Worker CI publication gate and are immutable, no-retry, and no-reuse.
+2. PR 353 remains OPEN and ready for review at head 6258f1e06b8ab40bd88298acca707dd33c384158 with auto-merge disabled. The cancelled PR-head run is 31847793774 and job 94917641067.
+3. The job ran for 30m17s. Its test step ran for 29m18s and reached 97% progress. The only terminal error was `The operation was canceled.` and the annotation was `The job has exceeded the maximum execution time of 30m0s`. There was no failed assertion, ERROR, traceback, or pytest failure summary, so this is a timeout boundary and not a scientific or test conclusion.
+4. The same exact tree completed the local full Worker suite in 1039.24s (17m19.24s). The observed CI test lower bound is 1758s, or 1.6916208 times the local duration.
+5. Raising only the unique Worker timeout from 30 to 45 minutes gives a 2700s ceiling. Preserving the observed 55s pre-test overhead leaves 887s (14m47s) after the observed 97% point.
+6. Recovery changes only the unique `timeout-minutes: 30` scalar to `timeout-minutes: 45`. Workflow triggers, concurrency, permissions, job shape, runner, install steps, exact pytest command, and deselections remain byte-equivalent.
+7. The old cancelled run is never rerun. A fresh synchronize commit on PR 353 must produce a new PR-head Worker SUCCESS before squash auto-merge is enabled, followed by a distinct merged-main Worker SUCCESS and a clean synchronized main.
+8. Integration answer: NO - INTEGRATION_PENDING until both fresh CI gates succeed and the fresh Engineering request completes. No production, Supervisor, workload, replay, P3, P4, or Promotion action occurs in this recovery.

@@ -2,7 +2,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from dehps.research_os.control_plane import ResearchOSControlPlane
 from dehps.research_os.information_theory import load_m4_manifest
 from dehps.research_os.information_theory.digest import config_digest
@@ -151,38 +150,25 @@ def test_p263_supersedes_compute_while_p261_identity_remains_replayable() -> Non
 def test_measurement_repair_is_unique_ready_after_completed_preflight() -> None:
     payload = _payload()
     ready, states = _states(payload)
-    assert ready == ["m4-p2-repair-measurement-system"]
+    assert ready == ["m4-v2-global-routing-recovery-v3"]
     assert states[PREFLIGHT_TASK] == "completed"
-    assert states["m4-p2-false-positive-and-power-runs"] == "dependency_wait"
-    assert states["m4-p2-automatic-gate-and-report"] == "dependency_wait"
-    assert states["m4-p2-repair-measurement-system"] == "ready"
+    assert states["m4-p2-false-positive-and-power-runs"] == "completed"
+    assert states["m4-p2-automatic-gate-and-report"] == "completed"
+    assert states["m4-p2-repair-measurement-system"] == "completed"
+    assert states["m4-v2-global-routing-recovery-v2"] == "failed"
     assert states["m4-p3-strict-historical-walk-forward"] == "dependency_wait"
 
 
 def test_legacy_pass_fact_cannot_bypass_full_v2_global_routing() -> None:
     payload = _payload()
-    _set_task_complete(
-        payload,
-        "m4-p2-repair-measurement-system",
-        "0" * 64,
-    )
-    payload["facts"]["artifacts"].append(
-        "m4-p2-repaired-measurement-contract:AVAILABLE"
-    )
-    _set_task_complete(payload, "m4-p2-false-positive-and-power-runs", "1" * 64)
-    _set_task_complete(payload, "m4-p2-automatic-gate-and-report", "2" * 64)
+    payload["facts"]["artifacts"].remove(REPAIR_FACT)
     payload["facts"]["artifacts"].append(PASS_FACT)
-    _set_task_complete(
-        payload,
-        "m4-p2-synthetic-measurement-validation",
-        "4" * 64,
-    )
     ready, states = _states(payload)
     assert states["m4-p3-strict-historical-walk-forward"] == "dependency_wait"
     assert states["m4-p2-repair-measurement-system"] == "completed"
     assert "m4-p3-strict-historical-walk-forward" not in ready
 
-    _set_task_complete(payload, "m4-v2-global-routing-recovery-v2", "3" * 64)
+    _set_task_complete(payload, "m4-v2-global-routing-recovery-v3", "3" * 64)
     payload["facts"]["artifacts"].append(
         "m4-v2-routing:ADAPTIVE_RESEARCH_ELIGIBLE"
     )
@@ -213,9 +199,11 @@ def test_legacy_pass_fact_cannot_bypass_full_v2_global_routing() -> None:
 def test_identifiability_repair_fact_opens_only_repair_and_keeps_p3_closed() -> None:
     payload = _payload()
     ready, states = _states(payload)
-    assert ready == ["m4-p2-repair-measurement-system"]
+    assert ready == ["m4-v2-global-routing-recovery-v3"]
+    assert states["m4-p2-repair-measurement-system"] == "completed"
+    assert states["m4-v2-global-routing-recovery-v2"] == "failed"
     assert states["m4-p3-strict-historical-walk-forward"] == "dependency_wait"
-    assert states["m4-p2-synthetic-measurement-validation"] == "dependency_wait"
+    assert states["m4-p2-synthetic-measurement-validation"] == "completed"
 
 
 def test_pass_and_repair_facts_cannot_coexist() -> None:

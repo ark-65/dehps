@@ -1,6 +1,6 @@
 {
   "accepted_support_input_schema": "dehps-m4-v2-accepted-support-input.v3",
-  "artifact_digest": "3056dc8ec97d91b8b7ad3f283b56e89693569e23b070e143c220f999d1dbac8e",
+  "artifact_digest": "99b32cba51531bde1b69722124a30091199b2ddbd073f5a886ea2d02ff3c6b5b",
   "artifact_type": "m4_v2_temporal_marginal_increment_source_contract",
   "contract_key": "m4-v2-temporal-marginal-increment-contract-v3",
   "corrected_amendment_contract_digest": "a6c59a1f0e0ae81b8eedbee9dfac515a50b26d57bd33c9e0e4ae122d811fd37c",
@@ -212,11 +212,11 @@
     },
     {
       "path": "apps/worker-python/dehps/research_os/supervisor.py",
-      "sha256": "492bbecb3d69e2969aca471d4fff2d315cdb5f97566350cef1117bae5888becb"
+      "sha256": "51189c4a5ede238e492955e12927763b85ca024a3bf4e4abca15411cb143662f"
     },
     {
       "path": "apps/worker-python/dehps/research_os/information_theory/progress.py",
-      "sha256": "90c51eedec56308e7196ad4bfd97c0302e4463ffbd166f182b2a7ce4e599af9c"
+      "sha256": "5f872cfa93a73e6a3b1fa71c5fd120d3e38b67215cb2adc08f41a7924881fd6e"
     },
     {
       "path": "apps/worker-python/dehps/research_os/control_plane.py",
@@ -238,7 +238,7 @@
   "source_fact": "m4-v2-temporal-marginal-increment-contract-v3:M4_MEASUREMENT_CONTRACT_V2:FROZEN",
   "source_path_array_contract_version": 4,
   "source_path_array_digest": "c3aa7e4fbb5a60393e68582ebf9b47d572892b8c2a8494db8065b8a604ab1898",
-  "source_set_digest": "5957d641a7ade50eebfb6a0b3de9260132875e03c66a5773b9cc6a0323179451",
+  "source_set_digest": "df1a1bc0eb84d663b664e8d50da1950830bac95ddeea18c5b22b8d76bbe93c5e",
   "supersedes_v2_artifact_digest": "eb306e418182c8d2fc39272aa653018a9f5ad6afcbcf0c4825d88f09a8980c37",
   "supersedes_v2_source_set_digest": "347871439de9af2736ba2eefa69c21bd2122bdecfaab77cf49b9830a1d56268a"
 }

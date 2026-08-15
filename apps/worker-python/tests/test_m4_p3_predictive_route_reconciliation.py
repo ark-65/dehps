@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from dehps.config import ROOT_DIR
 from dehps.research_os import supervisor as supervisor_module
 from dehps.research_os.control_plane import ResearchOSControlPlane
@@ -67,6 +66,7 @@ from dehps.research_os.models import (
     MainlineArtifactRegistration,
     TaskStatus,
 )
+
 from scripts import build_m4_p3_predictive_route_reconciliation_manifest as builder
 
 MANIFEST_PATH = (
@@ -400,8 +400,19 @@ def _resolution(payload: dict[str, Any], task_key: str):
     return next(item for item in snapshot.resolutions if item.task_key == task_key)
 
 
-def _source_payload(contract: dict[str, Any]) -> dict[str, Any]:
+def _source_base_payload() -> dict[str, Any]:
     payload = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    assert any(
+        task["task_key"] == "m4-v2-global-routing-recovery-v3"
+        for task in payload["tasks"]
+    )
+    payload["facts"]["artifacts"].remove(P2R_TO_P6_POLICY_FACT)
+    payload.pop("manifest_digest", None)
+    return payload
+
+
+def _source_payload(contract: dict[str, Any]) -> dict[str, Any]:
+    payload = _source_base_payload()
     return builder.build_source_payload(payload, source_contract=contract)
 
 
@@ -1174,8 +1185,8 @@ def test_frozen_live_identity_and_legacy_dependencies_reject_changes(
 
 def test_source_builder_preserves_p2_p2r_and_structural_p3_and_separates_routes() -> None:
     contract, _ = _synthetic_contract_and_inputs()
-    base = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
-    source = builder.build_source_payload(base, source_contract=contract)
+    base = _source_base_payload()
+    source = _source_payload(contract)
     base_tasks = {item["task_key"]: item for item in base["tasks"]}
     source_tasks = {item["task_key"]: item for item in source["tasks"]}
 
@@ -1203,9 +1214,9 @@ def test_source_builder_preserves_p2_p2r_and_structural_p3_and_separates_routes(
     assert structural_metric["bootstrap_resamples"] == 20_000
     assert structural_metric["predictive_p3_authorized"] is False
 
-    # Static source records the immutable P2 outcome in the task contract.  The
-    # durable decision fact is preserved from live truth and is not synthesized.
-    assert P2_REPAIR_DECISION_FACT not in source["facts"]["artifacts"]
+    # The active recovery-v3 fixture carries the immutable durable repair outcome;
+    # the historical builder must preserve it and must never synthesize PASS.
+    assert P2_REPAIR_DECISION_FACT in source["facts"]["artifacts"]
     assert P2_PASS_TO_P3_FACT not in source["facts"]["artifacts"]
     assert ADAPTIVE_RESEARCH_ELIGIBILITY_FACT not in source["facts"]["artifacts"]
     assert PREDICTIVE_P3_PASS_TO_P4_FACT not in source["facts"]["artifacts"]
@@ -1313,7 +1324,7 @@ def test_repaired_manifest_keeps_structural_terminal_and_predictive_p3_waiting(
     resolutions = {item.task_key: item for item in snapshot.resolutions}
     assert resolutions[STRUCTURAL_COMPILER_TASK_KEY].status is TaskStatus.COMPLETED
     assert resolutions[PREDICTIVE_P3_TASK_KEY].status is TaskStatus.DEPENDENCY_WAIT
-    assert resolutions[GLOBAL_ROUTING_TASK_KEY].status is TaskStatus.DEPENDENCY_WAIT
+    assert resolutions[GLOBAL_ROUTING_TASK_KEY].status is TaskStatus.FAILED
     assert resolutions[P2R_TASK_KEY].status is TaskStatus.EXTERNAL_WAIT
     assert resolutions[PREDICTIVE_ROUTE_RECONCILIATION_TASK_KEY].status is (
         TaskStatus.READY

@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parents[3]
 PREREG_PATH = ROOT / "configs/research-os/m4-information-theory-preregistration-v1.json"
 POLICY_PATH = ROOT / "configs/research-os/m4-information-theory-decision-policy-v1.json"
 P2_INPUT_PATH = ROOT / "configs/research-os/m4-information-theory-p2-input-v1.json"
-MANIFEST_PATH = ROOT / "configs/research-os/m4-information-theory-evidence-v1.json"
+MANIFEST_PATH = ROOT / "apps/worker-python/tests/fixtures/research_os/m4-information-theory-evidence-head-b6c03ba.json"
 
 
 def _load(path: Path = PREREG_PATH):

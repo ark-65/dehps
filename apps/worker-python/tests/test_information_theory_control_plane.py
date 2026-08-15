@@ -38,7 +38,7 @@ def test_m4_manifest_freezes_legacy_mainline_and_selects_p2() -> None:
     assert legacy_target["research_status"] == "rejected"
     assert legacy_target["mainline_status"] == "frozen"
     assert [item.task_key for item in snapshot.ready_queue] == [
-        "m4-p2-repair-measurement-system",
+        "m4-v2-global-routing-recovery-v3",
     ]
     assert (
         _by_task(snapshot)["m4-p2-9-golden-reference-freeze"].status
@@ -46,7 +46,7 @@ def test_m4_manifest_freezes_legacy_mainline_and_selects_p2() -> None:
     )
     assert (
         _by_task(snapshot)["m4-p2-9-p263-golden-reference-freeze"].status
-        is TaskStatus.EXTERNAL_WAIT
+        is TaskStatus.COMPLETED
     )
     assert (
         _by_task(snapshot)["m4-p1-contract-and-preregistration"].status
@@ -54,7 +54,7 @@ def test_m4_manifest_freezes_legacy_mainline_and_selects_p2() -> None:
     )
     assert (
         _by_task(snapshot)["m4-p2-synthetic-measurement-validation"].status
-        is TaskStatus.DEPENDENCY_WAIT
+        is TaskStatus.COMPLETED
     )
     assert (
         _by_task(snapshot)["m4-p2-synthetic-contracts-and-null-generator"].status
@@ -80,7 +80,7 @@ def test_m4_p2_ready_queue_does_not_unblock_formal_run() -> None:
     snapshot = ResearchOSControlPlane().resolve(manifest)
 
     assert [item.task_key for item in snapshot.ready_queue] == [
-        "m4-p2-repair-measurement-system",
+        "m4-v2-global-routing-recovery-v3",
     ]
     assert (
         _by_task(snapshot)["m4-p2-9-measurement-runtime-audit"].status
@@ -94,11 +94,11 @@ def test_m4_p2_ready_queue_does_not_unblock_formal_run() -> None:
         _by_task(snapshot)[
             "m4-p2-9-p263-runtime-observation-arithmetic-fix"
         ].status
-        is TaskStatus.EXTERNAL_WAIT
+        is TaskStatus.COMPLETED
     )
     assert (
         _by_task(snapshot)["m4-p2-synthetic-measurement-validation"].status
-        is TaskStatus.DEPENDENCY_WAIT
+        is TaskStatus.COMPLETED
     )
     assert (
         build_m4_status(manifest, snapshot=snapshot)["formal_real_data_run"]
@@ -160,11 +160,11 @@ def test_m4_status_keeps_engineering_and_evidence_progress_separate() -> None:
     status = build_m4_status(manifest)
 
     assert status["goal"] == M4_GOAL_KEY
-    assert status["current_phase"] == "M4-P2"
-    assert status["current_state"] == "REPAIR_REQUIRED"
-    assert status["next_ready_task"] == "m4-p2-repair-measurement-system"
-    assert status["progress"]["engineering_percent"] == 38
-    assert status["progress"]["evidence_percent"] == 0
+    assert status["current_phase"] == "M4-P3"
+    assert status["current_state"] == "DEPENDENCY_WAIT"
+    assert status["next_ready_task"] == "m4-v2-global-routing-recovery-v3"
+    assert status["progress"]["engineering_percent"] == 43
+    assert status["progress"]["evidence_percent"] == 25
     assert status["gate_status"] == {
         "promotion_gate": "CLOSED",
         "adaptive_supervisor": "STOPPED",
@@ -174,7 +174,7 @@ def test_m4_status_keeps_engineering_and_evidence_progress_separate() -> None:
     assert status["current_statistics"]["practical_null"] == "[-0.01,+0.01] bits/issue"
     assert status["preregistration"]["status"] == "FROZEN"
     assert status["p2_input_contract"] == "VALID"
-    assert status["synthetic_validation"] == "MEASUREMENT_CONTRACT_REPAIR_REQUIRED"
+    assert status["synthetic_validation"] == "REPAIR_MEASUREMENT_SYSTEM"
     assert (
         status["artifacts"]["p2_walk_forward_mainline_execution_digest"]
         == "4e3d81cbee28b529091a11603e3a5683c1f265d9accc4f01d4c7076192c20363"
@@ -186,6 +186,8 @@ def test_m4_status_keeps_engineering_and_evidence_progress_separate() -> None:
         "M4-P2.4",
         "M4-P2.5",
         "M4-P2.6-PREFLIGHT",
+        "M4-P2.6.3",
+        "M4-P2.7",
     ]
     assert status["p2_subphase"]["completion_classification"] == "COMPLETE"
     assert status["formal_real_data_run"] == "NOT_STARTED"
@@ -245,7 +247,7 @@ def test_m4_p5_projects_external_wait_as_wait_forward_then_settling() -> None:
 
     assert waiting["current_phase"] == "M4-P5"
     assert waiting["current_state"] == "WAIT_FORWARD"
-    assert waiting["next_ready_task"] is None
+    assert waiting["next_ready_task"] == "m4-v2-global-routing-recovery-v3"
     assert waiting["next_external_dependency"] == M4_FORWARD_EVENT_KEY
     assert settling["current_phase"] == "M4-P5"
     assert settling["current_state"] == "SETTLING"

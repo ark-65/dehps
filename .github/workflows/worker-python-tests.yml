@@ -20,7 +20,7 @@ concurrency:
 jobs:
   pytest:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       # Frozen evidence digests include numerically solved float payloads.
       # Keep OpenBLAS on one portable AVX2 kernel so hosted-runner CPU model

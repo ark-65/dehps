@@ -19,8 +19,8 @@ from typing import Any
 
 import psycopg
 import pytest
-
 from dehps.config import ROOT_DIR
+from dehps.contracts import canonical_digest
 from dehps.research_os import supervisor as supervisor_module
 from dehps.research_os.control_plane import ResearchOSControlPlane
 from dehps.research_os.information_theory import (
@@ -79,9 +79,13 @@ from dehps.research_os.models import (
     validate_m4_v2_nested_schema,
 )
 from dehps.research_os.repository import PostgresResearchOSRepository
+
 from scripts import build_m4_v2_global_routing_manifest as global_builder
 from scripts import (
     build_m4_v2_global_routing_recovery_v2_manifest as global_recovery_v2_builder,
+)
+from scripts import (
+    build_m4_v2_global_routing_recovery_v3_manifest as global_recovery_v3_builder,
 )
 from scripts import build_m4_v2_joint_residual_increment_manifest as joint_builder
 from scripts import (
@@ -1597,9 +1601,9 @@ def _recovery_v2_input_payload() -> dict[str, Any]:
 @pytest.mark.parametrize(
     "tamper", ("artifact", "entry", "order", "extra", "semantic_metadata")
 )
-def test_global_recovery_v2_source_contract_fails_closed(tamper: str) -> None:
+def test_global_recovery_v3_source_contract_fails_closed(tamper: str) -> None:
     source = json.loads(SOURCE_PATHS[3].read_text(encoding="utf-8"))
-    assert global_recovery_v2_builder.validate_global_source_contract(
+    assert global_recovery_v3_builder.validate_global_source_contract(
         source, root_dir=ROOT_DIR
     ) == source["artifact_digest"]
     changed = copy.deepcopy(source)
@@ -1621,10 +1625,48 @@ def test_global_recovery_v2_source_contract_fails_closed(tamper: str) -> None:
         )
     else:
         changed["unregistered_metadata"] = "forbidden"
-    with pytest.raises(global_recovery_v2_builder.GlobalRoutingRecoveryV2Error):
-        global_recovery_v2_builder.validate_global_source_contract(
+    with pytest.raises(global_recovery_v3_builder.GlobalRoutingRecoveryV3Error):
+        global_recovery_v3_builder.validate_global_source_contract(
             changed, root_dir=ROOT_DIR
         )
+
+
+def test_global_recovery_v3_pure_successor_is_unique_ready_and_result_blind() -> None:
+    v2_ready, _ = global_recovery_v2_builder.build_manifest(
+        _recovery_v2_input_payload(),
+        global_source_contract_digest=(
+            "24bfd16ee558f13ec2a50a30a8d903a11934fc128f996f370d78fdba9a4929ec"
+        ),
+    )
+    failed_payload = ControlPlaneManifest.from_dict(v2_ready).to_dict(
+        include_digest=False
+    )
+    v2 = next(
+        task
+        for task in failed_payload["tasks"]
+        if task["task_key"] == global_recovery_v2_builder.RECOVERY_TASK_KEY
+    )
+    v2["status"] = "failed"
+    v2["completion_classification"] = "INTEGRATED"
+    failed = ControlPlaneManifest.from_dict(failed_payload)
+    assert failed.artifact_digest == global_recovery_v3_builder.INPUT_MANIFEST_DIGEST
+    source = json.loads(SOURCE_PATHS[3].read_text(encoding="utf-8"))
+    output, dry_run = global_recovery_v3_builder.build_manifest(
+        failed.to_dict(include_digest=True),
+        global_source_contract_digest=source["artifact_digest"],
+    )
+    successor = ControlPlaneManifest.from_dict(output)
+    snapshot = ResearchOSControlPlane().resolve(successor)
+    assert [item.task_key for item in snapshot.ready_queue] == [
+        global_recovery_v3_builder.RECOVERY_TASK_KEY
+    ]
+    assert dry_run["p3_folds"] == 0
+    assert dry_run["import_performed"] is False
+    assert dry_run["production_action"] == "none"
+    old = next(task for task in successor.tasks if task.task_key == global_recovery_v3_builder.OLD_TASK_KEY)
+    new = next(task for task in successor.tasks if task.task_key == global_recovery_v3_builder.RECOVERY_TASK_KEY)
+    assert old.artifact_digest == global_recovery_v3_builder.OLD_TASK_DIGEST
+    assert successor.task_state_by_digest[old.artifact_digest].superseded_by_task_digest == new.artifact_digest
 
 
 def test_recovery_input_fixture_matches_live_database_when_available() -> None:
@@ -1653,13 +1695,9 @@ def test_recovery_input_fixture_matches_live_database_when_available() -> None:
     assert input_snapshot.ready_queue == ()
 
     current = repository.load_manifest(control_plane_key=CONTROL_PLANE_KEY)
-    assert current.artifact_digest == (
-        "8d9ed3811969cb80979c51e2c27f451ca2c4b127d59a2c1a9e105127b68bb084"
-    )
+    assert current.artifact_digest == global_recovery_v3_builder.INPUT_MANIFEST_DIGEST
     current_snapshot = ResearchOSControlPlane().resolve(current)
-    assert current_snapshot.snapshot_digest == (
-        "e60513a5d59644a2cc4aa0cc444bae880caf1af07e39813f6d2e46c9b6cf4086"
-    )
+    assert current_snapshot.snapshot_digest == global_recovery_v3_builder.INPUT_SNAPSHOT_DIGEST
     assert current_snapshot.ready_queue == ()
 
 
@@ -1797,10 +1835,16 @@ def _attach_execution_owner(record: dict[str, Any], *, name: str) -> None:
     task_key = str(registration["task_key"])
     task_digest = str(registration["task_digest"])
     child_digest = str(artifact["artifact_digest"])
+    branch_id = str(artifact.get("body", {}).get("branch_id") or "")
+    parent_digests = [_digest(f"execution-source:{task_key}"), child_digest]
+    if name == "decision" and branch_id in {
+        "TEMPORAL_MARGINAL_INCREMENT",
+        "JOINT_RESIDUAL_INCREMENT",
+    }:
+        parent_digests.append(_digest(f"execution-completion:{task_key}"))
     execution = {
         "schema_version": "dehps-research-os-mainline-execution.v1",
         "artifact_type": "research_os_mainline_execution",
-        "artifact_digest": _digest(f"execution-artifact:{task_key}:{execution_id}"),
         "execution_id": execution_id,
         "control_plane_key": CONTROL_PLANE_KEY,
         "task_key": task_key,
@@ -1808,8 +1852,12 @@ def _attach_execution_owner(record: dict[str, Any], *, name: str) -> None:
         "status": "COMPLETE",
         "completion_classification": "VALIDATED_IN_MAINLINE",
         "git_commit": GIT_COMMIT,
-        "parent_digests": [_digest(f"execution-source:{task_key}"), child_digest],
+        "parent_digests": parent_digests,
     }
+    execution["artifact_digest"] = canonical_digest(
+        execution,
+        domain="dehps.research-os.mainline-execution.v1",
+    )
     owner = MainlineArtifactRegistration(
         execution_id=execution_id,
         control_plane_key=CONTROL_PLANE_KEY,
@@ -3765,6 +3813,59 @@ def test_global_router_requires_exact_runtime_owner_records(
         )
 
 
+@pytest.mark.parametrize(
+    "branch_index,name,tamper",
+    (
+        (1, "decision", "missing_child"),
+        (1, "decision", "duplicate_child"),
+        (1, "decision", "wrong_count"),
+        (2, "decision", "wrong_order"),
+        (2, "replay", "wrong_count"),
+    ),
+)
+def test_global_router_execution_owner_exact_membership_and_cardinality(
+    branch_index: int, name: str, tamper: str
+) -> None:
+    records, _ = _zero_compute_records()
+    changed = copy.deepcopy(records)
+    execution = changed[branch_index][f"{name}_execution"]
+    child = changed[branch_index][name]["artifact_digest"]
+    parents = execution["parent_digests"]
+    if tamper == "missing_child":
+        parents[parents.index(child)] = _digest("missing-child")
+    elif tamper == "duplicate_child":
+        parents[-1] = child
+    elif tamper == "wrong_count":
+        parents.append(_digest("extra-parent"))
+    else:
+        parents[0], parents[1] = parents[1], parents[0]
+    registration = MainlineArtifactRegistration(
+        execution_id=execution["execution_id"],
+        control_plane_key=execution["control_plane_key"],
+        task_key=execution["task_key"],
+        task_digest=execution["task_digest"],
+        artifact_digest=execution["artifact_digest"],
+        artifact_type=execution["artifact_type"],
+        schema_version=execution["schema_version"],
+        artifact_path=(
+            f"runtime/research-os/mainline/tasks/{execution['task_key']}/"
+            f"{execution['execution_id']}/execution.json"
+        ),
+        parent_digests=tuple(parents),
+        git_commit=execution["git_commit"],
+    )
+    changed[branch_index][f"{name}_execution_registration"] = {
+        "registration_digest": registration.registration_digest,
+        **jsonable(registration),
+    }
+    with pytest.raises(routing.M4V2GlobalRoutingError):
+        routing.compile_m4_v2_global_route_decision(
+            changed,
+            source_contract_digest=_digest("global-source"),
+            task_digest=_digest("global-task"),
+        )
+
+
 def test_global_router_is_finite_categorical_and_replay_is_pure(monkeypatch) -> None:
     records = _accepted_records()
     route = routing.compile_m4_v2_global_route_decision(
@@ -3871,7 +3972,7 @@ def test_resolver_global_route_and_four_and_p3_barrier() -> None:
     assert marginal_builder.REPLAY_RECOVERY_TASK_KEY in {
         task.task_key for task in manifest.tasks
     }
-    global_task = _task(payload, global_recovery_v2_builder.RECOVERY_TASK_KEY)
+    global_task = _task(payload, global_recovery_v3_builder.RECOVERY_TASK_KEY)
     placeholder = _task(payload, M4_P3_PREDICTIVE_PREREGISTRATION_TASK_KEY)
     predictive_p3 = _task(payload, PREDICTIVE_P3_TASK_KEY)
     assert global_task["requested_capability"] == routing.GLOBAL_ROUTE_CAPABILITY
@@ -3884,7 +3985,7 @@ def test_resolver_global_route_and_four_and_p3_barrier() -> None:
     assert placeholder["metric_contract"]["execution_authorized"] is False
     assert placeholder["completion_classification"] == "INTEGRATION_PENDING"
     assert _dependency_tuples(placeholder) == (
-        ("task", global_recovery_v2_builder.RECOVERY_TASK_KEY, "completed"),
+        ("task", global_recovery_v3_builder.RECOVERY_TASK_KEY, "completed"),
         ("artifact", routing.ADAPTIVE_RESEARCH_ELIGIBILITY_FACT, "available"),
     )
     assert _dependency_tuples(predictive_p3) == (
@@ -3899,9 +4000,9 @@ def test_resolver_global_route_and_four_and_p3_barrier() -> None:
         for item in ResearchOSControlPlane().resolve(manifest).ready_queue
         if item.task_key in successor_task_keys
     ]
-    assert successor_ready == []
+    assert successor_ready == [global_recovery_v3_builder.RECOVERY_TASK_KEY]
 
-    _set_task_completed(payload, global_recovery_v2_builder.RECOVERY_TASK_KEY)
+    _set_task_completed(payload, global_recovery_v3_builder.RECOVERY_TASK_KEY)
     _add_facts(payload, routing.ADAPTIVE_RESEARCH_ELIGIBILITY_FACT)
     manifest = ControlPlaneManifest.from_dict(_without_manifest_digest(payload))
     assert (

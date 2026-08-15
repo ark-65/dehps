@@ -93,6 +93,10 @@ M4_V2_SUCCESSOR_REPLAY_FACTS = tuple(
     f"M4_MEASUREMENT_CONTRACT_V2:{branch_id}:VERIFIED"
     for branch_id in M4_V2_SUCCESSOR_BRANCH_ORDER
 )
+M4_V2_GLOBAL_ROUTING_RECOVERY_TASK_KEY = "m4-v2-global-routing-recovery-v3"
+M4_V2_GLOBAL_ROUTING_RECOVERY_COMPLETION_FACT = (
+    "m4-v2-global-routing-recovery-v3:COMPLETE"
+)
 M4_V2_SUCCESSOR_TASKS = {
     "marginal_decision": (
         "m4-v2-marginal-static-historical-identity-adoption-recovery-v1"
@@ -124,9 +128,8 @@ M4_V2_SUCCESSOR_TASKS = {
     "joint_replay": (
         "m4-v2-joint-residual-increment-historical-branch-decision-replay"
     ),
-    "global_routing": GLOBAL_ROUTE_RECOVERY_TASK_KEY,
+    "global_routing": M4_V2_GLOBAL_ROUTING_RECOVERY_TASK_KEY,
 }
-M4_V2_GLOBAL_ROUTING_RECOVERY_TASK_KEY = M4_V2_SUCCESSOR_TASKS["global_routing"]
 M4_V2_ACTIVE_SUCCESSOR_SOURCE_CONTRACTS = {
     "temporal_producer": {
         "selector": "temporal_v3",
@@ -633,7 +636,11 @@ def validate_m4_v2_successor_structure(
     )
     global_task = tasks[M4_V2_SUCCESSOR_TASKS["global_routing"]]
     if (
-        global_task.get("requested_capability") != "m4_v2_global_routing"
+        GLOBAL_ROUTE_RECOVERY_TASK_KEY
+        != M4_V2_GLOBAL_ROUTING_RECOVERY_TASK_KEY
+        or GLOBAL_ROUTE_RECOVERY_COMPLETION_FACT
+        != M4_V2_GLOBAL_ROUTING_RECOVERY_COMPLETION_FACT
+        or global_task.get("requested_capability") != "m4_v2_global_routing"
         or _successor_dependency_tuples(global_task) != expected_global
     ):
         raise PredictiveRouteReconciliationError(
@@ -1697,7 +1704,7 @@ def build_m4_status(
             "JOINT_RESIDUAL_INCREMENT:TERMINAL"
         ),
         "joint_replay": M4_V2_SUCCESSOR_REPLAY_FACTS[2],
-        "global_routing": GLOBAL_ROUTE_RECOVERY_COMPLETION_FACT,
+        "global_routing": M4_V2_GLOBAL_ROUTING_RECOVERY_COMPLETION_FACT,
     }
     successor_task_projection: dict[str, Any] = {}
     for label, successor_task_key in M4_V2_SUCCESSOR_TASKS.items():

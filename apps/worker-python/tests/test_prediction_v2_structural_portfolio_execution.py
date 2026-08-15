@@ -74,7 +74,7 @@ from dehps.research_os.supervisor import (
     ResearchEvidenceSupervisor,
 )
 
-MANIFEST_PATH = ROOT_DIR / "configs/research-os/m4-information-theory-evidence-v1.json"
+MANIFEST_PATH = ROOT_DIR / "apps/worker-python/tests/fixtures/research_os/m4-information-theory-evidence-head-b6c03ba.json"
 INDEX_PATH = (
     ROOT_DIR / "configs/research-os/m4-information-theory-artifact-index-v1.json"
 )
