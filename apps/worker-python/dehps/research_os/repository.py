@@ -559,12 +559,18 @@ class PostgresResearchOSRepository:
         task_revisions: list[tuple[str, str, str]] = []
 
         with self.connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
+            recovery_v3 = _load_m4_v2_global_routing_recovery_v3_builder()
+            v3_successor_present = any(
+                task.task_key == recovery_v3.RECOVERY_TASK_KEY
+                for task in manifest.tasks
+            )
             self._verify_m4_v2_failed_global_routing_recovery_v3_import(
                 cursor, control_plane_key=key, manifest=manifest
             )
-            self._verify_m4_v2_failed_global_routing_recovery_v2_import(
-                cursor, control_plane_key=key, manifest=manifest
-            )
+            if not v3_successor_present:
+                self._verify_m4_v2_failed_global_routing_recovery_v2_import(
+                    cursor, control_plane_key=key, manifest=manifest
+                )
             self._verify_m4_v2_failed_global_routing_recovery_import(
                 cursor, control_plane_key=key, manifest=manifest
             )

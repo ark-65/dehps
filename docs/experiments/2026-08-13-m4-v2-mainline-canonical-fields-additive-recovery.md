@@ -417,6 +417,60 @@ run from the frozen recovery manifest boundary.
 12. Integration matrix: `NO — INTEGRATION_PENDING`.
 13. Predictive-P3 folds: `0`.
 
+## Global recovery v3 import dispatcher correction
+
+1. Formal Operator Request 603 and Execution 493 are immutable failed
+   records under Decision 2536 and are not retried or reused. The sole
+   conditional recovery-v3 import attempt failed before the first write;
+   `import_count=0`, the durable manifest remains `b50a4c07…`, the durable
+   snapshot remains `527494d7…`, Ready remains `[]`, and recovery-v3 retains
+   zero definitions, states, events, and registrations.
+2. A result-blind READ ONLY validator reproduction rebuilt the exact approved
+   recovery-v3 candidate manifest `ed48af29…`, canonical identity
+   `bd31cb80…` / `299516`, snapshot `ca5636d3…`, and unique Ready task
+   `m4-v2-global-routing-recovery-v3`. The recovery-v3 verifier passes; the
+   immediately following legacy recovery-v2 verifier rejects that additive
+   successor as
+   `ResearchOSValidationError("m4_v2_global_recovery_v2_output_changed")`.
+   No result, error, decision, execution, or registered-artifact payload was
+   read to establish the dispatcher fault.
+3. Completed Research Request 604 / Execution 494 freezes the one permitted
+   recovery-v3 repair. Approved Engineering Request 605 / Execution 495
+   changes only the repository dispatcher, its repository tests, and this
+   append-only report. No recovery-v4, artifact type, schema field, registry
+   field, successor task, compatibility layer, threshold, estimand, or route
+   is added.
+4. `PostgresResearchOSRepository.import_manifest` always invokes the immutable
+   recovery-v3 verifier first. Only after it passes, exact presence of
+   `m4-v2-global-routing-recovery-v3` suppresses the incompatible
+   recovery-v2 whole-manifest verifier. Inputs without that exact task still
+   invoke the unchanged recovery-v2 verifier exactly once. The legacy
+   recovery-v1 verifier and every downstream prewrite/write guard remain in
+   their original order; malformed recovery-v3 input still fails before a
+   skip or write.
+5. Mandatory dispatcher tests pass `9` cases with one contract-defined
+   isolated-PostgreSQL skip. The first independent review rejected an earlier
+   probe that replaced the recovery-v3 verifier; the corrected default-suite
+   cases now execute the immutable production verifier for exact `ed48` and
+   all task/source/manifest tampering before observing dispatcher order and
+   the no-write boundary. The complete repository module passes `97` tests
+   with five isolated-PostgreSQL skips. Ruff, `py_compile`, exact3 scope, and
+   `git diff --check` pass. A zero-failure full Worker run and fresh independent
+   final code/contract review remain mandatory pre-commit gates.
+6. The prior publication baseline remains PR 353: PR-head Worker run
+   `31852289234` and merged-main Worker run `31853919479` both succeeded;
+   merged main is `737b50bf533f3be909cb89e00892cddce10663c5`. Fresh
+   dispatcher-fix PR-head and merged-main CI identities are external
+   post-commit lifecycle evidence and are intentionally not recorded in this
+   source report.
+7. This Engineering round performs no production import, Supervisor run,
+   workload, replay, route, P3 fold/event, P4 action, or Promotion. Predictive
+   P3 folds remain exactly `0`.
+8. Integration matrix: `NO — INTEGRATION_PENDING`. After exact3 publication
+   and both fresh CI gates succeed, a fresh separately reviewed Operator must
+   import the approved recovery-v3 manifest and resume Resolver-driven
+   execution.
+
 ## Global recovery v2 repository builder loader closure
 
 1. Completed Research Request 568 freezes one repository-only correction:
