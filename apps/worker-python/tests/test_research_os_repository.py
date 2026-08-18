@@ -2107,6 +2107,287 @@ def test_global_recovery_v3_import_rolls_back_before_first_write(monkeypatch) ->
     assert events == ["rollback"]
 
 
+def _probe_global_recovery_v3_import_dispatch(
+    monkeypatch,
+    manifest: ControlPlaneManifest,
+    *,
+    expected_error: str = "dispatcher-probe-complete",
+) -> list[str]:
+    events: list[str] = []
+
+    class Cursor(_RecoveryV3Cursor):
+        def __init__(self):
+            super().__init__(
+                manifest,
+                current=(
+                    _terminal_recovery_v2_manifest()
+                    if recovery_v3.RECOVERY_TASK_KEY
+                    in {task.task_key for task in manifest.tasks}
+                    else manifest
+                ),
+            )
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, statement, parameters=()):
+            if not " ".join(str(statement).split()).startswith("SELECT"):
+                events.append("write")
+                raise AssertionError("SQL reached before dispatcher probe stopped")
+            return super().execute(statement, parameters)
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, *_args):
+            events.append("rollback" if exc_type else "commit")
+            return False
+
+        def cursor(self, **_kwargs):
+            return Cursor()
+
+    @contextmanager
+    def connection_factory():
+        with Connection() as connection:
+            yield connection
+
+    repository = PostgresResearchOSRepository(connection_factory)  # type: ignore[arg-type]
+    real_verify_v3 = (
+        repository._verify_m4_v2_failed_global_routing_recovery_v3_import
+    )
+
+    def verify_v3(*_args, **_kwargs):
+        events.append("v3")
+        return real_verify_v3(*_args, **_kwargs)
+
+    def verify_v2(*_args, **_kwargs):
+        events.append("v2")
+
+    def verify_v1(*_args, **_kwargs):
+        events.append("v1")
+
+    def stop_after_dispatch(*_args, **_kwargs):
+        events.append("replay")
+        raise ResearchOSValidationError("dispatcher-probe-complete")
+
+    monkeypatch.setattr(
+        repository,
+        "_verify_m4_v2_failed_global_routing_recovery_v3_import",
+        verify_v3,
+    )
+    monkeypatch.setattr(
+        repository,
+        "_verify_m4_v2_failed_global_routing_recovery_v2_import",
+        verify_v2,
+    )
+    monkeypatch.setattr(
+        repository,
+        "_verify_m4_v2_failed_global_routing_recovery_import",
+        verify_v1,
+    )
+    monkeypatch.setattr(
+        repository,
+        "_verify_m4_v2_failed_replay_recovery_import",
+        stop_after_dispatch,
+    )
+    with pytest.raises(ResearchOSValidationError, match=f"^{expected_error}$"):
+        repository.import_manifest(
+            control_plane_key="m4-information-theory-mainline",
+            payload=manifest.to_dict(include_digest=True),
+        )
+    return events
+
+
+def test_global_recovery_v3_import_dispatches_valid_successor_without_reentering_v2(
+    monkeypatch,
+) -> None:
+    events = _probe_global_recovery_v3_import_dispatch(
+        monkeypatch,
+        _active_recovery_v3_manifest(),
+    )
+    assert events == ["v3", "v1", "replay", "rollback"]
+
+
+@pytest.mark.parametrize(
+    ("tamper", "expected_error"),
+    (
+        ("task", "m4_v2_global_recovery_v3_output_changed"),
+        ("source", "m4_v2_global_recovery_v3_source_changed"),
+        ("manifest", "m4_v2_global_recovery_v3_output_changed"),
+    ),
+)
+def test_global_recovery_v3_import_rejects_malformed_successor_before_v2_skip_or_first_write(
+    monkeypatch,
+    tamper: str,
+    expected_error: str,
+) -> None:
+    payload = _active_recovery_v3_manifest().to_dict(include_digest=False)
+    recovery = next(
+        item
+        for item in payload["tasks"]
+        if item["task_key"] == recovery_v3.RECOVERY_TASK_KEY
+    )
+    if tamper == "task":
+        recovery["priority"] += 1
+    elif tamper == "source":
+        recovery["input_artifact_digests"] = ["0" * 64]
+    else:
+        payload["facts"]["external_events"].append("tamper:manifest")
+    manifest = ControlPlaneManifest.from_dict(payload)
+    assert manifest.artifact_digest != _active_recovery_v3_manifest().artifact_digest
+    events = _probe_global_recovery_v3_import_dispatch(
+        monkeypatch,
+        manifest,
+        expected_error=expected_error,
+    )
+    assert events == ["v3", "rollback"]
+
+
+@pytest.mark.parametrize("stage", ("INPUT", "READY", "RUNNING", "FAILED", "COMPLETED"))
+def test_global_recovery_v3_import_preserves_v2_and_input_baseline_dispatch(
+    monkeypatch,
+    stage: str,
+) -> None:
+    manifests = {
+        "INPUT": _recovery_v2_baseline_manifest(),
+        "READY": _active_recovery_v2_manifest(),
+        "RUNNING": _recovery_v2_runtime_fixture("RUNNING")[0],
+        "FAILED": _recovery_v2_runtime_fixture("FAILED")[0],
+        "COMPLETED": _recovery_v2_runtime_fixture("COMPLETED")[0],
+    }
+    events = _probe_global_recovery_v3_import_dispatch(
+        monkeypatch,
+        manifests[stage],
+    )
+    assert events == ["v3", "v2", "v1", "replay", "rollback"]
+
+
+def test_global_recovery_v3_ready_import_reaches_ready_queue_in_isolated_postgres(
+    postgres_repository,
+    monkeypatch,
+) -> None:
+    _, connection_factory, _schema = postgres_repository
+    baseline = _terminal_recovery_v2_manifest()
+    seed = PostgresResearchOSRepository(connection_factory)  # type: ignore[arg-type]
+    for name in (
+        "_verify_m4_v2_failed_global_routing_recovery_v3_import",
+        "_verify_m4_v2_failed_global_routing_recovery_v2_import",
+        "_verify_m4_v2_failed_global_routing_recovery_import",
+        "_verify_mainline_completion_records",
+        "_verify_no_mainline_completion_regression",
+    ):
+        monkeypatch.setattr(seed, name, lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        seed,
+        "_verify_m4_v2_failed_replay_recovery_import",
+        lambda *_args, **_kwargs: True,
+    )
+    seed.import_manifest(
+        control_plane_key="m4-information-theory-mainline",
+        payload=baseline.to_dict(include_digest=True),
+        source="test-recovery-v3-dispatch-seed",
+    )
+    predecessor = _RecoveryV3Cursor(baseline).predecessor_events
+    with connection_factory() as connection:
+        for index, event in enumerate(predecessor):
+            connection.execute(
+                """INSERT INTO research_os_mainline_execution_events (
+                     event_digest, execution_id, control_plane_key, manifest_digest,
+                     task_digest, task_key, capability, event_type, sequence,
+                     recorded_at, event_json
+                   ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, '{}'::jsonb)""",
+                (
+                    event["event_digest"],
+                    event["execution_id"],
+                    "m4-information-theory-mainline",
+                    event["manifest_digest"],
+                    event["task_digest"],
+                    event["task_key"],
+                    "m4_v2_global_routing",
+                    event["event_type"],
+                    event["sequence"],
+                    f"2026-08-14T00:0{index}:00+00:00",
+                ),
+            )
+
+    repository = PostgresResearchOSRepository(connection_factory)  # type: ignore[arg-type]
+
+    def reject_v2(*_args, **_kwargs):
+        raise AssertionError("recovery-v2 verifier reentered for recovery-v3")
+
+    monkeypatch.setattr(
+        repository,
+        "_verify_m4_v2_failed_global_routing_recovery_v2_import",
+        reject_v2,
+    )
+    monkeypatch.setattr(
+        repository,
+        "_verify_m4_v2_failed_global_routing_recovery_import",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        repository,
+        "_verify_m4_v2_failed_replay_recovery_import",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        repository,
+        "_verify_mainline_completion_records",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        repository,
+        "_verify_no_mainline_completion_regression",
+        lambda *_args, **_kwargs: None,
+    )
+    ready = _active_recovery_v3_manifest()
+    result = repository.import_manifest(
+        control_plane_key="m4-information-theory-mainline",
+        payload=ready.to_dict(include_digest=True),
+        source="test-recovery-v3-dispatch",
+    )
+    assert result.manifest_digest == ready.artifact_digest
+    assert result.snapshot_digest == (
+        "ca5636d335b23495b068cf1a0cad9c900bba83a9830e0690b70846ba262eb99b"
+    )
+    assert result.ready_task_keys == (recovery_v3.RECOVERY_TASK_KEY,)
+    assert repository.list_mainline_execution_event_metadata(
+        control_plane_key="m4-information-theory-mainline",
+        task_keys=(recovery_v3.RECOVERY_TASK_KEY,),
+    ) == ()
+    with connection_factory() as connection:
+        registration_count = connection.execute(
+            """SELECT COUNT(*) FROM research_os_mainline_artifacts
+               WHERE control_plane_key = %s AND task_key = %s""",
+            (
+                "m4-information-theory-mainline",
+                recovery_v3.RECOVERY_TASK_KEY,
+            ),
+        ).fetchone()[0]
+    assert registration_count == 0
+
+    before_tamper = _counts(connection_factory)
+    tampered_payload = ready.to_dict(include_digest=False)
+    tampered_payload["facts"]["external_events"].append("tamper:manifest")
+    with pytest.raises(
+        ResearchOSValidationError,
+        match="^m4_v2_global_recovery_v3_output_changed$",
+    ):
+        repository.import_manifest(
+            control_plane_key="m4-information-theory-mainline",
+            payload=tampered_payload,
+            source="test-recovery-v3-dispatch-tamper",
+        )
+    assert repository.load_manifest(
+        control_plane_key="m4-information-theory-mainline"
+    ).artifact_digest == ready.artifact_digest
+    assert _counts(connection_factory) == before_tamper
+
+
 def _counts(connection_factory) -> dict[str, int]:
     tables = (
         "research_os_goal_definitions",
