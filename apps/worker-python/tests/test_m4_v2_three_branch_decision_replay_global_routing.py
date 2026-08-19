@@ -87,6 +87,9 @@ from scripts import (
 from scripts import (
     build_m4_v2_global_routing_recovery_v3_manifest as global_recovery_v3_builder,
 )
+from scripts import (
+    build_m4_v2_global_routing_replay_compatibility_v1_manifest as replay_compatibility,
+)
 from scripts import build_m4_v2_joint_residual_increment_manifest as joint_builder
 from scripts import (
     build_m4_v2_nine_downstream_resealed_input_manifest as nine_revision_builder,
@@ -3525,20 +3528,30 @@ class _GovernanceCursor:
     def __exit__(self, *_args):
         return False
 
-    def execute(self, sql: str, _params: Any):
+    def execute(self, sql: str, params: Any):
         normalized = " ".join(sql.split())
         self.sql.append(normalized)
         if "FROM agent_requests" in normalized:
-            return _Rows(self.fixture["requests"])
+            identifiers = set(params[0])
+            return _Rows(
+                row for row in self.fixture["requests"] if row["id"] in identifiers
+            )
         if (
             "FROM agent_request_executions" in normalized
             and "count(*)" not in normalized
         ):
-            return _Rows(self.fixture["executions"])
+            identifiers = set(params[0])
+            return _Rows(
+                row for row in self.fixture["executions"] if row["id"] in identifiers
+            )
         if "decision_code = 'request_approved'" in normalized:
             return _Rows(self.fixture["counts"])
         if "FROM agent_request_decisions" in normalized and "max(id)" not in normalized:
-            return _Rows(self.fixture["decisions"])
+            identifiers = set(params[0])
+            key = "id" if "WHERE id = ANY" in normalized else "request_id"
+            return _Rows(
+                row for row in self.fixture["decisions"] if row[key] in identifiers
+            )
         if "count(*) AS count" in normalized:
             return _Rows(self.fixture["counts"])
         if "max(id) AS last_decision_id" in normalized:
@@ -4213,36 +4226,35 @@ def test_source_contracts_exact_closure_and_digest_drift_fail_closed(
             assert item["sha256"] == hashlib.sha256(historical_bytes).hexdigest()
 
     active_source_sets: dict[str, tuple[str, ...]] = {}
+    active_source_roots: dict[str, Path] = {}
     for family in ("marginal", "global"):
-        source_root = ROOT_DIR
-        if family == "global":
-            source_root = tmp_path / "frozen-global-recovery-v3-source"
-            source_contract_path = str(specs[family]["path"])
-            source_contract = json.loads(
-                (ROOT_DIR / source_contract_path).read_text(encoding="utf-8")
-            )
-            target_contract = source_root / source_contract_path
-            target_contract.parent.mkdir(parents=True, exist_ok=True)
-            target_contract.write_text(
-                json.dumps(source_contract, ensure_ascii=False, sort_keys=True),
-                encoding="utf-8",
-            )
-            for item in source_contract["source_entries"]:
-                source_path = str(item["path"])
-                frozen = subprocess.run(
-                    [
-                        "git",
-                        "show",
-                        f"cbb2841b682f20d1c42d7159ff32e8a802d0878c:{source_path}",
-                    ],
-                    cwd=ROOT_DIR,
-                    check=True,
-                    capture_output=True,
-                ).stdout
-                assert hashlib.sha256(frozen).hexdigest() == item["sha256"]
-                target = source_root / source_path
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_bytes(frozen)
+        source_root = tmp_path / f"frozen-{family}-producer-source"
+        source_contract_path = str(specs[family]["path"])
+        source_contract = json.loads(
+            (ROOT_DIR / source_contract_path).read_text(encoding="utf-8")
+        )
+        target_contract = source_root / source_contract_path
+        target_contract.parent.mkdir(parents=True, exist_ok=True)
+        target_contract.write_text(
+            json.dumps(source_contract, ensure_ascii=False, sort_keys=True),
+            encoding="utf-8",
+        )
+        for item in source_contract["source_entries"]:
+            source_path = str(item["path"])
+            frozen = subprocess.run(
+                [
+                    "git",
+                    "show",
+                    f"cbb2841b682f20d1c42d7159ff32e8a802d0878c:{source_path}",
+                ],
+                cwd=ROOT_DIR,
+                check=True,
+                capture_output=True,
+            ).stdout
+            assert hashlib.sha256(frozen).hexdigest() == item["sha256"]
+            target = source_root / source_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(frozen)
         contract = supervisor_module._load_m4_v2_successor_source_contract(
             root_dir=source_root, family=family
         )
@@ -4252,14 +4264,42 @@ def test_source_contracts_exact_closure_and_digest_drift_fail_closed(
             SOURCE_PATHS[0 if family == "marginal" else 3].read_text(encoding="utf-8")
         )["artifact_digest"]
         active_source_sets[family] = entries
+        active_source_roots[family] = source_root
     expected_arrays = {
         "temporal": "c3aa7e4fbb5a60393e68582ebf9b47d572892b8c2a8494db8065b8a604ab1898",
         "joint": "b9d51e1feb75e656708e410c9f719d839fedc3ed5c6dc2eae9929be8bfdcb60d",
     }
     for family in ("temporal", "joint"):
         selector = specs[family]["selector"]
+        source_root = tmp_path / f"frozen-{family}-producer-source"
+        source_contract_path = str(specs[family]["path"])
+        source_contract = json.loads(
+            (ROOT_DIR / source_contract_path).read_text(encoding="utf-8")
+        )
+        target_contract = source_root / source_contract_path
+        target_contract.parent.mkdir(parents=True, exist_ok=True)
+        target_contract.write_text(
+            json.dumps(source_contract, ensure_ascii=False, sort_keys=True),
+            encoding="utf-8",
+        )
+        for item in source_contract["source_entries"]:
+            source_path = str(item["path"])
+            frozen = subprocess.run(
+                [
+                    "git",
+                    "show",
+                    f"cbb2841b682f20d1c42d7159ff32e8a802d0878c:{source_path}",
+                ],
+                cwd=ROOT_DIR,
+                check=True,
+                capture_output=True,
+            ).stdout
+            assert hashlib.sha256(frozen).hexdigest() == item["sha256"]
+            target = source_root / source_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(frozen)
         contract = supervisor_module.load_m4_v2_active_successor_source_contract(
-            root_dir=ROOT_DIR, selector=selector
+            root_dir=source_root, selector=selector
         )
         entries = tuple(item["path"] for item in contract["source_entries"])
         assert entries == tuple(specs[family]["entries"])
@@ -4272,10 +4312,11 @@ def test_source_contracts_exact_closure_and_digest_drift_fail_closed(
         )
         assert all(
             item["sha256"]
-            == hashlib.sha256((ROOT_DIR / item["path"]).read_bytes()).hexdigest()
+            == hashlib.sha256((source_root / item["path"]).read_bytes()).hexdigest()
             for item in contract["source_entries"]
         )
         active_source_sets[family] = entries
+        active_source_roots[family] = source_root
 
     for rejected_selector in (
         "marginal",
@@ -4304,11 +4345,11 @@ def test_source_contracts_exact_closure_and_digest_drift_fail_closed(
     family = "temporal"
     spec = specs[family]
     for entry in supervisor_module.load_m4_v2_active_successor_source_contract(
-        root_dir=ROOT_DIR, selector=spec["selector"]
+        root_dir=active_source_roots[family], selector=spec["selector"]
     )["source_entries"]:
         target = tmp_path / entry["path"]
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(ROOT_DIR / entry["path"], target)
+        shutil.copy2(active_source_roots[family] / entry["path"], target)
     contract_target = tmp_path / spec["path"]
     contract_target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT_DIR / spec["path"], contract_target)
@@ -4778,15 +4819,14 @@ def test_holm_lineage_and_formal_one_rules_fail_before_workload() -> None:
 def test_supervisor_global_replay_is_zero_write_and_preserves_all_identities(
     monkeypatch,
 ) -> None:
-    payload = _active_global_recovery_payload()
-    manifest = ControlPlaneManifest.from_dict(payload)
+    manifest = _running_replay_compatibility_manifest()
     before_manifest = m4_v2_canonical_json(manifest.to_dict(include_digest=True))
     before_snapshot = ResearchOSControlPlane().resolve(manifest)
     before_ready = m4_v2_canonical_json(jsonable(before_snapshot.ready_queue))
     records = _accepted_records()
     route = routing.compile_m4_v2_global_route_decision(
         records,
-        source_contract_digest=_digest("global-source"),
+        source_contract_digest=replay_compatibility.OLD_SOURCE_CONTRACT_DIGEST,
         task_digest=next(
             task
             for task in manifest.tasks
@@ -4826,15 +4866,12 @@ def test_supervisor_global_replay_is_zero_write_and_preserves_all_identities(
             raise AttributeError(name)
 
     repository = ReadOnlyRepository()
-    execution_id = _digest("global-execution")
+    execution_id = replay_compatibility.OLD_EXECUTION_ID
     execution_artifact = {
         "execution_id": execution_id,
-        "artifact_digest": _digest("global-execution-artifact"),
+        "artifact_digest": replay_compatibility.OLD_EXECUTION_ARTIFACT_DIGEST,
     }
-    registrations = [
-        {"artifact_type": routing.GLOBAL_ROUTE_ARTIFACT_TYPE},
-        {"artifact_type": "research_os_mainline_execution"},
-    ]
+    registrations = _frozen_recovery_v3_registration_rows()
     monkeypatch.setattr(
         supervisor_module,
         "_load_single_completed_execution",
@@ -4842,13 +4879,8 @@ def test_supervisor_global_replay_is_zero_write_and_preserves_all_identities(
     )
     monkeypatch.setattr(
         supervisor_module,
-        "_load_m4_v2_successor_source_contract",
-        lambda **_kwargs: {"artifact_digest": _digest("global-source")},
-    )
-    monkeypatch.setattr(
-        supervisor_module.M4V2SuccessorCapability,
-        "_source",
-        lambda _self, _family, _task: {"artifact_digest": _digest("global-source")},
+        "_verify_exact_replay_compatibility_governance",
+        lambda **_kwargs: None,
     )
     by_decision_task = {
         M4_V2_SUCCESSOR_TASKS["marginal_decision"]: records[0],
@@ -4907,6 +4939,394 @@ def test_supervisor_global_replay_is_zero_write_and_preserves_all_identities(
     after_snapshot = ResearchOSControlPlane().resolve(manifest)
     assert after_snapshot.snapshot_digest == before_snapshot.snapshot_digest
     assert m4_v2_canonical_json(jsonable(after_snapshot.ready_queue)) == before_ready
+
+
+def _running_replay_compatibility_manifest() -> ControlPlaneManifest:
+    source = json.loads(
+        (ROOT_DIR / replay_compatibility.SOURCE_PATH).read_text(encoding="utf-8")
+    )
+    source_digest = replay_compatibility.validate_source_contract(
+        source, root_dir=ROOT_DIR
+    )
+    recovery_ready = ControlPlaneManifest.from_dict(_active_global_recovery_payload())
+    baseline_payload = recovery_ready.to_dict(include_digest=False)
+    recovery_task = next(
+        item
+        for item in baseline_payload["tasks"]
+        if item["task_key"] == global_recovery_v3_builder.RECOVERY_TASK_KEY
+    )
+    recovery_definition = next(
+        item
+        for item in recovery_ready.tasks
+        if item.task_key == global_recovery_v3_builder.RECOVERY_TASK_KEY
+    )
+    recovery_task["status"] = "completed"
+    recovery_task["completion_classification"] = "COMPLETE"
+    metric = recovery_task["metric_contract"]
+    baseline_payload["facts"]["artifacts"] = sorted(
+        {
+            *baseline_payload["facts"]["artifacts"],
+            (
+                f"mainline-execution:{recovery_task['task_key']}:"
+                f"{recovery_definition.artifact_digest}:"
+                f"{replay_compatibility.OLD_EXECUTION_ID}:completed"
+            ),
+            metric["route_facts"][replay_compatibility.OLD_ROUTE],
+            metric["completion_fact"],
+        }
+    )
+    completed = ControlPlaneManifest.from_dict(baseline_payload)
+    assert completed.artifact_digest == replay_compatibility.INPUT_MANIFEST_DIGEST
+    ready, _ = replay_compatibility.build_manifest(
+        completed.to_dict(include_digest=True), source_contract_digest=source_digest
+    )
+    return ControlPlaneManifest.from_dict(
+        replay_compatibility.transition_manifest(
+            ready, status="running", classification="INTEGRATED"
+        )
+    )
+
+
+def _frozen_recovery_v3_registration_rows() -> list[dict[str, Any]]:
+    return [
+        {
+            "artifact_type": "m4_measurement_routing_decision",
+            "registration_digest": replay_compatibility.OLD_ROUTE_REGISTRATION_DIGEST,
+            "artifact_digest": replay_compatibility.OLD_ROUTE_ARTIFACT_DIGEST,
+            "execution_id": replay_compatibility.OLD_EXECUTION_ID,
+            "task_digest": replay_compatibility.OLD_TASK_DIGEST,
+            "parent_digests": [],
+        },
+        {
+            "artifact_type": "research_os_mainline_execution",
+            "registration_digest": (
+                replay_compatibility.OLD_EXECUTION_REGISTRATION_DIGEST
+            ),
+            "artifact_digest": replay_compatibility.OLD_EXECUTION_ARTIFACT_DIGEST,
+            "execution_id": replay_compatibility.OLD_EXECUTION_ID,
+            "task_digest": replay_compatibility.OLD_TASK_DIGEST,
+            "parent_digests": [
+                replay_compatibility.OLD_SOURCE_CONTRACT_DIGEST,
+                replay_compatibility.OLD_ROUTE_ARTIFACT_DIGEST,
+            ],
+        },
+    ]
+
+
+def _exact_replay_governance_fixture():
+    research_request, research_execution, research_decisions = _governance_fixture(617)
+    engineering_request, engineering_execution, engineering_decisions = (
+        _governance_fixture(618, failed=True)
+    )
+    engineering_request["status"] = "completed"
+    engineering_execution.update(
+        {
+            "status": "completed",
+            "execution_type": "modify_code",
+            "artifact_paths": [],
+        }
+    )
+    engineering_decisions[1].update(
+        {
+            "previous_status": "approved",
+            "new_status": "executing",
+            "decision_code": "execution_started",
+            "summary": "execution started",
+            "reason": {"environment": "development"},
+            "decided_by_role": "engineering",
+            "decided_by": "engineering:fixture",
+        }
+    )
+    engineering_decisions[2].update(
+        {
+            "previous_status": "executing",
+            "new_status": "completed",
+            "decision_code": "execution_completed",
+            "summary": "request execution completed",
+            "reason": {"execution_id": engineering_execution["id"], "has_error": False},
+            "decided_by_role": "engineering",
+            "decided_by": "engineering:fixture",
+        }
+    )
+    builder = SimpleNamespace(
+        RESEARCH_REQUEST_ID=research_request["id"],
+        RESEARCH_EXECUTION_ID=research_execution["id"],
+        RESEARCH_REQUEST_IDENTITY_DIGEST=governance_request_identity_digest(
+            research_request
+        ),
+        RESEARCH_EXECUTION_METADATA_DIGEST=governance_execution_metadata_digest(
+            research_execution
+        ),
+        RESEARCH_DECISION_DIGESTS={
+            row["id"]: governance_reviewer_decision_digest(row)
+            for row in research_decisions
+        },
+        ENGINEERING_REQUEST_ID=engineering_request["id"],
+        ENGINEERING_EXECUTION_ID=engineering_execution["id"],
+        ENGINEERING_REQUEST_IDENTITY_DIGEST=governance_request_identity_digest(
+            engineering_request
+        ),
+        ENGINEERING_EXECUTION_METADATA_DIGEST=governance_execution_metadata_digest(
+            engineering_execution
+        ),
+        ENGINEERING_DECISION_DIGESTS={
+            row["id"]: governance_reviewer_decision_digest(row)
+            for row in engineering_decisions[:-1]
+        },
+        ENGINEERING_COMPLETION_DECISION_IDENTITY={
+            key: engineering_decisions[-1][key]
+            for key in (
+                "request_id",
+                "previous_status",
+                "new_status",
+                "decision_code",
+                "summary",
+                "reason",
+                "decided_by_role",
+                "decided_by",
+            )
+        },
+    )
+    fixture = {
+        "requests": [research_request, engineering_request],
+        "executions": [research_execution, engineering_execution],
+        "decisions": [*research_decisions, *engineering_decisions],
+        "counts": [
+            {"request_id": research_request["id"], "count": 1},
+            {"request_id": engineering_request["id"], "count": 1},
+        ],
+        "last": [],
+    }
+    return builder, fixture
+
+
+def test_exact_replay_governance_binds_payload_execution_and_decision_chain() -> None:
+    builder, fixture = _exact_replay_governance_fixture()
+    supervisor_module._verify_exact_replay_compatibility_governance(
+        agent_repository=_GovernanceRepository(fixture), builder=builder
+    )
+
+    for mutation in ("payload", "extra_execution", "reviewer", "extra_decision"):
+        broken = copy.deepcopy(fixture)
+        if mutation == "payload":
+            broken["requests"][0]["payload"]["scope_drift"] = True
+        elif mutation == "extra_execution":
+            broken["counts"][0]["count"] = 2
+        elif mutation == "reviewer":
+            broken["decisions"][0]["decided_by"] = "reviewer:tampered"
+        else:
+            extra = copy.deepcopy(broken["decisions"][-1])
+            extra["id"] += 1000
+            broken["decisions"].append(extra)
+        with pytest.raises(
+            supervisor_module.MainlineSupervisorError,
+            match="exact replay compatibility governance",
+        ):
+            supervisor_module._verify_exact_replay_compatibility_governance(
+                agent_repository=_GovernanceRepository(broken), builder=builder
+            )
+
+
+def test_exact_frozen_v3_replay_resolves_historical_and_current_sources_separately(
+    monkeypatch,
+) -> None:
+    manifest = _running_replay_compatibility_manifest()
+    old_task = next(
+        task
+        for task in manifest.tasks
+        if task.task_key == replay_compatibility.OLD_TASK_KEY
+    )
+    monkeypatch.setattr(
+        supervisor_module,
+        "_verify_exact_replay_compatibility_governance",
+        lambda **_kwargs: None,
+    )
+    producer = supervisor_module._resolve_exact_frozen_v3_replay_source(
+        root_dir=ROOT_DIR,
+        manifest=manifest,
+        old_task=old_task,
+        execution_artifact={
+            "execution_id": replay_compatibility.OLD_EXECUTION_ID,
+            "artifact_digest": replay_compatibility.OLD_EXECUTION_ARTIFACT_DIGEST,
+        },
+        registrations=_frozen_recovery_v3_registration_rows(),
+        agent_repository=SimpleNamespace(),
+    )
+    current_source = json.loads(
+        (ROOT_DIR / replay_compatibility.SOURCE_PATH).read_text(encoding="utf-8")
+    )
+    assert producer["artifact_digest"] == replay_compatibility.OLD_SOURCE_CONTRACT_DIGEST
+    assert producer["source_set_digest"] == replay_compatibility.OLD_SOURCE_SET_DIGEST
+    assert replay_compatibility.validate_source_contract(
+        current_source, root_dir=ROOT_DIR
+    ) == current_source["artifact_digest"]
+    assert hashlib.sha256(
+        (
+            ROOT_DIR
+            / "apps/worker-python/dehps/research_os/information_theory/"
+            "measurement_system_v2/routing.py"
+        ).read_bytes()
+    ).hexdigest() == "abe869ee15bc0755b52a0af558bc51d8022f4e723890f1d67560bffcc66f19dc"
+    assert replay_compatibility.OLD_PRODUCER_ROUTING_SHA256 == (
+        "6c676cda1987a970d78b9bfd445a2251d233b3333b740ef4fb21198ecdb7194b"
+    )
+    assert (
+        replay_compatibility.OLD_PRODUCER_ROUTING_SHA256
+        != current_source["source_entries"][0]["sha256"]
+    )
+
+
+@pytest.mark.parametrize("mutation", ("priority", "dependency", "metric"))
+def test_exact_frozen_v3_replay_rejects_successor_definition_drift(
+    monkeypatch, mutation: str
+) -> None:
+    manifest = _running_replay_compatibility_manifest()
+    payload = manifest.to_dict(include_digest=False)
+    successor = next(
+        item
+        for item in payload["tasks"]
+        if item["task_key"] == replay_compatibility.SUCCESSOR_TASK_KEY
+    )
+    if mutation == "priority":
+        successor["priority"] += 1
+    elif mutation == "dependency":
+        successor["dependencies"].append(
+            {
+                "dependency_type": "external_event",
+                "target_key": "unauthorized-extra-event",
+                "required_status": "available",
+            }
+        )
+    else:
+        successor["metric_contract"]["unapproved_field"] = True
+    drifted = ControlPlaneManifest.from_dict(payload)
+    old_task = next(
+        task
+        for task in drifted.tasks
+        if task.task_key == replay_compatibility.OLD_TASK_KEY
+    )
+    monkeypatch.setattr(
+        supervisor_module,
+        "_verify_exact_replay_compatibility_governance",
+        lambda **_kwargs: None,
+    )
+    with pytest.raises(
+        supervisor_module.MainlineSupervisorError,
+        match="approved replay compatibility successor contract changed",
+    ):
+        supervisor_module._resolve_exact_frozen_v3_replay_source(
+            root_dir=ROOT_DIR,
+            manifest=drifted,
+            old_task=old_task,
+            execution_artifact={
+                "execution_id": replay_compatibility.OLD_EXECUTION_ID,
+                "artifact_digest": replay_compatibility.OLD_EXECUTION_ARTIFACT_DIGEST,
+            },
+            registrations=_frozen_recovery_v3_registration_rows(),
+            agent_repository=SimpleNamespace(),
+        )
+
+
+@pytest.mark.parametrize(
+    ("row_index", "field"),
+    ((0, "registration_digest"), (1, "execution_id"), (1, "parent_digests")),
+)
+def test_exact_frozen_v3_replay_rejects_registration_identity_drift(
+    monkeypatch, row_index: int, field: str
+) -> None:
+    manifest = _running_replay_compatibility_manifest()
+    old_task = next(
+        task
+        for task in manifest.tasks
+        if task.task_key == replay_compatibility.OLD_TASK_KEY
+    )
+    rows = _frozen_recovery_v3_registration_rows()
+    rows[row_index][field] = [] if field == "parent_digests" else _digest("tampered")
+    monkeypatch.setattr(
+        supervisor_module,
+        "_verify_exact_replay_compatibility_governance",
+        lambda **_kwargs: None,
+    )
+    with pytest.raises(
+        supervisor_module.MainlineSupervisorError,
+        match="frozen recovery-v3 replay registration identity changed",
+    ):
+        supervisor_module._resolve_exact_frozen_v3_replay_source(
+            root_dir=ROOT_DIR,
+            manifest=manifest,
+            old_task=old_task,
+            execution_artifact={
+                "execution_id": replay_compatibility.OLD_EXECUTION_ID,
+                "artifact_digest": replay_compatibility.OLD_EXECUTION_ARTIFACT_DIGEST,
+            },
+            registrations=rows,
+            agent_repository=SimpleNamespace(),
+        )
+
+
+def test_exact_frozen_v3_replay_rejects_producer_and_compatibility_source_drift(
+    tmp_path: Path, monkeypatch
+) -> None:
+    builder = supervisor_module._load_exact_global_routing_replay_compatibility_builder()
+    original_reader = supervisor_module._m4_v2_raw_git_blob
+
+    def tampered_history(*, root_dir: Path, commit: str, path: str) -> bytes:
+        if path.endswith("measurement_system_v2/routing.py"):
+            return b"tampered historical producer"
+        return original_reader(root_dir=root_dir, commit=commit, path=path)
+
+    monkeypatch.setattr(supervisor_module, "_m4_v2_raw_git_blob", tampered_history)
+    with pytest.raises(
+        supervisor_module.MainlineSupervisorError,
+        match="frozen recovery-v3 producer source bytes changed",
+    ):
+        supervisor_module._verify_exact_frozen_global_routing_producer_source(
+            root_dir=ROOT_DIR, builder=builder
+        )
+
+    source = json.loads(
+        (ROOT_DIR / replay_compatibility.SOURCE_PATH).read_text(encoding="utf-8")
+    )
+    for entry in source["source_entries"]:
+        destination = tmp_path / entry["path"]
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT_DIR / entry["path"], destination)
+    changed = tmp_path / source["source_entries"][0]["path"]
+    changed.write_bytes(changed.read_bytes() + b"\n")
+    with pytest.raises(
+        replay_compatibility.GlobalRoutingReplayCompatibilityV1Error,
+        match="global_routing_replay_compatibility_source_bytes_changed",
+    ):
+        replay_compatibility.validate_source_contract(source, root_dir=tmp_path)
+
+
+def test_exact_frozen_v3_replay_rejects_unauthorized_task(monkeypatch) -> None:
+    manifest = ControlPlaneManifest.from_dict(_active_global_recovery_payload())
+    old_task = next(
+        task
+        for task in manifest.tasks
+        if task.task_key == replay_compatibility.OLD_TASK_KEY
+    )
+    monkeypatch.setattr(
+        supervisor_module,
+        "_verify_exact_replay_compatibility_governance",
+        lambda **_kwargs: None,
+    )
+    with pytest.raises(
+        supervisor_module.MainlineSupervisorError,
+        match="approved replay compatibility successor identity changed",
+    ):
+        supervisor_module._resolve_exact_frozen_v3_replay_source(
+            root_dir=ROOT_DIR,
+            manifest=manifest,
+            old_task=old_task,
+            execution_artifact={
+                "execution_id": replay_compatibility.OLD_EXECUTION_ID,
+                "artifact_digest": replay_compatibility.OLD_EXECUTION_ARTIFACT_DIGEST,
+            },
+            registrations=_frozen_recovery_v3_registration_rows(),
+            agent_repository=SimpleNamespace(),
+        )
 
 
 class _RegistrationCursor:

@@ -32,6 +32,16 @@ OLD_EXECUTION_ARTIFACT_DIGEST = "dc233fb990d4b7d1ca1dd6693ec95c4bb960ffc58d18a0d
 OLD_EXECUTION_REGISTRATION_DIGEST = "e207fee89e567de793d81fdf38b489c1ae8472dee59791c1eb79771f9ab022c8"
 OLD_ROUTE = "DEEPER_VALIDATION_REQUIRED"
 OLD_GIT_COMMIT = "cbb2841b682f20d1c42d7159ff32e8a802d0878c"
+OLD_SOURCE_PATH = "configs/research-os/m4-v2-global-routing-source-v1.json"
+OLD_SOURCE_CONTRACT_DIGEST = (
+    "11cb628f050f05465676fe083a6f9c183cbf855edfec8e194e98ad0450cdfd64"
+)
+OLD_SOURCE_SET_DIGEST = (
+    "cb48f271e3a082d143d435187b5ee8587f5684c9333259d79340d2c297c55631"
+)
+OLD_PRODUCER_ROUTING_SHA256 = (
+    "6c676cda1987a970d78b9bfd445a2251d233b3333b740ef4fb21198ecdb7194b"
+)
 OLD_ROUTE_PATH = (
     "runtime/research-os/mainline/tasks/m4-v2-global-routing-recovery-v3/"
     f"{OLD_EXECUTION_ID}/artifacts/global-routing-decision/"
@@ -50,8 +60,54 @@ SUCCESSOR_TASK_KEY = (
 SUCCESSOR_COMPLETION_FACT = f"{SUCCESSOR_TASK_KEY}:COMPLETE"
 REGISTERED_REPLAY_FACT = f"{SUCCESSOR_TASK_KEY}:REGISTERED_REPLAY_VERIFIED"
 AUTHORIZATION_EVENT = (
-    "agent-request:613:APPROVE_EXACT_ADDITIVE_REPLAY_SUCCESSOR_IMPORT"
+    "agent-request:618:APPROVE_EXACT_FROZEN_V3_REPLAY_SOURCE_RESOLUTION"
 )
+
+RESEARCH_REQUEST_ID = 617
+RESEARCH_REQUEST_KEY = "research-m4-v2-exact-frozen-v3-replay-only-source-resolution-v2"
+RESEARCH_EXECUTION_ID = 503
+RESEARCH_APPROVAL_DECISION_ID = 2591
+RESEARCH_REQUEST_IDENTITY_DIGEST = (
+    "822f42f92f9368ad355a489d1be6d11fcef738b56db4ff5bb67182e2cca78033"
+)
+RESEARCH_EXECUTION_METADATA_DIGEST = (
+    "1c508a487d554f702525978e9c4425bbc223724fceeb9eff56576eb5627913f8"
+)
+RESEARCH_DECISION_DIGESTS = {
+    2589: "21b4858606620a89ea108efb2aef045cbe446079908b44c70f3a0f7a45b182ac",
+    2590: "869068cfa733bff0ffacb3cdb782a610bfc25ac511d511013996d3cab99f3cf4",
+    2591: "dbb87f5271597625273a0ec7531fb4c3335de1f4d67a77834d9b68d44e54a25e",
+    2592: "5a432e0a701756cc5f87e28dbf47580f516c5db679538d915966b7f0b264096d",
+    2593: "6b36cc854ddc21787265a10bdc60102a2863bdaffb3e8a73a1895c3887a70f48",
+}
+ENGINEERING_REQUEST_ID = 618
+ENGINEERING_REQUEST_KEY = "engineering-m4-v2-exact-frozen-v3-replay-only-source-resolution-v1"
+ENGINEERING_EXECUTION_ID = 504
+ENGINEERING_APPROVAL_DECISION_ID = 2596
+ENGINEERING_START_DECISION_ID = 2597
+ENGINEERING_REQUEST_IDENTITY_DIGEST = (
+    "c10c6d6a6404b795a1b57b0a47cfecb6946da5a8c66170ce07a4ff4a8869b857"
+)
+ENGINEERING_EXECUTION_METADATA_DIGEST = (
+    "77885d54d756adb9161fd08731884e85bee73fdf2b7fb45bc85076a70b39beb7"
+)
+ENGINEERING_DECISION_DIGESTS = {
+    2594: "08af038ac3ae24dd885729e2d475f02d7ca5116f13e6fbee85930b11743981f0",
+    2595: "52c0c1b91d1d320985a177aba57694fd4e05f8b8812f2f768268c675b8bbf1f1",
+    2596: "af8d7a9edff86bbb55c64d619a744ec0457a1fba2563ba19d84761013a44a9b9",
+    2597: "0c8025aa4673e573dcc27eb74155f8ba19ba8e36a74ec31ad21a0f9d0454af13",
+}
+ENGINEERING_COMPLETION_DECISION_IDENTITY = {
+    "request_id": ENGINEERING_REQUEST_ID,
+    "previous_status": "executing",
+    "new_status": "completed",
+    "decision_code": "execution_completed",
+    "summary": "request execution completed",
+    "reason": {"execution_id": ENGINEERING_EXECUTION_ID, "has_error": False},
+    "decided_by_role": "engineering",
+    "decided_by": "engineering:exact-frozen-v3-replay-source-resolution-v1",
+}
+REVIEW_OUTCOME = "APPROVE_EXACT_FROZEN_V3_REPLAY_SOURCE_RESOLUTION"
 
 SOURCE_PATH = (
     "configs/research-os/m4-v2-global-routing-replay-compatibility-v1.json"
@@ -60,6 +116,7 @@ SOURCE_SCHEMA = "dehps-m4-v2-global-routing-replay-compatibility-source.v1"
 SOURCE_ARTIFACT_TYPE = "m4_v2_global_routing_source_contract"
 SOURCE_ENTRIES = (
     "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/routing.py",
+    "apps/worker-python/dehps/research_os/supervisor.py",
     "apps/worker-python/dehps/research_os/repository.py",
     "apps/worker-python/scripts/build_m4_v2_global_routing_replay_compatibility_v1_manifest.py",
 )
@@ -72,14 +129,30 @@ SOURCE_FIELDS = {
     "source_entries",
     "source_set_digest",
     "research_request_id",
+    "research_execution_id",
     "research_decision_id",
+    "research_request_identity_digest",
+    "research_execution_metadata_digest",
+    "research_decision_digests",
     "engineering_request_id",
+    "engineering_execution_id",
     "engineering_decision_id",
+    "engineering_start_decision_id",
+    "engineering_request_identity_digest",
+    "engineering_execution_metadata_digest",
+    "engineering_decision_digests",
+    "engineering_completion_decision_identity",
     "review_outcome",
     "baseline_manifest_digest",
     "old_task_digest",
+    "old_execution_id",
+    "old_source_contract_digest",
+    "old_source_set_digest",
+    "old_producer_routing_sha256",
     "old_route_artifact_digest",
     "old_route_registration_digest",
+    "old_execution_artifact_digest",
+    "old_execution_registration_digest",
     "global_route",
     "successor_task_key",
     "workload_rerun",
@@ -102,17 +175,44 @@ def validate_source_contract(source: Mapping[str, Any], *, root_dir: Path) -> st
         set(payload) != SOURCE_FIELDS
         or payload.get("schema_version") != SOURCE_SCHEMA
         or payload.get("artifact_type") != SOURCE_ARTIFACT_TYPE
-        or payload.get("research_request_id") != 612
-        or payload.get("research_decision_id") != 2577
-        or payload.get("engineering_request_id") != 613
-        or payload.get("engineering_decision_id") != 2582
-        or payload.get("review_outcome")
-        != "APPROVE_EXACT_ADDITIVE_REPLAY_SUCCESSOR_IMPORT"
+        or payload.get("research_request_id") != RESEARCH_REQUEST_ID
+        or payload.get("research_execution_id") != RESEARCH_EXECUTION_ID
+        or payload.get("research_decision_id") != RESEARCH_APPROVAL_DECISION_ID
+        or payload.get("research_request_identity_digest")
+        != RESEARCH_REQUEST_IDENTITY_DIGEST
+        or payload.get("research_execution_metadata_digest")
+        != RESEARCH_EXECUTION_METADATA_DIGEST
+        or payload.get("research_decision_digests")
+        != {str(key): value for key, value in RESEARCH_DECISION_DIGESTS.items()}
+        or payload.get("engineering_request_id") != ENGINEERING_REQUEST_ID
+        or payload.get("engineering_execution_id") != ENGINEERING_EXECUTION_ID
+        or payload.get("engineering_decision_id") != ENGINEERING_APPROVAL_DECISION_ID
+        or payload.get("engineering_start_decision_id")
+        != ENGINEERING_START_DECISION_ID
+        or payload.get("engineering_request_identity_digest")
+        != ENGINEERING_REQUEST_IDENTITY_DIGEST
+        or payload.get("engineering_execution_metadata_digest")
+        != ENGINEERING_EXECUTION_METADATA_DIGEST
+        or payload.get("engineering_decision_digests")
+        != {str(key): value for key, value in ENGINEERING_DECISION_DIGESTS.items()}
+        or payload.get("engineering_completion_decision_identity")
+        != ENGINEERING_COMPLETION_DECISION_IDENTITY
+        or payload.get("review_outcome") != REVIEW_OUTCOME
         or payload.get("baseline_manifest_digest") != INPUT_MANIFEST_DIGEST
         or payload.get("old_task_digest") != OLD_TASK_DIGEST
+        or payload.get("old_execution_id") != OLD_EXECUTION_ID
+        or payload.get("old_source_contract_digest")
+        != OLD_SOURCE_CONTRACT_DIGEST
+        or payload.get("old_source_set_digest") != OLD_SOURCE_SET_DIGEST
+        or payload.get("old_producer_routing_sha256")
+        != OLD_PRODUCER_ROUTING_SHA256
         or payload.get("old_route_artifact_digest") != OLD_ROUTE_ARTIFACT_DIGEST
         or payload.get("old_route_registration_digest")
         != OLD_ROUTE_REGISTRATION_DIGEST
+        or payload.get("old_execution_artifact_digest")
+        != OLD_EXECUTION_ARTIFACT_DIGEST
+        or payload.get("old_execution_registration_digest")
+        != OLD_EXECUTION_REGISTRATION_DIGEST
         or payload.get("global_route") != OLD_ROUTE
         or payload.get("successor_task_key") != SUCCESSOR_TASK_KEY
         or payload.get("workload_rerun") is not False
@@ -160,41 +260,12 @@ def validate_source_contract(source: Mapping[str, Any], *, root_dir: Path) -> st
     return artifact_digest
 
 
-def build_manifest(
-    live_payload: Mapping[str, Any], *, source_contract_digest: str
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    source_digest = _digest(source_contract_digest, "source_contract_digest")
-    manifest = ControlPlaneManifest.from_dict(deepcopy(dict(live_payload)))
-    snapshot = ResearchOSControlPlane().resolve(manifest)
-    if manifest.artifact_digest != INPUT_MANIFEST_DIGEST:
-        raise GlobalRoutingReplayCompatibilityV1Error(
-            "global_routing_replay_compatibility_input_manifest_changed"
-        )
-    if snapshot.snapshot_digest != INPUT_SNAPSHOT_DIGEST or snapshot.ready_queue:
-        raise GlobalRoutingReplayCompatibilityV1Error(
-            "global_routing_replay_compatibility_input_resolution_changed"
-        )
-    tasks = {task.task_key: task for task in manifest.tasks}
-    if len(tasks) != len(manifest.tasks) or SUCCESSOR_TASK_KEY in tasks:
-        raise GlobalRoutingReplayCompatibilityV1Error(
-            "global_routing_replay_compatibility_task_conflict"
-        )
-    old = tasks.get(OLD_TASK_KEY)
-    if old is None or old.artifact_digest != OLD_TASK_DIGEST:
-        raise GlobalRoutingReplayCompatibilityV1Error(
-            "global_routing_replay_compatibility_old_task_changed"
-        )
-    old_state = manifest.task_state_by_digest[old.artifact_digest]
-    if (
-        old_state.declared_status.value != "completed"
-        or old_state.completion_classification is None
-        or old_state.completion_classification.value != "COMPLETE"
-    ):
-        raise GlobalRoutingReplayCompatibilityV1Error(
-            "global_routing_replay_compatibility_old_state_changed"
-        )
+def build_successor_task(
+    old: Task, *, source_contract_digest: str
+) -> tuple[Task, dict[str, Any]]:
+    """Build the sole approved successor definition from exact current inputs."""
 
-    normalized = manifest.to_dict(include_digest=False)
+    source_digest = _digest(source_contract_digest, "source_contract_digest")
     successor_payload = {
         "task_key": SUCCESSOR_TASK_KEY,
         "goal_key": old.goal_key,
@@ -252,6 +323,47 @@ def build_manifest(
         "superseded_by_task_digest": None,
     }
     successor = Task.from_dict(successor_payload, goal_digest=old.goal_digest)
+    return successor, successor_payload
+
+
+def build_manifest(
+    live_payload: Mapping[str, Any], *, source_contract_digest: str
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    source_digest = _digest(source_contract_digest, "source_contract_digest")
+    manifest = ControlPlaneManifest.from_dict(deepcopy(dict(live_payload)))
+    snapshot = ResearchOSControlPlane().resolve(manifest)
+    if manifest.artifact_digest != INPUT_MANIFEST_DIGEST:
+        raise GlobalRoutingReplayCompatibilityV1Error(
+            "global_routing_replay_compatibility_input_manifest_changed"
+        )
+    if snapshot.snapshot_digest != INPUT_SNAPSHOT_DIGEST or snapshot.ready_queue:
+        raise GlobalRoutingReplayCompatibilityV1Error(
+            "global_routing_replay_compatibility_input_resolution_changed"
+        )
+    tasks = {task.task_key: task for task in manifest.tasks}
+    if len(tasks) != len(manifest.tasks) or SUCCESSOR_TASK_KEY in tasks:
+        raise GlobalRoutingReplayCompatibilityV1Error(
+            "global_routing_replay_compatibility_task_conflict"
+        )
+    old = tasks.get(OLD_TASK_KEY)
+    if old is None or old.artifact_digest != OLD_TASK_DIGEST:
+        raise GlobalRoutingReplayCompatibilityV1Error(
+            "global_routing_replay_compatibility_old_task_changed"
+        )
+    old_state = manifest.task_state_by_digest[old.artifact_digest]
+    if (
+        old_state.declared_status.value != "completed"
+        or old_state.completion_classification is None
+        or old_state.completion_classification.value != "COMPLETE"
+    ):
+        raise GlobalRoutingReplayCompatibilityV1Error(
+            "global_routing_replay_compatibility_old_state_changed"
+        )
+
+    normalized = manifest.to_dict(include_digest=False)
+    successor, successor_payload = build_successor_task(
+        old, source_contract_digest=source_digest
+    )
     normalized["tasks"].append(successor_payload)
     normalized["facts"]["artifacts"] = sorted(
         {*normalized["facts"]["artifacts"], source_digest}
