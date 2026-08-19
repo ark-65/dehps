@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import base64
 import copy
+import hashlib
 import json
 import lzma
 import os
@@ -36,8 +37,68 @@ from psycopg import sql
 
 from scripts import build_m4_v2_global_routing_recovery_v2_manifest as recovery_v2
 from scripts import build_m4_v2_global_routing_recovery_v3_manifest as recovery_v3
+from scripts import (
+    build_m4_v2_global_routing_replay_compatibility_v1_manifest as replay_compatibility,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
+
+
+@pytest.fixture(scope="module")
+def _frozen_recovery_v3_source_root(tmp_path_factory) -> Path:
+    root = tmp_path_factory.mktemp("frozen-recovery-v3-source")
+    source = json.loads(
+        (ROOT / recovery_v3.GLOBAL_SOURCE_PATH).read_text(encoding="utf-8")
+    )
+    for entry in source["source_entries"]:
+        path = str(entry["path"])
+        frozen = subprocess.run(
+            ["git", "show", f"{replay_compatibility.OLD_GIT_COMMIT}:{path}"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+        ).stdout
+        assert hashlib.sha256(frozen).hexdigest() == entry["sha256"]
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(frozen)
+    return root
+
+
+@pytest.fixture(autouse=True)
+def _bind_repository_historical_source_to_frozen_bytes(
+    monkeypatch,
+    _frozen_recovery_v3_source_root: Path,
+) -> None:
+    real_loader = repository_module._load_m4_v2_global_routing_recovery_v3_builder
+    direct_validate = recovery_v3.validate_global_source_contract
+
+    def validate_frozen(source, **_kwargs):
+        return direct_validate(
+            source,
+            root_dir=_frozen_recovery_v3_source_root,
+        )
+
+    monkeypatch.setattr(
+        recovery_v3,
+        "validate_global_source_contract",
+        validate_frozen,
+    )
+
+    def load_frozen_builder():
+        module = real_loader()
+        validate = module.validate_global_source_contract
+        module.validate_global_source_contract = lambda source, **_kwargs: validate(
+            source,
+            root_dir=_frozen_recovery_v3_source_root,
+        )
+        return module
+
+    monkeypatch.setattr(
+        repository_module,
+        "_load_m4_v2_global_routing_recovery_v3_builder",
+        load_frozen_builder,
+    )
 
 
 def _goal(key: str, lane: str, objective: str) -> dict:
@@ -2386,6 +2447,490 @@ def test_global_recovery_v3_ready_import_reaches_ready_queue_in_isolated_postgre
         control_plane_key="m4-information-theory-mainline"
     ).artifact_digest == ready.artifact_digest
     assert _counts(connection_factory) == before_tamper
+
+
+def _completed_global_recovery_v3_manifest() -> ControlPlaneManifest:
+    payload, _ = recovery_v3.build_manifest(
+        _terminal_recovery_v2_manifest().to_dict(include_digest=True),
+        global_source_contract_digest=(
+            "11cb628f050f05465676fe083a6f9c183cbf855edfec8e194e98ad0450cdfd64"
+        ),
+    )
+    ready = ControlPlaneManifest.from_dict(payload)
+    task = next(
+        item for item in ready.tasks if item.task_key == recovery_v3.RECOVERY_TASK_KEY
+    )
+    metric = json.loads(task.metric_contract)
+    completed = _transition_recovery_v3_manifest(
+        ready,
+        status="completed",
+        classification="COMPLETE",
+        facts=(
+            (
+                f"mainline-execution:{task.task_key}:{task.artifact_digest}:"
+                f"{replay_compatibility.OLD_EXECUTION_ID}:completed"
+            ),
+            metric["route_facts"][replay_compatibility.OLD_ROUTE],
+            metric["completion_fact"],
+        ),
+    )
+    assert completed.artifact_digest == replay_compatibility.INPUT_MANIFEST_DIGEST
+    return completed
+
+
+def _old_recovery_v3_rows() -> tuple[list[dict], list[dict]]:
+    started = MainlineExecutionEvent(
+        execution_id=replay_compatibility.OLD_EXECUTION_ID,
+        control_plane_key="m4-information-theory-mainline",
+        manifest_digest=replay_compatibility.OLD_EVENT_MANIFEST_DIGEST,
+        task_key=replay_compatibility.OLD_TASK_KEY,
+        task_digest=replay_compatibility.OLD_TASK_DIGEST,
+        capability="m4_v2_global_routing",
+        event_type="started",
+        sequence=0,
+        recorded_at="2026-08-19T01:31:56.544096+00:00",
+        payload=(
+            (
+                "input_artifact_digests",
+                ["11cb628f050f05465676fe083a6f9c183cbf855edfec8e194e98ad0450cdfd64"],
+            ),
+            ("git_commit", replay_compatibility.OLD_GIT_COMMIT),
+        ),
+    )
+    completed = MainlineExecutionEvent(
+        execution_id=replay_compatibility.OLD_EXECUTION_ID,
+        control_plane_key="m4-information-theory-mainline",
+        manifest_digest=replay_compatibility.OLD_EVENT_MANIFEST_DIGEST,
+        task_key=replay_compatibility.OLD_TASK_KEY,
+        task_digest=replay_compatibility.OLD_TASK_DIGEST,
+        capability="m4_v2_global_routing",
+        event_type="completed",
+        sequence=1,
+        recorded_at="2026-08-19T01:32:10.869481+00:00",
+        payload=(
+            ("actual_fold_count", 0),
+            ("additional_completed_task_keys", []),
+            (
+                "completion_facts",
+                [
+                    "m4-v2-routing:DEEPER_VALIDATION_REQUIRED",
+                    "m4-v2-global-routing-recovery-v3:COMPLETE",
+                ],
+            ),
+            ("decision_replay_coverage", "COMPLETE"),
+            ("downstream_consumer", "M4_DEEPER_VALIDATION"),
+            (
+                "execution_artifact_digest",
+                replay_compatibility.OLD_EXECUTION_ARTIFACT_DIGEST,
+            ),
+            ("execution_artifact_path", replay_compatibility.OLD_EXECUTION_PATH),
+            ("git_commit", replay_compatibility.OLD_GIT_COMMIT),
+            ("historical_database_reads", 0),
+            (
+                "publication_batch_digest",
+                "4b4b3cf8f1d39f0b3d06ad4b7a754fdd1a43a52f9f462c86176de99977b8305b",
+            ),
+            ("registered_artifact_count", 2),
+            ("replay_status", "REGISTERED_REPLAY_PENDING"),
+            ("route", replay_compatibility.OLD_ROUTE),
+            (
+                "route_decision_artifact_digest",
+                replay_compatibility.OLD_ROUTE_ARTIFACT_DIGEST,
+            ),
+            ("scientific_computation", 0),
+            (
+                "source_contract_digest",
+                "11cb628f050f05465676fe083a6f9c183cbf855edfec8e194e98ad0450cdfd64",
+            ),
+            (
+                "source_set_digest",
+                "cb48f271e3a082d143d435187b5ee8587f5684c9333259d79340d2c297c55631",
+            ),
+            ("workload_rerun", False),
+        ),
+    )
+    assert started.artifact_digest == replay_compatibility.OLD_STARTED_EVENT_DIGEST
+    assert completed.artifact_digest == replay_compatibility.OLD_COMPLETED_EVENT_DIGEST
+    route = MainlineArtifactRegistration(
+        execution_id=replay_compatibility.OLD_EXECUTION_ID,
+        control_plane_key="m4-information-theory-mainline",
+        task_key=replay_compatibility.OLD_TASK_KEY,
+        task_digest=replay_compatibility.OLD_TASK_DIGEST,
+        artifact_digest=replay_compatibility.OLD_ROUTE_ARTIFACT_DIGEST,
+        artifact_type="m4_measurement_routing_decision",
+        schema_version="dehps-m4-measurement-routing-decision.v1",
+        artifact_path=replay_compatibility.OLD_ROUTE_PATH,
+        git_commit=replay_compatibility.OLD_GIT_COMMIT,
+    )
+    execution = MainlineArtifactRegistration(
+        execution_id=replay_compatibility.OLD_EXECUTION_ID,
+        control_plane_key="m4-information-theory-mainline",
+        task_key=replay_compatibility.OLD_TASK_KEY,
+        task_digest=replay_compatibility.OLD_TASK_DIGEST,
+        artifact_digest=replay_compatibility.OLD_EXECUTION_ARTIFACT_DIGEST,
+        artifact_type="research_os_mainline_execution",
+        schema_version="dehps-research-os-mainline-execution.v1",
+        artifact_path=replay_compatibility.OLD_EXECUTION_PATH,
+        parent_digests=(
+            "11cb628f050f05465676fe083a6f9c183cbf855edfec8e194e98ad0450cdfd64",
+            replay_compatibility.OLD_ROUTE_ARTIFACT_DIGEST,
+        ),
+        git_commit=replay_compatibility.OLD_GIT_COMMIT,
+    )
+    return [_event_row(started), _event_row(completed)], [
+        _registration_row(route),
+        _registration_row(execution),
+    ]
+
+
+class _ReplayCompatibilityCursor:
+    def __init__(
+        self,
+        baseline: ControlPlaneManifest,
+        *,
+        current: ControlPlaneManifest,
+        runtime_events: list[dict] | None = None,
+        old_events: list[dict] | None = None,
+        old_registrations: list[dict] | None = None,
+    ) -> None:
+        self.baseline = baseline
+        self.current = current
+        default_events, default_registrations = _old_recovery_v3_rows()
+        self.runtime_events = runtime_events or []
+        self.old_events = default_events if old_events is None else old_events
+        self.old_registrations = (
+            default_registrations if old_registrations is None else old_registrations
+        )
+
+    def execute(self, statement, parameters=()):
+        query = " ".join(str(statement).split())
+        assert query.startswith("SELECT")
+        if "FROM research_os_control_planes" in query:
+            return _Rows(one={"current_manifest_digest": self.current.artifact_digest})
+        if "FROM research_os_manifests" in query:
+            stored = (
+                self.baseline
+                if parameters == (replay_compatibility.INPUT_MANIFEST_DIGEST,)
+                else self.current
+            )
+            return _Rows(one={"manifest_json": stored.to_dict(include_digest=True)})
+        if "FROM research_os_mainline_execution_events" in query:
+            return _Rows(
+                many=(
+                    self.old_events
+                    if parameters[1] == replay_compatibility.OLD_TASK_KEY
+                    else self.runtime_events
+                )
+            )
+        if "FROM research_os_mainline_artifacts" in query:
+            return _Rows(
+                many=(
+                    self.old_registrations
+                    if parameters[1] == replay_compatibility.OLD_TASK_KEY
+                    else []
+                )
+            )
+        raise AssertionError(query)
+
+
+def _active_replay_compatibility_manifest() -> ControlPlaneManifest:
+    payload, _ = replay_compatibility.build_manifest(
+        _completed_global_recovery_v3_manifest().to_dict(include_digest=True),
+        source_contract_digest="e" * 64,
+    )
+    return ControlPlaneManifest.from_dict(payload)
+
+
+def _patch_replay_compatibility_source(monkeypatch, tmp_path: Path) -> None:
+    source_path = "configs/research-os/m4-v2-global-routing-source-v1.json"
+    route_fixture = (ROOT / source_path).read_bytes()
+    copied_source = tmp_path / source_path
+    copied_source.parent.mkdir(parents=True, exist_ok=True)
+    copied_source.write_bytes(route_fixture)
+    route_path = tmp_path / replay_compatibility.OLD_ROUTE_PATH
+    route_path.parent.mkdir(parents=True, exist_ok=True)
+    route_path.write_bytes(route_fixture)
+    monkeypatch.setattr(dehps_config, "ROOT_DIR", tmp_path)
+    monkeypatch.setattr(
+        replay_compatibility, "OLD_ROUTE_RAW_SHA256", hashlib.sha256(route_fixture).hexdigest()
+    )
+    monkeypatch.setattr(
+        replay_compatibility, "OLD_ROUTE_RAW_LENGTH", len(route_fixture)
+    )
+    monkeypatch.setattr(
+        replay_compatibility,
+        "SOURCE_PATH",
+        source_path,
+    )
+    monkeypatch.setattr(
+        replay_compatibility,
+        "validate_source_contract",
+        lambda *_args, **_kwargs: "e" * 64,
+    )
+    monkeypatch.setattr(
+        repository_module,
+        "_load_m4_v2_global_routing_replay_compatibility_v1_builder",
+        lambda: replay_compatibility,
+    )
+    monkeypatch.setattr(
+        repository_module,
+        "_load_m4_v2_global_routing_recovery_v3_builder",
+        lambda: recovery_v3,
+    )
+
+
+def test_replay_compatibility_builder_is_exactly_additive_and_unique_ready() -> None:
+    baseline = _completed_global_recovery_v3_manifest()
+    ready = _active_replay_compatibility_manifest()
+    snapshot = repository_module.ResearchOSControlPlane().resolve(ready)
+    assert tuple(ready.goals) == tuple(baseline.goals)
+    assert tuple(ready.tasks[:-1]) == tuple(baseline.tasks)
+    assert tuple(ready.goal_states) == tuple(baseline.goal_states)
+    assert tuple(ready.task_states[:-1]) == tuple(baseline.task_states)
+    assert [item.task_key for item in snapshot.ready_queue] == [
+        replay_compatibility.SUCCESSOR_TASK_KEY
+    ]
+    assert ready.facts.artifacts - baseline.facts.artifacts == {"e" * 64}
+    assert ready.facts.external_events - baseline.facts.external_events == {
+        replay_compatibility.AUTHORIZATION_EVENT
+    }
+    assert ready.facts.authorities == baseline.facts.authorities
+
+
+def test_replay_compatibility_import_preserves_completed_v3_path(
+    monkeypatch, tmp_path: Path
+) -> None:
+    baseline = _completed_global_recovery_v3_manifest()
+    ready = _active_replay_compatibility_manifest()
+    _patch_replay_compatibility_source(monkeypatch, tmp_path)
+    PostgresResearchOSRepository._verify_m4_v2_failed_global_routing_recovery_v3_import(
+        _ReplayCompatibilityCursor(baseline, current=baseline),
+        control_plane_key="m4-information-theory-mainline",
+        manifest=ready,
+    )
+
+
+def test_exact_completed_v3_path_does_not_load_compatibility_builder(
+    monkeypatch,
+) -> None:
+    completed, running, events, registrations = _recovery_v3_runtime_fixture(
+        "COMPLETED"
+    )
+
+    def reject_loader():
+        raise AssertionError("compatibility builder loaded for exact completed-v3 input")
+
+    monkeypatch.setattr(
+        repository_module,
+        "_load_m4_v2_global_routing_replay_compatibility_v1_builder",
+        reject_loader,
+    )
+    PostgresResearchOSRepository._verify_m4_v2_failed_global_routing_recovery_v3_import(
+        _RecoveryV3Cursor(
+            completed,
+            current=running,
+            runtime_events=events,
+            registrations=registrations,
+        ),
+        control_plane_key="m4-information-theory-mainline",
+        manifest=completed,
+    )
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    ("existing_task", "existing_fact", "extra_task", "old_event", "old_registration"),
+)
+def test_replay_compatibility_rejects_unapproved_addition_or_identity_drift(
+    monkeypatch,
+    tmp_path: Path,
+    tamper: str,
+) -> None:
+    baseline = _completed_global_recovery_v3_manifest()
+    payload = _active_replay_compatibility_manifest().to_dict(include_digest=False)
+    old_events, old_registrations = _old_recovery_v3_rows()
+    if tamper == "existing_task":
+        payload["tasks"][0]["priority"] += 1
+    elif tamper == "existing_fact":
+        payload["facts"]["artifacts"].append("unapproved:fact")
+    elif tamper == "extra_task":
+        extra = copy.deepcopy(payload["tasks"][-1])
+        extra["task_key"] += "-extra"
+        payload["tasks"].append(extra)
+    elif tamper == "old_event":
+        old_events[0] = {**old_events[0], "event_digest": "0" * 64}
+    else:
+        old_registrations[0] = {
+            **old_registrations[0],
+            "artifact_digest": "0" * 64,
+        }
+    incoming = ControlPlaneManifest.from_dict(payload)
+    _patch_replay_compatibility_source(monkeypatch, tmp_path)
+    with pytest.raises(ResearchOSValidationError):
+        PostgresResearchOSRepository._verify_m4_v2_global_routing_replay_compatibility_v1_import(
+            _ReplayCompatibilityCursor(
+                baseline,
+                current=baseline,
+                old_events=old_events,
+                old_registrations=old_registrations,
+            ),
+            control_plane_key="m4-information-theory-mainline",
+            manifest=incoming,
+            builder=replay_compatibility,
+        )
+
+
+def test_replay_compatibility_rejects_old_registration_from_other_execution(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    baseline = _completed_global_recovery_v3_manifest()
+    ready = _active_replay_compatibility_manifest()
+    _, old_registrations = _old_recovery_v3_rows()
+    extra = MainlineArtifactRegistration(
+        execution_id="9" * 64,
+        control_plane_key="m4-information-theory-mainline",
+        task_key=replay_compatibility.OLD_TASK_KEY,
+        task_digest=replay_compatibility.OLD_TASK_DIGEST,
+        artifact_digest=replay_compatibility.OLD_ROUTE_ARTIFACT_DIGEST,
+        artifact_type="m4_measurement_routing_decision",
+        schema_version="dehps-m4-measurement-routing-decision.v1",
+        artifact_path=replay_compatibility.OLD_ROUTE_PATH,
+        git_commit=replay_compatibility.OLD_GIT_COMMIT,
+    )
+    old_registrations.append(_registration_row(extra))
+    _patch_replay_compatibility_source(monkeypatch, tmp_path)
+    with pytest.raises(
+        ResearchOSValidationError,
+        match="m4_v2_global_replay_compatibility_v1_old_registrations_changed",
+    ):
+        PostgresResearchOSRepository._verify_m4_v2_global_routing_replay_compatibility_v1_import(
+            _ReplayCompatibilityCursor(
+                baseline,
+                current=baseline,
+                old_registrations=old_registrations,
+            ),
+            control_plane_key="m4-information-theory-mainline",
+            manifest=ready,
+            builder=replay_compatibility,
+        )
+
+
+def test_replay_compatibility_completed_stage_accepts_registered_replay_only(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    baseline = _completed_global_recovery_v3_manifest()
+    ready = _active_replay_compatibility_manifest()
+    running = ControlPlaneManifest.from_dict(
+        replay_compatibility.transition_manifest(
+            ready.to_dict(include_digest=True),
+            status="running",
+            classification="INTEGRATED",
+        )
+    )
+    task = next(
+        item for item in ready.tasks if item.task_key == replay_compatibility.SUCCESSOR_TASK_KEY
+    )
+    git_commit = "f" * 40
+    execution_id = stable_hash(
+        {
+            "schema": "dehps-research-os-mainline-execution.v1",
+            "control_plane_key": "m4-information-theory-mainline",
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "input_artifact_digests": task.input_artifact_digests,
+            "git_commit": git_commit,
+        }
+    )
+    started = MainlineExecutionEvent(
+        execution_id=execution_id,
+        control_plane_key="m4-information-theory-mainline",
+        manifest_digest=running.artifact_digest,
+        task_key=task.task_key,
+        task_digest=task.artifact_digest,
+        capability=str(task.requested_capability),
+        event_type="started",
+        sequence=0,
+        recorded_at="2026-08-19T06:00:00+00:00",
+        payload=(
+            ("input_artifact_digests", list(task.input_artifact_digests)),
+            ("git_commit", git_commit),
+        ),
+    )
+    terminal_payload = (
+        ("git_commit", git_commit),
+        ("registered_replay_status", "REGISTERED_REPLAY_VERIFIED"),
+        ("replay_task_key", replay_compatibility.OLD_TASK_KEY),
+        ("replay_execution_id", replay_compatibility.OLD_EXECUTION_ID),
+        ("route_artifact_digest", replay_compatibility.OLD_ROUTE_ARTIFACT_DIGEST),
+        (
+            "route_registration_digest",
+            replay_compatibility.OLD_ROUTE_REGISTRATION_DIGEST,
+        ),
+        ("global_route", replay_compatibility.OLD_ROUTE),
+        ("durable_state_changed", False),
+        ("workload_rerun", False),
+        ("branch_workloads_rerun", False),
+        ("global_router_workload_rerun", False),
+        ("predictive_p3_folds", 0),
+        ("p4_started", False),
+        ("promotion_triggered", False),
+    )
+    completed_event = MainlineExecutionEvent(
+        execution_id=execution_id,
+        control_plane_key="m4-information-theory-mainline",
+        manifest_digest=running.artifact_digest,
+        task_key=task.task_key,
+        task_digest=task.artifact_digest,
+        capability=str(task.requested_capability),
+        event_type="completed",
+        sequence=1,
+        recorded_at="2026-08-19T06:01:00+00:00",
+        payload=terminal_payload,
+    )
+    completed = ControlPlaneManifest.from_dict(
+        replay_compatibility.transition_manifest(
+            ready.to_dict(include_digest=True),
+            status="completed",
+            classification="COMPLETE",
+            execution_id=execution_id,
+        )
+    )
+    _patch_replay_compatibility_source(monkeypatch, tmp_path)
+    PostgresResearchOSRepository._verify_m4_v2_global_routing_replay_compatibility_v1_import(
+        _ReplayCompatibilityCursor(
+            baseline,
+            current=running,
+            runtime_events=[_event_row(started), _event_row(completed_event)],
+        ),
+        control_plane_key="m4-information-theory-mainline",
+        manifest=completed,
+        builder=replay_compatibility,
+    )
+    bad_event = MainlineExecutionEvent(
+        **{
+            **completed_event.__dict__,
+            "payload": tuple(
+                (key, True if key == "workload_rerun" else value)
+                for key, value in terminal_payload
+            ),
+        }
+    )
+    with pytest.raises(
+        ResearchOSValidationError,
+        match="m4_v2_global_replay_compatibility_v1_output_changed",
+    ):
+        PostgresResearchOSRepository._verify_m4_v2_global_routing_replay_compatibility_v1_import(
+            _ReplayCompatibilityCursor(
+                baseline,
+                current=running,
+                runtime_events=[_event_row(started), _event_row(bad_event)],
+            ),
+            control_plane_key="m4-information-theory-mainline",
+            manifest=completed,
+            builder=replay_compatibility,
+        )
 
 
 def _counts(connection_factory) -> dict[str, int]:
