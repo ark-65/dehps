@@ -125,6 +125,70 @@ run from the frozen recovery manifest boundary.
     any separately authorized live import.
 12. Integration matrix: `NO — INTEGRATION_PENDING`.
 
+## Recovery-v3 registered-replay compatibility successor
+
+1. Completed Research Request 612 / Execution 501 and approved Engineering
+   Request 613 / Execution 502 authorize one replay-only additive successor:
+   `m4-v2-global-routing-recovery-v3-registered-replay-compatibility-v1`.
+   Rejected Request 611 and failed Request 610 / Execution 500 / Decision 2571
+   remain immutable and are not retried, modified, or reused.
+2. The durable input remains completed recovery-v3 manifest
+   `bf2cb25ab0c5ac750655700dc9df230eec3c7bbdf5114fd5349414c2f835f2cb`,
+   snapshot
+   `e30e18619d60b3ac3e3d361eea50c74db2323ac215f2781bc0255338186ff6ec`,
+   Ready `[]`. The existing recovery-v3 task
+   `bddceb738009ba18cf81d26453915349ab588ba574d3a24e6ffd5c1bd8e49ab2`
+   remains `completed / COMPLETE`.
+3. The frozen recovery-v3 execution
+   `503c39400e0fc1b285e2600de9baf52e702d28d582e1530db4ed516010df731d`,
+   started/completed event digests, route artifact
+   `b35a0860e7e2d330513ddf4c0cfee8e1b8a6a59dc24f78bd5d5f55f53daf02db`,
+   route registration
+   `69a01c62616dc6bae4cb1924a2d1dbf39e6199b94e5de4d9cd14d5965ad48745`,
+   execution artifact/registration, parent digests, canonical artifact path,
+   raw route bytes, and route `DEEPER_VALIDATION_REQUIRED` are unchanged.
+4. The repository keeps the original completed-v3 whole-equality path. A
+   separate validator is selected only by the exact approved successor key and
+   accepts only the fixed `COMPLETED_V3 -> READY -> RUNNING ->
+   COMPLETED|FAILED` automaton. It reconstructs the exact baseline and unique
+   successor stages, verifies both old events and registrations column by
+   column, verifies the frozen route bytes, rejects successor registrations,
+   and rejects every extra task, fact, event, definition rewrite, deletion, or
+   state regression. There is no generic additive-manifest entry point.
+5. The new source contract is bound to Research 612 / Decision 2577 and
+   Engineering 613 / Decision 2582. Its only current source entries are the
+   routing parser, repository validator, and pure compatibility builder. The
+   builder preserves every existing goal, task, state, and fact, then adds one
+   source fact, one authorization event, and one replay-only task. Resolver
+   output is exactly one Ready task: the compatibility successor.
+6. The routing parser only canonicalizes the already registered artifact's
+   exact decision-projection field set before reconstruction. Missing fields,
+   unknown fields, non-mapping rows, wrong row cardinality, unknown route,
+   digest drift, malformed projection, parent drift, and registration drift
+   remain fail-closed. The old artifact bytes and digest are not rewritten.
+7. Validation on the frozen implementation tree passes: routing parser/source
+   focused tests `10 passed`; complete Global-routing module `83 passed`;
+   final replay-compatibility repository focused tests `9 passed`; fresh full
+   Worker `2685 passed, 5 skipped, 26 warnings, 0 failed` in `1385.54s`. The
+   skips are existing isolated-PostgreSQL conditions. Ruff, `py_compile`, JSON
+   parsing, source-contract identity validation, and `git diff --check` pass on
+   the same final tree.
+8. This Engineering execution performs no durable import, Supervisor run,
+   workload, Global Router execution, replay, P3 fold, P4 start, or Promotion.
+   After ready PR and distinct PR-head/merged-main Worker successes, a fresh
+   separately reviewed Operator Request may import the unique READY manifest,
+   record the successor lifecycle, invoke the merged unified
+   `ResearchEvidenceSupervisor.replay` exactly once for the frozen recovery-v3
+   execution, persist only the approved completion/replay facts, and stop.
+9. The frozen route is not `ADAPTIVE_RESEARCH_ELIGIBLE`; successful registered
+   replay therefore closes predictive P3 as
+   `CLOSED_NOT_AUTHORIZED_BY_GLOBAL_ROUTE`. Predictive-P3 folds remain `0`,
+   P4 remains false, and Promotion remains false.
+10. Integration matrix: `NO — INTEGRATION_PENDING`. The external post-commit
+    PR-head and merged-main CI identities and the future Operator result are
+    lifecycle evidence and are not recursively embedded into this committed
+    report.
+
 ## Global routing recovery v3 exact65 HEAD-fixture source isolation
 
 1. Research Request 598, Execution 489, and Decision 2513 completed the

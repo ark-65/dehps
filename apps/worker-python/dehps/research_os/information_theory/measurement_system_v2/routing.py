@@ -435,6 +435,27 @@ class M4V2GlobalRouteDecisionArtifact:
             or payload["artifact_type"] != GLOBAL_ROUTE_ARTIFACT_TYPE
         ):
             raise M4V2GlobalRoutingError("global_route_artifact_envelope_invalid")
+        projection_rows = payload["decision_projection_rows"]
+        if (
+            not isinstance(projection_rows, Sequence)
+            or isinstance(projection_rows, (str, bytes))
+            or len(projection_rows) != len(M4_V2_BRANCH_IDS)
+        ):
+            raise M4V2GlobalRoutingError("global_route_artifact_projection_invalid")
+        normalized_projection_rows: list[dict[str, Any]] = []
+        for row in projection_rows:
+            if not isinstance(row, Mapping) or set(row) != set(
+                _DECISION_PROJECTION_FIELDS
+            ):
+                raise M4V2GlobalRoutingError(
+                    "global_route_artifact_projection_invalid"
+                )
+            normalized_projection_rows.append(
+                {
+                    field_name: deepcopy(row[field_name])
+                    for field_name in _DECISION_PROJECTION_FIELDS
+                }
+            )
         artifact = cls(
             measurement_contract_digest=payload["measurement_contract_digest"],
             canonical_branch_order=tuple(payload["canonical_branch_order"]),
@@ -445,9 +466,7 @@ class M4V2GlobalRouteDecisionArtifact:
             registered_branch_replay_registration_digests=tuple(
                 payload["registered_branch_replay_registration_digests"]
             ),
-            decision_projection_rows=tuple(
-                deepcopy(dict(row)) for row in payload["decision_projection_rows"]
-            ),
+            decision_projection_rows=tuple(normalized_projection_rows),
             decision_replay_coverage=payload["decision_replay_coverage"],
             source_contract_digest=payload["source_contract_digest"],
             task_digest=payload["task_digest"],

@@ -1601,10 +1601,25 @@ def _recovery_v2_input_payload() -> dict[str, Any]:
 @pytest.mark.parametrize(
     "tamper", ("artifact", "entry", "order", "extra", "semantic_metadata")
 )
-def test_global_recovery_v3_source_contract_fails_closed(tamper: str) -> None:
+def test_global_recovery_v3_source_contract_fails_closed(
+    tamper: str, tmp_path: Path
+) -> None:
     source = json.loads(SOURCE_PATHS[3].read_text(encoding="utf-8"))
+    frozen_commit = "cbb2841b682f20d1c42d7159ff32e8a802d0878c"
+    for entry in source["source_entries"]:
+        path = str(entry["path"])
+        target = tmp_path / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        frozen = subprocess.run(
+            ["git", "show", f"{frozen_commit}:{path}"],
+            cwd=ROOT_DIR,
+            check=True,
+            capture_output=True,
+        ).stdout
+        assert hashlib.sha256(frozen).hexdigest() == entry["sha256"]
+        target.write_bytes(frozen)
     assert global_recovery_v3_builder.validate_global_source_contract(
-        source, root_dir=ROOT_DIR
+        source, root_dir=tmp_path
     ) == source["artifact_digest"]
     changed = copy.deepcopy(source)
     if tamper == "artifact":
@@ -1627,7 +1642,7 @@ def test_global_recovery_v3_source_contract_fails_closed(tamper: str) -> None:
         changed["unregistered_metadata"] = "forbidden"
     with pytest.raises(global_recovery_v3_builder.GlobalRoutingRecoveryV3Error):
         global_recovery_v3_builder.validate_global_source_contract(
-            changed, root_dir=ROOT_DIR
+            changed, root_dir=tmp_path
         )
 
 
@@ -1695,10 +1710,25 @@ def test_recovery_input_fixture_matches_live_database_when_available() -> None:
     assert input_snapshot.ready_queue == ()
 
     current = repository.load_manifest(control_plane_key=CONTROL_PLANE_KEY)
-    assert current.artifact_digest == global_recovery_v3_builder.INPUT_MANIFEST_DIGEST
+    assert (
+        current.artifact_digest
+        == "bf2cb25ab0c5ac750655700dc9df230eec3c7bbdf5114fd5349414c2f835f2cb"
+    )
     current_snapshot = ResearchOSControlPlane().resolve(current)
-    assert current_snapshot.snapshot_digest == global_recovery_v3_builder.INPUT_SNAPSHOT_DIGEST
+    assert (
+        current_snapshot.snapshot_digest
+        == "e30e18619d60b3ac3e3d361eea50c74db2323ac215f2781bc0255338186ff6ec"
+    )
     assert current_snapshot.ready_queue == ()
+    recovery_v3 = next(
+        task
+        for task in current.tasks
+        if task.task_key == global_recovery_v3_builder.RECOVERY_TASK_KEY
+    )
+    recovery_v3_state = current.task_state_by_digest[recovery_v3.artifact_digest]
+    assert recovery_v3_state.declared_status.value == "completed"
+    assert recovery_v3_state.completion_classification is not None
+    assert recovery_v3_state.completion_classification.value == "COMPLETE"
 
 
 def _active_global_recovery_payload() -> dict[str, Any]:
@@ -3940,6 +3970,101 @@ def test_global_router_is_finite_categorical_and_replay_is_pure(monkeypatch) -> 
     assert "fold" not in source.lower()
 
 
+def test_global_route_persisted_canonical_json_round_trip_replays() -> None:
+    records = _accepted_records()
+    route = routing.compile_m4_v2_global_route_decision(
+        records,
+        source_contract_digest=_digest("global-source"),
+        task_digest=_digest("global-task"),
+    )
+    persisted = json.loads(
+        json.dumps(
+            route,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+    expected_projection_fields = {
+        "branch_id",
+        "estimand_digest",
+        "decision_path",
+        "terminal_decision",
+        "scientific_decision",
+        "evaluation_status",
+        "measurement_health",
+        "historical_evidence",
+        "accepted_for_downstream_baseline",
+        "accepted_model_artifact_digest",
+        "baseline_artifact_digest",
+        "baseline_source_model_artifact_digest",
+        "decision_artifact_digest",
+        "decision_producer_execution_id",
+        "replay_artifact_digest",
+        "replay_registration_digest",
+    }
+    assert set(persisted["decision_projection_rows"][0]) == expected_projection_fields
+    assert tuple(persisted["decision_projection_rows"][0]) != tuple(
+        route["decision_projection_rows"][0]
+    )
+
+    rebuilt = routing.M4V2GlobalRouteDecisionArtifact.from_dict(persisted).to_dict()
+    assert rebuilt["artifact_digest"] == route["artifact_digest"]
+    assert rebuilt == route
+    replay = routing.replay_m4_v2_global_route_decision(
+        records,
+        persisted,
+        source_contract_digest=_digest("global-source"),
+        task_digest=_digest("global-task"),
+    )
+    assert replay["status"] == "REPLAY_VERIFIED"
+    assert replay["capability_status"] == "REGISTERED_REPLAY_VERIFIED"
+    assert replay["route_artifact_digest"] == route["artifact_digest"]
+    assert replay["workload_rerun"] is False
+    assert replay["raw_history_read"] is False
+    assert replay["numerical_result_payload_read"] is False
+    assert replay["durable_write_count"] == 0
+    assert replay["durable_state_changed"] is False
+
+
+@pytest.mark.parametrize(
+    "case",
+    ("missing_field", "extra_field", "nonmapping_row", "wrong_row_count"),
+)
+def test_global_route_persisted_projection_field_set_stays_fail_closed(
+    case: str,
+) -> None:
+    route = routing.compile_m4_v2_global_route_decision(
+        _accepted_records(),
+        source_contract_digest=_digest("global-source"),
+        task_digest=_digest("global-task"),
+    )
+    persisted = json.loads(
+        json.dumps(
+            route,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+    if case == "missing_field":
+        del persisted["decision_projection_rows"][0]["terminal_decision"]
+    elif case == "extra_field":
+        persisted["decision_projection_rows"][0]["unexpected"] = "forbidden"
+    elif case == "nonmapping_row":
+        persisted["decision_projection_rows"][0] = ["not", "a", "mapping"]
+    else:
+        persisted["decision_projection_rows"].pop()
+    before = m4_v2_canonical_json(persisted)
+
+    with pytest.raises(
+        routing.M4V2GlobalRoutingError,
+        match="global_route_artifact_projection_invalid",
+    ):
+        routing.M4V2GlobalRouteDecisionArtifact.from_dict(persisted)
+    assert m4_v2_canonical_json(persisted) == before
+
+
 def test_global_router_repair_and_partial_positive_never_adaptive() -> None:
     repair_records, _ = _zero_compute_records()
     repair = routing.compile_m4_v2_global_route_decision(
@@ -4089,8 +4214,37 @@ def test_source_contracts_exact_closure_and_digest_drift_fail_closed(
 
     active_source_sets: dict[str, tuple[str, ...]] = {}
     for family in ("marginal", "global"):
+        source_root = ROOT_DIR
+        if family == "global":
+            source_root = tmp_path / "frozen-global-recovery-v3-source"
+            source_contract_path = str(specs[family]["path"])
+            source_contract = json.loads(
+                (ROOT_DIR / source_contract_path).read_text(encoding="utf-8")
+            )
+            target_contract = source_root / source_contract_path
+            target_contract.parent.mkdir(parents=True, exist_ok=True)
+            target_contract.write_text(
+                json.dumps(source_contract, ensure_ascii=False, sort_keys=True),
+                encoding="utf-8",
+            )
+            for item in source_contract["source_entries"]:
+                source_path = str(item["path"])
+                frozen = subprocess.run(
+                    [
+                        "git",
+                        "show",
+                        f"cbb2841b682f20d1c42d7159ff32e8a802d0878c:{source_path}",
+                    ],
+                    cwd=ROOT_DIR,
+                    check=True,
+                    capture_output=True,
+                ).stdout
+                assert hashlib.sha256(frozen).hexdigest() == item["sha256"]
+                target = source_root / source_path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(frozen)
         contract = supervisor_module._load_m4_v2_successor_source_contract(
-            root_dir=ROOT_DIR, family=family
+            root_dir=source_root, family=family
         )
         entries = tuple(item["path"] for item in contract["source_entries"])
         assert len(entries) == len(set(entries)) == len(specs[family]["entries"])

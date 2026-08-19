@@ -1,0 +1,35 @@
+{
+  "artifact_digest": "1ff090483cc6fc6f3b50cd58b11976a0934b8f624c9f393c04020cb8f0e2a076",
+  "artifact_type": "m4_v2_global_routing_source_contract",
+  "baseline_manifest_digest": "bf2cb25ab0c5ac750655700dc9df230eec3c7bbdf5114fd5349414c2f835f2cb",
+  "engineering_decision_id": 2582,
+  "engineering_request_id": 613,
+  "global_route": "DEEPER_VALIDATION_REQUIRED",
+  "old_route_artifact_digest": "b35a0860e7e2d330513ddf4c0cfee8e1b8a6a59dc24f78bd5d5f55f53daf02db",
+  "old_route_registration_digest": "69a01c62616dc6bae4cb1924a2d1dbf39e6199b94e5de4d9cd14d5965ad48745",
+  "old_task_digest": "bddceb738009ba18cf81d26453915349ab588ba574d3a24e6ffd5c1bd8e49ab2",
+  "p4_started": false,
+  "predictive_p3_folds": 0,
+  "promotion_triggered": false,
+  "research_decision_id": 2577,
+  "research_request_id": 612,
+  "review_outcome": "APPROVE_EXACT_ADDITIVE_REPLAY_SUCCESSOR_IMPORT",
+  "schema_version": "dehps-m4-v2-global-routing-replay-compatibility-source.v1",
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/routing.py",
+      "sha256": "abe869ee15bc0755b52a0af558bc51d8022f4e723890f1d67560bffcc66f19dc"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/repository.py",
+      "sha256": "6717d0a2617c6b26e17f7e4105cdf6006511a1fdec3f0b3e73bd228828a9eb0e"
+    },
+    {
+      "path": "apps/worker-python/scripts/build_m4_v2_global_routing_replay_compatibility_v1_manifest.py",
+      "sha256": "e06c3f8bbb6ee8dce3cd9dc6d375f2aca3745c33b75eca9dadf247f9987572e5"
+    }
+  ],
+  "source_set_digest": "57b574f81a4e73dfa4a2dbca9f94edb4f357df3b1fb8bb1e21fcba64c2818832",
+  "successor_task_key": "m4-v2-global-routing-recovery-v3-registered-replay-compatibility-v1",
+  "workload_rerun": false
+}

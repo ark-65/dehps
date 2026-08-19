@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 from collections.abc import Callable
@@ -86,6 +87,41 @@ _M4_V2_GLOBAL_RECOVERY_V3_REQUIRED_SYMBOLS = (
     "GlobalRoutingRecoveryV3Error",
     "build_manifest",
     "validate_global_source_contract",
+)
+_M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_BUILDER_MODULE_NAME = (
+    "_dehps_m4_v2_global_routing_replay_compatibility_v1_builder"
+)
+_M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_TASK_KEY = (
+    "m4-v2-global-routing-recovery-v3-registered-replay-compatibility-v1"
+)
+_M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_REQUIRED_SYMBOLS = (
+    "AUTHORIZATION_EVENT",
+    "INPUT_MANIFEST_DIGEST",
+    "INPUT_SNAPSHOT_DIGEST",
+    "OLD_COMPLETED_EVENT_DIGEST",
+    "OLD_EVENT_MANIFEST_DIGEST",
+    "OLD_EXECUTION_ARTIFACT_DIGEST",
+    "OLD_EXECUTION_ID",
+    "OLD_EXECUTION_PATH",
+    "OLD_EXECUTION_REGISTRATION_DIGEST",
+    "OLD_GIT_COMMIT",
+    "OLD_ROUTE",
+    "OLD_ROUTE_ARTIFACT_DIGEST",
+    "OLD_ROUTE_PATH",
+    "OLD_ROUTE_RAW_LENGTH",
+    "OLD_ROUTE_RAW_SHA256",
+    "OLD_ROUTE_REGISTRATION_DIGEST",
+    "OLD_STARTED_EVENT_DIGEST",
+    "OLD_TASK_DIGEST",
+    "OLD_TASK_KEY",
+    "REGISTERED_REPLAY_FACT",
+    "SOURCE_PATH",
+    "SUCCESSOR_COMPLETION_FACT",
+    "SUCCESSOR_TASK_KEY",
+    "GlobalRoutingReplayCompatibilityV1Error",
+    "build_manifest",
+    "transition_manifest",
+    "validate_source_contract",
 )
 
 
@@ -226,6 +262,43 @@ def _load_m4_v2_global_routing_recovery_v3_builder() -> ModuleType:
     except Exception as exc:
         raise ResearchOSValidationError(
             "m4_v2_global_recovery_v3_builder_unavailable"
+        ) from exc
+
+
+def _load_m4_v2_global_routing_replay_compatibility_v1_builder() -> ModuleType:
+    """Load the singular approved replay-only compatibility builder."""
+
+    from dehps.config import ROOT_DIR
+
+    try:
+        root_dir = ROOT_DIR.resolve()
+        builder_path = (
+            ROOT_DIR
+            / "apps/worker-python/scripts/"
+            "build_m4_v2_global_routing_replay_compatibility_v1_manifest.py"
+        ).resolve()
+        if not builder_path.is_relative_to(root_dir):
+            raise ValueError(str(builder_path))
+        if not builder_path.is_file():
+            raise FileNotFoundError(builder_path)
+        spec = importlib.util.spec_from_file_location(
+            _M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_BUILDER_MODULE_NAME,
+            builder_path,
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError("m4_v2_global_replay_compatibility_builder_unavailable")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        for symbol in _M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_REQUIRED_SYMBOLS:
+            if not hasattr(module, symbol):
+                raise AttributeError(symbol)
+        for symbol in ("build_manifest", "transition_manifest", "validate_source_contract"):
+            if not callable(getattr(module, symbol)):
+                raise TypeError(symbol)
+        return module
+    except Exception as exc:
+        raise ResearchOSValidationError(
+            "m4_v2_global_replay_compatibility_v1_builder_unavailable"
         ) from exc
 
 
@@ -1101,6 +1174,22 @@ class PostgresResearchOSRepository:
 
         builder = _load_m4_v2_global_routing_recovery_v3_builder()
         tasks = {task.task_key: task for task in manifest.tasks}
+        if _M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_TASK_KEY in tasks:
+            compatibility = _load_m4_v2_global_routing_replay_compatibility_v1_builder()
+            if (
+                compatibility.SUCCESSOR_TASK_KEY
+                != _M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_TASK_KEY
+            ):
+                raise ResearchOSValidationError(
+                    "m4_v2_global_replay_compatibility_v1_task_identity_changed"
+                )
+            PostgresResearchOSRepository._verify_m4_v2_global_routing_replay_compatibility_v1_import(
+                cursor,
+                control_plane_key=control_plane_key,
+                manifest=manifest,
+                builder=compatibility,
+            )
+            return
         recovery = tasks.get(builder.RECOVERY_TASK_KEY)
         incoming_baseline = manifest.artifact_digest == builder.INPUT_MANIFEST_DIGEST
         if recovery is None and not incoming_baseline:
@@ -1382,6 +1471,427 @@ class PostgresResearchOSRepository:
             git_commit=git_commit,
             source_digest=source_digest,
         )
+
+    @staticmethod
+    def _verify_m4_v2_global_routing_replay_compatibility_v1_import(
+        cursor,
+        *,
+        control_plane_key: str,
+        manifest: ControlPlaneManifest,
+        builder: ModuleType | None = None,
+    ) -> None:
+        """Verify the one approved replay-only additive successor and no other delta."""
+
+        from dehps.config import ROOT_DIR
+
+        builder = builder or _load_m4_v2_global_routing_replay_compatibility_v1_builder()
+        error = "m4_v2_global_replay_compatibility_v1_output_changed"
+        if control_plane_key != "m4-information-theory-mainline":
+            raise ResearchOSValidationError(
+                "m4_v2_global_replay_compatibility_v1_control_plane_changed"
+            )
+        tasks = {task.task_key: task for task in manifest.tasks}
+        successor = tasks.get(builder.SUCCESSOR_TASK_KEY)
+        if successor is None or len(tasks) != len(manifest.tasks):
+            raise ResearchOSValidationError(
+                "m4_v2_global_replay_compatibility_v1_task_identity_changed"
+            )
+
+        control = cursor.execute(
+            """SELECT current_manifest_digest FROM research_os_control_planes
+               WHERE control_plane_key = %s FOR UPDATE""",
+            (control_plane_key,),
+        ).fetchone()
+        if control is None:
+            raise ResearchOSValidationError(
+                "m4_v2_global_replay_compatibility_v1_control_plane_missing"
+            )
+        baseline_row = cursor.execute(
+            "SELECT manifest_json FROM research_os_manifests WHERE manifest_digest = %s",
+            (builder.INPUT_MANIFEST_DIGEST,),
+        ).fetchone()
+        if baseline_row is None:
+            raise ResearchOSValidationError(
+                "m4_v2_global_replay_compatibility_v1_baseline_missing"
+            )
+        current_digest = str(control["current_manifest_digest"])
+        current_row = cursor.execute(
+            "SELECT manifest_json FROM research_os_manifests WHERE manifest_digest = %s",
+            (current_digest,),
+        ).fetchone()
+        if current_row is None:
+            raise ResearchOSValidationError(
+                "m4_v2_global_replay_compatibility_v1_current_missing"
+            )
+        try:
+            baseline = ControlPlaneManifest.from_dict(dict(baseline_row["manifest_json"]))
+            current = ControlPlaneManifest.from_dict(dict(current_row["manifest_json"]))
+            source_payload = json.loads(
+                (ROOT_DIR / builder.SOURCE_PATH).read_text(encoding="utf-8")
+            )
+            source_digest = builder.validate_source_contract(
+                source_payload, root_dir=ROOT_DIR
+            )
+            ready_payload, _ = builder.build_manifest(
+                baseline.to_dict(include_digest=True),
+                source_contract_digest=source_digest,
+            )
+            ready = ControlPlaneManifest.from_dict(ready_payload)
+        except (
+            KeyError,
+            OSError,
+            TypeError,
+            ValueError,
+            ResearchOSValidationError,
+            builder.GlobalRoutingReplayCompatibilityV1Error,
+        ) as exc:
+            raise ResearchOSValidationError(
+                "m4_v2_global_replay_compatibility_v1_source_or_baseline_changed"
+            ) from exc
+        if baseline.artifact_digest != builder.INPUT_MANIFEST_DIGEST:
+            raise ResearchOSValidationError(
+                "m4_v2_global_replay_compatibility_v1_baseline_changed"
+            )
+        baseline_snapshot = ResearchOSControlPlane().resolve(baseline)
+        if (
+            baseline_snapshot.snapshot_digest != builder.INPUT_SNAPSHOT_DIGEST
+            or baseline_snapshot.ready_queue
+        ):
+            raise ResearchOSValidationError(
+                "m4_v2_global_replay_compatibility_v1_baseline_changed"
+            )
+        old = next((task for task in baseline.tasks if task.task_key == builder.OLD_TASK_KEY), None)
+        if old is None or old.artifact_digest != builder.OLD_TASK_DIGEST:
+            raise ResearchOSValidationError(
+                "m4_v2_global_replay_compatibility_v1_old_task_changed"
+            )
+
+        successor_task = next(
+            task for task in ready.tasks if task.task_key == builder.SUCCESSOR_TASK_KEY
+        )
+        if successor.artifact_digest != successor_task.artifact_digest:
+            raise ResearchOSValidationError(
+                "m4_v2_global_replay_compatibility_v1_task_identity_changed"
+            )
+
+        running = ControlPlaneManifest.from_dict(
+            builder.transition_manifest(
+                ready.to_dict(include_digest=True),
+                status="running",
+                classification="INTEGRATED",
+            )
+        )
+        failed = ControlPlaneManifest.from_dict(
+            builder.transition_manifest(
+                ready.to_dict(include_digest=True),
+                status="failed",
+                classification="INTEGRATED",
+            )
+        )
+
+        old_events = cursor.execute(
+            """SELECT event_digest, execution_id, control_plane_key,
+                      manifest_digest, task_digest, task_key, capability,
+                      event_type, sequence, recorded_at, event_json
+               FROM research_os_mainline_execution_events
+               WHERE control_plane_key = %s AND task_key = %s
+               ORDER BY sequence, event_digest""",
+            (control_plane_key, builder.OLD_TASK_KEY),
+        ).fetchall()
+        if len(old_events) != 2:
+            raise ResearchOSValidationError(
+                "m4_v2_global_replay_compatibility_v1_old_events_changed"
+            )
+        observed_old_events = []
+        for row in old_events:
+            event, _ = _typed_v3_event(row)
+            observed_old_events.append(
+                (
+                    event.artifact_digest,
+                    event.execution_id,
+                    event.manifest_digest,
+                    event.task_digest,
+                    event.task_key,
+                    event.event_type,
+                    event.sequence,
+                )
+            )
+        if tuple(observed_old_events) != (
+            (
+                builder.OLD_STARTED_EVENT_DIGEST,
+                builder.OLD_EXECUTION_ID,
+                builder.OLD_EVENT_MANIFEST_DIGEST,
+                builder.OLD_TASK_DIGEST,
+                builder.OLD_TASK_KEY,
+                "started",
+                0,
+            ),
+            (
+                builder.OLD_COMPLETED_EVENT_DIGEST,
+                builder.OLD_EXECUTION_ID,
+                builder.OLD_EVENT_MANIFEST_DIGEST,
+                builder.OLD_TASK_DIGEST,
+                builder.OLD_TASK_KEY,
+                "completed",
+                1,
+            ),
+        ):
+            raise ResearchOSValidationError(
+                "m4_v2_global_replay_compatibility_v1_old_events_changed"
+            )
+
+        old_registration_rows = cursor.execute(
+            """SELECT registration_digest, execution_id, control_plane_key,
+                      task_digest, task_key, artifact_digest, artifact_type,
+                      schema_version, artifact_path, parent_digests_json,
+                      git_commit, registration_json
+               FROM research_os_mainline_artifacts
+               WHERE control_plane_key = %s AND task_key = %s
+               ORDER BY artifact_type, artifact_digest, registration_digest""",
+            (control_plane_key, builder.OLD_TASK_KEY),
+        ).fetchall()
+        if len(old_registration_rows) != 2:
+            raise ResearchOSValidationError(
+                "m4_v2_global_replay_compatibility_v1_old_registrations_changed"
+            )
+        expected_old_registrations = (
+            (
+                builder.OLD_ROUTE_REGISTRATION_DIGEST,
+                builder.OLD_ROUTE_ARTIFACT_DIGEST,
+                "m4_measurement_routing_decision",
+                "dehps-m4-measurement-routing-decision.v1",
+                builder.OLD_ROUTE_PATH,
+                (),
+            ),
+            (
+                builder.OLD_EXECUTION_REGISTRATION_DIGEST,
+                builder.OLD_EXECUTION_ARTIFACT_DIGEST,
+                "research_os_mainline_execution",
+                "dehps-research-os-mainline-execution.v1",
+                builder.OLD_EXECUTION_PATH,
+                (
+                    "11cb628f050f05465676fe083a6f9c183cbf855edfec8e194e98ad0450cdfd64",
+                    builder.OLD_ROUTE_ARTIFACT_DIGEST,
+                ),
+            ),
+        )
+        observed_old_registrations = []
+        for row in old_registration_rows:
+            raw = dict(row["registration_json"])
+            registration = MainlineArtifactRegistration(
+                execution_id=str(raw["execution_id"]),
+                control_plane_key=str(raw["control_plane_key"]),
+                task_key=str(raw["task_key"]),
+                task_digest=str(raw["task_digest"]),
+                artifact_digest=str(raw["artifact_digest"]),
+                artifact_type=str(raw["artifact_type"]),
+                schema_version=str(raw["schema_version"]),
+                artifact_path=str(raw["artifact_path"]),
+                parent_digests=tuple(str(value) for value in raw["parent_digests"]),
+                git_commit=str(raw["git_commit"]),
+            )
+            if (
+                str(row["registration_digest"]) != registration.registration_digest
+                or str(row["execution_id"]) != registration.execution_id
+                or str(row["control_plane_key"]) != registration.control_plane_key
+                or str(row["task_digest"]) != registration.task_digest
+                or str(row["task_key"]) != registration.task_key
+                or str(row["artifact_digest"]) != registration.artifact_digest
+                or str(row["artifact_type"]) != registration.artifact_type
+                or str(row["schema_version"]) != registration.schema_version
+                or str(row["artifact_path"]) != registration.artifact_path
+                or tuple(str(value) for value in row["parent_digests_json"])
+                != registration.parent_digests
+                or str(row["git_commit"]) != registration.git_commit
+                or registration.execution_id != builder.OLD_EXECUTION_ID
+                or registration.control_plane_key != control_plane_key
+                or registration.task_key != builder.OLD_TASK_KEY
+                or registration.task_digest != builder.OLD_TASK_DIGEST
+                or registration.git_commit != builder.OLD_GIT_COMMIT
+            ):
+                raise ResearchOSValidationError(
+                    "m4_v2_global_replay_compatibility_v1_old_registrations_changed"
+                )
+            observed_old_registrations.append(
+                (
+                    registration.registration_digest,
+                    registration.artifact_digest,
+                    registration.artifact_type,
+                    registration.schema_version,
+                    registration.artifact_path,
+                    registration.parent_digests,
+                )
+            )
+        if tuple(observed_old_registrations) != expected_old_registrations:
+            raise ResearchOSValidationError(
+                "m4_v2_global_replay_compatibility_v1_old_registrations_changed"
+            )
+        route_path = (ROOT_DIR / builder.OLD_ROUTE_PATH).resolve()
+        root_dir = ROOT_DIR.resolve()
+        if (
+            not route_path.is_relative_to(root_dir)
+            or not route_path.is_file()
+            or route_path.stat().st_size != builder.OLD_ROUTE_RAW_LENGTH
+            or hashlib.sha256(route_path.read_bytes()).hexdigest()
+            != builder.OLD_ROUTE_RAW_SHA256
+        ):
+            raise ResearchOSValidationError(
+                "m4_v2_global_replay_compatibility_v1_old_route_bytes_changed"
+            )
+
+        runtime_rows = cursor.execute(
+            """SELECT event_digest, execution_id, control_plane_key,
+                      manifest_digest, task_digest, task_key, capability,
+                      event_type, sequence, recorded_at, event_json
+               FROM research_os_mainline_execution_events
+               WHERE control_plane_key = %s AND task_key = %s
+               ORDER BY sequence, event_digest""",
+            (control_plane_key, builder.SUCCESSOR_TASK_KEY),
+        ).fetchall()
+        successor_registrations = cursor.execute(
+            """SELECT registration_digest FROM research_os_mainline_artifacts
+               WHERE control_plane_key = %s AND task_key = %s""",
+            (control_plane_key, builder.SUCCESSOR_TASK_KEY),
+        ).fetchall()
+        if successor_registrations:
+            raise ResearchOSValidationError(error)
+
+        def stage(value: ControlPlaneManifest) -> str | None:
+            fixed = {
+                baseline.artifact_digest: "COMPLETED_V3",
+                ready.artifact_digest: "READY",
+                running.artifact_digest: "RUNNING",
+                failed.artifact_digest: "FAILED",
+            }.get(value.artifact_digest)
+            if fixed:
+                return fixed
+            target = next(
+                (task for task in value.tasks if task.task_key == builder.SUCCESSOR_TASK_KEY),
+                None,
+            )
+            if target is not None:
+                state = value.task_state_by_digest[target.artifact_digest]
+                if state.declared_status.value == "completed":
+                    return "COMPLETED"
+            return None
+
+        incoming_stage = stage(manifest)
+        current_stage = stage(current)
+        legal = {
+            "COMPLETED_V3": {"READY"},
+            "READY": {"READY", "RUNNING"},
+            "RUNNING": {"RUNNING", "COMPLETED", "FAILED"},
+            "COMPLETED": {"COMPLETED"},
+            "FAILED": {"FAILED"},
+        }
+        if current_stage is None or incoming_stage not in legal[current_stage]:
+            raise ResearchOSValidationError(error)
+        if incoming_stage == "READY":
+            if runtime_rows:
+                raise ResearchOSValidationError(error)
+            return
+
+        def typed_successor_event(row: Any) -> tuple[MainlineExecutionEvent, dict[str, Any]]:
+            event, payload = _typed_v3_event(row)
+            if (
+                event.control_plane_key != control_plane_key
+                or event.manifest_digest != running.artifact_digest
+                or event.task_key != builder.SUCCESSOR_TASK_KEY
+                or event.task_digest != successor_task.artifact_digest
+                or event.capability != successor_task.requested_capability
+            ):
+                raise ResearchOSValidationError(error)
+            return event, payload
+
+        if incoming_stage == "RUNNING":
+            if len(runtime_rows) not in ({0} if current_stage == "READY" else {0, 1}):
+                raise ResearchOSValidationError(error)
+            if runtime_rows:
+                started, started_payload = typed_successor_event(runtime_rows[0])
+                if (
+                    started.event_type != "started"
+                    or started.sequence != 0
+                    or set(started_payload) != {"input_artifact_digests", "git_commit"}
+                    or started_payload["input_artifact_digests"]
+                    != list(successor_task.input_artifact_digests)
+                ):
+                    raise ResearchOSValidationError(error)
+            return
+        if len(runtime_rows) != 2:
+            raise ResearchOSValidationError(error)
+        started, started_payload = typed_successor_event(runtime_rows[0])
+        terminal, terminal_payload = typed_successor_event(runtime_rows[1])
+        if (
+            started.event_type != "started"
+            or started.sequence != 0
+            or set(started_payload) != {"input_artifact_digests", "git_commit"}
+            or started_payload["input_artifact_digests"]
+            != list(successor_task.input_artifact_digests)
+            or terminal.execution_id != started.execution_id
+            or terminal.sequence != 1
+            or str(terminal_payload.get("git_commit"))
+            != str(started_payload["git_commit"])
+        ):
+            raise ResearchOSValidationError(error)
+        if incoming_stage == "FAILED":
+            if (
+                terminal.event_type != "failed"
+                or set(terminal_payload) != {"error", "git_commit"}
+                or not str(terminal_payload["error"])
+                or manifest.to_dict(include_digest=True)
+                != failed.to_dict(include_digest=True)
+            ):
+                raise ResearchOSValidationError(error)
+            return
+        expected_terminal = {
+            "git_commit",
+            "registered_replay_status",
+            "replay_task_key",
+            "replay_execution_id",
+            "route_artifact_digest",
+            "route_registration_digest",
+            "global_route",
+            "durable_state_changed",
+            "workload_rerun",
+            "branch_workloads_rerun",
+            "global_router_workload_rerun",
+            "predictive_p3_folds",
+            "p4_started",
+            "promotion_triggered",
+        }
+        if (
+            terminal.event_type != "completed"
+            or set(terminal_payload) != expected_terminal
+            or terminal_payload["registered_replay_status"]
+            != "REGISTERED_REPLAY_VERIFIED"
+            or terminal_payload["replay_task_key"] != builder.OLD_TASK_KEY
+            or terminal_payload["replay_execution_id"] != builder.OLD_EXECUTION_ID
+            or terminal_payload["route_artifact_digest"]
+            != builder.OLD_ROUTE_ARTIFACT_DIGEST
+            or terminal_payload["route_registration_digest"]
+            != builder.OLD_ROUTE_REGISTRATION_DIGEST
+            or terminal_payload["global_route"] != builder.OLD_ROUTE
+            or terminal_payload["durable_state_changed"] is not False
+            or terminal_payload["workload_rerun"] is not False
+            or terminal_payload["branch_workloads_rerun"] is not False
+            or terminal_payload["global_router_workload_rerun"] is not False
+            or terminal_payload["predictive_p3_folds"] != 0
+            or terminal_payload["p4_started"] is not False
+            or terminal_payload["promotion_triggered"] is not False
+        ):
+            raise ResearchOSValidationError(error)
+        expected_completed = ControlPlaneManifest.from_dict(
+            builder.transition_manifest(
+                ready.to_dict(include_digest=True),
+                status="completed",
+                classification="COMPLETE",
+                execution_id=started.execution_id,
+            )
+        )
+        if manifest.to_dict(include_digest=True) != expected_completed.to_dict(
+            include_digest=True
+        ):
+            raise ResearchOSValidationError(error)
 
     @staticmethod
     def _verify_m4_v2_failed_global_routing_recovery_v2_import(
