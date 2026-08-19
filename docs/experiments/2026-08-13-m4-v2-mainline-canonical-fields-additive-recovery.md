@@ -125,6 +125,62 @@ run from the frozen recovery manifest boundary.
     any separately authorized live import.
 12. Integration matrix: `NO — INTEGRATION_PENDING`.
 
+## Exact frozen recovery-v3 replay-only source resolution
+
+1. Completed Research Request 617 / Execution 503 and approved Engineering
+   Request 618 / Execution 504 authorize only
+   `EXACT_FROZEN_V3_REPLAY_ONLY_SOURCE_RESOLUTION`. The implementation does
+   not create recovery-v4, compatibility-v2, a schema, an artifact type, or a
+   general historical-source fallback.
+2. The immutable producer remains task
+   `m4-v2-global-routing-recovery-v3`, task digest
+   `bddceb738009ba18cf81d26453915349ab588ba574d3a24e6ffd5c1bd8e49ab2`,
+   execution
+   `503c39400e0fc1b285e2600de9baf52e702d28d582e1530db4ed516010df731d`,
+   source contract `11cb628f…`, source set `cb48f271…`, and routing source SHA
+   `6c676cda…`. Its route artifact `b35a0860…`, route registration
+   `69a01c62…`, execution registration `e207fee8…`, and frozen route
+   `DEEPER_VALIDATION_REQUIRED` are unchanged.
+3. `ResearchEvidenceSupervisor.replay()` now resolves that one parent only
+   after the exact approved compatibility successor is present in the running
+   `INTEGRATED` stage. It verifies the producer contract and all ten producer
+   entries from the pinned Git object `cbb2841b…`; current worktree bytes are
+   never substituted for historical bytes.
+4. The current parser implementation is independently verified by the existing
+   compatibility-v1 source contract. It binds current `routing.py` SHA
+   `abe869ee…`, current `supervisor.py`, unchanged `repository.py`, the singular
+   compatibility builder, Research 617 / Reviewer Decision 2591, and
+   Engineering 618 / Reviewer Decision 2596 / Execution 504. The current
+   routing SHA is intentionally different from, and never compared with, the
+   producer routing SHA.
+5. Activation requires exact parent task, task digest, execution, execution
+   artifact, both registration identities and parent digests, source contract,
+   successor definition/digest/dependencies/full metric contract, and exact
+   result-blind lifecycle identities. The lifecycle gate binds both complete
+   Request payloads, execution types and metadata, all existing Decision
+   identities, one approval and one execution per Request, and the singular
+   Engineering completion transition. Missing, additional, malformed,
+   unknown, drifted, or unauthorized identities fail before route parsing; no
+   exception is converted into a fallback.
+6. The authorized global-routing module passes `93` tests. The focused exact
+   source-resolution matrix passes `11` tests covering successful zero-write
+   replay, separate old/current source validation, governance payload,
+   execution-count, Reviewer and Decision-chain drift, exact successor
+   priority/dependency/metric drift, registration drift, producer-source
+   drift, compatibility-source drift, and unauthorized-task rejection. Ruff,
+   `py_compile`, source-contract reconstruction, historical source
+   reconstruction, and `git diff --check` pass.
+7. The final local Worker suite passes `2695` tests with `5` existing skips,
+   `26` warnings, and zero failures in `1370.55s`. GitHub Actions quota is
+   exhausted; by explicit user release policy, these local focused/full gates
+   are authoritative and publication proceeds by a ready PR followed by direct
+   squash merge without waiting for GitHub CI.
+8. This Engineering round performs no import, Supervisor run, replay,
+   Marginal/Temporal/Joint/Global Router workload, predictive-P3 fold, P4, or
+   Promotion. Integration matrix: `NO — INTEGRATION_PENDING`. After merge, a
+   fresh independently reviewed Operator must import the unique compatibility
+   successor and invoke only the unified Supervisor replay path once.
+
 ## Recovery-v3 registered-replay compatibility successor
 
 1. Completed Research Request 612 / Execution 501 and approved Engineering

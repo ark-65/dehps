@@ -1,19 +1,58 @@
 {
-  "artifact_digest": "1ff090483cc6fc6f3b50cd58b11976a0934b8f624c9f393c04020cb8f0e2a076",
+  "artifact_digest": "348954707e00d611ecbd39fb3da99486ea3861754349100c3d0303edbdae5f04",
   "artifact_type": "m4_v2_global_routing_source_contract",
   "baseline_manifest_digest": "bf2cb25ab0c5ac750655700dc9df230eec3c7bbdf5114fd5349414c2f835f2cb",
-  "engineering_decision_id": 2582,
-  "engineering_request_id": 613,
+  "engineering_decision_id": 2596,
+  "engineering_completion_decision_identity": {
+    "decided_by": "engineering:exact-frozen-v3-replay-source-resolution-v1",
+    "decided_by_role": "engineering",
+    "decision_code": "execution_completed",
+    "new_status": "completed",
+    "previous_status": "executing",
+    "reason": {
+      "execution_id": 504,
+      "has_error": false
+    },
+    "request_id": 618,
+    "summary": "request execution completed"
+  },
+  "engineering_decision_digests": {
+    "2594": "08af038ac3ae24dd885729e2d475f02d7ca5116f13e6fbee85930b11743981f0",
+    "2595": "52c0c1b91d1d320985a177aba57694fd4e05f8b8812f2f768268c675b8bbf1f1",
+    "2596": "af8d7a9edff86bbb55c64d619a744ec0457a1fba2563ba19d84761013a44a9b9",
+    "2597": "0c8025aa4673e573dcc27eb74155f8ba19ba8e36a74ec31ad21a0f9d0454af13"
+  },
+  "engineering_execution_id": 504,
+  "engineering_execution_metadata_digest": "77885d54d756adb9161fd08731884e85bee73fdf2b7fb45bc85076a70b39beb7",
+  "engineering_request_id": 618,
+  "engineering_request_identity_digest": "c10c6d6a6404b795a1b57b0a47cfecb6946da5a8c66170ce07a4ff4a8869b857",
+  "engineering_start_decision_id": 2597,
   "global_route": "DEEPER_VALIDATION_REQUIRED",
+  "old_execution_artifact_digest": "dc233fb990d4b7d1ca1dd6693ec95c4bb960ffc58d18a0d3f5f97a5e5141bc44",
+  "old_execution_id": "503c39400e0fc1b285e2600de9baf52e702d28d582e1530db4ed516010df731d",
+  "old_execution_registration_digest": "e207fee89e567de793d81fdf38b489c1ae8472dee59791c1eb79771f9ab022c8",
+  "old_producer_routing_sha256": "6c676cda1987a970d78b9bfd445a2251d233b3333b740ef4fb21198ecdb7194b",
   "old_route_artifact_digest": "b35a0860e7e2d330513ddf4c0cfee8e1b8a6a59dc24f78bd5d5f55f53daf02db",
   "old_route_registration_digest": "69a01c62616dc6bae4cb1924a2d1dbf39e6199b94e5de4d9cd14d5965ad48745",
+  "old_source_contract_digest": "11cb628f050f05465676fe083a6f9c183cbf855edfec8e194e98ad0450cdfd64",
+  "old_source_set_digest": "cb48f271e3a082d143d435187b5ee8587f5684c9333259d79340d2c297c55631",
   "old_task_digest": "bddceb738009ba18cf81d26453915349ab588ba574d3a24e6ffd5c1bd8e49ab2",
   "p4_started": false,
   "predictive_p3_folds": 0,
   "promotion_triggered": false,
-  "research_decision_id": 2577,
-  "research_request_id": 612,
-  "review_outcome": "APPROVE_EXACT_ADDITIVE_REPLAY_SUCCESSOR_IMPORT",
+  "research_decision_id": 2591,
+  "research_decision_digests": {
+    "2589": "21b4858606620a89ea108efb2aef045cbe446079908b44c70f3a0f7a45b182ac",
+    "2590": "869068cfa733bff0ffacb3cdb782a610bfc25ac511d511013996d3cab99f3cf4",
+    "2591": "dbb87f5271597625273a0ec7531fb4c3335de1f4d67a77834d9b68d44e54a25e",
+    "2592": "5a432e0a701756cc5f87e28dbf47580f516c5db679538d915966b7f0b264096d",
+    "2593": "6b36cc854ddc21787265a10bdc60102a2863bdaffb3e8a73a1895c3887a70f48"
+  },
+  "research_execution_id": 503,
+  "research_execution_metadata_digest": "1c508a487d554f702525978e9c4425bbc223724fceeb9eff56576eb5627913f8",
+  "research_request_id": 617,
+  "research_request_identity_digest": "822f42f92f9368ad355a489d1be6d11fcef738b56db4ff5bb67182e2cca78033",
+  "review_outcome": "APPROVE_EXACT_FROZEN_V3_REPLAY_SOURCE_RESOLUTION",
   "schema_version": "dehps-m4-v2-global-routing-replay-compatibility-source.v1",
   "source_entries": [
     {
@@ -21,15 +60,19 @@
       "sha256": "abe869ee15bc0755b52a0af558bc51d8022f4e723890f1d67560bffcc66f19dc"
     },
     {
+      "path": "apps/worker-python/dehps/research_os/supervisor.py",
+      "sha256": "f3c5004d11065b2f947f78ab339c70d29f90d42a40711c304391d2889512cc6c"
+    },
+    {
       "path": "apps/worker-python/dehps/research_os/repository.py",
       "sha256": "6717d0a2617c6b26e17f7e4105cdf6006511a1fdec3f0b3e73bd228828a9eb0e"
     },
     {
       "path": "apps/worker-python/scripts/build_m4_v2_global_routing_replay_compatibility_v1_manifest.py",
-      "sha256": "e06c3f8bbb6ee8dce3cd9dc6d375f2aca3745c33b75eca9dadf247f9987572e5"
+      "sha256": "78652c04792a5ff81a3cffbe9c4b27d6fd9e2a155f772b9ab9f5e00b38992419"
     }
   ],
-  "source_set_digest": "57b574f81a4e73dfa4a2dbca9f94edb4f357df3b1fb8bb1e21fcba64c2818832",
+  "source_set_digest": "e26be30eb0fcae2fa0cc50bfcd2f8ed0dc7aac0c31e0baed624e0c2bbd01131f",
   "successor_task_key": "m4-v2-global-routing-recovery-v3-registered-replay-compatibility-v1",
   "workload_rerun": false
 }

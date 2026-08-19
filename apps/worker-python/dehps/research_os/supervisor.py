@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ctypes
 import errno
+import importlib.util
 import json
 import math
 import os
@@ -17,6 +18,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 from psycopg.rows import dict_row
@@ -4032,6 +4034,446 @@ def _m4_v2_raw_git_blob(*, root_dir: Path, commit: str, path: str) -> bytes:
             f"M4-v2 historical source object unavailable: {path}"
         ) from exc
     return result.stdout
+
+
+def _load_exact_global_routing_replay_compatibility_builder() -> ModuleType:
+    """Load only the approved recovery-v3 replay-compatibility v1 builder."""
+
+    path = (
+        ROOT_DIR
+        / "apps/worker-python/scripts/"
+        "build_m4_v2_global_routing_replay_compatibility_v1_manifest.py"
+    ).resolve()
+    try:
+        if not path.is_relative_to(ROOT_DIR.resolve()) or not path.is_file():
+            raise FileNotFoundError(path)
+        spec = importlib.util.spec_from_file_location(
+            "dehps_exact_global_routing_replay_compatibility_v1", path
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError("exact replay compatibility builder loader unavailable")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        required = (
+            "SUCCESSOR_TASK_KEY",
+            "OLD_TASK_KEY",
+            "OLD_TASK_DIGEST",
+            "OLD_EXECUTION_ID",
+            "OLD_EXECUTION_ARTIFACT_DIGEST",
+            "OLD_EXECUTION_REGISTRATION_DIGEST",
+            "OLD_ROUTE_ARTIFACT_DIGEST",
+            "OLD_ROUTE_REGISTRATION_DIGEST",
+            "OLD_ROUTE",
+            "OLD_GIT_COMMIT",
+            "OLD_SOURCE_PATH",
+            "OLD_SOURCE_CONTRACT_DIGEST",
+            "OLD_SOURCE_SET_DIGEST",
+            "OLD_PRODUCER_ROUTING_SHA256",
+            "SOURCE_PATH",
+            "RESEARCH_REQUEST_ID",
+            "RESEARCH_REQUEST_KEY",
+            "RESEARCH_EXECUTION_ID",
+            "RESEARCH_APPROVAL_DECISION_ID",
+            "ENGINEERING_REQUEST_ID",
+            "ENGINEERING_REQUEST_KEY",
+            "ENGINEERING_EXECUTION_ID",
+            "ENGINEERING_APPROVAL_DECISION_ID",
+            "ENGINEERING_START_DECISION_ID",
+            "RESEARCH_REQUEST_IDENTITY_DIGEST",
+            "RESEARCH_EXECUTION_METADATA_DIGEST",
+            "RESEARCH_DECISION_DIGESTS",
+            "ENGINEERING_REQUEST_IDENTITY_DIGEST",
+            "ENGINEERING_EXECUTION_METADATA_DIGEST",
+            "ENGINEERING_DECISION_DIGESTS",
+            "ENGINEERING_COMPLETION_DECISION_IDENTITY",
+            "REVIEW_OUTCOME",
+            "validate_source_contract",
+            "build_successor_task",
+        )
+        if any(not hasattr(module, name) for name in required):
+            raise AttributeError("exact replay compatibility builder contract changed")
+        if not callable(module.validate_source_contract) or not callable(
+            module.build_successor_task
+        ):
+            raise TypeError("exact replay compatibility source validator changed")
+        return module
+    except (ImportError, OSError, TypeError, ValueError, AttributeError) as exc:
+        raise MainlineSupervisorError(
+            "exact recovery-v3 replay compatibility builder unavailable"
+        ) from exc
+
+
+def _verify_exact_frozen_global_routing_producer_source(
+    *, root_dir: Path, builder: ModuleType
+) -> dict[str, Any]:
+    """Verify the old producer entirely from its pinned Git object identity."""
+
+    raw_contract = _m4_v2_raw_git_blob(
+        root_dir=root_dir,
+        commit=str(builder.OLD_GIT_COMMIT),
+        path=str(builder.OLD_SOURCE_PATH),
+    )
+    try:
+        contract = json.loads(raw_contract)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise MainlineSupervisorError(
+            "frozen recovery-v3 producer source contract is not canonical JSON"
+        ) from exc
+    entries = contract.get("source_entries") if isinstance(contract, dict) else None
+    if (
+        not isinstance(contract, dict)
+        or contract.get("artifact_digest") != builder.OLD_SOURCE_CONTRACT_DIGEST
+        or contract.get("source_set_digest") != builder.OLD_SOURCE_SET_DIGEST
+        or not isinstance(entries, list)
+        or len(entries) != 10
+    ):
+        raise MainlineSupervisorError(
+            "frozen recovery-v3 producer source identity changed"
+        )
+    verified: list[dict[str, str]] = []
+    for item in entries:
+        if not isinstance(item, Mapping) or set(item) != {"path", "sha256"}:
+            raise MainlineSupervisorError(
+                "frozen recovery-v3 producer source entry changed"
+            )
+        source_path = str(item["path"])
+        expected_sha = str(item["sha256"])
+        content = _m4_v2_raw_git_blob(
+            root_dir=root_dir,
+            commit=str(builder.OLD_GIT_COMMIT),
+            path=source_path,
+        )
+        if sha256(content).hexdigest() != expected_sha:
+            raise MainlineSupervisorError(
+                f"frozen recovery-v3 producer source bytes changed: {source_path}"
+            )
+        verified.append({"path": source_path, "sha256": expected_sha})
+    routing_entries = [
+        item
+        for item in verified
+        if item["path"]
+        == "apps/worker-python/dehps/research_os/information_theory/"
+        "measurement_system_v2/routing.py"
+    ]
+    identity = dict(contract)
+    identity.pop("artifact_digest")
+    if (
+        routing_entries
+        != [
+            {
+                "path": (
+                    "apps/worker-python/dehps/research_os/information_theory/"
+                    "measurement_system_v2/routing.py"
+                ),
+                "sha256": builder.OLD_PRODUCER_ROUTING_SHA256,
+            }
+        ]
+        or m4_v2_domain_digest(
+            {"source_entries": verified}, domain=M4_V2_SOURCE_SET_DIGEST_DOMAIN
+        )
+        != builder.OLD_SOURCE_SET_DIGEST
+        or m4_v2_domain_digest(
+            identity, domain=M4_V2_SOURCE_CONTRACT_DIGEST_DOMAIN
+        )
+        != builder.OLD_SOURCE_CONTRACT_DIGEST
+    ):
+        raise MainlineSupervisorError(
+            "frozen recovery-v3 producer source identity changed"
+        )
+    return contract
+
+
+def _verify_exact_replay_compatibility_governance(
+    *, agent_repository: AgentRequestRepository, builder: ModuleType
+) -> None:
+    """Verify only the approved result-blind Research and Engineering metadata."""
+
+    connection_factory = getattr(agent_repository, "_connection_factory", None)
+    if not callable(connection_factory):
+        raise MainlineSupervisorError(
+            "exact replay compatibility governance metadata is unavailable"
+        )
+    with connection_factory() as connection, connection.cursor(
+        row_factory=dict_row
+    ) as cursor:
+        requests = cursor.execute(
+            """
+            SELECT id, request_key, request_type, requested_by_role, requested_by,
+                   hypothesis_id, experiment_id, parent_request_id, title, summary,
+                   payload_json AS payload, status, risk_level, requires_review,
+                   metadata_json AS metadata
+            FROM agent_requests
+            WHERE id = ANY(%s)
+            ORDER BY id
+            """,
+            ([builder.RESEARCH_REQUEST_ID, builder.ENGINEERING_REQUEST_ID],),
+        ).fetchall()
+        executions = cursor.execute(
+            """
+            SELECT id, request_id, executor_role, executor_id, execution_type,
+                   status, environment, run_id, started_at, completed_at,
+                   artifact_paths_json AS artifact_paths, created_at
+            FROM agent_request_executions
+            WHERE id = ANY(%s)
+            ORDER BY id
+            """,
+            ([builder.RESEARCH_EXECUTION_ID, builder.ENGINEERING_EXECUTION_ID],),
+        ).fetchall()
+        decisions = cursor.execute(
+            """
+            SELECT id, request_id, previous_status, new_status, decision_code,
+                   summary, reason_json AS reason, decided_by_role, decided_by,
+                   decided_at, created_at
+            FROM agent_request_decisions
+            WHERE id = ANY(%s)
+            ORDER BY id
+            """,
+            (
+                [
+                    *builder.RESEARCH_DECISION_DIGESTS,
+                    *builder.ENGINEERING_DECISION_DIGESTS,
+                ],
+            ),
+        ).fetchall()
+        execution_counts = cursor.execute(
+            """
+            SELECT request_id, count(*) AS count
+            FROM agent_request_executions
+            WHERE request_id = ANY(%s)
+            GROUP BY request_id
+            ORDER BY request_id
+            """,
+            ([builder.RESEARCH_REQUEST_ID, builder.ENGINEERING_REQUEST_ID],),
+        ).fetchall()
+        approval_counts = cursor.execute(
+            """
+            SELECT request_id, count(*) AS count
+            FROM agent_request_decisions
+            WHERE request_id = ANY(%s)
+              AND decision_code = 'request_approved'
+            GROUP BY request_id
+            ORDER BY request_id
+            """,
+            ([builder.RESEARCH_REQUEST_ID, builder.ENGINEERING_REQUEST_ID],),
+        ).fetchall()
+        all_decisions = cursor.execute(
+            """
+            SELECT id, request_id, previous_status, new_status, decision_code,
+                   summary, reason_json AS reason, decided_by_role, decided_by,
+                   decided_at, created_at
+            FROM agent_request_decisions
+            WHERE request_id = ANY(%s)
+            ORDER BY request_id, id
+            """,
+            ([builder.RESEARCH_REQUEST_ID, builder.ENGINEERING_REQUEST_ID],),
+        ).fetchall()
+
+    request_by_id = {int(row["id"]): dict(row) for row in requests}
+    execution_by_id = {int(row["id"]): dict(row) for row in executions}
+    decision_by_id = {int(row["id"]): dict(row) for row in decisions}
+    execution_count_by_request = {
+        int(row["request_id"]): int(row["count"]) for row in execution_counts
+    }
+    approval_count_by_request = {
+        int(row["request_id"]): int(row["count"]) for row in approval_counts
+    }
+    decisions_by_request: dict[int, list[dict[str, Any]]] = {}
+    for row in all_decisions:
+        decisions_by_request.setdefault(int(row["request_id"]), []).append(dict(row))
+
+    research_request = request_by_id.get(builder.RESEARCH_REQUEST_ID)
+    engineering_request = request_by_id.get(builder.ENGINEERING_REQUEST_ID)
+    research_execution = execution_by_id.get(builder.RESEARCH_EXECUTION_ID)
+    engineering_execution = execution_by_id.get(builder.ENGINEERING_EXECUTION_ID)
+    known_decision_digests = {
+        **builder.RESEARCH_DECISION_DIGESTS,
+        **builder.ENGINEERING_DECISION_DIGESTS,
+    }
+    if (
+        research_request is None
+        or engineering_request is None
+        or research_execution is None
+        or engineering_execution is None
+        or set(decision_by_id) != set(known_decision_digests)
+        or research_request.get("status") != "completed"
+        or engineering_request.get("status") != "completed"
+        or research_execution.get("status") != "completed"
+        or engineering_execution.get("status") != "completed"
+        or research_execution.get("completed_at") is None
+        or engineering_execution.get("completed_at") is None
+        or research_execution.get("artifact_paths") != []
+        or engineering_execution.get("artifact_paths") != []
+        or execution_count_by_request
+        != {builder.RESEARCH_REQUEST_ID: 1, builder.ENGINEERING_REQUEST_ID: 1}
+        or approval_count_by_request
+        != {builder.RESEARCH_REQUEST_ID: 1, builder.ENGINEERING_REQUEST_ID: 1}
+        or governance_request_identity_digest(research_request)
+        != builder.RESEARCH_REQUEST_IDENTITY_DIGEST
+        or governance_request_identity_digest(engineering_request)
+        != builder.ENGINEERING_REQUEST_IDENTITY_DIGEST
+        or governance_execution_metadata_digest(research_execution)
+        != builder.RESEARCH_EXECUTION_METADATA_DIGEST
+        or governance_execution_metadata_digest(engineering_execution)
+        != builder.ENGINEERING_EXECUTION_METADATA_DIGEST
+        or any(
+            governance_reviewer_decision_digest(decision_by_id[decision_id])
+            != digest
+            for decision_id, digest in known_decision_digests.items()
+        )
+    ):
+        raise MainlineSupervisorError(
+            "exact replay compatibility governance identity changed"
+        )
+
+    research_decisions = decisions_by_request.get(builder.RESEARCH_REQUEST_ID, [])
+    engineering_decisions = decisions_by_request.get(builder.ENGINEERING_REQUEST_ID, [])
+    engineering_terminal = engineering_decisions[-1] if engineering_decisions else None
+    terminal_projection = (
+        None
+        if engineering_terminal is None
+        else {
+            key: engineering_terminal.get(key)
+            for key in builder.ENGINEERING_COMPLETION_DECISION_IDENTITY
+        }
+    )
+    if (
+        [int(row["id"]) for row in research_decisions]
+        != list(builder.RESEARCH_DECISION_DIGESTS)
+        or len(engineering_decisions) != len(builder.ENGINEERING_DECISION_DIGESTS) + 1
+        or [int(row["id"]) for row in engineering_decisions[:-1]]
+        != list(builder.ENGINEERING_DECISION_DIGESTS)
+        or terminal_projection != builder.ENGINEERING_COMPLETION_DECISION_IDENTITY
+    ):
+        raise MainlineSupervisorError(
+            "exact replay compatibility governance lifecycle changed"
+        )
+
+
+def _resolve_exact_frozen_v3_replay_source(
+    *,
+    root_dir: Path,
+    manifest: ControlPlaneManifest,
+    old_task: Task,
+    execution_artifact: Mapping[str, Any],
+    registrations: Sequence[Mapping[str, Any]],
+    agent_repository: AgentRequestRepository,
+) -> dict[str, Any]:
+    """Resolve only the approved replay-only successor's two source identities."""
+
+    builder = _load_exact_global_routing_replay_compatibility_builder()
+    if (
+        old_task.task_key != builder.OLD_TASK_KEY
+        or old_task.artifact_digest != builder.OLD_TASK_DIGEST
+        or old_task.input_artifact_digests != (builder.OLD_SOURCE_CONTRACT_DIGEST,)
+        or execution_artifact.get("execution_id") != builder.OLD_EXECUTION_ID
+        or execution_artifact.get("artifact_digest")
+        != builder.OLD_EXECUTION_ARTIFACT_DIGEST
+    ):
+        raise MainlineSupervisorError(
+            "frozen recovery-v3 replay parent identity changed"
+        )
+    tasks = [task for task in manifest.tasks if task.task_key == builder.SUCCESSOR_TASK_KEY]
+    if len(tasks) != 1:
+        raise MainlineSupervisorError(
+            "approved replay compatibility successor identity changed"
+        )
+    successor = tasks[0]
+    successor_state = manifest.task_state_by_digest.get(successor.artifact_digest)
+    source_path = (root_dir / str(builder.SOURCE_PATH)).resolve()
+    try:
+        source_payload = json.loads(source_path.read_text(encoding="utf-8"))
+        compatibility_source_digest = builder.validate_source_contract(
+            source_payload, root_dir=root_dir
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise MainlineSupervisorError(
+            "current replay compatibility source identity changed"
+        ) from exc
+    expected_inputs = (
+        compatibility_source_digest,
+        builder.OLD_ROUTE_ARTIFACT_DIGEST,
+        builder.OLD_ROUTE_REGISTRATION_DIGEST,
+        builder.OLD_EXECUTION_ARTIFACT_DIGEST,
+        builder.OLD_EXECUTION_REGISTRATION_DIGEST,
+    )
+    expected_successor, _ = builder.build_successor_task(
+        old_task, source_contract_digest=compatibility_source_digest
+    )
+    try:
+        metric = json.loads(successor.metric_contract)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise MainlineSupervisorError(
+            "approved replay compatibility successor contract changed"
+        ) from exc
+    if (
+        successor != expected_successor
+        or successor.artifact_digest != expected_successor.artifact_digest
+        or successor.requested_capability
+        != "m4_v2_global_routing_registered_replay_compatibility"
+        or successor.input_artifact_digests != expected_inputs
+        or successor_state is None
+        or successor_state.declared_status.value != "running"
+        or successor_state.completion_classification is None
+        or successor_state.completion_classification.value != "INTEGRATED"
+        or not isinstance(metric, Mapping)
+        or metric.get("mode") != "replay_only"
+        or metric.get("replay_api") != "ResearchEvidenceSupervisor.replay"
+        or metric.get("replay_task_key") != builder.OLD_TASK_KEY
+        or metric.get("replay_execution_id") != builder.OLD_EXECUTION_ID
+        or metric.get("route_artifact_digest") != builder.OLD_ROUTE_ARTIFACT_DIGEST
+        or metric.get("route_registration_digest")
+        != builder.OLD_ROUTE_REGISTRATION_DIGEST
+        or metric.get("execution_artifact_digest")
+        != builder.OLD_EXECUTION_ARTIFACT_DIGEST
+        or metric.get("execution_registration_digest")
+        != builder.OLD_EXECUTION_REGISTRATION_DIGEST
+        or metric.get("global_route") != builder.OLD_ROUTE
+        or metric.get("workload_rerun") is not False
+        or metric.get("branch_workloads_rerun") is not False
+        or metric.get("global_router_workload_rerun") is not False
+        or metric.get("predictive_p3_folds") != 0
+        or metric.get("p4_started") is not False
+        or metric.get("promotion_triggered") is not False
+    ):
+        raise MainlineSupervisorError(
+            "approved replay compatibility successor contract changed"
+        )
+    by_type = {str(row.get("artifact_type")): row for row in registrations}
+    route_registration = by_type.get("m4_measurement_routing_decision")
+    execution_registration = by_type.get("research_os_mainline_execution")
+    if (
+        len(registrations) != 2
+        or len(by_type) != 2
+        or route_registration is None
+        or execution_registration is None
+        or route_registration.get("registration_digest")
+        != builder.OLD_ROUTE_REGISTRATION_DIGEST
+        or route_registration.get("artifact_digest")
+        != builder.OLD_ROUTE_ARTIFACT_DIGEST
+        or route_registration.get("execution_id") != builder.OLD_EXECUTION_ID
+        or route_registration.get("task_digest") != builder.OLD_TASK_DIGEST
+        or tuple(route_registration.get("parent_digests", ())) != ()
+        or execution_registration.get("registration_digest")
+        != builder.OLD_EXECUTION_REGISTRATION_DIGEST
+        or execution_registration.get("artifact_digest")
+        != builder.OLD_EXECUTION_ARTIFACT_DIGEST
+        or execution_registration.get("execution_id") != builder.OLD_EXECUTION_ID
+        or execution_registration.get("task_digest") != builder.OLD_TASK_DIGEST
+        or tuple(execution_registration.get("parent_digests", ()))
+        != (
+            builder.OLD_SOURCE_CONTRACT_DIGEST,
+            builder.OLD_ROUTE_ARTIFACT_DIGEST,
+        )
+    ):
+        raise MainlineSupervisorError(
+            "frozen recovery-v3 replay registration identity changed"
+        )
+    _verify_exact_replay_compatibility_governance(
+        agent_repository=agent_repository, builder=builder
+    )
+    return _verify_exact_frozen_global_routing_producer_source(
+        root_dir=root_dir, builder=builder
+    )
 
 
 def verify_m4_v2_historical_successor_source_contract(
@@ -25123,7 +25565,14 @@ class ResearchEvidenceSupervisor:
                 repository=self.repository,
                 root_dir=self.root_dir,
             )
-            source = dispatcher._source("global", task)
+            source = _resolve_exact_frozen_v3_replay_source(
+                root_dir=self.root_dir,
+                manifest=manifest,
+                old_task=task,
+                execution_artifact=execution_artifact,
+                registrations=registrations,
+                agent_repository=dispatcher.agent_repository,
+            )
             branch_records = (
                 dispatcher._branch_record(
                     control_plane_key=self.control_plane_key,
