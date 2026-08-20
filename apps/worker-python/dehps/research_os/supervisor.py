@@ -157,6 +157,9 @@ from dehps.research_os.information_theory.measurement_system_v2 import (
 from dehps.research_os.information_theory.measurement_system_v2 import (
     diagnostic_negative_controls as m4_p4_diagnostic,
 )
+from dehps.research_os.information_theory.measurement_system_v2 import (
+    forward_evidence_feasibility as m4_v2_forward_feasibility,
+)
 from dehps.research_os.information_theory.measurement_system_v2.branch_decision import (
     MARGINAL_STATIC_BASELINE_ARTIFACT_DIGEST as M4_V2_SUCCESSOR_MARGINAL_BASELINE_DIGEST,
 )
@@ -23144,6 +23147,77 @@ class M4P4DiagnosticNegativeControlsCapability(M4V2SuccessorCapability):
         return runner(control_plane_key=control_plane_key, task=task)
 
 
+class M4V2ForwardEvidenceFeasibilityCapability(M4V2SuccessorCapability):
+    """Register the one zero-compute forward-program decision and its replay."""
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> AtomicCapabilityResult:
+        del execution_id, git_commit
+        integration_contract(task)
+        if (
+            task.task_key != m4_v2_forward_feasibility.TASK_KEY
+            or task.requested_capability != m4_v2_forward_feasibility.CAPABILITY
+        ):
+            raise MainlineSupervisorError("forward feasibility task/capability mismatch")
+        source = m4_v2_forward_feasibility.load_source_contract(root_dir=self.root_dir)
+        m4_v2_forward_feasibility.verify_governance(self.agent_repository)
+        if task.input_artifact_digests != (str(source["artifact_digest"]),):
+            raise MainlineSupervisorError("forward feasibility source input changed")
+        registered_inputs = tuple(
+            self._exact_registered_artifact(
+                control_plane_key=control_plane_key, artifact_digest=digest
+            )[1]
+            for digest in m4_v2_forward_feasibility.FROZEN_INPUT_DIGESTS
+        )
+        feasibility, decision, replay = m4_v2_forward_feasibility.build_artifacts(
+            source_contract=source, registered_inputs=registered_inputs
+        )
+        return AtomicCapabilityResult(
+            artifacts=(
+                AtomicArtifactPayload(
+                    "forward-feasibility", "feasibility.json", feasibility
+                ),
+                AtomicArtifactPayload(
+                    "forward-program-decision", "decision.json", decision
+                ),
+                AtomicArtifactPayload(
+                    "forward-program-decision-replay", "replay.json", replay
+                ),
+            ),
+            completion_facts=(
+                m4_v2_forward_feasibility.COMPLETION_FACT,
+                m4_v2_forward_feasibility.PROGRAM_FACT,
+                m4_v2_forward_feasibility.REUSE_POLICY_FACT,
+            ),
+            execution_metadata=(
+                ("source_contract_digest", source["artifact_digest"]),
+                ("source_set_digest", source["source_set_digest"]),
+                ("decision", m4_v2_forward_feasibility.SELECTED_DECISION),
+                ("target_issue_count", m4_v2_forward_feasibility.TARGET_ISSUE_COUNT),
+                ("scientific_computation", 0),
+                ("model_training_started", False),
+                ("model_refit", False),
+                ("historical_p3_folds", 0),
+                ("forward_samples", 0),
+                ("forward_checkpoints", 0),
+                ("settlements", 0),
+                ("formal_p4_modified", False),
+                ("pass_to_p4_emitted", False),
+                ("p5_started", False),
+                ("promotion_triggered", False),
+                ("successor_execution_authorized", False),
+            ),
+            actual_fold_count=0,
+            workload_rerun=False,
+        )
+
+
 class ResearchEvidenceSupervisor:
     def __init__(
         self,
@@ -23552,6 +23626,12 @@ class ResearchEvidenceSupervisor:
             m4_p4_diagnostic.REPLAY_CAPABILITY,
         ):
             self.capabilities[capability] = diagnostic_p4
+        self.capabilities[m4_v2_forward_feasibility.CAPABILITY] = (
+            M4V2ForwardEvidenceFeasibilityCapability(
+                repository=self.repository,
+                root_dir=root_dir,
+            )
+        )
 
     @property
     def state_path(self) -> Path:
@@ -33016,6 +33096,63 @@ class ResearchEvidenceSupervisor:
                 "evidence_created": False,
                 "manual_input_assembly": False,
             }
+        elif task_key == m4_v2_forward_feasibility.TASK_KEY:
+            source = m4_v2_forward_feasibility.load_source_contract(
+                root_dir=self.root_dir
+            )
+            dispatcher = M4V2SuccessorCapability(
+                repository=self.repository,
+                root_dir=self.root_dir,
+            )
+            m4_v2_forward_feasibility.verify_governance(
+                dispatcher.agent_repository
+            )
+            registered_inputs = tuple(
+                dispatcher._exact_registered_artifact(
+                    control_plane_key=self.control_plane_key,
+                    artifact_digest=digest,
+                )[1]
+                for digest in m4_v2_forward_feasibility.FROZEN_INPUT_DIGESTS
+            )
+            stored = (
+                _load_registered_type(
+                    root_dir=self.root_dir,
+                    registrations=registrations,
+                    artifact_type=m4_v2_forward_feasibility.FEASIBILITY_ARTIFACT_TYPE,
+                ),
+                _load_registered_type(
+                    root_dir=self.root_dir,
+                    registrations=registrations,
+                    artifact_type=m4_v2_forward_feasibility.DECISION_ARTIFACT_TYPE,
+                ),
+                _load_registered_type(
+                    root_dir=self.root_dir,
+                    registrations=registrations,
+                    artifact_type=m4_v2_forward_feasibility.REPLAY_ARTIFACT_TYPE,
+                ),
+            )
+            _, capability_replay = (
+                m4_v2_forward_feasibility.replay_registered_artifacts(
+                    source_contract=source,
+                    registered_inputs=registered_inputs,
+                    stored_artifacts=stored,
+                )
+            )
+            if (
+                artifact.get("actual_fold_count") != 0
+                or artifact.get("workload_rerun") is not False
+                or artifact.get("capability")
+                != m4_v2_forward_feasibility.CAPABILITY
+                or capability_replay.get("status") != "REPLAY_VERIFIED"
+                or capability_replay.get("registered_replay_status")
+                != "REGISTERED_REPLAY_VERIFIED"
+                or capability_replay.get("same_registered_content") is not True
+                or capability_replay.get("workload_rerun") is not False
+                or capability_replay.get("scientific_computation") != 0
+            ):
+                raise MainlineSupervisorError(
+                    "M4-v2 forward feasibility replay identity changed"
+                )
         elif task_key == PREDICTIVE_ROUTE_RECONCILIATION_TASK_KEY:
             source_contract = load_predictive_route_reconciliation_source_contract(
                 self.root_dir

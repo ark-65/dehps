@@ -156,6 +156,20 @@ _M4_P4_DIAGNOSTIC_REQUIRED_SYMBOLS = (
     "SOURCE_FACT_PREFIX",
     "build_manifest",
 )
+_M4_V2_FORWARD_FEASIBILITY_BUILDER_MODULE_NAME = (
+    "_dehps_m4_v2_forward_feasibility_builder"
+)
+_M4_V2_FORWARD_FEASIBILITY_TASK_KEY = (
+    "m4-v2-forward-evidence-feasibility-and-program-decision"
+)
+_M4_V2_FORWARD_FEASIBILITY_REQUIRED_SYMBOLS = (
+    "BASELINE_MANIFEST_DIGEST",
+    "FORMAL_P4_TASK_KEY",
+    "GOAL_KEY",
+    "NEW_TASK_KEYS",
+    "SOURCE_FACT_PREFIX",
+    "build_manifest",
+)
 
 
 def _m4_v2_utc_instant(value: Any) -> datetime:
@@ -398,6 +412,39 @@ def _load_m4_p4_diagnostic_builder() -> ModuleType:
     except Exception as exc:
         raise ResearchOSValidationError(
             "m4_p4_diagnostic_builder_unavailable"
+        ) from exc
+
+
+def _load_m4_v2_forward_feasibility_builder() -> ModuleType:
+    """Load the exact additive zero-compute forward-program builder."""
+
+    from dehps.config import ROOT_DIR
+
+    try:
+        root_dir = ROOT_DIR.resolve()
+        builder_path = (
+            ROOT_DIR
+            / "apps/worker-python/scripts/build_m4_v2_forward_evidence_feasibility_manifest.py"
+        ).resolve()
+        if not builder_path.is_relative_to(root_dir) or not builder_path.is_file():
+            raise FileNotFoundError(builder_path)
+        spec = importlib.util.spec_from_file_location(
+            _M4_V2_FORWARD_FEASIBILITY_BUILDER_MODULE_NAME,
+            builder_path,
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError("m4_v2_forward_feasibility_builder_unavailable")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        for symbol in _M4_V2_FORWARD_FEASIBILITY_REQUIRED_SYMBOLS:
+            if not hasattr(module, symbol):
+                raise AttributeError(symbol)
+        if not callable(module.build_manifest):
+            raise TypeError("build_manifest")
+        return module
+    except Exception as exc:
+        raise ResearchOSValidationError(
+            "m4_v2_forward_feasibility_builder_unavailable"
         ) from exc
 
 
@@ -1273,6 +1320,13 @@ class PostgresResearchOSRepository:
 
         builder = _load_m4_v2_global_routing_recovery_v3_builder()
         tasks = {task.task_key: task for task in manifest.tasks}
+        if _M4_V2_FORWARD_FEASIBILITY_TASK_KEY in tasks:
+            PostgresResearchOSRepository._verify_m4_v2_forward_feasibility_import(
+                cursor,
+                control_plane_key=control_plane_key,
+                manifest=manifest,
+            )
+            return
         if _M4_P4_DIAGNOSTIC_FIRST_TASK_KEY in tasks:
             PostgresResearchOSRepository._verify_m4_p4_diagnostic_import(
                 cursor,
@@ -1779,6 +1833,176 @@ class PostgresResearchOSRepository:
         if current.artifact_digest != baseline.artifact_digest and not all(
             key in current_keys for key in new_keys
         ):
+            raise ResearchOSValidationError(error)
+
+    @staticmethod
+    def _verify_m4_v2_forward_feasibility_import(
+        cursor,
+        *,
+        control_plane_key: str,
+        manifest: ControlPlaneManifest,
+    ) -> None:
+        """Verify the exact two-task zero-compute forward-program lifecycle."""
+
+        from dehps.config import ROOT_DIR
+        from dehps.research_os.information_theory.measurement_system_v2 import (
+            forward_evidence_feasibility as forward,
+        )
+
+        error = "m4_v2_forward_feasibility_output_changed"
+        if control_plane_key != "m4-information-theory-mainline":
+            raise ResearchOSValidationError(
+                "m4_v2_forward_feasibility_control_plane_changed"
+            )
+        builder = _load_m4_v2_forward_feasibility_builder()
+        baseline_row = cursor.execute(
+            "SELECT manifest_json FROM research_os_manifests WHERE manifest_digest = %s",
+            (builder.BASELINE_MANIFEST_DIGEST,),
+        ).fetchone()
+        control = cursor.execute(
+            "SELECT current_manifest_digest FROM research_os_control_planes "
+            "WHERE control_plane_key = %s FOR UPDATE",
+            (control_plane_key,),
+        ).fetchone()
+        if baseline_row is None or control is None:
+            raise ResearchOSValidationError(
+                "m4_v2_forward_feasibility_baseline_missing"
+            )
+        try:
+            baseline = ControlPlaneManifest.from_dict(dict(baseline_row["manifest_json"]))
+            source = forward.load_source_contract(root_dir=ROOT_DIR)
+            expected_payload, _ = builder.build_manifest(
+                baseline.to_dict(include_digest=True),
+                source_contract_digest=str(source["artifact_digest"]),
+            )
+            expected = ControlPlaneManifest.from_dict(expected_payload)
+        except Exception as exc:
+            raise ResearchOSValidationError(error) from exc
+
+        baseline_goals = {item.goal_key: item for item in baseline.goals}
+        expected_goals = {item.goal_key: item for item in expected.goals}
+        incoming_goals = {item.goal_key: item for item in manifest.goals}
+        baseline_tasks = {item.task_key: item for item in baseline.tasks}
+        expected_tasks = {item.task_key: item for item in expected.tasks}
+        incoming_tasks = {item.task_key: item for item in manifest.tasks}
+        if (
+            baseline.artifact_digest != builder.BASELINE_MANIFEST_DIGEST
+            or len(incoming_goals) != len(manifest.goals)
+            or len(incoming_tasks) != len(manifest.tasks)
+            or set(incoming_goals) != set(expected_goals)
+            or set(incoming_tasks) != set(expected_tasks)
+            or any(
+                incoming_goals[key].to_dict() != baseline_goals[key].to_dict()
+                for key in baseline_goals
+            )
+            or incoming_goals[builder.GOAL_KEY].to_dict()
+            != expected_goals[builder.GOAL_KEY].to_dict()
+            or any(
+                incoming_tasks[key].to_dict() != baseline_tasks[key].to_dict()
+                for key in baseline_tasks
+            )
+            or any(
+                incoming_tasks[key].to_dict() != expected_tasks[key].to_dict()
+                for key in builder.NEW_TASK_KEYS
+            )
+        ):
+            raise ResearchOSValidationError(error)
+
+        baseline_states = baseline.task_state_by_digest
+        incoming_states = manifest.task_state_by_digest
+        if any(
+            incoming_states[task.artifact_digest]
+            != baseline_states[task.artifact_digest]
+            for task in baseline.tasks
+        ):
+            raise ResearchOSValidationError(error)
+        decision_task = incoming_tasks[forward.TASK_KEY]
+        successor_task = incoming_tasks[forward.SUCCESSOR_TASK_KEY]
+        decision_state = incoming_states[decision_task.artifact_digest]
+        successor_state = incoming_states[successor_task.artifact_digest]
+        decision_status = decision_state.declared_status.value
+        decision_class = (
+            None
+            if decision_state.completion_classification is None
+            else decision_state.completion_classification.value
+        )
+        if (
+            (decision_status, decision_class)
+            not in {
+                ("draft", "INTEGRATION_PENDING"),
+                ("running", "INTEGRATED"),
+                ("completed", "COMPLETE"),
+            }
+            or successor_state.declared_status.value != "draft"
+            or successor_state.completion_classification is None
+            or successor_state.completion_classification.value
+            != "INTEGRATION_PENDING"
+        ):
+            raise ResearchOSValidationError(error)
+
+        baseline_facts = baseline.facts.to_dict()
+        incoming_facts = manifest.facts.to_dict()
+        for category in ("evidence", "external_events", "authorities"):
+            if incoming_facts[category] != baseline_facts[category]:
+                raise ResearchOSValidationError(error)
+        base_artifacts = set(baseline_facts["artifacts"])
+        artifacts = set(incoming_facts["artifacts"])
+        source_fact = builder.SOURCE_FACT_PREFIX + str(source["artifact_digest"])
+        expected_custom = {source_fact}
+        if decision_status == "completed":
+            expected_custom.update(
+                {
+                    forward.COMPLETION_FACT,
+                    forward.PROGRAM_FACT,
+                    forward.REUSE_POLICY_FACT,
+                }
+            )
+        dynamic = artifacts - base_artifacts - expected_custom
+        if decision_status == "completed":
+            dynamic_fact = next(iter(dynamic)) if len(dynamic) == 1 else ""
+            if (
+                not dynamic_fact.startswith(
+                    f"mainline-execution:{forward.TASK_KEY}:"
+                    f"{decision_task.artifact_digest}:"
+                )
+                or not dynamic_fact.endswith(":completed")
+            ):
+                raise ResearchOSValidationError(error)
+        elif dynamic:
+            raise ResearchOSValidationError(error)
+        if artifacts != base_artifacts | expected_custom | dynamic:
+            raise ResearchOSValidationError(error)
+        if (
+            "m4-p3-predictive-decision:PASS_TO_P4" in artifacts
+            or any(fact.startswith("m4-v2-forward-program:") for fact in artifacts)
+            != (decision_status == "completed")
+        ):
+            raise ResearchOSValidationError(error)
+
+        formal_expected = baseline_tasks[builder.FORMAL_P4_TASK_KEY]
+        formal_incoming = incoming_tasks[builder.FORMAL_P4_TASK_KEY]
+        if (
+            formal_incoming.to_dict() != formal_expected.to_dict()
+            or incoming_states[formal_incoming.artifact_digest]
+            != baseline_states[formal_expected.artifact_digest]
+        ):
+            raise ResearchOSValidationError(
+                "m4_v2_forward_feasibility_formal_p4_changed"
+            )
+        snapshot = ResearchOSControlPlane().resolve(manifest)
+        ready = tuple(item.task_key for item in snapshot.ready_queue)
+        expected_ready = (
+            (forward.TASK_KEY,)
+            if decision_status == "draft"
+            else (forward.SUCCESSOR_TASK_KEY,)
+            if decision_status == "completed"
+            else ()
+        )
+        formal_resolution = next(
+            item for item in snapshot.resolutions
+            if item.task_key == builder.FORMAL_P4_TASK_KEY
+        )
+        if ready != expected_ready or formal_resolution.status.value != "dependency_wait":
             raise ResearchOSValidationError(error)
 
     @staticmethod

@@ -1,0 +1,202 @@
+{
+  "schema_version": "dehps-m4-v2-forward-evidence-feasibility-source-contract.v1",
+  "artifact_type": "m4_v2_forward_evidence_feasibility_source_contract",
+  "artifact_digest": "bbf04b77cddebe4c29ac85bc27df4e15953c5dee0b86dd241e83684ded18aa3b",
+  "contract_key": "M4_V2_FORWARD_EVIDENCE_FEASIBILITY_AND_PROGRAM_DECISION",
+  "frozen_inputs": {
+    "registered_artifact_digests": [
+      "869f4302cbfdfe2af8076e5bf2aea50779f1bb3f58548611bfbaa25af69a7685",
+      "dbac3aad6128787f737a1450461a9833c948068ba915f194df41a02f6fd9d9e3",
+      "36056c0168bf71a995ec2a0bb9bf4663b0222b8fce621899a1e861282597e841",
+      "999064903fa8a040520ab2a664a1ce3ec35321a90f0e5823626194c64c8d98c6",
+      "5a68579161ad5528ee15b8b1ea3e314d6acb05203885a5514e5654da026e9ad7",
+      "e52220af0b6cd4c40dd3ff05b9eb692446fe4660b1118ff6cf2b4cd5423f5bb4",
+      "2dcd3630d4e0987022a22e27ae8818bed9edd39758138e90579b85fef5fe0bbc",
+      "8d17fc0fba0a29d7ae8eef50d228d31af920c3d770f6095db8ca2448147448c7",
+      "c54ad7b645a189a5cde6e1770baed08f59805e0a935cb2eb684e5fc33e7afc10",
+      "f3f019e82b4391cbbbda88a11a6c1fc0373050a67a67d164ed65432c232ab56d",
+      "5767580c5072d3c73cb4d04f67f7b17a4c92d4d199c56ef405b558a5d50b9daa",
+      "225286ea27d48cad2abefc4adf1677b1b04da160a25bec49da98bcc5952e133c"
+    ],
+    "historical_execution_id": "8cfbd33f314ebabdf3a334cfe96887c9802580bff91e8ab43304f1c6b67ef52a",
+    "historical_dataset_content_digest": "8f7b7527d6ee95301b58002e594b0955b7e0f391421b8c438b87fc4f2507b106",
+    "existing_independent_folds": 2581,
+    "required_independent_folds": 4676,
+    "additional_independent_folds_required": 2095,
+    "frozen_mde_bits_per_issue": 0.013459908060402983,
+    "practical_threshold_bits_per_issue": 0.01,
+    "current_equivalence_power": 0.5311893549808094,
+    "target_power": 0.8,
+    "unused_independent_historical_holdout": false,
+    "p3_scientific_disposition": "INCONCLUSIVE_DUE_TO_POWER",
+    "p3_governance_status": "CLOSED_NOT_AUTHORIZED_AFTER_DEEPER_VALIDATION",
+    "diagnostic_p4_decision": "NEGATIVE_CONTROLS_CLEAN",
+    "formal_p4": "DEPENDENCY_WAIT",
+    "pass_to_p4": "NOT_EMITTED"
+  },
+  "feasibility_analysis": {
+    "mode": "ZERO_COMPUTE_RESEARCH_DECISION",
+    "analysis_sha256": "c84543098541d9697707ed3013984bb03217616ae07f00e1c3c3fa63f778eada",
+    "official_schedule": {
+      "calendar_anchor_date_asia_shanghai": "2026-08-20",
+      "first_eligible_scheduled_draw": "2026-08-23",
+      "scheduled_draws_per_week": 3,
+      "regular_weekday_slots_next_anchor_year": 156,
+      "scheduled_draws_per_year_after_known_closures": 154,
+      "official_rule_url": "https://zhs.mof.gov.cn/zhengcefabu/201404/t20140421_1069579.htm",
+      "official_2026_closure_url": "https://zhs.mof.gov.cn/zhengcefabu/202512/t20251225_3980205.htm",
+      "project_schedule_sha256": "1b7dd77459a055999a1d035824c5737e30295b1b61b321bd670c769180c39c01"
+    },
+    "official_calendar_horizons": {
+      "20": {"elapsed_days": 52, "completion_date": "2026-10-11"},
+      "60": {"elapsed_days": 145, "completion_date": "2027-01-12"},
+      "120": {"elapsed_days": 285, "completion_date": "2027-06-01"},
+      "2095": {"elapsed_days": 4893, "calendar_years": 13.396779534285364, "completion_date": "2040-01-12", "future_unknown_closures_assumed_zero": true}
+    },
+    "historical_actual_frequency": {
+      "date_values_only": true,
+      "dataset_first_date": "2003-02-23",
+      "dataset_latest_date": "2026-07-23",
+      "trailing_window_first_actual_date": "2021-07-25",
+      "trailing_window_inclusive_days": 1825,
+      "unique_issue_dates": 755,
+      "scheduled_weekday_slots": 783,
+      "missing_or_delayed_slots": 28,
+      "missing_or_delayed_draw_rate": 0.035759897828863345,
+      "off_schedule_draw_count": 0,
+      "actual_draws_per_year": 151.10032191780823,
+      "realized_calendar_time_for_2095_issues_days": 5065,
+      "calendar_years_required": 13.86496053356912,
+      "realistic_completion_date": "2040-07-02"
+    },
+    "realistic_completion_dates": {
+      "20": "2026-10-11",
+      "60": "2027-01-13",
+      "120": "2027-06-07",
+      "2095": "2040-07-02"
+    },
+    "resource_analysis": {
+      "registered_execution_elapsed_seconds": 2.730749,
+      "registered_execution_issue_count": 2581,
+      "observed_wall_seconds_per_issue": 0.0010580197597830298,
+      "cpu_telemetry_available": false,
+      "planning_ceiling_per_issue_cpu_seconds": {"refit": 60, "checkpoint": 60, "settlement": 60},
+      "annual_cpu_hours_ceiling": 7.7,
+      "full_2095_program_cpu_hours_ceiling": 104.75,
+      "disk_growth_per_issue_bytes_ceiling": 1048576,
+      "database_growth_per_issue_bytes_ceiling": 65536,
+      "annual_disk_growth_bytes_ceiling": 161480704,
+      "annual_database_growth_bytes_ceiling": 10092544,
+      "full_program_disk_growth_bytes_ceiling": 2196766720,
+      "full_program_database_growth_bytes_ceiling": 137297920,
+      "binding_constraint": "CALENDAR_AND_SCIENTIFIC_IDENTITY_NOT_COMPUTE_OR_STORAGE"
+    },
+    "codex_cost": {
+      "normal_issue_invocations": 0,
+      "normal_issue_tokens": 0,
+      "launch_token_ceiling": 300000,
+      "annual_maintenance_token_base": 0,
+      "annual_maintenance_token_stress_ceiling": 100000,
+      "milestone_review_token_ceiling": 100000,
+      "final_decision_token_ceiling": 300000,
+      "monetary_cost": "NOT_ESTIMATED_NO_FROZEN_PRICE_SOURCE"
+    },
+    "model_aging": {
+      "current_python": "3.14.4",
+      "python_requirement": ">=3.11",
+      "python_lockfile_present": false,
+      "postgres_container": "postgres:17",
+      "postgres_digest_pinned": false,
+      "python_3_14_upstream_eol": "2030-10",
+      "risk_2095": "HIGH",
+      "risk_120": "MODERATE",
+      "identity_rule": "estimand, feature availability, estimator algorithm, hyperparameters, source digest, dependency lock, refit cadence, checkpoint schema, endpoint, threshold, decision policy",
+      "semantic_change_rule": "fork identity and invalidate continued confirmatory use of the active cohort"
+    },
+    "opportunity_cost": {
+      "long_horizon_realistic_years": 13.86496053356912,
+      "long_horizon_first_formal_resolution": "2040-07-02",
+      "long_horizon_interim_scientific_decisions": "NONE_BY_CONTRACT",
+      "bounded_120_first_decision": "2027-06-07",
+      "bounded_120_delay_years": 0.7941743503715009
+    },
+    "decision_matrix": {
+      "maximum_weighted_score": 84,
+      "weights": {"scientific_validity": 3, "completion_time": 2, "independent_information": 3, "data_reuse_risk": 3, "compute_cost": 1, "token_cost": 1, "model_aging": 2, "actionability": 2, "formal_p4_reachability": 2, "natural_expansion_risk": 2},
+      "program_weighted_totals": {
+        "LONG_HORIZON_CONFIRMATORY_FORWARD": 57,
+        "BOUNDED_OPERATIONAL_FORWARD_STUDY": 67,
+        "REDESIGN_PROSPECTIVE_RESEARCH_QUESTION": 56,
+        "TERMINATE_PREDICTIVE_ROUTE": 58
+      },
+      "hard_failures": {"LONG_HORIZON_CONFIRMATORY_FORWARD": false, "BOUNDED_OPERATIONAL_FORWARD_STUDY": false, "REDESIGN_PROSPECTIVE_RESEARCH_QUESTION": false, "TERMINATE_PREDICTIVE_ROUTE": false}
+    },
+    "bounded_windows": {
+      "20": "startup integrity only; insufficient for the sole outcome decision",
+      "60": "integrity only; still too sensitive for the sole outcome decision",
+      "120": "largest frozen bounded cohort and sole outcome-bearing review"
+    }
+  },
+  "reviewer_decision": {
+    "decision": "LAUNCH_BOUNDED_OPERATIONAL_FORWARD_STUDY",
+    "selected_program": "BOUNDED_OPERATIONAL_FORWARD_STUDY",
+    "target_issue_count": 120,
+    "maximum_issue_count": 120,
+    "first_eligible_issue_date": "2026-08-23",
+    "official_best_case_completion_date": "2027-06-01",
+    "estimated_completion_date": "2027-06-07",
+    "model_identity_policy": "Freeze the complete scientific identity tuple before the first issue; any semantic change forks identity and invalidates cohort A.",
+    "refit_policy": "Future checkpoints may mechanically refit the same expanding-window estimator using only previously settled issues; tuning, feature, threshold, cadence, or model-family changes are forbidden.",
+    "data_reuse_policy": "STAGED_INDEPENDENT_SAMPLES",
+    "data_reuse_policy_detail": "Cohort A is used only for the bounded operational gate and cannot enter selection, thresholding, long-horizon confirmation, or future P3; continuation starts a wholly new cohort B.",
+    "interim_review_policy": "At 20 and 60 issues inspect integrity only and expose no aggregate outcomes; perform the only outcome-bearing review at exactly 120 valid issues.",
+    "stop_conditions": {
+      "INVALID_OPERATIONAL_STUDY": "Any late checkpoint, future access, duplicate issue, identity drift, semantic repair, missing immutable artifact, replay mismatch, or inability to prove the frozen cohort invalidates the study.",
+      "STOP_PREDICTIVE_RESEARCH": "At issue 120, mean <= -0.01 bits/issue or preregistered two-sided 95% interval upper bound < 0.",
+      "CONTINUE_LONG_HORIZON_RESEARCH": "At issue 120, all integrity gates pass, mean >= +0.01 bits/issue, and preregistered two-sided 95% interval lower bound > 0.",
+      "OPERATIONALLY_INCONCLUSIVE": "The valid 120-issue study meets neither continue nor stop; do not extend cohort A or select another window post hoc."
+    },
+    "next_task_key": "m4-v2-bounded-operational-forward-study-preregistration",
+    "next_task_status": "READY",
+    "next_task_execution_authorized": false
+  },
+  "governance_bindings": {
+    "research": {
+      "request_key": "research-m4-v2-forward-evidence-feasibility",
+      "request_id": 634,
+      "execution_id": 518,
+      "approval_decision_id": 2667,
+      "scientific_reviewer_decision_id": 2667,
+      "request_payload_sha256": "f062f2ecde7db95870adb321c449e39d1b7bb38cab5962123573d2f88e80ea75",
+      "analysis_sha256": "c84543098541d9697707ed3013984bb03217616ae07f00e1c3c3fa63f778eada"
+    },
+    "engineering": {
+      "request_key": "engineering-m4-v2-forward-evidence-feasibility-v1",
+      "request_id": 635,
+      "execution_id": 519,
+      "approval_decision_id": 2672,
+      "request_payload_sha256": "4125e9e97773afb60bf3edc9a9bdceaa9aa22aafdc467fe1cf887f26c2e70af5"
+    }
+  },
+  "limits": {
+    "scientific_computation": 0,
+    "model_training": false,
+    "model_refit": false,
+    "historical_p3_folds": 0,
+    "forward_samples": 0,
+    "forward_checkpoints": 0,
+    "settlements": 0,
+    "formal_p4": false,
+    "pass_to_p4_emitted": false,
+    "p5_authorized": false,
+    "promotion_triggered": false,
+    "successor_execution_authorized": false
+  },
+  "source_entries": [
+    {"path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/forward_evidence_feasibility.py", "sha256": "91e595e76bbd9a72ae64c0680b337f2d9c7adc60795e1b90dc76484fd1c83298"},
+    {"path": "apps/worker-python/scripts/build_m4_v2_forward_evidence_feasibility_manifest.py", "sha256": "bb3d096ff4531b370dcf5785d9a3977b4c54db1461e47a8c2dd2518cd81774b3"},
+    {"path": "apps/worker-python/dehps/research_os/supervisor.py", "sha256": "0920f5fe3f1fdccb71a9bc97951ce7e5da44c004fe197f961b505d40fed75c8e"},
+    {"path": "apps/worker-python/dehps/research_os/repository.py", "sha256": "0e7349fa9ec05c9f4e9c3d912ec7106005eab4f3e3f08034f452ce6d224086d5"}
+  ],
+  "source_set_digest": "06cd385eadd44caac4cdc387b25f76fedae071101da1856b7f4999275f223c45"
+}
