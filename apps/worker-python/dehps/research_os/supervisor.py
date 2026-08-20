@@ -151,6 +151,9 @@ from dehps.research_os.information_theory.measurement_system_v2 import (
     validate_p263_slot_eligibility_artifact,
     verify_p263_slot_source_bytes,
 )
+from dehps.research_os.information_theory.measurement_system_v2 import (
+    deeper_validation as m4_v2_deeper_validation,
+)
 from dehps.research_os.information_theory.measurement_system_v2.branch_decision import (
     MARGINAL_STATIC_BASELINE_ARTIFACT_DIGEST as M4_V2_SUCCESSOR_MARGINAL_BASELINE_DIGEST,
 )
@@ -22613,6 +22616,261 @@ class M4V2SuccessorCapability:
         return runner()
 
 
+class M4V2DeeperValidationCapability(M4V2SuccessorCapability):
+    """Execute the exact zero-compute deeper-validation successor chain."""
+
+    def _source_contract(self, task: Task) -> dict[str, Any]:
+        source = m4_v2_deeper_validation.load_source_contract(root_dir=self.root_dir)
+        m4_v2_deeper_validation.verify_governance(self.agent_repository)
+        if task.input_artifact_digests != (str(source["artifact_digest"]),):
+            raise MainlineSupervisorError("M4-v2 deeper-validation source input changed")
+        return source
+
+    def _exact_inputs(
+        self, *, control_plane_key: str, digests: Sequence[str]
+    ) -> list[dict[str, Any]]:
+        return [
+            self._exact_registered_artifact(
+                control_plane_key=control_plane_key, artifact_digest=digest
+            )[1]
+            for digest in digests
+        ]
+
+    @staticmethod
+    def _zero_compute_metadata(
+        *, source: Mapping[str, Any], decision: str | None = None
+    ) -> tuple[tuple[str, Any], ...]:
+        values: list[tuple[str, Any]] = [
+            ("source_contract_digest", source["artifact_digest"]),
+            ("source_set_digest", source["source_set_digest"]),
+            ("scientific_computation", 0),
+            ("historical_database_reads", 0),
+            ("new_historical_folds", 0),
+            ("predictive_p3_folds", 0),
+            ("p4_started", False),
+            ("promotion_triggered", False),
+        ]
+        if decision is not None:
+            values.append(("decision", decision))
+        return tuple(values)
+
+    def _intake(
+        self, *, control_plane_key: str, task: Task
+    ) -> AtomicCapabilityResult:
+        source = self._source_contract(task)
+        old_route = self._exact_registered_artifact(
+            control_plane_key=control_plane_key,
+            artifact_digest=m4_v2_deeper_validation.OLD_GLOBAL_ROUTE_DIGEST,
+        )[1]
+        decisions = self._exact_inputs(
+            control_plane_key=control_plane_key,
+            digests=m4_v2_deeper_validation.BRANCH_DECISION_DIGESTS,
+        )
+        replays = self._exact_inputs(
+            control_plane_key=control_plane_key,
+            digests=m4_v2_deeper_validation.BRANCH_REPLAY_DIGESTS,
+        )
+        inference = self._exact_registered_artifact(
+            control_plane_key=control_plane_key,
+            artifact_digest=m4_v2_deeper_validation.HISTORICAL_INFERENCE_DIGEST,
+        )[1]
+        design = self._exact_registered_artifact(
+            control_plane_key=control_plane_key,
+            artifact_digest=m4_v2_deeper_validation.HISTORICAL_DESIGN_DIGEST,
+        )[1]
+        boundary = self._exact_registered_artifact(
+            control_plane_key=control_plane_key,
+            artifact_digest=m4_v2_deeper_validation.DATASET_BOUNDARY_DIGEST,
+        )[1]
+        artifact = m4_v2_deeper_validation.build_intake_artifact(
+            old_route=old_route,
+            branch_decisions=decisions,
+            branch_replays=replays,
+            historical_inference=inference,
+            historical_design=design,
+            dataset_boundary=boundary,
+            source_contract_digest=str(source["artifact_digest"]),
+        )
+        return AtomicCapabilityResult(
+            artifacts=(AtomicArtifactPayload("deeper-validation-intake", "intake.json", artifact),),
+            completion_facts=(m4_v2_deeper_validation.INTAKE_COMPLETION_FACT,),
+            execution_metadata=self._zero_compute_metadata(source=source),
+        )
+
+    def _decision(
+        self, *, control_plane_key: str, task: Task
+    ) -> AtomicCapabilityResult:
+        source = self._source_contract(task)
+        _, _, intake = self._completed_artifact(
+            control_plane_key=control_plane_key,
+            task_key=m4_v2_deeper_validation.INTAKE_TASK_KEY,
+            artifact_type=m4_v2_deeper_validation.INTAKE_ARTIFACT_TYPE,
+        )
+        artifact = m4_v2_deeper_validation.build_deeper_validation_decision(
+            intake_artifact=intake,
+            reviewer_decision="POWER_RESOLUTION_REQUIRED",
+            reviewer_approval_decision_id=m4_v2_deeper_validation.REVIEW_APPROVAL_DECISION_ID,
+        )
+        decision = str(artifact["body"]["deeper_validation_decision"])
+        return AtomicCapabilityResult(
+            artifacts=(AtomicArtifactPayload("deeper-validation-decision", "decision.json", artifact),),
+            completion_facts=(m4_v2_deeper_validation.DECISION_COMPLETION_FACT,),
+            execution_metadata=self._zero_compute_metadata(source=source, decision=decision),
+        )
+
+    def _decision_replay(
+        self, *, control_plane_key: str, task: Task
+    ) -> AtomicCapabilityResult:
+        source = self._source_contract(task)
+        _, registration, decision = self._completed_artifact(
+            control_plane_key=control_plane_key,
+            task_key=m4_v2_deeper_validation.DECISION_TASK_KEY,
+            artifact_type=m4_v2_deeper_validation.DECISION_ARTIFACT_TYPE,
+        )
+        artifact = m4_v2_deeper_validation.build_decision_replay(
+            decision_artifact=decision,
+            decision_registration_digest=str(registration["registration_digest"]),
+        )
+        return AtomicCapabilityResult(
+            artifacts=(AtomicArtifactPayload("deeper-validation-decision-replay", "replay.json", artifact),),
+            completion_facts=(
+                m4_v2_deeper_validation.DECISION_REPLAY_VERIFIED_FACT,
+                m4_v2_deeper_validation.DECISION_REPLAY_COMPLETION_FACT,
+            ),
+            execution_metadata=self._zero_compute_metadata(
+                source=source, decision="REGISTERED_REPLAY_VERIFIED"
+            ),
+        )
+
+    def _route(
+        self, *, control_plane_key: str, task: Task
+    ) -> AtomicCapabilityResult:
+        source = self._source_contract(task)
+        old_route = self._exact_registered_artifact(
+            control_plane_key=control_plane_key,
+            artifact_digest=m4_v2_deeper_validation.OLD_GLOBAL_ROUTE_DIGEST,
+        )[1]
+        decisions = self._exact_inputs(
+            control_plane_key=control_plane_key,
+            digests=m4_v2_deeper_validation.BRANCH_DECISION_DIGESTS,
+        )
+        replays = self._exact_inputs(
+            control_plane_key=control_plane_key,
+            digests=m4_v2_deeper_validation.BRANCH_REPLAY_DIGESTS,
+        )
+        _, decision_registration, decision = self._completed_artifact(
+            control_plane_key=control_plane_key,
+            task_key=m4_v2_deeper_validation.DECISION_TASK_KEY,
+            artifact_type=m4_v2_deeper_validation.DECISION_ARTIFACT_TYPE,
+        )
+        _, replay_registration, replay = self._completed_artifact(
+            control_plane_key=control_plane_key,
+            task_key=m4_v2_deeper_validation.DECISION_REPLAY_TASK_KEY,
+            artifact_type=m4_v2_deeper_validation.DECISION_REPLAY_ARTIFACT_TYPE,
+        )
+        route, closure = m4_v2_deeper_validation.build_superseding_global_route(
+            old_route=old_route,
+            branch_decisions=decisions,
+            branch_replays=replays,
+            deeper_decision=decision,
+            deeper_replay=replay,
+            deeper_decision_registration_digest=str(decision_registration["registration_digest"]),
+            deeper_replay_registration_digest=str(replay_registration["registration_digest"]),
+        )
+        return AtomicCapabilityResult(
+            artifacts=(
+                AtomicArtifactPayload("superseding-global-route", "route.json", route),
+                AtomicArtifactPayload("predictive-p3-closure", "closure.json", closure),
+            ),
+            completion_facts=(
+                "m4-v2-routing:FORWARD_EVIDENCE_REQUIRED",
+                "m4-v2-predictive-p3:CLOSED_NOT_AUTHORIZED_AFTER_DEEPER_VALIDATION",
+                m4_v2_deeper_validation.ROUTE_COMPLETION_FACT,
+            ),
+            execution_metadata=self._zero_compute_metadata(
+                source=source, decision="FORWARD_EVIDENCE_REQUIRED"
+            ),
+        )
+
+    def _route_replay(
+        self, *, control_plane_key: str, task: Task
+    ) -> AtomicCapabilityResult:
+        source = self._source_contract(task)
+        _, _, registrations = _load_single_completed_execution(
+            repository=self.repository,
+            root_dir=self.root_dir,
+            control_plane_key=control_plane_key,
+            task_key=m4_v2_deeper_validation.ROUTE_TASK_KEY,
+        )
+        route_registration = self._registration_for_type(
+            registrations, m4_v2_deeper_validation.ROUTE_ARTIFACT_TYPE
+        )
+        closure_registration = self._registration_for_type(
+            registrations, m4_v2_deeper_validation.P3_CLOSURE_ARTIFACT_TYPE
+        )
+        route = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type=m4_v2_deeper_validation.ROUTE_ARTIFACT_TYPE,
+        )
+        closure = _load_registered_type(
+            root_dir=self.root_dir,
+            registrations=registrations,
+            artifact_type=m4_v2_deeper_validation.P3_CLOSURE_ARTIFACT_TYPE,
+        )
+        artifact = m4_v2_deeper_validation.build_route_replay(
+            route_artifact=route,
+            route_registration_digest=str(route_registration["registration_digest"]),
+            p3_closure_artifact=closure,
+            p3_closure_registration_digest=str(closure_registration["registration_digest"]),
+        )
+        return AtomicCapabilityResult(
+            artifacts=(AtomicArtifactPayload("superseding-global-route-replay", "replay.json", artifact),),
+            completion_facts=(
+                m4_v2_deeper_validation.ROUTE_REPLAY_VERIFIED_FACT,
+                m4_v2_deeper_validation.ROUTE_REPLAY_COMPLETION_FACT,
+            ),
+            execution_metadata=self._zero_compute_metadata(
+                source=source, decision="REGISTERED_REPLAY_VERIFIED"
+            ),
+        )
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> AtomicCapabilityResult:
+        del execution_id, git_commit
+        integration_contract(task)
+        expected = {
+            m4_v2_deeper_validation.INTAKE_CAPABILITY: (
+                m4_v2_deeper_validation.INTAKE_TASK_KEY, self._intake
+            ),
+            m4_v2_deeper_validation.DECISION_CAPABILITY: (
+                m4_v2_deeper_validation.DECISION_TASK_KEY, self._decision
+            ),
+            m4_v2_deeper_validation.DECISION_REPLAY_CAPABILITY: (
+                m4_v2_deeper_validation.DECISION_REPLAY_TASK_KEY, self._decision_replay
+            ),
+            m4_v2_deeper_validation.ROUTE_CAPABILITY: (
+                m4_v2_deeper_validation.ROUTE_TASK_KEY, self._route
+            ),
+            m4_v2_deeper_validation.ROUTE_REPLAY_CAPABILITY: (
+                m4_v2_deeper_validation.ROUTE_REPLAY_TASK_KEY, self._route_replay
+            ),
+        }
+        capability = task.requested_capability
+        if capability not in expected:
+            raise MainlineSupervisorError("unsupported M4-v2 deeper-validation capability")
+        expected_task_key, runner = expected[capability]
+        if task.task_key != expected_task_key:
+            raise MainlineSupervisorError("M4-v2 deeper-validation task/capability mismatch")
+        return runner(control_plane_key=control_plane_key, task=task)
+
+
 class ResearchEvidenceSupervisor:
     def __init__(
         self,
@@ -22996,6 +23254,18 @@ class ResearchEvidenceSupervisor:
             GLOBAL_ROUTE_CAPABILITY,
         ):
             self.capabilities[successor_capability] = successor
+        deeper_validation = M4V2DeeperValidationCapability(
+            repository=self.repository,
+            root_dir=root_dir,
+        )
+        for capability in (
+            m4_v2_deeper_validation.INTAKE_CAPABILITY,
+            m4_v2_deeper_validation.DECISION_CAPABILITY,
+            m4_v2_deeper_validation.DECISION_REPLAY_CAPABILITY,
+            m4_v2_deeper_validation.ROUTE_CAPABILITY,
+            m4_v2_deeper_validation.ROUTE_REPLAY_CAPABILITY,
+        ):
+            self.capabilities[capability] = deeper_validation
 
     @property
     def state_path(self) -> Path:

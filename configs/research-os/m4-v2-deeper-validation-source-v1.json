@@ -1,0 +1,77 @@
+{
+  "artifact_digest": "2de078d41ad9efc85d8b8a8b15263bbe6c2972e1b56a2862db261255ad4df1c9",
+  "artifact_type": "m4_v2_deeper_validation_source_contract",
+  "branch_decision_digests": [
+    "483952200c4ec81408d9980aa26e7c68ce6d9134b0b6e97d2504e521835e92be",
+    "7697c7bd0587482584729921228909a2c14c8829eaa330c95c6e1fb97eae2433",
+    "e1e19f274a54d5046b172c43c1875399c03a3d1a5fb605c91d10e0b6478157b7"
+  ],
+  "branch_replay_registration_digests": [
+    "c8e083fd799c4f58d937ed27ef28ad391f73757af34ea19a2bafc3294a93ca3f",
+    "f1b4032348c9657d81a76621c54f77bed27f4ba74891d3e821180dff3ed2e999",
+    "82a9a01277cb42e0506b31cbc4743f5924ec799ba4b0a26bcd8ec10b0f28b4cd"
+  ],
+  "contract_key": "M4_V2_BOUNDED_DEEPER_VALIDATION_V1",
+  "governance_bindings": {
+    "engineering": {
+      "execution_id": 511,
+      "request_id": 627,
+      "request_key": "engineering-m4-v2-bounded-deeper-validation-and-superseding-route-v1",
+      "request_payload_sha256": "165def5bc8833ebdf571945b4152516c517e6d3d47d2b797c81f618e57530e28"
+    },
+    "intake": {
+      "approval_decision_id": 2622,
+      "execution_id": 509,
+      "request_id": 625,
+      "request_key": "research-m4-v2-deeper-validation-intake-v1",
+      "request_payload_sha256": "895a85f1f10ff2aa2679f53a5f02494c6e4a5d70d80efc378be5e75369ff5fe9"
+    },
+    "reviewer_selection": {
+      "approval_decision_id": 2627,
+      "execution_id": 510,
+      "request_id": 626,
+      "request_key": "research-m4-v2-deeper-validation-reviewer-selection-v1",
+      "request_payload_sha256": "f92e1803e3dab191cd9ed8b266f28dae55850ab401387b1a20694eaa4101ad9a",
+      "reviewer_decision": "POWER_RESOLUTION_REQUIRED",
+      "selected_branch": "MARGINAL_STATIC"
+    }
+  },
+  "historical_input_digests": [
+    "36056c0168bf71a995ec2a0bb9bf4663b0222b8fce621899a1e861282597e841",
+    "e52220af0b6cd4c40dd3ff05b9eb692446fe4660b1118ff6cf2b4cd5423f5bb4",
+    "c2d03127d2eb966b699b4829402dd72947cf0c959dd013f33169649316a1d420"
+  ],
+  "limits": {
+    "ci_fix_limit": 1,
+    "formal_validation_execution_limit": 1,
+    "new_historical_folds": 0,
+    "new_holdout_or_forward_program_limit": 1,
+    "old_replay_compatibility_dependency": false,
+    "p4_started": false,
+    "predictive_p3_folds": 0,
+    "promotion_triggered": false,
+    "unresolved_branch_limit": 1
+  },
+  "old_global_route_artifact_digest": "b35a0860e7e2d330513ddf4c0cfee8e1b8a6a59dc24f78bd5d5f55f53daf02db",
+  "production_action": "none",
+  "schema_version": "dehps-m4-v2-deeper-validation-source-contract.v1",
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/deeper_validation.py",
+      "sha256": "3890b882a15d8c1efb86a2e8dbc7b69430acd53cf5bad0f9d9c57fd944aff5fe"
+    },
+    {
+      "path": "apps/worker-python/scripts/build_m4_v2_deeper_validation_manifest.py",
+      "sha256": "0235791617d9a8cdd0f5c3caffae1374aec500e8760cfa039b31214fc7b46d5e"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/supervisor.py",
+      "sha256": "45780ee2fdff3224dd39207b1d2b1df827c15235e6cf9fcaf4b4304b505c5ffe"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/repository.py",
+      "sha256": "7eb24a8c3b814318d046c6fb907e503dd9c87f739bf2ffe09809723b919eb406"
+    }
+  ],
+  "source_set_digest": "101096f317614b38108efc0c5972310a0fc6834c66b6107087c8b9fa35c35a69"
+}
