@@ -139,13 +139,13 @@ Frozen terminal rules at issue 120:
 
 | Link | Declared binding | Current proof |
 | --- | --- | --- |
-| Goal | `M4_V2_FORWARD_EVIDENCE_FEASIBILITY_AND_PROGRAM_DECISION` | Implemented in additive manifest builder |
-| Resolver | Frozen old route plus clean diagnostic facts | Unit-resolved decision task only |
-| Ready Queue | Decision task first; successor after completion | Builder dry-run verified; durable execution pending implementation PR |
-| Supervisor | `m4_v2_forward_evidence_feasibility_and_program_decision` | Capability and zero-compute metadata implemented |
-| Artifacts | Feasibility, decision, replay | Deterministic unit reconstruction verified |
-| Status | One completed task, one Ready unexecuted successor | Durable execution pending implementation PR |
-| Next task | `m4-v2-bounded-operational-forward-study-preregistration` | Identity exists, capability absent, execution unauthorized |
+| Goal | `M4_V2_FORWARD_EVIDENCE_FEASIBILITY_AND_PROGRAM_DECISION` | Registered in durable manifest `f4578685…` |
+| Resolver | Frozen old route plus clean diagnostic facts | Decision task completed; successor is the sole Ready item |
+| Ready Queue | Decision task first; successor after completion | Snapshot `ca501081…` contains exactly the bounded-study preregistration successor |
+| Supervisor | `m4_v2_forward_evidence_feasibility_and_program_decision` | Execution `621e3b91…` completed once at merged commit `422a7aca…` |
+| Artifacts | Feasibility, decision, replay | Three capability artifacts and the execution artifact are registered |
+| Status | One completed task, one Ready unexecuted successor | Durable states are `COMPLETE` and `INTEGRATION_PENDING`/Ready respectively |
+| Next task | `m4-v2-bounded-operational-forward-study-preregistration` | Capability is `None`; execution remains unauthorized and count is zero |
 
 Implementation validation before PR:
 
@@ -163,6 +163,42 @@ source contract. This round does not rewrite that old source artifact because
 the goal and Engineering authorization forbid old-artifact mutation. The old
 registered diagnostic decision and replay payloads remain unchanged.
 
-Mainline answer before Operator execution:
+## Registered mainline outcome
 
-`NO — implementation PR stage; unified mainline execution and replay are still pending.`
+Operator Request 636 / Execution 520 imported one manifest and dispatched one
+task. The immutable execution identity is
+`621e3b9107ec3651f53bc93e8bc825ba60dd3a42fc1308ba4a6e0b704e527b62`;
+its execution artifact is
+`9006b081ce0134309eebbc2188bc60207c225a0d4fb8df7a2e499967d9ae33d5`.
+The event stream contains exactly sequence 0 `started` and sequence 1
+`completed`.
+
+Registered capability artifacts:
+
+| Artifact | Digest | Registration digest |
+| --- | --- | --- |
+| `M4V2ForwardEvidenceFeasibilityArtifact` | `253c4a625de3babdd0fefb0776cf5d9760e608957bcd71f6850075571ebba49b` | `ed20bdc0c7bb96a3ff4c0e6b6b56000760ce1cc5ce8a79c4519864821d2775a7` |
+| `M4V2ForwardEvidenceProgramDecisionArtifact` | `cf3863b244407fb56f45b2b158291e69d14745f438223723aded079419a1a791` | `634a1ef340898742dc5ed524794ba54efb84c1bdf553d8dc2e4469a35a20d2c4` |
+| `M4V2ForwardEvidenceProgramDecisionReplayArtifact` | `9392782e38bb325e99eb45da50ca3c53e092173c94f12eb1dc1fde873ecfcd97` | `fb4bd968fb40470b0584ad459e2535f1bd5ff7d5005b56286e24446e0c024a7d` |
+
+Generic replay returned `REPLAY_VERIFIED` and capability replay returned
+`REGISTERED_REPLAY_VERIFIED`, with identical registered content,
+`workload_rerun=false`, zero scientific computation, and zero actual folds.
+All 12 frozen parent artifact digests still have their original registrations.
+
+Final durable state:
+
+- Manifest: `f45786853f1da9e74c7bb269d05b2544c9780b1c64d0864ebaa3ed82bd2e8141`
+- Snapshot: `ca501081b7b26b489d072bedab3a2769f02d589c0d6240bf961d9f6747190acf`
+- Goal count: 6; task count: 109
+- Decision task: `COMPLETE`
+- Ready Queue: only `m4-v2-bounded-operational-forward-study-preregistration`
+- Formal P4: `DEPENDENCY_WAIT`
+- `m4-p3-predictive-decision:PASS_TO_P4`: absent
+- Model training/refit, historical P3 folds, forward samples, checkpoints, and
+  settlements: zero / not started
+- P5: `NOT_AUTHORIZED`; Promotion: `NOT_TRIGGERED`
+
+Mainline answer:
+
+`YES — validated by unified mainline execution and replay.`
