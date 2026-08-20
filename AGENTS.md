@@ -91,7 +91,8 @@ When model training or optimization appears to diverge, stall, collapse into one
 - Commit only files that belong to the current round.
 - Every accepted code change should be committed and pushed unless the user explicitly says not to.
 - Publish accepted changes through a ready-for-review PR, never a draft PR, unless the user explicitly requests a draft.
-- After opening a ready PR, enable GitHub auto-merge with the repository's normal merge method. If checks, branch policy, or GitHub configuration prevent auto-merge, report the exact blocker instead of merging manually.
+- After opening a ready PR, enable GitHub auto-merge with the repository's normal merge method. If checks, branch policy, or GitHub configuration prevent auto-merge, report the exact blocker instead of merging manually, except for the exhausted-CI-quota case below.
+- GitHub CI free quota is currently exhausted. When GitHub explicitly reports that a job was not started because Actions quota, spending limit, or account billing prevented runner allocation, treat that as infrastructure unavailability rather than a test failure. Run the smallest sufficient local unit-test and validation commands for the changed surface; if they pass, immediately merge the ready PR with the repository's normal merge method without waiting for GitHub CI or asking for renewed permission. Record the GitHub annotation, local commands, and results. This exception never applies when a runner started and reported a code, test, lint, build, policy, or review failure.
 - After a training, optimization, worker-runtime, or supervisor change is accepted, do not continue relying on an older live training process. Start a fresh training supervisor with the updated code and arguments, then record the new run id before reporting completion.
 - Reports under `docs/experiments/` are source evidence and may be committed when they are the intended round artifact.
 
