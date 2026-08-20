@@ -1,0 +1,133 @@
+{
+  "artifact_digest": "de43341f41f26b11f35069a666b16666ef6bf5f5cb503207547cc02333f6fcb9",
+  "artifact_type": "m4_p4_diagnostic_negative_controls_source_contract",
+  "contract_key": "M4_P3_CLOSURE_P4_DIAGNOSTIC_NEGATIVE_CONTROLS_V1",
+  "frozen_inputs": {
+    "baseline": "LEGAL_UNIFORM_NUMBER_EVENT_BASELINE",
+    "candidate_estimator": "EXPANDING_LEGAL_MARGINAL_ALPHA_1",
+    "current_equivalence_power": 0.5311893549808094,
+    "current_mde_bits_per_issue": 0.013459908060402983,
+    "dataset_issue_count": 3481,
+    "deeper_validation_decision_digest": "dbac3aad6128787f737a1450461a9833c948068ba915f194df41a02f6fd9d9e3",
+    "fold_count": 2581,
+    "historical_checkpoint_order_digest": "40b85566e977311438add76d301d9614050bfac7fa0de618c1f415299f8b88cd",
+    "historical_dataset_content_digest": "8f7b7527d6ee95301b58002e594b0955b7e0f391421b8c438b87fc4f2507b106",
+    "historical_dataset_snapshot_digest": "999064903fa8a040520ab2a664a1ce3ec35321a90f0e5823626194c64c8d98c6",
+    "historical_execution_id": "8cfbd33f314ebabdf3a334cfe96887c9802580bff91e8ab43304f1c6b67ef52a",
+    "historical_fold_manifest_digest": "5a68579161ad5528ee15b8b1ea3e314d6acb05203885a5514e5654da026e9ad7",
+    "historical_inference_design_digest": "e52220af0b6cd4c40dd3ff05b9eb692446fe4660b1118ff6cf2b4cd5423f5bb4",
+    "historical_inference_digest": "36056c0168bf71a995ec2a0bb9bf4663b0222b8fce621899a1e861282597e841",
+    "independent_holdout_available": false,
+    "initial_training_issues": 900,
+    "missing_independent_folds": 2095,
+    "p3_closure_digest": "2dcd3630d4e0987022a22e27ae8818bed9edd39758138e90579b85fef5fe0bbc",
+    "p3_closure_registration_digest": "0f545b0b0375e53a43424c9b8fdca414abbefa0cf4159290cd26decac64fd19e",
+    "practical_threshold_bits_per_issue": 0.01,
+    "primary_endpoint": "mean settled issue-level prequential score difference in bits per issue",
+    "required_independent_folds": 4676,
+    "target_power": 0.8
+  },
+  "frozen_program": {
+    "baseline_implementation_sentinel": "independent legal uniform number-event score; tolerance 1e-15",
+    "bootstrap_block_length": 5,
+    "bootstrap_method": "non-circular moving-block bootstrap",
+    "bootstrap_replicates": 2000,
+    "confirmatory_p4": false,
+    "control_ids": [
+      "DATE_PERMUTATION",
+      "TARGET_LABEL_PERMUTATION",
+      "NUMBER_RELABELING",
+      "FEATURE_TIME_SHIFT",
+      "RANDOM_FEATURE_SENTINEL",
+      "BASELINE_IMPLEMENTATION_SENTINEL"
+    ],
+    "critical_positive_gate": "complete valid run and Holm-adjusted one-sided p<=0.05 and simultaneous lower bound>0.01",
+    "date_permutation": "64 complete-row permutations with transformed-prior-only mechanical refit",
+    "decision_priority": [
+      "INVALID_NEGATIVE_CONTROL_EXECUTION",
+      "LEAKAGE_OR_EVALUATOR_ARTIFACT_DETECTED",
+      "INCONCLUSIVE_NEGATIVE_CONTROLS",
+      "NEGATIVE_CONTROLS_CLEAN"
+    ],
+    "diagnostic_only": true,
+    "eligible_for_p5": false,
+    "eligible_for_promotion": false,
+    "familywise_alpha": 0.05,
+    "feature_time_shift": {
+      "future_legal_prediction_output": false,
+      "future_offset": 1,
+      "future_role": "intentional leakage sentinel rejected before value access",
+      "past_offset": -13
+    },
+    "independent_information_count": 2581,
+    "multiple_comparison_rule": "Holm across the four frozen signal-destruction controls",
+    "number_relabeling": "64 reversible global 1..33 permutations; score equivariance tolerance 1e-12",
+    "post_result_additions": "forbidden",
+    "random_feature_sentinel": "64 per-fold permutations of the canonical 33-dimensional probability vector",
+    "random_generator": "numpy PCG64",
+    "randomized_repeat_count": 64,
+    "repeats_are_independent_information": false,
+    "seed_derivation": "first 128 bits of SHA256('M4_P4_DIAGNOSTIC_NEGATIVE_CONTROLS_V1|control_id|repeat_index') interpreted as unsigned big-endian integer",
+    "signal_destruction_family": [
+      "DATE_PERMUTATION",
+      "TARGET_LABEL_PERMUTATION",
+      "FEATURE_TIME_SHIFT_PAST_13",
+      "RANDOM_FEATURE_SENTINEL"
+    ],
+    "target_label_permutation": "64 evaluation-target permutations on the canonical prior-only feature trajectory"
+  },
+  "governance_bindings": {
+    "engineering": {
+      "approval_decision_id": 2647,
+      "execution_id": 514,
+      "request_id": 630,
+      "request_key": "engineering-m4-p3-closure-p4-diagnostic-negative-controls-v1",
+      "request_payload_sha256": "11a776926b31ee4ba2e9de3b9edffcad9bb93eb15e51db500c2a1001c79307a3"
+    },
+    "research": {
+      "approval_decision_id": 2642,
+      "execution_id": 513,
+      "request_id": 629,
+      "request_key": "research-m4-p3-closure-p4-diagnostic-negative-controls-preregistration-v1",
+      "request_payload_sha256": "c6ef02e45cf1e7b54f229dd9d812de2534b26c8bc5d952c9f54073108aaec76f"
+    }
+  },
+  "limits": {
+    "engineering_hours": 4,
+    "formal_p4_modified": false,
+    "forward_samples": 0,
+    "hyperparameter_search": false,
+    "model_training_started": false,
+    "new_features": false,
+    "new_model": "NONE",
+    "p5_started": false,
+    "pass_to_p4_emitted": false,
+    "predictive_p3_folds": 0,
+    "production_action": "none",
+    "promotion_triggered": false
+  },
+  "schema_version": "dehps-m4-p4-diagnostic-negative-controls-source-contract.v1",
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/diagnostic_negative_controls.py",
+      "sha256": "a3d4bc4489f85661918998d6e91ebc814bfc0cec2584baff70239857c133d606"
+    },
+    {
+      "path": "apps/worker-python/scripts/build_m4_p4_diagnostic_negative_controls_manifest.py",
+      "sha256": "e58069eaed26d3d288aff0103fe679d01b8bc315497f30a0c1690a53fec9a46d"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/supervisor.py",
+      "sha256": "a3f65d5f060392cd44dc24e7ef35cec2980f59d2e0348dbb3f71009102bda719"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/repository.py",
+      "sha256": "f34b9d1af6b506d19ef45341b17c9ea944bdf8699186a612c0cb3a2579a7c180"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/marginal_static_historical_execution.py",
+      "sha256": "202fb2e062ae68dc5c593770b67d3fca8b2f8a79c76b75ea686f60e1d546e305"
+    }
+  ],
+  "source_set_digest": "197dc5485ff3b8a10dbe1ba223dc5af2fab8f114057801d13ed853fafc484bcc"
+}

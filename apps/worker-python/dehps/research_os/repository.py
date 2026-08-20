@@ -146,6 +146,16 @@ _M4_V2_DEEPER_VALIDATION_REQUIRED_SYMBOLS = (
     "SOURCE_FACT_PREFIX",
     "build_manifest",
 )
+_M4_P4_DIAGNOSTIC_BUILDER_MODULE_NAME = "_dehps_m4_p4_diagnostic_builder"
+_M4_P4_DIAGNOSTIC_FIRST_TASK_KEY = "m4-p3-inconclusive-closure-consolidation"
+_M4_P4_DIAGNOSTIC_REQUIRED_SYMBOLS = (
+    "BASELINE_MANIFEST_DIGEST",
+    "FORMAL_P4_TASK_KEY",
+    "GOAL_KEY",
+    "NEW_TASK_KEYS",
+    "SOURCE_FACT_PREFIX",
+    "build_manifest",
+)
 
 
 def _m4_v2_utc_instant(value: Any) -> datetime:
@@ -355,6 +365,39 @@ def _load_m4_v2_deeper_validation_builder() -> ModuleType:
     except Exception as exc:
         raise ResearchOSValidationError(
             "m4_v2_deeper_validation_builder_unavailable"
+        ) from exc
+
+
+def _load_m4_p4_diagnostic_builder() -> ModuleType:
+    """Load the exact additive diagnostic-P4 manifest builder."""
+
+    from dehps.config import ROOT_DIR
+
+    try:
+        root_dir = ROOT_DIR.resolve()
+        builder_path = (
+            ROOT_DIR
+            / "apps/worker-python/scripts/build_m4_p4_diagnostic_negative_controls_manifest.py"
+        ).resolve()
+        if not builder_path.is_relative_to(root_dir) or not builder_path.is_file():
+            raise FileNotFoundError(builder_path)
+        spec = importlib.util.spec_from_file_location(
+            _M4_P4_DIAGNOSTIC_BUILDER_MODULE_NAME,
+            builder_path,
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError("m4_p4_diagnostic_builder_unavailable")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        for symbol in _M4_P4_DIAGNOSTIC_REQUIRED_SYMBOLS:
+            if not hasattr(module, symbol):
+                raise AttributeError(symbol)
+        if not callable(module.build_manifest):
+            raise TypeError("build_manifest")
+        return module
+    except Exception as exc:
+        raise ResearchOSValidationError(
+            "m4_p4_diagnostic_builder_unavailable"
         ) from exc
 
 
@@ -1230,6 +1273,13 @@ class PostgresResearchOSRepository:
 
         builder = _load_m4_v2_global_routing_recovery_v3_builder()
         tasks = {task.task_key: task for task in manifest.tasks}
+        if _M4_P4_DIAGNOSTIC_FIRST_TASK_KEY in tasks:
+            PostgresResearchOSRepository._verify_m4_p4_diagnostic_import(
+                cursor,
+                control_plane_key=control_plane_key,
+                manifest=manifest,
+            )
+            return
         if _M4_V2_DEEPER_VALIDATION_INTAKE_TASK_KEY in tasks:
             PostgresResearchOSRepository._verify_m4_v2_deeper_validation_import(
                 cursor,
@@ -1534,6 +1584,202 @@ class PostgresResearchOSRepository:
             git_commit=git_commit,
             source_digest=source_digest,
         )
+
+    @staticmethod
+    def _verify_m4_p4_diagnostic_import(
+        cursor,
+        *,
+        control_plane_key: str,
+        manifest: ControlPlaneManifest,
+    ) -> None:
+        """Verify the exact additive diagnostic-only P4 lifecycle."""
+
+        from dehps.config import ROOT_DIR
+        from dehps.research_os.information_theory.measurement_system_v2 import (
+            diagnostic_negative_controls as diagnostic,
+        )
+
+        error = "m4_p4_diagnostic_output_changed"
+        if control_plane_key != "m4-information-theory-mainline":
+            raise ResearchOSValidationError("m4_p4_diagnostic_control_plane_changed")
+        builder = _load_m4_p4_diagnostic_builder()
+        control = cursor.execute(
+            """SELECT current_manifest_digest FROM research_os_control_planes
+               WHERE control_plane_key = %s FOR UPDATE""",
+            (control_plane_key,),
+        ).fetchone()
+        baseline_row = cursor.execute(
+            "SELECT manifest_json FROM research_os_manifests WHERE manifest_digest = %s",
+            (builder.BASELINE_MANIFEST_DIGEST,),
+        ).fetchone()
+        if control is None or baseline_row is None:
+            raise ResearchOSValidationError("m4_p4_diagnostic_baseline_missing")
+        current_digest = str(control["current_manifest_digest"])
+        current_row = cursor.execute(
+            "SELECT manifest_json FROM research_os_manifests WHERE manifest_digest = %s",
+            (current_digest,),
+        ).fetchone()
+        if current_row is None:
+            raise ResearchOSValidationError("m4_p4_diagnostic_current_missing")
+        try:
+            baseline = ControlPlaneManifest.from_dict(dict(baseline_row["manifest_json"]))
+            current = ControlPlaneManifest.from_dict(dict(current_row["manifest_json"]))
+            source = diagnostic.load_source_contract(root_dir=ROOT_DIR)
+            expected_payload, _ = builder.build_manifest(
+                baseline.to_dict(include_digest=True),
+                source_contract_digest=str(source["artifact_digest"]),
+            )
+            expected = ControlPlaneManifest.from_dict(expected_payload)
+        except Exception as exc:
+            raise ResearchOSValidationError(error) from exc
+
+        baseline_goals = {item.goal_key: item for item in baseline.goals}
+        expected_goals = {item.goal_key: item for item in expected.goals}
+        incoming_goals = {item.goal_key: item for item in manifest.goals}
+        baseline_tasks = {item.task_key: item for item in baseline.tasks}
+        expected_tasks = {item.task_key: item for item in expected.tasks}
+        incoming_tasks = {item.task_key: item for item in manifest.tasks}
+        new_keys = tuple(builder.NEW_TASK_KEYS)
+        if (
+            baseline.artifact_digest != builder.BASELINE_MANIFEST_DIGEST
+            or len(incoming_goals) != len(manifest.goals)
+            or len(incoming_tasks) != len(manifest.tasks)
+            or set(incoming_goals) != set(expected_goals)
+            or set(incoming_tasks) != set(expected_tasks)
+            or any(
+                incoming_goals[key].to_dict() != baseline_goals[key].to_dict()
+                for key in baseline_goals
+            )
+            or incoming_goals[builder.GOAL_KEY].to_dict()
+            != expected_goals[builder.GOAL_KEY].to_dict()
+            or any(
+                incoming_tasks[key].to_dict() != baseline_tasks[key].to_dict()
+                for key in baseline_tasks
+            )
+            or any(
+                incoming_tasks[key].to_dict() != expected_tasks[key].to_dict()
+                for key in new_keys
+            )
+        ):
+            raise ResearchOSValidationError(error)
+
+        baseline_states = baseline.task_state_by_digest
+        incoming_states = manifest.task_state_by_digest
+        if any(
+            incoming_states[baseline_tasks[key].artifact_digest]
+            != baseline_states[baseline_tasks[key].artifact_digest]
+            for key in baseline_tasks
+        ):
+            raise ResearchOSValidationError(error)
+        states = [incoming_states[incoming_tasks[key].artifact_digest] for key in new_keys]
+        state_values = [state.declared_status.value for state in states]
+        completed_count = 0
+        while completed_count < len(state_values) and state_values[completed_count] == "completed":
+            completed_count += 1
+        expected_tail = ["draft"] * (len(state_values) - completed_count)
+        if completed_count < len(state_values) and state_values[completed_count] == "running":
+            expected_tail[0] = "running"
+        if state_values != ["completed"] * completed_count + expected_tail:
+            raise ResearchOSValidationError(error)
+        for index, state in enumerate(states):
+            expected_classification = (
+                "COMPLETE"
+                if index < completed_count
+                else "INTEGRATED"
+                if state.declared_status.value == "running"
+                else "INTEGRATION_PENDING"
+            )
+            actual = (
+                None
+                if state.completion_classification is None
+                else state.completion_classification.value
+            )
+            if actual != expected_classification:
+                raise ResearchOSValidationError(error)
+
+        formal_baseline = baseline_tasks[builder.FORMAL_P4_TASK_KEY]
+        formal_incoming = incoming_tasks[builder.FORMAL_P4_TASK_KEY]
+        if (
+            formal_incoming.to_dict() != formal_baseline.to_dict()
+            or incoming_states[formal_incoming.artifact_digest]
+            != baseline_states[formal_baseline.artifact_digest]
+        ):
+            raise ResearchOSValidationError("m4_p4_diagnostic_formal_p4_changed")
+
+        base_facts = baseline.facts.to_dict()
+        incoming_facts = manifest.facts.to_dict()
+        for category in ("evidence", "external_events", "authorities"):
+            if incoming_facts[category] != base_facts[category]:
+                raise ResearchOSValidationError(error)
+        source_fact = builder.SOURCE_FACT_PREFIX + str(source["artifact_digest"])
+        custom_by_task = (
+            {
+                diagnostic.P3_CLOSURE_COMPLETION_FACT,
+                "m4-p3-scientific-disposition:INCONCLUSIVE_DUE_TO_POWER",
+                "m4-p3-governance-status:CLOSED_NOT_AUTHORIZED_AFTER_DEEPER_VALIDATION",
+            },
+            {diagnostic.PREREGISTRATION_COMPLETION_FACT},
+            {diagnostic.EXECUTION_COMPLETION_FACT},
+            {diagnostic.EVIDENCE_COMPLETION_FACT},
+            {diagnostic.DECISION_COMPLETION_FACT},
+            {
+                diagnostic.REPLAY_COMPLETION_FACT,
+                diagnostic.REPLAY_VERIFIED_FACT,
+            },
+        )
+        expected_custom = {source_fact}
+        for facts in custom_by_task[:completed_count]:
+            expected_custom.update(facts)
+        artifacts = set(incoming_facts["artifacts"])
+        base_artifacts = set(base_facts["artifacts"])
+        if diagnostic.FORMAL_P4_PASS_FACT in artifacts:
+            raise ResearchOSValidationError("m4_p4_diagnostic_pass_to_p4_emitted")
+        decision_facts = {
+            fact for fact in artifacts if fact.startswith("m4-p4-diagnostic-decision:")
+        }
+        status_facts = {
+            fact for fact in artifacts if fact.startswith("m4-p4-diagnostic-status:")
+        }
+        if completed_count >= 5:
+            allowed_decisions = {
+                f"m4-p4-diagnostic-decision:{value}" for value in diagnostic.DECISIONS
+            }
+            allowed_statuses = {
+                "m4-p4-diagnostic-status:COMPLETE",
+                "m4-p4-diagnostic-status:INVALID",
+                "m4-p4-diagnostic-status:INCONCLUSIVE",
+            }
+            if (
+                len(decision_facts) != 1
+                or not decision_facts.issubset(allowed_decisions)
+                or len(status_facts) != 1
+                or not status_facts.issubset(allowed_statuses)
+            ):
+                raise ResearchOSValidationError(error)
+            expected_custom.update(decision_facts | status_facts)
+        elif decision_facts or status_facts:
+            raise ResearchOSValidationError(error)
+        dynamic = artifacts - base_artifacts - expected_custom
+        if not base_artifacts.issubset(artifacts) or any(
+            not any(
+                fact.startswith(
+                    f"mainline-execution:{key}:{incoming_tasks[key].artifact_digest}:"
+                )
+                and fact.endswith(":completed")
+                for key in new_keys[:completed_count]
+            )
+            for fact in dynamic
+        ):
+            raise ResearchOSValidationError(error)
+        if len(dynamic) != completed_count or artifacts != (
+            base_artifacts | expected_custom | dynamic
+        ):
+            raise ResearchOSValidationError(error)
+        current_keys = {item.task_key for item in current.tasks}
+        if current.artifact_digest != baseline.artifact_digest and not all(
+            key in current_keys for key in new_keys
+        ):
+            raise ResearchOSValidationError(error)
 
     @staticmethod
     def _verify_m4_v2_deeper_validation_import(

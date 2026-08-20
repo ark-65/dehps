@@ -154,6 +154,9 @@ from dehps.research_os.information_theory.measurement_system_v2 import (
 from dehps.research_os.information_theory.measurement_system_v2 import (
     deeper_validation as m4_v2_deeper_validation,
 )
+from dehps.research_os.information_theory.measurement_system_v2 import (
+    diagnostic_negative_controls as m4_p4_diagnostic,
+)
 from dehps.research_os.information_theory.measurement_system_v2.branch_decision import (
     MARGINAL_STATIC_BASELINE_ARTIFACT_DIGEST as M4_V2_SUCCESSOR_MARGINAL_BASELINE_DIGEST,
 )
@@ -22871,6 +22874,276 @@ class M4V2DeeperValidationCapability(M4V2SuccessorCapability):
         return runner(control_plane_key=control_plane_key, task=task)
 
 
+class M4P4DiagnosticNegativeControlsCapability(M4V2SuccessorCapability):
+    """Execute the preregistered diagnostic-only P4 successor chain."""
+
+    def _source_contract(self, task: Task) -> dict[str, Any]:
+        source = m4_p4_diagnostic.load_source_contract(root_dir=self.root_dir)
+        m4_p4_diagnostic.verify_governance(self.agent_repository)
+        if task.input_artifact_digests != (str(source["artifact_digest"]),):
+            raise MainlineSupervisorError("diagnostic P4 source input changed")
+        return source
+
+    @staticmethod
+    def _metadata(
+        *, source: Mapping[str, Any], decision: str | None = None, evidence: bool = False
+    ) -> tuple[tuple[str, Any], ...]:
+        values: list[tuple[str, Any]] = [
+            ("source_contract_digest", source["artifact_digest"]),
+            ("source_set_digest", source["source_set_digest"]),
+            ("diagnostic_only", True),
+            ("confirmatory_p4", False),
+            ("predictive_p3_folds", 0),
+            ("formal_p4_modified", False),
+            ("pass_to_p4_emitted", False),
+            ("p5_started", False),
+            ("promotion_triggered", False),
+            ("model_training_started", False),
+            ("new_model", "NONE"),
+            ("evidence_created", evidence),
+        ]
+        if decision is not None:
+            values.append(("decision", decision))
+        return tuple(values)
+
+    def _closure(
+        self, *, control_plane_key: str, task: Task
+    ) -> AtomicCapabilityResult:
+        source = self._source_contract(task)
+        inference = self._exact_registered_artifact(
+            control_plane_key=control_plane_key,
+            artifact_digest=m4_p4_diagnostic.HISTORICAL_INFERENCE_DIGEST,
+        )[1]
+        deeper_decision = self._exact_registered_artifact(
+            control_plane_key=control_plane_key,
+            artifact_digest=m4_p4_diagnostic.DEEPER_VALIDATION_DECISION_DIGEST,
+        )[1]
+        closure_registration, predictive_closure = self._exact_registered_artifact(
+            control_plane_key=control_plane_key,
+            artifact_digest=m4_p4_diagnostic.PREDICTIVE_P3_CLOSURE_DIGEST,
+        )
+        if (
+            closure_registration.get("registration_digest")
+            != m4_p4_diagnostic.PREDICTIVE_P3_CLOSURE_REGISTRATION_DIGEST
+        ):
+            raise MainlineSupervisorError("predictive P3 closure registration changed")
+        artifact = m4_p4_diagnostic.build_p3_closure_artifact(
+            historical_inference=inference,
+            deeper_decision=deeper_decision,
+            predictive_p3_closure=predictive_closure,
+            source_contract_digest=str(source["artifact_digest"]),
+        )
+        return AtomicCapabilityResult(
+            artifacts=(
+                AtomicArtifactPayload(
+                    "p3-inconclusive-closure", "closure.json", artifact
+                ),
+            ),
+            completion_facts=(
+                "m4-p3-scientific-disposition:INCONCLUSIVE_DUE_TO_POWER",
+                "m4-p3-governance-status:CLOSED_NOT_AUTHORIZED_AFTER_DEEPER_VALIDATION",
+                m4_p4_diagnostic.P3_CLOSURE_COMPLETION_FACT,
+            ),
+            execution_metadata=self._metadata(source=source),
+        )
+
+    def _preregistration(
+        self, *, control_plane_key: str, task: Task
+    ) -> AtomicCapabilityResult:
+        source = self._source_contract(task)
+        _, _, closure = self._completed_artifact(
+            control_plane_key=control_plane_key,
+            task_key=m4_p4_diagnostic.P3_CLOSURE_TASK_KEY,
+            artifact_type=m4_p4_diagnostic.P3_CLOSURE_ARTIFACT_TYPE,
+        )
+        artifact = m4_p4_diagnostic.build_preregistration_artifact(
+            p3_closure_artifact=closure, source_contract=source
+        )
+        return AtomicCapabilityResult(
+            artifacts=(
+                AtomicArtifactPayload(
+                    "diagnostic-negative-controls-preregistration",
+                    "preregistration.json",
+                    artifact,
+                ),
+            ),
+            completion_facts=(m4_p4_diagnostic.PREREGISTRATION_COMPLETION_FACT,),
+            execution_metadata=self._metadata(source=source),
+        )
+
+    def _execution(
+        self, *, control_plane_key: str, task: Task
+    ) -> AtomicCapabilityResult:
+        source = self._source_contract(task)
+        _, _, preregistration = self._completed_artifact(
+            control_plane_key=control_plane_key,
+            task_key=m4_p4_diagnostic.PREREGISTRATION_TASK_KEY,
+            artifact_type=m4_p4_diagnostic.PREREGISTRATION_ARTIFACT_TYPE,
+        )
+        dataset = self._exact_registered_artifact(
+            control_plane_key=control_plane_key,
+            artifact_digest=m4_p4_diagnostic.HISTORICAL_DATASET_SNAPSHOT_DIGEST,
+        )[1]
+        folds = self._exact_registered_artifact(
+            control_plane_key=control_plane_key,
+            artifact_digest=m4_p4_diagnostic.HISTORICAL_FOLD_MANIFEST_DIGEST,
+        )[1]
+        artifact = m4_p4_diagnostic.execute_negative_controls(
+            preregistration_artifact=preregistration,
+            dataset_snapshot=dataset,
+            fold_manifest=folds,
+        )
+        metadata = list(self._metadata(source=source))
+        metadata.extend(
+            [
+                ("control_count", 6),
+                ("randomized_repeat_count", m4_p4_diagnostic.REPEAT_COUNT),
+                ("independent_information_count", m4_p4_diagnostic.FOLD_COUNT),
+                ("diagnostic_score_evaluations", artifact["body"]["diagnostic_score_evaluations"]),
+                ("numerical_result_payload_reads", 1),
+                ("mechanical_refit_only", True),
+            ]
+        )
+        return AtomicCapabilityResult(
+            artifacts=(
+                AtomicArtifactPayload(
+                    "diagnostic-negative-controls-execution", "execution.json", artifact
+                ),
+            ),
+            completion_facts=(m4_p4_diagnostic.EXECUTION_COMPLETION_FACT,),
+            execution_metadata=tuple(metadata),
+            actual_fold_count=m4_p4_diagnostic.FOLD_COUNT,
+        )
+
+    def _evidence(
+        self, *, control_plane_key: str, task: Task
+    ) -> AtomicCapabilityResult:
+        source = self._source_contract(task)
+        _, _, preregistration = self._completed_artifact(
+            control_plane_key=control_plane_key,
+            task_key=m4_p4_diagnostic.PREREGISTRATION_TASK_KEY,
+            artifact_type=m4_p4_diagnostic.PREREGISTRATION_ARTIFACT_TYPE,
+        )
+        _, _, execution = self._completed_artifact(
+            control_plane_key=control_plane_key,
+            task_key=m4_p4_diagnostic.EXECUTION_TASK_KEY,
+            artifact_type=m4_p4_diagnostic.EXECUTION_ARTIFACT_TYPE,
+        )
+        artifact = m4_p4_diagnostic.compile_diagnostic_evidence(
+            preregistration_artifact=preregistration,
+            execution_artifact=execution,
+        )
+        return AtomicCapabilityResult(
+            artifacts=(
+                AtomicArtifactPayload("diagnostic-evidence", "evidence.json", artifact),
+            ),
+            completion_facts=(m4_p4_diagnostic.EVIDENCE_COMPLETION_FACT,),
+            execution_metadata=self._metadata(source=source, evidence=True),
+        )
+
+    def _decision(
+        self, *, control_plane_key: str, task: Task
+    ) -> AtomicCapabilityResult:
+        source = self._source_contract(task)
+        _, _, evidence = self._completed_artifact(
+            control_plane_key=control_plane_key,
+            task_key=m4_p4_diagnostic.EVIDENCE_TASK_KEY,
+            artifact_type=m4_p4_diagnostic.EVIDENCE_ARTIFACT_TYPE,
+        )
+        artifact = m4_p4_diagnostic.build_diagnostic_decision(
+            evidence_artifact=evidence
+        )
+        decision = str(artifact["body"]["diagnostic_p4_decision"])
+        return AtomicCapabilityResult(
+            artifacts=(
+                AtomicArtifactPayload("diagnostic-decision", "decision.json", artifact),
+            ),
+            completion_facts=(
+                m4_p4_diagnostic.DECISION_COMPLETION_FACT,
+                f"m4-p4-diagnostic-decision:{decision}",
+                f"m4-p4-diagnostic-status:{artifact['body']['diagnostic_p4']}",
+            ),
+            execution_metadata=self._metadata(
+                source=source, decision=decision, evidence=True
+            ),
+        )
+
+    def _replay(
+        self, *, control_plane_key: str, task: Task
+    ) -> AtomicCapabilityResult:
+        source = self._source_contract(task)
+        _, registration, decision = self._completed_artifact(
+            control_plane_key=control_plane_key,
+            task_key=m4_p4_diagnostic.DECISION_TASK_KEY,
+            artifact_type=m4_p4_diagnostic.DECISION_ARTIFACT_TYPE,
+        )
+        artifact = m4_p4_diagnostic.build_decision_replay(
+            decision_artifact=decision,
+            decision_registration_digest=str(registration["registration_digest"]),
+        )
+        return AtomicCapabilityResult(
+            artifacts=(
+                AtomicArtifactPayload(
+                    "diagnostic-decision-replay", "replay.json", artifact
+                ),
+            ),
+            completion_facts=(
+                m4_p4_diagnostic.REPLAY_VERIFIED_FACT,
+                m4_p4_diagnostic.REPLAY_COMPLETION_FACT,
+            ),
+            execution_metadata=self._metadata(
+                source=source,
+                decision="REGISTERED_REPLAY_VERIFIED",
+                evidence=True,
+            ),
+            workload_rerun=False,
+        )
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> AtomicCapabilityResult:
+        del execution_id, git_commit
+        integration_contract(task)
+        expected = {
+            m4_p4_diagnostic.P3_CLOSURE_CAPABILITY: (
+                m4_p4_diagnostic.P3_CLOSURE_TASK_KEY,
+                self._closure,
+            ),
+            m4_p4_diagnostic.PREREGISTRATION_CAPABILITY: (
+                m4_p4_diagnostic.PREREGISTRATION_TASK_KEY,
+                self._preregistration,
+            ),
+            m4_p4_diagnostic.EXECUTION_CAPABILITY: (
+                m4_p4_diagnostic.EXECUTION_TASK_KEY,
+                self._execution,
+            ),
+            m4_p4_diagnostic.EVIDENCE_CAPABILITY: (
+                m4_p4_diagnostic.EVIDENCE_TASK_KEY,
+                self._evidence,
+            ),
+            m4_p4_diagnostic.DECISION_CAPABILITY: (
+                m4_p4_diagnostic.DECISION_TASK_KEY,
+                self._decision,
+            ),
+            m4_p4_diagnostic.REPLAY_CAPABILITY: (
+                m4_p4_diagnostic.REPLAY_TASK_KEY,
+                self._replay,
+            ),
+        }
+        capability = task.requested_capability
+        if capability not in expected:
+            raise MainlineSupervisorError("unsupported diagnostic P4 capability")
+        expected_task_key, runner = expected[capability]
+        if task.task_key != expected_task_key:
+            raise MainlineSupervisorError("diagnostic P4 task/capability mismatch")
+        return runner(control_plane_key=control_plane_key, task=task)
+
+
 class ResearchEvidenceSupervisor:
     def __init__(
         self,
@@ -23266,6 +23539,19 @@ class ResearchEvidenceSupervisor:
             m4_v2_deeper_validation.ROUTE_REPLAY_CAPABILITY,
         ):
             self.capabilities[capability] = deeper_validation
+        diagnostic_p4 = M4P4DiagnosticNegativeControlsCapability(
+            repository=self.repository,
+            root_dir=root_dir,
+        )
+        for capability in (
+            m4_p4_diagnostic.P3_CLOSURE_CAPABILITY,
+            m4_p4_diagnostic.PREREGISTRATION_CAPABILITY,
+            m4_p4_diagnostic.EXECUTION_CAPABILITY,
+            m4_p4_diagnostic.EVIDENCE_CAPABILITY,
+            m4_p4_diagnostic.DECISION_CAPABILITY,
+            m4_p4_diagnostic.REPLAY_CAPABILITY,
+        ):
+            self.capabilities[capability] = diagnostic_p4
 
     @property
     def state_path(self) -> Path:
