@@ -94,6 +94,19 @@ _M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_BUILDER_MODULE_NAME = (
 _M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_TASK_KEY = (
     "m4-v2-global-routing-recovery-v3-registered-replay-compatibility-v1"
 )
+_M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_REGISTRATION_DIGEST = (
+    "b9b0a3085519d69cccbedf4ff151d0e5761641510522769368965671a6ca8d02"
+)
+_M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_RESEARCH_REQUEST_ID = 621
+_M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_RESEARCH_EXECUTION_ID = 507
+_M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_ENGINEERING_REQUEST_ID = 622
+_M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_ENGINEERING_EXECUTION_ID = 508
+_M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_RESEARCH_PAYLOAD_SHA256 = (
+    "122ee0aa7aebe5fc3e99cecd9efe5fcd4b87a91571cceb7f6d67696227c65399"
+)
+_M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_ENGINEERING_PAYLOAD_SHA256 = (
+    "4e06a9af9253b3b77bf2838bd0d33451ec316b017f3ad799f0e76c952020f631"
+)
 _M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_REQUIRED_SYMBOLS = (
     "AUTHORIZATION_EVENT",
     "INPUT_MANIFEST_DIGEST",
@@ -1479,6 +1492,7 @@ class PostgresResearchOSRepository:
         control_plane_key: str,
         manifest: ControlPlaneManifest,
         builder: ModuleType | None = None,
+        pending_successor_registration: MainlineArtifactRegistration | None = None,
     ) -> None:
         """Verify the one approved replay-only additive successor and no other delta."""
 
@@ -1748,13 +1762,15 @@ class PostgresResearchOSRepository:
                ORDER BY sequence, event_digest""",
             (control_plane_key, builder.SUCCESSOR_TASK_KEY),
         ).fetchall()
-        successor_registrations = cursor.execute(
-            """SELECT registration_digest FROM research_os_mainline_artifacts
+        successor_registration_rows = cursor.execute(
+            """SELECT registration_digest, execution_id, control_plane_key,
+                      task_digest, task_key, artifact_digest, artifact_type,
+                      schema_version, artifact_path, parent_digests_json,
+                      git_commit, registration_json
+               FROM research_os_mainline_artifacts
                WHERE control_plane_key = %s AND task_key = %s""",
             (control_plane_key, builder.SUCCESSOR_TASK_KEY),
         ).fetchall()
-        if successor_registrations:
-            raise ResearchOSValidationError(error)
 
         def stage(value: ControlPlaneManifest) -> str | None:
             fixed = {
@@ -1787,7 +1803,7 @@ class PostgresResearchOSRepository:
         if current_stage is None or incoming_stage not in legal[current_stage]:
             raise ResearchOSValidationError(error)
         if incoming_stage == "READY":
-            if runtime_rows:
+            if runtime_rows or successor_registration_rows or pending_successor_registration:
                 raise ResearchOSValidationError(error)
             return
 
@@ -1804,7 +1820,11 @@ class PostgresResearchOSRepository:
             return event, payload
 
         if incoming_stage == "RUNNING":
-            if len(runtime_rows) not in ({0} if current_stage == "READY" else {0, 1}):
+            if (
+                successor_registration_rows
+                or pending_successor_registration
+                or len(runtime_rows) not in ({0} if current_stage == "READY" else {0, 1})
+            ):
                 raise ResearchOSValidationError(error)
             if runtime_rows:
                 started, started_payload = typed_successor_event(runtime_rows[0])
@@ -1838,6 +1858,8 @@ class PostgresResearchOSRepository:
                 terminal.event_type != "failed"
                 or set(terminal_payload) != {"error", "git_commit"}
                 or not str(terminal_payload["error"])
+                or successor_registration_rows
+                or pending_successor_registration
                 or manifest.to_dict(include_digest=True)
                 != failed.to_dict(include_digest=True)
             ):
@@ -1880,6 +1902,69 @@ class PostgresResearchOSRepository:
             or terminal_payload["promotion_triggered"] is not False
         ):
             raise ResearchOSValidationError(error)
+
+        def typed_successor_registration(row: Any) -> MainlineArtifactRegistration:
+            try:
+                raw = dict(row["registration_json"])
+                registration = MainlineArtifactRegistration(
+                    execution_id=str(raw["execution_id"]),
+                    control_plane_key=str(raw["control_plane_key"]),
+                    task_key=str(raw["task_key"]),
+                    task_digest=str(raw["task_digest"]),
+                    artifact_digest=str(raw["artifact_digest"]),
+                    artifact_type=str(raw["artifact_type"]),
+                    schema_version=str(raw["schema_version"]),
+                    artifact_path=str(raw["artifact_path"]),
+                    parent_digests=tuple(str(value) for value in raw["parent_digests"]),
+                    git_commit=str(raw["git_commit"]),
+                )
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ResearchOSValidationError(error) from exc
+            if (
+                str(row["registration_digest"]) != registration.registration_digest
+                or str(row["execution_id"]) != registration.execution_id
+                or str(row["control_plane_key"]) != registration.control_plane_key
+                or str(row["task_digest"]) != registration.task_digest
+                or str(row["task_key"]) != registration.task_key
+                or str(row["artifact_digest"]) != registration.artifact_digest
+                or str(row["artifact_type"]) != registration.artifact_type
+                or str(row["schema_version"]) != registration.schema_version
+                or str(row["artifact_path"]) != registration.artifact_path
+                or tuple(str(value) for value in row["parent_digests_json"])
+                != registration.parent_digests
+                or str(row["git_commit"]) != registration.git_commit
+            ):
+                raise ResearchOSValidationError(error)
+            return registration
+
+        if pending_successor_registration is not None:
+            if successor_registration_rows:
+                raise ResearchOSValidationError(error)
+            successor_registration = pending_successor_registration
+        else:
+            if len(successor_registration_rows) != 1:
+                raise ResearchOSValidationError(error)
+            successor_registration = typed_successor_registration(
+                successor_registration_rows[0]
+            )
+        if (
+            successor_registration.registration_digest
+            != _M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_REGISTRATION_DIGEST
+            or successor_registration.execution_id != started.execution_id
+            or successor_registration.control_plane_key != control_plane_key
+            or successor_registration.task_key != builder.SUCCESSOR_TASK_KEY
+            or successor_registration.task_digest != successor_task.artifact_digest
+            or successor_registration.artifact_digest
+            != builder.OLD_ROUTE_ARTIFACT_DIGEST
+            or successor_registration.artifact_type
+            != "m4_measurement_routing_decision"
+            or successor_registration.schema_version
+            != "dehps-m4-measurement-routing-decision.v1"
+            or successor_registration.artifact_path != builder.OLD_ROUTE_PATH
+            or successor_registration.parent_digests != ()
+            or successor_registration.git_commit != str(started_payload["git_commit"])
+        ):
+            raise ResearchOSValidationError(error)
         expected_completed = ControlPlaneManifest.from_dict(
             builder.transition_manifest(
                 ready.to_dict(include_digest=True),
@@ -1890,6 +1975,251 @@ class PostgresResearchOSRepository:
         )
         if manifest.to_dict(include_digest=True) != expected_completed.to_dict(
             include_digest=True
+        ):
+            raise ResearchOSValidationError(error)
+
+    @staticmethod
+    def _verify_m4_v2_global_routing_replay_compatibility_v1_registration(
+        cursor,
+        *,
+        registration: MainlineArtifactRegistration,
+    ) -> None:
+        """Authorize only the reviewed registration for the frozen replay successor."""
+
+        builder = _load_m4_v2_global_routing_replay_compatibility_v1_builder()
+        error = "m4_v2_global_replay_compatibility_v1_registration_changed"
+        if (
+            registration.task_key != builder.SUCCESSOR_TASK_KEY
+            or registration.registration_digest
+            != _M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_REGISTRATION_DIGEST
+        ):
+            raise ResearchOSValidationError(error)
+        control = cursor.execute(
+            """SELECT current_manifest_digest FROM research_os_control_planes
+               WHERE control_plane_key = %s FOR UPDATE""",
+            (registration.control_plane_key,),
+        ).fetchone()
+        if control is None:
+            raise ResearchOSValidationError(error)
+        current_row = cursor.execute(
+            "SELECT manifest_json FROM research_os_manifests WHERE manifest_digest = %s",
+            (str(control["current_manifest_digest"]),),
+        ).fetchone()
+        if current_row is None:
+            raise ResearchOSValidationError(error)
+        try:
+            current = ControlPlaneManifest.from_dict(dict(current_row["manifest_json"]))
+            completed = ControlPlaneManifest.from_dict(
+                builder.transition_manifest(
+                    current.to_dict(include_digest=True),
+                    status="completed",
+                    classification="COMPLETE",
+                    execution_id=registration.execution_id,
+                )
+            )
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+            ResearchOSValidationError,
+            builder.GlobalRoutingReplayCompatibilityV1Error,
+        ) as exc:
+            raise ResearchOSValidationError(error) from exc
+        PostgresResearchOSRepository._verify_m4_v2_global_routing_replay_compatibility_v1_import(
+            cursor,
+            control_plane_key=registration.control_plane_key,
+            manifest=completed,
+            builder=builder,
+            pending_successor_registration=registration,
+        )
+        PostgresResearchOSRepository._verify_m4_v2_global_routing_replay_compatibility_v1_registration_governance(
+            cursor
+        )
+
+    @staticmethod
+    def _verify_m4_v2_global_routing_replay_compatibility_v1_registration_governance(
+        cursor,
+    ) -> None:
+        """Bind the registration to the one reviewed Research and Engineering chain."""
+
+        error = "m4_v2_global_replay_compatibility_v1_registration_authority_changed"
+        request_ids = [
+            _M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_RESEARCH_REQUEST_ID,
+            _M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_ENGINEERING_REQUEST_ID,
+        ]
+        requests = cursor.execute(
+            """SELECT id, request_key, request_type, requested_by_role, requested_by,
+                      parent_request_id, status, risk_level, requires_review,
+                      metadata_json->>'payload_sha256' AS payload_sha256
+               FROM agent_requests WHERE id = ANY(%s) ORDER BY id""",
+            (request_ids,),
+        ).fetchall()
+        executions = cursor.execute(
+            """SELECT id, request_id, executor_role, executor_id, execution_type,
+                      status, environment, run_id, artifact_paths_json AS artifact_paths
+               FROM agent_request_executions WHERE request_id = ANY(%s)
+               ORDER BY request_id, id""",
+            (request_ids,),
+        ).fetchall()
+        decisions = cursor.execute(
+            """SELECT id, request_id, previous_status, new_status, decision_code,
+                      summary, reason_json AS reason, decided_by_role, decided_by
+               FROM agent_request_decisions WHERE request_id = ANY(%s)
+               ORDER BY request_id, id""",
+            (request_ids,),
+        ).fetchall()
+        observed_requests = [
+            (
+                int(row["id"]),
+                str(row["request_key"]),
+                str(row["request_type"]),
+                str(row["requested_by_role"]),
+                str(row["requested_by"]),
+                None if row["parent_request_id"] is None else int(row["parent_request_id"]),
+                str(row["status"]),
+                str(row["risk_level"]),
+                bool(row["requires_review"]),
+                str(row["payload_sha256"]),
+            )
+            for row in requests
+        ]
+        expected_requests = [
+            (
+                621,
+                "research-m4-v2-global-routing-v3-exact-successor-registration-v1",
+                "research_scheduler_request",
+                "research",
+                "research:exact-successor-registration-v1",
+                None,
+                "completed",
+                "low",
+                True,
+                _M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_RESEARCH_PAYLOAD_SHA256,
+            ),
+            (
+                622,
+                "engineering-m4-v2-global-routing-v3-exact-successor-registration-v1",
+                "engineering_implementation",
+                "engineering",
+                "engineering:exact-successor-registration-v1",
+                621,
+                "completed",
+                "medium",
+                True,
+                _M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_ENGINEERING_PAYLOAD_SHA256,
+            ),
+        ]
+        observed_executions = [
+            (
+                int(row["id"]),
+                int(row["request_id"]),
+                str(row["executor_role"]),
+                str(row["executor_id"]),
+                str(row["execution_type"]),
+                str(row["status"]),
+                str(row["environment"]),
+                row["run_id"],
+                list(row["artifact_paths"]),
+            )
+            for row in executions
+        ]
+        expected_executions = [
+            (
+                507,
+                621,
+                "research",
+                "research:exact-successor-registration-v1",
+                "schedule_research",
+                "completed",
+                "isolated",
+                None,
+                [],
+            ),
+            (
+                508,
+                622,
+                "engineering",
+                "engineering:exact-successor-registration-v1",
+                "modify_code",
+                "completed",
+                "development",
+                "m4-v2-global-routing-v3-exact-successor-registration-v1",
+                [],
+            ),
+        ]
+        decisions_by_request: dict[int, list[dict[str, Any]]] = {}
+        for row in decisions:
+            decisions_by_request.setdefault(int(row["request_id"]), []).append(dict(row))
+        research_decisions = decisions_by_request.get(621, [])
+        engineering_decisions = decisions_by_request.get(622, [])
+        research_approval = next(
+            (row for row in research_decisions if int(row["id"]) == 2611), None
+        )
+        engineering_approval = next(
+            (row for row in engineering_decisions if int(row["id"]) == 2616), None
+        )
+        engineering_terminal = engineering_decisions[-1] if engineering_decisions else None
+        if (
+            observed_requests != expected_requests
+            or observed_executions != expected_executions
+            or [int(row["id"]) for row in research_decisions]
+            != [2609, 2610, 2611, 2612, 2613]
+            or [int(row["id"]) for row in engineering_decisions[:-1]]
+            != [2614, 2615, 2616, 2617]
+            or len(engineering_decisions) != 5
+            or research_approval is None
+            or (
+                research_approval["previous_status"],
+                research_approval["new_status"],
+                research_approval["decision_code"],
+                research_approval["decided_by_role"],
+                research_approval["decided_by"],
+            )
+            != (
+                "under_review",
+                "approved",
+                "request_approved",
+                "reviewer",
+                "reviewer:exact-successor-registration-v1",
+            )
+            or dict(research_approval["reason"]).get("outcome")
+            != "APPROVE_EXACT_SUCCESSOR_REGISTRATION"
+            or engineering_approval is None
+            or (
+                engineering_approval["previous_status"],
+                engineering_approval["new_status"],
+                engineering_approval["decision_code"],
+                engineering_approval["decided_by_role"],
+                engineering_approval["decided_by"],
+            )
+            != (
+                "under_review",
+                "approved",
+                "request_approved",
+                "reviewer",
+                "reviewer:engineering622-successor-registration",
+            )
+            or dict(engineering_approval["reason"]).get("outcome")
+            != "APPROVE_EXACT_SUCCESSOR_REGISTRATION"
+            or engineering_terminal is None
+            or {
+                "previous_status": engineering_terminal["previous_status"],
+                "new_status": engineering_terminal["new_status"],
+                "decision_code": engineering_terminal["decision_code"],
+                "summary": engineering_terminal["summary"],
+                "reason": dict(engineering_terminal["reason"]),
+                "decided_by_role": engineering_terminal["decided_by_role"],
+                "decided_by": engineering_terminal["decided_by"],
+            }
+            != {
+                "previous_status": "executing",
+                "new_status": "completed",
+                "decision_code": "execution_completed",
+                "summary": "request execution completed",
+                "reason": {"execution_id": 508, "has_error": False},
+                "decided_by_role": "engineering",
+                "decided_by": "engineering:exact-successor-registration-v1",
+            }
         ):
             raise ResearchOSValidationError(error)
 
@@ -2986,6 +3316,14 @@ class PostgresResearchOSRepository:
     ) -> bool:
         payload = jsonable(registration)
         with self.connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
+            if (
+                registration.task_key
+                == _M4_V2_GLOBAL_REPLAY_COMPATIBILITY_V1_TASK_KEY
+            ):
+                self._verify_m4_v2_global_routing_replay_compatibility_v1_registration(
+                    cursor,
+                    registration=registration,
+                )
             row = cursor.execute(
                 """
                 INSERT INTO research_os_mainline_artifacts (

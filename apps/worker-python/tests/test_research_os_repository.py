@@ -2592,6 +2592,8 @@ class _ReplayCompatibilityCursor:
         runtime_events: list[dict] | None = None,
         old_events: list[dict] | None = None,
         old_registrations: list[dict] | None = None,
+        successor_registrations: list[dict] | None = None,
+        governance_mismatch: str | None = None,
     ) -> None:
         self.baseline = baseline
         self.current = current
@@ -2601,9 +2603,21 @@ class _ReplayCompatibilityCursor:
         self.old_registrations = (
             default_registrations if old_registrations is None else old_registrations
         )
+        self.successor_registrations = successor_registrations or []
+        self.governance_mismatch = governance_mismatch
+        self.inserted_registration_digests: list[str] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
 
     def execute(self, statement, parameters=()):
         query = " ".join(str(statement).split())
+        if query.startswith("INSERT INTO research_os_mainline_artifacts"):
+            self.inserted_registration_digests.append(str(parameters[0]))
+            return _Rows(one={"registration_digest": parameters[0]})
         assert query.startswith("SELECT")
         if "FROM research_os_control_planes" in query:
             return _Rows(one={"current_manifest_digest": self.current.artifact_digest})
@@ -2627,18 +2641,234 @@ class _ReplayCompatibilityCursor:
                 many=(
                     self.old_registrations
                     if parameters[1] == replay_compatibility.OLD_TASK_KEY
-                    else []
+                    else self.successor_registrations
                 )
             )
+        if "FROM agent_requests" in query:
+            requests, _, _ = _replay_compatibility_governance_rows()
+            if self.governance_mismatch == "authorization":
+                requests[0]["payload_sha256"] = "0" * 64
+            return _Rows(many=requests)
+        if "FROM agent_request_executions" in query:
+            _, executions, _ = _replay_compatibility_governance_rows()
+            return _Rows(many=executions)
+        if "FROM agent_request_decisions" in query:
+            _, _, decisions = _replay_compatibility_governance_rows()
+            return _Rows(many=decisions)
         raise AssertionError(query)
+
+
+def _replay_compatibility_governance_rows() -> tuple[
+    list[dict], list[dict], list[dict]
+]:
+    requests = [
+        {
+            "id": 621,
+            "request_key": "research-m4-v2-global-routing-v3-exact-successor-registration-v1",
+            "request_type": "research_scheduler_request",
+            "requested_by_role": "research",
+            "requested_by": "research:exact-successor-registration-v1",
+            "parent_request_id": None,
+            "status": "completed",
+            "risk_level": "low",
+            "requires_review": True,
+            "payload_sha256": (
+                "122ee0aa7aebe5fc3e99cecd9efe5fcd4b87a91571cceb7f6d67696227c65399"
+            ),
+        },
+        {
+            "id": 622,
+            "request_key": "engineering-m4-v2-global-routing-v3-exact-successor-registration-v1",
+            "request_type": "engineering_implementation",
+            "requested_by_role": "engineering",
+            "requested_by": "engineering:exact-successor-registration-v1",
+            "parent_request_id": 621,
+            "status": "completed",
+            "risk_level": "medium",
+            "requires_review": True,
+            "payload_sha256": (
+                "4e06a9af9253b3b77bf2838bd0d33451ec316b017f3ad799f0e76c952020f631"
+            ),
+        },
+    ]
+    executions = [
+        {
+            "id": 507,
+            "request_id": 621,
+            "executor_role": "research",
+            "executor_id": "research:exact-successor-registration-v1",
+            "execution_type": "schedule_research",
+            "status": "completed",
+            "environment": "isolated",
+            "run_id": None,
+            "artifact_paths": [],
+        },
+        {
+            "id": 508,
+            "request_id": 622,
+            "executor_role": "engineering",
+            "executor_id": "engineering:exact-successor-registration-v1",
+            "execution_type": "modify_code",
+            "status": "completed",
+            "environment": "development",
+            "run_id": "m4-v2-global-routing-v3-exact-successor-registration-v1",
+            "artifact_paths": [],
+        },
+    ]
+    decisions = [
+        {
+            "id": 2609,
+            "request_id": 621,
+            "previous_status": "draft",
+            "new_status": "submitted",
+            "decision_code": "request_submitted",
+            "summary": "request submitted for review",
+            "reason": {},
+            "decided_by_role": "research",
+            "decided_by": "research:exact-successor-registration-v1",
+        },
+        {
+            "id": 2610,
+            "request_id": 621,
+            "previous_status": "submitted",
+            "new_status": "under_review",
+            "decision_code": "review_started",
+            "summary": "request review started",
+            "reason": {},
+            "decided_by_role": "reviewer",
+            "decided_by": "reviewer:exact-successor-registration-v1",
+        },
+        {
+            "id": 2611,
+            "request_id": 621,
+            "previous_status": "under_review",
+            "new_status": "approved",
+            "decision_code": "request_approved",
+            "summary": "request approved for execution",
+            "reason": {"outcome": "APPROVE_EXACT_SUCCESSOR_REGISTRATION"},
+            "decided_by_role": "reviewer",
+            "decided_by": "reviewer:exact-successor-registration-v1",
+        },
+        {
+            "id": 2612,
+            "request_id": 621,
+            "previous_status": "approved",
+            "new_status": "executing",
+            "decision_code": "execution_started",
+            "summary": "approved request execution started",
+            "reason": {
+                "run_id": None,
+                "environment": "isolated",
+                "execution_type": "schedule_research",
+            },
+            "decided_by_role": "research",
+            "decided_by": "research:exact-successor-registration-v1",
+        },
+        {
+            "id": 2613,
+            "request_id": 621,
+            "previous_status": "executing",
+            "new_status": "completed",
+            "decision_code": "execution_completed",
+            "summary": "request execution completed",
+            "reason": {"execution_id": 507, "has_error": False},
+            "decided_by_role": "research",
+            "decided_by": "research:exact-successor-registration-v1",
+        },
+        {
+            "id": 2614,
+            "request_id": 622,
+            "previous_status": "draft",
+            "new_status": "submitted",
+            "decision_code": "request_submitted",
+            "summary": "request submitted for review",
+            "reason": {},
+            "decided_by_role": "engineering",
+            "decided_by": "engineering:exact-successor-registration-v1",
+        },
+        {
+            "id": 2615,
+            "request_id": 622,
+            "previous_status": "submitted",
+            "new_status": "under_review",
+            "decision_code": "review_started",
+            "summary": "request review started",
+            "reason": {},
+            "decided_by_role": "reviewer",
+            "decided_by": "reviewer:engineering622-successor-registration",
+        },
+        {
+            "id": 2616,
+            "request_id": 622,
+            "previous_status": "under_review",
+            "new_status": "approved",
+            "decision_code": "request_approved",
+            "summary": "request approved for execution",
+            "reason": {"outcome": "APPROVE_EXACT_SUCCESSOR_REGISTRATION"},
+            "decided_by_role": "reviewer",
+            "decided_by": "reviewer:engineering622-successor-registration",
+        },
+        {
+            "id": 2617,
+            "request_id": 622,
+            "previous_status": "approved",
+            "new_status": "executing",
+            "decision_code": "execution_started",
+            "summary": "approved request execution started",
+            "reason": {
+                "run_id": "m4-v2-global-routing-v3-exact-successor-registration-v1",
+                "environment": "development",
+                "execution_type": "modify_code",
+            },
+            "decided_by_role": "engineering",
+            "decided_by": "engineering:exact-successor-registration-v1",
+        },
+        {
+            "id": 2618,
+            "request_id": 622,
+            "previous_status": "executing",
+            "new_status": "completed",
+            "decision_code": "execution_completed",
+            "summary": "request execution completed",
+            "reason": {"execution_id": 508, "has_error": False},
+            "decided_by_role": "engineering",
+            "decided_by": "engineering:exact-successor-registration-v1",
+        },
+    ]
+    return requests, executions, decisions
 
 
 def _active_replay_compatibility_manifest() -> ControlPlaneManifest:
     payload, _ = replay_compatibility.build_manifest(
         _completed_global_recovery_v3_manifest().to_dict(include_digest=True),
-        source_contract_digest="e" * 64,
+        source_contract_digest=(
+            "348954707e00d611ecbd39fb3da99486ea3861754349100c3d0303edbdae5f04"
+        ),
     )
     return ControlPlaneManifest.from_dict(payload)
+
+
+def _exact_replay_compatibility_registration() -> MainlineArtifactRegistration:
+    registration = MainlineArtifactRegistration(
+        execution_id=(
+            "d9aeb506915b15ed7aec7cda574dfeb7685d94f88844c938d1934d8350d1325c"
+        ),
+        control_plane_key="m4-information-theory-mainline",
+        task_key=replay_compatibility.SUCCESSOR_TASK_KEY,
+        task_digest=(
+            "7e36a2d443744bedb2e6dd4223aad736045b730e7b9e839170454339190b0e88"
+        ),
+        artifact_digest=replay_compatibility.OLD_ROUTE_ARTIFACT_DIGEST,
+        artifact_type="m4_measurement_routing_decision",
+        schema_version="dehps-m4-measurement-routing-decision.v1",
+        artifact_path=replay_compatibility.OLD_ROUTE_PATH,
+        parent_digests=(),
+        git_commit="bb39ee504ba22a497393e1f5e65ce3a25761650b",
+    )
+    assert registration.registration_digest == (
+        "b9b0a3085519d69cccbedf4ff151d0e5761641510522769368965671a6ca8d02"
+    )
+    return registration
 
 
 def _patch_replay_compatibility_source(monkeypatch, tmp_path: Path) -> None:
@@ -2665,7 +2895,9 @@ def _patch_replay_compatibility_source(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
         replay_compatibility,
         "validate_source_contract",
-        lambda *_args, **_kwargs: "e" * 64,
+        lambda *_args, **_kwargs: (
+            "348954707e00d611ecbd39fb3da99486ea3861754349100c3d0303edbdae5f04"
+        ),
     )
     monkeypatch.setattr(
         repository_module,
@@ -2690,7 +2922,9 @@ def test_replay_compatibility_builder_is_exactly_additive_and_unique_ready() -> 
     assert [item.task_key for item in snapshot.ready_queue] == [
         replay_compatibility.SUCCESSOR_TASK_KEY
     ]
-    assert ready.facts.artifacts - baseline.facts.artifacts == {"e" * 64}
+    assert ready.facts.artifacts - baseline.facts.artifacts == {
+        "348954707e00d611ecbd39fb3da99486ea3861754349100c3d0303edbdae5f04"
+    }
     assert ready.facts.external_events - baseline.facts.external_events == {
         replay_compatibility.AUTHORIZATION_EVENT
     }
@@ -2739,7 +2973,14 @@ def test_exact_completed_v3_path_does_not_load_compatibility_builder(
 
 @pytest.mark.parametrize(
     "tamper",
-    ("existing_task", "existing_fact", "extra_task", "old_event", "old_registration"),
+    (
+        "existing_task",
+        "existing_state",
+        "existing_fact",
+        "extra_task",
+        "old_event",
+        "old_registration",
+    ),
 )
 def test_replay_compatibility_rejects_unapproved_addition_or_identity_drift(
     monkeypatch,
@@ -2751,6 +2992,8 @@ def test_replay_compatibility_rejects_unapproved_addition_or_identity_drift(
     old_events, old_registrations = _old_recovery_v3_rows()
     if tamper == "existing_task":
         payload["tasks"][0]["priority"] += 1
+    elif tamper == "existing_state":
+        payload["tasks"][0]["status"] = "running"
     elif tamper == "existing_fact":
         payload["facts"]["artifacts"].append("unapproved:fact")
     elif tamper == "extra_task":
@@ -2778,6 +3021,93 @@ def test_replay_compatibility_rejects_unapproved_addition_or_identity_drift(
             manifest=incoming,
             builder=replay_compatibility,
         )
+
+
+def test_exact_successor_registration_passes_only_after_full_prewrite_validation(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    baseline, running, _, started, completed_event, registration = (
+        _completed_replay_compatibility_fixture()
+    )
+    cursor = _ReplayCompatibilityCursor(
+        baseline,
+        current=running,
+        runtime_events=[_event_row(started), _event_row(completed_event)],
+    )
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def cursor(self, **_kwargs):
+            return cursor
+
+    @contextmanager
+    def connection_factory():
+        with Connection() as connection:
+            yield connection
+
+    _patch_replay_compatibility_source(monkeypatch, tmp_path)
+    repository = PostgresResearchOSRepository(connection_factory)  # type: ignore[arg-type]
+    assert repository.register_mainline_artifact(registration=registration) is True
+    assert cursor.inserted_registration_digests == [registration.registration_digest]
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    (
+        "task_digest",
+        "route_artifact_digest",
+        "parent_lineage",
+        "source_contract_digest",
+        "authorization_identity",
+    ),
+)
+def test_exact_successor_registration_rejects_every_identity_drift(
+    monkeypatch,
+    tmp_path: Path,
+    tamper: str,
+) -> None:
+    baseline, running, _, started, completed_event, registration = (
+        _completed_replay_compatibility_fixture()
+    )
+    _patch_replay_compatibility_source(monkeypatch, tmp_path)
+    if tamper == "task_digest":
+        registration = MainlineArtifactRegistration(
+            **{**registration.__dict__, "task_digest": "0" * 64}
+        )
+    elif tamper == "route_artifact_digest":
+        registration = MainlineArtifactRegistration(
+            **{**registration.__dict__, "artifact_digest": "0" * 64}
+        )
+    elif tamper == "parent_lineage":
+        registration = MainlineArtifactRegistration(
+            **{**registration.__dict__, "parent_digests": ("0" * 64,)}
+        )
+    elif tamper == "source_contract_digest":
+        monkeypatch.setattr(
+            replay_compatibility,
+            "validate_source_contract",
+            lambda *_args, **_kwargs: "f" * 64,
+        )
+    cursor = _ReplayCompatibilityCursor(
+        baseline,
+        current=running,
+        runtime_events=[_event_row(started), _event_row(completed_event)],
+        governance_mismatch=(
+            "authorization" if tamper == "authorization_identity" else None
+        ),
+    )
+    with pytest.raises(ResearchOSValidationError):
+        PostgresResearchOSRepository._verify_m4_v2_global_routing_replay_compatibility_v1_registration(
+            cursor,
+            registration=registration,
+        )
+    assert cursor.inserted_registration_digests == []
 
 
 def test_replay_compatibility_rejects_old_registration_from_other_execution(
@@ -2816,10 +3146,14 @@ def test_replay_compatibility_rejects_old_registration_from_other_execution(
         )
 
 
-def test_replay_compatibility_completed_stage_accepts_registered_replay_only(
-    monkeypatch,
-    tmp_path: Path,
-) -> None:
+def _completed_replay_compatibility_fixture() -> tuple[
+    ControlPlaneManifest,
+    ControlPlaneManifest,
+    ControlPlaneManifest,
+    MainlineExecutionEvent,
+    MainlineExecutionEvent,
+    MainlineArtifactRegistration,
+]:
     baseline = _completed_global_recovery_v3_manifest()
     ready = _active_replay_compatibility_manifest()
     running = ControlPlaneManifest.from_dict(
@@ -2832,17 +3166,10 @@ def test_replay_compatibility_completed_stage_accepts_registered_replay_only(
     task = next(
         item for item in ready.tasks if item.task_key == replay_compatibility.SUCCESSOR_TASK_KEY
     )
-    git_commit = "f" * 40
-    execution_id = stable_hash(
-        {
-            "schema": "dehps-research-os-mainline-execution.v1",
-            "control_plane_key": "m4-information-theory-mainline",
-            "task_digest": task.artifact_digest,
-            "capability": task.requested_capability,
-            "input_artifact_digests": task.input_artifact_digests,
-            "git_commit": git_commit,
-        }
-    )
+    registration = _exact_replay_compatibility_registration()
+    git_commit = registration.git_commit
+    execution_id = registration.execution_id
+    assert task.artifact_digest == registration.task_digest
     started = MainlineExecutionEvent(
         execution_id=execution_id,
         control_plane_key="m4-information-theory-mainline",
@@ -2897,12 +3224,23 @@ def test_replay_compatibility_completed_stage_accepts_registered_replay_only(
             execution_id=execution_id,
         )
     )
+    return baseline, running, completed, started, completed_event, registration
+
+
+def test_replay_compatibility_completed_stage_accepts_registered_replay_only(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    baseline, running, completed, started, completed_event, registration = (
+        _completed_replay_compatibility_fixture()
+    )
     _patch_replay_compatibility_source(monkeypatch, tmp_path)
     PostgresResearchOSRepository._verify_m4_v2_global_routing_replay_compatibility_v1_import(
         _ReplayCompatibilityCursor(
             baseline,
             current=running,
             runtime_events=[_event_row(started), _event_row(completed_event)],
+            successor_registrations=[_registration_row(registration)],
         ),
         control_plane_key="m4-information-theory-mainline",
         manifest=completed,
@@ -2913,7 +3251,7 @@ def test_replay_compatibility_completed_stage_accepts_registered_replay_only(
             **completed_event.__dict__,
             "payload": tuple(
                 (key, True if key == "workload_rerun" else value)
-                for key, value in terminal_payload
+                for key, value in completed_event.payload
             ),
         }
     )
@@ -2926,6 +3264,7 @@ def test_replay_compatibility_completed_stage_accepts_registered_replay_only(
                 baseline,
                 current=running,
                 runtime_events=[_event_row(started), _event_row(bad_event)],
+                successor_registrations=[_registration_row(registration)],
             ),
             control_plane_key="m4-information-theory-mainline",
             manifest=completed,
