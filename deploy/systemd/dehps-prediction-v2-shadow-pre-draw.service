@@ -1,5 +1,5 @@
 [Unit]
-Description=Generate, replay, and deliver the DEHPS Prediction v2 shadow Top100
+Description=Seal the frozen DEHPS MARGINAL_STATIC bounded shadow checkpoint
 After=network-online.target postgresql.service
 Wants=network-online.target
 
@@ -11,5 +11,6 @@ UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/home/ark/workspace/dehps/runtime
-ExecStart=/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python scripts/run_prediction_v2_shadow_issue.py pre --apply --send
+# Retired command identity: run_prediction_v2_shadow_issue.py pre --apply --send
+ReadWritePaths=/home/ark/workspace/dehps/runtime /home/ark/workspace/dehps/data/output
+ExecStart=/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python scripts/run_m4_v2_bounded_operational_forward.py launch --apply

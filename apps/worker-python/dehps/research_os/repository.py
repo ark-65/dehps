@@ -170,6 +170,19 @@ _M4_V2_FORWARD_FEASIBILITY_REQUIRED_SYMBOLS = (
     "SOURCE_FACT_PREFIX",
     "build_manifest",
 )
+_M4_V2_BOUNDED_FORWARD_BUILDER_MODULE_NAME = "_dehps_m4_v2_bounded_forward_builder"
+_M4_V2_BOUNDED_FORWARD_PREREGISTRATION_TASK_KEY = (
+    "m4-v2-bounded-operational-forward-study-preregistration"
+)
+_M4_V2_BOUNDED_FORWARD_REQUIRED_SYMBOLS = (
+    "BASELINE_MANIFEST_DIGEST",
+    "FORMAL_P4_TASK_KEY",
+    "GOAL_KEY",
+    "PREREGISTRATION_TASK_KEY",
+    "build_manifest",
+    "issue_tasks",
+    "preregistration_task",
+)
 
 
 def _m4_v2_utc_instant(value: Any) -> datetime:
@@ -445,6 +458,36 @@ def _load_m4_v2_forward_feasibility_builder() -> ModuleType:
     except Exception as exc:
         raise ResearchOSValidationError(
             "m4_v2_forward_feasibility_builder_unavailable"
+        ) from exc
+
+
+def _load_m4_v2_bounded_forward_builder() -> ModuleType:
+    """Load the exact bounded operational forward builder."""
+
+    from dehps.config import ROOT_DIR
+
+    try:
+        root_dir = ROOT_DIR.resolve()
+        builder_path = (
+            ROOT_DIR
+            / "apps/worker-python/scripts/build_m4_v2_bounded_operational_forward_manifest.py"
+        ).resolve()
+        if not builder_path.is_relative_to(root_dir) or not builder_path.is_file():
+            raise FileNotFoundError(builder_path)
+        spec = importlib.util.spec_from_file_location(
+            _M4_V2_BOUNDED_FORWARD_BUILDER_MODULE_NAME, builder_path
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError("m4_v2_bounded_forward_builder_unavailable")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        for symbol in _M4_V2_BOUNDED_FORWARD_REQUIRED_SYMBOLS:
+            if not hasattr(module, symbol):
+                raise AttributeError(symbol)
+        return module
+    except Exception as exc:
+        raise ResearchOSValidationError(
+            "m4_v2_bounded_forward_builder_unavailable"
         ) from exc
 
 
@@ -1320,6 +1363,20 @@ class PostgresResearchOSRepository:
 
         builder = _load_m4_v2_global_routing_recovery_v3_builder()
         tasks = {task.task_key: task for task in manifest.tasks}
+        bounded_preregistration = tasks.get(
+            _M4_V2_BOUNDED_FORWARD_PREREGISTRATION_TASK_KEY
+        )
+        if (
+            bounded_preregistration is not None
+            and bounded_preregistration.requested_capability
+            == "m4_v2_bounded_operational_forward_study_preregistration"
+        ):
+            PostgresResearchOSRepository._verify_m4_v2_bounded_forward_import(
+                cursor,
+                control_plane_key=control_plane_key,
+                manifest=manifest,
+            )
+            return
         if _M4_V2_FORWARD_FEASIBILITY_TASK_KEY in tasks:
             PostgresResearchOSRepository._verify_m4_v2_forward_feasibility_import(
                 cursor,
@@ -1833,6 +1890,202 @@ class PostgresResearchOSRepository:
         if current.artifact_digest != baseline.artifact_digest and not all(
             key in current_keys for key in new_keys
         ):
+            raise ResearchOSValidationError(error)
+
+    @staticmethod
+    def _verify_m4_v2_bounded_forward_import(
+        cursor,
+        *,
+        control_plane_key: str,
+        manifest: ControlPlaneManifest,
+    ) -> None:
+        """Verify the frozen bounded forward lifecycle and per-issue shape."""
+
+        from dehps.config import ROOT_DIR
+        from dehps.research_os.information_theory.measurement_system_v2 import (
+            bounded_operational_forward as bounded,
+        )
+
+        error = "m4_v2_bounded_forward_output_changed"
+        if control_plane_key != "m4-information-theory-mainline":
+            raise ResearchOSValidationError("m4_v2_bounded_forward_control_plane_changed")
+        builder = _load_m4_v2_bounded_forward_builder()
+        source = bounded.load_source_contract(root_dir=ROOT_DIR)
+        source_digest = str(source["artifact_digest"])
+        control = cursor.execute(
+            "SELECT current_manifest_digest FROM research_os_control_planes "
+            "WHERE control_plane_key = %s FOR UPDATE",
+            (control_plane_key,),
+        ).fetchone()
+        if control is None:
+            raise ResearchOSValidationError("m4_v2_bounded_forward_control_missing")
+        current_row = cursor.execute(
+            "SELECT manifest_json FROM research_os_manifests WHERE manifest_digest = %s",
+            (str(control["current_manifest_digest"]),),
+        ).fetchone()
+        baseline_row = cursor.execute(
+            "SELECT manifest_json FROM research_os_manifests WHERE manifest_digest = %s",
+            (builder.BASELINE_MANIFEST_DIGEST,),
+        ).fetchone()
+        if current_row is None or baseline_row is None:
+            raise ResearchOSValidationError("m4_v2_bounded_forward_baseline_missing")
+        current = ControlPlaneManifest.from_dict(dict(current_row["manifest_json"]))
+        baseline = ControlPlaneManifest.from_dict(dict(baseline_row["manifest_json"]))
+        incoming_tasks = {item.task_key: item for item in manifest.tasks}
+        incoming_goals = {item.goal_key: item for item in manifest.goals}
+        refits = [
+            item
+            for item in manifest.tasks
+            if item.requested_capability == bounded.REFIT_CAPABILITY
+        ]
+        if not refits:
+            raise ResearchOSValidationError(error)
+
+        if current.artifact_digest == builder.BASELINE_MANIFEST_DIGEST:
+            contract = refits[0].to_dict().get("metric_contract", {})
+            target_issue = str(contract.get("target_issue") or "")
+            target_draw_date = str(contract.get("target_draw_date") or "")
+            try:
+                expected_payload, _ = builder.build_manifest(
+                    baseline.to_dict(include_digest=True),
+                    source_contract_digest=source_digest,
+                    target_issue=target_issue,
+                    target_draw_date=target_draw_date,
+                )
+                expected = ControlPlaneManifest.from_dict(expected_payload)
+            except Exception as exc:
+                raise ResearchOSValidationError(error) from exc
+            if manifest.to_dict(include_digest=True) != expected.to_dict(include_digest=True):
+                raise ResearchOSValidationError(error)
+            return
+
+        def definition(value: Task) -> dict[str, Any]:
+            payload = value.to_dict()
+            for field in (
+                "goal_digest",
+                "status",
+                "completion_classification",
+                "superseded_by_task_digest",
+            ):
+                payload.pop(field, None)
+            return payload
+
+        current_tasks = {item.task_key: item for item in current.tasks}
+        current_goals = {item.goal_key: item for item in current.goals}
+        if any(
+            key not in incoming_tasks
+            or definition(incoming_tasks[key]) != definition(task)
+            for key, task in current_tasks.items()
+        ) or any(
+            key not in incoming_goals
+            or incoming_goals[key].to_dict() != goal.to_dict()
+            for key, goal in current_goals.items()
+        ):
+            raise ResearchOSValidationError(error)
+        if (
+            bounded.GOAL_KEY not in incoming_goals
+            or incoming_goals[bounded.GOAL_KEY].to_dict()
+            != Goal.from_dict(builder._goal()).to_dict()
+        ):
+            raise ResearchOSValidationError(error)
+        preregistration = incoming_tasks.get(bounded.PREREGISTRATION_TASK_KEY)
+        if (
+            preregistration is None
+            or definition(preregistration)
+            != definition(Task.from_dict(builder.preregistration_task(source_digest=source_digest)))
+        ):
+            raise ResearchOSValidationError(error)
+
+        issue_values = sorted(
+            {
+                str(item.to_dict().get("metric_contract", {}).get("target_issue"))
+                for item in manifest.tasks
+                if item.requested_capability
+                in {
+                    bounded.REFIT_CAPABILITY,
+                    bounded.PREDRAW_CAPABILITY,
+                    bounded.PREDRAW_REPLAY_CAPABILITY,
+                    bounded.SETTLEMENT_CAPABILITY,
+                    bounded.SETTLEMENT_REPLAY_CAPABILITY,
+                }
+            }
+        )
+        for index, issue in enumerate(issue_values):
+            matching = [
+                item
+                for item in manifest.tasks
+                if item.task_key in bounded.issue_task_keys(issue).values()
+            ]
+            if len(matching) != 5:
+                raise ResearchOSValidationError(error)
+            draw_dates = {
+                str(item.to_dict()["metric_contract"].get("target_draw_date"))
+                for item in matching
+            }
+            if len(draw_dates) != 1:
+                raise ResearchOSValidationError(error)
+            refit = incoming_tasks[bounded.issue_task_keys(issue)["refit"]]
+            replay_dependencies = [
+                dependency.target_key
+                for dependency in refit.dependencies
+                if dependency.dependency_type.value == "artifact"
+                and dependency.target_key.endswith(
+                    ":REGISTERED_REPLAY_VERIFIED"
+                )
+            ]
+            if len(replay_dependencies) > 1:
+                raise ResearchOSValidationError(error)
+            previous_fact = replay_dependencies[0] if replay_dependencies else None
+            if previous_fact is not None:
+                earlier_facts = {
+                    bounded.issue_facts(value)["settlement_replay"]
+                    for value in issue_values[:index]
+                }
+                if (
+                    previous_fact not in earlier_facts
+                    or previous_fact not in manifest.facts.artifacts
+                ):
+                    raise ResearchOSValidationError(error)
+            expected = {
+                item["task_key"]: Task.from_dict(item)
+                for item in builder.issue_tasks(
+                    source_digest=source_digest,
+                    target_issue=issue,
+                    target_draw_date=next(iter(draw_dates)),
+                    previous_settlement_replay_fact=previous_fact,
+                )
+            }
+            if any(
+                key not in incoming_tasks
+                or definition(incoming_tasks[key]) != definition(task)
+                for key, task in expected.items()
+            ):
+                raise ResearchOSValidationError(error)
+
+        facts = manifest.facts.to_dict()
+        if (
+            builder.SOURCE_FACT_PREFIX + source_digest not in facts["artifacts"]
+            or "m4-p3-predictive-decision:PASS_TO_P4" in facts["artifacts"]
+            or any(
+                not value.startswith("m4-v2-bounded-operational-forward:")
+                or not value.endswith(":DRAW_SYNCED")
+                for value in set(facts["external_events"])
+                - set(baseline.facts.to_dict()["external_events"])
+            )
+        ):
+            raise ResearchOSValidationError(error)
+        formal_baseline = next(
+            item for item in baseline.tasks if item.task_key == builder.FORMAL_P4_TASK_KEY
+        )
+        formal_incoming = incoming_tasks[builder.FORMAL_P4_TASK_KEY]
+        if definition(formal_incoming) != definition(formal_baseline):
+            raise ResearchOSValidationError("m4_v2_bounded_forward_formal_p4_changed")
+        formal_resolution = next(
+            item
+            for item in ResearchOSControlPlane().resolve(manifest).resolutions
+            if item.task_key == builder.FORMAL_P4_TASK_KEY
+        )
+        if formal_resolution.status.value != "dependency_wait":
             raise ResearchOSValidationError(error)
 
     @staticmethod

@@ -1,0 +1,164 @@
+{
+  "schema_version": "dehps-m4-v2-bounded-operational-forward-source-contract.v1",
+  "artifact_type": "m4_v2_bounded_operational_forward_source_contract",
+  "artifact_digest": "d441052f517c562f6550942ca6ff2b5a5c2143e9a467644773476bd03d1ef68f",
+  "contract_key": "M4_V2_BOUNDED_OPERATIONAL_FORWARD_STUDY",
+  "frozen_contract": {
+    "blue_strategy": {
+      "identity": "SHARED_DETERMINISTIC_UNIFORM_BLUE_BY_RANK_V1",
+      "post_draw_selection": "forbidden",
+      "rule": "for each rank 1..100, derive one value 1..16 from domain-separated SHA256(preregistration_digest,target_issue,rank); attach the identical rank-wise value to model and random arms"
+    },
+    "branch": "MARGINAL_STATIC",
+    "candidate_generation": {
+      "duplicate_issue_registration": "forbidden",
+      "model_ranking": "descending frozen model 33-event Bernoulli log score",
+      "model_ticket_count": 100,
+      "proposal_pool": "reuse deterministic cryptographic legal six-of-33 sampling without replacement",
+      "proposal_pool_size": 10000,
+      "random_baseline": "independent deterministic uniform legal six-of-33 sampling without replacement",
+      "random_baseline_ticket_count": 100,
+      "seed_rule": "domain-separated SHA256 of preregistration digest, target issue, arm identity, and model digest where applicable",
+      "tie_break": "ascending legal lex_id"
+    },
+    "checkpoint": {
+      "configuration_drift": false,
+      "late_backfill": "forbidden",
+      "official_draw_time": "21:15:00 Asia/Shanghai",
+      "pre_draw_deadline": "17:00:00 Asia/Shanghai on the official Tue/Thu/Sun draw date",
+      "sealed_at_fabrication": "forbidden",
+      "target_selection": "first official issue after now whose 17:00 checkpoint deadline remains satisfiable; otherwise skip to the next legal issue"
+    },
+    "cohort": {
+      "identity": "COHORT_A_BOUNDED_OPERATIONAL_FORWARD_120",
+      "issue_120_review": "sole_outcome_bearing_operational_decision",
+      "issue_20_review": "integrity_only_no_aggregate_outcome_read",
+      "issue_60_review": "integrity_only_no_aggregate_outcome_read",
+      "later_confirmatory_p3_reuse": "forbidden",
+      "valid_issue_target": 120
+    },
+    "configuration_drift_rule": "any semantic change to estimator, features, parameters, cadence, scoring, baseline, candidate budget, blue strategy, endpoint, threshold, checkpoint, or decision policy invalidates the active lineage and requires a new preregistration before further collection",
+    "estimator_formula": "q_i=(c_i+2/11)/(n+1) for red numbers 1..33",
+    "estimator_identity": "EXPANDING_LEGAL_MARGINAL_ALPHA_1",
+    "feature_identity": "NO_FEATURES_33_EXPANDING_RED_NUMBER_EVENT_COUNTS_ONLY",
+    "historical_training_boundary": "latest durable audited settled issue strictly before target_issue; target or future rows forbidden",
+    "missing_issue_rule": "an issue without a valid timely checkpoint does not count and is never backfilled; continue with the next legal issue without changing target 120",
+    "mode": [
+      "SHADOW_ONLY",
+      "AUTONOMOUS_REFIT"
+    ],
+    "model_source_contract_path": "configs/research-os/m4-v2-marginal-static-contract-freeze-source-v1.json",
+    "model_source_file_sha256": "d4f325b2b86f76df7ce5bd7db38aaf209f96b850c45e91d5de4d038d0bcf132f",
+    "parameter_identity": {
+      "clipping": "forbidden",
+      "hyperparameter_search": "none",
+      "minimum_training_issues": 900,
+      "per_number_prior_event_count": "2/11",
+      "prior_strength_issues_alpha": 1,
+      "renormalization": "forbidden"
+    },
+    "post_draw_settlement": {
+      "requirements": [
+        "verify immutable checkpoint existed before official draw time",
+        "compute frozen model and legal-uniform probability endpoint",
+        "record paired ticket support metrics without changing the primary endpoint",
+        "register settlement exactly once",
+        "increment Cohort A at most once",
+        "registered deterministic replay",
+        "trigger exactly one next-issue mechanical refit"
+      ],
+      "trigger": "durable audited draw-sync completion for the sealed target issue"
+    },
+    "probability_scoring_rule": {
+      "baseline": "sum over 33 binary events of log2 Bernoulli(Y_i;2/11)",
+      "candidate": "sum over 33 binary events of log2 Bernoulli(Y_i;q_i)",
+      "primary_endpoint": "candidate_score_minus_baseline_score_bits_per_issue",
+      "settled_pair_difference": "model endpoint minus legal-uniform endpoint for the same official issue"
+    },
+    "refit_cadence": "after each durable audited post-draw settlement, refit once on the complete expanding legal history strictly before the next target issue",
+    "task_key": "m4-v2-bounded-operational-forward-study-preregistration",
+    "terminal_rules_at_120": {
+      "CONTINUE_LONG_HORIZON_RESEARCH": "all integrity gates pass, mean >= 0.01 bits/issue, and preregistered two-sided 95 percent interval lower bound > 0",
+      "INVALID_OPERATIONAL_STUDY": "any late checkpoint, future access, duplicate issue, identity drift, unregistered semantic repair, missing immutable artifact, replay mismatch, or unprovable cohort identity",
+      "OPERATIONALLY_INCONCLUSIVE": "neither continue nor stop; do not extend Cohort A or choose another window post hoc",
+      "STOP_PREDICTIVE_RESEARCH": "mean <= -0.01 bits/issue or preregistered two-sided 95 percent interval upper bound < 0"
+    },
+    "immutable_scientific_state": {
+      "data_reuse_policy": "STAGED_INDEPENDENT_SAMPLES",
+      "diagnostic_p4": "NEGATIVE_CONTROLS_CLEAN",
+      "formal_p4": "DEPENDENCY_WAIT",
+      "p3_governance_status": "CLOSED_NOT_AUTHORIZED_AFTER_DEEPER_VALIDATION",
+      "p3_scientific_disposition": "INCONCLUSIVE_DUE_TO_POWER",
+      "p5": "NOT_AUTHORIZED",
+      "pass_to_p4": "NOT_EMITTED",
+      "promotion": "CLOSED",
+      "selected_forward_program": "LAUNCH_BOUNDED_OPERATIONAL_FORWARD_STUDY",
+      "target_forward_issue_count": 120
+    }
+  },
+  "governance_bindings": {
+    "research_request_key": "research-m4-v2-bounded-operational-forward-study-preregistration-v1",
+    "research_request_id": 637,
+    "research_execution_id": 521,
+    "research_approval_decision_id": 2682,
+    "research_request_payload_sha256": "d6640bd4bc54df30ed20f427c69c53ce92d056bfad1aaafd99cecf9c97f42c19",
+    "research_decision": "APPROVE_RESULT_BLIND_BOUNDED_OPERATIONAL_FORWARD_COHORT_A",
+    "engineering_request_key": "engineering-m4-v2-bounded-operational-forward-launch-v1",
+    "engineering_request_id": 638,
+    "engineering_execution_id": 522,
+    "engineering_approval_decision_id": 2687,
+    "engineering_request_payload_sha256": "3b1a6043b2952261bc56ec59eece0eb462972d0349722c2eea79e11bf7621e19",
+    "engineering_decision": "APPROVE_EXACT_BOUNDED_OPERATIONAL_FORWARD_LAUNCH_IMPLEMENTATION"
+  },
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/draw_sync/scheduler.py",
+      "sha256": "4ecbf091311c3fcdd71798df3c4ff870d072b1baa46c1a396e6ffc52ce812fba"
+    },
+    {
+      "path": "apps/worker-python/dehps/prediction/v2/generator.py",
+      "sha256": "49689110d984d560a0dae4b3648df609c630b10536cf559c236c29b18ac0fad1"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/bounded_operational_forward.py",
+      "sha256": "f3123da232d041ddd9ad5abc492e59d9d7da13aca5406057c06fd331193cab3a"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/marginal_static_contract.py",
+      "sha256": "0750f7fec88b11c6a4dbe55cf0ac25d8a0b8def8fc6261dde272d8ab9894f2f2"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/repository.py",
+      "sha256": "0250aa8a3bc94633e9efe8b42cdb95d3f241a48041fbaa24b4dfcaf773af43b3"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/supervisor.py",
+      "sha256": "f4273ec5cd8903df4dbe29c2174e98a35b6d0e8b49be58da4f61ae6f3ad66a60"
+    },
+    {
+      "path": "apps/worker-python/scripts/build_m4_v2_bounded_operational_forward_manifest.py",
+      "sha256": "c18a1fc0303e9ae8fbc985a848cdd9aa1bf27d56e1332d7c645e180b4d88af85"
+    },
+    {
+      "path": "apps/worker-python/scripts/run_m4_v2_bounded_operational_forward.py",
+      "sha256": "eef08da91820a1f8d69d8a2df2558f76a72b18bb62ea5a29935b65831bdc7204"
+    },
+    {
+      "path": "configs/research-os/m4-v2-marginal-static-contract-freeze-source-v1.json",
+      "sha256": "d4f325b2b86f76df7ce5bd7db38aaf209f96b850c45e91d5de4d038d0bcf132f"
+    },
+    {
+      "path": "deploy/systemd/dehps-draw-sync.service",
+      "sha256": "f5af366d3f998764987fef759c3703ebe08325b31b243e50dcc287798357b6b6"
+    },
+    {
+      "path": "deploy/systemd/dehps-prediction-v2-shadow-pre-draw.service",
+      "sha256": "159d77a928febbb21d272c5c7c3a9af8f586d6a2166f506e8f2c6e279c3170b6"
+    },
+    {
+      "path": "deploy/systemd/dehps-prediction-v2-shadow-pre-draw.timer",
+      "sha256": "5629627e29985f75f56d6739c3a320d84a11c1f3a2b9dceae476e36e9e925ccb"
+    }
+  ],
+  "source_set_digest": "8c6c3202994c2c1af53e74b19508c17479ff4ca7f65869dc633a29d06bca7bcb"
+}

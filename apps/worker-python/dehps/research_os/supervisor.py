@@ -15,7 +15,7 @@ import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from hashlib import sha256
 from pathlib import Path
 from types import ModuleType
@@ -150,6 +150,9 @@ from dehps.research_os.information_theory.measurement_system_v2 import (
     replay_p263_slot_eligibility_artifact,
     validate_p263_slot_eligibility_artifact,
     verify_p263_slot_source_bytes,
+)
+from dehps.research_os.information_theory.measurement_system_v2 import (
+    bounded_operational_forward as m4_v2_bounded_forward,
 )
 from dehps.research_os.information_theory.measurement_system_v2 import (
     deeper_validation as m4_v2_deeper_validation,
@@ -23218,6 +23221,390 @@ class M4V2ForwardEvidenceFeasibilityCapability(M4V2SuccessorCapability):
         )
 
 
+class M4V2BoundedOperationalForwardCapability(M4V2SuccessorCapability):
+    """Execute the frozen per-issue bounded operational shadow lifecycle."""
+
+    def _source(self, task: Task) -> dict[str, Any]:
+        source = m4_v2_bounded_forward.load_source_contract(root_dir=self.root_dir)
+        m4_v2_bounded_forward.verify_governance(self.agent_repository)
+        if task.input_artifact_digests != (str(source["artifact_digest"]),):
+            raise MainlineSupervisorError("bounded forward source input changed")
+        return source
+
+    @staticmethod
+    def _contract(task: Task) -> Mapping[str, Any]:
+        contract = task.to_dict().get("metric_contract")
+        if not isinstance(contract, Mapping):
+            raise MainlineSupervisorError("bounded forward metric contract missing")
+        return contract
+
+    def _completed(
+        self, *, control_plane_key: str, task_key: str, artifact_type: str
+    ) -> dict[str, Any]:
+        _, _, payload = self._completed_artifact(
+            control_plane_key=control_plane_key,
+            task_key=task_key,
+            artifact_type=artifact_type,
+        )
+        return payload
+
+    def _preregistration(
+        self, *, task: Task, source: Mapping[str, Any]
+    ) -> AtomicCapabilityResult:
+        preregistration, replay = m4_v2_bounded_forward.build_preregistration_artifacts(
+            source_contract=source
+        )
+        return AtomicCapabilityResult(
+            artifacts=(
+                AtomicArtifactPayload(
+                    "bounded-forward-preregistration",
+                    "preregistration.json",
+                    preregistration,
+                ),
+                AtomicArtifactPayload(
+                    "bounded-forward-preregistration-replay", "replay.json", replay
+                ),
+            ),
+            completion_facts=(m4_v2_bounded_forward.PREREGISTRATION_FACT,),
+            execution_metadata=(
+                ("source_contract_digest", source["artifact_digest"]),
+                ("preregistration_status", "FROZEN"),
+                ("forward_results_read", False),
+                ("model_training_started", False),
+                ("forward_checkpoints", 0),
+                ("formal_p4_modified", False),
+                ("pass_to_p4_emitted", False),
+                ("p5_started", False),
+                ("promotion_triggered", False),
+            ),
+        )
+
+    def _refit(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        source: Mapping[str, Any],
+    ) -> AtomicCapabilityResult:
+        from dehps.db import get_connection
+        from dehps.storage.postgres_store import load_history_with_dates
+
+        contract = self._contract(task)
+        target_issue = str(contract.get("target_issue") or "")
+        if not target_issue:
+            raise MainlineSupervisorError("bounded forward target issue missing")
+        preregistration = self._completed(
+            control_plane_key=control_plane_key,
+            task_key=m4_v2_bounded_forward.PREREGISTRATION_TASK_KEY,
+            artifact_type=m4_v2_bounded_forward.PREREGISTRATION_ARTIFACT_TYPE,
+        )
+        with get_connection() as connection:
+            history = load_history_with_dates(connection)
+        started = time.perf_counter()
+        dataset, model = m4_v2_bounded_forward.fit_model_artifacts(
+            source_contract=source,
+            preregistration=preregistration,
+            history_rows=history,
+            target_issue=target_issue,
+        )
+        training_duration_seconds = round(time.perf_counter() - started, 9)
+        return AtomicCapabilityResult(
+            artifacts=(
+                AtomicArtifactPayload("bounded-forward-dataset", "dataset.json", dataset),
+                AtomicArtifactPayload("bounded-forward-model", "model.json", model),
+            ),
+            completion_facts=(m4_v2_bounded_forward.issue_facts(target_issue)["refit"],),
+            execution_metadata=(
+                ("source_contract_digest", source["artifact_digest"]),
+                ("target_issue", target_issue),
+                ("training_end_issue", model["body"]["training_end_issue"]),
+                ("dataset_digest", dataset["artifact_digest"]),
+                ("model_digest", model["artifact_digest"]),
+                ("estimator_digest", model["body"]["estimator_digest"]),
+                ("feature_digest", model["body"]["feature_digest"]),
+                ("parameter_digest", model["body"]["parameter_digest"]),
+                ("baseline_digest", model["body"]["baseline_digest"]),
+                ("probability_vector_length", 33),
+                ("training_duration_seconds", training_duration_seconds),
+                ("historical_database_reads", 1),
+                ("numerical_result_payload_reads", 0),
+                ("model_selection", "NONE"),
+                ("hyperparameter_search", "NONE"),
+            ),
+        )
+
+    def _predraw(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        source: Mapping[str, Any],
+    ) -> AtomicCapabilityResult:
+        contract = self._contract(task)
+        target_issue = str(contract.get("target_issue") or "")
+        draw_date = date.fromisoformat(str(contract.get("target_draw_date") or ""))
+        keys = m4_v2_bounded_forward.issue_task_keys(target_issue)
+        preregistration = self._completed(
+            control_plane_key=control_plane_key,
+            task_key=m4_v2_bounded_forward.PREREGISTRATION_TASK_KEY,
+            artifact_type=m4_v2_bounded_forward.PREREGISTRATION_ARTIFACT_TYPE,
+        )
+        model = self._completed(
+            control_plane_key=control_plane_key,
+            task_key=keys["refit"],
+            artifact_type=m4_v2_bounded_forward.MODEL_ARTIFACT_TYPE,
+        )
+        model_candidates, random_baseline, checkpoint, report = (
+            m4_v2_bounded_forward.generate_predraw_artifacts(
+                source_contract=source,
+                preregistration=preregistration,
+                model=model,
+                target_draw_date=draw_date,
+            )
+        )
+        return AtomicCapabilityResult(
+            artifacts=(
+                AtomicArtifactPayload(
+                    "bounded-forward-model-candidates", "model-candidates.json", model_candidates
+                ),
+                AtomicArtifactPayload(
+                    "bounded-forward-random-baseline", "random-baseline.json", random_baseline
+                ),
+                AtomicArtifactPayload(
+                    "bounded-forward-checkpoint", "checkpoint.json", checkpoint
+                ),
+                AtomicArtifactPayload(
+                    "bounded-forward-predraw-report", "pre-draw-report.json", report
+                ),
+            ),
+            completion_facts=(m4_v2_bounded_forward.issue_facts(target_issue)["predraw"],),
+            execution_metadata=(
+                ("source_contract_digest", source["artifact_digest"]),
+                ("target_issue", target_issue),
+                ("model_digest", model["artifact_digest"]),
+                ("model_candidate_digest", model_candidates["artifact_digest"]),
+                ("random_baseline_digest", random_baseline["artifact_digest"]),
+                ("checkpoint_digest", checkpoint["artifact_digest"]),
+                ("model_ticket_count", 100),
+                ("random_baseline_ticket_count", 100),
+                ("same_blue_strategy", True),
+                ("configuration_drift", False),
+                ("sealed_before_draw", True),
+                ("historical_database_reads", 0),
+            ),
+        )
+
+    def _predraw_replay(
+        self, *, control_plane_key: str, task: Task, source: Mapping[str, Any]
+    ) -> AtomicCapabilityResult:
+        contract = self._contract(task)
+        target_issue = str(contract.get("target_issue") or "")
+        keys = m4_v2_bounded_forward.issue_task_keys(target_issue)
+        values = {
+            "model_candidates": self._completed(
+                control_plane_key=control_plane_key,
+                task_key=keys["predraw"],
+                artifact_type=m4_v2_bounded_forward.MODEL_CANDIDATE_ARTIFACT_TYPE,
+            ),
+            "random_baseline": self._completed(
+                control_plane_key=control_plane_key,
+                task_key=keys["predraw"],
+                artifact_type=m4_v2_bounded_forward.RANDOM_BASELINE_ARTIFACT_TYPE,
+            ),
+            "checkpoint": self._completed(
+                control_plane_key=control_plane_key,
+                task_key=keys["predraw"],
+                artifact_type=m4_v2_bounded_forward.CHECKPOINT_ARTIFACT_TYPE,
+            ),
+            "report": self._completed(
+                control_plane_key=control_plane_key,
+                task_key=keys["predraw"],
+                artifact_type=m4_v2_bounded_forward.PREDRAW_REPORT_ARTIFACT_TYPE,
+            ),
+        }
+        replay = m4_v2_bounded_forward.build_predraw_replay_artifact(**values)
+        return AtomicCapabilityResult(
+            artifacts=(
+                AtomicArtifactPayload(
+                    "bounded-forward-predraw-replay", "pre-draw-replay.json", replay
+                ),
+            ),
+            completion_facts=(
+                m4_v2_bounded_forward.issue_facts(target_issue)["predraw_replay"],
+            ),
+            execution_metadata=(
+                ("source_contract_digest", source["artifact_digest"]),
+                ("target_issue", target_issue),
+                ("registered_replay_status", "REGISTERED_REPLAY_VERIFIED"),
+                ("model_ticket_count", 100),
+                ("random_baseline_ticket_count", 100),
+                ("same_blue_strategy", True),
+                ("configuration_drift", False),
+                ("workload_rerun", False),
+            ),
+        )
+
+    def _settlement(
+        self, *, control_plane_key: str, task: Task, source: Mapping[str, Any]
+    ) -> AtomicCapabilityResult:
+        from dehps.db import get_connection
+
+        contract = self._contract(task)
+        target_issue = str(contract.get("target_issue") or "")
+        keys = m4_v2_bounded_forward.issue_task_keys(target_issue)
+        with get_connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT h.red_numbers, h.blue_number, e.event_key, e.history_fingerprint
+                  FROM ssq_history h
+                  JOIN draw_issue_events e ON e.new_issue = h.issue
+                  JOIN draw_sync_runs r ON r.event_key = e.event_key
+                 WHERE h.issue = %s AND r.completed_at IS NOT NULL
+                   AND r.audit_passed IS TRUE AND r.status = 'new_issue'
+                 ORDER BY r.completed_at DESC
+                """,
+                (target_issue,),
+            ).fetchall()
+        identities = {
+            (tuple(row[0]), int(row[1]), str(row[2]), str(row[3])) for row in rows
+        }
+        if len(identities) != 1:
+            raise MainlineSupervisorError(
+                "bounded forward settlement requires one audited synchronized event"
+            )
+        red_numbers, blue_number, event_key, fingerprint = next(iter(identities))
+        model = self._completed(
+            control_plane_key=control_plane_key,
+            task_key=keys["refit"],
+            artifact_type=m4_v2_bounded_forward.MODEL_ARTIFACT_TYPE,
+        )
+        model_candidates = self._completed(
+            control_plane_key=control_plane_key,
+            task_key=keys["predraw"],
+            artifact_type=m4_v2_bounded_forward.MODEL_CANDIDATE_ARTIFACT_TYPE,
+        )
+        random_baseline = self._completed(
+            control_plane_key=control_plane_key,
+            task_key=keys["predraw"],
+            artifact_type=m4_v2_bounded_forward.RANDOM_BASELINE_ARTIFACT_TYPE,
+        )
+        checkpoint = self._completed(
+            control_plane_key=control_plane_key,
+            task_key=keys["predraw"],
+            artifact_type=m4_v2_bounded_forward.CHECKPOINT_ARTIFACT_TYPE,
+        )
+        settlement = m4_v2_bounded_forward.build_settlement_artifact(
+            model=model,
+            model_candidates=model_candidates,
+            random_baseline=random_baseline,
+            checkpoint=checkpoint,
+            actual_red_numbers=red_numbers,
+            actual_blue_number=blue_number,
+            durable_event_key=event_key,
+            history_fingerprint=fingerprint,
+        )
+        return AtomicCapabilityResult(
+            artifacts=(
+                AtomicArtifactPayload(
+                    "bounded-forward-settlement", "settlement.json", settlement
+                ),
+            ),
+            completion_facts=(
+                m4_v2_bounded_forward.issue_facts(target_issue)["settlement"],
+            ),
+            execution_metadata=(
+                ("source_contract_digest", source["artifact_digest"]),
+                ("target_issue", target_issue),
+                ("cohort_increment", 1),
+                ("aggregate_outcome_exposed", False),
+                ("configuration_drift", False),
+                ("historical_database_reads", 1),
+                ("numerical_result_payload_reads", 1),
+            ),
+        )
+
+    def _settlement_replay(
+        self, *, control_plane_key: str, task: Task, source: Mapping[str, Any]
+    ) -> AtomicCapabilityResult:
+        contract = self._contract(task)
+        target_issue = str(contract.get("target_issue") or "")
+        keys = m4_v2_bounded_forward.issue_task_keys(target_issue)
+        settlement = self._completed(
+            control_plane_key=control_plane_key,
+            task_key=keys["settlement"],
+            artifact_type=m4_v2_bounded_forward.SETTLEMENT_ARTIFACT_TYPE,
+        )
+        checkpoint = self._completed(
+            control_plane_key=control_plane_key,
+            task_key=keys["predraw"],
+            artifact_type=m4_v2_bounded_forward.CHECKPOINT_ARTIFACT_TYPE,
+        )
+        replay = m4_v2_bounded_forward.build_settlement_replay_artifact(
+            settlement=settlement, checkpoint=checkpoint
+        )
+        return AtomicCapabilityResult(
+            artifacts=(
+                AtomicArtifactPayload(
+                    "bounded-forward-settlement-replay", "settlement-replay.json", replay
+                ),
+            ),
+            completion_facts=(
+                m4_v2_bounded_forward.issue_facts(target_issue)["settlement_replay"],
+            ),
+            execution_metadata=(
+                ("source_contract_digest", source["artifact_digest"]),
+                ("target_issue", target_issue),
+                ("cohort_increment", 1),
+                ("registered_replay_status", "REGISTERED_REPLAY_VERIFIED"),
+                ("aggregate_outcome_exposed", False),
+                ("configuration_drift", False),
+                ("workload_rerun", False),
+            ),
+        )
+
+    def execute(
+        self,
+        *,
+        control_plane_key: str,
+        task: Task,
+        execution_id: str,
+        git_commit: str,
+    ) -> AtomicCapabilityResult:
+        del execution_id, git_commit
+        integration_contract(task)
+        source = self._source(task)
+        capability = task.requested_capability
+        if (
+            task.task_key == m4_v2_bounded_forward.PREREGISTRATION_TASK_KEY
+            and capability == m4_v2_bounded_forward.PREREGISTRATION_CAPABILITY
+        ):
+            return self._preregistration(task=task, source=source)
+        runners = {
+            m4_v2_bounded_forward.REFIT_CAPABILITY: self._refit,
+            m4_v2_bounded_forward.PREDRAW_CAPABILITY: self._predraw,
+            m4_v2_bounded_forward.PREDRAW_REPLAY_CAPABILITY: self._predraw_replay,
+            m4_v2_bounded_forward.SETTLEMENT_CAPABILITY: self._settlement,
+            m4_v2_bounded_forward.SETTLEMENT_REPLAY_CAPABILITY: self._settlement_replay,
+        }
+        runner = runners.get(str(capability))
+        if runner is None:
+            raise MainlineSupervisorError("unsupported bounded forward capability")
+        target_issue = str(self._contract(task).get("target_issue") or "")
+        keys = m4_v2_bounded_forward.issue_task_keys(target_issue)
+        expected_task = {
+            m4_v2_bounded_forward.REFIT_CAPABILITY: keys["refit"],
+            m4_v2_bounded_forward.PREDRAW_CAPABILITY: keys["predraw"],
+            m4_v2_bounded_forward.PREDRAW_REPLAY_CAPABILITY: keys["predraw_replay"],
+            m4_v2_bounded_forward.SETTLEMENT_CAPABILITY: keys["settlement"],
+            m4_v2_bounded_forward.SETTLEMENT_REPLAY_CAPABILITY: keys[
+                "settlement_replay"
+            ],
+        }.get(str(capability))
+        if task.task_key != expected_task:
+            raise MainlineSupervisorError("bounded forward task/capability mismatch")
+        return runner(control_plane_key=control_plane_key, task=task, source=source)
+
+
 class ResearchEvidenceSupervisor:
     def __init__(
         self,
@@ -23632,6 +24019,19 @@ class ResearchEvidenceSupervisor:
                 root_dir=root_dir,
             )
         )
+        bounded_forward = M4V2BoundedOperationalForwardCapability(
+            repository=self.repository,
+            root_dir=root_dir,
+        )
+        for capability in (
+            m4_v2_bounded_forward.PREREGISTRATION_CAPABILITY,
+            m4_v2_bounded_forward.REFIT_CAPABILITY,
+            m4_v2_bounded_forward.PREDRAW_CAPABILITY,
+            m4_v2_bounded_forward.PREDRAW_REPLAY_CAPABILITY,
+            m4_v2_bounded_forward.SETTLEMENT_CAPABILITY,
+            m4_v2_bounded_forward.SETTLEMENT_REPLAY_CAPABILITY,
+        ):
+            self.capabilities[capability] = bounded_forward
 
     @property
     def state_path(self) -> Path:
@@ -33094,6 +33494,158 @@ class ResearchEvidenceSupervisor:
                 "historical_outcomes_read": False,
                 "statistical_results_read": False,
                 "evidence_created": False,
+                "manual_input_assembly": False,
+            }
+        elif str(artifact.get("capability") or "") in {
+            m4_v2_bounded_forward.PREREGISTRATION_CAPABILITY,
+            m4_v2_bounded_forward.REFIT_CAPABILITY,
+            m4_v2_bounded_forward.PREDRAW_CAPABILITY,
+            m4_v2_bounded_forward.PREDRAW_REPLAY_CAPABILITY,
+            m4_v2_bounded_forward.SETTLEMENT_CAPABILITY,
+            m4_v2_bounded_forward.SETTLEMENT_REPLAY_CAPABILITY,
+        }:
+            source = m4_v2_bounded_forward.load_source_contract(
+                root_dir=self.root_dir
+            )
+            dispatcher = M4V2BoundedOperationalForwardCapability(
+                repository=self.repository,
+                root_dir=self.root_dir,
+            )
+            m4_v2_bounded_forward.verify_governance(
+                dispatcher.agent_repository
+            )
+            children = [
+                _load_object(self.root_dir / str(item["artifact_path"]))
+                for item in registrations
+                if item.get("artifact_type") != "research_os_mainline_execution"
+            ]
+            validated = [
+                m4_v2_bounded_forward.validate_registered_artifact(item)
+                for item in children
+            ]
+            task = next(
+                item
+                for item in self.repository.load_manifest(
+                    control_plane_key=self.control_plane_key
+                ).tasks
+                if item.task_key == task_key
+            )
+            by_type = {item["artifact_type"]: item for item in validated}
+            if (
+                task.input_artifact_digests != (source["artifact_digest"],)
+                or artifact.get("capability") != task.requested_capability
+                or artifact.get("actual_fold_count") != 0
+                or artifact.get("workload_rerun") is not False
+                or len(validated) != len(children)
+                or len(by_type) != len(validated)
+            ):
+                raise MainlineSupervisorError(
+                    "bounded forward registered replay identity changed"
+                )
+            capability = str(task.requested_capability)
+            if capability == m4_v2_bounded_forward.PREREGISTRATION_CAPABILITY:
+                expected = m4_v2_bounded_forward.build_preregistration_artifacts(
+                    source_contract=source
+                )
+                if (
+                    by_type[m4_v2_bounded_forward.PREREGISTRATION_ARTIFACT_TYPE],
+                    by_type[
+                        m4_v2_bounded_forward.PREREGISTRATION_REPLAY_ARTIFACT_TYPE
+                    ],
+                ) != expected:
+                    raise MainlineSupervisorError(
+                        "bounded forward preregistration replay changed"
+                    )
+            elif capability == m4_v2_bounded_forward.REFIT_CAPABILITY:
+                dataset = by_type[m4_v2_bounded_forward.DATASET_ARTIFACT_TYPE]
+                model = by_type[m4_v2_bounded_forward.MODEL_ARTIFACT_TYPE]
+                rows = [
+                    (
+                        row["issue"],
+                        date.fromisoformat(row["draw_date"]),
+                        tuple(row["red_numbers"]),
+                    )
+                    for row in dataset["body"]["rows"]
+                ]
+                preregistration = dispatcher._completed(
+                    control_plane_key=self.control_plane_key,
+                    task_key=m4_v2_bounded_forward.PREREGISTRATION_TASK_KEY,
+                    artifact_type=(
+                        m4_v2_bounded_forward.PREREGISTRATION_ARTIFACT_TYPE
+                    ),
+                )
+                rebuilt = m4_v2_bounded_forward.fit_model_artifacts(
+                    source_contract=source,
+                    preregistration=preregistration,
+                    history_rows=rows,
+                    target_issue=str(model["body"]["target_issue"]),
+                )
+                if rebuilt != (dataset, model):
+                    raise MainlineSupervisorError(
+                        "bounded forward model replay changed"
+                    )
+            elif capability == m4_v2_bounded_forward.PREDRAW_CAPABILITY:
+                checkpoint = by_type[m4_v2_bounded_forward.CHECKPOINT_ARTIFACT_TYPE]
+                candidates = by_type[
+                    m4_v2_bounded_forward.MODEL_CANDIDATE_ARTIFACT_TYPE
+                ]
+                baseline = by_type[
+                    m4_v2_bounded_forward.RANDOM_BASELINE_ARTIFACT_TYPE
+                ]
+                if (
+                    checkpoint["body"]["status"] != "SEALED_BEFORE_DRAW"
+                    or checkpoint["body"]["configuration_drift"] is not False
+                    or checkpoint["body"]["same_blue_strategy"] is not True
+                    or candidates["body"]["candidate_count"] != 100
+                    or baseline["body"]["candidate_count"] != 100
+                ):
+                    raise MainlineSupervisorError(
+                        "bounded forward pre-draw replay invariant changed"
+                    )
+            elif capability == m4_v2_bounded_forward.PREDRAW_REPLAY_CAPABILITY:
+                replay = by_type[
+                    m4_v2_bounded_forward.PREDRAW_REPLAY_ARTIFACT_TYPE
+                ]
+                if (
+                    replay["body"]["status"] != "REPLAY_VERIFIED"
+                    or replay["body"]["registered_replay_status"]
+                    != "REGISTERED_REPLAY_VERIFIED"
+                ):
+                    raise MainlineSupervisorError(
+                        "bounded forward pre-draw registered replay changed"
+                    )
+            elif capability == m4_v2_bounded_forward.SETTLEMENT_CAPABILITY:
+                settlement = by_type[
+                    m4_v2_bounded_forward.SETTLEMENT_ARTIFACT_TYPE
+                ]
+                if (
+                    settlement["body"]["status"] != "SETTLED"
+                    or settlement["body"]["aggregate_outcome_exposed"] is not False
+                    or settlement["body"]["configuration_drift"] is not False
+                ):
+                    raise MainlineSupervisorError(
+                        "bounded forward settlement replay invariant changed"
+                    )
+            else:
+                replay = by_type[
+                    m4_v2_bounded_forward.SETTLEMENT_REPLAY_ARTIFACT_TYPE
+                ]
+                if (
+                    replay["body"]["status"] != "REPLAY_VERIFIED"
+                    or replay["body"]["registered_replay_status"]
+                    != "REGISTERED_REPLAY_VERIFIED"
+                    or replay["body"]["aggregate_outcome_exposed"] is not False
+                ):
+                    raise MainlineSupervisorError(
+                        "bounded forward settlement registered replay changed"
+                    )
+            capability_replay = {
+                "status": "REPLAY_VERIFIED",
+                "registered_replay_status": "REGISTERED_REPLAY_VERIFIED",
+                "same_registered_content": True,
+                "configuration_drift": False,
+                "aggregate_outcome_exposed": False,
+                "workload_rerun": False,
                 "manual_input_assembly": False,
             }
         elif task_key == m4_v2_forward_feasibility.TASK_KEY:
