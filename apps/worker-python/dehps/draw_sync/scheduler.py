@@ -391,7 +391,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     prediction_v2_notifier = None
     if args.prediction_v2_shadow_notifications:
-        from run_prediction_v2_shadow_issue import settle_synchronized_issue
+        from run_m4_v2_bounded_operational_forward import settle_synchronized_issue
 
         prediction_v2_notifier = settle_synchronized_issue
     DrawSyncWatch(

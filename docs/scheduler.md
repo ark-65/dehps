@@ -2,7 +2,18 @@
 
 双色球在[中国福彩网官方开奖页](https://www.cwl.gov.cn/ygkj/wqkjgg/)标注为每周二、四、日 21:15 开奖。项目在开奖后预留 30 分钟，固定于北京时间 21:45 执行正式同步；如果数据源尚未更新，常驻轮询与恢复链路继续补偿，以实际更新为准。
 
-开奖前主线邮件使用独立 timer，在同一三个开奖日的 17:00 读取 durable `static_100` 快照并发送 Top-100。它只消费既有预测，不触发训练、重排、晋升或开奖同步。主线缺失、rank 1–100 不连续、候选非法、运行身份缺失、非开奖日、17:00 之前或 21:15 之后均 fail-closed。
+当前开奖前影子主线使用冻结的 `MARGINAL_STATIC` Cohort A。开奖同步确认上一目标期后，Python 回调自动完成结算、机械 refit、下一目标期 100 注模型候选和 100 注独立均匀基线、共享蓝球策略、checkpoint 封存及 replay。`dehps-prediction-v2-shadow-pre-draw.timer` 在开奖日 16:45 只做幂等安全补偿，冻结 deadline 仍是 17:00；deadline 已过则跳过该期，禁止补写或伪造 `sealed_at`。
+
+唯一正常循环不调用 Codex：
+
+```text
+audited draw sync -> settle sealed issue -> registered replay
+                  -> expanding-history MARGINAL_STATIC refit
+                  -> 100 model + 100 uniform baseline
+                  -> pre-draw seal/report/replay -> wait
+```
+
+该循环是 `SHADOW_ONLY / AUTONOMOUS_REFIT`。20/60 期只允许完整性检查，第 120 期前 compact status 不暴露累计效果；它不产生 P3 PASS、`PASS_TO_P4`、正式 P4、P5、Promotion 或投注授权。
 
 ## Crontab
 
@@ -12,6 +23,23 @@ CRON_TZ=Asia/Shanghai
 ```
 
 ## systemd
+
+当前 bounded shadow 使用用户级 unit；安装和启动属于 Operator 操作：
+
+```bash
+install -m 0644 deploy/systemd/dehps-prediction-v2-shadow-pre-draw.service ~/.config/systemd/user/
+install -m 0644 deploy/systemd/dehps-prediction-v2-shadow-pre-draw.timer ~/.config/systemd/user/
+install -m 0644 deploy/systemd/dehps-draw-sync.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now dehps-prediction-v2-shadow-pre-draw.timer dehps-draw-sync.timer
+```
+
+状态投影：
+
+```bash
+cd /home/ark/workspace/dehps/apps/worker-python
+.venv/bin/python scripts/run_m4_v2_bounded_operational_forward.py status
+```
 
 Copy files from `infra/systemd/` to `/etc/systemd/system/`, update paths in the service, then run:
 
