@@ -1,0 +1,18 @@
+[Unit]
+Description=DEHPS armed successor Formal P4 V3 exact-key cycle
+Documentation=file:/home/ark/workspace/dehps/docs/experiments/2026-08-22-m4-p4-forward-prequential-formal-armed.md
+Wants=network-online.target
+After=network-online.target postgresql.service
+StartLimitIntervalSec=30min
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ark/workspace/dehps/apps/worker-python
+EnvironmentFile=-/home/ark/workspace/dehps/.env
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/ark/workspace/dehps/runtime /home/ark/workspace/dehps/data/output
+ExecStart=/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python scripts/run_m4_p4_forward_prequential.py cycle --apply
