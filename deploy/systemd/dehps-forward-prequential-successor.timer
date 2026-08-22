@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the M4-P3 forward prequential successor without routine Codex invocation
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+Persistent=true
+AccuracySec=1min
+Unit=dehps-forward-prequential-successor.service
+
+[Install]
+WantedBy=timers.target
