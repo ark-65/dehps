@@ -1,0 +1,227 @@
+{
+  "schema_version": "dehps-m4-p3-forward-prequential-confirmatory-source-contract.v1",
+  "artifact_type": "m4_p3_forward_prequential_confirmatory_source_contract",
+  "artifact_digest": "139ddc97ce1d81ea4e6182359f8391532ed1911090db004bcdf9ebcdea5f9493",
+  "contract_key": "M4_P3_FORWARD_PREQUENTIAL_CONFIRMATORY_SUCCESSOR_AND_P4_ACTIVATION_GATE",
+  "frozen_contract": {
+    "goal_key": "M4_P3_FORWARD_PREQUENTIAL_CONFIRMATORY_SUCCESSOR_AND_P4_ACTIVATION_GATE",
+    "formal_p4": {
+      "scope": "frozen negative-control and robustness checks on the successful successor lineage; no model, feature, threshold, baseline, ticket, or blue-strategy change",
+      "execution_task_key": "m4-p4-forward-prequential-confirmatory-negative-controls",
+      "ready_dependencies": [
+        "m4-p3-forward-prequential-confirmatory-successor:COMPLETE",
+        "m4-p3-forward-prequential-confirmatory-successor-decision:PASS_TO_P4"
+      ],
+      "execution_before_pass": "FORBIDDEN",
+      "preregistration_status": "FROZEN_NOT_EXECUTED"
+    },
+    "lineage_id": "M4_P3_FORWARD_PREQUENTIAL_CONFIRMATORY_SUCCESSOR_V1",
+    "old_lineage": {
+      "task_key": "m4-v2-bounded-operational-forward-study-preregistration",
+      "disposition": "IMMUTABLE_HISTORY_NOT_CURRENT_ROUTE",
+      "checkpoint_issue": "2026097",
+      "checkpoint_exists": true,
+      "settlement_exists": false,
+      "forward_outcome_read": false,
+      "eligible_for_successor_reuse": false
+    },
+    "multiplicity": {
+      "method": "ONE_SIDED_BONFERRONI_FIXED_FIVE_LOOKS",
+      "variance": "FROZEN_HISTORICAL_LONG_RUN_VARIANCE",
+      "critical_z": 2.5758293035489,
+      "alpha_per_look": 0.005,
+      "unplanned_looks": "FORBIDDEN",
+      "familywise_alpha": 0.025
+    },
+    "model_identity": {
+      "refit": "once per settled issue on durable audited history strictly through t-1",
+      "branch": "MARGINAL_STATIC",
+      "formula": "q_i=(c_i+2/11)/(n+1) for red numbers 1..33",
+      "features": "NO_FEATURES_33_EXPANDING_RED_NUMBER_EVENT_COUNTS_ONLY",
+      "estimator": "EXPANDING_LEGAL_MARGINAL_ALPHA_1",
+      "family_switch": "FORBIDDEN",
+      "feature_change": "FORBIDDEN",
+      "stage_result_tuning": "FORBIDDEN",
+      "hyperparameter_search": "FORBIDDEN"
+    },
+    "decision_policy": {
+      "pass": "at a frozen look, all integrity gates pass, mean gain >= 0.05 bits/issue, and z = mean/(frozen_sd/sqrt(n)) >= 2.5758293035489",
+      "max_n": "at n=120 emit PASS_TO_P4 if pass fires; else FAIL_NO_FORWARD_ADVANTAGE if harm fires; else INCONCLUSIVE_AT_MAX_N",
+      "continue": "at n in 20,40,60,90 when no pass, harm, futility, or invalid rule fires",
+      "harm_fail": "at a frozen look, all integrity gates pass and mean + 2.5758293035489*frozen_sd/sqrt(n) < 0",
+      "precedence": [
+        "INVALID_FORWARD_EXECUTION",
+        "PASS_TO_P4",
+        "FAIL_NO_FORWARD_ADVANTAGE",
+        "CONTINUE_TO_NEXT_LOOK_OR_INCONCLUSIVE_AT_MAX_N"
+      ],
+      "futility_fail": "at n in 20,40,60,90, all integrity gates pass and conditional power to cross the n=120 efficacy boundary under true mean 0.05 is < 0.10",
+      "allowed_max_n_addition": "INCONCLUSIVE_AT_MAX_N",
+      "allowed_interim_decisions": [
+        "PASS_TO_P4",
+        "FAIL_NO_FORWARD_ADVANTAGE",
+        "CONTINUE_TO_NEXT_LOOK",
+        "INVALID_FORWARD_EXECUTION"
+      ]
+    },
+    "paired_baseline": {
+      "identity": "LEGAL_UNIFORM_NUMBER_EVENT_BASELINE",
+      "replacement": "FORBIDDEN",
+      "red_probability": "2/11 for each of 33 Bernoulli red-number events",
+      "same_target_issue": true
+    },
+    "per_issue_cycle": [
+      "read only durable audited draws through t-1",
+      "mechanically refit MARGINAL_STATIC",
+      "before draw seal model artifact, 33-vector, exactly 100 model candidates, exactly 100 random baseline candidates, and identical rank-wise blue strategy",
+      "after durable audited draw synchronization settle exactly once",
+      "register paired OOS log-loss gain and replay",
+      "add t to the next training set",
+      "prepare t+1 automatically unless a terminal decision has fired"
+    ],
+    "practical_effect": {
+      "interpretation": "minimum observed mean gain admitted as practically meaningful; approximately 2^0.05 = 1.035 geometric likelihood multiplier for the realized 33-event vector, not a betting guarantee",
+      "threshold_bits_per_issue": 0.05,
+      "old_threshold_0_01_modified": false
+    },
+    "primary_endpoint": {
+      "unit": "bits_per_issue",
+      "formula": "sum_i log2 Bernoulli(Y_i;q_i) minus sum_i log2 Bernoulli(Y_i;2/11)",
+      "identity": "PAIRED_OOS_LOG_LOSS_GAIN_BITS_PER_ISSUE",
+      "ticket_support_metrics": "SECONDARY_NO_DECISION_CREDIT"
+    },
+    "candidate_contract": {
+      "blue_strategy": "SHARED_DETERMINISTIC_UNIFORM_BLUE_BY_RANK_V1",
+      "model_ranking": "descending frozen 33-event Bernoulli log score with ascending lex_id tie break",
+      "random_baseline": "independent deterministic uniform legal six-of-33 sampling without replacement",
+      "model_ticket_count": 100,
+      "proposal_pool_size": 10000,
+      "random_baseline_ticket_count": 100,
+      "adaptation_after_single_issue": "FORBIDDEN"
+    },
+    "automatic_operation": {
+      "post_draw_settlement": "ARMED_AFTER_LAUNCH",
+      "codex_allowed_only_at": [
+        20,
+        40,
+        60,
+        90,
+        120,
+        "ANOMALY"
+      ],
+      "launch_terminal_status": "AUTONOMOUS_WAIT_FORWARD",
+      "automatic_next_issue_refit": "ACTIVE_AFTER_LAUNCH",
+      "normal_codex_invocations_per_issue": 0
+    },
+    "configuration_drift": {
+      "fields": [
+        "estimator",
+        "features",
+        "parameters",
+        "cadence",
+        "scoring",
+        "baseline",
+        "candidate budget",
+        "candidate policy",
+        "blue strategy",
+        "endpoint",
+        "practical threshold",
+        "look schedule",
+        "multiplicity",
+        "decision policy",
+        "checkpoint boundary"
+      ],
+      "invalidates_lineage": true,
+      "automatic_recovery_or_silent_fork": "FORBIDDEN"
+    },
+    "preregistration_task_key": "m4-p3-forward-prequential-confirmatory-successor-preregistration",
+    "historical_variance_freeze": {
+      "variance_formula": "bootstrap_standard_error_squared times 2581",
+      "historical_fold_count": 2581,
+      "source_artifact_digest": "36056c0168bf71a995ec2a0bb9bf4663b0222b8fce621899a1e861282597e841",
+      "frozen_long_run_variance": 0.05302208982040761,
+      "future_variance_reestimation": "FORBIDDEN",
+      "source_score_sequence_digest": "b78a5e719f0b422fb154f13aab20f676aa68cb099fb529f6f52deefb8295fa14",
+      "frozen_long_run_standard_deviation": 0.23026525969066114,
+      "moving_block_bootstrap_standard_error_bits_per_issue": 0.0045324645735604204
+    },
+    "detectable_effects_80_percent_power": [
+      {
+        "n": 20,
+        "standard_error": 0.05148887735249605,
+        "mde_bits_per_issue": 0.17596069156408684
+      },
+      {
+        "n": 40,
+        "standard_error": 0.036408134331632404,
+        "mde_bits_per_issue": 0.12442299822724032
+      },
+      {
+        "n": 60,
+        "standard_error": 0.02972711719973522,
+        "mde_bits_per_issue": 0.10159095264131825
+      },
+      {
+        "n": 90,
+        "standard_error": 0.024272089554421606,
+        "mde_bits_per_issue": 0.08294866548482689
+      },
+      {
+        "n": 120,
+        "standard_error": 0.021020246157060024,
+        "mde_bits_per_issue": 0.07183565151987753
+      }
+    ],
+    "interim_looks": [
+      20,
+      40,
+      60,
+      90,
+      120
+    ],
+    "maximum_valid_forward_issues": 120
+  },
+  "governance_bindings": {
+    "research_request_key": "research-m4-p3-forward-prequential-confirmatory-successor-preregistration-v1",
+    "research_request_id": 640,
+    "research_execution_id": 524,
+    "research_approval_decision_id": 2697,
+    "research_request_payload_sha256": "d47d9afe6da3c309613345ae4ec6dc4509a7bea20e034090ec461f88611d3f1e",
+    "engineering_request_key": "engineering-m4-p3-forward-prequential-confirmatory-successor-launch-v1",
+    "engineering_request_id": 641,
+    "engineering_execution_id": 525,
+    "engineering_approval_decision_id": 2702,
+    "engineering_request_payload_sha256": "294dbfedb69d2389add909d0e1d1474c68aab3637ca1c82b0cf116ab13ecdde5"
+  },
+  "source_entries": [
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/forward_prequential_confirmatory.py",
+      "sha256": "6d8e7175e64f128ea73ced646584abd09765fabeb6978d266570818cfe2afc47"
+    },
+    {
+      "path": "apps/worker-python/scripts/build_m4_p3_forward_prequential_confirmatory_manifest.py",
+      "sha256": "3011504973b3904b6b224e9f624e80bb54fd1f8166011c3f4c60ce9d0bec6c16"
+    },
+    {
+      "path": "apps/worker-python/scripts/run_m4_p3_forward_prequential_confirmatory.py",
+      "sha256": "495f0cd2d9d6c013b17dcfc3c13c9f1feb5aa030d9bcda92f0fef30c75fae29e"
+    },
+    {
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/marginal_static_contract.py",
+      "sha256": "0750f7fec88b11c6a4dbe55cf0ac25d8a0b8def8fc6261dde272d8ab9894f2f2"
+    },
+    {
+      "path": "apps/worker-python/dehps/prediction/v2/generator.py",
+      "sha256": "49689110d984d560a0dae4b3648df609c630b10536cf559c236c29b18ac0fad1"
+    },
+    {
+      "path": "deploy/systemd/dehps-forward-prequential-successor.service",
+      "sha256": "013bc7d3f50aa7f1f0f85ec5980a843515233e1fc8d882d019ce44fc5f694abd"
+    },
+    {
+      "path": "deploy/systemd/dehps-forward-prequential-successor.timer",
+      "sha256": "563405b62ec6ab2fa6be194d581b7e1807fcbf2b9ce111c9ceb00c487cf35966"
+    }
+  ],
+  "source_set_digest": "a3b34318d784d9477fe82f7e66c3c04e5640eaed87e2b4c49cd8b397fc27cd9c"
+}

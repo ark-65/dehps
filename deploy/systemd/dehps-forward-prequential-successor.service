@@ -1,0 +1,19 @@
+[Unit]
+Description=DEHPS M4-P3 forward prequential successor cycle
+Documentation=file:/home/ark/workspace/dehps/docs/experiments/2026-08-22-m4-p3-forward-prequential-confirmatory-successor-launch.md
+Wants=network-online.target
+After=network-online.target postgresql.service
+StartLimitIntervalSec=30min
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ark/workspace/dehps/apps/worker-python
+EnvironmentFile=-/home/ark/workspace/dehps/.env
+EnvironmentFile=-/home/ark/.config/dehps/draw-sync.env
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/ark/workspace/dehps/runtime /home/ark/workspace/dehps/data/output
+ExecStart=/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python scripts/run_m4_p3_forward_prequential_confirmatory.py cycle --apply --sync-draws
