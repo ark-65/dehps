@@ -65,12 +65,33 @@ V3_EXCLUSIVE_FACTS = frozenset(
         f"{formal_p4.SUCCESSOR_P5_TASK_KEY}:COMPLETE",
     }
 )
+HISTORICAL_RECOVERY_V3_TASK_KEY = "m4-v2-global-routing-recovery-v3"
 
 
 class FormalP4ForwardPrequentialRepository(PostgresResearchOSRepository):
     """P4-only exact import gate; the frozen base repository stays untouched."""
 
     _outcome_gate: dict[str, Any] | None = None
+
+    @staticmethod
+    def _completion_verification_projection(
+        manifest: ControlPlaneManifest,
+    ) -> ControlPlaneManifest:
+        payload = manifest.to_dict(include_digest=False)
+        recovery = next(
+            (
+                item
+                for item in payload["tasks"]
+                if item["task_key"] == HISTORICAL_RECOVERY_V3_TASK_KEY
+            ),
+            None,
+        )
+        if recovery is not None and recovery["status"] == TaskStatus.COMPLETED.value:
+            recovery["status"] = TaskStatus.RUNNING.value
+            recovery["completion_classification"] = (
+                CompletionClassification.INTEGRATED.value
+            )
+        return ControlPlaneManifest.from_dict(payload)
 
     def _verify_m4_v2_failed_global_routing_recovery_v3_import(
         self,
@@ -178,6 +199,70 @@ class FormalP4ForwardPrequentialRepository(PostgresResearchOSRepository):
             raise
         except Exception as exc:
             raise ResearchOSValidationError(error) from exc
+
+    def _verify_mainline_completion_records(
+        self,
+        cursor,
+        *,
+        control_plane_key: str,
+        manifest: ControlPlaneManifest,
+        m4_v2_lifecycle_verified: bool = False,
+    ) -> None:
+        tasks = {item.task_key: item for item in manifest.tasks}
+        facts = set(manifest.facts.artifacts)
+        if not V3_EXCLUSIVE_TASK_KEYS.intersection(
+            tasks
+        ) and not V3_EXCLUSIVE_FACTS.intersection(facts):
+            return PostgresResearchOSRepository._verify_mainline_completion_records(
+                cursor,
+                control_plane_key=control_plane_key,
+                manifest=manifest,
+                m4_v2_lifecycle_verified=m4_v2_lifecycle_verified,
+            )
+
+        original = manifest.to_dict(include_digest=True)
+        gate = self._outcome_gate
+        attested_added_facts = None if gate is None else gate.get("added_facts")
+        allowed_outcome_deltas = {
+            frozenset({formal_p4.INVALID_FACT}),
+            *(
+                frozenset({formal_p4.REPLAY_VERIFIED_FACT, outcome})
+                for outcome in (
+                    formal_p4.PASS_TO_P5_FACT,
+                    formal_p4.FAIL_FACT,
+                    formal_p4.INVALID_FACT,
+                )
+            ),
+        }
+        outcome_transition_already_attested = (
+            gate is not None
+            and gate.get("consumed") is True
+            and gate.get("manifest_digest") == manifest.artifact_digest
+            and isinstance(attested_added_facts, frozenset)
+            and attested_added_facts in allowed_outcome_deltas
+            and attested_added_facts.issubset(facts)
+        )
+        if gate is not None and not outcome_transition_already_attested:
+            raise ResearchOSValidationError(
+                "formal_p4_v3_completion_outcome_attestation_changed"
+            )
+        if gate is None:
+            self._verify_formal_p4_v3_import(
+                cursor,
+                control_plane_key=control_plane_key,
+                manifest=manifest,
+            )
+        projection = self._completion_verification_projection(manifest)
+        if manifest.to_dict(include_digest=True) != original:
+            raise ResearchOSValidationError(
+                "formal_p4_v3_completion_verification_projection_changed"
+            )
+        PostgresResearchOSRepository._verify_mainline_completion_records(
+            cursor,
+            control_plane_key=control_plane_key,
+            manifest=projection,
+            m4_v2_lifecycle_verified=m4_v2_lifecycle_verified,
+        )
 
     @staticmethod
     def _task_state(
