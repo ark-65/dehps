@@ -222,6 +222,11 @@ def test_source_contract_binds_v3_governance_and_exact_source_bytes() -> None:
     assert source["governance_bindings"]["import_repair_request_id"] == 652
     assert source["governance_bindings"]["import_repair_approval_decision_id"] == 2743
     assert source["governance_bindings"]["import_repair_execution_id"] == 530
+    assert source["governance_bindings"]["completion_repair_request_id"] == 655
+    assert (
+        source["governance_bindings"]["completion_repair_approval_decision_id"] == 2756
+    )
+    assert source["governance_bindings"]["completion_repair_execution_id"] == 532
     prereg = formal_p4.formal_preregistration(source)
     assert prereg["body"]["status"] == "FROZEN_NOT_EXECUTED"
     assert prereg["parent_digests"] == [
@@ -803,9 +808,18 @@ class _Rows:
 
 
 class _P4ImportCursor:
-    def __init__(self, current: ControlPlaneManifest, *, registrations=()):
+    def __init__(
+        self,
+        current: ControlPlaneManifest,
+        *,
+        registrations=(),
+        completed_event: bool = True,
+        registered_artifact: bool = True,
+    ):
         self.current = current
         self.registrations = tuple(registrations)
+        self.completed_event = completed_event
+        self.registered_artifact = registered_artifact
 
     def execute(self, statement, parameters=()):
         query = " ".join(str(statement).split())
@@ -817,16 +831,28 @@ class _P4ImportCursor:
             return _Rows(
                 one={"manifest_json": self.current.to_dict(include_digest=True)}
             )
+        if "FROM research_os_mainline_execution_events" in query:
+            return _Rows(one={"exists": 1} if self.completed_event else None)
+        if (
+            query.startswith("SELECT 1")
+            and "FROM research_os_mainline_artifacts" in query
+        ):
+            return _Rows(one={"exists": 1} if self.registered_artifact else None)
         if "FROM research_os_mainline_artifacts" in query:
             return _Rows(many=self.registrations)
         raise AssertionError(query)
 
 
-def _p4_definition_and_freeze():
+def _p4_definition_and_freeze(base: ControlPlaneManifest | None = None):
     builder = _builder()
     source = formal_p4.load_source_contract()
     definition_payload, _ = builder.build_definition_manifest(
-        _minimal_live_manifest(), source_digest=str(source["artifact_digest"])
+        (
+            _minimal_live_manifest()
+            if base is None
+            else base.to_dict(include_digest=True)
+        ),
+        source_digest=str(source["artifact_digest"]),
     )
     definition = ControlPlaneManifest.from_dict(definition_payload)
     frozen_payload, _ = builder._build_manifest(
@@ -907,6 +933,52 @@ def _task_state(
     task["status"] = status
     task["completion_classification"] = classification
     payload["facts"]["artifacts"] = sorted({*payload["facts"]["artifacts"], *facts})
+    return ControlPlaneManifest.from_dict(payload)
+
+
+def _historical_recovery_base(
+    *, completion_probe: bool = False
+) -> ControlPlaneManifest:
+    payload = _minimal_live_manifest()
+    payload["tasks"].append(
+        {
+            "task_key": "m4-v2-global-routing-recovery-v3",
+            "goal_key": formal_p4.p3.GOAL_KEY,
+            "task_type": "historical_recovery_fixture",
+            "lane": "research",
+            "priority": 10,
+            "status": TaskStatus.COMPLETED.value,
+            "completion_classification": CompletionClassification.COMPLETE.value,
+        }
+    )
+    if completion_probe:
+        payload["tasks"].append(
+            {
+                "task_key": "p4-completion-verifier-generic-probe",
+                "goal_key": formal_p4.p3.GOAL_KEY,
+                "task_type": "generic_completion_probe",
+                "lane": "research",
+                "priority": 1,
+                "requested_capability": "generic_completion_probe",
+                "status": TaskStatus.COMPLETED.value,
+                "completion_classification": CompletionClassification.COMPLETE.value,
+            }
+        )
+    manifest = ControlPlaneManifest.from_dict(payload)
+    if not completion_probe:
+        return manifest
+    task = next(
+        item
+        for item in manifest.tasks
+        if item.task_key == "p4-completion-verifier-generic-probe"
+    )
+    payload = manifest.to_dict(include_digest=False)
+    payload["facts"]["artifacts"] = sorted(
+        {
+            *payload["facts"]["artifacts"],
+            mainline_completion_fact(task=task, execution_id="d" * 64),
+        }
+    )
     return ControlPlaneManifest.from_dict(payload)
 
 
@@ -994,6 +1066,102 @@ def test_p4_only_repository_routes_exact_v3_before_legacy_and_delegates_after(
         formal_p4.CONTROL_PLANE_KEY,
         formal_p4.CONTROL_PLANE_KEY,
     ]
+
+
+def test_p4_only_completion_verifier_uses_state_only_historical_projection() -> None:
+    runner = _runner()
+    repository = _p4_repository(runner)
+    base = _historical_recovery_base()
+    definition, _ = _p4_definition_and_freeze(base)
+    original = definition.to_dict(include_digest=True)
+    projection = repository._completion_verification_projection(definition)
+    expected = definition.to_dict(include_digest=False)
+    recovery = next(
+        item
+        for item in expected["tasks"]
+        if item["task_key"] == runner.HISTORICAL_RECOVERY_V3_TASK_KEY
+    )
+    recovery["status"] = TaskStatus.RUNNING.value
+    recovery["completion_classification"] = CompletionClassification.INTEGRATED.value
+    assert projection.to_dict(include_digest=False) == expected
+    assert definition.to_dict(include_digest=True) == original
+    assert definition.artifact_digest == original["manifest_digest"]
+    repository._verify_mainline_completion_records(
+        _P4ImportCursor(base),
+        control_plane_key=formal_p4.CONTROL_PLANE_KEY,
+        manifest=definition,
+        m4_v2_lifecycle_verified=True,
+    )
+    assert definition.to_dict(include_digest=True) == original
+
+
+@pytest.mark.parametrize(
+    ("completed_event", "registered_artifact", "error"),
+    (
+        (
+            False,
+            True,
+            "completion fact has no immutable completed mainline execution event",
+        ),
+        (True, False, "completion fact has no registered mainline artifact"),
+        (True, True, None),
+    ),
+)
+def test_p4_only_completion_verifier_preserves_generic_integrity_checks(
+    completed_event: bool,
+    registered_artifact: bool,
+    error: str | None,
+) -> None:
+    runner = _runner()
+    repository = _p4_repository(runner)
+    base = _historical_recovery_base(completion_probe=True)
+    definition, _ = _p4_definition_and_freeze(base)
+    cursor = _P4ImportCursor(
+        base,
+        completed_event=completed_event,
+        registered_artifact=registered_artifact,
+    )
+    if error is not None:
+        with pytest.raises(ResearchOSValidationError, match=error):
+            repository._verify_mainline_completion_records(
+                cursor,
+                control_plane_key=formal_p4.CONTROL_PLANE_KEY,
+                manifest=definition,
+                m4_v2_lifecycle_verified=True,
+            )
+        return
+    repository._verify_mainline_completion_records(
+        cursor,
+        control_plane_key=formal_p4.CONTROL_PLANE_KEY,
+        manifest=definition,
+        m4_v2_lifecycle_verified=True,
+    )
+
+
+def test_p4_only_completion_verifier_delegates_pure_non_v3_manifest(
+    monkeypatch,
+) -> None:
+    runner = _runner()
+    repository = _p4_repository(runner)
+    base = ControlPlaneManifest.from_dict(_minimal_live_manifest())
+    observed = []
+
+    def generic(cursor, *, control_plane_key, manifest, m4_v2_lifecycle_verified):
+        observed.append((cursor, control_plane_key, manifest, m4_v2_lifecycle_verified))
+
+    monkeypatch.setattr(
+        PostgresResearchOSRepository,
+        "_verify_mainline_completion_records",
+        staticmethod(generic),
+    )
+    cursor = object()
+    repository._verify_mainline_completion_records(
+        cursor,
+        control_plane_key=formal_p4.CONTROL_PLANE_KEY,
+        manifest=base,
+        m4_v2_lifecycle_verified=False,
+    )
+    assert observed == [(cursor, formal_p4.CONTROL_PLANE_KEY, base, False)]
 
 
 @pytest.mark.parametrize(
@@ -1172,16 +1340,35 @@ def _completed_replay_manifest() -> ControlPlaneManifest:
     return ControlPlaneManifest.from_dict(payload)
 
 
-def test_p4_only_outcome_gate_is_single_use_non_reentrant_and_finally_closed(
+@pytest.mark.parametrize(
+    ("outcome", "typed_replay_verified", "accepted"),
+    (
+        (formal_p4.PASS_TO_P5_FACT, True, True),
+        (formal_p4.FAIL_FACT, True, True),
+        (formal_p4.INVALID_FACT, True, True),
+        (formal_p4.INVALID_FACT, False, True),
+        (formal_p4.PASS_TO_P5_FACT, False, False),
+        (formal_p4.FAIL_FACT, False, False),
+    ),
+)
+def test_p4_only_outcome_gate_full_router_then_completion_is_single_use(
     monkeypatch,
+    outcome: str,
+    typed_replay_verified: bool,
+    accepted: bool,
 ) -> None:
     runner = _runner()
     repository = _p4_repository(runner)
     current = _completed_replay_manifest()
     payload = current.to_dict(include_digest=False)
-    added = frozenset((formal_p4.REPLAY_VERIFIED_FACT, formal_p4.PASS_TO_P5_FACT))
+    added = frozenset(
+        ({formal_p4.REPLAY_VERIFIED_FACT, outcome})
+        if typed_replay_verified
+        else {outcome}
+    )
     payload["facts"]["artifacts"] = sorted({*payload["facts"]["artifacts"], *added})
     incoming = ControlPlaneManifest.from_dict(payload)
+    cursor = _P4ImportCursor(current)
 
     with pytest.raises(ResearchOSValidationError):
         repository._verify_post_freeze_transition(
@@ -1192,20 +1379,48 @@ def test_p4_only_outcome_gate_is_single_use_non_reentrant_and_finally_closed(
     def import_fixture(self, **kwargs):
         assert kwargs["source"] == ("m4-p4-v3-outcome-after-generic-and-typed-replay")
         candidate = ControlPlaneManifest.from_dict(kwargs["payload"])
-        self._verify_post_freeze_transition(current=current, incoming=candidate)
+        self._verify_m4_v2_failed_global_routing_recovery_v3_import(
+            cursor,
+            control_plane_key=formal_p4.CONTROL_PLANE_KEY,
+            manifest=candidate,
+        )
+        assert self._outcome_gate is not None
+        assert self._outcome_gate["consumed"] is True
+        self._verify_mainline_completion_records(
+            cursor,
+            control_plane_key=formal_p4.CONTROL_PLANE_KEY,
+            manifest=candidate,
+            m4_v2_lifecycle_verified=True,
+        )
         return "outcome-imported"
 
+    monkeypatch.setattr(
+        PostgresResearchOSRepository,
+        "_verify_m4_v2_failed_global_routing_recovery_v3_import",
+        lambda self, cursor, *, control_plane_key, manifest: None,
+    )
     monkeypatch.setattr(
         PostgresResearchOSRepository,
         "import_manifest",
         import_fixture,
     )
-    result = repository._import_authoritative_outcome(
-        payload=incoming.to_dict(include_digest=True),
-        outcome_fact=formal_p4.PASS_TO_P5_FACT,
-        typed_replay_verified=True,
-    )
-    assert result == "outcome-imported"
+    if accepted:
+        result = repository._import_authoritative_outcome(
+            payload=incoming.to_dict(include_digest=True),
+            outcome_fact=outcome,
+            typed_replay_verified=typed_replay_verified,
+        )
+        assert result == "outcome-imported"
+    else:
+        with pytest.raises(
+            ResearchOSValidationError,
+            match="formal_p4_v3_outcome_gate_changed",
+        ):
+            repository._import_authoritative_outcome(
+                payload=incoming.to_dict(include_digest=True),
+                outcome_fact=outcome,
+                typed_replay_verified=typed_replay_verified,
+            )
     assert repository._outcome_gate is None
     repository._outcome_gate = {"already": "open"}
     with pytest.raises(
@@ -1214,8 +1429,41 @@ def test_p4_only_outcome_gate_is_single_use_non_reentrant_and_finally_closed(
     ):
         repository._import_authoritative_outcome(
             payload=incoming.to_dict(include_digest=True),
-            outcome_fact=formal_p4.PASS_TO_P5_FACT,
-            typed_replay_verified=True,
+            outcome_fact=outcome,
+            typed_replay_verified=typed_replay_verified,
+        )
+    repository._outcome_gate = None
+
+
+@pytest.mark.parametrize("corruption", ("digest", "facts", "not_consumed"))
+def test_p4_only_completion_verifier_rejects_unattested_outcome_gate(
+    corruption: str,
+) -> None:
+    runner = _runner()
+    repository = _p4_repository(runner)
+    current = _completed_replay_manifest()
+    payload = current.to_dict(include_digest=False)
+    added = frozenset({formal_p4.REPLAY_VERIFIED_FACT, formal_p4.PASS_TO_P5_FACT})
+    payload["facts"]["artifacts"] = sorted({*payload["facts"]["artifacts"], *added})
+    incoming = ControlPlaneManifest.from_dict(payload)
+    repository._outcome_gate = {
+        "manifest_digest": (
+            "0" * 64 if corruption == "digest" else incoming.artifact_digest
+        ),
+        "added_facts": (
+            frozenset({"unapproved:FACT"}) if corruption == "facts" else added
+        ),
+        "consumed": corruption != "not_consumed",
+    }
+    with pytest.raises(
+        ResearchOSValidationError,
+        match="formal_p4_v3_completion_outcome_attestation_changed",
+    ):
+        repository._verify_mainline_completion_records(
+            _P4ImportCursor(current),
+            control_plane_key=formal_p4.CONTROL_PLANE_KEY,
+            manifest=incoming,
+            m4_v2_lifecycle_verified=True,
         )
     repository._outcome_gate = None
 

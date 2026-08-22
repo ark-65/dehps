@@ -83,6 +83,20 @@ IMPORT_REPAIR_EXECUTION_ID = 530
 IMPORT_REPAIR_APPROVAL_OUTCOME = (
     "APPROVE_P4_ONLY_FAIL_CLOSED_IMPORT_REPAIR_WITH_P3_BYTES_FROZEN"
 )
+COMPLETION_REPAIR_REQUEST_KEY = (
+    "engineering-m4-p4-forward-prequential-formal-v3-"
+    "completion-verifier-dispatch-repair"
+)
+COMPLETION_REPAIR_REQUEST_ID = 655
+COMPLETION_REPAIR_REQUEST_PAYLOAD_SHA256 = (
+    "b6bb71aca75fd00cb61ab68ff3b5ac91b8240af93174d5c38242ee17c57f6812"
+)
+COMPLETION_REPAIR_APPROVAL_DECISION_ID = 2756
+COMPLETION_REPAIR_EXECUTION_ID = 532
+COMPLETION_REPAIR_APPROVAL_OUTCOME = (
+    "APPROVE_P4_ONLY_COMPLETION_VERIFIER_STATIC_DISPATCH_REPAIR_"
+    "WITH_HISTORICAL_INTEGRITY_PRESERVED"
+)
 
 EXECUTION_TASK_KEY = p3.P4_TASK_KEY
 EVIDENCE_TASK_KEY = "m4-p4-forward-prequential-formal-evidence-v3"
@@ -350,6 +364,14 @@ def verify_governance(repository: AgentRequestRepository) -> None:
             IMPORT_REPAIR_REQUEST_PAYLOAD_SHA256,
             IMPORT_REPAIR_APPROVAL_OUTCOME,
         ),
+        (
+            COMPLETION_REPAIR_REQUEST_KEY,
+            COMPLETION_REPAIR_REQUEST_ID,
+            COMPLETION_REPAIR_EXECUTION_ID,
+            COMPLETION_REPAIR_APPROVAL_DECISION_ID,
+            COMPLETION_REPAIR_REQUEST_PAYLOAD_SHA256,
+            COMPLETION_REPAIR_APPROVAL_OUTCOME,
+        ),
     )
     expected_bindings = {
         "contract_digest": CONTRACT_DIGEST,
@@ -367,6 +389,15 @@ def verify_governance(repository: AgentRequestRepository) -> None:
         "import_repair_request_payload_sha256": IMPORT_REPAIR_REQUEST_PAYLOAD_SHA256,
         "import_repair_approval_decision_id": IMPORT_REPAIR_APPROVAL_DECISION_ID,
         "import_repair_execution_id": IMPORT_REPAIR_EXECUTION_ID,
+        "completion_repair_request_key": COMPLETION_REPAIR_REQUEST_KEY,
+        "completion_repair_request_id": COMPLETION_REPAIR_REQUEST_ID,
+        "completion_repair_request_payload_sha256": (
+            COMPLETION_REPAIR_REQUEST_PAYLOAD_SHA256
+        ),
+        "completion_repair_approval_decision_id": (
+            COMPLETION_REPAIR_APPROVAL_DECISION_ID
+        ),
+        "completion_repair_execution_id": COMPLETION_REPAIR_EXECUTION_ID,
     }
     if bindings != expected_bindings:
         raise FormalP4ForwardPrequentialError("formal_p4_governance_binding_changed")
@@ -380,9 +411,11 @@ def verify_governance(repository: AgentRequestRepository) -> None:
         executions = repository.list_executions(key)
         observed_outcome = None
         if len(approvals) == 1:
-            observed_outcome = approvals[0].reason.get("outcome") or approvals[
-                0
-            ].reason.get("decision")
+            observed_outcome = (
+                approvals[0].reason.get("outcome")
+                or approvals[0].reason.get("decision")
+                or approvals[0].reason.get("review_outcome")
+            )
         execution_ok = (
             len(executions) == 0
             if execution_id is None
