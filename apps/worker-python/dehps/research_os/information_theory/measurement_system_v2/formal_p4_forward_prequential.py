@@ -71,6 +71,18 @@ ENGINEERING_EXECUTION_ID = 527
 ENGINEERING_APPROVAL_OUTCOME = (
     "APPROVE_EXACT_V3_TASK_IDENTITY_FORMAL_P4_ARMED_IMPLEMENTATION"
 )
+IMPORT_REPAIR_REQUEST_KEY = (
+    "engineering-m4-p4-forward-prequential-formal-v3-p4-only-import-repair"
+)
+IMPORT_REPAIR_REQUEST_ID = 652
+IMPORT_REPAIR_REQUEST_PAYLOAD_SHA256 = (
+    "85751a637f3bd24a8532b44eca79f8bb2639b04ecd227665258c34535234c21f"
+)
+IMPORT_REPAIR_APPROVAL_DECISION_ID = 2743
+IMPORT_REPAIR_EXECUTION_ID = 530
+IMPORT_REPAIR_APPROVAL_OUTCOME = (
+    "APPROVE_P4_ONLY_FAIL_CLOSED_IMPORT_REPAIR_WITH_P3_BYTES_FROZEN"
+)
 
 EXECUTION_TASK_KEY = p3.P4_TASK_KEY
 EVIDENCE_TASK_KEY = "m4-p4-forward-prequential-formal-evidence-v3"
@@ -330,8 +342,33 @@ def verify_governance(repository: AgentRequestRepository) -> None:
             ENGINEERING_REQUEST_PAYLOAD_SHA256,
             ENGINEERING_APPROVAL_OUTCOME,
         ),
+        (
+            IMPORT_REPAIR_REQUEST_KEY,
+            IMPORT_REPAIR_REQUEST_ID,
+            IMPORT_REPAIR_EXECUTION_ID,
+            IMPORT_REPAIR_APPROVAL_DECISION_ID,
+            IMPORT_REPAIR_REQUEST_PAYLOAD_SHA256,
+            IMPORT_REPAIR_APPROVAL_OUTCOME,
+        ),
     )
-    if bindings.get("contract_digest") != CONTRACT_DIGEST:
+    expected_bindings = {
+        "contract_digest": CONTRACT_DIGEST,
+        "research_request_key": RESEARCH_REQUEST_KEY,
+        "research_request_id": RESEARCH_REQUEST_ID,
+        "research_request_payload_sha256": RESEARCH_REQUEST_PAYLOAD_SHA256,
+        "research_approval_decision_id": RESEARCH_APPROVAL_DECISION_ID,
+        "engineering_request_key": ENGINEERING_REQUEST_KEY,
+        "engineering_request_id": ENGINEERING_REQUEST_ID,
+        "engineering_request_payload_sha256": ENGINEERING_REQUEST_PAYLOAD_SHA256,
+        "engineering_approval_decision_id": ENGINEERING_APPROVAL_DECISION_ID,
+        "engineering_execution_id": ENGINEERING_EXECUTION_ID,
+        "import_repair_request_key": IMPORT_REPAIR_REQUEST_KEY,
+        "import_repair_request_id": IMPORT_REPAIR_REQUEST_ID,
+        "import_repair_request_payload_sha256": IMPORT_REPAIR_REQUEST_PAYLOAD_SHA256,
+        "import_repair_approval_decision_id": IMPORT_REPAIR_APPROVAL_DECISION_ID,
+        "import_repair_execution_id": IMPORT_REPAIR_EXECUTION_ID,
+    }
+    if bindings != expected_bindings:
         raise FormalP4ForwardPrequentialError("formal_p4_governance_binding_changed")
     for key, request_id, execution_id, approval_id, payload_sha, outcome in specs:
         request = repository.get_request(key)
