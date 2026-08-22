@@ -13,7 +13,16 @@ from dehps.research_os.control_plane import ResearchOSControlPlane
 from dehps.research_os.information_theory.measurement_system_v2 import (
     formal_p4_forward_prequential as formal_p4,
 )
-from dehps.research_os.models import ControlPlaneManifest
+from dehps.research_os.mainline import mainline_completion_fact
+from dehps.research_os.models import (
+    CompletionClassification,
+    ControlPlaneManifest,
+    MainlineArtifactRegistration,
+    ResearchOSValidationError,
+    TaskStatus,
+    jsonable,
+)
+from dehps.research_os.repository import PostgresResearchOSRepository
 
 
 def _load_script(name: str, path: str):
@@ -210,6 +219,9 @@ def test_source_contract_binds_v3_governance_and_exact_source_bytes() -> None:
     assert source["governance_bindings"]["engineering_request_id"] == 648
     assert source["governance_bindings"]["engineering_approval_decision_id"] == 2724
     assert source["governance_bindings"]["engineering_execution_id"] == 527
+    assert source["governance_bindings"]["import_repair_request_id"] == 652
+    assert source["governance_bindings"]["import_repair_approval_decision_id"] == 2743
+    assert source["governance_bindings"]["import_repair_execution_id"] == 530
     prereg = formal_p4.formal_preregistration(source)
     assert prereg["body"]["status"] == "FROZEN_NOT_EXECUTED"
     assert prereg["parent_digests"] == [
@@ -647,14 +659,15 @@ def test_outcome_activation_requires_generic_and_registered_typed_replay(
         _minimal_live_manifest(), source_digest="a" * 64
     )
 
-    class Repository:
+    class Repository(runner.FormalP4ForwardPrequentialRepository):
         def __init__(self):
             self.imported = []
+            self._outcome_gate = None
 
         def export_manifest(self, **kwargs):
             return definition
 
-        def import_manifest(self, **kwargs):
+        def _import_authoritative_outcome(self, **kwargs):
             self.imported.append(kwargs["payload"])
             return "fixture-import"
 
@@ -775,3 +788,461 @@ def test_cycle_resumes_crash_after_replay_complete_before_outcome(monkeypatch) -
     assert result["dispatch_performed"] is False
     assert result["workload_rerun"] is False
     assert result["outcome_activation"] == {"status": "ACTIVATED"}
+
+
+class _Rows:
+    def __init__(self, *, one=None, many=()):
+        self.one = one
+        self.many = many
+
+    def fetchone(self):
+        return self.one
+
+    def fetchall(self):
+        return self.many
+
+
+class _P4ImportCursor:
+    def __init__(self, current: ControlPlaneManifest, *, registrations=()):
+        self.current = current
+        self.registrations = tuple(registrations)
+
+    def execute(self, statement, parameters=()):
+        query = " ".join(str(statement).split())
+        assert query.startswith("SELECT")
+        if "FROM research_os_control_planes" in query:
+            return _Rows(one={"current_manifest_digest": self.current.artifact_digest})
+        if "FROM research_os_manifests" in query:
+            assert parameters == (self.current.artifact_digest,)
+            return _Rows(
+                one={"manifest_json": self.current.to_dict(include_digest=True)}
+            )
+        if "FROM research_os_mainline_artifacts" in query:
+            return _Rows(many=self.registrations)
+        raise AssertionError(query)
+
+
+def _p4_definition_and_freeze():
+    builder = _builder()
+    source = formal_p4.load_source_contract()
+    definition_payload, _ = builder.build_definition_manifest(
+        _minimal_live_manifest(), source_digest=str(source["artifact_digest"])
+    )
+    definition = ControlPlaneManifest.from_dict(definition_payload)
+    frozen_payload, _ = builder._build_manifest(
+        definition.to_dict(include_digest=True),
+        source_digest=str(source["artifact_digest"]),
+        include_freeze_fact=True,
+    )
+    return definition, ControlPlaneManifest.from_dict(frozen_payload)
+
+
+def _arming_registration_row(runner, root, manifest):
+    task = next(
+        item for item in manifest.tasks if item.task_key == formal_p4.EXECUTION_TASK_KEY
+    )
+    prereg = formal_p4.frozen_preregistration()
+    relative = (
+        "runtime/research-os/mainline/tasks/"
+        f"{task.task_key}/{runner.ARMING_EXECUTION_ID}/artifacts/"
+        f"formal-p4-v3-preregistration/{prereg['artifact_digest']}/"
+        "preregistration.json"
+    )
+    path = root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            prereg,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    registration = MainlineArtifactRegistration(
+        execution_id=runner.ARMING_EXECUTION_ID,
+        control_plane_key=formal_p4.CONTROL_PLANE_KEY,
+        task_key=task.task_key,
+        task_digest=task.artifact_digest,
+        artifact_digest=str(prereg["artifact_digest"]),
+        artifact_type=str(prereg["artifact_type"]),
+        schema_version=str(prereg["schema_version"]),
+        artifact_path=relative,
+        parent_digests=tuple(str(item) for item in prereg["parent_digests"]),
+        git_commit="a" * 40,
+    )
+    return {
+        "registration_digest": registration.registration_digest,
+        "execution_id": registration.execution_id,
+        "control_plane_key": registration.control_plane_key,
+        "task_digest": registration.task_digest,
+        "task_key": registration.task_key,
+        "artifact_digest": registration.artifact_digest,
+        "artifact_type": registration.artifact_type,
+        "schema_version": registration.schema_version,
+        "artifact_path": registration.artifact_path,
+        "parent_digests_json": list(registration.parent_digests),
+        "git_commit": registration.git_commit,
+        "registration_json": jsonable(registration),
+    }
+
+
+def _p4_repository(runner):
+    repository = object.__new__(runner.FormalP4ForwardPrequentialRepository)
+    repository._outcome_gate = None
+    return repository
+
+
+def _task_state(
+    manifest: ControlPlaneManifest,
+    *,
+    task_key: str,
+    status: str,
+    classification: str,
+    facts=(),
+) -> ControlPlaneManifest:
+    payload = manifest.to_dict(include_digest=False)
+    task = next(item for item in payload["tasks"] if item["task_key"] == task_key)
+    task["status"] = status
+    task["completion_classification"] = classification
+    payload["facts"]["artifacts"] = sorted({*payload["facts"]["artifacts"], *facts})
+    return ControlPlaneManifest.from_dict(payload)
+
+
+def test_p4_only_repository_accepts_exact_definition_and_attested_freeze(
+    tmp_path,
+) -> None:
+    runner = _runner()
+    repository = _p4_repository(runner)
+    base = ControlPlaneManifest.from_dict(_minimal_live_manifest())
+    definition, frozen = _p4_definition_and_freeze()
+    assert (
+        repository._verify_formal_p4_v3_import(
+            _P4ImportCursor(base),
+            control_plane_key=formal_p4.CONTROL_PLANE_KEY,
+            manifest=definition,
+        )
+        is True
+    )
+    assert (
+        repository._verify_formal_p4_v3_import(
+            _P4ImportCursor(definition),
+            control_plane_key=formal_p4.CONTROL_PLANE_KEY,
+            manifest=definition,
+        )
+        is True
+    )
+    with pytest.raises(
+        ResearchOSValidationError,
+        match="formal_p4_v3_arming_registration_changed",
+    ):
+        repository._verify_formal_p4_v3_import(
+            _P4ImportCursor(definition),
+            control_plane_key=formal_p4.CONTROL_PLANE_KEY,
+            manifest=frozen,
+            artifact_root=tmp_path,
+        )
+    row = _arming_registration_row(runner, tmp_path, frozen)
+    assert (
+        repository._verify_formal_p4_v3_import(
+            _P4ImportCursor(definition, registrations=[row]),
+            control_plane_key=formal_p4.CONTROL_PLANE_KEY,
+            manifest=frozen,
+            artifact_root=tmp_path,
+        )
+        is True
+    )
+
+
+def test_p4_only_repository_routes_exact_v3_before_legacy_and_delegates_after(
+    monkeypatch,
+) -> None:
+    runner = _runner()
+    repository = _p4_repository(runner)
+    base = ControlPlaneManifest.from_dict(_minimal_live_manifest())
+    definition, frozen = _p4_definition_and_freeze()
+    delegated: list[str] = []
+
+    def legacy(self, cursor, *, control_plane_key, manifest):
+        del self, cursor, manifest
+        delegated.append(control_plane_key)
+
+    monkeypatch.setattr(
+        PostgresResearchOSRepository,
+        "_verify_m4_v2_failed_global_routing_recovery_v3_import",
+        legacy,
+    )
+    repository._verify_m4_v2_failed_global_routing_recovery_v3_import(
+        _P4ImportCursor(base),
+        control_plane_key=formal_p4.CONTROL_PLANE_KEY,
+        manifest=base,
+    )
+    assert delegated == [formal_p4.CONTROL_PLANE_KEY]
+    repository._verify_m4_v2_failed_global_routing_recovery_v3_import(
+        _P4ImportCursor(base),
+        control_plane_key=formal_p4.CONTROL_PLANE_KEY,
+        manifest=definition,
+    )
+    assert delegated == [formal_p4.CONTROL_PLANE_KEY]
+    repository._verify_m4_v2_failed_global_routing_recovery_v3_import(
+        _P4ImportCursor(frozen),
+        control_plane_key=formal_p4.CONTROL_PLANE_KEY,
+        manifest=frozen,
+    )
+    assert delegated == [
+        formal_p4.CONTROL_PLANE_KEY,
+        formal_p4.CONTROL_PLANE_KEY,
+    ]
+
+
+@pytest.mark.parametrize(
+    "marker",
+    (
+        formal_p4.EVIDENCE_TASK_KEY,
+        formal_p4.DECISION_TASK_KEY,
+        formal_p4.REPLAY_TASK_KEY,
+        formal_p4.SUCCESSOR_P5_TASK_KEY,
+    ),
+)
+def test_p4_only_repository_rejects_every_partial_v3_marker(marker: str) -> None:
+    runner = _runner()
+    repository = _p4_repository(runner)
+    base = ControlPlaneManifest.from_dict(_minimal_live_manifest())
+    definition, _ = _p4_definition_and_freeze()
+    payload = base.to_dict(include_digest=False)
+    source_task = next(
+        item
+        for item in definition.to_dict(include_digest=False)["tasks"]
+        if item["task_key"] == marker
+    )
+    payload["tasks"].append(source_task)
+    partial = ControlPlaneManifest.from_dict(payload)
+    with pytest.raises(
+        ResearchOSValidationError,
+        match="formal_p4_v3_repository_import_changed",
+    ):
+        repository._verify_m4_v2_failed_global_routing_recovery_v3_import(
+            _P4ImportCursor(base),
+            control_plane_key=formal_p4.CONTROL_PLANE_KEY,
+            manifest=partial,
+        )
+
+
+@pytest.mark.parametrize(
+    "fact",
+    (
+        formal_p4.CONTRACT_FREEZE_FACT,
+        formal_p4.EXECUTION_COMPLETE_FACT,
+        formal_p4.EVIDENCE_COMPILED_FACT,
+        f"{formal_p4.DECISION_TASK_KEY}:COMPLETE",
+        formal_p4.PASS_TO_P5_FACT,
+        formal_p4.FAIL_FACT,
+        formal_p4.INVALID_FACT,
+        f"{formal_p4.REPLAY_TASK_KEY}:COMPLETE",
+        formal_p4.REPLAY_VERIFIED_FACT,
+        f"{formal_p4.SUCCESSOR_P5_TASK_KEY}:COMPLETE",
+    ),
+)
+def test_p4_only_repository_rejects_every_standalone_v3_fact(fact: str) -> None:
+    runner = _runner()
+    repository = _p4_repository(runner)
+    base = ControlPlaneManifest.from_dict(_minimal_live_manifest())
+    payload = base.to_dict(include_digest=False)
+    payload["facts"]["artifacts"] = sorted({*payload["facts"]["artifacts"], fact})
+    partial = ControlPlaneManifest.from_dict(payload)
+    with pytest.raises(
+        ResearchOSValidationError,
+        match="formal_p4_v3_repository_import_changed",
+    ):
+        repository._verify_m4_v2_failed_global_routing_recovery_v3_import(
+            _P4ImportCursor(base),
+            control_plane_key=formal_p4.CONTROL_PLANE_KEY,
+            manifest=partial,
+        )
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ("duplicate", "execution", "path", "parents", "git_column", "content"),
+)
+def test_p4_only_repository_rejects_registration_drift(
+    tmp_path,
+    corruption: str,
+) -> None:
+    runner = _runner()
+    repository = _p4_repository(runner)
+    definition, frozen = _p4_definition_and_freeze()
+    row = _arming_registration_row(runner, tmp_path, frozen)
+    rows = [row]
+    if corruption == "duplicate":
+        rows.append(deepcopy(row))
+    elif corruption == "content":
+        (tmp_path / row["artifact_path"]).write_text("{}\n", encoding="utf-8")
+    elif corruption == "parents":
+        row["parent_digests_json"] = ["0" * 64]
+    elif corruption == "git_column":
+        row["git_commit"] = "b" * 40
+    else:
+        field = "execution_id" if corruption == "execution" else "artifact_path"
+        row[field] = f"changed-{row[field]}"
+    with pytest.raises(
+        ResearchOSValidationError,
+        match="formal_p4_v3_arming_registration_changed",
+    ):
+        repository._verify_formal_p4_v3_import(
+            _P4ImportCursor(definition, registrations=rows),
+            control_plane_key=formal_p4.CONTROL_PLANE_KEY,
+            manifest=frozen,
+            artifact_root=tmp_path,
+        )
+
+
+def test_p4_only_repository_accepts_exact_running_and_completed_transitions() -> None:
+    runner = _runner()
+    repository = _p4_repository(runner)
+    _, frozen = _p4_definition_and_freeze()
+    running = _task_state(
+        frozen,
+        task_key=formal_p4.EXECUTION_TASK_KEY,
+        status=TaskStatus.RUNNING.value,
+        classification=CompletionClassification.INTEGRATED.value,
+    )
+    repository._verify_post_freeze_transition(current=frozen, incoming=running)
+    task = next(
+        item for item in running.tasks if item.task_key == formal_p4.EXECUTION_TASK_KEY
+    )
+    completed = _task_state(
+        running,
+        task_key=formal_p4.EXECUTION_TASK_KEY,
+        status=TaskStatus.COMPLETED.value,
+        classification=CompletionClassification.COMPLETE.value,
+        facts=(
+            formal_p4.EXECUTION_COMPLETE_FACT,
+            mainline_completion_fact(task=task, execution_id="b" * 64),
+        ),
+    )
+    repository._verify_post_freeze_transition(current=running, incoming=completed)
+
+
+@pytest.mark.parametrize(
+    "fact",
+    (
+        formal_p4.p3.PASS_TO_P4_FACT,
+        formal_p4.PASS_TO_P5_FACT,
+        formal_p4.FAIL_FACT,
+        formal_p4.INVALID_FACT,
+        "promotion:TRIGGERED",
+        "unapproved:FACT",
+    ),
+)
+def test_p4_only_repository_rejects_direct_or_arbitrary_facts(fact: str) -> None:
+    runner = _runner()
+    repository = _p4_repository(runner)
+    _, frozen = _p4_definition_and_freeze()
+    payload = frozen.to_dict(include_digest=False)
+    payload["facts"]["artifacts"] = sorted({*payload["facts"]["artifacts"], fact})
+    changed = ControlPlaneManifest.from_dict(payload)
+    with pytest.raises(
+        ResearchOSValidationError,
+        match="formal_p4_v3_post_freeze_transition_changed",
+    ):
+        repository._verify_post_freeze_transition(current=frozen, incoming=changed)
+
+
+def _completed_replay_manifest() -> ControlPlaneManifest:
+    _, frozen = _p4_definition_and_freeze()
+    payload = frozen.to_dict(include_digest=False)
+    for task in payload["tasks"]:
+        if task["task_key"] in formal_p4.P4_TASK_KEY_ALLOWLIST:
+            task["status"] = TaskStatus.COMPLETED.value
+            task["completion_classification"] = CompletionClassification.COMPLETE.value
+    replay = next(
+        item
+        for item in ControlPlaneManifest.from_dict(payload).tasks
+        if item.task_key == formal_p4.REPLAY_TASK_KEY
+    )
+    payload["facts"]["artifacts"] = sorted(
+        {
+            *payload["facts"]["artifacts"],
+            f"{formal_p4.REPLAY_TASK_KEY}:COMPLETE",
+            mainline_completion_fact(task=replay, execution_id="c" * 64),
+        }
+    )
+    return ControlPlaneManifest.from_dict(payload)
+
+
+def test_p4_only_outcome_gate_is_single_use_non_reentrant_and_finally_closed(
+    monkeypatch,
+) -> None:
+    runner = _runner()
+    repository = _p4_repository(runner)
+    current = _completed_replay_manifest()
+    payload = current.to_dict(include_digest=False)
+    added = frozenset((formal_p4.REPLAY_VERIFIED_FACT, formal_p4.PASS_TO_P5_FACT))
+    payload["facts"]["artifacts"] = sorted({*payload["facts"]["artifacts"], *added})
+    incoming = ControlPlaneManifest.from_dict(payload)
+
+    with pytest.raises(ResearchOSValidationError):
+        repository._verify_post_freeze_transition(
+            current=current,
+            incoming=incoming,
+        )
+
+    def import_fixture(self, **kwargs):
+        assert kwargs["source"] == ("m4-p4-v3-outcome-after-generic-and-typed-replay")
+        candidate = ControlPlaneManifest.from_dict(kwargs["payload"])
+        self._verify_post_freeze_transition(current=current, incoming=candidate)
+        return "outcome-imported"
+
+    monkeypatch.setattr(
+        PostgresResearchOSRepository,
+        "import_manifest",
+        import_fixture,
+    )
+    result = repository._import_authoritative_outcome(
+        payload=incoming.to_dict(include_digest=True),
+        outcome_fact=formal_p4.PASS_TO_P5_FACT,
+        typed_replay_verified=True,
+    )
+    assert result == "outcome-imported"
+    assert repository._outcome_gate is None
+    repository._outcome_gate = {"already": "open"}
+    with pytest.raises(
+        ResearchOSValidationError,
+        match="formal_p4_v3_outcome_gate_reentrant",
+    ):
+        repository._import_authoritative_outcome(
+            payload=incoming.to_dict(include_digest=True),
+            outcome_fact=formal_p4.PASS_TO_P5_FACT,
+            typed_replay_verified=True,
+        )
+    repository._outcome_gate = None
+
+
+def test_p4_only_repository_rejects_freeze_removal_and_definition_change() -> None:
+    runner = _runner()
+    repository = _p4_repository(runner)
+    definition, frozen = _p4_definition_and_freeze()
+    with pytest.raises(
+        ResearchOSValidationError,
+        match="formal_p4_v3_repository_import_changed",
+    ):
+        repository._verify_formal_p4_v3_import(
+            _P4ImportCursor(frozen),
+            control_plane_key=formal_p4.CONTROL_PLANE_KEY,
+            manifest=definition,
+        )
+    payload = frozen.to_dict(include_digest=False)
+    task = next(
+        item
+        for item in payload["tasks"]
+        if item["task_key"] == formal_p4.EVIDENCE_TASK_KEY
+    )
+    task["priority"] += 1
+    changed = ControlPlaneManifest.from_dict(payload)
+    with pytest.raises(
+        ResearchOSValidationError,
+        match="formal_p4_v3_post_freeze_transition_changed",
+    ):
+        repository._verify_post_freeze_transition(current=frozen, incoming=changed)

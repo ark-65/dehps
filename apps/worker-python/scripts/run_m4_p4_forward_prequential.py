@@ -5,7 +5,7 @@ import hashlib
 import json
 import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +26,15 @@ from dehps.research_os.information_theory.measurement_system_v2 import (
 from dehps.research_os.information_theory.measurement_system_v2.migration import (
     build_additive_task_manifest,
 )
-from dehps.research_os.models import MainlineArtifactRegistration
+from dehps.research_os.mainline import completion_fact_execution_id
+from dehps.research_os.models import (
+    CompletionClassification,
+    ControlPlaneManifest,
+    MainlineArtifactRegistration,
+    ResearchOSValidationError,
+    TaskStatus,
+    jsonable,
+)
 from dehps.research_os.repository import PostgresResearchOSRepository
 
 CONTROL_PLANE_KEY = formal_p4.CONTROL_PLANE_KEY
@@ -35,6 +43,423 @@ ARMING_EXECUTION_ID = hashlib.sha256(
         f"{formal_p4.CONTRACT_KEY}|ARMING_PREREGISTRATION|{formal_p4.CONTRACT_DIGEST}"
     ).encode()
 ).hexdigest()
+V3_EXCLUSIVE_TASK_KEYS = frozenset(
+    {
+        formal_p4.EVIDENCE_TASK_KEY,
+        formal_p4.DECISION_TASK_KEY,
+        formal_p4.REPLAY_TASK_KEY,
+        formal_p4.SUCCESSOR_P5_TASK_KEY,
+    }
+)
+V3_EXCLUSIVE_FACTS = frozenset(
+    {
+        formal_p4.CONTRACT_FREEZE_FACT,
+        formal_p4.EXECUTION_COMPLETE_FACT,
+        formal_p4.EVIDENCE_COMPILED_FACT,
+        f"{formal_p4.DECISION_TASK_KEY}:COMPLETE",
+        formal_p4.PASS_TO_P5_FACT,
+        formal_p4.FAIL_FACT,
+        formal_p4.INVALID_FACT,
+        f"{formal_p4.REPLAY_TASK_KEY}:COMPLETE",
+        formal_p4.REPLAY_VERIFIED_FACT,
+        f"{formal_p4.SUCCESSOR_P5_TASK_KEY}:COMPLETE",
+    }
+)
+
+
+class FormalP4ForwardPrequentialRepository(PostgresResearchOSRepository):
+    """P4-only exact import gate; the frozen base repository stays untouched."""
+
+    _outcome_gate: dict[str, Any] | None = None
+
+    def _verify_m4_v2_failed_global_routing_recovery_v3_import(
+        self,
+        cursor,
+        *,
+        control_plane_key: str,
+        manifest: ControlPlaneManifest,
+    ) -> None:
+        tasks = {item.task_key: item for item in manifest.tasks}
+        facts = set(manifest.facts.artifacts)
+        if not V3_EXCLUSIVE_TASK_KEYS.intersection(
+            tasks
+        ) and not V3_EXCLUSIVE_FACTS.intersection(facts):
+            return super()._verify_m4_v2_failed_global_routing_recovery_v3_import(
+                cursor,
+                control_plane_key=control_plane_key,
+                manifest=manifest,
+            )
+        handled = self._verify_formal_p4_v3_import(
+            cursor,
+            control_plane_key=control_plane_key,
+            manifest=manifest,
+        )
+        if handled:
+            return
+        super()._verify_m4_v2_failed_global_routing_recovery_v3_import(
+            cursor,
+            control_plane_key=control_plane_key,
+            manifest=manifest,
+        )
+
+    def _verify_formal_p4_v3_import(
+        self,
+        cursor,
+        *,
+        control_plane_key: str,
+        manifest: ControlPlaneManifest,
+        artifact_root: Path = ROOT_DIR,
+    ) -> bool:
+        error = "formal_p4_v3_repository_import_changed"
+        if control_plane_key != CONTROL_PLANE_KEY:
+            raise ResearchOSValidationError(error)
+        control = cursor.execute(
+            "SELECT current_manifest_digest FROM research_os_control_planes "
+            "WHERE control_plane_key = %s FOR UPDATE",
+            (control_plane_key,),
+        ).fetchone()
+        if control is None:
+            raise ResearchOSValidationError(error)
+        current_row = cursor.execute(
+            "SELECT manifest_json FROM research_os_manifests WHERE manifest_digest = %s",
+            (str(control["current_manifest_digest"]),),
+        ).fetchone()
+        if current_row is None:
+            raise ResearchOSValidationError(error)
+        current = ControlPlaneManifest.from_dict(dict(current_row["manifest_json"]))
+        current_tasks = {item.task_key: item for item in current.tasks}
+        current_has_v3 = formal_p4.EVIDENCE_TASK_KEY in current_tasks
+        current_frozen = formal_p4.CONTRACT_FREEZE_FACT in current.facts.artifacts
+        incoming_frozen = formal_p4.CONTRACT_FREEZE_FACT in manifest.facts.artifacts
+
+        if current_has_v3 and current_frozen:
+            if not incoming_frozen:
+                raise ResearchOSValidationError(error)
+            self._verify_post_freeze_transition(current=current, incoming=manifest)
+            return False
+
+        try:
+            source = formal_p4.load_source_contract(root_dir=ROOT_DIR)
+            source_digest = str(source["artifact_digest"])
+            definition_payload, _ = builder.build_definition_manifest(
+                current.to_dict(include_digest=True),
+                source_digest=source_digest,
+            )
+            definition = ControlPlaneManifest.from_dict(definition_payload)
+            if not current_has_v3:
+                if incoming_frozen or manifest.to_dict(
+                    include_digest=True
+                ) != definition.to_dict(include_digest=True):
+                    raise ValueError("definition")
+                return True
+            if not current_frozen and not incoming_frozen:
+                if manifest.to_dict(include_digest=True) != definition.to_dict(
+                    include_digest=True
+                ):
+                    raise ValueError("idempotence")
+                return True
+            frozen_payload, _ = builder._build_manifest(
+                current.to_dict(include_digest=True),
+                source_digest=source_digest,
+                include_freeze_fact=True,
+            )
+            frozen = ControlPlaneManifest.from_dict(frozen_payload)
+            if manifest.to_dict(include_digest=True) != frozen.to_dict(
+                include_digest=True
+            ):
+                raise ValueError("freeze")
+            self._verify_arming_registration(
+                cursor,
+                manifest=frozen,
+                artifact_root=artifact_root,
+            )
+            return True
+        except ResearchOSValidationError:
+            raise
+        except Exception as exc:
+            raise ResearchOSValidationError(error) from exc
+
+    @staticmethod
+    def _task_state(
+        manifest: ControlPlaneManifest,
+        task,
+    ) -> tuple[str, str | None, str | None]:
+        state = manifest.task_state_by_digest[task.artifact_digest]
+        return (
+            state.declared_status.value,
+            (
+                None
+                if state.completion_classification is None
+                else state.completion_classification.value
+            ),
+            state.superseded_by_task_digest,
+        )
+
+    def _verify_post_freeze_transition(
+        self,
+        *,
+        current: ControlPlaneManifest,
+        incoming: ControlPlaneManifest,
+    ) -> None:
+        error = "formal_p4_v3_post_freeze_transition_changed"
+        current_payload = current.to_dict(include_digest=False)
+        incoming_payload = incoming.to_dict(include_digest=False)
+        if (
+            current_payload["schema_version"] != incoming_payload["schema_version"]
+            or current_payload["goals"] != incoming_payload["goals"]
+            or current.facts.evidence != incoming.facts.evidence
+            or current.facts.external_events != incoming.facts.external_events
+            or current.facts.authorities != incoming.facts.authorities
+        ):
+            raise ResearchOSValidationError(error)
+        current_tasks = {item.task_key: item for item in current.tasks}
+        incoming_tasks = {item.task_key: item for item in incoming.tasks}
+        if set(current_tasks) != set(incoming_tasks):
+            raise ResearchOSValidationError(error)
+
+        state_changes: list[tuple[str, tuple[str, str], tuple[str, str]]] = []
+        for key, old in current_tasks.items():
+            new = incoming_tasks[key]
+            old_payload = old.to_dict()
+            new_payload = new.to_dict()
+            old_state = self._task_state(current, old)
+            new_state = self._task_state(incoming, new)
+            if key not in formal_p4.P4_TASK_KEY_ALLOWLIST:
+                if old_payload != new_payload or old_state != new_state:
+                    raise ResearchOSValidationError(error)
+                continue
+            if old_payload != new_payload or old_state[2] != new_state[2]:
+                raise ResearchOSValidationError(error)
+            if old_state != new_state:
+                state_changes.append((key, old_state[:2], new_state[:2]))
+        if len(state_changes) > 1:
+            raise ResearchOSValidationError(error)
+
+        old_facts = set(current.facts.artifacts)
+        new_facts = set(incoming.facts.artifacts)
+        if not old_facts.issubset(new_facts):
+            raise ResearchOSValidationError(error)
+        added = new_facts - old_facts
+        if state_changes:
+            key, old_state, new_state = state_changes[0]
+            if (
+                old_state[0] == TaskStatus.DRAFT.value
+                and old_state[1]
+                in {None, CompletionClassification.INTEGRATION_PENDING.value}
+                and new_state
+                == (
+                    TaskStatus.RUNNING.value,
+                    CompletionClassification.INTEGRATED.value,
+                )
+            ):
+                if added:
+                    raise ResearchOSValidationError(error)
+                return
+            if old_state == (
+                TaskStatus.RUNNING.value,
+                CompletionClassification.INTEGRATED.value,
+            ) and new_state == (
+                TaskStatus.COMPLETED.value,
+                CompletionClassification.COMPLETE.value,
+            ):
+                task = incoming_tasks[key]
+                completion_ids = [
+                    value
+                    for value in added
+                    if completion_fact_execution_id(task=task, fact_key=value)
+                    is not None
+                ]
+                custom = {
+                    formal_p4.EXECUTION_TASK_KEY: formal_p4.EXECUTION_COMPLETE_FACT,
+                    formal_p4.EVIDENCE_TASK_KEY: formal_p4.EVIDENCE_COMPILED_FACT,
+                    formal_p4.DECISION_TASK_KEY: f"{formal_p4.DECISION_TASK_KEY}:COMPLETE",
+                    formal_p4.REPLAY_TASK_KEY: f"{formal_p4.REPLAY_TASK_KEY}:COMPLETE",
+                }[key]
+                if len(completion_ids) != 1 or added != {
+                    completion_ids[0],
+                    custom,
+                }:
+                    raise ResearchOSValidationError(error)
+                return
+            raise ResearchOSValidationError(error)
+        if not added:
+            return
+        gate = self._outcome_gate
+        replay_state = self._task_state(
+            current,
+            current_tasks[formal_p4.REPLAY_TASK_KEY],
+        )
+        if (
+            gate is None
+            or gate.get("consumed") is not False
+            or gate.get("manifest_digest") != incoming.artifact_digest
+            or frozenset(added) != gate.get("added_facts")
+            or replay_state[:2]
+            != (
+                TaskStatus.COMPLETED.value,
+                CompletionClassification.COMPLETE.value,
+            )
+            or f"{formal_p4.REPLAY_TASK_KEY}:COMPLETE" not in old_facts
+        ):
+            raise ResearchOSValidationError(error)
+        gate["consumed"] = True
+
+    @staticmethod
+    def _verify_arming_registration(
+        cursor,
+        *,
+        manifest: ControlPlaneManifest,
+        artifact_root: Path,
+    ) -> None:
+        error = "formal_p4_v3_arming_registration_changed"
+        tasks = [
+            item
+            for item in manifest.tasks
+            if item.task_key == formal_p4.EXECUTION_TASK_KEY
+        ]
+        prereg = formal_p4.frozen_preregistration()
+        if len(tasks) != 1:
+            raise ResearchOSValidationError(error)
+        task = tasks[0]
+        expected_path = (
+            "runtime/research-os/mainline/tasks/"
+            f"{task.task_key}/{ARMING_EXECUTION_ID}/artifacts/"
+            f"formal-p4-v3-preregistration/{prereg['artifact_digest']}/"
+            "preregistration.json"
+        )
+        rows = cursor.execute(
+            """
+            SELECT registration_digest, execution_id, control_plane_key,
+                   task_digest, task_key, artifact_digest, artifact_type,
+                   schema_version, artifact_path, parent_digests_json,
+                   git_commit, registration_json
+            FROM research_os_mainline_artifacts
+            WHERE control_plane_key = %s AND task_key = %s
+            ORDER BY registration_digest
+            """,
+            (CONTROL_PLANE_KEY, task.task_key),
+        ).fetchall()
+        if len(rows) != 1:
+            raise ResearchOSValidationError(error)
+        row = dict(rows[0])
+        payload = dict(row.get("registration_json") or {})
+        required = {
+            "execution_id",
+            "control_plane_key",
+            "task_key",
+            "task_digest",
+            "artifact_digest",
+            "artifact_type",
+            "schema_version",
+            "artifact_path",
+            "parent_digests",
+            "git_commit",
+        }
+        if set(payload) != required:
+            raise ResearchOSValidationError(error)
+        registration = MainlineArtifactRegistration(
+            execution_id=str(payload["execution_id"]),
+            control_plane_key=str(payload["control_plane_key"]),
+            task_key=str(payload["task_key"]),
+            task_digest=str(payload["task_digest"]),
+            artifact_digest=str(payload["artifact_digest"]),
+            artifact_type=str(payload["artifact_type"]),
+            schema_version=str(payload["schema_version"]),
+            artifact_path=str(payload["artifact_path"]),
+            parent_digests=tuple(str(item) for item in payload["parent_digests"]),
+            git_commit=str(payload["git_commit"]),
+        )
+        exact = {
+            "execution_id": ARMING_EXECUTION_ID,
+            "control_plane_key": CONTROL_PLANE_KEY,
+            "task_digest": task.artifact_digest,
+            "task_key": task.task_key,
+            "artifact_digest": prereg["artifact_digest"],
+            "artifact_type": prereg["artifact_type"],
+            "schema_version": prereg["schema_version"],
+            "artifact_path": expected_path,
+        }
+        git_commit = registration.git_commit
+        if (
+            len(git_commit) != 40
+            or any(character not in "0123456789abcdef" for character in git_commit)
+            or any(str(row.get(key)) != str(value) for key, value in exact.items())
+            or any(str(payload.get(key)) != str(value) for key, value in exact.items())
+            or str(row.get("git_commit")) != git_commit
+            or tuple(row.get("parent_digests_json") or ())
+            != tuple(prereg["parent_digests"])
+            or registration.parent_digests != tuple(prereg["parent_digests"])
+            or str(row.get("registration_digest")) != registration.registration_digest
+            or jsonable(registration) != payload
+        ):
+            raise ResearchOSValidationError(error)
+        root = artifact_root.resolve()
+        path = (root / expected_path).resolve()
+        expected_bytes = (
+            json.dumps(
+                prereg,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode()
+        if (
+            not path.is_relative_to(root)
+            or not path.is_file()
+            or path.read_bytes() != expected_bytes
+        ):
+            raise ResearchOSValidationError(error)
+        try:
+            registered = formal_p4.validate_artifact(
+                json.loads(path.read_text(encoding="utf-8"))
+            )
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise ResearchOSValidationError(error) from exc
+        if registered != prereg:
+            raise ResearchOSValidationError(error)
+
+    def _import_authoritative_outcome(
+        self,
+        *,
+        payload: Mapping[str, Any],
+        outcome_fact: str,
+        typed_replay_verified: bool,
+    ):
+        if self._outcome_gate is not None:
+            raise ResearchOSValidationError("formal_p4_v3_outcome_gate_reentrant")
+        if outcome_fact not in {
+            formal_p4.PASS_TO_P5_FACT,
+            formal_p4.FAIL_FACT,
+            formal_p4.INVALID_FACT,
+        }:
+            raise ResearchOSValidationError("formal_p4_v3_outcome_gate_changed")
+        if not typed_replay_verified and outcome_fact != formal_p4.INVALID_FACT:
+            raise ResearchOSValidationError("formal_p4_v3_outcome_gate_changed")
+        added = frozenset(
+            (formal_p4.REPLAY_VERIFIED_FACT, outcome_fact)
+            if typed_replay_verified
+            else (outcome_fact,)
+        )
+        manifest = ControlPlaneManifest.from_dict(dict(payload))
+        self._outcome_gate = {
+            "manifest_digest": manifest.artifact_digest,
+            "added_facts": added,
+            "consumed": False,
+        }
+        try:
+            result = super().import_manifest(
+                control_plane_key=CONTROL_PLANE_KEY,
+                payload=manifest.to_dict(include_digest=True),
+                source="m4-p4-v3-outcome-after-generic-and-typed-replay",
+            )
+            if self._outcome_gate.get("consumed") is not True:
+                raise ResearchOSValidationError(
+                    "formal_p4_v3_outcome_gate_not_consumed"
+                )
+            return result
+        finally:
+            self._outcome_gate = None
 
 
 def _snapshot(repository: PostgresResearchOSRepository):
@@ -45,7 +470,7 @@ def _snapshot(repository: PostgresResearchOSRepository):
 def compact_status(
     *, repository: PostgresResearchOSRepository | None = None
 ) -> dict[str, Any]:
-    repository = repository or PostgresResearchOSRepository()
+    repository = repository or FormalP4ForwardPrequentialRepository()
     repository.ensure_schema()
     manifest, snapshot = _snapshot(repository)
     by_key = {item.task_key: item.status.value for item in snapshot.resolutions}
@@ -94,7 +519,7 @@ def compact_status(
 def cycle(
     *, apply: bool, repository: PostgresResearchOSRepository | None = None
 ) -> dict[str, Any]:
-    repository = repository or PostgresResearchOSRepository()
+    repository = repository or FormalP4ForwardPrequentialRepository()
     repository.ensure_schema()
     formal_p4.load_source_contract(root_dir=ROOT_DIR)
     formal_p4.verify_governance(AgentRequestRepository())
@@ -255,10 +680,12 @@ def _activate_after_generic_replay(
             else (outcome_fact,)
         ),
     )
-    imported = repository.import_manifest(
-        control_plane_key=CONTROL_PLANE_KEY,
+    if not isinstance(repository, FormalP4ForwardPrequentialRepository):
+        raise TypeError("formal P4 authoritative outcome repository changed")
+    imported = repository._import_authoritative_outcome(
         payload=activated,
-        source="m4-p4-v3-outcome-after-generic-and-typed-replay",
+        outcome_fact=outcome_fact,
+        typed_replay_verified=typed_replay_verified,
     )
     return {
         "status": "AUTHORITATIVE_OUTCOME_ACTIVATED_AFTER_BOTH_REPLAYS",
@@ -357,7 +784,7 @@ def _register_arming_preregistration(
 def install_armed_manifest(
     *, apply: bool, repository: PostgresResearchOSRepository | None = None
 ) -> dict[str, Any]:
-    repository = repository or PostgresResearchOSRepository()
+    repository = repository or FormalP4ForwardPrequentialRepository()
     repository.ensure_schema()
     source = formal_p4.load_source_contract(root_dir=ROOT_DIR)
     formal_p4.verify_governance(AgentRequestRepository())

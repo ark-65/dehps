@@ -1,5 +1,5 @@
 {
-  "artifact_digest": "9ccb282c258ed35d8b0f5d246a20d3f63b8e616660d1c2bdae40f24d55a99f11",
+  "artifact_digest": "f350d989e05f03a751851fe5b2763d818eb462473acc9eb629ec5c29dc911e19",
   "artifact_type": "m4_p4_forward_prequential_formal_source_contract_v3",
   "contract_digest": "8bcc651713e7356c5488727b786f987d01f08ea486a1df75d20de27ef339b3ac",
   "contract_key": "M4_P4_FORWARD_PREQUENTIAL_FORMAL_NEGATIVE_CONTROLS_V3",
@@ -33,6 +33,11 @@
     "engineering_request_id": 648,
     "engineering_request_key": "engineering-m4-p4-forward-prequential-formal-armed-v3-task-identity-correction",
     "engineering_request_payload_sha256": "ec15d027b2d140b3be80711bb7940ea1a1d39421655f15849b77d835c6e3f5fb",
+    "import_repair_approval_decision_id": 2743,
+    "import_repair_execution_id": 530,
+    "import_repair_request_id": 652,
+    "import_repair_request_key": "engineering-m4-p4-forward-prequential-formal-v3-p4-only-import-repair",
+    "import_repair_request_payload_sha256": "85751a637f3bd24a8532b44eca79f8bb2639b04ecd227665258c34535234c21f",
     "research_approval_decision_id": 2718,
     "research_request_id": 646,
     "research_request_key": "research-m4-p4-forward-prequential-formal-contract-preregistration-v3",
@@ -41,9 +46,9 @@
   "schema_version": "dehps-m4-p4-forward-prequential-formal-source-contract.v3",
   "source_entries": [
     {
-      "bytes": 112640,
+      "bytes": 114363,
       "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/formal_p4_forward_prequential.py",
-      "sha256": "dcf54782ed765eb2f8f6a931711b09b41ea6f8af655cc3bdc1f97170ed8a163d"
+      "sha256": "4a3bd230a8f9664648b767f22f60628003d01da24ae7a266a8505171020fed2b"
     },
     {
       "bytes": 17411,
@@ -51,9 +56,9 @@
       "sha256": "0fc38cb76342d81c0f9abd975e054280e5e04e4d421b881ad37179ff5fffd164"
     },
     {
-      "bytes": 17574,
+      "bytes": 34660,
       "path": "apps/worker-python/scripts/run_m4_p4_forward_prequential.py",
-      "sha256": "fc34f7f8ba472428cd5bdd8b608b1705fa33a5db59d2f68e4b06387edec1398f"
+      "sha256": "721d2923e81ba33006a6b075d32068a4dca849e313ab54d7c303fc5f3964dddd"
     },
     {
       "bytes": 723,
@@ -66,5 +71,5 @@
       "sha256": "65108b929b70e2eedec93972617d22919d12f9dc7814ba8ba5d080989b611d27"
     }
   ],
-  "source_set_digest": "bf135aac0ce2b48981c06a863c5dfdee1982fd575cd42776defeb38f212cb907"
+  "source_set_digest": "526db67798532d789139bad5ce9589d9372ec89b080598fd7a8efaa7212692e9"
 }
