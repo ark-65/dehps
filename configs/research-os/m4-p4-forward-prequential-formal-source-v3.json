@@ -1,0 +1,70 @@
+{
+  "artifact_digest": "9ccb282c258ed35d8b0f5d246a20d3f63b8e616660d1c2bdae40f24d55a99f11",
+  "artifact_type": "m4_p4_forward_prequential_formal_source_contract_v3",
+  "contract_digest": "8bcc651713e7356c5488727b786f987d01f08ea486a1df75d20de27ef339b3ac",
+  "contract_key": "M4_P4_FORWARD_PREQUENTIAL_FORMAL_NEGATIVE_CONTROLS_V3",
+  "formal_preregistration": {
+    "artifact_digest": "7e5d2e41a0640df96f37120842786d78da752692ab6974987e88a90f090ef302",
+    "artifact_type": "M4P4ForwardPrequentialFormalPreregistrationV3",
+    "body": {
+      "contract_digest": "8bcc651713e7356c5488727b786f987d01f08ea486a1df75d20de27ef339b3ac",
+      "contract_key": "M4_P4_FORWARD_PREQUENTIAL_FORMAL_NEGATIVE_CONTROLS_V3",
+      "diagnostic_p4_decision_credit": false,
+      "execution_before_pass": "FORBIDDEN",
+      "p3_lineage_id": "M4_P3_FORWARD_PREQUENTIAL_CONFIRMATORY_SUCCESSOR_V1",
+      "p3_request_id": 640,
+      "p5_started": false,
+      "promotion_triggered": false,
+      "research_request_id": 646,
+      "research_request_payload_sha256": "ed45a98e6d826d015b52cac62df14ea2debe22cb5dd2b47f153c42f631a78031",
+      "source_digest": "139ddc97ce1d81ea4e6182359f8391532ed1911090db004bcdf9ebcdea5f9493",
+      "status": "FROZEN_NOT_EXECUTED"
+    },
+    "parent_digests": [
+      "8d43f343f555e0a69580c0ccb1fb398b5ff2c191689ef37751c095ba94b144dd",
+      "139ddc97ce1d81ea4e6182359f8391532ed1911090db004bcdf9ebcdea5f9493"
+    ],
+    "schema_version": "dehps-M4P4ForwardPrequentialFormalPreregistrationV3.v1"
+  },
+  "governance_bindings": {
+    "contract_digest": "8bcc651713e7356c5488727b786f987d01f08ea486a1df75d20de27ef339b3ac",
+    "engineering_approval_decision_id": 2724,
+    "engineering_execution_id": 527,
+    "engineering_request_id": 648,
+    "engineering_request_key": "engineering-m4-p4-forward-prequential-formal-armed-v3-task-identity-correction",
+    "engineering_request_payload_sha256": "ec15d027b2d140b3be80711bb7940ea1a1d39421655f15849b77d835c6e3f5fb",
+    "research_approval_decision_id": 2718,
+    "research_request_id": 646,
+    "research_request_key": "research-m4-p4-forward-prequential-formal-contract-preregistration-v3",
+    "research_request_payload_sha256": "ed45a98e6d826d015b52cac62df14ea2debe22cb5dd2b47f153c42f631a78031"
+  },
+  "schema_version": "dehps-m4-p4-forward-prequential-formal-source-contract.v3",
+  "source_entries": [
+    {
+      "bytes": 112640,
+      "path": "apps/worker-python/dehps/research_os/information_theory/measurement_system_v2/formal_p4_forward_prequential.py",
+      "sha256": "dcf54782ed765eb2f8f6a931711b09b41ea6f8af655cc3bdc1f97170ed8a163d"
+    },
+    {
+      "bytes": 17411,
+      "path": "apps/worker-python/scripts/build_m4_p4_forward_prequential_manifest.py",
+      "sha256": "0fc38cb76342d81c0f9abd975e054280e5e04e4d421b881ad37179ff5fffd164"
+    },
+    {
+      "bytes": 17574,
+      "path": "apps/worker-python/scripts/run_m4_p4_forward_prequential.py",
+      "sha256": "fc34f7f8ba472428cd5bdd8b608b1705fa33a5db59d2f68e4b06387edec1398f"
+    },
+    {
+      "bytes": 723,
+      "path": "deploy/systemd/dehps-m4-p4-forward-prequential-armed.service",
+      "sha256": "a67b497f09e94addca7f77c9a837d686b55e67919f79cbf5c0d7f6d9fc20775f"
+    },
+    {
+      "bytes": 249,
+      "path": "deploy/systemd/dehps-m4-p4-forward-prequential-armed.timer",
+      "sha256": "65108b929b70e2eedec93972617d22919d12f9dc7814ba8ba5d080989b611d27"
+    }
+  ],
+  "source_set_digest": "bf135aac0ce2b48981c06a863c5dfdee1982fd575cd42776defeb38f212cb907"
+}

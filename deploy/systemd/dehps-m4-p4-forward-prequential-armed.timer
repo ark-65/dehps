@@ -1,0 +1,12 @@
+[Unit]
+Description=Keep successor Formal P4 V3 armed for exact PASS_TO_P4 activation
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=15min
+Persistent=true
+AccuracySec=1min
+Unit=dehps-m4-p4-forward-prequential-armed.service
+
+[Install]
+WantedBy=timers.target
