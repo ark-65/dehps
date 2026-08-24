@@ -11,7 +11,7 @@ from typing import Any
 
 import requests
 
-from dehps.config import ROOT_DIR, get_settings
+from dehps.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,9 @@ class SsqDataSource(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def fetch_history(self, start_issue: str | None = None, end_issue: str | None = None) -> list[dict[str, Any]]:
+    def fetch_history(
+        self, start_issue: str | None = None, end_issue: str | None = None
+    ) -> list[dict[str, Any]]:
         raise NotImplementedError
 
 
@@ -70,10 +72,46 @@ class ZhcwSsqDataSource(SsqDataSource):
         raise RuntimeError(f"failed to fetch {url}: {last_error}")
 
     def fetch_latest(self) -> dict[str, Any] | None:
-        rows = self._fetch_history_page(query_type=0, page_num=1, page_size=1, issue_count=1)
+        rows = self._fetch_history_page(
+            query_type=0, page_num=1, page_size=1, issue_count=1
+        )
         return _normalize_remote_record(rows[0], self.name) if rows else None
 
-    def fetch_history(self, start_issue: str | None = None, end_issue: str | None = None) -> list[dict[str, Any]]:
+    def fetch_issue_with_prizes(self, issue: str) -> dict[str, Any] | None:
+        """Return one exact raw Zhcw issue record, including ``winnerDetails``.
+
+        This reporting-only surface deliberately does not pass through the
+        normalized training-history representation.  Callers must validate the
+        issue, draw numbers, and complete prize-tier payload before use.
+        """
+
+        normalized_issue = str(issue or "").strip()
+        if not normalized_issue or not normalized_issue.isdigit():
+            raise ValueError("issue must contain decimal digits")
+        response = self._fetch_history_response(
+            query_type=1,
+            page_num=1,
+            page_size=10,
+            start_issue=normalized_issue,
+            end_issue=normalized_issue,
+        )
+        matches = [
+            dict(record)
+            for record in response.get("data", [])
+            if str(
+                record.get("issue") or record.get("code") or record.get("term") or ""
+            ).strip()
+            == normalized_issue
+        ]
+        if not matches:
+            return None
+        if len(matches) != 1:
+            raise RuntimeError("zhcw returned duplicate exact issue prize records")
+        return matches[0]
+
+    def fetch_history(
+        self, start_issue: str | None = None, end_issue: str | None = None
+    ) -> list[dict[str, Any]]:
         if start_issue or end_issue:
             first = self._fetch_history_response(
                 query_type=1,
@@ -93,7 +131,10 @@ class ZhcwSsqDataSource(SsqDataSource):
                 end_date=today.isoformat(),
             )
 
-        rows = [_normalize_remote_record(record, self.name) for record in first.get("data", [])]
+        rows = [
+            _normalize_remote_record(record, self.name)
+            for record in first.get("data", [])
+        ]
         pages = int(first.get("pages") or 1)
         for page_num in range(2, pages + 1):
             if start_issue or end_issue:
@@ -112,7 +153,10 @@ class ZhcwSsqDataSource(SsqDataSource):
                     start_date=start_date,
                     end_date=today.isoformat(),
                 )
-            rows.extend(_normalize_remote_record(record, self.name) for record in page.get("data", []))
+            rows.extend(
+                _normalize_remote_record(record, self.name)
+                for record in page.get("data", [])
+            )
         return rows
 
     def _fetch_history_page(
@@ -166,7 +210,10 @@ class ZhcwSsqDataSource(SsqDataSource):
                 "tt": time.time(),
             },
         )
-        if not isinstance(payload, dict) or payload.get("resCode") not in (None, "000000"):
+        if not isinstance(payload, dict) or payload.get("resCode") not in (
+            None,
+            "000000",
+        ):
             snippet = str(payload)[:500]
             logger.error("failed to parse zhcw history response snippet: %s", snippet)
             raise RuntimeError("unable to parse zhcw history draw data")
@@ -183,13 +230,21 @@ class CsvSsqDataSource(SsqDataSource):
         elif configured_path:
             self.path = Path(configured_path)
         else:
-            raise ValueError("CSV source requires --csv-file or SSQ_CSV_PATH; no bundled sample CSV is provided")
+            raise ValueError(
+                "CSV source requires --csv-file or SSQ_CSV_PATH; no bundled sample CSV is provided"
+            )
 
     def fetch_latest(self) -> dict[str, Any] | None:
         rows = self.fetch_history()
-        return max(rows, key=lambda row: str(row.get("issue") or "").strip()) if rows else None
+        return (
+            max(rows, key=lambda row: str(row.get("issue") or "").strip())
+            if rows
+            else None
+        )
 
-    def fetch_history(self, start_issue: str | None = None, end_issue: str | None = None) -> list[dict[str, Any]]:
+    def fetch_history(
+        self, start_issue: str | None = None, end_issue: str | None = None
+    ) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         required_columns = {"issue", *(f"r{i}" for i in range(1, 7))}
         start_issue_key = start_issue.strip() if start_issue else None
@@ -199,7 +254,9 @@ class CsvSsqDataSource(SsqDataSource):
             missing_columns = sorted(required_columns - set(reader.fieldnames or []))
             if missing_columns:
                 joined = ", ".join(missing_columns)
-                raise ValueError(f"CSV source {self.path} missing required columns: {joined}")
+                raise ValueError(
+                    f"CSV source {self.path} missing required columns: {joined}"
+                )
 
             for row in reader:
                 issue = (row.get("issue") or "").strip()
@@ -219,7 +276,9 @@ class CsvSsqDataSource(SsqDataSource):
         return rows
 
 
-def get_data_source(source: str, *, csv_file: str | Path | None = None) -> SsqDataSource:
+def get_data_source(
+    source: str, *, csv_file: str | Path | None = None
+) -> SsqDataSource:
     if source == "zhcw":
         return ZhcwSsqDataSource()
     if source == "csv":
@@ -228,7 +287,9 @@ def get_data_source(source: str, *, csv_file: str | Path | None = None) -> SsqDa
 
 
 def _normalize_remote_record(record: dict[str, Any], source: str) -> dict[str, Any]:
-    red = _first_nonblank_value(record, ("red", "red_numbers", "redBalls", "frontWinningNum"))
+    red = _first_nonblank_value(
+        record, ("red", "red_numbers", "redBalls", "frontWinningNum")
+    )
     if isinstance(red, str):
         red_numbers = red.replace(",", " ").split()
     else:
@@ -237,7 +298,9 @@ def _normalize_remote_record(record: dict[str, Any], source: str) -> dict[str, A
         "issue": _first_nonblank_value(record, ("issue", "code", "term")),
         "draw_date": _first_nonblank_value(record, ("date", "draw_date", "openTime")),
         "red_numbers": red_numbers,
-        "blue_number": _first_nonblank_value(record, ("blue", "blue_number", "blueBall", "backWinningNum")),
+        "blue_number": _first_nonblank_value(
+            record, ("blue", "blue_number", "blueBall", "backWinningNum")
+        ),
         "source": source,
     }
 

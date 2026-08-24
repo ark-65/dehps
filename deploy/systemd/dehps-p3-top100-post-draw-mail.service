@@ -1,0 +1,19 @@
+[Unit]
+Description=DEHPS successor-P3 replay-bound post-draw monetary-return mail
+Documentation=file:/home/ark/workspace/dehps/docs/experiments/2026-08-24-m4-p3-top100-mail-and-return.md
+Wants=network-online.target
+After=network-online.target postgresql.service dehps-forward-prequential-successor.service
+StartLimitIntervalSec=30min
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ark/workspace/dehps/apps/worker-python
+EnvironmentFile=-/home/ark/workspace/dehps/.env
+EnvironmentFile=-/home/ark/.config/dehps/draw-sync.env
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/ark/workspace/dehps/runtime
+ExecStart=/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python scripts/run_m4_p3_top100_notification.py post --apply --deliver
