@@ -1987,6 +1987,9 @@ class PostgresResearchOSRepository:
         }
         if not current_p3_keys:
             return False
+        error = "m4_p3_forward_successor_import_changed"
+        if manifest.artifact_digest == current.artifact_digest:
+            return True
 
         current_external = set(current.facts.external_events)
         incoming_external = set(manifest.facts.external_events)
@@ -2034,9 +2037,8 @@ class PostgresResearchOSRepository:
             value for value in state_changes if value[0] in current_p3_keys
         ]
         if not p3_event_delta and not p3_added_tasks and not p3_state_changes:
-            return False
+            raise ResearchOSValidationError(error)
 
-        error = "m4_p3_forward_successor_import_changed"
         current_payload = current.to_dict(include_digest=False)
         incoming_payload = manifest.to_dict(include_digest=False)
         if (
