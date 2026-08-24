@@ -1,0 +1,12 @@
+[Unit]
+Description=Poll for replayed P3 settlement and complete issue payout every 15 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+Persistent=true
+AccuracySec=1min
+Unit=dehps-p3-top100-post-draw-mail.service
+
+[Install]
+WantedBy=timers.target

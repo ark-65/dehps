@@ -1,10 +1,14 @@
 from datetime import date
 
 import pytest
-
 from dehps.crawler import ssq_client
+from dehps.crawler.ssq_client import (
+    CsvSsqDataSource,
+    ZhcwSsqDataSource,
+    _normalize_remote_record,
+    _subtract_years,
+)
 from dehps.crawler.ssq_parser import validate_ssq_draw
-from dehps.crawler.ssq_client import CsvSsqDataSource, ZhcwSsqDataSource, _normalize_remote_record, _subtract_years
 
 
 def test_normalize_zhcw_record():
@@ -82,6 +86,60 @@ def test_zhcw_history_defaults_to_last_ten_years_until_system_date(monkeypatch):
     assert captured_params[0]["endDate"] == "2026-06-15"
 
 
+def test_zhcw_exact_issue_prize_record_is_reporting_only(monkeypatch):
+    captured_params = []
+    raw = {
+        "issue": "2026097",
+        "frontWinningNum": "01 02 03 04 05 06",
+        "backWinningNum": "07",
+        "winnerDetails": [
+            {
+                "awardEtc": tier,
+                "baseBetWinner": {"awardMoney": amount, "awardNum": 1},
+            }
+            for tier, amount in enumerate(
+                ("10000000", "264245", "3000", "200", "10", "5"), start=1
+            )
+        ],
+    }
+
+    def fake_get_json(self, url, params=None):
+        captured_params.append(params)
+        return {"resCode": "000000", "data": [raw]}
+
+    monkeypatch.setattr(ZhcwSsqDataSource, "_get_json_or_html", fake_get_json)
+
+    source = ZhcwSsqDataSource()
+    assert source.fetch_issue_with_prizes("2026097") == raw
+    assert captured_params == [
+        {
+            "transactionType": "10001001",
+            "lotteryId": "1",
+            "type": 1,
+            "pageNum": 1,
+            "pageSize": 10,
+            "issueCount": 0,
+            "startIssue": "2026097",
+            "endIssue": "2026097",
+            "startDate": "",
+            "endDate": "",
+            "tt": captured_params[0]["tt"],
+        }
+    ]
+    assert source.fetch_latest() != raw
+
+
+def test_zhcw_exact_issue_prize_record_rejects_duplicates(monkeypatch):
+    monkeypatch.setattr(
+        ZhcwSsqDataSource,
+        "_fetch_history_response",
+        lambda *args, **kwargs: {"data": [{"issue": "2026097"}, {"issue": "2026097"}]},
+    )
+
+    with pytest.raises(RuntimeError, match="duplicate exact issue prize records"):
+        ZhcwSsqDataSource().fetch_issue_with_prizes("2026097")
+
+
 def test_csv_source_requires_explicit_path(monkeypatch):
     monkeypatch.delenv("SSQ_CSV_PATH", raising=False)
 
@@ -147,7 +205,9 @@ def test_csv_source_trims_issue_before_range_filtering(tmp_path):
         encoding="utf-8",
     )
 
-    rows = CsvSsqDataSource(csv_path).fetch_history(start_issue=" 2026002 ", end_issue="2026002")
+    rows = CsvSsqDataSource(csv_path).fetch_history(
+        start_issue=" 2026002 ", end_issue="2026002"
+    )
 
     assert [row["issue"] for row in rows] == ["2026002"]
     assert rows[0]["blue_number"] == "9"

@@ -1,0 +1,11 @@
+[Unit]
+Description=Send successor-P3 Top-100 after the 17:00 replay gate on draw days
+
+[Timer]
+OnCalendar=Tue,Thu,Sun *-*-* 17:00:00 Asia/Shanghai
+Persistent=true
+AccuracySec=1min
+Unit=dehps-p3-top100-pre-draw-mail.service
+
+[Install]
+WantedBy=timers.target
