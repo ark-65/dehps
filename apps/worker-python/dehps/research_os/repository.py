@@ -860,48 +860,39 @@ class PostgresResearchOSRepository:
         task_revisions: list[tuple[str, str, str]] = []
 
         with self.connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
-            validation_manifest = manifest
-            if type(self) is PostgresResearchOSRepository and self._verify_m4_p3_forward_successor_import(
-                cursor,
-                control_plane_key=key,
-                manifest=manifest,
-            ):
-                validation_payload = manifest.to_dict(include_digest=False)
-                validation_payload["facts"]["external_events"] = [
-                    value
-                    for value in validation_payload["facts"]["external_events"]
-                    if not (
-                        value.startswith("m4-p3-forward-prequential:")
-                        and value.endswith(":DRAW_SYNCED")
-                    )
-                ]
-                validation_manifest = ControlPlaneManifest.from_dict(
-                    validation_payload
-                )
-            recovery_v3 = _load_m4_v2_global_routing_recovery_v3_builder()
-            v3_successor_present = any(
-                task.task_key == recovery_v3.RECOVERY_TASK_KEY
-                for task in manifest.tasks
-            )
-            self._verify_m4_v2_failed_global_routing_recovery_v3_import(
-                cursor, control_plane_key=key, manifest=validation_manifest
-            )
-            if not v3_successor_present:
-                self._verify_m4_v2_failed_global_routing_recovery_v2_import(
-                    cursor, control_plane_key=key, manifest=manifest
-                )
-            self._verify_m4_v2_failed_global_routing_recovery_import(
-                cursor, control_plane_key=key, manifest=manifest
-            )
-            replay_recovery = self._verify_m4_v2_failed_replay_recovery_import(
-                cursor, control_plane_key=key, manifest=manifest
-            )
-            if not replay_recovery:
-                self._verify_m4_v2_failed_task_recovery_import(
+            p3_successor_transition_verified = (
+                type(self) is PostgresResearchOSRepository
+                and self._verify_m4_p3_forward_successor_import(
                     cursor,
                     control_plane_key=key,
                     manifest=manifest,
                 )
+            )
+            if not p3_successor_transition_verified:
+                recovery_v3 = _load_m4_v2_global_routing_recovery_v3_builder()
+                v3_successor_present = any(
+                    task.task_key == recovery_v3.RECOVERY_TASK_KEY
+                    for task in manifest.tasks
+                )
+                self._verify_m4_v2_failed_global_routing_recovery_v3_import(
+                    cursor, control_plane_key=key, manifest=manifest
+                )
+                if not v3_successor_present:
+                    self._verify_m4_v2_failed_global_routing_recovery_v2_import(
+                        cursor, control_plane_key=key, manifest=manifest
+                    )
+                self._verify_m4_v2_failed_global_routing_recovery_import(
+                    cursor, control_plane_key=key, manifest=manifest
+                )
+                replay_recovery = self._verify_m4_v2_failed_replay_recovery_import(
+                    cursor, control_plane_key=key, manifest=manifest
+                )
+                if not replay_recovery:
+                    self._verify_m4_v2_failed_task_recovery_import(
+                        cursor,
+                        control_plane_key=key,
+                        manifest=manifest,
+                    )
             self._verify_mainline_completion_records(
                 cursor,
                 control_plane_key=key,

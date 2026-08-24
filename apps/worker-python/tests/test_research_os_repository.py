@@ -3540,6 +3540,78 @@ def test_p3_successor_import_accepts_only_exact_draw_event() -> None:
         )
 
 
+def test_p3_successor_exact_transition_routes_around_historical_validators(
+    monkeypatch,
+) -> None:
+    current = _p3_successor_manifest()
+    payload = _p3_manifest_payload(current)
+    payload["facts"]["external_events"].append(
+        p3_successor.issue_facts("2026097")["draw_synced"]
+    )
+    incoming = ControlPlaneManifest.from_dict(payload)
+    events: list[str] = []
+
+    class Cursor(_P3SuccessorCursor):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, *_args):
+            events.append("rollback" if exc_type else "commit")
+            return False
+
+        def cursor(self, **_kwargs):
+            return Cursor(current)
+
+    @contextmanager
+    def connection_factory():
+        with Connection() as connection:
+            yield connection
+
+    repository = PostgresResearchOSRepository(connection_factory)  # type: ignore[arg-type]
+    repository.control_plane = SimpleNamespace(
+        resolve=lambda _manifest: SimpleNamespace(resolutions=())
+    )
+
+    def historical(*_args, **_kwargs):
+        events.append("historical")
+        raise AssertionError("exact P3 transition re-entered a historical validator")
+
+    for name in (
+        "_verify_m4_v2_failed_global_routing_recovery_v3_import",
+        "_verify_m4_v2_failed_global_routing_recovery_v2_import",
+        "_verify_m4_v2_failed_global_routing_recovery_import",
+        "_verify_m4_v2_failed_replay_recovery_import",
+        "_verify_m4_v2_failed_task_recovery_import",
+    ):
+        monkeypatch.setattr(repository, name, historical)
+
+    def generic_completion(*_args, **_kwargs):
+        events.append("generic_completion")
+        raise ResearchOSValidationError("p3-router-probe-complete")
+
+    monkeypatch.setattr(
+        repository,
+        "_verify_mainline_completion_records",
+        generic_completion,
+    )
+    with pytest.raises(
+        ResearchOSValidationError,
+        match="^p3-router-probe-complete$",
+    ):
+        repository.import_manifest(
+            control_plane_key="m4-information-theory-mainline",
+            payload=incoming.to_dict(include_digest=True),
+        )
+    assert events == ["generic_completion", "rollback"]
+
+
 @pytest.mark.parametrize("mutation", ["task", "artifact", "mixed"])
 def test_p3_successor_draw_event_rejects_mixed_or_scientific_delta(
     mutation: str,
