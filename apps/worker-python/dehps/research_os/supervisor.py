@@ -25142,6 +25142,29 @@ class ResearchEvidenceSupervisor:
                 raise
             if completed_recorded:
                 raise
+            if terminal_sequence == 2 and self._has_validated_m4_p3_runtime_recovery(
+                task=task,
+                execution_id=execution_id,
+            ):
+                self._write_state(
+                    {
+                        "schema_version": (
+                            "dehps-research-evidence-supervisor-state.v1"
+                        ),
+                        "status": "RECOVERY_REQUIRED",
+                        "control_plane_key": self.control_plane_key,
+                        "task_key": task.task_key,
+                        "execution_id": execution_id,
+                        "incident_class": "m4_p3_attested_runtime_recovery",
+                        "error": str(exc),
+                        "second_failed_event_recorded": False,
+                        "failed_manifest_imported": False,
+                        "dispatch_performed": True,
+                        "git_commit": git_commit,
+                        "heartbeat_at": self.now().isoformat(),
+                    }
+                )
+                raise
             runtime_commit_marker = (
                 self.root_dir
                 / "runtime/research-os/mainline/tasks"
@@ -25605,6 +25628,56 @@ class ResearchEvidenceSupervisor:
                 "M4-v2 accepted-workload event ownership is not exhaustive"
             )
 
+    def _has_validated_m4_p3_runtime_recovery(
+        self,
+        *,
+        task: Task,
+        execution_id: str,
+    ) -> bool:
+        events = self.repository.list_mainline_execution_events(
+            control_plane_key=self.control_plane_key,
+            task_key=task.task_key,
+            execution_id=execution_id,
+        )
+        return self._is_valid_atomic_terminal_event_set(
+            task=task,
+            events=events,
+            terminal_sequence=2,
+        )
+
+    def _is_valid_atomic_terminal_event_set(
+        self,
+        *,
+        task: Task,
+        events: Sequence[Mapping[str, Any]],
+        terminal_sequence: int,
+    ) -> bool:
+        started = [
+            dict(item) for item in events if item.get("event_type") == "started"
+        ]
+        failed = [
+            dict(item) for item in events if item.get("event_type") == "failed"
+        ]
+        if terminal_sequence == 1:
+            return (
+                len(events) == 1
+                and len(started) == 1
+                and not failed
+                and _event_record(started[0]).sequence == 0
+            )
+        return (
+            terminal_sequence == 2
+            and len(events) == 2
+            and len(started) == 1
+            and len(failed) == 1
+            and _validated_m4_p3_runtime_recovery(
+                root_dir=self.root_dir,
+                task=task,
+                started_event=started[0],
+                failed_event=failed[0],
+            )
+        )
+
     def _complete_atomic_capability(
         self,
         *,
@@ -25617,7 +25690,13 @@ class ResearchEvidenceSupervisor:
         terminal_sequence: int,
         result: AtomicCapabilityResult,
     ) -> dict[str, Any]:
-        if terminal_sequence != 1:
+        if terminal_sequence != 1 and not (
+            terminal_sequence == 2
+            and self._has_validated_m4_p3_runtime_recovery(
+                task=task,
+                execution_id=execution_id,
+            )
+        ):
             raise MainlineSupervisorError(
                 "M4-v2 atomic successor does not permit failed-execution recovery"
             )
@@ -25886,12 +25965,13 @@ class ResearchEvidenceSupervisor:
                         }
                         for row in event_rows
                     ]
-                    if (
-                        len(event_objects) != 1
-                        or _event_record(event_objects[0]).event_type != "started"
+                    if not self._is_valid_atomic_terminal_event_set(
+                        task=task,
+                        events=event_objects,
+                        terminal_sequence=terminal_sequence,
                     ):
                         raise MainlineSupervisorError(
-                            "M4-v2 atomic publication requires exactly one started event"
+                            "M4-v2 atomic publication terminal event set changed"
                         )
                     existing_registrations = cursor.execute(
                         """
@@ -26574,6 +26654,58 @@ class ResearchEvidenceSupervisor:
         runtime_git_commit: str,
         source_digest: str,
     ) -> Mapping[str, Any]:
+        migration_root = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+            / "runtime-migrations"
+        )
+        existing_paths = list(
+            migration_root.glob("*/m4-p3-runtime-recovery.json")
+        )
+        if existing_paths:
+            events = self.repository.list_mainline_execution_events(
+                control_plane_key=self.control_plane_key,
+                task_key=task.task_key,
+                execution_id=execution_id,
+            )
+            started = [
+                dict(item)
+                for item in events
+                if item.get("event_type") == "started"
+            ]
+            failed = [
+                dict(item)
+                for item in events
+                if item.get("event_type") == "failed"
+            ]
+            if (
+                len(existing_paths) != 1
+                or len(started) != 1
+                or len(failed) != 1
+                or str(failed[0].get("event_digest") or "")
+                != str(failed_event.get("event_digest") or "")
+                or not _validated_m4_p3_runtime_recovery(
+                    root_dir=self.root_dir,
+                    task=task,
+                    started_event=started[0],
+                    failed_event=failed[0],
+                )
+            ):
+                raise MainlineSupervisorError(
+                    "M4-P3 runtime recovery attestation set changed"
+                )
+            existing = _load_object(existing_paths[0])
+            if (
+                existing.get("execution_git_commit") != execution_git_commit
+                or existing.get("source_contract_digest") != source_digest
+            ):
+                raise MainlineSupervisorError(
+                    "M4-P3 runtime recovery attestation identity changed"
+                )
+            return existing
+
         payload: dict[str, Any] = {
             "schema_version": "dehps-m4-p3-runtime-recovery.v1",
             "artifact_type": "m4_p3_runtime_recovery_attestation",
@@ -26602,11 +26734,7 @@ class ResearchEvidenceSupervisor:
             domain="dehps.m4.p3.runtime-recovery.v1",
         )
         path = (
-            self.root_dir
-            / "runtime/research-os/mainline/tasks"
-            / task.task_key
-            / execution_id
-            / "runtime-migrations"
+            migration_root
             / payload["artifact_digest"]
             / "m4-p3-runtime-recovery.json"
         )
