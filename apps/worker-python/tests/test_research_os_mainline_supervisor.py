@@ -1137,6 +1137,28 @@ def _m4_p3_resume_events(
     )
 
 
+def _m4_p3_guard_failure_event(*, task, started: dict) -> dict:
+    guard = MainlineExecutionEvent(
+        execution_id=str(started["execution_id"]),
+        control_plane_key=str(started["control_plane_key"]),
+        manifest_digest=str(started["manifest_digest"]),
+        task_key=task.task_key,
+        task_digest=task.artifact_digest,
+        capability=task.requested_capability,
+        event_type="failed",
+        sequence=2,
+        recorded_at="2026-08-24T06:29:36+00:00",
+        payload=(
+            (
+                "error",
+                supervisor_module.M4_P3_EQUIVALENT_RESUME_GUARD_ERROR,
+            ),
+            ("git_commit", "1" * 40),
+        ),
+    )
+    return _m4_p3_resume_event_mapping(guard)
+
+
 @pytest.mark.parametrize(
     "mutation",
     ("event_token", "source_token", "error", "capability", "cardinality"),
@@ -1224,6 +1246,95 @@ def test_m4_p3_equivalent_resume_accepts_exact_source_and_failed_event(
         event_token=str(failed["event_digest"]),
         source_token=source_digest,
     ) == failed
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "none",
+        "guard_token",
+        "guard_token_absent",
+        "guard_error",
+        "guard_cardinality",
+    ),
+)
+def test_m4_p3_equivalent_resume_binds_exact_guard_failure_event(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    source_digest = "a" * 64
+    task = SimpleNamespace(
+        task_key="m4-p3-forward-prequential-2026097-settlement",
+        artifact_digest="b" * 64,
+        goal_key=p3_successor.GOAL_KEY,
+        requested_capability=p3_successor.SETTLEMENT_CAPABILITY,
+        input_artifact_digests=(source_digest,),
+    )
+    started, failed = _m4_p3_resume_events(
+        task=task,
+        source_digest=source_digest,
+    )
+    guard = _m4_p3_guard_failure_event(task=task, started=started)
+    events = [started, failed, guard]
+    if mutation == "guard_error":
+        guard["payload"] = [
+            ["error", "unrelated_failure"],
+            ["git_commit", "1" * 40],
+        ]
+    elif mutation == "guard_cardinality":
+        events.append(dict(guard))
+    monkeypatch.setattr(
+        p3_successor,
+        "load_source_contract",
+        lambda **_kwargs: {"artifact_digest": source_digest},
+    )
+    monkeypatch.setattr(
+        supervisor_module,
+        "M4_P3_EQUIVALENT_RESUME_GUARD_EVENT_DIGEST",
+        str(guard["event_digest"]),
+    )
+    supervisor = object.__new__(ResearchEvidenceSupervisor)
+    supervisor.root_dir = tmp_path
+    supervisor.control_plane_key = TEST_CONTROL_PLANE_KEY
+    supervisor.repository = SimpleNamespace(
+        list_mainline_execution_events=lambda **_kwargs: [started, failed],
+    )
+    supervisor._record_m4_p3_runtime_recovery(
+        task=task,
+        execution_id=str(started["execution_id"]),
+        failed_event=failed,
+        execution_git_commit="1" * 40,
+        runtime_git_commit="2" * 40,
+        source_digest=source_digest,
+    )
+    guard_token = {
+        "guard_token": "f" * 64,
+        "guard_token_absent": "",
+    }.get(mutation, str(guard["event_digest"]))
+
+    if mutation == "none":
+        assert supervisor._validated_m4_p3_equivalent_resume_event(
+            task=task,
+            events=events,
+            event_token=str(failed["event_digest"]),
+            source_token=source_digest,
+            guard_event_token=guard_token,
+        ) == failed
+    else:
+        with pytest.raises(
+            MainlineSupervisorError,
+            match=(
+                "M4-P3 equivalent resume|mainline execution event digest changed"
+            ),
+        ):
+            supervisor._validated_m4_p3_equivalent_resume_event(
+                task=task,
+                events=events,
+                event_token=str(failed["event_digest"]),
+                source_token=source_digest,
+                guard_event_token=guard_token,
+            )
 
 
 def test_m4_p3_equivalent_resume_completes_existing_execution_identity(
@@ -1317,17 +1428,106 @@ def test_m4_p3_equivalent_resume_completes_existing_execution_identity(
         source_digest=source_digest,
     )
     assert replayed_migration == migration
-    assert len(
-        list(
-            (
-                root
-                / "runtime/research-os/mainline/tasks"
-                / task.task_key
-                / str(started["execution_id"])
-                / "runtime-migrations"
-            ).glob("*/m4-p3-runtime-recovery.json")
-        )
-    ) == 1
+
+
+def test_m4_p3_guard_failure_resume_completes_sequence_three_and_loads(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = manifest_payload()
+    task_payload = next(
+        item for item in payload["tasks"] if item["task_key"] == P23_TASK_KEY
+    )
+    task_payload["status"] = "running"
+    task_payload["completion_classification"] = "INTEGRATED"
+    task_payload["input_artifact_digests"] = [
+        task_payload["input_artifact_digests"][0]
+    ]
+    repository = MemoryMainlineRepository(payload)
+    task = next(
+        item for item in repository.manifest.tasks if item.task_key == P23_TASK_KEY
+    )
+    source_digest = str(task.input_artifact_digests[0])
+    started, failed = _m4_p3_resume_events(
+        task=task,
+        source_digest=source_digest,
+        manifest_digest=repository.manifest.artifact_digest,
+    )
+    guard = _m4_p3_guard_failure_event(task=task, started=started)
+    repository.events.extend((started, failed, guard))
+    root = prepare_root(tmp_path)
+    supervisor = ResearchEvidenceSupervisor(
+        repository=repository,  # type: ignore[arg-type]
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
+        root_dir=root,
+        now=lambda: datetime(2026, 8, 24, 6, 45, tzinfo=timezone.utc),
+        git_commit="2" * 40,
+        require_clean_tree=False,
+    )
+    supervisor.capabilities[task.requested_capability] = _ProjectedCapability(
+        root=root,
+        task_key=task.task_key,
+        summary={"actual_fold_count": 4},
+    )
+    monkeypatch.setattr(
+        supervisor,
+        "_validated_m4_p3_equivalent_resume_event",
+        lambda **_kwargs: failed,
+    )
+    monkeypatch.setattr(
+        supervisor_module,
+        "_validated_m4_p3_runtime_guard_recovery",
+        lambda **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        supervisor_module,
+        "M4_P3_EQUIVALENT_RESUME_GUARD_EVENT_DIGEST",
+        str(guard["event_digest"]),
+    )
+    monkeypatch.setenv(
+        supervisor_module.M4_P3_EQUIVALENT_RESUME_EVENT_ENV,
+        str(failed["event_digest"]),
+    )
+    monkeypatch.setenv(
+        supervisor_module.M4_P3_EQUIVALENT_RESUME_SOURCE_ENV,
+        source_digest,
+    )
+    monkeypatch.setenv(
+        supervisor_module.M4_P3_EQUIVALENT_RESUME_GUARD_EVENT_ENV,
+        str(guard["event_digest"]),
+    )
+
+    result = supervisor.run_once(task_key=task.task_key)
+
+    assert result["status"] == "COMPLETE"
+    assert result["execution_id"] == started["execution_id"]
+    assert [item["event_type"] for item in repository.events] == [
+        "started",
+        "failed",
+        "failed",
+        "completed",
+    ]
+    assert repository.events[-1]["sequence"] == 3
+    assert dict(repository.events[-1]["payload"])["git_commit"] == "1" * 40
+    migration_paths = list(
+        (
+            root
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / str(started["execution_id"])
+            / "runtime-migrations"
+        ).glob("*/m4-p3-runtime-recovery.json")
+    )
+    assert len(migration_paths) == 1
+    migration = json.loads(migration_paths[0].read_text(encoding="utf-8"))
+    assert supervisor._record_m4_p3_runtime_recovery(
+        task=task,
+        execution_id=str(started["execution_id"]),
+        failed_event=failed,
+        execution_git_commit="1" * 40,
+        runtime_git_commit="3" * 40,
+        source_digest=source_digest,
+    ) == migration
 
 
 def test_m4_p3_runtime_recovery_predicate_requires_exact_unique_attestation(
@@ -1371,17 +1571,38 @@ def test_m4_p3_runtime_recovery_predicate_requires_exact_unique_attestation(
         task=task,
         execution_id=str(started["execution_id"]),
     )
-    events.append(dict(failed))
+    guard = _m4_p3_guard_failure_event(task=task, started=started)
+    monkeypatch.setattr(
+        supervisor_module,
+        "M4_P3_EQUIVALENT_RESUME_GUARD_EVENT_DIGEST",
+        str(guard["event_digest"]),
+    )
+    events.append(guard)
+    assert supervisor._has_validated_m4_p3_runtime_recovery(
+        task=task,
+        execution_id=str(started["execution_id"]),
+        terminal_sequence=3,
+    )
     assert not supervisor._has_validated_m4_p3_runtime_recovery(
         task=task,
         execution_id=str(started["execution_id"]),
     )
+    events.append(dict(guard))
+    assert not supervisor._has_validated_m4_p3_runtime_recovery(
+        task=task,
+        execution_id=str(started["execution_id"]),
+        terminal_sequence=3,
+    )
 
 
-@pytest.mark.parametrize("authorized", (False, True))
-def test_atomic_completion_sequence_two_requires_exact_m4_p3_recovery(
+@pytest.mark.parametrize(
+    ("terminal_sequence", "authorized"),
+    ((2, False), (2, True), (3, False), (3, True)),
+)
+def test_atomic_completion_recovery_sequence_requires_exact_m4_p3_events(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    terminal_sequence: int,
     authorized: bool,
 ) -> None:
     supervisor = object.__new__(ResearchEvidenceSupervisor)
@@ -1412,14 +1633,16 @@ def test_atomic_completion_sequence_two_requires_exact_m4_p3_recovery(
             capability="p3-capability",
             execution_id="e" * 64,
             git_commit="1" * 40,
-            terminal_sequence=2,
+            terminal_sequence=terminal_sequence,
             result=result,
         )
 
 
-def test_m4_p3_recovery_failure_does_not_append_second_failed_event(
+@pytest.mark.parametrize("guard_recovery", (False, True))
+def test_m4_p3_recovery_failure_does_not_append_another_failed_event(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    guard_recovery: bool,
 ) -> None:
     payload = manifest_payload()
     task_payload = next(
@@ -1437,7 +1660,10 @@ def test_m4_p3_recovery_failure_does_not_append_second_failed_event(
         source_digest=source_digest,
         manifest_digest=repository.manifest.artifact_digest,
     )
-    repository.events.extend((started, failed))
+    guard = _m4_p3_guard_failure_event(task=task, started=started)
+    repository.events.extend(
+        (started, failed, guard) if guard_recovery else (started, failed)
+    )
     original_manifest_digest = repository.manifest.artifact_digest
     root = prepare_root(tmp_path)
     supervisor = ResearchEvidenceSupervisor(
@@ -1463,6 +1689,11 @@ def test_m4_p3_recovery_failure_does_not_append_second_failed_event(
         "_validated_m4_p3_runtime_recovery",
         lambda **_kwargs: True,
     )
+    monkeypatch.setattr(
+        supervisor_module,
+        "_validated_m4_p3_runtime_guard_recovery",
+        lambda **_kwargs: True,
+    )
     monkeypatch.setenv(
         supervisor_module.M4_P3_EQUIVALENT_RESUME_EVENT_ENV,
         str(failed["event_digest"]),
@@ -1471,19 +1702,29 @@ def test_m4_p3_recovery_failure_does_not_append_second_failed_event(
         supervisor_module.M4_P3_EQUIVALENT_RESUME_SOURCE_ENV,
         source_digest,
     )
+    if guard_recovery:
+        monkeypatch.setenv(
+            supervisor_module.M4_P3_EQUIVALENT_RESUME_GUARD_EVENT_ENV,
+            str(guard["event_digest"]),
+        )
 
     with pytest.raises(RuntimeError, match="simulated recovered capability failure"):
         supervisor.run_once(task_key=task.task_key)
 
     state = json.loads(supervisor.state_path.read_text(encoding="utf-8"))
-    assert [item["event_type"] for item in repository.events] == [
-        "started",
-        "failed",
-    ]
+    assert [item["event_type"] for item in repository.events] == (
+        ["started", "failed", "failed"]
+        if guard_recovery
+        else ["started", "failed"]
+    )
     assert repository.manifest.artifact_digest == original_manifest_digest
     assert state["status"] == "RECOVERY_REQUIRED"
     assert state["incident_class"] == "m4_p3_attested_runtime_recovery"
-    assert state["second_failed_event_recorded"] is False
+    assert state[
+        "third_failed_event_recorded"
+        if guard_recovery
+        else "second_failed_event_recorded"
+    ] is False
     assert state["failed_manifest_imported"] is False
 
 
