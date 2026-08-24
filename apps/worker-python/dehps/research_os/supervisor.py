@@ -4878,6 +4878,7 @@ def _atomic_import_completed_manifest(
         cursor,
         control_plane_key=control_plane_key,
         manifest=completed_manifest,
+        m4_v2_lifecycle_verified=True,
     )
     normalized = completed_manifest.to_dict(include_digest=False)
     cursor.execute(
