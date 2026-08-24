@@ -3546,6 +3546,11 @@ def _p3_manifest_payload(manifest: ControlPlaneManifest) -> dict:
 def test_p3_successor_import_accepts_only_exact_draw_event() -> None:
     current = _p3_successor_manifest()
     cursor = _P3SuccessorCursor(current)
+    assert PostgresResearchOSRepository._verify_m4_p3_forward_successor_import(
+        cursor,
+        control_plane_key="m4-information-theory-mainline",
+        manifest=current,
+    )
     exact = _p3_manifest_payload(current)
     exact["facts"]["external_events"].append(
         p3_successor.issue_facts("2026097")["draw_synced"]
@@ -3570,14 +3575,32 @@ def test_p3_successor_import_accepts_only_exact_draw_event() -> None:
         )
 
 
+def test_p3_successor_import_rejects_nonidentical_no_delta() -> None:
+    current = _p3_successor_manifest()
+    payload = _p3_manifest_payload(current)
+    payload["tasks"][1]["priority"] += 1
+
+    with pytest.raises(
+        ResearchOSValidationError, match="m4_p3_forward_successor_import_changed"
+    ):
+        PostgresResearchOSRepository._verify_m4_p3_forward_successor_import(
+            _P3SuccessorCursor(current),
+            control_plane_key="m4-information-theory-mainline",
+            manifest=ControlPlaneManifest.from_dict(payload),
+        )
+
+
+@pytest.mark.parametrize("idempotent", [False, True])
 def test_p3_successor_exact_transition_routes_around_historical_validators(
     monkeypatch,
+    idempotent: bool,
 ) -> None:
     current = _p3_successor_manifest()
     payload = _p3_manifest_payload(current)
-    payload["facts"]["external_events"].append(
-        p3_successor.issue_facts("2026097")["draw_synced"]
-    )
+    if not idempotent:
+        payload["facts"]["external_events"].append(
+            p3_successor.issue_facts("2026097")["draw_synced"]
+        )
     incoming = ControlPlaneManifest.from_dict(payload)
     events: list[str] = []
 
