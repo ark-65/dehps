@@ -21,6 +21,9 @@ import pytest
 from dehps import config as dehps_config
 from dehps.config import get_settings
 from dehps.research_os import repository as repository_module
+from dehps.research_os.information_theory.measurement_system_v2 import (
+    forward_prequential_confirmatory as p3_successor,
+)
 from dehps.research_os.models import (
     ControlPlaneManifest,
     ExternalExecutorObservation,
@@ -35,6 +38,7 @@ from dehps.research_os.models import (
 from dehps.research_os.repository import PostgresResearchOSRepository
 from psycopg import sql
 
+from scripts import build_m4_p3_forward_prequential_confirmatory_manifest as p3_builder
 from scripts import build_m4_v2_global_routing_recovery_v2_manifest as recovery_v2
 from scripts import build_m4_v2_global_routing_recovery_v3_manifest as recovery_v3
 from scripts import (
@@ -1883,7 +1887,6 @@ def test_global_recovery_v2_import_rolls_back_before_first_write(monkeypatch) ->
             yield connection
 
     repository = PostgresResearchOSRepository(connection_factory)  # type: ignore[arg-type]
-
     def reject(*_args, **_kwargs):
         raise ResearchOSValidationError("frozen-v2-prewrite-rejected")
 
@@ -2151,7 +2154,6 @@ def test_global_recovery_v3_import_rolls_back_before_first_write(monkeypatch) ->
             yield connection
 
     repository = PostgresResearchOSRepository(connection_factory)  # type: ignore[arg-type]
-
     def reject(*_args, **_kwargs):
         raise ResearchOSValidationError("frozen-v3-prewrite-rejected")
 
@@ -3449,4 +3451,163 @@ def test_external_executor_observation_is_append_only_and_does_not_block_resolut
     assert tuple(item.task_key for item in after.ready_queue) == (
         "artifact-audit",
         "historical-replay",
+    )
+
+
+class _P3SuccessorCursor:
+    def __init__(self, current: ControlPlaneManifest) -> None:
+        self.current = current
+
+    def execute(self, statement, parameters=()):
+        query = " ".join(str(statement).split())
+        if "FROM research_os_control_planes" in query:
+            return _Rows(one={"current_manifest_digest": self.current.artifact_digest})
+        if "FROM research_os_manifests" in query:
+            assert parameters == (self.current.artifact_digest,)
+            return _Rows(
+                one={"manifest_json": self.current.to_dict(include_digest=True)}
+            )
+        raise AssertionError(query)
+
+
+def _p3_successor_manifest() -> ControlPlaneManifest:
+    source = p3_successor.load_source_contract(root_dir=ROOT)
+    tasks = p3_builder.initial_tasks(
+        source_digest=str(source["artifact_digest"]),
+        target_issue="2026097",
+        target_draw_date="2026-08-25",
+    )
+    keys = p3_successor.issue_task_keys("2026097")
+    completed = {
+        p3_successor.PREREGISTRATION_TASK_KEY,
+        keys["refit"],
+        keys["predraw"],
+        keys["predraw_replay"],
+    }
+    for task in tasks:
+        if task["task_key"] in completed:
+            task["status"] = "completed"
+            task["completion_classification"] = "COMPLETE"
+    facts = p3_successor.issue_facts("2026097")
+    payload = {
+        "schema_version": "research-os-control-plane-v1",
+        "goals": [p3_builder.goal()],
+        "tasks": tasks,
+        "facts": {
+            "artifacts": [
+                p3_successor.SOURCE_FACT_PREFIX + str(source["artifact_digest"]),
+                p3_successor.PREREGISTRATION_FACT,
+                facts["refit"],
+                facts["predraw"],
+                facts["predraw_replay"],
+            ],
+            "evidence": [],
+            "external_events": [],
+            "authorities": [],
+        },
+    }
+    return ControlPlaneManifest.from_dict(payload)
+
+
+def _p3_manifest_payload(manifest: ControlPlaneManifest) -> dict:
+    return manifest.to_dict(include_digest=False)
+
+
+def test_p3_successor_import_accepts_only_exact_draw_event() -> None:
+    current = _p3_successor_manifest()
+    cursor = _P3SuccessorCursor(current)
+    exact = _p3_manifest_payload(current)
+    exact["facts"]["external_events"].append(
+        p3_successor.issue_facts("2026097")["draw_synced"]
+    )
+    assert PostgresResearchOSRepository._verify_m4_p3_forward_successor_import(
+        cursor,
+        control_plane_key="m4-information-theory-mainline",
+        manifest=ControlPlaneManifest.from_dict(exact),
+    )
+
+    wrong = _p3_manifest_payload(current)
+    wrong["facts"]["external_events"].append(
+        "m4-p3-forward-prequential:2026098:DRAW_SYNCED"
+    )
+    with pytest.raises(
+        ResearchOSValidationError, match="m4_p3_forward_successor_import_changed"
+    ):
+        PostgresResearchOSRepository._verify_m4_p3_forward_successor_import(
+            cursor,
+            control_plane_key="m4-information-theory-mainline",
+            manifest=ControlPlaneManifest.from_dict(wrong),
+        )
+
+
+@pytest.mark.parametrize("mutation", ["task", "artifact", "mixed"])
+def test_p3_successor_draw_event_rejects_mixed_or_scientific_delta(
+    mutation: str,
+) -> None:
+    current = _p3_successor_manifest()
+    cursor = _P3SuccessorCursor(current)
+    payload = _p3_manifest_payload(current)
+    payload["facts"]["external_events"].append(
+        p3_successor.issue_facts("2026097")["draw_synced"]
+    )
+    if mutation == "task":
+        payload["tasks"][1]["priority"] += 1
+    elif mutation == "artifact":
+        payload["facts"]["artifacts"].append("forged:PASS_TO_P4")
+    else:
+        settlement = p3_successor.issue_task_keys("2026097")["settlement"]
+        task = next(item for item in payload["tasks"] if item["task_key"] == settlement)
+        task["status"] = "running"
+        task["completion_classification"] = "INTEGRATED"
+    with pytest.raises(
+        ResearchOSValidationError, match="m4_p3_forward_successor_import_changed"
+    ):
+        PostgresResearchOSRepository._verify_m4_p3_forward_successor_import(
+            cursor,
+            control_plane_key="m4-information-theory-mainline",
+            manifest=ControlPlaneManifest.from_dict(payload),
+        )
+
+
+def test_p3_successor_import_accepts_exact_ready_to_running_transition() -> None:
+    current = _p3_successor_manifest()
+    cursor = _P3SuccessorCursor(current)
+    payload = _p3_manifest_payload(current)
+    settlement = p3_successor.issue_task_keys("2026097")["settlement"]
+    task = next(item for item in payload["tasks"] if item["task_key"] == settlement)
+    task["status"] = "running"
+    task["completion_classification"] = "INTEGRATED"
+    assert PostgresResearchOSRepository._verify_m4_p3_forward_successor_import(
+        cursor,
+        control_plane_key="m4-information-theory-mainline",
+        manifest=ControlPlaneManifest.from_dict(payload),
+    )
+
+
+def test_p3_successor_import_accepts_exact_five_task_next_issue_only() -> None:
+    current_payload = _p3_manifest_payload(_p3_successor_manifest())
+    prior_keys = p3_successor.issue_task_keys("2026097")
+    for key in (prior_keys["settlement"], prior_keys["settlement_replay"]):
+        task = next(item for item in current_payload["tasks"] if item["task_key"] == key)
+        task["status"] = "completed"
+        task["completion_classification"] = "COMPLETE"
+    previous_fact = p3_successor.issue_facts("2026097")["settlement_replay"]
+    current_payload["facts"]["artifacts"].extend(
+        [p3_successor.issue_facts("2026097")["settlement"], previous_fact]
+    )
+    current = ControlPlaneManifest.from_dict(current_payload)
+    incoming = _p3_manifest_payload(current)
+    source = p3_successor.load_source_contract(root_dir=ROOT)
+    incoming["tasks"].extend(
+        p3_builder.issue_tasks(
+            source_digest=str(source["artifact_digest"]),
+            target_issue="2026098",
+            target_draw_date="2026-08-27",
+            previous_settlement_replay_fact=previous_fact,
+        )
+    )
+    assert PostgresResearchOSRepository._verify_m4_p3_forward_successor_import(
+        _P3SuccessorCursor(current),
+        control_plane_key="m4-information-theory-mainline",
+        manifest=ControlPlaneManifest.from_dict(incoming),
     )

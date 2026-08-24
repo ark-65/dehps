@@ -1,0 +1,14 @@
+[Unit]
+Description=DEHPS P3 power-limit and performance-profile watchdog
+After=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ark/workspace/dehps
+ExecStart=/home/ark/workspace/dehps/apps/worker-python/.venv/bin/python /home/ark/workspace/dehps/apps/worker-python/scripts/run_m4_p3_performance_runtime.py watch --apply
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

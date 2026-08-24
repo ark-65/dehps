@@ -183,6 +183,13 @@ _M4_V2_BOUNDED_FORWARD_REQUIRED_SYMBOLS = (
     "issue_tasks",
     "preregistration_task",
 )
+_M4_P3_FORWARD_SUCCESSOR_BUILDER_MODULE_NAME = (
+    "_dehps_m4_p3_forward_prequential_successor_builder"
+)
+_M4_P3_FORWARD_SUCCESSOR_REQUIRED_SYMBOLS = (
+    "CONTROL_PLANE_KEY",
+    "issue_tasks",
+)
 
 
 def _m4_v2_utc_instant(value: Any) -> datetime:
@@ -488,6 +495,38 @@ def _load_m4_v2_bounded_forward_builder() -> ModuleType:
     except Exception as exc:
         raise ResearchOSValidationError(
             "m4_v2_bounded_forward_builder_unavailable"
+        ) from exc
+
+
+def _load_m4_p3_forward_successor_builder() -> ModuleType:
+    """Load the frozen P3 successor builder without depending on cwd imports."""
+
+    from dehps.config import ROOT_DIR
+
+    try:
+        root_dir = ROOT_DIR.resolve()
+        builder_path = (
+            ROOT_DIR
+            / "apps/worker-python/scripts/"
+            "build_m4_p3_forward_prequential_confirmatory_manifest.py"
+        ).resolve()
+        if not builder_path.is_relative_to(root_dir) or not builder_path.is_file():
+            raise FileNotFoundError(builder_path)
+        spec = importlib.util.spec_from_file_location(
+            _M4_P3_FORWARD_SUCCESSOR_BUILDER_MODULE_NAME,
+            builder_path,
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError("m4_p3_forward_successor_builder_unavailable")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        for symbol in _M4_P3_FORWARD_SUCCESSOR_REQUIRED_SYMBOLS:
+            if not hasattr(module, symbol):
+                raise AttributeError(symbol)
+        return module
+    except Exception as exc:
+        raise ResearchOSValidationError(
+            "m4_p3_forward_successor_builder_unavailable"
         ) from exc
 
 
@@ -821,13 +860,31 @@ class PostgresResearchOSRepository:
         task_revisions: list[tuple[str, str, str]] = []
 
         with self.connection_factory() as conn, conn.cursor(row_factory=dict_row) as cursor:
+            validation_manifest = manifest
+            if type(self) is PostgresResearchOSRepository and self._verify_m4_p3_forward_successor_import(
+                cursor,
+                control_plane_key=key,
+                manifest=manifest,
+            ):
+                validation_payload = manifest.to_dict(include_digest=False)
+                validation_payload["facts"]["external_events"] = [
+                    value
+                    for value in validation_payload["facts"]["external_events"]
+                    if not (
+                        value.startswith("m4-p3-forward-prequential:")
+                        and value.endswith(":DRAW_SYNCED")
+                    )
+                ]
+                validation_manifest = ControlPlaneManifest.from_dict(
+                    validation_payload
+                )
             recovery_v3 = _load_m4_v2_global_routing_recovery_v3_builder()
             v3_successor_present = any(
                 task.task_key == recovery_v3.RECOVERY_TASK_KEY
                 for task in manifest.tasks
             )
             self._verify_m4_v2_failed_global_routing_recovery_v3_import(
-                cursor, control_plane_key=key, manifest=manifest
+                cursor, control_plane_key=key, manifest=validation_manifest
             )
             if not v3_successor_present:
                 self._verify_m4_v2_failed_global_routing_recovery_v2_import(
@@ -1893,6 +1950,251 @@ class PostgresResearchOSRepository:
             raise ResearchOSValidationError(error)
 
     @staticmethod
+    def _verify_m4_p3_forward_successor_import(
+        cursor,
+        *,
+        control_plane_key: str,
+        manifest: ControlPlaneManifest,
+    ) -> bool:
+        """Fail closed around the exact frozen successor runtime transitions."""
+
+        from dehps.config import ROOT_DIR
+        from dehps.research_os.information_theory.measurement_system_v2 import (
+            forward_prequential_confirmatory as successor,
+        )
+
+        if control_plane_key != "m4-information-theory-mainline":
+            return False
+        incoming_tasks = {item.task_key: item for item in manifest.tasks}
+        if not any(
+            task.requested_capability in successor.CAPABILITIES
+            for task in incoming_tasks.values()
+        ):
+            return False
+        control = cursor.execute(
+            "SELECT current_manifest_digest FROM research_os_control_planes "
+            "WHERE control_plane_key = %s FOR UPDATE",
+            (control_plane_key,),
+        ).fetchone()
+        if control is None:
+            return False
+        current_row = cursor.execute(
+            "SELECT manifest_json FROM research_os_manifests "
+            "WHERE manifest_digest = %s",
+            (str(control["current_manifest_digest"]),),
+        ).fetchone()
+        if current_row is None:
+            raise ResearchOSValidationError(
+                "m4_p3_forward_successor_current_manifest_missing"
+            )
+        current = ControlPlaneManifest.from_dict(dict(current_row["manifest_json"]))
+        current_tasks = {item.task_key: item for item in current.tasks}
+        current_p3_keys = {
+            key
+            for key, task in current_tasks.items()
+            if task.requested_capability in successor.CAPABILITIES
+        }
+        if not current_p3_keys:
+            return False
+
+        current_external = set(current.facts.external_events)
+        incoming_external = set(manifest.facts.external_events)
+        added_external = incoming_external - current_external
+        added_tasks = set(incoming_tasks) - set(current_tasks)
+        state_changes: list[
+            tuple[str, tuple[str, str | None], tuple[str, str | None]]
+        ] = []
+        for key in set(current_tasks).intersection(incoming_tasks):
+            old = current_tasks[key]
+            new = incoming_tasks[key]
+            old_state = current.task_state_by_digest[old.artifact_digest]
+            new_state = manifest.task_state_by_digest[new.artifact_digest]
+            old_pair = (
+                old_state.declared_status.value,
+                (
+                    None
+                    if old_state.completion_classification is None
+                    else old_state.completion_classification.value
+                ),
+            )
+            new_pair = (
+                new_state.declared_status.value,
+                (
+                    None
+                    if new_state.completion_classification is None
+                    else new_state.completion_classification.value
+                ),
+            )
+            if old_pair != new_pair:
+                state_changes.append((key, old_pair, new_pair))
+
+        p3_event_delta = {
+            value
+            for value in added_external
+            if value.startswith("m4-p3-forward-prequential:")
+            and value.endswith(":DRAW_SYNCED")
+        }
+        p3_added_tasks = {
+            key
+            for key in added_tasks
+            if incoming_tasks[key].requested_capability in successor.CAPABILITIES
+        }
+        p3_state_changes = [
+            value for value in state_changes if value[0] in current_p3_keys
+        ]
+        if not p3_event_delta and not p3_added_tasks and not p3_state_changes:
+            return False
+
+        error = "m4_p3_forward_successor_import_changed"
+        current_payload = current.to_dict(include_digest=False)
+        incoming_payload = manifest.to_dict(include_digest=False)
+        if (
+            current_payload["schema_version"] != incoming_payload["schema_version"]
+            or current_payload["goals"] != incoming_payload["goals"]
+            or current.facts.evidence != manifest.facts.evidence
+            or current.facts.authorities != manifest.facts.authorities
+            or current.facts.artifacts != manifest.facts.artifacts
+            or not current_external.issubset(incoming_external)
+        ):
+            raise ResearchOSValidationError(error)
+        if set(current_tasks) - set(incoming_tasks):
+            raise ResearchOSValidationError(error)
+        if any(
+            incoming_tasks[key].to_dict() != current_tasks[key].to_dict()
+            for key in current_tasks
+        ):
+            raise ResearchOSValidationError(error)
+        if any(value[0] not in current_p3_keys for value in state_changes):
+            raise ResearchOSValidationError(error)
+        if added_tasks != p3_added_tasks or added_external != p3_event_delta:
+            raise ResearchOSValidationError(error)
+
+        operation_count = sum(
+            bool(value)
+            for value in (p3_event_delta, p3_added_tasks, p3_state_changes)
+        )
+        if operation_count != 1:
+            raise ResearchOSValidationError(error)
+
+        issue_values: set[str] = set()
+        for task in current_tasks.values():
+            if task.requested_capability not in successor.CAPABILITIES:
+                continue
+            issue = str(task.to_dict().get("metric_contract", {}).get("target_issue") or "")
+            if issue:
+                issue_values.add(issue)
+
+        if p3_event_delta:
+            if len(p3_event_delta) != 1 or state_changes or added_tasks:
+                raise ResearchOSValidationError(error)
+            event = next(iter(p3_event_delta))
+            issue = event.removeprefix("m4-p3-forward-prequential:").removesuffix(
+                ":DRAW_SYNCED"
+            )
+            keys = successor.issue_task_keys(issue)
+            if (
+                issue not in issue_values
+                or set(keys.values()) - set(current_tasks)
+                or event != successor.issue_facts(issue)["draw_synced"]
+            ):
+                raise ResearchOSValidationError(error)
+            replay = current_tasks[keys["predraw_replay"]]
+            replay_state = current.task_state_by_digest[replay.artifact_digest]
+            settlement = current_tasks[keys["settlement"]]
+            settlement_state = current.task_state_by_digest[settlement.artifact_digest]
+            if (
+                replay_state.declared_status.value != "completed"
+                or replay_state.completion_classification is None
+                or replay_state.completion_classification.value != "COMPLETE"
+                or successor.issue_facts(issue)["predraw_replay"]
+                not in current.facts.artifacts
+                or settlement_state.declared_status.value == "completed"
+            ):
+                raise ResearchOSValidationError(error)
+            return True
+
+        if p3_state_changes:
+            if len(p3_state_changes) != 1 or added_tasks or added_external:
+                raise ResearchOSValidationError(error)
+            key, old_state, new_state = p3_state_changes[0]
+            if (
+                old_state[0] != "draft"
+                or old_state[1] not in {None, "INTEGRATION_PENDING"}
+                or new_state != ("running", "INTEGRATED")
+                or current_tasks[key].requested_capability not in successor.CAPABILITIES
+            ):
+                raise ResearchOSValidationError(error)
+            return True
+
+        if len(p3_added_tasks) != 5 or state_changes or added_external:
+            raise ResearchOSValidationError(error)
+        added_issues = {
+            str(
+                incoming_tasks[key]
+                .to_dict()
+                .get("metric_contract", {})
+                .get("target_issue")
+                or ""
+            )
+            for key in p3_added_tasks
+        }
+        if len(added_issues) != 1 or not issue_values:
+            raise ResearchOSValidationError(error)
+        target_issue = next(iter(added_issues))
+        previous_issue = max(issue_values)
+        if not target_issue or target_issue <= previous_issue:
+            raise ResearchOSValidationError(error)
+        expected_keys = set(successor.issue_task_keys(target_issue).values())
+        draw_dates = {
+            str(
+                incoming_tasks[key]
+                .to_dict()
+                .get("metric_contract", {})
+                .get("target_draw_date")
+                or ""
+            )
+            for key in p3_added_tasks
+        }
+        previous_fact = successor.issue_facts(previous_issue)["settlement_replay"]
+        previous_replay = current_tasks[
+            successor.issue_task_keys(previous_issue)["settlement_replay"]
+        ]
+        previous_state = current.task_state_by_digest[previous_replay.artifact_digest]
+        if (
+            p3_added_tasks != expected_keys
+            or len(draw_dates) != 1
+            or "" in draw_dates
+            or previous_fact not in current.facts.artifacts
+            or previous_state.declared_status.value != "completed"
+            or previous_state.completion_classification is None
+            or previous_state.completion_classification.value != "COMPLETE"
+        ):
+            raise ResearchOSValidationError(error)
+        source = successor.load_source_contract(root_dir=ROOT_DIR)
+        builder = _load_m4_p3_forward_successor_builder()
+        goal_digest = next(
+            item.artifact_digest
+            for item in current.goals
+            if item.goal_key == successor.GOAL_KEY
+        )
+        expected = {
+            item["task_key"]: Task.from_dict({**item, "goal_digest": goal_digest})
+            for item in builder.issue_tasks(
+                source_digest=str(source["artifact_digest"]),
+                target_issue=target_issue,
+                target_draw_date=next(iter(draw_dates)),
+                previous_settlement_replay_fact=previous_fact,
+            )
+        }
+        if any(
+            key not in expected
+            or incoming_tasks[key].to_dict() != expected[key].to_dict()
+            for key in p3_added_tasks
+        ):
+            raise ResearchOSValidationError(error)
+        return True
+
+    @staticmethod
     def _verify_m4_v2_bounded_forward_import(
         cursor,
         *,
@@ -2070,7 +2372,7 @@ class PostgresResearchOSRepository:
                 not value.startswith("m4-v2-bounded-operational-forward:")
                 or not value.endswith(":DRAW_SYNCED")
                 for value in set(facts["external_events"])
-                - set(baseline.facts.to_dict()["external_events"])
+                - set(current.facts.to_dict()["external_events"])
             )
         ):
             raise ResearchOSValidationError(error)
