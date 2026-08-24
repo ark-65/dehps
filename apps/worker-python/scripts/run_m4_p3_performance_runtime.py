@@ -107,6 +107,8 @@ P3_UNIT = "dehps-forward-prequential-successor.service"
 OLD_GUARD_UNIT = "dehps-p26-mmio-pl1-guard.service"
 WATCHDOG_UNIT = "dehps-p3-performance-watchdog.service"
 ALLOWED_MMIO_WATTS = (20, 28)
+MSR_PL2_WATTS = 55
+MMIO_PL2_WATTS = 43
 OUTER_VALUES = (1, 2, 4, 6, 8, 12, 22)
 INNER_VALUES = (1, 2, 4, 6, 8, 12, 22)
 HYBRID_VALUES = ((2, 2), (4, 2), (6, 2), (8, 2), (2, 4), (4, 4))
@@ -671,6 +673,13 @@ class TelemetrySampler:
         }
 
 
+def read_runtime_telemetry() -> dict[str, Any]:
+    sampler = TelemetrySampler(interval=0.1)
+    sampler.start()
+    time.sleep(0.6)
+    return sampler.stop()
+
+
 def benchmark_matrix() -> list[dict[str, Any]]:
     values: list[dict[str, Any]] = []
     for outer in OUTER_VALUES:
@@ -773,17 +782,19 @@ def _measure_config(
     *,
     config: Mapping[str, Any],
     measured_runs: int,
+    perform_warmup: bool = True,
 ) -> dict[str, Any]:
     outer = int(config["outer"])
     inner = int(config["inner"])
     affinity = str(config["affinity"])
     thread_profile = config.get("thread_profile")
-    _run_child(
-        fixture,
-        inner=inner,
-        affinity=affinity,
-        thread_profile=thread_profile,
-    )
+    if perform_warmup:
+        _run_child(
+            fixture,
+            inner=inner,
+            affinity=affinity,
+            thread_profile=thread_profile,
+        )
     measurements: list[dict[str, Any]] = []
     telemetry = TelemetrySampler()
     telemetry.start()
@@ -829,11 +840,28 @@ def _measure_config(
             )
     finally:
         telemetry_output = telemetry.stop()
+    return _summarize_config(
+        config=config,
+        measurements=measurements,
+        telemetry=telemetry_output,
+        warmup_runs=int(perform_warmup),
+    )
+
+
+def _summarize_config(
+    *,
+    config: Mapping[str, Any],
+    measurements: Sequence[Mapping[str, Any]],
+    telemetry: Mapping[str, Any],
+    warmup_runs: int,
+) -> dict[str, Any]:
+    if not measurements:
+        raise P3PerformanceRuntimeError("benchmark measurements are missing")
     return {
         **dict(config),
-        "warmup_runs": 1,
-        "measured_runs": measured_runs,
-        "measurements": measurements,
+        "warmup_runs": warmup_runs,
+        "measured_runs": len(measurements),
+        "measurements": list(measurements),
         "median_wall_seconds": statistics.median(
             item["wall_seconds"] for item in measurements
         ),
@@ -850,9 +878,68 @@ def _measure_config(
             for phase in ("refit", "candidate", "replay", "end_to_end")
         },
         "peak_rss_kib": max(item["peak_rss_kib_sum"] for item in measurements),
-        "telemetry": telemetry_output,
+        "telemetry": dict(telemetry),
         "exact_output_equivalence": True,
     }
+
+
+def _merge_telemetry(values: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    total_samples = sum(int(item["sample_count"]) for item in values)
+    if total_samples <= 0:
+        raise P3PerformanceRuntimeError("benchmark telemetry samples are missing")
+    mean_fields = (
+        "pkg_watt_mean",
+        "frequency_mhz_mean",
+        "busy_percent_mean",
+    )
+    peak_fields = (
+        "pkg_watt_peak",
+        "temperature_c_peak",
+        "frequency_mhz_peak",
+        "busy_percent_peak",
+    )
+    output: dict[str, Any] = {"sample_count": total_samples}
+    for field in mean_fields:
+        output[field] = sum(
+            float(item[field]) * int(item["sample_count"]) for item in values
+        ) / total_samples
+    for field in peak_fields:
+        output[field] = max(float(item[field]) for item in values)
+    for field in (
+        "thermal_throttle_count_delta",
+        "thermal_throttle_time_ms_delta",
+    ):
+        output[field] = sum(int(item[field]) for item in values)
+    return output
+
+
+def _merge_config_results(values: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    first = values[0]
+    config = {
+        key: first[key]
+        for key in ("family", "outer", "inner", "affinity", "thread_profile")
+        if key in first
+    }
+    measurements = [
+        measurement
+        for item in values
+        for measurement in item["measurements"]
+    ]
+    return _summarize_config(
+        config=config,
+        measurements=measurements,
+        telemetry=_merge_telemetry([item["telemetry"] for item in values]),
+        warmup_runs=sum(int(item["warmup_runs"]) for item in values),
+    )
+
+
+def _config_identity(value: Mapping[str, Any]) -> tuple[int, int, str, str | None]:
+    return (
+        int(value["outer"]),
+        int(value["inner"]),
+        str(value["affinity"]),
+        None if value.get("thread_profile") is None else str(value["thread_profile"]),
+    )
 
 
 def run_benchmark(
@@ -883,40 +970,55 @@ def run_benchmark(
         _measure_config(fixture, config=item, measured_runs=runs) for item in matrix
     ]
     eligible = [item for item in results if item["outer"] == 1]
-    ordered = sorted(eligible, key=lambda item: item["median_wall_seconds"])
+    ordered = sorted(eligible, key=lambda item: item["median_reference_seconds"])
     if len(ordered) >= 2:
         gap = (
-            ordered[1]["median_wall_seconds"]
-            / ordered[0]["median_wall_seconds"]
+            ordered[1]["median_reference_seconds"]
+            / ordered[0]["median_reference_seconds"]
             - 1.0
         )
         if gap < 0.02 and runs < 9:
-            identities = {
-                (ordered[0]["outer"], ordered[0]["inner"], ordered[0]["affinity"]),
-                (ordered[1]["outer"], ordered[1]["inner"], ordered[1]["affinity"]),
+            finalists = [ordered[0], ordered[1]]
+            extensions: dict[tuple[int, int, str, str | None], list[dict[str, Any]]] = {
+                _config_identity(item): [] for item in finalists
             }
+            for round_index in range(9 - runs):
+                round_values = finalists if round_index % 2 == 0 else finalists[::-1]
+                for finalist in round_values:
+                    extensions[_config_identity(finalist)].append(
+                        _measure_config(
+                            fixture,
+                            config={
+                                key: finalist[key]
+                                for key in (
+                                    "family",
+                                    "outer",
+                                    "inner",
+                                    "affinity",
+                                    "thread_profile",
+                                )
+                                if key in finalist
+                            },
+                            measured_runs=1,
+                            perform_warmup=False,
+                        )
+                    )
             replacements = {
-                identity: _measure_config(
-                    fixture,
-                    config=next(
-                        item
-                        for item in matrix
-                        if (item["outer"], item["inner"], item["affinity"])
-                        == identity
-                    ),
-                    measured_runs=9,
+                identity: _merge_config_results(
+                    [
+                        next(item for item in results if _config_identity(item) == identity),
+                        *extension,
+                    ]
                 )
-                for identity in identities
+                for identity, extension in extensions.items()
             }
             results = [
-                replacements.get(
-                    (item["outer"], item["inner"], item["affinity"]), item
-                )
+                replacements.get(_config_identity(item), item)
                 for item in results
             ]
             eligible = [item for item in results if item["outer"] == 1]
             ordered = sorted(
-                eligible, key=lambda item: item["median_wall_seconds"]
+                eligible, key=lambda item: item["median_reference_seconds"]
             )
     selected = ordered[0]
     return {
@@ -943,10 +1045,112 @@ def run_benchmark(
             ),
             "median_reference_seconds": selected["median_reference_seconds"],
             "median_wall_seconds": selected["median_wall_seconds"],
-            "selection_rule": "MINIMUM_MEDIAN_WALL_CLOCK_VERIFIED_SINGLE_P3_WORKLOAD",
+            "selection_rule": "MINIMUM_MEDIAN_FROZEN_WORKLOAD_END_TO_END_SECONDS",
         },
         "outer_concurrency_credit": "BATCH_THROUGHPUT_DIAGNOSTIC_ONLY",
         "scientific_identity_changed": False,
+    }
+
+
+def run_power_profile_benchmark(
+    *,
+    fixture: Path,
+    selected: Mapping[str, Any],
+    runs: int,
+) -> dict[str, Any]:
+    if runs < 5:
+        raise P3PerformanceRuntimeError(
+            "power profile benchmark requires at least five measured runs"
+        )
+    config = {
+        "family": "power_profile",
+        "outer": 1,
+        "inner": int(selected["inner"]),
+        "affinity": str(selected["affinity"]),
+        "thread_profile": str(selected["thread_profile"]),
+    }
+    values: dict[int, list[dict[str, Any]]] = {
+        item: [] for item in ALLOWED_MMIO_WATTS
+    }
+    trial_order: list[int] = []
+
+    def measure_round(round_index: int) -> None:
+        order = list(ALLOWED_MMIO_WATTS)
+        if round_index % 2:
+            order.reverse()
+        for mmio_watts in order:
+            power = reconcile_power_limits(
+                msr_watts=40,
+                mmio_watts=mmio_watts,
+                apply=True,
+            )
+            measured = _measure_config(
+                fixture,
+                config=config,
+                measured_runs=1,
+                perform_warmup=not values[mmio_watts],
+            )
+            measured["configured_power"] = {
+                "msr_pl1_w": 40,
+                "mmio_pl1_w": mmio_watts,
+            }
+            measured["power_readback"] = power["after"]
+            values[mmio_watts].append(measured)
+            trial_order.append(mmio_watts)
+
+    for index in range(runs):
+        measure_round(index)
+    merged = {
+        watts: _merge_config_results(items) for watts, items in values.items()
+    }
+    ordered = sorted(
+        merged,
+        key=lambda watts: merged[watts]["median_reference_seconds"],
+    )
+    gap = (
+        merged[ordered[1]]["median_reference_seconds"]
+        / merged[ordered[0]]["median_reference_seconds"]
+        - 1.0
+    )
+    if gap < 0.02 and runs < 9:
+        for index in range(runs, 9):
+            measure_round(index)
+        merged = {
+            watts: _merge_config_results(items) for watts, items in values.items()
+        }
+
+    profiles: list[dict[str, Any]] = []
+    for mmio_watts in ALLOWED_MMIO_WATTS:
+        measurement = merged[mmio_watts]
+        telemetry = measurement["telemetry"]
+        stable = (
+            telemetry["thermal_throttle_time_ms_delta"] == 0
+            and float(telemetry["temperature_c_peak"]) < 100.0
+        )
+        profiles.append(
+            {
+                "msr_watts": 40,
+                "mmio_watts": mmio_watts,
+                "stable": stable,
+                "benchmark": measurement,
+                "power_readbacks": [
+                    item["power_readback"] for item in values[mmio_watts]
+                ],
+            }
+        )
+    eligible = [item for item in profiles if item["stable"]]
+    if not eligible:
+        raise P3PerformanceRuntimeError("no stable power profile")
+    winner = min(
+        eligible,
+        key=lambda item: item["benchmark"]["median_reference_seconds"],
+    )
+    return {
+        "status": "POWER_PROFILE_BENCHMARK_COMPLETE",
+        "profiles": profiles,
+        "trial_order_mmio_watts": trial_order,
+        "selected": {"msr_watts": 40, "mmio_watts": winner["mmio_watts"]},
+        "selection_rule": "FASTEST_VERIFIED_STABLE_FROZEN_WORKLOAD_END_TO_END",
     }
 
 
@@ -1041,9 +1245,12 @@ def _load_runtime_config(path: Path) -> dict[str, Any]:
     profile = value["power_profile"]
     if (
         not isinstance(profile, Mapping)
-        or set(profile) != {"msr_watts", "mmio_watts"}
+        or set(profile)
+        != {"msr_watts", "mmio_watts", "msr_pl2_watts", "mmio_pl2_watts"}
         or int(profile["msr_watts"]) != 40
         or int(profile["mmio_watts"]) not in ALLOWED_MMIO_WATTS
+        or int(profile["msr_pl2_watts"]) != MSR_PL2_WATTS
+        or int(profile["mmio_pl2_watts"]) != MMIO_PL2_WATTS
     ):
         raise P3PerformanceRuntimeError("runtime power profile changed")
     if not 1 <= int(value["active_interval_seconds"]) <= 5:
@@ -1087,10 +1294,12 @@ def watchdog_once(
     state_path: Path,
     apply: bool,
     mode_path: Path = DEFAULT_MODE_PATH,
+    p3_unit_state_override: str | None = None,
 ) -> dict[str, Any]:
     mode = _mode(mode_path)
     stale_active_recovered = False
-    if mode == "active" and apply and _p3_unit_state() not in {
+    p3_unit_state = p3_unit_state_override or _p3_unit_state()
+    if mode == "active" and apply and p3_unit_state not in {
         "active",
         "activating",
         "deactivating",
@@ -1109,25 +1318,39 @@ def watchdog_once(
         )
         platform = reconcile_platform_profile(apply=apply)
         result["platform_profile"] = platform
+        result["telemetry"] = read_runtime_telemetry()
         count += int(result["write_count"]) + int(platform["changed"])
     else:
         result = {"status": "PASSIVE_MONITOR", "power": read_power_limits()}
     power = result.get("after") or result.get("power") or {}
+    if (
+        int(power.get("msr_pl2_uw", 0))
+        != int(profile["msr_pl2_watts"]) * 1_000_000
+        or int(power.get("mmio_pl2_uw", 0))
+        != int(profile["mmio_pl2_watts"]) * 1_000_000
+    ):
+        raise P3PerformanceRuntimeError("monitored PL2 readback changed")
     writes = int(result.get("write_count", 0))
     changed = bool(result.get("platform_profile", {}).get("changed", False))
     now = datetime.now().astimezone().isoformat()
+    telemetry = result.get("telemetry", {})
     state = {
         "schema_version": "dehps.p3.performance-watchdog-state.v1",
         "mode": mode,
         "heartbeat_at": now,
+        "timestamp": now,
         "performance_mode": mode.upper(),
         "target_msr_pl1_w": int(profile["msr_watts"]),
         "actual_msr_pl1_w": power.get("msr_pl1_uw", 0) / 1_000_000,
         "target_mmio_pl1_w": int(profile["mmio_watts"]),
         "actual_mmio_pl1_w": power.get("mmio_pl1_uw", 0) / 1_000_000,
-        "target_pl2": "MONITOR_ONLY_UNCHANGED",
+        "target_msr_pl2_w": int(profile["msr_pl2_watts"]),
         "actual_msr_pl2_w": power.get("msr_pl2_uw", 0) / 1_000_000,
+        "target_mmio_pl2_w": int(profile["mmio_pl2_watts"]),
         "actual_mmio_pl2_w": power.get("mmio_pl2_uw", 0) / 1_000_000,
+        "package_power_w": telemetry.get("pkg_watt_mean"),
+        "busy_frequency_mhz": telemetry.get("frequency_mhz_mean"),
+        "temperature_c": telemetry.get("temperature_c_peak"),
         "reapply_count": count,
         "last_reapply_at": (
             now
@@ -1145,6 +1368,82 @@ def watchdog_once(
     if apply:
         _json_write(state_path, state)
     return state
+
+
+def run_drift_fixture(
+    *,
+    config: Mapping[str, Any],
+    state_path: Path = DEFAULT_STATE_PATH,
+    mode_path: Path = DEFAULT_MODE_PATH,
+) -> dict[str, Any]:
+    if _mode(mode_path) != "passive":
+        raise P3PerformanceRuntimeError("drift fixture requires passive mode")
+    profile = config["power_profile"]
+    selected_msr = int(profile["msr_watts"]) * 1_000_000
+    selected_mmio = int(profile["mmio_watts"]) * 1_000_000
+    alternate_msr = 28_000_000
+    alternate_mmio = (
+        28_000_000 if int(profile["mmio_watts"]) == 20 else 20_000_000
+    )
+    reconcile_platform_profile(apply=True)
+    reconcile_power_limits(
+        msr_watts=int(profile["msr_watts"]),
+        mmio_watts=int(profile["mmio_watts"]),
+        apply=True,
+    )
+    before_count = (
+        int(_json_load(state_path).get("reapply_count", 0))
+        if state_path.is_file()
+        else 0
+    )
+    drifted: dict[str, int] | None = None
+    active_state: dict[str, Any] | None = None
+    try:
+        _docker_sysfs_write(MSR_RELATIVE, alternate_msr)
+        _docker_sysfs_write(MMIO_RELATIVE, alternate_mmio)
+        drifted = read_power_limits()
+        if (
+            drifted["msr_pl1_uw"] != alternate_msr
+            or drifted["mmio_pl1_uw"] != alternate_mmio
+        ):
+            raise P3PerformanceRuntimeError("drift fixture injection readback mismatch")
+        set_mode(mode="active", path=mode_path)
+        active_state = watchdog_once(
+            config=config,
+            state_path=state_path,
+            apply=True,
+            mode_path=mode_path,
+            p3_unit_state_override="activating",
+        )
+        actual = active_state["last_result"]["after"]
+        if (
+            active_state["last_result"]["write_count"] != 2
+            or active_state["reapply_count"] != before_count + 2
+            or actual["msr_pl1_uw"] != selected_msr
+            or actual["mmio_pl1_uw"] != selected_mmio
+        ):
+            raise P3PerformanceRuntimeError("drift fixture reapply invariant failed")
+    finally:
+        reconcile_power_limits(
+            msr_watts=int(profile["msr_watts"]),
+            mmio_watts=int(profile["mmio_watts"]),
+            apply=True,
+        )
+        set_mode(mode="passive", path=mode_path)
+        passive_state = watchdog_once(
+            config=config,
+            state_path=state_path,
+            apply=True,
+            mode_path=mode_path,
+        )
+    return {
+        "status": "DRIFT_REAPPLY_READBACK_VERIFIED",
+        "injected": drifted,
+        "active_state": active_state,
+        "final_state": passive_state,
+        "reapply_delta": passive_state["reapply_count"] - before_count,
+        "scientific_dispatch": False,
+    }
 
 
 def install_runtime(
@@ -1168,7 +1467,12 @@ def install_runtime(
             "affinity": selected_affinity,
             "thread_profile": selected_thread_profile,
         },
-        "power_profile": {"msr_watts": 40, "mmio_watts": mmio_watts},
+        "power_profile": {
+            "msr_watts": 40,
+            "mmio_watts": mmio_watts,
+            "msr_pl2_watts": MSR_PL2_WATTS,
+            "mmio_pl2_watts": MMIO_PL2_WATTS,
+        },
         "active_interval_seconds": 2,
         "passive_interval_seconds": 60,
         "operator": dict(operator),
@@ -1294,6 +1598,9 @@ def _parser() -> argparse.ArgumentParser:
     profile.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     profile.add_argument("--output", type=Path, required=True)
     profile.add_argument("--runs", type=int, default=5)
+    drift = subparsers.add_parser("drift-test")
+    drift.add_argument("--apply", action="store_true")
+    drift.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     status = subparsers.add_parser("status")
     status.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     for name in ("enter", "exit", "watch"):
@@ -1352,6 +1659,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         _json_write(args.output, output)
     elif args.command == "status":
         output = compact_status(args.config)
+    elif args.command == "drift-test":
+        if not args.apply:
+            raise P3PerformanceRuntimeError("drift test requires Operator --apply")
+        config = _load_runtime_config(args.config)
+        verify_operator_governance(config)
+        output = run_drift_fixture(config=config)
     elif args.command == "profile-benchmark":
         if not args.apply:
             raise P3PerformanceRuntimeError("profile benchmark requires Operator --apply")
@@ -1359,59 +1672,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         verify_operator_governance(config)
         bundle = load_reference_bundle()
         selected = config["selected"]
-        profiles: list[dict[str, Any]] = []
-        selected_mmio = 20
+        selected_mmio = int(config["power_profile"]["mmio_watts"])
         try:
             with tempfile.TemporaryDirectory(
                 prefix="dehps-p3-power-profile-"
             ) as temp:
                 fixture = Path(temp) / "reference.json"
                 _json_write(fixture, bundle)
-                for mmio_watts in ALLOWED_MMIO_WATTS:
-                    reconcile_power_limits(
-                        msr_watts=40, mmio_watts=mmio_watts, apply=True
-                    )
-                    result = run_benchmark(
-                        fixture=fixture,
-                        runs=args.runs,
-                        selected_only=True,
-                        selected_inner=int(selected["inner"]),
-                        selected_affinity=str(selected["affinity"]),
-                        selected_thread_profile=str(selected["thread_profile"]),
-                    )
-                    measurement = result["matrix"][0]
-                    telemetry = measurement["telemetry"]
-                    stable = (
-                        telemetry["thermal_throttle_time_ms_delta"] == 0
-                        and (
-                            telemetry["temperature_c_peak"] is None
-                            or telemetry["temperature_c_peak"] < 100.0
-                        )
-                    )
-                    profiles.append(
-                        {
-                            "msr_watts": 40,
-                            "mmio_watts": mmio_watts,
-                            "stable": stable,
-                            "benchmark": result,
-                        }
-                    )
-            eligible = [item for item in profiles if item["stable"]]
-            if not eligible:
-                raise P3PerformanceRuntimeError("no stable power profile")
-            winner = min(
-                eligible,
-                key=lambda item: item["benchmark"]["selected"]["median_wall_seconds"],
-            )
-            selected_mmio = int(winner["mmio_watts"])
+                output = run_power_profile_benchmark(
+                    fixture=fixture,
+                    selected=selected,
+                    runs=args.runs,
+                )
+            selected_mmio = int(output["selected"]["mmio_watts"])
             config["power_profile"]["mmio_watts"] = selected_mmio
             _json_write(args.config, config)
-            output = {
-                "status": "POWER_PROFILE_BENCHMARK_COMPLETE",
-                "profiles": profiles,
-                "selected": {"msr_watts": 40, "mmio_watts": selected_mmio},
-                "selection_rule": "FASTEST_VERIFIED_STABLE_SAME_WORKLOAD",
-            }
             _json_write(args.output, output)
         finally:
             reconcile_power_limits(
