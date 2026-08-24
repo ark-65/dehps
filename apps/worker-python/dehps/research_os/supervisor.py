@@ -1573,6 +1573,16 @@ P26_EQUIVALENT_RESUME_REPORT_ENV = "DEHPS_P26_EQUIVALENT_RESUME_REPORT"
 P26_EQUIVALENT_RESUME_REPORT = (
     "docs/experiments/2026-07-31-m4-p2-6-exact-runtime-acceleration.md"
 )
+M4_P3_EQUIVALENT_RESUME_EVENT_ENV = (
+    "DEHPS_M4_P3_EQUIVALENT_RESUME_FAILED_EVENT_DIGEST"
+)
+M4_P3_EQUIVALENT_RESUME_SOURCE_ENV = (
+    "DEHPS_M4_P3_EQUIVALENT_RESUME_SOURCE_DIGEST"
+)
+M4_P3_EQUIVALENT_RESUME_ERROR = (
+    "bounded_forward_source_bytes_changed:"
+    "apps/worker-python/dehps/research_os/repository.py"
+)
 P26_FAILED_RECOVERY_EVENT_ENV = "DEHPS_P26_RECOVER_FAILED_EVENT_DIGEST"
 P26_FAILED_RECOVERY_REPORT_ENV = "DEHPS_P26_FAILED_RECOVERY_REPORT"
 P26_FAILED_RECOVERY_EVENT_DIGEST = (
@@ -5007,6 +5017,104 @@ def _atomic_import_completed_manifest(
         raise MainlineSupervisorError("M4-v2 atomic control-plane head race")
 
 
+def _validated_m4_p3_runtime_recovery(
+    *,
+    root_dir: Path,
+    task: Task,
+    started_event: Mapping[str, Any],
+    failed_event: Mapping[str, Any],
+) -> bool:
+    from dehps.research_os.information_theory.measurement_system_v2 import (
+        forward_prequential_confirmatory as successor,
+    )
+
+    if (
+        task.goal_key != successor.GOAL_KEY
+        or task.requested_capability not in successor.CAPABILITIES
+    ):
+        return False
+    source = successor.load_source_contract(root_dir=root_dir)
+    source_digest = str(source.get("artifact_digest") or "")
+    started_record = _event_record(started_event)
+    failed_record = _event_record(failed_event)
+    original_commit = str(_event_payload(started_event).get("git_commit") or "")
+    if (
+        tuple(task.input_artifact_digests) != (source_digest,)
+        or started_record.execution_id != failed_record.execution_id
+        or started_record.control_plane_key != M4_CONTROL_PLANE_KEY
+        or failed_record.control_plane_key != M4_CONTROL_PLANE_KEY
+        or started_record.manifest_digest != failed_record.manifest_digest
+        or started_record.task_key != task.task_key
+        or failed_record.task_key != task.task_key
+        or started_record.task_digest != task.artifact_digest
+        or failed_record.task_digest != task.artifact_digest
+        or started_record.capability != task.requested_capability
+        or failed_record.capability != task.requested_capability
+        or started_record.event_type != "started"
+        or failed_record.event_type != "failed"
+        or started_record.sequence != 0
+        or failed_record.sequence != 1
+        or _event_payload(started_event)
+        != {
+            "git_commit": original_commit,
+            "input_artifact_digests": [source_digest],
+        }
+        or _event_payload(failed_event)
+        != {
+            "error": M4_P3_EQUIVALENT_RESUME_ERROR,
+            "git_commit": original_commit,
+        }
+    ):
+        return False
+    migration_root = (
+        root_dir
+        / "runtime/research-os/mainline/tasks"
+        / task.task_key
+        / started_record.execution_id
+        / "runtime-migrations"
+    )
+    paths = list(migration_root.glob("*/m4-p3-runtime-recovery.json"))
+    if len(paths) != 1:
+        return False
+    recovery = _load_object(paths[0])
+    expected_digest = canonical_digest(
+        {
+            key: value
+            for key, value in recovery.items()
+            if key != "artifact_digest"
+        },
+        domain="dehps.m4.p3.runtime-recovery.v1",
+    )
+    runtime_commit = str(recovery.get("runtime_git_commit") or "")
+    return (
+        recovery.get("schema_version") == "dehps-m4-p3-runtime-recovery.v1"
+        and recovery.get("artifact_type")
+        == "m4_p3_runtime_recovery_attestation"
+        and recovery.get("artifact_digest") == expected_digest
+        and paths[0].parent.name == expected_digest
+        and recovery.get("execution_id") == started_record.execution_id
+        and recovery.get("task_key") == task.task_key
+        and recovery.get("task_digest") == task.artifact_digest
+        and recovery.get("failed_event_digest")
+        == str(failed_event.get("event_digest") or "")
+        and recovery.get("source_contract_digest") == source_digest
+        and recovery.get("execution_git_commit") == original_commit
+        and len(runtime_commit) == 40
+        and all(value in "0123456789abcdef" for value in runtime_commit)
+        and recovery.get("failure_classification")
+        == "REPAIRED_INTEGRATION_ROUTER_ERROR"
+        and recovery.get("scientific_contract_changed") is False
+        and recovery.get("target_result_inspected") is False
+        and recovery.get("new_research_os_recovery_task_created") is False
+        and recovery.get("parent_digests")
+        == [
+            task.artifact_digest,
+            str(failed_event.get("event_digest") or ""),
+            source_digest,
+        ]
+    )
+
+
 def _load_single_completed_execution(
     *,
     repository: PostgresResearchOSRepository,
@@ -5063,6 +5171,11 @@ def _load_single_completed_execution(
         if candidate.get("event_type") == "failed"
         and candidate.get("execution_id") == completed_record.execution_id
     ]
+    if len(matching_started) != 1:
+        raise MainlineSupervisorError(
+            f"mainline parent requires one matching started event: {task_key}"
+        )
+    started = matching_started[0]
     recovered_p26_failure = (
         task_key == P26_TASK_KEY
         and len(matching_failed) == 1
@@ -5075,12 +5188,17 @@ def _load_single_completed_execution(
             "git_commit": "e6dedaf9c835672a5e17007653ee6e8fe55b67d9",
         }
     )
-    expected_completed_sequence = 2 if recovered_p26_failure else 1
-    if len(matching_started) != 1:
-        raise MainlineSupervisorError(
-            f"mainline parent requires one matching started event: {task_key}"
+    recovered_m4_p3_failure = (
+        len(matching_failed) == 1
+        and _validated_m4_p3_runtime_recovery(
+            root_dir=root_dir,
+            task=task,
+            started_event=started,
+            failed_event=matching_failed[0],
         )
-    started = matching_started[0]
+    )
+    recovered_failure = recovered_p26_failure or recovered_m4_p3_failure
+    expected_completed_sequence = 2 if recovered_failure else 1
     started_record = _event_record(started)
     if (
         completed_record.control_plane_key != control_plane_key
@@ -5089,7 +5207,7 @@ def _load_single_completed_execution(
         or completed_record.capability != task.requested_capability
         or completed_record.event_type != "completed"
         or completed_record.sequence != expected_completed_sequence
-        or (matching_failed and not recovered_p26_failure)
+        or (matching_failed and not recovered_failure)
         or (
             not require_manifest_complete
             and completed_record.manifest_digest
@@ -24068,6 +24186,12 @@ class ResearchEvidenceSupervisor:
         task_by_key = {task.task_key: task for task in manifest.tasks}
         task_states = manifest.task_state_by_digest
         failed_recovery_token = os.environ.get(P26_FAILED_RECOVERY_EVENT_ENV, "")
+        m4_p3_recovery_token = os.environ.get(
+            M4_P3_EQUIVALENT_RESUME_EVENT_ENV, ""
+        )
+        m4_p3_source_token = os.environ.get(
+            M4_P3_EQUIVALENT_RESUME_SOURCE_ENV, ""
+        )
         running = [
             item
             for item in snapshot.resolutions
@@ -24161,10 +24285,25 @@ class ResearchEvidenceSupervisor:
                 if event.get("task_digest") == task.artifact_digest
                 and event.get("event_type") == "failed"
             ]
-            recovered_failure = self._validated_p26_failed_recovery_event(
-                task=task,
-                events=events,
-                token=failed_recovery_token,
+            m4_p3_recovered_failure = (
+                self._validated_m4_p3_equivalent_resume_event(
+                    task=task,
+                    events=events,
+                    event_token=m4_p3_recovery_token,
+                    source_token=m4_p3_source_token,
+                )
+            )
+            p26_recovered_failure = (
+                None
+                if m4_p3_recovered_failure is not None
+                else self._validated_p26_failed_recovery_event(
+                    task=task,
+                    events=events,
+                    token=failed_recovery_token,
+                )
+            )
+            recovered_failure = (
+                m4_p3_recovered_failure or p26_recovered_failure
             )
             if (
                 (failed and recovered_failure is None)
@@ -24176,7 +24315,7 @@ class ResearchEvidenceSupervisor:
                 )
             if started:
                 execution_id = str(started[0]["execution_id"])
-                if recovered_failure is not None:
+                if p26_recovered_failure is not None:
                     if execution_id != P26_FAILED_RECOVERY_EXECUTION_ID:
                         raise MainlineSupervisorError(
                             "P2.6 failed recovery execution identity changed"
@@ -24214,26 +24353,43 @@ class ResearchEvidenceSupervisor:
                             raise MainlineSupervisorError(
                                 "P2.6 failed recovery running manifest changed"
                             )
+                if m4_p3_recovered_failure is not None:
+                    terminal_sequence = 2
+                    runtime_migration = self._record_m4_p3_runtime_recovery(
+                        task=task,
+                        execution_id=execution_id,
+                        failed_event=m4_p3_recovered_failure,
+                        execution_git_commit=str(
+                            _event_payload(started[0]).get("git_commit") or ""
+                        ),
+                        runtime_git_commit=runtime_git_commit,
+                        source_digest=m4_p3_source_token,
+                    )
                 original_commit = str(
                     _event_payload(started[0]).get("git_commit") or ""
                 )
                 if original_commit != git_commit:
-                    allowed_origin = os.environ.get(P26_EQUIVALENT_RESUME_ENV, "")
-                    if (
-                        task.task_key != P26_TASK_KEY
-                        or not allowed_origin
-                        or allowed_origin != original_commit
+                    allowed_origin = os.environ.get(
+                        P26_EQUIVALENT_RESUME_ENV, ""
+                    )
+                    if m4_p3_recovered_failure is not None:
+                        git_commit = original_commit
+                    elif (
+                        task.task_key == P26_TASK_KEY
+                        and allowed_origin
+                        and allowed_origin == original_commit
                     ):
+                        runtime_migration = self._record_p26_runtime_migration(
+                            task=task,
+                            execution_id=execution_id,
+                            execution_git_commit=original_commit,
+                            runtime_git_commit=runtime_git_commit,
+                        )
+                        git_commit = original_commit
+                    else:
                         raise MainlineSupervisorError(
                             "running execution git commit differs from the current clean tree"
                         )
-                    runtime_migration = self._record_p26_runtime_migration(
-                        task=task,
-                        execution_id=execution_id,
-                        execution_git_commit=original_commit,
-                        runtime_git_commit=runtime_git_commit,
-                    )
-                    git_commit = original_commit
             else:
                 execution_id = self._execution_id(
                     task=task,
@@ -26327,6 +26483,134 @@ class ResearchEvidenceSupervisor:
                 payload[key] = summary[key]
         self._write_state(payload)
         self._write_lane_status(status)
+        return payload
+
+    def _validated_m4_p3_equivalent_resume_event(
+        self,
+        *,
+        task: Task,
+        events: Sequence[Mapping[str, Any]],
+        event_token: str,
+        source_token: str,
+    ) -> Mapping[str, Any] | None:
+        failed = [item for item in events if item.get("event_type") == "failed"]
+        if not failed:
+            return None
+        if not event_token and not source_token:
+            return None
+        if not event_token or not source_token:
+            raise MainlineSupervisorError(
+                "M4-P3 equivalent resume authorization is incomplete"
+            )
+
+        from dehps.research_os.information_theory.measurement_system_v2 import (
+            forward_prequential_confirmatory as successor,
+        )
+
+        source = successor.load_source_contract(root_dir=self.root_dir)
+        started = [
+            item for item in events if item.get("event_type") == "started"
+        ]
+        if len(started) != 1 or len(failed) != 1:
+            raise MainlineSupervisorError(
+                "M4-P3 equivalent resume event cardinality changed"
+            )
+        started_event = started[0]
+        failed_event = failed[0]
+        started_record = _event_record(started_event)
+        failed_record = _event_record(failed_event)
+        original_commit = str(
+            _event_payload(started_event).get("git_commit") or ""
+        )
+        if (
+            len(event_token) != 64
+            or any(value not in "0123456789abcdef" for value in event_token)
+            or len(source_token) != 64
+            or any(value not in "0123456789abcdef" for value in source_token)
+            or len(original_commit) != 40
+            or any(value not in "0123456789abcdef" for value in original_commit)
+            or task.goal_key != successor.GOAL_KEY
+            or task.requested_capability not in successor.CAPABILITIES
+            or tuple(task.input_artifact_digests) != (source_token,)
+            or source.get("artifact_digest") != source_token
+            or str(failed_event.get("event_digest") or "") != event_token
+            or started_record.execution_id != failed_record.execution_id
+            or started_record.control_plane_key != M4_CONTROL_PLANE_KEY
+            or failed_record.control_plane_key != M4_CONTROL_PLANE_KEY
+            or started_record.manifest_digest != failed_record.manifest_digest
+            or started_record.task_key != task.task_key
+            or failed_record.task_key != task.task_key
+            or started_record.task_digest != task.artifact_digest
+            or failed_record.task_digest != task.artifact_digest
+            or started_record.capability != task.requested_capability
+            or failed_record.capability != task.requested_capability
+            or started_record.event_type != "started"
+            or failed_record.event_type != "failed"
+            or started_record.sequence != 0
+            or failed_record.sequence != 1
+            or _event_payload(started_event)
+            != {
+                "git_commit": original_commit,
+                "input_artifact_digests": [source_token],
+            }
+            or _event_payload(failed_event)
+            != {
+                "error": M4_P3_EQUIVALENT_RESUME_ERROR,
+                "git_commit": original_commit,
+            }
+        ):
+            raise MainlineSupervisorError(
+                "M4-P3 equivalent resume event provenance changed"
+            )
+        return failed_event
+
+    def _record_m4_p3_runtime_recovery(
+        self,
+        *,
+        task: Task,
+        execution_id: str,
+        failed_event: Mapping[str, Any],
+        execution_git_commit: str,
+        runtime_git_commit: str,
+        source_digest: str,
+    ) -> Mapping[str, Any]:
+        payload: dict[str, Any] = {
+            "schema_version": "dehps-m4-p3-runtime-recovery.v1",
+            "artifact_type": "m4_p3_runtime_recovery_attestation",
+            "artifact_digest": "",
+            "execution_id": execution_id,
+            "task_key": task.task_key,
+            "task_digest": task.artifact_digest,
+            "failed_event_digest": str(failed_event["event_digest"]),
+            "source_contract_digest": source_digest,
+            "execution_git_commit": execution_git_commit,
+            "runtime_git_commit": runtime_git_commit,
+            "failure_classification": "REPAIRED_INTEGRATION_ROUTER_ERROR",
+            "scientific_contract_changed": False,
+            "target_result_inspected": False,
+            "new_research_os_recovery_task_created": False,
+            "parent_digests": [
+                task.artifact_digest,
+                str(failed_event["event_digest"]),
+                source_digest,
+            ],
+        }
+        identity = dict(payload)
+        identity.pop("artifact_digest")
+        payload["artifact_digest"] = canonical_digest(
+            identity,
+            domain="dehps.m4.p3.runtime-recovery.v1",
+        )
+        path = (
+            self.root_dir
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / execution_id
+            / "runtime-migrations"
+            / payload["artifact_digest"]
+            / "m4-p3-runtime-recovery.json"
+        )
+        _persist_immutable(path, payload)
         return payload
 
     def _record_p26_runtime_migration(

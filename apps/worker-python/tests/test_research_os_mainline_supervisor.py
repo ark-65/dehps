@@ -15,6 +15,9 @@ from dehps.research_os.information_theory.calibration import (
     load_calibration_manifest,
     run_p24_calibration,
 )
+from dehps.research_os.information_theory.measurement_system_v2 import (
+    forward_prequential_confirmatory as p3_successor,
+)
 from dehps.research_os.information_theory.measurement_validation.periodic_refit import (
     PERIODIC_REFIT_CONTRACT_DIGEST,
 )
@@ -1066,6 +1069,237 @@ def test_supervisor_resumes_after_completed_event_before_status_projection(
         for item in snapshot.ready_queue
         if item.goal_key == "M4_INFORMATION_THEORY_EVIDENCE"
     ] == ["m4-p2-injected-signal-calibration"]
+
+
+def _m4_p3_resume_event_mapping(event: MainlineExecutionEvent) -> dict:
+    return {
+        "event_digest": event.artifact_digest,
+        "execution_id": event.execution_id,
+        "control_plane_key": event.control_plane_key,
+        "manifest_digest": event.manifest_digest,
+        "task_key": event.task_key,
+        "task_digest": event.task_digest,
+        "capability": event.capability,
+        "event_type": event.event_type,
+        "sequence": event.sequence,
+        "recorded_at": event.recorded_at,
+        "payload": [list(item) for item in event.payload],
+    }
+
+
+def _m4_p3_resume_events(
+    *,
+    task,
+    source_digest: str,
+    manifest_digest: str = "m" * 64,
+    error: str = supervisor_module.M4_P3_EQUIVALENT_RESUME_ERROR,
+) -> tuple[dict, dict]:
+    original_commit = "1" * 40
+    execution_id = supervisor_module.stable_hash(
+        {
+            "schema": supervisor_module.MAINLINE_EXECUTION_SCHEMA,
+            "control_plane_key": TEST_CONTROL_PLANE_KEY,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "input_artifact_digests": task.input_artifact_digests,
+            "git_commit": original_commit,
+        }
+    )
+    started = MainlineExecutionEvent(
+        execution_id=execution_id,
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
+        manifest_digest=manifest_digest,
+        task_key=task.task_key,
+        task_digest=task.artifact_digest,
+        capability=task.requested_capability,
+        event_type="started",
+        sequence=0,
+        recorded_at="2026-08-24T04:21:15+00:00",
+        payload=(
+            ("git_commit", original_commit),
+            ("input_artifact_digests", [source_digest]),
+        ),
+    )
+    failed = MainlineExecutionEvent(
+        execution_id=execution_id,
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
+        manifest_digest=manifest_digest,
+        task_key=task.task_key,
+        task_digest=task.artifact_digest,
+        capability=task.requested_capability,
+        event_type="failed",
+        sequence=1,
+        recorded_at="2026-08-24T04:21:57+00:00",
+        payload=(("error", error), ("git_commit", original_commit)),
+    )
+    return _m4_p3_resume_event_mapping(started), _m4_p3_resume_event_mapping(
+        failed
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("event_token", "source_token", "error", "capability", "cardinality"),
+)
+def test_m4_p3_equivalent_resume_requires_exact_source_and_failed_event(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+) -> None:
+    source_digest = "a" * 64
+    task = SimpleNamespace(
+        task_key="m4-p3-forward-prequential-2026097-settlement",
+        artifact_digest="b" * 64,
+        goal_key=p3_successor.GOAL_KEY,
+        requested_capability=p3_successor.SETTLEMENT_CAPABILITY,
+        input_artifact_digests=(source_digest,),
+    )
+    started, failed = _m4_p3_resume_events(
+        task=task,
+        source_digest=source_digest,
+        error=(
+            "scientific_failure"
+            if mutation == "error"
+            else supervisor_module.M4_P3_EQUIVALENT_RESUME_ERROR
+        ),
+    )
+    events = [started, failed]
+    event_token = str(failed["event_digest"])
+    source_token = source_digest
+    if mutation == "event_token":
+        event_token = "x" * 64
+    elif mutation == "source_token":
+        source_token = "q" * 64
+    elif mutation == "capability":
+        task.requested_capability = "unrelated_capability"
+    elif mutation == "cardinality":
+        events.append(dict(failed))
+    monkeypatch.setattr(
+        p3_successor,
+        "load_source_contract",
+        lambda **_kwargs: {"artifact_digest": source_digest},
+    )
+    supervisor = object.__new__(ResearchEvidenceSupervisor)
+    supervisor.root_dir = tmp_path
+
+    with pytest.raises(
+        MainlineSupervisorError,
+        match="M4-P3 equivalent resume",
+    ):
+        supervisor._validated_m4_p3_equivalent_resume_event(
+            task=task,
+            events=events,
+            event_token=event_token,
+            source_token=source_token,
+        )
+
+
+def test_m4_p3_equivalent_resume_accepts_exact_source_and_failed_event(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_digest = "a" * 64
+    task = SimpleNamespace(
+        task_key="m4-p3-forward-prequential-2026097-settlement",
+        artifact_digest="b" * 64,
+        goal_key=p3_successor.GOAL_KEY,
+        requested_capability=p3_successor.SETTLEMENT_CAPABILITY,
+        input_artifact_digests=(source_digest,),
+    )
+    started, failed = _m4_p3_resume_events(
+        task=task,
+        source_digest=source_digest,
+    )
+    monkeypatch.setattr(
+        p3_successor,
+        "load_source_contract",
+        lambda **_kwargs: {"artifact_digest": source_digest},
+    )
+    supervisor = object.__new__(ResearchEvidenceSupervisor)
+    supervisor.root_dir = tmp_path
+
+    assert supervisor._validated_m4_p3_equivalent_resume_event(
+        task=task,
+        events=[started, failed],
+        event_token=str(failed["event_digest"]),
+        source_token=source_digest,
+    ) == failed
+
+
+def test_m4_p3_equivalent_resume_completes_existing_execution_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = manifest_payload()
+    task_payload = next(
+        item for item in payload["tasks"] if item["task_key"] == P23_TASK_KEY
+    )
+    task_payload["status"] = "running"
+    task_payload["completion_classification"] = "INTEGRATED"
+    task_payload["input_artifact_digests"] = [
+        task_payload["input_artifact_digests"][0]
+    ]
+    repository = MemoryMainlineRepository(payload)
+    task = next(
+        item for item in repository.manifest.tasks if item.task_key == P23_TASK_KEY
+    )
+    source_digest = str(task.input_artifact_digests[0])
+    started, failed = _m4_p3_resume_events(
+        task=task,
+        source_digest=source_digest,
+        manifest_digest=repository.manifest.artifact_digest,
+    )
+    repository.events.extend((started, failed))
+    root = prepare_root(tmp_path)
+    supervisor = ResearchEvidenceSupervisor(
+        repository=repository,  # type: ignore[arg-type]
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
+        root_dir=root,
+        now=lambda: datetime(2026, 8, 24, 6, 0, tzinfo=timezone.utc),
+        git_commit="2" * 40,
+        require_clean_tree=False,
+    )
+    supervisor.capabilities[task.requested_capability] = _ProjectedCapability(
+        root=root,
+        task_key=task.task_key,
+        summary={"actual_fold_count": 4},
+    )
+    monkeypatch.setattr(
+        supervisor,
+        "_validated_m4_p3_equivalent_resume_event",
+        lambda **_kwargs: failed,
+    )
+    monkeypatch.setattr(
+        supervisor_module,
+        "_validated_m4_p3_runtime_recovery",
+        lambda **_kwargs: True,
+    )
+
+    result = supervisor.run_once(task_key=task.task_key)
+
+    assert result["status"] == "COMPLETE"
+    assert result["execution_id"] == started["execution_id"]
+    assert [item["event_type"] for item in repository.events] == [
+        "started",
+        "failed",
+        "completed",
+    ]
+    assert repository.events[-1]["sequence"] == 2
+    assert dict(repository.events[-1]["payload"])["git_commit"] == "1" * 40
+    migration_paths = list(
+        (
+            root
+            / "runtime/research-os/mainline/tasks"
+            / task.task_key
+            / str(started["execution_id"])
+            / "runtime-migrations"
+        ).glob("*/m4-p3-runtime-recovery.json")
+    )
+    assert len(migration_paths) == 1
+    migration = json.loads(migration_paths[0].read_text(encoding="utf-8"))
+    assert migration["failed_event_digest"] == failed["event_digest"]
+    assert migration["scientific_contract_changed"] is False
+    assert migration["target_result_inspected"] is False
 
 
 def test_completed_loader_projects_exact_m4_p3_zero_work_fold_count(
