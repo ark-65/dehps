@@ -1274,6 +1274,14 @@ def test_m4_p3_equivalent_resume_completes_existing_execution_identity(
         "_validated_m4_p3_runtime_recovery",
         lambda **_kwargs: True,
     )
+    monkeypatch.setenv(
+        supervisor_module.M4_P3_EQUIVALENT_RESUME_EVENT_ENV,
+        str(failed["event_digest"]),
+    )
+    monkeypatch.setenv(
+        supervisor_module.M4_P3_EQUIVALENT_RESUME_SOURCE_ENV,
+        source_digest,
+    )
 
     result = supervisor.run_once(task_key=task.task_key)
 
@@ -1300,6 +1308,183 @@ def test_m4_p3_equivalent_resume_completes_existing_execution_identity(
     assert migration["failed_event_digest"] == failed["event_digest"]
     assert migration["scientific_contract_changed"] is False
     assert migration["target_result_inspected"] is False
+    replayed_migration = supervisor._record_m4_p3_runtime_recovery(
+        task=task,
+        execution_id=str(started["execution_id"]),
+        failed_event=failed,
+        execution_git_commit="1" * 40,
+        runtime_git_commit="3" * 40,
+        source_digest=source_digest,
+    )
+    assert replayed_migration == migration
+    assert len(
+        list(
+            (
+                root
+                / "runtime/research-os/mainline/tasks"
+                / task.task_key
+                / str(started["execution_id"])
+                / "runtime-migrations"
+            ).glob("*/m4-p3-runtime-recovery.json")
+        )
+    ) == 1
+
+
+def test_m4_p3_runtime_recovery_predicate_requires_exact_unique_attestation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_digest = "a" * 64
+    task = SimpleNamespace(
+        task_key="m4-p3-forward-prequential-2026097-settlement",
+        artifact_digest="b" * 64,
+        goal_key=p3_successor.GOAL_KEY,
+        requested_capability=p3_successor.SETTLEMENT_CAPABILITY,
+        input_artifact_digests=(source_digest,),
+    )
+    started, failed = _m4_p3_resume_events(
+        task=task,
+        source_digest=source_digest,
+    )
+    events = [started, failed]
+    monkeypatch.setattr(
+        p3_successor,
+        "load_source_contract",
+        lambda **_kwargs: {"artifact_digest": source_digest},
+    )
+    supervisor = object.__new__(ResearchEvidenceSupervisor)
+    supervisor.root_dir = tmp_path
+    supervisor.control_plane_key = TEST_CONTROL_PLANE_KEY
+    supervisor.repository = SimpleNamespace(
+        list_mainline_execution_events=lambda **_kwargs: events,
+    )
+    supervisor._record_m4_p3_runtime_recovery(
+        task=task,
+        execution_id=str(started["execution_id"]),
+        failed_event=failed,
+        execution_git_commit="1" * 40,
+        runtime_git_commit="2" * 40,
+        source_digest=source_digest,
+    )
+
+    assert supervisor._has_validated_m4_p3_runtime_recovery(
+        task=task,
+        execution_id=str(started["execution_id"]),
+    )
+    events.append(dict(failed))
+    assert not supervisor._has_validated_m4_p3_runtime_recovery(
+        task=task,
+        execution_id=str(started["execution_id"]),
+    )
+
+
+@pytest.mark.parametrize("authorized", (False, True))
+def test_atomic_completion_sequence_two_requires_exact_m4_p3_recovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    authorized: bool,
+) -> None:
+    supervisor = object.__new__(ResearchEvidenceSupervisor)
+    supervisor.root_dir = tmp_path
+    supervisor.control_plane_key = TEST_CONTROL_PLANE_KEY
+    monkeypatch.setattr(
+        supervisor,
+        "_has_validated_m4_p3_runtime_recovery",
+        lambda **_kwargs: authorized,
+    )
+    task = SimpleNamespace(task_key="p3", artifact_digest="a" * 64)
+    result = supervisor_module.AtomicCapabilityResult(
+        artifacts=(),
+        completion_facts=(),
+        execution_metadata=(("status", "forbidden"),),
+    )
+    expected = (
+        "overrides frozen fields"
+        if authorized
+        else "does not permit failed-execution recovery"
+    )
+
+    with pytest.raises(MainlineSupervisorError, match=expected):
+        supervisor._complete_atomic_capability(
+            running_manifest=SimpleNamespace(),
+            running_manifest_digest="m" * 64,
+            task=task,
+            capability="p3-capability",
+            execution_id="e" * 64,
+            git_commit="1" * 40,
+            terminal_sequence=2,
+            result=result,
+        )
+
+
+def test_m4_p3_recovery_failure_does_not_append_second_failed_event(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = manifest_payload()
+    task_payload = next(
+        item for item in payload["tasks"] if item["task_key"] == P23_TASK_KEY
+    )
+    task_payload["status"] = "running"
+    task_payload["completion_classification"] = "INTEGRATED"
+    repository = MemoryMainlineRepository(payload)
+    task = next(
+        item for item in repository.manifest.tasks if item.task_key == P23_TASK_KEY
+    )
+    source_digest = str(task.input_artifact_digests[0])
+    started, failed = _m4_p3_resume_events(
+        task=task,
+        source_digest=source_digest,
+        manifest_digest=repository.manifest.artifact_digest,
+    )
+    repository.events.extend((started, failed))
+    original_manifest_digest = repository.manifest.artifact_digest
+    root = prepare_root(tmp_path)
+    supervisor = ResearchEvidenceSupervisor(
+        repository=repository,  # type: ignore[arg-type]
+        control_plane_key=TEST_CONTROL_PLANE_KEY,
+        root_dir=root,
+        now=lambda: datetime(2026, 8, 24, 6, 0, tzinfo=timezone.utc),
+        git_commit="2" * 40,
+        require_clean_tree=False,
+    )
+    supervisor.capabilities[task.requested_capability] = SimpleNamespace(
+        execute=lambda **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("simulated recovered capability failure")
+        )
+    )
+    monkeypatch.setattr(
+        supervisor,
+        "_validated_m4_p3_equivalent_resume_event",
+        lambda **_kwargs: failed,
+    )
+    monkeypatch.setattr(
+        supervisor_module,
+        "_validated_m4_p3_runtime_recovery",
+        lambda **_kwargs: True,
+    )
+    monkeypatch.setenv(
+        supervisor_module.M4_P3_EQUIVALENT_RESUME_EVENT_ENV,
+        str(failed["event_digest"]),
+    )
+    monkeypatch.setenv(
+        supervisor_module.M4_P3_EQUIVALENT_RESUME_SOURCE_ENV,
+        source_digest,
+    )
+
+    with pytest.raises(RuntimeError, match="simulated recovered capability failure"):
+        supervisor.run_once(task_key=task.task_key)
+
+    state = json.loads(supervisor.state_path.read_text(encoding="utf-8"))
+    assert [item["event_type"] for item in repository.events] == [
+        "started",
+        "failed",
+    ]
+    assert repository.manifest.artifact_digest == original_manifest_digest
+    assert state["status"] == "RECOVERY_REQUIRED"
+    assert state["incident_class"] == "m4_p3_attested_runtime_recovery"
+    assert state["second_failed_event_recorded"] is False
+    assert state["failed_manifest_imported"] is False
 
 
 def test_completed_loader_projects_exact_m4_p3_zero_work_fold_count(
