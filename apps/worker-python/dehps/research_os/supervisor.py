@@ -1579,9 +1579,18 @@ M4_P3_EQUIVALENT_RESUME_EVENT_ENV = (
 M4_P3_EQUIVALENT_RESUME_SOURCE_ENV = (
     "DEHPS_M4_P3_EQUIVALENT_RESUME_SOURCE_DIGEST"
 )
+M4_P3_EQUIVALENT_RESUME_GUARD_EVENT_ENV = (
+    "DEHPS_M4_P3_EQUIVALENT_RESUME_GUARD_FAILED_EVENT_DIGEST"
+)
 M4_P3_EQUIVALENT_RESUME_ERROR = (
     "bounded_forward_source_bytes_changed:"
     "apps/worker-python/dehps/research_os/repository.py"
+)
+M4_P3_EQUIVALENT_RESUME_GUARD_EVENT_DIGEST = (
+    "a3a9b4f3a8ea40a1b54b6cbdafa02e5a983334023fd40500a8c6e949689c0086"
+)
+M4_P3_EQUIVALENT_RESUME_GUARD_ERROR = (
+    "M4-v2 atomic successor does not permit failed-execution recovery"
 )
 P26_FAILED_RECOVERY_EVENT_ENV = "DEHPS_P26_RECOVER_FAILED_EVENT_DIGEST"
 P26_FAILED_RECOVERY_REPORT_ENV = "DEHPS_P26_FAILED_RECOVERY_REPORT"
@@ -5115,6 +5124,43 @@ def _validated_m4_p3_runtime_recovery(
     )
 
 
+def _validated_m4_p3_runtime_guard_recovery(
+    *,
+    root_dir: Path,
+    task: Task,
+    started_event: Mapping[str, Any],
+    failed_event: Mapping[str, Any],
+    guard_failed_event: Mapping[str, Any],
+) -> bool:
+    if not _validated_m4_p3_runtime_recovery(
+        root_dir=root_dir,
+        task=task,
+        started_event=started_event,
+        failed_event=failed_event,
+    ):
+        return False
+    started_record = _event_record(started_event)
+    guard_record = _event_record(guard_failed_event)
+    original_commit = str(_event_payload(started_event).get("git_commit") or "")
+    return (
+        str(guard_failed_event.get("event_digest") or "")
+        == M4_P3_EQUIVALENT_RESUME_GUARD_EVENT_DIGEST
+        and guard_record.execution_id == started_record.execution_id
+        and guard_record.control_plane_key == started_record.control_plane_key
+        and guard_record.manifest_digest == started_record.manifest_digest
+        and guard_record.task_key == started_record.task_key
+        and guard_record.task_digest == started_record.task_digest
+        and guard_record.capability == started_record.capability
+        and guard_record.event_type == "failed"
+        and guard_record.sequence == 2
+        and _event_payload(guard_failed_event)
+        == {
+            "error": M4_P3_EQUIVALENT_RESUME_GUARD_ERROR,
+            "git_commit": original_commit,
+        }
+    )
+
+
 def _load_single_completed_execution(
     *,
     repository: PostgresResearchOSRepository,
@@ -5188,7 +5234,7 @@ def _load_single_completed_execution(
             "git_commit": "e6dedaf9c835672a5e17007653ee6e8fe55b67d9",
         }
     )
-    recovered_m4_p3_failure = (
+    recovered_m4_p3_single_failure = (
         len(matching_failed) == 1
         and _validated_m4_p3_runtime_recovery(
             root_dir=root_dir,
@@ -5197,8 +5243,28 @@ def _load_single_completed_execution(
             failed_event=matching_failed[0],
         )
     )
-    recovered_failure = recovered_p26_failure or recovered_m4_p3_failure
-    expected_completed_sequence = 2 if recovered_failure else 1
+    failed_by_sequence = {
+        _event_record(candidate).sequence: candidate for candidate in matching_failed
+    }
+    recovered_m4_p3_guard_failure = (
+        len(matching_failed) == 2
+        and set(failed_by_sequence) == {1, 2}
+        and _validated_m4_p3_runtime_guard_recovery(
+            root_dir=root_dir,
+            task=task,
+            started_event=started,
+            failed_event=failed_by_sequence[1],
+            guard_failed_event=failed_by_sequence[2],
+        )
+    )
+    recovered_failure = (
+        recovered_p26_failure
+        or recovered_m4_p3_single_failure
+        or recovered_m4_p3_guard_failure
+    )
+    expected_completed_sequence = (
+        3 if recovered_m4_p3_guard_failure else 2 if recovered_failure else 1
+    )
     started_record = _event_record(started)
     if (
         completed_record.control_plane_key != control_plane_key
@@ -24192,6 +24258,9 @@ class ResearchEvidenceSupervisor:
         m4_p3_source_token = os.environ.get(
             M4_P3_EQUIVALENT_RESUME_SOURCE_ENV, ""
         )
+        m4_p3_guard_recovery_token = os.environ.get(
+            M4_P3_EQUIVALENT_RESUME_GUARD_EVENT_ENV, ""
+        )
         running = [
             item
             for item in snapshot.resolutions
@@ -24291,6 +24360,7 @@ class ResearchEvidenceSupervisor:
                     events=events,
                     event_token=m4_p3_recovery_token,
                     source_token=m4_p3_source_token,
+                    guard_event_token=m4_p3_guard_recovery_token,
                 )
             )
             p26_recovered_failure = (
@@ -24354,7 +24424,9 @@ class ResearchEvidenceSupervisor:
                                 "P2.6 failed recovery running manifest changed"
                             )
                 if m4_p3_recovered_failure is not None:
-                    terminal_sequence = 2
+                    terminal_sequence = (
+                        3 if m4_p3_guard_recovery_token else 2
+                    )
                     runtime_migration = self._record_m4_p3_runtime_recovery(
                         task=task,
                         execution_id=execution_id,
@@ -25142,9 +25214,13 @@ class ResearchEvidenceSupervisor:
                 raise
             if completed_recorded:
                 raise
-            if terminal_sequence == 2 and self._has_validated_m4_p3_runtime_recovery(
-                task=task,
-                execution_id=execution_id,
+            if (
+                terminal_sequence in {2, 3}
+                and self._has_validated_m4_p3_runtime_recovery(
+                    task=task,
+                    execution_id=execution_id,
+                    terminal_sequence=terminal_sequence,
+                )
             ):
                 self._write_state(
                     {
@@ -25157,7 +25233,11 @@ class ResearchEvidenceSupervisor:
                         "execution_id": execution_id,
                         "incident_class": "m4_p3_attested_runtime_recovery",
                         "error": str(exc),
-                        "second_failed_event_recorded": False,
+                        (
+                            "third_failed_event_recorded"
+                            if terminal_sequence == 3
+                            else "second_failed_event_recorded"
+                        ): False,
                         "failed_manifest_imported": False,
                         "dispatch_performed": True,
                         "git_commit": git_commit,
@@ -25633,6 +25713,7 @@ class ResearchEvidenceSupervisor:
         *,
         task: Task,
         execution_id: str,
+        terminal_sequence: int = 2,
     ) -> bool:
         events = self.repository.list_mainline_execution_events(
             control_plane_key=self.control_plane_key,
@@ -25642,7 +25723,7 @@ class ResearchEvidenceSupervisor:
         return self._is_valid_atomic_terminal_event_set(
             task=task,
             events=events,
-            terminal_sequence=2,
+            terminal_sequence=terminal_sequence,
         )
 
     def _is_valid_atomic_terminal_event_set(
@@ -25665,16 +25746,32 @@ class ResearchEvidenceSupervisor:
                 and not failed
                 and _event_record(started[0]).sequence == 0
             )
+        failed_by_sequence = {
+            _event_record(candidate).sequence: candidate for candidate in failed
+        }
+        if terminal_sequence == 2:
+            return (
+                len(events) == 2
+                and len(started) == 1
+                and set(failed_by_sequence) == {1}
+                and _validated_m4_p3_runtime_recovery(
+                    root_dir=self.root_dir,
+                    task=task,
+                    started_event=started[0],
+                    failed_event=failed_by_sequence[1],
+                )
+            )
         return (
-            terminal_sequence == 2
-            and len(events) == 2
+            terminal_sequence == 3
+            and len(events) == 3
             and len(started) == 1
-            and len(failed) == 1
-            and _validated_m4_p3_runtime_recovery(
+            and set(failed_by_sequence) == {1, 2}
+            and _validated_m4_p3_runtime_guard_recovery(
                 root_dir=self.root_dir,
                 task=task,
                 started_event=started[0],
-                failed_event=failed[0],
+                failed_event=failed_by_sequence[1],
+                guard_failed_event=failed_by_sequence[2],
             )
         )
 
@@ -25691,10 +25788,11 @@ class ResearchEvidenceSupervisor:
         result: AtomicCapabilityResult,
     ) -> dict[str, Any]:
         if terminal_sequence != 1 and not (
-            terminal_sequence == 2
+            terminal_sequence in {2, 3}
             and self._has_validated_m4_p3_runtime_recovery(
                 task=task,
                 execution_id=execution_id,
+                terminal_sequence=terminal_sequence,
             )
         ):
             raise MainlineSupervisorError(
@@ -26572,11 +26670,12 @@ class ResearchEvidenceSupervisor:
         events: Sequence[Mapping[str, Any]],
         event_token: str,
         source_token: str,
+        guard_event_token: str = "",
     ) -> Mapping[str, Any] | None:
         failed = [item for item in events if item.get("event_type") == "failed"]
         if not failed:
             return None
-        if not event_token and not source_token:
+        if not event_token and not source_token and not guard_event_token:
             return None
         if not event_token or not source_token:
             raise MainlineSupervisorError(
@@ -26591,12 +26690,20 @@ class ResearchEvidenceSupervisor:
         started = [
             item for item in events if item.get("event_type") == "started"
         ]
-        if len(started) != 1 or len(failed) != 1:
+        failed_by_sequence = {
+            _event_record(item).sequence: item for item in failed
+        }
+        expected_failed_sequences = {1, 2} if guard_event_token else {1}
+        if (
+            len(started) != 1
+            or len(failed) != len(expected_failed_sequences)
+            or set(failed_by_sequence) != expected_failed_sequences
+        ):
             raise MainlineSupervisorError(
                 "M4-P3 equivalent resume event cardinality changed"
             )
         started_event = started[0]
-        failed_event = failed[0]
+        failed_event = failed_by_sequence[1]
         started_record = _event_record(started_event)
         failed_record = _event_record(failed_event)
         original_commit = str(
@@ -26607,6 +26714,11 @@ class ResearchEvidenceSupervisor:
             or any(value not in "0123456789abcdef" for value in event_token)
             or len(source_token) != 64
             or any(value not in "0123456789abcdef" for value in source_token)
+            or (
+                guard_event_token
+                and guard_event_token
+                != M4_P3_EQUIVALENT_RESUME_GUARD_EVENT_DIGEST
+            )
             or len(original_commit) != 40
             or any(value not in "0123456789abcdef" for value in original_commit)
             or task.goal_key != successor.GOAL_KEY
@@ -26641,6 +26753,16 @@ class ResearchEvidenceSupervisor:
         ):
             raise MainlineSupervisorError(
                 "M4-P3 equivalent resume event provenance changed"
+            )
+        if guard_event_token and not _validated_m4_p3_runtime_guard_recovery(
+            root_dir=self.root_dir,
+            task=task,
+            started_event=started_event,
+            failed_event=failed_event,
+            guard_failed_event=failed_by_sequence[2],
+        ):
+            raise MainlineSupervisorError(
+                "M4-P3 equivalent resume guard-failure provenance changed"
             )
         return failed_event
 
@@ -26680,18 +26802,38 @@ class ResearchEvidenceSupervisor:
                 for item in events
                 if item.get("event_type") == "failed"
             ]
+            failed_by_sequence = {
+                _event_record(item).sequence: item for item in failed
+            }
+            exact_event_set = (
+                len(started) == 1
+                and (
+                    (
+                        set(failed_by_sequence) == {1}
+                        and _validated_m4_p3_runtime_recovery(
+                            root_dir=self.root_dir,
+                            task=task,
+                            started_event=started[0],
+                            failed_event=failed_by_sequence[1],
+                        )
+                    )
+                    or (
+                        set(failed_by_sequence) == {1, 2}
+                        and _validated_m4_p3_runtime_guard_recovery(
+                            root_dir=self.root_dir,
+                            task=task,
+                            started_event=started[0],
+                            failed_event=failed_by_sequence[1],
+                            guard_failed_event=failed_by_sequence[2],
+                        )
+                    )
+                )
+            )
             if (
                 len(existing_paths) != 1
-                or len(started) != 1
-                or len(failed) != 1
-                or str(failed[0].get("event_digest") or "")
+                or not exact_event_set
+                or str(failed_by_sequence[1].get("event_digest") or "")
                 != str(failed_event.get("event_digest") or "")
-                or not _validated_m4_p3_runtime_recovery(
-                    root_dir=self.root_dir,
-                    task=task,
-                    started_event=started[0],
-                    failed_event=failed[0],
-                )
             ):
                 raise MainlineSupervisorError(
                     "M4-P3 runtime recovery attestation set changed"
