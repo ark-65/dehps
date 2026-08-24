@@ -1827,9 +1827,11 @@ def test_atomic_completed_helper_runs_shared_policy_before_manifest_writes() -> 
             *,
             control_plane_key,
             manifest,
+            m4_v2_lifecycle_verified=False,
         ):
             policy_calls.append(
-                f"{control_plane_key}:{manifest.artifact_digest}"
+                f"{control_plane_key}:{manifest.artifact_digest}:"
+                f"{m4_v2_lifecycle_verified}"
             )
             raise ResearchOSValidationError("shared-policy-rejected")
 
@@ -1851,7 +1853,7 @@ def test_atomic_completed_helper_runs_shared_policy_before_manifest_writes() -> 
         )
     ]
     assert policy_calls == [
-        f"m4-information-theory-mainline:{completed.artifact_digest}"
+        f"m4-information-theory-mainline:{completed.artifact_digest}:True"
     ]
 
 
