@@ -4802,7 +4802,8 @@ class PostgresResearchOSRepository:
             None,
         )
         if (
-            recovery_v3 is not None
+            not m4_v2_lifecycle_verified
+            and recovery_v3 is not None
             and manifest.task_state_by_digest[
                 recovery_v3.artifact_digest
             ].declared_status.value

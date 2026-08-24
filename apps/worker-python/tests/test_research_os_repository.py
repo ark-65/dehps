@@ -2122,6 +2122,34 @@ def test_mainline_completion_hook_reaches_shared_global_recovery_v3_policy(
     assert calls == [f"m4-information-theory-mainline:{manifest.artifact_digest}"]
 
 
+def test_mainline_completion_hook_honors_prior_v3_lifecycle_attestation(
+    monkeypatch,
+) -> None:
+    manifest, _, _, _ = _recovery_v3_runtime_fixture("COMPLETED")
+    calls: list[str] = []
+
+    def verify(*_args, **_kwargs):
+        calls.append("historical_v3")
+
+    monkeypatch.setattr(
+        PostgresResearchOSRepository,
+        "_verify_m4_v2_failed_global_routing_recovery_v3_import",
+        verify,
+    )
+    monkeypatch.setattr(
+        repository_module,
+        "completion_execution_ids",
+        lambda *_args, **_kwargs: (),
+    )
+    PostgresResearchOSRepository._verify_mainline_completion_records(
+        object(),
+        control_plane_key="m4-information-theory-mainline",
+        manifest=manifest,
+        m4_v2_lifecycle_verified=True,
+    )
+    assert calls == []
+
+
 def test_global_recovery_v3_import_rolls_back_before_first_write(monkeypatch) -> None:
     manifest = _active_recovery_v3_manifest()
     events: list[str] = []
@@ -3578,6 +3606,7 @@ def test_p3_successor_exact_transition_routes_around_historical_validators(
     repository.control_plane = SimpleNamespace(
         resolve=lambda _manifest: SimpleNamespace(resolutions=())
     )
+    original_completion = repository._verify_mainline_completion_records
 
     def historical(*_args, **_kwargs):
         events.append("historical")
@@ -3591,9 +3620,31 @@ def test_p3_successor_exact_transition_routes_around_historical_validators(
         "_verify_m4_v2_failed_task_recovery_import",
     ):
         monkeypatch.setattr(repository, name, historical)
+    monkeypatch.setattr(
+        PostgresResearchOSRepository,
+        "_verify_m4_v2_failed_global_routing_recovery_v3_import",
+        staticmethod(historical),
+    )
+    monkeypatch.setattr(
+        repository_module,
+        "completion_execution_ids",
+        lambda *_args, **_kwargs: (),
+    )
 
-    def generic_completion(*_args, **_kwargs):
-        events.append("generic_completion")
+    def generic_completion(
+        cursor,
+        *,
+        control_plane_key,
+        manifest,
+        m4_v2_lifecycle_verified=False,
+    ):
+        events.append(f"generic_completion:{m4_v2_lifecycle_verified}")
+        original_completion(
+            cursor,
+            control_plane_key=control_plane_key,
+            manifest=manifest,
+            m4_v2_lifecycle_verified=m4_v2_lifecycle_verified,
+        )
         raise ResearchOSValidationError("p3-router-probe-complete")
 
     monkeypatch.setattr(
@@ -3609,7 +3660,7 @@ def test_p3_successor_exact_transition_routes_around_historical_validators(
             control_plane_key="m4-information-theory-mainline",
             payload=incoming.to_dict(include_digest=True),
         )
-    assert events == ["generic_completion", "rollback"]
+    assert events == ["generic_completion:True", "rollback"]
 
 
 @pytest.mark.parametrize("mutation", ["task", "artifact", "mixed"])
