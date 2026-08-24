@@ -90,14 +90,14 @@ def test_benchmark_matrix_covers_frozen_outer_inner_hybrid_and_affinity() -> Non
     assert len(identities) == len(matrix)
 
 
-def test_benchmark_selects_complete_median_wall_not_internal_phase(
+def test_benchmark_selects_frozen_workload_end_to_end_not_process_startup(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     def measured(_fixture, *, config, measured_runs):
         inner = int(config["inner"])
         affinity = str(config["affinity"])
-        wall = 1.0 if (inner, affinity) == (2, "all") else 2.0
-        internal = 10.0 if wall == 1.0 else 0.1
+        internal = 1.0 if (inner, affinity) == (2, "all") else 2.0
+        wall = 10.0 if internal == 1.0 else 0.1
         return {
             **dict(config),
             "measured_runs": measured_runs,
@@ -114,8 +114,190 @@ def test_benchmark_selects_complete_median_wall_not_internal_phase(
         selected_affinity="all",
     )
     assert result["selected"]["inner"] == 2
-    assert result["selected"]["median_wall_seconds"] == 1.0
-    assert result["selected"]["median_reference_seconds"] == 10.0
+    assert result["selected"]["median_wall_seconds"] == 10.0
+    assert result["selected"]["median_reference_seconds"] == 1.0
+
+
+def _synthetic_measurement(config: dict, *, value: float, warmup: int) -> dict:
+    measurement = {
+        "wall_seconds": value + 1.0,
+        "workloads": int(config["outer"]),
+        "workloads_per_second": int(config["outer"]) / (value + 1.0),
+        "median_reference_seconds": value,
+        "median_phase_seconds": {
+            "refit": value / 4,
+            "candidate": value / 2,
+            "replay": value / 8,
+            "end_to_end": value,
+        },
+        "peak_rss_kib_sum": 100,
+    }
+    return runtime._summarize_config(
+        config=config,
+        measurements=[measurement],
+        telemetry={
+            "sample_count": 1,
+            "pkg_watt_mean": 20.0,
+            "pkg_watt_peak": 21.0,
+            "temperature_c_peak": 80.0,
+            "frequency_mhz_mean": 3500.0,
+            "frequency_mhz_peak": 3600.0,
+            "busy_percent_mean": 10.0,
+            "busy_percent_peak": 20.0,
+            "thermal_throttle_count_delta": 0,
+            "thermal_throttle_time_ms_delta": 0,
+        },
+        warmup_runs=warmup,
+    )
+
+
+def test_power_profiles_are_counterbalanced_and_select_frozen_workload_median(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    current = {"mmio": 20}
+
+    def reconcile(*, mmio_watts, **_kwargs):
+        current["mmio"] = mmio_watts
+        return {
+            "after": {
+                "msr_pl1_uw": 40_000_000,
+                "mmio_pl1_uw": mmio_watts * 1_000_000,
+                "msr_pl2_uw": 55_000_000,
+                "mmio_pl2_uw": 43_000_000,
+            }
+        }
+
+    def measured(_fixture, *, config, measured_runs, perform_warmup=True):
+        assert measured_runs == 1
+        value = 0.1 if current["mmio"] == 20 else 0.2
+        return _synthetic_measurement(
+            dict(config), value=value, warmup=int(perform_warmup)
+        )
+
+    monkeypatch.setattr(runtime, "reconcile_power_limits", reconcile)
+    monkeypatch.setattr(runtime, "_measure_config", measured)
+    output = runtime.run_power_profile_benchmark(
+        fixture=tmp_path / "unused.json",
+        selected={
+            "inner": 1,
+            "affinity": "all",
+            "thread_profile": "uniform_1",
+        },
+        runs=5,
+    )
+    assert output["trial_order_mmio_watts"] == [20, 28, 28, 20, 20, 28, 28, 20, 20, 28]
+    assert output["selected"] == {"msr_watts": 40, "mmio_watts": 20}
+    assert all(item["benchmark"]["measured_runs"] == 5 for item in output["profiles"])
+
+
+def test_near_tie_finalists_extend_to_nine_in_alternating_order(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    extension_order: list[int] = []
+
+    def measured(
+        _fixture, *, config, measured_runs, perform_warmup=True
+    ):
+        identity = (int(config["outer"]), int(config["inner"]), str(config["affinity"]))
+        if identity == (1, 1, "all"):
+            value = 1.0
+        elif identity == (1, 2, "all"):
+            value = 1.01
+        else:
+            value = 2.0
+        if not perform_warmup:
+            extension_order.append(int(config["inner"]))
+        single = _synthetic_measurement(
+            dict(config), value=value, warmup=int(perform_warmup)
+        )
+        return runtime._summarize_config(
+            config=dict(config),
+            measurements=single["measurements"] * measured_runs,
+            telemetry=single["telemetry"],
+            warmup_runs=int(perform_warmup),
+        )
+
+    monkeypatch.setattr(runtime, "_measure_config", measured)
+    output = runtime.run_benchmark(
+        fixture=tmp_path / "unused.json",
+        runs=5,
+        selected_only=False,
+        selected_inner=1,
+        selected_affinity="all",
+    )
+    assert extension_order == [1, 2, 2, 1, 1, 2, 2, 1]
+    finalists = {
+        item["inner"]: item
+        for item in output["matrix"]
+        if item["outer"] == 1 and item["affinity"] == "all" and item["inner"] in {1, 2}
+    }
+    assert finalists[1]["measured_runs"] == 9
+    assert finalists[2]["measured_runs"] == 9
+
+
+def test_real_drift_fixture_uses_watchdog_reconcile_and_restores_passive(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    limits = {
+        "msr_pl1_uw": 40_000_000,
+        "mmio_pl1_uw": 20_000_000,
+        "msr_pl2_uw": 55_000_000,
+        "mmio_pl2_uw": 43_000_000,
+        "msr_pl1_max_uw": 28_000_000,
+        "mmio_pl1_max_uw": 28_000_000,
+    }
+
+    def writer(path: Path, value: int) -> None:
+        limits["msr_pl1_uw" if path == runtime.MSR_RELATIVE else "mmio_pl1_uw"] = value
+
+    def reconcile(*, msr_watts, mmio_watts, apply, **_kwargs):
+        targets = {
+            "msr_pl1_uw": msr_watts * 1_000_000,
+            "mmio_pl1_uw": mmio_watts * 1_000_000,
+        }
+        write_count = sum(limits[key] != value for key, value in targets.items())
+        if apply:
+            limits.update(targets)
+        return {
+            "status": "APPLIED_AND_VERIFIED",
+            "write_count": write_count,
+            "after": dict(limits),
+        }
+
+    monkeypatch.setattr(runtime, "_docker_sysfs_write", writer)
+    monkeypatch.setattr(runtime, "read_power_limits", lambda: dict(limits))
+    monkeypatch.setattr(runtime, "reconcile_power_limits", reconcile)
+    monkeypatch.setattr(
+        runtime,
+        "reconcile_platform_profile",
+        lambda **_kwargs: {"changed": False, "after": "performance"},
+    )
+    monkeypatch.setattr(
+        runtime,
+        "read_runtime_telemetry",
+        lambda: {
+            "pkg_watt_mean": 20.0,
+            "frequency_mhz_mean": 3500.0,
+            "temperature_c_peak": 80.0,
+        },
+    )
+    output = runtime.run_drift_fixture(
+        config={
+            "power_profile": {
+                "msr_watts": 40,
+                "mmio_watts": 20,
+                "msr_pl2_watts": 55,
+                "mmio_pl2_watts": 43,
+            }
+        },
+        state_path=tmp_path / "state.json",
+        mode_path=tmp_path / "mode.json",
+    )
+    assert output["status"] == "DRIFT_REAPPLY_READBACK_VERIFIED"
+    assert output["reapply_delta"] == 2
+    assert output["final_state"]["mode"] == "passive"
+    assert limits["msr_pl1_uw"] == 40_000_000
+    assert limits["mmio_pl1_uw"] == 20_000_000
 
 
 def _fake_power_sysfs(root: Path, *, msr: int, mmio: int) -> None:
@@ -176,7 +358,12 @@ def test_watchdog_active_reapply_count_and_passive_no_write(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     config = {
-        "power_profile": {"msr_watts": 40, "mmio_watts": 20},
+        "power_profile": {
+            "msr_watts": 40,
+            "mmio_watts": 20,
+            "msr_pl2_watts": 55,
+            "mmio_pl2_watts": 43,
+        },
     }
     mode_path = tmp_path / "mode.json"
     state_path = tmp_path / "state.json"
@@ -185,12 +372,30 @@ def test_watchdog_active_reapply_count_and_passive_no_write(
     monkeypatch.setattr(
         runtime,
         "reconcile_power_limits",
-        lambda **_kwargs: {"status": "APPLIED_AND_VERIFIED", "write_count": 1},
+        lambda **_kwargs: {
+            "status": "APPLIED_AND_VERIFIED",
+            "write_count": 1,
+            "after": {
+                "msr_pl1_uw": 40_000_000,
+                "mmio_pl1_uw": 20_000_000,
+                "msr_pl2_uw": 55_000_000,
+                "mmio_pl2_uw": 43_000_000,
+            },
+        },
     )
     monkeypatch.setattr(
         runtime,
         "reconcile_platform_profile",
         lambda **_kwargs: {"changed": True, "after": "performance"},
+    )
+    monkeypatch.setattr(
+        runtime,
+        "read_runtime_telemetry",
+        lambda: {
+            "pkg_watt_mean": 20.0,
+            "frequency_mhz_mean": 3500.0,
+            "temperature_c_peak": 80.0,
+        },
     )
     active = runtime.watchdog_once(
         config=config,
@@ -200,12 +405,20 @@ def test_watchdog_active_reapply_count_and_passive_no_write(
     )
     assert active["mode"] == "active"
     assert active["reapply_count"] == 2
+    assert active["target_msr_pl2_w"] == 55
+    assert active["actual_mmio_pl2_w"] == 43
+    assert active["package_power_w"] == 20.0
 
     runtime.set_mode(mode="passive", path=mode_path)
     monkeypatch.setattr(
         runtime,
         "read_power_limits",
-        lambda: {"msr_pl1_uw": 40_000_000, "mmio_pl1_uw": 20_000_000},
+        lambda: {
+            "msr_pl1_uw": 40_000_000,
+            "mmio_pl1_uw": 20_000_000,
+            "msr_pl2_uw": 55_000_000,
+            "mmio_pl2_uw": 43_000_000,
+        },
     )
     passive = runtime.watchdog_once(
         config=config,
@@ -236,7 +449,14 @@ def test_watchdog_recovers_stale_active_mode_after_reboot(
         },
     )
     result = runtime.watchdog_once(
-        config={"power_profile": {"msr_watts": 40, "mmio_watts": 20}},
+        config={
+            "power_profile": {
+                "msr_watts": 40,
+                "mmio_watts": 20,
+                "msr_pl2_watts": 55,
+                "mmio_pl2_watts": 43,
+            }
+        },
         state_path=state_path,
         apply=True,
         mode_path=mode_path,
@@ -258,7 +478,12 @@ def test_runtime_config_and_operator_authority_fail_closed(tmp_path: Path) -> No
                 "affinity": "all",
                 "thread_profile": "native_default_explicit",
             },
-            "power_profile": {"msr_watts": 40, "mmio_watts": 20},
+            "power_profile": {
+                "msr_watts": 40,
+                "mmio_watts": 20,
+                "msr_pl2_watts": 55,
+                "mmio_pl2_watts": 43,
+            },
             "active_interval_seconds": 2,
             "passive_interval_seconds": 60,
             "operator": {},
