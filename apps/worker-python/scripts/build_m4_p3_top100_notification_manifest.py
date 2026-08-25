@@ -98,7 +98,7 @@ def build_initial_manifest(
         "goals": [
             {
                 "goal_key": notification.GOAL_KEY,
-                "semantic_version": "1.0.0",
+                "semantic_version": "2.0.0",
                 "objective_class": "runtime_capability",
                 "success_evidence": [
                     "pre and post envelopes compile from exact registered P3 parents",
@@ -186,7 +186,7 @@ def add_pre_tasks(
     tasks = (
         _task(
             key=keys["pre"],
-            task_type="p3_top100_pre_mail_envelope_v1",
+            task_type="p3_top100_pre_mail_envelope_v2",
             capability=notification.PRE_ENVELOPE_CAPABILITY,
             priority=100,
             input_digests=(*predraw_input_digests, source_digest),
@@ -197,7 +197,7 @@ def add_pre_tasks(
         ),
         _task(
             key=keys["pre_replay"],
-            task_type="p3_top100_pre_mail_replay_v1",
+            task_type="p3_top100_pre_mail_replay_v2",
             capability=notification.PRE_REPLAY_CAPABILITY,
             priority=99,
             input_digests=(envelope_digest, source_digest),
@@ -252,7 +252,7 @@ def add_post_tasks(
     tasks = (
         _task(
             key=keys["post"],
-            task_type="p3_top100_post_return_report_v1",
+            task_type="p3_top100_post_return_report_v2",
             capability=notification.POST_REPORT_CAPABILITY,
             priority=98,
             input_digests=(
@@ -268,7 +268,7 @@ def add_post_tasks(
         ),
         _task(
             key=keys["post_replay"],
-            task_type="p3_top100_post_return_replay_v1",
+            task_type="p3_top100_post_return_replay_v2",
             capability=notification.POST_REPLAY_CAPABILITY,
             priority=97,
             input_digests=(report_digest, payout["artifact_digest"], source_digest),

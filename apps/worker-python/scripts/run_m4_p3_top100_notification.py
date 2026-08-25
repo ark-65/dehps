@@ -126,7 +126,7 @@ def install(
         imported = repository.import_manifest(
             control_plane_key=notification.CONTROL_PLANE_KEY,
             payload=payload,
-            source="m4-p3-top100-notification-v1-install",
+            source="m4-p3-top100-notification-v2-install",
         )
         result = str(imported)
     return {
@@ -254,7 +254,7 @@ def pre(
         repository.import_manifest(
             control_plane_key=notification.CONTROL_PLANE_KEY,
             payload=payload,
-            source=f"m4-p3-top100-notification-pre-{issue}",
+            source=f"m4-p3-top100-notification-v2-pre-{issue}",
         )
     elif keys["pre_replay"] not in task_keys:
         raise P3Top100RunnerError("notification pre task pair is partial")
@@ -348,7 +348,7 @@ def post(
         repository.import_manifest(
             control_plane_key=notification.CONTROL_PLANE_KEY,
             payload=payload,
-            source=f"m4-p3-top100-notification-post-{issue}",
+            source=f"m4-p3-top100-notification-v2-post-{issue}",
         )
     elif keys["post_replay"] not in task_keys:
         raise P3Top100RunnerError("notification post task pair is partial")

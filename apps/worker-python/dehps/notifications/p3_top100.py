@@ -46,33 +46,33 @@ class P3Top100DeliveryStateError(P3Top100NotificationError):
     """The idempotent delivery ledger requires manual review."""
 
 
-CONTROL_PLANE_KEY = "m4-p3-top100-notification"
+CONTROL_PLANE_KEY = "m4-p3-top100-notification-v2"
 P3_CONTROL_PLANE_KEY = "m4-information-theory-mainline"
-GOAL_KEY = "M4_P3_TOP100_REPLAY_BOUND_MAIL_AND_RETURN_V1"
-SOURCE_CONTRACT_PATH = "configs/research-os/m4-p3-top100-notification-source-v1.json"
-SOURCE_SCHEMA = "dehps-m4-p3-top100-notification-source-contract.v1"
-SOURCE_ARTIFACT_TYPE = "m4_p3_top100_notification_source_contract"
-SOURCE_DOMAIN = "dehps.m4.p3.top100-notification.source-contract.v1"
-SOURCE_SET_DOMAIN = "dehps.m4.p3.top100-notification.source-set.v1"
+GOAL_KEY = "M4_P3_TOP100_REPLAY_BOUND_MAIL_AND_RETURN_V2"
+SOURCE_CONTRACT_PATH = "configs/research-os/m4-p3-top100-notification-source-v2.json"
+SOURCE_SCHEMA = "dehps-m4-p3-top100-notification-source-contract.v2"
+SOURCE_ARTIFACT_TYPE = "m4_p3_top100_notification_source_contract_v2"
+SOURCE_DOMAIN = "dehps.m4.p3.top100-notification.source-contract.v2"
+SOURCE_SET_DOMAIN = "dehps.m4.p3.top100-notification.source-set.v2"
 
 RESEARCH_REQUEST_KEY = "research-m4-p3-top100-mail-and-return-contract-v1"
 RESEARCH_REQUEST_ID = 675
 RESEARCH_APPROVAL_DECISION_ID = 2852
-ENGINEERING_REQUEST_KEY = "engineering-m4-p3-top100-mail-and-return-implementation-v1"
-ENGINEERING_REQUEST_ID = 676
-ENGINEERING_APPROVAL_DECISION_ID = 2855
-ENGINEERING_EXECUTION_ID = 550
+ENGINEERING_REQUEST_KEY = "engineering-m4-p3-top100-additive-v2-atomic-recovery-v1"
+ENGINEERING_REQUEST_ID = 681
+ENGINEERING_APPROVAL_DECISION_ID = 2880
+ENGINEERING_EXECUTION_ID = 555
 RESEARCH_PAYLOAD_SHA256 = (
     "31776e8dcf25177dd66505a2a9a4b1c7c092c37d50e3f8623644eb650b54f0c3"
 )
 ENGINEERING_PAYLOAD_SHA256 = (
-    "8d24b1b56a43a3c1eff42f4f88525edbcc32128df315d497022e8c8e1be9d91c"
+    "bdba771e05237398e63704686ba21f7dc03e0f9671dd9a70d86df048405649cd"
 )
 
-PRE_ENVELOPE_CAPABILITY = "p3_top100_pre_mail_envelope_v1"
-PRE_REPLAY_CAPABILITY = "p3_top100_pre_mail_replay_v1"
-POST_REPORT_CAPABILITY = "p3_top100_post_return_report_v1"
-POST_REPLAY_CAPABILITY = "p3_top100_post_return_replay_v1"
+PRE_ENVELOPE_CAPABILITY = "p3_top100_pre_mail_envelope_v2"
+PRE_REPLAY_CAPABILITY = "p3_top100_pre_mail_replay_v2"
+POST_REPORT_CAPABILITY = "p3_top100_post_return_report_v2"
+POST_REPLAY_CAPABILITY = "p3_top100_post_return_replay_v2"
 CAPABILITIES = (
     PRE_ENVELOPE_CAPABILITY,
     PRE_REPLAY_CAPABILITY,
@@ -113,7 +113,7 @@ DEFAULT_LEDGER_PATH = ROOT_DIR / "runtime/notifications/p3_top100_mail.json"
 
 def issue_task_keys(issue: str) -> dict[str, str]:
     normalized = _issue(issue)
-    prefix = f"m4-p3-top100-notification-{normalized}"
+    prefix = f"m4-p3-top100-notification-v2-{normalized}"
     return {
         "pre": f"{prefix}-pre-envelope",
         "pre_replay": f"{prefix}-pre-envelope-replay",
@@ -917,10 +917,13 @@ class P3Top100NotificationCapability:
         recipient_digest = str(contract.get("recipient_digest") or "")
         keys = issue_task_keys(issue)
         capability = str(task.requested_capability)
+        task_source_digest = str(task.input_artifact_digests[-1])
+        if task_source_digest != source["artifact_digest"]:
+            raise MainlineSupervisorError("notification task source changed")
         metadata = (
             ("issue", issue),
             ("lineage_id", p3.LINEAGE_ID),
-            ("source_contract_digest", source["artifact_digest"]),
+            ("source_contract_digest", task_source_digest),
             ("configuration_drift", False),
             ("smtp_connected", False),
             ("external_delivery", False),
@@ -931,7 +934,7 @@ class P3Top100NotificationCapability:
             bundle = load_predraw_bundle(
                 self.repository, issue=issue, root_dir=self.root_dir
             )
-            expected_inputs = (*bundle.input_digests, source["artifact_digest"])
+            expected_inputs = (*bundle.input_digests, task_source_digest)
             if task.input_artifact_digests != expected_inputs:
                 raise MainlineSupervisorError("notification pre inputs changed")
             envelope = build_pre_envelope(
@@ -960,7 +963,7 @@ class P3Top100NotificationCapability:
             )
             if task.input_artifact_digests != (
                 envelope["artifact_digest"],
-                source["artifact_digest"],
+                task_source_digest,
             ):
                 raise MainlineSupervisorError("notification pre replay inputs changed")
             replay = build_pre_replay(envelope=envelope, expected=expected)
@@ -986,7 +989,7 @@ class P3Top100NotificationCapability:
             expected_inputs = (
                 *bundle.input_digests,
                 payout["artifact_digest"],
-                source["artifact_digest"],
+                task_source_digest,
             )
             if task.input_artifact_digests != expected_inputs:
                 raise MainlineSupervisorError("notification post inputs changed")
@@ -1027,7 +1030,7 @@ class P3Top100NotificationCapability:
             if task.input_artifact_digests != (
                 report["artifact_digest"],
                 payout["artifact_digest"],
-                source["artifact_digest"],
+                task_source_digest,
             ):
                 raise MainlineSupervisorError("notification post replay inputs changed")
             replay = build_post_replay(report=report, expected=expected)
@@ -1081,13 +1084,15 @@ class P3Top100NotificationSupervisor(ResearchEvidenceSupervisor):
         m4_v2_global_replay_summary: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         del completed_summary, m4_v2_global_replay_summary
+        ready_queue = [item.task_key for item in snapshot.ready_queue]
         return {
-            "schema_version": "dehps-p3-top100-notification-status.v1",
+            "schema_version": "dehps-p3-top100-notification-status.v2",
             "status": "ARMED",
             "control_plane_key": CONTROL_PLANE_KEY,
             "manifest_digest": manifest.artifact_digest,
             "snapshot_digest": snapshot.snapshot_digest,
-            "ready_queue": [item.task_key for item in snapshot.ready_queue],
+            "ready_queue": ready_queue,
+            "next_ready_task": ready_queue[0] if ready_queue else None,
             "tasks": {
                 item.task_key: item.status.value for item in snapshot.resolutions
             },
