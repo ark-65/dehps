@@ -4,6 +4,7 @@ import importlib.util
 import itertools
 from datetime import datetime
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from dehps.config import ROOT_DIR
@@ -28,6 +29,15 @@ def _builder():
         / "apps/worker-python/scripts/build_m4_p3_top100_notification_manifest.py"
     )
     spec = importlib.util.spec_from_file_location("p3_top100_builder_test", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _runner():
+    path = ROOT_DIR / "apps/worker-python/scripts/run_m4_p3_top100_notification.py"
+    spec = importlib.util.spec_from_file_location("p3_top100_runner_test", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -311,6 +321,24 @@ def test_builder_projects_goal_ready_queue_then_replay_dependency_wait() -> None
     assert [item.task_key for item in snapshot.ready_queue] == [keys["pre"]]
 
 
+def test_notification_runtime_uses_only_additive_v2_control_identities() -> None:
+    assert notification.CONTROL_PLANE_KEY == "m4-p3-top100-notification-v2"
+    assert notification.GOAL_KEY == "M4_P3_TOP100_REPLAY_BOUND_MAIL_AND_RETURN_V2"
+    assert notification.SOURCE_CONTRACT_PATH.endswith(
+        "m4-p3-top100-notification-source-v2.json"
+    )
+    assert set(notification.CAPABILITIES) == {
+        "p3_top100_pre_mail_envelope_v2",
+        "p3_top100_pre_mail_replay_v2",
+        "p3_top100_post_return_report_v2",
+        "p3_top100_post_return_replay_v2",
+    }
+    assert all(
+        "notification-v2-" in key
+        for key in notification.issue_task_keys(ISSUE).values()
+    )
+
+
 def test_capability_compiles_only_exact_pre_task(monkeypatch) -> None:
     build = _builder()
     bundle = _predraw_bundle()
@@ -377,10 +405,133 @@ def test_notification_supervisor_has_only_exact_capabilities_and_own_status(
     assert tuple(supervisor.capabilities) == notification.CAPABILITIES
     assert projected["control_plane_key"] == notification.CONTROL_PLANE_KEY
     assert projected["ready_queue"] == []
+    assert projected["next_ready_task"] is None
     assert projected["p3_dispatch_allowed"] is False
     assert projected["p4_dispatch_allowed"] is False
     assert projected["p5_dispatch_allowed"] is False
     assert projected["unkeyed_dispatch_allowed"] is False
+
+
+def test_notification_status_projects_first_ready_task_and_partial_recovery(
+    tmp_path,
+) -> None:
+    build = _builder()
+    bundle = _predraw_bundle()
+    envelope = notification.build_pre_envelope(
+        bundle=bundle, recipient_digest=RECIPIENT_DIGEST
+    )
+    initial = build.build_initial_manifest(
+        minimum_issue=ISSUE,
+        recipient_digest=RECIPIENT_DIGEST,
+        source_digest=SOURCE_DIGEST,
+    )
+    payload, _ = build.add_pre_tasks(
+        initial,
+        issue=ISSUE,
+        recipient_digest=RECIPIENT_DIGEST,
+        source_digest=SOURCE_DIGEST,
+        predraw_input_digests=bundle.input_digests,
+        envelope_digest=envelope["artifact_digest"],
+    )
+    supervisor = notification.P3Top100NotificationSupervisor(
+        repository=object(), root_dir=tmp_path, require_clean_tree=False
+    )
+    manifest = ControlPlaneManifest.from_dict(payload)
+    snapshot = ResearchOSControlPlane().resolve(manifest)
+    keys = notification.issue_task_keys(ISSUE)
+    projected = supervisor._build_lane_status(
+        manifest, snapshot=snapshot, dispatch_performed=False
+    )
+
+    assert projected["ready_queue"] == [keys["pre"]]
+    assert projected["next_ready_task"] == keys["pre"]
+
+    completed_payload = manifest.to_dict(include_digest=False)
+    pre_task = next(
+        item for item in completed_payload["tasks"] if item["task_key"] == keys["pre"]
+    )
+    pre_task["status"] = "completed"
+    pre_task["completion_classification"] = "COMPLETE"
+    completed_payload["facts"]["artifacts"].append(
+        notification.issue_facts(ISSUE)["pre"]
+    )
+    completed_payload["facts"]["artifacts"].append(
+        "mainline-execution:"
+        f"{keys['pre']}:"
+        f"{next(item for item in manifest.tasks if item.task_key == keys['pre']).artifact_digest}:"
+        f"{'e' * 64}:completed"
+    )
+    completed_manifest = ControlPlaneManifest.from_dict(completed_payload)
+    completed_snapshot = ResearchOSControlPlane().resolve(completed_manifest)
+    recovered = supervisor._build_lane_status(
+        completed_manifest,
+        snapshot=completed_snapshot,
+        dispatch_performed=False,
+    )
+
+    assert recovered["ready_queue"] == [keys["pre_replay"]]
+    assert recovered["next_ready_task"] == keys["pre_replay"]
+
+
+def test_runner_replays_completed_envelope_then_runs_ready_replay(monkeypatch) -> None:
+    runner = _runner()
+    keys = notification.issue_task_keys(ISSUE)
+
+    class _Repository:
+        def __init__(self) -> None:
+            self.control_plane = self
+            self.statuses = {keys["pre"]: "completed", keys["pre_replay"]: "ready"}
+
+        def load_manifest(self, *, control_plane_key):
+            assert control_plane_key == notification.CONTROL_PLANE_KEY
+            return object()
+
+        def resolve(self, manifest):
+            assert manifest is not None
+            return SimpleNamespace(
+                resolutions=[
+                    SimpleNamespace(
+                        task_key=task_key,
+                        status=SimpleNamespace(value=status),
+                    )
+                    for task_key, status in self.statuses.items()
+                ]
+            )
+
+    repository = _Repository()
+    calls = {"run": [], "replay": []}
+
+    class _Supervisor:
+        def __init__(self, *, repository):
+            self.repository = repository
+
+        def replay(self, *, task_key):
+            calls["replay"].append(task_key)
+            return {"status": "REPLAY_VERIFIED", "task_key": task_key}
+
+        def run_once(self, *, task_key):
+            calls["run"].append(task_key)
+            self.repository.statuses[task_key] = "completed"
+            return {
+                "execution_id": "e" * 64,
+                "execution_artifact_digest": "a" * 64,
+            }
+
+    monkeypatch.setattr(
+        runner.notification, "P3Top100NotificationSupervisor", _Supervisor
+    )
+    output = runner._run_exact_tasks(
+        repository, task_keys=(keys["pre"], keys["pre_replay"])
+    )
+
+    assert calls == {
+        "run": [keys["pre_replay"]],
+        "replay": [keys["pre"], keys["pre_replay"]],
+    }
+    assert [item["status"] for item in output] == [
+        "ALREADY_COMPLETED",
+        "REPLAY_VERIFIED",
+    ]
 
 
 class _RecordingMail:
@@ -475,4 +626,6 @@ def test_source_contract_is_bound_and_excludes_frozen_p3_sources() -> None:
     }
     assert paths.isdisjoint(frozen)
     assert source["governance_bindings"]["research_request_id"] == 675
-    assert source["governance_bindings"]["engineering_request_id"] == 676
+    assert source["governance_bindings"]["engineering_request_id"] == 681
+    assert source["governance_bindings"]["engineering_approval_decision_id"] == 2880
+    assert source["governance_bindings"]["engineering_execution_id"] == 555
