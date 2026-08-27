@@ -1,5 +1,5 @@
 {
-  "artifact_digest": "41d3c7431c29ae7c8af71a8b09653df5f28ed02954206835278f2e20dc7082cd",
+  "artifact_digest": "38ea4d38e66558f30eb4c8660555ca35dd584aa3de02801fe6f6075d09ffaff1",
   "artifact_type": "m4_isolated_24h_challenger_source_contract_v11",
   "contract_digest": "6d14bd57f290e9e0a625658bf0255cf33d1609efa68e667993cc58ccec8f7a02",
   "contract_key": "M4_ISOLATED_24H_CHALLENGER_RESEARCH_FACTORY_CONTRACT_V11",
@@ -41,6 +41,12 @@
     "mail_env_repair_engineering_request_id": 705,
     "mail_env_repair_engineering_request_key": "engineering-m4-isolated-v11-user-mail-environment-path-fix-v1",
     "mail_env_repair_engineering_request_payload_sha256": "b9d1ab7dd70b6a4f8e712071b1add6a1ffbb08d03dca98cd5f0f5c405b291762",
+    "multicontext_rebind_repair_base_merged_commit": "1af534d349d75c691ee1fae2b8b8736f4a70f963",
+    "multicontext_rebind_repair_engineering_approval_decision_id": 3044,
+    "multicontext_rebind_repair_engineering_execution_id": 578,
+    "multicontext_rebind_repair_engineering_request_id": 722,
+    "multicontext_rebind_repair_engineering_request_key": "engineering-m4-isolated-v11-multicontext-unexecuted-rebind-fix-v1",
+    "multicontext_rebind_repair_engineering_request_payload_sha256": "fa74061f288c7213d454a1bc415ca2348f9f178cf78d119b80683a2933df2b30",
     "official_history_date_research_approval_decision_id": 2991,
     "official_history_date_research_request_id": 711,
     "official_history_date_research_request_key": "research-m4-isolated-v11-official-history-date-exceptions-v1",
@@ -118,9 +124,9 @@
       "sha256": "c3330fe8aa128f28294778654617a5d9deb9826bc7c5c60bd93ae4d55da02dba"
     },
     {
-      "bytes": 93238,
+      "bytes": 94827,
       "path": "apps/worker-python/scripts/run_m4_isolated_24h_challenger_v11.py",
-      "sha256": "c32cc91edc24082d35ed0d57ced0bf58240f691d8166b1824adf9357c4431397"
+      "sha256": "235848547d3c906179f41ca707cc8f4ca2ab8485c1842bee742ffdb13a9067f1"
     },
     {
       "bytes": 17768,
@@ -183,5 +189,5 @@
       "sha256": "f3123da232d041ddd9ad5abc492e59d9d7da13aca5406057c06fd331193cab3a"
     }
   ],
-  "source_set_digest": "e44c688929ed96ed9f792e5a377abdda5af76d9b666dab0d97fca531fb930bbb"
+  "source_set_digest": "fe77273d7cc8fb51907c9beaf43aa83030b22be2fa74e5b64ab73b9d46bc3084"
 }

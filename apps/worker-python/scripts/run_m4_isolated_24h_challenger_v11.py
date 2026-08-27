@@ -77,6 +77,7 @@ APPROVED_BOOTSTRAP_PREDECESSOR_SOURCE_DIGESTS = frozenset(
         PREDECESSOR_BOOTSTRAP_SOURCE_DIGEST,
         "a13889100c0f83a315f5e3997ce53ac1fb8a86b661bcd1d522d3cec59adf4fc0",
         "1d3a7766dfd7a3c09fd7cca0b54ec15ce154f5234bf1bbb97e61c63d55c92ada",
+        "41d3c7431c29ae7c8af71a8b09653df5f28ed02954206835278f2e20dc7082cd",
     }
 )
 
@@ -412,40 +413,74 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
             raise ResearchOSValidationError(
                 "isolated_v11_bootstrap_rebind_gate_reentrant"
             )
-        current_contexts = {
-            json.dumps(_task_context(task), sort_keys=True, separators=(",", ":"))
-            for task in current.tasks
-        }
+        current_contexts = tuple(_task_context(task) for task in current.tasks)
         incoming_contexts = {
             json.dumps(_task_context(task), sort_keys=True, separators=(",", ":"))
             for task in incoming.tasks
         }
-        if len(current_contexts) != 1 or len(incoming_contexts) != 1:
+        if not current_contexts or len(incoming_contexts) != 1:
             raise ResearchOSValidationError(
                 "isolated_v11_bootstrap_rebind_context_changed"
             )
-        current_context = json.loads(next(iter(current_contexts)))
         incoming_context = json.loads(next(iter(incoming_contexts)))
-        if {
-            key: value
-            for key, value in current_context.items()
-            if key != "projection_time"
-        } != {
-            key: value
-            for key, value in incoming_context.items()
-            if key != "projection_time"
-        }:
+        target_fields = (
+            "source_max_issue",
+            "source_max_draw_date",
+            "target_issue",
+            "target_draw_date",
+        )
+        incoming_target = tuple(incoming_context[key] for key in target_fields)
+        if any(
+            tuple(item[key] for key in target_fields) != incoming_target
+            for item in current_contexts
+        ):
             raise ResearchOSValidationError(
                 "isolated_v11_bootstrap_rebind_target_changed"
             )
+
+        def rebuild_task_set(source_digest: str) -> ControlPlaneManifest:
+            base = self._expected_definition(
+                operator_authorized=True,
+                context=current_contexts[0],
+                source_digest=source_digest,
+            )
+            tasks = []
+            states = []
+            for stored, item_context in zip(current.tasks, current_contexts, strict=True):
+                expected_payload, _ = builder.build_manifest(
+                    context=item_context,
+                    source_digest=source_digest,
+                    operator_configuration_authorized=True,
+                    simulation_events=False,
+                )
+                expected = ControlPlaneManifest.from_dict(expected_payload)
+                if expected.goals != base.goals or expected.goal_states != base.goal_states:
+                    raise ResearchOSValidationError(
+                        "isolated_v11_bootstrap_rebind_goal_changed"
+                    )
+                matches = tuple(
+                    task for task in expected.tasks if task.task_key == stored.task_key
+                )
+                if len(matches) != 1:
+                    raise ResearchOSValidationError(
+                        "isolated_v11_bootstrap_rebind_task_changed"
+                    )
+                task = matches[0]
+                tasks.append(task)
+                states.append(expected.task_state_by_digest[task.artifact_digest])
+            return ControlPlaneManifest(
+                goals=base.goals,
+                tasks=tuple(tasks),
+                goal_states=base.goal_states,
+                task_states=tuple(states),
+                facts=base.facts,
+                schema_version=base.schema_version,
+            )
+
         predecessor_matches = tuple(
             candidate
             for candidate in (
-                self._expected_definition(
-                    operator_authorized=True,
-                    context=current_context,
-                    source_digest=predecessor_source_digest,
-                )
+                rebuild_task_set(predecessor_source_digest)
                 for predecessor_source_digest in sorted(
                     APPROVED_BOOTSTRAP_PREDECESSOR_SOURCE_DIGESTS
                 )
@@ -453,10 +488,7 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
             if current.to_dict(include_digest=True)
             == candidate.to_dict(include_digest=True)
         )
-        expected_incoming = self._expected_definition(
-            operator_authorized=True,
-            context=current_context,
-        )
+        expected_incoming = rebuild_task_set(self.source_digest)
         live_incoming = self._expected_definition(
             operator_authorized=True,
             context=incoming_context,
@@ -465,8 +497,8 @@ class IsolatedChallengerRepository(PostgresResearchOSRepository):
             len(predecessor_matches) != 1
             or incoming.to_dict(include_digest=True)
             != live_incoming.to_dict(include_digest=True)
-            or len(current.tasks) != 14
-            or len(expected_incoming.tasks) != 14
+            or len(current.tasks) < 14
+            or len(expected_incoming.tasks) != len(current.tasks)
             or any(
                 state.declared_status is not TaskStatus.DRAFT
                 for state in current.task_states
