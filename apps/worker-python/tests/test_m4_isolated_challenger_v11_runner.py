@@ -2141,3 +2141,97 @@ def test_database_schema_attestation_accepts_only_ancestor_repair(
         with pytest.raises(runner.IsolatedRunnerError, match="not_ancestor"):
             runner._attest_database_schema(repository=_Repository(), git_commit=current)
     assert commands == [["git", "merge-base", "--is-ancestor", installed, current]]
+
+
+def test_committed_recovery_replays_and_mirrors_without_run_once_or_smtp(
+    monkeypatch,
+) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    manifest = SimpleNamespace(
+        artifact_digest=runner.USER_SCOPE_COMMITTED_MANIFEST_DIGEST
+    )
+    ledger = {"state": "PRE_MIRROR"}
+    replay = {
+        "status": "REPLAY_VERIFIED",
+        "same_execution_identity": True,
+        "same_artifact_identity": True,
+        "same_artifact_content": True,
+        "all_registrations_and_parent_chains_exact": True,
+        "manual_input_assembly": False,
+        "dispatch_performed": False,
+    }
+
+    class _Supervisor:
+        def __init__(self, **_kwargs):
+            pass
+
+        @staticmethod
+        def run_once(**_kwargs):
+            raise AssertionError("committed recovery must not run workload")
+
+        @staticmethod
+        def replay(**_kwargs):
+            return replay
+
+    monkeypatch.setattr(
+        runner,
+        "validate_user_scope_committed_recovery_governance",
+        lambda **_kwargs: {},
+    )
+    monkeypatch.setattr(
+        runner.artifacts,
+        "load_source_contract",
+        lambda **_kwargs: {"artifact_digest": "a" * 64},
+    )
+    monkeypatch.setattr(
+        runner,
+        "_validate_user_scope_committed_live_state",
+        lambda **_kwargs: (manifest, _context(), ledger["state"]),
+    )
+    monkeypatch.setattr(runner, "_p3_source_identity", lambda: ("p3", "unchanged"))
+    monkeypatch.setattr(runner.mainline, "IsolatedChallengerSupervisor", _Supervisor)
+    monkeypatch.setattr(
+        runner,
+        "_user_scope_committed_ledger_state",
+        lambda **_kwargs: ledger["state"],
+    )
+
+    def mirror(**_kwargs):
+        ledger["state"] = "MIRRORED"
+
+    monkeypatch.setattr(runner, "_mirror_search_batch_ledger", mirror)
+    result = runner.recover_p3_user_scope_committed_batch(
+        apply=True,
+        repository=object(),
+        repaired_source_digest="a" * 64,
+        repaired_git_commit="b" * 40,
+    )
+    assert result["status"] == "BATCH_COMPLETE_AND_REPLAY_VERIFIED"
+    assert result["ledger_state_before"] == "PRE_MIRROR"
+    assert result["ledger_state_after"] == "MIRRORED"
+    assert result["scientific_workloads_executed"] == 0
+    assert result["run_once_calls"] == 0
+    assert result["smtp_calls"] == 0
+    assert result["mandatory_mail_kinds"] == list(
+        runner.USER_SCOPE_MANDATORY_MAIL_KINDS
+    )
+    assert result["mail_integration"] == (
+        "PENDING_REAL_SCHEDULED_DATA250_RECEIPT_REPLAY"
+    )
+
+
+def test_committed_recovery_surface_contains_no_workload_dispatch() -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    source = inspect.getsource(runner.recover_p3_user_scope_committed_batch)
+    tree = ast.parse(source)
+    run_once_calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "run_once"
+    ]
+    assert run_once_calls == []
+    assert "send_external_once" not in source
+    assert "_mirror_search_batch_ledger" in source
+    assert "USER_SCOPE_MANDATORY_MAIL_KINDS" in source

@@ -28,7 +28,13 @@ from dehps.agents.roles import AgentRole
 from dehps.config import ROOT_DIR
 from dehps.notifications import isolated_challenger_v11 as mail
 from dehps.research_os import supervisor as supervisor_module
-from dehps.research_os.models import ResearchOSValidationError, Task
+from dehps.research_os.models import (
+    CompletionClassification,
+    ResearchOSValidationError,
+    Task,
+    TaskStatus,
+    stable_hash,
+)
 from dehps.research_os.repository import PostgresResearchOSRepository
 from dehps.research_os.supervisor import (
     AtomicArtifactPayload,
@@ -80,6 +86,30 @@ _EXACT_FAILED_RECOVERY_ORIGIN_SOURCE_DIGEST = (
     "bf941daa91e4749354a237247f0c625ef0c47b57367d29acc58dc70642cda011"
 )
 _EXACT_FAILED_RECOVERY_ORIGIN_COMMIT = "443a1d72e3135b9a90912bc3e890566de4338f65"
+_EXACT_COMMITTED_MANIFEST_DIGEST = (
+    "86f0934cbe3599d9bbd4ee1cf7ca93f209868a5bcee9d1213af9c045cc56f6f5"
+)
+_EXACT_COMMITTED_EVENT_DIGEST = (
+    "c1749690a190688ae23eb270060c0d76ec8db309614833820929917b2083c7ed"
+)
+_EXACT_COMMITTED_EVENT_RECORDED_AT = "2026-08-27T22:43:51.392312+00:00"
+_EXACT_COMMITTED_EXECUTION_ARTIFACT_DIGEST = (
+    "7b44ecf4260b6108b09673bd91c55503c54b1c08751cc9975f57c449ea3564aa"
+)
+_EXACT_COMMITTED_PUBLICATION_BATCH_DIGEST = (
+    "1bd1ac099c8c280443ff994ce40e498c53fabc1d78da2c008dd0739f049cb200"
+)
+_EXACT_COMMITTED_REGISTERED_ARTIFACT_COUNT = 65
+_EXACT_COMMITTED_CHILD_TYPE_COUNTS = {
+    "M4IsolatedCandidateRegistrationV11": 18,
+    "M4IsolatedExecutionAttemptV11": 18,
+    "M4IsolatedCandidateResultV11": 18,
+    "M4IsolatedSeedCohortV11": 6,
+    "M4IsolatedMultiplicityDeltaV11": 1,
+    "M4IsolatedMultiplicityRegistrationDeltaV11": 1,
+    "M4IsolatedMultiplicityRegistrationHeadV11": 1,
+    "M4IsolatedSearchBatchV11": 1,
+}
 
 
 def _external_delivery_evidence(facts: set[str]) -> dict[str, Any]:
@@ -669,6 +699,312 @@ def load_completed_task_artifacts(
     if not output:
         raise IsolatedMainlineError("upstream_artifact_set_empty")
     return tuple(output)
+
+
+def replay_exact_sequence3_committed_execution(
+    *,
+    repository: PostgresResearchOSRepository,
+    root_dir: Path,
+) -> dict[str, Any]:
+    """Replay the one production batch committed before post-commit readback failed."""
+
+    manifest = repository.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+    if (
+        manifest.artifact_digest != _EXACT_COMMITTED_MANIFEST_DIGEST
+        or len(manifest.tasks) != 27
+    ):
+        raise MainlineSupervisorError("isolated committed manifest identity changed")
+    tasks = [
+        item
+        for item in manifest.tasks
+        if item.task_key == _EXACT_FAILED_RECOVERY_TASK_KEY
+    ]
+    if len(tasks) != 1:
+        raise MainlineSupervisorError("isolated committed task identity changed")
+    task = tasks[0]
+    state = manifest.task_state_by_digest.get(task.artifact_digest)
+    state_counts = Counter(item.declared_status for item in manifest.task_states)
+    if (
+        task.artifact_digest != _EXACT_FAILED_RECOVERY_TASK_DIGEST
+        or tuple(task.input_artifact_digests)
+        != (_EXACT_FAILED_RECOVERY_ORIGIN_SOURCE_DIGEST,)
+        or task.requested_capability != "M4IsolatedSearchBatchCapabilityV11"
+        or state is None
+        or state.declared_status is not TaskStatus.COMPLETED
+        or state.completion_classification is not CompletionClassification.COMPLETE
+        or state.superseded_by_task_digest is not None
+        or state_counts != {TaskStatus.COMPLETED: 23, TaskStatus.DRAFT: 4}
+    ):
+        raise MainlineSupervisorError("isolated committed task state changed")
+
+    all_events = repository.list_mainline_execution_events(
+        control_plane_key=contract.CONTROL_PLANE_KEY,
+        task_key=_EXACT_FAILED_RECOVERY_TASK_KEY,
+    )
+    current_events = [
+        item
+        for item in all_events
+        if item.get("task_digest") == _EXACT_FAILED_RECOVERY_TASK_DIGEST
+    ]
+    try:
+        by_sequence = {
+            supervisor_module._event_record(item).sequence: item
+            for item in current_events
+        }
+    except (MainlineSupervisorError, TypeError, ValueError) as exc:
+        raise MainlineSupervisorError(
+            "isolated committed event integrity changed"
+        ) from exc
+    if len(current_events) != 4 or set(by_sequence) != {0, 1, 2, 3}:
+        raise MainlineSupervisorError("isolated committed event set changed")
+    expected_events = {
+        0: {
+            "event_digest": _EXACT_FAILED_RECOVERY_STARTED_EVENT_DIGEST,
+            "event_type": "started",
+            "recorded_at": "2026-08-27T19:56:35.300063+00:00",
+            "payload": {
+                "input_artifact_digests": [_EXACT_FAILED_RECOVERY_ORIGIN_SOURCE_DIGEST],
+                "git_commit": _EXACT_FAILED_RECOVERY_ORIGIN_COMMIT,
+            },
+        },
+        1: {
+            "event_digest": _EXACT_SEQUENCE2_FAILED_EVENT_DIGEST,
+            "event_type": "failed",
+            "recorded_at": "2026-08-27T20:59:52.863000+00:00",
+            "payload": {
+                "error": "atomic_registration_resume_changed",
+                "git_commit": _EXACT_FAILED_RECOVERY_ORIGIN_COMMIT,
+            },
+        },
+        2: {
+            "event_digest": _EXACT_SEQUENCE3_FAILED_EVENT_DIGEST,
+            "event_type": "failed",
+            "recorded_at": "2026-08-27T21:48:34.466338+00:00",
+            "payload": {
+                "error": (
+                    "M4-v2 atomic successor does not permit failed-execution recovery"
+                ),
+                "git_commit": _EXACT_FAILED_RECOVERY_ORIGIN_COMMIT,
+            },
+        },
+        3: {
+            "event_digest": _EXACT_COMMITTED_EVENT_DIGEST,
+            "event_type": "completed",
+            "recorded_at": _EXACT_COMMITTED_EVENT_RECORDED_AT,
+            "payload": {
+                "actual_fold_count": 300,
+                "additional_completed_task_keys": [],
+                "completion_facts": [],
+                "execution_artifact_digest": (
+                    _EXACT_COMMITTED_EXECUTION_ARTIFACT_DIGEST
+                ),
+                "execution_artifact_path": (
+                    "runtime/isolated-24h-challenger-v11/artifacts/"
+                    f"{_EXACT_FAILED_RECOVERY_TASK_KEY}/"
+                    f"{_EXACT_FAILED_RECOVERY_EXECUTION_ID}/execution.json"
+                ),
+                "formal_p3_mutated": False,
+                "git_commit": _EXACT_FAILED_RECOVERY_ORIGIN_COMMIT,
+                "isolated_lineage": contract.LINEAGE_ID,
+                "promotion_triggered": False,
+                "publication_batch_digest": (_EXACT_COMMITTED_PUBLICATION_BATCH_DIGEST),
+                "registered_artifact_count": (
+                    _EXACT_COMMITTED_REGISTERED_ARTIFACT_COUNT
+                ),
+                "simulation": False,
+                "task_template": "search_batch",
+                "workload_rerun": False,
+            },
+        },
+    }
+    for sequence, expected in expected_events.items():
+        record = supervisor_module._event_record(by_sequence[sequence])
+        if (
+            by_sequence[sequence].get("event_digest") != expected["event_digest"]
+            or record.execution_id != _EXACT_FAILED_RECOVERY_EXECUTION_ID
+            or record.control_plane_key != contract.CONTROL_PLANE_KEY
+            or record.manifest_digest != _EXACT_FAILED_RECOVERY_MANIFEST_DIGEST
+            or record.task_key != _EXACT_FAILED_RECOVERY_TASK_KEY
+            or record.task_digest != _EXACT_FAILED_RECOVERY_TASK_DIGEST
+            or record.capability != task.requested_capability
+            or record.event_type != expected["event_type"]
+            or record.recorded_at != expected["recorded_at"]
+            or _event_payload(by_sequence[sequence]) != expected["payload"]
+        ):
+            raise MainlineSupervisorError("isolated committed event identity changed")
+
+    registrations = list(
+        repository.list_mainline_artifacts(
+            control_plane_key=contract.CONTROL_PLANE_KEY,
+            execution_id=_EXACT_FAILED_RECOVERY_EXECUTION_ID,
+        )
+    )
+    if len(registrations) != _EXACT_COMMITTED_REGISTERED_ARTIFACT_COUNT:
+        raise MainlineSupervisorError("isolated committed registration count changed")
+    root = root_dir.resolve()
+    prefix = (
+        "runtime/isolated-24h-challenger-v11/artifacts/"
+        f"{_EXACT_FAILED_RECOVERY_TASK_KEY}/"
+        f"{_EXACT_FAILED_RECOVERY_EXECUTION_ID}/"
+    )
+    registration_digests: set[str] = set()
+    registration_paths: set[str] = set()
+    child_by_index: dict[int, dict[str, Any]] = {}
+    execution: dict[str, Any] | None = None
+    type_counts: Counter[str] = Counter()
+    for raw in registrations:
+        record = supervisor_module._registration_record(raw)
+        if (
+            record.control_plane_key != contract.CONTROL_PLANE_KEY
+            or record.execution_id != _EXACT_FAILED_RECOVERY_EXECUTION_ID
+            or record.task_key != _EXACT_FAILED_RECOVERY_TASK_KEY
+            or record.task_digest != _EXACT_FAILED_RECOVERY_TASK_DIGEST
+            or record.git_commit != _EXACT_FAILED_RECOVERY_ORIGIN_COMMIT
+            or record.registration_digest in registration_digests
+            or record.artifact_path in registration_paths
+        ):
+            raise MainlineSupervisorError(
+                "isolated committed registration identity changed"
+            )
+        registration_digests.add(record.registration_digest)
+        registration_paths.add(record.artifact_path)
+        path = (root / record.artifact_path).resolve()
+        if (
+            not record.artifact_path.startswith(prefix)
+            or not path.is_relative_to(root)
+            or not path.is_file()
+        ):
+            raise MainlineSupervisorError("isolated committed artifact path changed")
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise MainlineSupervisorError(
+                "isolated committed artifact unreadable"
+            ) from exc
+        if record.artifact_type == "research_os_mainline_execution":
+            if (
+                execution is not None
+                or record.artifact_path != prefix + "execution.json"
+            ):
+                raise MainlineSupervisorError(
+                    "isolated committed execution registration changed"
+                )
+            expected_digest = supervisor_module.canonical_digest(
+                {
+                    key: value
+                    for key, value in payload.items()
+                    if key != "artifact_digest"
+                },
+                domain="dehps.research-os.mainline-execution.v1",
+            )
+            if (
+                payload.get("artifact_digest") != expected_digest
+                or record.artifact_digest != expected_digest
+                or record.schema_version != payload.get("schema_version")
+                or tuple(payload.get("parent_digests", ())) != record.parent_digests
+            ):
+                raise MainlineSupervisorError(
+                    "isolated committed execution content changed"
+                )
+            execution = payload
+            continue
+        match = re.fullmatch(
+            re.escape(prefix)
+            + r"isolated-v11-(?P<index>[0-9]{3})-(?P<slug>[a-z0-9]+?)/"
+            + re.escape(record.artifact_digest)
+            + r"/artifact\.json",
+            record.artifact_path,
+        )
+        if match is None or match.group("slug") != record.artifact_type.lower():
+            raise MainlineSupervisorError("isolated committed child path changed")
+        index = int(match.group("index"))
+        if index in child_by_index:
+            raise MainlineSupervisorError("isolated committed child order changed")
+        parsed = artifacts.validate_artifact(payload)
+        if (
+            parsed.get("artifact_digest") != record.artifact_digest
+            or parsed.get("artifact_type") != record.artifact_type
+            or parsed.get("schema_version") != record.schema_version
+            or tuple(parsed.get("parent_digests", ())) != record.parent_digests
+            or parsed.get("body", {}).get("task_key") != _EXACT_FAILED_RECOVERY_TASK_KEY
+            or parsed.get("body", {}).get("git_commit")
+            != _EXACT_FAILED_RECOVERY_ORIGIN_COMMIT
+            or parsed.get("body", {}).get("source_contract_digest")
+            != _EXACT_FAILED_RECOVERY_ORIGIN_SOURCE_DIGEST
+        ):
+            raise MainlineSupervisorError(
+                "isolated committed child registration changed"
+            )
+        child_by_index[index] = parsed
+        type_counts[record.artifact_type] += 1
+    if (
+        execution is None
+        or set(child_by_index) != set(range(64))
+        or dict(type_counts) != _EXACT_COMMITTED_CHILD_TYPE_COUNTS
+    ):
+        raise MainlineSupervisorError("isolated committed child set changed")
+    expected_parents = [
+        _EXACT_FAILED_RECOVERY_ORIGIN_SOURCE_DIGEST,
+        *(child_by_index[index]["artifact_digest"] for index in range(64)),
+    ]
+    expected_execution_id = stable_hash(
+        {
+            "schema": supervisor_module.MAINLINE_EXECUTION_SCHEMA,
+            "control_plane_key": contract.CONTROL_PLANE_KEY,
+            "task_digest": task.artifact_digest,
+            "capability": task.requested_capability,
+            "input_artifact_digests": task.input_artifact_digests,
+            "git_commit": _EXACT_FAILED_RECOVERY_ORIGIN_COMMIT,
+        }
+    )
+    if (
+        execution.get("artifact_digest") != _EXACT_COMMITTED_EXECUTION_ARTIFACT_DIGEST
+        or execution.get("execution_id") != _EXACT_FAILED_RECOVERY_EXECUTION_ID
+        or execution.get("execution_id") != expected_execution_id
+        or execution.get("control_plane_key") != contract.CONTROL_PLANE_KEY
+        or execution.get("goal_key") != task.goal_key
+        or execution.get("task_key") != task.task_key
+        or execution.get("task_digest") != task.artifact_digest
+        or execution.get("capability") != task.requested_capability
+        or execution.get("status") != "COMPLETE"
+        or execution.get("completion_classification") != "VALIDATED_IN_MAINLINE"
+        or execution.get("input_artifact_digests")
+        != [_EXACT_FAILED_RECOVERY_ORIGIN_SOURCE_DIGEST]
+        or execution.get("parent_digests") != expected_parents
+        or execution.get("registered_artifact_count")
+        != _EXACT_COMMITTED_REGISTERED_ARTIFACT_COUNT
+        or execution.get("actual_fold_count") != 300
+        or execution.get("completion_facts") != []
+        or execution.get("git_commit") != _EXACT_FAILED_RECOVERY_ORIGIN_COMMIT
+        or execution.get("workload_rerun") is not False
+        or execution.get("simulation") is not False
+        or execution.get("formal_p3_mutated") is not False
+        or execution.get("promotion_triggered") is not False
+        or execution.get("promotion_gate_opened") is not False
+        or execution.get("historical_database_reads") != 0
+        or execution.get("numerical_result_payload_reads") != 0
+    ):
+        raise MainlineSupervisorError("isolated committed execution identity changed")
+    return {
+        "schema_version": "dehps-m4-isolated-v11-exact-committed-replay.v1",
+        "status": "REPLAY_VERIFIED",
+        "task_key": task.task_key,
+        "task_digest": task.artifact_digest,
+        "execution_id": _EXACT_FAILED_RECOVERY_EXECUTION_ID,
+        "execution_artifact_digest": _EXACT_COMMITTED_EXECUTION_ARTIFACT_DIGEST,
+        "manifest_digest": manifest.artifact_digest,
+        "registered_artifact_count": len(registrations),
+        "same_execution_identity": True,
+        "same_artifact_identity": True,
+        "same_artifact_content": True,
+        "all_registrations_and_parent_chains_exact": True,
+        "manual_input_assembly": False,
+        "dispatch_performed": False,
+        "workload_rerun": False,
+        "smtp_calls": 0,
+        "formal_p3_mutated": False,
+        "p4_p5_p6_or_promotion_triggered": False,
+    }
 
 
 def load_registered_isolated_artifact(
@@ -5830,6 +6166,14 @@ class IsolatedChallengerSupervisor(ResearchEvidenceSupervisor):
             item.key(self.isolated_context) for item in contract.TASK_TEMPLATES
         }:
             raise MainlineSupervisorError("replay_task_escaped_isolated_allowlist")
+        if (
+            task_key == _EXACT_FAILED_RECOVERY_TASK_KEY
+            and execution_id == _EXACT_FAILED_RECOVERY_EXECUTION_ID
+        ):
+            return replay_exact_sequence3_committed_execution(
+                repository=self.repository,
+                root_dir=self.root_dir,
+            )
         generic = super().replay(task_key=task_key, execution_id=execution_id)
         children = load_completed_task_artifacts(
             repository=self.repository,
