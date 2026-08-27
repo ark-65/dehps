@@ -401,6 +401,7 @@ def _p3_source_identity() -> dict[str, Any]:
 def _resource_observation() -> dict[str, Any]:
     command = [
         "systemctl",
+        "--user",
         "show",
         contract.FORMAL_P3_UNIT,
         "--property=LoadState,ActiveState,SubState,MainPID,ControlPID",
