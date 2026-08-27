@@ -395,6 +395,82 @@ def test_production_target_projection_uses_target_issue_only_as_common_field(
     assert artifacts.validate_artifact(artifact) == artifact
 
 
+def test_production_history_snapshot_uses_target_issue_only_as_common_field(
+    monkeypatch,
+) -> None:
+    context = contract.render_context(
+        source_max_issue="2026099",
+        source_max_draw_date="2026-08-27",
+        target_issue="2026100",
+        target_draw_date="2026-08-30",
+        projection_time="2026-08-28T00:27:06.982677+08:00",
+    )
+    source_digest = "1" * 64
+    projection = {
+        "artifact_type": "M4IsolatedTargetIssueProjectionV11",
+        "artifact_digest": "2" * 64,
+        "body": {
+            "source_max_issue": "2026099",
+            "source_max_draw_date": "2026-08-27",
+            "target_issue": "2026100",
+            "target_draw_date": "2026-08-30",
+            "history_query_digest": contract.domain_digest(
+                mainline.search.TARGET_PROJECTION_SQL,
+                domain="dehps.m4.isolated-24h-challenger.schema-query.v11",
+            ),
+        },
+    }
+    preregistration = {
+        "artifact_type": "M4IsolatedPreregistrationV11",
+        "artifact_digest": "3" * 64,
+    }
+    history = (
+        mainline.search.HistoryRow(
+            issue="2026099",
+            draw_date=datetime(2026, 8, 27, tzinfo=UTC).date(),
+            red_numbers=(1, 2, 3, 4, 5, 6),
+            blue_number=7,
+            source="fixture",
+        ),
+    )
+    capability = mainline.IsolatedV11Capability(
+        capability_name="M4IsolatedHistorySnapshotCapabilityV11",
+        context=context,
+        source_digest=source_digest,
+        simulation=False,
+        repository=SimpleNamespace(connection_factory=lambda: None),
+        root_dir=Path.cwd(),
+    )
+    capability._upstream = lambda name: (
+        preregistration if name == "preregistration" else projection,
+    )
+    monkeypatch.setattr(
+        mainline.search,
+        "load_history",
+        lambda *_args, **_kwargs: history,
+    )
+    artifact = capability._history_snapshot(
+        task_key=contract.task_template_by_name("history_snapshot").key(context),
+        git_commit="a" * 40,
+    )[0]
+    assert artifact["body"]["target_issue"] == "2026100"
+    type_body = {
+        key: value
+        for key, value in artifact["body"].items()
+        if key not in artifacts.COMMON_BODY_KEYS
+    }
+    assert "target_issue" not in type_body
+    assert type_body["target_draw_date"] == "2026-08-30"
+    assert type_body[
+        "history_snapshot_digest"
+    ] == mainline.search.history_snapshot_digest(
+        history,
+        target_issue="2026100",
+        target_draw_date="2026-08-30",
+    )
+    assert artifacts.validate_artifact(artifact) == artifact
+
+
 def test_registered_input_persistence_is_exact_and_idempotent() -> None:
     source = "1" * 64
     commit = "a" * 40

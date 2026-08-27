@@ -126,6 +126,34 @@ FAILED_INPUT_COLLISION_OPERATOR_REQUEST_KEY = (
 )
 FAILED_INPUT_COLLISION_OPERATOR_REQUEST_ID = 734
 FAILED_INPUT_COLLISION_OPERATOR_EXECUTION_ID = 590
+HISTORY_COMMON_FIELD_MANIFEST_DIGEST = (
+    "7291cc7a23f5540adadeba605354bb411f68b62bbbca1d9c19dba200ee6cb968"
+)
+HISTORY_COMMON_FIELD_TASK_DIGEST = (
+    "1089998e1deb747f00c6439125498126c57c48928451f185dbee09a1c355e46d"
+)
+HISTORY_COMMON_FIELD_EXECUTION_ID = (
+    "aaa3c92a4d788cab27aa2469efcb4f8f2828f29c4656ba6a7bfba341a38daa98"
+)
+HISTORY_COMMON_FIELD_STARTED_EVENT_DIGEST = (
+    "d53712c721b3dc79e9d1e242de0e174d5c82a548ecb433f5ac1341fafc10975a"
+)
+HISTORY_COMMON_FIELD_FAILED_EVENT_DIGEST = (
+    "d20979f3ac53938d2a9178786bc13663ab8d194048febd25a137a607d499710f"
+)
+HISTORY_COMMON_FIELD_GIT_COMMIT = "259fccf38247410f6bee640c777adbbdb092f7a0"
+HISTORY_COMMON_FIELD_PREDECESSOR_SOURCE_DIGEST = (
+    "fb37933e24cc32677b13909e9f4689605b20eaf635a06ed364a4401ee768124c"
+)
+HISTORY_COMMON_FIELD_COMPLETED_SOURCE_DIGESTS = frozenset(
+    INPUT_COLLISION_COMPLETED_SOURCE_DIGESTS
+    | {HISTORY_COMMON_FIELD_PREDECESSOR_SOURCE_DIGEST}
+)
+FAILED_HISTORY_OPERATOR_REQUEST_KEY = (
+    "operator-m4-isolated-v11-input-collision-recover-train-mail-deploy-v1"
+)
+FAILED_HISTORY_OPERATOR_REQUEST_ID = 737
+FAILED_HISTORY_OPERATOR_EXECUTION_ID = 593
 
 
 class TargetEventRecoveryError(RuntimeError):
@@ -610,6 +638,129 @@ def build_input_collision_rebind(
     return incoming
 
 
+def build_history_common_field_rebind(
+    current: ControlPlaneManifest,
+    *,
+    source_digest: str,
+    expected_manifest_digest: str = HISTORY_COMMON_FIELD_MANIFEST_DIGEST,
+) -> ControlPlaneManifest:
+    if current.artifact_digest != expected_manifest_digest:
+        raise TargetEventRecoveryError("history_rebind_manifest_identity_changed")
+    if source_digest in HISTORY_COMMON_FIELD_COMPLETED_SOURCE_DIGESTS:
+        raise TargetEventRecoveryError("history_rebind_source_not_advanced")
+    if (
+        len(current.goals) != 1
+        or current.goals[0].artifact_digest != LIVE_PARTIAL_FROZEN_GOAL_DIGEST
+        or any(
+            task.goal_digest != LIVE_PARTIAL_FROZEN_GOAL_DIGEST
+            for task in current.tasks
+        )
+    ):
+        raise TargetEventRecoveryError("history_rebind_goal_identity_changed")
+    failed_task = next(
+        (item for item in current.tasks if item.task_key == HISTORY_TASK_KEY), None
+    )
+    if (
+        failed_task is None
+        or failed_task.artifact_digest != HISTORY_COMMON_FIELD_TASK_DIGEST
+    ):
+        raise TargetEventRecoveryError("history_rebind_task_definition_changed")
+    failed_state = current.task_state_by_digest[failed_task.artifact_digest]
+    if (
+        failed_state.declared_status is not TaskStatus.FAILED
+        or failed_state.completion_classification
+        is not CompletionClassification.INTEGRATED
+        or failed_state.superseded_by_task_digest is not None
+    ):
+        raise TargetEventRecoveryError("history_rebind_task_state_changed")
+
+    tasks = []
+    states = []
+    rebuilt_keys: list[str] = []
+    completed_count = 0
+    for task in current.tasks:
+        state = current.task_state_by_digest[task.artifact_digest]
+        metric = json.loads(task.metric_contract)
+        bound_source = metric.get("source_contract_digest")
+        if state.declared_status is TaskStatus.COMPLETED:
+            completion_prefix = (
+                f"mainline-execution:{task.task_key}:{task.artifact_digest}:"
+            )
+            if (
+                bound_source not in HISTORY_COMMON_FIELD_COMPLETED_SOURCE_DIGESTS
+                or state.completion_classification
+                is not CompletionClassification.COMPLETE
+                or state.superseded_by_task_digest is not None
+                or not any(
+                    fact.startswith(completion_prefix) and fact.endswith(":completed")
+                    for fact in current.facts.artifacts
+                )
+            ):
+                raise TargetEventRecoveryError("history_rebind_completed_task_changed")
+            tasks.append(task)
+            states.append(state)
+            completed_count += 1
+            continue
+        if bound_source != HISTORY_COMMON_FIELD_PREDECESSOR_SOURCE_DIGEST:
+            raise TargetEventRecoveryError("history_rebind_uncompleted_source_changed")
+        if task.task_key == HISTORY_TASK_KEY:
+            if state != failed_state:
+                raise TargetEventRecoveryError("history_rebind_task_state_changed")
+        elif (
+            state.declared_status is not TaskStatus.DRAFT
+            or state.completion_classification
+            is not CompletionClassification.INTEGRATION_PENDING
+            or state.superseded_by_task_digest is not None
+        ):
+            raise TargetEventRecoveryError("history_rebind_uncompleted_state_changed")
+        context = _task_context(task)
+        expected_payload, _ = builder.build_manifest(
+            context=context,
+            source_digest=source_digest,
+            operator_configuration_authorized=True,
+            simulation_events=False,
+        )
+        expected = ControlPlaneManifest.from_dict(expected_payload)
+        matches = [item for item in expected.tasks if item.task_key == task.task_key]
+        if len(matches) != 1:
+            raise TargetEventRecoveryError("history_rebind_definition_missing")
+        rebound = replace(matches[0], goal_digest=LIVE_PARTIAL_FROZEN_GOAL_DIGEST)
+        tasks.append(rebound)
+        states.append(
+            TaskState(
+                task_digest=rebound.artifact_digest,
+                declared_status=TaskStatus.DRAFT,
+                completion_classification=CompletionClassification.INTEGRATION_PENDING,
+                superseded_by_task_digest=None,
+            )
+        )
+        rebuilt_keys.append(task.task_key)
+    if (
+        completed_count != 15
+        or len(rebuilt_keys) != 8
+        or HISTORY_TASK_KEY not in rebuilt_keys
+    ):
+        raise TargetEventRecoveryError("history_rebind_count_changed")
+    incoming = ControlPlaneManifest(
+        goals=current.goals,
+        tasks=tuple(tasks),
+        goal_states=current.goal_states,
+        task_states=tuple(states),
+        facts=current.facts,
+        schema_version=current.schema_version,
+    )
+    if (
+        incoming.goals != current.goals
+        or incoming.goal_states != current.goal_states
+        or incoming.facts != current.facts
+        or len(incoming.tasks) != len(current.tasks)
+        or [item.task_key for item in incoming.tasks]
+        != [item.task_key for item in current.tasks]
+    ):
+        raise TargetEventRecoveryError("history_rebind_delta_changed")
+    return incoming
+
+
 def validate_failed_target_events(
     events: Sequence[Mapping[str, Any]],
     registrations: Sequence[Mapping[str, Any]],
@@ -693,6 +844,42 @@ def validate_input_collision_events(
         raise TargetEventRecoveryError("input_collision_event_identity_changed")
 
 
+def validate_history_common_field_events(
+    events: Sequence[Mapping[str, Any]],
+    registrations: Sequence[Mapping[str, Any]],
+) -> None:
+    if len(events) != 2 or registrations:
+        raise TargetEventRecoveryError("history_rebind_event_or_artifact_count_changed")
+    by_type = {str(item.get("event_type")): item for item in events}
+    if set(by_type) != {"started", "failed"}:
+        raise TargetEventRecoveryError("history_rebind_event_types_changed")
+    started = by_type["started"]
+    failed = by_type["failed"]
+    if (
+        started.get("event_digest") != HISTORY_COMMON_FIELD_STARTED_EVENT_DIGEST
+        or failed.get("event_digest") != HISTORY_COMMON_FIELD_FAILED_EVENT_DIGEST
+        or started.get("execution_id") != HISTORY_COMMON_FIELD_EXECUTION_ID
+        or failed.get("execution_id") != HISTORY_COMMON_FIELD_EXECUTION_ID
+        or started.get("task_digest") != HISTORY_COMMON_FIELD_TASK_DIGEST
+        or failed.get("task_digest") != HISTORY_COMMON_FIELD_TASK_DIGEST
+        or started.get("task_key") != HISTORY_TASK_KEY
+        or failed.get("task_key") != HISTORY_TASK_KEY
+        or started.get("sequence") != 0
+        or failed.get("sequence") != 1
+        or dict(started.get("payload") or ())
+        != {
+            "input_artifact_digests": [HISTORY_COMMON_FIELD_PREDECESSOR_SOURCE_DIGEST],
+            "git_commit": HISTORY_COMMON_FIELD_GIT_COMMIT,
+        }
+        or dict(failed.get("payload") or ())
+        != {
+            "error": "artifact_type_body_overrides_common_field",
+            "git_commit": HISTORY_COMMON_FIELD_GIT_COMMIT,
+        }
+    ):
+        raise TargetEventRecoveryError("history_rebind_event_identity_changed")
+
+
 def _validate_failed_target_operator(repository: AgentRequestRepository) -> None:
     request = repository.get_request(FAILED_TARGET_OPERATOR_REQUEST_KEY)
     executions = [
@@ -731,6 +918,24 @@ def _validate_failed_input_collision_operator(
         raise TargetEventRecoveryError(
             "failed_input_collision_operator_identity_changed"
         )
+
+
+def _validate_failed_history_operator(repository: AgentRequestRepository) -> None:
+    request = repository.get_request(FAILED_HISTORY_OPERATOR_REQUEST_KEY)
+    executions = [
+        item
+        for item in repository.list_execution_metadata(
+            FAILED_HISTORY_OPERATOR_REQUEST_KEY
+        )
+        if item.id == FAILED_HISTORY_OPERATOR_EXECUTION_ID
+    ]
+    if (
+        request.id != FAILED_HISTORY_OPERATOR_REQUEST_ID
+        or request.status is not AgentRequestStatus.FAILED
+        or len(executions) != 1
+        or executions[0].status is not AgentExecutionStatus.FAILED
+    ):
+        raise TargetEventRecoveryError("failed_history_operator_identity_changed")
 
 
 def validate_failed_target_operator_scope(
@@ -978,6 +1183,45 @@ def validate_input_collision_operator_scope(
     }
 
 
+def validate_history_common_field_operator_scope(
+    *, repository: AgentRequestRepository, source_digest: str, git_commit: str
+) -> dict[str, int | str]:
+    governance = validate_operator_scope_common(repository=repository)
+    request = governance["request"]
+    checks = request.payload.get("checks")
+    recovery = (
+        checks.get("history_snapshot_failure_recovery")
+        if isinstance(checks, dict)
+        else None
+    )
+    if request.payload.get("commit") != git_commit or recovery != {
+        "completed_source_contract_digests": sorted(
+            HISTORY_COMMON_FIELD_COMPLETED_SOURCE_DIGESTS
+        ),
+        "current_manifest_digest": HISTORY_COMMON_FIELD_MANIFEST_DIGEST,
+        "failed_execution_id": HISTORY_COMMON_FIELD_EXECUTION_ID,
+        "failed_task_digest": HISTORY_COMMON_FIELD_TASK_DIGEST,
+        "failed_task_key": HISTORY_TASK_KEY,
+        "frozen_goal_digest": LIVE_PARTIAL_FROZEN_GOAL_DIGEST,
+        "predecessor_source_contract_digest": (
+            HISTORY_COMMON_FIELD_PREDECESSOR_SOURCE_DIGEST
+        ),
+        "source_contract_digest": source_digest,
+    }:
+        raise TargetEventRecoveryError("history_rebind_operator_scope_invalid")
+    payload_sha = hashlib.sha256(
+        contract.canonical_json(request.payload).encode("utf-8")
+    ).hexdigest()
+    if request.metadata.get("payload_sha256") != payload_sha:
+        raise TargetEventRecoveryError("operator_payload_sha_changed")
+    return {
+        "request_id": request.id,
+        "decision_id": governance["decision_id"],
+        "execution_id": governance["execution_id"],
+        "payload_sha256": payload_sha,
+    }
+
+
 class ReadySourceRecoveryRepository(IsolatedChallengerRepository):
     def __init__(self, *, context: Mapping[str, str], source_digest: str) -> None:
         super().__init__(context=context, source_digest=source_digest)
@@ -1140,6 +1384,87 @@ class InputCollisionRecoveryRepository(IsolatedChallengerRepository):
             return result
         finally:
             self._input_collision_rebind_gate = None
+
+
+class HistoryCommonFieldRecoveryRepository(IsolatedChallengerRepository):
+    def __init__(self, *, context: Mapping[str, str], source_digest: str) -> None:
+        super().__init__(context=context, source_digest=source_digest)
+        self._history_rebind_gate: dict[str, Any] | None = None
+
+    def _verify_exact_transition(self, incoming: ControlPlaneManifest) -> None:
+        gate = self._history_rebind_gate
+        if gate is None:
+            return super()._verify_exact_transition(incoming)
+        current = self.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+        expected = build_history_common_field_rebind(
+            current, source_digest=self.source_digest
+        )
+        if (
+            gate.get("consumed") is not False
+            or gate.get("current_manifest_digest") != current.artifact_digest
+            or gate.get("incoming_manifest_digest") != incoming.artifact_digest
+            or expected.to_dict(include_digest=True)
+            != incoming.to_dict(include_digest=True)
+        ):
+            raise ResearchOSValidationError("history_rebind_gate_changed")
+        gate["consumed"] = True
+
+    def _verify_mainline_completion_records(
+        self,
+        cursor: Any,
+        *,
+        control_plane_key: str,
+        manifest: ControlPlaneManifest,
+        m4_v2_lifecycle_verified: bool = False,
+    ) -> None:
+        gate = self._history_rebind_gate
+        if gate is None:
+            return super()._verify_mainline_completion_records(
+                cursor,
+                control_plane_key=control_plane_key,
+                manifest=manifest,
+                m4_v2_lifecycle_verified=m4_v2_lifecycle_verified,
+            )
+        if (
+            control_plane_key != contract.CONTROL_PLANE_KEY
+            or gate.get("consumed") is not True
+            or gate.get("incoming_manifest_digest") != manifest.artifact_digest
+        ):
+            raise ResearchOSValidationError("history_rebind_completion_gate_changed")
+        PostgresResearchOSRepository._verify_mainline_completion_records(
+            cursor,
+            control_plane_key=control_plane_key,
+            manifest=manifest,
+            m4_v2_lifecycle_verified=m4_v2_lifecycle_verified,
+        )
+
+    def apply_history_rebind(self, incoming: ControlPlaneManifest) -> Any:
+        if self._history_rebind_gate is not None:
+            raise TargetEventRecoveryError("history_rebind_gate_reentrant")
+        current = self.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+        expected = build_history_common_field_rebind(
+            current, source_digest=self.source_digest
+        )
+        if incoming.to_dict(include_digest=True) != expected.to_dict(
+            include_digest=True
+        ):
+            raise TargetEventRecoveryError("history_rebind_manifest_changed")
+        self._history_rebind_gate = {
+            "consumed": False,
+            "current_manifest_digest": current.artifact_digest,
+            "incoming_manifest_digest": incoming.artifact_digest,
+        }
+        try:
+            result = self.import_manifest(
+                control_plane_key=contract.CONTROL_PLANE_KEY,
+                payload=incoming.to_dict(include_digest=True),
+                source="m4-isolated-v11-history-common-field-rebind-v1",
+            )
+            if self._history_rebind_gate.get("consumed") is not True:
+                raise TargetEventRecoveryError("history_rebind_gate_not_consumed")
+            return result
+        finally:
+            self._history_rebind_gate = None
 
 
 def run(*, apply: bool) -> dict[str, Any]:
@@ -1515,6 +1840,111 @@ def run_input_collision_rebind(*, apply: bool) -> dict[str, Any]:
     }
 
 
+def run_history_common_field_rebind(*, apply: bool) -> dict[str, Any]:
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=ROOT_DIR,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    if dirty:
+        raise TargetEventRecoveryError("dirty_worktree")
+    git_commit = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT_DIR, text=True
+    ).strip()
+    source = artifacts.load_source_contract(root_dir=ROOT_DIR)
+    source_digest = str(source["artifact_digest"])
+    source_issue, source_date = _latest_history_identity()
+    context = contract.render_context(
+        source_max_issue=source_issue, source_max_draw_date=source_date
+    )
+    repository = HistoryCommonFieldRecoveryRepository(
+        context=context, source_digest=source_digest
+    )
+    current = repository.load_manifest(control_plane_key=contract.CONTROL_PLANE_KEY)
+    incoming = build_history_common_field_rebind(current, source_digest=source_digest)
+    events = repository.list_mainline_execution_events(
+        control_plane_key=contract.CONTROL_PLANE_KEY,
+        task_key=HISTORY_TASK_KEY,
+    )
+    registrations = repository.list_mainline_artifacts(
+        control_plane_key=contract.CONTROL_PLANE_KEY,
+        execution_id=HISTORY_COMMON_FIELD_EXECUTION_ID,
+    )
+    validate_history_common_field_events(events, registrations)
+    agent_repository = AgentRequestRepository()
+    _validate_failed_history_operator(agent_repository)
+    governance = validate_history_common_field_operator_scope(
+        repository=agent_repository,
+        source_digest=source_digest,
+        git_commit=git_commit,
+    )
+    with repository.connection_factory() as connection, connection.cursor() as cursor:
+        batch_count = int(
+            cursor.execute(
+                "SELECT count(*) FROM m4_isolated_v11.registration_batches"
+            ).fetchone()[0]
+        )
+        sent_count = int(
+            cursor.execute(
+                "SELECT count(*) FROM m4_isolated_v11.delivery_ledger "
+                "WHERE state='SENT'"
+            ).fetchone()[0]
+        )
+    if batch_count != 0 or sent_count != 0:
+        raise TargetEventRecoveryError("zero_workload_or_delivery_preflight_changed")
+    registered_source = None
+    imported = None
+    if apply:
+        registered_source = mainline.register_input_artifact(
+            repository=repository,
+            payload=source,
+            git_commit=git_commit,
+            source_path=contract.SOURCE_CONTRACT_PATH,
+            content_bytes=(ROOT_DIR / contract.SOURCE_CONTRACT_PATH).read_bytes(),
+        )
+        imported = repository.apply_history_rebind(incoming)
+    history = next(item for item in incoming.tasks if item.task_key == HISTORY_TASK_KEY)
+    completed_count = sum(
+        state.declared_status is TaskStatus.COMPLETED for state in current.task_states
+    )
+    return {
+        "schema_version": "dehps-m4-isolated-v11-history-common-field-rebind.v1",
+        "status": "HISTORY_RECOVERED_TO_READY" if apply else "DRY_RUN_VERIFIED",
+        "apply": apply,
+        "current_manifest_digest": current.artifact_digest,
+        "incoming_manifest_digest": incoming.artifact_digest,
+        "frozen_goal_digest": LIVE_PARTIAL_FROZEN_GOAL_DIGEST,
+        "completed_source_contract_digests": sorted(
+            HISTORY_COMMON_FIELD_COMPLETED_SOURCE_DIGESTS
+        ),
+        "predecessor_source_contract_digest": (
+            HISTORY_COMMON_FIELD_PREDECESSOR_SOURCE_DIGEST
+        ),
+        "source_contract_digest": source_digest,
+        "source_contract_registered": (
+            None if registered_source is None else registered_source["artifact_digest"]
+        ),
+        "failed_task_key": HISTORY_TASK_KEY,
+        "failed_task_digest": HISTORY_COMMON_FIELD_TASK_DIGEST,
+        "rebound_task_digest": history.artifact_digest,
+        "failed_execution_id": HISTORY_COMMON_FIELD_EXECUTION_ID,
+        "failed_execution_preserved": True,
+        "completed_historical_task_count": completed_count,
+        "rebound_uncompleted_task_count": len(current.tasks) - completed_count,
+        "facts_changed": False,
+        "goals_changed": False,
+        "governance": governance,
+        "import_result": None if imported is None else str(imported),
+        "workloads": 0,
+        "smtp_calls": 0,
+        "external_sends": 0,
+        "formal_p3_mutated": False,
+        "p4_p5_p6_or_promotion_triggered": False,
+    }
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -1524,6 +1954,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "recover-failed-target",
             "rebind-ready-lineage",
             "recover-input-collision",
+            "recover-history-common-field",
         ),
     )
     parser.add_argument("--apply", action="store_true")
@@ -1538,8 +1969,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = run_failed_target_rebind(apply=bool(args.apply))
     elif args.command == "rebind-ready-lineage":
         result = run_ready_source_rebind(apply=bool(args.apply))
-    else:
+    elif args.command == "recover-input-collision":
         result = run_input_collision_rebind(apply=bool(args.apply))
+    else:
+        result = run_history_common_field_rebind(apply=bool(args.apply))
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 

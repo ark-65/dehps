@@ -1690,6 +1690,30 @@ class IsolatedV11Capability:
             )
         ):
             raise IsolatedMainlineError("history_projection_identity_changed")
+        type_body = {
+            "target_projection_digest": projection["artifact_digest"],
+            "history_snapshot_digest": snapshot_digest,
+            "minimum_issue": history[0].issue,
+            "maximum_issue": history[-1].issue,
+            "issue_count": len(history),
+            "target_issue": target_issue,
+            "target_draw_date": self.context["target_draw_date"],
+            "query": search.HISTORY_SQL,
+            "future_rows_read": 0,
+            "target_rows_read": 0,
+            "rows": [
+                {
+                    "issue": row.issue,
+                    "draw_date": row.draw_date.isoformat(),
+                    "red_numbers": list(row.red_numbers),
+                    "blue_number": row.blue_number,
+                    "source": row.source,
+                }
+                for row in history
+            ],
+        }
+        if type_body.pop("target_issue", None) != target_issue:
+            raise IsolatedMainlineError("history_snapshot_common_issue_changed")
         return (
             self._build(
                 artifact_type="M4IsolatedHistorySnapshotV11",
@@ -1700,28 +1724,7 @@ class IsolatedV11Capability:
                     preregistration["artifact_digest"],
                     projection["artifact_digest"],
                 ),
-                type_body={
-                    "target_projection_digest": projection["artifact_digest"],
-                    "history_snapshot_digest": snapshot_digest,
-                    "minimum_issue": history[0].issue,
-                    "maximum_issue": history[-1].issue,
-                    "issue_count": len(history),
-                    "target_issue": target_issue,
-                    "target_draw_date": self.context["target_draw_date"],
-                    "query": search.HISTORY_SQL,
-                    "future_rows_read": 0,
-                    "target_rows_read": 0,
-                    "rows": [
-                        {
-                            "issue": row.issue,
-                            "draw_date": row.draw_date.isoformat(),
-                            "red_numbers": list(row.red_numbers),
-                            "blue_number": row.blue_number,
-                            "source": row.source,
-                        }
-                        for row in history
-                    ],
-                },
+                type_body=type_body,
             ),
         )
 
