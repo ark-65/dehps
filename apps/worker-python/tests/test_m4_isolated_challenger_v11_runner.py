@@ -969,25 +969,43 @@ def test_user_scope_recovery_governance_is_exact_and_keeps_mail_mandatory(
                 runner.USER_SCOPE_COMPLETION_REPAIR_BASE_COMMIT
             ),
             "sequence3_guard_recovery_engineering_approval_decision_id": (
-                runner.USER_SCOPE_ENGINEERING_DECISION_ID
+                runner.USER_SCOPE_SEQUENCE3_ENGINEERING_DECISION_ID
             ),
             "sequence3_guard_recovery_engineering_execution_id": (
-                runner.USER_SCOPE_ENGINEERING_EXECUTION_ID
+                runner.USER_SCOPE_SEQUENCE3_ENGINEERING_EXECUTION_ID
             ),
             "sequence3_guard_recovery_engineering_request_id": (
-                runner.USER_SCOPE_ENGINEERING_REQUEST_ID
+                runner.USER_SCOPE_SEQUENCE3_ENGINEERING_REQUEST_ID
             ),
             "sequence3_guard_recovery_engineering_request_key": (
-                runner.USER_SCOPE_ENGINEERING_REQUEST_KEY
+                runner.USER_SCOPE_SEQUENCE3_ENGINEERING_REQUEST_KEY
             ),
             "sequence3_guard_recovery_engineering_request_payload_sha256": (
+                runner.USER_SCOPE_SEQUENCE3_ENGINEERING_PAYLOAD_SHA256
+            ),
+            "second_terminal_guard_repair_base_merged_commit": (
+                runner.USER_SCOPE_SECOND_GUARD_REPAIR_BASE_COMMIT
+            ),
+            "second_terminal_guard_repair_engineering_approval_decision_id": (
+                runner.USER_SCOPE_ENGINEERING_DECISION_ID
+            ),
+            "second_terminal_guard_repair_engineering_execution_id": (
+                runner.USER_SCOPE_ENGINEERING_EXECUTION_ID
+            ),
+            "second_terminal_guard_repair_engineering_request_id": (
+                runner.USER_SCOPE_ENGINEERING_REQUEST_ID
+            ),
+            "second_terminal_guard_repair_engineering_request_key": (
+                runner.USER_SCOPE_ENGINEERING_REQUEST_KEY
+            ),
+            "second_terminal_guard_repair_engineering_request_payload_sha256": (
                 runner.USER_SCOPE_ENGINEERING_PAYLOAD_SHA256
             ),
         },
     }
     engineering = SimpleNamespace(
         id=runner.USER_SCOPE_ENGINEERING_REQUEST_ID,
-        request_type=runner.AgentRequestType.ENGINEERING_IMPLEMENTATION,
+        request_type=runner.AgentRequestType.ENGINEERING_BUG_FIX,
         status=runner.AgentRequestStatus.COMPLETED,
         metadata={"payload_sha256": runner.USER_SCOPE_ENGINEERING_PAYLOAD_SHA256},
     )

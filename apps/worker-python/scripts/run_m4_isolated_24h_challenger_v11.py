@@ -195,14 +195,24 @@ USER_SCOPE_SEQUENCE2_ENGINEERING_EXECUTION_ID = 607
 USER_SCOPE_SEQUENCE2_ENGINEERING_PAYLOAD_SHA256 = (
     "8be2ab76cb27cf5fff1d99519eaf8f760063d17b987585ffed1dbb4dfc37972d"
 )
-USER_SCOPE_ENGINEERING_REQUEST_KEY = (
+USER_SCOPE_SEQUENCE3_ENGINEERING_REQUEST_KEY = (
     "engineering-m4-isolated-v11-sequence3-guard-failure-resume-v1"
 )
-USER_SCOPE_ENGINEERING_REQUEST_ID = 753
-USER_SCOPE_ENGINEERING_DECISION_ID = 3197
-USER_SCOPE_ENGINEERING_EXECUTION_ID = 608
-USER_SCOPE_ENGINEERING_PAYLOAD_SHA256 = (
+USER_SCOPE_SEQUENCE3_ENGINEERING_REQUEST_ID = 753
+USER_SCOPE_SEQUENCE3_ENGINEERING_DECISION_ID = 3197
+USER_SCOPE_SEQUENCE3_ENGINEERING_EXECUTION_ID = 608
+USER_SCOPE_SEQUENCE3_ENGINEERING_PAYLOAD_SHA256 = (
     "c8ea6f9583faba341e9e53a660d198c80ca123a6b11e8be7411718df3844f2f0"
+)
+USER_SCOPE_SECOND_GUARD_REPAIR_BASE_COMMIT = "9d94a0142eca2fa27180f817d4000034f16bdf06"
+USER_SCOPE_ENGINEERING_REQUEST_KEY = (
+    "engineering-m4-isolated-v11-second-terminal-event-guard-sequence3-fix-v1"
+)
+USER_SCOPE_ENGINEERING_REQUEST_ID = 757
+USER_SCOPE_ENGINEERING_DECISION_ID = 3217
+USER_SCOPE_ENGINEERING_EXECUTION_ID = 612
+USER_SCOPE_ENGINEERING_PAYLOAD_SHA256 = (
+    "11814f6b4c461befbe051f491658dfcf634db2badfedd1a7edeaa127468bf507"
 )
 USER_SCOPE_MANDATORY_MAIL_KINDS = (
     "PREDRAW_TOP100",
@@ -478,22 +488,62 @@ def validate_user_scope_recovery_governance(
             USER_SCOPE_COMPLETION_REPAIR_BASE_COMMIT
         ),
         "sequence3_guard_recovery_engineering_approval_decision_id": (
-            USER_SCOPE_ENGINEERING_DECISION_ID
+            USER_SCOPE_SEQUENCE3_ENGINEERING_DECISION_ID
         ),
         "sequence3_guard_recovery_engineering_execution_id": (
-            USER_SCOPE_ENGINEERING_EXECUTION_ID
+            USER_SCOPE_SEQUENCE3_ENGINEERING_EXECUTION_ID
         ),
         "sequence3_guard_recovery_engineering_request_id": (
-            USER_SCOPE_ENGINEERING_REQUEST_ID
+            USER_SCOPE_SEQUENCE3_ENGINEERING_REQUEST_ID
         ),
         "sequence3_guard_recovery_engineering_request_key": (
-            USER_SCOPE_ENGINEERING_REQUEST_KEY
+            USER_SCOPE_SEQUENCE3_ENGINEERING_REQUEST_KEY
         ),
         "sequence3_guard_recovery_engineering_request_payload_sha256": (
-            USER_SCOPE_ENGINEERING_PAYLOAD_SHA256
+            USER_SCOPE_SEQUENCE3_ENGINEERING_PAYLOAD_SHA256
         ),
     }:
         raise IsolatedRunnerError("user_scope_guard_recovery_source_binding_changed")
+    if {
+        "second_terminal_guard_repair_base_merged_commit": bindings.get(
+            "second_terminal_guard_repair_base_merged_commit"
+        ),
+        "second_terminal_guard_repair_engineering_approval_decision_id": bindings.get(
+            "second_terminal_guard_repair_engineering_approval_decision_id"
+        ),
+        "second_terminal_guard_repair_engineering_execution_id": bindings.get(
+            "second_terminal_guard_repair_engineering_execution_id"
+        ),
+        "second_terminal_guard_repair_engineering_request_id": bindings.get(
+            "second_terminal_guard_repair_engineering_request_id"
+        ),
+        "second_terminal_guard_repair_engineering_request_key": bindings.get(
+            "second_terminal_guard_repair_engineering_request_key"
+        ),
+        "second_terminal_guard_repair_engineering_request_payload_sha256": bindings.get(
+            "second_terminal_guard_repair_engineering_request_payload_sha256"
+        ),
+    } != {
+        "second_terminal_guard_repair_base_merged_commit": (
+            USER_SCOPE_SECOND_GUARD_REPAIR_BASE_COMMIT
+        ),
+        "second_terminal_guard_repair_engineering_approval_decision_id": (
+            USER_SCOPE_ENGINEERING_DECISION_ID
+        ),
+        "second_terminal_guard_repair_engineering_execution_id": (
+            USER_SCOPE_ENGINEERING_EXECUTION_ID
+        ),
+        "second_terminal_guard_repair_engineering_request_id": (
+            USER_SCOPE_ENGINEERING_REQUEST_ID
+        ),
+        "second_terminal_guard_repair_engineering_request_key": (
+            USER_SCOPE_ENGINEERING_REQUEST_KEY
+        ),
+        "second_terminal_guard_repair_engineering_request_payload_sha256": (
+            USER_SCOPE_ENGINEERING_PAYLOAD_SHA256
+        ),
+    }:
+        raise IsolatedRunnerError("user_scope_second_guard_source_binding_changed")
     if source_contract.get("artifact_digest") != repaired_source_digest:
         raise IsolatedRunnerError("user_scope_repaired_source_changed")
 
@@ -519,7 +569,7 @@ def validate_user_scope_recovery_governance(
     ]
     if (
         engineering.id != USER_SCOPE_ENGINEERING_REQUEST_ID
-        or engineering.request_type is not AgentRequestType.ENGINEERING_IMPLEMENTATION
+        or engineering.request_type is not AgentRequestType.ENGINEERING_BUG_FIX
         or engineering.status is not AgentRequestStatus.COMPLETED
         or engineering.metadata.get("payload_sha256")
         != USER_SCOPE_ENGINEERING_PAYLOAD_SHA256

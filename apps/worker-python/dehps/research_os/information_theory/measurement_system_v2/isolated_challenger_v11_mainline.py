@@ -5731,6 +5731,48 @@ class IsolatedChallengerSupervisor(ResearchEvidenceSupervisor):
             is not None
         )
 
+    def _is_valid_atomic_terminal_event_set(
+        self,
+        *,
+        task: Task,
+        events: Sequence[Mapping[str, Any]],
+        terminal_sequence: int,
+    ) -> bool:
+        """Validate the exact isolated recovery again inside the commit lock."""
+
+        tokens = (
+            self.failed_recovery_event_digest,
+            self.failed_recovery_attestation_digest,
+        )
+        if tokens == ("", ""):
+            return super()._is_valid_atomic_terminal_event_set(
+                task=task,
+                events=events,
+                terminal_sequence=terminal_sequence,
+            )
+        expected_sequence = {
+            (
+                _EXACT_SEQUENCE2_FAILED_EVENT_DIGEST,
+                _EXACT_SEQUENCE2_ATTESTATION_DIGEST,
+            ): 2,
+            (
+                _EXACT_SEQUENCE3_FAILED_EVENT_DIGEST,
+                _EXACT_SEQUENCE3_ATTESTATION_DIGEST,
+            ): 3,
+        }.get(tokens)
+        if terminal_sequence != expected_sequence:
+            return False
+        terminal_event = self._validated_additional_failed_recovery_event(
+            task=task,
+            events=events,
+        )
+        return (
+            terminal_event.get("event_type") == "failed"
+            and terminal_event.get("sequence") == terminal_sequence - 1
+            and terminal_event.get("execution_id")
+            == _EXACT_FAILED_RECOVERY_EXECUTION_ID
+        )
+
     def run_once(self, *, task_key: str | None = None) -> dict[str, Any]:
         if task_key is None or task_key not in {
             item.key(self.isolated_context) for item in contract.TASK_TEMPLATES
