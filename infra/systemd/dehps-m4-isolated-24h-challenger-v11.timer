@@ -1,0 +1,13 @@
+[Unit]
+Description=Run the DEHPS M4 isolated challenger V11 continuously
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=60s
+AccuracySec=1s
+RandomizedDelaySec=0
+Persistent=true
+Unit=dehps-m4-isolated-24h-challenger-v11.service
+
+[Install]
+WantedBy=timers.target
