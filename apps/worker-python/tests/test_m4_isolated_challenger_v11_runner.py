@@ -987,25 +987,43 @@ def test_user_scope_recovery_governance_is_exact_and_keeps_mail_mandatory(
                 runner.USER_SCOPE_SECOND_GUARD_REPAIR_BASE_COMMIT
             ),
             "second_terminal_guard_repair_engineering_approval_decision_id": (
-                runner.USER_SCOPE_ENGINEERING_DECISION_ID
+                runner.USER_SCOPE_SECOND_GUARD_ENGINEERING_DECISION_ID
             ),
             "second_terminal_guard_repair_engineering_execution_id": (
-                runner.USER_SCOPE_ENGINEERING_EXECUTION_ID
+                runner.USER_SCOPE_SECOND_GUARD_ENGINEERING_EXECUTION_ID
             ),
             "second_terminal_guard_repair_engineering_request_id": (
-                runner.USER_SCOPE_ENGINEERING_REQUEST_ID
+                runner.USER_SCOPE_SECOND_GUARD_ENGINEERING_REQUEST_ID
             ),
             "second_terminal_guard_repair_engineering_request_key": (
-                runner.USER_SCOPE_ENGINEERING_REQUEST_KEY
+                runner.USER_SCOPE_SECOND_GUARD_ENGINEERING_REQUEST_KEY
             ),
             "second_terminal_guard_repair_engineering_request_payload_sha256": (
+                runner.USER_SCOPE_SECOND_GUARD_ENGINEERING_PAYLOAD_SHA256
+            ),
+            "running_projection_resume_repair_base_merged_commit": (
+                runner.USER_SCOPE_RUNNING_RESUME_REPAIR_BASE_COMMIT
+            ),
+            "running_projection_resume_repair_engineering_approval_decision_id": (
+                runner.USER_SCOPE_ENGINEERING_DECISION_ID
+            ),
+            "running_projection_resume_repair_engineering_execution_id": (
+                runner.USER_SCOPE_ENGINEERING_EXECUTION_ID
+            ),
+            "running_projection_resume_repair_engineering_request_id": (
+                runner.USER_SCOPE_ENGINEERING_REQUEST_ID
+            ),
+            "running_projection_resume_repair_engineering_request_key": (
+                runner.USER_SCOPE_ENGINEERING_REQUEST_KEY
+            ),
+            "running_projection_resume_repair_engineering_request_payload_sha256": (
                 runner.USER_SCOPE_ENGINEERING_PAYLOAD_SHA256
             ),
         },
     }
     engineering = SimpleNamespace(
         id=runner.USER_SCOPE_ENGINEERING_REQUEST_ID,
-        request_type=runner.AgentRequestType.ENGINEERING_BUG_FIX,
+        request_type=runner.AgentRequestType.ENGINEERING_RUNTIME_FIX,
         status=runner.AgentRequestStatus.COMPLETED,
         metadata={"payload_sha256": runner.USER_SCOPE_ENGINEERING_PAYLOAD_SHA256},
     )
@@ -1496,10 +1514,21 @@ def _user_scope_events(runner, *, completed: bool) -> tuple[dict[str, object], .
     return tuple(_user_scope_event_dict(record) for record in records)
 
 
+@pytest.mark.parametrize(
+    ("manifest_digest", "target_status"),
+    (
+        ("FAILED", TaskStatus.FAILED),
+        ("RUNNING", TaskStatus.RUNNING),
+    ),
+)
 def test_user_scope_live_preflight_distinguishes_failed_and_running_manifests(
-    monkeypatch,
+    monkeypatch, manifest_digest, target_status
 ) -> None:
     runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    manifest_digest = {
+        "FAILED": runner.USER_SCOPE_FAILED_MANIFEST_DIGEST,
+        "RUNNING": runner.USER_SCOPE_RESUME_MANIFEST_DIGEST,
+    }[manifest_digest]
     context = contract.render_context(
         source_max_issue="2026099",
         source_max_draw_date="2026-08-27",
@@ -1523,20 +1552,20 @@ def test_user_scope_live_preflight_distinguishes_failed_and_running_manifests(
         SimpleNamespace(declared_status=TaskStatus.COMPLETED) for _ in range(22)
     ]
     draft_states = [SimpleNamespace(declared_status=TaskStatus.DRAFT) for _ in range(4)]
-    failed_state = SimpleNamespace(
-        declared_status=TaskStatus.FAILED,
+    target_state = SimpleNamespace(
+        declared_status=target_status,
         completion_classification=CompletionClassification.INTEGRATED,
         superseded_by_task_digest=None,
     )
     manifest = SimpleNamespace(
-        artifact_digest=runner.USER_SCOPE_FAILED_MANIFEST_DIGEST,
+        artifact_digest=manifest_digest,
         tasks=[target]
         + [
             SimpleNamespace(task_key=f"other-{index}", artifact_digest=f"{index:064x}")
             for index in range(26)
         ],
-        task_states=(*completed_states, *draft_states, failed_state),
-        task_state_by_digest={target.artifact_digest: failed_state},
+        task_states=(*completed_states, *draft_states, target_state),
+        task_state_by_digest={target.artifact_digest: target_state},
         facts=SimpleNamespace(artifacts=frozenset()),
     )
 
@@ -1621,6 +1650,9 @@ def test_user_scope_live_preflight_distinguishes_failed_and_running_manifests(
     assert runner.USER_SCOPE_FAILED_MANIFEST_DIGEST != (
         runner.USER_SCOPE_RESUME_MANIFEST_DIGEST
     )
+    manifest.artifact_digest = "0" * 64
+    with pytest.raises(runner.IsolatedRunnerError, match="manifest_changed"):
+        runner._validate_user_scope_resume_live_state(repository=repository)
 
 
 def test_user_scope_event_view_is_exact_filtered_non_reentrant_and_closes(
