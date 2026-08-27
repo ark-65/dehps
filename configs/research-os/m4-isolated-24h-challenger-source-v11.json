@@ -1,5 +1,5 @@
 {
-  "artifact_digest": "ec1631883f8303fc7831f5a8caf11d564e99e9641e3870c1e014bd8bddc368d3",
+  "artifact_digest": "dfbd7a1e465042165280f861cc64121d123fa78add1cb4f59322d9473df831da",
   "artifact_type": "m4_isolated_24h_challenger_source_contract_v11",
   "contract_digest": "6d14bd57f290e9e0a625658bf0255cf33d1609efa68e667993cc58ccec8f7a02",
   "contract_key": "M4_ISOLATED_24H_CHALLENGER_RESEARCH_FACTORY_CONTRACT_V11",
@@ -13,6 +13,12 @@
     "lifecycle_research_request_id": 702,
     "lifecycle_research_request_key": "research-m4-isolated-24h-challenger-v11-lifecycle-producer-addendum-v2",
     "lifecycle_research_request_payload_sha256": "8f6d92347f53e43a1ec7eb869e015d6d78cc1e37feb5661657312bf9e90ebe49",
+    "repair_base_merged_commit": "ab1e8d0d71e7caca99c77d36e8fa92a8762e1854",
+    "repair_engineering_approval_decision_id": 2957,
+    "repair_engineering_execution_id": 562,
+    "repair_engineering_request_id": 704,
+    "repair_engineering_request_key": "engineering-m4-isolated-v11-user-systemd-p3-preemption-probe-fix-v1",
+    "repair_engineering_request_payload_sha256": "8b0b6d7e24c8c599e16db6f888921cdf911e8ef2fbd69a963586329f0b8ebbe8",
     "research_approval_decision_id": 2925,
     "research_request_id": 694,
     "research_request_key": "research-m4-isolated-24h-challenger-factory-contract-v11",
@@ -62,9 +68,9 @@
       "sha256": "5596335493028fa369aef4acf2ebf0a025090a403006138a2356c4c1510168a7"
     },
     {
-      "bytes": 81809,
+      "bytes": 81827,
       "path": "apps/worker-python/scripts/run_m4_isolated_24h_challenger_v11.py",
-      "sha256": "fd65f982cd0b24aeed1e6f27f4766d2cdf18421c5569f75558fd9cb6290cd906"
+      "sha256": "5d7a19d0ed1e3d68c1315367b46107d35d5e04b23f3c0d0e709f57b7ad54e5a4"
     },
     {
       "bytes": 17768,
@@ -127,5 +133,5 @@
       "sha256": "f3123da232d041ddd9ad5abc492e59d9d7da13aca5406057c06fd331193cab3a"
     }
   ],
-  "source_set_digest": "36af7b522c8619e3ff50704fc02c338bedce768d49b55c56c49a928fb968b391"
+  "source_set_digest": "7af6381f77ae69eb61f1997509b28b18d91153713a2f79f3ceca7b8554945047"
 }

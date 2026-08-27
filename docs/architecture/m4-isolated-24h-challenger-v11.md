@@ -59,7 +59,8 @@ run, the next timer invocation recovers stale leases from PostgreSQL before
 starting any new process; it never fabricates completion.
 
 Before a search lease, the runner reads exactly these properties from
-`dehps-forward-prequential-successor.service`:
+the user-manager unit `dehps-forward-prequential-successor.service` with
+`systemctl --user show`:
 
 `LoadState, ActiveState, SubState, MainPID, ControlPID`.
 

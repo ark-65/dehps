@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 from dehps.research_os.information_theory.measurement_system_v2 import (
     isolated_challenger_v11_contract as contract,
@@ -210,6 +211,44 @@ def test_daily_and_predraw_absence_windows_are_fail_closed() -> None:
         delivery_task_key=daily_key,
         facts=set(),
     )
+
+
+def test_resource_probe_reads_exact_user_manager_formal_p3_unit(monkeypatch) -> None:
+    runner = _load_script("run_m4_isolated_24h_challenger_v11")
+    observed: list[list[str]] = []
+
+    def fake_run(command, **kwargs):
+        observed.append(list(command))
+        assert kwargs == {
+            "check": False,
+            "capture_output": True,
+            "text": True,
+            "timeout": 2,
+        }
+        return SimpleNamespace(
+            returncode=0,
+            stdout=(
+                "LoadState=loaded\n"
+                "ActiveState=inactive\n"
+                "SubState=dead\n"
+                "MainPID=0\n"
+                "ControlPID=0\n"
+            ),
+        )
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    observation = runner._resource_observation()
+    assert observed == [
+        [
+            "systemctl",
+            "--user",
+            "show",
+            contract.FORMAL_P3_UNIT,
+            "--property=LoadState,ActiveState,SubState,MainPID,ControlPID",
+            "--no-pager",
+        ]
+    ]
+    assert contract.formal_p3_activity_state(observation) == "QUIESCENT"
 
 
 def test_completed_activation_recovery_replays_without_workload(monkeypatch) -> None:
