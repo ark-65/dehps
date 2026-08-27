@@ -45,6 +45,7 @@ from dehps.research_os.models import (
 )
 from dehps.research_os.repository import PostgresResearchOSRepository
 from run_m4_isolated_24h_challenger_v11 import (
+    LIVE_PARTIAL_FROZEN_GOAL_DIGEST,
     IsolatedChallengerRepository,
     _latest_history_identity,
     _task_context,
@@ -254,6 +255,15 @@ def build_failed_target_rebind(
         raise TargetEventRecoveryError("failed_target_manifest_identity_changed")
     if source_digest == PREDECESSOR_SOURCE_DIGEST:
         raise TargetEventRecoveryError("failed_target_source_not_advanced")
+    if (
+        len(current.goals) != 1
+        or current.goals[0].artifact_digest != LIVE_PARTIAL_FROZEN_GOAL_DIGEST
+        or any(
+            task.goal_digest != LIVE_PARTIAL_FROZEN_GOAL_DIGEST
+            for task in current.tasks
+        )
+    ):
+        raise TargetEventRecoveryError("failed_target_goal_identity_changed")
     if EVENT not in current.facts.external_events:
         raise TargetEventRecoveryError("failed_target_event_missing")
     old_target = next(
@@ -303,7 +313,7 @@ def build_failed_target_rebind(
         matches = [item for item in expected.tasks if item.task_key == task.task_key]
         if len(matches) != 1:
             raise TargetEventRecoveryError("rebound_task_definition_missing")
-        rebound = matches[0]
+        rebound = replace(matches[0], goal_digest=LIVE_PARTIAL_FROZEN_GOAL_DIGEST)
         tasks.append(rebound)
         states.append(
             TaskState(
